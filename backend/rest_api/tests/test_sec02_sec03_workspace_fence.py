@@ -303,3 +303,90 @@ def test_sec03_rest_and_mcp_share_one_fence_implementation() -> None:
         assert ToolRegistry._check_workspace_fence(ctx, target) == (
             workspace_fence_denial(ctx.api_key_workspace_ids, target)
         )
+
+
+# ---------------------------------------------------------------------------
+# ADR-013 — collection-route rule: no blanket 403 on list/create, and the
+# 404-vs-403 rule on object routes
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+@override_settings(**_JWT_OVERRIDES, AUTHZ_WORKSPACE_SCOPE_ENFORCED=True)
+def test_collection_list_without_target_workspace_is_not_scope_denied() -> None:
+    """A flat list with no workspace is answered by the endpoint (400), not 403.
+
+    The seam must not blanket-deny a collection route: the list endpoint owns
+    its workspace resolution and, absent one, its own validation is the answer.
+    """
+    tenant, user, ws_a, _ws_b = _tenant_with_two_workspaces()
+    _grant(tenant, user, ws_a, ROLE_ADMIN)
+    client = _bearer_client(user, tenant)
+
+    resp = client.get("/api/v1/needs/")
+
+    assert resp.status_code == 400, (
+        "list without a workspace must reach the endpoint's own validation, "
+        f"not be scope-denied (got {resp.status_code}: {resp.content!r})"
+    )
+    assert resp.json()["error"]["code"] != "PERMISSION_DENIED"
+
+
+@pytest.mark.django_db
+@override_settings(**_JWT_OVERRIDES, AUTHZ_WORKSPACE_SCOPE_ENFORCED=True)
+def test_collection_create_derives_target_workspace_from_payload() -> None:
+    """Create on the flat route uses the payload ``workspace_id`` and succeeds.
+
+    The auth layer scopes the caller's roles to that workspace, so a member is
+    allowed; the seam itself does not deny the create.
+    """
+    tenant, user, ws_a, _ws_b = _tenant_with_two_workspaces()
+    _grant(tenant, user, ws_a, ROLE_ADMIN)
+    client = _bearer_client(user, tenant)
+
+    resp = client.post(
+        "/api/v1/needs/",
+        {"workspace_id": str(ws_a.id), "title": "ADR-013 flat create"},
+        format="json",
+    )
+
+    assert resp.status_code == 201, resp.content
+    assert resp.json()["workspace_id"] == str(ws_a.id)
+
+
+@pytest.mark.django_db
+@override_settings(**_JWT_OVERRIDES, AUTHZ_WORKSPACE_SCOPE_ENFORCED=True)
+def test_object_route_for_missing_object_is_404_not_403() -> None:
+    """A well-formed id with no row is 404, not a 403 that would leak existence."""
+    tenant, user, ws_a, _ws_b = _tenant_with_two_workspaces()
+    _grant(tenant, user, ws_a, ROLE_ADMIN)
+    client = _bearer_client(user, tenant)
+
+    resp = client.get(f"/api/v1/requirements/{uuid.uuid4()}/")
+
+    assert resp.status_code == 404, (
+        f"missing object must answer 404, not 403 (got {resp.status_code}: "
+        f"{resp.content!r})"
+    )
+
+
+@pytest.mark.django_db
+@override_settings(**_JWT_OVERRIDES, AUTHZ_WORKSPACE_SCOPE_ENFORCED=True)
+def test_workspaceless_list_returns_only_the_named_workspace() -> None:
+    """The list endpoint filters by the workspace named in the URL/query.
+
+    This is the "list filters, does not blanket-403" half of the rule: a member
+    of A sees A's objects and none of B's.
+    """
+    tenant, user, ws_a, ws_b = _tenant_with_two_workspaces()
+    _grant(tenant, user, ws_a, ROLE_ADMIN)
+    _requirement_in(tenant, ws_a)
+    _requirement_in(tenant, ws_b)
+    client = _bearer_client(user, tenant)
+
+    resp = client.get(f"/api/v1/requirements/?workspace_id={ws_a.id}")
+
+    assert resp.status_code == 200, resp.content
+    titles = {item["title"] for item in resp.json()["results"]}
+    assert "req-in-WS-A" in titles or any("WS-A" in t for t in titles), titles
+    assert all("WS-B" not in t for t in titles), titles

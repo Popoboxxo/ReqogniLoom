@@ -574,12 +574,14 @@ REST_FRAMEWORK = {
 # ADR-011 — two-level authorization axis (SEC-02 / SEC-03)
 # ---------------------------------------------------------------------------
 # The central resource-scope classifier (auth_tenancy.resource_scope) derives
-# the workspace fence from the target object. Its DEFAULT-DENY seam is gated
-# because a misclassification would fail a whole scope open; the coverage gate
-# (rest_api/tests/test_resource_scope_coverage.py) must be green before this is
-# switched on in an environment. Default OFF: see the SEC-02 plan's hard-stop.
+# the workspace fence from the target object. ADR-013 (amending ADR-011) fixes
+# the collection-route rule and flips this default ON: the coverage gate
+# (rest_api/tests/test_resource_scope_coverage.py) is green and the seam now
+# distinguishes object routes (fail-closed) from list/create collections without
+# turning every flat request into a 403. Set the env var to "false" for a
+# rollback window; the repository default enforces DEFAULT-DENY (ADR-011).
 AUTHZ_WORKSPACE_SCOPE_ENFORCED: bool = config(
-    "AUTHZ_WORKSPACE_SCOPE_ENFORCED", default=False, cast=bool
+    "AUTHZ_WORKSPACE_SCOPE_ENFORCED", default=True, cast=bool
 )
 # The API-key workspace_ids fence (SEC-03) is narrower — it only affects keys
 # carrying a non-empty fence — and mirrors the MCP dispatcher, so it is on by

@@ -24,15 +24,37 @@ DEFAULT-DENY semantics (decision point 3)
   resolved**, the answer is also **403** (fail-closed). A ``tenant``/``exception``
   resource needs no target workspace and is not subject to this rule.
 
-Feature gate (hard-stop discipline, decision point 4 and the SEC-02 plan)
-------------------------------------------------------------------------
+Collection routes (ADR-013 amendment to ADR-011)
+------------------------------------------------
+A "detail route" names a single target object; a "collection route" (DRF
+``list``/``create``) does not. They cannot be fenced the same way:
+
+* **List / retrieve-many** carries no target object. Denying it outright (the
+  pre-ADR-013 behaviour) turned every flat collection request into a 403. The
+  endpoint resolves its own workspace from the URL/query and the auth layer
+  scopes the caller's roles to it; when no workspace is named the endpoint's
+  own filter applies. The seam therefore never blanket-denies a list.
+* **Create / collection** derives its target workspace from the validated
+  payload ``workspace_id`` (the auth layer already scopes roles from it). When
+  none is supplied the view's own validation answers 400/404; the seam does not
+  invent a 403 there either.
+
+Object routes stay object-derived and fail-closed, with the 404-vs-403 rule of
+ADR-013: a **resolvable object in the caller's tenant** without a role is denied
+(403); an object that does not resolve — missing, malformed id or belonging to
+another tenant — is *not* denied here, so the tenant-scoped view answers
+404/400 and a foreign object stays indistinguishable from a missing one.
+
+Feature gate (decision point 4, flipped on by ADR-013)
+------------------------------------------------------
 The classification/default-deny seam is gated by
-``settings.AUTHZ_WORKSPACE_SCOPE_ENFORCED`` (default **False**): the coverage
-gate in ``rest_api/tests/test_resource_scope_coverage.py`` must be green *before*
-the seam is switched on, so a misclassification cannot silently fail a whole
-scope open. The API-key workspace fence (SEC-03) is narrower — it only affects
-keys that carry a non-empty ``workspace_ids`` fence — and is therefore enforced
-independently of that gate via
+``settings.AUTHZ_WORKSPACE_SCOPE_ENFORCED`` (default **True** since ADR-013):
+the coverage gate in ``rest_api/tests/test_resource_scope_coverage.py`` is
+green, so the seam is switched on. Operators can still set the env var to
+``False`` for a rollback window, but the repository default now enforces
+DEFAULT-DENY (ADR-011). The API-key workspace fence (SEC-03) is narrower — it
+only affects keys that carry a non-empty ``workspace_ids`` fence — and is
+enforced independently of that gate via
 ``settings.AUTHZ_API_KEY_WORKSPACE_FENCE_ENFORCED`` (default **True**), mirroring
 the MCP dispatcher (``mcp_server.tool_registry``).
 
@@ -237,13 +259,15 @@ for _name in _WORKSPACE_VIA_REQUEST:
     )
 
 # Trace links connect two artifacts and have no single owning workspace row, so
-# the owning workspace is resolved by the link service; the route derives the
-# request workspace when one is supplied.
+# the owning workspace is derived from the source artifact's workspace (ADR-013
+# refines ADR-011's "resolved by the link service"): a caller must hold a role in
+# the workspace that owns the link's source end to reach it by id.
 _declare(
     "TraceLinkViewSet",
     ResourceClassification(
         ResourceScope.WORKSPACE,
-        reason="trace-link ownership resolved by the link service",
+        reason="trace-link ownership derived from the source artifact's workspace",
+        entity_key="trace_link",
     ),
 )
 _declare(
@@ -395,8 +419,34 @@ def _coerce_uuid(value: Any) -> UUID | None:
         return None
 
 
+def _request_url_kwargs(request: Any, view: Any | None = None) -> dict[str, Any]:
+    """Return the URL kwargs of the request, resilient to direct view calls.
+
+    Routed traffic exposes them via ``resolver_match.kwargs``; DRF's
+    ``initialize_request`` mirrors them into ``parser_context['kwargs']``; and
+    boundary tests that invoke a handler directly set the view's own
+    ``kwargs``. Merging all three is safe: for routed traffic they are the same
+    values.
+    """
+    kwargs: dict[str, Any] = {}
+    match = getattr(request, "resolver_match", None)
+    match_kwargs = getattr(match, "kwargs", None)
+    if isinstance(match_kwargs, dict):
+        kwargs.update(match_kwargs)
+    parser_context = getattr(request, "parser_context", None)
+    if isinstance(parser_context, dict):
+        context_kwargs = parser_context.get("kwargs")
+        if isinstance(context_kwargs, dict):
+            kwargs.update(context_kwargs)
+    if view is not None:
+        view_kwargs = getattr(view, "kwargs", None)
+        if isinstance(view_kwargs, dict):
+            kwargs.update(view_kwargs)
+    return kwargs
+
+
 def _resolve_owning_from_request(
-    request: Any, classification: ResourceClassification
+    request: Any, classification: ResourceClassification, view: Any | None = None
 ) -> UUID | None:
     """Resolve the workspace owning the object named by the request's URL kwargs.
 
@@ -406,8 +456,7 @@ def _resolve_owning_from_request(
     """
     if classification.entity_key is None:
         return None
-    match = getattr(request, "resolver_match", None)
-    kwargs = getattr(match, "kwargs", None) or {}
+    kwargs = _request_url_kwargs(request, view)
     from application.workspace_lookup import resolve_owning_workspace_id
 
     for key in classification.id_kwargs:
@@ -415,6 +464,20 @@ def _resolve_owning_from_request(
         if value is None:
             continue
         resolved = resolve_owning_workspace_id(classification.entity_key, value)
+        if resolved is not None:
+            return resolved
+    return None
+
+
+def _workspace_from_url_kwargs(request: Any, view: Any | None = None) -> UUID | None:
+    """Return a workspace named by the request/view URL kwargs, if any.
+
+    Fallback for direct handler calls where the request has no
+    ``resolver_match``; routed traffic resolves this from the URL first.
+    """
+    kwargs = _request_url_kwargs(request, view)
+    for key in ("workspace_id", "workspace_pk"):
+        resolved = _coerce_uuid(kwargs.get(key))
         if resolved is not None:
             return resolved
     return None
@@ -453,7 +516,7 @@ def resolve_object_workspace_id(request: Any) -> UUID | None:
     classification = classify_view(view)
     if classification is None or classification.scope is not ResourceScope.WORKSPACE:
         return None
-    return _resolve_owning_from_request(request, classification)
+    return _resolve_owning_from_request(request, classification, view)
 
 
 def resolve_target_workspace_id(request: Any, view: Any) -> UUID | None:
@@ -470,10 +533,13 @@ def resolve_target_workspace_id(request: Any, view: Any) -> UUID | None:
     """
     classification = classify_view(view)
     if classification is not None:
-        owning = _resolve_owning_from_request(request, classification)
+        owning = _resolve_owning_from_request(request, classification, view)
         if owning is not None:
             return owning
-    return resolve_request_workspace_id(request)
+    request_workspace = resolve_request_workspace_id(request)
+    if request_workspace is not None:
+        return request_workspace
+    return _workspace_from_url_kwargs(request, view)
 
 
 # ---------------------------------------------------------------------------
@@ -532,11 +598,29 @@ def _api_key_fence_enabled() -> bool:
 def _has_active_role_in_workspace(auth_context: AuthContext, workspace_id: UUID) -> bool:
     """Return whether the caller holds any non-suspended role in *workspace_id*.
 
-    Reuses the already-resolved roles when the context was scoped to exactly
-    that workspace; otherwise asks :class:`AuthorizationService` (tenant-scoped
-    by the active RLS context). Any lookup failure is fail-closed.
+    Three cases, aligned with how the auth layer builds the context:
+
+    * The context is scoped to exactly this workspace — reuse its already
+      workspace-filtered roles (no second query). Real object routes always land
+      here: ``AuthTenancyAuthentication`` derives the workspace from the object
+      when the URL names none (ADR-011/SEC-02).
+    * The context is scoped to a *different* workspace — the client named one
+      workspace while the object lives in another. That is the cross-workspace
+      escalation case, so a real membership lookup in the object's workspace is
+      required (a scoped role in one workspace must not authorise another).
+    * The context is not workspace-scoped at all (``workspace_id`` is ``None``).
+      This is the boundary/direct-call shape (a caller that bypassed
+      ``AuthTenancyAuthentication`` and supplied roles directly) and the
+      pre-ADR behaviour for it: trust the context's roles. For routed traffic
+      this is unreachable whenever a target object resolves, because the auth
+      layer scopes ``workspace_id`` to that same object workspace before the
+      permission layer runs.
+
+    Any membership lookup failure is fail-closed.
     """
-    if auth_context.workspace_id is not None and auth_context.workspace_id == workspace_id:
+    if auth_context.workspace_id is None:
+        return bool(auth_context.active_roles)
+    if auth_context.workspace_id == workspace_id:
         return bool(auth_context.active_roles)
     try:
         from .services import AuthorizationService
@@ -554,6 +638,36 @@ def _has_active_role_in_workspace(auth_context: AuthContext, workspace_id: UUID)
     return bool(roles)
 
 
+def _is_collection_action(view: Any) -> bool:
+    """Return whether *view* is a DRF ``list``/``create`` collection action.
+
+    DRF sets ``view.action`` in ``ViewSetMixin.view``/``dispatch`` before the
+    permission layer runs, so it is reliable here. Non-ViewSet views (plain
+    ``APIView``) have no ``action`` and are never treated as collections.
+    """
+    return getattr(view, "action", None) in ("list", "create")
+
+
+def _workspace_in_active_tenant(workspace_id: UUID) -> bool:
+    """Return whether *workspace_id* exists in the caller's active tenant.
+
+    Distinguishes "same tenant, no role" (403) from "another tenant" (404): the
+    tenant-scoped ``Workspace`` manager reports a foreign workspace as absent, so
+    a foreign object never produces a 403 that would leak its existence. Any
+    resolution error is fail-soft (``False``) and leaves the tenant-scoped view
+    to answer 404.
+    """
+    try:
+        from persistence.models import Workspace
+
+        return Workspace.objects.filter(id=workspace_id).exists()
+    except Exception:  # noqa: BLE001 — resolution error -> let the view 404
+        logger.debug(
+            "Workspace existence check failed for workspace=%s", workspace_id
+        )
+        return False
+
+
 def enforce_request_scope(
     request: Any, view: Any, auth_context: AuthContext | None
 ) -> str | None:
@@ -563,10 +677,11 @@ def enforce_request_scope(
 
     1. **API-key workspace fence** (SEC-03) — active for any key carrying a
        non-empty ``workspace_ids``; unaffected for unfenced keys.
-    2. **Resource-scope default-deny** (SEC-02) — only when
-       ``AUTHZ_WORKSPACE_SCOPE_ENFORCED`` is on. Unclassified view classes and
-       workspace-scoped resources with no resolvable target workspace are denied;
-       tenant/exception resources are not affected by the target-workspace rule.
+    2. **Resource-scope default-deny** (SEC-02/ADR-013) — only when
+       ``AUTHZ_WORKSPACE_SCOPE_ENFORCED`` is on. Unclassified view classes are
+       denied; workspace-scoped *object* routes are denied when the object
+       resolves in the caller's tenant and the caller holds no role there;
+       collection routes (list/create) are never blanket-denied.
 
     The caller (`RbacPermission` / `HasOperationPermission`) raises
     ``PermissionDenied`` (403) on a non-``None`` result.
@@ -601,8 +716,32 @@ def enforce_request_scope(
         return UNCLASSIFIED_DENIAL
     if classification.scope is not ResourceScope.WORKSPACE:
         return None
+
+    # Collection routes name no single target object (ADR-013). List endpoints
+    # resolve their own workspace and the auth layer scopes roles to it; create
+    # endpoints derive the target from the validated payload. Never blanket-deny
+    # here — the view's own validation answers 400/404 when nothing is named.
+    if _is_collection_action(view):
+        return None
+
+    # Object/mutation route: authority follows the target object.
+    if classification.entity_key is not None:
+        owning = _resolve_owning_from_request(request, classification, view)
+        if owning is None:
+            # No object row in this tenant (missing, malformed id, or another
+            # tenant's object): never deny here. The tenant-scoped view answers
+            # 404/400, so a foreign object stays indistinguishable from a
+            # missing one (ADR-013 404-vs-403 rule, no existence leak).
+            return None
+        if not _workspace_in_active_tenant(owning):
+            return None
+        if not _has_active_role_in_workspace(auth_context, owning):
+            return WORKSPACE_MEMBERSHIP_DENIAL
+        return None
+
+    # No object resolution available: a workspace-scoped action that lives on the
+    # request workspace (import/export, workspace members, ...). It must name
+    # one; fail closed when it does not (ADR-011 decision point 3).
     if target_workspace_id is None:
         return WORKSPACE_UNRESOLVABLE_DENIAL
-    if not _has_active_role_in_workspace(auth_context, target_workspace_id):
-        return WORKSPACE_MEMBERSHIP_DENIAL
     return None
