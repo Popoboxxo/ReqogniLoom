@@ -900,6 +900,23 @@ CACHE_SOCKET_CONNECT_TIMEOUT: float = config(
     "CACHE_SOCKET_CONNECT_TIMEOUT", default=2.0, cast=float
 )
 CACHE_SOCKET_TIMEOUT: float = config("CACHE_SOCKET_TIMEOUT", default=5.0, cast=float)
+
+# RES-01 residual (AUD-030 / N3): ``socket_connect_timeout`` bounds the TCP
+# handshake but NOT the ``socket.getaddrinfo`` call that precedes it, and that
+# call has no timeout parameter. With Redis stopped, its Compose service name
+# stops resolving and redis-py blocked ~3.85s *per cache op* — the throttle's
+# documented fail-open never got the exception it waits for. ``pool_class``
+# installs ``reqogniloom.bounded_dns`` (see that module) so every DNS lookup on
+# the cache path runs in a thread bounded by ``CACHE_DNS_TIMEOUT`` and a failed
+# target enters ``CACHE_UNHEALTHY_COOLDOWN`` so the request does not pay that
+# budget once per cache key. Effects are central to the cache backend; the
+# shipped 1.5s + 2s keeps a Redis-stop request comfortably inside the 8s
+# acceptance. Env-overridable; a TLS (``rediss://``) deployment intentionally
+# keeps redis-py's default connection class (SNI/hostname verification).
+CACHE_DNS_TIMEOUT: float = config("CACHE_DNS_TIMEOUT", default=1.5, cast=float)
+CACHE_UNHEALTHY_COOLDOWN: float = config(
+    "CACHE_UNHEALTHY_COOLDOWN", default=2.0, cast=float
+)
 CACHES = {
     "default": {
         "BACKEND": "django.core.cache.backends.redis.RedisCache",
@@ -907,6 +924,7 @@ CACHES = {
         "OPTIONS": {
             "socket_connect_timeout": CACHE_SOCKET_CONNECT_TIMEOUT,
             "socket_timeout": CACHE_SOCKET_TIMEOUT,
+            "pool_class": "reqogniloom.bounded_dns.BoundedRedisConnectionPool",
         },
     }
 }
