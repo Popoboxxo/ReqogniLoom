@@ -31,11 +31,18 @@ child as a parent — inverting the hierarchy instead of recognising it. This
 module therefore normalises both spellings into a single set of
 ``(parent_id, child_id)`` pairs, and root/leaf are derived from that.
 
-``refines`` no longer exists as a link type: the migration folded it into
-``derives-from``. Because ``derives-from`` *is* a hierarchy edge, every
-formerly symmetric ``refines`` edge between two Requirements now carries
-level semantics it did not have before — see OFFENE FRAGE 2 in
-docs/superpowers/plans/2026-09-03-traceability-semantik.md.
+``refines`` is a **live built-in** link type (``link_types/builtin.py``,
+re-introduced by issue #950 as ``Requirement -> Requirement`` with
+``source = refining (lower-level) requirement, target = refined``). It is a
+hierarchy *candidate* — the same direction as ``derives-from``, but a weaker
+claim — and is deliberately **not** part of the hierarchy link-type sets
+below. Whether a refinement edge carries the same V-model level semantics as
+a derivation (and whether ``document`` baseline scope must follow it) is an
+open product/architecture decision, tracked as ADR candidate (vi)
+(``docs/audit/2026-09/AUDIT_ADR_CANDIDATES.md`` §2); this module must not
+decide it on its own. Until that decision, ``refines`` contributes no
+``(parent, child)`` pair here. Background: OFFENE FRAGE 2 in
+``docs/superpowers/plans/Archive/2026-09-03-traceability-semantik.md``.
 
 Only edges whose *both* endpoints are Requirements in the audited set count.
 A ``Requirement --derives-from--> StakeholderNeed`` link is legal and common,
@@ -181,6 +188,8 @@ CHILD_TO_PARENT_LINK_TYPES: FrozenSet[str] = frozenset(
 
 #: Every link type that carries Requirement-hierarchy information, in either
 #: direction. Exported for callers that only need membership, not direction.
+#: ``refines`` is deliberately excluded — its hierarchy-edge status is an open
+#: decision (ADR candidate vi); see the module docstring.
 HIERARCHY_LINK_TYPES: FrozenSet[str] = (
     PARENT_TO_CHILD_LINK_TYPES | CHILD_TO_PARENT_LINK_TYPES
 )
