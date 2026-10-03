@@ -38,6 +38,13 @@ def _make_def(tenant_id: uuid.UUID, ws: uuid.UUID, preset: str = "extended") -> 
     )
 
 
+def _ws() -> uuid.UUID:
+    """A real workspace row so the DATA-06 ``we_item_state`` FK resolves."""
+    from persistence.tests.factories import make_workspace_id
+
+    return make_workspace_id()
+
+
 class TestLazyAutoInit:
     """REQ-160 — missing state is lazily provisioned on the read path."""
 
@@ -54,7 +61,7 @@ class TestLazyAutoInit:
 
     def test_missing_state_is_created_at_initial_state(self):
         """No WorkflowItemState + definition present → seeded to draft + moves shown."""
-        ws = uuid.uuid4()
+        ws = _ws()
         _make_def(self._tenant_id, ws)
         item_id = uuid.uuid4()
 
@@ -69,7 +76,7 @@ class TestLazyAutoInit:
 
     def test_no_definition_returns_empty_without_persisting(self):
         """No definition at all → empty transitions, no state created."""
-        ws = uuid.uuid4()
+        ws = _ws()
         item_id = uuid.uuid4()
 
         avail = get_available_transitions(item_id, "Requirement", ws)
@@ -82,7 +89,7 @@ class TestLazyAutoInit:
 
     def test_existing_state_is_not_reset(self):
         """An item already in 'approved' keeps its state (no reset to initial)."""
-        ws = uuid.uuid4()
+        ws = _ws()
         _make_def(self._tenant_id, ws)
         item_id = uuid.uuid4()
         definition = WorkflowEngineDefinition.unscoped.filter(
