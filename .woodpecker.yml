@@ -2,6 +2,22 @@ when:
   - event: push
     branch: main
 
+# AUD-2026-09-194 (DOC-03): service containers backing the backend pytest
+# suite. Before this, `test-backend` ran only `manage.py check`, so the whole
+# Woodpecker path was green without executing a single test. Service hostnames
+# are the map keys below (`postgres`, `redis`) and are used by the env vars in
+# the `test-backend` step. Woodpecker does not wait for a service to accept
+# connections, so the step polls the sockets before running pytest.
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: test_reqflow
+      POSTGRES_USER: test_user
+      POSTGRES_PASSWORD: test_password
+  redis:
+    image: redis:7-alpine
+
 # CI/CD Pipeline Phases:
 # 1. Lint — code style and quality checks
 # 2. Test — unit and integration tests
@@ -43,22 +59,54 @@ steps:
     environment:
       PYTHONDONTWRITEBYTECODE: "1"
       PYTHONUNBUFFERED: "1"
-      DJANGO_SETTINGS_MODULE: reqogniloom.settings
+      # AUD-2026-09-194 (DOC-03): use the dedicated, side-effect-free test
+      # settings module (same one the GitHub CI matrix uses) so ambient
+      # deployment config cannot leak into the suite.
+      DJANGO_SETTINGS_MODULE: reqogniloom.settings_test
       SECRET_KEY: test-only-secret-key
       AUTH_JWT_SECRET: test-only-jwt-key
-      FIELD_ENCRYPTION_KEY: test-only-encryption-key
+      # Empty = absent; settings_test generates an ephemeral Fernet key per
+      # process (issue #151). A non-empty placeholder here would be an invalid
+      # Fernet key and break the encrypted-column tests.
+      FIELD_ENCRYPTION_KEY: ""
       DEBUG: "True"
-      ALLOWED_HOSTS: "localhost,127.0.0.1"
+      ALLOWED_HOSTS: "localhost,127.0.0.1,postgres"
       DB_NAME: test_reqflow
       DB_USER: test_user
       DB_PASSWORD: test_password
-      DB_HOST: localhost
+      # Service hostname (see top-level `services:`), not localhost.
+      DB_HOST: postgres
       DB_PORT: "5432"
+      # Read by migration 0048_app_role.py (REQ-L2-PL-010) — required, no default.
+      DB_APP_PASSWORD: test-only-app-role-password
+      DEFAULT_TENANT_ID: "1"
+      LLM_PROVIDER: mock
       REDIS_PASSWORD: ""
+      CELERY_BROKER_URL: redis://redis:6379/0
+      REDIS_URL: redis://redis:6379/0
     commands:
       - cd backend && pip install -q -r requirements.txt
       - echo "Running Django system checks..."
       - python manage.py check
+      - echo "Waiting for postgres and redis to accept connections..."
+      - |
+        python - <<'PY'
+        import socket, time
+        for host, port in (("postgres", 5432), ("redis", 6379)):
+            for _ in range(60):
+                try:
+                    socket.create_connection((host, port), timeout=2).close()
+                    break
+                except OSError:
+                    time.sleep(1)
+            else:
+                raise SystemExit(f"timed out waiting for {host}:{port}")
+        PY
+      # AUD-2026-09-194 (DOC-03): actually run the backend suite. `/app` on the
+      # GitHub matrix runs four path sets; here the whole suite runs from
+      # backend/ so `link_types`, `memory` and `tests/` are covered too.
+      - echo "Running backend pytest suite..."
+      - pytest
 
   # ─────────────────────────────────────────────────────────
   # Test Phase — Frontend Type Check & Build Verification

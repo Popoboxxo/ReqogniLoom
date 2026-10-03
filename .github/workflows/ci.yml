@@ -57,8 +57,14 @@ jobs:
             name: "MCP Server (mcp_server)"
             paths: "mcp_server/tests"
           - id: set-4-features
-            name: "Cross-Cutting & Features (llm_adapter, diagram, traceability, workflow, context_graph, se_metrics, baseline, admin_ops, icd, resilience, audit)"
-            paths: "llm_adapter/tests diagram/tests traceability/tests workflow/tests context_graph/tests se_metrics/tests baseline/tests admin_ops/tests icd/tests resilience/tests audit/tests"
+            # AUD-2026-09-193 (DOC-03): memory/tests (344), link_types/tests (141)
+            # and the root tests/ suite (55) were previously matched by none of
+            # the four path sets and therefore ran in no backend CI job. They are
+            # cross-cutting (AI memory, link-type catalog, celery/csrf/wiring
+            # smoke) and belong to this "Cross-Cutting & Features" leg. Measured
+            # with `pytest --collect-only`: 540 tests that used to be dark.
+            name: "Cross-Cutting & Features (llm_adapter, diagram, traceability, workflow, context_graph, se_metrics, baseline, admin_ops, icd, resilience, audit, memory, link_types, root tests)"
+            paths: "llm_adapter/tests diagram/tests traceability/tests workflow/tests context_graph/tests se_metrics/tests baseline/tests admin_ops/tests icd/tests resilience/tests audit/tests memory/tests link_types/tests tests"
 
     services:
       postgres:
