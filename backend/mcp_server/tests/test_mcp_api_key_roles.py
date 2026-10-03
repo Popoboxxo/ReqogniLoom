@@ -193,6 +193,35 @@ def _list_all_api_keys(bearer: str) -> list[dict]:
     return keys
 
 
+def _list_all_workspaces(bearer: str) -> list[dict]:
+    """Return every workspace visible to the authenticated user, across all pages.
+
+    Like ``_list_all_api_keys``, ``GET /workspaces/`` is paginated with
+    ``StandardPagination`` (default page size 25), so a single request only
+    sees the first page. A long-lived dev stack can hold hundreds of
+    workspaces and ``Demo Workspace`` can sort onto a later page, so reading
+    only page 1 raises a false ``Seeded 'Demo Workspace' not found``. Follow
+    ``next`` until the envelope is exhausted, asking for the maximum page size
+    to keep the number of round-trips down.
+    """
+    workspaces: list[dict] = []
+    url: str | None = f"{REST_URL}/workspaces/?page_size=100"
+    while url:
+        status, data = _http_request(
+            url, headers={"Authorization": f"Bearer {bearer}"}
+        )
+        assert status == 200, f"List workspaces failed: {status}"
+        if isinstance(data, dict):
+            workspaces.extend(data.get("results", []))
+            url = data.get("next")
+        elif isinstance(data, list):
+            workspaces.extend(data)
+            url = None
+        else:
+            url = None
+    return workspaces
+
+
 def _revoke_all_active_keys(bearer: str) -> None:
     """Revoke all non-revoked API keys for the authenticated user.
 
@@ -305,19 +334,16 @@ def seeded_workspace_id(bearer_token: str) -> str:
     ``auth_tenancy.provisioning``), which is the workspace bootstrap_admin binds
     the admin's admin role to.
     """
-    status, data = _http_request(
-        f"{REST_URL}/workspaces/",
-        headers={"Authorization": f"Bearer {bearer_token}"},
-    )
-    assert status == 200, f"List workspaces failed: {status}"
-    workspaces = data if isinstance(data, list) else data.get("results", [])
+    workspaces = _list_all_workspaces(bearer_token)
     assert workspaces, "No workspaces found — is seed_demo loaded?"
     seeded = next(
         (w for w in workspaces if w.get("name") == "Demo Workspace"), None
     )
     assert seeded, (
-        "Seeded 'Demo Workspace' not found — is bootstrap_admin/seed_demo "
-        f"loaded? Available workspaces: {[w.get('name') for w in workspaces]}"
+        "Seeded 'Demo Workspace' not found after paging through all "
+        f"{len(workspaces)} workspace(s) — is bootstrap_admin/seed_demo "
+        f"loaded? First names: "
+        f"{[w.get('name') for w in workspaces[:20]]}"
     )
     return seeded["id"]
 
