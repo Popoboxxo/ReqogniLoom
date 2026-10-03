@@ -37,8 +37,15 @@ from uuid import UUID
 from django.conf import settings
 from django.http import Http404, HttpResponse
 from django.utils import timezone
-from drf_spectacular.utils import OpenApiParameter, extend_schema
-from rest_framework import status, viewsets
+from drf_spectacular.utils import (
+    OpenApiParameter,
+    OpenApiRequest,
+    OpenApiResponse,
+    OpenApiTypes,
+    extend_schema,
+    inline_serializer,
+)
+from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import APIException, NotFound
 from rest_framework.negotiation import BaseContentNegotiation
@@ -169,6 +176,9 @@ from rest_api.serializers import (
     detect_lang,
     extract_preset_tier,
 )
+# INT-06 (findings 075/077/090): the shared error-response schema for the
+# documented error cases on the audited endpoints.
+from rest_api.openapi import ErrorResponseSerializer
 
 # GH-443: every soft-deleting ``destroy()`` below repeats the same paragraph
 # verbatim. That is deliberate duplication, not an oversight: drf-spectacular
@@ -245,6 +255,24 @@ _EXC_TO_CODE: dict[type, str] = {
     NotFoundError: "NOT_FOUND",
     OptimisticLockError: "CONFLICT",
 }
+
+
+def _with_request_id(body: dict[str, Any]) -> dict[str, Any]:
+    """Add ``request_id`` to an error envelope body (ADR-014 §1, finding 077).
+
+    The ``X-Request-ID`` response header already exists
+    (``reqogniloom.middleware.RequestIdMiddleware``); ADR-014 §1 mirrors the
+    same correlation id into the error body so a client can correlate a failed
+    request with the server log without depending on a header alone. The copy
+    is additive and null when no request context is active (e.g. direct view
+    calls in unit tests), never a fabricated id.
+    """
+    from reqogniloom.middleware import get_request_id
+
+    error = body.get("error")
+    if isinstance(error, dict) and "request_id" not in error:
+        error["request_id"] = get_request_id()
+    return body
 
 
 def _service_error_response(exc: Exception, lang: str = "en") -> Response:
@@ -8411,6 +8439,37 @@ class ReqifExportView(APIView):
         404 if the workspace does not exist in the active tenant.
     """
 
+    @extend_schema(
+        # INT-06 finding 078: the export returns an XML document, but the
+        # generated schema advertised "No response body" — a generated client
+        # could not know the media type. Declare it explicitly.
+        responses={
+            # drf-spectacular's tuple-key form `(status, media_type)` is the
+            # supported way to pin a non-JSON media type (the APIView's default
+            # renderer is JSON, so the export was documented as "No response
+            # body"). The export genuinely serves application/xml.
+            (200, "application/xml"): OpenApiResponse(
+                response=OpenApiTypes.BINARY,
+                description=(
+                    "ReqIF 1.2 XML document "
+                    "(Content-Disposition: attachment; filename \"<slug>.reqif\")."
+                ),
+            ),
+            400: OpenApiResponse(
+                response=ErrorResponseSerializer,
+                description="Workspace ID is required (unreachable via the URL route).",
+            ),
+            404: OpenApiResponse(
+                response=ErrorResponseSerializer,
+                description="Workspace not found in the active tenant.",
+            ),
+        },
+        description=(
+            "Handle ReqIF export GET request.\n\n"
+            "Returns `application/xml` (ReqIF 1.2 document). Errors use the "
+            "standard error envelope and carry `request_id` (ADR-014 §1)."
+        ),
+    )
     def get(self, request: Request, pk: str = None, **kwargs: Any) -> HttpResponse | Response:
         """Handle ReqIF export GET request."""
         lang = detect_lang(request)
@@ -8500,13 +8559,106 @@ class ReqifImportView(APIView):
     _REQIF_ENTITY_TYPES = {"Requirement", "StakeholderNeed"}
     _IDEMPOTENCY_ENDPOINT = "workspace-reqif-import"
 
+    @extend_schema(
+        # INT-06 finding 078: the import reads request.FILES, but the generated
+        # schema declared no requestBody at all — a generated client could not
+        # know how to send the file.
+        request=OpenApiRequest(
+            request=inline_serializer(
+                name="ReqifImportUpload",
+                fields={
+                    "file": serializers.FileField(
+                        help_text="ReqIF 1.2 XML file (.reqif / .xml, UTF-8)."
+                    ),
+                    "entity_type": serializers.CharField(
+                        required=False,
+                        help_text=(
+                            "Optional; if present must be 'Requirement' or "
+                            "'StakeholderNeed'."
+                        ),
+                    ),
+                },
+            ),
+            # The view reads request.FILES, i.e. multipart/form-data only.
+        ),
+        parameters=[
+            OpenApiParameter(
+                name="id",
+                type=str,
+                location=OpenApiParameter.PATH,
+                description="Workspace UUID.",
+            ),
+            OpenApiParameter(
+                name="dry_run",
+                type=bool,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "When true the whole import pipeline runs and is rolled "
+                    "back; the report reflects what a real import would do."
+                ),
+            ),
+        ],
+        responses={
+            200: OpenApiResponse(
+                response=None,
+                description=(
+                    "Import result (ADR-014 contract v2): success "
+                    "(`failed == 0`), with or without write effect. Body carries "
+                    "`success`/`counts`/`items`/`request_id`."
+                ),
+            ),
+            207: OpenApiResponse(
+                response=None,
+                description=(
+                    "Partial success (ADR-014 §2): `succeeded > 0 and "
+                    "failed > 0`. Body carries `counts`/`items`/`request_id`."
+                ),
+            ),
+            400: OpenApiResponse(
+                response=ErrorResponseSerializer,
+                description=(
+                    "Request-level error: missing/0-byte file, unknown "
+                    "`entity_type`, size limit, unreadable body, overlong "
+                    "`Idempotency-Key`."
+                ),
+            ),
+            409: OpenApiResponse(
+                response=ErrorResponseSerializer,
+                description=(
+                    "Idempotency-Key reused (`IDEMPOTENCY_KEY_REUSED`) or in "
+                    "flight (`IDEMPOTENCY_IN_FLIGHT`)."
+                ),
+            ),
+            422: OpenApiResponse(
+                response=None,
+                description=(
+                    "Total object failure (ADR-014 §2) or a file-level "
+                    "`PARSE_ERROR` (invalid .reqif XML, REQ-L2-RQ-001 AC5)."
+                ),
+            ),
+            500: OpenApiResponse(
+                response=ErrorResponseSerializer,
+                description="Internal server error.",
+            ),
+        },
+    )
     def post(self, request: Request, pk: str = None, **kwargs: Any) -> Response:
-        """Handle ReqIF import POST request."""
+        """Handle ReqIF import POST request.
+
+        Every response body uses the standard error envelope on failure and
+        carries ``request_id`` (ADR-014 §1, mirrored from ``X-Request-ID``) so
+        a client can correlate a failed import with the server log.
+        """
         lang = detect_lang(request)
 
         if not pk:
             return Response(
-                build_error_response("VALIDATION_ERROR", lang, message="Workspace ID is required"),
+                _with_request_id(
+                    build_error_response(
+                        "VALIDATION_ERROR", lang, message="Workspace ID is required"
+                    )
+                ),
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -8528,13 +8680,15 @@ class ReqifImportView(APIView):
             entity_type = request.data.get("entity_type")
             if entity_type is not None and entity_type not in self._REQIF_ENTITY_TYPES:
                 return Response(
-                    build_error_response(
-                        "VALIDATION_ERROR",
-                        lang,
-                        message=(
-                            f"Unsupported entity_type '{entity_type}' for ReqIF "
-                            f"import. Allowed: {sorted(self._REQIF_ENTITY_TYPES)}"
-                        ),
+                    _with_request_id(
+                        build_error_response(
+                            "VALIDATION_ERROR",
+                            lang,
+                            message=(
+                                f"Unsupported entity_type '{entity_type}' for ReqIF "
+                                f"import. Allowed: {sorted(self._REQIF_ENTITY_TYPES)}"
+                            ),
+                        )
                     ),
                     status=status.HTTP_400_BAD_REQUEST,
                 )
@@ -8542,9 +8696,11 @@ class ReqifImportView(APIView):
         uploaded_file = request.FILES.get("file")
         if not uploaded_file:
             return Response(
-                build_error_response(
-                    "VALIDATION_ERROR", lang,
-                    message="No ReqIF file uploaded. Provide a 'file' field in multipart/form-data.",
+                _with_request_id(
+                    build_error_response(
+                        "VALIDATION_ERROR", lang,
+                        message="No ReqIF file uploaded. Provide a 'file' field in multipart/form-data.",
+                    )
                 ),
                 status=status.HTTP_400_BAD_REQUEST,
             )
@@ -8556,16 +8712,20 @@ class ReqifImportView(APIView):
         except Exception:  # noqa: BLE001 — unreadable upload stream
             logger.exception("ReqifImportView: failed to read uploaded file")
             return Response(
-                build_error_response(
-                    "VALIDATION_ERROR", lang,
-                    message="ReqIF file could not be read.",
+                _with_request_id(
+                    build_error_response(
+                        "VALIDATION_ERROR", lang,
+                        message="ReqIF file could not be read.",
+                    )
                 ),
                 status=status.HTTP_400_BAD_REQUEST,
             )
         if not raw_body:
             return Response(
-                build_error_response(
-                    "VALIDATION_ERROR", lang, message="ReqIF file is empty."
+                _with_request_id(
+                    build_error_response(
+                        "VALIDATION_ERROR", lang, message="ReqIF file is empty."
+                    )
                 ),
                 status=status.HTTP_400_BAD_REQUEST,
             )
@@ -8573,17 +8733,21 @@ class ReqifImportView(APIView):
             reqif_text = raw_body.decode("utf-8")
         except UnicodeDecodeError:
             return Response(
-                build_error_response(
-                    "VALIDATION_ERROR", lang,
-                    message="ReqIF file must be UTF-8 encoded.",
+                _with_request_id(
+                    build_error_response(
+                        "VALIDATION_ERROR", lang,
+                        message="ReqIF file must be UTF-8 encoded.",
+                    )
                 ),
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
         if not reqif_text.strip():
             return Response(
-                build_error_response(
-                    "VALIDATION_ERROR", lang, message="ReqIF file is empty."
+                _with_request_id(
+                    build_error_response(
+                        "VALIDATION_ERROR", lang, message="ReqIF file is empty."
+                    )
                 ),
                 status=status.HTTP_400_BAD_REQUEST,
             )
@@ -8600,10 +8764,12 @@ class ReqifImportView(APIView):
                 idem_key = raw_key
                 if not idem_key or len(idem_key) > 255:
                     return Response(
-                        build_error_response(
-                            "VALIDATION_ERROR",
-                            lang,
-                            message="Idempotency-Key must contain 1 to 255 characters.",
+                        _with_request_id(
+                            build_error_response(
+                                "VALIDATION_ERROR",
+                                lang,
+                                message="Idempotency-Key must contain 1 to 255 characters.",
+                            )
                         ),
                         status=status.HTTP_400_BAD_REQUEST,
                     )
@@ -8657,13 +8823,17 @@ class ReqifImportView(APIView):
                     status=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 )
             return Response(
-                build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
+                _with_request_id(
+                    build_error_response("VALIDATION_ERROR", lang, message=str(exc))
+                ),
                 status=status.HTTP_400_BAD_REQUEST,
             )
         except ValidationError as exc:
             _abort_claim()
             return Response(
-                build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
+                _with_request_id(
+                    build_error_response("VALIDATION_ERROR", lang, message=str(exc))
+                ),
                 status=status.HTTP_400_BAD_REQUEST,
             )
         except NotFoundError as exc:

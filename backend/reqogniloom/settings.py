@@ -614,6 +614,14 @@ SPECTACULAR_SETTINGS = {
     "SECURITY": [{"BearerAuth": []}],
     "COMPONENT_SPLIT_REQUEST": True,
     "SCHEMA_PATH_PREFIX": "/api/v1/",
+    # INT-06 (findings 075/090): the schema must declare the common 4xx/5xx
+    # error responses on the operations (``COMMON_ERROR_RESPONSES`` was a dead
+    # declaration) and must not advertise a ``cookieAuth`` scheme that no
+    # operation references. The hook is additive: an operation that already
+    # declares a status keeps its own response.
+    "POSTPROCESSING_HOOKS": [
+        "rest_api.openapi.enforce_common_error_responses",
+    ],
     # Security schemes for OpenAPI spec
     "APPEND_COMPONENTS": {
         "securitySchemes": {
