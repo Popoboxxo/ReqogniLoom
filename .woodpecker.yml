@@ -81,6 +81,27 @@ steps:
       - cd backend && safety check --json
 
   # ─────────────────────────────────────────────────────────
+  # Security Scan Phase — Secret Scan (SECTRACK-03)
+  # ─────────────────────────────────────────────────────────
+  # gitleaks 8.30.1 (pinned, sha256-verified) over the working tree (`dir`) and
+  # the full git history (`git`), scoped to the deterministic incident rule
+  # `reqlo_<40 alnum>` via `--enable-rule reqlo-api-key` (see .gitleaks.toml).
+  # 0 findings is a hard requirement (--exit-code 1).
+  secret-scan:
+    image: alpine:3.20
+    commands:
+      - apk add --no-cache curl tar
+      - GITLEAKS_VERSION=8.30.1
+      - ARCHIVE="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+      - curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/${ARCHIVE}" -o "/tmp/${ARCHIVE}"
+      - echo "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  /tmp/${ARCHIVE}" | sha256sum -c -
+      - tar -xzf "/tmp/${ARCHIVE}" -C /tmp gitleaks
+      - install -m 0755 /tmp/gitleaks /usr/local/bin/gitleaks
+      - gitleaks version
+      - gitleaks dir . --config .gitleaks.toml --enable-rule reqlo-api-key --redact --exit-code 1
+      - gitleaks git . --config .gitleaks.toml --enable-rule reqlo-api-key --redact --exit-code 1
+
+  # ─────────────────────────────────────────────────────────
   # Build & Deploy Phase — Backend Container Image (Docker buildx)
   # ─────────────────────────────────────────────────────────
   # Builds multi-platform image (linux/amd64) and pushes to Codeberg registry.

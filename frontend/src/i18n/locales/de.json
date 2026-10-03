@@ -1124,6 +1124,8 @@
     "reqifUpdated": "aktualisiert",
     "reqifSkipped": "übersprungen",
     "reqifWarnings": "Warnungen",
+    "reqifIdempotentReplay": "Wiederholung eines früheren Imports — keine zweite Schreibwirkung.",
+    "reqifCounts": "Erfolgreich: {{succeeded}}, übersprungen: {{skipped}}, fehlgeschlagen: {{failed}}",
     "reqifMoreErrors": "… und {{count}} weitere Fehler",
     "reqifMoreWarnings": "… und {{count}} weitere Warnungen",
     "dropZoneLabel": "CSV-Datei auswählen oder hier ablegen",

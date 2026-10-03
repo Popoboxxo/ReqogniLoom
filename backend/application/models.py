@@ -21,6 +21,7 @@ import uuid
 
 from django.conf import settings
 from django.db import models
+from django.utils import timezone
 
 # Datenmodell-Konsolidierung Phase 2 (spec section 3): these seven domain models
 # moved to Layer 0 (persistence/models.py) so the domain data model is owned by
@@ -336,6 +337,69 @@ class Notification(TenantScopedModel):
         return f"Notification:{self.pk}:{self.kind}"
 
 
+class ImportIdempotencyRecord(models.Model):
+    """Replay store for the optional ``Idempotency-Key`` import contract.
+
+    ADR-014 §3: the first request with a key claims the row (``in_flight``);
+    a replay of the *same* payload after a terminal success is served from
+    ``response_body`` with ``idempotent_replay=true``; a different payload on
+    the same key is a ``409`` conflict. The scope is
+    ``(tenant_id, user_id, endpoint, key)`` — the tenant/user dimension is
+    what prevents cross-tenant key spoofing (ADR-014 §7). Only terminal
+    **successes** are stored (``state=succeeded``); transient/failed runs
+    delete the claim so a retry can succeed.
+
+    Plain model (not ``TenantScopedModel``): the table carries an explicit
+    ``tenant_id`` and every store query filters it, so no row-level-security
+    policy is required; it deliberately has no FK to ``Tenant`` so a tenant
+    deletion cannot be blocked by an infrastructure row.
+    """
+
+    STATE_IN_FLIGHT = "in_flight"
+    STATE_SUCCEEDED = "succeeded"
+    STATE_CHOICES = [
+        (STATE_IN_FLIGHT, "In flight"),
+        (STATE_SUCCEEDED, "Succeeded"),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    tenant_id = models.UUIDField(db_index=True)
+    user_id = models.UUIDField(db_index=True)
+    #: Logical endpoint identity, e.g. the URL route name
+    #: (``workspace-reqif-import``); keeps the key space per-endpoint.
+    endpoint = models.CharField(max_length=64)
+    key = models.CharField(max_length=255)
+    #: SHA-256 over (method, path, payload, dry_run) — no plaintext payload.
+    request_fingerprint = models.CharField(max_length=64)
+    state = models.CharField(
+        max_length=16, choices=STATE_CHOICES, default=STATE_IN_FLIGHT
+    )
+    status_code = models.IntegerField(null=True, blank=True)
+    response_body = models.JSONField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    #: Set on claim/takeover; an in-flight row older than the stale window may
+    #: be taken over by a new request (crashed worker must not lock a key).
+    claimed_at = models.DateTimeField(default=timezone.now)
+    #: ``expires_at`` is queried by the purge task but needs no leading-column
+    #: index of its own: the opportunistic purge filters ``expires_at__lt`` and
+    #: the row volume is bounded by TTL × rate + the per-tenant cap (ADR-014
+    #: §3/§7), so a full scan of a small table is cheaper than maintaining an
+    #: index on every claim/finalize write. F7: ``db_index=True`` removed.
+    expires_at = models.DateTimeField()
+
+    class Meta:
+        db_table = "as_import_idempotency"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant_id", "user_id", "endpoint", "key"],
+                name="uniq_import_idem_scope_key",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"ImportIdempotency:{self.endpoint}:{self.key}:{self.state}"
+
+
 __all__ = [
     "DomainEventOutbox",
     "DomainEventDLQ",
@@ -350,4 +414,5 @@ __all__ = [
     "MainGoal",
     "Comment",
     "Notification",
+    "ImportIdempotencyRecord",
 ]

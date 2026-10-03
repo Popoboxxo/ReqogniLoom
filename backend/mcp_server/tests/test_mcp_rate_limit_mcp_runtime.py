@@ -5,10 +5,11 @@ The transport-level throttling itself is covered by
 the runtime layer on top of it, and in particular the one design consequence of
 where MCP throttling sits in the request:
 
-    ``mcp_server.views`` throttle **before** authentication on purpose (a
-    throttle that runs after the expensive work bounds nothing), so no tenant
-    is known when the rate is resolved. MCP therefore honours the *global*
-    override and the settings value, and deliberately not a per-tenant one.
+    the per-IP backstop runs before authentication, and the per-credential
+    bucket after it (RES-02). A credential is therefore always verified before
+    its own rate is resolved, but the *IP* bucket is chosen without a tenant —
+    so MCP honours the *global* override and the settings value, and
+    deliberately not a per-tenant one.
 
 That is asserted explicitly below rather than left implicit, because "my tenant
 override does not apply to /mcp/" is exactly the kind of behaviour an operator
@@ -24,7 +25,7 @@ from django.core.cache import cache
 from django.test import Client, RequestFactory, override_settings
 
 from admin_ops.services.rate_limit_service import RateLimitService
-from mcp_server.throttling import check_mcp_rate_limit
+from mcp_server.throttling import check_mcp_key_rate_limit
 from rest_api.throttling import DynamicRateThrottle
 
 
@@ -62,9 +63,9 @@ def test_global_override_enforces_the_limit():
     """``mcp_key`` set at runtime must refuse the second call within the window."""
     RateLimitService.set_global_overrides({"mcp_key": "1/min"})
 
-    assert check_mcp_rate_limit(_request()) is None
+    assert check_mcp_key_rate_limit(_request(), "reqlo_key_a") is None
 
-    retry_after = check_mcp_rate_limit(_request())
+    retry_after = check_mcp_key_rate_limit(_request(), "reqlo_key_a")
     assert retry_after is not None
     assert retry_after >= 1.0
 
@@ -74,20 +75,20 @@ def test_global_override_beats_the_settings_ceiling():
     """Settings say 20000/min for ``mcp_key`` in tests; the override must win."""
     RateLimitService.set_global_overrides({"mcp_key": "1/min"})
 
-    assert check_mcp_rate_limit(_request()) is None
-    assert check_mcp_rate_limit(_request()) is not None
+    assert check_mcp_key_rate_limit(_request(), "reqlo_key_a") is None
+    assert check_mcp_key_rate_limit(_request(), "reqlo_key_a") is not None
 
 
 @pytest.mark.django_db
 def test_raising_the_limit_at_runtime_takes_effect_without_a_restart():
     RateLimitService.set_global_overrides({"mcp_key": "1/min"})
-    assert check_mcp_rate_limit(_request()) is None
-    assert check_mcp_rate_limit(_request()) is not None
+    assert check_mcp_key_rate_limit(_request(), "reqlo_key_a") is None
+    assert check_mcp_key_rate_limit(_request(), "reqlo_key_a") is not None
 
     RateLimitService.set_global_overrides({"mcp_key": "1000/min"})
 
     # The recorded history is unchanged; only the ceiling moved.
-    assert check_mcp_rate_limit(_request()) is None
+    assert check_mcp_key_rate_limit(_request(), "reqlo_key_a") is None
 
 
 @pytest.mark.django_db
@@ -105,15 +106,15 @@ def test_tenant_override_does_not_apply_to_mcp(db):
         clear_request_tenant()
 
     # Two calls that a 1/min tenant override would have refused.
-    assert check_mcp_rate_limit(_request()) is None
-    assert check_mcp_rate_limit(_request()) is None
+    assert check_mcp_key_rate_limit(_request(), "reqlo_key_a") is None
+    assert check_mcp_key_rate_limit(_request(), "reqlo_key_a") is None
 
 
 @pytest.mark.django_db
 def test_empty_global_override_disables_the_limit():
     RateLimitService.set_global_overrides({"mcp_key": ""})
 
-    assert all(check_mcp_rate_limit(_request()) is None for _ in range(50))
+    assert all(check_mcp_key_rate_limit(_request(), "reqlo_key_a") is None for _ in range(50))
 
 
 # ---------------------------------------------------------------------------
@@ -125,11 +126,11 @@ def test_empty_global_override_disables_the_limit():
 def test_cache_outage_fails_open(monkeypatch):
     """Control first: with a healthy cache ``0/min`` refuses immediately."""
     RateLimitService.set_global_overrides({"mcp_key": "0/min"})
-    assert check_mcp_rate_limit(_request()) is not None
+    assert check_mcp_key_rate_limit(_request(), "reqlo_key_a") is not None
 
     monkeypatch.setattr(DynamicRateThrottle, "cache", DownCache())
 
-    assert check_mcp_rate_limit(_request()) is None
+    assert check_mcp_key_rate_limit(_request(), "reqlo_key_a") is None
 
 
 # ---------------------------------------------------------------------------
@@ -151,9 +152,22 @@ _REFUSE_AFTER_TWO = override_settings(
 
 @_REFUSE_AFTER_TWO
 @pytest.mark.django_db
-def test_transport_returns_429_after_the_runtime_limit():
-    """End-to-end: the third call over a 2/min global ceiling is a JSON-RPC 429."""
+def test_transport_returns_429_after_the_runtime_limit(monkeypatch):
+    """End-to-end: the third verified call over a 2/min global ceiling is a 429.
+
+    Since RES-02 the per-credential bucket is charged only after the credential
+    authenticated, so the credential is stubbed as valid (``_get_auth_service``)
+    — an *unverified* key must not be counted per-key at all (see
+    ``test_mcp_throttle_after_authn_res02.py``). The handler itself still
+    receives the fake key and answers non-429; the assertions below only pin the
+    throttle boundary.
+    """
     import json
+    from unittest import mock
+
+    auth_service = mock.Mock()
+    auth_service.validate_api_key.return_value = mock.Mock()
+    monkeypatch.setattr("mcp_server.views._get_auth_service", lambda: auth_service)
 
     RateLimitService.set_global_overrides({"mcp_key": "2/min", "mcp_ip": "1000/min"})
 

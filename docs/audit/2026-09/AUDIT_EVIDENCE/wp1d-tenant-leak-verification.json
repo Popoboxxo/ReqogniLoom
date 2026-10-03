@@ -1,0 +1,130 @@
+{
+ "search_A_with_B_workspace": {
+  "status": 200,
+  "total_count": 0,
+  "n_results": 0,
+  "echoes_query_back": true,
+  "results": []
+ },
+ "search_B_with_B_workspace": {
+  "status": 200,
+  "total_count": 9,
+  "n_results": 9,
+  "titles": [
+   "WP1D-PROBE-B Requirement ÄÖÜ 🚀",
+   "WP1D-PROBE-B ADR",
+   "WP1D-PROBE-B Arch",
+   "WP1D-PROBE-B Goal",
+   "WP1D-PROBE-B Issue",
+   "WP1D-PROBE-B Need",
+   "WP1D-PROBE-B Risk",
+   "WP1D-PROBE-B Term",
+   "WP1D-PROBE-B TestCase"
+  ]
+ },
+ "api_keys_A": {
+  "label": "tenant-A admin token",
+  "status": 200,
+  "n": 200,
+  "probe_names": [],
+  "sample": [
+   "REQ-127-E2E-test-key",
+   "REQ-134-retrieve-test",
+   "REQ-127-E2E-test-key",
+   "REQ-134-retrieve-test"
+  ]
+ },
+ "api_keys_B": {
+  "label": "tenant-B admin token",
+  "status": 200,
+  "n": 1,
+  "probe_names": [
+   "WP1D-PROBE-B key2"
+  ],
+  "sample": [
+   "WP1D-PROBE-B key2"
+  ]
+ },
+ "A_token_sweep_for_B_data": {
+  "requirements": {
+   "status": 200,
+   "bytes": 88,
+   "contains_B_marker": false,
+   "contains_B_workspace_id": false,
+   "contains_B_requirement_id": false,
+   "head": "{\"count\":0,\"next\":null,\"previous\":null,\"page_size\":100,\"max_page_size\":100,\"results\":[]}"
+  },
+  "artifacts": {
+   "status": 200,
+   "bytes": 88,
+   "contains_B_marker": false,
+   "contains_B_workspace_id": false,
+   "contains_B_requirement_id": false,
+   "head": "{\"count\":0,\"next\":null,\"previous\":null,\"page_size\":100,\"max_page_size\":100,\"results\":[]}"
+  },
+  "search": {
+   "status": 200,
+   "bytes": 73,
+   "contains_B_marker": true,
+   "contains_B_workspace_id": false,
+   "contains_B_requirement_id": false,
+   "head": "{\"results\":[],\"total_count\":0,\"page\":1,\"limit\":20,\"query\":\"WP1D-PROBE-B\"}"
+  },
+  "csv-export": {
+   "status": 200,
+   "bytes": 31,
+   "contains_B_marker": false,
+   "contains_B_workspace_id": false,
+   "contains_B_requirement_id": false,
+   "head": "# terminology_profile: default\n"
+  },
+  "reqif-export": {
+   "status": 404,
+   "bytes": 113,
+   "contains_B_marker": false,
+   "contains_B_workspace_id": true,
+   "contains_B_requirement_id": false,
+   "head": "{\"error\":{\"code\":\"NOT_FOUND\",\"message\":\"Workspace 77c6286e-eac8-4ea9-89dc-4a99de886b9b not found.\",\"details\":[]}}"
+  },
+  "pdf-report": {
+   "status": 404,
+   "bytes": 112,
+   "contains_B_marker": false,
+   "contains_B_workspace_id": true,
+   "contains_B_requirement_id": false,
+   "head": "{\"error\":{\"code\":\"NOT_FOUND\",\"message\":\"Workspace 77c6286e-eac8-4ea9-89dc-4a99de886b9b not found\",\"details\":[]}}"
+  },
+  "ws-audit": {
+   "status": 404,
+   "bytes": 142,
+   "contains_B_marker": false,
+   "contains_B_workspace_id": true,
+   "contains_B_requirement_id": false,
+   "head": "{\"error\":{\"code\":\"NOT_FOUND\",\"message\":\"Workspace '77c6286e-eac8-4ea9-89dc-4a99de886b9b' was not found in the caller's tenant.\",\"details\":[]"
+  },
+  "ws-members": {
+   "status": 403,
+   "bytes": 103,
+   "contains_B_marker": false,
+   "contains_B_workspace_id": false,
+   "contains_B_requirement_id": false,
+   "head": "{\"error\":{\"code\":\"PERMISSION_DENIED\",\"message\":\"You are not a member of this workspace.\",\"details\":[]}}"
+  },
+  "tracelinks-bws": {
+   "status": 200,
+   "bytes": 88,
+   "contains_B_marker": false,
+   "contains_B_workspace_id": false,
+   "contains_B_requirement_id": false,
+   "head": "{\"count\":0,\"next\":null,\"previous\":null,\"page_size\":100,\"max_page_size\":500,\"results\":[]}"
+  },
+  "baselines-bws": {
+   "status": 404,
+   "bytes": 104,
+   "contains_B_marker": false,
+   "contains_B_workspace_id": false,
+   "contains_B_requirement_id": false,
+   "head": "{\"error\": {\"code\": \"NOT_FOUND\", \"message\": \"The requested API endpoint does not exist.\", \"details\": []}}"
+  }
+ }
+}

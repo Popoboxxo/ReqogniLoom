@@ -44,6 +44,13 @@ post-deploy gate calls. Details and the exact commands:
 design (so the stack needs no repo file); `deploy/verify-backup-command.sh` extracts it back out and
 regression-tests the failure semantics against a real throwaway Postgres.
 
+A backup is only proven by restoring it (ADR-012). `deploy/verify-restore.sh` is the restore gate:
+it produces a dump with the **real** inlined sidecar command block and restores it **atomically**
+(`psql --single-transaction`) into an **isolated throwaway Postgres**, asserts every table's row
+count matches (15/15), asserts 0 errors, and proves an injected error leaves **no half-restored
+database**. The operator-facing contract and isolated-restore command are in
+[`docs/DEPLOY_RUNBOOK.md`](../docs/DEPLOY_RUNBOOK.md) §6.
+
 ## LLM provider misconfiguration fails the deploy (#1050)
 
 `LLM_PROVIDER=opencode_go` requires `LLM_OPENCODE_SESSION` — the Zen-Go endpoint answers

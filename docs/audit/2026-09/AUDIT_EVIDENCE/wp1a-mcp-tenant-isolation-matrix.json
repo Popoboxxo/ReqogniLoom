@@ -1,0 +1,593 @@
+{
+ "tenant_a": "7a539397-6719-47bb-a6d5-5459016136fb",
+ "tenant_b": "4e0b5ab3-4ce9-4147-9970-8d39827b149c",
+ "ws_a": "4eee7ca1-eedd-4a7e-bb14-47e6493cbf88",
+ "ws_b": "721741dd-18e3-4b38-b375-42d1675bc131",
+ "rows": [
+  {
+   "tool": "requirement.get",
+   "case": "A's id via requirement.get",
+   "cred": "B->A",
+   "http": 200,
+   "is_error": true,
+   "rpc_error": false,
+   "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: Requirement fe0d8a68-0268-4f36-88c5-eb3a0f17782e not found\"}], \"isError\": true}}"
+  },
+  {
+   "tool": "needs.read",
+   "case": "A's id via needs.read",
+   "cred": "B->A",
+   "http": 200,
+   "is_error": true,
+   "rpc_error": false,
+   "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: StakeholderNeed fe0d8a68-0268-4f36-88c5-eb3a0f17782e not found.\"}], \"isError\": true}}"
+  },
+  {
+   "tool": "architecture.get",
+   "case": "A's id via architecture.get",
+   "cred": "B->A",
+   "http": 200,
+   "is_error": true,
+   "rpc_error": false,
+   "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: ArchitectureElement fe0d8a68-0268-4f36-88c5-eb3a0f17782e not found\"}], \"isError\": true}}"
+  },
+  {
+   "tool": "test.get",
+   "case": "A's id via test.get",
+   "cred": "B->A",
+   "http": 200,
+   "is_error": true,
+   "rpc_error": false,
+   "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: TestCase fe0d8a68-0268-4f36-88c5-eb3a0f17782e not found\"}], \"isError\": true}}"
+  },
+  {
+   "tool": "adr.read",
+   "case": "A's id via adr.read",
+   "cred": "B->A",
+   "http": 200,
+   "is_error": true,
+   "rpc_error": false,
+   "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: ADR fe0d8a68-0268-4f36-88c5-eb3a0f17782e not found\"}], \"isError\": true}}"
+  },
+  {
+   "tool": "risk.read",
+   "case": "A's id via risk.read",
+   "cred": "B->A",
+   "http": 200,
+   "is_error": true,
+   "rpc_error": false,
+   "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: Risk fe0d8a68-0268-4f36-88c5-eb3a0f17782e not found\"}], \"isError\": true}}"
+  },
+  {
+   "tool": "issue.read",
+   "case": "A's id via issue.read",
+   "cred": "B->A",
+   "http": 200,
+   "is_error": true,
+   "rpc_error": false,
+   "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: Issue fe0d8a68-0268-4f36-88c5-eb3a0f17782e not found\"}], \"isError\": true}}"
+  },
+  {
+   "tool": "icd.read",
+   "case": "A's id via icd.read",
+   "cred": "B->A",
+   "http": 200,
+   "is_error": true,
+   "rpc_error": false,
+   "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: ICD fe0d8a68-0268-4f36-88c5-eb3a0f17782e not found.\"}], \"isError\": true}}"
+  },
+  {
+   "tool": "diagram.get",
+   "case": "A's id via diagram.get",
+   "cred": "B->A",
+   "http": 200,
+   "is_error": true,
+   "rpc_error": false,
+   "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: Diagram fe0d8a68-0268-4f36-88c5-eb3a0f17782e not found.\"}], \"isError\": true}}"
+  },
+  {
+   "tool": "baseline.get",
+   "case": "A's id via baseline.get",
+   "cred": "B->A",
+   "http": 200,
+   "is_error": true,
+   "rpc_error": false,
+   "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: Baseline not found\"}], \"isError\": true}}"
+  },
+  {
+   "tool": "glossary.read",
+   "case": "A's id via glossary.read",
+   "cred": "B->A",
+   "http": 200,
+   "is_error": true,
+   "rpc_error": false,
+   "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: Workspace '4eee7ca1-eedd-4a7e-bb14-47e6493cbf88' does not exist.\"}], \"isError\": true}}"
+  },
+  {
+   "tool": "interview.get",
+   "case": "A's id via interview.get",
+   "cred": "B->A",
+   "http": 200,
+   "is_error": true,
+   "rpc_error": false,
+   "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: Required parameter 'session_id' is missing.\"}], \"isError\": true}}"
+  },
+  {
+   "tool": "goal.read",
+   "case": "A's id via goal.read",
+   "cred": "B->A",
+   "http": 200,
+   "is_error": true,
+   "rpc_error": false,
+   "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: Required parameter 'goal_id' is missing.\"}], \"isError\": true}}"
+  },
+  {
+   "tool": "main_goal.read",
+   "case": "A's id via main_goal.read",
+   "cred": "B->A",
+   "http": 200,
+   "is_error": true,
+   "rpc_error": false,
+   "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: Required parameter 'workspace_id' is missing.\"}], \"isError\": true}}"
+  },
+  {
+   "tool": "link_type.get",
+   "case": "A's id via link_type.get",
+   "cred": "B->A",
+   "http": 200,
+   "is_error": true,
+   "rpc_error": false,
+   "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: Workspace '4eee7ca1-eedd-4a7e-bb14-47e6493cbf88' does not exist.\"}], \"isError\": true}}"
+  },
+  {
+   "tool": "attribute_definition.get",
+   "case": "A's id via attribute_definition.get",
+   "cred": "B->A",
+   "http": 200,
+   "is_error": true,
+   "rpc_error": false,
+   "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: Workspace '4eee7ca1-eedd-4a7e-bb14-47e6493cbf88' does not exist.\"}], \"isError\": true}}"
+  },
+  {
+   "tool": "workspace.get_context",
+   "case": "A's workspace",
+   "cred": "B->A",
+   "http": 200,
+   "is_error": true,
+   "rpc_error": false,
+   "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: Workspace '4eee7ca1-eedd-4a7e-bb14-47e6493cbf88' does not exist.\"}], \"isError\": true}}"
+  },
+  {
+   "tool": "workspace.get_preferences",
+   "case": "A's workspace",
+   "cred": "B->A",
+   "http": 200,
+   "is_error": true,
+   "rpc_error": false,
+   "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: Workspace '4eee7ca1-eedd-4a7e-bb14-47e6493cbf88' does not exist.\"}], \"isError\": true}}"
+  },
+  {
+   "tool": "workspace.llm_system_prompt",
+   "case": "A's workspace",
+   "cred": "B->A",
+   "http": 200,
+   "is_error": true,
+   "rpc_error": false,
+   "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: Workspace '4eee7ca1-eedd-4a7e-bb14-47e6493cbf88' does not exist.\"}], \"isError\": true}}"
+  },
+  {
+   "tool": "requirement.query",
+   "case": "A's workspace",
+   "cred": "B->A",
+   "http": 200,
+   "is_error": true,
+   "rpc_error": false,
+   "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: Workspace '4eee7ca1-eedd-4a7e-bb14-47e6493cbf88' does not exist.\"}], \"isError\": true}}"
+  },
+  {
+   "tool": "audit.query",
+   "case": "A's workspace",
+   "cred": "B->A",
+   "http": 200,
+   "is_error": true,
+   "rpc_error": false,
+   "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: Workspace '4eee7ca1-eedd-4a7e-bb14-47e6493cbf88' does not exist.\"}], \"isError\": true}}"
+  },
+  {
+   "tool": "permissions.list",
+   "case": "A's workspace",
+   "cred": "B->A",
+   "http": 200,
+   "is_error": true,
+   "rpc_error": false,
+   "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: Workspace '4eee7ca1-eedd-4a7e-bb14-47e6493cbf88' does not exist.\"}], \"isError\": true}}"
+  },
+  {
+   "tool": "memory.digest",
+   "case": "A's workspace",
+   "cred": "B->A",
+   "http": 200,
+   "is_error": true,
+   "rpc_error": false,
+   "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: Workspace '4eee7ca1-eedd-4a7e-bb14-47e6493cbf88' does not exist.\"}], \"isError\": true}}"
+  },
+  {
+   "tool": "test.run_list",
+   "case": "A's workspace",
+   "cred": "B->A",
+   "http": 200,
+   "is_error": true,
+   "rpc_error": false,
+   "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: Workspace '4eee7ca1-eedd-4a7e-bb14-47e6493cbf88' does not exist.\"}], \"isError\": true}}"
+  },
+  {
+   "tool": "context.test_coverage",
+   "case": "A's workspace",
+   "cred": "B->A",
+   "http": 200,
+   "is_error": true,
+   "rpc_error": false,
+   "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: Workspace '4eee7ca1-eedd-4a7e-bb14-47e6493cbf88' does not exist.\"}], \"isError\": true}}"
+  },
+  {
+   "tool": "review.list_pending",
+   "case": "A's workspace",
+   "cred": "B->A",
+   "http": 200,
+   "is_error": true,
+   "rpc_error": false,
+   "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: Workspace '4eee7ca1-eedd-4a7e-bb14-47e6493cbf88' does not exist.\"}], \"isError\": true}}"
+  },
+  {
+   "tool": "baseline.list",
+   "case": "A's workspace",
+   "cred": "B->A",
+   "http": 200,
+   "is_error": true,
+   "rpc_error": false,
+   "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: Workspace '4eee7ca1-eedd-4a7e-bb14-47e6493cbf88' does not exist.\"}], \"isError\": true}}"
+  },
+  {
+   "tool": "audit.waivers",
+   "case": "A's workspace",
+   "cred": "B->A",
+   "http": 200,
+   "is_error": true,
+   "rpc_error": false,
+   "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: Workspace '4eee7ca1-eedd-4a7e-bb14-47e6493cbf88' does not exist.\"}], \"isError\": true}}"
+  },
+  {
+   "tool": "context.change_impact",
+   "case": "A's workspace",
+   "cred": "B->A",
+   "http": 200,
+   "is_error": true,
+   "rpc_error": false,
+   "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: Workspace '4eee7ca1-eedd-4a7e-bb14-47e6493cbf88' does not exist.\"}], \"isError\": true}}"
+  },
+  {
+   "tool": "comment.list",
+   "case": "A's workspace",
+   "cred": "B->A",
+   "http": 200,
+   "is_error": true,
+   "rpc_error": false,
+   "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: Workspace '4eee7ca1-eedd-4a7e-bb14-47e6493cbf88' does not exist.\"}], \"isError\": true}}"
+  },
+  {
+   "tool": "requirement_bundle.attribute_schema",
+   "case": "A's workspace",
+   "cred": "B->A",
+   "http": 200,
+   "is_error": true,
+   "rpc_error": false,
+   "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: Workspace '4eee7ca1-eedd-4a7e-bb14-47e6493cbf88' does not exist.\"}], \"isError\": true}}"
+  },
+  {
+   "tool": "requirement_bundle.compression_status",
+   "case": "A's workspace",
+   "cred": "B->A",
+   "http": 200,
+   "is_error": true,
+   "rpc_error": false,
+   "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: Workspace '4eee7ca1-eedd-4a7e-bb14-47e6493cbf88' does not exist.\"}], \"isError\": true}}"
+  },
+  {
+   "tool": "glossary.query",
+   "case": "A's workspace",
+   "cred": "B->A",
+   "http": 200,
+   "is_error": true,
+   "rpc_error": false,
+   "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: Workspace '4eee7ca1-eedd-4a7e-bb14-47e6493cbf88' does not exist.\"}], \"isError\": true}}"
+  },
+  {
+   "tool": "adr.query",
+   "case": "A's workspace",
+   "cred": "B->A",
+   "http": 200,
+   "is_error": true,
+   "rpc_error": false,
+   "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: Workspace '4eee7ca1-eedd-4a7e-bb14-47e6493cbf88' does not exist.\"}], \"isError\": true}}"
+  },
+  {
+   "tool": "risk.query",
+   "case": "A's workspace",
+   "cred": "B->A",
+   "http": 200,
+   "is_error": true,
+   "rpc_error": false,
+   "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: Workspace '4eee7ca1-eedd-4a7e-bb14-47e6493cbf88' does not exist.\"}], \"isError\": true}}"
+  },
+  {
+   "tool": "issue.query",
+   "case": "A's workspace",
+   "cred": "B->A",
+   "http": 200,
+   "is_error": true,
+   "rpc_error": false,
+   "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: Workspace '4eee7ca1-eedd-4a7e-bb14-47e6493cbf88' does not exist.\"}], \"isError\": true}}"
+  },
+  {
+   "tool": "icd.query",
+   "case": "A's workspace",
+   "cred": "B->A",
+   "http": 200,
+   "is_error": true,
+   "rpc_error": false,
+   "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: Workspace '4eee7ca1-eedd-4a7e-bb14-47e6493cbf88' does not exist.\"}], \"isError\": true}}"
+  },
+  {
+   "tool": "change_request.query",
+   "case": "A's workspace",
+   "cred": "B->A",
+   "http": 200,
+   "is_error": true,
+   "rpc_error": false,
+   "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: Workspace '4eee7ca1-eedd-4a7e-bb14-47e6493cbf88' does not exist.\"}], \"isError\": true}}"
+  },
+  {
+   "tool": "goal.query",
+   "case": "A's workspace",
+   "cred": "B->A",
+   "http": 200,
+   "is_error": true,
+   "rpc_error": false,
+   "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: Workspace '4eee7ca1-eedd-4a7e-bb14-47e6493cbf88' does not exist.\"}], \"isError\": true}}"
+  },
+  {
+   "tool": "main_goal.list_versions",
+   "case": "A's workspace",
+   "cred": "B->A",
+   "http": 200,
+   "is_error": true,
+   "rpc_error": false,
+   "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: Workspace '4eee7ca1-eedd-4a7e-bb14-47e6493cbf88' does not exist.\"}], \"isError\": true}}"
+  },
+  {
+   "tool": "interview.list",
+   "case": "A's workspace",
+   "cred": "B->A",
+   "http": 200,
+   "is_error": true,
+   "rpc_error": false,
+   "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: Workspace '4eee7ca1-eedd-4a7e-bb14-47e6493cbf88' does not exist.\"}], \"isError\": true}}"
+  },
+  {
+   "tool": "traceability.query",
+   "case": "A's workspace",
+   "cred": "B->A",
+   "http": 200,
+   "is_error": true,
+   "rpc_error": false,
+   "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: Workspace '4eee7ca1-eedd-4a7e-bb14-47e6493cbf88' does not exist.\"}], \"isError\": true}}"
+  },
+  {
+   "tool": "attribute_definition.list",
+   "case": "A's workspace",
+   "cred": "B->A",
+   "http": 200,
+   "is_error": true,
+   "rpc_error": false,
+   "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: Workspace '4eee7ca1-eedd-4a7e-bb14-47e6493cbf88' does not exist.\"}], \"isError\": true}}"
+  },
+  {
+   "tool": "attribute_catalog.search",
+   "case": "A's workspace",
+   "cred": "B->A",
+   "http": 200,
+   "is_error": true,
+   "rpc_error": false,
+   "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: Workspace '4eee7ca1-eedd-4a7e-bb14-47e6493cbf88' does not exist.\"}], \"isError\": true}}"
+  },
+  {
+   "tool": "link_type.list",
+   "case": "A's workspace",
+   "cred": "B->A",
+   "http": 200,
+   "is_error": true,
+   "rpc_error": false,
+   "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: Workspace '4eee7ca1-eedd-4a7e-bb14-47e6493cbf88' does not exist.\"}], \"isError\": true}}"
+  },
+  {
+   "tool": "prompt_template.list",
+   "case": "A's workspace",
+   "cred": "B->A",
+   "http": 200,
+   "is_error": true,
+   "rpc_error": false,
+   "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: Workspace '4eee7ca1-eedd-4a7e-bb14-47e6493cbf88' does not exist.\"}], \"isError\": true}}"
+  },
+  {
+   "tool": "prompt_variable.list",
+   "case": "A's workspace",
+   "cred": "B->A",
+   "http": 200,
+   "is_error": true,
+   "rpc_error": false,
+   "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: Workspace '4eee7ca1-eedd-4a7e-bb14-47e6493cbf88' does not exist.\"}], \"isError\": true}}"
+  },
+  {
+   "tool": "diagram.query",
+   "case": "A's workspace",
+   "cred": "B->A",
+   "http": 200,
+   "is_error": true,
+   "rpc_error": false,
+   "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: Workspace '4eee7ca1-eedd-4a7e-bb14-47e6493cbf88' does not exist.\"}], \"isError\": true}}"
+  },
+  {
+   "tool": "memory.list",
+   "case": "A's workspace",
+   "cred": "B->A",
+   "http": 200,
+   "is_error": true,
+   "rpc_error": false,
+   "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: Workspace '4eee7ca1-eedd-4a7e-bb14-47e6493cbf88' does not exist.\"}], \"isError\": true}}"
+  },
+  {
+   "tool": "memory.query",
+   "case": "A's workspace",
+   "cred": "B->A",
+   "http": 200,
+   "is_error": true,
+   "rpc_error": false,
+   "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: Workspace '4eee7ca1-eedd-4a7e-bb14-47e6493cbf88' does not exist.\"}], \"isError\": true}}"
+  },
+  {
+   "tool": "workspace.list",
+   "case": "tenant-global",
+   "cred": "B",
+   "http": 200,
+   "is_error": false,
+   "rpc_error": false,
+   "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"{\\n  \\\"workspaces\\\": [\\n    {\\n      \\\"id\\\": \\\"721741dd-18e3-4b38-b375-42d1675bc131\\\",\\n      \\\"name\\\": \\\"wp1a tenant B workspace\\\",\\n      \\\"description\\\": \\\"isolation probe\\\"\\n    }\\n  ],\\n  \\\"count\\\":"
+  },
+  {
+   "tool": "user.list",
+   "case": "tenant-global",
+   "cred": "B",
+   "http": 200,
+   "is_error": false,
+   "rpc_error": false,
+   "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"{\\n  \\\"users\\\": [\\n    {\\n      \\\"id\\\": \\\"28de5491-14fa-4fba-a614-0560dd9cc18b\\\",\\n      \\\"username\\\": \\\"wp1a-b-4e0b5a\\\",\\n      \\\"email\\\": \\\"wp1a-b-4e0b5a@audit.local\\\",\\n      \\\"is_active\\\": true,\\n   "
+  },
+  {
+   "tool": "events.dlq_list",
+   "case": "tenant-global",
+   "cred": "B",
+   "http": 200,
+   "is_error": true,
+   "rpc_error": false,
+   "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: Required parameter 'workspace_id' is missing.\"}], \"isError\": true}}"
+  },
+  {
+   "tool": "admin.backup_list",
+   "case": "tenant-global",
+   "cred": "B",
+   "http": 200,
+   "is_error": false,
+   "rpc_error": false,
+   "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"{\\n  \\\"backups\\\": []\\n}\"}]}}"
+  },
+  {
+   "tool": "artifact.search",
+   "case": "tenant-global",
+   "cred": "B",
+   "http": 200,
+   "is_error": true,
+   "rpc_error": false,
+   "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: Required parameter 'query' is missing or empty.\"}], \"isError\": true}}"
+  },
+  {
+   "tool": "glossary.create",
+   "case": "WRITE into A",
+   "cred": "B->A",
+   "http": 200,
+   "is_error": true,
+   "rpc_error": false,
+   "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: Workspace '4eee7ca1-eedd-4a7e-bb14-47e6493cbf88' does not exist.\"}], \"isError\": true}}"
+  },
+  {
+   "tool": "glossary.create",
+   "case": "WRITE into B (control)",
+   "cred": "B->B",
+   "http": 200,
+   "is_error": false,
+   "rpc_error": false,
+   "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"{\\n  \\\"data\\\": {\\n    \\\"id\\\": \\\"3e848406-1111-42a2-85ee-ebbce2b88cd3\\\",\\n    \\\"workspace_id\\\": \\\"721741dd-18e3-4b38-b375-42d1675bc131\\\",\\n    \\\"term\\\": \\\"wp1a-b\\\",\\n    \\\"definition\\\": \\\"own\\\",\\n    \\\"sy"
+  },
+  {
+   "tool": "glossary.create",
+   "case": "WRITE into A (control)",
+   "cred": "A->A",
+   "http": 200,
+   "is_error": false,
+   "rpc_error": false,
+   "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"{\\n  \\\"data\\\": {\\n    \\\"id\\\": \\\"299d3ce8-060b-492d-b51f-0b544a710bf9\\\",\\n    \\\"workspace_id\\\": \\\"4eee7ca1-eedd-4a7e-bb14-47e6493cbf88\\\",\\n    \\\"term\\\": \\\"wp1a-b2\\\",\\n    \\\"definition\\\": \\\"own\\\",\\n    \\\"s"
+  },
+  {
+   "tool": "requirement_bundle.export",
+   "case": "export A's tree",
+   "cred": "B->A",
+   "http": 200,
+   "is_error": true,
+   "rpc_error": false,
+   "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: Workspace '4eee7ca1-eedd-4a7e-bb14-47e6493cbf88' does not exist.\"}], \"isError\": true}}"
+  },
+  {
+   "tool": "traceability.suggest_links",
+   "case": "suggest links on A",
+   "cred": "B->A",
+   "http": 200,
+   "is_error": true,
+   "rpc_error": false,
+   "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: Workspace '4eee7ca1-eedd-4a7e-bb14-47e6493cbf88' does not exist.\"}], \"isError\": true}}"
+  },
+  {
+   "tool": "review.approve",
+   "case": "approve in A",
+   "cred": "B->A",
+   "http": 200,
+   "is_error": true,
+   "rpc_error": false,
+   "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: Workspace '4eee7ca1-eedd-4a7e-bb14-47e6493cbf88' does not exist.\"}], \"isError\": true}}"
+  },
+  {
+   "tool": "audit.waive_finding",
+   "case": "waive in A",
+   "cred": "B->A",
+   "http": 200,
+   "is_error": true,
+   "rpc_error": false,
+   "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: Workspace '4eee7ca1-eedd-4a7e-bb14-47e6493cbf88' does not exist.\"}], \"isError\": true}}"
+  },
+  {
+   "tool": "workspace.close",
+   "case": "close A's workspace",
+   "cred": "B->A",
+   "http": 200,
+   "is_error": true,
+   "rpc_error": false,
+   "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: Workspace '4eee7ca1-eedd-4a7e-bb14-47e6493cbf88' does not exist.\"}], \"isError\": true}}"
+  },
+  {
+   "tool": "workspace.close",
+   "case": "close B's own workspace",
+   "cred": "B->B",
+   "http": 200,
+   "is_error": false,
+   "rpc_error": false,
+   "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"{\\n  \\\"workspace\\\": {\\n    \\\"id\\\": \\\"721741dd-18e3-4b38-b375-42d1675bc131\\\",\\n    \\\"name\\\": \\\"wp1a tenant B workspace\\\",\\n    \\\"is_active\\\": false,\\n    \\\"closed_at\\\": \\\"2026-09-29T22:17:55.719389+00:00\\"
+  },
+  {
+   "tool": "user.assign_tenant_admin",
+   "case": "assign tenant admin (B's own user)",
+   "cred": "B->B",
+   "http": 200,
+   "is_error": false,
+   "rpc_error": false,
+   "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"{\\n  \\\"granted\\\": true\\n}\"}]}}"
+  }
+ ]
+}

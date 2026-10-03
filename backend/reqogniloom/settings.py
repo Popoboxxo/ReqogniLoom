@@ -571,6 +571,27 @@ REST_FRAMEWORK = {
 }
 
 # ---------------------------------------------------------------------------
+# ADR-011 — two-level authorization axis (SEC-02 / SEC-03)
+# ---------------------------------------------------------------------------
+# The central resource-scope classifier (auth_tenancy.resource_scope) derives
+# the workspace fence from the target object. ADR-013 (amending ADR-011) fixes
+# the collection-route rule and flips this default ON: the coverage gate
+# (rest_api/tests/test_resource_scope_coverage.py) is green and the seam now
+# distinguishes object routes (fail-closed) from list/create collections without
+# turning every flat request into a 403. Set the env var to "false" for a
+# rollback window; the repository default enforces DEFAULT-DENY (ADR-011).
+AUTHZ_WORKSPACE_SCOPE_ENFORCED: bool = config(
+    "AUTHZ_WORKSPACE_SCOPE_ENFORCED", default=True, cast=bool
+)
+# The API-key workspace_ids fence (SEC-03) is narrower — it only affects keys
+# carrying a non-empty fence — and mirrors the MCP dispatcher, so it is on by
+# default. Set to False to fall back to the pre-ADR behaviour for a rollout
+# window (Policy-Migrationsfenster, SECTRACK-01).
+AUTHZ_API_KEY_WORKSPACE_FENCE_ENFORCED: bool = config(
+    "AUTHZ_API_KEY_WORKSPACE_FENCE_ENFORCED", default=True, cast=bool
+)
+
+# ---------------------------------------------------------------------------
 # drf-spectacular — OpenAPI auto-generation (COMP-RA-005)
 # REQ-L3-RA005-001: securitySchemes defines Bearer token authentication.
 # REQ-L3-RA005-001: Schema endpoint served without auth (SERVE_INCLUDE_SCHEMA=False
@@ -757,6 +778,28 @@ HEALTH_PROBE_TIMEOUT_SECONDS: float = config(
     "HEALTH_PROBE_TIMEOUT", default=10.0, cast=float
 )
 
+
+def _health_strict_readiness(value: str) -> bool:
+    """ADR-010 §6: strict (fail-closed) unless the value is exactly ``false``.
+
+    An unset or empty value is strict; fail-closed is default-by-omission.
+    """
+    return str(value).strip().lower() != "false"
+
+
+# ADR-010 §6/§4: readiness strictness. Default ``true`` (fail-closed): an
+# unhealthy mandatory dependency yields HTTP 503. Only an explicit ``false``
+# switches ``/health/ready`` to the "degraded-200" fallback mode. This is
+# deployment/operator configuration, never a runtime user switch, and is not
+# exposed through the app UI.
+HEALTH_STRICT_READINESS: bool = config(
+    "HEALTH_STRICT_READINESS", default=True, cast=_health_strict_readiness
+)
+
+# ADR-010 §3: the HTTP ``Sunset`` date advertised by the deprecated ``/health/``
+# alias. ISO-8601 here; the view formats it as an IMF-fixdate at response time.
+HEALTH_ALIAS_SUNSET: str = config("HEALTH_ALIAS_SUNSET", default="2027-04-01")
+
 # REQ-106: per-tenant daily token budget. When set (a positive integer), the
 # CapabilityRouter rejects further LLM calls for a tenant that has already
 # consumed this many tokens in the last 24 hours, returning a structured
@@ -827,6 +870,12 @@ CELERY_BEAT_SCHEDULE = {
         "task": "admin_ops.record_celery_beat_heartbeat",
         "schedule": timedelta(seconds=CELERY_BEAT_HEARTBEAT_INTERVAL_SECONDS),
     },
+    # ADR-014 §3: delete expired Idempotency-Key records hourly so the replay
+    # store stays bounded (TTL × rate).
+    "cleanup-import-idempotency": {
+        "task": "application.cleanup_import_idempotency_records",
+        "schedule": crontab(minute=0),
+    },
 }
 
 # Use database scheduler for Celery Beat (REQ-030)
@@ -876,12 +925,89 @@ CELERY_TASK_TIME_LIMIT: int = max(_LLM_LONG_RUNNING_TIMEOUT_ENV, 180)  # Hard: 1
 # Celery broker URLs are constructed first during module import.
 _REDIS_PASSWORD_PART = f":{_REDIS_PASSWORD}@" if _REDIS_PASSWORD else ""
 REDIS_URL: str = f"redis://{_REDIS_PASSWORD_PART}{_REDIS_HOST}:{_REDIS_PORT}/1"
+
+# RES-01 (audit finding 030): bound the Redis cache client's socket operations.
+#
+# django.core.cache.backends.redis.RedisCache forwards CACHES["OPTIONS"] to the
+# underlying ``redis.Redis``/connection pool. With no OPTIONS the client falls
+# back to the OS TCP timeouts, which are minutes long — so when Redis is dead,
+# dropping packets (connect) or frozen mid-command (read), every cache access on
+# the request path blocked for that long before raising. The rate-limiting
+# ``DynamicRateThrottle.allow_request`` is documented to fail *open* on a cache
+# outage, but its ``except Exception`` can only fire once the socket actually
+# raises: without these timeouts the request hung instead of reaching fail-open.
+#
+# ``socket_connect_timeout`` (2s) bounds the TCP handshake — the failure mode
+# where a host/firewall silently drops packets, which no command timeout covers.
+# ``socket_timeout`` (5s) bounds a *connected* server that stops answering
+# (e.g. a frozen container process). Both defaults are three to four orders of
+# magnitude above a healthy sibling-container round trip (sub-millisecond), so
+# they cannot cause spurious fail-open under load, yet they cap the failure
+# window at a few seconds instead of the OS default. Env-overridable for a
+# remote/slow Redis (RES-01 rollback story: conservative default, tunable).
+CACHE_SOCKET_CONNECT_TIMEOUT: float = config(
+    "CACHE_SOCKET_CONNECT_TIMEOUT", default=2.0, cast=float
+)
+CACHE_SOCKET_TIMEOUT: float = config("CACHE_SOCKET_TIMEOUT", default=5.0, cast=float)
+
+# RES-01 residual (AUD-030 / N3): ``socket_connect_timeout`` bounds the TCP
+# handshake but NOT the ``socket.getaddrinfo`` call that precedes it, and that
+# call has no timeout parameter. With Redis stopped, its Compose service name
+# stops resolving and redis-py blocked ~3.85s *per cache op* — the throttle's
+# documented fail-open never got the exception it waits for. ``pool_class``
+# installs ``reqogniloom.bounded_dns`` (see that module) so every DNS lookup on
+# the cache path runs in a thread bounded by ``CACHE_DNS_TIMEOUT`` and a failed
+# target enters ``CACHE_UNHEALTHY_COOLDOWN`` so the request does not pay that
+# budget once per cache key. Effects are central to the cache backend; the
+# shipped 1.5s + 2s keeps a Redis-stop request comfortably inside the 8s
+# acceptance. Env-overridable; a TLS (``rediss://``) deployment intentionally
+# keeps redis-py's default connection class (SNI/hostname verification).
+CACHE_DNS_TIMEOUT: float = config("CACHE_DNS_TIMEOUT", default=1.5, cast=float)
+CACHE_UNHEALTHY_COOLDOWN: float = config(
+    "CACHE_UNHEALTHY_COOLDOWN", default=2.0, cast=float
+)
 CACHES = {
     "default": {
         "BACKEND": "django.core.cache.backends.redis.RedisCache",
         "LOCATION": REDIS_URL,
+        "OPTIONS": {
+            "socket_connect_timeout": CACHE_SOCKET_CONNECT_TIMEOUT,
+            "socket_timeout": CACHE_SOCKET_TIMEOUT,
+            "pool_class": "reqogniloom.bounded_dns.BoundedRedisConnectionPool",
+        },
     }
 }
+
+# ---------------------------------------------------------------------------
+# ADR-014 (accepted) — import contract v2 + Idempotency-Key (INT-01)
+#
+# IMPORT_CONTRACT_V2 controls the ReqIF import response contract:
+#   False (default): Phase 1 of the ADR-014 §5 deprecation window — the
+#         pre-ADR response (``success`` always True, HTTP 200, legacy keys
+#         only). This matches §5's binding instruction "Feature-Flag
+#         ``IMPORT_CONTRACT_V2`` (Default in Phase 1 ``off``)".
+#   True: contract v2 is active — ``success = (counts.failed == 0)``, HTTP
+#         200/207/422 per ADR-014 §2, v2 envelope
+#         (``contract``/``counts``/``items``/``idempotent_replay``/``request_id``)
+#         plus the legacy keys kept additively during the deprecation window (§5).
+#
+# The v2 behaviour is fully implemented and covered by tests that activate it
+# with ``@override_settings``; shipping the flag dark by default is the ADR's
+# phase-1 requirement, not a half-finished feature. Flipping it on is a
+# deploy-time decision (Phase 2), after consumers have migrated.
+#
+# IMPORT_IDEMPOTENCY_TTL_HOURS is the replay window (ADR-014 §3, default 24 h);
+# a Celery-beat task deletes expired records (see CELERY_BEAT_SCHEDULE).
+# IMPORT_IDEMPOTENCY_MAX_KEYS_PER_TENANT bounds a tenant's replay store
+# (ADR-014 §3/§7); the oldest-expiring keys are evicted first.
+# ---------------------------------------------------------------------------
+IMPORT_CONTRACT_V2: bool = config("IMPORT_CONTRACT_V2", default=False, cast=bool)
+IMPORT_IDEMPOTENCY_TTL_HOURS: int = config(
+    "IMPORT_IDEMPOTENCY_TTL_HOURS", default=24, cast=int
+)
+IMPORT_IDEMPOTENCY_MAX_KEYS_PER_TENANT: int = config(
+    "IMPORT_IDEMPOTENCY_MAX_KEYS_PER_TENANT", default=10000, cast=int
+)
 
 # ---------------------------------------------------------------------------
 # Tenant-Isolation placeholder — ADR-03

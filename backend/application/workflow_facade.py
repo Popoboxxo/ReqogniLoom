@@ -94,12 +94,11 @@ class WorkflowFacade(ServiceBase):
                 still serialises concurrent writers, but inside that lock the
                 write is plain last-writer-wins: a caller that transitions
                 without a revision cannot detect that someone else moved the
-                item on and will overwrite it. The CR-08 rollout only threads
-                ``expected_version`` through the MCP transition tools; the
-                service wrappers that call this facade directly (the ADR, risk,
-                issue, change-request and main-goal services, the goal
-                re-activate path) do not pass it and remain unprotected in that
-                last-writer-wins sense.
+                item on and will overwrite it. The service wrappers that call
+                this facade directly (the ADR, risk, issue, change-request,
+                main-goal services and the Goal archive/restore paths) thread
+                the revision through since AUD-2026-09-282; callers that omit
+                it remain unprotected in that last-writer-wins sense.
 
         Returns:
             workflow.services.TransitionResult

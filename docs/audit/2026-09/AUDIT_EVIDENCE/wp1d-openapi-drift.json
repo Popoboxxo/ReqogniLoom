@@ -1,0 +1,84 @@
+{
+  "spec": {
+    "openapi": "3.0.3",
+    "version": "0.1.0",
+    "paths": 296,
+    "operations": 439,
+    "schemas": 106,
+    "security_schemes": {
+      "BearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "Bearer token authentication. Use 'Authorization: Bearer <token>' header. Two credentials are accepted, and the header order is the resolution order: 'X-API-Key: reqlo_…' takes precedence over 'Authorization: Bearer', which in turn takes precedence over the httpOnly reqogniloom_access cookie. A credential that is present but INVALID is rejected (401, code 'invalid_api_key') rather than skipped in favour of the next one — a present-but-wrong X-API-Key is not ignored, and the Bearer credential is then never evaluated. An EMPTY X-API-Key header counts as absent. A reqlo_-prefixed key sent as 'Authorization: Bearer <key>' is a separate transport and keeps the generic catalogue text."
+      },
+      "cookieAuth": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "sessionid"
+      }
+    },
+    "global_security": null
+  },
+  "routing": {
+    "resolved_routes_total": 759,
+    "api_v1_routes": 487,
+    "api_v1_routes_with_methods": 482,
+    "api_v1_distinct_paths": 482,
+    "routed_only_not_in_spec_count": 7,
+    "routed_only_not_in_spec": [
+      "/api/v1",
+      "/api/v1/mcp",
+      "/api/v1/mcp/messages",
+      "/api/v1/mcp/sse",
+      "/api/v1/schema",
+      "/api/v1/schema/swagger-ui",
+      "/api/v1/{}"
+    ],
+    "spec_only_not_routed_count": 0,
+    "spec_only_not_routed": [],
+    "method_drift_count": 0,
+    "method_drift": []
+  },
+  "security": {
+    "operations_without_security_nonpublic_count": 0,
+    "operations_without_security_nonpublic": [],
+    "public_endpoints_with_explicit_security": [
+      "POST /api/v1/auth/login/ -> [{'BearerAuth': []}, {}]",
+      "POST /api/v1/auth/refresh/ -> [{'BearerAuth': []}, {}]",
+      "GET /api/v1/public/banners/login/ -> [{'BearerAuth': []}, {}]"
+    ]
+  },
+  "errors": {
+    "ops_with_any_4xx": 7,
+    "ops_with_any_5xx": 0,
+    "ops_with_4xx_with_body": 0,
+    "err_code_set_histogram": {
+      "[]": 432,
+      "['401']": 1,
+      "['404']": 3,
+      "['400', '404']": 3
+    },
+    "response_code_set_histogram": {
+      "['200']": 364,
+      "['204']": 41,
+      "['201']": 27,
+      "['200', '401']": 1,
+      "['200', '404']": 3,
+      "['200', '400', '404']": 3
+    }
+  },
+  "params": {
+    "histogram": {
+      "(none)": 415,
+      "page,page_size": 22,
+      "async,depth,fields,filter_mode,mode,output_format": 1,
+      "limit,page,q,type,workspace_id": 1
+    },
+    "query_params_without_maximum_count": 2,
+    "query_params_without_maximum_sample": [
+      "GET /api/v1/architecture/{id}/requirement-bundle/ :: ['async', 'depth', 'fields', 'filter_mode', 'mode', 'output_format']",
+      "GET /api/v1/search/ :: ['limit', 'page', 'q', 'type', 'workspace_id']"
+    ]
+  }
+}

@@ -343,3 +343,73 @@ jobs:
         uses: docker://rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667
         with:
           args: -color
+
+  # ADR-012 / DATA-01: a backup is only proven by restoring it. This job runs
+  # deploy/verify-restore.sh, which produces a dump with the REAL inlined
+  # `postgres-backup` command block and restores it atomically
+  # (psql --single-transaction) into an isolated throwaway Postgres. It asserts
+  # 15/15 tables, 0 errors, and that an injected error rolls back to zero
+  # tables. Requires only docker + bash + python3, all present on the runner.
+  restore-smoke:
+    name: "Restore Smoke Gate (ADR-012)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Least privilege: the smoke only reads compose/checkout and runs docker.
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Create compose env file
+        # deploy/docker-compose.yml declares `env_file: .env`; Docker Compose
+        # resolves it against --project-directory (the repo root) and treats a
+        # missing file as fatal. CI has no .env (gitignored), so materialise it
+        # from the tracked example before the smoke parses the Compose model.
+        run: cp .env.example .env
+
+      - name: Run atomic restore smoke
+        # Defence-in-depth: the exec bit is also set (git mode 100755), but
+        # invoking via `bash` cannot fail with exit 126 on a checkout that
+        # dropped the bit (e.g. a filesystem/export that loses POSIX modes).
+        run: bash deploy/verify-restore.sh
+
+  # SECTRACK-03: reproducible secret-scan backstop for the incident pattern
+  # `reqlo_<40 alnum>`. gitleaks 8.30.1 (pinned, sha256-verified) runs twice:
+  # once over the checked-out working tree (`dir`) and once over the full git
+  # history (`git`). The gate is scoped to the deterministic incident rule via
+  # `--enable-rule reqlo-api-key`; see .gitleaks.toml for why the default
+  # heuristics are not part of the blocking gate (they fire on intentional test
+  # fixtures and the documented 44-character README example, which must not be
+  # reported). 0 findings is a hard requirement (--exit-code 1).
+  secret-scan:
+    name: "Secret Scan (gitleaks 8.30.1)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Least privilege: the scan only reads the checked-out repository.
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Full history is required for the `gitleaks git` history scan.
+          fetch-depth: 0
+
+      - name: Install gitleaks (pinned 8.30.1, sha256-verified)
+        run: |
+          set -euo pipefail
+          GITLEAKS_VERSION=8.30.1
+          ARCHIVE="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          URL="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/${ARCHIVE}"
+          curl -sSfL "$URL" -o "/tmp/${ARCHIVE}"
+          echo "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  /tmp/${ARCHIVE}" | sha256sum -c -
+          tar -xzf "/tmp/${ARCHIVE}" -C /tmp gitleaks
+          sudo install -m 0755 /tmp/gitleaks /usr/local/bin/gitleaks
+          gitleaks version
+
+      - name: Scan working tree (gitleaks dir)
+        run: gitleaks dir . --config .gitleaks.toml --enable-rule reqlo-api-key --redact --exit-code 1
+
+      - name: Scan full git history (gitleaks git)
+        run: gitleaks git . --config .gitleaks.toml --enable-rule reqlo-api-key --redact --exit-code 1

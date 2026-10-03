@@ -33,6 +33,7 @@ from persistence.middleware import clear_request_tenant, set_request_tenant
 from persistence.models import Tenant, User, Workspace
 from rest_api.api_key_views import ApiKeyViewSet
 from rest_api.auth_enforcer import RbacPermission
+from rest_api.auth_views import MeView
 
 
 # ---------------------------------------------------------------------------
@@ -53,9 +54,14 @@ def _ctx(scope: str | None, roles: tuple[str, ...] = (ROLE_ADMIN,)) -> AuthConte
     )
 
 
-class _View:
-    required_operation = None
-    required_scope_operation = None
+# ADR-013 switched the ADR-011 resource-scope seam on by default, and that seam
+# denies *unclassified* view classes (the registry keys on the class name). These
+# gate-level tests exercise the capability/scope declarations in isolation, so
+# the synthetic view must be a real, classified (tenant-scoped) surface;
+# otherwise the resource-scope seam - covered by its own tests - would deny it
+# first. ``required_operation``/``required_scope_operation`` default to ``None``
+# via ``getattr`` and are set per test. All assertions are unchanged.
+_View = MeView
 
 
 def _request(method: str, ctx: AuthContext) -> SimpleNamespace:

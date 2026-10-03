@@ -1,0 +1,54 @@
+{
+ "tenantB_login": {
+  "status": 401,
+  "body": "{\"error\":{\"code\":\"invalid_credentials\",\"message\":\"The provided credentials are invalid.\",\"details\":[{\"doc_url\":\"https://docs.reqogniloom.local/errors/invalid_credentials\"}]}}"
+ },
+ "tenantA_login": {
+  "status": 200
+ },
+ "tenantA_probes": {
+  "requirements": {
+   "status": 200,
+   "count_or_n": 888
+  },
+  "artifacts": {
+   "status": 200,
+   "count_or_n": 1176
+  },
+  "workspaces": {
+   "status": 200,
+   "count_or_n": 401
+  },
+  "api-keys": {
+   "status": 200,
+   "count_or_n": 200
+  },
+  "users": {
+   "status": 200,
+   "count_or_n": 12
+  },
+  "glossary": {
+   "status": 400,
+   "count_or_n": null
+  },
+  "trace-links": {
+   "status": 200,
+   "count_or_n": 1974
+  }
+ },
+ "requirements_marker": {
+  "status": 400,
+  "bytes": 87,
+  "contains_marker": false
+ },
+ "search_marker": {
+  "status": 200,
+  "bytes": 5342,
+  "contains_marker": true
+ },
+ "search_RTQ": {
+  "status": 200,
+  "bytes": 4871,
+  "contains_marker": true
+ }
+}

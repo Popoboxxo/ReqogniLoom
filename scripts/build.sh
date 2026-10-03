@@ -78,7 +78,7 @@ main() {
   log_info "BUILD_TIME=${BUILD_TIME}"
 
   # `-f deploy/docker-compose.yml` ONLY (no override.yml) on purpose (same as
-  # scripts/backup.sh and the Makefile's TEST_COMPOSE): the override merges
+  # the Makefile's TEST_COMPOSE): the override merges
   # the frontend's *development* target instead of the release image this
   # script stamps metadata into, and legacy `docker-compose` v1 cannot parse
   # its `!override` merge tag at all (needs Compose >= 2.24.4). Deployment
