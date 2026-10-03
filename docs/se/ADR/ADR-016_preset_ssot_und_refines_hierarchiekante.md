@@ -1,7 +1,7 @@
 ---
 adr_id: ADR-016
 title: "Ehrliche Teil-SSOT für Presets, fail-closed Downgrade-Gate und `refines` bewusst nicht als Hierarchiekante"
-status: proposed
+status: accepted
 date: "2026-10-03"
 deciders: [user, senior-developer]
 affected_reqs: [REQ-L1-001, REQ-L1-007, REQ-L1-047, REQ-L1-062, REQ-L2-PC-001, REQ-L2-PC-004, REQ-L2-PC-006, REQ-L2-PC-011, REQ-L2-PC-012, REQ-L2-TE-001, REQ-L2-TE-017]
@@ -10,7 +10,7 @@ superseded_by: null
 
 # ADR-016: Ehrliche Teil-SSOT für Presets, fail-closed Downgrade-Gate und `refines` bewusst nicht als Hierarchiekante
 
-**Status:** proposed (Empfehlung — Freigabe durch User/Review offen)
+**Status:** accepted (2026-10-03) — User-Freigabe nach `concept-reviewer`-Review (RVW-2026-10-03-004, Iteration 2: APPROVED).
 **Datum:** 2026-10-03
 **Entscheider (vorgeschlagen):** user, senior-developer
 **Betroffene REQs:** REQ-L1-001 (Artefakt-Hierarchie mit beliebiger Tiefe,
@@ -42,12 +42,13 @@ ausgeschlossen, als offene Entscheidung markiert — genau dieser ADR) und `:179
 `backend/reqogniloom/settings.py:508-509`
 (`DEFAULT_DECOMPOSITION_LINK_TYPE` Default `decomposes`).
 
-**Review-/Lifecycle-Vermerk:** Dieses ADR ist **`proposed`**. Es formuliert eine
-begründete **Empfehlung**, keine freigegebene Entscheidung. Die Freigabe erfolgt durch
-den User nach Review (`concept-reviewer`); erst dann darf der Status wechseln. Die
-abhängige Umsetzung (`DATA-10`, `DOC-01`) beginnt **nach** der Freigabe.
+**Review-/Lifecycle-Vermerk:** Dieses ADR ist **`accepted`**. Es wurde als begründete
+**Empfehlung** formuliert und nach Review durch den User freigegeben. Die abhängige
+Umsetzung (`DATA-10`, `DOC-01`) beginnt **nach** der Freigabe.
 **Review-Iteration 1** (`RVW-2026-10-03-001`): Verdict APPROVED; die nicht-blockierenden
-Befunde `001-01`–`001-04` wurden präzisierend eingearbeitet, der Status bleibt `proposed`.
+Befunde `001-01`–`001-04` wurden präzisierend eingearbeitet.
+**Review-Iteration 2** (`RVW-2026-10-03-004`): Verdict APPROVED; keine critical/major offen.
+**Statuswechsel 2026-10-03:** `proposed → accepted` auf User-Entscheid nach Iteration 2 (RVW-2026-10-03-004, alle drei APPROVED). Grund: Inhaltlich reif, keine critical/major offen; Restpunkte sind info/minor und blockieren nicht. Prozess-Finding 000-01 (Erstellung durch `senior-developer` statt `se-architect`) wird als dokumentierte, vom User getragene Abweichung festgehalten — kein Blocker.
 
 ---
 
@@ -293,14 +294,14 @@ unabhängig davon sofort geschlossen wird.
 - **Die SSOT-Docstring-Korrektur allein stellt keine Vollständigkeit her.** Sie garantiert
   nicht, dass jede Regel korrekt klassifiziert ist; `DATA-10`/`DOC-01` müssen die
   Klassifikation einmalig durchgehen.
-- **Entscheidung noch nicht freigegeben:** Status `proposed`; bis zur User-Freigabe bleibt
-  die Lücke offen und der abhängige Fix ungestartet.
+- **Freigabe erteilt (2026-10-03):** Status `accepted`; die Lücke bleibt bis zur Umsetzung
+  durch `DATA-10`/`DOC-01` bestehen, ist aber freigegeben und nicht mehr blockiert.
 
 ---
 
 ## Offene Punkte
 
-1. **Freigabe:** `proposed → review → accepted` durch User nach `concept-reviewer`-Review.
+1. **Freigabe:** ✅ erledigt — Statuswechsel `proposed → accepted` am 2026-10-03 durch den User nach `concept-reviewer`-Review (RVW-2026-10-03-004, Iteration 2 APPROVED).
 2. **`open_adrs`-Feld** (`AUD-2026-09-333`): Die oben genannten REQs können diesen ADR
    erst nach Einführung maschinell referenzieren; bis dahin keine REQ-Datei-Änderung.
 3. **Genauer fail-closed-Modus** (block vs. error, Konfigurationsschalter) ist Teil von
@@ -310,6 +311,6 @@ unabhängig davon sofort geschlossen wird.
 
 ---
 
-*Erstellt durch `senior-developer` am 2026-10-03. Status `proposed` — begründete
-Empfehlung; die Freigabe erfolgt durch User/Review, nicht durch den Autor.
+*Erstellt durch `senior-developer` am 2026-10-03; am 2026-10-03 nach Review
+(`RVW-2026-10-03-004`, Iteration 2 APPROVED) durch den User auf `accepted` gesetzt.
 Kein Produktcode, keine Migration, kein Push.*

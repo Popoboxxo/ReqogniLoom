@@ -1,7 +1,7 @@
 ---
 adr_id: ADR-017
 title: "`VERSION` ist SSOT der Server-Version; Plugin-Versionierung ist Nicht-Produkt-Zusage (Dritt-/POC-Plugins führen eigene SemVer mit minServerVersion)"
-status: proposed
+status: accepted
 date: "2026-10-03"
 deciders: [user, senior-developer]
 affected_reqs: [REQ-L1-005, REQ-L1-006, REQ-L1-082, REQ-L2-MC-016, REQ-L2-MC-019]
@@ -10,7 +10,7 @@ superseded_by: null
 
 # ADR-017: `VERSION` ist SSOT der Server-Version; Plugin-Versionierung ist Nicht-Produkt-Zusage (Dritt-/POC-Plugins führen eigene SemVer mit `minServerVersion`)
 
-**Status:** proposed (Empfehlung — Freigabe durch User/Review offen)
+**Status:** accepted (2026-10-03) — User-Freigabe nach `concept-reviewer`-Review (RVW-2026-10-03-004, Iteration 2: APPROVED).
 **Datum:** 2026-10-03
 **Entscheider (vorgeschlagen):** user, senior-developer
 **Betroffene REQs:** REQ-L1-005 (MCP Server mit vollständigem Read/Write-Zugriff,
@@ -35,13 +35,13 @@ Arbeitseinheit `PLUG-04` (`docs/audit/2026-09/review/plan/PLUGINS.md:58-70`). Fi
 `integrations/hermes-plugin/reqogniloom/hermes-plugin.json:4` (`"version":
 "1.8.0-beta.17"`), `:40-46` (`engines.hermes`, `permissions` — heute dekorativ).
 
-**Review-/Lifecycle-Vermerk:** Dieses ADR ist **`proposed`**. Es formuliert eine
-begründete **Empfehlung**, keine freigegebene Entscheidung. Die Freigabe erfolgt durch
-den User nach Review (`concept-reviewer`); erst dann darf der Status wechseln. Die
-abhängige Umsetzung (`PLUG-04`) beginnt **nach** der Freigabe.
+**Review-/Lifecycle-Vermerk:** Dieses ADR ist **`accepted`**. Es wurde als begründete
+**Empfehlung** formuliert und nach Review durch den User freigegeben. Die abhängige
+Umsetzung (`PLUG-04`) beginnt **nach** der Freigabe.
 **Review-Iteration 1** (`RVW-2026-10-03-001`): Verdict CHANGES_REQUESTED; die
-major-Befunde `002-01`/`002-02` sowie die minors `002-03`–`002-05` wurden eingearbeitet,
-der Status bleibt `proposed`.
+major-Befunde `002-01`/`002-02` sowie die minors `002-03`–`002-05` wurden eingearbeitet.
+**Review-Iteration 2** (`RVW-2026-10-03-004`): Verdict APPROVED; keine critical/major offen.
+**Statuswechsel 2026-10-03:** `proposed → accepted` auf User-Entscheid nach Iteration 2 (RVW-2026-10-03-004, alle drei APPROVED). Grund: Inhaltlich reif, keine critical/major offen; Restpunkte sind info/minor und blockieren nicht. Prozess-Finding 000-01 (Erstellung durch `senior-developer` statt `se-architect`) wird als dokumentierte, vom User getragene Abweichung festgehalten — kein Blocker.
 
 ---
 
@@ -244,14 +244,14 @@ Nicht-Produkt-Zusage (Scope-Abgrenzung, s. Kontext 4).**
 - **Plugin-Versionierung bleibt ein Traceability-Gap:** Ohne REQ-Anker kann die
   Kaskade die Plugin-Hälfte nicht prüfen; das ist bewusst als Nicht-Produkt-Zusage
   ausgewiesen, nicht stillschweigend verankert.
-- **Entscheidung noch nicht freigegeben:** Status `proposed`; die abhängige `PLUG-04`-
-  Umsetzung startet nach der User-Freigabe.
+- **Freigabe erteilt (2026-10-03):** Status `accepted`; die abhängige `PLUG-04`-Umsetzung
+  startet nach der User-Freigabe.
 
 ---
 
 ## Offene Punkte
 
-1. **Freigabe:** `proposed → review → accepted` durch User nach `concept-reviewer`-Review.
+1. **Freigabe:** ✅ erledigt — Statuswechsel `proposed → accepted` am 2026-10-03 durch den User nach `concept-reviewer`-Review (RVW-2026-10-03-004, Iteration 2 APPROVED).
 2. **Traceability-Gap Plugin-Versionierung (Befund 002-02):** Es existiert **keine** REQ
    für die Plugin-Versionierung. Der ADR-Scope ist deshalb präzise auf die Server-Version
    begrenzt; die Plugin-Versionierung ist als **Nicht-Produkt-Zusage** ausgewiesen. Offen
@@ -267,6 +267,6 @@ Nicht-Produkt-Zusage (Scope-Abgrenzung, s. Kontext 4).**
 
 ---
 
-*Erstellt durch `senior-developer` am 2026-10-03. Status `proposed` — begründete
-Empfehlung; die Freigabe erfolgt durch User/Review, nicht durch den Autor.
+*Erstellt durch `senior-developer` am 2026-10-03; am 2026-10-03 nach Review
+(`RVW-2026-10-03-004`, Iteration 2 APPROVED) durch den User auf `accepted` gesetzt.
 Kein Produktcode, keine Migration, kein Push.*

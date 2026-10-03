@@ -1,7 +1,7 @@
 ---
 adr_id: ADR-018
 title: "i18n-Vertrag: Inline-Default nur mit monoton sinkendem Ratchet, dynamische Keys ohne Typschema verboten"
-status: proposed
+status: accepted
 date: "2026-10-03"
 deciders: [user, senior-developer]
 affected_reqs: [REQ-L0-009, REQ-L1-016, REQ-L1-094, REQ-L2-RF-001, REQ-L2-RF-034, REQ-L2-RF-035, REQ-L2-RF-036, REQ-L2-RF-037, REQ-L2-RA-004]
@@ -10,7 +10,7 @@ superseded_by: null
 
 # ADR-018: i18n-Vertrag: Inline-Default nur mit monoton sinkendem Ratchet, dynamische Keys ohne Typschema verboten
 
-**Status:** proposed (Empfehlung — Freigabe durch User/Review offen)
+**Status:** accepted (2026-10-03) — User-Freigabe nach `concept-reviewer`-Review (RVW-2026-10-03-004, Iteration 2: APPROVED).
 **Datum:** 2026-10-03
 **Entscheider (vorgeschlagen):** user, senior-developer
 **Betroffene REQs:** REQ-L0-009 (SN-09: Zweisprachige Benutzeroberfläche,
@@ -36,13 +36,13 @@ statisch geprüft), `:202-223` (Ratchet: rot nur bei **Anstieg**);
 `frontend/src/i18n/index.ts:22-23` (`lng`-Auswahl + `fallbackLng: "en"`);
 `frontend/src/i18n/locales/{de,en}.json`.
 
-**Review-/Lifecycle-Vermerk:** Dieses ADR ist **`proposed`**. Es formuliert eine begründete
-**Empfehlung**, keine freigegebene Entscheidung. Die Freigabe erfolgt durch den User nach
-Review (`concept-reviewer`); erst dann darf der Status wechseln. Die abhängige Umsetzung
-(`DOC-02`) beginnt **nach** der Freigabe.
+**Review-/Lifecycle-Vermerk:** Dieses ADR ist **`accepted`**. Es wurde als begründete
+**Empfehlung** formuliert und nach Review durch den User freigegeben. Die abhängige
+Umsetzung (`DOC-02`) beginnt **nach** der Freigabe.
 **Review-Iteration 1** (`RVW-2026-10-03-001`): Verdict CHANGES_REQUESTED; der
-major-Befund `003-01` (Enforcement) sowie die minors `003-02`–`003-04` wurden
-eingearbeitet, der Status bleibt `proposed`.
+major-Befund `003-01` (Enforcement) sowie die minors `003-02`–`003-04` wurden eingearbeitet.
+**Review-Iteration 2** (`RVW-2026-10-03-004`): Verdict APPROVED; keine critical/major offen.
+**Statuswechsel 2026-10-03:** `proposed → accepted` auf User-Entscheid nach Iteration 2 (RVW-2026-10-03-004, alle drei APPROVED). Grund: Inhaltlich reif, keine critical/major offen; Restpunkte sind info/minor und blockieren nicht. Prozess-Finding 000-01 (Erstellung durch `senior-developer` statt `se-architect`) wird als dokumentierte, vom User getragene Abweichung festgehalten — kein Blocker.
 
 ---
 
@@ -209,14 +209,14 @@ dynamische Keys ohne Typschema verboten.**
   maschinell ersetzt werden.
 - **Dynamische-Keys-Verbot** kann legitime Fälle (z. B. berechnete Terminologie-Labels)
   aufwändiger machen; diese brauchen dann eine explizite Registry/Union.
-- **Entscheidung noch nicht freigegeben:** Status `proposed`; `DOC-02` startet nach der
+- **Freigabe erteilt (2026-10-03):** Status `accepted`; `DOC-02` startet nach der
   User-Freigabe.
 
 ---
 
 ## Offene Punkte
 
-1. **Freigabe:** `proposed → review → accepted` durch User nach `concept-reviewer`-Review.
+1. **Freigabe:** ✅ erledigt — Statuswechsel `proposed → accepted` am 2026-10-03 durch den User nach `concept-reviewer`-Review (RVW-2026-10-03-004, Iteration 2 APPROVED).
 2. **Zwei getrennte Metriken (Befund 003-02):** (a) die **Missing-Key-Obergrenze**
    (`116`, sinkend) und (b) die **kanonische Gesamt-Key-Zahl** der Locale-Dateien sind
    unterschiedliche Zahlen und getrennt zu messen und zu fixieren; die genauen Werte sind
@@ -232,6 +232,6 @@ dynamische Keys ohne Typschema verboten.**
 
 ---
 
-*Erstellt durch `senior-developer` am 2026-10-03. Status `proposed` — begründete
-Empfehlung; die Freigabe erfolgt durch User/Review, nicht durch den Autor.
+*Erstellt durch `senior-developer` am 2026-10-03; am 2026-10-03 nach Review
+(`RVW-2026-10-03-004`, Iteration 2 APPROVED) durch den User auf `accepted` gesetzt.
 Kein Produktcode, keine Migration, kein Push.*

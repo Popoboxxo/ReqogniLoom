@@ -255,3 +255,15 @@ separates, ADR-unabhängiges Thema.
 - `link_types/defaults.py:36-48`: `_resolve` prüft nur `BUILTIN_LINK_TYPES` (Fallback+Warnung) — ADR-016 Entscheidung 4 erweitert genau diesen Punkt korrekt.
 - `presets/registry.py:87` `workflow_configurability: str` in `PresetConfig` — ADR-016-Klassifikation als datenförmig belegt.
 - `presets/gate.py:547-549` `except Exception: pass` unverändert — ADR-016 Entscheidung 2 (fail-closed) bleibt erforderlich.
+
+---
+
+## Lifecycle-Abschluss (2026-10-03)
+
+Die drei ADRs wurden am 2026-10-03 durch den User von `proposed` auf `accepted` gesetzt
+(Grund: Iteration 2 APPROVED, keine critical/major offen). Der Statuswechsel erfolgte durch
+den User als `se-architect`-Vertreter.
+Prozess-Finding `000-01` (Ersteller `senior-developer` statt `se-architect`) ist damit als
+dokumentierte, user-getragene Rollen-Abweichung im Review-Trail festgehalten — kein Blocker.
+Offene, nicht-blockierende Folgen: `017-R2-01` (Build-Generierungs-Nachweis → PLUG-04),
+`018-R2-01` (Re-Arm/Deadline-Semantik → DOC-02), `open_adrs` (AUD-2026-09-333).
