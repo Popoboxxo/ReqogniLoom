@@ -25,7 +25,7 @@ generated OpenAPI at `GET /api/schema/` and `/api/schema/swagger-ui/`
 |--------|-------|
 | Tools | **219** |
 | Tool-group prefixes | **35** |
-| Version | `v1.8.0-beta.17` (`VERSION`, `1.8.0-beta.17`) — die Tool-Oberfläche ist seit der Messung unten unverändert; W1–W4 (PR #1111) haben kein Tool, keine Gruppe und keinen `inputSchema` angefasst |
+| Version | `v1.8.0-beta.18` (`VERSION`, `1.8.0-beta.18`) — die Tool-Oberfläche ist seit der Messung unten unverändert; W1–W4 (PR #1111) haben kein Tool, keine Gruppe und keinen `inputSchema` angefasst |
 | Measured at | `98b1c9a8` on `fix/beta16-qa-sweep` — i.e. the `v1.8.0-beta.16` tag commit `9eb2fc58` plus [#1080](https://github.com/Popoboxxo/ReqogniLoom/issues/1080) (`65c732b4`, adds `test.run_list`) |
 | Source of truth | `docs/agent-templates/tool-manifest.json`, `tool_count` field |
 
