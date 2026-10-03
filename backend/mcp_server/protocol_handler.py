@@ -495,6 +495,13 @@ class ProtocolHandler:
             return response
             
         if method == "initialize":
+            # ADR-017: serverInfo.version is the real app version from the same
+            # resolver as GET /api/v1/version/ — not a hardcoded literal. The
+            # import is function-local so this module stays stdlib-only at
+            # import time (the Django-free/stdio transport imports it without
+            # pulling reqogniloom celery/DRF); the resolver itself is light.
+            from reqogniloom.version import get_app_version
+
             response = ErrorFormatter.format_jsonrpc_result(request_id, {
                 "protocolVersion": MCP_PROTOCOL_VERSION,
                 "capabilities": {
@@ -502,7 +509,7 @@ class ProtocolHandler:
                 },
                 "serverInfo": {
                     "name": "ReqogniLoom",
-                    "version": "1.0.0"
+                    "version": get_app_version()
                 }
             })
             adapter.write_response(response)

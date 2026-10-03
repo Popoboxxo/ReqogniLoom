@@ -29,6 +29,7 @@ from mcp_server.protocol_handler import (
     StdioTransportAdapter,
     ToolResult,
 )
+from reqogniloom.version import get_app_version
 
 
 # ---------------------------------------------------------------------------
@@ -358,6 +359,39 @@ class TestProtocolHandler:
         assert sensitive_detail not in response["error"]["message"]
         assert response["error"]["message"] == "An internal server error occurred."
         assert sensitive_detail in caplog.text
+
+
+class TestInitializeServerInfo:
+    """``initialize`` advertises the real server version (ADR-017).
+
+    ``initialize`` is a lifecycle method handled before API-key validation, so
+    these calls deliberately pass no headers/key.
+    """
+
+    @staticmethod
+    def _init_body(request_id: int = 1) -> bytes:
+        return json.dumps(
+            {"jsonrpc": "2.0", "method": "initialize", "id": request_id, "params": {}}
+        ).encode()
+
+    def test_initialize_version_matches_the_app_version(self):
+        handler = ProtocolHandler(tool_registry=MagicMock())
+        response = handler.handle_http_request(body=self._init_body())
+        assert response["id"] == 1
+        assert response["result"]["serverInfo"]["version"] == get_app_version()
+
+    def test_initialize_version_follows_the_app_version_stamp(self, monkeypatch):
+        monkeypatch.setenv("APP_VERSION", "9.9.9")
+        handler = ProtocolHandler(tool_registry=MagicMock())
+        response = handler.handle_http_request(body=self._init_body(request_id=2))
+        assert response["result"]["serverInfo"]["version"] == "9.9.9"
+
+    def test_initialize_needs_no_api_key(self):
+        """The version assertions above are only meaningful because
+        ``initialize`` never requires a key (it is handled pre-auth)."""
+        handler = ProtocolHandler(tool_registry=MagicMock())
+        response = handler.handle_http_request(body=self._init_body())
+        assert "error" not in response
 
 
 def _make_tools_call_body(

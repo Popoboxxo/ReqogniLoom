@@ -110,6 +110,38 @@ function collectReferencedKeys(dir: string): Set<string> {
   return keys;
 }
 
+// Second, separate detector for the *second* `t()` argument — the inline
+// default. `T_CALL_PATTERN` above captures only the first-argument key
+// literal, so inline defaults were previously invisible to this scan
+// (ADR-018 finding 003-04; the "~112" figure quoted in ADR-018 / the
+// implementation plan is a stale estimate — a full scan on branch
+// feat/w3-p2 finds far more, see INLINE_DEFAULT_BASELINE below).
+//
+// Coverage gap (documented, deliberately NOT fixable statically): a dynamic
+// first key (`t(variable, "default")`) remains invisible because the literal
+// key anchor is required for the match. A non-string default (template
+// literal, JSX, ternary expression) is likewise not counted. Only the exact
+// `t("literal.key", "default")` shape is measured; every excluded site needs
+// a runtime i18next `missingKeyHandler` or a generated key union, not a
+// source scan. `t("key", {count})` options calls are NOT defaults and are
+// intentionally excluded by requiring a *string* second argument.
+const INLINE_DEFAULT_PATTERN = /\bt\(\s*["'][a-zA-Z0-9_.]+["']\s*,\s*["']/g;
+
+/**
+ * Count `t("literal.key", "default")` call sites in `dir`.
+ *
+ * Returns a per-call-site count (not a de-duplicated key set): two calls with
+ * the same key are two masking sites and must both be visible to the ratchet.
+ */
+function collectInlineDefaultCount(dir: string): number {
+  let count = 0;
+  for (const file of collectSourceFiles(dir)) {
+    const text = readFileSync(file, "utf-8");
+    count += [...text.matchAll(INLINE_DEFAULT_PATTERN)].length;
+  }
+  return count;
+}
+
 // Ratchet baseline — see the file-level comment above. Measured on this
 // branch (189) after fixing the 9 keys this same change could concretely
 // confirm leak German text into the English UI (settings.traceabilityHint,
@@ -185,6 +217,60 @@ function collectReferencedKeys(dir: string): Set<string> {
 // files, so none of them contributes to this count. Re-measured: 117 - 1 = 116.
 const MISSING_KEY_BASELINE = 116;
 
+// ---------------------------------------------------------------------------
+// DOC-02 / ADR-018 — deadline budgets (decision 2) and the second, inline-
+// default ratchet (decision 1).
+//
+// Both metrics are enforced by the same two rules:
+//   1. Non-increase — the measured value must never exceed its baseline
+//      (prevents regression).
+//   2. Deadline budget — once the wall-clock date reaches a metric's
+//      deadline, its value must be at or below its target or CI goes red.
+//      Without this, "monotonically decreasing" is a mere assertion: the
+//      frozen ceiling would otherwise institutionalise the gap forever
+//      (ADR-018 finding 003-01). Targets are only date-gated, so they cannot
+//      make CI red before the deadline.
+//
+// MISSING_KEY_BASELINE stays 116 — re-measured on branch feat/w3-p2
+// (2026-10-03): exactly 116 keys are referenced in `src/` but present in
+// neither `de.json` nor `en.json`, so the existing ceiling is still accurate.
+// Target 0 is ADR-018's end state ("baseline 0"); deadline 2027-06-30 is a
+// dated release-style budget in the future relative to 2026-10-03.
+//
+// INLINE_DEFAULT_BASELINE is the *real measured* number of inline-default
+// call sites on this branch, not the stale ~112 estimate the ADR carries.
+// Measured with INLINE_DEFAULT_PATTERN (string second argument only) over
+// `frontend/src/**/*.ts{,x}` excluding tests: 1289. With the looser
+// `t(<literal>,` shape (including options-object second args) it would be
+// higher, but those are not defaults. Target 0 encodes ADR-018 option A as
+// the binding end state at the same deadline.
+//
+// Residual (NOT done in DOC-02, deliberately out of scope): the 536 dead
+// locale keys (ADR-018 decision 5 / finding -303) are not removed here, and
+// the REQ-L1-094 traceability-matrix entry is not corrected here (finding
+// -348). Both remain open; this change only adds the enforceable ratchets.
+// ---------------------------------------------------------------------------
+/** Undefined referenced keys permitted once MISSING_KEY_DEADLINE is reached. */
+const MISSING_KEY_TARGET = 0;
+/** UTC date from which MISSING_KEY_TARGET is enforced (non-increase applies now). */
+const MISSING_KEY_DEADLINE = "2027-06-30";
+
+/** Inline `t(key, default)` call sites permitted by the non-increase ratchet. */
+const INLINE_DEFAULT_BASELINE = 1289;
+/** Inline `t(key, default)` call sites permitted once the deadline is reached. */
+const INLINE_DEFAULT_TARGET = 0;
+/** UTC date from which INLINE_DEFAULT_TARGET is enforced. */
+const INLINE_DEFAULT_DEADLINE = "2027-06-30";
+
+/**
+ * True once the wall-clock date has reached (or passed) an ISO `YYYY-MM-DD`
+ * deadline, interpreted as UTC midnight. Date-gated so a not-yet-due budget
+ * never fails CI; only the deadline day itself flips it on.
+ */
+function deadlineReached(deadline: string): boolean {
+  return Date.now() >= Date.parse(`${deadline}T00:00:00Z`);
+}
+
 /**
  * Wall-clock budget for the whole-`src/` source scan below, same rationale and
  * same constant as `design-tokens.test.ts` (which documents it at length).
@@ -217,6 +303,42 @@ describe("i18n code-to-locale coverage (#619)", () => {
           ? `New missing i18n key(s) beyond the ${MISSING_KEY_BASELINE}-key baseline: ${missing.join(", ")}`
           : undefined
       ).toBeLessThanOrEqual(MISSING_KEY_BASELINE);
+
+      // Deadline budget (ADR-018 decision 2): non-increase alone freezes the
+      // gap; once the deadline is reached, the target binds instead.
+      if (deadlineReached(MISSING_KEY_DEADLINE)) {
+        expect(
+          missing.length,
+          `Missing-key deadline ${MISSING_KEY_DEADLINE} reached: ${missing.length} undefined ` +
+            `translation key(s) remain (target ${MISSING_KEY_TARGET}). Missing: ${missing.join(", ")}`
+        ).toBeLessThanOrEqual(MISSING_KEY_TARGET);
+      }
+    },
+    SOURCE_SCAN_TIMEOUT_MS
+  );
+
+  it(
+    "does not use more inline `t(key, default)` call sites than the frozen baseline",
+    () => {
+      const inlineDefaults = collectInlineDefaultCount(SRC_DIR);
+
+      expect(
+        inlineDefaults,
+        inlineDefaults > INLINE_DEFAULT_BASELINE
+          ? `${inlineDefaults} inline \`t(key, default)\` call site(s) exceed the ` +
+              `${INLINE_DEFAULT_BASELINE}-site baseline`
+          : undefined
+      ).toBeLessThanOrEqual(INLINE_DEFAULT_BASELINE);
+
+      // Deadline budget (ADR-018 decision 1/2): once reached, every inline
+      // default must be gone (option A becomes binding at baseline 0).
+      if (deadlineReached(INLINE_DEFAULT_DEADLINE)) {
+        expect(
+          inlineDefaults,
+          `Inline-default deadline ${INLINE_DEFAULT_DEADLINE} reached: ${inlineDefaults} ` +
+            `\`t(key, default)\` call site(s) remain (target ${INLINE_DEFAULT_TARGET}).`
+        ).toBeLessThanOrEqual(INLINE_DEFAULT_TARGET);
+      }
     },
     SOURCE_SCAN_TIMEOUT_MS
   );

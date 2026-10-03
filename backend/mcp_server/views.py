@@ -47,6 +47,7 @@ from mcp_server.throttling import (
     rate_limited_plain_response,
 )
 from mcp_server.tool_registry import ToolRegistry
+from reqogniloom.version import get_app_version
 
 logger = logging.getLogger(__name__)
 
@@ -479,7 +480,10 @@ class McpHttpTransportView(CorsMixin, View):
                 # discovery response would violate the very rule this comment
                 # states (deep-dive review D-7a).
                 "transports": ["http", "sse"],
-                "version": "1.0.0",
+                # ADR-017: same resolver as GET /api/v1/version/ and MCP
+                # serverInfo — the discovery response must not expose a
+                # second, hardcoded server version.
+                "version": get_app_version(),
             }),
             content_type="application/json",
             status=200,

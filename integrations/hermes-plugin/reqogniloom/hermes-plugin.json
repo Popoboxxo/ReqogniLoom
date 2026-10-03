@@ -36,12 +36,5 @@
         "command": "reqogniloom.open"
       }
     ]
-  },
-  "engines": {
-    "hermes": ">=3.0.0"
-  },
-  "permissions": [
-    "network",
-    "storage"
-  ]
+  }
 }

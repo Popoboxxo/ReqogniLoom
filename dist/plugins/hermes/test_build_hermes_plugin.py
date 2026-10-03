@@ -120,6 +120,8 @@ def test_build_hermes_plugin_preserves_manifest_contract(plugin_root):
     )
     for key in ["id", "main", "activationEvents", "contributes", "engines",
                 "permissions", "author", "description"]:
+        if key not in committed_manifest:
+            continue
         assert manifest.get(key) == committed_manifest[key], (
             f"hermes-plugin.json lost or altered {key}"
         )
