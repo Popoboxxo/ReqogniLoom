@@ -59,7 +59,8 @@ _HELP_TEXT = """\
 /reqogniloom — ReqogniLoom requirements interviews from Hermes
 
 Subcommands:
-  start <artifact_type> [workspace_id]   Start a new interview (e.g. "requirement", "need").
+  start <artifact_type> [workspace_id]   Start a new interview (e.g. "Requirement",
+                                          "StakeholderNeed" — canonical PascalCase only).
                                           Omit workspace_id to use your first visible workspace.
   status                                 Show the current interview's phase and missing fields.
   answer <field> <value...>              Answer one field of the current interview.
@@ -154,7 +155,13 @@ def _handle_slash(raw_args: str) -> Optional[str]:
 
             if sub == "formalize":
                 result = client.formalize(session_id)
-                return f"Formalized. Artifact: {result.get('artifact_id', result)}"
+                # The server returns {"resulting_artifact_ids": [...], "status"},
+                # never an "artifact_id" key; surface the real IDs instead of
+                # dumping the raw response dict (PLUG-03/AUD-111).
+                ids = result.get("resulting_artifact_ids")
+                if isinstance(ids, list) and ids:
+                    return f"Formalized. Artifact(s): {', '.join(str(i) for i in ids)}"
+                return f"Formalized. No artifact IDs returned: {result}"
 
             if sub == "abandon":
                 client.abandon(session_id)

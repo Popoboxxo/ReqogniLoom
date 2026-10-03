@@ -252,13 +252,13 @@ def resolve_workspace_id(client: ReqogniLoomClient, explicit: Optional[str] = No
     if not workspaces:
         raise ReqogniLoomError(
             "no workspace_id given and no workspaces visible to this API key — "
-            "pass one explicitly, e.g. `/reqogniloom start requirement <workspace_id>`"
+            "pass one explicitly, e.g. `/reqogniloom start Requirement <workspace_id>`"
         )
     first = workspaces[0]
     workspace_id = first.get("id") if isinstance(first, dict) else None
     if not workspace_id:
         raise ReqogniLoomError(
             f"malformed workspace entry {first!r} — no 'id' field; pass a workspace_id "
-            "explicitly, e.g. `/reqogniloom start requirement <workspace_id>`"
+            "explicitly, e.g. `/reqogniloom start Requirement <workspace_id>`"
         )
     return workspace_id

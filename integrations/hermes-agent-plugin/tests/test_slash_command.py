@@ -19,6 +19,14 @@ class HandleSlashTests(unittest.TestCase):
     def test_help_subcommand(self) -> None:
         self.assertIn("Subcommands", plugin._handle_slash("help"))
 
+    def test_help_example_uses_pascalcase_artifact_type(self) -> None:
+        # AUD-110: the server only accepts the canonical PascalCase names
+        # (IN_SCOPE_ARTIFACT_TYPES), so the help text must not advertise a
+        # lowercase invocation that is rejected live with 400.
+        text = plugin._handle_slash("help")
+        self.assertIn('"Requirement"', text)
+        self.assertNotIn('"requirement"', text)
+
     def test_unknown_subcommand(self) -> None:
         self.assertIn("Unknown subcommand", plugin._handle_slash("bogus"))
 
@@ -45,9 +53,9 @@ class HandleSlashTests(unittest.TestCase):
         with patch.object(plugin, "ReqogniLoomClient", return_value=fake_client), patch.object(
             plugin, "_save_state"
         ) as save_mock:
-            result = plugin._handle_slash("start requirement")
+            result = plugin._handle_slash("start Requirement")
 
-        fake_client.start_interview.assert_called_once_with("requirement", "ws-1")
+        fake_client.start_interview.assert_called_once_with("Requirement", "ws-1")
         save_mock.assert_called_once_with({"session_id": "sess-1", "workspace_id": "ws-1"})
         self.assertIn("Started interview sess-1", result)
         self.assertIn("phase:     collecting", result)
@@ -60,9 +68,9 @@ class HandleSlashTests(unittest.TestCase):
         with patch.object(plugin, "ReqogniLoomClient", return_value=fake_client), patch.object(
             plugin, "_save_state"
         ):
-            plugin._handle_slash(f"start need {workspace_uuid}")
+            plugin._handle_slash(f"start StakeholderNeed {workspace_uuid}")
 
-        fake_client.start_interview.assert_called_once_with("need", workspace_uuid)
+        fake_client.start_interview.assert_called_once_with("StakeholderNeed", workspace_uuid)
         fake_client.list_workspaces.assert_not_called()
 
     def test_answer_requires_active_session(self) -> None:
@@ -80,6 +88,23 @@ class HandleSlashTests(unittest.TestCase):
 
         fake_client.answer.assert_called_once_with("sess-1", "title", "My Requirement")
         self.assertIn("phase:     collecting", result)
+
+    def test_formalize_reports_resulting_artifact_ids(self) -> None:
+        # AUD-111: the server returns {"resulting_artifact_ids": [...],
+        # "status": ...}; `artifact_id` never exists, so the old code dumped
+        # the raw response dict instead of reporting the created IDs.
+        fake_client = MagicMock()
+        fake_client.formalize.return_value = {
+            "resulting_artifact_ids": ["REQ-1"],
+            "status": "completed",
+        }
+        with patch.object(plugin, "ReqogniLoomClient", return_value=fake_client), patch.object(
+            plugin, "_load_state", return_value={"session_id": "sess-1"}
+        ):
+            result = plugin._handle_slash("formalize")
+
+        fake_client.formalize.assert_called_once_with("sess-1")
+        self.assertEqual(result, "Formalized. Artifact(s): REQ-1")
 
     def test_abandon_clears_state(self) -> None:
         fake_client = MagicMock()
