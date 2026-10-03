@@ -217,4 +217,13 @@ describe("LlmSettingsSection (REQ-L2-LLM-001)", () => {
     );
     expect(actual.LLM_PROVIDERS).toContain("opencode_go");
   });
+
+  it("exposes azure as a selectable provider", async () => {
+    // INT-02 / AUD-2026-09-058, -324: azure is implemented and documented but
+    // was missing from the TS union and the UI list.
+    const actual = await vi.importActual<typeof llmSettingsModule>(
+      "../../api/llm-settings"
+    );
+    expect(actual.LLM_PROVIDERS).toContain("azure");
+  });
 });

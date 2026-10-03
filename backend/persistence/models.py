@@ -2440,6 +2440,7 @@ class LlmProvider(models.TextChoices):
     ANTHROPIC = "anthropic", "Anthropic"
     OPENAI = "openai", "OpenAI"
     OLLAMA = "ollama", "Ollama"
+    AZURE = "azure", "Azure OpenAI"
     OPENCODE_GO = "opencode_go", "OpenCode Go"
     MOCK = "mock", "Mock"
 
@@ -2492,7 +2493,7 @@ class LlmSettings(TenantScopedModel):
         max_length=255,
         blank=True,
         default="",
-        help_text="Free-text model identifier (e.g. 'claude-3-opus-20240229').",
+        help_text="Free-text model identifier (e.g. 'claude-sonnet-4-5').",
     )
 
     class Meta:
