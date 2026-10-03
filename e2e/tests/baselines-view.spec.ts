@@ -23,7 +23,10 @@ test.describe('[COMP-RF-001] BaselinesView', () => {
     await page.goto(`${FRONTEND_URL}/baselines`);
     // Wait for loading to finish (baselines-view present + no loading spinner)
     await expect(page.locator('[data-testid="baselines-view"]')).toBeVisible({ timeout: 10000 });
-    await expect(page.locator('[role="status"]')).not.toBeVisible({ timeout: 10000 });
+    // Wait for loading to finish: the loading indicator is the only *visible*
+    // `[role="status"]`; a hidden interview-widget badge also carries the role,
+    // so a bare `not.toBeVisible()` hits a strict-mode violation (two matches).
+    await expect(page.locator('[role="status"]:visible')).toHaveCount(0, { timeout: 10000 });
     await page.locator('[data-testid="page-header-overflow-trigger"]').click();
     const btn = page.locator('[data-testid="create-baseline-btn"]');
     await expect(btn).toBeVisible({ timeout: 10000 });
