@@ -72,11 +72,27 @@ Subcommands:
 """
 
 
+def _fmt_missing_field(field: Any) -> str:
+    """Render one ``missing_fields`` entry.
+
+    The server sends dicts (``interview_service._serialise_field`` →
+    ``{"name", "type", "choices"}``); a bare string is tolerated for
+    backwards compatibility with older servers. Before this, a dict entry
+    produced ``TypeError`` in ``", ".join`` (PLUG-01).
+    """
+    if isinstance(field, dict):
+        name = field.get("name")
+        if isinstance(name, str) and name:
+            return name
+        return str(field)
+    return str(field)
+
+
 def _fmt_state(state: Dict[str, Any]) -> str:
     lines = [f"session:   {state.get('id')}", f"phase:     {state.get('phase')}"]
     missing = state.get("missing_fields") or []
     if missing:
-        lines.append(f"missing:   {', '.join(missing)}")
+        lines.append(f"missing:   {', '.join(_fmt_missing_field(f) for f in missing)}")
     grounding = state.get("grounding")
     if grounding:
         lines.append("grounding: (see /reqogniloom chat for details)")
@@ -95,10 +111,13 @@ def _handle_slash(raw_args: str) -> Optional[str]:
         return _HELP_TEXT
 
     sub, rest = args[0], args[1:]
-    client = ReqogniLoomClient()
-    state = _load_state()
 
     try:
+        # Client/state construction lives inside the try so the "never raises"
+        # contract below covers it too.
+        client = ReqogniLoomClient()
+        state = _load_state()
+
         if sub == "start":
             if not rest:
                 return "Usage: /reqogniloom start <artifact_type> [workspace_id]"
@@ -161,6 +180,9 @@ def _handle_slash(raw_args: str) -> Optional[str]:
 
     except ReqogniLoomError as exc:
         return f"ReqogniLoom error: {exc}"
+    except Exception as exc:  # noqa: BLE001 — _handle_slash promises never to raise
+        logger.warning("Unexpected error handling /reqogniloom %s: %s", sub, exc)
+        return f"ReqogniLoom plugin error: {exc}"
 
     return f"Unknown subcommand: {sub}\n\n{_HELP_TEXT}"
 

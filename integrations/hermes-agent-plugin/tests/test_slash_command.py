@@ -37,7 +37,10 @@ class HandleSlashTests(unittest.TestCase):
         fake_client.start_interview.return_value = {
             "id": "sess-1",
             "phase": "collecting",
-            "missing_fields": ["title"],
+            # Real server shape (interview_service._serialise_field): missing
+            # fields are dicts, not bare strings. The old string fixture hid a
+            # TypeError in _fmt_state (PLUG-01).
+            "missing_fields": [{"name": "title", "type": "text", "choices": None}],
         }
         with patch.object(plugin, "ReqogniLoomClient", return_value=fake_client), patch.object(
             plugin, "_save_state"
@@ -48,6 +51,7 @@ class HandleSlashTests(unittest.TestCase):
         save_mock.assert_called_once_with({"session_id": "sess-1", "workspace_id": "ws-1"})
         self.assertIn("Started interview sess-1", result)
         self.assertIn("phase:     collecting", result)
+        self.assertIn("missing:   title", result)
 
     def test_start_with_explicit_workspace_id(self) -> None:
         fake_client = MagicMock()
@@ -87,6 +91,24 @@ class HandleSlashTests(unittest.TestCase):
         fake_client.abandon.assert_called_once_with("sess-1")
         save_mock.assert_called_once_with({})
         self.assertIn("Abandoned interview sess-1", result)
+
+    def test_unexpected_client_error_is_reported_not_raised(self) -> None:
+        # "Never raises" covers more than ReqogniLoomError: any unexpected
+        # failure (e.g. a server shape change) must become a human-readable
+        # string, not a traceback in the chat.
+        fake_client = MagicMock()
+        fake_client.list_workspaces.side_effect = TypeError("bad payload shape")
+        with patch.object(plugin, "ReqogniLoomClient", return_value=fake_client):
+            result = plugin._handle_slash("workspaces")
+        self.assertIn("ReqogniLoom plugin error", result)
+        self.assertIn("bad payload shape", result)
+
+    def test_fmt_state_tolerates_string_missing_fields(self) -> None:
+        # Backwards compatibility: an older server may still send bare strings.
+        rendered = plugin._fmt_state(
+            {"id": "sess-1", "phase": "collecting", "missing_fields": ["title"]}
+        )
+        self.assertIn("missing:   title", rendered)
 
     def test_client_error_is_reported_not_raised(self) -> None:
         fake_client = MagicMock()

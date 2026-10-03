@@ -7,11 +7,14 @@ plugin has zero extra dependencies beyond what Hermes itself ships.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import urllib.error
 import urllib.request
 from typing import Any, Dict, List, Optional
 from uuid import UUID
+
+logger = logging.getLogger(__name__)
 
 #: Per-request socket timeout. This bounds each socket operation, not the
 #: whole response: a slow-drip backend can still exceed it in total.
@@ -88,7 +91,10 @@ class ReqogniLoomClient:
         genuinely public endpoint has to opt out explicitly, and a missing
         key can never be sent as an anonymous request.
         """
-        url = f"{self.base_url}{path}"
+        # ``path`` is normally an app-relative path, but a paginated ``next``
+        # link is an absolute URL built by DRF from the request host — accept
+        # both so the pagination loop can pass ``next`` straight through.
+        url = path if path.startswith(("http://", "https://")) else f"{self.base_url}{path}"
         data = json.dumps(body).encode("utf-8") if body is not None else None
         headers = {"Content-Type": "application/json", "Accept": "application/json"}
         if self.api_key:
@@ -125,6 +131,28 @@ class ReqogniLoomClient:
         except json.JSONDecodeError as exc:
             raise ReqogniLoomError(f"non-JSON response from {url}: {raw[:200]!r}") from exc
 
+    def _get_all(self, path: str) -> List[Dict[str, Any]]:
+        """GET a paginated list endpoint and follow ``next`` to the last page.
+
+        Returns every item across all pages. DRF sets ``next`` to an absolute
+        URL; ``_request`` accepts absolute URLs as well as paths, so the link
+        is passed through unchanged. A repeated ``next`` is treated as the end
+        of the chain, so a misbehaving server cannot spin this loop forever.
+        """
+        items: List[Dict[str, Any]] = []
+        seen: set[str] = set()
+        next_url: Optional[str] = path
+        while next_url:
+            if next_url in seen:
+                logger.warning("pagination: repeated 'next' %r — stopping", next_url)
+                break
+            seen.add(next_url)
+            result = self._request("GET", next_url)
+            items.extend(_list_results(result, path))
+            candidate = result.get("next") if isinstance(result, dict) else None
+            next_url = candidate if isinstance(candidate, str) and candidate else None
+        return items
+
     # -- unauthenticated ---------------------------------------------------
 
     def version(self) -> Dict[str, Any]:
@@ -134,9 +162,9 @@ class ReqogniLoomClient:
     # -- workspaces ----------------------------------------------------------
 
     def list_workspaces(self) -> List[Dict[str, Any]]:
-        """GET /api/v1/workspaces/ — a DRF page or a bare JSON array."""
+        """GET /api/v1/workspaces/ — every page, following ``next``."""
         path = "/api/v1/workspaces/"
-        return _list_results(self._request("GET", path), path)
+        return self._get_all(path)
 
     # -- interviews ----------------------------------------------------------
 
@@ -154,9 +182,9 @@ class ReqogniLoomClient:
         return f"/api/v1/interviews/{qs}"
 
     def list_interviews(self, workspace_id: str, status: Optional[str] = None) -> List[Dict[str, Any]]:
-        """GET /api/v1/interviews/ — one page of sessions, filtered server-side."""
+        """GET /api/v1/interviews/ — every page, filtered server-side."""
         path = self._interviews_query(workspace_id, status)
-        return _list_results(self._request("GET", path), path)
+        return self._get_all(path)
 
     def get_state(self, session_id: str) -> Dict[str, Any]:
         return self._request("GET", f"/api/v1/interviews/{session_id}/state/")
