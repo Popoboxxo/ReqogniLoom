@@ -1,6 +1,6 @@
 ---
 adr_id: ADR-017
-title: "`VERSION` ist SSOT der Serverversion; Plugin-Manifeste werden daraus generiert, externe Plugins führen eigene SemVer mit minServerVersion-Vertrag"
+title: "`VERSION` ist SSOT der Server-Version; Plugin-Versionierung ist Nicht-Produkt-Zusage (Dritt-/POC-Plugins führen eigene SemVer mit minServerVersion)"
 status: proposed
 date: "2026-10-03"
 deciders: [user, senior-developer]
@@ -8,7 +8,7 @@ affected_reqs: [REQ-L1-005, REQ-L1-006, REQ-L1-082, REQ-L2-MC-016, REQ-L2-MC-019
 superseded_by: null
 ---
 
-# ADR-017: `VERSION` ist SSOT der Serverversion; Plugin-Manifeste werden daraus generiert, externe Plugins führen eigene SemVer mit `minServerVersion`-Vertrag
+# ADR-017: `VERSION` ist SSOT der Server-Version; Plugin-Versionierung ist Nicht-Produkt-Zusage (Dritt-/POC-Plugins führen eigene SemVer mit `minServerVersion`)
 
 **Status:** proposed (Empfehlung — Freigabe durch User/Review offen)
 **Datum:** 2026-10-03
@@ -39,6 +39,9 @@ Arbeitseinheit `PLUG-04` (`docs/audit/2026-09/review/plan/PLUGINS.md:58-70`). Fi
 begründete **Empfehlung**, keine freigegebene Entscheidung. Die Freigabe erfolgt durch
 den User nach Review (`concept-reviewer`); erst dann darf der Status wechseln. Die
 abhängige Umsetzung (`PLUG-04`) beginnt **nach** der Freigabe.
+**Review-Iteration 1** (`RVW-2026-10-03-001`): Verdict CHANGES_REQUESTED; die
+major-Befunde `002-01`/`002-02` sowie die minors `002-03`–`002-05` wurden eingearbeitet,
+der Status bleibt `proposed`.
 
 ---
 
@@ -80,10 +83,31 @@ System-Info-Aussagen an Agenten. **Kein REQ regelt jedoch die Plugin-Versionieru
 selbst** — das ist ein realer Zuordnungs-Gap und wird unten als offener Punkt geführt
 (nicht geraten).
 
+**Konsequenz für den Scope (Befund 002-02):** Die produktive, REQ-verankerte
+Entscheidung dieses ADR betrifft ausschließlich die **Server-/Protokoll-Version** (durch
+`REQ-L1-005`/`-006`/`-082`, `REQ-L2-MC-016`/`-019` gedeckt). Die **Plugin-Versionierung**
+— inklusive der im Repo mitgelieferten Bundle-Manifeste und des Python-POC-Plugins — ist
+mangels REQ-Anker **Nicht-Produkt-Zusage**: sie wird als Mechanismus benannt und der
+zuständigen Rolle überlassen, aber **nicht** als Produktversprechen in der Kaskade
+verankert. Es wird **keine** REQ erfunden (s. Offene Punkte).
+
 **5. Das Manifest ist teils dekorativ.** `hermes-plugin.json:40-46` deklariert
 `engines.hermes`/`permissions`, die laut Audit keine Durchsetzung haben; `-101` stellt
 fest, dass das Manifest ein VS-Code-Schema, nicht der Hermes-Vertrag ist. Eine
 Versions-Entscheidung ist damit Teil der Klärung, **welche** Felder überhaupt Vertrag sind.
+
+**Threat-Model (4 Fragen, Versions-Exposition & Dritt-Plugin-Vertrag):**
+
+1. *Was gebaut?* Versions-Exposition via MCP `serverInfo` + öffentliche
+   `/api/v1/version/`; Build-Generierung der im Repo erzeugten Manifeste;
+   Kompatibilitätsfeld für Dritt-Plugins.
+2. *Was schiefgeht?* Versions-Disclosure erleichtert CVE-Korrelation (bereits durch den
+   gekürzten SHA entschärft, `version.py:114-122`); eine falsche oder erzwungene
+   Kompatibilitätsangabe eines Dritt-Plugins kann Clients brechen.
+3. *Gegenmaßnahme?* Reale Version aus `VERSION`, gekürzter SHA bleibt; das
+   Kompatibilitätsfeld ist nur dann Vertrag, wenn es validiert wird — sonst wird es
+   entfernt (Entscheidung 4).
+4. *Konsequenz?* Geringe Recon-Fläche; Fehl-Kompatibilitätszusagen sind ein Host-Risiko.
 
 ---
 
@@ -107,16 +131,16 @@ tragen müssen — dafür dient das Kompatibilitätsfeld.
 Clients, die auf `1.0.0` geprüft haben, sehen erstmals die reale Version (das ist die
 gewünschte Korrektur, keine Regression).
 
-### Option B: Unabhängige Plugin-SemVer — VERWORFEN (als alleiniges Modell)
+### Option B: Unabhängige Plugin-SemVer — verworfen **als alleiniges Modell** (Bausteine als Ergänzung übernommen)
 
 **Beschreibung:** Jedes Plugin trägt seine **eigene** SemVer; ein `minServerVersion`-Feld
 erklärt die Beziehung.
 
-**Abwägung:** Korrekt für die **Host-Welt** und für **dritte** Plugins, aber als
-alleiniges Modell löst es den gemessenen Ist-Zustand nicht: Die widersprüchlichen
-Server-Orte (`1.0.0` vs. `VERSION`) bleiben unentschieden, und die im Repo mitgelieferten
-Artefakte (`1.8.0-beta.17` vs. `0.1.0`) driften weiter. Es verlagert eine konkrete
-Korrektur in eine Kompatibilitätsmatrix, die niemand pflegen will.
+**Abwägung:** Verworfen ist **B als alleiniges Modell**. Die widersprüchlichen
+Server-Orte (`1.0.0` vs. `VERSION`) blieben damit unentschieden, und die im Repo
+mitgelieferten Artefakte (`1.8.0-beta.17` vs. `0.1.0`) drifteten weiter. Der
+B-Baustein `minServerVersion` wird jedoch **als Ergänzung** für Dritt-/POC-Plugins in
+Option A übernommen (Entscheidung 3).
 
 **Risiko:** MITTEL — erzeugt Pflegeaufwand, ohne den akuten Server-Defekt zu schließen.
 
@@ -147,32 +171,48 @@ C ist ein **Mechanismus** von A, keine eigene Achse.
 
 ## Entscheidung
 
-**Empfehlung: Option A mit B-Ergänzung für Dritt-Plugins.**
+**Empfehlung: Option A für die Server-Version, B-Baustein (`minServerVersion`) als
+Ergänzung für Dritt-/POC-Plugins. Die Plugin-Versionierung selbst ist
+Nicht-Produkt-Zusage (Scope-Abgrenzung, s. Kontext 4).**
 
-1. **`VERSION` ist die SSOT der Serverversion.** `serverInfo.version`
-   (`mcp_server/protocol_handler.py:505`) und die Discovery-Antwort
-   (`mcp_server/views.py:482`) werden **nicht** mehr hartkodiert, sondern aus derselben
-   Auflösung gespeist, die `version.py:74-103` bereits bereitstellt (`APP_VERSION`-Stempel
-   → `VERSION`-Datei → `unknown`). `/api/v1/version/` bleibt die öffentliche, nicht
-   sensible Quelle (Version + gekürzter Commit).
-2. **Mitgelieferte, im Repo gebaute Plugin-Manifeste sind Build-Artefakte.** `dist/plugins/**`
-   und das TS-Hermes-Plugin werden beim Build aus `VERSION` befüllt; ihre
-   Versionsangabe ist damit nicht manuell pflegbar und kann nicht driften. Das
-   Python-POC-Plugin (`integrations/hermes-agent-plugin/plugin.yaml:2`, `0.1.0`) wird
-   entweder auf die Build-Generierung umgestellt oder **explizit** als eigenständiges,
-   unabhängig versioniertes POC-Artefakt deklariert (dann mit `minServerVersion`).
-3. **Externe/dritte Plugins** dürfen eine **eigene** SemVer führen, müssen aber ein
-   Kompatibilitätsfeld (`minServerVersion`, heute sinngemäß `engines.hermes`) deklarieren.
-   Diese Matrix ist Teil des Host-Vertrags, nicht des Produkt-Release-Zyklus.
-4. **`serverInfo`/Discovery-Doku werden ehrlich.** Der `engines.hermes`-Wert bleibt nur
-   Vertrag, wenn er (z. B. durch den Build) tatsächlich durchgesetzt oder wenigstens
-   validiert wird; andernfalls wird er als dekorativ entfernt (`-101`).
-5. **Kaskade:** `PLUG-04` implementiert `serverInfo`-/`/version/`-Parität und die
-   Build-Generierung; Akzeptanz „`serverInfo.version` == `VERSION`".
-6. **Kein REQ-Fund für Plugin-Versionierung:** Es existiert **keine** REQ, die die
-   Plugin-Versionierung selbst regelt. Das wird **nicht** geraten, sondern als offener
-   Punkt (siehe unten) geführt; die herangezogenen REQs (`REQ-L1-005`/`-006`/`-082`,
-   `REQ-L2-MC-016`/`-019`) belegen nur die betroffenen Server-/MCP-Zusagen.
+1. **`VERSION` ist die SSOT der Server-Version (Produkt, REQ-verankert).**
+   `serverInfo.version` (`mcp_server/protocol_handler.py:505`) und die
+   Discovery-Antwort (`mcp_server/views.py:482`) werden **nicht** mehr hartkodiert,
+   sondern aus derselben Auflösung gespeist, die `version.py:74-103` bereits
+   bereitstellt (`APP_VERSION`-Stempel → `VERSION`-Datei → `unknown`).
+   `/api/v1/version/` bleibt die öffentliche, nicht sensible Quelle (Version +
+   gekürzter Commit). Akzeptanz: `serverInfo.version == VERSION`.
+2. **Python-POC-Plugin: eigenständig versioniert (entweder/oder aufgelöst).** Das
+   POC-Artefakt `integrations/hermes-agent-plugin` (`plugin.yaml:2`, `0.1.0`) ist
+   **nicht** Teil des Produkt-Release-Zyklus und wird **explizit als eigenständiges,
+   unabhängig semverisiertes POC-Artefakt deklariert**, das ein `minServerVersion`
+   deklariert. Die Alternative — das POC-Plugin auf Build-Generierung aus `VERSION`
+   umzustellen — ist damit **verworfen** (sie würde ein Nicht-Produkt-Artefakt in den
+   Produkt-Release-Zyklus ziehen, für den es keinen REQ-Anker gibt). Die im Repo
+   **produktiv** ausgelieferten Bundle-Manifeste (`dist/plugins/**`, TS-Hermes-Plugin)
+   werden weiterhin beim Build aus `VERSION` erzeugt; ihre Versionsangabe ist damit
+   nicht manuell pflegbar und kann nicht driften.
+3. **Kanonisches Kompatibilitätsfeld ist genau eines: `minServerVersion`.** Externe/und
+   POC-Plugins deklarieren **ein** Feld, `minServerVersion` (Minimum-SemVer des Hosts),
+   das der Host beim Laden prüft. Das heute dekorative `engines.hermes`
+   (`hermes-plugin.json:40-46`) wird durch `minServerVersion` **ersetzt** oder
+   entfernt; es ist **kein** zweiter Vertrag. Schema und Validierung sind Teil von
+   `PLUG-04`. Damit ist eindeutig, welches Feld verbindlich ist.
+4. **Durchsetzung statt Dekor.** `minServerVersion` bleibt nur Vertrag, wenn der Host
+   es tatsächlich prüft (Schema-Validierung + Kompatibilitäts-Check beim Laden);
+   `permissions`/`engines.hermes` werden entfernt, solange keine Durchsetzung existiert
+   (`-101`). Als reine Anzeige deklarierte Felder sind aus dem Manifest zu entfernen.
+5. **Kaskade:** `PLUG-04` implementiert `serverInfo`-/`/version/`-Parität und (soweit
+   produktiv) die Build-Generierung; Akzeptanz „`serverInfo.version` == `VERSION`".
+   Die POC-Plugin-Deklaration (Punkt 2) ist **kein** `PLUG-04`-Akzeptanzkriterium,
+   sondern eine Nicht-Produkt-Notiz.
+6. **Scope-Abgrenzung / Traceability-Gap (Befund 002-02):** Es existiert **keine** REQ,
+   die die Plugin-Versionierung selbst regelt. Die Plugin-Hälfte wird daher **nicht** als
+   Produktentscheidung geführt (keine erfundene REQ); die herangezogenen REQs
+   (`REQ-L1-005`/`-006`/`-082`, `REQ-L2-MC-016`/`-019`) belegen **nur** die
+   Server-/MCP-Zusagen. Die Plugin-Versionierung bleibt ein **offener
+   Traceability-Gap**, bis `requirements` entweder eine REQ anlegt oder sie bewusst als
+   Nicht-Produkt ausschließt (s. Offene Punkte).
 
 ---
 
@@ -194,12 +234,16 @@ C ist ein **Mechanismus** von A, keine eigene Achse.
 - **Laufende Clients, die `serverInfo.version == "1.0.0"` hart erwartet haben, sehen eine
   neue Zahl.** Das ist die gewünschte Korrektur, aber ein sichtbarer Wechsel und muss in
   der Doku benannt werden.
-- **Umstellung des Python-POC-Plugins** (`0.1.0`) auf Build-Generierung oder explizite
-  Unabhängigkeit ist eine Entscheidung mit Folgen für dessen Release-Ritual.
+- **Python-POC-Plugin wird als eigenständig versioniert festgelegt** (`0.1.0`, eigene
+  SemVer + `minServerVersion`); das trennt es bewusst vom Produkt-Release-Ritual.
 - **Kompatibilitätsmatrix für Dritt-Plugins** muss jemand pflegen — bewusst als
-  Host-Vertrag ausgewiesen, nicht dem Produkt-Release zugeschlagen.
+  Host-Vertrag ausgewiesen, nicht dem Produkt-Release zugeschlagen. Solange
+  `minServerVersion` nicht validiert wird, ist es dekorativ und daher zu entfernen.
 - **`engines.hermes`/`permissions` bleiben unecht,** solange keine Validierung existiert;
   A entfernt sie andernfalls nur kosmetisch, nicht semantisch.
+- **Plugin-Versionierung bleibt ein Traceability-Gap:** Ohne REQ-Anker kann die
+  Kaskade die Plugin-Hälfte nicht prüfen; das ist bewusst als Nicht-Produkt-Zusage
+  ausgewiesen, nicht stillschweigend verankert.
 - **Entscheidung noch nicht freigegeben:** Status `proposed`; die abhängige `PLUG-04`-
   Umsetzung startet nach der User-Freigabe.
 
@@ -208,15 +252,17 @@ C ist ein **Mechanismus** von A, keine eigene Achse.
 ## Offene Punkte
 
 1. **Freigabe:** `proposed → review → accepted` durch User nach `concept-reviewer`-Review.
-2. **Fehlende REQ für Plugin-Versionierung:** Das ist ein **Dokumentations-/Traceability-
-   Gap**, kein geratener Bezug. `requirements`/`DOC-01` sollten eine REQ (z. B. unter
-   Integration/API) anlegen oder die Plugin-Versionierung bewusst als Nicht-Produkt-Zusage
-   ausschließen.
+2. **Traceability-Gap Plugin-Versionierung (Befund 002-02):** Es existiert **keine** REQ
+   für die Plugin-Versionierung. Der ADR-Scope ist deshalb präzise auf die Server-Version
+   begrenzt; die Plugin-Versionierung ist als **Nicht-Produkt-Zusage** ausgewiesen. Offen
+   bleibt allein die Entscheidung von `requirements`, ob eine REQ (Integration/API) angelegt
+   oder die Nicht-Produkt-Zusage dauerhaft festgeschrieben wird. **Keine** REQ wird in
+   diesem ADR erfunden.
 3. **`open_adrs`** (`AUD-2026-09-333`): maschinelle REQ↔ADR-Verknüpfung fehlt; keine
    REQ-Datei-Änderung in diesem ADR.
-4. **Python-POC-Plugin-Zukunft** (`integrations/hermes-agent-plugin`): Build-Generierung
-   vs. eigenständige SemVer — Festlegung durch die zuständige Rolle.
-5. **`engines.hermes`-Durchsetzung:** nur bei tatsächlicher Validierung Vertrag, sonst
+4. **`minServerVersion`-Schema/Validierung:** konkretes Format (Minimum-SemVer) und
+   Ladeprüfung sind Teil von `PLUG-04`; ohne Validierung ist das Feld zu entfernen.
+5. **`engines.hermes`/`permissions`:** nur bei tatsächlicher Validierung Vertrag, sonst
    entfernen (`-101`).
 
 ---

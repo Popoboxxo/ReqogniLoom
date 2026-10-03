@@ -40,6 +40,9 @@ statisch geprüft), `:202-223` (Ratchet: rot nur bei **Anstieg**);
 **Empfehlung**, keine freigegebene Entscheidung. Die Freigabe erfolgt durch den User nach
 Review (`concept-reviewer`); erst dann darf der Status wechseln. Die abhängige Umsetzung
 (`DOC-02`) beginnt **nach** der Freigabe.
+**Review-Iteration 1** (`RVW-2026-10-03-001`): Verdict CHANGES_REQUESTED; der
+major-Befund `003-01` (Enforcement) sowie die minors `003-02`–`003-04` wurden
+eingearbeitet, der Status bleibt `proposed`.
 
 ---
 
@@ -71,7 +74,12 @@ Zusage **nicht** — das ist Finding `-348`.
 
 **5. Drei Fragen sind je eine Entscheidung:** (a) verbindliche Quelle (Locale-Datei vs.
 Code-Stelle), (b) sind dynamische Keys erlaubt, (c) darf `t()` einen Inline-Default
-haben. Dieses ADR entscheidet (b) und (c) und ordnet (a) als Zielbild ein.
+haben. Dieses ADR entscheidet **alle drei**: (b) dynamische Keys ohne Typschema verboten;
+(c) Inline-Default übergangsweise erlaubt, aber monoton sinkend; (a) **verbindliche
+Quelle ist der Code-Key** — dieses Zielbild ist allerdings erst mit Erreichen von Ziel A
+(baseline 0) normativ bindend (s. Entscheidung 4). Ein Widerspruch zu „(a) nur Zielbild"
+besteht damit nicht mehr: (a) ist entschieden, seine Bindung ist auf den Endzustand
+terminiert.
 
 ---
 
@@ -98,13 +106,15 @@ Keys ohne Typschema bleiben **verboten** (siehe Entscheidung). Zielbild bleibt O
 bei Erreichen der 0.
 
 **Abwägung:** Kein Bruch, aber eine **messbare** Richtung: Fortschritt ist als Zahl
-sichtbar und CI-erzwingbar. Die Kritik („zwei Indikatoren, die die Pflege erklären muss")
-ist berechtigt, aber beide Indikatoren sind mechanisch prüfbar — anders als eine
-Absichtserklärung. Genau die Ratchet-Form ist im Repo bereits etabliert
+sichtbar. „Monoton sinkend" ist keine Absichtserklärung, sondern durch einen definierten
+Mechanismus erzwungen — **Non-Increase plus Deadline-Budget** (s. Entscheidung 2): die
+Obergrenze fängt Rückschritt, die Deadline verhindert das ewige Einfrieren. Die Kritik
+(„zwei Indikatoren, die die Pflege erklären muss") ist berechtigt, aber beide Indikatoren
+sind mechanisch prüfbar. Genau die Ratchet-Form ist im Repo etabliert
 (`i18n-parity.test.ts`, `ui-ratchet.test.ts`, `design-tokens.test.ts`).
 
-**Risiko:** NIEDRIG — schrittweise, CI-gekoppelt; Gefahr nur bei „Ratchet nie senken",
-deshalb die Pflicht zur monotonen Senkung.
+**Risiko:** NIEDRIG — schrittweise, CI-gekoppelt; die zentrale Restgefahr „Ratchet nie
+senken" wird durch das Deadline-Budget ausgeschlossen, nicht bloß ermahnt.
 
 ### Option C: Generierte Keys — VERWORFEN (im POC)
 
@@ -137,25 +147,42 @@ volle Code-Generierung erreichen (siehe Entscheidung).
 dynamische Keys ohne Typschema verboten.**
 
 1. **Inline-Default bleibt vorübergehend erlaubt — mit sinkendem Ratchet.** Ein zweiter
-   Ratchet misst die Zahl der `t(key, default)`-Stellen (`i18n-parity.test.ts:94-99`
-   erfasst bereits die Literal-Keys); er darf **nur sinken**. Sobald er 0 erreicht, gilt
-   die strikte Regel (A): kein Inline-Default mehr.
-2. **Missing-Key-Ratchet wird monoton sinkend.** `MISSING_KEY_BASELINE = 116` ist eine
-   **Obergrenze auf dem Weg nach 0**, nicht ein eingefrorenes Soll. Jede Senkung ist
-   Pflicht, jede Erhöhung ist ein Review-Blocker. Locale-Ceiling = die **kanonische**
-   Key-Zahl (DOC-02: 116), nicht eine gewachsene Zahl.
+   Ratchet misst die Zahl der `t(key, default)`-Stellen; er darf **nur sinken**. Sobald er
+   0 erreicht, gilt die strikte Regel (A): kein Inline-Default mehr. **Detektor-Lücke
+   (Befund 003-04):** `T_CALL_PATTERN` (`i18n-parity.test.ts:99`) erfasst nur das erste
+   Literal-Argument, **nicht** das Default-Argument; dynamische Keys mit Default bleiben
+   blind. `DOC-02` muss daher einen **separaten Detektor** für das zweite Argument
+   vorsehen und die Coverage-Grenze (dynamische Keys mit Inline-Default) dokumentieren —
+   ohne ihn ist der zweite Ratchet nicht messbar.
+2. **Missing-Key-Ratchet wird monoton sinkend — mit definiertem Enforcement.**
+   `MISSING_KEY_BASELINE = 116` ist die **Missing-Key-Obergrenze** und **nicht** die
+   kanonische Gesamt-Key-Zahl der Locale-Dateien (das ist eine separate Metrik, s. Offene
+   Punkte 2). „Monoton sinkend" wird nicht bloß behauptet, sondern über **zwei mechanisch
+   prüfbare Regeln** erzwungen (Befund 003-01):
+   - **Non-Increase:** ein Wert über der Baseline ist rot (bestehende Regel,
+     `toBeLessThanOrEqual`, `i18n-parity.test.ts:214-219`).
+   - **Deadline-Budget:** jede Baseline trägt Ziel und Deadline (release-/datumsbasiert).
+     Ist die Deadline erreicht und der Wert > Ziel, ist die CI rot.
+
+   Damit ist die Pflicht zur Senkung erzwungen (Deadline) und ein Rückschritt verhindert
+   (Non-Increase). Ohne Deadline wäre „monoton sinkend" reine Policy — dieses ADR wählt
+   ausdrücklich den Mechanismus. Die konkreten Zahlen (Ziel, Deadline) und die
+   Implementierung beider Regeln sind Teil von `DOC-02`.
 3. **Dynamische Keys ohne Typschema sind verboten.** `t(variable)` ist nur zulässig, wenn
    die Schlüsselmenge statisch (Union/Registry/Typschema) vorliegt und geprüft wird.
    Andernfalls ist der Key statisch zu machen. Ein Runtime-`missingKeyHandler` kann die
    Diagnose verbessern, ersetzt aber die statische Prüfung nicht.
-4. **Verbindliche Quelle ist der Code-Key, verifiziert gegen die Locale-Dateien.** Der
+4. **Verbindliche Quelle ist der Code-Key (Zielbild A, bindend ab baseline 0).** Der
    zulässige Weg bleibt: Key im Code referenziert → muss in `de.json` **und** `en.json`
    existieren (beide Richtungen, wie `i18n-parity.test.ts:47-59` prüft). Der Inline-Default
-   ist Übergangshilfe, keine Quelle.
+   ist Übergangshilfe, keine Quelle. Dieses Zielbild ist **entschieden**; seine normative
+   Bindung greift jedoch erst, wenn Ziel A (baseline 0) erreicht ist — vorher ist der
+   Inline-Default der zulässige Übergang (löst Befund 003-03 auf).
 5. **Tote Keys werden abgebaut oder begründet** (536 Keys, `-303`); der Matrix-Vermerk
    `REQ-L1-094`/`Implemented` wird auf den **wahren** Stand gezogen (`-348`).
-6. **Kaskade:** `DOC-02` implementiert beide Ratchets, senkt `MISSING_KEY_BASELINE` und
-   baut die toten Keys ab. Keine Änderung an REQ-Dateien in diesem ADR.
+6. **Kaskade:** `DOC-02` implementiert beide Ratchets inklusive des
+   Default-Argument-Detektors, setzt Ziel/Deadline, senkt `MISSING_KEY_BASELINE` und baut
+   die toten Keys ab. Keine Änderung an REQ-Dateien in diesem ADR.
 
 ---
 
@@ -173,8 +200,9 @@ dynamische Keys ohne Typschema verboten.**
 
 **Negativ:**
 
-- **Zwei Indikatoren müssen gepflegt werden**; ohne disziplinierte Senkung wird der
-  Übergangsvorteil zum Dauerzustand. Das ist die zentrale Restgefahr von B.
+- **Zwei Indikatoren müssen gepflegt werden.** Das Deadline-Budget erzwingt zwar die
+  Senkung, aber die Wahl realistischer Ziel-/Deadline-Werte bleibt ein Pflegeaufwand; zu
+  aggressive Deadlines erzeugen rote Builds ohne inhaltlichen Fortschritt.
 - **Inline-Defaults bleiben zunächst erlaubt** — die Maskierung besteht fort, bis der
   zweite Ratchet sie abgebaut hat.
 - **~112 Stellen Migrationsaufwand**; einzelne Defaults sind fachlich und können nicht
@@ -189,11 +217,18 @@ dynamische Keys ohne Typschema verboten.**
 ## Offene Punkte
 
 1. **Freigabe:** `proposed → review → accepted` durch User nach `concept-reviewer`-Review.
-2. **Kanonische Key-Zahl** (DOC-02 nennt 116 als Locale-Ceiling) ist zu messen und zu
-   fixieren; die genaue Zahl ist Teil von `DOC-02`, nicht dieses ADR.
-3. **`open_adrs`** (`AUD-2026-09-333`): maschinelle REQ↔ADR-Verknüpfung fehlt; keine
+2. **Zwei getrennte Metriken (Befund 003-02):** (a) die **Missing-Key-Obergrenze**
+   (`116`, sinkend) und (b) die **kanonische Gesamt-Key-Zahl** der Locale-Dateien sind
+   unterschiedliche Zahlen und getrennt zu messen und zu fixieren; die genauen Werte sind
+   Teil von `DOC-02`, nicht dieses ADR.
+3. **Enforcement-Parameter (Befund 003-01):** Ziel- und Deadline-Werte beider Ratchets
+   sind in `DOC-02` festzulegen; ohne gesetzte Deadline ist die Regel nicht wirksam.
+4. **Default-Argument-Detektor (Befund 003-04):** `DOC-02` implementiert den zweiten
+   Ratchet mit einem Detektor für das **zweite** `t()`-Argument; die Blindstelle
+   „dynamischer Key mit Inline-Default" ist als Coverage-Grenze zu dokumentieren.
+5. **`open_adrs`** (`AUD-2026-09-333`): maschinelle REQ↔ADR-Verknüpfung fehlt; keine
    REQ-Datei-Änderung in diesem ADR.
-4. **Abbau der 536 toten Keys** (`-303`): Auswahl/Begründung je Key ist `DOC-02`.
+6. **Abbau der 536 toten Keys** (`-303`): Auswahl/Begründung je Key ist `DOC-02`.
 
 ---
 

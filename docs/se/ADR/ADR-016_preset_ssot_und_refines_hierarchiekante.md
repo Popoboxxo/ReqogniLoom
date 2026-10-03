@@ -46,6 +46,8 @@ ausgeschlossen, als offene Entscheidung markiert — genau dieser ADR) und `:179
 begründete **Empfehlung**, keine freigegebene Entscheidung. Die Freigabe erfolgt durch
 den User nach Review (`concept-reviewer`); erst dann darf der Status wechseln. Die
 abhängige Umsetzung (`DATA-10`, `DOC-01`) beginnt **nach** der Freigabe.
+**Review-Iteration 1** (`RVW-2026-10-03-001`): Verdict APPROVED; die nicht-blockierenden
+Befunde `001-01`–`001-04` wurden präzisierend eingearbeitet, der Status bleibt `proposed`.
 
 ---
 
@@ -53,13 +55,49 @@ abhängige Umsetzung (`DATA-10`, `DOC-01`) beginnt **nach** der Freigabe.
 
 **1. Der SSOT-Anspruch der Preset-Registry ist nicht haltbar.** Der Docstring behauptet
 „Single Source of Truth for all preset rule data" (`presets/registry.py:13`). Gemessen
-sind 7 Regeln datengetrieben, 5+ dagegen hartkodiert — und die hartkodierte Hälfte steuert
-die fachlich gewichtigere Achse (Workflow-Graphen, Attribut-Stufen, Invarianten-Sätze).
-`stage_mandatory` wird geseedet und hat **null** Produktionskonsumenten. Der Schaden ist
-nicht die Inkonsistenz selbst, sondern die **falsche Zusage**: jede Folgeentscheidung
-stützt sich auf „das steht in der Registry". Genau diese „benennen statt verschweigen"-
-Frage hat der Präzedenzfall `ADR-008` (`accepted`) bereits für „nicht modellierte"
-Sachverhalte entschieden (`docs/se/ADR/ADR-008_moe_mop_tpm_nicht_modelliert.md`).
+zerfallen die Regelachsen in zwei Hälften (Inventar:
+`docs/audit/2026-09/AUDIT_EVIDENCE/wp4-preset-hardcoding-inventory.md`):
+
+**Datengetrieben** — in `PresetConfig`/`_DEFAULT_REGISTRY` (`presets/registry.py`):
+
+1. Feature-Flags (5 Keys: `baselines`, `global_baselines`, `approval_workflows`,
+   `custom_workflows`, `change_reason_mandatory`),
+2. `mandatory_fields`,
+3. `baseline_scopes`,
+4. `workflow_configurability` (`registry.py:77,104-108` — im Inventar der Code-Seite
+   zugerechnet, tatsächlich aber ein `PresetConfig`-Feld und damit datenförmig),
+5. `change_reason`,
+
+plus die Metadaten `is_default`/`parent_tier`.
+
+**Hartkodiert** — ≥5 Achsen in ≥6 voneinander unabhängigen Modulen:
+
+1. Workflow-Graph (`workflow/definition_store.py`),
+2. Attribut-Stufen (`attribute_definitions/stage_matrix.py`, `PRESET_STAGE`),
+3. Architektur-Invarianten (`application/validators.py`, `RIGOR_INVARIANT_PRESETS`),
+4. SE-Audit-Regel-Registry (`traceability/audit/registry.py`),
+5. Tier-Mitgliedschaft / „proposed"-Ausnahme (`workflow/transition_validator.py`,
+   `workflow/definition_store.py`),
+6. N1-Sperre / Downgrade-Blocker (`application/architecture_decompose_service.py`,
+   `presets/gate.py`).
+
+Die hartkodierte Hälfte steuert die fachlich gewichtigere Achse (Workflow-Graphen,
+Attribut-Stufen, Invarianten-Sätze). Die exakte Zählung „7 / 5+" ist eine
+Audit-Näherung (`review/evidence/REVIEW_WP4.md:79`: Report-Tabelle 5 vs. 8); dieses ADR
+stützt sich daher auf die **Namen**, nicht auf die Zahl. `stage_mandatory` wird geseedet
+und hat **null** Produktionskonsumenten. Der Schaden ist nicht die Inkonsistenz selbst,
+sondern die **falsche Zusage**: jede Folgeentscheidung stützt sich auf „das steht in der
+Registry". Genau diese „benennen statt verschweigen"-Frage hat der Präzedenzfall `ADR-008`
+(`accepted`) bereits für „nicht modellierte" Sachverhalte entschieden
+(`docs/se/ADR/ADR-008_moe_mop_tpm_nicht_modelliert.md`).
+
+**Bewusste Divergenz zu Audit-Kandidat #2 Option B.** Der Kandidat schlug vor, die
+Registry zur SSOT für **Attribut- und Invarianten-Regeln** zu machen und nur
+Workflow-Graphen als Code zu belassen (`AUDIT_ADR_CANDIDATES.md:102`). Dieses ADR folgt
+dem **nicht**: Attribut-Stufen und Invarianten liegen heute in getrennten Modulen und
+wären erst über ein Datenmodell dorthin zu holen — das wäre Option A (hoher Aufwand,
+hoher Blast-Radius). Die ehrliche Teil-SSOT umfasst daher genau die datenförmigen
+`PresetConfig`-Felder; alles andere bleibt Code und wird als solches benannt.
 
 **2. Das Downgrade-Gate ist fail-open.** REQ-L2-PC-011 fordert: „Bei Inkompatibilitäten
 SHALL der Downgrade blockiert werden" (`L2_PresetConfigEngineSystem_Requirements.md:300-301`).
@@ -89,6 +127,19 @@ Die Zuordnung der betroffenen REQs ist eine **belegte Näherung** (Datei + Zeile
 keine bereits getrackte Verknüpfung; es wird **keine** REQ-Datei und **keine**
 Traceability-Matrix in diesem ADR geändert.
 
+**Threat-Model (4 Fragen, fail-open-Downgrade):**
+
+1. *Was gebaut?* Preset-Registry + Downgrade-Gate; Daten: Presets, Baselines,
+   Artefakte; Auth = RBAC + Item-Level; Nutzer = authentifizierte Tenant-User.
+2. *Was schiefgeht?* Das fail-open-Gate lässt einen unzulässigen
+   Extended→Standard/Minimal-Downgrade trotz vorhandener globaler Baselines durch ⇒
+   Integritäts-/Schutzverlust in der Multi-Tenancy; die falsche SSOT-Zusage führt zu
+   Fehlentscheidungen auf falscher Grundlage.
+3. *Gegenmaßnahme?* fail-closed (block/error) am Downgrade-Gate + explizite
+   Testkonfiguration statt stillem `except: pass`; ehrliche, benannte SSOT-Grenze.
+4. *Konsequenz?* Unzulässige Downgrades/Baseline-Verletzung wären möglich; kein
+   Rohdatenverlust, aber Compliance-/Reputationsrisiko.
+
 ---
 
 ## Alternativen
@@ -110,9 +161,12 @@ ohne Deploy) derzeit nicht belegt.
 ### Option B: Ehrliche Teil-SSOT — GEWÄHLT (Empfehlung)
 
 **Beschreibung:** Die Registry ist SSOT für die **datenförmigen** Preset-Regeln
-(Pflichtfelder, sichtbare Features, Baseline-Scope, Change-Reason-Pflicht). Workflow-Graphen,
+(`mandatory_fields`, `features`, `baseline_scopes`, `workflow_configurability`,
+`change_reason` — plus die Metadaten `is_default`/`parent_tier`). Workflow-Graphen,
 Attribut-Stufen und Invarianten-Sätze bleiben **Code** und werden als solche **benannt**.
-Der Docstring wird korrigiert; „datengetrieben vs. Code" wird zu einer expliziten Aussage.
+Der Docstring wird korrigiert; „datengetrieben vs. Code" wird zu einer expliziten Aussage
+mit enumerierten Achsen (s. Kontext 1). Die Divergenz zu Audit-Kandidat #2 Option B
+(Attribut-/Invarianten-Regeln als Daten) ist bewusst und begründet.
 
 **Abwägung:** Kleinster Aufwand, beseitigt die falsche Zusage sofort und setzt `ADR-008`
 fort („was nicht modelliert wird, wird benannt"). Die verbleibende Zweiteilung
@@ -140,7 +194,8 @@ lesen (`registry.py:14-15`). Ein Umkehren des Datenflusses wäre eine echte Regr
   Dekomposition bleibt bei `decomposes`/`derives-from`. Verfeinerung ist eine
   **semantische** Relation (Impact/Analyse), keine Ebenen-/Baseline-Kante. Der
   `DEFAULT_DECOMPOSITION_LINK_TYPE` muss auf die Hierarchie-Link-Typen eingeschränkt
-  werden, damit eine Konfiguration keinen Hierarchie-fremden Typ setzen kann.
+  werden (nicht-hierarchische Werte degradieren deterministisch auf `decomposes`, s.
+  Entscheidung 4), damit eine Konfiguration keinen Hierarchie-fremden Typ setzen kann.
 - **D2 — `refines` wird Hierarchiekante:** Dann müsste es in
   `HIERARCHY_LINK_TYPES`/`CHILD_TO_PARENT_LINK_TYPES` aufgenommen werden und dieselben
   Ebenen-/`document`-Baseline-Folgen tragen; eine Verfeinerung wäre einer Zerlegung
@@ -160,12 +215,17 @@ implizit.
 sofortiger fail-closed-Fix am Downgrade-Gate.**
 
 1. **Teil-SSOT, benannt.** `presets/registry.py` ist SSOT für die **datenförmigen**
-   Regeln (Pflichtfelder, Features, Baseline-Scope, Change-Reason). Workflow-Graphen,
+   Regeln (`mandatory_fields`, `features`, `baseline_scopes`, `workflow_configurability`,
+   `change_reason`; Metadaten `is_default`/`parent_tier`). Workflow-Graphen,
    Attribut-Stufen und Invarianten-Sätze bleiben Code und werden im Docstring und in
    `DOC-01` als solche benannt. Der irreführende Satz „…for all preset rule data" wird
    korrigiert (z. B. „…for the data-driven preset rules; workflow graphs / attribute
-   tiers / invariant sets remain code"). Die Default-Presets bleiben immutable
-   (`REQ-L2-PC-012`).
+   tiers / invariant sets remain code"). Der im Docstring enthaltene Verweis `(ADR-04)`
+   meint die **produktweite** ADR-04 „Configurable Rigor" (vgl. `AGENTS.md`,
+   `presets/apps.py:9`), **nicht** eine Datei unter `docs/se/ADR/`; das ist ein anderes
+   Nummernschema. `DOC-01` korrigiert den SSOT-Satz und referenziert für die
+   SSOT-Grenze dieses ADR (ADR-016), ohne den Rigor-Bezug auf ADR-04 fälschlich zu
+   entfernen. Die Default-Presets bleiben immutable (`REQ-L2-PC-012`).
 2. **Downgrade-Gate fail-closed — unabhängig vom SSOT-Grad.** `presets/gate.py:547-549`
    darf einen Persistence-Fehler **nicht** mehr verschlucken. Fällt die
    Inkompatibilitätsprüfung aus, gilt der Downgrade als **blockiert** (fail-closed) oder
@@ -179,11 +239,18 @@ sofortiger fail-closed-Fix am Downgrade-Gate.**
    „offene Entscheidung" auf „entschieden (dieses ADR)" umgestellt. `refines` bleibt als
    Link-Typ erhalten (`REQ-L2-TE-001`) und für Impact-/Analyse-Pfade nutzbar.
 4. **`DEFAULT_DECOMPOSITION_LINK_TYPE` wird auf Hierarchie-Link-Typen eingeschränkt.**
-   Die Dekompositions-Default-Konfiguration darf nur Werte annehmen, die das
-   Hierarchie-Modul kennt (`decomposes`, `derives-from`); `refines` ist als
-   Dekompositions-Default unzulässig und wird validiert abgewiesen (vgl.
-   `link_types/tests/test_default_link_type_env_989.py`). Damit sind Konfiguration und
-   Hierarchie-Semantik konsistent.
+   Die Dekompositions-Default-Konfiguration darf nur Werte aus `HIERARCHY_LINK_TYPES`
+   annehmen (heute `decomposes`, `derives-from`). `refines` bleibt als Link-Typ gültig,
+   ist als Dekompositions-Default aber **unzulässig**. **Mechanismus (entschieden, nicht
+   offengelassen):** `link_types/defaults._resolve` prüft zusätzlich gegen
+   `HIERARCHY_LINK_TYPES` und **fällt bei einem unbekannten oder nicht-hierarchischen
+   Wert auf `decomposes` zurück** (Warnung) — **kein** hartes Reject. Das ist konsistent
+   mit dem bestehenden Vertrag „ein Operator-Tippfehler darf die Workspace-Anlage nicht
+   brechen" (`defaults.py:15-18`) und verhindert, dass `refines` still als Hierarchiekante
+   angewendet wird: der Wert degradiert deterministisch auf den Default. Der Fall wird in
+   `link_types/tests/test_default_link_type_env_989.py` gepinnt
+   (`DEFAULT_DECOMPOSITION_LINK_TYPE=refines` ⇒ `decomposes` + Warnung). Damit sind
+   Konfiguration und Hierarchie-Semantik konsistent.
 5. **Kaskade der abhängigen Arbeitseinheiten.** `DATA-10` (fail-closed-Gate, Docstring)
    und `DOC-01` (`refines`-Statusdokumentation, Matrix-Zusage) referenzieren und
    setzen diesen ADR um. Die Preset-Regeln selbst bleiben verhaltensgleich.
