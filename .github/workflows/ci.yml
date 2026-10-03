@@ -361,6 +361,13 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - name: Create compose env file
+        # deploy/docker-compose.yml declares `env_file: .env`; Docker Compose
+        # resolves it against --project-directory (the repo root) and treats a
+        # missing file as fatal. CI has no .env (gitignored), so materialise it
+        # from the tracked example before the smoke parses the Compose model.
+        run: cp .env.example .env
+
       - name: Run atomic restore smoke
         # Defence-in-depth: the exec bit is also set (git mode 100755), but
         # invoking via `bash` cannot fail with exit 126 on a checkout that
