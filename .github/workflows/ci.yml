@@ -374,7 +374,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Run atomic restore smoke
-        run: deploy/verify-restore.sh
+        # Defence-in-depth: the exec bit is also set (git mode 100755), but
+        # invoking via `bash` cannot fail with exit 126 on a checkout that
+        # dropped the bit (e.g. a filesystem/export that loses POSIX modes).
+        run: bash deploy/verify-restore.sh
 
   # SECTRACK-03: reproducible secret-scan backstop for the incident pattern
   # `reqlo_<40 alnum>`. gitleaks 8.30.1 (pinned, sha256-verified) runs twice:
