@@ -184,3 +184,74 @@ und ehrlich über ihre Grenzen. **Reif für `accepted` durch den User?**
 Es liegen **keine critical-Befunde** vor; ein BLOCKED ist nicht angezeigt. Nach Behebung der
 drei major-Befunde steht der User-Freigabe (`accepted`) nichts entgegen; der Statuswechsel
 selbst erfolgt durch `se-architect`/User, nicht durch den Autor.
+
+---
+
+# Iteration 2 — Re-Review (RVW-2026-10-03-004)
+
+**Datum:** 2026-10-03 · **Autor:** `concept-reviewer` · **Branch:** `feat/w2-p1`
+**Basis:** Nachbesserungs-Commit `245921cb` (`docs(adr): incorporate ADR-016..018 review
+findings (iter 1)`, geändert: nur die drei ADR-Dateien + dieser Report, keine Produktcode-
+Änderung). **Read-only:** keine ADR-/REQ-/Code-Änderung, kein Commit, kein Push.
+
+**Prüfgegenstand:** ausschließlich die drei Iteration-1-majors `002-01`, `002-02`, `003-01`
+sowie die eingearbeiteten minors und `000-01`. Keine neuen Prüfdimensionen (Revisionsregel).
+
+## Verdict je ADR (Iteration 2)
+
+| ADR | Iteration 1 | **Iteration 2** | Begründung |
+|-----|-------------|-----------------|------------|
+| **ADR-016** | APPROVED | **APPROVED** | Alle minors präzisierend eingearbeitet; Decision-4-Mechanismus jetzt entschieden (Fallback, kein Reject). |
+| **ADR-017** | CHANGES_REQUESTED | **APPROVED** | Beide majors aufgelöst: „entweder/oder" in eine Variante überführt, Plugin-Hälfte per Scope-Abgrenzung als Nicht-Produkt ausgewiesen. |
+| **ADR-018** | CHANGES_REQUESTED | **APPROVED** | Major `003-01` durch definierten Enforcement (`Non-Increase` + `Deadline-Budget`) eingelöst; alle minors eingearbeitet. |
+
+## Status der Fokus-Majors
+
+| Finding | Status | Nachweis (Iteration 2) | Restrisiko |
+|---------|--------|------------------------|-----------|
+| **002-01** Plugin-Versionierung „entweder/oder" | **resolved** | Entscheidung Punkt 2 wählt jetzt **eine** Variante: POC-Artefakt `integrations/hermes-agent-plugin` = eigenständig semverisiert (`0.1.0`) mit `minServerVersion`; die Build-Generierungs-Alternative ist explizit **„verworfen"**. Titel + Frontmatter tragen die Entscheidung. | Kein ADR-Restrisiko. Die *Build-Generierung* der produktiven Bundle-Manifeste bleibt eine Behauptung, die `PLUG-04` nachweisen muss (neuer minor `017-R2-01`). |
+| **002-02** Fehlender REQ-Anker Plugin | **resolved (mit dokumentiertem Offen-Punkt)** | Kontext 4, Entscheidung Punkt 6 und Offener Punkt 2 begrenzen den ADR-Scope ausdrücklich auf die **Server-/Protokoll-Version** (REQ-verankert) und weisen die Plugin-Versionierung als **Nicht-Produkt-Zusage** aus; **keine** REQ erfunden. `affected_reqs` bleibt konsistent server-lastig. | Der **Traceability-Gap selbst bleibt** bestehen und ist bewusst `requirements` überlassen (REQ anlegen *oder* Nicht-Produkt festschreiben). Organisatorisch, kein ADR-Blocker. |
+| **003-01** Nicht erzwingbarer Ratchet | **resolved (mit Restrisiko)** | Entscheidung Punkt 2 definiert Enforcement konkret: **Non-Increase** (`toBeLessThanOrEqual`, verifiziert `i18n-parity.test.ts:219`) **plus Deadline-Budget** („Deadline erreicht und Wert > Ziel ⇒ CI rot"). Das war explizit eine der in Iteration 1 akzeptierten Optionen. | (a) „monoton" ist tatsächlich **deadline-stufenweise**, nicht schrittweise; (b) **Re-Arm** nach Zielerreichung ist nicht geregelt (Re-Freeze möglich). Zahl/Deadline sind korrekt als `DOC-02`-Parameter ausgelagert. Neuer minor `018-R2-01`. |
+
+## Verbleibende Findings (Iteration 2)
+
+Alle Iteration-1-minors (`001-01`–`001-04`, `002-03`–`002-05`, `003-02`–`003-04`) sind
+**eingearbeitet und auf resolved gesetzt** (stichprobenartig verifiziert: Enumerierung +
+`workflow_configurability` in ADR-016 Kontext 1/Option B; `ADR-04`-Abgrenzung; Threat-Model
+in 016/017; kanonisches Feld `minServerVersion`; Formulierung Option B; getrennte Metriken
+003-02; „(a) entschieden" 003-03; Default-Argument-Detektor 003-04).
+
+| ID | Severity | Dimension | Findings |
+|----|----------|-----------|----------|
+| **000-01** | **info** | Prozess/Kaskade | **Offen (unverändert).** Alle drei ADRs listen `deciders: [user, senior-developer]` und wurden von `senior-developer` erstellt; die SE-Kaskade weist Erzeugung/Statuswechsel `se-architect` zu. Kein Schema-Verstoß, aber Prozessabweichung. → Vor dem Statuswechsel `accepted`: als **User-Override** bestätigen oder Rollenkonformität herstellen; Statuswechsel selbst durch `se-architect`/User. |
+| **017-R2-01** | **minor** | Feasibility/Konsistenz | Die Zusage „die im Repo produktiv ausgelieferten Bundle-Manifeste (`dist/plugins/**`, TS-Hermes-Plugin) werden beim Build aus `VERSION` erzeugt … kann nicht driften" ist eine **Mechanik-Behauptung**: `integrations/hermes-plugin/reqogniloom/hermes-plugin.json` liegt heute committed mit `1.8.0-beta.17` vor (Hand-Sync vs. generiert ist aus dem ADR nicht belegt). → `PLUG-04` pinnt die Generierung oder benennt das Manifest explizit als hand-gepflegt. Nicht blockierend. |
+| **018-R2-01** | **minor** | Logik/Feasibility | `Deadline-Budget` erzwingt Senkung **bis** zur Deadline, nicht „monoton" im Wortsinn; nach Erreichen eines Ziels ist kein Folge-Ziel/-Deadline (Re-Arm) definiert ⇒ theoretischer Re-Freeze. → In `DOC-02` Re-Arm-Regel (nächstes Ziel/Deadline) oder Wortwahl „deadline-stufenweise sinkend" schärfen. Nicht blockierend. |
+
+*(ADR-016: keine verbleibenden Findings außer `000-01`.)*
+
+## Reifegrad für `proposed → accepted` (Q4)
+
+**Ja — alle drei sind inhaltlich reif für die User-Freigabe.** Es liegen **keine** critical-
+und **keine** major-Befunde mehr vor; ein BLOCKED ist nicht angezeigt. Die Restpunkte sind
+`info`/`minor` und ändern keine Entscheidung.
+
+| ADR | Reif? | Was je ADR noch offen ist |
+|-----|-------|---------------------------|
+| **ADR-016** | **Ja** | Nur `000-01` (Prozess/deciders). Umsetzung `DATA-10`/`DOC-01` startet nach Freigabe; enthält die Code-Änderungen (Docstring, fail-closed-Gate, `refines`-Kommentar, `HIERARCHY_LINK_TYPES`-Einschränkung + Test). |
+| **ADR-017** | **Ja** | `000-01`; offener **Traceability-Gap** Plugin-Versionierung (bewusst `requirements` überlassen); `017-R2-01` (Build-Generierung nachweisen). Freigabe deckt **nur die Server-/MCP-Hälfte** als Produktentscheidung ab; die Plugin-Aussage bleibt Nicht-Produkt-Notiz. |
+| **ADR-018** | **Ja** | `000-01`; `DOC-02` muss Ziel/Deadline-Werte setzen, den **Default-Argument-Detektor** bauen und die Re-Arm-/Monotonie-Semantik klären (`018-R2-01`); Zahlen bewusst nicht im ADR. |
+
+**Freigabehinweis:** Der Statuswechsel `proposed → accepted` ist durch `se-architect`/User
+vorzunehmen (nicht durch den Autor); `000-01` ist dabei als User-Override zu bestätigen.
+`open_adrs` (AUD-2026-09-333) existiert weiterhin nicht — die REQ↔ADR-Verknüpfung bleibt ein
+separates, ADR-unabhängiges Thema.
+
+## Verifikationsbelege (Iteration 2, gelesen)
+
+- `git show --stat 245921cb`: nur die 3 ADR-Dateien + dieser Report — **keine** Produktcode-Änderung (Entscheidungen sind noch nicht umgesetzt, korrekt für `proposed`).
+- `i18n-parity.test.ts:99` (`T_CALL_PATTERN` nur erstes Literal-Argument), `:186` (`MISSING_KEY_BASELINE = 116`), `:219` (`toBeLessThanOrEqual`) — kein Deadline/Feld vorhanden ⇒ `Deadline-Budget` ist neu in `DOC-02` (stützt `018-R2-01`).
+- `mcp_server/protocol_handler.py:505` und `mcp_server/views.py:482` weiterhin hart `"1.0.0"` — ADR-017-Kontext unverändert korrekt.
+- `traceability/audit/hierarchy.py:179-195`: `HIERARCHY_LINK_TYPES = {decomposes, derives-from}`, `refines` ausgeschlossen mit „open … ADR candidate (vi)" — ADR-016 Entscheidung 3/4 inhaltlich korrekt.
+- `link_types/defaults.py:36-48`: `_resolve` prüft nur `BUILTIN_LINK_TYPES` (Fallback+Warnung) — ADR-016 Entscheidung 4 erweitert genau diesen Punkt korrekt.
+- `presets/registry.py:87` `workflow_configurability: str` in `PresetConfig` — ADR-016-Klassifikation als datenförmig belegt.
+- `presets/gate.py:547-549` `except Exception: pass` unverändert — ADR-016 Entscheidung 2 (fail-closed) bleibt erforderlich.
