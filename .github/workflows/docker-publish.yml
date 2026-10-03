@@ -87,6 +87,14 @@ jobs:
       attestations: write
 
     strategy:
+      # Both images must be independently verifiable. With the default
+      # (fail-fast: true) a backend failure cancels the frontend leg mid-run —
+      # possibly between `docker push` and `cosign sign`, leaving a partially
+      # released image — and hides the second image's real result. fail-fast:
+      # false lets each image run to completion and report its own green/red,
+      # which is exactly what a full supply-chain audit needs. Not a security
+      # gate; no gate is weakened by this.
+      fail-fast: false
       matrix:
         include:
           - image: backend
@@ -272,6 +280,15 @@ jobs:
           format: spdx-json
           output-file: sbom-${{ matrix.image }}.spdx.json
           artifact-name: sbom-${{ matrix.image }}
+          # Least-privilege: retain the SBOM as a workflow artifact only (the
+          # `artifact-name` input above drives the upload). anchore/sbom-action
+          # defaults `upload-release-assets` to true, which additionally attaches
+          # the SBOM to the GitHub release and therefore requires
+          # `contents: write`; this job intentionally has only `contents: read`,
+          # so the default fails with "Resource not accessible by integration"
+          # (403). Keep `contents: read` — the workflow artifact is the intended
+          # retention mechanism here.
+          upload-release-assets: false
           registry-username: ${{ github.actor }}
           registry-password: ${{ secrets.GITHUB_TOKEN }}
 
