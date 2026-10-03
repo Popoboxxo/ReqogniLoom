@@ -109,11 +109,21 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # GHCR/OCI repository names MUST be lowercase. `github.repository_owner` is
+      # canonical-case (e.g. `Popoboxxo`), but Syft/sbom-action, cosign and the
+      # attestation tooling use go-containerregistry, which rejects uppercase
+      # names with "could not parse reference". docker/metadata-action lowercases
+      # internally, so this derived lowercase prefix is the single source of
+      # truth for every hand-built image reference below.
+      - name: Derive lowercase image prefix
+        id: img
+        run: echo "prefix=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
+
       - name: Extract image metadata (tags, labels)
         id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6
         with:
-          images: ghcr.io/${{ github.repository_owner }}/reqogniloom-${{ matrix.image }}
+          images: ${{ steps.img.outputs.prefix }}/reqogniloom-${{ matrix.image }}
           tags: |
             type=semver,pattern={{version}}
             type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
@@ -258,7 +268,7 @@ jobs:
       - name: Generate SBOM (SPDX)
         uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
         with:
-          image: ghcr.io/${{ github.repository_owner }}/reqogniloom-${{ matrix.image }}@${{ steps.push.outputs.digest }}
+          image: ${{ steps.img.outputs.prefix }}/reqogniloom-${{ matrix.image }}@${{ steps.push.outputs.digest }}
           format: spdx-json
           output-file: sbom-${{ matrix.image }}.spdx.json
           artifact-name: sbom-${{ matrix.image }}
@@ -270,7 +280,7 @@ jobs:
       - name: Attest build provenance
         uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
         with:
-          subject-name: ghcr.io/${{ github.repository_owner }}/reqogniloom-${{ matrix.image }}
+          subject-name: ${{ steps.img.outputs.prefix }}/reqogniloom-${{ matrix.image }}
           subject-digest: ${{ steps.push.outputs.digest }}
           push-to-registry: true
 
@@ -280,13 +290,13 @@ jobs:
 
       - name: Sign image (keyless)
         env:
-          IMAGE: ghcr.io/${{ github.repository_owner }}/reqogniloom-${{ matrix.image }}
+          IMAGE: ${{ steps.img.outputs.prefix }}/reqogniloom-${{ matrix.image }}
           DIGEST: ${{ steps.push.outputs.digest }}
         run: cosign sign --yes "${IMAGE}@${DIGEST}"
 
       - name: Verify image signature (keyless)
         env:
-          IMAGE: ghcr.io/${{ github.repository_owner }}/reqogniloom-${{ matrix.image }}
+          IMAGE: ${{ steps.img.outputs.prefix }}/reqogniloom-${{ matrix.image }}
           DIGEST: ${{ steps.push.outputs.digest }}
           WORKFLOW_IDENTITY: https://github.com/${{ github.repository }}/.github/workflows/docker-publish.yml
         run: |
