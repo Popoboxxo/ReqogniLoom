@@ -36,6 +36,16 @@ tools:
 - requirement_bundle.export
 - requirement_bundle.attribute_schema
 - requirement_bundle.compression_status
+- interview.start
+- interview.get_state
+- interview.answer
+- interview.get
+- interview.list
+- interview.grounding_context
+- interview.set_target
+- interview.propose
+- interview.formalize
+- interview.abandon
 ---
 
 # Requirements Lead

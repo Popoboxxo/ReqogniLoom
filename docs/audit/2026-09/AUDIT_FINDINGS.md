@@ -197,8 +197,8 @@ Spalte **Sev (orig)** = Originalwert des jeweiligen WP-Agents,
 | AUD-2026-09-122 | **Critical** | **Critical** | WP-1c | NEU | **NEU** (CR-37) | `scripts/backup.sh:84-87` | `backup.sh` ist permanent nicht ausführbar (`exit 1`) | offen |
 | AUD-2026-09-123 | **Critical** | **Critical** | WP-1c | NEU | **NEU** (CR-37) | `scripts/restore.sh:183,186,198-213` | Backup-Datei wird nie in den Container kopiert; `psql -f` liest Datei statt stdin | offen |
 | AUD-2026-09-115 | **Critical** | **Critical** | WP-2 | NEU | — (CR-24 verwandt) | `integrations/hermes-agent-plugin/__init__.py:79` (via `:110,:120,:127`)` | `_handle_slash` wirft `TypeError` — dokumentiert „never raises"; `start`/`status`/`answer` brechen live | offen |
-| AUD-2026-09-345 | Critical | **Critical** | WP-5 | NEU | — | `matrix:331`, `backend/Dockerfile:154` | Backup/Restore als `Implemented/Covered`, Restore-Skript nie im Image | offen |
-| AUD-2026-09-346 | Critical | **Critical** | WP-5 | NEU | — | `backend/llm_adapter/providers.py:1080` | Default-Modell `claude-3-opus-20240229` abgeschaltet; jeder Anthropic-Call scheitert | offen |
+| AUD-2026-09-345 | Critical | **Medium** | WP-5 | **DUPLIKAT** | → `AUD-2026-09-123` | `matrix:331`, `backend/Dockerfile:154` | **DUPLIKAT zu `AUD-2026-09-123`** (Restore-Skript nie im Image, WP-1c). Eigenständiger Rest = SOLL-STALE der Matrix (`REQ-L1-046`/`REQ-L2-BL-011`) ⇒ Medium. Wird **nur als `-123`** umgesetzt. | offen (als `-123` geführt) |
+| AUD-2026-09-346 | Critical | — | WP-5 | **DUPLIKAT** | → `AUD-2026-09-052` | `backend/llm_adapter/providers.py:1080` | **DUPLIKAT zu `AUD-2026-09-052`** (identische Zeile/Defekt, WP-1a/1b). Der WP-5-Mehrwert (`REQ-L1-013`-Marker) ist eine Traceability-Beobachtung, kein zweiter Defekt. Wird **nur als `-052`** umgesetzt. | offen (als `-052` geführt) |
 | AUD-2026-09-220 | **CRITICAL** | **Critical** | WP-6a | NEU | — | `docs/audit/2026-09/AUDIT_EVIDENCE/wp1d-auth-pagination-filter-errors-live.json:2246` | `reqlo_`-API-Key (40 Zeichen) im Klartext committet in `3dcc80d8` — **der Commit wurde nie gepusht** (`merge-base --is-ancestor` exit 1), es gab kein PR/Fork. Arbeitsbaum redigiert; Widerruf durch 3-fach-Beleg des Haupt-Audits dokumentiert (HTTP 204, `revoked_at` gesetzt, danach 401), **live nicht nachverifizierbar** (Stack gestoppt). Historie des lokalen Branches offen | TEILWEISE BEHOBEN |
 | AUD-2026-09-221 | **CRITICAL** | **Critical** | WP-6a | NEU | — | `backend/mcp_server/views.py:272` + `backend/reqogniloom/settings.py:879-884` | Unauthentifizierter Rate-Limit-Check vor AuthN + Cache ohne `SOCKET_TIMEOUT` = DoS-VerstÃ¤rker | offen |
 | AUD-2026-09-032 | **High** | **High** | WP-1a/1b/1d | NEU | **CR-22** | `backend/mcp_server/views.py:291-304` vs. `:311-325` | Zwei inkompatible Fehler-Hüllen (`code` int vs. `error_code` str) auf demselben Endpunkt | offen |
@@ -225,7 +225,7 @@ Spalte **Sev (orig)** = Originalwert des jeweiligen WP-Agents,
 | AUD-2026-09-126 | High | **High** | WP-1c | NEU | **NEU** (kein Vor-Audit-Track; CR-35-Nähe) | `live `app.conf.task_acks_late=False`; 7 Task-Dateien` | pre-ack + kein Retry ⇒ Worker-Kill = **endgültiger** Task-Verlust | offen |
 | AUD-2026-09-127 | High | **High** | WP-1c | NEU | **NEU** (CR-37) | `scripts/restore.sh:183` | Restore nicht atomar (`--clean --if-exists` in-place auf der Live-DB) | offen |
 | AUD-2026-09-128 | High | **High** | WP-1c | NEU | **NEU** (CR-37) | `deploy/docker-compose.yml:357,361,372` | 42-h-Horizont, kein Off-Host, keine Verschlüsselung, keine Medien/Uploads | offen |
-| AUD-2026-09-129 | High | **High** | WP-1c | NEU | — | `backend/reqogniloom/health.py:118-313`; `deploy/docker-compose.yml:642` | `/health/` prüft weder Cache **noch Worker/Beat**; `degraded` liefert HTTP **200** | offen |
+| AUD-2026-09-129 | High | **High** | WP-1c | NEU | — | `backend/reqogniloom/health.py:118-313`; `deploy/docker-compose.yml:642` | `/health/` prüft weder Cache **noch Worker/Beat**; **`warnings` ⇒ HTTP 200, `degraded` ⇒ HTTP 503** (Register-Kurzform „`degraded` ⇒ 200" war falsch) | offen |
 | AUD-2026-09-137 | High | **High** | WP-1c | NEU | **BESTAETIGT** `CR-32`, `CR-38` | `.github/workflows/docker-publish.yml:102,145,168,183`; `ci.yml:4-7` | Kein Test-vor-Image-Vertrag; Scan≠Push-Artefakt; **kein** SBOM/Cosign/Provenance | offen |
 | AUD-2026-09-149 | High | **High** | WP-1c | NEU | — | `keine Staging-Definition; `ci.yml`/`docker-publish.yml` 0× `environment:`/`concurrency:` | **Keine Staging-Stufe** zwischen CI und Produktion; keine Approval-Gate | offen |
 | AUD-2026-09-100 | **High** | **High** | WP-2 | NEU | — | `integrations/hermes-plugin/reqogniloom/hermes-plugin.json:7` + `.gitignore:2` | `main: dist/plugin.js` ist gitignored; Hermes-Installation komplett undokumentiert | offen |
@@ -323,10 +323,10 @@ Spalte **Sev (orig)** = Originalwert des jeweiligen WP-Agents,
 | AUD-2026-09-118 | Medium | **Medium** | WP-2 | NEU | — | `…/src/state.ts:157-158` (+ `:101-118`)` | API-Key wird im Klartext in den Host-Storage geschrieben und ohne Ablauf wiederhergestellt | offen |
 | AUD-2026-09-004 | **P2** | **Medium** | WP-3 | NEU | **BESTAETIGT #420, #925** (geschlossen) | `/settings` LLM-Tab` | Rohe i18n-Keys als sichtbare Abschnittstitel (`architecture_decompose_tree`, `bundle_compression`, `interview.grounding_rank`) | offen |
 | AUD-2026-09-005 | **P2** | **Medium** | WP-3 | NEU | **BESTAETIGT #425, #741** (geschlossen) | `/system-settings` Design-Paletten` | 2 `combobox` ohne accessible name (Tenant-Standard) | offen |
-| AUD-2026-09-006 | **P2** | **Medium** | WP-3 | NEU | — | `/profile` | ~190 API-Keys ungepaginiert, ohne Filter/Suche; Widerruf **ohne** Bestätigungsdialog | offen |
+| AUD-2026-09-006 | **P2** | **Medium** | WP-3 | NEU | — | `/profile` | ~190 API-Keys ungepaginiert, ohne Filter/Suche (**bestätigt**); Widerruf-Teil **korrigiert**: ein `ConfirmDialog` existiert (`ApiKeysSection.tsx:276-288`, `testId="api-key-revoke-confirm"`) — „ohne Bestätigungsdialog" war falsch | offen |
 | AUD-2026-09-007 | **P2** | **Medium** | WP-3 | NEU | — | `SidebarNavigation.tsx:150-160` | 25 NavLinks ohne `data-testid`; nur über übersetzten Text selektierbar (derzeit durch `goto()` kaschiert) | offen |
 | AUD-2026-09-008 | **P2** | **Medium** | WP-3 | NEU | **BESTAETIGT CR-40** (verwandt #449 ff.) | ``SidebarNavigation`` | Bei Deep-Link/Reload startet die Sidebar mittig; der aktive Nav-Eintrag ist außerhalb des Sichtbereichs | offen |
-| AUD-2026-09-016 | **P2** | **Medium** | WP-3 | NEU | **BESTAETIGT #619** (geschlossen, **Ratchet unwirksam**) | `frontend/src/i18n/locales.test.ts` | i18n-Paritäts-Ratchet prüft Key-Menge, nicht Code→Locale-Nutzung ⇒ 112 maskierte Fehl-Keys unsichtbar | offen |
+| AUD-2026-09-016 | **P2** | **Medium** | WP-3 | NEU | **BESTAETIGT #619** (geschlossen, **Ratchet unwirksam**) | `frontend/src/test/i18n-parity.test.ts:202-222` | i18n-Paritäts-Ratchet prüft **sehr wohl** Code→Locale-Nutzung; Defekt ist die **eingefrorene Obergrenze** (`MISSING_KEY_BASELINE = 116` ⇒ kann nie rot werden), nicht die Dimension — kanonische Lücke **116** (nicht 112) | offen |
 | AUD-2026-09-017 | **P2** | **Medium** | WP-3 | NEU | — | `e2e/tests/*` (54 Specs)` | Abdeckungslücken: `/attributes` 0 Specs; `/goals` `/workflows` `/audit` `/impact` `/glossary` nur generisch; `/interviews` nur Visual-Regression; i18n in 1 von 54 Specs | offen |
 | AUD-2026-09-302 | P2 | **Medium** | WP-3b | NEU | CR-41 | `components/NeedsEditors/NeedsEditors.tsx:263` | 27 Count-Keys ohne Pluralform | offen |
 | AUD-2026-09-303 | P2 | **Medium** | WP-3b | NEU | #619 | `i18n/locales/de.json:1` | 536 tote Locale-Keys (25,3 %) | offen |
@@ -363,7 +363,7 @@ Spalte **Sev (orig)** = Originalwert des jeweiligen WP-Agents,
 | AUD-2026-09-200 | Medium | **Medium** | WP-5 | NEU | — | `backend/rest_api/tests/test_llm_settings.py:248` | Test fixiert das abgeschaltete Anthropic-Modell als Erwartungswert | offen |
 | AUD-2026-09-202 | Medium | **Medium** | WP-5 | NEU | CR-09 | `docs/se/**/*Requirements*.md` | 104 von 121 Requirement-Dokumenten ohne YAML-Frontmatter (Pflichtverstoß) | offen |
 | AUD-2026-09-203 | Medium | **Medium** | WP-5 | NEU | — | `Matrix `:724,728` | 20 doppelt vergebene REQ-IDs; Marker „letzter gewinnt" = positionsabhängig | offen |
-| AUD-2026-09-204 | Medium | **Medium** | WP-5 | NEU | — | `settings.py:822`, DB-Row live` | Parallelbefund „Archivierung nie registriert" **nicht reproduzierbar** | offen |
+| AUD-2026-09-204 | Medium | **Medium** | WP-5 | **WIDERLEGT** | — | `settings.py:822` (`CELERY_BEAT_SCHEDULE`), DB-Row live | Registerzeile **WIDERLEGT (Verdikt FALSCH, Review)**: Die Aussage „Archivierung nie registriert — nicht reproduzierbar" ist zurückgenommen. `settings.py:822` ist eine **Beat-Schedule**-Zeile, **keine** Worker-Registrierung. Die Richtung ist umgekehrt: `-121`/`-270` gelten. | **geschlossen (WIDERLEGT)** |
 | AUD-2026-09-206 | Medium | **Medium** | WP-5 | NEU | — | ``AGENTS.md`` | APIView-/Tool-Zahlen im AGENTS.md weichen vom gemessenen Stand ab (durch WP-1 belegt) | offen |
 | AUD-2026-09-332 | Medium | **Medium** | WP-5 | NEU | — | `traceability-matrix.md:721` | 15 als „nicht existent" gelistete IDs, die im Code referenziert werden | offen |
 | AUD-2026-09-335 | Medium | **Medium** | WP-5 | NEU | — | ``ADR-001,-002,-003,-DS-02`` | 4 von 10 ADRs ohne YAML-Frontmatter | offen |
@@ -396,7 +396,7 @@ Spalte **Sev (orig)** = Originalwert des jeweiligen WP-Agents,
 | AUD-2026-09-046 | Low | **Low** | WP-1a/1b/1d | NEU | — | `backend/mcp_server/tools/generic.py:493`; `backend/application/glossary_service.py:166` | Falsch typisierte Felder ⇒ `AttributeError` ⇒ „internal error" statt Validierungsfehler | offen |
 | AUD-2026-09-047 | Low | **Low** | WP-1a/1b/1d | NEU | — | `backend/application/glossary_service.py:166` | Keine Längenbegrenzung: 20 000-Zeichen-Strings werden persistiert | offen |
 | AUD-2026-09-048 | Low | **Low** | WP-1a/1b/1d | NEU | **CR-30** | `backend/mcp_server/tests/test_tool_manifest_drift.py:83` | Guard im laufenden Stack nicht ausführbar (DB-Rolle ohne `CREATEDB`), obwohl `build_manifest()` keine DB braucht | offen |
-| AUD-2026-09-088 | **Low** | **Low** | WP-1a/1b/1d | NEU | CR-26 | `live, `auth_tenancy/services/authentication.py` (Claim-Reihenfolge)` | Fehlercode-Granularität: abgelaufen, `aud`-fremd, `iss`-fremd und unbekannter `user_id` sind **nicht unterscheidbar** (alle `invalid_signature`) | offen |
+| AUD-2026-09-088 | **Low** | **Low** | WP-1a/1b/1d | NEU | CR-26 | `auth_tenancy/services/authentication.py` (Claim-Reihenfolge), live | Fehlercode-Granularität: abgelaufen, `aud`-fremd, `iss`-fremd und unbekannter `user_id` sind **weitgehend nicht unterscheidbar** — die Klammer „alle `invalid_signature`" ist **korrigiert**: `token_expired` existiert als eigener Code (`jwt_tokens.py:114-115`) | offen |
 | AUD-2026-09-089 | **Low** | **Low** | WP-1a/1b/1d | NEU | — | `rest_api/urls.py:263`, `reqogniloom/urls.py:51-52` | MCP-Server-Deskriptor auf `/mcp/` und `/api/v1/mcp/` **ohne Credential** öffentlich (Versions-Disclosure, MCP-Spec-konform) | offen |
 | AUD-2026-09-090 | **Low** | **Low** | WP-1a/1b/1d | NEU | CR-12 | `GET /api/schema/` → `components.securitySchemes.cookieAuth` | `cookieAuth` (`sessionid`) ist deklariert, wird aber von **keiner** Operation referenziert — toter Auth-Pfad im Schema | offen |
 | AUD-2026-09-091 | **Low** | **Low** | WP-1a/1b/1d | NEU | CR-12 | `GET /api/schema/` → `auth/login`, `auth/refresh`, `public/banners/login` | Öffentliche Endpunkte nutzen `security: [{BearerAuth: []}, {}]` statt des kanonischen `security: []` | offen |
@@ -422,7 +422,7 @@ Spalte **Sev (orig)** = Originalwert des jeweiligen WP-Agents,
 | AUD-2026-09-018 | **P3** | **Low** | WP-3 | BESTAETIGT | — | `/workflows` (React Flow)` | Attribution entfernt ohne Pro-Abo ⇒ Lizenz-/Compliance-Risiko (Console-Warnung bestätigt) | offen |
 | AUD-2026-09-019 | P3 | **Low** | WP-3 | NEU | — | `/settings`, `/system-settings` | `prefers-color-scheme` wird nicht ausgewertet (nur App-Toggle) — bewusste Entscheidung, aber ohne Dokumentation | offen |
 | AUD-2026-09-020 | P3 | **Low** | WP-3 | NEU | **BESTAETIGT #1096** (**OFFEN**) | `/profile` | „Sichtbarkeit lesbarer IDs" persistiert nur lokal; die UI nennt die fehlende Server-Persistenz selbst | offen |
-| AUD-2026-09-021 | P3 | **Low** | WP-3 | WIDERLEGT | Design-Token-Disziplin: 0 harte Hex-Werte, 0 Inline-Styles ⇒ #674/#876 wirksam | `frontend/src/styles/*` | Design-Token-Disziplin: 0 harte Hex-Werte, 0 Inline-Styles ⇒ #674/#876 wirksam | geschlossen (WIDERLEGT) |
+| AUD-2026-09-021 | P3 | **Low** | WP-3 | WIDERLEGT | #674/#876 (verwandt) | `frontend/src/**` | Design-Token-Disziplin: **0 Inline-Styles bestätigt**; die absolute Aussage „0 harte Hex-Werte" ist **widerlegt** — eigener Scan: **37 Hex-Literale** in 5 Prod-Dateien (`utils/asilUtils.ts`, `CanvasEditor.tsx`, …), vom Ratchet nicht vollständig erfasst | geschlossen (WIDERLEGT, Hex-Teil) |
 | AUD-2026-09-022 | P3 | **Low** | WP-3 | WIDERLEGT | — | `/login`, `/requirements` Dialog` | Auth- und Dialog-Fokuspfade vollständig konform | geschlossen (WIDERLEGT) |
 | AUD-2026-09-312 | P3 | **Low** | WP-3b | NEU | CR-31 | `components/shared/CustomFieldsEditor.tsx` | 4 datei-lokale TID-Dubletten | offen |
 | AUD-2026-09-313 | P3 | **Low** | WP-3b | NEU | CR-42 | `frontend/src/test/ui-ratchet.test.ts:747` | `STYLE_BRACE_BASELINE=3` ist reines Kommentar-Rauschen | offen |
@@ -444,7 +444,7 @@ Spalte **Sev (orig)** = Originalwert des jeweiligen WP-Agents,
 | AUD-2026-09-205 | Low | **Low** | WP-5 | BLOCKED | — | `admin_ops/health_rest.py:72,434,459` | Health-Aggregation statisch nicht entscheidbar → Messung an laufendem Stack nötig | offen – BLOCKED |
 | AUD-2026-09-232 | LOW | **Low** | WP-6a | NEU | — | `GET /api/schema/`, `GET /api/v1/schema/`, `GET /api/v1/version/` | 613 KB OpenAPI-Schema + Commit-SHA unauthentifiziert | offen |
 | AUD-2026-09-233 | LOW | **Low** | WP-6a | NEU | — | `backend/rest_api/auth_views.py:329` | Deprecated Login-Body-Token standardmÃ¤ÃŸig aktiv â†’ vergrÃ¶ÃŸerte XSS-Kette | offen |
-| AUD-2026-09-234 | LOW | **Low** | WP-6a | NEU | — | `backend/rest_api/serializers.py` (`StandardPagination`)` | `page_size`/`limit` Ã¼ber `max_page_size` â†’ 404 statt 400 | offen |
+| AUD-2026-09-234 | LOW | **Low** | WP-6a | NEU | — | `backend/rest_api/serializers.py` (`StandardPagination`)` | `page_size`/`limit` über `max_page_size` wird **still geklemmt** (Silent Clamp, **nicht** 404 statt 400); die Finding-Empfehlung „→ 400" widerspricht der bewussten Produkt-Doku (`serializers.py:348-356`) | offen |
 | AUD-2026-09-235 | LOW | **Low** | WP-6a | NEU | — | `Response-Header `Server: uvicorn` (live verifiziert)` | Server-Banner nicht unterdrÃ¼ckt | offen |
 | AUD-2026-09-236 | LOW | **Low** | WP-6a | NEU | Issue **#845** verwandt | `.env`: `AUTH_COOKIE_SECURE=False`, `DJANGO_ENV=development` | Auth-Cookies im laufenden Stack unverschlÃ¼sselt; wird bei Prod-Promotion still Ã¼bernommen | offen |
 | AUD-2026-09-237 | LOW | **Low** | WP-6a | NEU | — | `rest_framework.routers.APIRootView` an `/api/v1/` | Ã–ffentlicher API-Root enumeriert die Router-Routen | offen |
@@ -460,7 +460,7 @@ Spalte **Sev (orig)** = Originalwert des jeweiligen WP-Agents,
 | AUD-2026-09-150 | Info | **Info** | WP-2 | NEU | CR-25 | `deploy/docker-compose.yml:1325`; `.env.example:511,515` | Bluepencil registriert + Sidecar läuft gesund; es fehlt **nur** `VITE_BLUEPENCIL_ENABLED=1` | offen |
 | AUD-2026-09-151 | Info | **Info** | WP-2 | NEU | CR-25 | `deploy/bluepencil` (live `/notes`)` | `GET /bluepencil/api/notes` liefert ohne Credential 200 mit Notizen aller Workspaces | offen |
 | AUD-2026-09-152 | Info | **Info** | WP-2 | WIDERLEGT | CR-24 | `integrations/hermes-plugin/`, `integrations/hermes-agent-plugin/` | „nicht live verifizierte Verträge" ist überholt — beide **sind** live verifizierbar; je einer bricht | geschlossen (WIDERLEGT) |
-| AUD-2026-09-153 | Info | **Info** | WP-2 | NEU | — | `dist/plugins/hermes/` | Verzeichnis enthält nur Builder + Test, kein Plugin-Artefakt; im Repo nirgends aufgelöst | offen |
+| AUD-2026-09-153 | Info | **Info** | WP-2 | NEU | — | `dist/plugins/hermes/` | Verzeichnis enthält nur Builder + Test, **kein** Plugin-Artefakt (bestätigt); „im Repo nirgends aufgelöst" **korrigiert**: `dist/test_full_regeneration.py:150` und `dist/test_mcp_convention_parity.py:495` referenzieren und führen den Builder aus | offen |
 | AUD-2026-09-023 | — | **Info** | WP-3 | BLOCKED | — | `/system-settings` Workspace löschen` | Bestätigungsdialog **nicht verifizierbar** (kein sicherer Trigger ohne Datenverlust) | offen – BLOCKED |
 | AUD-2026-09-024 | — | **Info** | WP-3 | BLOCKED | — | `Diagrammeditoren, Create-Dialoge, Baseline-Compare` | **NICHT VERIFIZIERBAR**: Workspace enthält 0 Datensätze dieser Typen | offen – BLOCKED |
 | AUD-2026-09-025 | — | **Info** | WP-3 | BLOCKED | — | `Tastaturkontrast, `prefers-reduced-motion`` | Keine Axe-Messung / keine Animation im Testfenster auslösbar | offen – BLOCKED |
@@ -553,7 +553,7 @@ sondern referenziert.
 | **Volltext / Reproduktion / Empfehlung** | `AUDIT_EXTERNAL_INTEGRATIONS.md` — dort voll ausformuliert; dieses Register normalisiert nur |
 | **Status** | **geschlossen (WIDERLEGT)** — **zurückgezogen 2026-09-30**, aus der Critical-Zählung und aus dem Top-10 entfernt. Nicht gelöscht: der Widerlegungsverlauf bleibt sichtbar. |
 
-#### AUD-2026-09-071 — ReqIF-Import liefert `success:true` mit 915 × „internal error"; Ursache `pl_artifact_pkey`-UniqueViolation, weil `SPEC-OBJECT/@IDENTIFIER` die globale `Artifact.id` ist
+#### AUD-2026-09-071 — ReqIF-Import liefert `success:true` mit 915 × „internal error"; Ursache: **unwirksame Savepoint-Rettung** in `transaction.atomic()` (`:697`), nicht der globale `Artifact.id`-PK-Konflikt
 
 | Feld | Wert |
 |---|---|
@@ -637,33 +637,33 @@ sondern referenziert.
 | **Volltext / Reproduktion / Empfehlung** | `AUDIT_NATIVE_PLUGINS.md` — dort voll ausformuliert; dieses Register normalisiert nur |
 | **Status** | offen |
 
-#### AUD-2026-09-345 — Backup/Restore als `Implemented/Covered`, Restore-Skript nie im Image
+#### AUD-2026-09-345 — **DUPLIKAT zu `AUD-2026-09-123`** — Backup/Restore als `Implemented/Covered`, Restore-Skript nie im Image
 
 | Feld | Wert |
 |---|---|
-| **Schweregrad** | Critical — Originalwert `Critical` (bereits kanonisch) |
-| **Klassifikation** | NEU |
+| **Schweregrad** | Critical → **Medium** — der Defektkern ist ein **Duplikat** von `AUD-2026-09-123`; eigenständig bleibt nur der SOLL-STALE-Anteil der Matrix (Medium) |
+| **Klassifikation** | **DUPLIKAT** zu `AUD-2026-09-123` (vorher `NEU`) |
 | **Workpackage** | WP-5 · Report `AUDIT_TRACEABILITY.md` · Agent validator |
 | **CR-Track / Issue** | — |
 | **Ort (Reichweite)** | `matrix:331`, `backend/Dockerfile:154` |
 | **Betroffene REQ-ID** | `REQ-L1-046` |
 | **Evidenz** | `AUDIT_TRACEABILITY.md`:427 (Finding-Tabelle) · `AUDIT_EVIDENCE/`-Dateien des WP |
-| **Volltext / Reproduktion / Empfehlung** | `AUDIT_TRACEABILITY.md` — dort voll ausformuliert; dieses Register normalisiert nur |
-| **Status** | offen |
+| **Volltext / Reproduktion / Empfehlung** | `AUDIT_TRACEABILITY.md` — **Korrektur 2026-10-01 (Review/DOC-06):** Gleicher Defekt wie `AUD-2026-09-123` (Restore-Skript nie im Image); WP-5 ergänzt nur die Matrix-Marker-Perspektive. Der Register-Critical-Zähler ist dadurch um **eins** überhöht; die Umsetzung erfolgt **nur als `-123`** (`DATA-01`). |
+| **Status** | offen (als `-123` geführt) |
 
-#### AUD-2026-09-346 — Default-Modell `claude-3-opus-20240229` abgeschaltet; jeder Anthropic-Call scheitert
+#### AUD-2026-09-346 — **DUPLIKAT zu `AUD-2026-09-052`** — Default-Modell `claude-3-opus-20240229` abgeschaltet; jeder Anthropic-Call scheitert
 
 | Feld | Wert |
 |---|---|
-| **Schweregrad** | Critical — Originalwert `Critical` (bereits kanonisch) |
-| **Klassifikation** | NEU |
+| **Schweregrad** | — (kein eigener Schweregrad; **Duplikat** von `AUD-2026-09-052`, das bereits Critical ist) |
+| **Klassifikation** | **DUPLIKAT** zu `AUD-2026-09-052` (vorher `NEU`) |
 | **Workpackage** | WP-5 · Report `AUDIT_TRACEABILITY.md` · Agent validator |
 | **CR-Track / Issue** | — |
 | **Ort (Reichweite)** | `backend/llm_adapter/providers.py:1080` |
 | **Betroffene REQ-ID** | `REQ-L1-013` |
 | **Evidenz** | `AUDIT_TRACEABILITY.md`:428 (Finding-Tabelle) · `AUDIT_EVIDENCE/`-Dateien des WP |
-| **Volltext / Reproduktion / Empfehlung** | `AUDIT_TRACEABILITY.md` — dort voll ausformuliert; dieses Register normalisiert nur |
-| **Status** | offen |
+| **Volltext / Reproduktion / Empfehlung** | `AUDIT_TRACEABILITY.md` — **Korrektur 2026-10-01 (Review/DOC-06):** Identische Zeile und identischer Defekt wie `AUD-2026-09-052` (WP-1a/1b). Der WP-5-Mehrwert (`REQ-L1-013`-Marker) ist eine Traceability-Beobachtung, **kein** zweiter Defekt; die Umsetzung erfolgt **nur als `-052`** (`INT-02`). |
+| **Status** | offen (als `-052` geführt) |
 
 #### AUD-2026-09-220 — Live `reqlo_`-API-Key im Klartext committet â€” **Key widerrufen 2026-09-30, Arbeitsbaum redigiert, Historie offen**
 
@@ -1029,7 +1029,7 @@ sondern referenziert.
 | **Volltext / Reproduktion / Empfehlung** | `AUDIT_INFRASTRUCTURE.md` — dort voll ausformuliert; dieses Register normalisiert nur |
 | **Status** | offen |
 
-#### AUD-2026-09-129 — `/health/` prüft weder Cache **noch Worker/Beat**; `degraded` liefert HTTP **200**
+#### AUD-2026-09-129 — `/health/` prüft weder Cache **noch Worker/Beat**; **`warnings` ⇒ HTTP 200, `degraded` ⇒ HTTP 503**
 
 | Feld | Wert |
 |---|---|
@@ -1040,7 +1040,7 @@ sondern referenziert.
 | **Ort (Reichweite)** | `backend/reqogniloom/health.py:118-313`; `deploy/docker-compose.yml:642` |
 | **Betroffene REQ-ID** | — |
 | **Evidenz** | `AUDIT_INFRASTRUCTURE.md`:51 (Finding-Tabelle) · `AUDIT_EVIDENCE/`-Dateien des WP |
-| **Volltext / Reproduktion / Empfehlung** | `AUDIT_INFRASTRUCTURE.md` — dort voll ausformuliert; dieses Register normalisiert nur |
+| **Volltext / Reproduktion / Empfehlung** | `AUDIT_INFRASTRUCTURE.md` — **Korrektur 2026-10-01 (Review/DOC-06):** Die Kurzform „`degraded` liefert HTTP **200**" ist **falsch**. `health.py:134-135,160-161` setzt bei `status="degraded"` **immer** HTTP **503**; HTTP **200** gilt für den separaten `status="warning"`-Zustand (Embedding-/LLM-Env-/CSRF-/Workflow-Hinweise, `:312-315`). Der Kern-Gap (keine Cache-/Worker-/Beat-Probe) bleibt High. |
 | **Status** | offen |
 
 #### AUD-2026-09-137 — Kein Test-vor-Image-Vertrag; Scan≠Push-Artefakt; **kein** SBOM/Cosign/Provenance
@@ -2404,3 +2404,43 @@ Aussage der Belastbarkeit, kein Makel.
 | **Findings gesamt** | 280 | **279** |
 | **Top-10** | 10 Einträge | **9 Einträge** + „knapp verfehlt" wird um `-115` ergänzt |
 | **Offene Frage O-6** (`CR-30`-Zahl) | 463 / 511 / 443 | **443** — aufgelöst (§15.3) |
+
+---
+
+## 16. Register-Hygiene-Korrekturen (DOC-06, 2026-10-02)
+
+> **Rolle.** Registerkorrektur nach der Audit-Review (`review/AUDIT_REVIEW_FINDINGS.md`,
+> `review/AUDIT_REVIEW_SUMMARY.md`, `review/evidence/REVIEW_*`), gemäß
+> `review/plan/TRACE_DOCS.md` §DOC-06. **Kein Produkt-Fix**, keine Neubewertung über
+> die Review-Verdikte hinaus. Wo eine Korrektur eine Arbeitseinheit betrifft, ist diese
+> in Klammern genannt; umgesetzt wird sie dort, **nicht** hier.
+
+**Korrigierte Registerzeilen:**
+
+| Finding | Vorher | Nachher | Grund / Evidenz |
+|---|---|---|---|
+| `AUD-2026-09-204` | `NEU`, „Archivierung nie registriert — nicht reproduzierbar" | **`WIDERLEGT`** (Verdikt FALSCH) | `settings.py:822` ist eine **Beat-Schedule**-Zeile, keine Worker-Registrierung; die Richtung ist umgekehrt (`-121`/`-270` gelten). `REVIEW_WP5.md` §6/§8, §8 C9 |
+| `AUD-2026-09-345` | `NEU`, Critical | **`DUPLIKAT`** → `AUD-2026-09-123`; eigenständiger SOLL-STALE-Anteil = Medium | Gleicher Defekt (Restore-Skript nie im Image). `REVIEW_WP5.md` §6; Umsetzung `DATA-01` |
+| `AUD-2026-09-346` | `NEU`, Critical | **`DUPLIKAT`** → `AUD-2026-09-052`; kein eigener Schweregrad | Identische Zeile/Defekt (`providers.py:1080`). `REVIEW_WP5.md` §6; Umsetzung `INT-02` |
+| `AUD-2026-09-129` | „`degraded` liefert HTTP **200**" | **`warnings` ⇒ 200, `degraded` ⇒ 503**; Kern-Gap Cache/Worker/Beat bleibt High | `health.py:134-135,160-161`; `REVIEW_WP1C.md` (129). Umsetzung `RES-03` |
+| `AUD-2026-09-071` | §5-Überschrift: `pl_artifact_pkey`-UniqueViolation | §5-Überschrift: **unwirksame Savepoint-Rettung** | `REVIEW_WP1D.md` §3.2/§6.6; Umsetzung `INT-01` |
+| `AUD-2026-09-088` | Klammer „alle `invalid_signature`" | „weitgehend nicht unterscheidbar"; `token_expired` ist eigener Code | `jwt_tokens.py:114-115`; `REVIEW_WP1D.md` §6.2 |
+| `AUD-2026-09-153` | „im Repo nirgends aufgelöst" | Erste Teilaussage bestätigt; zweite korrigiert (Builder wird referenziert/ausgeführt) | `REVIEW_WP2.md` (153) |
+| `AUD-2026-09-234` | „`page_size`-Überlauf → 404 statt 400" | **Silent Clamp**, nicht 404/400; Widerspruch zur Produkt-Doku | `serializers.py:348-356`; `REVIEW_WP6A.md` §3.4 |
+| `AUD-2026-09-006` | Widerruf „**ohne** Bestätigungsdialog" | `ConfirmDialog` existiert; nur der Ungepaginiert-Teil bleibt | `ApiKeysSection.tsx:276-288`; `REVIEW_WP3.md` (006). Umsetzung `DOC-04` |
+| `AUD-2026-09-016` | „prüft Key-Menge, nicht Code→Locale-Nutzung" | prüft **Code→Locale**; Defekt = eingefrorene Obergrenze 116 | `i18n-parity.test.ts:202-222`; `REVIEW_WP3.md` (016). Umsetzung `DOC-02` |
+| `AUD-2026-09-021` | „0 harte Hex-Werte, 0 Inline-Styles" | 0 Inline-Styles bestätigt; **37 Hex-Literale** in 5 Prod-Dateien | `REVIEW_WP3.md` (021) |
+
+**Korrigierte Critical-Zählung.** Nach der Review halten **8 der 13 offenen Criticals**
+als **eigenständige** Critical: `030, 031, 071, 115, 120, 123, 220, 221`. Nicht mehr
+als eigenständige Critical geführt werden `052` (→ High), `122` (→ High), `121`
+(Headline FALSCH → Low; nur der Healthcheck-Teil bleibt, `RES-05`), `345` (Duplikat
+`123`) und `346` (Duplikat `052`). Die Schweregrad-Differenzierung `052/121/122` folgt
+`AUDIT_REVIEW_SUMMARY.md` §6 und wird in den jeweiligen Arbeitseinheiten (`INT-02`,
+`RES-05`, `DATA-02`) umgesetzt; die Duplikate `345/346` und die FALSCH-Zeile `204` sind
+**Teil dieser Registerkorrektur**.
+
+> **Hinweis zur Provenienz.** §1/§3/§11.1 behalten die **Originalzählung des
+> Audit-Registers** (13 offene Criticals) bewusst bei; die korrigierte Zählung
+> (**8 eigenständige Criticals**) ist hier dokumentiert. Das Register bleibt damit
+> sowohl als Audit-Provenienz als auch als korrigierter Stand lesbar.

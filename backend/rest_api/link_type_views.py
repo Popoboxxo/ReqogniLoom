@@ -18,6 +18,7 @@ from rest_framework.views import APIView
 from application.link_type_facade import LinkTypeFacade
 from persistence.errors import NotFoundError, PermissionDeniedError, ValidationError
 from rest_api.auth_enforcer import AdminScopeRequiredMixin
+from rest_api.serializers import StandardPagination
 
 
 # #865 follow-up: every mutating view below declares the ADMIN-tier API-key
@@ -43,6 +44,22 @@ def _handle(func, *args, success: int = status.HTTP_200_OK, **kwargs) -> Respons
     return Response(payload, status=success)
 
 
+def _paginate_list(request: Request, items: list) -> Response:
+    """Return *items* through the project-wide ``StandardPagination`` envelope.
+
+    INT-05 (AUD-2026-09-074): the link-type list routes used to answer with a
+    bare array and ignored ``page``/``page_size``. The paginator is invoked
+    *outside* any broad ``try/except`` — an invalid ``page`` raises DRF's
+    ``NotFound`` and must propagate as **404**, never be swallowed into a 500
+    (the AUD-2026-09-073 mechanism).
+    """
+    paginator = StandardPagination()
+    page = paginator.paginate_queryset(items, request)
+    if page is not None:
+        return paginator.get_paginated_response(page)
+    return Response(items, status=status.HTTP_200_OK)
+
+
 class LinkTypeDefaultsListView(AdminScopeRequiredMixin, APIView):
     """GET/POST /api/v1/link-type-defaults/ — tenant-wide templates.
 
@@ -54,7 +71,14 @@ class LinkTypeDefaultsListView(AdminScopeRequiredMixin, APIView):
 
     @extend_schema(tags=["link-types"])
     def get(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        return _handle(_facade().list_global, request.auth_context)
+        """GET /api/v1/link-type-defaults/ — paginated tenant-wide templates.
+
+        INT-05 (AUD-2026-09-074): envelope instead of a bare array.
+        """
+        response = _handle(_facade().list_global, request.auth_context)
+        if response.status_code != status.HTTP_200_OK:
+            return response
+        return _paginate_list(request, response.data)
 
     @extend_schema(tags=["link-types"])
     def post(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -94,7 +118,16 @@ class WorkspaceLinkTypeListView(APIView):
     def get(
         self, request: Request, workspace_id: UUID, *args: Any, **kwargs: Any
     ) -> Response:
-        return _handle(_facade().list_workspace, request.auth_context, workspace_id)
+        """GET /api/v1/workspaces/<uuid>/link-type-definitions/ — paginated.
+
+        INT-05 (AUD-2026-09-074): envelope instead of a bare array.
+        """
+        response = _handle(
+            _facade().list_workspace, request.auth_context, workspace_id
+        )
+        if response.status_code != status.HTTP_200_OK:
+            return response
+        return _paginate_list(request, response.data)
 
 
 class WorkspaceLinkTypeDetailView(AdminScopeRequiredMixin, APIView):

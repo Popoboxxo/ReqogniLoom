@@ -119,7 +119,10 @@ async function reqloFetch(
   path: string,
   options: RequestInit = {}
 ): Promise<unknown> {
-  const url = `${baseUrl.replace(/\/$/, "")}${path}`;
+  // `path` is normally app-relative, but a paginated `next` link is an
+  // absolute URL built by DRF — accept both so the pagination loop can pass
+  // `next` straight through.
+  const url = /^https?:\/\//i.test(path) ? path : `${baseUrl.replace(/\/$/, "")}${path}`;
   const raw = await network.fetch(url, {
     ...options,
     signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
@@ -145,9 +148,24 @@ export async function listWorkspaces(
   credentials: { baseUrl: string; apiKey: string }
 ): Promise<Workspace[]> {
   const path = "/api/v1/workspaces/";
-  const body: unknown = await reqloFetch(network, credentials.baseUrl, credentials.apiKey, path);
-  if (typeof body !== "object" || body === null || !Array.isArray((body as { results?: unknown }).results)) {
-    throw new ReqogniLoomApiError(200, null, `GET ${path} returned a body with no results array`);
+  const workspaces: Workspace[] = [];
+  // Follow `next` to the last page so a workspace beyond the first page is
+  // reachable (PLUG-02). A repeated `next` ends the chain, so a misbehaving
+  // server cannot spin this loop forever.
+  const seen = new Set<string>();
+  let next: string | null = path;
+  while (next) {
+    if (seen.has(next)) {
+      break;
+    }
+    seen.add(next);
+    const body: unknown = await reqloFetch(network, credentials.baseUrl, credentials.apiKey, next);
+    if (typeof body !== "object" || body === null || !Array.isArray((body as { results?: unknown }).results)) {
+      throw new ReqogniLoomApiError(200, null, `GET ${path} returned a body with no results array`);
+    }
+    const page = body as WorkspaceListResponse;
+    workspaces.push(...page.results);
+    next = typeof page.next === "string" && page.next.length > 0 ? page.next : null;
   }
-  return (body as WorkspaceListResponse).results;
+  return workspaces;
 }

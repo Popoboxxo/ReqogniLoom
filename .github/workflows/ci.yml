@@ -5,6 +5,12 @@ on:
     branches: [main, feat/**]
   pull_request:
     branches: [main]
+  # SEC-08 / AUD-2026-09-137: expose this pipeline as a reusable workflow so
+  # docker-publish.yml can make publishing conditional on a green CI run
+  # (`needs: ci`). The push/PR triggers above are unchanged; a call reuses the
+  # exact same jobs on the same ref, so "tests pass before image publish" is a
+  # hard, same-run contract instead of a separate, skippable workflow run.
+  workflow_call:
 
 jobs:
   lint:
@@ -12,10 +18,10 @@ jobs:
     timeout-minutes: 10
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Set up Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: '22'
           cache: npm
@@ -51,8 +57,14 @@ jobs:
             name: "MCP Server (mcp_server)"
             paths: "mcp_server/tests"
           - id: set-4-features
-            name: "Cross-Cutting & Features (llm_adapter, diagram, traceability, workflow, context_graph, se_metrics, baseline, admin_ops, icd, resilience, audit)"
-            paths: "llm_adapter/tests diagram/tests traceability/tests workflow/tests context_graph/tests se_metrics/tests baseline/tests admin_ops/tests icd/tests resilience/tests audit/tests"
+            # AUD-2026-09-193 (DOC-03): memory/tests (344), link_types/tests (141)
+            # and the root tests/ suite (55) were previously matched by none of
+            # the four path sets and therefore ran in no backend CI job. They are
+            # cross-cutting (AI memory, link-type catalog, celery/csrf/wiring
+            # smoke) and belong to this "Cross-Cutting & Features" leg. Measured
+            # with `pytest --collect-only`: 540 tests that used to be dark.
+            name: "Cross-Cutting & Features (llm_adapter, diagram, traceability, workflow, context_graph, se_metrics, baseline, admin_ops, icd, resilience, audit, memory, link_types, root tests)"
+            paths: "llm_adapter/tests diagram/tests traceability/tests workflow/tests context_graph/tests se_metrics/tests baseline/tests admin_ops/tests icd/tests resilience/tests audit/tests memory/tests link_types/tests tests"
 
     services:
       postgres:
@@ -80,15 +92,15 @@ jobs:
           - 6379:6379
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Set up Python
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: '3.12'
 
       - name: Cache pip packages
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ~/.cache/pip
           key: ${{ runner.os }}-pip-${{ hashFiles('backend/requirements.txt') }}
@@ -158,10 +170,10 @@ jobs:
     timeout-minutes: 5
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Set up Python
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: '3.12'
 
@@ -239,10 +251,10 @@ jobs:
     timeout-minutes: 10
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Set up Python
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: '3.12'
 
@@ -257,10 +269,10 @@ jobs:
     timeout-minutes: 15
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Set up Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: '22'
           cache: npm
@@ -287,10 +299,10 @@ jobs:
     timeout-minutes: 15
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Set up Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: '22'
           cache: npm
@@ -337,7 +349,7 @@ jobs:
       contents: read
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Lint GitHub Actions workflows with actionlint
         uses: docker://rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667
@@ -359,7 +371,7 @@ jobs:
       contents: read
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Create compose env file
         # deploy/docker-compose.yml declares `env_file: .env`; Docker Compose
@@ -391,7 +403,7 @@ jobs:
       contents: read
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           # Full history is required for the `gitleaks git` history scan.
           fetch-depth: 0

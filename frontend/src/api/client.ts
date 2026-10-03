@@ -215,6 +215,31 @@ export interface ApiFetchOptions extends RequestInit {
   suppressUnauthorizedNotification?: boolean;
 }
 
+/**
+ * Unwrap either a pagination envelope (`PaginatedResponse`, imported from
+ * `../types`) or a bare array into a plain `T[]`.
+ *
+ * INT-05 (AUD-2026-09-074) moved four previously bare-array list endpoints
+ * (`/api-keys/`, `/users/`, `/link-type-defaults/`,
+ * `/workspaces/<id>/link-type-definitions/`) onto the standard pagination
+ * envelope. To stay tolerant of a short deprecation window (and of mocks/stubs
+ * that still return arrays), callers use this helper instead of indexing the
+ * response directly: an envelope contributes its `results`, an array is
+ * returned as-is, and anything else yields `[]` — never a crash on
+ * `undefined[0]`.
+ */
+export function asList<T>(value: unknown): T[] {
+  if (Array.isArray(value)) return value as T[];
+  if (
+    value !== null &&
+    typeof value === "object" &&
+    Array.isArray((value as { results?: unknown }).results)
+  ) {
+    return (value as PaginatedResponse<T>).results;
+  }
+  return [];
+}
+
 function authenticationRequiredError(): ApiError {
   return {
     error: {

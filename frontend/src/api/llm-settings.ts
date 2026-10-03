@@ -19,12 +19,19 @@ import { apiClient } from "./client";
 // Types
 // ---------------------------------------------------------------------------
 
-export type LlmProvider = "anthropic" | "openai" | "ollama" | "opencode_go" | "mock";
+export type LlmProvider =
+  | "anthropic"
+  | "openai"
+  | "ollama"
+  | "azure"
+  | "opencode_go"
+  | "mock";
 
 export const LLM_PROVIDERS: readonly LlmProvider[] = [
   "anthropic",
   "openai",
   "ollama",
+  "azure",
   "opencode_go",
   "mock",
 ] as const;

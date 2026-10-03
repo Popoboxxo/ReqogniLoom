@@ -586,7 +586,7 @@ class TestListIssuesMultiFilter:
         mock_seam.assert_any_call("Issue", "In Progress", tenant_id=ctx.tenant_id)
         qs_mock.filter.assert_called_with(id__in={"id-Open", "id-In Progress"})
 
-    def test_status_filter_reads_the_engine_not_the_stale_column(self, issue_tenant):
+    def test_status_filter_reads_the_engine_not_the_stale_column(self, issue_tenant, issue_workspace):
         """DB-backed: an Issue whose WorkflowItemState is "Closed" but whose
         (now write-once, frozen-at-creation) ``status`` column still says
         "Open" must be found under the "Closed" filter, not the column's
@@ -597,7 +597,9 @@ class TestListIssuesMultiFilter:
         from workflow.transition_validator import ValidationResult
 
         svc = IssueService()
-        workspace_id = uuid.uuid4()
+        # DATA-06: use a real workspace row — ``workflow_item_state`` now has an
+        # FK to ``pl_workspace``, so a random UUID no longer resolves.
+        workspace_id = issue_workspace.id
 
         # Issue.objects is tenant-scoped since Task 15, so the create must run
         # inside the context too — not just the workflow calls below.

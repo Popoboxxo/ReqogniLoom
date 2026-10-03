@@ -49,6 +49,7 @@ from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, List, Optional
 from uuid import UUID, uuid4
 
+from django.core.cache import cache
 from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
@@ -288,6 +289,81 @@ def get_event_bus() -> DomainEventBus:
     if _bus_instance is None:
         _bus_instance = DomainEventBus()
     return _bus_instance
+
+
+# ---------------------------------------------------------------------------
+# Consumer-side idempotency (ADR-014 §4, DATA-09 / finding N3)
+# ---------------------------------------------------------------------------
+
+#: How long a subscriber's ``event_id`` dedup marker is retained.
+#:
+#: The outbox is at-least-once: a worker that dies between claiming a row and
+#: writing its outcome leaves ``claimed_at`` set, and the row is redelivered
+#: once that claim ages past ``CLAIM_TIMEOUT_SECONDS`` (300 s). The window must
+#: therefore comfortably exceed the reclaim delay (and the Celery hard limit it
+#: is derived from) so a redelivery always finds the marker. 24 h mirrors the
+#: ``Idempotency-Key`` replay window chosen in ADR-014 §3. A genuinely *new*
+#: event always carries a fresh ``event_id`` and is never suppressed.
+SUBSCRIBER_DEDUP_TTL_SECONDS: int = 24 * 60 * 60
+
+_SUBSCRIBER_DEDUP_KEY_TEMPLATE = "outbox:dedup:{subscriber}:{event_id}"
+
+
+def _subscriber_dedup_key(subscriber: str, event_id: Any) -> str:
+    """Return the dedup-window key for one ``(subscriber, event_id)`` pair."""
+    return _SUBSCRIBER_DEDUP_KEY_TEMPLATE.format(
+        subscriber=subscriber, event_id=event_id
+    )
+
+
+def subscriber_already_processed(subscriber: str, event_id: Any) -> bool:
+    """Return True if *subscriber* already recorded an effect for *event_id*.
+
+    ADR-014 §4 places the idempotency requirement on the consumer: the bus is
+    at-least-once, so a subscriber that would write again on redelivery checks
+    this marker first. Fails **open** — if the dedup store is unreachable the
+    delivery proceeds. At-least-once may then duplicate one effect, but
+    silently dropping an event's effect would be strictly worse.
+    """
+    try:
+        return cache.get(_subscriber_dedup_key(subscriber, event_id)) is not None
+    except Exception:  # a dedup-store outage must not abort dispatch
+        logger.warning(
+            "DomainEventBus: dedup lookup failed for subscriber=%s event=%s — "
+            "proceeding (at-least-once)",
+            subscriber,
+            event_id,
+            exc_info=True,
+        )
+        return False
+
+
+def mark_subscriber_processed(subscriber: str, event_id: Any) -> bool:
+    """Claim the dedup marker for ``(subscriber, event_id)``.
+
+    Returns True when this call created the marker (first delivery), False when
+    it already existed or the store was unreachable. Callers invoke this
+    **after** their effect succeeds — mirroring ``WebhookDispatcher``'s
+    success-log receipt — so a crash before the effect leaves no marker and the
+    redelivery still runs.
+    """
+    try:
+        return bool(
+            cache.add(
+                _subscriber_dedup_key(subscriber, event_id),
+                timezone.now().isoformat(),
+                SUBSCRIBER_DEDUP_TTL_SECONDS,
+            )
+        )
+    except Exception:  # see subscriber_already_processed
+        logger.warning(
+            "DomainEventBus: dedup claim failed for subscriber=%s event=%s — "
+            "effect already applied, a duplicate is possible on redelivery",
+            subscriber,
+            event_id,
+            exc_info=True,
+        )
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -558,9 +634,12 @@ def poll_and_dispatch(batch_size: int = POLL_BATCH_SIZE) -> int:
 
 
 __all__ = [
+    "SUBSCRIBER_DEDUP_TTL_SECONDS",
     "DomainEvent",
     "DomainEventBus",
     "SubscriberRegistry",
     "get_event_bus",
+    "mark_subscriber_processed",
     "poll_and_dispatch",
+    "subscriber_already_processed",
 ]
