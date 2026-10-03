@@ -167,6 +167,34 @@ jobs:
           VITE_API_BASE_URL: http://localhost:8000
         run: python manage.py runserver 0.0.0.0:8000 &
 
+      # ADR-010: /health/ready is fail-closed and requires celery_worker=up and
+      # celery_beat heartbeating. Without these two processes the readiness
+      # probe (e2e/helpers/preconditions.ts) gets HTTP 503 (celery_worker:
+      # down, celery_beat: unknown), which fails RES-04 in
+      # e2e/tests/health-contract.spec.ts before any product test runs.
+      - name: Start Celery worker and beat
+        working-directory: backend
+        env:
+          SECRET_KEY: ci-test-secret-key
+          AUTH_JWT_SECRET: ci-test-auth-jwt-secret
+          DJANGO_ENV: test
+          DEBUG: 'True'
+          DB_NAME: reqflow
+          DB_USER: reqflow
+          DB_PASSWORD: reqflow
+          DB_APP_PASSWORD: ci-test-app-role-password
+          DB_HOST: localhost
+          DB_PORT: '5432'
+          DB_CONN_MAX_AGE: '0'
+          REDIS_HOST: localhost
+          REDIS_PORT: '6379'
+          ALLOWED_HOSTS: localhost,127.0.0.1
+          DEFAULT_TENANT_ID: '1'
+          LLM_PROVIDER: mock
+        run: |
+          celery -A reqogniloom worker --loglevel=info -Q default,llm,events,memory --concurrency=2 &
+          celery -A reqogniloom beat -l info --scheduler django_celery_beat.schedulers:DatabaseScheduler &
+
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
@@ -198,6 +226,12 @@ jobs:
           timeout 30 bash -c 'until curl -sf http://localhost:8000/api/v1/schema/ > /dev/null; do sleep 2; done'
           echo "Waiting for frontend..."
           timeout 30 bash -c 'until curl -sf http://localhost:5173/ > /dev/null; do sleep 2; done'
+          # ADR-010 readiness needs celery_beat to have heartbeaten at least
+          # once; the beat heartbeat interval is 60s
+          # (CELERY_BEAT_HEARTBEAT_INTERVAL_SECONDS=60), hence the generous
+          # bounded budget below.
+          echo "Waiting for readiness (celery worker+beat)..."
+          timeout 240 bash -c 'until curl -sf http://localhost:8000/health/ready > /dev/null; do sleep 5; done'
 
       - name: Verify prod Docker build (smoke test)
         # Build the frontend production Docker image to ensure no build-time regressions
