@@ -208,9 +208,10 @@ wurden **über** das geforderte Minimum hinaus gefahren. Gearbeitet wurde auf
   Doku/Evidenz; die Carrier- und Doku-Änderungen fassen keinen Code an. Die in
   Abschnitt 6 gezeigten Zahlen sind der W4-Abschluss auf `main`, **nicht** ein
   frischer Lauf von `release/v1.8.0-beta.18`.
-- **Kein Image freigegeben/gemessen.** Ein GHCR-Publish via `docker-publish.yml`
-  ist Teil von Abschnitt 9; solange nicht publiziert und gepullt, gibt es keinen
-  belastbaren Image-Nachweis für diesen Cut.
+- **Image-Publish abgeschlossen (Digest-Nachweis offen).** Der GHCR-Publish via
+  `docker-publish.yml` ist mit Run `37155224928 = success` durchgelaufen
+  (Details in Abschnitt 10). Ein *gepullter* Digest-Nachweis liegt noch nicht
+  vor — bis dahin bleibt die Image-Messung über die Referenz hinaus offen.
 - **Kein lokaler E2E-Vollnachweis.** Der maßgebliche E2E-Lauf ist die CI auf dem
   gemergten #1139-Head. Ein lokaler Shard-1-Teillauf ergab
   `98 passed / 5 failed / 3 skipped`; die Fails sind Dev-Stack-Zustandsartefakte
@@ -271,6 +272,76 @@ in Workspace-Fence-Antworten), `#1132` (Celery-Beat lädt das Embedding-Modell,
    `1.8.0-beta.18`).
 4. GitHub-Pre-Release als **Pre-Release** markieren, **nicht** als `latest`.
 5. Release-Notizen aus dem `CHANGELOG`-Block dieses Schnitts übernehmen.
+
+## 10. Image-Publish (GHCR) — final
+
+Der Image-Publish über `docker-publish.yml` ist **abgeschlossen**. Der finale
+Lauf **37155224928 = success** baute beide Matrix-Einträge (`backend` und
+`frontend`) inklusive SBOM-, Attestation-, cosign- und Trivy-Schritten durch.
+
+| Lauf | Ergebnis | Aussage |
+|---|---|---|
+| `37148634049` | **failure** | SBOM-Step (`anchore/sbom-action`/syft) brach mit „could not parse reference" ab |
+| `37153261614` | **failure** (Zwischenlauf) | SBOM-Asset-Upload → 403 „Resource not accessible by integration" |
+| `37155224928` | **success** | beide Matrix-Einträge `backend` + `frontend` vollständig grün |
+
+### 10.1 Ursache 1 — Uppercase-GHCR-Referenz (SBOM)
+
+Die handgebaute OCI-Referenz lautete `ghcr.io/Popoboxxo/…` (Owner **Uppercase**).
+`go-containerregistry`/syft akzeptiert nur **lowercase** Referenzen und brach mit
+„could not parse reference" ab. Es war **keine Re-Pinung** die Ursache, sondern
+die **Neueinführung des SBOM/Attest/cosign-Blocks** (Commit `d69df257`); der
+Sep-29-Run hatte **gar keinen SBOM-Step**.
+
+**Fix 1 — PR #1142 (Commit `06639a9e`, Merge `bdba1add`):** ein
+lowercase-GHCR-Prefix-Step (`${GITHUB_REPOSITORY_OWNER,,}`) wird eingeführt und
+**alle handgebauten OCI-Referenzen** konsumieren ihn (metadata-action, SBOM,
+`attest` `subject-name`, cosign `sign`/`verify` `IMAGE`). Die **OIDC-Identity
+bleibt canonical-case** — nur die Image-Referenz wird kleingeschrieben.
+
+### 10.2 Ursache 2 — Release-Asset-Upload ohne Schreibrecht (SBOM)
+
+`anchore/sbom-action` versuchte das SBOM als Release-Asset hochzuladen. Der Job
+hat nur `contents: read`, daher **403 „Resource not accessible by
+integration"** (Run `37153261614`).
+
+**Fix 2 — PR #1143 (Commit `b8ad02be`, Merge `a5a00adc`):**
+`anchore/sbom-action` erhält `upload-release-assets: false`; das SBOM bleibt
+**Workflow-Artefakt**. Zusätzlich `strategy.fail-fast: false`, damit `backend`
+und `frontend` unabhängig berichten.
+
+### 10.3 Erhalt der Sicherheits-Gates
+
+Alle Sicherheits-Gates blieben unverändert erhalten: **CI-Gate**,
+**staging-approval**, **Trivy** (`exit-code 1`), **SARIF**, **SBOM** (als
+Artefakt), **SLSA-Attestation** (provenance), **cosign keyless** `sign` +
+`verify`, **SHA-Pinning** und **Least-Privilege**.
+
+### 10.4 Tag-Re-Point
+
+Der Tag `v1.8.0-beta.18` wurde auf den finalen Merge-Commit umgehängt:
+
+```
+v1.8.0-beta.18:  69d9cec2  →  bdba1add  →  a5a00adc (final)
+Tag-Objekt final: 9129da4a
+```
+
+Erfolgt über **ref-delete + normalem Push** (ausdrücklich **kein Force**):
+Tag-Ref löschen, anschließend den Tag regulär auf `a5a00adc` pushen. Das
+GitHub-Pre-Release `402663164` wurde nach dem Tag-Delete **re-attached**
+(`draft=false`, `prerelease=true`, `target=a5a00adc`).
+
+### 10.5 Image-Referenzen
+
+| Image | Referenz |
+|---|---|
+| Backend | `ghcr.io/popoboxxo/reqogniloom-backend:1.8.0-beta.18` |
+| Frontend | `ghcr.io/popoboxxo/reqogniloom-frontend:1.8.0-beta.18` |
+
+- Signiert (cosign keyless): **ja**
+- Attestiert (SLSA provenance): **ja**
+- Digest: (siehe Verifikation, folgt)
+- `latest`: **unverändert** — zeigt **nicht** auf diese Beta.
 
 ---
 
