@@ -22,6 +22,7 @@ graphify-out/
 
 
 # --- agent-meta managed (do not edit) ---
+*.sync-backup-*
 .agents/hooks/
 .claude/
 .gemini/
@@ -34,6 +35,7 @@ graphify-out/
 .meta-config/secrets.local.yaml
 .opencode/
 .opencode/mcp.local.json
+.tmp/
 AGENTS.personal.md
 CLAUDE.personal.md
 opencode.json
