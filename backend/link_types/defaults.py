@@ -20,6 +20,7 @@ this module is importable from services, REST and MCP alike.
 from __future__ import annotations
 
 import logging
+from typing import FrozenSet, Optional
 
 from django.conf import settings
 
@@ -33,15 +34,29 @@ FALLBACK_TRACE_LINK_TYPE = "references"
 FALLBACK_DECOMPOSITION_LINK_TYPE = "decomposes"
 
 
-def _resolve(setting_name: str, fallback: str) -> str:
+def _resolve(
+    setting_name: str,
+    fallback: str,
+    allowed: Optional[FrozenSet[str]] = None,
+) -> str:
+    """Resolve *setting_name* to a valid link type, else *fallback*.
+
+    *allowed* defaults to every built-in type; callers that need a narrower
+    contract (the decomposition default) pass a subset. An unknown or
+    out-of-contract value degrades deterministically to *fallback* with a
+    warning — never a hard reject, so an operator typo cannot break workspace
+    creation (module docstring).
+    """
     raw = str(getattr(settings, setting_name, "") or "").strip()
     if not raw:
         return fallback
-    if raw not in BUILTIN_LINK_TYPES:
+    permitted = BUILTIN_LINK_TYPES if allowed is None else allowed
+    if raw not in permitted:
         logger.warning(
-            "%s=%r is not a known built-in link type; falling back to %r.",
+            "%s=%r is not an allowed link type%s; falling back to %r.",
             setting_name,
             raw,
+            "" if allowed is None else " (must be a hierarchy link type)",
             fallback,
         )
         return fallback
@@ -54,8 +69,27 @@ def default_trace_link_type() -> str:
 
 
 def default_decomposition_link_type() -> str:
-    """The decomposition link type a new workspace starts with (#989)."""
-    return _resolve("DEFAULT_DECOMPOSITION_LINK_TYPE", FALLBACK_DECOMPOSITION_LINK_TYPE)
+    """The decomposition link type a new workspace starts with (#989, ADR-016).
+
+    Restricted to the hierarchy link types (``HIERARCHY_LINK_TYPES``:
+    ``decomposes`` / ``derives-from``). A non-hierarchy value — even a valid
+    built-in such as ``refines`` — degrades deterministically to ``decomposes``
+    with a warning, so a misconfiguration can never make a decomposition edge
+    that the hierarchy module ignores (ADR-016 decision 4). No hard reject: an
+    operator value must not break workspace creation.
+    """
+    # Imported function-locally on purpose: ``traceability.audit.hierarchy``
+    # pulls ``persistence.models`` at module level, while this module is
+    # deliberately Django-light (importable from services/REST/MCP without
+    # eager model imports). ADR-016 names its HIERARCHY_LINK_TYPES as the
+    # authority, so it is imported rather than duplicated here.
+    from traceability.audit.hierarchy import HIERARCHY_LINK_TYPES
+
+    return _resolve(
+        "DEFAULT_DECOMPOSITION_LINK_TYPE",
+        FALLBACK_DECOMPOSITION_LINK_TYPE,
+        allowed=HIERARCHY_LINK_TYPES,
+    )
 
 
 __all__ = [
