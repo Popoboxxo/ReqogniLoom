@@ -9,11 +9,20 @@ Registers operational entities that do NOT live in the persistence foundation:
 * :class:`Risk` — COMP-AS-014 RiskService
 * :class:`Issue` — COMP-AS-015 IssueService
 
-Tenant isolation:
-    Application models store ``workspace_id`` and ``tenant_id`` as raw UUID
-    fields (not as a ``TenantScopedModel`` pattern), so no ``unscoped()`` manager
-    exists. The default ``objects`` manager is correct for admin views — there
-    is no thread-local filter to bypass.
+Tenant isolation (SEC-04, ADR-011):
+    Application models store raw UUID fields rather than using
+    ``TenantScopedModel``. Every registration inherits
+    ``TenantScopedAdminMixin`` so the admin is narrowed to the requesting staff
+    user's tenant: models with a ``tenant_id`` are filtered on it, models that
+    only carry a ``workspace_id`` are filtered through the tenant's workspaces.
+    A staff user of tenant A can neither list nor change tenant B's rows.
+
+Webhook secret:
+    ``WebhookSubscription.secret`` is the HMAC payload-signing key. It is
+    excluded from the admin form (not merely read-only), ``workspace_id`` is
+    read-only so a row cannot be retargeted across workspaces, and add is
+    disabled — subscriptions are provisioned through the API/service, never by
+    pasting key material into the admin.
 
 Read-only models:
     ``DomainEventDLQ`` and ``WebhookDeliveryLog`` are operational logs. The DLQ
@@ -24,6 +33,8 @@ Read-only models:
 from __future__ import annotations
 
 from django.contrib import admin
+
+from persistence.tenant_admin import TenantScopedAdminMixin
 
 from .models import (
     Adr,
@@ -42,8 +53,11 @@ from .models import (
 
 
 @admin.register(DomainEventOutbox)
-class DomainEventOutboxAdmin(admin.ModelAdmin):
+class DomainEventOutboxAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
     """Admin view for the transactional outbox (REQ-L2-AS-029)."""
+
+    tenant_lookup = None
+    workspace_lookup = "workspace_id"
 
     list_display = (
         "event_type",
@@ -71,12 +85,15 @@ class DomainEventOutboxAdmin(admin.ModelAdmin):
 
 
 @admin.register(DomainEventDLQ)
-class DomainEventDLQAdmin(admin.ModelAdmin):
+class DomainEventDLQAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
     """Admin view for the dead-letter queue (REQ-L3-DEB-007).
 
     Read-only: operators inspect failed events; recovery is performed by
     service code, not by editing the row.
     """
+
+    tenant_lookup = None
+    workspace_lookup = "workspace_id"
 
     list_display = (
         "event_type",
@@ -115,8 +132,11 @@ class DomainEventDLQAdmin(admin.ModelAdmin):
 
 
 @admin.register(WebhookSubscription)
-class WebhookSubscriptionAdmin(admin.ModelAdmin):
+class WebhookSubscriptionAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
     """Admin view for webhook subscriptions (REQ-L1-024, REQ-L3-WHOOK-002)."""
+
+    tenant_lookup = None
+    workspace_lookup = "workspace_id"
 
     list_display = (
         "url",
@@ -128,17 +148,29 @@ class WebhookSubscriptionAdmin(admin.ModelAdmin):
     list_filter = ("enabled",)
     search_fields = ("url", "event_types")
     ordering = ("-created_at",)
-    readonly_fields = ("created_at",)
+    # ``workspace_id`` read-only: retargeting a subscription to a workspace
+    # outside the operator's tenant would be a cross-tenant exfiltration path.
+    readonly_fields = ("created_at", "workspace_id")
+    # Excluded (not read-only) so the HMAC signing secret is never rendered.
+    exclude = ("secret",)
+
+    def has_add_permission(self, request):
+        # Subscriptions are provisioned through the API/service, never by
+        # pasting a signing secret into the admin.
+        return False
 
 
 @admin.register(WebhookDeliveryLog)
-class WebhookDeliveryLogAdmin(admin.ModelAdmin):
+class WebhookDeliveryLogAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
     """Admin view for webhook delivery attempts (REQ-L3-WHOOK-008).
 
     Read-only: the log is the historical record of past attempts. Operators
     trigger a retry by re-emitting the underlying event, not by editing the
     log row.
     """
+
+    tenant_lookup = None
+    workspace_lookup = "subscription__workspace_id"
 
     list_display = (
         "subscription",
@@ -180,7 +212,7 @@ class WebhookDeliveryLogAdmin(admin.ModelAdmin):
 
 
 @admin.register(Adr)
-class AdrAdmin(admin.ModelAdmin):
+class AdrAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
     """Admin view for Architecture Decision Records (REQ-L1-029)."""
 
     list_display = (
@@ -190,14 +222,14 @@ class AdrAdmin(admin.ModelAdmin):
         "tenant_id",
         "updated_at",
     )
-    list_filter = ("workspace_id", "tenant_id")
+    list_filter = ("workspace_id",)
     search_fields = ("title", "description", "context", "consequences")
     ordering = ("-updated_at",)
     readonly_fields = ("created_at", "updated_at")
 
 
 @admin.register(Risk)
-class RiskAdmin(admin.ModelAdmin):
+class RiskAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
     """Admin view for Risk (REQ-L1-029)."""
 
     list_display = (
@@ -218,7 +250,7 @@ class RiskAdmin(admin.ModelAdmin):
 
 
 @admin.register(Issue)
-class IssueAdmin(admin.ModelAdmin):
+class IssueAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
     """Admin view for Issue (REQ-L1-029)."""
 
     list_display = (
