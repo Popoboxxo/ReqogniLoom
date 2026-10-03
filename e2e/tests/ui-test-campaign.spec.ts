@@ -283,7 +283,12 @@ test.describe('[REQ-134] API-Key Management — UI Journey', () => {
       headers: { Authorization: `Bearer ${token}` },
     });
     if (listResp.ok()) {
-      const keys: Array<{ id: string; name?: string; revoked?: boolean }> = await listResp.json();
+      const body = await listResp.json();
+      // Tolerate both response shapes: bare array (w1) and StandardPagination
+      // envelope {count, next, previous, results} (w2, INT-05/AUD-2026-09-074).
+      const keys: Array<{ id: string; name?: string; revoked?: boolean }> = Array.isArray(body)
+        ? body
+        : (body?.results ?? []);
       for (const key of keys) {
         if (key.revoked) continue;
         if ((key.name ?? '').includes('E2E') || (key.name ?? '').includes('UI-Campaign') ||
@@ -348,7 +353,12 @@ test.describe('[REQ-134] API-Key Management — UI Journey', () => {
       headers: { Authorization: `Bearer ${token}` },
     });
     expect(listResp.status()).toBe(200);
-    const keys: Array<{ id: string; name: string }> = await listResp.json();
+    const body = await listResp.json();
+    // Tolerate both response shapes: bare array (w1) and StandardPagination
+    // envelope {count, next, previous, results} (w2, INT-05/AUD-2026-09-074).
+    const keys: Array<{ id: string; name: string }> = Array.isArray(body)
+      ? body
+      : (body?.results ?? []);
     const created = keys.find((k) => k.name === keyName);
     expect(created, '[REQ-134] created key must appear in list').toBeTruthy();
 
@@ -593,7 +603,12 @@ test.describe('[REQ-129] MCP Tools Deduplication', () => {
       headers: { Authorization: `Bearer ${token}` },
     });
     if (listResp.ok()) {
-      const keys: Array<{ id: string; name?: string; revoked?: boolean }> = await listResp.json();
+      const body = await listResp.json();
+      // Tolerate both response shapes: bare array (w1) and StandardPagination
+      // envelope {count, next, previous, results} (w2, INT-05/AUD-2026-09-074).
+      const keys: Array<{ id: string; name?: string; revoked?: boolean }> = Array.isArray(body)
+        ? body
+        : (body?.results ?? []);
       for (const key of keys) {
         if (key.revoked) continue;
         if ((key.name ?? '').match(/E2E|MCP|REQ|Hermes|UI-Campaign/)) {
