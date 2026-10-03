@@ -165,6 +165,34 @@ def _error_message(data: dict) -> str:
     return error.get("message", "") if isinstance(error, dict) else ""
 
 
+def _list_all_api_keys(bearer: str) -> list[dict]:
+    """Return every API key of the authenticated user, across all pages.
+
+    INT-05 paginated ``GET /api-keys/`` with ``StandardPagination`` (default
+    page size 25), so a single request only sees the first page. A long-lived
+    stack can hold hundreds of mostly-revoked keys for the admin, with the
+    handful of *active* ones on a later page — reading only page 1 finds none
+    of them and frees 0 slots. Follow ``next`` until the envelope is exhausted,
+    asking for the maximum page size to keep the number of round-trips down.
+    """
+    keys: list[dict] = []
+    url: str | None = f"{REST_URL}/api-keys/?page_size=100"
+    while url:
+        status, data = _http_request(
+            url, headers={"Authorization": f"Bearer {bearer}"}
+        )
+        assert status == 200, f"List API keys failed: {status}"
+        if isinstance(data, dict):
+            keys.extend(data.get("results", []))
+            url = data.get("next")
+        elif isinstance(data, list):
+            keys.extend(data)
+            url = None
+        else:
+            url = None
+    return keys
+
+
 def _revoke_all_active_keys(bearer: str) -> None:
     """Revoke all non-revoked API keys for the authenticated user.
 
@@ -176,13 +204,9 @@ def _revoke_all_active_keys(bearer: str) -> None:
     revoke, and the final re-list catches a 204 that did not actually free the
     slot.
     """
-    list_status, list_data = _http_request(
-        f"{REST_URL}/api-keys/",
-        headers={"Authorization": f"Bearer {bearer}"},
-    )
-    assert list_status == 200, f"List API keys failed: {list_status}"
-    keys = list_data if isinstance(list_data, list) else []
-    active_keys = [k for k in keys if not k.get("revoked", True)]
+    active_keys = [
+        k for k in _list_all_api_keys(bearer) if not k.get("revoked", True)
+    ]
     for key in active_keys:
         revoke_status, revoke_data = _http_request(
             f"{REST_URL}/api-keys/{key['id']}/",
@@ -196,15 +220,8 @@ def _revoke_all_active_keys(bearer: str) -> None:
 
     # A revoke that answers success but leaves the key active would make the
     # retry in _create_api_key fail with a misleading limit error.
-    verify_status, verify_data = _http_request(
-        f"{REST_URL}/api-keys/",
-        headers={"Authorization": f"Bearer {bearer}"},
-    )
-    assert verify_status == 200, f"List API keys after revoke failed: {verify_status}"
     still_active = [
-        k
-        for k in (verify_data if isinstance(verify_data, list) else [])
-        if not k.get("revoked", True)
+        k for k in _list_all_api_keys(bearer) if not k.get("revoked", True)
     ]
     assert not still_active, (
         f"{len(still_active)} API key(s) still active after revoking "
@@ -509,12 +526,9 @@ class TestMcpApiKeyRolePropagation:
         _create_api_key(bearer_token, "REQ-134-retrieve-test")
 
         # Get the key ID from the list (newest key is what we just created)
-        list_status, list_data = _http_request(
-            f"{REST_URL}/api-keys/",
-            headers={"Authorization": f"Bearer {bearer_token}"},
-        )
-        assert list_status == 200
-        keys = list_data if isinstance(list_data, list) else []
+        # INT-05: page through the paginated list; the fresh key is the newest
+        # overall, not necessarily on the first page.
+        keys = _list_all_api_keys(bearer_token)
         assert keys, "No API keys found after creation"
         key_id = keys[-1]["id"]
 
