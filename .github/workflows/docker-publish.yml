@@ -105,7 +105,36 @@ jobs:
             target: production
 
     steps:
+      # fetch-depth 0 + fetch-tags guarantee the pushed tag ref exists locally,
+      # so `git rev-parse <tag>^{commit}` in the next step resolves the tag's
+      # real commit instead of relying on the (possibly stale) GITHUB_SHA.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      # Issue #1145: single source of truth for the commit the release TAG
+      # actually points to. Every downstream stamp, label and gate reads this
+      # output, so a published image can never carry a different commit than
+      # the tag under which it is published. Fails closed when the SHA cannot
+      # be resolved (push: the tag must exist and peel to a commit).
+      - name: Resolve tag commit SHA (single source of truth)
+        id: sha
+        env:
+          # Ref is passed through env (never interpolated into the shell body),
+          # matching the other steps, so a crafted tag name cannot inject shell
+          # commands into this script.
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            TAG_SHA="$(git rev-parse "${REF_NAME}^{commit}")"
+          else
+            TAG_SHA="${GITHUB_SHA}"
+          fi
+          if [[ -z "$TAG_SHA" || "$TAG_SHA" == "unknown" ]]; then echo "ERROR: tag SHA unresolved" >&2; exit 1; fi
+          echo "sha=$TAG_SHA" >> "$GITHUB_OUTPUT"
+          echo "[resolve-sha] TAG_SHA=${TAG_SHA}"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
@@ -149,8 +178,10 @@ jobs:
             VERSION=$(git show HEAD:VERSION | tr -d '[:space:]')
           fi
 
-          # Commit SHA is always GITHUB_SHA (the commit being built)
-          GIT_COMMIT_SHA="${GITHUB_SHA}"
+          # Commit SHA is the TAG's commit (single source of truth, issue #1145),
+          # NOT GITHUB_SHA — the latter may be stale relative to the tag and
+          # previously let a stale commit be stamped/published under a tag.
+          GIT_COMMIT_SHA="${{ steps.sha.outputs.sha }}"
           BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
           # Validate that we have non-empty values (not "unknown")
@@ -183,7 +214,13 @@ jobs:
           context: ${{ matrix.context }}
           load: true
           tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          # docker/metadata-action stamps org.opencontainers.image.revision with
+          # github.sha, which can be stale relative to the tag (issue #1145).
+          # The explicit revision below is emitted last, so it overrides and the
+          # image carries the tag's commit — exactly what the gate verifies.
+          labels: |
+            ${{ steps.meta.outputs.labels }}
+            org.opencontainers.image.revision=${{ steps.sha.outputs.sha }}
           build-args: |
             APP_VERSION=${{ steps.build_meta.outputs.app_version }}
             GIT_COMMIT_SHA=${{ steps.build_meta.outputs.git_commit_sha }}
@@ -199,7 +236,14 @@ jobs:
           target: ${{ matrix.target }}
           load: true
           tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          # metadata-action stamps org.opencontainers.image.revision with
+          # github.sha, which can be stale relative to the tag (issue #1145).
+          # Same override as the backend: the explicit revision below is emitted
+          # last, so it overrides and the image carries the tag's commit — the
+          # gate below verifies this on the frontend image too.
+          labels: |
+            ${{ steps.meta.outputs.labels }}
+            org.opencontainers.image.revision=${{ steps.sha.outputs.sha }}
           cache-from: type=gha,scope=${{ matrix.image }}
           cache-to: type=gha,mode=max,scope=${{ matrix.image }}
 
@@ -214,6 +258,43 @@ jobs:
         env:
           TAGS: ${{ steps.meta.outputs.tags }}
         run: echo "tag=$(head -n1 <<< "$TAGS")" >> "$GITHUB_OUTPUT"
+
+      # Issue #1145: mandatory CI gate — the BUILT image's OCI revision label
+      # must equal the tag's commit. Runs after the local build (image is loaded)
+      # and BEFORE Trivy/push, so a stale image is refused before it can ever be
+      # scanned, signed or published. Applies to BOTH images: the frontend image
+      # does receive a metadata-action revision label, but (like the backend's)
+      # it comes from github.sha and may be stale — the frontend build step above
+      # overrides it with the tag commit, so this gate is authoritative for both.
+      - name: Verify image SHA label matches tag SHA
+        env:
+          TAG_SHA: ${{ steps.sha.outputs.sha }}
+          IMAGE_TAG: ${{ steps.first_tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$IMAGE_TAG" ]]; then
+            echo "ERROR: no image tag resolved — cannot verify image revision" >&2
+            exit 1
+          fi
+          # Primary and ONLY gating path: the OCI revision label baked into the
+          # image. This is the non-vacuous proof that the image was built from
+          # the tag commit. The ENV GIT_COMMIT_SHA must NOT be used as a
+          # fallback: it is populated from steps.build_meta.outputs.git_commit_sha,
+          # which IS steps.sha.outputs.sha by construction, so it can never
+          # disagree with the tag and a stale image would pass vacuously.
+          IMAGE_SHA="$(docker image inspect "$IMAGE_TAG" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')"
+          if [[ -z "$IMAGE_SHA" ]]; then
+            echo "ERROR: refusing to publish: image carries no OCI revision label (org.opencontainers.image.revision)" >&2
+            exit 1
+          fi
+          if [[ "$IMAGE_SHA" != "$TAG_SHA" ]]; then
+            echo "ERROR: image revision ($IMAGE_SHA) != tag commit ($TAG_SHA) — refusing to publish a stale image" >&2
+            exit 1
+          fi
+          # Informational only (never gates): the ENV build-arg stamp; expectedly
+          # unset for the frontend image only.
+          ENV_SHA="$(docker image inspect "$IMAGE_TAG" --format '{{range .Config.Env}}{{println .}}{{end}}' | sed -n 's/^GIT_COMMIT_SHA=//p' | head -n1)"
+          echo "[gate] image OCI revision == tag-SHA ($TAG_SHA); ENV GIT_COMMIT_SHA=${ENV_SHA:-<unset>}"
 
       # H4: Security scan for container image vulnerabilities using Trivy.
       # Scans the locally-loaded image BEFORE pushing to GHCR. Fails if CRITICAL or HIGH
