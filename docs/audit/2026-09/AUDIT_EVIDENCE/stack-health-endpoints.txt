@@ -1,0 +1,153 @@
+---
+type: EVIDENCE
+scope: docker-health-endpoints
+status: success
+date: 2026-09-29
+author_agent: docker
+---
+
+# Live Reachability Evidence (HTTP)
+
+All probes run from the Windows host with `Invoke-WebRequest`, 2026-09-29.
+**Every status code below is a real observed response, not an expectation.**
+
+## Health path correction
+
+`backend/reqogniloom/urls.py` registers the health view at the ROOT path
+`health/`, NOT under `/api/v1/`:
+
+    28: path("health/", HealthView.as_view(), name="health"),
+    35: path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
+    51: path("api/v1/mcp/", include("mcp_server.urls")),
+    52: path("mcp/", include("mcp_server.urls")),
+
+So the task's suggested `GET /api/v1/health/` returns **404** (confirmed below).
+The correct path is `GET /health/`.
+
+## Probe matrix
+
+    URL                                                RESULT
+    ---------------------------------------------------------------------------------
+    http://localhost:8001/health/                      HTTP 200   183 bytes   application/json
+    http://localhost:8001/api/v1/health/               HTTP 404   (path does not exist)
+    http://localhost:8001/api/schema/                  HTTP 200   613769 bytes (~599 KB)
+    http://localhost:8001/mcp/                         HTTP 200   115 bytes   application/json
+    http://localhost:8001/api/v1/mcp/                  HTTP 200   115 bytes   application/json
+    http://localhost:8000/health/                      CONNECTION REFUSED  (nothing bound)
+    http://localhost:3000/                             CONNECTION REFUSED  (nothing bound)
+    http://localhost:5173/                             HTTP 200   671 bytes   text/html
+    http://localhost:5173/api/v1/artifacts/            HTTP 401   (proxy OK, auth required)
+
+## GET /health/ — full body
+
+    {"status": "ok", "checks": {"database": "ok", "memory_backend": "ok",
+     "embedding_dimensions": "ok", "llm_provider_env": "ok",
+     "csrf_cookie_secure_matches_auth": "ok"}, "warnings": []}
+
+All five sub-checks report `ok` and `warnings` is empty. `memory_backend: ok`
+confirms the local SentenceTransformers embedding provider is loaded, not
+Honcho (MEMORY_BACKEND is not set to honcho).
+
+## GET /api/schema/ — status + size only (per task instruction)
+
+    HTTP 200, 613769 bytes, Content-Type: application/vnd.oai.openapi; charset=utf-8
+
+A ~599 KB OpenAPI 3 document was served. Body intentionally not captured.
+
+## GET /mcp/ and /api/v1/mcp/ — full body (both identical)
+
+    {"server": "ReqogniLoom MCP Server", "protocol": "JSON-RPC 2.0",
+     "transports": ["http", "sse"], "version": "1.0.0"}
+
+## Frontend GET :5173/ — serves the Vite dev server
+
+    <!doctype html>
+    <html lang="en">
+      <head>
+        <script type="module">import { injectIntoGlobalHook } from "/@react-refresh"; ...</script>
+        <script type="module" src="/@vite/client"></script>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>ReqogniLoom</title>
+      </head>
+      <body>
+        <div id="root"></div>
+        <script type="module" src="/src/index.tsx"></script>
+      </body>
+    </html>
+
+Real Vite dev server (React Refresh + HMR client injected). This is the
+`development` build target, not the prod nginx image.
+
+## Vite dev proxy is WORKING (important for WP-3 browser tests)
+
+`frontend/vite.config.ts` defines a proxy whose target is
+`process.env.VITE_API_BASE_URL || "http://backend:8000"`, and the container
+has `VITE_API_BASE_URL=http://backend:8000`.
+
+That internal hostname `backend` is NOT resolvable from the host browser, but
+that does not matter: the proxy runs INSIDE the frontend container on the
+Compose network, so the browser must simply call **relative** `/api/...` paths
+against `http://localhost:5173`. Proven: `GET http://localhost:5173/api/v1/artifacts/`
+returned HTTP 401 (reached Django; only auth is missing) and not a 502.
+
+**Consequence for WP-3:** drive the browser at `http://localhost:5173` and let
+the app use relative API paths. Do NOT expect `http://backend:8000` to work
+from the host.
+
+## MCP live JSON-RPC proof (with a real API key)
+
+### 1) initialize
+
+    POST http://localhost:8001/mcp/   header: X-API-Key: reqlo_***
+    body: {"jsonrpc":"2.0","id":1,"method":"initialize",
+           "params":{"protocolVersion":"2024-11-05","capabilities":{},
+                     "clientInfo":{"name":"audit-probe","version":"1.0"}}}
+
+    HTTP 200
+    {"jsonrpc": "2.0", "id": 1, "result": {"protocolVersion": "2024-11-05",
+     "capabilities": {"tools": {}},
+     "serverInfo": {"name": "ReqogniLoom", "version": "1.0.0"}}}
+
+### 2) tools/list
+
+    HTTP 200
+    TOOL COUNT: 80
+      - requirement.get
+      - requirement.query
+      - requirement.check_consistency
+      - needs.read
+      - needs.query
+      - needs.get_traces
+      - architecture.get
+      - architecture.query
+      - test.get
+      - test.query
+      - test.run_list
+      - test.run_get
+
+### 3) tools/call — real dispatch through ToolRegistry
+
+    POST ... {"jsonrpc":"2.0","id":3,"method":"tools/call",
+              "params":{"name":"requirement.query","arguments":{"limit":3}}}
+
+    HTTP 200
+    Error: Parameter 'workspace_id' is required for requirement.query.
+
+This is a SUCCESS signal, not a failure: the request traversed
+HTTP transport -> protocol handler -> API-key auth -> ToolRegistry -> service
+layer, and the service returned a well-formed validation error. The full MCP
+data path is live.
+
+### Auth model (measured, not assumed)
+- `X-API-Key: reqlo_...` is REQUIRED. A `Authorization: Bearer <JWT>` on
+  `/mcp/` returns **HTTP 401** — JWT and MCP API-key auth are separate paths.
+- `tools/list` without any credentials -> HTTP 401.
+
+## Discrepancy for the audit to note
+
+`tools/list` returned **80** tools. `AGENTS.md` claims "215 Tools" and
+"31 Tool-Gruppen-Präfixe". The live server reports 80. Either the registry is
+filtered for this principal/scope, or the documented count is stale.
+Downstream MCP auditors should treat 80 as the measured ground truth for
+this deployment and flag the discrepancy rather than assume 215.

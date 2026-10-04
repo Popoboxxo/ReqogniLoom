@@ -25,8 +25,17 @@ from uuid import UUID
 from persistence.middleware import BaseTenantMiddleware, clear_request_tenant
 from persistence.tenancy import TenantContext
 
-# Paths exempt from authentication (REQ-L2-AT-007).
-EXEMPT_PATH_PREFIXES = ("/health", "/api/docs", "/api/openapi.json")
+# Paths exempt from authentication (REQ-L2-AT-007). ADR-010 §5/ Folgeaufgabe 4
+# names /health/live and /health/ready explicitly; the "/health" prefix already
+# covers both, but they are listed so the contract survives any future change
+# from prefix matching to exact matching.
+EXEMPT_PATH_PREFIXES = (
+    "/health",
+    "/health/live",
+    "/health/ready",
+    "/api/docs",
+    "/api/openapi.json",
+)
 
 
 class AuthTenancyMiddleware(BaseTenantMiddleware):

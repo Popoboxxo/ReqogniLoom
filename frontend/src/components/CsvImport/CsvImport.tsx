@@ -121,6 +121,9 @@ export function CsvImport(): JSX.Element {
   const [isImportingReqif, setIsImportingReqif] = useState(false);
   const [reqifImportResult, setReqifImportResult] = useState<ReqifImportResult | null>(null);
   const [reqifImportError, setReqifImportError] = useState<string | null>(null);
+  // ADR-014 §3: one Idempotency-Key per selected file/attempt so a retry after
+  // a partial failure replays without a second write effect.
+  const reqifIdempotencyKeyRef = useRef<string | null>(null);
 
   /**
    * Accepts a picked/dropped file and builds the pre-flight preview.
@@ -292,6 +295,10 @@ export function CsvImport(): JSX.Element {
       setSelectedReqifFile(file);
       setReqifImportResult(null);
       setReqifImportError(null);
+      // A new file selection starts a new idempotency scope.
+      reqifIdempotencyKeyRef.current = file
+        ? `reqif-${crypto.randomUUID()}`
+        : null;
     },
     []
   );
@@ -307,7 +314,8 @@ export function CsvImport(): JSX.Element {
       const importResult = await importApi.importReqif(
         activeWorkspace.id,
         selectedReqifFile,
-        reqifDryRun
+        reqifDryRun,
+        reqifIdempotencyKeyRef.current ?? undefined
       );
       setReqifImportResult(importResult);
     } catch (err) {
@@ -323,6 +331,7 @@ export function CsvImport(): JSX.Element {
     setSelectedReqifFile(null);
     setReqifImportResult(null);
     setReqifImportError(null);
+    reqifIdempotencyKeyRef.current = null;
     if (reqifFileInputRef.current) {
       reqifFileInputRef.current.value = "";
     }
@@ -728,6 +737,24 @@ export function CsvImport(): JSX.Element {
               </p>
             )}
 
+            {reqifImportResult.idempotent_replay && (
+              <p data-testid="reqif-import-replay-badge" className={styles.dryRunBadge}>
+                {t("import.reqifIdempotentReplay", "Replay of an earlier import — no second write.")}
+              </p>
+            )}
+
+            {reqifImportResult.counts && (
+              <p data-testid="reqif-import-counts" className={styles.reportLine}>
+                {t("import.reqifCounts", {
+                  succeeded: reqifImportResult.counts.succeeded,
+                  skipped: reqifImportResult.counts.skipped,
+                  failed: reqifImportResult.counts.failed,
+                  defaultValue:
+                    "Succeeded: {{succeeded}}, skipped: {{skipped}}, failed: {{failed}}",
+                })}
+              </p>
+            )}
+
             {(
               [
                 ["needs", t("import.reqifNeeds")],
@@ -755,6 +782,21 @@ export function CsvImport(): JSX.Element {
                           {t("import.reqifMoreErrors", { count: report.errors.length - 10 })}
                         </li>
                       )}
+                    </ul>
+                  )}
+                  {/* ADR-014 §1: failed objects are first-class in v2 — render
+                      them from the structured items (errors is failures-only
+                      but the items list is authoritative). */}
+                  {report.items.filter((item) => item.status === "failed").length > 0 && (
+                    <ul data-testid={`reqif-import-failed-${key}`} className={styles.errorList}>
+                      {report.items
+                        .filter((item) => item.status === "failed")
+                        .slice(0, 10)
+                        .map((item, idx) => (
+                          <li key={idx} className={styles.errorListItem}>
+                            {item.identifier ?? "-"}: [{item.cause.code}] {item.cause.message}
+                          </li>
+                        ))}
                     </ul>
                   )}
                 </div>

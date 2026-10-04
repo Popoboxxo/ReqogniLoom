@@ -32,7 +32,7 @@ Routing decisions (ADR-L3-LA003-01):
 
 Graceful Degradation:
     - LLM_PROVIDER not set  → {"error": {"code": "LLM_NOT_CONFIGURED"}}
-    - capability disabled    → {"error": {"code": "LLM_NOT_CONFIGURED"}}
+    - capability disabled    → {"error": {"code": "LLM_CAPABILITY_DISABLED"}}
     - provider error         → {"error": {"code": "LLM_PROVIDER_ERROR", "message": ...}}
     No raw exception escapes this class (REQ-L3-LA003-003, ADR-L3-LA003-02).
 """
@@ -77,6 +77,13 @@ _ASYNC_CAPABILITIES: Set[str] = {"decompose_requirement", "check_consistency", "
 
 # All known capabilities
 _ALL_CAPABILITIES: Set[str] = _SYNC_CAPABILITIES | _ASYNC_CAPABILITIES
+
+#: Error code returned when the caller requests a capability that is gated off
+#: by ``LLM_CAPABILITIES`` (#1148). Deliberately distinct from
+#: ``LLM_NOT_CONFIGURED`` (which means "no/unknown provider is configured"):
+#: a disabled capability is an intentional deployment choice, but clients were
+#: treating it as a setup error because both cases returned the same code.
+LLM_CAPABILITY_DISABLED = "LLM_CAPABILITY_DISABLED"
 
 
 # ---------------------------------------------------------------------------
@@ -126,6 +133,25 @@ _GENERIC_PROVIDER_ERROR = "The LLM provider reported an error."
 def _not_configured_response(message: str = "LLM not configured") -> Dict[str, Any]:
     """Build a LLM_NOT_CONFIGURED error response dict."""
     return {"error": {"code": LLM_NOT_CONFIGURED, "message": message}}
+
+
+def _capability_disabled_response(capability_name: str) -> Dict[str, Any]:
+    """Build a LLM_CAPABILITY_DISABLED error response dict (#1148).
+
+    The capability exists and the provider may be perfectly configured — it is
+    simply not listed in ``LLM_CAPABILITIES``. Reporting
+    ``LLM_NOT_CONFIGURED`` here made the two states indistinguishable and sent
+    clients looking for a broken provider instead of an intentional gate.
+    """
+    return {
+        "error": {
+            "code": LLM_CAPABILITY_DISABLED,
+            "message": (
+                f"Capability '{capability_name}' is not enabled. "
+                "Set LLM_CAPABILITIES to include it."
+            ),
+        }
+    }
 
 
 def _provider_error_response(message: str) -> Dict[str, Any]:
@@ -205,7 +231,12 @@ class CapabilityRouter:
             LlmResult for sync calls, {"task_id": ...} for async calls,
             or structured error dict on any failure.
         """
-        # --- Capability disabled or not configured (REQ-L3-LA003-002) ---
+        # --- Capability disabled (REQ-L3-LA003-002, #1148) ---
+        # A capability absent from LLM_CAPABILITIES is an intentional gate, not
+        # a missing provider: return the distinct LLM_CAPABILITY_DISABLED code
+        # so clients no longer read it as a setup error. The genuine
+        # "no/unknown provider" path below (and in _execute_sync) still returns
+        # LLM_NOT_CONFIGURED.
         if capability_name not in self._enabled:
             self._audit_logger.log_llm_call(
                 provider="none",
@@ -215,12 +246,9 @@ class CapabilityRouter:
                 or kwargs.get("workspace_id"),
                 token_usage=None,
                 success=False,
-                error=LLM_NOT_CONFIGURED,
+                error=LLM_CAPABILITY_DISABLED,
             )
-            return _not_configured_response(
-                f"Capability '{capability_name}' is not enabled. "
-                "Set LLM_CAPABILITIES to include it."
-            )
+            return _capability_disabled_response(capability_name)
 
         # --- Per-tenant daily token limit (REQ-106) ---
         # Enforced at the adapter boundary so every consumer (REST, MCP,
@@ -522,4 +550,5 @@ class CapabilityRouter:
 
 __all__ = [
     "CapabilityRouter",
+    "LLM_CAPABILITY_DISABLED",
 ]

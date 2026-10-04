@@ -35,7 +35,10 @@ from workflow.models import WorkflowEngineDefinition, WorkflowItemState
 
 
 def _ws() -> str:
-    return str(uuid.uuid4())
+    # DATA-06: the ``we_item_state.workspace_id`` FK needs a real workspace.
+    from persistence.tests.factories import make_workspace_id
+
+    return str(make_workspace_id(_tenant_id()))
 
 
 def _make_def(

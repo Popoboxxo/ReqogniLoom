@@ -1,0 +1,241 @@
+{
+ "tenant_enumeration_oracle": {
+  "reqif-export": {
+   "tenant_B_exists": {
+    "status": 404,
+    "code": "NOT_FOUND",
+    "message": "Workspace 77c6286e-eac8-4ea9-89dc-4a99de886b9b not found.",
+    "top_keys": [
+     "error"
+    ]
+   },
+   "random_absent": {
+    "status": 404,
+    "code": "NOT_FOUND",
+    "message": "Workspace 2c6f957c-e6d2-4e59-912d-0ee1ed781638 not found.",
+    "top_keys": [
+     "error"
+    ]
+   },
+   "tenant_A_own": {
+    "status": 200,
+    "code": null,
+    "message": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<REQ-IF xmlns=\"http://www.omg.org/spec/ReqIF/20110401/reqif.xsd\" xmlns:xhtml=\"htt",
+    "top_keys": null
+   }
+  },
+  "pdf-report": {
+   "tenant_B_exists": {
+    "status": 404,
+    "code": "NOT_FOUND",
+    "message": "Workspace 77c6286e-eac8-4ea9-89dc-4a99de886b9b not found",
+    "top_keys": [
+     "error"
+    ]
+   },
+   "random_absent": {
+    "status": 404,
+    "code": "NOT_FOUND",
+    "message": "Workspace 2c6f957c-e6d2-4e59-912d-0ee1ed781638 not found",
+    "top_keys": [
+     "error"
+    ]
+   },
+   "tenant_A_own": {
+    "status": 200,
+    "code": null,
+    "message": "%PDF-1.4\n%���� ReportLab Generated PDF document (opensource)\n1 0 obj\n<<\n/F1 2 0 R /F2 3 0 R\n>>\nendobj\n2 0 obj\n<<\n/BaseFo",
+    "top_keys": null
+   }
+  },
+  "ws-audit": {
+   "tenant_B_exists": {
+    "status": 404,
+    "code": "NOT_FOUND",
+    "message": "Workspace '77c6286e-eac8-4ea9-89dc-4a99de886b9b' was not found in the caller's tenant.",
+    "top_keys": [
+     "error"
+    ]
+   },
+   "random_absent": {
+    "status": 404,
+    "code": "NOT_FOUND",
+    "message": "Workspace '2c6f957c-e6d2-4e59-912d-0ee1ed781638' was not found in the caller's tenant.",
+    "top_keys": [
+     "error"
+    ]
+   },
+   "tenant_A_own": {
+    "status": 200,
+    "code": null,
+    "message": null,
+    "top_keys": [
+     "counts",
+     "findings",
+     "offset",
+     "scope",
+     "scope_artifact_id",
+     "suppressed_filtered",
+     "tier",
+     "total_blockers_available",
+     "total_findings_available",
+     "total_suppressed_available",
+     "total_suppressed_blockers_available",
+     "total_warnings_available",
+     "truncated"
+    ]
+   }
+  },
+  "ws-memory-digest": {
+   "tenant_B_exists": {
+    "status": 403,
+    "code": "PERMISSION_DENIED",
+    "message": "Permission denied: cannot read 'workspace'-scoped memory",
+    "top_keys": [
+     "error"
+    ]
+   },
+   "random_absent": {
+    "status": 403,
+    "code": "PERMISSION_DENIED",
+    "message": "Permission denied: cannot read 'workspace'-scoped memory",
+    "top_keys": [
+     "error"
+    ]
+   },
+   "tenant_A_own": {
+    "status": 200,
+    "code": null,
+    "message": null,
+    "top_keys": [
+     "backend",
+     "degraded",
+     "digest",
+     "generated_at"
+    ]
+   }
+  },
+  "ws-review-policy": {
+   "tenant_B_exists": {
+    "status": 200,
+    "code": null,
+    "message": null,
+    "top_keys": [
+     "min_confidence",
+     "mode"
+    ]
+   },
+   "random_absent": {
+    "status": 200,
+    "code": null,
+    "message": null,
+    "top_keys": [
+     "min_confidence",
+     "mode"
+    ]
+   },
+   "tenant_A_own": {
+    "status": 200,
+    "code": null,
+    "message": null,
+    "top_keys": [
+     "min_confidence",
+     "mode"
+    ]
+   }
+  },
+  "ws-banner": {
+   "tenant_B_exists": {
+    "status": 204,
+    "code": null,
+    "message": "",
+    "top_keys": null
+   },
+   "random_absent": {
+    "status": 204,
+    "code": null,
+    "message": "",
+    "top_keys": null
+   },
+   "tenant_A_own": {
+    "status": 204,
+    "code": null,
+    "message": "",
+    "top_keys": null
+   }
+  }
+ },
+ "csv_export_scoping": {
+  "A_token": {
+   "status": 200,
+   "bytes": 31,
+   "body_head": "# terminology_profile: default\n"
+  },
+  "B_token": {
+   "status": 200,
+   "bytes": 481,
+   "body_head": "# terminology_profile: default\n\"title\",\"description\",\"category\",\"status\",\"type\",\"level\",\"complexity_fibonacci\",\"verification_method\",\"suspect\",\"lifecycle_status\",\"uid\",\"id\",\"artifact_id\",\"version\",\"created_at\",\"modified_at\"\r\n\"WP1D-PROBE-B Requirement ÃÃÃ ð\",\"probe\",\"\",\"draft\",\"SyReq\",\"1\",\"\",\"\""
+  },
+  "A_token_own_workspace": {
+   "status": 200,
+   "bytes": 239940,
+   "body_head": "# terminology_profile: default\n\"title\",\"description\",\"category\",\"status\",\"type\",\"level\",\"complexity_fibonacci\",\"verification_method\",\"suspect\",\"lifecycle_status\",\"uid\",\"id\",\"artifact_id\",\"version\",\"cr"
+  }
+ },
+ "error_envelope_shapes": [
+  {
+   "label": "baseline scope-preview (function-based)",
+   "method": "GET",
+   "path": "/api/v1/baselines/scope-preview/?scope=document&workspace_id=77c6286e-eac8-4ea9-89dc-4a99de886b9b",
+   "status": 400,
+   "ctype": "application/json",
+   "shape": "other-dict:detail",
+   "body_head": "{\"detail\":\"Query parameter 'artifact_id' is required for scope='document'.\"}"
+  },
+  {
+   "label": "baseline scope-preview missing scope",
+   "method": "GET",
+   "path": "/api/v1/baselines/scope-preview/",
+   "status": 400,
+   "ctype": "application/json",
+   "shape": "other-dict:detail",
+   "body_head": "{\"detail\":\"Query parameter 'scope' is required.\"}"
+  },
+  {
+   "label": "ws link-type reset (function-based?)",
+   "method": "POST",
+   "path": "/api/v1/workspaces/77c6286e-eac8-4ea9-89dc-4a99de886b9b/link-type-definitions/zzz/reset/",
+   "status": 400,
+   "ctype": "application/json",
+   "shape": "other-dict:detail",
+   "body_head": "{\"detail\":\"Link type 'zzz' not found in this workspace.\"}"
+  },
+  {
+   "label": "class-based 404",
+   "method": "GET",
+   "path": "/api/v1/requirements/00000000-0000-0000-0000-000000000000/",
+   "status": 404,
+   "ctype": "application/json",
+   "shape": "envelope",
+   "body_head": "{\"error\":{\"code\":\"NOT_FOUND\",\"message\":\"Requirement 00000000-0000-0000-0000-000000000000 not found\",\"details\":[]}}"
+  },
+  {
+   "label": "unknown route",
+   "method": "GET",
+   "path": "/api/v1/nope/",
+   "status": 404,
+   "ctype": "application/json",
+   "shape": "envelope",
+   "body_head": "{\"error\": {\"code\": \"NOT_FOUND\", \"message\": \"The requested API endpoint does not exist.\", \"details\": []}}"
+  },
+  {
+   "label": "mcp ingress 404-ish",
+   "method": "GET",
+   "path": "/api/v1/mcp/",
+   "status": 200,
+   "ctype": "application/json",
+   "shape": "other-dict:protocol,server,transports,version",
+   "body_head": "{\"server\": \"ReqogniLoom MCP Server\", \"protocol\": \"JSON-RPC 2.0\", \"transports\": [\"http\", \"sse\"], \"version\": \"1.0.0\"}"
+  }
+ ]
+}

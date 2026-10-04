@@ -816,3 +816,62 @@ class TestRunAuditSuppression:
         view = report.findings[0]
         assert view.suppressed is True
         assert view.finding_key == finding_key("TRACE-P7", ("a",), "document")
+
+
+# ---------------------------------------------------------------------------
+# #1150 — a waiver decrements the effective blocker count
+# ---------------------------------------------------------------------------
+
+
+class TestWaiverDecrementsAvailableBlockers:
+    def test_total_blockers_available_drops_by_one_after_a_waive(
+        self, tenant, workspace, admin_ctx
+    ):
+        """#1150: the pre-cap effective blocker total reflects the waiver.
+
+        Two blockers exist; waiving one leaves a single *effective* blocker.
+        ``total_effective_blockers`` (the explicit alias) and ``to_dict()`` must
+        both report the reduced value, while the raw ``suppressed_blockers``
+        counter keeps the waived one visible and ``counts.blockers`` stays
+        descriptive of the returned window.
+        """
+        matching = _blocker("TRACE-P1", ("art-1",))
+        other = _blocker("VERIF-P8", ("art-2",))
+        service = AuditService(engine=_ScopeAwareStubEngine([matching, other]))
+
+        before = service.run_audit(workspace.id, admin_ctx, tier="extended")
+        assert before.total_blockers_available == 2
+        assert before.to_dict()["total_effective_blockers"] == 2
+
+        service.suppress_finding(
+            workspace.id,
+            admin_ctx,
+            rule_id="TRACE-P1",
+            artifact_ids=["art-1"],
+            reason=_REASON,
+        )
+
+        after = service.run_audit(workspace.id, admin_ctx, tier="extended")
+        payload = after.to_dict()
+        assert after.total_blockers_available == 1
+        assert payload["total_blockers_available"] == 1
+        assert payload["total_effective_blockers"] == 1
+        # The waived blocker is still visible: descriptions do not hide it.
+        assert payload["counts"]["blockers"] == 2
+        assert payload["total_suppressed_blockers_available"] == 1
+
+    def test_expired_waiver_does_not_reduce_the_blocker_count(
+        self, tenant, workspace, admin_ctx
+    ):
+        """An expired waiver stops suppressing, so the blocker counts again."""
+        _persist(
+            tenant,
+            workspace,
+            rule_id="TRACE-P1",
+            artifact_ids=("art-1",),
+            expires_at=datetime.now(timezone.utc) - timedelta(days=1),
+        )
+        service = AuditService(engine=_ScopeAwareStubEngine([_blocker()]))
+        report = service.run_audit(workspace.id, admin_ctx, tier="extended")
+        assert report.to_dict()["total_blockers_available"] == 1
+        assert report.to_dict()["total_effective_blockers"] == 1

@@ -1,6 +1,16 @@
-﻿# ADR-001: Sandbox-Mechanismus für Artefakt-Branching & Merging
+---
+adr_id: ADR-001
+title: "Sandbox-Mechanismus für Artefakt-Branching & Merging"
+status: proposed
+date: 2026-06-28
+deciders: [user]
+affected_reqs: [REQ-L1-045, REQ-L2-BL-010, REQ-L2-RF-017]
+superseded_by: null
+---
 
-**Status:** PROPOSED
+# ADR-001: Sandbox-Mechanismus für Artefakt-Branching & Merging
+
+**Status:** proposed
 **Datum:** 2026-06-28
 **Entscheider:** Architekt + Tech-Lead
 **Betroffene REQs:** REQ-L1-045, REQ-L2-BL-010, REQ-L2-RF-017

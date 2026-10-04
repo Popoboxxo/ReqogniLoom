@@ -262,7 +262,10 @@ class TestReqifExportMapping:
             )
             create_default_workflow(
                 workspace_id=workspace.id,
-                preset="standard",
+                # "extended", not "standard": the fixture transitions to
+                # "in_review", which only the extended preset declares; the
+                # DATA-06 trigger rejects undeclared states now.
+                preset="extended",
                 item_type="Requirement",
                 tenant_id=tenant.id,
             )

@@ -526,6 +526,105 @@ def test_query_tool_include_outdated_true_forwards_flag():
 
 
 # ---------------------------------------------------------------------------
+# #1147 B1 — every query response carries `count` alongside its list key
+# ---------------------------------------------------------------------------
+
+
+def test_query_tool_includes_a_count():
+    """#1147 B1: the generic query response used to omit `count`, so an agent
+    had to len() the list. It must be present and equal the list length."""
+    service = _OutdatableService()
+    group = _group_for(service)
+
+    result = group._handle_query(
+        params={"workspace_id": str(WIDGET_WORKSPACE_ID)}, auth_context=CTX, api_key="reqlo_x"
+    )
+
+    assert result.success is True
+    assert result.data["count"] == 1
+    assert result.data["count"] == len(result.data["items"])
+
+
+def test_query_tool_count_is_zero_for_an_empty_result():
+    service = _OutdatableService()
+    service.list = MagicMock(return_value=[])
+    group = _group_for(service)
+
+    result = group._handle_query(
+        params={"workspace_id": str(WIDGET_WORKSPACE_ID)}, auth_context=CTX, api_key="reqlo_x"
+    )
+
+    assert result.success is True
+    assert result.data["items"] == []
+    assert result.data["count"] == 0
+
+
+# ---------------------------------------------------------------------------
+# #1147 B3 — a client-supplied `uid` narrows the result instead of being
+# silently discarded
+# ---------------------------------------------------------------------------
+
+
+class _UidWidgetDTO:
+    """Entity stand-in exposing the readable ``uid`` the filter matches on."""
+
+    def __init__(self, uid: str) -> None:
+        self.id = ENTITY_ID
+        self.workspace_id = WIDGET_WORKSPACE_ID
+        self.uid = uid
+
+
+def test_query_tool_uid_filter_narrows_to_the_matching_row():
+    service = _OutdatableService()
+    wanted = _UidWidgetDTO("WIDGET-002")
+    service.list = MagicMock(
+        return_value=[_UidWidgetDTO("WIDGET-001"), wanted, _UidWidgetDTO("WIDGET-003")]
+    )
+    group = _group_for(service)
+
+    result = group._handle_query(
+        params={"workspace_id": str(WIDGET_WORKSPACE_ID), "uid": "WIDGET-002"},
+        auth_context=CTX,
+        api_key="reqlo_x",
+    )
+
+    assert result.success is True
+    assert result.data["count"] == 1
+    assert [row["uid"] for row in result.data["items"]] == ["WIDGET-002"]
+
+
+def test_query_tool_without_uid_returns_every_row():
+    service = _OutdatableService()
+    service.list = MagicMock(
+        return_value=[_UidWidgetDTO("WIDGET-001"), _UidWidgetDTO("WIDGET-002")]
+    )
+    group = _group_for(service)
+
+    result = group._handle_query(
+        params={"workspace_id": str(WIDGET_WORKSPACE_ID)}, auth_context=CTX, api_key="reqlo_x"
+    )
+
+    assert result.success is True
+    assert result.data["count"] == 2
+
+
+def test_query_tool_uid_filter_with_no_match_returns_empty():
+    service = _OutdatableService()
+    service.list = MagicMock(return_value=[_UidWidgetDTO("WIDGET-001")])
+    group = _group_for(service)
+
+    result = group._handle_query(
+        params={"workspace_id": str(WIDGET_WORKSPACE_ID), "uid": "WIDGET-999"},
+        auth_context=CTX,
+        api_key="reqlo_x",
+    )
+
+    assert result.success is True
+    assert result.data["items"] == []
+    assert result.data["count"] == 0
+
+
+# ---------------------------------------------------------------------------
 # #83 Bug 2 — issue.update (and every other GenericCrudToolGroup entity)
 # must reject a `status` field with a clear, actionable error instead of
 # forwarding it into the service's update_* method and surfacing an opaque

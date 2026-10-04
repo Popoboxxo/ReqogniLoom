@@ -71,7 +71,19 @@ async function apiTransition(
     headers: { Authorization: `Bearer ${token}` },
     data: { target_state: targetState, change_reason: changeReason },
   });
-  expect(response.ok()).toBeTruthy();
+  // Issue #1115: a rejected transition must surface as such. The old
+  // `expect(response.ok()).toBeTruthy()` produced only a generic assertion
+  // failure and the actual reason — e.g. HTTP 400 "Transition not allowed:
+  // 'draft' -> 'in_review' is not defined" from a workspace whose workflow
+  // lacks the edge, or a missing mandatory review-gate field — never appeared
+  // in the error. Include status and backend error body in the diagnostic.
+  if (!response.ok()) {
+    const body = await response.text();
+    throw new Error(
+      `apiTransition: '${targetState}' rejected with HTTP ${response.status()} for ` +
+        `requirement ${id}: ${body}`
+    );
+  }
 }
 
 async function deleteRequirement(

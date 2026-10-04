@@ -1,0 +1,2455 @@
+{
+ "auth": [
+  {
+   "case": "no-header",
+   "method": "GET",
+   "path": "/api/v1/requirements/?page_size=1",
+   "expect": "401",
+   "note": "",
+   "status": 401,
+   "ctype": "application/json",
+   "www_authenticate": "Bearer",
+   "body_len": 171,
+   "json": {
+    "error": {
+     "code": "AUTHENTICATION_REQUIRED",
+     "message": "Authentication credentials were not provided.",
+     "details": {
+      "detail": "Authentication credentials were not provided."
+     }
+    }
+   }
+  },
+  {
+   "case": "empty-bearer",
+   "method": "GET",
+   "path": "/api/v1/requirements/?page_size=1",
+   "expect": "401",
+   "note": "",
+   "status": 401,
+   "ctype": "application/json",
+   "www_authenticate": null,
+   "body_len": 168,
+   "json": {
+    "error": {
+     "code": "invalid_token",
+     "message": "The provided token is malformed or invalid.",
+     "details": [
+      {
+       "doc_url": "https://docs.reqogniloom.local/errors/invalid_token"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "case": "garbage-token",
+   "method": "GET",
+   "path": "/api/v1/requirements/?page_size=1",
+   "expect": "401",
+   "note": "",
+   "status": 401,
+   "ctype": "application/json",
+   "www_authenticate": null,
+   "body_len": 168,
+   "json": {
+    "error": {
+     "code": "invalid_token",
+     "message": "The provided token is malformed or invalid.",
+     "details": [
+      {
+       "doc_url": "https://docs.reqogniloom.local/errors/invalid_token"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "case": "wrong-signature",
+   "method": "GET",
+   "path": "/api/v1/requirements/?page_size=1",
+   "expect": "401",
+   "note": "",
+   "status": 401,
+   "ctype": "application/json",
+   "www_authenticate": null,
+   "body_len": 175,
+   "json": {
+    "error": {
+     "code": "invalid_signature",
+     "message": "The token signature could not be verified.",
+     "details": [
+      {
+       "doc_url": "https://docs.reqogniloom.local/errors/invalid_signature"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "case": "expired-token",
+   "method": "GET",
+   "path": "/api/v1/requirements/?page_size=1",
+   "expect": "401",
+   "note": "",
+   "status": 401,
+   "ctype": "application/json",
+   "www_authenticate": null,
+   "body_len": 175,
+   "json": {
+    "error": {
+     "code": "invalid_signature",
+     "message": "The token signature could not be verified.",
+     "details": [
+      {
+       "doc_url": "https://docs.reqogniloom.local/errors/invalid_signature"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "case": "wrong-aud",
+   "method": "GET",
+   "path": "/api/v1/requirements/?page_size=1",
+   "expect": "401",
+   "note": "",
+   "status": 401,
+   "ctype": "application/json",
+   "www_authenticate": null,
+   "body_len": 175,
+   "json": {
+    "error": {
+     "code": "invalid_signature",
+     "message": "The token signature could not be verified.",
+     "details": [
+      {
+       "doc_url": "https://docs.reqogniloom.local/errors/invalid_signature"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "case": "wrong-iss",
+   "method": "GET",
+   "path": "/api/v1/requirements/?page_size=1",
+   "expect": "401",
+   "note": "",
+   "status": 401,
+   "ctype": "application/json",
+   "www_authenticate": null,
+   "body_len": 175,
+   "json": {
+    "error": {
+     "code": "invalid_signature",
+     "message": "The token signature could not be verified.",
+     "details": [
+      {
+       "doc_url": "https://docs.reqogniloom.local/errors/invalid_signature"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "case": "alg-none",
+   "method": "GET",
+   "path": "/api/v1/requirements/?page_size=1",
+   "expect": "401",
+   "note": "",
+   "status": 401,
+   "ctype": "application/json",
+   "www_authenticate": null,
+   "body_len": 168,
+   "json": {
+    "error": {
+     "code": "invalid_token",
+     "message": "The provided token is malformed or invalid.",
+     "details": [
+      {
+       "doc_url": "https://docs.reqogniloom.local/errors/invalid_token"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "case": "unknown-user-claim",
+   "method": "GET",
+   "path": "/api/v1/requirements/?page_size=1",
+   "expect": "401",
+   "note": "",
+   "status": 401,
+   "ctype": "application/json",
+   "www_authenticate": null,
+   "body_len": 175,
+   "json": {
+    "error": {
+     "code": "invalid_signature",
+     "message": "The token signature could not be verified.",
+     "details": [
+      {
+       "doc_url": "https://docs.reqogniloom.local/errors/invalid_signature"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "case": "api-key-as-bearer",
+   "method": "GET",
+   "path": "/api/v1/requirements/?page_size=1",
+   "expect": "401",
+   "note": "prefix reqlo_ but not a real key",
+   "status": 401,
+   "ctype": "application/json",
+   "www_authenticate": null,
+   "body_len": 161,
+   "json": {
+    "error": {
+     "code": "invalid_api_key",
+     "message": "The provided API key is invalid.",
+     "details": [
+      {
+       "doc_url": "https://docs.reqogniloom.local/errors/invalid_api_key"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "case": "x-api-key-on-rest",
+   "method": "GET",
+   "path": "/api/v1/requirements/?page_size=1",
+   "expect": "?",
+   "note": "",
+   "status": 401,
+   "ctype": "application/json",
+   "www_authenticate": null,
+   "body_len": 344,
+   "json": {
+    "error": {
+     "code": "invalid_api_key",
+     "message": "Request rejected because of the X-API-Key header: the API key it carries is not valid. No other credential was presented, so the request is unauthenticated — send a valid X-API-Key or an Authorization: Bearer token.",
+     "details": [
+      {
+       "doc_url": "https://docs.reqogniloom.local/errors/invalid_api_key"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "case": "bogus-cookie",
+   "method": "GET",
+   "path": "/api/v1/requirements/?page_size=1",
+   "expect": "?",
+   "note": "",
+   "status": 401,
+   "ctype": "application/json",
+   "www_authenticate": "Bearer",
+   "body_len": 171,
+   "json": {
+    "error": {
+     "code": "AUTHENTICATION_REQUIRED",
+     "message": "Authentication credentials were not provided.",
+     "details": {
+      "detail": "Authentication credentials were not provided."
+     }
+    }
+   }
+  },
+  {
+   "case": "bad-scheme",
+   "method": "GET",
+   "path": "/api/v1/requirements/?page_size=1",
+   "expect": "?",
+   "note": "",
+   "status": 401,
+   "ctype": "application/json",
+   "www_authenticate": "Bearer",
+   "body_len": 171,
+   "json": {
+    "error": {
+     "code": "AUTHENTICATION_REQUIRED",
+     "message": "Authentication credentials were not provided.",
+     "details": {
+      "detail": "Authentication credentials were not provided."
+     }
+    }
+   }
+  },
+  {
+   "case": "token-in-query",
+   "method": "GET",
+   "path": "/api/v1/requirements/?page_size=1&token=<JWT-REDACTED>",
+   "expect": "401",
+   "note": "",
+   "status": 401,
+   "ctype": "application/json",
+   "www_authenticate": "Bearer",
+   "body_len": 171,
+   "json": {
+    "error": {
+     "code": "AUTHENTICATION_REQUIRED",
+     "message": "Authentication credentials were not provided.",
+     "details": {
+      "detail": "Authentication credentials were not provided."
+     }
+    }
+   }
+  },
+  {
+   "case": "double-auth-header",
+   "method": "GET",
+   "path": "/api/v1/requirements/?page_size=1",
+   "expect": "401",
+   "note": "",
+   "status": 401,
+   "ctype": "application/json",
+   "www_authenticate": "Bearer",
+   "body_len": 171,
+   "json": {
+    "error": {
+     "code": "AUTHENTICATION_REQUIRED",
+     "message": "Authentication credentials were not provided.",
+     "details": {
+      "detail": "Authentication credentials were not provided."
+     }
+    }
+   }
+  },
+  {
+   "case": "double-auth-header-valid-second",
+   "expect": "?",
+   "status": 401,
+   "body_len": 168,
+   "body_head": "{\"error\":{\"code\":\"invalid_token\",\"message\":\"The provided token is malformed or invalid.\",\"details\":[{\"doc_url\":\"https://docs.reqogniloom.local/errors/invalid_token\"}]}}",
+   "note": "raw socket, first Authorization empty, second valid"
+  },
+  {
+   "case": "write-no-auth",
+   "method": "POST",
+   "path": "/api/v1/requirements/",
+   "expect": "401",
+   "note": "body omitted",
+   "status": 401,
+   "ctype": "application/json",
+   "www_authenticate": "Bearer",
+   "body_len": 171,
+   "json": {
+    "error": {
+     "code": "AUTHENTICATION_REQUIRED",
+     "message": "Authentication credentials were not provided.",
+     "details": {
+      "detail": "Authentication credentials were not provided."
+     }
+    }
+   }
+  },
+  {
+   "case": "admin-health-no-auth",
+   "method": "GET",
+   "path": "/api/v1/admin/health/",
+   "expect": "401",
+   "note": "",
+   "status": 401,
+   "ctype": "application/json",
+   "www_authenticate": "Bearer",
+   "body_len": 171,
+   "json": {
+    "error": {
+     "code": "AUTHENTICATION_REQUIRED",
+     "message": "Authentication credentials were not provided.",
+     "details": {
+      "detail": "Authentication credentials were not provided."
+     }
+    }
+   }
+  },
+  {
+   "case": "admin-restore-no-auth",
+   "method": "POST",
+   "path": "/api/v1/admin/restore/",
+   "expect": "401",
+   "note": "",
+   "status": 401,
+   "ctype": "application/json",
+   "www_authenticate": "Bearer",
+   "body_len": 171,
+   "json": {
+    "error": {
+     "code": "AUTHENTICATION_REQUIRED",
+     "message": "Authentication credentials were not provided.",
+     "details": {
+      "detail": "Authentication credentials were not provided."
+     }
+    }
+   }
+  }
+ ],
+ "pagination_inventory": [
+  {
+   "path": "/api/v1/requirements/",
+   "status": 400,
+   "envelope_keys": [
+    "error"
+   ],
+   "is_paginated": false,
+   "page_size": null,
+   "max_page_size": null,
+   "count": null,
+   "n_results": null,
+   "results_type": "NoneType"
+  },
+  {
+   "path": "/api/v1/artifacts/",
+   "status": 400,
+   "envelope_keys": [
+    "error"
+   ],
+   "is_paginated": false,
+   "page_size": null,
+   "max_page_size": null,
+   "count": null,
+   "n_results": null,
+   "results_type": "NoneType"
+  },
+  {
+   "path": "/api/v1/architecture/",
+   "status": 400,
+   "envelope_keys": [
+    "error"
+   ],
+   "is_paginated": false,
+   "page_size": null,
+   "max_page_size": null,
+   "count": null,
+   "n_results": null,
+   "results_type": "NoneType"
+  },
+  {
+   "path": "/api/v1/testcases/",
+   "status": 400,
+   "envelope_keys": [
+    "error"
+   ],
+   "is_paginated": false,
+   "page_size": null,
+   "max_page_size": null,
+   "count": null,
+   "n_results": null,
+   "results_type": "NoneType"
+  },
+  {
+   "path": "/api/v1/trace-links/",
+   "status": 400,
+   "envelope_keys": [
+    "error"
+   ],
+   "is_paginated": false,
+   "page_size": null,
+   "max_page_size": null,
+   "count": null,
+   "n_results": null,
+   "results_type": "NoneType"
+  },
+  {
+   "path": "/api/v1/tracelinks/",
+   "status": 400,
+   "envelope_keys": [
+    "error"
+   ],
+   "is_paginated": false,
+   "page_size": null,
+   "max_page_size": null,
+   "count": null,
+   "n_results": null,
+   "results_type": "NoneType"
+  },
+  {
+   "path": "/api/v1/baselines/",
+   "status": 404,
+   "envelope_keys": [
+    "error"
+   ],
+   "is_paginated": false,
+   "page_size": null,
+   "max_page_size": null,
+   "count": null,
+   "n_results": null,
+   "results_type": "NoneType"
+  },
+  {
+   "path": "/api/v1/workspaces/",
+   "status": 200,
+   "envelope_keys": [
+    "count",
+    "max_page_size",
+    "next",
+    "page_size",
+    "previous",
+    "results"
+   ],
+   "is_paginated": true,
+   "page_size": 1,
+   "max_page_size": 100,
+   "count": 401,
+   "n_results": 1,
+   "results_type": "list"
+  },
+  {
+   "path": "/api/v1/adrs/",
+   "status": 400,
+   "envelope_keys": [
+    "error"
+   ],
+   "is_paginated": false,
+   "page_size": null,
+   "max_page_size": null,
+   "count": null,
+   "n_results": null,
+   "results_type": "NoneType"
+  },
+  {
+   "path": "/api/v1/risks/",
+   "status": 400,
+   "envelope_keys": [
+    "error"
+   ],
+   "is_paginated": false,
+   "page_size": null,
+   "max_page_size": null,
+   "count": null,
+   "n_results": null,
+   "results_type": "NoneType"
+  },
+  {
+   "path": "/api/v1/goals/",
+   "status": 400,
+   "envelope_keys": [
+    "error"
+   ],
+   "is_paginated": false,
+   "page_size": null,
+   "max_page_size": null,
+   "count": null,
+   "n_results": null,
+   "results_type": "NoneType"
+  },
+  {
+   "path": "/api/v1/main-goals/",
+   "status": 400,
+   "envelope_keys": [
+    "error"
+   ],
+   "is_paginated": false,
+   "page_size": null,
+   "max_page_size": null,
+   "count": null,
+   "n_results": null,
+   "results_type": "NoneType"
+  },
+  {
+   "path": "/api/v1/issues/",
+   "status": 400,
+   "envelope_keys": [
+    "error"
+   ],
+   "is_paginated": false,
+   "page_size": null,
+   "max_page_size": null,
+   "count": null,
+   "n_results": null,
+   "results_type": "NoneType"
+  },
+  {
+   "path": "/api/v1/change-requests/",
+   "status": 400,
+   "envelope_keys": [
+    "error"
+   ],
+   "is_paginated": false,
+   "page_size": null,
+   "max_page_size": null,
+   "count": null,
+   "n_results": null,
+   "results_type": "NoneType"
+  },
+  {
+   "path": "/api/v1/test-runs/",
+   "status": 400,
+   "envelope_keys": [
+    "error"
+   ],
+   "is_paginated": false,
+   "page_size": null,
+   "max_page_size": null,
+   "count": null,
+   "n_results": null,
+   "results_type": "NoneType"
+  },
+  {
+   "path": "/api/v1/search/",
+   "status": 400,
+   "envelope_keys": [
+    "error"
+   ],
+   "is_paginated": false,
+   "page_size": null,
+   "max_page_size": null,
+   "count": null,
+   "n_results": null,
+   "results_type": "NoneType"
+  },
+  {
+   "path": "/api/v1/api-keys/",
+   "status": 200,
+   "envelope_keys": [
+    "<bare list>"
+   ],
+   "is_paginated": false,
+   "n_results": 199,
+   "results_type": "list"
+  },
+  {
+   "path": "/api/v1/diagrams/",
+   "status": 400,
+   "envelope_keys": [
+    "error"
+   ],
+   "is_paginated": false,
+   "page_size": null,
+   "max_page_size": null,
+   "count": null,
+   "n_results": null,
+   "results_type": "NoneType"
+  },
+  {
+   "path": "/api/v1/icds/",
+   "status": 400,
+   "envelope_keys": [
+    "error"
+   ],
+   "is_paginated": false,
+   "page_size": null,
+   "max_page_size": null,
+   "count": null,
+   "n_results": null,
+   "results_type": "NoneType"
+  },
+  {
+   "path": "/api/v1/metrics/",
+   "status": 400,
+   "envelope_keys": [
+    "error"
+   ],
+   "is_paginated": false,
+   "page_size": null,
+   "max_page_size": null,
+   "count": null,
+   "n_results": null,
+   "results_type": "NoneType"
+  },
+  {
+   "path": "/api/v1/glossary/",
+   "status": 400,
+   "envelope_keys": [
+    "error"
+   ],
+   "is_paginated": false,
+   "page_size": null,
+   "max_page_size": null,
+   "count": null,
+   "n_results": null,
+   "results_type": "NoneType"
+  },
+  {
+   "path": "/api/v1/interviews/",
+   "status": 400,
+   "envelope_keys": [
+    "error"
+   ],
+   "is_paginated": false,
+   "page_size": null,
+   "max_page_size": null,
+   "count": null,
+   "n_results": null,
+   "results_type": "NoneType"
+  },
+  {
+   "path": "/api/v1/comments/",
+   "status": 405,
+   "envelope_keys": [
+    "error"
+   ],
+   "is_paginated": false,
+   "page_size": null,
+   "max_page_size": null,
+   "count": null,
+   "n_results": null,
+   "results_type": "NoneType"
+  },
+  {
+   "path": "/api/v1/notifications/",
+   "status": 200,
+   "envelope_keys": [
+    "notifications",
+    "unread_count"
+   ],
+   "is_paginated": false,
+   "page_size": null,
+   "max_page_size": null,
+   "count": null,
+   "n_results": null,
+   "results_type": "NoneType"
+  },
+  {
+   "path": "/api/v1/users/",
+   "status": 200,
+   "envelope_keys": [
+    "<bare list>"
+   ],
+   "is_paginated": false,
+   "n_results": 12,
+   "results_type": "list"
+  },
+  {
+   "path": "/api/v1/needs/",
+   "status": 400,
+   "envelope_keys": [
+    "error"
+   ],
+   "is_paginated": false,
+   "page_size": null,
+   "max_page_size": null,
+   "count": null,
+   "n_results": null,
+   "results_type": "NoneType"
+  },
+  {
+   "path": "/api/v1/workflows/",
+   "status": 200,
+   "envelope_keys": [
+    "count",
+    "next",
+    "previous",
+    "results"
+   ],
+   "is_paginated": true,
+   "page_size": null,
+   "max_page_size": null,
+   "count": 0,
+   "n_results": 0,
+   "results_type": "list"
+  },
+  {
+   "path": "/api/v1/traceability/",
+   "status": 404,
+   "envelope_keys": [
+    "error"
+   ],
+   "is_paginated": false,
+   "page_size": null,
+   "max_page_size": null,
+   "count": null,
+   "n_results": null,
+   "results_type": "NoneType"
+  },
+  {
+   "path": "/api/v1/attribute-catalog/",
+   "status": 200,
+   "envelope_keys": [
+    "entries"
+   ],
+   "is_paginated": false,
+   "page_size": null,
+   "max_page_size": null,
+   "count": null,
+   "n_results": null,
+   "results_type": "NoneType"
+  },
+  {
+   "path": "/api/v1/link-type-defaults/",
+   "status": 200,
+   "envelope_keys": [
+    "<bare list>"
+   ],
+   "is_paginated": false,
+   "n_results": 11,
+   "results_type": "list"
+  },
+  {
+   "path": "/api/v1/workflow-defaults/",
+   "status": 200,
+   "envelope_keys": [
+    "workflow_defaults"
+   ],
+   "is_paginated": false,
+   "page_size": null,
+   "max_page_size": null,
+   "count": null,
+   "n_results": null,
+   "results_type": "NoneType"
+  },
+  {
+   "path": "/api/v1/system/memory/entries/",
+   "status": 400,
+   "envelope_keys": [
+    "error"
+   ],
+   "is_paginated": false,
+   "page_size": null,
+   "max_page_size": null,
+   "count": null,
+   "n_results": null,
+   "results_type": "NoneType"
+  },
+  {
+   "path": "/api/v1/permission-defaults/",
+   "status": 200,
+   "envelope_keys": [
+    "enforcement_mode",
+    "permission_json",
+    "tenant_id",
+    "updated_at"
+   ],
+   "is_paginated": false,
+   "page_size": null,
+   "max_page_size": null,
+   "count": null,
+   "n_results": null,
+   "results_type": "NoneType"
+  }
+ ],
+ "pagination_stress": [
+  {
+   "path": "/api/v1/requirements/",
+   "qs": "?page_size=100000",
+   "status": 400,
+   "body_len": 87,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "next": ""
+  },
+  {
+   "path": "/api/v1/requirements/",
+   "qs": "?page_size=0",
+   "status": 400,
+   "body_len": 87,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "next": ""
+  },
+  {
+   "path": "/api/v1/requirements/",
+   "qs": "?page_size=-1",
+   "status": 400,
+   "body_len": 87,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "next": ""
+  },
+  {
+   "path": "/api/v1/requirements/",
+   "qs": "?page_size=99999999999999999999",
+   "status": 400,
+   "body_len": 87,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "next": ""
+  },
+  {
+   "path": "/api/v1/requirements/",
+   "qs": "?page_size=abc",
+   "status": 400,
+   "body_len": 87,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "next": ""
+  },
+  {
+   "path": "/api/v1/requirements/",
+   "qs": "?page=0",
+   "status": 400,
+   "body_len": 87,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "next": ""
+  },
+  {
+   "path": "/api/v1/requirements/",
+   "qs": "?page=-3",
+   "status": 400,
+   "body_len": 87,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "next": ""
+  },
+  {
+   "path": "/api/v1/requirements/",
+   "qs": "?page=abc",
+   "status": 400,
+   "body_len": 87,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "next": ""
+  },
+  {
+   "path": "/api/v1/requirements/",
+   "qs": "?page=99999999",
+   "status": 400,
+   "body_len": 87,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "next": ""
+  },
+  {
+   "path": "/api/v1/requirements/",
+   "qs": "?page=1&page_size=1000000",
+   "status": 400,
+   "body_len": 87,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "next": ""
+  },
+  {
+   "path": "/api/v1/requirements/",
+   "qs": "?limit=10000",
+   "status": 400,
+   "body_len": 87,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "next": ""
+  },
+  {
+   "path": "/api/v1/requirements/",
+   "qs": "?offset=1000000",
+   "status": 400,
+   "body_len": 87,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "next": ""
+  },
+  {
+   "path": "/api/v1/trace-links/",
+   "qs": "?page_size=100000",
+   "status": 400,
+   "body_len": 87,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "next": ""
+  },
+  {
+   "path": "/api/v1/trace-links/",
+   "qs": "?page_size=0",
+   "status": 400,
+   "body_len": 87,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "next": ""
+  },
+  {
+   "path": "/api/v1/trace-links/",
+   "qs": "?page_size=-1",
+   "status": 400,
+   "body_len": 87,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "next": ""
+  },
+  {
+   "path": "/api/v1/trace-links/",
+   "qs": "?page_size=99999999999999999999",
+   "status": 400,
+   "body_len": 87,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "next": ""
+  },
+  {
+   "path": "/api/v1/trace-links/",
+   "qs": "?page_size=abc",
+   "status": 400,
+   "body_len": 87,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "next": ""
+  },
+  {
+   "path": "/api/v1/trace-links/",
+   "qs": "?page=0",
+   "status": 400,
+   "body_len": 87,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "next": ""
+  },
+  {
+   "path": "/api/v1/trace-links/",
+   "qs": "?page=-3",
+   "status": 400,
+   "body_len": 87,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "next": ""
+  },
+  {
+   "path": "/api/v1/trace-links/",
+   "qs": "?page=abc",
+   "status": 400,
+   "body_len": 87,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "next": ""
+  },
+  {
+   "path": "/api/v1/trace-links/",
+   "qs": "?page=99999999",
+   "status": 400,
+   "body_len": 87,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "next": ""
+  },
+  {
+   "path": "/api/v1/trace-links/",
+   "qs": "?page=1&page_size=1000000",
+   "status": 400,
+   "body_len": 87,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "next": ""
+  },
+  {
+   "path": "/api/v1/trace-links/",
+   "qs": "?limit=10000",
+   "status": 400,
+   "body_len": 87,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "next": ""
+  },
+  {
+   "path": "/api/v1/trace-links/",
+   "qs": "?offset=1000000",
+   "status": 400,
+   "body_len": 87,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "next": ""
+  },
+  {
+   "path": "/api/v1/search/",
+   "qs": "?page_size=100000",
+   "status": 400,
+   "body_len": 87,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "next": ""
+  },
+  {
+   "path": "/api/v1/search/",
+   "qs": "?page_size=0",
+   "status": 400,
+   "body_len": 87,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "next": ""
+  },
+  {
+   "path": "/api/v1/search/",
+   "qs": "?page_size=-1",
+   "status": 400,
+   "body_len": 87,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "next": ""
+  },
+  {
+   "path": "/api/v1/search/",
+   "qs": "?page_size=99999999999999999999",
+   "status": 400,
+   "body_len": 87,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "next": ""
+  },
+  {
+   "path": "/api/v1/search/",
+   "qs": "?page_size=abc",
+   "status": 400,
+   "body_len": 87,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "next": ""
+  },
+  {
+   "path": "/api/v1/search/",
+   "qs": "?page=0",
+   "status": 400,
+   "body_len": 87,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "next": ""
+  },
+  {
+   "path": "/api/v1/search/",
+   "qs": "?page=-3",
+   "status": 400,
+   "body_len": 87,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "next": ""
+  },
+  {
+   "path": "/api/v1/search/",
+   "qs": "?page=abc",
+   "status": 400,
+   "body_len": 87,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "next": ""
+  },
+  {
+   "path": "/api/v1/search/",
+   "qs": "?page=99999999",
+   "status": 400,
+   "body_len": 87,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "next": ""
+  },
+  {
+   "path": "/api/v1/search/",
+   "qs": "?page=1&page_size=1000000",
+   "status": 400,
+   "body_len": 87,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "next": ""
+  },
+  {
+   "path": "/api/v1/search/",
+   "qs": "?limit=10000",
+   "status": 400,
+   "body_len": 87,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "next": ""
+  },
+  {
+   "path": "/api/v1/search/",
+   "qs": "?offset=1000000",
+   "status": 400,
+   "body_len": 87,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "next": ""
+  },
+  {
+   "path": "/api/v1/artifacts/",
+   "qs": "?page_size=100000",
+   "status": 400,
+   "body_len": 87,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "next": ""
+  },
+  {
+   "path": "/api/v1/artifacts/",
+   "qs": "?page_size=0",
+   "status": 400,
+   "body_len": 87,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "next": ""
+  },
+  {
+   "path": "/api/v1/artifacts/",
+   "qs": "?page_size=-1",
+   "status": 400,
+   "body_len": 87,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "next": ""
+  },
+  {
+   "path": "/api/v1/artifacts/",
+   "qs": "?page_size=99999999999999999999",
+   "status": 400,
+   "body_len": 87,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "next": ""
+  },
+  {
+   "path": "/api/v1/artifacts/",
+   "qs": "?page_size=abc",
+   "status": 400,
+   "body_len": 87,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "next": ""
+  },
+  {
+   "path": "/api/v1/artifacts/",
+   "qs": "?page=0",
+   "status": 400,
+   "body_len": 87,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "next": ""
+  },
+  {
+   "path": "/api/v1/artifacts/",
+   "qs": "?page=-3",
+   "status": 400,
+   "body_len": 87,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "next": ""
+  },
+  {
+   "path": "/api/v1/artifacts/",
+   "qs": "?page=abc",
+   "status": 400,
+   "body_len": 87,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "next": ""
+  },
+  {
+   "path": "/api/v1/artifacts/",
+   "qs": "?page=99999999",
+   "status": 400,
+   "body_len": 87,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "next": ""
+  },
+  {
+   "path": "/api/v1/artifacts/",
+   "qs": "?page=1&page_size=1000000",
+   "status": 400,
+   "body_len": 87,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "next": ""
+  },
+  {
+   "path": "/api/v1/artifacts/",
+   "qs": "?limit=10000",
+   "status": 400,
+   "body_len": 87,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "next": ""
+  },
+  {
+   "path": "/api/v1/artifacts/",
+   "qs": "?offset=1000000",
+   "status": 400,
+   "body_len": 87,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "next": ""
+  },
+  {
+   "path": "/api/v1/metrics/",
+   "qs": "?page_size=100000",
+   "status": 400,
+   "body_len": 103,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "next": ""
+  },
+  {
+   "path": "/api/v1/metrics/",
+   "qs": "?page_size=0",
+   "status": 400,
+   "body_len": 103,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "next": ""
+  },
+  {
+   "path": "/api/v1/metrics/",
+   "qs": "?page_size=-1",
+   "status": 400,
+   "body_len": 103,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "next": ""
+  },
+  {
+   "path": "/api/v1/metrics/",
+   "qs": "?page_size=99999999999999999999",
+   "status": 400,
+   "body_len": 103,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "next": ""
+  },
+  {
+   "path": "/api/v1/metrics/",
+   "qs": "?page_size=abc",
+   "status": 400,
+   "body_len": 103,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "next": ""
+  },
+  {
+   "path": "/api/v1/metrics/",
+   "qs": "?page=0",
+   "status": 400,
+   "body_len": 103,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "next": ""
+  },
+  {
+   "path": "/api/v1/metrics/",
+   "qs": "?page=-3",
+   "status": 400,
+   "body_len": 103,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "next": ""
+  },
+  {
+   "path": "/api/v1/metrics/",
+   "qs": "?page=abc",
+   "status": 400,
+   "body_len": 103,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "next": ""
+  },
+  {
+   "path": "/api/v1/metrics/",
+   "qs": "?page=99999999",
+   "status": 400,
+   "body_len": 103,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "next": ""
+  },
+  {
+   "path": "/api/v1/metrics/",
+   "qs": "?page=1&page_size=1000000",
+   "status": 400,
+   "body_len": 103,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "next": ""
+  },
+  {
+   "path": "/api/v1/metrics/",
+   "qs": "?limit=10000",
+   "status": 400,
+   "body_len": 103,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "next": ""
+  },
+  {
+   "path": "/api/v1/metrics/",
+   "qs": "?offset=1000000",
+   "status": 400,
+   "body_len": 103,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "next": ""
+  },
+  {
+   "path": "/api/v1/users/",
+   "qs": "?page_size=100000",
+   "status": 200,
+   "body_len": 1948,
+   "n_results": 12
+  },
+  {
+   "path": "/api/v1/users/",
+   "qs": "?page_size=0",
+   "status": 200,
+   "body_len": 1948,
+   "n_results": 12
+  },
+  {
+   "path": "/api/v1/users/",
+   "qs": "?page_size=-1",
+   "status": 200,
+   "body_len": 1948,
+   "n_results": 12
+  },
+  {
+   "path": "/api/v1/users/",
+   "qs": "?page_size=99999999999999999999",
+   "status": 200,
+   "body_len": 1948,
+   "n_results": 12
+  },
+  {
+   "path": "/api/v1/users/",
+   "qs": "?page_size=abc",
+   "status": 200,
+   "body_len": 1948,
+   "n_results": 12
+  },
+  {
+   "path": "/api/v1/users/",
+   "qs": "?page=0",
+   "status": 200,
+   "body_len": 1948,
+   "n_results": 12
+  },
+  {
+   "path": "/api/v1/users/",
+   "qs": "?page=-3",
+   "status": 200,
+   "body_len": 1948,
+   "n_results": 12
+  },
+  {
+   "path": "/api/v1/users/",
+   "qs": "?page=abc",
+   "status": 200,
+   "body_len": 1948,
+   "n_results": 12
+  },
+  {
+   "path": "/api/v1/users/",
+   "qs": "?page=99999999",
+   "status": 200,
+   "body_len": 1948,
+   "n_results": 12
+  },
+  {
+   "path": "/api/v1/users/",
+   "qs": "?page=1&page_size=1000000",
+   "status": 200,
+   "body_len": 1948,
+   "n_results": 12
+  },
+  {
+   "path": "/api/v1/users/",
+   "qs": "?limit=10000",
+   "status": 200,
+   "body_len": 1948,
+   "n_results": 12
+  },
+  {
+   "path": "/api/v1/users/",
+   "qs": "?offset=1000000",
+   "status": 200,
+   "body_len": 1948,
+   "n_results": 12
+  }
+ ],
+ "filters": [
+  {
+   "path": "/api/v1/requirements/",
+   "probe": "unknown-filter",
+   "qs": "?no_such_filter=1",
+   "status": 400,
+   "err_code": "VALIDATION_ERROR",
+   "err_msg": "workspace_id is required"
+  },
+  {
+   "path": "/api/v1/requirements/",
+   "probe": "filter-injection",
+   "qs": "?title=1' OR '1'='1",
+   "status": 400,
+   "err_code": "VALIDATION_ERROR",
+   "err_msg": "workspace_id is required"
+  },
+  {
+   "path": "/api/v1/requirements/",
+   "probe": "filter-injection-2",
+   "qs": "?ordering=title; DROP TABLE artifacts--",
+   "status": 400,
+   "err_code": "VALIDATION_ERROR",
+   "err_msg": "workspace_id is required"
+  },
+  {
+   "path": "/api/v1/requirements/",
+   "probe": "filter-injection-3",
+   "qs": "?search=%27%29%20OR%201%3D1%20--",
+   "status": 400,
+   "err_code": "VALIDATION_ERROR",
+   "err_msg": "workspace_id is required"
+  },
+  {
+   "path": "/api/v1/requirements/",
+   "probe": "ordering-arbitrary-field",
+   "qs": "?ordering=tenant_id",
+   "status": 400,
+   "err_code": "VALIDATION_ERROR",
+   "err_msg": "workspace_id is required"
+  },
+  {
+   "path": "/api/v1/requirements/",
+   "probe": "ordering-related-join",
+   "qs": "?ordering=created_by__password",
+   "status": 400,
+   "err_code": "VALIDATION_ERROR",
+   "err_msg": "workspace_id is required"
+  },
+  {
+   "path": "/api/v1/requirements/",
+   "probe": "ordering-nonexistent",
+   "qs": "?ordering=does_not_exist",
+   "status": 400,
+   "err_code": "VALIDATION_ERROR",
+   "err_msg": "workspace_id is required"
+  },
+  {
+   "path": "/api/v1/requirements/",
+   "probe": "ordering-sql",
+   "qs": "?ordering=id; --",
+   "status": 400,
+   "err_code": "VALIDATION_ERROR",
+   "err_msg": "workspace_id is required"
+  },
+  {
+   "path": "/api/v1/requirements/",
+   "probe": "workspace-id-unknown",
+   "qs": "?workspace_id=00000000-0000-0000-0000-000000000000",
+   "status": 200,
+   "count": 0,
+   "n_results": 0,
+   "ignored_silently": true
+  },
+  {
+   "path": "/api/v1/requirements/",
+   "probe": "workspace-id-not-uuid",
+   "qs": "?workspace_id=abc",
+   "status": 400,
+   "err_code": "VALIDATION_ERROR",
+   "err_msg": "workspace_id must be a valid UUID"
+  },
+  {
+   "path": "/api/v1/requirements/",
+   "probe": "filter-unknown-value-type",
+   "qs": "?level=%00binary",
+   "status": 400,
+   "err_code": "VALIDATION_ERROR",
+   "err_msg": "workspace_id is required"
+  },
+  {
+   "path": "/api/v1/requirements/",
+   "probe": "page-size-string",
+   "qs": "?page_size=1e400",
+   "status": 400,
+   "err_code": "VALIDATION_ERROR",
+   "err_msg": "workspace_id is required"
+  },
+  {
+   "path": "/api/v1/artifacts/",
+   "probe": "unknown-filter",
+   "qs": "?no_such_filter=1",
+   "status": 400,
+   "err_code": "VALIDATION_ERROR",
+   "err_msg": "workspace_id is required"
+  },
+  {
+   "path": "/api/v1/artifacts/",
+   "probe": "filter-injection",
+   "qs": "?title=1' OR '1'='1",
+   "status": 400,
+   "err_code": "VALIDATION_ERROR",
+   "err_msg": "workspace_id is required"
+  },
+  {
+   "path": "/api/v1/artifacts/",
+   "probe": "filter-injection-2",
+   "qs": "?ordering=title; DROP TABLE artifacts--",
+   "status": 400,
+   "err_code": "VALIDATION_ERROR",
+   "err_msg": "workspace_id is required"
+  },
+  {
+   "path": "/api/v1/artifacts/",
+   "probe": "filter-injection-3",
+   "qs": "?search=%27%29%20OR%201%3D1%20--",
+   "status": 400,
+   "err_code": "VALIDATION_ERROR",
+   "err_msg": "workspace_id is required"
+  },
+  {
+   "path": "/api/v1/artifacts/",
+   "probe": "ordering-arbitrary-field",
+   "qs": "?ordering=tenant_id",
+   "status": 400,
+   "err_code": "VALIDATION_ERROR",
+   "err_msg": "workspace_id is required"
+  },
+  {
+   "path": "/api/v1/artifacts/",
+   "probe": "ordering-related-join",
+   "qs": "?ordering=created_by__password",
+   "status": 400,
+   "err_code": "VALIDATION_ERROR",
+   "err_msg": "workspace_id is required"
+  },
+  {
+   "path": "/api/v1/artifacts/",
+   "probe": "ordering-nonexistent",
+   "qs": "?ordering=does_not_exist",
+   "status": 400,
+   "err_code": "VALIDATION_ERROR",
+   "err_msg": "workspace_id is required"
+  },
+  {
+   "path": "/api/v1/artifacts/",
+   "probe": "ordering-sql",
+   "qs": "?ordering=id; --",
+   "status": 400,
+   "err_code": "VALIDATION_ERROR",
+   "err_msg": "workspace_id is required"
+  },
+  {
+   "path": "/api/v1/artifacts/",
+   "probe": "workspace-id-unknown",
+   "qs": "?workspace_id=00000000-0000-0000-0000-000000000000",
+   "status": 200,
+   "count": 0,
+   "n_results": 0,
+   "ignored_silently": true
+  },
+  {
+   "path": "/api/v1/artifacts/",
+   "probe": "workspace-id-not-uuid",
+   "qs": "?workspace_id=abc",
+   "status": 400,
+   "err_code": "VALIDATION_ERROR",
+   "err_msg": "workspace_id must be a valid UUID"
+  },
+  {
+   "path": "/api/v1/artifacts/",
+   "probe": "filter-unknown-value-type",
+   "qs": "?level=%00binary",
+   "status": 400,
+   "err_code": "VALIDATION_ERROR",
+   "err_msg": "workspace_id is required"
+  },
+  {
+   "path": "/api/v1/artifacts/",
+   "probe": "page-size-string",
+   "qs": "?page_size=1e400",
+   "status": 400,
+   "err_code": "VALIDATION_ERROR",
+   "err_msg": "workspace_id is required"
+  },
+  {
+   "path": "/api/v1/search/",
+   "probe": "unknown-filter",
+   "qs": "?no_such_filter=1",
+   "status": 400,
+   "err_code": "VALIDATION_ERROR",
+   "err_msg": "workspace_id is required"
+  },
+  {
+   "path": "/api/v1/search/",
+   "probe": "filter-injection",
+   "qs": "?title=1' OR '1'='1",
+   "status": 400,
+   "err_code": "VALIDATION_ERROR",
+   "err_msg": "workspace_id is required"
+  },
+  {
+   "path": "/api/v1/search/",
+   "probe": "filter-injection-2",
+   "qs": "?ordering=title; DROP TABLE artifacts--",
+   "status": 400,
+   "err_code": "VALIDATION_ERROR",
+   "err_msg": "workspace_id is required"
+  },
+  {
+   "path": "/api/v1/search/",
+   "probe": "filter-injection-3",
+   "qs": "?search=%27%29%20OR%201%3D1%20--",
+   "status": 400,
+   "err_code": "VALIDATION_ERROR",
+   "err_msg": "workspace_id is required"
+  },
+  {
+   "path": "/api/v1/search/",
+   "probe": "ordering-arbitrary-field",
+   "qs": "?ordering=tenant_id",
+   "status": 400,
+   "err_code": "VALIDATION_ERROR",
+   "err_msg": "workspace_id is required"
+  },
+  {
+   "path": "/api/v1/search/",
+   "probe": "ordering-related-join",
+   "qs": "?ordering=created_by__password",
+   "status": 400,
+   "err_code": "VALIDATION_ERROR",
+   "err_msg": "workspace_id is required"
+  },
+  {
+   "path": "/api/v1/search/",
+   "probe": "ordering-nonexistent",
+   "qs": "?ordering=does_not_exist",
+   "status": 400,
+   "err_code": "VALIDATION_ERROR",
+   "err_msg": "workspace_id is required"
+  },
+  {
+   "path": "/api/v1/search/",
+   "probe": "ordering-sql",
+   "qs": "?ordering=id; --",
+   "status": 400,
+   "err_code": "VALIDATION_ERROR",
+   "err_msg": "workspace_id is required"
+  },
+  {
+   "path": "/api/v1/search/",
+   "probe": "workspace-id-unknown",
+   "qs": "?workspace_id=00000000-0000-0000-0000-000000000000",
+   "status": 400,
+   "err_code": "VALIDATION_ERROR",
+   "err_msg": "q is required"
+  },
+  {
+   "path": "/api/v1/search/",
+   "probe": "workspace-id-not-uuid",
+   "qs": "?workspace_id=abc",
+   "status": 400,
+   "err_code": "VALIDATION_ERROR",
+   "err_msg": "workspace_id must be a valid UUID"
+  },
+  {
+   "path": "/api/v1/search/",
+   "probe": "filter-unknown-value-type",
+   "qs": "?level=%00binary",
+   "status": 400,
+   "err_code": "VALIDATION_ERROR",
+   "err_msg": "workspace_id is required"
+  },
+  {
+   "path": "/api/v1/search/",
+   "probe": "page-size-string",
+   "qs": "?page_size=1e400",
+   "status": 400,
+   "err_code": "VALIDATION_ERROR",
+   "err_msg": "workspace_id is required"
+  },
+  {
+   "path": "/api/v1/trace-links/",
+   "probe": "unknown-filter",
+   "qs": "?no_such_filter=1",
+   "status": 400,
+   "err_code": "VALIDATION_ERROR",
+   "err_msg": "workspace_id is required"
+  },
+  {
+   "path": "/api/v1/trace-links/",
+   "probe": "filter-injection",
+   "qs": "?title=1' OR '1'='1",
+   "status": 400,
+   "err_code": "VALIDATION_ERROR",
+   "err_msg": "workspace_id is required"
+  },
+  {
+   "path": "/api/v1/trace-links/",
+   "probe": "filter-injection-2",
+   "qs": "?ordering=title; DROP TABLE artifacts--",
+   "status": 400,
+   "err_code": "VALIDATION_ERROR",
+   "err_msg": "workspace_id is required"
+  },
+  {
+   "path": "/api/v1/trace-links/",
+   "probe": "filter-injection-3",
+   "qs": "?search=%27%29%20OR%201%3D1%20--",
+   "status": 400,
+   "err_code": "VALIDATION_ERROR",
+   "err_msg": "workspace_id is required"
+  },
+  {
+   "path": "/api/v1/trace-links/",
+   "probe": "ordering-arbitrary-field",
+   "qs": "?ordering=tenant_id",
+   "status": 400,
+   "err_code": "VALIDATION_ERROR",
+   "err_msg": "workspace_id is required"
+  },
+  {
+   "path": "/api/v1/trace-links/",
+   "probe": "ordering-related-join",
+   "qs": "?ordering=created_by__password",
+   "status": 400,
+   "err_code": "VALIDATION_ERROR",
+   "err_msg": "workspace_id is required"
+  },
+  {
+   "path": "/api/v1/trace-links/",
+   "probe": "ordering-nonexistent",
+   "qs": "?ordering=does_not_exist",
+   "status": 400,
+   "err_code": "VALIDATION_ERROR",
+   "err_msg": "workspace_id is required"
+  },
+  {
+   "path": "/api/v1/trace-links/",
+   "probe": "ordering-sql",
+   "qs": "?ordering=id; --",
+   "status": 400,
+   "err_code": "VALIDATION_ERROR",
+   "err_msg": "workspace_id is required"
+  },
+  {
+   "path": "/api/v1/trace-links/",
+   "probe": "workspace-id-unknown",
+   "qs": "?workspace_id=00000000-0000-0000-0000-000000000000",
+   "status": 200,
+   "count": 0,
+   "n_results": 0,
+   "ignored_silently": true
+  },
+  {
+   "path": "/api/v1/trace-links/",
+   "probe": "workspace-id-not-uuid",
+   "qs": "?workspace_id=abc",
+   "status": 400,
+   "err_code": "VALIDATION_ERROR",
+   "err_msg": "workspace_id must be a valid UUID"
+  },
+  {
+   "path": "/api/v1/trace-links/",
+   "probe": "filter-unknown-value-type",
+   "qs": "?level=%00binary",
+   "status": 400,
+   "err_code": "VALIDATION_ERROR",
+   "err_msg": "workspace_id is required"
+  },
+  {
+   "path": "/api/v1/trace-links/",
+   "probe": "page-size-string",
+   "qs": "?page_size=1e400",
+   "status": 400,
+   "err_code": "VALIDATION_ERROR",
+   "err_msg": "workspace_id is required"
+  },
+  {
+   "path": "/api/v1/issues/",
+   "probe": "unknown-filter",
+   "qs": "?no_such_filter=1",
+   "status": 400,
+   "err_code": "VALIDATION_ERROR",
+   "err_msg": "workspace_id is required"
+  },
+  {
+   "path": "/api/v1/issues/",
+   "probe": "filter-injection",
+   "qs": "?title=1' OR '1'='1",
+   "status": 400,
+   "err_code": "VALIDATION_ERROR",
+   "err_msg": "workspace_id is required"
+  },
+  {
+   "path": "/api/v1/issues/",
+   "probe": "filter-injection-2",
+   "qs": "?ordering=title; DROP TABLE artifacts--",
+   "status": 400,
+   "err_code": "VALIDATION_ERROR",
+   "err_msg": "workspace_id is required"
+  },
+  {
+   "path": "/api/v1/issues/",
+   "probe": "filter-injection-3",
+   "qs": "?search=%27%29%20OR%201%3D1%20--",
+   "status": 400,
+   "err_code": "VALIDATION_ERROR",
+   "err_msg": "workspace_id is required"
+  },
+  {
+   "path": "/api/v1/issues/",
+   "probe": "ordering-arbitrary-field",
+   "qs": "?ordering=tenant_id",
+   "status": 400,
+   "err_code": "VALIDATION_ERROR",
+   "err_msg": "workspace_id is required"
+  },
+  {
+   "path": "/api/v1/issues/",
+   "probe": "ordering-related-join",
+   "qs": "?ordering=created_by__password",
+   "status": 400,
+   "err_code": "VALIDATION_ERROR",
+   "err_msg": "workspace_id is required"
+  },
+  {
+   "path": "/api/v1/issues/",
+   "probe": "ordering-nonexistent",
+   "qs": "?ordering=does_not_exist",
+   "status": 400,
+   "err_code": "VALIDATION_ERROR",
+   "err_msg": "workspace_id is required"
+  },
+  {
+   "path": "/api/v1/issues/",
+   "probe": "ordering-sql",
+   "qs": "?ordering=id; --",
+   "status": 400,
+   "err_code": "VALIDATION_ERROR",
+   "err_msg": "workspace_id is required"
+  },
+  {
+   "path": "/api/v1/issues/",
+   "probe": "workspace-id-unknown",
+   "qs": "?workspace_id=00000000-0000-0000-0000-000000000000",
+   "status": 200,
+   "count": 0,
+   "n_results": 0,
+   "ignored_silently": true
+  },
+  {
+   "path": "/api/v1/issues/",
+   "probe": "workspace-id-not-uuid",
+   "qs": "?workspace_id=abc",
+   "status": 400,
+   "err_code": "VALIDATION_ERROR",
+   "err_msg": "workspace_id must be a valid UUID"
+  },
+  {
+   "path": "/api/v1/issues/",
+   "probe": "filter-unknown-value-type",
+   "qs": "?level=%00binary",
+   "status": 400,
+   "err_code": "VALIDATION_ERROR",
+   "err_msg": "workspace_id is required"
+  },
+  {
+   "path": "/api/v1/issues/",
+   "probe": "page-size-string",
+   "qs": "?page_size=1e400",
+   "status": 400,
+   "err_code": "VALIDATION_ERROR",
+   "err_msg": "workspace_id is required"
+  }
+ ],
+ "errors": [
+  {
+   "case": "404-unknown-path",
+   "method": "GET",
+   "path": "/api/v1/definitely-not-a-route/",
+   "expect": "404",
+   "status": 404,
+   "top_keys": [
+    "error"
+   ],
+   "error_keys": [
+    "code",
+    "details",
+    "message"
+   ],
+   "code": "NOT_FOUND",
+   "message": "The requested API endpoint does not exist.",
+   "details_head": "[]"
+  },
+  {
+   "case": "404-unknown-nested",
+   "method": "GET",
+   "path": "/api/v1/requirements/00000000-0000-0000-0000-000000000000/",
+   "expect": "404",
+   "status": 404,
+   "top_keys": [
+    "error"
+   ],
+   "error_keys": [
+    "code",
+    "details",
+    "message"
+   ],
+   "code": "NOT_FOUND",
+   "message": "Requirement 00000000-0000-0000-0000-000000000000 not found",
+   "details_head": "[]"
+  },
+  {
+   "case": "404-malformed-uuid",
+   "method": "GET",
+   "path": "/api/v1/requirements/not-a-uuid/",
+   "expect": "?",
+   "status": 400,
+   "top_keys": [
+    "error"
+   ],
+   "error_keys": [
+    "code",
+    "details",
+    "message"
+   ],
+   "code": "VALIDATION_ERROR",
+   "message": "'pk' must be a well-formed UUID.",
+   "details_head": "[]"
+  },
+  {
+   "case": "404-not-uuid-under-str",
+   "method": "GET",
+   "path": "/api/v1/attribute-defaults/requirement/zzz/",
+   "expect": "?",
+   "status": 200,
+   "top_keys": [
+    "attributes",
+    "initialized",
+    "item_type",
+    "preset",
+    "sections",
+    "version"
+   ],
+   "body_head": "{\"item_type\": \"requirement\", \"preset\": \"zzz\", \"initialized\": false, \"version\": 0, \"attributes\": [], \"sections\": []}"
+  },
+  {
+   "case": "405-wrong-method",
+   "method": "PUT",
+   "path": "/api/v1/auth/login/",
+   "expect": "405",
+   "status": 405,
+   "top_keys": [
+    "error"
+   ],
+   "error_keys": [
+    "code",
+    "details",
+    "message"
+   ],
+   "code": "METHOD_NOT_ALLOWED",
+   "message": "Method \"PUT\" not allowed.",
+   "details_head": "{\"detail\": \"Method \\\"PUT\\\" not allowed.\"}"
+  },
+  {
+   "case": "400-empty-body-create",
+   "method": "POST",
+   "path": "/api/v1/requirements/",
+   "expect": "400",
+   "status": 400,
+   "top_keys": [
+    "error"
+   ],
+   "error_keys": [
+    "code",
+    "details",
+    "message"
+   ],
+   "code": "VALIDATION_ERROR",
+   "message": "Validation failed.",
+   "details_head": "[{\"field\": \"workspace_id\", \"errors\": [\"This field is required.\"]}, {\"field\": \"title\", \"errors\": [\"This field is required.\"]}]"
+  },
+  {
+   "case": "400-unknown-field",
+   "method": "POST",
+   "path": "/api/v1/requirements/",
+   "expect": "400",
+   "status": 400,
+   "top_keys": [
+    "error"
+   ],
+   "error_keys": [
+    "code",
+    "details",
+    "message"
+   ],
+   "code": "VALIDATION_ERROR",
+   "message": "Validation failed.",
+   "details_head": "[{\"field\": \"workspace_id\", \"errors\": [\"This field is required.\"]}, {\"field\": \"title\", \"errors\": [\"This field is required.\"]}]"
+  },
+  {
+   "case": "400-wrong-type",
+   "method": "POST",
+   "path": "/api/v1/requirements/",
+   "expect": "400",
+   "status": 400,
+   "top_keys": [
+    "error"
+   ],
+   "error_keys": [
+    "code",
+    "details",
+    "message"
+   ],
+   "code": "VALIDATION_ERROR",
+   "message": "'level' is derived from the Requirement hierarchy and cannot be set (ADR-005). It is recomputed on every hierarchy change — create or move the Requirement, or add/remove a 'decomposes' / 'derives-from",
+   "details_head": "[{\"field\": \"level\", \"errors\": [\"'level' is derived from the Requirement hierarchy and cannot be set (ADR-005). It is recomputed on every hierarchy change \\u2014 create or move the Requirement, or add/remove a 'decomposes' / 'derives-from' link, and read the va"
+  },
+  {
+   "case": "400-null-where-required",
+   "method": "POST",
+   "path": "/api/v1/requirements/",
+   "expect": "400",
+   "status": 400,
+   "top_keys": [
+    "error"
+   ],
+   "error_keys": [
+    "code",
+    "details",
+    "message"
+   ],
+   "code": "VALIDATION_ERROR",
+   "message": "Validation failed.",
+   "details_head": "[{\"field\": \"workspace_id\", \"errors\": [\"This field is required.\"]}, {\"field\": \"title\", \"errors\": [\"This field may not be null.\"]}]"
+  },
+  {
+   "case": "415-wrong-content-type",
+   "method": "POST",
+   "path": "/api/v1/requirements/",
+   "expect": "415",
+   "status": 415,
+   "top_keys": [
+    "error"
+   ],
+   "error_keys": [
+    "code",
+    "details",
+    "message"
+   ],
+   "code": "UNSUPPORTED_MEDIA_TYPE",
+   "message": "Unsupported media type \"text/plain\" in request.",
+   "details_head": "{\"detail\": \"Unsupported media type \\\"text/plain\\\" in request.\"}"
+  },
+  {
+   "case": "400-malformed-json",
+   "method": "POST",
+   "path": "/api/v1/requirements/",
+   "expect": "400",
+   "status": 400,
+   "top_keys": [
+    "error"
+   ],
+   "error_keys": [
+    "code",
+    "details",
+    "message"
+   ],
+   "code": "VALIDATION_ERROR",
+   "message": "Validation failed.",
+   "details_head": "[{\"field\": \"workspace_id\", \"errors\": [\"This field is required.\"]}, {\"field\": \"title\", \"errors\": [\"This field is required.\"]}]"
+  },
+  {
+   "case": "404-nonexistent-action",
+   "method": "POST",
+   "path": "/api/v1/requirements/00000000-0000-0000-0000-000000000000/transitions/",
+   "expect": "404",
+   "status": 404,
+   "top_keys": [
+    "error"
+   ],
+   "error_keys": [
+    "code",
+    "details",
+    "message"
+   ],
+   "code": "NOT_FOUND",
+   "message": "Requirement 00000000-0000-0000-0000-000000000000 not found",
+   "details_head": "[]"
+  },
+  {
+   "case": "400-invalid-uuid-body",
+   "method": "POST",
+   "path": "/api/v1/trace-links/",
+   "expect": "400",
+   "status": 400,
+   "top_keys": [
+    "error"
+   ],
+   "error_keys": [
+    "code",
+    "details",
+    "message"
+   ],
+   "code": "VALIDATION_ERROR",
+   "message": "Validation failed.",
+   "details_head": "[{\"field\": \"source_id\", \"errors\": [\"Must be a valid UUID.\"]}, {\"field\": \"target_id\", \"errors\": [\"Must be a valid UUID.\"]}]"
+  },
+  {
+   "case": "409-duplicate",
+   "method": "POST",
+   "path": "/api/v1/api-keys/",
+   "expect": "?",
+   "status": 201,
+   "top_keys": [
+    "agent_label",
+    "id",
+    "name",
+    "plaintext",
+    "principal_type",
+    "scope",
+    "warning"
+   ],
+   "body_head": "{\"id\": \"7eb7adab-2abd-42e3-a848-8f5988405819\", \"name\": \"wp1d-probe-dup\", \"plaintext\": \"reqlo_…REDACTED-78ES\", \"warning\": \"Save this key now \\u2014 it will not be shown again.\", \"principal_type\": \"user\", \"agent_label\": \"\", \"scope\": \"wr"
+  },
+  {
+   "case": "500-probe-bad-csv",
+   "method": "POST",
+   "path": "/api/v1/workspaces/00000000-0000-0000-0000-000000000000/import/csv/",
+   "expect": "?",
+   "status": 400,
+   "top_keys": [
+    "error"
+   ],
+   "error_keys": [
+    "code",
+    "details",
+    "message"
+   ],
+   "code": "VALIDATION_ERROR",
+   "message": "entity_type is required. Allowed: Requirement, ArchitectureElement, TestCase",
+   "details_head": "[]"
+  },
+  {
+   "case": "400-invalid-json-body-csrf",
+   "method": "POST",
+   "path": "/api/v1/requirements/",
+   "expect": "400",
+   "status": 400,
+   "top_keys": [
+    "error"
+   ],
+   "error_keys": [
+    "code",
+    "details",
+    "message"
+   ],
+   "code": "VALIDATION_ERROR",
+   "message": "Validation failed.",
+   "details_head": "[{\"field\": \"workspace_id\", \"errors\": [\"This field is required.\"]}, {\"field\": \"title\", \"errors\": [\"This field is required.\"]}]"
+  }
+ ],
+ "ingress": [
+  {
+   "path": "/mcp/",
+   "credential": "bearer",
+   "status": 200,
+   "ctype": "application/json",
+   "www_authenticate": null,
+   "body_len": 115,
+   "json": {
+    "server": "ReqogniLoom MCP Server",
+    "protocol": "JSON-RPC 2.0",
+    "transports": [
+     "http",
+     "sse"
+    ],
+    "version": "1.0.0"
+   }
+  },
+  {
+   "path": "/mcp/",
+   "credential": "no-auth",
+   "status": 200,
+   "ctype": "application/json",
+   "www_authenticate": null,
+   "body_len": 115,
+   "json": {
+    "server": "ReqogniLoom MCP Server",
+    "protocol": "JSON-RPC 2.0",
+    "transports": [
+     "http",
+     "sse"
+    ],
+    "version": "1.0.0"
+   }
+  },
+  {
+   "path": "/mcp/",
+   "credential": "x-api-key",
+   "status": 200,
+   "ctype": "application/json",
+   "www_authenticate": null,
+   "body_len": 115,
+   "json": {
+    "server": "ReqogniLoom MCP Server",
+    "protocol": "JSON-RPC 2.0",
+    "transports": [
+     "http",
+     "sse"
+    ],
+    "version": "1.0.0"
+   }
+  },
+  {
+   "path": "/api/v1/mcp/",
+   "credential": "bearer",
+   "status": 200,
+   "ctype": "application/json",
+   "www_authenticate": null,
+   "body_len": 115,
+   "json": {
+    "server": "ReqogniLoom MCP Server",
+    "protocol": "JSON-RPC 2.0",
+    "transports": [
+     "http",
+     "sse"
+    ],
+    "version": "1.0.0"
+   }
+  },
+  {
+   "path": "/api/v1/mcp/",
+   "credential": "no-auth",
+   "status": 200,
+   "ctype": "application/json",
+   "www_authenticate": null,
+   "body_len": 115,
+   "json": {
+    "server": "ReqogniLoom MCP Server",
+    "protocol": "JSON-RPC 2.0",
+    "transports": [
+     "http",
+     "sse"
+    ],
+    "version": "1.0.0"
+   }
+  },
+  {
+   "path": "/api/v1/mcp/",
+   "credential": "x-api-key",
+   "status": 200,
+   "ctype": "application/json",
+   "www_authenticate": null,
+   "body_len": 115,
+   "json": {
+    "server": "ReqogniLoom MCP Server",
+    "protocol": "JSON-RPC 2.0",
+    "transports": [
+     "http",
+     "sse"
+    ],
+    "version": "1.0.0"
+   }
+  },
+  {
+   "path": "/mcp/sse",
+   "credential": "bearer",
+   "status": 401,
+   "ctype": "application/json",
+   "www_authenticate": null,
+   "body_len": 36,
+   "json": {
+    "error": "Authentication required"
+   }
+  },
+  {
+   "path": "/mcp/sse",
+   "credential": "no-auth",
+   "status": 401,
+   "ctype": "application/json",
+   "www_authenticate": null,
+   "body_len": 36,
+   "json": {
+    "error": "Authentication required"
+   }
+  },
+  {
+   "path": "/mcp/sse",
+   "credential": "x-api-key",
+   "status": 401,
+   "ctype": "application/json",
+   "www_authenticate": null,
+   "body_len": 36,
+   "json": {
+    "error": "Authentication required"
+   }
+  },
+  {
+   "path": "/api/v1/mcp/sse",
+   "credential": "bearer",
+   "status": 401,
+   "ctype": "application/json",
+   "www_authenticate": null,
+   "body_len": 36,
+   "json": {
+    "error": "Authentication required"
+   }
+  },
+  {
+   "path": "/api/v1/mcp/sse",
+   "credential": "no-auth",
+   "status": 401,
+   "ctype": "application/json",
+   "www_authenticate": null,
+   "body_len": 36,
+   "json": {
+    "error": "Authentication required"
+   }
+  },
+  {
+   "path": "/api/v1/mcp/sse",
+   "credential": "x-api-key",
+   "status": 401,
+   "ctype": "application/json",
+   "www_authenticate": null,
+   "body_len": 36,
+   "json": {
+    "error": "Authentication required"
+   }
+  }
+ ]
+}

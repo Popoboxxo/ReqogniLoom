@@ -233,9 +233,13 @@ def _make_item_state(tenant, *, item_type, current_state, workspace_id, definiti
 
 @pytest.fixture
 def p116_definition(p116_tenant):
+    from persistence.tests.factories import make_workspace_id
     from workflow.models import WorkflowEngineDefinition
 
-    workspace_id = uuid4()
+    # DATA-06: ``we_item_state.workspace_id`` has a real FK, so the workspace
+    # must exist (a random UUID used to be enough for this definition-only
+    # fixture).
+    workspace_id = make_workspace_id(p116_tenant.id)
     with _tenant_scope(p116_tenant.id):
         definition = WorkflowEngineDefinition.objects.create(
             tenant=p116_tenant,
@@ -243,7 +247,10 @@ def p116_definition(p116_tenant):
             item_type="Adr",
             preset="adr_default",
             workflow_json={
-                "states": PRESET_SCHEMAS["adr_default"]["states"],
+                # "deprecated" is declared so the ArchitectureElement fixture
+                # below can park an item on the universal soft-delete state —
+                # the DATA-06 trigger only accepts a definition's own states.
+                "states": [*PRESET_SCHEMAS["adr_default"]["states"], "deprecated"],
                 "transitions": [],
                 "state_meta": PRESET_SCHEMAS["adr_default"]["state_meta"],
             },

@@ -1,0 +1,77 @@
+W4 RESTORE SMOKE — AUDIT EVIDENCE
+==================================
+
+Date (host):        2026-10-03
+Branch:             chore/w4-closeout
+Commit:             1e5d7574d77726d5a7657f8279d5764be21cf6c0 (== origin/main 1e5d7574)
+Working tree:       clean except untracked docs/audit/2026-09/AUDIT_EVIDENCE/stack-seeds.md
+Docker server:      29.8.1 (Docker Desktop, Windows)
+Script under test:  deploy/verify-restore.sh (ADR-012, DATA-01)
+
+COMMAND
+-------
+& "C:\Program Files\Git\bin\bash.exe" -lc "cd /c/Repositories/ai-native-reqflow-POC && deploy/verify-restore.sh"
+
+EXIT CODE
+---------
+0
+
+RAW OUTPUT
+----------
+ReqogniLoom atomic restore smoke (ADR-012)
+compose file: /c/Repositories/ai-native-reqflow-POC/deploy/docker-compose.yml
+
+[setup] private network reqlo-restore-smoke-687, throwaway source + target Postgres
+[backup] running the extracted postgres-backup command block (BACKUP_ONCE)
+[backup] dumping smoke from source to /backups/reqogniloom_20261003_175839.sql.gz
+[backup] wrote 12K to /backups/reqogniloom_20261003_175839.sql.gz (15 COPY blocks verified)
+  PASS  sidecar command block exited 0
+  PASS  published dump: reqogniloom_20261003_175839.sql.gz
+  PASS  dump contains 15 COPY block(s) (>= 15)
+[restore] atomic restore into isolated target (single transaction)
+[restore] dump=/backups/reqogniloom_20261003_175839.sql.gz
+[restore] committed
+  PASS  restore exited 0
+  PASS  restore log: 0 error line(s)
+  PASS  source holds 15/15 tables
+  PASS  restored target holds 15/15 tables
+  PASS  all 15/15 table row counts are identical
+  PASS  pgvector column restored as vector(3)
+[atomicity] deliberate error inside the single transaction -> expect rollback
+  PASS  injected error aborted the restore (exit 3)
+  PASS  failed restore left 0 tables — transaction rolled back, no half-restored DB
+
+atomic restore smoke: ALL CASES PASSED (15/15 tables, 0 errors, rollback verified)
+
+SUMMARY
+-------
+- Result:             ALL CASES PASSED (15/15 tables, 0 errors, rollback verified)
+- Exit code:          0
+- COPY blocks:        15 (>= 15 required)
+- Row counts:         all 15/15 tables identical source vs. restored target
+- pgvector column:    restored as vector(3)
+- Atomicity:          injected error aborted restore (exit 3); 0 tables left -> transaction rolled back
+- Extracted block:    the REAL `postgres-backup` command block from deploy/docker-compose.yml
+                      (via `docker compose config --format json`), not a test copy.
+
+LIVE-SYSTEM IMPACT
+------------------
+- The gate uses throwaway Postgres containers on a private network (reqlo-restore-smoke-*),
+  removed by the script's EXIT trap. The live database was never contacted.
+- Cleanup confirmed after run:
+    docker ps -a --filter name=reqlo-restore-smoke  -> (empty)
+    docker network ls --filter name=reqlo-restore-smoke -> (empty)
+    docker volume ls --filter name=reqlo-restore-smoke  -> (empty)
+- Live stack still running and healthy (unchanged):
+    ai-native-reqflow-poc-postgres-1         Up 2 days (healthy)
+    ai-native-reqflow-poc-postgres-backup-1  Up 2 days
+    ai-native-reqflow-poc-redis-1            Up 32 hours (healthy)
+    ai-native-reqflow-poc-backend-1          Up 32 hours (healthy)
+    ai-native-reqflow-poc-migrate (exited, as designed)
+    ai-native-reqflow-poc-celery-1           Up 19 hours (healthy)
+    ai-native-reqflow-poc-celery-beat-1      Up 32 hours (healthy)
+    ai-native-reqflow-poc-frontend-1         Up 2 days (healthy)
+    ai-native-reqflow-poc-bluepencil-1       Up 2 days (healthy)
+- No product-code changes were made for this evidence run.
+- No secrets present in this file (throwaway credentials are the literal script defaults
+  user/password "smoke", used only inside the ephemeral containers).
