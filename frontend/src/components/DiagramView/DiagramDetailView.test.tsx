@@ -16,8 +16,7 @@
  * already covered by the DiagramView smoke tests.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import type { DiagramDetail } from "../../types";
 import type { DiagramDetailData } from "./useDiagramData";
@@ -171,49 +170,46 @@ describe("DiagramDetailView preview (E2-D4)", () => {
     expect(screen.queryByTestId("diagram-canvas-svg")).not.toBeInTheDocument();
   });
 
-  it("navigates a canvas diagram to the fullscreen canvas route", async () => {
+  it("navigates a canvas diagram to the fullscreen canvas route", () => {
     useDiagramDetailMock.mockReturnValue(
       hookResult({ detail: detailRow({ payload_format: "canvas_stroke" }) }),
     );
-    const user = userEvent.setup();
 
     renderDetail();
-    await user.click(screen.getByTestId("diagram-open-editor-btn"));
+    fireEvent.click(screen.getByTestId("diagram-open-editor-btn"));
 
     expect(screen.getByTestId("location")).toHaveTextContent(
       `/diagrams/${DIAGRAM_ID}/canvas`,
     );
   });
 
-  it("navigates a mermaid diagram to the fullscreen mermaid route instead of editing inline", async () => {
+  it("navigates a mermaid diagram to the fullscreen mermaid route instead of editing inline", () => {
     useDiagramDetailMock.mockReturnValue(
       hookResult({ detail: detailRow({ payload_format: "mermaid" }) }),
     );
-    const user = userEvent.setup();
 
     renderDetail();
     // No inline "Edit Source" affordance for a format that owns an editor.
     expect(screen.queryByTestId("diagram-edit-btn")).not.toBeInTheDocument();
 
-    await user.click(screen.getByTestId("diagram-open-editor-btn"));
+    fireEvent.click(screen.getByTestId("diagram-open-editor-btn"));
 
     expect(screen.getByTestId("location")).toHaveTextContent(
       `/diagrams/${DIAGRAM_ID}/mermaid`,
     );
   });
 
-  it("keeps the inline source editor for formats with no fullscreen editor", async () => {
+  it("keeps the inline source editor for formats with no fullscreen editor", () => {
     useDiagramDetailMock.mockReturnValue(
       hookResult({
         detail: detailRow({ payload_format: "plantuml", content: "@startuml\n@enduml" }),
       }),
     );
-    const user = userEvent.setup();
 
     renderDetail();
 
     expect(screen.queryByTestId("diagram-open-editor-btn")).not.toBeInTheDocument();
-    await user.click(screen.getByTestId("diagram-edit-btn"));
+    fireEvent.click(screen.getByTestId("diagram-edit-btn"));
     expect(screen.getByTestId("diagram-source-textarea")).toBeInTheDocument();
   });
 
@@ -231,13 +227,12 @@ describe("DiagramDetailView preview (E2-D4)", () => {
         }),
       }),
     );
-    const user = userEvent.setup();
 
     renderDetail();
     // No inline "Edit Source" affordance for a format that owns an editor.
     expect(screen.queryByTestId("diagram-edit-btn")).not.toBeInTheDocument();
 
-    await user.click(screen.getByTestId("diagram-open-editor-btn"));
+    fireEvent.click(screen.getByTestId("diagram-open-editor-btn"));
 
     expect(screen.getByTestId("location")).toHaveTextContent(
       `/diagrams/${DIAGRAM_ID}/graph`,

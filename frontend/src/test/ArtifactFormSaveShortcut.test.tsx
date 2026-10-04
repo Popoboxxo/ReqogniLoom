@@ -464,7 +464,13 @@ describe("ArtifactForm error-to-field focus (#1087)", () => {
 
     pressSave();
 
-    await waitFor(() => expect(screen.getByTestId("artifact-form-error")).toHaveFocus());
+    // The reload mock invokes the `ArtifactForm` definition fetch, which
+    // chains render → effect → focus. Under parallel load on CI that chain
+    // can exceed the 1s default `waitFor` timeout, so this waits with the
+    // same 2s budget the v6 suites use for their focus assertions.
+    await waitFor(() => expect(screen.getByTestId("artifact-form-error")).toHaveFocus(), {
+      timeout: 2000,
+    });
     expect(screen.getByTestId("artifact-form-error")).toHaveTextContent("Server exploded");
   });
 
