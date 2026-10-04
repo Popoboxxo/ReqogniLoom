@@ -30,6 +30,12 @@ resolved" (in which case ``degraded`` already says the backend is unusable). It
 is probed and cached separately from the health *result*, because the health
 cache holds a :class:`~memory.backends.MemoryHealth` (a different object) and
 resolving a backend on every request would re-read ``SystemMemorySettings``.
+
+``ask_available`` is the natural-language sibling and is backend-specific: the
+``ask`` contract is abstract and never raises, so every backend "has" it, but
+only a dialectic backend (Honcho) can actually answer -- pgvector degrades by
+design. Reporting that difference lets a client hide the surface instead of
+calling it and always getting ``degraded=True``.
 """
 from __future__ import annotations
 
@@ -51,6 +57,11 @@ HEALTH_CACHE_KEY = "mem:memory:health"
 #: :data:`HEALTH_CACHE_KEY` because it is a bool, not a ``MemoryHealth``; same
 #: TTL, so a backend swap is reflected within one window on both.
 DIGEST_CACHE_KEY = "mem:memory:digest_available"
+
+#: Cache key for the ``ask_available`` capability probe -- the natural-language
+#: sibling of :data:`DIGEST_CACHE_KEY`, cached separately for the same reason
+#: (a bool, not a ``MemoryHealth``).
+ASK_CACHE_KEY = "mem:memory:ask_available"
 
 #: Fail-safe fallback used when the cache itself is unavailable. Reported as
 #: degraded because "cannot confirm the backend" must never masquerade as
@@ -94,7 +105,7 @@ def memory_health(*, use_cache: bool = True) -> MemoryHealth:
 
 def invalidate_health_cache() -> None:
     """Drop the cached health result (called by tests and admin writes)."""
-    for key in (HEALTH_CACHE_KEY, DIGEST_CACHE_KEY):
+    for key in (HEALTH_CACHE_KEY, DIGEST_CACHE_KEY, ASK_CACHE_KEY):
         try:
             cache.delete(key)
         except Exception:  # noqa: BLE001 - best-effort, mirrors the read path
@@ -144,8 +155,51 @@ def is_degraded() -> bool:
     return (not health.ok) or health.degraded
 
 
+def _probe_ask_available() -> bool:
+    """Whether the active backend can answer a natural-language question.
+
+    Unlike :func:`_probe_digest_available` (``True`` for every instantiable
+    backend), this is backend-specific: ``ask`` is abstract and never raises,
+    but only a backend with a generative dialectic surface can actually answer.
+    ``PgvectorMemoryBackend`` declares ``ask_available = False`` -- it degrades
+    by design -- so a client can hide the surface instead of invoking it and
+    always getting ``degraded=True``. Never raises.
+    """
+    try:
+        return bool(get_memory_backend().ask_available)
+    except Exception:  # noqa: BLE001 - an unresolvable backend cannot answer
+        return False
+
+
+def ask_available(*, use_cache: bool = True) -> bool:
+    """Return whether the active backend supports natural-language answers.
+
+    Cached for :data:`HEALTH_CACHE_TTL_SECONDS` for the same reason the digest
+    probe is: resolving a backend constructs it (and, for honcho, may read
+    ``SystemMemorySettings``), which must not happen on every memory response.
+    """
+    if not use_cache:
+        return _probe_ask_available()
+    try:
+        cached = cache.get(ASK_CACHE_KEY)
+    except Exception:  # noqa: BLE001 - a cache outage must not fail the request
+        return _probe_ask_available()
+    if isinstance(cached, bool):
+        return cached
+    available = _probe_ask_available()
+    try:
+        cache.set(ASK_CACHE_KEY, available, HEALTH_CACHE_TTL_SECONDS)
+    except Exception:  # noqa: BLE001 - see module docstring: best-effort cache
+        pass
+    return available
+
+
 def envelope() -> Dict[str, Any]:
-    """Return the response envelope: ``{backend, ok, detail, degraded, digest_available}``."""
+    """Return the response envelope.
+
+    Shape: ``{backend, ok, detail, degraded, digest_available,
+    ask_available}``.
+    """
     health = memory_health()
     return {
         "backend": health.backend,
@@ -153,6 +207,7 @@ def envelope() -> Dict[str, Any]:
         "detail": health.detail,
         "degraded": (not health.ok) or health.degraded,
         "digest_available": digest_available(),
+        "ask_available": ask_available(),
     }
 
 
@@ -169,8 +224,10 @@ __all__ = [
     "HEALTH_CACHE_TTL_SECONDS",
     "HEALTH_CACHE_KEY",
     "DIGEST_CACHE_KEY",
+    "ASK_CACHE_KEY",
     "memory_health",
     "digest_available",
+    "ask_available",
     "invalidate_health_cache",
     "is_degraded",
     "envelope",

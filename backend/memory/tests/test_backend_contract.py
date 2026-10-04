@@ -34,7 +34,7 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from memory.backends import MemoryDigest, MemoryHealth, get_memory_backend
+from memory.backends import MemoryAnswer, MemoryDigest, MemoryHealth, get_memory_backend
 from memory.honcho_backend import HonchoMemoryBackend
 from persistence.models import Artifact
 from persistence.tests.factories import active_tenant, make_user, make_workspace
@@ -103,6 +103,10 @@ class _FakePeer:
         #: Engine artefacts ``digest()`` prefers, configurable per test.
         self.representation_text = ""
         self.card: list | None = None
+        #: ``ask()`` dialectic surface: the answer to return, or an exception
+        #: instance to raise when the test simulates an unreachable engine.
+        self.chat_answer: object = ""
+        self.chat_calls: list = []
 
     def message(self, content: str, **kwargs):
         return SimpleNamespace(
@@ -114,6 +118,12 @@ class _FakePeer:
 
     def get_card(self):
         return self.card
+
+    def chat(self, query, **kwargs):
+        self.chat_calls.append((query, kwargs))
+        if isinstance(self.chat_answer, Exception):
+            raise self.chat_answer
+        return self.chat_answer
 
 
 class _FakeHonchoClient:
@@ -402,6 +412,31 @@ class TestMemoryBackendContractCommon:
             assert digest.degraded is True
             assert digest.text == ""
 
+    def test_ask_of_an_unknown_scope_degrades_instead_of_raising(self, backend):
+        """Same "never raises" clause as the digest, for the ask surface."""
+        with active_tenant() as tenant:
+            answer = backend.ask(tenant.id, "not-a-scope", uuid4(), "what is it?")
+
+            assert answer.degraded is True
+            assert answer.text == ""
+
+    def test_ask_returns_a_memory_answer(self, backend):
+        """The ask contract returns a :class:`MemoryAnswer` for every backend.
+
+        Whether the backend can actually answer is expressed by ``degraded``
+        (pgvector has no dialectic engine and reports ``True``), never by
+        raising.
+        """
+        with active_tenant() as tenant:
+            scope_id = _scope_id(tenant, "user")
+
+            answer = backend.ask(tenant.id, "user", scope_id, "what do we know?")
+
+            assert isinstance(answer, MemoryAnswer)
+            assert answer.backend in ("pgvector", "honcho")
+            assert isinstance(answer.degraded, bool)
+            assert isinstance(answer.generated_at, datetime)
+
     def test_backend_ref_matches_backend_semantics(self, backend):
         """pgvector IS the backend (no external ref); honcho mirrors a nanoid."""
         with active_tenant() as tenant:
@@ -512,3 +547,52 @@ class TestHonchoSpecificContract:
 
             assert len(results) == 1
             assert results[0].distance is not None
+
+    def test_ask_uses_the_scope_session_and_returns_the_answer(self):
+        backend = self._honcho()
+        with active_tenant() as tenant:
+            user = make_user(tenant)
+            peer = backend._client.peer(f"{tenant.id}_{user.id}")
+            peer.chat_answer = "The team prefers REST."
+
+            answer = backend.ask(tenant.id, "user", user.id, "REST or MCP?", reasoning_level="medium")
+
+            assert answer.text == "The team prefers REST."
+            assert answer.backend == "honcho"
+            assert answer.degraded is False
+            assert peer.chat_calls == [
+                (
+                    "REST or MCP?",
+                    {
+                        "session": backend._scope_session_id(tenant.id, "user", user.id),
+                        "reasoning_level": "medium",
+                    },
+                )
+            ]
+
+    def test_ask_degrades_when_the_engine_is_down(self):
+        backend = self._honcho()
+        with active_tenant() as tenant:
+            user = make_user(tenant)
+            peer = backend._client.peer(f"{tenant.id}_{user.id}")
+            peer.chat_answer = RuntimeError("engine unreachable")
+
+            answer = backend.ask(tenant.id, "user", user.id, "anything?")
+
+            assert answer.degraded is True
+            assert answer.text == ""
+            assert answer.backend == "honcho"
+
+    def test_ask_reports_a_none_answer_as_empty_but_not_degraded(self):
+        """Honcho returns ``None`` for "nothing relevant known" -- that is an
+        answer, not an outage (F9)."""
+        backend = self._honcho()
+        with active_tenant() as tenant:
+            user = make_user(tenant)
+            peer = backend._client.peer(f"{tenant.id}_{user.id}")
+            peer.chat_answer = None
+
+            answer = backend.ask(tenant.id, "user", user.id, "anything?")
+
+            assert answer.degraded is False
+            assert answer.text == ""

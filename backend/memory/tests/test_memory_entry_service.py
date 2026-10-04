@@ -6,7 +6,7 @@ import pytest
 from application.base import NotFoundError, ValidationError
 from application.memory_entry_service import MemoryEntryService
 from audit.models import AuditEntry
-from memory.backends import MemoryHealth
+from memory.backends import MemoryAnswer, MemoryHealth
 from memory.models import MemoryEntry
 from memory.policy import MemoryPermissionDenied
 from persistence.models import Artifact
@@ -481,6 +481,129 @@ class TestDigest:
 
 
 @pytest.mark.django_db
+class TestAsk:
+    """REQ-192: ``ask()`` is a READ and must be gated like one.
+
+    Scope resolution and authorisation mirror ``digest`` -- an answer exposes the
+    same facts -- and the scope check runs before the backend call. On the
+    pgvector test backend the answer degrades (no dialectic engine), which is
+    exactly the contract: the permission/scope plumbing still has to hold.
+    """
+
+    def test_workspace_ask_returns_a_degraded_answer_on_pgvector(self):
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            ctx = ctx_for_user(tenant, make_user(tenant), workspace=ws, roles=("editor",))
+
+            answer = _service().ask(ctx, query="what do we know?", workspace_id=ws.id)
+
+            assert isinstance(answer, MemoryAnswer)
+            assert answer.backend == "pgvector"
+            assert answer.degraded is True
+
+    def test_workspace_ask_requires_a_role_in_the_workspace(self):
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            ctx = ctx_for_user(tenant, make_user(tenant))
+
+            with pytest.raises(MemoryPermissionDenied):
+                _service().ask(ctx, query="secret?", workspace_id=ws.id)
+
+    def test_artifact_ask_resolves_the_artifact_scope(self):
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            ctx = ctx_for_user(tenant, make_user(tenant), workspace=ws, roles=("editor",))
+            artifact = _artifact(tenant, ws)
+
+            answer = _service().ask(
+                ctx, query="artifact question?", workspace_id=None, artifact_id=artifact.id
+            )
+
+            assert isinstance(answer, MemoryAnswer)
+
+    def test_artifact_ask_denied_without_a_role_in_the_owning_workspace(self):
+        with active_tenant() as tenant:
+            owning_ws = make_workspace(tenant)
+            artifact = _artifact(tenant, owning_ws)
+            outsider_ctx = ctx_for_user(
+                tenant, make_user(tenant), workspace=make_workspace(tenant), roles=("editor",)
+            )
+
+            with pytest.raises(MemoryPermissionDenied):
+                _service().ask(
+                    outsider_ctx, query="?", workspace_id=None, artifact_id=artifact.id
+                )
+
+    def test_empty_query_is_a_validation_error(self):
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            ctx = ctx_for_user(tenant, make_user(tenant), workspace=ws, roles=("editor",))
+
+            with pytest.raises(ValidationError):
+                _service().ask(ctx, query="   ", workspace_id=ws.id)
+
+    def test_unknown_reasoning_level_is_a_validation_error(self):
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            ctx = ctx_for_user(tenant, make_user(tenant), workspace=ws, roles=("editor",))
+
+            with pytest.raises(ValidationError):
+                _service().ask(
+                    ctx, query="q", workspace_id=ws.id, reasoning_level="turbo"
+                )
+
+    def test_missing_target_is_a_validation_error(self):
+        with active_tenant() as tenant:
+            ctx = ctx_for_user(tenant, make_user(tenant))
+
+            with pytest.raises(ValidationError):
+                _service().ask(ctx, query="q", workspace_id=None)
+
+    def test_query_over_the_length_bound_is_a_validation_error(self):
+        """F4: Honcho rejects ``len(query) > 10000`` with HTTP 422, which used to
+        collapse into the same ``degraded=True`` as an outage. The service now
+        rejects it up front with a clear ValidationError (and no backend call).
+        """
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            ctx = ctx_for_user(tenant, make_user(tenant), workspace=ws, roles=("editor",))
+
+            with pytest.raises(ValidationError):
+                _service().ask(
+                    ctx, query="x" * 10001, workspace_id=ws.id
+                )
+
+            # The exact bound is accepted (degraded on pgvector, but not a
+            # validation error).
+            answer = _service().ask(ctx, query="x" * 10000, workspace_id=ws.id)
+            assert answer.backend == "pgvector"
+
+    def test_ask_never_returns_another_tenants_answer(self):
+        """F2/F6: a caller in tenant B must not get tenant A's memory.
+
+        Tenant A writes workspace-scoped memory; tenant B's ctx then asks
+        against tenant A's workspace_id. The role lookup for that workspace
+        resolves to no role in B (``UserRole`` is tenant/RLS-scoped), so the
+        scope check denies before any backend call -- the cross-tenant answer is
+        never produced.
+        """
+        with active_tenant() as tenant_a:
+            ws_a = make_workspace(tenant_a)
+            ctx_a = ctx_for_user(
+                tenant_a, make_user(tenant_a), workspace=ws_a, roles=("editor",)
+            )
+            _service().write(
+                ctx_a, content="tenant A secret", scope="workspace", workspace_id=ws_a.id
+            )
+
+        with active_tenant() as tenant_b:
+            ctx_b = ctx_for_user(tenant_b, make_user(tenant_b))
+
+            with pytest.raises(MemoryPermissionDenied):
+                _service().ask(ctx_b, query="what is the secret?", workspace_id=ws_a.id)
+
+
+@pytest.mark.django_db
 class TestDegradedEnvelope:
     def test_health_envelope_reports_digest_availability(self):
         """RFC #1002 F6: the envelope tells a client whether the active backend
@@ -496,6 +619,18 @@ class TestDegradedEnvelope:
 
             assert envelope["digest_available"] is True
             assert {"backend", "ok", "detail", "degraded"} <= set(envelope)
+
+    def test_health_envelope_reports_ask_availability(self):
+        """REQ-192: the envelope advertises whether the active backend can really
+        answer a natural-language question. Every backend implements ``ask``
+        (the ABC is abstract), but pgvector has no dialectic engine and degrades
+        by design, so the capability probe reports ``False`` -- letting a client
+        hide the surface instead of always seeing ``degraded=True``.
+        """
+        with active_tenant():
+            envelope = _service().health()
+
+            assert envelope["ask_available"] is False
 
     def test_unhealthy_backend_marks_reads_and_writes_degraded(self, monkeypatch):
         monkeypatch.setattr(

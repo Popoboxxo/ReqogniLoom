@@ -147,9 +147,11 @@ class TestSystemHealthResponseShape:
             "ok",
             "degraded",
             "digest_available",
+            "ask_available",
         }
         assert isinstance(memory_component["degraded"], bool)
         assert isinstance(memory_component["digest_available"], bool)
+        assert isinstance(memory_component["ask_available"], bool)
 
         # database check runs for real against the test DB and must be ok.
         db_component = next(c for c in body["components"] if c["name"] == "database")
@@ -558,4 +560,43 @@ class TestSystemHealthMemoryComponents:
             result = health_rest._check_memory()
 
         assert result["digest_available"] is False
+        assert result["status"] == STATUS_OK
+
+    def test_memory_component_carries_ask_available(self) -> None:
+        """REQ-192: the admin ``memory`` row must propagate ``ask_available``.
+
+        ``health_view()`` reports the capability flag, but the admin projection
+        re-builds a fixed dict; it used to drop the key.
+        """
+        from admin_ops import health_rest
+
+        payload = {
+            "backend": "honcho",
+            "ok": True,
+            "detail": "honcho reachable",
+            "degraded": False,
+            "digest_available": True,
+            "ask_available": True,
+        }
+        with patch("memory.health.health_view", return_value=payload):
+            result = health_rest._check_memory()
+
+        assert result["ask_available"] is True
+        assert result["digest_available"] is True
+
+    def test_memory_component_defaults_ask_available_when_absent(self) -> None:
+        """A partial/older payload without the flag must degrade, never 500."""
+        from admin_ops import health_rest
+
+        payload = {
+            "backend": "pgvector",
+            "ok": True,
+            "detail": "pgvector reachable",
+            "degraded": False,
+            "digest_available": True,
+        }
+        with patch("memory.health.health_view", return_value=payload):
+            result = health_rest._check_memory()
+
+        assert result["ask_available"] is False
         assert result["status"] == STATUS_OK

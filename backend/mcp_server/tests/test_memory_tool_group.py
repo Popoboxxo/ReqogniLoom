@@ -31,10 +31,16 @@ class TestMemoryToolGroupRegistration:
         assert "memory.digest" in _READ_ONLY_TOOL_NAMES
         assert "memory.forget" not in _READ_ONLY_TOOL_NAMES
         assert "memory.write" not in _READ_ONLY_TOOL_NAMES
+        # REQ-192/#1154 (code-review F1): memory.ask is NOT read-only -- it
+        # invokes a generative LLM call, so a read_only/Viewer key must not be
+        # able to drive LLM spend (same rule as interview.grounding_context).
+        assert "memory.ask" not in _READ_ONLY_TOOL_NAMES
+        assert "memory.ask" in _WRITE_TOOL_PREFIXES
 
     def test_write_tools_are_catalogued(self):
         assert "memory.forget" in _WRITE_TOOL_PREFIXES
         assert "memory.write" in _WRITE_TOOL_PREFIXES
+        assert "memory.ask" in _WRITE_TOOL_PREFIXES
 
 
 @pytest.fixture(autouse=True)
@@ -71,11 +77,15 @@ class TestMemoryKeyScopeVisibility:
         assert "memory.query" in names
         assert "memory.get" in names
         assert "memory.digest" in names
+        # REQ-192/#1154 (code-review F1): memory.ask is write-gated (LLM spend),
+        # so a read_only key must NOT see it.
+        assert "memory.ask" not in names
 
     def test_author_key_sees_memory_write(self, monkeypatch):
         names = _key_scoped_tools(monkeypatch, "author")
         assert "memory.write" in names
         assert "memory.forget" in names
+        assert "memory.ask" in names
 
 
 @pytest.mark.django_db
@@ -200,6 +210,87 @@ class TestMemoryToolGroupHandlers:
             group = MemoryToolGroup()
             result = group._handle_digest(
                 params={"workspace_id": str(other_ws.id)}, auth_context=ctx, api_key=None
+            )
+            assert not result.success
+            assert result.error_code == "PERMISSION_DENIED"
+
+    def test_ask_returns_degraded_answer_on_pgvector(self, monkeypatch):
+        """REQ-192: ``memory.ask`` mirrors the digest's four keys. pgvector has
+        no dialectic engine, so the answer is explicitly degraded rather than
+        an empty non-degraded answer."""
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            ctx = editor_ctx(tenant, ws)
+            group = MemoryToolGroup()
+            result = group._handle_ask(
+                params={"query": "what do we know?", "workspace_id": str(ws.id)},
+                auth_context=ctx,
+                api_key=None,
+            )
+            assert result.success
+            assert set(result.data) == {
+                "answer",
+                "generated_at",
+                "backend",
+                "degraded",
+                "detail",
+            }
+            assert result.data["answer"] == ""
+            assert result.data["backend"] == "pgvector"
+            assert result.data["degraded"] is True
+            # F5 (backend-reviewer): the degradation cause is passed through as
+            # a non-user-data hint, so "cannot ask here" is distinguishable from
+            # an outage.
+            assert result.data["detail"] == "no dialectic engine"
+            assert isinstance(result.data["generated_at"], str)
+            datetime.fromisoformat(result.data["generated_at"])
+
+    def test_ask_requires_query_and_workspace(self, monkeypatch):
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            ctx = editor_ctx(tenant, ws)
+            group = MemoryToolGroup()
+
+            without_query = group.execute_tool(
+                "memory.ask", {"workspace_id": str(ws.id)}, ctx, None
+            )
+            assert not without_query.success
+            assert without_query.error_code == "VALIDATION_ERROR"
+
+            without_workspace = group.execute_tool("memory.ask", {"query": "hi"}, ctx, None)
+            assert not without_workspace.success
+            assert without_workspace.error_code == "VALIDATION_ERROR"
+
+    def test_ask_unknown_reasoning_level_is_validation_error(self, monkeypatch):
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            ctx = editor_ctx(tenant, ws)
+            result = MemoryToolGroup()._handle_ask(
+                params={
+                    "query": "q",
+                    "workspace_id": str(ws.id),
+                    "reasoning_level": "turbo",
+                },
+                auth_context=ctx,
+                api_key=None,
+            )
+            assert not result.success
+            assert result.error_code == "VALIDATION_ERROR"
+
+    def test_ask_denies_workspace_caller_has_no_role_in(self, monkeypatch):
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            other_ws = make_workspace(tenant)
+            ctx = editor_ctx(tenant, ws)  # role in `ws`, not in `other_ws`
+            group = MemoryToolGroup()
+            result = group._handle_ask(
+                params={"query": "secret?", "workspace_id": str(other_ws.id)},
+                auth_context=ctx,
+                api_key=None,
             )
             assert not result.success
             assert result.error_code == "PERMISSION_DENIED"

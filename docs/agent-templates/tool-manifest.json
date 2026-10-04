@@ -1,6 +1,6 @@
 {
-  "generated_from": "reqogniloom==1.8.0-beta.16",
-  "tool_count": 219,
+  "generated_from": "reqogniloom==1.8.0-beta.18",
+  "tool_count": 220,
   "tools": [
     {
       "name": "admin.backup_create",
@@ -4115,6 +4115,43 @@
           }
         },
         "required": [
+          "workspace_id"
+        ]
+      }
+    },
+    {
+      "name": "memory.ask",
+      "prefix": "memory",
+      "is_write": true,
+      "description": "Answer a natural-language question from one memory scope (the backend's dialectic surface; workspace, or one artifact in it). Degrades on backends without a generative engine.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "maxLength": 10000
+          },
+          "workspace_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "artifact_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "reasoning_level": {
+            "type": "string",
+            "enum": [
+              "minimal",
+              "low",
+              "medium",
+              "high",
+              "max"
+            ]
+          }
+        },
+        "required": [
+          "query",
           "workspace_id"
         ]
       }

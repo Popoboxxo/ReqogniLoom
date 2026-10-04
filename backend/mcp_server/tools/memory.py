@@ -1,12 +1,16 @@
 """MemoryToolGroup — MCP tool group for AI Long-Term Memory (Spec 2026-08-24, RFC #1002 PR B).
 
 Exposes ``memory.write`` / ``memory.get`` / ``memory.query`` / ``memory.list``
-/ ``memory.forget`` / ``memory.digest`` over the ``MemoryEntryService`` façade
-(ADR-01: the tools perform no ORM access of their own). ``memory.query``/
-``memory.list``/``memory.get``/``memory.digest`` are read-only (registered in
-``_READ_ONLY_TOOL_NAMES``); ``memory.write``/``memory.forget`` are writes and are
-RBAC-gated (``_WRITE_TOOL_PREFIXES``) in addition to the ``MemoryPolicy`` check
-the service performs.
+/ ``memory.forget`` / ``memory.digest`` / ``memory.ask`` over the
+``MemoryEntryService`` façade (ADR-01: the tools perform no ORM access of their
+own). ``memory.query``/``memory.list``/``memory.get``/``memory.digest`` are
+read-only (registered in ``_READ_ONLY_TOOL_NAMES``);
+``memory.write``/``memory.forget``/``memory.ask`` are writes and are RBAC-gated
+(``_WRITE_TOOL_PREFIXES``) in addition to the ``MemoryPolicy`` check the service
+performs. ``memory.ask`` is write-gated even though it is a read semantically:
+it invokes a generative LLM call (``peer.chat`` on Honcho), so a read_only/
+Viewer key must not be able to drive LLM spend -- the same rule as
+``interview.grounding_context``.
 
 Scopes: ``user`` (own only), ``workspace`` (any active role to read, Editor+ to
 write), ``artifact`` (role in the artifact's workspace). The service resolves
@@ -37,6 +41,7 @@ from mcp_server.tools.base import (
 )
 from application.base import NotFoundError, PermissionDeniedError, ValidationError
 from application.memory_entry_service import MemoryEntryService
+from memory.backends import VALID_REASONING_LEVELS
 from memory.health import envelope
 from memory.ratelimit import MemoryWriteRateLimitExceeded
 
@@ -51,6 +56,7 @@ class MemoryToolGroup(BaseToolGroup):
         "memory.list": "_handle_list",
         "memory.forget": "_handle_forget",
         "memory.digest": "_handle_digest",
+        "memory.ask": "_handle_ask",
     }
     _TOOL_SCHEMAS = [
         {
@@ -95,6 +101,29 @@ class MemoryToolGroup(BaseToolGroup):
                     "artifact_id": {"type": "string", "format": "uuid"},
                 },
                 "required": ["workspace_id"],
+            },
+        },
+        {
+            "name": "memory.ask",
+            "description": (
+                "Answer a natural-language question from one memory scope "
+                "(the backend's dialectic surface; workspace, or one artifact "
+                "in it). Degrades on backends without a generative engine."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "maxLength": 10000},
+                    "workspace_id": {"type": "string", "format": "uuid"},
+                    "artifact_id": {"type": "string", "format": "uuid"},
+                    "reasoning_level": {
+                        "type": "string",
+                        # Derived from the backend contract so the MCP surface
+                        # and VALID_REASONING_LEVELS cannot drift apart.
+                        "enum": list(VALID_REASONING_LEVELS),
+                    },
+                },
+                "required": ["query", "workspace_id"],
             },
         },
         {
@@ -210,6 +239,49 @@ class MemoryToolGroup(BaseToolGroup):
                 "generated_at": digest.generated_at.isoformat(),
                 "backend": digest.backend,
                 "degraded": digest.degraded,
+            }
+
+        return self._service_call(_call)
+
+    def _handle_ask(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        """Answer a natural-language question from one scope (LLM-invoking write).
+
+        Mirrors :meth:`_handle_digest`'s scope handling: ``workspace_id`` is
+        required (it is also the scope id when no ``artifact_id`` is given;
+        with one, the service resolves the artifact's owning workspace).
+        Honcho's dialectic engine produces the answer; a backend without one
+        (pgvector) returns ``degraded=True`` instead of raising. The response
+        mirrors the digest's four keys -- ``answer``/``generated_at``/
+        ``backend``/``degraded`` -- plus ``detail``, with ``generated_at``
+        serialised to ISO-8601. ``detail`` carries the degradation cause's
+        exception class name (never user data) when the answer degraded, so a
+        caller can tell a backend outage apart from "nothing known"; it is an
+        empty string on a successful answer.
+
+        Registered as a WRITE tool (``_WRITE_TOOL_PREFIXES``): the call drives a
+        generative LLM, so a read_only/Viewer key must not reach it.
+        """
+        query = require_param(params, "query")
+        workspace_id = require_param(params, "workspace_id")
+        artifact_id = optional_uuid(params, "artifact_id")
+        reasoning_level = params.get("reasoning_level")
+
+        def _call() -> Dict[str, Any]:
+            answer = MemoryEntryService().ask(
+                auth_context,
+                query=query,
+                workspace_id=workspace_id,
+                artifact_id=artifact_id,
+                reasoning_level=reasoning_level,
+            )
+            return {
+                "answer": answer.text,
+                "generated_at": answer.generated_at.isoformat(),
+                "backend": answer.backend,
+                "degraded": answer.degraded,
+                "detail": answer.detail,
             }
 
         return self._service_call(_call)
