@@ -29,6 +29,7 @@ from auth_tenancy.jwt_tokens import encode_hs256
 from auth_tenancy.models import (
     ROLE_ADMIN,
     ROLE_EDITOR,
+    ItemPermission,
     TenantRole,
     UserRole,
 )
@@ -686,3 +687,170 @@ def test_tenant_admin_elevation_still_reaches_workspace_named_route() -> None:
     )
 
     assert resp.status_code == 200, resp.content
+
+
+# ---------------------------------------------------------------------------
+# GitHub #1131 — Workspace-item-permissions list route must fence members
+# ---------------------------------------------------------------------------
+
+
+def _login_client(user: User) -> APIClient:
+    """Return a real login client (JWT via ``/auth/login/``), like #1077's test."""
+    client = APIClient()
+    login = client.post(
+        "/api/v1/auth/login/",
+        {"username": user.username, "password": _PASSWORD},
+        format="json",
+    )
+    assert login.status_code == 200, login.content
+    client.credentials(HTTP_AUTHORIZATION=f"Bearer {login.json()['token']}")
+    return client
+
+
+def _permissions_fence_env():
+    """Caller = workspace-admin of ``own_ws``; plus a neighbour and a foreign WS.
+
+    ``own_ws``      — the caller's own workspace (200 path).
+    ``neighbour_ws``— same tenant, but the caller holds no role in it.
+    ``alien_ws``    — another tenant's workspace (the reported oracle).
+    """
+    tenant, user, own_ws, neighbour_ws = _tenant_with_two_workspaces()
+    _grant(tenant, user, own_ws, ROLE_ADMIN)
+
+    alien_tenant = Tenant.objects.create(
+        name=f"T-alien-{uuid.uuid4().hex[:8]}",
+        slug=f"alien-{uuid.uuid4().hex[:8]}",
+        is_active=True,
+    )
+    set_request_tenant(alien_tenant.id)
+    try:
+        alien_ws = Workspace.objects.create(
+            tenant=alien_tenant, name="WS-alien", preset={"name": "extended"}
+        )
+    finally:
+        clear_request_tenant()
+    return tenant, user, own_ws, neighbour_ws, alien_ws
+
+
+def _assert_permissions_403(response, *, what: str) -> None:
+    """403 + JSON + canonical envelope + no HTML anywhere (see #1077)."""
+    assert response.status_code == 403, f"{what}: {response.status_code} {response.content!r}"
+    content_type = response.headers.get("Content-Type", "")
+    assert "application/json" in content_type, f"{what}: content type {content_type!r}"
+    body = response.content.decode(errors="replace")
+    assert "<html" not in body.lower(), f"{what}: HTML leaked into the body"
+    assert "<!doctype" not in body.lower(), f"{what}: HTML leaked into the body"
+
+    payload = response.json()
+    assert set(payload) == {"error"}, payload
+    assert set(payload["error"]) == {"code", "message", "details"}, payload
+    assert payload["error"]["code"] == "PERMISSION_DENIED", payload
+    assert payload["error"]["message"], payload
+
+
+@pytest.mark.django_db
+@override_settings(**_JWT_OVERRIDES)
+def test_permissions_foreign_workspace_is_403_not_empty_200() -> None:
+    """A foreign-tenant workspace must not answer 200 {"permissions": []}."""
+    _tenant, user, _own, _neighbour, alien = _permissions_fence_env()
+    client = _login_client(user)
+
+    resp = client.get(
+        f"/api/v1/workspaces/{alien.id}/permissions/?user_id={uuid.uuid4()}"
+    )
+
+    _assert_permissions_403(resp, what="GET foreign permissions")
+
+
+@pytest.mark.django_db
+@override_settings(**_JWT_OVERRIDES)
+def test_permissions_same_tenant_non_member_is_403() -> None:
+    """Same tenant but no role in the workspace: also 403, never 200."""
+    _tenant, user, _own, neighbour, _alien = _permissions_fence_env()
+    client = _login_client(user)
+
+    resp = client.get(
+        f"/api/v1/workspaces/{neighbour.id}/permissions/?user_id={uuid.uuid4()}"
+    )
+
+    _assert_permissions_403(resp, what="GET non-member permissions")
+
+
+@pytest.mark.django_db
+@override_settings(**_JWT_OVERRIDES)
+def test_permissions_fence_does_not_hinge_on_user_id() -> None:
+    """With or without ``user_id`` the workspace fence answers 403, not 400/200."""
+    _tenant, user, _own, _neighbour, alien = _permissions_fence_env()
+    client = _login_client(user)
+
+    with_param = client.get(
+        f"/api/v1/workspaces/{alien.id}/permissions/?user_id={uuid.uuid4()}"
+    )
+    without_param = client.get(f"/api/v1/workspaces/{alien.id}/permissions/")
+
+    _assert_permissions_403(with_param, what="foreign permissions with user_id")
+    _assert_permissions_403(without_param, what="foreign permissions without user_id")
+    assert with_param.json() == without_param.json(), (
+        with_param.json(),
+        without_param.json(),
+    )
+
+
+@pytest.mark.django_db
+@override_settings(**_JWT_OVERRIDES)
+def test_permissions_unknown_workspace_is_indistinguishable_from_foreign() -> None:
+    """No existence oracle: an id that does not exist answers exactly the same."""
+    _tenant, user, _own, _neighbour, alien = _permissions_fence_env()
+    client = _login_client(user)
+    subject = uuid.uuid4()
+
+    foreign = client.get(
+        f"/api/v1/workspaces/{alien.id}/permissions/?user_id={subject}"
+    )
+    unknown = client.get(
+        f"/api/v1/workspaces/{uuid.uuid4()}/permissions/?user_id={subject}"
+    )
+
+    assert foreign.status_code == unknown.status_code == 403
+    assert foreign.json() == unknown.json(), (foreign.json(), unknown.json())
+
+
+@pytest.mark.django_db
+@override_settings(**_JWT_OVERRIDES)
+def test_permissions_member_still_lists_and_requires_user_id() -> None:
+    """No over-blocking: a member keeps 200, and a missing user_id stays 400."""
+    _tenant, user, own, _neighbour, _alien = _permissions_fence_env()
+    client = _login_client(user)
+
+    listed = client.get(
+        f"/api/v1/workspaces/{own.id}/permissions/?user_id={uuid.uuid4()}"
+    )
+    missing = client.get(f"/api/v1/workspaces/{own.id}/permissions/")
+
+    assert listed.status_code == 200, listed.content
+    assert listed.json() == {"permissions": []}
+    assert missing.status_code == 400, missing.content
+    assert missing.json()["error"]["code"] == "VALIDATION_ERROR"
+
+
+@pytest.mark.django_db
+@override_settings(**_JWT_OVERRIDES)
+def test_permissions_foreign_grant_is_403_and_writes_nothing() -> None:
+    """The fence covers the write verb too: 403 and no cross-tenant row."""
+    tenant, user, _own, _neighbour, alien = _permissions_fence_env()
+    client = _login_client(user)
+
+    resp = client.post(
+        f"/api/v1/workspaces/{alien.id}/permissions/",
+        {"user_id": str(uuid.uuid4()), "permission_level": "read"},
+        format="json",
+    )
+
+    _assert_permissions_403(resp, what="POST foreign permissions")
+    set_request_tenant(tenant.id)
+    try:
+        assert not ItemPermission.objects.filter(workspace_id=alien.id).exists(), (
+            "a foreign-workspace grant must not write any ItemPermission row"
+        )
+    finally:
+        clear_request_tenant()
