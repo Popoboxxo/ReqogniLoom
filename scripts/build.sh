@@ -97,6 +97,9 @@ main() {
   cd "$PROJECT_ROOT"
 
   APP_VERSION="$(tr -d '[:space:]' < VERSION)"
+  # Documented invariant (issue #1145): CI independently enforces
+  # image-SHA == tag-SHA before publishing. This script itself does NOT verify
+  # that HEAD is the tag commit — run it at the tag commit.
   GIT_COMMIT_SHA="$(git rev-parse HEAD)"
   BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
