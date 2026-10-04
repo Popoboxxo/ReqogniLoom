@@ -308,6 +308,79 @@ _SECTION_INDEX: dict[str, int] = {name: index for index, name in enumerate(SECTI
 #: point of the mode; every other property is preserved.
 RELABEL_KEYS: tuple[str, ...] = ("label", "help_text")
 
+#: The structural "field kind" properties of an attribute entry — what the
+#: field *is*, as opposed to the admin-editable presentation metadata in
+#: ``schema.CORE_EDITABLE_META_PROPERTIES``. ``--reconcile-field-kinds``
+#: overwrites exactly these on an already-bootstrapped attribute; every other
+#: property (``label``/``help_text``/``section``/``order``/``visible``/
+#: ``required``/``editable``/``audience``/...) is carried over untouched. See
+#: :func:`_apply_field_kind`.
+FIELD_KIND_KEYS: tuple[str, ...] = (
+    "kind",
+    "type",
+    "multiple",
+    "allow_external",
+    "widget_key",
+    "fields",
+)
+
+#: Extra keys copied together with :data:`FIELD_KIND_KEYS` **only when the**
+#: ``kind``/``type`` **actually changes**. They describe the value shape of the
+#: (new) type: an ``enum``/``multi-enum`` needs a non-empty ``options`` list,
+#: and ``validation`` rules follow the type, so both would be invalid or stale
+#: on the old shape. When the type is unchanged they stay admin-owned — a
+#: reconcile that does not retype a field therefore never reverts a custom
+#: option list (``options`` is in ``CORE_EDITABLE_META_PROPERTIES``).
+FIELD_KIND_TYPE_PAYLOAD_KEYS: tuple[str, ...] = ("options", "validation")
+
+
+def _apply_field_kind(
+    attribute: dict[str, Any], source: dict[str, Any]
+) -> bool:
+    """Copy *source*'s structural field kind onto *attribute* in place (#1112).
+
+    Both dicts must be normalized attribute entries (``schema.normalize_attribute``
+    via ``stored_attributes`` / ``introspect_core_attributes``). Only the keys in
+    :data:`FIELD_KIND_KEYS` are overwritten; when ``kind``/``type`` change, the
+    old type's payload keys (:data:`FIELD_KIND_TYPE_PAYLOAD_KEYS`) are pulled
+    along so the entry stays a valid, self-consistent definition.
+
+    Returns:
+        True when at least one value changed, False for a genuine no-op (the
+        idempotency signal the caller reports).
+    """
+    kind_changed = (
+        attribute.get("kind") != source.get("kind")
+        or attribute.get("type") != source.get("type")
+    )
+    keys = FIELD_KIND_KEYS + (
+        FIELD_KIND_TYPE_PAYLOAD_KEYS if kind_changed else ()
+    )
+    changed = False
+    for key in keys:
+        value = copy.deepcopy(source.get(key))
+        if attribute.get(key) != value:
+            attribute[key] = value
+            changed = True
+    return changed
+
+
+def droppable_attribute_names(
+    row: GlobalAttributeDefinition, introspected: list[dict[str, Any]]
+) -> list[str]:
+    """Names the stored definition has that the current introspection lacks.
+
+    These are the attributes ``--reconcile-field-kinds`` *could* remove. They
+    are **not** necessarily catalogue retirees: an admin-added global attribute
+    (``attribute_definition_service.create_global``) is absent from the
+    introspection in exactly the same way and cannot be told apart from a
+    retired entry in the stored blob. That is why removal is gated behind the
+    explicit ``--allow-attribute-removal`` opt-in and every name is previewed
+    before any write (review F-1112-1). Read-only.
+    """
+    known = {a["name"] for a in introspected}
+    return [a["name"] for a in stored_attributes(row.definition_json) if a["name"] not in known]
+
 
 def section_order_index(section: str) -> int:
     """Sort key for a section name: canonical order, unknown names last."""
@@ -987,8 +1060,8 @@ def unmatched_mandatory_fields(item_type: str, preset: str) -> list[str]:
 class Command(BaseCommand):
     help = (
         "Seed GlobalAttributeDefinition rows from Django model introspection. "
-        "Idempotent: existing rows are left alone unless --relabel or "
-        "--sync-new-fields."
+        "Idempotent: existing rows are left alone unless --relabel, "
+        "--sync-new-fields or --reconcile-field-kinds."
     )
 
     def add_arguments(self, parser) -> None:
@@ -1032,6 +1105,39 @@ class Command(BaseCommand):
                 "--sync-new-fields; rejected together with --reset."
             ),
         )
+        parser.add_argument(
+            "--reconcile-field-kinds",
+            action="store_true",
+            dest="reconcile_field_kinds",
+            help=(
+                "Migrate the stored definition ENTRY of already-bootstrapped "
+                "rows to the current catalogue (#1112): overwrite the "
+                "structural field kind (kind/type and its type payload) of "
+                "existing attributes. Attributes absent from the current "
+                "introspection are only PREVIEWED, never deleted, unless "
+                "--allow-attribute-removal is also passed — an admin-added "
+                "global attribute is indistinguishable from a retired "
+                "catalogue entry and is at risk once removal is authorized. "
+                "This does not touch artifact values (that is #940/AWMS). "
+                "Admin-editable presentation properties of surviving "
+                "attributes are preserved; never touches a customized "
+                "workspace-level row; idempotent. Rejected together with "
+                "--reset."
+            ),
+        )
+        parser.add_argument(
+            "--allow-attribute-removal",
+            action="store_true",
+            dest="allow_attribute_removal",
+            help=(
+                "DANGEROUS and only valid with --reconcile-field-kinds: delete "
+                "attributes that are absent from the current introspection and "
+                "propagate the deletion to non-customized workspace rows. An "
+                "admin-added global attribute is INDISTINGUISHABLE from a "
+                "retired catalogue entry and is deleted too. Every name removed "
+                "is printed first, and the write bypasses the audit path."
+            ),
+        )
 
     def handle(self, *args, **options) -> None:
         if options.get("relabel") and options.get("reset"):
@@ -1044,6 +1150,28 @@ class Command(BaseCommand):
                 "whole definition from a fresh introspection, which already "
                 "carries the fixed labels, but discards every admin "
                 "customization. Run --relabel alone to keep them."
+            )
+        if options.get("reconcile_field_kinds") and options.get("reset"):
+            # Same trap as --relabel + --reset: --reset already rewrites the
+            # whole definition from the fresh introspection (current field kinds
+            # included) but throws the admin customizations away, so combining
+            # the two is contradictory rather than merely redundant.
+            raise CommandError(
+                "--reconcile-field-kinds cannot be combined with --reset: "
+                "--reset already rewrites the whole definition from a fresh "
+                "introspection (current field kinds included) but discards "
+                "every admin customization. Run --reconcile-field-kinds alone "
+                "to migrate the field kinds while keeping them."
+            )
+        if options.get("allow_attribute_removal") and not options.get(
+            "reconcile_field_kinds"
+        ):
+            # Removal is a property of the reconcile mode; a bare
+            # --allow-attribute-removal would be a no-op that looks armed.
+            raise CommandError(
+                "--allow-attribute-removal requires --reconcile-field-kinds: "
+                "removal only happens while reconciling a row against the "
+                "current catalogue."
             )
         # A management command has no request/middleware around it, so
         # without explicitly arming both isolation layers the least-privilege
@@ -1059,7 +1187,7 @@ class Command(BaseCommand):
             if options["tenant"]
             else list(Tenant.objects.values_list("id", flat=True))
         )
-        created = updated = reset = relabelled = 0
+        created = updated = reset = relabelled = reconciled = 0
         with transaction.atomic():
             for tenant_id in tenant_ids:
                 set_request_tenant(tenant_id)
@@ -1091,13 +1219,40 @@ class Command(BaseCommand):
                                 reset += 1
                             else:
                                 # --relabel first: a row that predates a new model
-                                # column has to be relabelled before --sync-new-fields
-                                # can append that column, otherwise the appended
+                                # column has to be relabelled before a sync can
+                                # append that column, otherwise the appended
                                 # attribute would ship without its label.
                                 if options["relabel"] and self._relabel(
                                     store, existing, attributes
                                 ):
                                     relabelled += 1
+                                # #1112: reconcile the field kinds before the
+                                # additive sync, so one run converges the row.
+                                # Removal is opt-in and always previewed
+                                # (review F-1112-1).
+                                if options["reconcile_field_kinds"]:
+                                    droppable = droppable_attribute_names(
+                                        existing, attributes
+                                    )
+                                    if droppable:
+                                        self._report_droppable(
+                                            item_type,
+                                            preset,
+                                            droppable,
+                                            allow_removal=options[
+                                                "allow_attribute_removal"
+                                            ],
+                                        )
+                                    if self._append_missing(
+                                        store,
+                                        existing,
+                                        attributes,
+                                        reconcile=True,
+                                        allow_removal=options[
+                                            "allow_attribute_removal"
+                                        ],
+                                    ):
+                                        reconciled += 1
                                 if options["sync_new_fields"] and self._append_missing(
                                     store, existing, attributes
                                 ):
@@ -1125,7 +1280,8 @@ class Command(BaseCommand):
         self.stdout.write(
             self.style.SUCCESS(
                 f"bootstrap_attribute_definitions: {created} created, "
-                f"{updated} synced, {relabelled} relabelled, {reset} reset"
+                f"{updated} synced, {relabelled} relabelled, "
+                f"{reconciled} reconciled, {reset} reset"
             )
         )
 
@@ -1214,13 +1370,78 @@ class Command(BaseCommand):
             invalidate_workspace_caches(workspace_id)
         return True
 
+    def _report_droppable(
+        self,
+        item_type: str,
+        preset: str,
+        names: list[str],
+        *,
+        allow_removal: bool,
+    ) -> None:
+        """Preview the attributes a reconcile would drop (#1112 review F-1).
+
+        The command writes through a bare ``row.save()`` and is not wired into
+        the audit bus, so stdout is the only reporting channel it has. Printing
+        the blast radius before the write is therefore mandatory: with
+        ``--allow-attribute-removal`` the row write deletes the definition entry
+        and propagates the deletion to every non-customized workspace copy, and
+        an admin-added global attribute is indistinguishable from a retired
+        catalogue entry.
+        """
+        for name in names:
+            if allow_removal:
+                self.stdout.write(
+                    self.style.WARNING(
+                        f"{item_type}/{preset}: removing attribute {name!r} — it "
+                        "is absent from the current catalogue, so the definition "
+                        "entry and every non-customized workspace copy are "
+                        "deleted"
+                    )
+                )
+            else:
+                self.stdout.write(
+                    self.style.WARNING(
+                        f"{item_type}/{preset}: attribute {name!r} is absent from "
+                        "the current catalogue — keeping it. Rerun with "
+                        "--allow-attribute-removal to delete it (an admin-added "
+                        "global attribute is indistinguishable from a retired "
+                        "catalogue entry)."
+                    )
+                )
+
     @staticmethod
     def _append_missing(
         store: GlobalAttributeDefinitionStore,
         row: GlobalAttributeDefinition,
         introspected: list[dict[str, Any]],
+        *,
+        reconcile: bool = False,
+        allow_removal: bool = False,
     ) -> bool:
         """Append attributes the stored definition lacks. Returns True on change.
+
+        ``reconcile=True`` (:data:`--reconcile-field-kinds`) additionally brings
+        already-seeded attributes up to the current catalogue (#1112): the
+        structural field kind (see :data:`FIELD_KIND_KEYS`) of every attribute
+        the introspection still produces is overwritten. This migrates the
+        stored *definition entry* only — values already written to artifacts
+        (e.g. a legacy ``origin_link`` value on a Requirement) are the AWMS
+        value-migration territory of #940, not this command.
+
+        Removal is deliberately NOT part of the reconcile default. An attribute
+        absent from the current introspection is indistinguishable in the stored
+        blob from an admin-added global ``kind="extended"`` attribute (created
+        via ``attribute_definition_service.create_global``): both are simply not
+        produced by the model/matrix walk. Silently dropping one would delete
+        admin data and propagate the loss to every non-customized workspace row.
+        ``allow_removal`` (operator flag ``--allow-attribute-removal``) must be
+        passed explicitly to delete such names; the caller always prints a
+        preview of them (``Command._report_droppable``) first.
+
+        The default (``reconcile=False``) stays purely additive —
+        ``--sync-new-fields`` keeps its "never modifies an existing entry"
+        contract. Every surviving attribute keeps its admin-editable
+        presentation properties (``CORE_EDITABLE_META_PROPERTIES``).
 
         Writes via a bare ``row.save()`` rather than ``store.update()``:
         ``update()`` runs ``validate_meta_only_change``, which correctly
@@ -1244,12 +1465,45 @@ class Command(BaseCommand):
         # hand-edited row otherwise takes down the whole command with a bare
         # KeyError mid-transaction; now it raises AttributeSchemaError naming the
         # offending attribute, which the operator can act on.
+        # #1112 review F-2: keep every unrelated top-level key of the stored
+        # payload (e.g. ``section_flow``) — replace only the two lists this
+        # method owns, mirroring ``_relabel``'s ``dict(stored_raw, ...)``.
+        stored_raw = (
+            row.definition_json if isinstance(row.definition_json, dict) else {}
+        )
         stored = stored_attributes(row.definition_json)
+        changed = False
+
+        if reconcile:
+            # #1112: migrate the structural field kind of every already-seeded
+            # attribute to the current introspection. The additive diff below is
+            # name-based only, so an attribute whose carrier changed (text ->
+            # multi-enum/actor, extended -> core) would otherwise keep its stale
+            # rendering forever. Admin-editable presentation metadata is
+            # deliberately not touched; see :data:`FIELD_KIND_KEYS`.
+            fresh = {a["name"]: a for a in introspected}
+            for attribute in stored:
+                source = fresh.get(attribute["name"])
+                if source is None:
+                    continue
+                changed = _apply_field_kind(attribute, source) or changed
+            # Removal is opt-in (see the docstring): an attribute absent from
+            # introspection may be a retired catalogue entry OR an admin-added
+            # global attribute, and the two are indistinguishable here. Without
+            # ``allow_removal`` the name is kept; the caller previews it.
+            if allow_removal:
+                kept = [a for a in stored if a["name"] in fresh]
+                if len(kept) != len(stored):
+                    stored = kept
+                    changed = True
+
         known = {a["name"] for a in stored}
         additions = [copy.deepcopy(a) for a in introspected if a["name"] not in known]
-        if not additions:
+        if additions:
+            stored.extend(additions)
+            changed = True
+        if not changed:
             return False
-        stored.extend(additions)
         stored.sort(key=lambda a: (section_order_index(a["section"]), a["order"], a["name"]))
         # Epic #934 WS6 (#939): keep the seeded ``sections`` list consistent with
         # the (possibly grown) attribute set. Existing sections keep their
@@ -1268,7 +1522,7 @@ class Command(BaseCommand):
                     }
                 )
                 known_sections.add(attribute["section"])
-        row.definition_json = {"attributes": stored, "sections": sections}
+        row.definition_json = dict(stored_raw, attributes=stored, sections=sections)
         # Ledger binding (j), closed at Task 10: F("version") + 1 instead of a
         # read-modify-write, consistent with the other 3 sites in this
         # codebase (global_definition_store.py, workspace_definition_store.py
