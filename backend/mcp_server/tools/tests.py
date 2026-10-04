@@ -70,6 +70,7 @@ from uuid import UUID
 from auth_tenancy.context import AuthContext
 
 from application.ai_derivation_service import AiDerivationService, LlmResponseError
+from application.test_service import normalize_test_type
 from application.services import (
     NotFoundError,
     PermissionDeniedError,
@@ -264,6 +265,43 @@ def _test_run_to_dict(tr: Any) -> Dict[str, Any]:
     }
 
 
+def _resolve_create_test_type(params: Dict[str, Any]) -> str:
+    """Resolve ``test.create``'s test type from ``test_type``/``type`` (#1151).
+
+    Both spellings go through :func:`normalize_test_type` so they are validated
+    identically: the canonical lowercase ``TestCaseType`` values and the
+    deprecated TitleCase alias (``"Unit"`` -> ``"unit"``) are accepted, anything
+    else is rejected with the same message regardless of which key carried it.
+
+    ``test_type`` is canonical; ``type`` is a documented deprecated alias. When
+    both are given and normalise to different values the call is refused rather
+    than silently preferring one. Returns the canonical (lowercase) value; if
+    neither key is present the service's own documented default applies, which
+    is expressed by returning the legacy-default sentinel ``"Unit"`` (the
+    service normalises it to ``"unit"``).
+    """
+    canonical: Optional[str] = None
+    source_param: Optional[str] = None
+    for param_name in ("test_type", "type"):
+        raw = params.get(param_name)
+        if raw is None:
+            continue
+        try:
+            normalised = normalize_test_type(raw)
+        except ValidationError as exc:
+            raise ParameterError(str(exc)) from None
+        if canonical is not None and normalised != canonical:
+            raise ParameterError(
+                f"Conflicting test type: '{source_param}'={params[source_param]!r} "
+                f"and '{param_name}'={raw!r} normalise to different values."
+            )
+        canonical = normalised
+        source_param = param_name
+    # No key named at all: return the documented legacy default ("Unit"), which
+    # the service normalises to the canonical "unit" (#953).
+    return canonical if canonical is not None else "Unit"
+
+
 def _parse_run_list_limit(params: Dict[str, Any]) -> int:
     """Read and validate ``test.run_list``'s ``limit`` parameter.
 
@@ -362,14 +400,30 @@ class McpTestToolGroup(BaseToolGroup):
                     "workspace_id": {"type": "string", "description": "UUID of the target workspace."},
                     "title": {"type": "string", "description": "Test case title."},
                     "description": {"type": "string", "description": "Test case description."},
-                    "type": {"type": "string", "description": "Test type (default 'Unit')."},
                     "test_type": {
                         "type": "string",
                         "enum": sorted(_VALID_MODEL_TEST_TYPES),
                         "description": (
-                            "Real TestCase.test_type column value (lowercase, "
+                            "Canonical TestCase.test_type column value (lowercase, "
                             "matches the attribute definition's enum options). "
-                            "Distinct from the legacy TitleCase `type` tag."
+                            "The deprecated TitleCase `type` alias is normalised "
+                            "to this canonical form."
+                        ),
+                    },
+                    # #1151: `type` used to advertise NO enum and looked like the
+                    # primary field, so `type:"Acceptance"` was rejected while
+                    # `test_type:"acceptance"` worked — two fields for one piece
+                    # of information with different validation. It is kept as a
+                    # deprecated alias but now carries the exact same enum and is
+                    # validated through the same code path (see _handle_create).
+                    "type": {
+                        "type": "string",
+                        "enum": sorted(_VALID_MODEL_TEST_TYPES),
+                        "deprecated": True,
+                        "description": (
+                            "Deprecated alias of `test_type` (#816, #1151). "
+                            "Accepts exactly the same values and is validated "
+                            "identically; prefer `test_type`."
                         ),
                     },
                     "custom_fields": {
@@ -767,22 +821,15 @@ class McpTestToolGroup(BaseToolGroup):
         """
         title = require_param(params, "title")
         workspace_id = require_uuid(params, "workspace_id")
-        # Epic #934 WS1 / #816: `test_type` is the canonical (lowercase)
-        # ``TestCase.test_type`` column value the resolved definition exposes,
-        # while the legacy TitleCase `type` alias is accepted by the same
-        # service parameter and folded onto canonical form there. Route by
-        # value so both spellings keep working and the definition's own enum
-        # value is no longer rejected.
-        legacy_test_type = "Unit"
-        model_test_type_value: Optional[str] = None
-        raw_test_type = params.get("test_type")
-        if raw_test_type is not None:
-            if raw_test_type in _VALID_MODEL_TEST_TYPES:
-                model_test_type_value = raw_test_type
-            else:
-                legacy_test_type = raw_test_type
-        if params.get("type") is not None:
-            legacy_test_type = params["type"]
+        # #816 / #953 / #1151: `test_type` is the canonical (lowercase)
+        # ``TestCase.test_type`` value; `type` is a deprecated alias. Both are
+        # resolved through ONE validation path (_resolve_create_test_type), so
+        # the same value is accepted (or rejected) identically regardless of
+        # which key carried it — the competing-fields defect #1151 reported.
+        try:
+            test_type = _resolve_create_test_type(params)
+        except ParameterError as exc:
+            return ToolResult.error("VALIDATION_ERROR", str(exc))
         description: str = params.get("description", "")
         linked_req_id = optional_uuid(params, "linked_req_id")
         # REQ-L2-AS-037: TestService.create_test_case already accepts
@@ -815,14 +862,9 @@ class McpTestToolGroup(BaseToolGroup):
         if definition_error is not None:
             return definition_error
 
-        # #953: only forward the deprecated `test_type_value` alias when the
-        # caller actually named a canonical column value. Passing an explicit
-        # ``None`` would mean "leave the column NULL" and would suppress the
-        # documented default (issue #953) for every plain test.create call.
-        create_kwargs: Dict[str, Any] = {}
-        if model_test_type_value is not None:
-            create_kwargs["test_type_value"] = model_test_type_value
-
+        # #1151: both input spellings are already resolved onto the canonical
+        # lowercase value by _resolve_create_test_type, so a single forward
+        # through `test_type` validates and applies them identically.
         try:
             # Codeberg #313: suppress create_test_case's single internal
             # _audit() call for the same entity — write_mcp_audit below is
@@ -833,11 +875,10 @@ class McpTestToolGroup(BaseToolGroup):
                     title=str(title),
                     ctx=auth_context,
                     description=description,
-                    test_type=legacy_test_type,
+                    test_type=test_type,
                     custom_fields=custom_fields,
                     origin=origin,
                     scenario_kind=scenario_kind,
-                    **create_kwargs,
                 )
             # Attribut v3 WS2 (#936): owner/reporter/priority live on Artifact.
             apply_system_fields(

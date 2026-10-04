@@ -208,6 +208,10 @@
           "include_outdated": {
             "type": "boolean",
             "description": "If true, include outdated (soft-deleted) entities. Defaults to false."
+          },
+          "uid": {
+            "type": "string",
+            "description": "Optional local readable identifier (e.g. 'ADR-004'). When supplied, only the entity carrying this uid is returned (#1147). Entities without a uid column (glossary, change_request) match nothing."
           }
         },
         "required": [
@@ -2084,6 +2088,10 @@
           "include_outdated": {
             "type": "boolean",
             "description": "If true, include outdated (soft-deleted) entities. Defaults to false."
+          },
+          "uid": {
+            "type": "string",
+            "description": "Optional local readable identifier (e.g. 'ADR-004'). When supplied, only the entity carrying this uid is returned (#1147). Entities without a uid column (glossary, change_request) match nothing."
           }
         },
         "required": [
@@ -2749,6 +2757,10 @@
           "include_outdated": {
             "type": "boolean",
             "description": "If true, include outdated (soft-deleted) entities. Defaults to false."
+          },
+          "uid": {
+            "type": "string",
+            "description": "Optional local readable identifier (e.g. 'ADR-004'). When supplied, only the entity carrying this uid is returned (#1147). Entities without a uid column (glossary, change_request) match nothing."
           }
         },
         "required": [
@@ -3746,6 +3758,10 @@
           "include_outdated": {
             "type": "boolean",
             "description": "If true, include outdated (soft-deleted) entities. Defaults to false."
+          },
+          "uid": {
+            "type": "string",
+            "description": "Optional local readable identifier (e.g. 'ADR-004'). When supplied, only the entity carrying this uid is returned (#1147). Entities without a uid column (glossary, change_request) match nothing."
           }
         },
         "required": [
@@ -5573,6 +5589,10 @@
           "include_outdated": {
             "type": "boolean",
             "description": "If true, include outdated (soft-deleted) entities. Defaults to false."
+          },
+          "uid": {
+            "type": "string",
+            "description": "Optional local readable identifier (e.g. 'ADR-004'). When supplied, only the entity carrying this uid is returned (#1147). Entities without a uid column (glossary, change_request) match nothing."
           }
         },
         "required": [
@@ -5732,10 +5752,6 @@
             "type": "string",
             "description": "Test case description."
           },
-          "type": {
-            "type": "string",
-            "description": "Test type (default 'Unit')."
-          },
           "test_type": {
             "type": "string",
             "enum": [
@@ -5746,7 +5762,20 @@
               "system",
               "unit"
             ],
-            "description": "Real TestCase.test_type column value (lowercase, matches the attribute definition's enum options). Distinct from the legacy TitleCase `type` tag."
+            "description": "Canonical TestCase.test_type column value (lowercase, matches the attribute definition's enum options). The deprecated TitleCase `type` alias is normalised to this canonical form."
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "analysis",
+              "demonstration",
+              "inspection",
+              "integration",
+              "system",
+              "unit"
+            ],
+            "deprecated": true,
+            "description": "Deprecated alias of `test_type` (#816, #1151). Accepts exactly the same values and is validated identically; prefer `test_type`."
           },
           "custom_fields": {
             "type": "object",

@@ -168,3 +168,116 @@ def test_tool_descriptions_document_the_lowercase_lifecycle_values() -> None:
     update_description = schemas["test.update"]["description"]
     assert "EXECUTION" in update_description
     assert "Passed|Failed|Not Run" in update_description
+
+
+# ---------------------------------------------------------------------------
+# #1151 — `type` and `test_type` are two fields for one piece of information.
+# They must carry the same enum and be validated through the same path: the
+# same value is accepted (or rejected) identically regardless of which key
+# carried it.
+# ---------------------------------------------------------------------------
+
+def test_create_schema_advertises_the_same_enum_for_type_and_test_type() -> None:
+    """#1151: `type` used to have no enum while `test_type` did. Both must now
+    publish the identical closed value set, or a client is told two different
+    contracts for the same field."""
+    schema = {s["name"]: s for s in TestToolGroup._TOOL_SCHEMAS}["test.create"]
+    props = schema["inputSchema"]["properties"]
+
+    from persistence.models import TestCaseType
+
+    assert "enum" in props["type"], "`type` must advertise an enum (#1151)"
+    assert props["type"]["enum"] == props["test_type"]["enum"]
+    assert set(props["type"]["enum"]) == set(TestCaseType.values)
+
+
+@pytest.mark.parametrize("param_name", ["type", "test_type"])
+def test_create_accepts_canonical_lowercase_via_either_key(param_name) -> None:
+    service = TestService()
+    _, workspace, ctx = _setup("test1151-canonical")
+    group = TestToolGroup(service=service)
+    from persistence.models import TestCaseType
+
+    canonical = TestCaseType.choices[0][0]
+
+    result = group._handle_create(
+        params={
+            "workspace_id": str(workspace.id),
+            "title": "TC",
+            param_name: canonical,
+        },
+        auth_context=ctx,
+        api_key=API_KEY,
+    )
+
+    assert result.success is True, result.message
+    assert result.data["test_case"]["test_type"] == canonical
+
+
+@pytest.mark.parametrize("param_name", ["type", "test_type"])
+def test_create_accepts_legacy_titlecase_alias_via_either_key(param_name) -> None:
+    """The deprecated TitleCase spelling is folded onto the canonical value
+    identically through both keys (#816 semantics preserved, #1151)."""
+    service = TestService()
+    _, workspace, ctx = _setup("test1151-legacy")
+    group = TestToolGroup(service=service)
+
+    result = group._handle_create(
+        params={
+            "workspace_id": str(workspace.id),
+            "title": "TC",
+            param_name: "Unit",
+        },
+        auth_context=ctx,
+        api_key=API_KEY,
+    )
+
+    assert result.success is True, result.message
+    assert result.data["test_case"]["test_type"] == "unit"
+
+
+@pytest.mark.parametrize("param_name", ["type", "test_type"])
+def test_create_rejects_an_invalid_value_identically_via_either_key(param_name) -> None:
+    """An invalid value must be refused in BOTH forms with the same
+    VALIDATION_ERROR — not accepted silently through one of the keys."""
+    service = TestService()
+    _, workspace, ctx = _setup("test1151-invalid")
+    group = TestToolGroup(service=service)
+
+    result = group._handle_create(
+        params={
+            "workspace_id": str(workspace.id),
+            "title": "TC",
+            param_name: "Acceptance",
+        },
+        auth_context=ctx,
+        api_key=API_KEY,
+    )
+
+    assert result.success is False
+    assert result.error_code == "VALIDATION_ERROR"
+    assert "Invalid test_type" in result.message
+
+
+def test_create_rejects_conflicting_type_and_test_type() -> None:
+    """When both keys are supplied and normalise to different values, refuse
+    rather than silently preferring one."""
+    service = TestService()
+    _, workspace, ctx = _setup("test1151-conflict")
+    group = TestToolGroup(service=service)
+
+    result = group._handle_create(
+        params={
+            "workspace_id": str(workspace.id),
+            "title": "TC",
+            "type": "unit",
+            "test_type": "system",
+        },
+        auth_context=ctx,
+        api_key=API_KEY,
+    )
+
+    assert result.success is False
+    assert result.error_code == "VALIDATION_ERROR"
+    assert "Conflicting test type" in result.message
+
