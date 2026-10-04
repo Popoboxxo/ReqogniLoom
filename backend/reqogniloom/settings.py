@@ -489,6 +489,33 @@ MCP_RATE_LIMIT_IP: str = _throttle_rate(
 )
 
 # ---------------------------------------------------------------------------
+# Django admin brute-force lockout (issue #1135)
+#
+# The REST /auth/login/ endpoint has cache-based failure throttles (above), but
+# /admin/login/ shared none of them and accepted unlimited password guesses.
+# #1135 records the binding decision to close this with a small CUSTOM DB-backed
+# lockout (no django-axes), keyed on (client IP, username-digest), evaluated in
+# auth_tenancy.admin_lockout and surfaced by auth_tenancy.admin_login.
+#
+# Defaults: lock after 5 failed attempts within a 15-minute window, for a
+# 15-minute cool-down. The whole feature can be switched off with
+# ADMIN_LOGIN_LOCKOUT_ENABLED. All four values are environment-overridable via
+# decouple (same convention as the throttle block above).
+# ---------------------------------------------------------------------------
+ADMIN_LOGIN_LOCKOUT_ENABLED: bool = config(
+    "ADMIN_LOGIN_LOCKOUT_ENABLED", default=True, cast=bool
+)
+ADMIN_LOGIN_LOCKOUT_THRESHOLD: int = config(
+    "ADMIN_LOGIN_LOCKOUT_THRESHOLD", default=5, cast=int
+)
+ADMIN_LOGIN_LOCKOUT_WINDOW_SECONDS: int = config(
+    "ADMIN_LOGIN_LOCKOUT_WINDOW_SECONDS", default=900, cast=int
+)
+ADMIN_LOGIN_LOCKOUT_DURATION_SECONDS: int = config(
+    "ADMIN_LOGIN_LOCKOUT_DURATION_SECONDS", default=900, cast=int
+)
+
+# ---------------------------------------------------------------------------
 # Default trace-link types for a new workspace (issue #989).
 #
 # A workspace carries its own "standard link type" (pre-selected when creating

@@ -741,7 +741,100 @@ class PermissionDecisionMismatch(TenantScopedModel):
         )
 
 
+class AdminLoginLockout(AuditableModel):
+    """Per-(client IP, username) brute-force counter for the Django admin (issue #1135).
+
+    The Django admin (``/admin/``) is a public, pre-authentication surface. The
+    REST login endpoint already has a cache-based per-(IP, username) failure
+    throttle (``rest_api/throttling.py``, #72/#269), but the admin shares none of
+    it, so ``/admin/login/`` accepted unlimited password guesses. Issue #1135
+    records the binding decision to close this with a small **custom, DB-backed**
+    lockout rather than pulling in ``django-axes``.
+
+    Why a DB row and not the cache: the admin session/login path is the one
+    place where a lost counter has a direct security cost and where the
+    canonical lockout state should survive a cache flush and be inspectable by
+    an operator. The row is intentionally tiny and holds no credential material:
+
+    * ``client_ip`` + ``username_digest`` are the composite key. The username is
+      stored only as a truncated SHA-256 digest (never in the clear), mirroring
+      ``rest_api.throttling._username_digest`` — the exception message of a dump
+      must not read like a user directory.
+    * ``failure_count`` is the number of consecutive failures inside the current
+      window; ``first_failure_at``/``last_failure_at`` bound that window.
+    * ``locked_until`` is NULL while the pair is below the threshold and set to
+      ``now + duration`` once it trips; a past ``locked_until`` means unlocked.
+
+    Scope — GLOBAL, not tenant-scoped. This table is written on the
+    pre-authentication login path, where no tenant context exists yet (the very
+    same chicken-and-egg as ``persistence.User``/``Tenant`` and the RLS-exempt
+    ``at_api_key``/``at_user_role`` tables). Keying the lockout per tenant would
+    be meaningless because the tenant is not known until *after* the credentials
+    are accepted, so the model derives from :class:`AuditableModel` and carries
+    no ``tenant`` FK. Consequently no Row-Level-Security policy applies (see
+    ``persistence/tests/test_rls_coverage.py``, which only guards
+    ``TenantScopedModel`` subclasses).
+
+    The evaluator/reader/writer live in ``auth_tenancy.admin_lockout``; the
+    admin-only signal and form wiring live in ``auth_tenancy.admin_login``.
+    """
+
+    #: Client IP as resolved by ``admin_lockout.resolve_client_ip``: the
+    #: unforgeable transport peer (``REMOTE_ADDR``), or a validated
+    #: ``X-Forwarded-For`` element only when ``NUM_PROXIES`` is configured. This
+    #: is a DELIBERATE anti-spoofing deviation from DRF's ``get_ident``, not a
+    #: mirror of it. Values are validated + normalised for the ``inet`` column.
+    client_ip = models.GenericIPAddressField()
+    #: Truncated SHA-256 of the lower-cased, stripped username (32 hex chars),
+    #: identical in shape to ``rest_api.throttling._username_digest``. Raw
+    #: usernames are never persisted here.
+    username_digest = models.CharField(max_length=32)
+    #: Consecutive failures inside the current window.
+    failure_count = models.PositiveIntegerField(default=0)
+    #: Timestamp of the first failure of the current streak. AUTHORITATIVE window
+    #: anchor: the streak lapses (and restarts at 1) once
+    #: ``now - first_failure_at > WINDOW``. Kept distinct from ``last_failure_at``
+    #: (which only tracks recency for cleanup) so the window cannot be extended
+    #: indefinitely by a slow trickle of attempts.
+    first_failure_at = models.DateTimeField()
+    #: Timestamp of the most recent failure (cleanup / recency anchor).
+    last_failure_at = models.DateTimeField()
+    #: Set once ``failure_count`` reaches the threshold; NULL while unlocked.
+    locked_until = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "at_admin_login_lockout"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["client_ip", "username_digest"],
+                name="uq_admin_lockout_ip_user",
+            ),
+        ]
+        indexes = [
+            # Cleanup/expiry scan of unlocked rows (opportunistic deletion).
+            models.Index(
+                fields=["last_failure_at"],
+                name="idx_admin_lockout_last",
+            ),
+            # Cleanup/expiry scan of dead lock rows (``locked_until__lt``).
+            models.Index(
+                fields=["locked_until"],
+                name="idx_admin_lockout_locked_until",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        state = "locked" if self.locked_until else "counting"
+        # Digest prefix only — a log line must not become a user directory. This
+        # model is deliberately NOT registered in the Django admin (see below).
+        return (
+            f"AdminLoginLockout(ip={self.client_ip}, "
+            f"digest={self.username_digest[:8]}, {state})"
+        )
+
+
 __all__ = [
+    "AdminLoginLockout",
     "ApiKey",
     "RefreshToken",
     "UserRole",
