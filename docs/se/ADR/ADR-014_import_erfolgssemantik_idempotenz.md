@@ -23,6 +23,15 @@ superseded_by: null
 | 2026-10-02 | `proposed` (erstellt durch `api-specialist`) | Entscheidungsvorlage aus `INTERFACE_CONTRACTS.md` §2/§7.2. |
 | 2026-10-02 | Review durch `concept-reviewer` | Inhaltlich APPROVED nach Re-Review; der zuvor beanstandete Match-Key-/Upsert-Widerspruch ist in §3 aufgelöst (ReqIF = reiner Upsert, `duplicate_policy` nur CSV). |
 | 2026-10-02 | `review → accepted` (durch `se-architect`/User) | Verdikt: Option A verbindlich. Der Vertragsvorschlag aus `INTERFACE_CONTRACTS.md` §2 wird mit der Akzeptanz zum verbindlichen Vertrag. Umsetzung des INT-01-Vollvertrags (Ergebnismodell v2, 207/422, Savepoint, `Idempotency-Key`, ReqIF-Upsert) freigegeben. |
+| 2026-10-04 | Amendment D2a/D2b (Issue #1128) | Fachliche Präzisierung **ohne Statuswechsel** (weiterhin `accepted`): (D2a) der Idempotenz-Fingerprint ist jetzt ein **keyed HMAC-SHA-256** mit serverseitigem Secret statt plain SHA-256; (D2b) `IMPORT_CONTRACT_V2` ist jetzt **standardmäßig `true`** (Phase 2). Body in §5/§7 entsprechend abgeglichen; `status`, `adr_id` und `sunset` unverändert. |
+
+**Amendment 2026-10-04 (Issue #1128, D2a/D2b):** Der Body dieses ADR wurde mit der
+Entscheidung des Amendments abgeglichen — Fingerprint (§5/§7) = keyed HMAC; `IMPORT_CONTRACT_V2`
+Default jetzt `on` (Phase 2). Begründung: Der Fingerprint ist zwar nie clientseitig sichtbar
+und bereits strikt per `(tenant_id, user_id)` gescoped, aber der Wechsel zu HMAC beseitigt die
+verbleibende Orakel-Abhängigkeit und ist ohne Schema-Migration möglich (der Hex-Digest bleibt
+64 Zeichen); `IMPORT_CONTRACT_V2=true` vollzieht Phase 2 nach abgeschlossener
+Consumer-Migration. Es findet **kein** Statuswechsel statt.
 
 Der Statuswechsel erfolgt ausschließlich durch `se-architect`/User; `deciders` bleiben
 `[user, api-specialist]`. Mit `accepted` wird gemäß §5 der `Sunset`-Wert auf
@@ -434,9 +443,16 @@ eine zweite Schreibwirkung für dasselbe `event_id` entstehen.
 Kein Breaking Change ohne Fenster (mindestens 2 Minor-Releases **oder** 90 Tage, whichever
 is longer) mit `Deprecation: true`- und `Sunset`-Header. Der konkrete `Sunset`-Wert wird
 **beim Statuswechsel `proposed → accepted`** als `accepted_date + 90 Tage` (ISO-8601,
-HTTP-date, z. B. `Sunset: Wed, 31 Dec 2026 23:59:59 GMT`) festgeschrieben und dann im
-Header geführt; heute (Status `proposed`) wird bewusst **kein** Termin committet, um
-keinen falschen Sunset zu setzen (F10).
+HTTP-date) festgeschrieben und dann im Header geführt. Maßgeblich ist das Frontmatter
+`sunset: 2026-12-31`; der Header-Wert ist `Sunset: Thu, 31 Dec 2026 00:00:00 GMT` (der in
+früheren Entwürfen genannte Beispielwert `Wed, 31 Dec 2026 23:59:59 GMT` war fehlerhaft:
+der 31.12.2026 ist ein **Donnerstag**, und der Datumswert wird als Tagesbeginn in GMT
+formatiert). Der Wert wird nicht als Literal dupliziert, sondern über die gemeinsame
+Hilfsfunktion `reqogniloom.health.sunset_header_value` aus der Einstellung
+`IMPORT_CONTRACT_SUNSET` (Default `2026-12-31`) formatiert. Die Header werden **nur** auf
+den **Legacy**-Antworten (`IMPORT_CONTRACT_V2=false`) gesetzt: die abgekündigte Seite des
+Fensters ist der Legacy-Vertrag, nicht die v2-Ersatzantwort (Umsetzungspräzisierung des
+Amendments 2026-10-04).
 
 | Phase | Inhalt | Bricht |
 |---|---|---|
@@ -444,20 +460,22 @@ keinen falschen Sunset zu setzen (F10).
 | **2 — Semantik** | `success = (failed == 0)`; Teilerfolg ⇒ 207, Totalfehler ⇒ 422. | Clients, die `success === true` auch bei `failed > 0` erwarten |
 | **3 — Cleanup** | Legacy-Keys entfernt. | nicht migrierte Clients |
 
-**Rollback:** Feature-Flag `IMPORT_CONTRACT_V2` (Default in Phase 1 `off`); Abschalten
-stellt das Phase-1-Verhalten wieder her. Importe sind atomar bzw. je Objekt gekapselt —
-kein Datenverlust. Der `Idempotency-Key`-Replay ist additiv und separat abschaltbar.
+**Rollback:** Feature-Flag `IMPORT_CONTRACT_V2` (**Default `on`**, Phase 2 — Amendment
+2026-10-04 / D2b); explizites `IMPORT_CONTRACT_V2=false` stellt das Phase-1-Verhalten
+wieder her. Importe sind atomar bzw. je Objekt gekapselt — kein Datenverlust. Der
+`Idempotency-Key`-Replay ist additiv und separat abschaltbar.
 (Bezug: `INTERFACE_CONTRACTS.md` §2.4 `:165-179`, §2.7 `:201-205`.)
 
 **Umsetzungsvermerk (2026-10-02, INT-01-Vollvertrag):** Die v2-Semantik
 (`success ⇔ counts.failed == 0`, 200/207/422, `counts`/`items`/`contract`/
 `idempotent_replay`/`request_id`) ist vollständig implementiert und durch die Suite
-abgedeckt, die den Vertrag explizit per `@override_settings(IMPORT_CONTRACT_V2=True)`
-aktiviert. Der **Default bleibt gemäß dieser Phase-1-Vorgabe `off`**; das Einschalten
-ist eine Deploy-Entscheidung (Phase 2) nach der Consumer-Migration. Das Flag ist ein
-echter Rollback-Schalter: bei `off` werden — neben dem Response-Vertrag — auch die
-`Idempotency-Key`-Verarbeitung und die `entity_type`-Prüfung übersprungen, sodass das
-Verhalten exakt dem Stand vor v2 entspricht.
+abgedeckt. **Nachtrag (Amendment 2026-10-04 / D2b):** Der Default ist jetzt `on`
+(Phase 2, Consumer-Migration abgeschlossen); die v2-Tests pinnen den Vertrag weiterhin
+explizit per `@override_settings(IMPORT_CONTRACT_V2=True)`, die Legacy-Rollback-Tests
+per `False`. Das Flag ist ein echter Rollback-Schalter: bei `false` werden — neben dem
+Response-Vertrag — auch die `Idempotency-Key`-Verarbeitung und die `entity_type`-Prüfung
+übersprungen, sodass das Verhalten exakt dem Stand vor v2 entspricht, und die
+Legacy-Antworten tragen `Deprecation`/`Sunset`.
 
 **Per-Tenant-Limit (Umsetzung §3/§7):** Die Ablage ist pro Tenant begrenzt
 (`IMPORT_IDEMPOTENCY_MAX_KEYS_PER_TENANT`, Default 10000). Beim Anlegen eines *neuen*
@@ -466,13 +484,31 @@ ablaufenden Keys verdrängt, damit ein aktiver Tenant nie dauerhaft ausgesperrt 
 die Ablage durch viele eindeutige Keys nicht unbeschränkt wächst. Der Replay/Takeover
 eines bereits vorhandenen Keys ist davon unberührt.
 
-**Fingerprint-Verfahren (§7, Entscheidung F6):** Der Fingerprint ist ein **SHA-256**
-über (Methode, Pfad, Payload, `dry_run`) — **kein HMAC**. Begründung: Der gespeicherte
-Wert wird niemals an einen Client ausgeliefert und ist strikt per `(tenant_id, user_id)`
-gescoped; damit ist SHA-256 ausreichend (kein Geheimnis, kein Orakel). Die
-HMAC-Empfehlung aus §7 wird als **Hardening-Follow-up** belassen (zusätzliche
-Keyed-Verteidigung für den unwahrscheinlichen Fall einer Lese-Offenlegung der Ablage),
-nicht als Korrektheitslücke.
+**Fingerprint-Verfahren (§7, Amendment 2026-10-04 / D2a):** Der Fingerprint ist ein
+**keyed HMAC-SHA-256** über (Methode, Pfad, Payload, `dry_run`) — **nicht** plain SHA-256.
+Der Schlüssel kommt aus `IMPORT_FINGERPRINT_SECRET`; ist die Einstellung leer, wird ein
+domänengetrennter Schlüssel aus `SECRET_KEY` abgeleitet
+(`sha256("import-fingerprint:" + SECRET_KEY)`), und `manage.py check` meldet
+`application.W001` mit der Empfehlung, in Produktion ein eigenes Secret zu setzen (die
+Ableitung bleibt ein gekeyter HMAC, ist aber an den Signaturschlüssel gekoppelt). Der
+gespeicherte Wert ist ein 64-Zeichen-Hex-Digest — **keine Spaltenverbreiterung, keine
+Migration**.
+
+**Migrations-/Kompat-Strategie (D2a):** Vor dem Amendment gespeicherte Fingerprints sind
+plain SHA-256 und stimmen mit dem neuen keyed Digest nicht mehr überein. Ein Replay eines
+*alten* Keys innerhalb seines TTL-Fensters kann deshalb `409 IDEMPOTENCY_KEY_REUSED`
+liefern statt einer gecachten Replay-Antwort. Die Abweichung ist auf den Scope
+`(tenant_id, user_id, endpoint, key)` begrenzt und **heilt sich nach
+`IMPORT_IDEMPOTENCY_TTL_HOURS` (24 h) selbst**; die Rotation von `SECRET_KEY` (oder
+`IMPORT_FINGERPRINT_SECRET`) hat denselben begrenzten Effekt. Eine Schema-/Datenmigration
+ist **nicht** erforderlich und wird **nicht** durchgeführt.
+
+**Per-Tenant-Cap unter Nebenläufigkeit (§3/§7, Amendment 2026-10-04):** Ein COUNT-Cap pro
+Tenant ist als DB-Constraint nicht ausdrückbar. Auf PostgreSQL wird die Sequenz
+count → evict → insert daher unter einem transaktionsgebundenen, tenant-gekeyten
+Advisory-Lock (`pg_advisory_xact_lock(hashtext(tenant_id))`) ausgeführt, sodass der Cap
+auch bei parallelen neuen Keys hart gilt; auf anderen Vendoren (SQLite in Test-Setups)
+bleibt das bisherige Best-Effort-Verhalten erhalten (dokumentiert, kein stiller Bruch).
 
 ### 6. MCP bleibt strikt JSON-RPC 2.0
 

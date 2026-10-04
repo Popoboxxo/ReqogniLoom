@@ -128,6 +128,7 @@ from application.trace_link_service import AgentSelfConfirmError
 from application.workspace_service import BaselineImmutabilityError
 from presets.exceptions import CrossTenantWorkspaceError
 from audit.query import AuditLogQuery, AuditQueryFilters
+from reqogniloom.health import sunset_header_value
 from rest_api.auth_enforcer import get_auth_context
 from rest_api.mixins import (
     ETagMixin,
@@ -8067,6 +8068,24 @@ class SearchViewSet(viewsets.ViewSet):
 # ---------------------------------------------------------------------------
 
 
+def _apply_import_deprecation_headers(response: Response) -> Response:
+    """Mark a legacy import-contract response as deprecated (ADR-014 §5).
+
+    The **legacy** (``IMPORT_CONTRACT_V2=false``) response is the deprecated
+    side of the 3-phase window — it is removed in phase 3 — so it advertises
+    ``Deprecation: true`` (RFC 9745) and the ``Sunset`` HTTP-date. The v2
+    responses are the replacement and are deliberately *not* marked. Same
+    response-mutation pattern as ``HealthAliasView`` (ADR-010 §3); the sunset
+    date is the ADR frontmatter value, formatted via the shared helper rather
+    than duplicated as a literal.
+    """
+    response["Deprecation"] = "true"
+    response["Sunset"] = sunset_header_value(
+        getattr(settings, "IMPORT_CONTRACT_SUNSET", "2026-12-31")
+    )
+    return response
+
+
 class CsvImportView(APIView):
     """POST /api/v1/workspaces/{id}/import/csv/ — Bulk CSV import.
 
@@ -8085,12 +8104,13 @@ class CsvImportView(APIView):
           ``IDEMPOTENCY_KEY_REUSED``.
 
     Returns:
-        Legacy (``IMPORT_CONTRACT_V2=false``, default): 201 on success, 400 on
-        validation failure — the pre-ADR response shape, unchanged.
+        Contract v2 (ADR-014 §2, default): 201 when ``succeeded > 0`` and
+        nothing failed, 200 for a purely-skipped (duplicate-only) import, 207
+        for a partial success and 422 when every row failed.
 
-        Contract v2 (ADR-014 §2): 201 when ``succeeded > 0`` and nothing
-        failed, 200 for a purely-skipped (duplicate-only) import, 207 for a
-        partial success and 422 when every row failed.
+        Legacy (``IMPORT_CONTRACT_V2=false``): 201 on success, 400 on
+        validation failure — the pre-ADR response shape, plus ``Deprecation``
+        and ``Sunset`` headers marking that path as deprecated (ADR-014 §5).
     """
 
     _VALID_ENTITY_TYPES = {"Requirement", "ArchitectureElement", "TestCase"}
@@ -8280,7 +8300,9 @@ class CsvImportView(APIView):
             http_status = (
                 status.HTTP_201_CREATED if result.success else status.HTTP_400_BAD_REQUEST
             )
-            return Response(legacy_body, status=http_status)
+            return _apply_import_deprecation_headers(
+                Response(legacy_body, status=http_status)
+            )
 
         # --- Contract v2 response (ADR-014 §2) ---
         body = result.to_dict()
@@ -8544,7 +8566,8 @@ class ReqifImportView(APIView):
 
     The legacy ``needs``/``requirements``/``relations`` keys stay additive
     during the deprecation window (§5). Set ``IMPORT_CONTRACT_V2=false`` to
-    fall back to the pre-ADR response (``success`` always True, HTTP 200).
+    fall back to the pre-ADR response (``success`` always True, HTTP 200); that
+    legacy response carries ``Deprecation``/``Sunset`` headers (ADR-014 §5).
     """
 
     _VALID_ENTITY_TYPES = {
@@ -8848,7 +8871,8 @@ class ReqifImportView(APIView):
             return _service_error_response(exc, lang)
 
         if not contract_v2:
-            # ADR-014 §5 rollback: the pre-v2 response (success hard True, 200).
+            # ADR-014 §5 rollback: the pre-v2 response (success hard True, 200),
+            # marked deprecated via the Deprecation/Sunset headers.
             legacy_body = {
                 "success": True,
                 "dry_run": result.dry_run,
@@ -8857,7 +8881,9 @@ class ReqifImportView(APIView):
                 "relations": result.relations.to_dict(),
                 "warnings": result.warnings,
             }
-            return Response(legacy_body, status=status.HTTP_200_OK)
+            return _apply_import_deprecation_headers(
+                Response(legacy_body, status=status.HTTP_200_OK)
+            )
 
         body = result.to_dict()
         http_status = result.http_status

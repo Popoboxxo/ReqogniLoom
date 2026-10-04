@@ -39,6 +39,15 @@ class ApplicationConfig(AppConfig):
 
         register_signals()
 
+        # ADR-014 §7 / D2a: surface the implicit SECRET_KEY-derived fallback for
+        # the import idempotency fingerprint at ``manage.py check`` time when no
+        # explicit IMPORT_FINGERPRINT_SECRET is configured.
+        from django.core.checks import register
+
+        from application.checks import check_import_fingerprint_secret
+
+        register(check_import_fingerprint_secret)
+
         # SA-21: register the Generic Artifact Model domain entities on the
         # Layer-0 domain-model registry, so traceability (Task 3.2a
         # artifact<->domain-entity resolution), baseline (issue #398 state

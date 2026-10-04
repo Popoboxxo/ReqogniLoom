@@ -989,32 +989,46 @@ CACHES = {
 # ---------------------------------------------------------------------------
 # ADR-014 (accepted) — import contract v2 + Idempotency-Key (INT-01)
 #
-# IMPORT_CONTRACT_V2 controls the ReqIF import response contract:
-#   False (default): Phase 1 of the ADR-014 §5 deprecation window — the
-#         pre-ADR response (``success`` always True, HTTP 200, legacy keys
-#         only). This matches §5's binding instruction "Feature-Flag
-#         ``IMPORT_CONTRACT_V2`` (Default in Phase 1 ``off``)".
-#   True: contract v2 is active — ``success = (counts.failed == 0)``, HTTP
-#         200/207/422 per ADR-014 §2, v2 envelope
+# IMPORT_CONTRACT_V2 controls the import (CSV + ReqIF) response contract:
+#   True (default): Phase 2 of the ADR-014 §5 deprecation window is active —
+#         ``success = (counts.failed == 0)``, HTTP 200/207/422 per ADR-014 §2,
+#         v2 envelope
 #         (``contract``/``counts``/``items``/``idempotent_replay``/``request_id``)
 #         plus the legacy keys kept additively during the deprecation window (§5).
+#         The Idempotency-Key handling and the ReqIF ``entity_type`` check are
+#         part of v2.
+#   False: explicit opt-in rollback (Phase 1) to the pre-ADR response
+#         (``success`` always True, HTTP 200, legacy keys only). Set
+#         ``IMPORT_CONTRACT_V2=false`` for a consumer that has not migrated yet;
+#         the legacy responses then advertise ``Deprecation``/``Sunset`` (§5).
 #
-# The v2 behaviour is fully implemented and covered by tests that activate it
-# with ``@override_settings``; shipping the flag dark by default is the ADR's
-# phase-1 requirement, not a half-finished feature. Flipping it on is a
-# deploy-time decision (Phase 2), after consumers have migrated.
+# IMPORT_CONTRACT_SUNSET is the HTTP ``Sunset`` date advertised on the legacy
+# (contract-off) import responses while that path is deprecated (ADR-014 §5).
+# It equals the ADR frontmatter ``sunset`` value (2026-12-31); the view formats
+# it as an HTTP-date via ``reqogniloom.health.sunset_header_value``.
 #
 # IMPORT_IDEMPOTENCY_TTL_HOURS is the replay window (ADR-014 §3, default 24 h);
 # a Celery-beat task deletes expired records (see CELERY_BEAT_SCHEDULE).
 # IMPORT_IDEMPOTENCY_MAX_KEYS_PER_TENANT bounds a tenant's replay store
 # (ADR-014 §3/§7); the oldest-expiring keys are evicted first.
+#
+# IMPORT_FINGERPRINT_SECRET keys the HMAC-SHA-256 request fingerprint (ADR-014
+# §7, decision D2a). Leave empty only in development: the fingerprint then
+# derives a domain-separated key from SECRET_KEY (still keyed, never a plain
+# SHA-256), and ``manage.py check`` emits ``application.W001`` advising an
+# explicit secret in production. Rotating it (or SECRET_KEY) invalidates stored
+# fingerprints — a bounded 409 window, see ``application.import_idempotency``.
 # ---------------------------------------------------------------------------
-IMPORT_CONTRACT_V2: bool = config("IMPORT_CONTRACT_V2", default=False, cast=bool)
+IMPORT_CONTRACT_V2: bool = config("IMPORT_CONTRACT_V2", default=True, cast=bool)
+IMPORT_CONTRACT_SUNSET: str = config("IMPORT_CONTRACT_SUNSET", default="2026-12-31")
 IMPORT_IDEMPOTENCY_TTL_HOURS: int = config(
     "IMPORT_IDEMPOTENCY_TTL_HOURS", default=24, cast=int
 )
 IMPORT_IDEMPOTENCY_MAX_KEYS_PER_TENANT: int = config(
     "IMPORT_IDEMPOTENCY_MAX_KEYS_PER_TENANT", default=10000, cast=int
+)
+IMPORT_FINGERPRINT_SECRET: str = config(
+    "IMPORT_FINGERPRINT_SECRET", default="", cast=str
 )
 
 # ---------------------------------------------------------------------------

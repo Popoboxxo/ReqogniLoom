@@ -24,11 +24,17 @@ from persistence.models import (
 
 _SECRET = "test-secret-not-a-real-key"
 
+# This suite asserts the pre-ADR (legacy) CSV-import contract — notably the
+# 400 status on validation/malformed input and the legacy body keys. Since
+# IMPORT_CONTRACT_V2 defaults to True now (ADR-014 §5 Phase 2), pin the legacy
+# contract explicitly so these assertions keep testing what they name. The v2
+# envelope/status matrix is covered in test_csv_import_hardening.py.
 _JWT_OVERRIDES = dict(
     AUTH_JWT_SECRET=_SECRET,
     AUTH_JWT_ISSUER="reqflow",
     AUTH_JWT_AUDIENCE="reqflow-api",
     AUTH_JWT_TTL_SECONDS=3600,
+    IMPORT_CONTRACT_V2=False,
 )
 
 

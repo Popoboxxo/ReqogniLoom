@@ -237,3 +237,93 @@ def test_per_tenant_limit_is_disabled_when_zero(settings):
     settings.IMPORT_IDEMPOTENCY_MAX_KEYS_PER_TENANT = 0
     for i in range(5):
         assert _begin(f"nolimit-{i}", _fingerprint(str(i).encode())) is None
+
+
+# ---------------------------------------------------------------------------
+# ADR-014 §7 / D2a: keyed-HMAC fingerprint
+# ---------------------------------------------------------------------------
+
+
+def test_fingerprint_is_a_keyed_hmac_not_plain_sha256(settings):
+    """The fingerprint is a keyed HMAC; a plain SHA-256 would be forgeable.
+
+    Guards the D2a decision: the digest depends on the configured secret and
+    therefore differs from a plain SHA-256 over the same byte sequence.
+    """
+    import hashlib
+
+    payload = b"body"
+    settings.IMPORT_FINGERPRINT_SECRET = "unit-test-fingerprint-secret"
+    digest = compute_fingerprint(method="POST", path="/x/", payload=payload)
+
+    assert len(digest) == 64  # hex digest: no column widening needed
+
+    plain = hashlib.sha256()
+    plain.update(b"POST\x00/x/\x00\x00")  # method NUL path NUL extra("") NUL
+    plain.update(payload)
+    assert digest != plain.hexdigest()
+
+    # Rotating the key rotates the fingerprint.
+    settings.IMPORT_FINGERPRINT_SECRET = "another-unit-test-secret"
+    assert compute_fingerprint(method="POST", path="/x/", payload=payload) != digest
+
+
+def test_fingerprint_falls_back_to_secret_key_when_no_explicit_secret(settings):
+    """An unset ``IMPORT_FINGERPRINT_SECRET`` still yields a *keyed* digest.
+
+    The fallback derives a domain-separated key from ``SECRET_KEY``, so the
+    fingerprint changes when that secret rotates (the documented bounded 409
+    window) and never degrades to an unkeyed SHA-256.
+    """
+    settings.IMPORT_FINGERPRINT_SECRET = ""
+    settings.SECRET_KEY = "secret-key-a"
+    first = compute_fingerprint(method="POST", path="/x/", payload=b"body")
+    settings.SECRET_KEY = "secret-key-b"
+    second = compute_fingerprint(method="POST", path="/x/", payload=b"body")
+    assert first != second
+
+
+# ---------------------------------------------------------------------------
+# ADR-014 §3/§7: hard tenant cap under concurrency
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db(transaction=True)
+def test_concurrent_begin_cannot_exceed_the_tenant_cap(settings):
+    """Two concurrent new keys must never push the store past the cap.
+
+    The count → evict → insert sequence is guarded by a tenant-scoped
+    PostgreSQL advisory lock (``pg_advisory_xact_lock``). Without it, two
+    threads can both observe an empty/under-cap store and each insert, leaving
+    ``limit + 1`` rows. Threads run against separate connections; this is
+    best-effort race detection — the asserted invariant (never more than the
+    cap) holds deterministically under the lock and can only flake in the
+    permissive direction if the race does not materialise.
+    """
+    import threading
+
+    from django.db import connections
+
+    settings.IMPORT_IDEMPOTENCY_MAX_KEYS_PER_TENANT = 1
+    tenant = uuid.uuid4()
+    barrier = threading.Barrier(2)
+    errors: list[BaseException] = []
+
+    def worker(key: str) -> None:
+        try:
+            barrier.wait(timeout=5)
+            _begin(key, _fingerprint(key.encode()), tenant=tenant)
+        except BaseException as exc:  # noqa: BLE001 - re-surfaced on the test thread
+            errors.append(exc)
+        finally:
+            connections.close_all()
+
+    threads = [threading.Thread(target=worker, args=(f"cap-race-{i}",)) for i in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=10)
+        assert not thread.is_alive(), "a concurrent begin() thread did not finish"
+
+    assert not errors, errors
+    assert ImportIdempotencyRecord.objects.filter(tenant_id=tenant).count() == 1

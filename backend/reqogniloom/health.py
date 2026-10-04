@@ -392,9 +392,17 @@ def _readiness_payload() -> tuple[dict, int]:
     }, http_status
 
 
-def _sunset_header_value() -> str:
-    """Return the ``Sunset`` HTTP-date for the deprecated alias (ADR-010 §3)."""
-    raw = getattr(django_settings, "HEALTH_ALIAS_SUNSET", "2027-04-01")
+def _sunset_header_value(raw: str | None = None) -> str:
+    """Return the ``Sunset`` HTTP-date for a deprecated endpoint (ADR-010 §3).
+
+    ``raw`` is an ISO-8601 date, or an operator-supplied RFC 1123 date that is
+    passed through unchanged. When omitted, the historical ``/health/`` alias
+    sunset (``HEALTH_ALIAS_SUNSET``, ADR-010 §3) is used, preserving the
+    original caller's behaviour. The ADR-014 §5 import contract passes its own
+    ``IMPORT_CONTRACT_SUNSET`` (see :data:`sunset_header_value`).
+    """
+    if raw is None:
+        raw = getattr(django_settings, "HEALTH_ALIAS_SUNSET", "2027-04-01")
     try:
         parsed = _dt.datetime.fromisoformat(str(raw))
     except ValueError:
@@ -403,6 +411,12 @@ def _sunset_header_value() -> str:
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=_dt.timezone.utc)
     return _email_utils.format_datetime(parsed, usegmt=True)
+
+
+#: Public alias for other deprecated endpoints that advertise a ``Sunset``
+#: header (ADR-014 §5 import contract). Kept as an alias so the ADR-010
+#: ``HealthAliasView`` call site and its tests are unchanged.
+sunset_header_value = _sunset_header_value
 
 
 class HealthLivenessView(View):
@@ -447,4 +461,5 @@ __all__ = [
     "HealthLivenessView",
     "HealthReadinessView",
     "HealthView",
+    "sunset_header_value",
 ]

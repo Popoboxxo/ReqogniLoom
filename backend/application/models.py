@@ -369,7 +369,10 @@ class ImportIdempotencyRecord(models.Model):
     #: (``workspace-reqif-import``); keeps the key space per-endpoint.
     endpoint = models.CharField(max_length=64)
     key = models.CharField(max_length=255)
-    #: SHA-256 over (method, path, payload, dry_run) — no plaintext payload.
+    #: Keyed HMAC-SHA-256 over (method, path, payload, dry_run) — hex digest,
+    #: 64 chars, no plaintext payload. Keyed with IMPORT_FINGERPRINT_SECRET (or
+    #: a SECRET_KEY-derived fallback) per ADR-014 §7 / D2a; the column width is
+    #: unchanged because the digest is still 64 hex chars (no migration).
     request_fingerprint = models.CharField(max_length=64)
     state = models.CharField(
         max_length=16, choices=STATE_CHOICES, default=STATE_IN_FLIGHT
