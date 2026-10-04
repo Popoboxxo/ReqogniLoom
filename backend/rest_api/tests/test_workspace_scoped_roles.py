@@ -50,7 +50,7 @@ from auth_tenancy.models import ROLE_ADMIN, ROLE_EDITOR, ROLE_VIEWER, UserRole
 from auth_tenancy.rest import ACCESS_COOKIE_NAME, AuthTenancyAuthentication
 from auth_tenancy.services.authentication import AuthenticationService
 from persistence.middleware import clear_request_tenant, set_request_tenant
-from persistence.models import Artifact, Tenant, User, Workspace
+from persistence.models import Artifact, Requirement, Tenant, User, Workspace
 
 _SECRET = "workspace-scope-test-secret-not-a-real-key"
 _JWT_OVERRIDES = dict(
@@ -475,3 +475,92 @@ def test_fenced_agent_key_cannot_resolve_same_tenant_workspace_b_comment():
     assert AuditEntry.unscoped.filter(
         entity_type="Comment", entity_id=comment.id
     ).count() == audits_before
+
+
+# ---------------------------------------------------------------------------
+# SEC-02 (ADR-011): object-derived fence on detail routes WITHOUT a workspace path
+# ---------------------------------------------------------------------------
+#
+# The collection routes above carry ``workspaces/<uuid>/...`` and are already
+# scoped by the #103 role resolution. These detail routes name only the object,
+# so before ADR-011 the tenant-wide role union was used and an A-admin could
+# read/write a B object (Finding AUD-2026-09-222). The object-derived seam is
+# gated by ``AUTHZ_WORKSPACE_SCOPE_ENFORCED``; these tests turn it on.
+
+
+def _requirement_in(tenant: Tenant, workspace: Workspace) -> Requirement:
+    """Create a Requirement (plus its backing Artifact) in *workspace*."""
+    set_request_tenant(tenant.id)
+    try:
+        artifact = Artifact.objects.create(
+            tenant=tenant, workspace=workspace, artifact_type="Requirement"
+        )
+        return Requirement.objects.create(
+            tenant=tenant,
+            workspace=workspace,
+            artifact=artifact,
+            title=f"req-{workspace.name}",
+            description="sec02 detail-route fixture",
+        )
+    finally:
+        clear_request_tenant()
+
+
+@pytest.mark.django_db
+@override_settings(**_JWT_OVERRIDES, AUTHZ_WORKSPACE_SCOPE_ENFORCED=True)
+@pytest.mark.parametrize("auth_method", _AUTH_METHODS)
+def test_workspace_a_admin_denied_on_workspace_b_requirement_detail(
+    auth_method: str,
+) -> None:
+    """SEC-02: no role in B must deny the B-object detail read (403, not 200)."""
+    tenant, user, ws_a, ws_b = _tenant_with_two_workspaces()
+    _grant(tenant, user, ws_a, ROLE_ADMIN)
+    requirement_b = _requirement_in(tenant, ws_b)
+    client = _authed_client(auth_method, user, tenant)
+
+    resp = client.get(f"/api/v1/requirements/{requirement_b.id}/")
+
+    assert resp.status_code == 403, (
+        f"[{auth_method}] object-derived fence must deny a workspace-B detail "
+        f"read for a caller with no role in B, got {resp.status_code}: "
+        f"{resp.content!r} (ADR-011 / Finding 222)."
+    )
+
+
+@pytest.mark.django_db
+@override_settings(**_JWT_OVERRIDES, AUTHZ_WORKSPACE_SCOPE_ENFORCED=True)
+@pytest.mark.parametrize("auth_method", _AUTH_METHODS)
+def test_workspace_a_admin_denied_writing_workspace_b_requirement_detail(
+    auth_method: str,
+) -> None:
+    """SEC-02: the same fence covers the mutating detail route."""
+    tenant, user, ws_a, ws_b = _tenant_with_two_workspaces()
+    _grant(tenant, user, ws_a, ROLE_ADMIN)
+    requirement_b = _requirement_in(tenant, ws_b)
+    client = _authed_client(auth_method, user, tenant)
+
+    resp = client.patch(
+        f"/api/v1/requirements/{requirement_b.id}/",
+        {"title": "cross-workspace-write"},
+        format="json",
+    )
+
+    assert resp.status_code == 403, (
+        f"[{auth_method}] object-derived fence must deny a workspace-B detail "
+        f"write, got {resp.status_code}: {resp.content!r} (ADR-011)."
+    )
+
+
+@pytest.mark.django_db
+@override_settings(**_JWT_OVERRIDES, AUTHZ_WORKSPACE_SCOPE_ENFORCED=True)
+@pytest.mark.parametrize("auth_method", _AUTH_METHODS)
+def test_target_workspace_member_keeps_detail_route_access(auth_method: str) -> None:
+    """No regression: a member of the object's workspace keeps access."""
+    tenant, user, _ws_a, ws_b = _tenant_with_two_workspaces()
+    _grant(tenant, user, ws_b, ROLE_VIEWER)
+    requirement_b = _requirement_in(tenant, ws_b)
+    client = _authed_client(auth_method, user, tenant, jwt_roles=[ROLE_VIEWER])
+
+    resp = client.get(f"/api/v1/requirements/{requirement_b.id}/")
+
+    assert resp.status_code == 200, f"{resp.status_code}: {resp.content!r}"

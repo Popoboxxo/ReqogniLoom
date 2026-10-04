@@ -456,17 +456,28 @@ class TestCapabilityRouterGracefulDegradation:
         return CapabilityRouter(enabled_capabilities=enabled or set(), audit_logger=audit)
 
     def test_no_provider_returns_not_configured(self, monkeypatch):
+        """Genuine "no provider configured" still maps to LLM_NOT_CONFIGURED."""
+        from llm_adapter.providers import LlmNotConfiguredError
+
         monkeypatch.delenv("LLM_PROVIDER", raising=False)
-        router = self._make_router(enabled=set())
-        result = router.execute_capability("validate_artifact", artifact_id="x")
+        # Capability is ENABLED, so the request reaches provider resolution —
+        # this is the real not-configured path, not the capability gate.
+        router = self._make_router(enabled={"validate_artifact"})
+        with patch(
+            "llm_adapter.router.get_provider",
+            side_effect=LlmNotConfiguredError("LLM_PROVIDER is not set"),
+        ):
+            result = router.execute_capability("validate_artifact", artifact_id="x")
         assert "error" in result
         assert result["error"]["code"] == "LLM_NOT_CONFIGURED"
 
-    def test_capability_not_in_enabled_set_returns_not_configured(self, monkeypatch):
+    def test_capability_not_in_enabled_set_returns_capability_disabled(self, monkeypatch):
+        """A capability gated off by LLM_CAPABILITIES is distinct from the
+        genuine not-configured state (#1148)."""
         monkeypatch.setenv("LLM_PROVIDER", "mock")
         router = self._make_router(enabled={"validate_artifact"})
         result = router.execute_capability("decompose_requirement", requirement_id="r")
-        assert result["error"]["code"] == "LLM_NOT_CONFIGURED"
+        assert result["error"]["code"] == "LLM_CAPABILITY_DISABLED"
 
     def test_all_capabilities_disabled_when_env_empty(self, monkeypatch):
         monkeypatch.delenv("LLM_CAPABILITIES", raising=False)
@@ -1152,12 +1163,12 @@ class TestEndToEndWithMockProvider:
         assert result == {"task_id": fake_task_id}
         audit.log_llm_call.assert_called_once()
 
-    def test_check_consistency_disabled_returns_not_configured(self):
+    def test_check_consistency_disabled_returns_capability_disabled(self):
         router, audit, _, _ = self._make_full_router({"validate_artifact"})
         with patch("llm_adapter.router.get_provider"):
             result = router.execute_capability("check_consistency", workspace_id="ws1")
 
-        assert result["error"]["code"] == "LLM_NOT_CONFIGURED"
+        assert result["error"]["code"] == "LLM_CAPABILITY_DISABLED"
 
 
 # ---------------------------------------------------------------------------

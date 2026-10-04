@@ -23,6 +23,7 @@ from rest_api.auth_enforcer import (
     RbacPermission,
     get_auth_context,
 )
+from rest_api.auth_views import MeView
 from auth_tenancy.rest import AuthTenancyAuthentication
 from auth_tenancy.services import Operation, operation_for_method
 
@@ -84,7 +85,9 @@ class TestRbacPermission:
         request = MagicMock()
         request.method = "GET"
         request.auth_context = None
-        view = MagicMock()
+        # ADR-013: the resource-scope seam now denies unclassified views, so use
+        # a real classified (tenant-scoped) surface for the permission harness.
+        view = MeView()
         view.required_operation = None
         result = perm.has_permission(request, view)
         assert result is False
@@ -104,7 +107,9 @@ class TestRbacPermission:
         request = MagicMock()
         request.method = "GET"
         request.auth_context = ctx
-        view = MagicMock()
+        # ADR-013: the resource-scope seam now denies unclassified views, so use
+        # a real classified (tenant-scoped) surface for the permission harness.
+        view = MeView()
         view.required_operation = None
         result = perm.has_permission(request, view)
         assert result is True
@@ -124,7 +129,9 @@ class TestRbacPermission:
         request = MagicMock()
         request.method = "POST"
         request.auth_context = ctx
-        view = MagicMock()
+        # ADR-013: the resource-scope seam now denies unclassified views, so use
+        # a real classified (tenant-scoped) surface for the permission harness.
+        view = MeView()
         view.required_operation = None
 
         with pytest.raises(exceptions.PermissionDenied):
@@ -142,7 +149,9 @@ class TestRbacPermission:
             auth_method=AuthMethod.BEARER_TOKEN,
         )
         perm = RbacPermission()
-        view = MagicMock()
+        # ADR-013: the resource-scope seam now denies unclassified views, so use
+        # a real classified (tenant-scoped) surface for the permission harness.
+        view = MeView()
         view.required_operation = None
 
         for method in ("GET", "POST", "PATCH", "DELETE"):
@@ -164,7 +173,9 @@ class TestRbacPermission:
             auth_method=AuthMethod.BEARER_TOKEN,
         )
         perm = RbacPermission()
-        view = MagicMock()
+        # ADR-013: the resource-scope seam now denies unclassified views, so use
+        # a real classified (tenant-scoped) surface for the permission harness.
+        view = MeView()
         view.required_operation = None
 
         for method in ("GET", "POST", "PATCH"):

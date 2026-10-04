@@ -50,3 +50,15 @@ presets referenced below.
    bundle's `fields` filter. Large exports (or an explicit `async` request) run in the background —
    poll `requirement_bundle.compression_status` with the returned `task_id` until it reports
    `done`.
+
+## Interview-driven elicitation
+
+For a guided, conversation-first capture instead of field-by-field creation, run an interview
+session and formalize it into the artifact: `interview.start` opens a session, `interview.get_state`
+reports the still-open fields, `interview.answer` records one field,
+`interview.grounding_context` surfaces possible duplicates, `interview.set_target` points an
+existing Requirement at the session so `interview.formalize` updates it instead of creating a new
+one, `interview.propose` shows the multi-artifact proposal of a multi session, `interview.list`
+and `interview.get` find existing sessions, and `interview.abandon` cancels one. All ten
+`interview.*` tools are whitelisted for this role (their process skill lives in
+`skills/interview-management/SKILL.md`).

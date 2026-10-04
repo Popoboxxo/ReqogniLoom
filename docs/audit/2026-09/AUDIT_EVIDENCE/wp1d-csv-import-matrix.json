@@ -1,0 +1,82 @@
+{
+ "exporter_comment_line": "# terminology_profile: default",
+ "exporter_header_line": "\"title\",\"description\",\"category\",\"status\",\"type\",\"level\",\"complexity_fibonacci\",\"verification_method\",\"suspect\",\"lifecycle_status\",\"uid\",\"id\",\"artifact_id\",\"version\",\"created_at\",\"modified_at\"",
+ "1_bare_exporter_header": {
+  "status": 201,
+  "resp": "{\"success\": true, \"imported_count\": 1, \"skipped_count\": 0, \"status\": \"ok\", \"errors\": [], \"warnings\": []}"
+ },
+ "2_minimal_unquoted": {
+  "status": 201,
+  "resp": "{\"success\": true, \"imported_count\": 1, \"skipped_count\": 0, \"status\": \"ok\", \"errors\": [], \"warnings\": []}"
+ },
+ "3_bad_enum_status": {
+  "status": 201,
+  "resp": "{\"success\": true, \"imported_count\": 1, \"skipped_count\": 0, \"status\": \"ok\", \"errors\": [], \"warnings\": []}"
+ },
+ "4_bad_enum_type": {
+  "status": 400,
+  "resp": "{\"success\": false, \"imported_count\": 0, \"skipped_count\": 1, \"status\": \"rollback\", \"errors\": [], \"warnings\": []}"
+ },
+ "5_bad_int_level": {
+  "status": 400,
+  "resp": "{\"success\": false, \"imported_count\": 0, \"skipped_count\": 1, \"status\": \"rollback\", \"errors\": [], \"warnings\": []}"
+ },
+ "6_missing_title": {
+  "status": 400,
+  "resp": "{\"success\": false, \"imported_count\": 0, \"skipped_count\": 1, \"status\": \"validation_error\", \"errors\": [{\"row_number\": 2, \"field\": \"title\", \"message\": \"Required field 'title' is missing or empty.\"}], \"warnings\": []}"
+ },
+ "7_umlaut": {
+  "status": 201,
+  "resp": "{\"success\": true, \"imported_count\": 1, \"skipped_count\": 0, \"status\": \"ok\", \"errors\": [], \"warnings\": []}"
+ },
+ "8_quoted_comma": {
+  "status": 201,
+  "resp": "{\"success\": true, \"imported_count\": 1, \"skipped_count\": 0, \"status\": \"ok\", \"errors\": [], \"warnings\": []}"
+ },
+ "9_semicolon": {
+  "status": 400,
+  "resp": "{\"success\": false, \"imported_count\": 0, \"skipped_count\": 1, \"status\": \"validation_error\", \"errors\": [{\"row_number\": 2, \"field\": \"title\", \"message\": \"Required field 'title' is missing or empty.\"}], \"warnings\": [\"Unrecognized column(s) ignored, their data was NOT imported: title;description;category;status;type;level;complexity_fibonacci;verification_method;suspect;lifecycle_status;uid;id;artifact_id;version;created_at;modified_at. Expected columns for 'Requirement': artifact_id, category, complexity_fibonacci, created_at, description, id, level, lifecycle_status, modified_at, status, suspect, title, type, uid, verification_method, version.\"]}"
+ },
+ "10_bom": {
+  "status": 400,
+  "resp": "{\"success\": false, \"imported_count\": 0, \"skipped_count\": 1, \"status\": \"validation_error\", \"errors\": [{\"row_number\": 2, \"field\": \"title\", \"message\": \"Required field 'title' is missing or empty.\"}], \"warnings\": [\"Unrecognized column(s) ignored, their data was NOT imported: ﻿title. Expected columns for 'Requirement': artifact_id, category, complexity_fibonacci, created_at, description, id, level, lifecycle_status, modified_at, status, suspect, title, type, uid, verification_method, version.\"]}"
+ },
+ "11_malformed_quote": {
+  "status": 201,
+  "resp": "{\"success\": true, \"imported_count\": 1, \"skipped_count\": 0, \"status\": \"ok\", \"errors\": [], \"warnings\": []}"
+ },
+ "12_mixed_valid_invalid": {
+  "status": 400,
+  "resp": "{\"success\": false, \"imported_count\": 0, \"skipped_count\": 3, \"status\": \"validation_error\", \"errors\": [{\"row_number\": 3, \"field\": \"title\", \"message\": \"Required field 'title' is missing or empty.\"}], \"warnings\": []}"
+ },
+ "13_unknown_column": {
+  "status": 201,
+  "resp": "{\"success\": true, \"imported_count\": 1, \"skipped_count\": 0, \"status\": \"ok\", \"errors\": [], \"warnings\": [\"Unrecognized column(s) ignored, their data was NOT imported: totally_new_col. Expected columns for 'Requirement': artifact_id, category, complexity_fibonacci, created_at, description, id, level, lifecycle_status, modified_at, status, suspect, title, type, uid, verification_method, version.\"]}"
+ },
+ "idem_1st": {
+  "status": 201,
+  "resp": "{\"success\": true, \"imported_count\": 1, \"skipped_count\": 0, \"status\": \"ok\", \"errors\": [], \"warnings\": []}"
+ },
+ "idem_2nd": {
+  "status": 201,
+  "resp": "{\"success\": true, \"imported_count\": 1, \"skipped_count\": 0, \"status\": \"ok\", \"errors\": [], \"warnings\": []}"
+ },
+ "idem_3rd": {
+  "status": 201,
+  "resp": "{\"success\": true, \"imported_count\": 1, \"skipped_count\": 0, \"status\": \"ok\", \"errors\": [], \"warnings\": []}"
+ },
+ "_final_count": 11,
+ "_final_titles": [
+  "RTQ-1",
+  "RTQ-2",
+  "RTQ-3",
+  "RTQ-7",
+  "RTQ-8",
+  "RTQ-11 unterminated,demo,draft,SyReq,1,,,,,,,,",
+  "RTQ-13",
+  "RTQ-IDEM",
+  "RTQ-IDEM",
+  "RTQ-IDEM",
+  "WP1D-PROBE-B Requirement ÄÖÜ 🚀"
+ ]
+}

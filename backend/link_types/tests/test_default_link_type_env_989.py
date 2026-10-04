@@ -7,6 +7,7 @@ workspace creation.
 """
 from __future__ import annotations
 
+import logging
 import uuid
 from unittest.mock import MagicMock, patch
 
@@ -58,10 +59,10 @@ def test_resolver_uses_the_documented_fallbacks_when_unset():
 def test_resolver_honours_configured_values():
     with override_settings(
         DEFAULT_TRACE_LINK_TYPE="verifies",
-        DEFAULT_DECOMPOSITION_LINK_TYPE="allocated-to",
+        DEFAULT_DECOMPOSITION_LINK_TYPE="derives-from",
     ):
         assert default_trace_link_type() == "verifies"
-        assert default_decomposition_link_type() == "allocated-to"
+        assert default_decomposition_link_type() == "derives-from"
 
 
 def test_resolver_falls_back_on_an_unknown_link_type():
@@ -71,6 +72,26 @@ def test_resolver_falls_back_on_an_unknown_link_type():
     ):
         assert default_trace_link_type() == "references"
         assert default_decomposition_link_type() == "decomposes"
+
+
+def test_decomposition_default_rejects_a_valid_but_non_hierarchy_link_type(caplog):
+    """ADR-016 decision 4: ``refines`` is a valid built-in but must not be an
+    accepted decomposition default — it degrades to ``decomposes`` with a
+    warning instead of silently creating a hierarchy-ignored edge."""
+    with override_settings(DEFAULT_DECOMPOSITION_LINK_TYPE="refines"):
+        with caplog.at_level(logging.WARNING, logger="link_types.defaults"):
+            resolved = default_decomposition_link_type()
+
+    assert resolved == "decomposes"
+    assert "refines" in caplog.text
+    assert "DEFAULT_DECOMPOSITION_LINK_TYPE" in caplog.text
+
+
+@pytest.mark.parametrize("value", ["decomposes", "derives-from"])
+def test_decomposition_default_honours_hierarchy_link_types(value):
+    """The two hierarchy types pass through unchanged (ADR-016)."""
+    with override_settings(DEFAULT_DECOMPOSITION_LINK_TYPE=value):
+        assert default_decomposition_link_type() == value
 
 
 # ---------------------------------------------------------------------------
@@ -84,14 +105,14 @@ def test_new_workspace_uses_the_configured_defaults():
 
     with override_settings(
         DEFAULT_TRACE_LINK_TYPE="verifies",
-        DEFAULT_DECOMPOSITION_LINK_TYPE="allocated-to",
+        DEFAULT_DECOMPOSITION_LINK_TYPE="derives-from",
     ), patch("application.workspace_service.ServiceBase._audit"):
         workspace = WorkspaceService().create_workspace(
             ctx, name="Env Default WS", preset="standard"
         )
 
     assert workspace.default_link_type == "verifies"
-    assert workspace.decomposition_link_type == "allocated-to"
+    assert workspace.decomposition_link_type == "derives-from"
 
 
 def test_new_workspace_uses_the_fallbacks_by_default():
@@ -113,7 +134,7 @@ def test_explicit_argument_wins_over_the_environment_default():
 
     with override_settings(
         DEFAULT_TRACE_LINK_TYPE="verifies",
-        DEFAULT_DECOMPOSITION_LINK_TYPE="allocated-to",
+        DEFAULT_DECOMPOSITION_LINK_TYPE="derives-from",
     ), patch("application.workspace_service.ServiceBase._audit"):
         workspace = WorkspaceService().create_workspace(
             ctx,
@@ -142,9 +163,9 @@ def test_read_fallback_applies_to_a_blank_column():
 
     with override_settings(
         DEFAULT_TRACE_LINK_TYPE="verifies",
-        DEFAULT_DECOMPOSITION_LINK_TYPE="allocated-to",
+        DEFAULT_DECOMPOSITION_LINK_TYPE="derives-from",
     ):
         payload = _workspace_to_dict(workspace)
 
     assert payload["default_link_type"] == "verifies"
-    assert payload["decomposition_link_type"] == "allocated-to"
+    assert payload["decomposition_link_type"] == "derives-from"

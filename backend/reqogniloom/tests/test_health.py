@@ -232,7 +232,7 @@ def test_health_reports_csrf_cookie_configuration():
         resp = client.get("/health/")
     assert resp.status_code == 200
     body = resp.json()
-    assert body["checks"]["csrf_cookie_secure_matches_auth"] == "ok"
+    assert body["advisory"]["csrf_cookie_secure_matches_auth"] == "ok"
     # The "ok" case must not escalate the top-level status.
     assert body["status"] == "ok"
     assert not any("CSRF_COOKIE_SECURE" in w for w in body["warnings"])
@@ -245,7 +245,7 @@ def test_health_flags_csrf_cookie_mismatch():
         resp = client.get("/health/")
     assert resp.status_code == 200
     body = resp.json()
-    assert body["checks"]["csrf_cookie_secure_matches_auth"] == "mismatch"
+    assert body["advisory"]["csrf_cookie_secure_matches_auth"] == "mismatch"
     # Final review: a mismatch must escalate via the same `warnings`
     # mechanism the workflow check uses, so monitoring that only watches the
     # top-level `status` sees it. http_status must stay 200 (warning, not
@@ -287,7 +287,7 @@ class TestHealthEmbeddingDimensions:
         body = response.json()
 
         assert response.status_code == 200
-        assert body["checks"]["embedding_dimensions"] == "ok"
+        assert body["advisory"]["embedding_dimensions"] == "ok"
         assert body["status"] != "degraded"
         assert not any("embedding" in w.lower() for w in body["warnings"])
 
@@ -310,7 +310,7 @@ class TestHealthEmbeddingDimensions:
         # without making the service unhealthy, so probes must stay green.
         assert response.status_code == 200
         assert body["status"] == "warning"
-        assert body["checks"]["embedding_dimensions"] == "mismatch"
+        assert body["advisory"]["embedding_dimensions"] == "mismatch"
         assert any("embedding columns" in w for w in body["warnings"])
         # CWE-209: reachable without authentication — no DB detail leaks.
         assert "host=" not in str(body)
@@ -336,7 +336,7 @@ class TestHealthEmbeddingDimensions:
         body = response.json()
 
         assert response.status_code == 200
-        assert body["checks"]["embedding_dimensions"] == "ok"
+        assert body["advisory"]["embedding_dimensions"] == "ok"
         assert not any("embedding columns" in w for w in body["warnings"])
         assert body["status"] != "degraded"
 
@@ -352,7 +352,7 @@ class TestHealthEmbeddingDimensions:
         body = response.json()
 
         assert response.status_code == 503
-        assert "embedding_dimensions" not in body["checks"]
+        assert "embedding_dimensions" not in body["advisory"]
 
 
 @pytest.mark.django_db
@@ -410,7 +410,7 @@ class TestHealthLlmProviderEnv:
         # Visible, but NOT degraded: one feature is dead, the service is not.
         assert response.status_code == 200
         assert body["status"] == "warning"
-        assert body["checks"]["llm_provider_env"] == "missing"
+        assert body["advisory"]["llm_provider_env"] == "missing"
         assert any("LLM_OPENCODE_SESSION" in w for w in body["warnings"])
         # CWE-209: reachable without authentication. The variable NAME is safe to
         # expose; the session VALUE is a credential and must never appear.
@@ -425,7 +425,7 @@ class TestHealthLlmProviderEnv:
         body = response.json()
 
         assert response.status_code == 200
-        assert body["checks"]["llm_provider_env"] == "ok"
+        assert body["advisory"]["llm_provider_env"] == "ok"
         assert not any("LLM_OPENCODE_SESSION" in w for w in body["warnings"])
         assert body["status"] != "degraded"
 
@@ -441,7 +441,7 @@ class TestHealthLlmProviderEnv:
         body = response.json()
 
         assert response.status_code == 200
-        assert body["checks"]["llm_provider_env"] == "ok"
+        assert body["advisory"]["llm_provider_env"] == "ok"
         assert not any("LLM_OPENCODE_SESSION" in w for w in body["warnings"])
 
     def test_check_still_runs_when_the_database_is_down(self, monkeypatch) -> None:
@@ -462,7 +462,7 @@ class TestHealthLlmProviderEnv:
         body = response.json()
 
         assert response.status_code == 503
-        assert body["checks"]["llm_provider_env"] == "missing"
+        assert body["advisory"]["llm_provider_env"] == "missing"
         assert any("LLM_OPENCODE_SESSION" in w for w in body["warnings"])
 
     def test_probe_exception_warns_without_crashing(self, monkeypatch) -> None:

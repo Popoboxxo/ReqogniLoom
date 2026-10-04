@@ -1,6 +1,16 @@
+---
+adr_id: ADR-DS-02
+title: "Node Graph Diagram Position Persistence & SVG Rendering Policy"
+status: accepted
+date: 2026-08-07
+deciders: [developer]
+affected_reqs: [REQ-L1-100, REQ-L1-101, REQ-L1-027]
+superseded_by: null
+---
+
 # ADR-DS-02: Node Graph Diagram Position Persistence & SVG Rendering Policy
 
-**Status:** ACCEPTED  
+**Status:** accepted  
 **Datum:** 2026-08-07  
 **Entscheider:** Developer (Task 10) based on Tasks 1-9 implementation  
 **Betroffene REQs:** REQ-L1-100, REQ-L1-101, REQ-L1-027  

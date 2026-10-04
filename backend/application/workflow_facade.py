@@ -23,7 +23,7 @@ from typing import List, Optional
 from uuid import UUID
 
 from auth_tenancy.context import AuthContext
-from django.db import transaction
+from django.db import DatabaseError, transaction
 
 # Backward-compat alias used by tests that patch 'application.workflow_facade.TenantContext'
 TenantContext = AuthContext
@@ -94,12 +94,11 @@ class WorkflowFacade(ServiceBase):
                 still serialises concurrent writers, but inside that lock the
                 write is plain last-writer-wins: a caller that transitions
                 without a revision cannot detect that someone else moved the
-                item on and will overwrite it. The CR-08 rollout only threads
-                ``expected_version`` through the MCP transition tools; the
-                service wrappers that call this facade directly (the ADR, risk,
-                issue, change-request and main-goal services, the goal
-                re-activate path) do not pass it and remain unprotected in that
-                last-writer-wins sense.
+                item on and will overwrite it. The service wrappers that call
+                this facade directly (the ADR, risk, issue, change-request,
+                main-goal services and the Goal archive/restore paths) thread
+                the revision through since AUD-2026-09-282; callers that omit
+                it remain unprotected in that last-writer-wins sense.
 
         Returns:
             workflow.services.TransitionResult
@@ -804,6 +803,41 @@ class WorkflowFacade(ServiceBase):
 
 # ---------- Exception remapping ----------
 
+def _state_guard_message(exc: Exception) -> Optional[str]:
+    """Client-facing message when *exc* is a DATA-06 ``we_item_state`` DB guard.
+
+    The migration ``workflow/0021_we_item_state_integrity`` installs two guards
+    on ``we_item_state`` whose violations Django surfaces as ``DatabaseError`` /
+    ``IntegrityError``:
+
+    * ``trg_we_state_current_state_in_definition`` — the target state must be
+      one of the definition's own ``workflow_json->'states'`` (a cross-table
+      rule the trigger enforces with ``check_violation``);
+    * ``ck_we_state_current_state_nonempty`` — a state key must not be blank.
+
+    These are *request* rejections, not server faults: an item cannot be moved
+    into a state the workspace does not declare. Without this translation the
+    raw DB error is not in ``rest_api.views._EXC_TO_HTTP``, so both REST and
+    MCP answer 500. Returns ``None`` for any other database error, which must
+    stay loud.
+    """
+    if not isinstance(exc, DatabaseError):
+        return None
+    text = str(exc)
+    if "is not declared in workflow definition" in text:
+        import re
+
+        match = re.search(r"current_state (\S+) is not declared", text)
+        state = match.group(1) if match else "the requested state"
+        return (
+            f"Transition rejected: target state {state!r} is not declared in "
+            "this workspace's workflow definition."
+        )
+    if "ck_we_state_current_state_nonempty" in text:
+        return "Transition rejected: a workflow state must not be empty."
+    return None
+
+
 def _remap_workflow_exc(exc: Exception) -> None:
     """Re-raise workflow-domain exceptions as application-layer exceptions."""
     from application.base import (
@@ -817,6 +851,14 @@ def _remap_workflow_exc(exc: Exception) -> None:
         EC_AGENT_SELF_CONFIRM,
         EC_ROLE_NOT_ALLOWED,
     )
+
+    # DATA-06 (findings 171/180/186/227): the DB state guard fires where the
+    # application-level edge check could not (a definition whose ``states`` no
+    # longer cover a declared transition, legacy/migrated data, direct writes).
+    # Translate it to the same 400 the validator produces instead of a 500.
+    state_guard = _state_guard_message(exc)
+    if state_guard is not None:
+        raise ValidationError(state_guard) from exc
 
     if isinstance(exc, WorkflowTransitionError):
         if exc.error_code in (EC_ROLE_NOT_ALLOWED, EC_AGENT_SELF_CONFIRM):

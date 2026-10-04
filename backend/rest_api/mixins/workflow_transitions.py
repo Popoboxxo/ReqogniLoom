@@ -18,7 +18,7 @@ share one implementation and one response contract.
 """
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Mapping
 from uuid import UUID
 
 from rest_framework import status
@@ -215,6 +215,25 @@ class WorkflowTransitionsMixin:
     #: validation for the ViewSet — used by the ViewSets that are not one of
     #: the eleven bootstrapped artifact types.
     attribute_item_type: str | None = None
+
+    def resolve_expected_version_int(
+        self, request: Request, data: Mapping[str, Any]
+    ) -> int | None:
+        """``resolve_expected_version`` + integer coercion.
+
+        The generic ``transitions/`` POST already coerces the resolved value
+        (``_coerce_expected_version``); the dedicated special-routes that go
+        through a service wrapper (``/adrs/{pk}/supersede/``,
+        ``/change-requests/{pk}/transition/``) need the same normalisation so
+        a JSON string ``"3"`` and an int ``3`` both compare correctly against
+        the engine's ``WorkflowItemState.version`` (AUD-2026-09-282).
+
+        Raises:
+            ValueError: The asserted revision is present but not an integer.
+        """
+        return _coerce_expected_version(
+            self.resolve_expected_version(request, data)
+        )
 
     def _validate_attribute_definition(
         self,

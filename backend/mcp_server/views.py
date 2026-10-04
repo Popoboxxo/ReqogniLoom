@@ -41,11 +41,13 @@ from auth_tenancy.services.authentication import AuthenticationService
 from mcp_server.protocol_handler import ERROR_CODE_MAP, ERROR_CODES, ProtocolHandler
 from mcp_server.throttling import (
     api_key_from_request,
-    check_mcp_rate_limit,
+    check_mcp_ip_rate_limit,
+    check_mcp_key_rate_limit,
     rate_limited_jsonrpc_response,
     rate_limited_plain_response,
 )
 from mcp_server.tool_registry import ToolRegistry
+from reqogniloom.version import get_app_version
 
 logger = logging.getLogger(__name__)
 
@@ -164,6 +166,38 @@ def _get_auth_service() -> AuthenticationService:
     return _auth_service
 
 
+def _credential_is_valid(api_key: str) -> bool:
+    """Return whether *api_key* authenticates, without dispatching anything.
+
+    RES-02 (findings 221 + N6): the HTTP transport authenticates inside
+    ``ProtocolHandler``, so the view cannot otherwise tell a real credential
+    from an arbitrary string before charging the per-credential throttle. This
+    pre-check is what lets the view charge that bucket only for a credential
+    that actually authenticated, instead of minting a cache key per presented
+    value. An empty credential is never valid.
+
+    The handler re-authenticates during dispatch; that single extra indexed
+    lookup is the deliberate price of authenticating *before* rate-limiting
+    rather than trusting an unverified header. Any failure is treated as
+    "not verified" — the request still reaches the handler, which produces the
+    canonical ``AUTH_FAILED`` response, so this helper never invents a second
+    error shape.
+    """
+    if not api_key:
+        return False
+    try:
+        _get_auth_service().validate_api_key(api_key)
+    except AuthenticationFailed:
+        return False
+    except Exception:
+        logger.warning(
+            "MCP credential pre-check failed; treating credential as unverified",
+            exc_info=True,
+        )
+        return False
+    return True
+
+
 def _get_handler() -> ProtocolHandler:
     """Return (or create) the shared ProtocolHandler instance."""
     global _tool_registry, _protocol_handler
@@ -266,10 +300,13 @@ class McpHttpTransportView(CorsMixin, View):
         if cookie_rejection is not None:
             return cookie_rejection
 
-        # Rate limit before anything else (SYSTEMAUDIT-2026-08-27 finding A):
-        # this is the endpoint that dispatches tools, so every request past
-        # this point may cost a DB round trip or an LLM call.
-        retry_after = check_mcp_rate_limit(request)
+        # IP backstop first (SYSTEMAUDIT-2026-08-27 finding A; RES-02).
+        # It keys only on the client IP, so running it before authentication
+        # cannot create a bucket per presented credential. The per-credential
+        # budget is charged *after* authentication, below (finding 221/N6):
+        # charging an unverified key would let a spray of random keys grow the
+        # cache without bound.
+        retry_after = check_mcp_ip_rate_limit(request)
         if retry_after is not None:
             return rate_limited_jsonrpc_response(
                 retry_after, request_id=_jsonrpc_request_id(request.body)
@@ -302,6 +339,20 @@ class McpHttpTransportView(CorsMixin, View):
                 content_type="application/json",
                 status=400,
             )
+
+        # Per-credential budget, charged only for a credential that actually
+        # authenticated (RES-02 / finding 221, N6). An invalid or absent key is
+        # therefore bounded by the per-IP backstop alone and never creates a
+        # ``throttle_mcp_key_*`` cache entry; the handler below still returns
+        # the canonical AUTH_FAILED envelope, so the response contract is
+        # unchanged.
+        api_key = api_key_from_request(request)
+        if api_key and _credential_is_valid(api_key):
+            retry_after = check_mcp_key_rate_limit(request, api_key)
+            if retry_after is not None:
+                return rate_limited_jsonrpc_response(
+                    retry_after, request_id=_jsonrpc_request_id(request.body)
+                )
 
         try:
             response_frame = handler.handle_http_request(
@@ -396,9 +447,10 @@ class McpHttpTransportView(CorsMixin, View):
             return HttpResponse(status=405)
 
         # Unauthenticated discovery endpoint — cheap per call, but there is no
-        # reason to serve it at an unbounded rate either. In practice only the
-        # per-IP backstop can fire here, since a discovery GET carries no key.
-        retry_after = check_mcp_rate_limit(request)
+        # reason to serve it at an unbounded rate either. Only the per-IP
+        # backstop applies: a discovery GET carries no key, so there is no
+        # credential to charge (RES-02).
+        retry_after = check_mcp_ip_rate_limit(request)
         if retry_after is not None:
             return rate_limited_jsonrpc_response(retry_after)
 
@@ -428,7 +480,10 @@ class McpHttpTransportView(CorsMixin, View):
                 # discovery response would violate the very rule this comment
                 # states (deep-dive review D-7a).
                 "transports": ["http", "sse"],
-                "version": "1.0.0",
+                # ADR-017: same resolver as GET /api/v1/version/ and MCP
+                # serverInfo — the discovery response must not expose a
+                # second, hardcoded server version.
+                "version": get_app_version(),
             }),
             content_type="application/json",
             status=200,
@@ -496,13 +551,12 @@ class McpMessagesView(CorsMixin, View):
         if cookie_rejection is not None:
             return cookie_rejection
 
-        # Rate limit before the Redis session lookup and before dispatch
-        # (SYSTEMAUDIT-2026-08-27 finding A). The session id is the credential
-        # on this endpoint: the API key was bound to it at the SSE handshake and
-        # is deliberately never present in this request, so it is what the
-        # per-credential bucket has to key on. A request without one still gets
-        # counted against the per-IP backstop.
-        retry_after = check_mcp_rate_limit(request, credential=session_id or "")
+        # IP backstop before the Redis session lookup and before dispatch
+        # (SYSTEMAUDIT-2026-08-27 finding A). Keyed on the client IP only, so it
+        # is safe to run before the session is authenticated and cannot create a
+        # bucket for a presented credential (RES-02). The per-credential budget
+        # is charged after the session lookup, below.
+        retry_after = check_mcp_ip_rate_limit(request)
         if retry_after is not None:
             return rate_limited_jsonrpc_response(retry_after, request_id=request_id)
 
@@ -564,6 +618,14 @@ class McpMessagesView(CorsMixin, View):
                     "retryable": True,
                 },
             )
+
+        # Per-credential budget, now that the session id has been authenticated
+        # against its server-side binding (RES-02). An unknown/expired session
+        # was rejected above, so no bucket is ever created for an unverified
+        # session id.
+        retry_after = check_mcp_key_rate_limit(request, session_id)
+        if retry_after is not None:
+            return rate_limited_jsonrpc_response(retry_after, request_id=request_id)
 
         handler = _get_handler()
         headers = _extract_django_headers(request)
@@ -725,17 +787,16 @@ class McpSseTransportView(View):
                 request, cookie_rejection, methods=self._CORS_METHODS
             )
 
-        # Rate limit BEFORE authenticating (SYSTEMAUDIT-2026-08-27 finding A).
-        # Order matters: validate_api_key() is a DB round trip, and a rejected
-        # handshake would otherwise still cost one per attempt. Throttling first
-        # is also what bounds the "open unlimited SSE sessions" DoS, since every
-        # accepted handshake allocates a Redis binding plus a held-open
-        # streaming connection. Done via sync_to_async because the cache backend
-        # is synchronous, matching how this async view already calls
+        # IP backstop BEFORE authenticating (SYSTEMAUDIT-2026-08-27 finding A;
+        # RES-02). Keyed on the client IP alone, so it may run pre-auth without
+        # creating a per-credential bucket. It bounds the "open unlimited SSE
+        # sessions" DoS — every accepted handshake allocates a Redis binding
+        # plus a held-open streaming connection — and the cost of rejected
+        # handshakes, without the RES-02 amplification of charging an
+        # unverified key. Done via sync_to_async because the cache backend is
+        # synchronous, matching how this async view already calls
         # validate_api_key / get_session_api_key.
-        retry_after = await sync_to_async(check_mcp_rate_limit)(
-            request, credential=api_key
-        )
+        retry_after = await sync_to_async(check_mcp_ip_rate_limit)(request)
         if retry_after is not None:
             return _apply_cors_headers(
                 request,
@@ -756,6 +817,17 @@ class McpSseTransportView(View):
             return _apply_cors_headers(
                 request,
                 JsonResponse({"error": "Authentication required"}, status=401),
+                methods=self._CORS_METHODS,
+            )
+
+        # Per-credential budget, charged only after the key authenticated
+        # (RES-02 / finding 221, N6). An invalid handshake key never creates a
+        # ``throttle_mcp_key_*`` cache entry.
+        retry_after = await sync_to_async(check_mcp_key_rate_limit)(request, api_key)
+        if retry_after is not None:
+            return _apply_cors_headers(
+                request,
+                rate_limited_plain_response(retry_after),
                 methods=self._CORS_METHODS,
             )
 

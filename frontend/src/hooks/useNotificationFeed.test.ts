@@ -52,9 +52,40 @@ const feedItem = {
   createdAt: "2026-09-04T10:00:00Z",
 };
 
+/**
+ * Install a deterministic in-memory `Storage` on `window`.
+ *
+ * AUD-2026-09-199 (DOC-03): under Node >=22.4 the bare `localStorage` global is
+ * an uninitialised experimental Web Storage object (`Cannot read properties of
+ * undefined (reading 'clear')`), and in this runtime it also shadows jsdom's
+ * `window.localStorage`. The hook under test does not persist anything, so a
+ * fresh, empty store per test is exactly the contract: it proves no code wrote
+ * through this seam — independent of the Node version the suite runs on. Same
+ * pattern as `useReadableIdsVisible.test.ts`.
+ */
+function installMemoryStorage(): Storage {
+  const map = new Map<string, string>();
+  const storage = {
+    get length() {
+      return map.size;
+    },
+    clear: () => map.clear(),
+    getItem: (key: string) => map.get(key) ?? null,
+    key: (index: number) => [...map.keys()][index] ?? null,
+    removeItem: (key: string) => void map.delete(key),
+    setItem: (key: string, value: string) => void map.set(key, value),
+  } as Storage;
+  Object.defineProperty(window, "localStorage", {
+    value: storage,
+    configurable: true,
+    writable: true,
+  });
+  return storage;
+}
+
 describe("useNotificationFeed", () => {
   beforeEach(() => {
-    localStorage.clear();
+    installMemoryStorage();
     vi.mocked(notificationsApi.list)
       .mockReset()
       .mockResolvedValue({ notifications: [feedItem], unreadCount: 1 });
@@ -122,8 +153,8 @@ describe("useNotificationFeed", () => {
     await waitFor(() => expect(result.current.status).toBe("success"));
     expect(result.current.unreadCount).toBe(1);
 
-    expect(localStorage.length).toBe(0);
-    expect(localStorage.getItem("reqflow-interview-widget-open")).toBeNull();
+    expect(window.localStorage.length).toBe(0);
+    expect(window.localStorage.getItem("reqflow-interview-widget-open")).toBeNull();
   });
 
   it("re-reads the preference on every mount, so an opt-out takes effect at once", async () => {

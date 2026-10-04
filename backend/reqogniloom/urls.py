@@ -19,13 +19,26 @@ from drf_spectacular.views import (
     SpectacularSwaggerView,
 )
 
-from reqogniloom.health import HealthView
+from reqogniloom.health import (
+    HealthAliasView,
+    HealthLivenessView,
+    HealthReadinessView,
+)
 from reqogniloom.version import VersionView
 from rest_api.not_found import api_not_found
 
 urlpatterns = [
-    # Health check endpoint (REQ-063) — for container readiness probes
-    path("health/", HealthView.as_view(), name="health"),
+    # Health contract (ADR-010, REQ-060/REQ-063). Explicitly both the trailing
+    # and non-trailing forms: a 301 redirect (Django's APPEND_SLASH) would let
+    # `curl -f` read a probe as green, so the probes must answer directly.
+    # /health/live  — liveness, always 200, no dependency probe.
+    path("health/live", HealthLivenessView.as_view(), name="health-live"),
+    path("health/live/", HealthLivenessView.as_view(), name="health-live-slash"),
+    # /health/ready — fail-closed readiness (503 on a mandatory dependency).
+    path("health/ready", HealthReadinessView.as_view(), name="health-ready"),
+    path("health/ready/", HealthReadinessView.as_view(), name="health-ready-slash"),
+    # /health/ — deprecated alias for /health/ready (ADR-010 §3).
+    path("health/", HealthAliasView.as_view(), name="health"),
     # Deployed build/version metadata — public, precedes the rest_api include
     # so it can never be shadowed by a future "version/" route there.
     path("api/v1/version/", VersionView.as_view(), name="version"),

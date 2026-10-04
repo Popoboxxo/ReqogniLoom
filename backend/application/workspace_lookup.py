@@ -106,6 +106,15 @@ ENTITY_SPECS: Dict[str, EntityWorkspaceSpec] = {
     # A Global-scope BaselineSnapshot has workspace_id NULL; that resolves to
     # None and correctly falls through to the caller's unscoped path.
     "baseline": EntityWorkspaceSpec("baseline.models.BaselineSnapshot"),
+    # A TraceLink connects two artifacts and carries no workspace column of its
+    # own (ADR-011 called the ownership "resolved by the link service"). For the
+    # REST fence the source artifact's workspace is the authoritative end: a
+    # caller must hold a role there to reach the link by id. Cross-workspace
+    # links therefore stay guarded by the workspace that owns their source.
+    "trace_link": EntityWorkspaceSpec(
+        "persistence.models.TraceLink",
+        workspace_field="source__workspace_id",
+    ),
 }
 
 

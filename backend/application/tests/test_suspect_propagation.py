@@ -284,12 +284,19 @@ def test_only_the_link_that_flagged_is_stamped(env):
 @pytest.mark.django_db
 def test_the_changed_artifact_is_never_flagged_itself(env):
     req = env["requirement"]()
-    _link(env, req, req, "derives-from")
+    derived = env["requirement"]("derived")
+    # DATA-05's ``ck_tracelink_no_self_link`` forbids a self-link, so exercise
+    # the rule through a real edge: ``derived`` derives-from ``req`` (req is the
+    # changed target). Propagation flags the source, never the changed artifact
+    # itself.
+    _link(env, derived, req, "derives-from")
 
     TraceLinkService().propagate_suspect_status(req.artifact_id, env["ctx"])
 
     req.refresh_from_db()
+    derived.refresh_from_db()
     assert req.suspect is False
+    assert derived.suspect is True
 
 
 @pytest.mark.django_db

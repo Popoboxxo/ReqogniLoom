@@ -321,8 +321,11 @@ def resolve_scope_item_ids(
 
     Scope semantics (REQ-L2-BL-001):
       document — the root Artifact + all descendants reachable via
-                 ``pl_artifact.parent_id`` OR via ``derives-from``/``refines``
-                 TraceLinks (``artifact_id`` is required)
+                 ``pl_artifact.parent_id`` OR via ``derives-from`` TraceLinks
+                 (``artifact_id`` is required). ``refines`` is a live built-in
+                 but is deliberately not followed here: whether it is a
+                 hierarchy edge is an open decision (ADR candidate vi), see
+                 ``traceability/audit/hierarchy.py``.
       project  — all Artifacts in the Workspace
       global   — all Artifacts in the Tenant (``workspace_id`` is ignored for
                  the filter, but is still required for upstream permission

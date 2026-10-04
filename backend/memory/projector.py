@@ -105,7 +105,12 @@ from __future__ import annotations
 import logging
 from uuid import UUID
 
-from application.event_bus import DomainEvent, get_event_bus
+from application.event_bus import (
+    DomainEvent,
+    get_event_bus,
+    mark_subscriber_processed,
+    subscriber_already_processed,
+)
 from application.models import DomainEventOutbox
 from memory.backends import _tenant_context
 from memory.tasks import consolidate_interaction_task
@@ -117,12 +122,33 @@ _RELEVANT_EVENT_TYPES = {
     DomainEventOutbox.EventType.INTERVIEW_FORMALIZED,
 }
 
+#: Namespace for this subscriber's ``event_id`` dedup window (ADR-014 §4,
+#: DATA-09 / finding N3). The outbox is at-least-once, so a reclaimed delivery
+#: can invoke :meth:`MemoryProjector.handle_event` twice for the same event;
+#: the marker turns the second delivery into a no-op.
+_SUBSCRIBER_DEDUP_NAMESPACE = "memory-projector"
+
 
 class MemoryProjector:
     """Filters domain events down to interview activity worth consolidating."""
 
     def handle_event(self, event: DomainEvent) -> None:
         if event.event_type not in _RELEVANT_EVENT_TYPES:
+            return
+
+        # ADR-014 §4 / DATA-09: the outbox is at-least-once, so a worker crash
+        # after this event was dispatched but before the outbox row was marked
+        # published redelivers it (same event_id). Enqueuing the consolidation
+        # task twice would run the LLM extraction twice and could write
+        # duplicate facts, so a delivery whose marker already exists is a
+        # no-op. The marker is written *after* the enqueue succeeds (below): a
+        # crash before the enqueue leaves no marker, so the redelivery still
+        # runs.
+        if subscriber_already_processed(_SUBSCRIBER_DEDUP_NAMESPACE, event.event_id):
+            logger.info(
+                "MemoryProjector: skipping already-processed event %s (outbox dedup)",
+                event.event_id,
+            )
             return
 
         payload = event.payload or {}
@@ -187,6 +213,10 @@ class MemoryProjector:
             artifact_id=self._resolve_artifact_id(payload),
             entity_type=self._resolve_entity_type(payload),
         )
+        # Record the receipt only after the enqueue succeeded (ADR-014 §4:
+        # exactly one effect per event_id, while a crash before this line
+        # still allows the redelivery to run).
+        mark_subscriber_processed(_SUBSCRIBER_DEDUP_NAMESPACE, event.event_id)
 
     # ------------------------------------------------------------------
     # Artifact context (RFC #1002 PR C): the emitting chat turn stamps the

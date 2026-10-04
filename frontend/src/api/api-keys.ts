@@ -9,8 +9,8 @@
  * exactly ONCE on create and can never be retrieved again.
  */
 
-import { apiClient } from "./client";
-import type { UUID } from "../types";
+import { apiClient, asList } from "./client";
+import type { PaginatedResponse, UUID } from "../types";
 
 export interface ApiKeyMetadata {
   id: UUID;
@@ -29,9 +29,20 @@ export interface ApiKeyCreateResult {
 }
 
 export const apiKeysApi = {
-  /** GET /api/v1/api-keys/ — metadata-only listing of the caller's keys. */
+  /**
+   * GET /api/v1/api-keys/ — metadata-only listing of the caller's keys.
+   *
+   * INT-05 (AUD-2026-09-074): the endpoint now paginates, so the body is the
+   * standard `{count, next, ..., results}` envelope. The request asks for the
+   * ceiling (`page_size=100`) because the settings panel renders the full key
+   * list and the number of keys a user holds is small; `asList` keeps the
+   * wrapper working during the deprecation window if an older backend still
+   * answers with a bare array.
+   */
   list(): Promise<ApiKeyMetadata[]> {
-    return apiClient.get<ApiKeyMetadata[]>("/api-keys/");
+    return apiClient
+      .get<PaginatedResponse<ApiKeyMetadata> | ApiKeyMetadata[]>("/api-keys/?page_size=100")
+      .then(asList<ApiKeyMetadata>);
   },
 
   /** POST /api/v1/api-keys/ — create a key; plaintext returned once. */

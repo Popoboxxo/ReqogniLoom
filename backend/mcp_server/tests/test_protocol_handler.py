@@ -21,6 +21,9 @@ from unittest.mock import MagicMock
 
 
 from mcp_server.protocol_handler import (
+    ERROR_CODE_MAP,
+    ERROR_CODES,
+    _PROTOCOL_ERROR_CODES,
     ErrorFormatter,
     HttpTransportAdapter,
     JsonRpcValidator,
@@ -29,6 +32,7 @@ from mcp_server.protocol_handler import (
     StdioTransportAdapter,
     ToolResult,
 )
+from reqogniloom.version import get_app_version
 
 
 # ---------------------------------------------------------------------------
@@ -98,6 +102,41 @@ class TestErrorFormatter:
         assert frame["jsonrpc"] == "2.0"
         assert frame["id"] == 7
         assert frame["result"] == {"data": "ok"}
+
+    def test_format_error_llm_capability_disabled_maps_to_defined_code(self):
+        """#1148: a gated capability must not collapse into -32603."""
+        body = ErrorFormatter.format_error("LLM_CAPABILITY_DISABLED")
+        assert body["code"] == ERROR_CODE_MAP["LLM_CAPABILITY_DISABLED"]
+        assert body["code"] == -32012
+        assert body["code"] != -32603  # Internal error is never the answer here
+        assert isinstance(body["code"], int)
+        # Human-readable, not the bare code echoed back.
+        assert body["message"] == ERROR_CODES["LLM_CAPABILITY_DISABLED"]
+        assert body["message"] != "LLM_CAPABILITY_DISABLED"
+
+
+class TestLlmCapabilityDisabledRegistration:
+    """#1148 — LLM_CAPABILITY_DISABLED is registered as a distinct code.
+
+    Mirrors LLM_NOT_CONFIGURED: a tool-execution error, not a protocol error,
+    so on ``tools/call`` it surfaces as ``result.isError`` (string code) and only
+    the direct-method dispatch path exposes the numeric JSON-RPC code.
+    """
+
+    def test_code_is_registered_in_both_vocabularies(self):
+        assert "LLM_CAPABILITY_DISABLED" in ERROR_CODES
+        assert ERROR_CODES["LLM_CAPABILITY_DISABLED"].strip()
+        assert ERROR_CODE_MAP["LLM_CAPABILITY_DISABLED"] == -32012
+        assert ERROR_CODE_MAP["LLM_CAPABILITY_DISABLED"] != ERROR_CODE_MAP[
+            "INTERNAL_ERROR"
+        ]
+        # Distinct from the sibling "no provider configured" code.
+        assert ERROR_CODE_MAP["LLM_CAPABILITY_DISABLED"] != ERROR_CODE_MAP[
+            "LLM_NOT_CONFIGURED"
+        ]
+
+    def test_code_is_a_tool_execution_error_not_a_protocol_error(self):
+        assert "LLM_CAPABILITY_DISABLED" not in _PROTOCOL_ERROR_CODES
 
 
 # ---------------------------------------------------------------------------
@@ -360,6 +399,39 @@ class TestProtocolHandler:
         assert sensitive_detail in caplog.text
 
 
+class TestInitializeServerInfo:
+    """``initialize`` advertises the real server version (ADR-017).
+
+    ``initialize`` is a lifecycle method handled before API-key validation, so
+    these calls deliberately pass no headers/key.
+    """
+
+    @staticmethod
+    def _init_body(request_id: int = 1) -> bytes:
+        return json.dumps(
+            {"jsonrpc": "2.0", "method": "initialize", "id": request_id, "params": {}}
+        ).encode()
+
+    def test_initialize_version_matches_the_app_version(self):
+        handler = ProtocolHandler(tool_registry=MagicMock())
+        response = handler.handle_http_request(body=self._init_body())
+        assert response["id"] == 1
+        assert response["result"]["serverInfo"]["version"] == get_app_version()
+
+    def test_initialize_version_follows_the_app_version_stamp(self, monkeypatch):
+        monkeypatch.setenv("APP_VERSION", "9.9.9")
+        handler = ProtocolHandler(tool_registry=MagicMock())
+        response = handler.handle_http_request(body=self._init_body(request_id=2))
+        assert response["result"]["serverInfo"]["version"] == "9.9.9"
+
+    def test_initialize_needs_no_api_key(self):
+        """The version assertions above are only meaningful because
+        ``initialize`` never requires a key (it is handled pre-auth)."""
+        handler = ProtocolHandler(tool_registry=MagicMock())
+        response = handler.handle_http_request(body=self._init_body())
+        assert "error" not in response
+
+
 def _make_tools_call_body(
     tool_name: str, arguments: dict = None, request_id: int = 1
 ) -> bytes:
@@ -435,3 +507,32 @@ class TestToolsCallIsError:
         response = handler.handle_http_request(body=body, headers=_AUTH_HEADERS)
         assert "result" not in response
         assert response["error"]["code"] == -32004  # NOT_FOUND
+
+    def test_llm_capability_disabled_is_iserror_result_under_tools_call(self):
+        # #1148: gated capability is a tool-execution error → isError result,
+        # carrying the string code so a client can branch on it.
+        registry = _make_registry_mock(
+            ToolResult.error("LLM_CAPABILITY_DISABLED")
+        )
+        handler = ProtocolHandler(tool_registry=registry)
+        body = _make_tools_call_body("requirement.decompose", {}, request_id=12)
+        response = handler.handle_http_request(body=body, headers=_AUTH_HEADERS)
+        assert "error" not in response
+        assert response["result"]["isError"] is True
+        text = response["result"]["content"][0]["text"]
+        assert text.startswith("Error: ")
+        # Human-readable message, not the bare code echoed back.
+        assert ERROR_CODES["LLM_CAPABILITY_DISABLED"] in text
+
+    def test_llm_capability_disabled_direct_dispatch_maps_to_defined_code(self):
+        # On the direct-method path the code must resolve to -32012, not -32603.
+        registry = _make_registry_mock(
+            ToolResult.error("LLM_CAPABILITY_DISABLED")
+        )
+        handler = ProtocolHandler(tool_registry=registry)
+        body = _make_valid_body("requirement.decompose", request_id=13)
+        response = handler.handle_http_request(body=body, headers=_AUTH_HEADERS)
+        assert "result" not in response
+        assert response["error"]["code"] == -32012
+        assert response["error"]["code"] != -32603
+        assert response["error"]["message"] == ERROR_CODES["LLM_CAPABILITY_DISABLED"]

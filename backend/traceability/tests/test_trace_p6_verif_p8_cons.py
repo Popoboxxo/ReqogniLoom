@@ -49,7 +49,13 @@ def _workflow_definition(tenant, workspace, item_type):
         item_type=item_type,
         defaults={
             "preset": "standard",
-            "workflow_json": {"states": ["draft", "approved"], "transitions": []},
+            # "outdated" is declared so the soft-delete fixtures below can park
+            # a TestCase on the universal outdated state; the DATA-06 trigger
+            # only accepts a definition's own declared states.
+            "workflow_json": {
+                "states": ["draft", "approved", "outdated"],
+                "transitions": [],
+            },
         },
     )[0]
 
