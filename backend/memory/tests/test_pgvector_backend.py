@@ -1,6 +1,6 @@
 import pytest
 
-from memory.backends import PgvectorMemoryBackend, get_memory_backend
+from memory.backends import MemoryAnswer, PgvectorMemoryBackend, get_memory_backend
 from memory.honcho_backend import HonchoMemoryBackend
 from persistence.tests.factories import active_tenant, make_user, make_workspace
 
@@ -56,6 +56,21 @@ class TestPgvectorMemoryBackend:
             backend.upsert(tenant.id, "workspace", ws.id, "Second fact.")
             results = backend.list_recent(tenant.id, "workspace", ws.id, limit=10)
             assert [r.content for r in results] == ["Second fact.", "First fact."]
+
+    def test_ask_degrades_without_a_dialectic_engine(self, monkeypatch):
+        """REQ-192: pgvector has no generative surface, so ``ask`` degrades
+        (``degraded=True``) instead of pretending an empty answer is real."""
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        backend = get_memory_backend()
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            backend.upsert(tenant.id, "workspace", ws.id, "Team prefers REST.")
+            answer = backend.ask(tenant.id, "workspace", ws.id, "What does the team prefer?")
+
+            assert isinstance(answer, MemoryAnswer)
+            assert answer.backend == "pgvector"
+            assert answer.degraded is True
+            assert answer.text == ""
 
 
 @pytest.mark.django_db

@@ -20,6 +20,12 @@ active backend's own digest, so the rich engine-side artefact (e.g. Honcho's
 peer representation) is what the caller receives instead of a fact dump the
 service would have to summarise itself. It is a read and therefore subject to
 exactly the same authorisation check as :meth:`list`/:meth:`search`.
+
+``ask()`` (natural-language access) is the generative sibling of the digest: it
+delegates to the active backend's ``ask`` (on Honcho, the engine's dialectic
+surface) so a caller can ask a question in prose instead of rendering facts.
+It resolves scope and authorisation exactly like ``digest`` and degrades on a
+backend without a dialectic engine.
 """
 from __future__ import annotations
 
@@ -27,9 +33,11 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 from uuid import UUID
 
 from memory.backends import (
+    MemoryAnswer,
     MemoryDigest,
     MemoryEntryId,
     MemoryEntryRef,
+    VALID_REASONING_LEVELS,
     _maybe_uuid,
     _tenant_context,
     get_memory_backend,
@@ -62,6 +70,13 @@ CONTRIBUTOR_SCAN_LIMIT = 500
 #: Scopes a caller may name. Kept next to the service so a typo fails with a
 #: clear ValidationError before any backend call.
 VALID_SCOPES = ("user", "workspace", "artifact")
+
+#: Upper bound on :meth:`MemoryEntryService.ask`'s ``query``. Honcho rejects a
+#: query longer than 10000 characters with HTTP 422; without this check that
+#: rejection collapses into the same ``degraded=True`` as an outage, which is
+#: indistinguishable to the caller. Validated here so an over-long question is
+#: a clear ``ValidationError`` instead.
+MAX_ASK_QUERY_CHARS = 10000
 
 
 def _as_uuid(value: Any) -> Optional[UUID]:
@@ -413,18 +428,9 @@ class MemoryEntryService(ServiceBase):
         backend rather than raising, and ``service.health()``/:func:`envelope`
         keep describing the *backend* status, which is a different question.
         """
-        if artifact_id is not None:
-            scope = MemoryEntry.SCOPE_ARTIFACT
-            scope_id = _as_uuid(artifact_id)
-            resolved_workspace_id = None
-            resolved_artifact_id = scope_id
-        else:
-            scope = MemoryEntry.SCOPE_WORKSPACE
-            scope_id = _as_uuid(workspace_id)
-            resolved_workspace_id = scope_id
-            resolved_artifact_id = None
-        if scope_id is None:
-            raise ValidationError(f"Invalid id for scope={scope!r}")
+        scope, scope_id, resolved_workspace_id, resolved_artifact_id = (
+            self._resolve_read_scope(workspace_id, artifact_id)
+        )
 
         with _tenant_context(ctx.tenant_id):
             self._assert_can_read_scope(
@@ -434,6 +440,71 @@ class MemoryEntryService(ServiceBase):
                 artifact_id=resolved_artifact_id,
             )
             return get_memory_backend().digest(ctx.tenant_id, scope, scope_id)
+
+    def ask(
+        self,
+        ctx: Any,
+        *,
+        query: str,
+        workspace_id: Any,
+        artifact_id: Any = None,
+        reasoning_level: Optional[str] = None,
+    ) -> MemoryAnswer:
+        """Answer a natural-language ``query`` from one scope's memory.
+
+        The generative counterpart of :meth:`search`: instead of returning
+        similar entries it delegates to the active backend's
+        :meth:`~memory.backends.MemoryBackend.ask`, so on Honcho the engine's
+        dialectic surface answers the question directly. On a backend without a
+        dialectic engine (pgvector) the backend degrades
+        (``degraded=True``).
+
+        Scope resolution and authorisation are identical to :meth:`digest` --
+        ``artifact_id`` given ⇒ the artifact scope (its owning workspace
+        resolved by the policy), else the workspace scope. An answer exposes
+        the same facts ``list``/``search`` would, so it is gated by the same
+        read matrix, and the scope check runs *before* the backend call so a
+        denied caller never triggers an external request.
+
+        ``query`` must not be blank and must be at most
+        :data:`MAX_ASK_QUERY_CHARS` characters (Honcho's own request bound),
+        and ``reasoning_level`` (when given) must be one of
+        :data:`~memory.backends.VALID_REASONING_LEVELS`; both are rejected with
+        a :class:`~persistence.errors.ValidationError` before any backend call.
+        The returned :class:`~memory.backends.MemoryAnswer` carries its own
+        ``degraded`` flag (never raises).
+        """
+        query = (query or "").strip()
+        if not query:
+            raise ValidationError("query must not be empty")
+        if len(query) > MAX_ASK_QUERY_CHARS:
+            raise ValidationError(
+                f"query must be at most {MAX_ASK_QUERY_CHARS} characters"
+            )
+        if reasoning_level is not None and reasoning_level not in VALID_REASONING_LEVELS:
+            raise ValidationError(
+                f"Unknown reasoning_level: {reasoning_level!r} "
+                f"(expected one of {VALID_REASONING_LEVELS})"
+            )
+
+        scope, scope_id, resolved_workspace_id, resolved_artifact_id = (
+            self._resolve_read_scope(workspace_id, artifact_id)
+        )
+
+        with _tenant_context(ctx.tenant_id):
+            self._assert_can_read_scope(
+                ctx,
+                scope,
+                workspace_id=resolved_workspace_id,
+                artifact_id=resolved_artifact_id,
+            )
+            return get_memory_backend().ask(
+                ctx.tenant_id,
+                scope,
+                scope_id,
+                query,
+                reasoning_level=reasoning_level,
+            )
 
     # ------------------------------------------------------------------
     # Internals — scope + permission plumbing
@@ -507,6 +578,34 @@ class MemoryEntryService(ServiceBase):
         if resolved is None:
             raise ValidationError(f"Invalid id for scope={scope!r}")
         return resolved
+
+    @staticmethod
+    def _resolve_read_scope(
+        workspace_id: Any, artifact_id: Any
+    ) -> Tuple[str, UUID, Optional[UUID], Optional[UUID]]:
+        """Resolve the ``(scope, scope_id, workspace_id, artifact_id)`` for a read.
+
+        ``artifact_id`` given ⇒ the ``artifact`` scope, with that artifact as the
+        scope id and its owning workspace resolved later by the policy;
+        otherwise the ``workspace`` scope with ``workspace_id``. A non-UUID id
+        for the selected scope is a :class:`~persistence.errors.ValidationError`.
+
+        Shared by :meth:`digest` and :meth:`ask` so the two reads cannot drift in
+        how they map arguments onto a scope.
+        """
+        if artifact_id is not None:
+            scope = MemoryEntry.SCOPE_ARTIFACT
+            scope_id = _as_uuid(artifact_id)
+            resolved_workspace_id = None
+            resolved_artifact_id = scope_id
+        else:
+            scope = MemoryEntry.SCOPE_WORKSPACE
+            scope_id = _as_uuid(workspace_id)
+            resolved_workspace_id = scope_id
+            resolved_artifact_id = None
+        if scope_id is None:
+            raise ValidationError(f"Invalid id for scope={scope!r}")
+        return scope, scope_id, resolved_workspace_id, resolved_artifact_id
 
     @staticmethod
     def _assert_can_read_scope(
@@ -709,5 +808,6 @@ __all__ = [
     "MAX_PAGE_SIZE",
     "DEFAULT_PAGE_SIZE",
     "CONTRIBUTOR_SCAN_LIMIT",
+    "MAX_ASK_QUERY_CHARS",
     "VALID_SCOPES",
 ]

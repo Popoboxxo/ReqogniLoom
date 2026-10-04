@@ -337,6 +337,12 @@ _WRITE_TOOL_PREFIXES: Tuple[str, ...] = (
     # ai_derivation.*) is deliberately write-gated so a Viewer-role API key
     # cannot drive LLM spend -- interview.grounding_context must be too.
     "interview.grounding_context",
+    # REQ-192 / #1154: memory.ask delegates to a generative LLM call
+    # (Honcho ``peer.chat``), so it belongs to the same LLM-spend class as
+    # interview.grounding_context above. It is deliberately NOT in
+    # _READ_ONLY_TOOL_NAMES: a read_only key must not be able to drive LLM
+    # spend just because the tool's name reads like a query.
+    "memory.ask",
     # Issue #540: interview.set_target writes InterviewSession.target_artifact_id
     # -- gated the same way as interview.start/answer/formalize above.
     "interview.set_target",
@@ -477,6 +483,12 @@ _READ_ONLY_TOOL_NAMES: frozenset[str] = frozenset(
         # RFC #1002 PR B adds memory.get as a plain read.
         # RFC #1002 F6 adds memory.digest: the consolidated read of one scope
         # over MemoryBackend.digest -- same read-only class as memory.list.
+        # REQ-192 / #1154 adds memory.ask. It is NOT listed here: although it
+        # reads no local table, it invokes a generative LLM call
+        # (Honcho ``peer.chat``), so it is deliberately WRITE-gated for the
+        # same LLM-spend reason as interview.grounding_context (see
+        # _WRITE_TOOL_PREFIXES above) -- a read_only/Viewer key must not be
+        # able to drive spend.
         "memory.query",
         "memory.list",
         "memory.get",

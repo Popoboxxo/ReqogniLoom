@@ -23,9 +23,9 @@ generated OpenAPI at `GET /api/schema/` and `/api/schema/swagger-ui/`
 
 | Figure | Value |
 |--------|-------|
-| Tools | **219** |
+| Tools | **220** |
 | Tool-group prefixes | **35** |
-| Version | `v1.8.0-beta.18` (`VERSION`, `1.8.0-beta.18`) — die Tool-Oberfläche ist seit der Messung unten unverändert; W1–W4 (PR #1111) haben kein Tool, keine Gruppe und keinen `inputSchema` angefasst |
+| Version | `v1.8.0-beta.18` (`VERSION`, `1.8.0-beta.18`) — `memory.ask` (REQ-192, [#1154](https://github.com/Popoboxxo/ReqogniLoom/issues/1154)) is the first tool-surface change since the beta.16 measurement below |
 | Measured at | `98b1c9a8` on `fix/beta16-qa-sweep` — i.e. the `v1.8.0-beta.16` tag commit `9eb2fc58` plus [#1080](https://github.com/Popoboxxo/ReqogniLoom/issues/1080) (`65c732b4`, adds `test.run_list`) |
 | Source of truth | `docs/agent-templates/tool-manifest.json`, `tool_count` field |
 
@@ -38,7 +38,8 @@ stale copy:
 | 212 / 35 | beta.13 documentation | wrong, never re-measured |
 | 215 | a docs PR that copied the previous figure instead of measuring | wrong |
 | 218 / 35 | measured on `v1.8.0-beta.16` @ `9eb2fc58` ([#1080](https://github.com/Popoboxxo/ReqogniLoom/issues/1080)) | correct for that commit |
-| **219 / 35** | after `test.run_list` ([#1080](https://github.com/Popoboxxo/ReqogniLoom/issues/1080)) | **current** |
+| 219 / 35 | after `test.run_list` ([#1080](https://github.com/Popoboxxo/ReqogniLoom/issues/1080)) | correct until `memory.ask` |
+| **220 / 35** | after `memory.ask` (REQ-192, [#1154](https://github.com/Popoboxxo/ReqogniLoom/issues/1154)) | **current** |
 
 ### How to re-derive the number
 
@@ -87,7 +88,7 @@ document cannot silently rot:
 | Guard | What it pins |
 |-------|--------------|
 | `backend/mcp_server/tests/test_tool_manifest_drift.py` | committed manifest ↔ live registry, field by field (`is_write`, `prefix`, `description`, `inputSchema`, `tool_count`) |
-| `backend/mcp_server/tests/test_entity_surface_parity.py` | the 219/35 figure, and that every REST-exposed entity is readable over MCP |
+| `backend/mcp_server/tests/test_entity_surface_parity.py` | the 220/35 figure, and that every REST-exposed entity is readable over MCP |
 | `backend/mcp_server/tests/test_export_tool_manifest.py` | the manifest's own shape invariants |
 
 If you add or remove a tool, run all three; if the count moves, update the
@@ -97,7 +98,7 @@ table in §1 and §2 **in the same change**, with the new version and commit.
 
 ## 2. Tool groups
 
-35 prefixes, 219 tools. Tools are called as `<prefix>.<tool_name>`.
+35 prefixes, 220 tools. Tools are called as `<prefix>.<tool_name>`.
 
 | Group | Tools | Names |
 |-------|------:|-------|
@@ -123,7 +124,7 @@ table in §1 and §2 **in the same change**, with the new version and commit.
 | `issue` | 7 | `issue.create`, `issue.delete`, `issue.outdate`, `issue.query`, `issue.read`, `issue.reactivate`, `issue.update` |
 | `link_type` | 5 | `link_type.create`, `link_type.get`, `link_type.list`, `link_type.reset`, `link_type.update` |
 | `main_goal` | 5 | `main_goal.approve`, `main_goal.create_manual`, `main_goal.generate`, `main_goal.list_versions`, `main_goal.read` |
-| `memory` | 6 | `memory.digest`, `memory.forget`, `memory.get`, `memory.list`, `memory.query`, `memory.write` |
+| `memory` | 7 | `memory.ask`, `memory.digest`, `memory.forget`, `memory.get`, `memory.list`, `memory.query`, `memory.write` |
 | `needs` | 8 | `needs.create`, `needs.derive_requirements`, `needs.get_traces`, `needs.outdate`, `needs.query`, `needs.read`, `needs.reactivate`, `needs.update` |
 | `permissions` | 4 | `permissions.check`, `permissions.list`, `permissions.revoke`, `permissions.set_rule` |
 | `prompt_template` | 4 | `prompt_template.create`, `prompt_template.get`, `prompt_template.list`, `prompt_template.update` |
@@ -183,6 +184,7 @@ it.
 
 | Tool | Class | Purpose |
 |------|-------|---------|
+| `memory.ask` | write (LLM) | Natural-language question answered from one scope's memory |
 | `memory.digest` | read | Consolidated digest of one scope |
 | `memory.forget` | write | Delete a memory entry (ownership/admin-gated) |
 | `memory.get` | read | One entry by id |
@@ -194,6 +196,22 @@ it.
 `workspace` / `user` / `artifact`), `workspace_id`, `artifact_id`,
 `confidence` (default `1.0`), `change_reason`. Scope `artifact` without an
 `artifact_id` is rejected rather than silently landing in the workspace scope.
+
+`memory.ask` ([#1154](https://github.com/Popoboxxo/ReqogniLoom/issues/1154),
+REQ-192) parameters: `query` (required; at most 10000 characters), `workspace_id`
+(required; also the scope id when no artifact is named), `artifact_id`
+(optional; narrows the question to that artifact's scope), `reasoning_level`
+(optional; one of
+`minimal` / `low` / `medium` / `high` / `max`). It delegates to the active
+backend's dialectic surface (`MemoryBackend.ask`): on Honcho the question is
+answered through `peer.chat`, scoped to the scope's session; on `pgvector`,
+which has no generative engine, the answer is a defined degradation
+(`degraded: true`, empty `answer`) rather than an error or an HTTP 500. The
+response mirrors the digest shape plus a degradation hint: `answer`,
+`generated_at`, `backend`, `degraded`, `detail`. Like the digest it is
+RBAC-gated by the same read matrix and never raises — but unlike the digest it
+is **write-gated**: it invokes a generative LLM call, so a read-only/Viewer key
+must not be able to drive LLM spend (same rule as `interview.grounding_context`).
 
 Writes are rate-limited per `(tenant, user)` via
 `MEMORY_WRITE_RATE_LIMIT_PER_HOUR` (default `60`; `0` = unlimited). The active

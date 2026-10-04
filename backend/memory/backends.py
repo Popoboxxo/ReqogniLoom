@@ -24,7 +24,8 @@ Two generations of methods coexist on :class:`MemoryBackend`:
 * the canonical-store API introduced by RFC #1002 -- :meth:`MemoryBackend.
   write`, :meth:`MemoryBackend.list_entries`, :meth:`MemoryBackend.count`,
   :meth:`MemoryBackend.delete_entry`, :meth:`MemoryBackend.delete_scope`,
-  :meth:`MemoryBackend.health`, :meth:`MemoryBackend.digest`.
+  :meth:`MemoryBackend.health`, :meth:`MemoryBackend.digest`, and (REQ-192)
+  the generative :meth:`MemoryBackend.ask`.
 
 Both are abstract so every backend implements the full surface (the old ones
 typically delegate to the new ones); that keeps every existing caller
@@ -105,6 +106,14 @@ MemoryEntryId = Union[UUID, str]
 #: ``_scope_filter`` validate against one vocabulary instead of three
 #: hand-maintained copies.
 VALID_MEMORY_SCOPES = ("user", "workspace", "artifact")
+
+#: Reasoning levels :meth:`MemoryBackend.ask` accepts, mirroring the exact
+#: vocabulary of ``honcho-ai==2.5.1``'s ``peer.chat(reasoning_level=...)`` (a
+#: ``Literal["minimal", "low", "medium", "high", "max"]``). Kept here so the
+#: service and the MCP schema validate against one list rather than each
+#: re-declaring it; ``None`` (the default) means "let the backend decide",
+#: which for Honcho is the SDK's own ``"low"`` default.
+VALID_REASONING_LEVELS = ("minimal", "low", "medium", "high", "max")
 
 #: Upper bound on how many live facts a digest renders (RFC #1002 F6).
 #: A digest is prompt-sized context, not an export: an unbounded rendering would
@@ -233,8 +242,55 @@ class MemoryDigest:
     degraded: bool = False
 
 
+@dataclass
+class MemoryAnswer:
+    """Natural-language answer to a question against one scope's memory.
+
+    Where :class:`MemoryDigest` answers "what does this scope remember right
+    now?" by rendering facts, an answer answers a *caller's actual question*
+    ("what did the team decide about auth?") using a backend's generative
+    dialectic surface. On Honcho that is ``peer.chat()``: the engine reasons
+    over the peer representation (and, when a session is given, the
+    observations recorded in it) instead of returning a raw fact dump.
+
+    The field contract is deliberately identical to :class:`MemoryDigest` so a
+    caller that already handles a digest handles an answer without a second
+    code path:
+
+    * ``text`` is the answer body. Unlike a digest it is ENGINE-GENERATED, so
+      it is not guaranteed to be byte-deterministic for identical state -- only
+      a dialectic backend can produce it at all.
+    * ``generated_at`` is when the answer was produced; ``backend`` names the
+      engine that produced it (``pgvector``/``honcho``/...).
+    * ``degraded`` is the field a caller MUST inspect before trusting ``text``
+      -- it follows :class:`MemoryHealth`'s rule. ``False`` means the backend
+      answered; ``True`` means it could not (no dialectic surface on this
+      backend, unreachable engine, unknown scope) and ``text`` is empty or a
+      best-effort rendering. :meth:`MemoryBackend.ask` never raises -- a
+      failing backend always degrades into this flag instead, exactly like
+      :meth:`MemoryBackend.digest`.
+    * ``detail`` is an optional, non-user-data diagnosis of a degraded answer
+      (e.g. the exception class name), so "the engine is down" is
+      distinguishable from "asked, nothing known" without the caller having to
+      parse logs. Empty on a successful answer; never carries memory content.
+    """
+
+    text: str
+    generated_at: datetime
+    backend: str
+    degraded: bool = False
+    detail: str = ""
+
+
 class MemoryBackend(ABC):
     """Provider-agnostic read/write facade for consolidated memory facts."""
+
+    #: Whether this backend can actually answer a natural-language question
+    #: via :meth:`ask`. ``True`` by default (the method is abstract, so every
+    #: backend implements it); a backend without a generative/dialectic engine
+    #: (``pgvector``) sets it ``False`` so ``memory.health.ask_available()``
+    #: can advertise the capability without invoking ``ask``.
+    ask_available: bool = True
 
     # -- canonical-store API (RFC #1002) ---------------------------------
 
@@ -324,6 +380,41 @@ class MemoryBackend(ABC):
           distinguishable from "the backend is down";
         * ``text`` is deterministic for identical state (see
           :class:`MemoryDigest`).
+        """
+        ...
+
+    @abstractmethod
+    def ask(
+        self,
+        tenant_id: UUID,
+        scope: str,
+        scope_id: UUID,
+        query: str,
+        *,
+        reasoning_level: Optional[str] = None,
+    ) -> MemoryAnswer:
+        """Answer ``query`` from ``scope``'s memory in natural language.
+
+        The read-side counterpart of :meth:`query` that uses a backend's
+        *generative* surface instead of returning matching entries: on Honcho,
+        ``peer.chat(query, session=<scope session>, reasoning_level=...)``
+        reasons over the peer representation (scoped to the scope's session)
+        rather than echoing facts. A backend without a dialectic engine degrades
+        (see below).
+
+        ``reasoning_level`` (``None`` = backend default) selects how much
+        reasoning the engine spends; it must be one of
+        :data:`VALID_REASONING_LEVELS` when given.
+
+        Contract, identical for every backend:
+
+        * never raises. Any failure -- unreachable engine, unknown scope, a
+          backend with no dialectic surface -- returns a :class:`MemoryAnswer`
+          with ``degraded=True`` and an empty or best-effort ``text``;
+        * a backend that cannot answer at all (e.g. pgvector, which has no LLM)
+          returns ``degraded=True`` rather than pretending an empty answer is a
+          real one -- "cannot ask here" must stay distinguishable from "asked,
+          nothing known" (F9).
         """
         ...
 
@@ -522,6 +613,9 @@ class PgvectorMemoryBackend(MemoryBackend):
     var) to embed content/queries.
     """
 
+    #: No generative/dialectic engine: :meth:`ask` degrades by design (see it).
+    ask_available = False
+
     # -- canonical-store API --------------------------------------------
 
     def write(
@@ -656,6 +750,37 @@ class PgvectorMemoryBackend(MemoryBackend):
             degraded=False,
         )
 
+    def ask(
+        self,
+        tenant_id: UUID,
+        scope: str,
+        scope_id: UUID,
+        query: str,
+        *,
+        reasoning_level: Optional[str] = None,
+    ) -> MemoryAnswer:
+        """Always degrade: pgvector has no generative / dialectic surface.
+
+        A store-and-similarity-search backend cannot answer a question in
+        natural language, so the honest answer is ``degraded=True`` with an
+        empty ``text`` rather than an empty-but-successful answer a caller
+        could mistake for "the memory knows nothing". Callers that need an
+        answer must select a dialectic backend (Honcho).
+
+        Never raises (see :meth:`MemoryBackend.ask`); the arguments are
+        accepted but unused on purpose, so the signature stays identical to the
+        backends that can act on them. ``detail`` names the missing capability
+        so a caller can tell "this backend cannot ask" apart from a transient
+        engine outage.
+        """
+        return MemoryAnswer(
+            text="",
+            generated_at=timezone.now(),
+            backend="pgvector",
+            degraded=True,
+            detail="no dialectic engine",
+        )
+
     # -- legacy facade ---------------------------------------------------
 
     def upsert(
@@ -710,9 +835,11 @@ __all__ = [
     "MemoryEntryRef",
     "MemoryHealth",
     "MemoryDigest",
+    "MemoryAnswer",
     "MemoryBackend",
     "MEMORY_BACKEND_REGISTRY",
     "VALID_MEMORY_SCOPES",
+    "VALID_REASONING_LEVELS",
     "register_memory_backend",
     "get_memory_backend",
     "resolve_memory_entry_owner",

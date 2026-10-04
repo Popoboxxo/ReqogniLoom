@@ -147,6 +147,17 @@ card), then degrades in steps:
 Only a failure of step 3 as well yields an empty text. Like pgvector, an empty
 but healthy scope is ``degraded=False`` (F9), and the method never raises.
 
+``ask()`` (natural-language access)
+-----------------------------------
+:meth:`HonchoMemoryBackend.ask` is the engine's *dialectic* surface: instead of
+rendering facts (``digest``) or returning matches (``query``), it answers the
+caller's actual question through ``peer.chat(query, session=<scope session>)``
+on the scope's tenant-namespaced peer. Scoping to the session keeps the answer
+inside this scope's observations; failure degrades to
+``MemoryAnswer(degraded=True)`` exactly like ``digest``, so a missing session,
+an unreachable engine or an unknown scope can never raise -- and a clean
+``None`` answer is a non-degraded "nothing known", not an outage (F9).
+
 EMBEDDING CONFIGURATION (GH #911)
 ---------------------------------
 Honcho embeds memory entries through an OpenAI-compatible endpoint configured
@@ -193,6 +204,7 @@ from django.utils import timezone
 from llm_adapter.embedding_service import generate_embedding
 from memory.backends import (
     MemoryBackend,
+    MemoryAnswer,
     MemoryDigest,
     MemoryEntryId,
     MemoryEntryRef,
@@ -311,6 +323,37 @@ def _health_probe_timeout_s() -> float:
     return value if value > 0 else _DEFAULT_HEALTH_PROBE_TIMEOUT_S
 
 
+#: Default timeout, in seconds, for the Honcho SDK client this backend builds.
+#: Follow-up of REQ-192 (code-review F2): before this the client was constructed
+#: with no timeout, so a dialectic ``peer.chat`` (and every other SDK call)
+#: could block unbounded. A generative answer legitimately takes longer than the
+#: health probe, so it gets a generous budget of its own rather than reusing
+#: ``HEALTH_PROBE_TIMEOUT``. Overridable through ``MEMORY_ASK_TIMEOUT``.
+_DEFAULT_ASK_TIMEOUT_S = 120.0
+
+
+def _ask_timeout_s() -> float:
+    """Timeout for the SDK client that serves :meth:`HonchoMemoryBackend.ask`.
+
+    Reads ``MEMORY_ASK_TIMEOUT`` (seconds) and falls back to
+    :data:`_DEFAULT_ASK_TIMEOUT_S`; a non-positive or unparsable value falls back
+    too, so a typo can never produce an instant, always-failing call.
+
+    Applied as the ``Honcho(...)`` client's default request timeout. That bounds
+    the whole ask path -- ``client.peer()`` (a get-or-create POST) *and* the
+    generative ``peer.chat`` call -- not just the chat request, because the
+    pre-chat peer resolution is a network call too and would otherwise still
+    block unbounded. ``peer.chat`` omits its per-call ``timeout`` so it inherits
+    this client default (documented by the SDK).
+    """
+    raw = os.environ.get("MEMORY_ASK_TIMEOUT", "")
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return _DEFAULT_ASK_TIMEOUT_S
+    return value if value > 0 else _DEFAULT_ASK_TIMEOUT_S
+
+
 def _safe_generate_embedding(text: str) -> Optional[List[float]]:
     """Best-effort local embedding; ``None`` on any provider failure.
 
@@ -411,6 +454,10 @@ class HonchoMemoryBackend(MemoryBackend):
                 api_key=self._api_key,
                 base_url=self._base_url,
                 workspace_id=self._honcho_workspace_id(tenant_id),
+                # Bounded request budget: without it a hung dialectic engine made
+                # ``ask`` (``client.peer()`` + ``peer.chat``) block unbounded.
+                # See :func:`_ask_timeout_s`.
+                timeout=_ask_timeout_s(),
             )
             self._clients[key] = client
         return client
@@ -944,6 +991,70 @@ class HonchoMemoryBackend(MemoryBackend):
         if card:
             return "\n".join(str(line) for line in card).strip(), False
         return "", False
+
+    def ask(
+        self,
+        tenant_id: UUID,
+        scope: str,
+        scope_id: UUID,
+        query: str,
+        *,
+        reasoning_level: Optional[str] = None,
+    ) -> MemoryAnswer:
+        """Answer ``query`` via the engine's dialectic surface (F6 follow-up).
+
+        Calls ``peer.chat`` on the scope's own tenant-namespaced peer, scoped to
+        the scope's stable session so the answer is drawn from this scope's
+        observations rather than the peer's whole history. ``reasoning_level``
+        is forwarded only when set, so the SDK's own default (``"low"``)
+        applies otherwise.
+
+        Never raises (see :meth:`MemoryBackend.ask`): any SDK/transport error --
+        an unreachable engine, a missing session (Honcho answers a sessionless
+        dialectic call with ``MissingSessionID``/HTTP 400), an unknown scope
+        rejected by :meth:`_scope_peer_id` -- degrades to
+        ``MemoryAnswer(degraded=True)`` with an empty text and the exception
+        class name in ``detail`` (no user data). A ``None`` answer (Honcho's way
+        of saying "nothing relevant known") is a clean, non-degraded empty
+        answer, distinct from an outage (F9).
+
+        The SDK client is built with a bounded request timeout (see
+        :func:`_ask_timeout_s`), so neither the peer resolution nor the chat
+        call can block unbounded. Logs IDs/lengths only, never the query,
+        matching :meth:`_publish_engine_message`'s discipline.
+        """
+        generated_at = timezone.now()
+        try:
+            client = self._ensure_client(tenant_id)
+            peer = client.peer(self._scope_peer_id(tenant_id, scope, scope_id))
+            session_id = self._scope_session_id(tenant_id, scope, scope_id)
+            kwargs: dict = {}
+            if reasoning_level:
+                kwargs["reasoning_level"] = reasoning_level
+            answer = peer.chat(query, session=session_id, **kwargs)
+        except Exception as exc:  # noqa: BLE001 - degrade, never raise (contract)
+            logger.warning(
+                "honcho memory: ask could not reach the engine for tenant=%s "
+                "scope=%s (query length %d, error type %s); answering degraded",
+                tenant_id,
+                scope,
+                len(query or ""),
+                type(exc).__name__,
+            )
+            return MemoryAnswer(
+                text="",
+                generated_at=generated_at,
+                backend="honcho",
+                degraded=True,
+                detail=type(exc).__name__,
+            )
+
+        # Without ``include_evidence`` the SDK returns the bare answer string, or
+        # ``None`` when the engine found nothing to say -- never a wrapper.
+        text = answer if isinstance(answer, str) else ("" if answer is None else str(answer))
+        return MemoryAnswer(
+            text=text, generated_at=generated_at, backend="honcho", degraded=False
+        )
 
     # -- legacy facade ---------------------------------------------------
 

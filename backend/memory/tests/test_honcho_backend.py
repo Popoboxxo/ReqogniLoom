@@ -8,7 +8,8 @@ The mock mirrors the real ``honcho-ai==2.3.0`` shape that the backend depends
 on -- ``client.peer(id).conclusions.{create,query,list,delete}`` for the
 pre-#1002 surface, plus ``client.session(id).add_messages(...)``,
 ``peer.message(...)`` and ``peer.representation(...)/get_card()`` for the F6
-session/digest surface -- so a future SDK rename (the surface was called
+session/digest surface, plus ``peer.chat(...)`` for the REQ-192 natural-language
+``ask`` surface -- so a future SDK rename (the surface was called
 ``observations`` before ``conclusions``) shows up as a failure here rather than
 only in production.
 """
@@ -692,6 +693,138 @@ class TestHonchoDigest:
 
         assert peer.conclusions.list.call_args.kwargs["size"] == _DIGEST_MAX_FACTS
         assert _DIGEST_MAX_FACTS <= 100
+
+
+class TestHonchoAsk:
+    """REQ-192: the engine's dialectic surface (``peer.chat``) behind ``ask()``.
+
+    Scoped to the scope's own session, tenant-namespaced, and degrade-never-raise
+    like ``digest`` -- a missing session (Honcho answers with
+    ``MissingSessionID``/HTTP 400 when none is given or it does not exist) must
+    become ``degraded=True``, never an unhandled 500.
+    """
+
+    def test_ask_answers_from_the_scope_session_and_forwards_reasoning_level(self):
+        backend, client = _backend_with_mock_client()
+        tenant_id, user_id = uuid4(), uuid4()
+        peer = client.peer(f"{tenant_id}_{user_id}")
+        peer.chat.return_value = "The team prefers REST."
+
+        answer = backend.ask(tenant_id, "user", user_id, "REST or MCP?", reasoning_level="high")
+
+        assert answer.text == "The team prefers REST."
+        assert answer.backend == "honcho"
+        assert answer.degraded is False
+        peer.chat.assert_called_once_with(
+            "REST or MCP?",
+            session=backend._scope_session_id(tenant_id, "user", user_id),
+            reasoning_level="high",
+        )
+
+    def test_ask_omits_reasoning_level_when_not_given(self):
+        backend, client = _backend_with_mock_client()
+        tenant_id, user_id = uuid4(), uuid4()
+        peer = client.peer(f"{tenant_id}_{user_id}")
+        peer.chat.return_value = "yes"
+
+        backend.ask(tenant_id, "user", user_id, "q?")
+
+        assert peer.chat.call_args.kwargs == {
+            "session": backend._scope_session_id(tenant_id, "user", user_id)
+        }
+
+    def test_ask_degrades_when_the_engine_raises(self):
+        backend, client = _backend_with_mock_client()
+        tenant_id, user_id = uuid4(), uuid4()
+        peer = client.peer(f"{tenant_id}_{user_id}")
+        peer.chat.side_effect = RuntimeError("engine down")
+
+        answer = backend.ask(tenant_id, "user", user_id, "q?")
+
+        assert answer.degraded is True
+        assert answer.text == ""
+        assert answer.backend == "honcho"
+        # F5 (backend-reviewer): the degradation carries the (non-user-data)
+        # cause so a caller can tell an outage from "nothing known".
+        assert answer.detail == "RuntimeError"
+
+    def test_ask_degrades_on_a_missing_session_error(self):
+        """A sessionless/unknown dialectic call makes Honcho answer
+        ``MissingSessionID`` (HTTP 400); that must degrade, not raise."""
+        backend, client = _backend_with_mock_client()
+        tenant_id, user_id = uuid4(), uuid4()
+        peer = client.peer(f"{tenant_id}_{user_id}")
+        peer.chat.side_effect = RuntimeError("MissingSessionID")
+
+        answer = backend.ask(tenant_id, "user", user_id, "q?")
+
+        assert answer.degraded is True
+        assert answer.text == ""
+
+    def test_ask_reports_a_none_answer_as_empty_but_not_degraded(self):
+        backend, client = _backend_with_mock_client()
+        tenant_id, user_id = uuid4(), uuid4()
+        peer = client.peer(f"{tenant_id}_{user_id}")
+        peer.chat.return_value = None
+
+        answer = backend.ask(tenant_id, "user", user_id, "q?")
+
+        assert answer.degraded is False
+        assert answer.text == ""
+
+    def test_ask_never_passes_a_raw_scope_id_to_honcho(self):
+        backend, client = _backend_with_mock_client()
+        tenant_id, user_id = uuid4(), uuid4()
+
+        backend.ask(tenant_id, "user", user_id, "q?")
+
+        assert f"{tenant_id}_{user_id}" in client.peers_by_id
+
+    def test_ask_of_an_unknown_scope_degrades(self):
+        backend, _client = _backend_with_mock_client()
+
+        answer = backend.ask(uuid4(), "not-a-scope", uuid4(), "q?")
+
+        assert answer.degraded is True
+        assert answer.text == ""
+
+    def test_ask_timeout_defaults_and_is_env_overridable(self, monkeypatch):
+        """F2 (code-reviewer): the SDK client must be built with a bounded
+        request timeout, else ``peer.chat`` can block unbounded."""
+        from memory.honcho_backend import (
+            _DEFAULT_ASK_TIMEOUT_S,
+            _ask_timeout_s,
+        )
+
+        monkeypatch.delenv("MEMORY_ASK_TIMEOUT", raising=False)
+        assert _ask_timeout_s() == _DEFAULT_ASK_TIMEOUT_S
+
+        monkeypatch.setenv("MEMORY_ASK_TIMEOUT", "7.5")
+        assert _ask_timeout_s() == 7.5
+
+    def test_ask_timeout_falls_back_on_a_bad_value(self, monkeypatch):
+        from memory.honcho_backend import _DEFAULT_ASK_TIMEOUT_S, _ask_timeout_s
+
+        for bad in ("0", "-3", "not-a-number"):
+            monkeypatch.setenv("MEMORY_ASK_TIMEOUT", bad)
+            assert _ask_timeout_s() == _DEFAULT_ASK_TIMEOUT_S
+
+    def test_ensure_client_passes_a_bounded_timeout_to_the_sdk(self, monkeypatch):
+        """The timeout must reach ``Honcho(...)`` at client construction."""
+        monkeypatch.setenv("HONCHO_BASE_URL", "http://honcho.invalid")
+        monkeypatch.setenv("MEMORY_ASK_TIMEOUT", "11.0")
+
+        captured: dict = {}
+
+        class _FakeHoncho:
+            def __init__(self, **kwargs):
+                captured.update(kwargs)
+
+        monkeypatch.setattr("honcho.Honcho", _FakeHoncho)
+        backend = HonchoMemoryBackend()
+        backend._ensure_client(uuid4())
+
+        assert captured["timeout"] == 11.0
 
 
 @pytest.mark.django_db
