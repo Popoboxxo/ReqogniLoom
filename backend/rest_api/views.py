@@ -8073,7 +8073,10 @@ def _apply_import_deprecation_headers(response: Response) -> Response:
 
     The **legacy** (``IMPORT_CONTRACT_V2=false``) response is the deprecated
     side of the 3-phase window — it is removed in phase 3 — so it advertises
-    ``Deprecation: true`` (RFC 9745) and the ``Sunset`` HTTP-date. The v2
+    ``Deprecation: true`` and the ``Sunset`` HTTP-date. The boolean ``true`` is
+    the earlier IETF draft syntax (``draft-ietf-httpapi-deprecation-header``):
+    RFC 9745 later defined ``Deprecation`` as an HTTP-date, but ``true`` is kept
+    here for consistency with the rest of the API (ADR-014 §5). The v2
     responses are the replacement and are deliberately *not* marked. Same
     response-mutation pattern as ``HealthAliasView`` (ADR-010 §3); the sunset
     date is the ADR frontmatter value, formatted via the shared helper rather

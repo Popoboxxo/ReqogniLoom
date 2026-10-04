@@ -187,13 +187,17 @@ class CachedImportResult:
 def _fingerprint_secret() -> bytes:
     """Return the HMAC key for the request fingerprint (ADR-014 §7, D2a).
 
-    Prefers the explicit ``IMPORT_FINGERPRINT_SECRET``. When it is empty, a
-    domain-separated key is derived from ``SECRET_KEY`` so the fingerprint is
-    *always* keyed (never a plain SHA-256) without inventing a new secret. The
-    derived fallback is a documented limitation surfaced at ``manage.py check``
-    time by ``application.checks.check_import_fingerprint_secret``.
+    Prefers the explicit ``IMPORT_FINGERPRINT_SECRET``. When it is empty — or
+    only whitespace, which is stripped so a whitespace-only value cannot
+    silently defeat the check below — a domain-separated key is derived from
+    ``SECRET_KEY`` so the fingerprint is *always* keyed (never a plain SHA-256)
+    without inventing a new secret. The derived fallback is a documented
+    limitation surfaced at ``manage.py check`` time by
+    ``application.checks.check_import_fingerprint_secret``. The strip matches
+    that check exactly, so ``application.W001`` fires whenever this fallback is
+    taken (``IMPORT_FINGERPRINT_SECRET="   "`` included).
     """
-    explicit = getattr(settings, "IMPORT_FINGERPRINT_SECRET", "") or ""
+    explicit = (getattr(settings, "IMPORT_FINGERPRINT_SECRET", "") or "").strip()
     if explicit:
         return explicit.encode("utf-8")
     secret_key = getattr(settings, "SECRET_KEY", "") or ""

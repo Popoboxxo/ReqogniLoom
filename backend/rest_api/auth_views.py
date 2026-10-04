@@ -21,7 +21,8 @@ tooling only, and any JavaScript caller that stores it would re-open the XSS
 token-theft vector REQ-052 closed. Deployments can omit it by setting
 ``AUTH_LOGIN_INCLUDE_BODY_TOKEN=False`` (default ``True`` = unchanged
 behaviour). While the field is still emitted, the response carries
-``Deprecation: true`` (RFC 9745) so machine clients can detect it.
+``Deprecation: true`` (the earlier IETF draft boolean form; RFC 9745 later
+defined the field as an HTTP-date) so machine clients can detect it.
 
 Error shape: authentication failures use the standardised AuthAndTenancy error
 body (REQ-L3-AT001-004), which since the 2026-08-27 system audit (P1 item 13) is
@@ -243,7 +244,8 @@ class LoginView(APIView):
             "still emitted by default for API/CI tooling, but a deployment can "
             "omit it with `AUTH_LOGIN_INCLUDE_BODY_TOKEN=False` and it will be "
             "removed in a future release. Responses that still contain it carry "
-            "the `Deprecation: true` header (RFC 9745). New clients must not "
+            "the `Deprecation: true` header (draft boolean form; RFC 9745 "
+            "later defined the field as an HTTP-date). New clients must not "
             "persist it in JavaScript."
         ),
         responses={
@@ -332,8 +334,9 @@ class LoginView(APIView):
             status=status.HTTP_200_OK,
         )
         if emit_token:
-            # RFC 9745: machine-readable marker for the deprecated body field.
-            # Only meaningful while the field is actually present.
+            # Draft boolean form of the deprecation marker (RFC 9745 later
+            # defined `Deprecation` as an HTTP-date); machine-readable for
+            # tooling. Only meaningful while the field is actually present.
             response["Deprecation"] = "true"
         _set_access_cookie(response, token)
         _set_refresh_cookie(response, refresh_token)
