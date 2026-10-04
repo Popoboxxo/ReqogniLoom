@@ -18,3 +18,17 @@ class AuthTenancyConfig(AppConfig):
     default_auto_field = "django.db.models.BigAutoField"
     name = "auth_tenancy"
     verbose_name = "ARCH-L1-011 AuthAndTenancy"
+
+    def ready(self) -> None:
+        """Install the admin brute-force lockout (issue #1135).
+
+        Connects the ``user_login_failed`` / ``user_logged_in`` receivers and
+        sets ``admin.site.login_form`` to the lockout-aware subclass. Import is
+        local so no model is touched before the app registry is ready. The
+        receivers themselves are scoped to the admin login path, so REST
+        authentication and throttling are unaffected — see
+        ``auth_tenancy.admin_login``.
+        """
+        from auth_tenancy.admin_login import install
+
+        install()
