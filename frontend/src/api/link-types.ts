@@ -11,8 +11,8 @@
  * already drifted (`diagram-ref` was missing from both) — audit finding B4.
  */
 
-import { apiClient } from "./client";
-import type { UUID } from "../types";
+import { apiClient, asList } from "./client";
+import type { PaginatedResponse, UUID } from "../types";
 
 /** One perspective triple of a link-type label. */
 export interface TriLabel {
@@ -68,17 +68,19 @@ export interface GlobalLinkType {
   propagated_to?: number;
 }
 
-function asArray<T>(value: unknown): T[] {
-  return Array.isArray(value) ? (value as T[]) : [];
-}
-
 export const linkTypesApi = {
-  /** Resolved catalog of a workspace, inactive rows included. */
+  /**
+   * Resolved catalog of a workspace, inactive rows included.
+   *
+   * INT-05 (AUD-2026-09-074): now paginated — requests the ceiling because the
+   * link-type dialog needs the whole (small) catalog; `asList` unwraps the
+   * envelope and tolerates a legacy bare array.
+   */
   async listForWorkspace(workspaceId: UUID): Promise<WorkspaceLinkType[]> {
-    const raw = await apiClient.get<WorkspaceLinkType[]>(
-      `/workspaces/${workspaceId}/link-type-definitions/`,
-    );
-    return asArray<WorkspaceLinkType>(raw);
+    const raw = await apiClient.get<
+      PaginatedResponse<WorkspaceLinkType> | WorkspaceLinkType[]
+    >(`/workspaces/${workspaceId}/link-type-definitions/?page_size=100`);
+    return asList<WorkspaceLinkType>(raw);
   },
 
   /** Override one link type for one workspace (sets `is_customized`). */
@@ -101,10 +103,16 @@ export const linkTypesApi = {
     );
   },
 
-  /** Tenant-wide templates. */
+  /**
+   * Tenant-wide templates.
+   *
+   * INT-05 (AUD-2026-09-074): now paginated — see {@link listForWorkspace}.
+   */
   async listGlobal(): Promise<GlobalLinkType[]> {
-    const raw = await apiClient.get<GlobalLinkType[]>("/link-type-defaults/");
-    return asArray<GlobalLinkType>(raw);
+    const raw = await apiClient.get<PaginatedResponse<GlobalLinkType> | GlobalLinkType[]>(
+      "/link-type-defaults/?page_size=100",
+    );
+    return asList<GlobalLinkType>(raw);
   },
 
   async createGlobal(key: string, definition: LinkTypeDefinition): Promise<GlobalLinkType> {

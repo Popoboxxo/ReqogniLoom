@@ -49,6 +49,7 @@ from traceability.exceptions import (
     CrossTenantLinkError,
     CycleDetectedError,
     InvalidLinkTypeError,
+    SelfLinkError,
     SourceNotFoundError,
     TargetNotFoundError,
 )
@@ -309,10 +310,11 @@ class TraceLinkManager:
 
         Performs:
         1. Link-type validation (REQ-L2-TE-001)
-        2. Source/Target existence check (REQ-L2-TE-001)
-        3. Cross-tenant guard (REQ-L2-TE-011)
-        4. Eager cycle detection via DFS (REQ-L2-TE-002)
-        5. Persist (REQ-L2-TE-001, audit: REQ-L2-TE-010)
+        2. Self-link guard (DATA-05, finding 157)
+        3. Source/Target existence check (REQ-L2-TE-001)
+        4. Cross-tenant guard (REQ-L2-TE-011)
+        5. Eager cycle detection via DFS (REQ-L2-TE-002)
+        6. Persist (REQ-L2-TE-001, audit: REQ-L2-TE-010)
 
         *rationale* (Q1.6) is optional free text explaining why these two
         artifacts are linked; it is stored verbatim (sanitization happens at
@@ -332,6 +334,14 @@ class TraceLinkManager:
         already wraps this) is a savepoint, so this is additive.
         """
         _validate_link_type(link_type)
+
+        # DATA-05 (finding 157): a link from an artifact to itself carries no
+        # information and makes every graph traversal treat the artifact as its
+        # own ancestor/descendant. Rejected here, before any DB round-trip; the
+        # same invariant is enforced at the DB level by ck_tracelink_no_self_link
+        # so a raw ORM insert cannot bypass it either.
+        if source_id == target_id:
+            raise SelfLinkError(source_id)
 
         tenant_id = TenantContext.get_tenant()
 
@@ -555,6 +565,13 @@ class TraceLinkManager:
             target_id = uuid.UUID(str(item["target_id"]))
 
             _validate_link_type(link_type)
+
+            # DATA-05 (finding 157): reject self-links in the batch path too —
+            # batch_create is the bulk write entry point and must not let a
+            # self-edge through to the DB CHECK (which would roll back the whole
+            # batch with an opaque IntegrityError instead of a domain error).
+            if source_id == target_id:
+                raise SelfLinkError(source_id)
 
             try:
                 source = Artifact.unscoped.get(pk=source_id)

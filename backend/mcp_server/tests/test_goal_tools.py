@@ -14,11 +14,11 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 from unittest.mock import patch
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 
-from application.base import PermissionDeniedError
+from application.base import OptimisticLockError, PermissionDeniedError
 from auth_tenancy.context import AuthContext, AuthMethod
 from mcp_server.tool_registry import ToolRegistry
 from mcp_server.tools.goals import GoalToolGroup, MainGoalToolGroup
@@ -352,3 +352,251 @@ def test_goal_reactivate_schema_has_required_goal_id():
     assert "goal_id" in schema["required"], (
         "goal_id not in goal.reactivate required fields"
     )
+
+
+# ---------------------------------------------------------------------------
+# expected_version optimistic locking (GitHub #1129)
+#
+# goal.transition already accepted expected_version and mapped a lost race to
+# a caller-retryable conflict (CR-08). goal.delete / goal.outdate /
+# goal.reactivate and main_goal.approve did not, leaving concurrent MCP
+# writers last-writer-wins.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "tool_name", ["goal.delete", "goal.outdate", "goal.reactivate"]
+)
+def test_goal_lifecycle_schema_exposes_expected_version(tool_name):
+    schema = next(
+        s for s in GoalToolGroup().get_tool_schemas() if s["name"] == tool_name
+    )["inputSchema"]
+
+    assert "expected_version" in schema["properties"], (
+        f"{tool_name} schema missing expected_version"
+    )
+    assert schema["properties"]["expected_version"]["type"] == "integer"
+
+
+def test_main_goal_approve_schema_exposes_expected_version():
+    schema = next(
+        s
+        for s in MainGoalToolGroup().get_tool_schemas()
+        if s["name"] == "main_goal.approve"
+    )["inputSchema"]
+
+    assert "expected_version" in schema["properties"]
+    assert schema["properties"]["expected_version"]["type"] == "integer"
+
+
+@patch("mcp_server.tools.goals.GoalService")
+def test_goal_delete_forwards_expected_version_and_maps_conflict(mock_service_cls):
+    mock_service_cls.return_value.archive.side_effect = OptimisticLockError("stale")
+    group = GoalToolGroup()
+
+    result = group.execute_tool(
+        tool_name="goal.delete",
+        params={"goal_id": str(GOAL_UUID), "expected_version": 7},
+        auth_context=VIEWER_CTX,
+        api_key=VALID_API_KEY,
+    )
+
+    assert result.success is False
+    assert result.error_code == "VALIDATION_ERROR"
+    assert "Version conflict" in (result.message or "")
+    assert mock_service_cls.return_value.archive.call_args.kwargs[
+        "expected_version"
+    ] == 7
+
+
+@patch("mcp_server.tools.goals.GoalService")
+def test_goal_outdate_forwards_expected_version_and_maps_conflict(mock_service_cls):
+    mock_service_cls.return_value.archive.side_effect = OptimisticLockError("stale")
+    group = GoalToolGroup()
+
+    result = group.execute_tool(
+        tool_name="goal.outdate",
+        params={"goal_id": str(GOAL_UUID), "expected_version": 7},
+        auth_context=VIEWER_CTX,
+        api_key=VALID_API_KEY,
+    )
+
+    assert result.success is False
+    assert result.error_code == "VALIDATION_ERROR"
+    assert "Version conflict" in (result.message or "")
+    assert mock_service_cls.return_value.archive.call_args.kwargs[
+        "expected_version"
+    ] == 7
+
+
+@patch("mcp_server.tools.goals.GoalService")
+def test_goal_reactivate_forwards_expected_version_and_maps_conflict(mock_service_cls):
+    mock_service_cls.return_value.restore.side_effect = OptimisticLockError("stale")
+    group = GoalToolGroup()
+
+    result = group.execute_tool(
+        tool_name="goal.reactivate",
+        params={"goal_id": str(GOAL_UUID), "expected_version": 7},
+        auth_context=VIEWER_CTX,
+        api_key=VALID_API_KEY,
+    )
+
+    assert result.success is False
+    assert result.error_code == "VALIDATION_ERROR"
+    assert "Version conflict" in (result.message or "")
+    assert mock_service_cls.return_value.restore.call_args.kwargs[
+        "expected_version"
+    ] == 7
+
+
+@patch("mcp_server.tools.goals.MainGoalService")
+def test_main_goal_approve_forwards_expected_version_and_maps_conflict(
+    mock_service_cls,
+):
+    mock_service_cls.return_value.approve.side_effect = OptimisticLockError("stale")
+    group = MainGoalToolGroup()
+
+    result = group.execute_tool(
+        tool_name="main_goal.approve",
+        params={"main_goal_id": str(MAIN_GOAL_UUID), "expected_version": 7},
+        auth_context=VIEWER_CTX,
+        api_key=VALID_API_KEY,
+    )
+
+    assert result.success is False
+    assert result.error_code == "VALIDATION_ERROR"
+    assert "Version conflict" in (result.message or "")
+    assert mock_service_cls.return_value.approve.call_args.kwargs[
+        "expected_version"
+    ] == 7
+
+
+# ---------------------------------------------------------------------------
+# main_goal.approve — end-to-end optimistic locking against the real DB
+# ---------------------------------------------------------------------------
+
+
+def _main_goal_tenant_and_workspace(name: str):
+    from persistence.models import Tenant, Workspace
+    from persistence.tenancy import TenantContext
+
+    tenant = Tenant.objects.create(name=name)
+    TenantContext.set_tenant(tenant.id)
+    try:
+        workspace = Workspace.objects.create(tenant=tenant, name=name, goals_enabled=True)
+    finally:
+        TenantContext.clear_tenant()
+    return tenant, workspace
+
+
+def _provision_main_goal_workflow(workspace) -> None:
+    from persistence.tenancy import TenantContext
+    from workflow.services import create_default_workflow
+
+    TenantContext.set_tenant(workspace.tenant_id)
+    try:
+        create_default_workflow(
+            workspace_id=workspace.id,
+            preset="main_goal_default",
+            item_type="MainGoal",
+            tenant_id=workspace.tenant_id,
+        )
+    finally:
+        TenantContext.clear_tenant()
+
+
+def _main_goal_engine_version(tenant_id, main_goal_id) -> int:
+    from persistence.tenancy import TenantContext
+    from workflow.models import WorkflowItemState
+
+    TenantContext.set_tenant(tenant_id)
+    try:
+        return WorkflowItemState.objects.get(
+            item_id=main_goal_id, item_type="MainGoal"
+        ).version
+    finally:
+        TenantContext.clear_tenant()
+
+
+def _admin_ctx(tenant_id, workspace_id) -> AuthContext:
+    return AuthContext(
+        user_id=uuid4(),
+        tenant_id=tenant_id,
+        active_roles=("admin", "approver", "editor"),
+        auth_method=AuthMethod.API_KEY,
+        api_key_id=uuid4(),
+        workspace_id=workspace_id,
+    )
+
+
+@pytest.mark.django_db
+def test_main_goal_approve_stale_expected_version_is_rejected():
+    tenant, workspace = _main_goal_tenant_and_workspace("I1129-MG1")
+    _provision_main_goal_workflow(workspace)
+    ctx = _admin_ctx(tenant.id, workspace.id)
+    group = MainGoalToolGroup()
+
+    created = group.execute_tool(
+        tool_name="main_goal.create_manual",
+        params={"workspace_id": str(workspace.id), "content": "Main goal."},
+        auth_context=ctx,
+        api_key=VALID_API_KEY,
+    )
+    assert created.success is True, created.message
+    main_goal_id = UUID(created.data["main_goal"]["id"])
+    stale = _main_goal_engine_version(tenant.id, main_goal_id) + 1
+
+    result = group.execute_tool(
+        tool_name="main_goal.approve",
+        params={
+            "main_goal_id": str(main_goal_id),
+            "change_reason": "stale approval",
+            "expected_version": stale,
+        },
+        auth_context=ctx,
+        api_key=VALID_API_KEY,
+    )
+
+    assert result.success is False
+    assert "Version conflict" in (result.message or ""), result.message
+
+    # No last-writer-wins: the draft was not approved by the stale call.
+    read = group.execute_tool(
+        tool_name="main_goal.read",
+        params={"workspace_id": str(workspace.id)},
+        auth_context=ctx,
+        api_key=VALID_API_KEY,
+    )
+    assert read.data["main_goal"] is None
+
+
+@pytest.mark.django_db
+def test_main_goal_approve_current_expected_version_succeeds():
+    tenant, workspace = _main_goal_tenant_and_workspace("I1129-MG2")
+    _provision_main_goal_workflow(workspace)
+    ctx = _admin_ctx(tenant.id, workspace.id)
+    group = MainGoalToolGroup()
+
+    created = group.execute_tool(
+        tool_name="main_goal.create_manual",
+        params={"workspace_id": str(workspace.id), "content": "Main goal."},
+        auth_context=ctx,
+        api_key=VALID_API_KEY,
+    )
+    assert created.success is True, created.message
+    main_goal_id = UUID(created.data["main_goal"]["id"])
+    current = _main_goal_engine_version(tenant.id, main_goal_id)
+
+    result = group.execute_tool(
+        tool_name="main_goal.approve",
+        params={
+            "main_goal_id": str(main_goal_id),
+            "change_reason": "approved",
+            "expected_version": current,
+        },
+        auth_context=ctx,
+        api_key=VALID_API_KEY,
+    )
+
+    assert result.success is True, result.message
+    assert result.data["main_goal"]["status"] == "Freigegeben"

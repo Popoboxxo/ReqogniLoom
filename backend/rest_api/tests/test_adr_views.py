@@ -198,6 +198,59 @@ def test_supersede_missing_superseded_by_id_returns_400(
         TenantContext.clear_tenant()
 
 
+def test_supersede_stale_expected_version_returns_409(
+    client: APIClient, workspace: PersistenceWorkspace
+) -> None:
+    """AUD-2026-09-282: ``/adrs/{pk}/supersede/`` used to drop any version
+    precondition (last-writer-wins) while the generic ``transitions/`` route is
+    CAS-protected. A stale ``expected_version`` must now answer 409 and leave
+    the ADR untouched; a matching revision still supersedes."""
+    ws_id = str(workspace.id)
+    old_id = _create_adr(client, ws_id, "Old Decision")
+    new_id = _create_adr(client, ws_id, "New Decision")
+    _advance_to_approved(client, old_id)
+
+    read = client.get(f"/api/v1/adrs/{old_id}/transitions/")
+    assert read.status_code == 200, read.content
+    current = read.json()["version"]
+    assert current >= 1
+
+    stale = client.post(
+        f"/api/v1/adrs/{old_id}/supersede/",
+        {
+            "superseded_by_id": new_id,
+            "change_reason": "session B with a stale revision",
+            "expected_version": current - 1,
+        },
+        format="json",
+    )
+
+    assert stale.status_code == 409, stale.content
+    assert stale.json()["error"]["code"] == "CONFLICT"
+
+    TenantContext.set_tenant(workspace.tenant_id)
+    try:
+        from workflow import state_reader
+
+        assert (
+            state_reader.current_state("Adr", old_id) == Adr.Status.APPROVED.value
+        )
+    finally:
+        TenantContext.clear_tenant()
+
+    ok = client.post(
+        f"/api/v1/adrs/{old_id}/supersede/",
+        {
+            "superseded_by_id": new_id,
+            "change_reason": "replaced by New Decision",
+            "expected_version": current,
+        },
+        format="json",
+    )
+    assert ok.status_code == 200, ok.content
+    assert ok.json()["status"] == Adr.Status.SUPERSEDED.value
+
+
 def test_supersede_malformed_uuid_returns_400_not_500(
     client: APIClient, workspace: PersistenceWorkspace
 ) -> None:

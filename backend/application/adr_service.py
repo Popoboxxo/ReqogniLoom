@@ -508,6 +508,7 @@ class AdrService(ServiceBase):
         change_reason: Optional[str] = None,
         superseded_by_id: Optional[UUID] = None,
         credential: Optional[str] = None,
+        expected_version: Optional[int] = None,
     ) -> Adr:
         """Transition an ADR's workflow status (REQ-L3-ADR-004).
 
@@ -524,6 +525,11 @@ class AdrService(ServiceBase):
                 'decides' TraceLink is created from the successor ADR to this
                 ADR so the TraceLink graph records which decision replaced it.
                 Ignored for all other target statuses.
+            expected_version: Caller's last-seen ``WorkflowItemState.version``.
+                Forwarded to ``WorkflowFacade.transition`` so a concurrent
+                transition answers 409 instead of silently overwriting the
+                winner (AUD-2026-09-282). ``None`` keeps the historical
+                last-writer-wins behaviour for callers that do not track it.
 
         Returns:
             Updated Adr ORM instance.
@@ -567,6 +573,7 @@ class AdrService(ServiceBase):
             ctx=ctx,
             change_reason=change_reason or "",
             credential=credential or "",
+            expected_version=expected_version,
         )
         adr.refresh_from_db(fields=["version"])
         # Datenmodell-Konsolidierung Phase 1 (Task 12): the ``status`` column

@@ -36,3 +36,28 @@ def dispatch_outbox_events() -> int:
     except Exception:  # noqa: BLE001 — beat task must never crash the loop.
         logger.exception("dispatch_outbox_events: poll cycle failed")
         return 0
+
+
+@shared_task(name="application.cleanup_import_idempotency_records")
+def cleanup_import_idempotency_records() -> int:
+    """Delete expired ``Idempotency-Key`` records (ADR-014 §3).
+
+    Periodic Celery-beat cleanup keeps the replay store bounded
+    (``TTL × rate``). Errors are logged and swallowed so the beat loop keeps
+    running; the next cycle retries.
+
+    Returns:
+        Number of records deleted (0 on error).
+    """
+    from application.import_idempotency import purge_expired
+
+    try:
+        deleted = purge_expired()
+        if deleted:
+            logger.info(
+                "cleanup_import_idempotency_records: removed %d record(s)", deleted
+            )
+        return deleted
+    except Exception:  # noqa: BLE001 — beat task must never crash the loop.
+        logger.exception("cleanup_import_idempotency_records: purge failed")
+        return 0

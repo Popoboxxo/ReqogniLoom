@@ -26,6 +26,8 @@ import logging
 import uuid
 from typing import Any, Optional
 
+from django.db import IntegrityError, transaction
+
 from persistence.transactions import atomic_transaction
 
 from application.base import (
@@ -48,6 +50,35 @@ logger = logging.getLogger(__name__)
 
 #: Sentinel distinguishing "custom_fields omitted" from "clear to {}".
 _UNSET = object()
+
+#: SA-16 analogue (AUD-2026-09-281): how often ``create_version`` re-reads the
+#: next sequence_number after losing the ``uq_goal_lineage_sequence`` race.
+#: Each retry only loses to a *committed* concurrent insert, so N attempts
+#: tolerate N-1 simultaneous creators; beyond that the write is a genuine
+#: fault, not contention worth spinning on. Mirrors
+#: ``application.main_goal_service._SEQUENCE_ALLOCATION_ATTEMPTS``.
+_SEQUENCE_ALLOCATION_ATTEMPTS = 5
+
+#: Name of the UNIQUE constraint the retry loop below is allowed to absorb.
+#: Any other IntegrityError (an unrelated FK/NOT NULL violation, ...) must
+#: propagate immediately instead of being retried for a collision that can
+#: never resolve itself.
+_SEQUENCE_CONSTRAINT_NAME = "uq_goal_lineage_sequence"
+
+
+def _is_sequence_number_collision(exc: IntegrityError) -> bool:
+    """Return True only if *exc* came from the Goal sequence-number UNIQUE constraint.
+
+    Prefers psycopg2's structured diagnostics (``exc.__cause__.diag``), which
+    a real Postgres driver populates and unrelated error text cannot spoof.
+    Falls back to matching the constraint name in ``str(exc)`` for tests / a
+    mocked driver that raises a bare ``IntegrityError``.
+    """
+    diag = getattr(exc.__cause__, "diag", None)
+    constraint_name = getattr(diag, "constraint_name", None)
+    if constraint_name is not None:
+        return constraint_name == _SEQUENCE_CONSTRAINT_NAME
+    return _SEQUENCE_CONSTRAINT_NAME in str(exc)
 
 # Fallbacks for the ``goal_default`` preset's states (workflow/definition_store.py).
 # Only used when a workspace has no Goal workflow document at all — every code
@@ -128,48 +159,98 @@ class GoalService(ServiceBase):
 
         if lineage_id is None:
             resolved_lineage_id = uuid.uuid4()
-            sequence_number = 1
         else:
             resolved_lineage_id = lineage_id
-            last = (
-                Goal.objects.filter(
-                    workspace_id=workspace.id, lineage_id=resolved_lineage_id
-                )
-                .order_by("-sequence_number")
-                .first()
-            )
-            if last is None:
-                # Issue #270 finding 4: an unknown lineage_id used to silently
-                # start a *second* lineage at sequence 1 under the caller's
-                # UUID. Clients that mistakenly pass a Goal *version* id then
-                # get a response whose lineage_id equals that version id and
-                # believe the lineage changed. Fail loudly instead, and name
-                # the real lineage when the UUID is recognisably a Goal id.
-                raise NotFoundError(self._unknown_lineage_message(workspace.id, lineage_id))
-            sequence_number = last.sequence_number + 1
 
-        artifact = Artifact.objects.create(
-            tenant=tenant,
-            workspace=workspace,
-            artifact_type="Goal",
-            custom_fields=_clean_custom_fields(custom_fields),
-        )
-        # Datenmodell-Konsolidierung: `status` is no longer written explicitly —
-        # WorkflowItemState.current_state (seeded below from the workflow
-        # definition's initial_state) is the authority; the model field's own
-        # default ("Entwurf") keeps the column non-null until it is dropped
-        # (Task 12).
-        goal = Goal(
-            artifact=artifact,
-            tenant_id=tenant.id,
-            workspace_id=workspace.id,
-            lineage_id=resolved_lineage_id,
-            sequence_number=sequence_number,
-            title=title,
-            description=description,
-            created_by_name=str(ctx.user_id),
-        )
-        goal.save()
+        # AUD-2026-09-281: the next sequence number is derived from a
+        # ``MAX(sequence_number) + 1`` read. ``select_for_update`` serialises
+        # writers that contend on the lineage's current row, but it cannot
+        # serialise the first-ever insert (no row to lock) and a concurrent
+        # INSERT of the *next* row is not covered by a lock on the old one.
+        # The authoritative guard is therefore the ``uq_goal_lineage_sequence``
+        # UNIQUE constraint; the loop below absorbs its IntegrityError by
+        # re-reading the maximum. Only a collision matched to THIS constraint
+        # is absorbed -- any other IntegrityError propagates immediately.
+        last_error: IntegrityError | None = None
+        goal: Optional[Goal] = None
+        artifact: Optional[Artifact] = None
+        sequence_number = 1
+        for _ in range(_SEQUENCE_ALLOCATION_ATTEMPTS):
+            if lineage_id is not None:
+                last = (
+                    Goal.objects.select_for_update()
+                    .filter(
+                        workspace_id=workspace.id,
+                        lineage_id=resolved_lineage_id,
+                    )
+                    .order_by("-sequence_number")
+                    .first()
+                )
+                if last is None:
+                    # Issue #270 finding 4: an unknown lineage_id used to
+                    # silently start a *second* lineage at sequence 1 under the
+                    # caller's UUID. Clients that mistakenly pass a Goal
+                    # *version* id then get a response whose lineage_id equals
+                    # that version id and believe the lineage changed. Fail
+                    # loudly instead, and name the real lineage when the UUID
+                    # is recognisably a Goal id.
+                    raise NotFoundError(
+                        self._unknown_lineage_message(workspace.id, lineage_id)
+                    )
+                sequence_number = last.sequence_number + 1
+            else:
+                sequence_number = 1
+
+            try:
+                with transaction.atomic():
+                    artifact_candidate = Artifact.objects.create(
+                        tenant=tenant,
+                        workspace=workspace,
+                        artifact_type="Goal",
+                        custom_fields=_clean_custom_fields(custom_fields),
+                    )
+                    # Datenmodell-Konsolidierung: `status` is no longer written
+                    # explicitly -- WorkflowItemState.current_state (seeded
+                    # below from the workflow definition's initial_state) is
+                    # the authority; the model field's own default ("Entwurf")
+                    # keeps the column non-null until it is dropped (Task 12).
+                    goal_candidate = Goal(
+                        artifact=artifact_candidate,
+                        tenant_id=tenant.id,
+                        workspace_id=workspace.id,
+                        lineage_id=resolved_lineage_id,
+                        sequence_number=sequence_number,
+                        title=title,
+                        description=description,
+                        created_by_name=str(ctx.user_id),
+                    )
+                    goal_candidate.save()
+                # Assign only AFTER the atomic block committed: on an
+                # IntegrityError the savepoint rolls the row back, so a
+                # candidate captured inside the block must not leak out as
+                # "the goal was created" (that turned a bounded-retry
+                # exhaustion into a downstream NotFoundError instead of the
+                # real IntegrityError).
+                artifact = artifact_candidate
+                goal = goal_candidate
+                break
+            except IntegrityError as exc:
+                if not _is_sequence_number_collision(exc):
+                    # Not our race -- an unrelated constraint violation must not
+                    # be silently retried and re-raised as a lost race.
+                    raise
+                last_error = exc
+                logger.info(
+                    "GoalService: sequence_number=%s already taken for "
+                    "lineage=%s, retrying with a freshly read maximum",
+                    sequence_number,
+                    resolved_lineage_id,
+                )
+
+        if goal is None:
+            assert last_error is not None  # loop body either returns/breaks or sets it
+            raise last_error
+        assert artifact is not None  # set in the same successful iteration as goal
 
         # Datenmodell-Konsolidierung Phase 5 (spec §6.1): anchor the lineage's
         # revisions on the sequence-1 Artifact so `list_revisions(anchor)`
@@ -529,6 +610,7 @@ class GoalService(ServiceBase):
         goal_id: uuid.UUID,
         ctx: Any,
         change_reason: Optional[str] = None,
+        expected_version: Optional[int] = None,
     ) -> Goal:
         """Archive (soft-delete) a Goal version via the WorkflowEngine.
 
@@ -543,6 +625,9 @@ class GoalService(ServiceBase):
             goal_id: UUID of the Goal version to archive.
             ctx: Resolved AuthContext.
             change_reason: Optional audit reason recorded on the transition.
+            expected_version: Caller's last-seen ``WorkflowItemState.version``.
+                Forwarded to :meth:`transition_status`; a stale value answers
+                409 instead of silently overwriting the winner (AUD-2026-09-282).
 
         Returns:
             The refreshed Goal ORM instance.
@@ -552,6 +637,7 @@ class GoalService(ServiceBase):
             ValidationError: The workspace's Goal workflow has no transition
                 from the version's current state into the archived state.
             PermissionDeniedError: Preset-level role gate blocked the move.
+            OptimisticLockError: A concurrent transition won the race.
         """
         goal = self.get(goal_id, ctx)
         return self.transition_status(
@@ -559,6 +645,7 @@ class GoalService(ServiceBase):
             self._resolve_archive_state(goal),
             ctx,
             change_reason=change_reason,
+            expected_version=expected_version,
         )
 
     def restore(
@@ -566,6 +653,7 @@ class GoalService(ServiceBase):
         goal_id: uuid.UUID,
         ctx: Any,
         change_reason: Optional[str] = None,
+        expected_version: Optional[int] = None,
     ) -> Goal:
         """Restore an archived Goal version to the workflow's initial state.
 
@@ -589,6 +677,9 @@ class GoalService(ServiceBase):
             change_reason: Reason recorded on the transition. Defaults to
                 ``"reactivated"`` because the default ``Archiviert -> Entwurf``
                 transition requires a non-empty reason.
+            expected_version: Caller's last-seen ``WorkflowItemState.version``.
+                Forwarded to :meth:`transition_status`; a stale value answers
+                409 instead of silently overwriting the winner (AUD-2026-09-282).
 
         Returns:
             The refreshed Goal ORM instance.
@@ -598,6 +689,7 @@ class GoalService(ServiceBase):
             ValidationError: The version is not in a state from which the
                 workflow allows a move back to the initial state.
             PermissionDeniedError: Preset-level role gate blocked the move.
+            OptimisticLockError: A concurrent transition won the race.
         """
         goal = self.get(goal_id, ctx)
         return self.transition_status(
@@ -605,6 +697,7 @@ class GoalService(ServiceBase):
             self._resolve_initial_state(goal, ctx),
             ctx,
             change_reason=change_reason or "reactivated",
+            expected_version=expected_version,
         )
 
     def transition_status(

@@ -59,7 +59,8 @@ _HELP_TEXT = """\
 /reqogniloom — ReqogniLoom requirements interviews from Hermes
 
 Subcommands:
-  start <artifact_type> [workspace_id]   Start a new interview (e.g. "requirement", "need").
+  start <artifact_type> [workspace_id]   Start a new interview (e.g. "Requirement",
+                                          "StakeholderNeed" — canonical PascalCase only).
                                           Omit workspace_id to use your first visible workspace.
   status                                 Show the current interview's phase and missing fields.
   answer <field> <value...>              Answer one field of the current interview.
@@ -72,11 +73,27 @@ Subcommands:
 """
 
 
+def _fmt_missing_field(field: Any) -> str:
+    """Render one ``missing_fields`` entry.
+
+    The server sends dicts (``interview_service._serialise_field`` →
+    ``{"name", "type", "choices"}``); a bare string is tolerated for
+    backwards compatibility with older servers. Before this, a dict entry
+    produced ``TypeError`` in ``", ".join`` (PLUG-01).
+    """
+    if isinstance(field, dict):
+        name = field.get("name")
+        if isinstance(name, str) and name:
+            return name
+        return str(field)
+    return str(field)
+
+
 def _fmt_state(state: Dict[str, Any]) -> str:
     lines = [f"session:   {state.get('id')}", f"phase:     {state.get('phase')}"]
     missing = state.get("missing_fields") or []
     if missing:
-        lines.append(f"missing:   {', '.join(missing)}")
+        lines.append(f"missing:   {', '.join(_fmt_missing_field(f) for f in missing)}")
     grounding = state.get("grounding")
     if grounding:
         lines.append("grounding: (see /reqogniloom chat for details)")
@@ -95,10 +112,13 @@ def _handle_slash(raw_args: str) -> Optional[str]:
         return _HELP_TEXT
 
     sub, rest = args[0], args[1:]
-    client = ReqogniLoomClient()
-    state = _load_state()
 
     try:
+        # Client/state construction lives inside the try so the "never raises"
+        # contract below covers it too.
+        client = ReqogniLoomClient()
+        state = _load_state()
+
         if sub == "start":
             if not rest:
                 return "Usage: /reqogniloom start <artifact_type> [workspace_id]"
@@ -135,7 +155,13 @@ def _handle_slash(raw_args: str) -> Optional[str]:
 
             if sub == "formalize":
                 result = client.formalize(session_id)
-                return f"Formalized. Artifact: {result.get('artifact_id', result)}"
+                # The server returns {"resulting_artifact_ids": [...], "status"},
+                # never an "artifact_id" key; surface the real IDs instead of
+                # dumping the raw response dict (PLUG-03/AUD-111).
+                ids = result.get("resulting_artifact_ids")
+                if isinstance(ids, list) and ids:
+                    return f"Formalized. Artifact(s): {', '.join(str(i) for i in ids)}"
+                return f"Formalized. No artifact IDs returned: {result}"
 
             if sub == "abandon":
                 client.abandon(session_id)
@@ -161,6 +187,9 @@ def _handle_slash(raw_args: str) -> Optional[str]:
 
     except ReqogniLoomError as exc:
         return f"ReqogniLoom error: {exc}"
+    except Exception as exc:  # noqa: BLE001 — _handle_slash promises never to raise
+        logger.warning("Unexpected error handling /reqogniloom %s: %s", sub, exc)
+        return f"ReqogniLoom plugin error: {exc}"
 
     return f"Unknown subcommand: {sub}\n\n{_HELP_TEXT}"
 

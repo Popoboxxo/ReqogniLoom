@@ -1,0 +1,130 @@
+[
+ {
+  "label": "redis-down",
+  "tool": "tools/list",
+  "http": -1,
+  "seconds": 8.03,
+  "is_error": false,
+  "internals_leak": false,
+  "timeout": true,
+  "body": "EXC TimeoutError: timed out"
+ },
+ {
+  "label": "redis-down",
+  "tool": "workspace.list",
+  "http": -1,
+  "seconds": 8.01,
+  "is_error": false,
+  "internals_leak": false,
+  "timeout": true,
+  "body": "EXC TimeoutError: timed out"
+ },
+ {
+  "label": "redis-down",
+  "tool": "requirement.query",
+  "http": -1,
+  "seconds": 8.01,
+  "is_error": false,
+  "internals_leak": false,
+  "timeout": true,
+  "body": "EXC TimeoutError: timed out"
+ },
+ {
+  "label": "redis-down",
+  "tool": "memory.digest",
+  "http": -1,
+  "seconds": 8.01,
+  "is_error": false,
+  "internals_leak": false,
+  "timeout": true,
+  "body": "EXC TimeoutError: timed out"
+ },
+ {
+  "label": "redis-down",
+  "tool": "memory.list",
+  "http": -1,
+  "seconds": 8.0,
+  "is_error": false,
+  "internals_leak": false,
+  "timeout": true,
+  "body": "EXC TimeoutError: timed out"
+ },
+ {
+  "label": "redis-down",
+  "tool": "requirement_bundle.compression_status",
+  "http": -1,
+  "seconds": 8.02,
+  "is_error": false,
+  "internals_leak": false,
+  "timeout": true,
+  "body": "EXC TimeoutError: timed out"
+ },
+ {
+  "label": "redis-down",
+  "tool": "events.dlq_list",
+  "http": -1,
+  "seconds": 8.01,
+  "is_error": false,
+  "internals_leak": false,
+  "timeout": true,
+  "body": "EXC TimeoutError: timed out"
+ },
+ {
+  "label": "redis-down",
+  "tool": "traceability.suggest_links",
+  "http": -1,
+  "seconds": 8.01,
+  "is_error": false,
+  "internals_leak": false,
+  "timeout": true,
+  "body": "EXC TimeoutError: timed out"
+ },
+ {
+  "label": "redis-down",
+  "tool": "audit.se_audit",
+  "http": -1,
+  "seconds": 8.01,
+  "is_error": false,
+  "internals_leak": false,
+  "timeout": true,
+  "body": "EXC TimeoutError: timed out"
+ },
+ {
+  "label": "redis-down",
+  "tool": "glossary.create",
+  "http": -1,
+  "seconds": 8.01,
+  "is_error": false,
+  "internals_leak": false,
+  "timeout": true,
+  "body": "EXC TimeoutError: timed out"
+ },
+ {
+  "label": "redis-down",
+  "tool": "permissions.check",
+  "http": -1,
+  "seconds": 8.01,
+  "is_error": false,
+  "internals_leak": false,
+  "timeout": true,
+  "body": "EXC TimeoutError: timed out"
+ },
+ {
+  "label": "redis-down",
+  "tool": "admin.backup_list",
+  "http": -1,
+  "seconds": 8.01,
+  "is_error": false,
+  "internals_leak": false,
+  "timeout": true,
+  "body": "EXC TimeoutError: timed out"
+ },
+ {
+  "label": "redis-down",
+  "tool": "GET /mcp/sse/",
+  "http": -1,
+  "seconds": 8.0,
+  "timeout": true,
+  "body": "EXC TimeoutError: timed out"
+ }
+]

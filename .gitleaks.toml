@@ -1,0 +1,35 @@
+# Gitleaks configuration for ReqogniLoom (SECTRACK-03).
+#
+# Pinned scanner: gitleaks 8.30.1. gitleaks 8.30.1 only knows the `git` and
+# `dir` subcommands; the older `detect`/`protect` commands no longer exist.
+# See .pre-commit-config.yaml (rev v8.30.1) and the CI backstop steps in
+# .github/workflows/ci.yml and .woodpecker.yml (release archive pinned by
+# sha256).
+#
+# The default ruleset is declared (useDefault = true) so a full-coverage scan
+# is available on demand. The ENFORCED (blocking) gate scopes execution to the
+# deterministic incident rule via `--enable-rule reqlo-api-key`:
+# the default heuristics deterministically flag intentional test fixtures
+# (e.g. `VALID_API_KEY = "..."`, `DB_PASSWORD=...`) and the documented
+# 44-character README example, which must NOT be reported. Backing a hard-0
+# gate with the defaults would require a broad allowlist or a large baseline
+# (both out of scope for SECTRACK-03); those pre-existing heuristic hits are
+# tracked as follow-up triage instead.
+#
+# The incident rule is boundary-anchored to EXACTLY 40 alphanumeric characters
+# after the `reqlo_` prefix:
+#   * live incident key  -> reqlo_<40 alnum>  => MATCH
+#   * README example      -> reqlo_<44 alnum>  => no match (no \b after char 40)
+#   * test fixtures       -> reqlo_<...><40>   => no match (underscores/short)
+# No path allowlist is used: the repository history was rewritten (SECTRACK-02)
+# and is secret-free for this pattern, so the gate fails hard on any match.
+title = "ReqogniLoom gitleaks config"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "reqlo-api-key"
+description = "ReqogniLoom API key (reqlo_ prefix + 40 alphanumeric characters)"
+regex = '''reqlo_[A-Za-z0-9]{40}\b'''
+keywords = ["reqlo_"]

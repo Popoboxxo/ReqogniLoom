@@ -41,13 +41,33 @@ export const ARTIFACT_ROUTE_MAP: Record<string, string> = {
   // camelCase ArtifactKind aliases (ArtifactInspector)
   testCase: "/testcases",
   stakeholderNeed: "/needs",
+  // Legacy TestCase sub-type tags (DATA-08, audit finding 181/189). Residual
+  // artifacts created before/outside the backend normaliser still carry a
+  // "TestCase:<Type>" artifact_type; every sub-type belongs on the TestCase
+  // editor, not the "/requirements" fallback. The canonical writer emits
+  // Title-case suffixes, listed explicitly so ARTIFACT_ROUTE_MAP consumers
+  // (e.g. api/artifactRefs.ts) resolve them too.
+  "TestCase:Unit": "/testcases",
+  "TestCase:System": "/testcases",
+  "TestCase:Integration": "/testcases",
+  "TestCase:Inspection": "/testcases",
+  "TestCase:Analysis": "/testcases",
+  "TestCase:Demonstration": "/testcases",
 };
+
+/** Prefix of the deprecated `"TestCase:<Type>"` artifact_type tag. */
+const TEST_CASE_SUBTYPE_PREFIX = "TestCase:";
 
 /**
  * Builds the SPA route for a linked artifact. Falls back to `/requirements`
  * when the entity type is unknown so navigation never breaks.
  */
 export const getArtifactRoute = (entityType: string, id: string): string => {
-  const prefix = ARTIFACT_ROUTE_MAP[entityType] ?? "/requirements";
+  const prefix =
+    ARTIFACT_ROUTE_MAP[entityType] ??
+    // Defensive: any residual case/type variant (e.g. "TestCase:unit") of the
+    // legacy TestCase sub-type tag still lands on the TestCase editor.
+    (entityType.startsWith(TEST_CASE_SUBTYPE_PREFIX) ? "/testcases" : undefined) ??
+    "/requirements";
   return `${prefix}/${id}`;
 };

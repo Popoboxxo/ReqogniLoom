@@ -1,0 +1,42 @@
+# Opt-in off-host backup export for the postgres-backup sidecar (ADR-012, DATA-02).
+#
+# WHY THIS EXISTS
+#   The base stack keeps every dump only in the local named volume
+#   `postgres_backup_data`. That survives a container/volume recreate, but not
+#   the loss of the host — a residual risk ADR-012 names explicitly. This
+#   overlay makes an off-host destination configurable without touching the
+#   default stack: no overlay, no behavior change.
+#
+# USAGE
+#   1. Set the off-host mount path in .env (REQUIRED and absolute):
+#        BACKUP_OFFHOST_DIR=/mnt/nfs/reqlo-backups
+#      That path must be a genuinely separate filesystem/host (NFS, SMB, a
+#      different disk) to be off-host. Pointing it at a local folder is a
+#      local copy, not an off-host copy — the repository cannot enforce this.
+#   2. Include the overlay when starting/refreshing the sidecar:
+#        docker compose -f deploy/docker-compose.yml \
+#          -f deploy/docker-compose.offhost.yml --project-directory . up -d postgres-backup
+#
+# BEHAVIOR
+#   After a dump passes the gzip and COPY-block gates, the sidecar copies the
+#   same `.sql.gz` to /offhost. If the copy fails, the LOCAL dump is KEPT and
+#   the run is reported non-zero with `status=offhost_failed` in
+#   /backups/.last_backup_status — an absent off-host copy is never silent.
+#
+# RESIDUAL RISKS (ADR-012 — extensions of option A, not solved here)
+#   * The exported artifact is the same UNENCRYPTED `.sql.gz`. gzip is
+#     compression, not encryption. Encrypting the off-host artifact is a
+#     separate follow-up.
+#   * Retention for the off-host copy is not implemented: the sidecar prunes
+#     only the local volume. Prune the remote target with the storage system's
+#     own policy.
+#   * No off-host copy happens for the minimal stack (no sidecar at all).
+
+services:
+  postgres-backup:
+    environment:
+      BACKUP_OFFHOST_ENABLED: "true"
+      BACKUP_OFFHOST_DIR: /offhost
+    volumes:
+      - postgres_backup_data:/backups
+      - ${BACKUP_OFFHOST_DIR:?BACKUP_OFFHOST_DIR must be set to an absolute host path when using docker-compose.offhost.yml}:/offhost

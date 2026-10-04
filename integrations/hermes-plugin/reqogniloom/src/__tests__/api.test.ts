@@ -201,4 +201,57 @@ describe("listWorkspaces", () => {
       listWorkspaces({ fetch: fetchMock }, { baseUrl: "https://example.com", apiKey: "reqlo_abc" })
     ).rejects.toThrow(/aborted/);
   });
+
+  it("follows next across pages and returns every workspace", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        JSON.stringify({
+          count: 3,
+          next: "https://example.com/api/v1/workspaces/?page=2",
+          previous: null,
+          results: [
+            { id: "ws-1", name: "Alpha" },
+            { id: "ws-2", name: "Beta" },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(
+        JSON.stringify({
+          count: 3,
+          next: null,
+          previous: null,
+          results: [{ id: "ws-3", name: "Gamma" }],
+        })
+      );
+
+    const workspaces = await listWorkspaces(
+      { fetch: fetchMock },
+      { baseUrl: "https://example.com", apiKey: "reqlo_abc" }
+    );
+
+    expect(workspaces.map((w) => w.id)).toEqual(["ws-1", "ws-2", "ws-3"]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[1][0]).toBe("https://example.com/api/v1/workspaces/?page=2");
+  });
+
+  it("stops when the server repeats a next link", async () => {
+    const loopUrl = "https://example.com/api/v1/workspaces/?page=2";
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        JSON.stringify({ count: 2, next: loopUrl, previous: null, results: [{ id: "ws-1", name: "A" }] })
+      )
+      .mockResolvedValueOnce(
+        JSON.stringify({ count: 2, next: loopUrl, previous: null, results: [{ id: "ws-2", name: "B" }] })
+      );
+
+    const workspaces = await listWorkspaces(
+      { fetch: fetchMock },
+      { baseUrl: "https://example.com", apiKey: "reqlo_abc" }
+    );
+
+    expect(workspaces.map((w) => w.id)).toEqual(["ws-1", "ws-2"]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
 });

@@ -409,7 +409,11 @@ class TestFetchEntitiesResolvesStatusFromEngine:
 
             create_default_workflow(
                 workspace_id=workspace.id,
-                preset="standard",
+                # "extended", not "standard": this fixture drives a real
+                # transition to "in_review", which only the extended preset
+                # declares. The DATA-06 membership trigger now rejects a state
+                # outside the owning definition instead of silently storing it.
+                preset="extended",
                 item_type="Requirement",
                 tenant_id=tenant.id,
             )

@@ -1,7 +1,7 @@
 # ReqogniLoom Traceability Matrix
 
 > **AUTOGENERIERT — NICHT MANUELL EDITIEREN.**
-> Generiert von `scripts/generate_traceability_matrix.py` am 2026-08-28T12:51:08+00:00 aus 120 Requirement-Dokumenten und 18 Architektur-Dokumenten.
+> Generiert von `scripts/generate_traceability_matrix.py` am 2026-10-03T06:49:48+00:00 aus 120 Requirement-Dokumenten und 18 Architektur-Dokumenten.
 > Neu erzeugen: `python3 scripts/generate_traceability_matrix.py` — Aenderungen gehoeren in die
 > Quelldokumente unter `docs/se/L0/` und `docs/se/L1/`, nicht in diese Datei.
 >
@@ -28,15 +28,15 @@
 | REQ-L0 | SN | Titel | Impl. State | REQ-L1 IDs |
 |--------|----|-------|-------------|------------|
 | REQ-L0-001 | SN-01 | Maschinenlesbarer Anforderungskontext für AI-Agenten | Implemented | REQ-L1-005, REQ-L1-006, REQ-L1-020 |
-| REQ-L0-002 | SN-02 | Skalierbare SE-Tiefe ohne Produktwechsel | Not Implemented | REQ-L1-001, REQ-L1-002, REQ-L1-007, REQ-L1-025, REQ-L1-026 |
+| REQ-L0-002 | SN-02 | Skalierbare SE-Tiefe ohne Produktwechsel | Implemented | REQ-L1-001, REQ-L1-002, REQ-L1-007, REQ-L1-025, REQ-L1-026 |
 | REQ-L0-003 | SN-03 | Vollständige Traceability zwischen Requirements, Architektur und Tests | Teilweise Implementiert | REQ-L1-001, REQ-L1-003, REQ-L1-004, REQ-L1-012, REQ-L1-058, REQ-L1-060, REQ-L1-061, REQ-L1-062, REQ-L1-063, REQ-L1-092 |
-| REQ-L0-004 | SN-04 | Unveränderliche, benannte Anforderungs-Baselines auf mehreren Ebenen | Not Implemented | REQ-L1-008, REQ-L1-090 |
+| REQ-L0-004 | SN-04 | Unveränderliche, benannte Anforderungs-Baselines auf mehreren Ebenen | Implemented | REQ-L1-008, REQ-L1-090 |
 | REQ-L0-005 | SN-05 | Konfigurierbarer Item-Lifecycle mit Rollen und Approval-Gates | Teilweise Implementiert | REQ-L1-002, REQ-L1-009, REQ-L1-010 |
-| REQ-L0-006 | SN-06 | Self-Hosted Deployment ohne Vendor-Lock-in | Not Implemented | REQ-L1-018 |
-| REQ-L0-007 | SN-07 | LLM-gestützte Qualitätssicherung als optionale Capability | Not Implemented | REQ-L1-013 |
-| REQ-L0-008 | SN-08 | Mandantenfähige Isolation für spätere SaaS-Erweiterung | Not Implemented | REQ-L1-015 |
-| REQ-L0-009 | SN-09 | Zweisprachige Benutzeroberfläche (Deutsch und Englisch) | Not Implemented | REQ-L1-016, REQ-L1-089, REQ-L1-093, REQ-L1-094 |
-| REQ-L0-010 | SN-10 | Terminologie-Flexibilität für zwei Zielgruppen ohne Datenverlust | Not Implemented | REQ-L1-014 |
+| REQ-L0-006 | SN-06 | Self-Hosted Deployment ohne Vendor-Lock-in | Implemented | REQ-L1-018 |
+| REQ-L0-007 | SN-07 | LLM-gestützte Qualitätssicherung als optionale Capability | Implemented | REQ-L1-013 |
+| REQ-L0-008 | SN-08 | Mandantenfähige Isolation für spätere SaaS-Erweiterung | Implemented | REQ-L1-015 |
+| REQ-L0-009 | SN-09 | Zweisprachige Benutzeroberfläche (Deutsch und Englisch) | Implemented | REQ-L1-016, REQ-L1-089, REQ-L1-093, REQ-L1-094 |
+| REQ-L0-010 | SN-10 | Terminologie-Flexibilität für zwei Zielgruppen ohne Datenverlust | Implemented | REQ-L1-014 |
 | REQ-L0-011 | SN-11 | Vollständiger Audit-Trail für agentengesteuerte und manuelle Änderungen | Implemented | REQ-L1-011 |
 | REQ-L0-012 | SN-12 | REST API und MCP Server als gleichrangige, vollständige Schnittstellen | Implemented | REQ-L1-005, REQ-L1-006, REQ-L1-017, REQ-L1-019, REQ-L1-024 |
 | REQ-L0-013 | SN-13 | Effiziente Übernahme bestehender Anforderungsdaten | Implemented | REQ-L1-021 |
@@ -44,25 +44,25 @@
 | REQ-L0-015 | SN-15 | Audit-dokumentierbare Anforderungsberichte und Traceability-Matrizen | Implemented | REQ-L1-023 |
 | REQ-L0-016 | SN-16 | Interaktive Diagramme und Grafiken direkt im Tool | Implemented | REQ-L1-027, REQ-L1-100, REQ-L1-101 |
 | REQ-L0-017 | SN-17 | Verwaltung einer rekursiven Architektur-Hierarchie mit versionierten ICDs | Implemented | REQ-L1-028, REQ-L1-058, REQ-L1-059, REQ-L1-062, REQ-L1-089, REQ-L1-090, REQ-L1-091, REQ-L1-095 |
-| REQ-L0-018 | SN-18 | Verwaltung von Architekturentscheidungen (ADRs), Risiken und Issues | Not Implemented | REQ-L1-029, REQ-L1-089, REQ-L1-095 |
+| REQ-L0-018 | SN-18 | Verwaltung von Architekturentscheidungen (ADRs), Risiken und Issues | Implemented | REQ-L1-029, REQ-L1-089, REQ-L1-095 |
 | REQ-L0-019 | SN-19 | Projektübergreifende Traceability für rekursive SE-Zerlegung | Not Implemented | REQ-L1-030 |
 | REQ-L0-020 | SN-20 | Metrikbasiertes Steuern des SE-Prozesses | Implemented | REQ-L1-031 |
-| REQ-L0-021 | SN-21 | Asynchrone, resiliente Systemkommunikation zwischen Komponenten | Not Implemented | REQ-L1-032 |
-| REQ-L0-022 | SN-22 | Credential-basierter User-Login (Benutzername/Passwort) | Not Implemented | REQ-L1-033 |
+| REQ-L0-021 | SN-21 | Asynchrone, resiliente Systemkommunikation zwischen Komponenten | Implemented | REQ-L1-032 |
+| REQ-L0-022 | SN-22 | Credential-basierter User-Login (Benutzername/Passwort) | Implemented | REQ-L1-033 |
 | REQ-L0-023 | SN-23 | ReqIF-Support für MBSE-Datenaustausch | Not Implemented | REQ-L1-034 |
-| REQ-L0-024 | SN-24 | Test-Ausführungs-Management (Test Runs) | Not Implemented | REQ-L1-035, REQ-L1-036 |
+| REQ-L0-024 | SN-24 | Test-Ausführungs-Management (Test Runs) | Implemented | REQ-L1-035, REQ-L1-036 |
 | REQ-L0-025 | SN-25 | Kollaboration und In-App-Diskussion | Not Implemented | REQ-L1-037 |
 | REQ-L0-026 | SN-26 | Semantische Suche (RAG) und KI-Assistenz | Not Implemented | REQ-L1-038 |
 | REQ-L0-027 | SN-27 | Granulare Zugriffssteuerung (Item-Level Access) | Not Implemented | REQ-L1-039 |
-| REQ-L0-028 | SN-28 | Visuelles Diffing von Artefakten und Baselines | Not Implemented | REQ-L1-040, REQ-L1-041, REQ-L1-091 |
+| REQ-L0-028 | SN-28 | Visuelles Diffing von Artefakten und Baselines | Implemented | REQ-L1-040, REQ-L1-041, REQ-L1-091 |
 | REQ-L0-029 | SN-29 | Workspace-Lifecycle-Management für Administratoren | Not Implemented | REQ-L1-042 |
 | REQ-L0-030 | SN-30 | Suspect-Link-Propagierung bei Anforderungsänderungen | Not Implemented | REQ-L1-043, REQ-L1-092 |
-| REQ-L0-032 | SN-32 | Semantisches Projekt-Glossar (Data Dictionary) | Not Implemented | REQ-L1-044 |
+| REQ-L0-032 | SN-32 | Semantisches Projekt-Glossar (Data Dictionary) | Implemented | REQ-L1-044 |
 | REQ-L0-033 | SN-33 | Isolierte Requirement-Sandboxes (Branch & Merge) | Not Implemented | REQ-L1-045 |
 | REQ-L0-034 | SN-34 | Instanz-Backup, Disaster Recovery & Baseline-Vergleich | Not Implemented | REQ-L1-046 |
 | REQ-L0-035 | SN-35 | Direkte Traceability-Verknüpfungen über mehrere Ebenen (Cross-Level-Links) | Not Implemented | REQ-L1-047, REQ-L1-092 |
-| REQ-L0-036 | SN-36 | Diagramme als freies Canvas-Zeichnen (Free-Hand Drawing) | Not Implemented | REQ-L1-056 |
-| REQ-L0-037 | SN-37 | Mermaid-Code mit Live-Rendering (Live Preview) | Not Implemented | REQ-L1-057 |
+| REQ-L0-036 | SN-36 | Diagramme als freies Canvas-Zeichnen (Free-Hand Drawing) | Implemented | REQ-L1-056 |
+| REQ-L0-037 | SN-37 | Mermaid-Code mit Live-Rendering (Live Preview) | Implemented | REQ-L1-057 |
 | REQ-L0-038 | SN-38 | Skalierbarkeit & Übersicht bei großen Datenmengen | Not Implemented | REQ-L1-064, REQ-L1-066 |
 | REQ-L0-039 | SN-39 | Systemebenen-Orientierung durch Hierarchie-Darstellung | Not Implemented | REQ-L1-067 |
 | REQ-L0-040 | SN-40 | UI-Performance durch Lazy Loading | Not Implemented | REQ-L1-065 |
@@ -76,15 +76,15 @@
 | REQ-L0-048 | SN-48 | Industriestandard Workflow-Status | Not Implemented | REQ-L1-078 |
 | REQ-L0-049 | SN-49 | Stage-Gating & Guardrails (Strenge SE-Regeln) | Not Implemented | REQ-L1-079, REQ-L1-080 |
 | REQ-L0-050 | SN-50 | Personal Access Tokens (PAT) via UI | Sonstige (Freitext) | — |
-| REQ-L0-051 | SN-51 | System Broadcast Banner | Not Implemented | — |
-| REQ-L0-052 | SN-52 | Visuelle Baum-Struktur für Artefakt-Hierarchien | Not Implemented | — |
-| REQ-L0-053 | SN-53 | Konsistentes Split-View Layout | Not Implemented | — |
+| REQ-L0-051 | SN-51 | System Broadcast Banner | Implemented | — |
+| REQ-L0-052 | SN-52 | Visuelle Baum-Struktur für Artefakt-Hierarchien | Implemented | — |
+| REQ-L0-053 | SN-53 | Konsistentes Split-View Layout | Implemented | — |
 | REQ-L0-054 | SN-54 | Effiziente Listen-Navigation | Not Implemented | — |
 | REQ-L0-055 | SN-55 | Glossar-Referenzen im Freitext (@-Mentions) | Not Implemented | REQ-L1-086 |
-| REQ-L0-056 | SN-56 | Konfigurierbare KI-Ableitungs-Prompts | Not Implemented | REQ-L1-088 |
+| REQ-L0-056 | SN-56 | Konfigurierbare KI-Ableitungs-Prompts | Implemented | REQ-L1-088 |
 | REQ-L0-060 | SN-60 | Konsistentes UI/UX Design und Universelles Versioning | Not Implemented | REQ-L1-085, REQ-L1-086 |
 | REQ-L0-061 | SN-61 | Interaktive und versionierte Architektur-Diagramme | Not Implemented | REQ-L1-087 |
-| REQ-L0-062 | SN-62 | Unified Artifact Inspector Sidebar (Right Sidebar) | Not Implemented | REQ-L1-089, REQ-L1-090, REQ-L1-091, REQ-L1-092, REQ-L1-093, REQ-L1-094, REQ-L1-095, REQ-L1-099 |
+| REQ-L0-062 | SN-62 | Unified Artifact Inspector Sidebar (Right Sidebar) | Implemented | REQ-L1-089, REQ-L1-090, REQ-L1-091, REQ-L1-092, REQ-L1-093, REQ-L1-094, REQ-L1-095, REQ-L1-099 |
 
 ---
 
@@ -658,7 +658,7 @@
 
 | Ebene | Implemented | Not Implemented | Planned | Backlog | In Progress | Teilweise Implementiert | Deferred | Sonstige (Freitext) | (kein Marker) | Summe |
 |---|---|---|---|---|---|---|---|---|---|---|
-| REQ-L0 (Stakeholder Needs) | 8 | 47 | 0 | 0 | 0 | 2 | 0 | 1 | 0 | 58 |
+| REQ-L0 (Stakeholder Needs) | 28 | 27 | 0 | 0 | 0 | 2 | 0 | 1 | 0 | 58 |
 | REQ-L1 (System) | 40 | 23 | 4 | 23 | 1 | 0 | 2 | 1 | 0 | 94 |
 | REQ-L2 (Subsystem) | 181 | 61 | 19 | 15 | 0 | 0 | 1 | 0 | 13 | 290 |
 | REQ-L3 (Komponente) | 221 | 114 | 22 | 0 | 0 | 0 | 0 | 2 | 10 | 369 |
@@ -669,7 +669,7 @@
 
 | Ebene | Covered | Missing | Untested | Sonstige (Freitext) | (kein Marker) | Summe |
 |---|---|---|---|---|---|---|
-| REQ-L0 (Stakeholder Needs) | 4 | 52 | 0 | 2 | 0 | 58 |
+| REQ-L0 (Stakeholder Needs) | 24 | 32 | 0 | 2 | 0 | 58 |
 | REQ-L1 (System) | 30 | 60 | 4 | 0 | 0 | 94 |
 | REQ-L2 (Subsystem) | 152 | 88 | 27 | 0 | 23 | 290 |
 | REQ-L3 (Komponente) | 146 | 168 | 22 | 0 | 33 | 369 |

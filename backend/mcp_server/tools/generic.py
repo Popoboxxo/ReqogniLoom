@@ -373,6 +373,16 @@ class GenericCrudToolGroup(BaseToolGroup):
                             "type": "boolean",
                             "description": "If true, include outdated (soft-deleted) entities. Defaults to false.",
                         },
+                        "uid": {
+                            "type": "string",
+                            "description": (
+                                "Optional local readable identifier (e.g. "
+                                "'ADR-004'). When supplied, only the entity "
+                                "carrying this uid is returned (#1147). "
+                                "Entities without a uid column (glossary, "
+                                "change_request) match nothing."
+                            ),
+                        },
                     },
                     "required": ["workspace_id"],
                 },
@@ -660,19 +670,37 @@ class GenericCrudToolGroup(BaseToolGroup):
     def _handle_query(self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str) -> ToolResult:
         workspace_id = require_uuid(params, "workspace_id")
         include_outdated = params.get("include_outdated", False)
+        # #1147 B3: a client-supplied `uid` used to be silently discarded —
+        # the handler never read it, so a caller narrowing by local readable
+        # identifier got the whole workspace back and could not tell. Apply it
+        # as a post-list filter (the wrapped list methods do not accept a uid
+        # kwarg). Entities without a uid column simply match nothing, which is
+        # the honest result of filtering on an identifier they do not carry.
+        uid_filter = params.get("uid")
+        if uid_filter is not None:
+            uid_filter = str(uid_filter).strip() or None
         try:
             results = list(
                 self._list_method(
                     workspace_id=workspace_id, ctx=auth_context, include_deleted=include_outdated
                 )
             )
+            if uid_filter is not None:
+                results = [r for r in results if str(getattr(r, "uid", "") or "") == uid_filter]
             # Batch-resolve status for the whole page in one query instead of
             # one engine lookup per row (N+1 avoidance).
             status_map = resolve_status_map(
                 self._item_type, [getattr(r, "id", None) for r in results]
             )
+            # #1147 B1: every query response now carries `count` alongside its
+            # list key, so an agent can read the size without len()-ing the
+            # list. The generic group keeps its canonical key `items`; the
+            # entity-specific groups keep their own list keys — the invariant
+            # this issue asks for is `count` on every query, not a single
+            # shared key name across unrelated handlers.
             return ToolResult.ok({
-                "items": [self._to_dict(r, status_map=status_map) for r in results]
+                "items": [self._to_dict(r, status_map=status_map) for r in results],
+                "count": len(results),
             })
         except Exception:
             # #697 (CWE-209): mask the unmapped cause, log it server-side.

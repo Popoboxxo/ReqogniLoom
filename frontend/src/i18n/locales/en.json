@@ -1124,6 +1124,8 @@
     "reqifUpdated": "updated",
     "reqifSkipped": "skipped",
     "reqifWarnings": "Warnings",
+    "reqifIdempotentReplay": "Replay of an earlier import — no second write.",
+    "reqifCounts": "Succeeded: {{succeeded}}, skipped: {{skipped}}, failed: {{failed}}",
     "reqifMoreErrors": "… and {{count}} more errors",
     "reqifMoreWarnings": "… and {{count}} more warnings",
     "dropZoneLabel": "Select a CSV file or drop it here",

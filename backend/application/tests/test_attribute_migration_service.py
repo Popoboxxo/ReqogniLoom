@@ -467,3 +467,72 @@ class TestRunHistory:
     def test_get_unknown_run_is_not_found(self, service, admin_ctx) -> None:
         with pytest.raises(AttributeMigrationNotFound):
             service.get_run(admin_ctx, uuid.uuid4())
+
+
+class TestResolveWorkspaces:
+    """Issue #1146: preset selection must read the persisted ``tier`` key.
+
+    API-created workspaces persist ``preset={"tier": "standard", ...}`` (no
+    ``name`` key), so a plan sending ``preset=["standard"]`` used to drop every
+    one of them. The legacy/seeded shape ``{"name": "extended"}`` must keep
+    matching.
+    """
+
+    def test_matches_preset_stored_under_the_tier_key(self, service, tenant) -> None:
+        TenantContext.set_tenant(tenant.id)
+        try:
+            workspace = Workspace.objects.create(
+                tenant_id=tenant.id,
+                name="api-ws",
+                preset={"tier": "standard", "language": "de"},
+            )
+            resolved = service._resolve_workspaces(
+                {"item_type": "Requirement", "preset": ["standard"]}
+            )
+        finally:
+            TenantContext.clear_tenant()
+
+        assert [entry["id"] for entry in resolved] == [workspace.id]
+        assert resolved[0]["preset"] == "standard"
+
+    def test_still_matches_the_legacy_name_key(self, service, tenant, workspace) -> None:
+        TenantContext.set_tenant(tenant.id)
+        try:
+            resolved = service._resolve_workspaces(
+                {"item_type": "Requirement", "preset": ["standard"]}
+            )
+        finally:
+            TenantContext.clear_tenant()
+
+        assert [entry["id"] for entry in resolved] == [workspace.id]
+        assert resolved[0]["preset"] == "standard"
+
+
+class TestNoMatchingWorkspace:
+    """Issue #1146: a 0-match apply must not report ``applied``."""
+
+    def test_apply_without_a_matching_preset_is_not_reported_applied(
+        self, service, admin_ctx, requirements
+    ) -> None:
+        report = service.apply(
+            admin_ctx,
+            _plan(scope={"item_type": "Requirement", "preset": ["extended"]}),
+        )
+
+        assert report["status"] == "failed"
+        assert report["status"] != "applied"
+        assert report["summary"]["matched"] == 0
+        assert report["summary"]["changed"] == 0
+        assert report["scope_effect"]["workspaces_selected"] == 0
+        assert "0 workspaces" in report["message"]
+
+    def test_dry_run_without_a_matching_preset_stays_planned(
+        self, service, admin_ctx, requirements
+    ) -> None:
+        report = service.dry_run(
+            admin_ctx,
+            _plan(scope={"item_type": "Requirement", "preset": ["extended"]}),
+        )
+
+        assert report["status"] == "planned"
+        assert report["scope_effect"]["workspaces_selected"] == 0

@@ -59,6 +59,24 @@ class TargetNotFoundError(TraceLinkError):
         self.target_id = target_id
 
 
+class SelfLinkError(TraceLinkError):
+    """Raised when an artifact would be linked to itself (DATA-05, finding 157).
+
+    A self-link carries no information and silently corrupts graph traversal
+    (an artifact becomes its own ancestor/descendant), so it is rejected at the
+    write path. The same invariant is enforced at the DB level by
+    ``ck_tracelink_no_self_link`` so no path — including a raw ORM insert that
+    bypasses the manager — can create one (finding 157).
+    """
+
+    def __init__(self, artifact_id: object) -> None:
+        super().__init__(
+            f"Self-links are not allowed: artifact '{artifact_id}' cannot "
+            "be linked to itself"
+        )
+        self.artifact_id = artifact_id
+
+
 class CycleDetectedError(TraceLinkError):
     """Raised when creating a link would introduce a cycle.
 
@@ -198,6 +216,7 @@ __all__ = [
     "SourceNotFoundError",
     "TargetNotFoundError",
     "CycleDetectedError",
+    "SelfLinkError",
     "ContradictoryHierarchyLinkError",
     "QueryTimeoutError",
     "PayloadTooLargeError",

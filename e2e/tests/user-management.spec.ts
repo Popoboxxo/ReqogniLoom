@@ -78,7 +78,10 @@ test.describe('[Multi-user management] Tenant-admin full flow', () => {
       headers: { Authorization: `Bearer ${token}` },
     });
     expect(listResp.ok()).toBeTruthy();
-    const users: ManagedUserDto[] = await listResp.json();
+    const body = await listResp.json();
+    // Tolerate both response shapes: bare array (w1) and StandardPagination
+    // envelope {count, next, previous, results} (w2, INT-05/AUD-2026-09-074).
+    const users: ManagedUserDto[] = Array.isArray(body) ? body : (body?.results ?? []);
     const created = users.find((u) => u.username === username);
     expect(created, `created user '${username}' not found in GET /api/v1/users/`).toBeTruthy();
     const userId = (created as ManagedUserDto).id;

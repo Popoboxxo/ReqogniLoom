@@ -68,6 +68,9 @@ export type HierarchyRelation = "parent" | "child";
 /**
  * Link types that express a requirement/architecture decomposition hierarchy.
  * `derived-by` deliberately absent — it never existed in the backend enum.
+ * `refines` is a live backend built-in but is deliberately not included: its
+ * hierarchy-edge status is an open decision (ADR candidate vi), mirroring
+ * backend `traceability/audit/hierarchy.py`.
  */
 export const HIERARCHY_LINK_TYPES: readonly LinkType[] = [
   "derives-from",
