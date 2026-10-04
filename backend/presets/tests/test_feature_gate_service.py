@@ -14,6 +14,7 @@ from __future__ import annotations
 import threading
 import time
 import uuid
+from unittest.mock import patch
 
 import pytest
 
@@ -290,6 +291,66 @@ class TestDowngradeValidation:
         _invalidate_workspace(str(workspace_standard.id))
         cfg = gate.get_preset(str(workspace_standard.id))
         assert cfg.tier == TIER_MINIMAL
+
+    @staticmethod
+    def _force_policy(workspace: Workspace, policy: str) -> None:
+        pc = WorkspacePresetConfig.unscoped.get(workspace=workspace)
+        pc.downgrade_policy = policy
+        pc.save()
+
+    def test_persistence_failure_is_fail_closed_under_block_policy(
+        self,
+        gate: FeatureGateService,
+        workspace_extended: Workspace,
+    ) -> None:
+        """ADR-016 decision 2 / REQ-L2-PC-011: an unverifiable global-baseline
+        check must NOT silently allow the downgrade. The previous
+        ``except Exception: pass`` let exactly that through."""
+        self._force_policy(workspace_extended, "block")
+
+        with patch("baseline.models.BaselineSnapshot") as snapshot_cls:
+            snapshot_cls.unscoped.filter.return_value.count.side_effect = (
+                RuntimeError("persistence layer down")
+            )
+            with pytest.raises(DowngradeBlockedError):
+                gate.validate_downgrade(str(workspace_extended.id), TIER_STANDARD)
+
+    def test_persistence_failure_surfaces_as_warning_under_warn_policy(
+        self,
+        gate: FeatureGateService,
+        workspace_extended: Workspace,
+    ) -> None:
+        self._force_policy(workspace_extended, "warn")
+
+        with patch("baseline.models.BaselineSnapshot") as snapshot_cls:
+            snapshot_cls.unscoped.filter.return_value.count.side_effect = (
+                RuntimeError("persistence layer down")
+            )
+            warnings = gate.validate_downgrade(
+                str(workspace_extended.id), TIER_STANDARD
+            )
+
+        assert len(warnings) == 1
+        assert "could not verify global baselines" in warnings[0]
+        assert "RuntimeError" in warnings[0]
+
+    def test_persistence_failure_stays_explicitly_allowed_under_allow_policy(
+        self,
+        gate: FeatureGateService,
+        workspace_extended: Workspace,
+    ) -> None:
+        """Policy "allow" explicitly permits the downgrade — unchanged."""
+        self._force_policy(workspace_extended, "allow")
+
+        with patch("baseline.models.BaselineSnapshot") as snapshot_cls:
+            snapshot_cls.unscoped.filter.return_value.count.side_effect = (
+                RuntimeError("persistence layer down")
+            )
+            result = gate.validate_downgrade(
+                str(workspace_extended.id), TIER_STANDARD
+            )
+
+        assert result == []
 
 
 # ---------------------------------------------------------------------------

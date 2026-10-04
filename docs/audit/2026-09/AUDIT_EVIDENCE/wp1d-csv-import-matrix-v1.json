@@ -1,0 +1,78 @@
+{
+ "export_header": [
+  "# terminology_profile: default",
+  "\"title\",\"description\",\"category\",\"status\",\"type\",\"level\",\"complexity_fibonacci\",\"verification_method\",\"suspect\",\"lifecycle_status\",\"uid\",\"id\",\"artifact_id\",\"version\",\"created_at\",\"modified_at\""
+ ],
+ "a_exact_export_header_1row": {
+  "status": 201,
+  "resp": "{\"success\": true, \"imported_count\": 0, \"skipped_count\": 0, \"status\": \"ok\", \"errors\": [], \"warnings\": [\"Unrecognized column(s) ignored, their data was NOT imported: , 1, CLEAN-1, SyReq, demo, draft, plain desc. Expected columns for 'Requirement': artifact_id, category, complexity_fibonacci, created_at, description, id, level, lifecycle_status, modified_at, status, suspect, title, type, uid, verification_method, version.\"]}"
+ },
+ "b_two_rows": {
+  "status": 400,
+  "resp": "{\"success\": false, \"imported_count\": 0, \"skipped_count\": 1, \"status\": \"validation_error\", \"errors\": [{\"row_number\": 2, \"field\": \"title\", \"message\": \"Required field 'title' is missing or empty.\"}], \"warnings\": [\"Unrecognized column(s) ignored, their data was NOT imported: , 1, CLEAN-2, SyReq, demo, draft, plain desc. Expected columns for 'Requirement': artifact_id, category, complexity_fibonacci, created_at, description, id, level, lifecycle_status, modified_at, status, suspect, title, type, uid, verification_method, version.\"]}"
+ },
+ "c_with_uid_column": {
+  "status": 201,
+  "resp": "{\"success\": true, \"imported_count\": 0, \"skipped_count\": 0, \"status\": \"ok\", \"errors\": [], \"warnings\": [\"Unrecognized column(s) ignored, their data was NOT imported: , 1, CLEAN-4, SyReq, demo, draft, plain desc. Expected columns for 'Requirement': artifact_id, category, complexity_fibonacci, created_at, description, id, level, lifecycle_status, modified_at, status, suspect, title, type, uid, verification_method, version.\"]}"
+ },
+ "d_umlaut_ascii_escape": {
+  "status": 201,
+  "resp": "{\"success\": true, \"imported_count\": 0, \"skipped_count\": 0, \"status\": \"ok\", \"errors\": [], \"warnings\": [\"Unrecognized column(s) ignored, their data was NOT imported: , 1, CLEAN-5, SyReq, Umlaut: ÄÖÜ äöü €, demo, draft. Expected columns for 'Requirement': artifact_id, category, complexity_fibonacci, created_at, description, id, level, lifecycle_status, modified_at, status, suspect, title, type, uid, verification_method, version.\"]}"
+ },
+ "e_quoted_comma": {
+  "status": 201,
+  "resp": "{\"success\": true, \"imported_count\": 0, \"skipped_count\": 0, \"status\": \"ok\", \"errors\": [], \"warnings\": [\"Unrecognized column(s) ignored, their data was NOT imported: , 1, CLEAN-6, SyReq, demo, desc, with comma, draft. Expected columns for 'Requirement': artifact_id, category, complexity_fibonacci, created_at, description, id, level, lifecycle_status, modified_at, status, suspect, title, type, uid, verification_method, version.\"]}"
+ },
+ "f_empty_optional": {
+  "status": 201,
+  "resp": "{\"success\": true, \"imported_count\": 0, \"skipped_count\": 0, \"status\": \"ok\", \"errors\": [], \"warnings\": [\"Unrecognized column(s) ignored, their data was NOT imported: , CLEAN-7. Expected columns for 'Requirement': artifact_id, category, complexity_fibonacci, created_at, description, id, level, lifecycle_status, modified_at, status, suspect, title, type, uid, verification_method, version.\"]}"
+ },
+ "g_bad_enum_status": {
+  "status": 201,
+  "resp": "{\"success\": true, \"imported_count\": 0, \"skipped_count\": 0, \"status\": \"ok\", \"errors\": [], \"warnings\": [\"Unrecognized column(s) ignored, their data was NOT imported: , 1, CLEAN-8, NOT_A_STATUS, SyReq, demo, desc. Expected columns for 'Requirement': artifact_id, category, complexity_fibonacci, created_at, description, id, level, lifecycle_status, modified_at, status, suspect, title, type, uid, verification_method, version.\"]}"
+ },
+ "h_bad_enum_type": {
+  "status": 201,
+  "resp": "{\"success\": true, \"imported_count\": 0, \"skipped_count\": 0, \"status\": \"ok\", \"errors\": [], \"warnings\": [\"Unrecognized column(s) ignored, their data was NOT imported: , 1, CLEAN-9, NOT_A_TYPE, demo, desc, draft. Expected columns for 'Requirement': artifact_id, category, complexity_fibonacci, created_at, description, id, level, lifecycle_status, modified_at, status, suspect, title, type, uid, verification_method, version.\"]}"
+ },
+ "i_bad_level_int": {
+  "status": 201,
+  "resp": "{\"success\": true, \"imported_count\": 0, \"skipped_count\": 0, \"status\": \"ok\", \"errors\": [], \"warnings\": [\"Unrecognized column(s) ignored, their data was NOT imported: , CLEAN-A, NOT_AN_INT, SyReq, demo, desc, draft. Expected columns for 'Requirement': artifact_id, category, complexity_fibonacci, created_at, description, id, level, lifecycle_status, modified_at, status, suspect, title, type, uid, verification_method, version.\"]}"
+ },
+ "j_malformed_quote": {
+  "status": 201,
+  "resp": "{\"success\": true, \"imported_count\": 0, \"skipped_count\": 0, \"status\": \"ok\", \"errors\": [], \"warnings\": [\"Unrecognized column(s) ignored, their data was NOT imported: CLEAN-B unterminated,desc,demo,draft,SyReq,1,,,,. Expected columns for 'Requirement': artifact_id, category, complexity_fibonacci, created_at, description, id, level, lifecycle_status, modified_at, status, suspect, title, type, uid, verification_method, version.\"]}"
+ },
+ "k_trailing_comma_short_row": {
+  "status": 201,
+  "resp": "{\"success\": true, \"imported_count\": 0, \"skipped_count\": 0, \"status\": \"ok\", \"errors\": [], \"warnings\": [\"Unrecognized column(s) ignored, their data was NOT imported: CLEAN-C, SyReq, demo, desc, draft. Expected columns for 'Requirement': artifact_id, category, complexity_fibonacci, created_at, description, id, level, lifecycle_status, modified_at, status, suspect, title, type, uid, verification_method, version.\"]}"
+ },
+ "l_extra_column": {
+  "status": 201,
+  "resp": "{\"success\": true, \"imported_count\": 0, \"skipped_count\": 0, \"status\": \"ok\", \"errors\": [], \"warnings\": [\"Unrecognized column(s) ignored, their data was NOT imported: , 1, CLEAN-D, SyReq, XX, demo, desc, draft. Expected columns for 'Requirement': artifact_id, category, complexity_fibonacci, created_at, description, id, level, lifecycle_status, modified_at, status, suspect, title, type, uid, verification_method, version.\"]}"
+ },
+ "m_unknown_column_name": {
+  "status": 201,
+  "resp": "{\"success\": true, \"imported_count\": 0, \"skipped_count\": 0, \"status\": \"ok\", \"errors\": [], \"warnings\": [\"Unrecognized column(s) ignored, their data was NOT imported: , 1, CLEAN-E, SyReq, demo, desc, draft. Expected columns for 'Requirement': artifact_id, category, complexity_fibonacci, created_at, description, id, level, lifecycle_status, modified_at, status, suspect, title, type, uid, verification_method, version.\"]}"
+ },
+ "n_semicolon": {
+  "status": 201,
+  "resp": "{\"success\": true, \"imported_count\": 0, \"skipped_count\": 0, \"status\": \"ok\", \"errors\": [], \"warnings\": [\"Unrecognized column(s) ignored, their data was NOT imported: CLEAN-F;desc;demo;draft;SyReq;1;;;;. Expected columns for 'Requirement': artifact_id, category, complexity_fibonacci, created_at, description, id, level, lifecycle_status, modified_at, status, suspect, title, type, uid, verification_method, version.\"]}"
+ },
+ "o_bom": {
+  "status": 400,
+  "resp": "{\"success\": false, \"imported_count\": 0, \"skipped_count\": 1, \"status\": \"validation_error\", \"errors\": [{\"row_number\": 2, \"field\": \"title\", \"message\": \"Required field 'title' is missing or empty.\"}], \"warnings\": [\"Unrecognized column(s) ignored, their data was NOT imported: ﻿# terminology_profile: default. Expected columns for 'Requirement': artifact_id, category, complexity_fibonacci, created_at, description, id, level, lifecycle_status, modified_at, status, suspect, title, type, uid, verification_method, version.\"]}"
+ },
+ "p_lf_only": {
+  "status": 201,
+  "resp": "{\"success\": true, \"imported_count\": 0, \"skipped_count\": 0, \"status\": \"ok\", \"errors\": [], \"warnings\": [\"Unrecognized column(s) ignored, their data was NOT imported: , 1, CLEAN-H, SyReq, demo, desc, draft. Expected columns for 'Requirement': artifact_id, category, complexity_fibonacci, created_at, description, id, level, lifecycle_status, modified_at, status, suspect, title, type, uid, verification_method, version.\"]}"
+ },
+ "idempotency": {
+  "first": "{\"success\": false, \"imported_count\": 0, \"skipped_count\": 1, \"status\": \"validation_error\", \"errors\": [{\"row_number\": 2, \"field\": \"title\", \"message\": \"Required field 'title' is missing or empty.\"}], \"warnings\": [\"Unrecognized column(s) ignored, their data was NOT imported: , 1, CLEAN-2, SyReq, demo, draft, plain desc. Expected columns for 'Requirement': artifact_id, category, complexity_fibonacci, created_at, description, id, level, lifecycle_status, modified_at, status, suspect, title, type, uid,",
+  "second": "{\"success\": false, \"imported_count\": 0, \"skipped_count\": 1, \"status\": \"validation_error\", \"errors\": [{\"row_number\": 2, \"field\": \"title\", \"message\": \"Required field 'title' is missing or empty.\"}], \"warnings\": [\"Unrecognized column(s) ignored, their data was NOT imported: , 1, CLEAN-2, SyReq, demo, draft, plain desc. Expected columns for 'Requirement': artifact_id, category, complexity_fibonacci, created_at, description, id, level, lifecycle_status, modified_at, status, suspect, title, type, uid,"
+ },
+ "_final_count_in_B": 1,
+ "_final_titles": [
+  "WP1D-PROBE-B Requirement ÄÖÜ 🚀"
+ ]
+}

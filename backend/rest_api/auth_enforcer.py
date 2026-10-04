@@ -135,6 +135,17 @@ class RbacPermission(permissions.BasePermission):
             raise exceptions.PermissionDenied(
                 detail=f"RBAC denied: {decision.decision_reason}"
             )
+
+        # ADR-011 (SEC-02/SEC-03): the two-level authorization seam. One central
+        # resource-scope classifier decides whether the target object's workspace
+        # (not a client-supplied workspace_id) grants authority, and the API-key
+        # workspace fence is enforced here too so REST matches MCP. Fail-closed:
+        # a denial reason is surfaced as a 403.
+        from auth_tenancy.resource_scope import enforce_request_scope
+
+        scope_violation = enforce_request_scope(request, view, auth_context)
+        if scope_violation:
+            raise exceptions.PermissionDenied(detail=scope_violation)
         return True
 
 

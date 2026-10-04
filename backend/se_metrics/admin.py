@@ -11,20 +11,23 @@ Read-only:
     must NOT hand-edit cached values; staleness is managed by TTL. Admin is
     locked down to read-only. ``WorkspaceThresholdConfig`` is operator-editable.
 
-Tenant isolation:
+Tenant isolation (SEC-04, ADR-011):
     Neither model inherits ``TenantScopedModel``; both store ``workspace_id``
-    and ``tenant_id`` as raw UUID fields. The default manager is correct for
-    admin views — no thread-local filter needs to be bypassed.
+    and ``tenant_id`` as raw UUID fields, so ``TenantScopedAdminMixin`` filters
+    on the raw ``tenant_id`` column (the default ``tenant_lookup = 'tenant_id'``).
+    A staff user of tenant A can neither list nor change tenant B's metric rows.
 """
 from __future__ import annotations
 
 from django.contrib import admin
 
+from persistence.tenant_admin import TenantScopedAdminMixin
+
 from .models import MetricCache, WorkspaceThresholdConfig
 
 
 @admin.register(MetricCache)
-class MetricCacheAdmin(admin.ModelAdmin):
+class MetricCacheAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
     """Admin view for the SeMetrics cache (REQ-L2-SM-009).
 
     Read-only: the cache is managed by the service. Staleness is governed by
@@ -61,7 +64,7 @@ class MetricCacheAdmin(admin.ModelAdmin):
 
 
 @admin.register(WorkspaceThresholdConfig)
-class WorkspaceThresholdConfigAdmin(admin.ModelAdmin):
+class WorkspaceThresholdConfigAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
     """Admin view for per-workspace threshold configuration (REQ-L2-SM-007)."""
 
     list_display = (

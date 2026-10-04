@@ -1,6 +1,16 @@
-﻿# ADR-003: Glossar-Storage (Semantisches Projekt-Glossar Datenspeicherung)
+---
+adr_id: ADR-003
+title: "Glossar-Storage (Semantisches Projekt-Glossar Datenspeicherung)"
+status: proposed
+date: 2026-06-28
+deciders: [user]
+affected_reqs: [REQ-L1-044, REQ-L2-AS-033, REQ-L2-RA-014]
+superseded_by: null
+---
 
-**Status:** PROPOSED
+# ADR-003: Glossar-Storage (Semantisches Projekt-Glossar Datenspeicherung)
+
+**Status:** proposed
 **Datum:** 2026-06-28
 **Entscheider:** Architekt + Tech-Lead
 **Betroffene REQs:** REQ-L1-044, REQ-L2-AS-033, REQ-L2-RA-014

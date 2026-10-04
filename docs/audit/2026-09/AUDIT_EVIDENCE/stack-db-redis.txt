@@ -1,0 +1,108 @@
+---
+type: EVIDENCE
+scope: docker-db-redis
+status: success
+date: 2026-09-29
+author_agent: docker
+---
+
+# PostgreSQL + Redis Evidence
+
+## PostgreSQL
+
+Container: `ai-native-reqflow-poc-postgres-1` (image `pgvector/pgvector:pg16`)
+Credentials from `deploy/.env`: DB_NAME=reqflow, DB_USER=reqflow (superuser).
+
+### SELECT version();
+
+                           version
+    ------------------------------------------------------------------------------
+    PostgreSQL 16.15 (Debian 16.15-1.pgdg12+2) on x86_64-pc-linux-gnu,
+    compiled by gcc (Debian 12.2.0-14+deb12u1) 12.2.0, 64-bit
+    (1 row)
+
+### SELECT extname FROM pg_extension;
+
+    extname | extversion
+    --------+------------
+    plpgsql | 1.0
+    vector  | 0.8.5
+    (2 rows)
+
+**pgvector IS installed** — `vector` 0.8.5, count = 1.
+This confirms the compose-file claim that migration
+`persistence/migrations/0024_requirement_embedding.py` runs
+`CREATE EXTENSION IF NOT EXISTS vector` as superuser; no initdb hook is needed.
+
+### Schema / migration state
+
+    SELECT count(*) FROM django_migrations;   ->  294
+    latest: persistence.0102_adr_deciders_issue_assignee_artifact_stakeholder
+            persistence.0101_attributemigration_definition_snapshot
+            persistence.0100_workspace_goals_enabled_default
+            persistence.0099_testcase_origin_reviewed_scenario_kind
+            link_types.0009_backfill_need_satisfies_pair
+
+    public-schema tables: 100
+
+### Actual data volume (EXACT counts, not estimates)
+
+    t           | count
+    ------------+-------
+    artifacts   |  3423
+    requirements|  2111
+    testcases   |   225
+    workspaces  |   401
+    tenants     |     4
+    users       |    12
+
+**Correction of a mid-run reading:** `pg_stat_user_tables.n_live_tup` reported
+almost every table as 0 rows, which would have suggested an empty database.
+That column is a *planner estimate*, not a true count, and it was stale here.
+The `SELECT count(*)` results above are authoritative: the database is
+**well populated**. Do not let any downstream agent conclude "empty DB" from
+`pg_stat_user_tables`.
+
+### Tenants / workspaces present
+
+    pl_tenant:
+      7a539397-6719-47bb-a6d5-5459016136fb  Demo Tenant   <- admin belongs here
+      ef3b8a80-..., dd0a9520-..., 97e96d7d-...             (3 further tenants)
+
+    pl_workspace (first 5 of 401):
+      2d4a20e5-0181-4e13-9b80-eaf10f8a24dc  e2e-isolated-1790533757033-aqabg7
+      8fcf79b3-a1e2-4244-9f2f-cf483402afc4  Ontology Test 1790533965999
+      4eee7ca1-eedd-4a7e-bb14-47e6493cbf88  Zahnbürste SysEng Demo
+      78a030f1-eec8-40e6-b25f-b5dea5071639  e2e-isolated-1790533757786-1fhboj
+      f1baa667-1804-4924-957b-88fcaf492985  e2e-isolated-1790534091955-898kaf
+
+Many workspaces are `e2e-isolated-*` residue from earlier E2E runs. Downstream
+agents should scope queries to the admin tenant `7a539397-...` or an explicitly
+named workspace, not to "the first workspace".
+
+## Redis
+
+Container: `ai-native-reqflow-poc-redis-1` (image `redis:7-alpine`)
+
+    $ docker exec ai-native-reqflow-poc-redis-1 redis-cli ping
+    PONG
+
+    redis_version:7.4.11
+
+`PING` -> `PONG` confirmed live. REDIS_PASSWORD is empty in `deploy/.env`, so
+the compose shell wrapper omits `--requirepass` and no AUTH is expected.
+
+Cosmetic note: `redis-cli INFO server` prints
+`AUTH failed: ERR AUTH <password> called without any password configured`.
+That is caused by the container's `REDISCLI_AUTH=""` env var causing redis-cli
+to attempt an empty AUTH. It is harmless — `redis-cli ping` still returns
+`PONG` because the server has no password. The compose healthcheck greps for
+`PONG` and therefore passes. Not a defect, but it will look alarming in logs.
+
+## Ports note
+
+Neither `postgres` (5432) nor `redis` (6379) publishes a host port. Both are
+reachable **only** from inside the Compose network. A host-side `psql` client
+cannot reach them. This is intentional (compose security note: "Restrict
+network access to ports 5432 and 6379"), but it means DB verification must go
+through `docker exec`.

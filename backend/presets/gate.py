@@ -520,6 +520,10 @@ class FeatureGateService:
     ) -> List[str]:
         """Return human-readable incompatibility strings for the downgrade.
 
+        Fail-closed (ADR-016 decision 2): a persistence failure while checking
+        global baselines is reported as an incompatibility rather than being
+        swallowed, so ``validate_downgrade`` can apply its policy.
+
         Args:
             workspace_id: UUID string of the workspace.
             target_tier: The desired target tier.
@@ -544,9 +548,16 @@ class FeatureGateService:
                         f"Downgrade blocked: {count} global baseline"
                         + ("s exist" if count > 1 else " exists")
                     )
-            except Exception:
-                # PersistenceLayer unavailable in test context; skip check.
-                pass
+            except Exception as exc:
+                # ADR-016 decision 2 / REQ-L2-PC-011: fail CLOSED. Swallowing
+                # the persistence error used to let an unverifiable downgrade
+                # through. Record it as an incompatibility instead, so the
+                # configured downgrade policy applies: "block" raises, "warn"
+                # returns the warning, "allow" stays explicitly allowed.
+                issues.append(
+                    f"Downgrade blocked: could not verify global baselines "
+                    f"({type(exc).__name__})"
+                )
 
         return issues
 

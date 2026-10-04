@@ -13,10 +13,12 @@ No database and no live Redis are needed here:
   mocked — a mocked cache would be free to disagree with the Redis semantics
   that run in production.
 * The view-level tests configure a rate of ``"0/min"``, which refuses the
-  *first* request. That is deliberate: it proves the throttle fires **before**
-  the view touches the database (API-key validation) or Redis (SSE session
-  lookup), which is the whole point of placing it first — a throttle that only
-  runs after the expensive work would not bound anything.
+  *first* request. Since RES-02 the per-IP backstop is the counter charged
+  before authentication, so ``mcp_ip="0/min"`` is what refuses before the view
+  touches the database or Redis. That is deliberate: it proves the cheap,
+  non-amplifying backstop still fires ahead of the expensive work, while the
+  per-credential bucket is charged only for a credential that authenticated
+  (see ``test_mcp_throttle_after_authn_res02.py`` for that ordering).
 """
 from __future__ import annotations
 
@@ -32,7 +34,8 @@ from django.test import Client, RequestFactory, override_settings
 from mcp_server.protocol_handler import ERROR_CODES
 from mcp_server.throttling import (
     api_key_from_request,
-    check_mcp_rate_limit,
+    check_mcp_ip_rate_limit,
+    check_mcp_key_rate_limit,
     rate_limited_jsonrpc_response,
 )
 
@@ -95,7 +98,14 @@ class TestApiKeyFromRequest:
 # ---------------------------------------------------------------------------
 
 
-class TestCheckMcpRateLimit:
+class TestMcpRateThrottles:
+    """The two counters, charged in the RES-02 order (IP pre-auth, key post-auth).
+
+    ``check_mcp_ip_rate_limit`` is the only counter safe to charge before a
+    credential is verified; ``check_mcp_key_rate_limit`` charges the
+    per-credential bucket and must be called with an authenticated value.
+    """
+
     def _request(self, key: str = "", ip: str = "10.0.0.1"):
         return RequestFactory().post(
             "/mcp/",
@@ -105,10 +115,12 @@ class TestCheckMcpRateLimit:
 
     @override_settings(REST_FRAMEWORK=_rates(mcp_key="3/min", mcp_ip="1000/min"))
     def test_allows_up_to_the_limit_then_refuses(self):
-        request = self._request("reqlo_key_a")
-        assert [check_mcp_rate_limit(request) for _ in range(3)] == [None] * 3
+        request = self._request()
+        assert [
+            check_mcp_key_rate_limit(request, "reqlo_key_a") for _ in range(3)
+        ] == [None] * 3
 
-        retry_after = check_mcp_rate_limit(request)
+        retry_after = check_mcp_key_rate_limit(request, "reqlo_key_a")
         assert retry_after is not None
         # Never below 1s: a client must not read "Retry-After: 0" as
         # "retry immediately" and hot-loop against the endpoint.
@@ -122,35 +134,42 @@ class TestCheckMcpRateLimit:
         keys on something coarser.
         """
         for _ in range(2):
-            assert check_mcp_rate_limit(self._request("reqlo_key_a")) is None
-        assert check_mcp_rate_limit(self._request("reqlo_key_a")) is not None
+            assert check_mcp_key_rate_limit(self._request(), "reqlo_key_a") is None
+        assert check_mcp_key_rate_limit(self._request(), "reqlo_key_a") is not None
 
-        assert check_mcp_rate_limit(self._request("reqlo_key_b")) is None
+        assert check_mcp_key_rate_limit(self._request(), "reqlo_key_b") is None
 
     @override_settings(REST_FRAMEWORK=_rates(mcp_key="1000/min", mcp_ip="3/min"))
     def test_ip_backstop_catches_rotating_credentials(self):
         """A caller presenting a fresh credential every time is still bounded.
 
         This is the vector the per-key counter structurally cannot see, and the
-        reason the per-IP counter exists at all.
+        reason the per-IP counter exists at all. The IP counter ignores the
+        presented key entirely, so it also covers the invalid-key spray that
+        RES-02 keeps out of the per-key bucket.
         """
         for i in range(3):
-            assert check_mcp_rate_limit(self._request(f"reqlo_key_{i}")) is None
-        assert check_mcp_rate_limit(self._request("reqlo_key_99")) is not None
+            assert check_mcp_ip_rate_limit(self._request(f"reqlo_key_{i}")) is None
+        assert check_mcp_ip_rate_limit(self._request("reqlo_key_99")) is not None
 
     @override_settings(REST_FRAMEWORK=_rates(mcp_key="1000/min", mcp_ip="2/min"))
     def test_ip_bucket_is_per_client_ip(self):
         for _ in range(2):
-            assert check_mcp_rate_limit(self._request(ip="10.0.0.1")) is None
-        assert check_mcp_rate_limit(self._request(ip="10.0.0.1")) is not None
+            assert check_mcp_ip_rate_limit(self._request(ip="10.0.0.1")) is None
+        assert check_mcp_ip_rate_limit(self._request(ip="10.0.0.1")) is not None
 
-        assert check_mcp_rate_limit(self._request(ip="10.0.0.2")) is None
+        assert check_mcp_ip_rate_limit(self._request(ip="10.0.0.2")) is None
 
     @override_settings(REST_FRAMEWORK=_rates(mcp_key="1/min", mcp_ip="1/min"))
     def test_anonymous_request_counts_against_ip_only(self):
         """No credential → the per-key bucket is "not applicable", not "denied"."""
-        assert check_mcp_rate_limit(self._request(key="")) is None
-        assert check_mcp_rate_limit(self._request(key="")) is not None
+        anonymous = self._request(key="")
+        assert check_mcp_key_rate_limit(anonymous, "") is None
+        assert check_mcp_ip_rate_limit(anonymous) is None
+        # The empty credential never consumes a per-key bucket...
+        assert check_mcp_key_rate_limit(anonymous, "") is None
+        # ...while the IP backstop still refuses the second request.
+        assert check_mcp_ip_rate_limit(anonymous) is not None
 
     @override_settings(REST_FRAMEWORK=_rates(mcp_key=None, mcp_ip=None))
     def test_empty_rate_disables_the_throttle(self):
@@ -160,7 +179,11 @@ class TestCheckMcpRateLimit:
         air-gapped / load-test deployments the #269 module docstring describes.
         """
         request = self._request("reqlo_key_a")
-        assert all(check_mcp_rate_limit(request) is None for _ in range(50))
+        assert all(
+            check_mcp_key_rate_limit(request, "reqlo_key_a") is None
+            for _ in range(50)
+        )
+        assert all(check_mcp_ip_rate_limit(request) is None for _ in range(50))
 
     @override_settings(REST_FRAMEWORK=_rates(mcp_key="2/min", mcp_ip="1000/min"))
     def test_explicit_credential_overrides_headers(self):
@@ -171,9 +194,9 @@ class TestCheckMcpRateLimit:
         """
         request = RequestFactory().post("/mcp/messages/?session_id=s-1")
         for _ in range(2):
-            assert check_mcp_rate_limit(request, credential="s-1") is None
-        assert check_mcp_rate_limit(request, credential="s-1") is not None
-        assert check_mcp_rate_limit(request, credential="s-2") is None
+            assert check_mcp_key_rate_limit(request, "s-1") is None
+        assert check_mcp_key_rate_limit(request, "s-1") is not None
+        assert check_mcp_key_rate_limit(request, "s-2") is None
 
 
 # ---------------------------------------------------------------------------
@@ -250,9 +273,12 @@ class TestViewsAreThrottled:
 
         ``_get_handler`` is stubbed so this stays database-free: a real handler
         would only add the API-key lookup, which has nothing to do with rate
-        limiting. The call-count assertion is the load-bearing one — it proves
-        the refused request never reached dispatch, which is what makes the
-        limit an actual cost bound rather than cosmetics.
+        limiting. Since RES-02 the view verifies the credential before charging
+        the per-key bucket, so ``_get_auth_service`` is stubbed as valid too —
+        otherwise this would hit the DB. The call-count assertion is the
+        load-bearing one: it proves the refused request never reached dispatch,
+        which is what makes the limit an actual cost bound rather than
+        cosmetics.
         """
         handler = MagicMock()
         handler.handle_http_request.return_value = {
@@ -261,6 +287,12 @@ class TestViewsAreThrottled:
             "result": {"tools": []},
         }
         monkeypatch.setattr("mcp_server.views._get_handler", lambda: handler)
+
+        auth_service = MagicMock()
+        auth_service.validate_api_key.return_value = MagicMock()
+        monkeypatch.setattr(
+            "mcp_server.views._get_auth_service", lambda: auth_service
+        )
 
         client = Client()
 
@@ -296,12 +328,14 @@ class TestViewsAreThrottled:
 
     @_REFUSE_EVERYTHING
     def test_sse_handshake(self):
-        """The SSE handshake is throttled *before* it is authenticated.
+        """The IP backstop refuses the handshake before authentication.
 
-        Order matters here: authenticating first would spend a DB round trip per
-        rejected attempt, and it is the handshake — not the message endpoint —
-        that allocates the Redis binding and the held-open stream this limit is
-        meant to bound.
+        Order matters here: the per-IP backstop keys on the client alone, so it
+        can (and must) run before the credential is verified — without spending
+        a DB round trip per rejected attempt and without minting a per-key cache
+        entry for an unverified key. It is the handshake — not the message
+        endpoint — that allocates the Redis binding and the held-open stream
+        this limit is meant to bound.
         """
         response = Client().get("/mcp/sse/", HTTP_X_API_KEY="reqlo_key_a")
         assert response.status_code == 429

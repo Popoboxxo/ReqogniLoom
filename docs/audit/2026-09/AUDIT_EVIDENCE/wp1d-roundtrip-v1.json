@@ -1,0 +1,160 @@
+{
+ "reqif": {
+  "export_A": {
+   "status": 200,
+   "bytes": 2060496,
+   "ctype": "application/xml",
+   "disposition": "attachment; filename=\"zahnburste-syseng-demo.reqif\"",
+   "declares_utf8": true,
+   "reqIFVersion": [],
+   "head": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<REQ-IF xmlns=\"http://www.omg.org/spec/ReqIF/20110401/reqif.xsd\" xmlns:xhtml=\"http://www.w3.org/1999/xhtml\">\n  <THE-HEADER>\n    <REQ-IF-HEADER IDENTIFIER=\"_header-4eee7ca1-eedd-4a7e",
+   "n_specObjects": 4508,
+   "n_specObjectsWithContent": 0,
+   "identifiers_total": 2731,
+   "uids_sample": [
+    "_header-4eee7ca1-eedd-4a7e-bb14-47e6493cbf88",
+    "DT-String",
+    "ST-StakeholderNeed",
+    "ATTR-UID",
+    "ATTR-TITLE",
+    "ATTR-DESCRIPTION",
+    "ATTR-STATUS",
+    "ATTR-CATEGORY"
+   ],
+   "has_utf8_payload": false
+  },
+  "import_A_into_B": {
+   "status": 415,
+   "resp_keys": [
+    "error"
+   ],
+   "resp": "{\"error\": {\"code\": \"UNSUPPORTED_MEDIA_TYPE\", \"message\": \"Unsupported media type \\\"application/octet-stream\\\" in request.\", \"details\": {\"detail\": \"Unsupported media type \\\"application/octet-stream\\\" in request.\"}}}"
+  },
+  "import_again_idempotency": {
+   "status": 415,
+   "resp": "{\"error\": {\"code\": \"UNSUPPORTED_MEDIA_TYPE\", \"message\": \"Unsupported media type \\\"application/octet-stream\\\" in request.\", \"details\": {\"detail\": \"Unsupported media type \\\"application/octet-stream\\\" in request.\"}}}"
+  },
+  "export_B": {
+   "status": 200,
+   "bytes": 9175,
+   "n_identifiers": 24,
+   "uids_sample": [
+    "_header-77c6286e-eac8-4ea9-89dc-4a99de886b9b",
+    "DT-String",
+    "ST-StakeholderNeed",
+    "ATTR-UID",
+    "ATTR-TITLE",
+    "ATTR-DESCRIPTION",
+    "ATTR-STATUS",
+    "ATTR-CATEGORY"
+   ],
+   "probe_marker_present": true,
+   "has_utf8_payload": false,
+   "n_attr_values": 0,
+   "attr_value_sample": [],
+   "xml_root_children": [
+    "THE-HEADER",
+    "CORE-CONTENT"
+   ]
+  },
+  "uid_overlap_A_B": 12,
+  "uid_overlap_sample": [
+   "ATTR-CATEGORY",
+   "ATTR-CUSTOM-FIELDS",
+   "ATTR-DESCRIPTION",
+   "ATTR-MOSCOW-PRIORITY",
+   "ATTR-STATUS",
+   "ATTR-TITLE",
+   "ATTR-UID",
+   "ATTR-VERIFICATION-METHOD"
+  ]
+ },
+ "csv": {
+  "import_good": {
+   "status": 415,
+   "resp": "{\"error\": {\"code\": \"UNSUPPORTED_MEDIA_TYPE\", \"message\": \"Unsupported media type \\\"text/csv\\\" in request.\", \"details\": {\"detail\": \"Unsupported media type \\\"text/csv\\\" in request.\"}}}"
+  },
+  "import_good_with_bom": {
+   "status": 415,
+   "resp": "{\"error\": {\"code\": \"UNSUPPORTED_MEDIA_TYPE\", \"message\": \"Unsupported media type \\\"text/csv\\\" in request.\", \"details\": {\"detail\": \"Unsupported media type \\\"text/csv\\\" in request.\"}}}"
+  },
+  "import_semicolon": {
+   "status": 415,
+   "resp": "{\"error\": {\"code\": \"UNSUPPORTED_MEDIA_TYPE\", \"message\": \"Unsupported media type \\\"text/csv\\\" in request.\", \"details\": {\"detail\": \"Unsupported media type \\\"text/csv\\\" in request.\"}}}"
+  },
+  "import_bad_rows": {
+   "status": 415,
+   "resp": "{\"error\": {\"code\": \"UNSUPPORTED_MEDIA_TYPE\", \"message\": \"Unsupported media type \\\"text/csv\\\" in request.\", \"details\": {\"detail\": \"Unsupported media type \\\"text/csv\\\" in request.\"}}}"
+  },
+  "import_good_reimport_dupes": {
+   "status": 415,
+   "resp": "{\"error\": {\"code\": \"UNSUPPORTED_MEDIA_TYPE\", \"message\": \"Unsupported media type \\\"text/csv\\\" in request.\", \"details\": {\"detail\": \"Unsupported media type \\\"text/csv\\\" in request.\"}}}"
+  },
+  "import_empty": {
+   "status": 400,
+   "resp": "{\"error\": {\"code\": \"VALIDATION_ERROR\", \"message\": \"entity_type is required. Allowed: Requirement, ArchitectureElement, TestCase\", \"details\": []}}"
+  },
+  "import_garbage": {
+   "status": 415,
+   "resp": "{\"error\": {\"code\": \"UNSUPPORTED_MEDIA_TYPE\", \"message\": \"Unsupported media type \\\"text/csv\\\" in request.\", \"details\": {\"detail\": \"Unsupported media type \\\"text/csv\\\" in request.\"}}}"
+  },
+  "titles_in_B_after_imports": [
+   "WP1D-PROBE-B Requirement ÄÖÜ 🚀"
+  ],
+  "count_in_B": 1
+ },
+ "pdf": {
+  "pdf_tenant_A_own": {
+   "status": 200,
+   "secs": 0.74,
+   "bytes": 60664,
+   "ctype": "application/pdf",
+   "disposition": "attachment; filename=\"Zahnbürste_SysEng_Demo_requirement_document.pdf\"",
+   "saved": "C:\\Users\\duchr\\AppData\\Local\\Temp\\opencode\\wp1d-report-pdf_tenant_A_own.pdf",
+   "pdf_version": "%PDF-1.4",
+   "has_marker_B": false,
+   "stream_bytes": 44766,
+   "contains_Aumlaut_bytes": false,
+   "contains_euro": false,
+   "embedded_fonts": [
+    "Helvetica",
+    "Helvetica-Bold"
+   ],
+   "font_has_to_unicode": false,
+   "font_is_type0": false,
+   "font_is_simple": true,
+   "probe_title_as_text": false
+  },
+  "pdf_tenant_B_own": {
+   "status": 200,
+   "secs": 0.05,
+   "bytes": 2202,
+   "ctype": "application/pdf",
+   "disposition": "attachment; filename=\"WP1D_Probe_WS_requirement_document.pdf\"",
+   "saved": "C:\\Users\\duchr\\AppData\\Local\\Temp\\opencode\\wp1d-report-pdf_tenant_B_own.pdf",
+   "pdf_version": "%PDF-1.4",
+   "has_marker_B": false,
+   "stream_bytes": 651,
+   "contains_Aumlaut_bytes": false,
+   "contains_euro": false,
+   "embedded_fonts": [
+    "Helvetica",
+    "Helvetica-Bold",
+    "ZapfDingbats"
+   ],
+   "font_has_to_unicode": false,
+   "font_is_type0": false,
+   "font_is_simple": true,
+   "probe_title_as_text": false
+  },
+  "pdf_async_param": {
+   "status": 200,
+   "bytes": 60664,
+   "ctype": "application/pdf"
+  },
+  "pdf_foreign_ws_with_A_token": {
+   "status": 404,
+   "body": "{\"error\":{\"code\":\"NOT_FOUND\",\"message\":\"Workspace 77c6286e-eac8-4ea9-89dc-4a99de886b9b not found\",\"details\":[]}}"
+  }
+ }
+}

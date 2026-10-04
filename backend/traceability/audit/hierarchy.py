@@ -31,11 +31,17 @@ child as a parent — inverting the hierarchy instead of recognising it. This
 module therefore normalises both spellings into a single set of
 ``(parent_id, child_id)`` pairs, and root/leaf are derived from that.
 
-``refines`` no longer exists as a link type: the migration folded it into
-``derives-from``. Because ``derives-from`` *is* a hierarchy edge, every
-formerly symmetric ``refines`` edge between two Requirements now carries
-level semantics it did not have before — see OFFENE FRAGE 2 in
-docs/superpowers/plans/2026-09-03-traceability-semantik.md.
+``refines`` is a **live built-in** link type (``link_types/builtin.py``,
+re-introduced by issue #950 as ``Requirement -> Requirement`` with
+``source = refining (lower-level) requirement, target = refined``). It is a
+hierarchy *candidate* — the same direction as ``derives-from``, but a weaker
+claim — and is deliberately **not** part of the hierarchy link-type sets
+below. This is now a **decided** position (ADR-016, decision 3), not an open
+question: a refinement is a semantic (impact/analysis) relation, not a
+V-model level or ``document``-baseline edge, so it contributes no
+``(parent, child)`` pair here. Reopening it would supersede ADR-016; this
+module must not decide it on its own. Background: OFFENE FRAGE 2 in
+``docs/superpowers/plans/Archive/2026-09-03-traceability-semantik.md``.
 
 Only edges whose *both* endpoints are Requirements in the audited set count.
 A ``Requirement --derives-from--> StakeholderNeed`` link is legal and common,
@@ -181,6 +187,9 @@ CHILD_TO_PARENT_LINK_TYPES: FrozenSet[str] = frozenset(
 
 #: Every link type that carries Requirement-hierarchy information, in either
 #: direction. Exported for callers that only need membership, not direction.
+#: ``refines`` is deliberately excluded — decided by ADR-016 (decision 3):
+#: refinement is a weaker, semantic relation, not a hierarchy edge. See the
+#: module docstring.
 HIERARCHY_LINK_TYPES: FrozenSet[str] = (
     PARENT_TO_CHILD_LINK_TYPES | CHILD_TO_PARENT_LINK_TYPES
 )

@@ -4,19 +4,28 @@
 
 **Name:** ReqogniLoom
 **Präfix:** ReqLo
-**Plattform:** Django 5.2+ (Backend) + React 18 + TypeScript 5.5+ (Frontend) + PostgreSQL 16 (Django ORM) + Redis 7 (Cache/Celery-Broker) + Celery 5.3+ (Async) + Docker Compose (8 Services: postgres, postgres-backup, redis, backend, migrate, celery, celery-beat, frontend)
-**Beschreibung:** AI-natives Requirements- und Test-Management-Tool mit MBSE-kompatibler Artefakt-Zerlegung, REST API + nativem MCP Server (31 Tool-Gruppen-Präfixe, 215 Tools), LLM-Adapter (Anthropic/OpenAI/Ollama/mock), Multi-Tenancy mit Row-Level-Isolation, 11 core/built-in Trace-Link-Typen (tenant-extensible catalog), Baselines (3 Scopes), 3 Rigor-Presets (minimal/standard/extended) und i18n (DE/EN).
+**Plattform:** Django 6.1+ (Backend) + React 19 + TypeScript 5.5+ (Frontend) + PostgreSQL 16 via pgvector/pgvector:pg16 (Django ORM + pgvector) + Redis 7 (Cache/Celery-Broker) + Celery 5.6+ (Async) + Docker Compose (8 Default-Services: postgres, postgres-backup, redis, backend, migrate, celery, celery-beat, frontend; optionale Profile: honcho (+4 Services), bluepencil (+1 Service))
+**Beschreibung:** AI-natives Requirements- und Test-Management-Tool mit MBSE-kompatibler Artefakt-Zerlegung, REST API + nativem MCP Server (35 Tool-Gruppen-Präfixe, 218 Tools), LLM-Adapter (Anthropic/OpenAI/Ollama/Azure/mock), Multi-Tenancy mit Row-Level-Isolation, 11 core/built-in Trace-Link-Typen (tenant-extensible catalog), Baselines (3 Scopes), 3 Rigor-Presets (minimal/standard/extended) und i18n (DE/EN).
 
 > Struktur: siehe Verzeichnisstruktur im Repo (`ls`/`find`); deklarativ: `.meta-config/project.yaml` → `variables.PROJECT_STRUCTURE`.
 
 **Verzeichnisstruktur:**
 ```
-backend/             # Django REST API (17 Apps) #   Layer 0: persistence, auth_tenancy, presets, audit #   Layer 1: llm_adapter, traceability, workflow, baseline #   Layer 2: application (19 Services) #   Layer 3: rest_api, mcp_server #   Ext: diagram, icd, se_metrics, resilience, admin_ops, test_runs #   reqogniloom/  # Django-Projekt (settings.py, urls.py, wsgi.py, asgi.py)
-frontend/            # React 18 + TS SPA #   src/api/  src/components/  src/context/  src/i18n/ #   src/styles/  src/test/  src/types/
-e2e/                 # Playwright/Chromium E2E-Tests (111 Tests)
-docs/                # Anforderungen, Architektur, SE-Kaskade, Session-Reports
-deploy/              # Deployment-Beispiele: docker-compose.yml (full), docker-compose.minimal.yml, docker-compose.override.yml, README.md (KI-Agenten-lesbar)
+backend/             # Django REST API (20 Apps in REQFLOW_APPS)
+                     #   Layer 0: persistence, auth_tenancy, presets, audit
+                     #   Layer 1: llm_adapter, traceability, workflow, link_types, attribute_definitions, baseline
+                     #   Layer 2: application (47 *_service.py)
+                     #   Layer 3: rest_api, mcp_server
+                     #   Ext: diagram, icd, context_graph, memory, se_metrics, resilience, admin_ops
+backend/reqogniloom/ # Django-Projekt (settings.py, urls.py, wsgi.py, asgi.py, version.py, health.py)
+frontend/            # React 19 + TS 5.5+ SPA (Vite 8, Vitest 4, ESLint 10)
+                     #   src/api/  src/components/  src/config/  src/constants/  src/context/
+                     #   src/hooks/  src/i18n/  src/queries/  src/styles/  src/types/  src/utils/
+e2e/                 # Playwright/Chromium E2E-Tests (54 Spec-Dateien, 4 CI-Shards)
+docs/                # Anforderungen, Architektur, SE-Kaskade (docs/se/), Release-Reports
+deploy/              # Deployment: docker-compose.yml (Basis), .override.yml (Dev), .minimal.yml, .env, README.md
 testing/             # docker-compose.test.yml (CI-/lokaler Test-Overlay, kein Deployment-File)
+scripts/             # build.sh, check-version-drift.sh, enable_pgvector.sh (backup/restore removed per ADR-012)
 .meta-config/        # agent-meta Konfiguration (project.yaml)
 .agent-meta/         # agent-meta Submodul (Templates, Scripts, Schemas)
 
@@ -24,14 +33,14 @@ testing/             # docker-compose.test.yml (CI-/lokaler Test-Overlay, kein D
 
 > Runtime & Abhängigkeiten: siehe Projekt-Manifest (`pyproject.toml` / `requirements.txt` / `package.json` / `manifest.json`).
 
-**Entry-Point:** `backend/manage.py            — Django Management (migrate, seed_demo, runserver, shell, check) backend/reqogniloom/settings.py     — Settings-Entry (DRF, JWT, Celery, Apps) backend/reqogniloom/urls.py         — URL-Routing (/api/v1/, /mcp/, /api/schema/, /admin/) frontend/src/index.tsx          — React Entry-Point (ReactDOM.render) frontend/src/App.tsx            — Root-Component (Provider, Router) frontend/src/api/client.ts      — Axios-Client (auto-Bearer-Token-Injection) e2e/playwright.config.ts        — Playwright-Konfiguration (Chromium) `
+**Entry-Point:** `backend/manage.py            — Django Management (migrate, seed_demo, runserver, shell, check, self_init, export_tool_manifest) backend/reqogniloom/settings.py     — Settings-Entry (DRF, JWT, Celery, Apps) backend/reqogniloom/urls.py         — URL-Routing (/health/, /api/v1/, /mcp/, /api/v1/mcp/, /api/schema/, /admin/) backend/reqogniloom/version.py     — Build-/Version-Metadaten (GET /api/v1/version/) frontend/src/index.tsx          — React Entry-Point (ReactDOM) frontend/src/App.tsx            — Root-Component (Provider, Router) frontend/src/api/client.ts      — Axios-Client (auto-Bearer-Token-Injection) e2e/playwright.config.ts        — Playwright-Konfiguration (Chromium, 4 Shards) scripts/build.sh              — Release-Build mit APP_VERSION/GIT_COMMIT_SHA/BUILD_TIME `
 
 **Besondere Patterns:**
-- Django REST Framework (DRF) für REST-API-Endpoints (27 ViewSets + 67 APIViews) - MCP-Server (JSON-RPC 2.0) mit 31 Tool-Gruppen-Präfixen und 215 Tools für AI-Integration - drf-spectacular für OpenAPI 3.0 Schema-Generierung (Swagger-UI, ReDoc) - Single-Entry-Point Pattern (ADR-01): Layer 2 application/ ist die einzige Domain-Fassade - TenantContext als Thread-Local Singleton + Row-Level-Security (ADR-03) - Configurable Rigor (ADR-04): 3 Presets (minimal/standard/extended) mit gleichem Datenmodell - LLM-Provider-Abstraktion (ADR-02): Capability-Interface mit graceful degradation - 11 core/built-in Trace-Link-Typen (derives-from, decomposes, refines, allocated-to, verifies, mitigates, satisfies, realizes, decides, references, diagram-ref; tenant-extensible catalog, siehe backend/link_types/builtin.py) - 3 Baseline-Scopes (Document, Project, Global) in einer Entität (ADR-07) - Konfigurierbare State-Machines pro Workspace (ADR-06) - Resilience-Decorators (Retry, Circuit-Breaker, Timeout) auf Service-Ebene - V-Modell-Traceability L0-L4 (Stakeholder Needs → System Req → Subsystems → Components → Presentation) 
+- Django REST Framework (DRF) für REST-API-Endpoints (28 ViewSets + 74 APIViews) - MCP-Server (JSON-RPC 2.0) mit 35 Tool-Gruppen-Präfixen und 218 Tools für AI-Integration (kanonisches Manifest: docs/agent-templates/tool-manifest.json, Drift-Gate: backend/mcp_server/tests/test_tool_manifest_drift.py) - drf-spectacular für OpenAPI 3.0 Schema-Generierung (Swagger-UI, ReDoc) - Single-Entry-Point Pattern (ADR-01): Layer 2 application/ ist die einzige Domain-Fassade - TenantContext als Thread-Local Singleton + Row-Level-Security (ADR-03) - Configurable Rigor (ADR-04): 3 Presets (minimal/standard/extended) mit gleichem Datenmodell - LLM-Provider-Abstraktion (ADR-02): Capability-Interface mit graceful degradation (anthropic, openai, ollama, azure, mock) - 11 core/built-in Trace-Link-Typen (derives-from, decomposes, refines, allocated-to, verifies, mitigates, satisfies, realizes, decides, references, diagram-ref; tenant-extensible catalog, siehe backend/link_types/builtin.py) - 3 Baseline-Scopes (Document, Project, Global) in einer Entität (ADR-07) - Konfigurierbare State-Machines pro Workspace (ADR-06) - Resilience-Decorators (Retry, Circuit-Breaker, Timeout) auf Service-Ebene - V-Modell-Traceability L0-L4 (Stakeholder Needs → System Req → Subsystems → Components → Presentation) 
 
 ## Code-Konventionen
 
-- Python (PEP 8, Typings, Docstrings für public API) - TypeScript (ESLint 9, Prettier, strict mode, functional Components + Hooks) - Django-Layer: Models (persistence/) ↔ Services (application/) ↔ Views/Serializers (rest_api/) - React-Layer: api/ (Wrapper) ↔ context/ (State) ↔ components/ (UI) ↔ i18n/ (Labels) - Imports-Reihenfolge: Standard Library → Third-Party → Local (PEP 8) - Keine wildcard imports (from x import *) - Keine direkten Model-Queries in DRF-Views (immer via Serializer + Service) - data-testid auf allen interaktiven UI-Elementen (E2E-Pflicht für Playwright) - CSS Custom Properties aus styles/tokens.css (keine hardcodierten Farben/Größen) - Commits: Conventional Commits Format (feat(REQ-xxx): ..., fix: ..., chore: ...) - Branch-Policy: feat/*, fix/*, refactor/* (NIE direkt auf main) - Requirements-IDs: REQ-L0-*, REQ-L1-*, REQ-L2-*, REQ-L3-* (siehe docs/se/traceability-matrix.md) 
+- Python (PEP 8, Typings, Docstrings für public API) - TypeScript (ESLint 10, Prettier, strict mode, functional Components + Hooks) - Django-Layer: Models (persistence/) ↔ Services (application/) ↔ Views/Serializers (rest_api/) - React-Layer: api/ (Wrapper) ↔ context/ (State) ↔ components/ (UI) ↔ i18n/ (Labels) - Imports-Reihenfolge: Standard Library → Third-Party → Local (PEP 8) - Keine wildcard imports (from x import *) - Keine direkten Model-Queries in DRF-Views (immer via Serializer + Service) - data-testid auf allen interaktiven UI-Elementen (E2E-Pflicht für Playwright) - CSS Custom Properties aus styles/tokens.css (keine hardcodierten Farben/Größen) - Commits: Conventional Commits Format (feat(REQ-xxx): ..., fix: ..., chore: ...) - Branch-Policy: feat/*, fix/*, refactor/* (NIE direkt auf main) - Requirements-IDs: REQ-L0-*, REQ-L1-*, REQ-L2-*, REQ-L3-* (siehe docs/se/traceability-matrix.md) 
 
 ## Build & Development
 
@@ -55,10 +64,10 @@ Kategorien für `docs/REQUIREMENTS.md`:
 
 - **Functional** — Features, User Stories, CRUD auf Requirements/Architecture/TestCases/ADRs/Risks/Issues
 - **Non-Functional** — Performance, Sicherheit, Skalierbarkeit, Audit-Compliance, Multi-Tenancy
-- **API** — REST API (/api/v1/, JWT-Auth, OpenAPI) und MCP Server (/mcp/, JSON-RPC 2.0, 31 Tool-Gruppen-Präfixe)
-- **UI/UX** — Frontend (React 18 SPA), 41 Component-Bereiche, i18n (DE/EN), Barrierefreiheit
+- **API** — REST API (/api/v1/, JWT-Auth, OpenAPI) und MCP Server (/mcp/ und /api/v1/mcp/, JSON-RPC 2.0, 35 Tool-Gruppen-Präfixe)
+- **UI/UX** — Frontend (React 19 SPA), 42 Component-Bereiche, i18n (DE/EN), Barrierefreiheit
 - **Data** — Generic Artifact Model, Multi-Tenancy via Row-Level-Security, Configurable Rigor
-- **Integration** — Externe Systeme, CSV-Bulk-Import, PDF-Report-Export, LLM-Provider (Anthropic/OpenAI/Ollama/mock)
+- **Integration** — Externe Systeme, CSV-Bulk-Import, PDF-Report-Export, ReqIF 1.2-Import/Export, LLM-Provider (Anthropic/OpenAI/Ollama/Azure/mock)
 - **Test** — Test-Management, Test-Run-Protokollierung (4-Phasen-Lifecycle), Coverage-Tracking
 - **Workflow** — Konfigurierbare State-Machines pro Workspace, Approval-Gates, Transition-Validierung
 - **Baseline** — Snapshot, Feld-Level-Diff, 3 Scopes (Document/Project/Global)
@@ -74,7 +83,7 @@ Kategorien für `docs/REQUIREMENTS.md`:
  Opencode->AGENTS.md |
  Gemini->AGENTS.md
 > **ENTRY:** `orchestrator`-Agent (für alle Dev-Tasks).
-`agent-meta v1.1.0` | DoD: `rapid-prototyping` | REQ-Trace: `false`
+`agent-meta v2.0.0-beta.1` | DoD: `rapid-prototyping` | REQ-Trace: `false`
 
 
 
@@ -141,9 +150,16 @@ Format: `<type>: <beschreibung>` (Bsp: `feat: ...`)
 # MCP Hard Prohibitions
 
 > Kurzfassung der harten Tool-Verbote aktiver MCP-Server. Vollständige Tool-Listen und
-> Hinweise: pro Provider in `.gemini/skills bzw. .opencode/skills bzw. .agents/skills bzw. .zcode/skills bzw. .kimi-code/skills` — jeweils `mcp-<server>/SKILL.md` (`use-lazy-rules.md`).
+> Hinweise: pro Provider in `.gemini/skills bzw. .opencode/skills bzw. .mammouth/skills bzw. .agents/skills bzw. .zcode/skills bzw. .kimi-code/skills` — jeweils `mcp-<server>/SKILL.md` (`use-lazy-rules.md`).
 
 - **playwright:** `browser_run_code_unsafe`, `browser_evaluate`, `browser_file_upload`, `browser_handle_dialog` — absolut verboten.
+
+
+
+# Repo-Containment („Gefängnis-Modus")
+
+Repo-Containment ist AKTIV: Schreibzugriffe sind auf die Projekt-Wurzel beschränkt; einziger sanktionierter Ausnahmebereich ist `.tmp/`.
+Durchsetzung: PreToolUse-Hook = **Convention boundary** (keine Security Boundary, nur gegen akzidentellen Missbrauch; Definition: `.claude/rules/branch-guard.md#guard-terminologie-convention-boundary-vs-security-boundary`). Grenzen/Details: `docs/concepts/repo-containment-prison-mode.md`.
 
 
 
@@ -479,7 +495,7 @@ CISO Lovable):
 
 # Lazy-Loaded Rules
 
-> Nicht immer geladen — bei Bedarf per `Read` öffnen: `.gemini/skills bzw. .opencode/skills bzw. .agents/skills bzw. .zcode/skills bzw. .kimi-code/skills/<skill>/SKILL.md` (jeweils).
+> Nicht immer geladen — bei Bedarf per `Read` öffnen: `.gemini/skills bzw. .opencode/skills bzw. .mammouth/skills bzw. .agents/skills bzw. .zcode/skills bzw. .kimi-code/skills/<skill>/SKILL.md` (jeweils).
 
 | Skill | Wann |
 |---|---|
@@ -575,24 +591,7 @@ Arbiträre Code-Ausführung (browser_run_code_unsafe, browser_evaluate) ist gesp
 
 ---
 
-*Generiert von agent-meta aus `config/mcp-registry.yaml` — nicht manuell bearbeiten.*
-
-
-
-# MCP: project-atlas
-
-> Project Atlas — local MCP-based repo knowledge-graph tool (https://github.com/styler-ai/ProjectAtlas). Placeholder entry; exact connection.command/args verified at first real integration.
-
----
-
-## Verbindungstyp
-
-- Typ: `stdio`
-- Kommando: `project-atlas --mcp`
-
----
-
-*Generiert von agent-meta aus `config/mcp-registry.yaml` — nicht manuell bearbeiten.*
+*Generiert von agent-meta aus `config/plugin-catalog.yaml` — nicht manuell bearbeiten.*
 
 
 
@@ -602,12 +601,12 @@ Arbiträre Code-Ausführung (browser_run_code_unsafe, browser_evaluate) ist gesp
 ## Übrige Regeln (Lazy-Load)
 
 Nicht-Kern-Regeln werden NICHT in diesen Block eingebettet (Progressive Disclosure, #192):
-sie liegen pro Provider als separate Dateien in .gemini/skills bzw. .opencode/skills bzw. .agents/skills bzw. .zcode/skills bzw. .kimi-code/skills — jeweils `<rule-name>/SKILL.md`.
+sie liegen pro Provider als separate Dateien in .gemini/skills bzw. .opencode/skills bzw. .mammouth/skills bzw. .agents/skills bzw. .zcode/skills bzw. .kimi-code/skills — jeweils `<rule-name>/SKILL.md`.
 Bei Bedarf mit `Read` laden; verfügbare Regeln via `ls` im jeweiligen Verzeichnis.
 
 
 ## Agent Directory
-> ⚠️ **ACHTUNG:** Agenten (Prompts) liegen in `.gemini/agents bzw. .opencode/agents bzw. .codex/agents bzw. .zcode/agents bzw. .kimi-code/agents`.
+> ⚠️ **ACHTUNG:** Agenten (Prompts) liegen in `.gemini/agents bzw. .opencode/agents bzw. .mammouth/agents bzw. .codex/agents bzw. .zcode/agents bzw. .kimi-code/agents`.
 
 | Agent | Core Capabilities |
 |-------|-------------------|
@@ -756,7 +755,7 @@ Die Knowledge Engine ist aktiviert. Domäne: **internal-docs**.
 
 Hier kannst du eigene, projektspezifische Notizen eintragen. Dieser Bereich wird von `agent-meta` nicht überschrieben!
 
-<!-- agent-meta:bootstrap-begin -->
+<!-- agent-meta:bootstrap-begin:Gemini -->
 
 ## Agent Bootstrap — Session-Start Pflicht
 
@@ -887,4 +886,4 @@ Gemini/Antigravity benötigt eine einmalige Agent-Registrierung pro Session.
 
 > **Ohne diese Registrierung existieren die Agenten NICHT in der Runtime**
 > und der Orchestrator kann nicht delegieren.
-<!-- agent-meta:bootstrap-end -->
+<!-- agent-meta:bootstrap-end:Gemini -->

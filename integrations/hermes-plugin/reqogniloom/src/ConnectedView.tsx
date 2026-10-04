@@ -1,7 +1,7 @@
 import * as React from "react";
 import type { AppState } from "./state";
 import { disconnect, openInBrowser, openInterviews } from "./state";
-import { buttonStyle } from "./uiKit";
+import { buttonStyle, ErrorBanner } from "./uiKit";
 
 export function ConnectedView({ state }: { state: AppState }) {
   return (
@@ -10,6 +10,10 @@ export function ConnectedView({ state }: { state: AppState }) {
         <span style={{ fontSize: "var(--text-xs)", color: "var(--text-2)" }}>Connected to</span>
         <span style={{ fontSize: "var(--text-sm)" }}>{state.workspaceName}</span>
       </div>
+      {/* AUD-117: openInterviews() leaves view==="connected" on failure and
+          only sets interviewError; without this banner the button silently
+          did nothing. InterviewListView already renders the same banner. */}
+      <ErrorBanner message={state.interviewError} />
       <button data-testid="open-in-browser-button" style={buttonStyle} onClick={() => void openInBrowser()}>
         Open ReqogniLoom
       </button>

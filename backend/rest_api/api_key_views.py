@@ -36,7 +36,7 @@ from rest_framework.viewsets import ViewSet
 from auth_tenancy.models import normalize_api_key_scope
 from auth_tenancy.services import Operation
 from auth_tenancy.services.authentication import AuthenticationService
-from rest_api.serializers import build_error_response
+from rest_api.serializers import StandardPagination, build_error_response
 
 #: Request keys ``POST /api/v1/api-keys/`` understands. Everything else is a
 #: typo or a stale field name and is rejected (#916) instead of being dropped by
@@ -94,6 +94,11 @@ class ApiKeyViewSet(ViewSet):
 
     required_operation = Operation.READ
 
+    #: INT-05 (AUD-2026-09-074): the endpoint used to return a bare array and
+    #: ignored ``page``/``page_size`` entirely. It now uses the project-wide
+    #: ``StandardPagination`` envelope, matching every other list route.
+    pagination_class = StandardPagination
+
     @property
     def required_scope_operation(self) -> Operation | None:
         """Capability gate for the key's own scope (#865): governance on mutations.
@@ -145,7 +150,17 @@ class ApiKeyViewSet(ViewSet):
     # -- list (GET /api/v1/api-keys/) --------------------------------------
 
     def list(self, request: Request, **kwargs: Any) -> Response:
-        """Return metadata-only listing of the authenticated user's API keys."""
+        """Return metadata-only listing of the authenticated user's API keys.
+
+        INT-05 (AUD-2026-09-074): paginated via ``StandardPagination``. The
+        paginator is a DRF property resolved here; it raises DRF's ``NotFound``
+        for an invalid ``page`` (e.g. ``page=0``/``page=abc``/out of range), and
+        that propagates as **404** — it must therefore run *outside* any broad
+        ``try/except`` that would turn it into a 500 (the AUD-2026-09-073
+        mechanism). The service call below cannot raise ``NotFound`` for a
+        missing resource (a user's own key list is simply empty), so it stays
+        inside its own narrow guard.
+        """
         user_id = self._get_user_id(request)
         if user_id is None:
             return Response(
@@ -155,6 +170,12 @@ class ApiKeyViewSet(ViewSet):
 
         from uuid import UUID
         keys = self._authn.list_api_keys(user_id=UUID(user_id))
+
+        # PEP 8: resolved lazily to avoid a circular import at module load.
+        paginator: StandardPagination = self.pagination_class()
+        page = paginator.paginate_queryset(keys, request, view=self)
+        if page is not None:
+            return paginator.get_paginated_response(list(page))
         return Response(keys, status=status.HTTP_200_OK)
 
     # -- retrieve (GET /api/v1/api-keys/<pk>/) -----------------------------

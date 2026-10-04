@@ -1,0 +1,130 @@
+[
+ {
+  "label": "baseline",
+  "tool": "tools/list",
+  "http": 200,
+  "seconds": 0.04,
+  "is_error": false,
+  "internals_leak": false,
+  "timeout": false,
+  "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"tools\": [{\"name\": \"requirement.get\", \"description\": \"Fetch a single requirement by ID.\", \"inputSchema\": {\"type\": \"object\", \"properties\": {\"id\": {\"type\": \"string\"}}, \"required\": [\"id\"]}}, {\"name\": \"requirement.query\", \"description\": \"List requirements with optional workspace filter.\", \"inputSchema\": {\"type\": \"object\", \"properties\": {\"workspace_id\": {\"type\": \""
+ },
+ {
+  "label": "baseline",
+  "tool": "workspace.list",
+  "http": 200,
+  "seconds": 0.04,
+  "is_error": false,
+  "internals_leak": false,
+  "timeout": false,
+  "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"{\\n  \\\"workspaces\\\": [\\n    {\\n      \\\"id\\\": \\\"7d46f102-72d7-46a7-adc7-77fb2afff893\\\",\\n      \\\"name\\\": \\\"e2e-isolated-1790534689183-5v1h7w\\\",\\n      \\\"description\\\": \\\"\\\"\\n    },\\n    {\\n      \\\"id\\\": \\\"5e114d1e-d7ec-400d-a1c6-e9aff876e4fe\\\",\\n      \\\"name\\\": \\\"e2e-isolated-1790534491396-ehbq5t\\\",\\n      \\\"description\\\":"
+ },
+ {
+  "label": "baseline",
+  "tool": "requirement.query",
+  "http": 200,
+  "seconds": 0.29,
+  "is_error": false,
+  "internals_leak": false,
+  "timeout": false,
+  "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"{\\n  \\\"requirements\\\": [\\n    {\\n      \\\"id\\\": \\\"fe0d8a68-0268-4f36-88c5-eb3a0f17782e\\\",\\n      \\\"uid\\\": null,\\n      \\\"title\\\": \\\"Die Akkuladezeit darf 3 Stunden nicht \\\\u00fcberschreiten.\\\",\\n      \\\"description\\\": \\\"\\\",\\n      \\\"acceptance_criteria\\\": \\\"\\\",\\n      \\\"rationale\\\": \\\"\\\",\\n      \\\"source\\\": \\\"\\\",\\n      \\\""
+ },
+ {
+  "label": "baseline",
+  "tool": "memory.digest",
+  "http": 200,
+  "seconds": 0.04,
+  "is_error": false,
+  "internals_leak": true,
+  "timeout": false,
+  "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"{\\n  \\\"digest\\\": \\\"# memory digest | backend=pgvector | scope=workspace | facts=2\\\\n- wp1a degradation probe redis-down\\\\n- wp1a degradation probe baseline\\\",\\n  \\\"generated_at\\\": \\\"2026-09-29T22:27:57.633902+00:00\\\",\\n  \\\"backend\\\": \\\"pgvector\\\",\\n  \\\"degraded\\\": false\\n}\"}]}}"
+ },
+ {
+  "label": "baseline",
+  "tool": "memory.list",
+  "http": 200,
+  "seconds": 0.03,
+  "is_error": false,
+  "internals_leak": true,
+  "timeout": false,
+  "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"{\\n  \\\"total\\\": 2,\\n  \\\"page\\\": 1,\\n  \\\"page_size\\\": 20,\\n  \\\"backend\\\": \\\"pgvector\\\",\\n  \\\"ok\\\": true,\\n  \\\"detail\\\": \\\"mem_memory_entry table reachable\\\",\\n  \\\"degraded\\\": false,\\n  \\\"digest_available\\\": true,\\n  \\\"entries\\\": [\\n    {\\n      \\\"entry_id\\\": \\\"971e219e-9ddf-4a83-9e97-32e94b95d527\\\",\\n      \\\"content\\\": \\\"w"
+ },
+ {
+  "label": "baseline",
+  "tool": "requirement_bundle.compression_status",
+  "http": 200,
+  "seconds": 0.02,
+  "is_error": false,
+  "internals_leak": false,
+  "timeout": false,
+  "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"{\\n  \\\"task_id\\\": \\\"00000000-0000-0000-0000-000000000000\\\",\\n  \\\"status\\\": \\\"not_found\\\",\\n  \\\"result\\\": null,\\n  \\\"error\\\": null,\\n  \\\"text\\\": null,\\n  \\\"is_mock_fallback\\\": false,\\n  \\\"provider\\\": null\\n}\"}]}}"
+ },
+ {
+  "label": "baseline",
+  "tool": "events.dlq_list",
+  "http": 200,
+  "seconds": 0.02,
+  "is_error": false,
+  "internals_leak": false,
+  "timeout": false,
+  "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"{\\n  \\\"events\\\": [],\\n  \\\"count\\\": 0\\n}\"}]}}"
+ },
+ {
+  "label": "baseline",
+  "tool": "traceability.suggest_links",
+  "http": 200,
+  "seconds": 0.99,
+  "is_error": false,
+  "internals_leak": false,
+  "timeout": false,
+  "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"{\\n  \\\"tier\\\": \\\"extended\\\",\\n  \\\"provider\\\": \\\"mock\\\",\\n  \\\"degraded\\\": false,\\n  \\\"suggestions\\\": [\\n    {\\n      \\\"finding_index\\\": 276,\\n      \\\"rule_id\\\": \\\"TRACE-P1\\\",\\n      \\\"source_artifact_id\\\": \\\"104a4960-1926-4478-bbfc-c7fb38227a90\\\",\\n      \\\"ranked_candidates\\\": [\\n        {\\n          \\\"artifact_id\\\": \\\"e0f"
+ },
+ {
+  "label": "baseline",
+  "tool": "audit.se_audit",
+  "http": 200,
+  "seconds": 0.69,
+  "is_error": false,
+  "internals_leak": false,
+  "timeout": false,
+  "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"{\\n  \\\"tier\\\": \\\"extended\\\",\\n  \\\"scope\\\": null,\\n  \\\"scope_artifact_id\\\": null,\\n  \\\"counts\\\": {\\n    \\\"total\\\": 301,\\n    \\\"blockers\\\": 293,\\n    \\\"warnings\\\": 8,\\n    \\\"suppressed\\\": 0,\\n    \\\"suppressed_blockers\\\": 0\\n  },\\n  \\\"truncated\\\": false,\\n  \\\"total_findings_available\\\": 301,\\n  \\\"total_blockers_available\\\": "
+ },
+ {
+  "label": "baseline",
+  "tool": "glossary.create",
+  "http": 200,
+  "seconds": 0.04,
+  "is_error": false,
+  "internals_leak": false,
+  "timeout": false,
+  "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"{\\n  \\\"data\\\": {\\n    \\\"id\\\": \\\"ba367d42-7489-4b8f-8f2b-3e771109c365\\\",\\n    \\\"workspace_id\\\": \\\"4eee7ca1-eedd-4a7e-bb14-47e6493cbf88\\\",\\n    \\\"term\\\": \\\"wp1a-deg2-baseline\\\",\\n    \\\"definition\\\": \\\"probe\\\",\\n    \\\"synonyms\\\": [],\\n    \\\"abbreviation\\\": \\\"\\\",\\n    \\\"version\\\": 1,\\n    \\\"status\\\": \\\"active\\\",\\n    \\\"artifa"
+ },
+ {
+  "label": "baseline",
+  "tool": "permissions.check",
+  "http": 200,
+  "seconds": 0.02,
+  "is_error": false,
+  "internals_leak": false,
+  "timeout": false,
+  "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"{\\n  \\\"decision\\\": {\\n    \\\"level\\\": \\\"write\\\",\\n    \\\"reason\\\": \\\"role 'admin' permits 'write'\\\",\\n    \\\"is_allowed\\\": true\\n  },\\n  \\\"queried_level\\\": \\\"read\\\"\\n}\"}]}}"
+ },
+ {
+  "label": "baseline",
+  "tool": "admin.backup_list",
+  "http": 200,
+  "seconds": 0.03,
+  "is_error": false,
+  "internals_leak": false,
+  "timeout": false,
+  "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"{\\n  \\\"backups\\\": []\\n}\"}]}}"
+ },
+ {
+  "label": "baseline",
+  "tool": "GET /mcp/sse/",
+  "http": -1,
+  "seconds": 8.26,
+  "timeout": true,
+  "body": "EXC TimeoutError: timed out"
+ }
+]

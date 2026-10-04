@@ -47,7 +47,12 @@ test.describe('[COMP-AT-001] Auth API — error contract', () => {
     const listBefore = await request.get(`${BACKEND_URL}/api/v1/api-keys/`, { headers });
     expect(listBefore.status()).toBe(200);
     const keysBefore = await listBefore.json();
-    const initialCount = Array.isArray(keysBefore) ? keysBefore.length : 0;
+    // Tolerate both response shapes: bare array (w1) and StandardPagination
+    // envelope {count, next, previous, results} (w2, INT-05/AUD-2026-09-074).
+    const keysBeforeItems: Record<string, unknown>[] = Array.isArray(keysBefore)
+      ? keysBefore
+      : (keysBefore?.results ?? []);
+    const initialCount = keysBeforeItems.length;
 
     // Step 2: Create — returns plaintext once
     const createResp = await request.post(`${BACKEND_URL}/api/v1/api-keys/`, {
@@ -67,11 +72,14 @@ test.describe('[COMP-AT-001] Auth API — error contract', () => {
     const listAfter = await request.get(`${BACKEND_URL}/api/v1/api-keys/`, { headers });
     expect(listAfter.status()).toBe(200);
     const keysAfter = await listAfter.json();
-    const afterCount = Array.isArray(keysAfter) ? keysAfter.length : 0;
+    const keysAfterItems: Record<string, unknown>[] = Array.isArray(keysAfter)
+      ? keysAfter
+      : (keysAfter?.results ?? []);
+    const afterCount = keysAfterItems.length;
     expect(afterCount).toBe(initialCount + 1);
 
     // Verify no plaintext in the list response
-    const listedKeys: Record<string, unknown>[] = Array.isArray(keysAfter) ? keysAfter : [];
+    const listedKeys: Record<string, unknown>[] = keysAfterItems;
     for (const key of listedKeys) {
       expect(key).not.toHaveProperty('plaintext');
     }
@@ -87,7 +95,9 @@ test.describe('[COMP-AT-001] Auth API — error contract', () => {
     const listFinal = await request.get(`${BACKEND_URL}/api/v1/api-keys/`, { headers });
     expect(listFinal.status()).toBe(200);
     const keysFinal = await listFinal.json();
-    const finalList: Record<string, unknown>[] = Array.isArray(keysFinal) ? keysFinal : [];
+    const finalList: Record<string, unknown>[] = Array.isArray(keysFinal)
+      ? keysFinal
+      : (keysFinal?.results ?? []);
     const revokedKey = finalList.find((k) => k.id === created.id);
     expect(revokedKey).toBeDefined();
     // revoked field could be boolean 'revoked: true' or the key is still present
