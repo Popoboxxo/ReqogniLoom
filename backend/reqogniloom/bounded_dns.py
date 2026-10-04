@@ -35,16 +35,19 @@ What this module does
   centrally — the rate-limit throttles, ``admin_ops.rate_limits`` and
   ``mcp_server.throttling`` — rather than patching call sites.
 
-Scope / known residual
-----------------------
-Only ``redis://`` (plain TCP) is intercepted. ``rediss://`` is left on
-redis-py's default connection class on purpose: pinning the numeric address
-would change the ``server_hostname`` used for the TLS handshake and break
-certificate hostname verification. The shipped Compose stack uses ``redis://``
-(``settings.REDIS_URL``); a TLS deployment keeps the pre-RES-01 behaviour and
-would need a dedicated SNI-preserving variant. Read stalls from a *frozen*
-(frozen process, port still listening) server are bounded per op by the existing
-``socket_timeout``; this module does not add a post-connect breaker.
+Scope
+-----
+Both TCP schemes are intercepted: ``redis://`` via :class:`BoundedDnsConnection`
+and ``rediss://`` via :class:`BoundedSslDnsConnection`. The TLS variant pins the
+resolved numeric address for the raw TCP connect only and restores the hostname
+before the handshake, so SNI / certificate hostname verification is preserved.
+``unix://`` is left untouched (no DNS involved).
+
+A read stall from a *frozen* but still-listening server (TCP connects succeed,
+the read hangs) never fails in ``_connect`` and would otherwise pay
+``socket_timeout`` on every following op. :meth:`_BoundedDnsMixin.read_response`
+therefore trips the same cooldown when redis-py raises a timeout or connection
+error on a command, so a frozen server fails open fast instead of repeatedly.
 
 Budget reasoning (acceptance: MCP answers within 8 s while Redis is stopped)
 ---------------------------------------------------------------------------
@@ -69,6 +72,7 @@ logger = logging.getLogger(__name__)
 __all__ = [
     "BoundedDnsConnection",
     "BoundedRedisConnectionPool",
+    "BoundedSslDnsConnection",
     "reset_resolver_state",
     "resolve_host_bounded",
 ]
@@ -260,25 +264,87 @@ class _BoundedDnsMixin:
             # Preserve the hostname for logging, reconnect and TLS SNI.
             self.host = original_host
 
+    def read_response(self, *args: Any, **kwargs: Any):  # type: ignore[override]
+        """Read a reply, tripping the cooldown on a timeout / connection error.
+
+        A *frozen* server (process stopped, port still listening) accepts TCP
+        connects and then hangs mid-response. redis-py raises
+        ``redis.exceptions.TimeoutError`` (read timeout) or ``ConnectionError``
+        here; without marking the target down each following cache op would pay
+        ``socket_timeout`` again. Marking it down makes the next ``_connect``
+        fail fast through the resolver cooldown, mirroring the DNS/connect path.
+        """
+        try:
+            return super().read_response(*args, **kwargs)
+        except (redis.exceptions.TimeoutError, redis.exceptions.ConnectionError):
+            _RESOLVER.mark_down(
+                self.host, self.port, cooldown=_unhealthy_cooldown()
+            )
+            raise
+
 
 class BoundedDnsConnection(_BoundedDnsMixin, redis.Connection):
     """Plain TCP connection whose connect-time DNS lookup is wall-clock bounded."""
 
 
-class BoundedRedisConnectionPool(redis.ConnectionPool):
-    """Connection pool that installs :class:`BoundedDnsConnection`.
+class BoundedSslDnsConnection(_BoundedDnsMixin, redis.SSLConnection):
+    """TLS connection whose DNS lookup is bounded while keeping SNI intact.
 
-    Referenced by dotted path from ``settings.CACHES['default']['OPTIONS']
-    ['pool_class']`` — Django's ``RedisCache`` resolves it lazily, so importing
-    redis does not happen at settings-import time. ``unix://`` URLs are left
-    untouched (no DNS involved).
+    The plain :class:`BoundedDnsConnection` pins the numeric address by
+    assigning ``self.host`` before delegating to redis-py's ``_connect``. For
+    TLS that would also change the ``server_hostname`` used for the handshake
+    and break certificate hostname verification, so this variant separates the
+    two steps: the raw TCP connect runs against the pinned address, then the
+    hostname is restored *before* the socket is wrapped with SSL.
+    """
+
+    def _connect(self):  # type: ignore[override]
+        original_host = self.host
+        infos = resolve_host_bounded(
+            original_host,
+            self.port,
+            family=getattr(self, "socket_type", 0),
+            socktype=socket.SOCK_STREAM,
+        )
+        address = infos[0][4][0]
+        try:
+            # Pin the numeric address for the raw TCP connect only.
+            self.host = address
+            sock = redis.Connection._connect(self)
+        except OSError:
+            _RESOLVER.mark_down(
+                original_host, self.port, cooldown=_unhealthy_cooldown()
+            )
+            raise
+        finally:
+            # Restore before the handshake so ``server_hostname`` is the host.
+            self.host = original_host
+        try:
+            return self._wrap_socket_with_ssl(sock)
+        except (OSError, redis.exceptions.RedisError):
+            sock.close()
+            raise
+
+
+class BoundedRedisConnectionPool(redis.ConnectionPool):
+    """Connection pool that installs the bounded connection classes.
+
+    ``redis://`` gets :class:`BoundedDnsConnection`, ``rediss://`` the
+    SNI-preserving :class:`BoundedSslDnsConnection`; ``unix://`` is left
+    untouched (no DNS involved). Referenced by dotted path from
+    ``settings.CACHES['default']['OPTIONS']['pool_class']`` — Django's
+    ``RedisCache`` resolves it lazily, so importing redis does not happen at
+    settings-import time.
     """
 
     @classmethod
     def from_url(cls, url: str, **kwargs: Any):
-        scheme = str(url).split("://", 1)[0].lower()
-        if scheme == "redis" and "connection_class" not in kwargs:
-            kwargs["connection_class"] = BoundedDnsConnection
-        # ``rediss://`` is deliberately not intercepted: see the module docstring
-        # on TLS SNI / hostname verification.
+        if "connection_class" not in kwargs:
+            scheme = str(url).split("://", 1)[0].lower()
+            if scheme == "redis":
+                kwargs["connection_class"] = BoundedDnsConnection
+            elif scheme == "rediss":
+                # SNI-preserving bounded variant; see BoundedSslDnsConnection.
+                kwargs["connection_class"] = BoundedSslDnsConnection
+        # ``unix://`` is left untouched: no DNS is involved.
         return super().from_url(url, **kwargs)

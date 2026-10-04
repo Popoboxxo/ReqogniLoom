@@ -29,6 +29,7 @@ import time
 from typing import Callable, Optional
 
 import pytest
+import redis
 from django.test import RequestFactory, override_settings
 
 from reqogniloom import bounded_dns
@@ -164,6 +165,108 @@ def test_dns_budget_settings_are_conservative():
 
 
 # ---------------------------------------------------------------------------
+# rediss:// — TLS deployments must get the bounded DNS path, SNI intact
+# ---------------------------------------------------------------------------
+
+
+def test_from_url_installs_bounded_connection_for_redis_and_rediss():
+    """Both TCP schemes must resolve through the bounded resolver.
+
+    The prior fix only wired ``redis://``; a ``rediss://`` deployment silently
+    kept redis-py's unbounded ``SSLConnection`` (AUD-030 residual).
+    """
+    plain = bounded_dns.BoundedRedisConnectionPool.from_url(
+        "redis://cache-scheme.invalid:6379/1"
+    )
+    tls = bounded_dns.BoundedRedisConnectionPool.from_url(
+        "rediss://cache-scheme.invalid:6379/1"
+    )
+
+    assert plain.connection_class is bounded_dns.BoundedDnsConnection
+    assert tls.connection_class is bounded_dns.BoundedSslDnsConnection
+
+
+def test_from_url_leaves_unix_socket_untouched():
+    """``unix://`` involves no DNS, so it must not be replaced."""
+    pool = bounded_dns.BoundedRedisConnectionPool.from_url("unix:///tmp/redis.sock")
+    assert pool.connection_class is not bounded_dns.BoundedDnsConnection
+    assert pool.connection_class is not bounded_dns.BoundedSslDnsConnection
+
+
+def test_ssl_connect_pins_address_for_tcp_but_keeps_sni_hostname(monkeypatch):
+    """The numeric address is pinned for the raw connect only.
+
+    During the TLS handshake ``self.host`` must be the original hostname so
+    redis-py's ``server_hostname`` (SNI / certificate verification) is correct.
+    """
+    from redis.connection import Connection
+
+    pinned_hosts: list = []
+    wrapped_hosts: list = []
+    dummy_sock = object()
+
+    def fake_tcp_connect(self):
+        pinned_hosts.append(self.host)
+        return dummy_sock
+
+    def fake_wrap(self, sock):
+        wrapped_hosts.append(self.host)
+        return sock
+
+    monkeypatch.setattr(
+        bounded_dns,
+        "resolve_host_bounded",
+        lambda host, port, **kw: [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", port))
+        ],
+    )
+    monkeypatch.setattr(Connection, "_connect", fake_tcp_connect)
+    monkeypatch.setattr(redis.SSLConnection, "_wrap_socket_with_ssl", fake_wrap)
+
+    conn = bounded_dns.BoundedSslDnsConnection(host="cache-tls.invalid", port=6379)
+    result = conn._connect()
+
+    assert result is dummy_sock
+    assert pinned_hosts == ["127.0.0.1"], "raw TCP connect must use the pinned address"
+    assert wrapped_hosts == ["cache-tls.invalid"], "TLS wrap must see the hostname (SNI)"
+    assert conn.host == "cache-tls.invalid", "hostname must be restored after connect"
+
+
+# ---------------------------------------------------------------------------
+# Read-stall breaker — a frozen-but-listening server must fail fast
+# ---------------------------------------------------------------------------
+
+
+def test_read_timeout_opens_fail_fast_cooldown(monkeypatch):
+    """A read timeout on a command must trip the same cooldown as DNS failures.
+
+    A frozen Redis that still accepts TCP connects never fails in ``_connect``;
+    without a read-failure breaker every following cache op pays
+    ``socket_timeout`` again (AUD-030 residual #2).
+    """
+    conn = bounded_dns.BoundedDnsConnection(host="cache-read-stall.invalid", port=6379)
+    monkeypatch.setattr(socket, "getaddrinfo", _blocking_getaddrinfo(2.0))
+
+    def raise_timeout(*args, **kwargs):
+        raise TimeoutError("simulated frozen server")
+
+    monkeypatch.setattr(conn._parser, "read_response", raise_timeout)
+
+    with pytest.raises(redis.exceptions.TimeoutError):
+        conn.read_response(disconnect_on_error=False)
+
+    # The read failure must have opened the cooldown: the next resolution for
+    # the same target fails immediately instead of paying the DNS budget again.
+    start = time.monotonic()
+    with pytest.raises(OSError):
+        bounded_dns.resolve_host_bounded(
+            "cache-read-stall.invalid", 6379, timeout=_TEST_BUDGET, cooldown=5.0
+        )
+    elapsed = time.monotonic() - start
+    assert elapsed < 0.1, "read stall did not trip the fail-fast cooldown"
+
+
+# ---------------------------------------------------------------------------
 # End to end — the MCP throttle fails open inside the budget
 # ---------------------------------------------------------------------------
 
@@ -204,5 +307,44 @@ def test_mcp_throttle_fails_open_within_budget_on_dns_hang(monkeypatch):
     assert result is None, "cache outage must fail open (allow the request)"
     assert elapsed < 1.5, (
         f"MCP throttle took {elapsed:.2f}s with Redis DNS hanging "
+        f"(budget {_TEST_BUDGET}s); must fail open well inside 8s"
+    )
+
+
+@pytest.mark.django_db
+@override_settings(
+    CACHES={
+        "default": {
+            "BACKEND": "django.core.cache.backends.redis.RedisCache",
+            "LOCATION": "rediss://cache-tls-throttle.invalid:6379/1",
+            "OPTIONS": {
+                "socket_connect_timeout": 0.5,
+                "socket_timeout": 0.5,
+                "pool_class": "reqogniloom.bounded_dns.BoundedRedisConnectionPool",
+            },
+        }
+    },
+    CACHE_DNS_TIMEOUT=_TEST_BUDGET,
+    CACHE_UNHEALTHY_COOLDOWN=3.0,
+)
+def test_mcp_throttle_fails_open_within_budget_on_rediss_dns_hang(monkeypatch):
+    """A TLS (``rediss://``) cache outage must fail open inside the budget too.
+
+    Before the fix ``rediss://`` kept redis-py's default ``SSLConnection``, so
+    this path paid the raw resolver stall per cache op — the same AUD-030 hang,
+    just on the TLS deployment.
+    """
+    from mcp_server.throttling import check_mcp_ip_rate_limit
+
+    monkeypatch.setattr(socket, "getaddrinfo", _blocking_getaddrinfo(2.0))
+    request = RequestFactory().post("/mcp/", REMOTE_ADDR="10.10.0.2")
+
+    start = time.monotonic()
+    result = check_mcp_ip_rate_limit(request)
+    elapsed = time.monotonic() - start
+
+    assert result is None, "cache outage must fail open (allow the request)"
+    assert elapsed < 1.5, (
+        f"MCP throttle took {elapsed:.2f}s with rediss DNS hanging "
         f"(budget {_TEST_BUDGET}s); must fail open well inside 8s"
     )

@@ -55,6 +55,20 @@ ERROR_CODES = {
     "UNKNOWN_TOOL": "The requested tool is not registered.",
     "VALIDATION_ERROR": "Request parameters failed schema validation.",
     "LLM_NOT_CONFIGURED": "This tool requires an LLM provider which is not configured.",
+    # #1148: the capability exists and a provider may be perfectly configured,
+    # but the capability is intentionally gated off via LLM_CAPABILITIES. Kept
+    # distinct from LLM_NOT_CONFIGURED so a client can tell an intentional
+    # deployment gate apart from a genuinely missing provider — otherwise both
+    # states sent the caller hunting for a broken provider. Like
+    # LLM_NOT_CONFIGURED it is a tool-execution error, so it is deliberately
+    # absent from _PROTOCOL_ERROR_CODES and surfaces on tools/call as
+    # ``result.isError == true`` with this string ``error_code``; the numeric
+    # ERROR_CODE_MAP entry below only applies on the direct-method dispatch path.
+    "LLM_CAPABILITY_DISABLED": (
+        "The requested AI capability is disabled in this deployment. The LLM "
+        "provider itself may be configured — enable the capability via "
+        "LLM_CAPABILITIES to use this tool."
+    ),
     "NOT_FOUND": "The requested resource was not found.",
     "INTERNAL_ERROR": "An internal server error occurred.",
     "PARSE_ERROR": "Failed to parse JSON-RPC request.",
@@ -165,6 +179,12 @@ ERROR_CODE_MAP = {
     # attribute-definition reset that would change nothing. Without this entry
     # the direct-method dispatch path reported it as -32603 (Internal error).
     "CONFLICT": -32011,                 # Server-defined: state conflict (#1082)
+    # Next free server-defined code after CONFLICT. #1148: a capability gated
+    # off by LLM_CAPABILITIES. Without this entry the direct-method dispatch
+    # path reported it as -32603 (Internal error) via the fallback in
+    # ErrorFormatter.format_error — telling the client the server broke when the
+    # gate is an intentional, caller-visible deployment decision.
+    "LLM_CAPABILITY_DISABLED": -32012,  # Server-defined: LLM capability gated off (#1148)
 }
 
 
