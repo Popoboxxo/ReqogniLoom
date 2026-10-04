@@ -322,6 +322,45 @@ WSGI_APPLICATION = "reqogniloom.wsgi.application"
 ASGI_APPLICATION = "reqogniloom.asgi.application"
 
 # ---------------------------------------------------------------------------
+# Staged RLS enforcement flags (issue #1136) — DEFAULT OFF.
+#
+# The pre-auth tables (``at_api_key`` / ``at_user_role``) and the four
+# worker-owned ``as_*`` tables now carry GUC-guarded, permissive RLS policies
+# (auth_tenancy/0017, application/0032). Enforcement stays OFF unless the
+# matching flag is set: the policy predicate is
+# ``current_setting('<guc>', true) IS DISTINCT FROM 'on' OR tenant_id = ...``,
+# so an unset GUC is fully permissive and every existing code path is
+# unchanged. Flipping a flag to True is what arms the tenant predicate.
+#
+# These live *above* DATABASES on purpose: there is exactly ONE place that
+# builds the app-role connection OPTIONS (``_build_pg_options`` below), and it
+# must be able to read the flags at import time. A second code path overriding
+# OPTIONS would silently drop the GUC the flag promises; that drift is exactly
+# what the ``persistence.E001`` system check (``persistence/checks.py``,
+# AC-25) fails on. See docs/audit/2026-10/1136-rls-coverage-spec.md (IC-3).
+# ---------------------------------------------------------------------------
+RLS_AS_ENFORCED: bool = config("RLS_AS_ENFORCED", default=False, cast=bool)
+RLS_PREAUTH_ENFORCED: bool = config("RLS_PREAUTH_ENFORCED", default=False, cast=bool)
+
+
+def _build_pg_options() -> str:
+    """Return the app-role libpq ``options`` string (single source of truth).
+
+    Combines the pre-existing ``statement_timeout`` with the staged-RLS GUCs.
+    A ``-c app.rls_*_enforced=on`` clause is added **only** when the matching
+    flag is True, so the DEFAULT-OFF ship changes no connection behaviour.
+    """
+    parts = [
+        f"-c statement_timeout={config('DB_STATEMENT_TIMEOUT_MS', default=30000, cast=int)}"
+    ]
+    if RLS_AS_ENFORCED:
+        parts.append("-c app.rls_as_enforced=on")
+    if RLS_PREAUTH_ENFORCED:
+        parts.append("-c app.rls_preauth_enforced=on")
+    return " ".join(parts)
+
+
+# ---------------------------------------------------------------------------
 # Database — ARCH-L1-010 PersistenceLayer
 # PostgreSQL via Django ORM. Tenant-Isolation via Custom Manager (ADR-03).
 # ---------------------------------------------------------------------------
@@ -356,7 +395,12 @@ DATABASES = {
             # indefinitely. Made env-configurable: DB_STATEMENT_TIMEOUT_MS (default 30000).
             # Migrations set this to 0 via environment override (docker-compose.yml)
             # to allow unbounded schema work; CONN_HEALTH_CHECKS is unaffected.
-            "options": f"-c statement_timeout={config('DB_STATEMENT_TIMEOUT_MS', default=30000, cast=int)}",
+            #
+            # Issue #1136: statement_timeout and the staged-RLS GUCs are built by
+            # the single ``_build_pg_options`` helper (see above) so no second
+            # code path can drop the GUC that RLS_*_ENFORCED promises. The
+            # ``persistence.E001`` system check enforces flag <-> OPTIONS parity.
+            "options": _build_pg_options(),
         },
     }
 }

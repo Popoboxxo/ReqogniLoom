@@ -76,6 +76,16 @@ DATABASES = {
     }
 }
 
+# Issue #1136 (AC-11): pin the staged-RLS enforcement flags to False so a
+# stray RLS_AS_ENFORCED/RLS_PREAUTH_ENFORCED in the ambient .env/CI cannot
+# arm the policy predicates mid-suite. This DATABASES block above replaces
+# settings.py's wholesale and carries no OPTIONS, so neither GUC is sent —
+# together the two ensure the test connection stays permissive by default.
+# Tests that exercise the enforced state arm the GUC explicitly
+# (``SET app.rls_*_enforced = 'on'``) instead.
+RLS_AS_ENFORCED = False
+RLS_PREAUTH_ENFORCED = False
+
 # ---------------------------------------------------------------------------
 # Debug — enable so template/assertion errors surface with full context.
 # ---------------------------------------------------------------------------

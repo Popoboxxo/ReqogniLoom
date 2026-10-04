@@ -2,8 +2,8 @@
 
 ``test_rls_coverage.py`` closes the gap for every ``TenantScopedModel``: it
 diffs ``db_table`` against the ``CREATE POLICY`` statements in the migration
-graph. A plain ``models.Model`` with no ``tenant_id`` column is invisible to
-that check by construction, which is the class of table this module covers:
+graph. A plain ``models.Model`` is invisible to that check by construction,
+which is the class of table this module covers:
 
 * ``bl_delta_index_entry`` — ``baseline.models.BaselineDeltaIndexEntry``,
   tenant identity inherited through the ``baseline_id`` FK
@@ -11,38 +11,38 @@ that check by construction, which is the class of table this module covers:
   deferral; ``0010_baseline_delta_index_entry_rls.py`` closes it).
 * ``as_domain_event_outbox``, ``as_domain_event_dlq``,
   ``as_webhook_subscription``, ``as_webhook_delivery_log`` —
-  ``application/models.py``, keyed by a bare ``workspace_id`` UUID field.
+  ``application/models.py``.
 
-OPEN RESIDUAL RISK (audit track CR-17, system-audit-2026-09) — the four
-worker-owned tables in the second group are NOT closed. Each of them is
-confirmed readable across tenants by the least-privilege application role with
-``app.current_tenant`` unset, and each is *declared* in
-``RLS_EXEMPT_TABLES`` in ``test_rls_coverage.py`` as the reviewed exemption for
-exactly that fact. A GUC-keyed policy is not merely unimplemented on them, it
-is inexpressible: they carry no ``tenant_id`` column, so there is nothing to
-compare. Turning RLS on requires stamping ``tenant_id`` onto the outbox payload
-at emission time — the fix shape already used for ``memory.projector`` — which
-is an architecture change, not a test change. Until that lands, what the
-database guarantees on those four tables is *nothing*; the compensating controls
-asserted here are service-layer and code-path arguments, and the tests that
-assert them say so explicitly.
+STAGED, ENFORCEMENT OFF BY DEFAULT (issue #1136): the four ``as_*`` tables
+used to be an open CR-17 residual with no policy at all. They now carry a
+nullable ``tenant_id`` (backfilled from ``pl_workspace.tenant_id``) and a
+GUC-guarded policy (``application/0030``-``0032``). The policy predicate is
+permissive while ``app.rls_as_enforced`` is unset — the production default —
+so the Celery outbox poller and every existing path are unchanged; enforcement
+turns on only when ``RLS_AS_ENFORCED=true`` arms the GUC. The tests below
+therefore arm the GUC explicitly to assert the *armed* state, and pin the
+declaration that the tables are staged (not exempt).
 
-The admin is part of that exposure, and the exemption justifications now say so
-per table rather than in general terms (see :data:`CR17_JUSTIFICATION_CLAIMS`):
-``/admin/`` is mounted at ``reqogniloom/urls.py:33`` and every one of the four
-tables is registered in ``application/admin.py``, so a staff superuser reaches
-their rows outside any tenant-scoped code path — on ``as_webhook_subscription``
-down to the plaintext HMAC ``secret`` and an admin-writable foreign
-``workspace_id``, and on the outbox/DLQ down to the rendered event ``payload``.
-That is a human-reachable path, not a database-enforced one, and no test here
-can close it.
+The compensating controls asserted here remain service-layer and code-path
+arguments, not database guarantees: while the flag is OFF, a direct raw query
+still reads across tenants. The Django admin no longer does: all four admins
+inherit ``TenantScopedAdminMixin`` (``application/admin.py``), whose
+``get_queryset``/``has_*_permission`` narrow to ``request.user.tenant_id``
+(fail-closed), so a staff user of tenant A reaches neither list nor change of
+tenant B's rows — as application code, not as a database guarantee. A future
+registration that drops the mixin would reopen that path; the tests below say
+so explicitly rather than claiming a closed set of readers.
 
-Every assertion runs against the least-privilege, NOSUPERUSER application role
-(``persistence.db_roles.APP_DB_ROLE``, REQ-L2-PL-010) with
-``app.current_tenant`` deliberately UNSET, via raw ``cursor.execute`` — the
-default test connection is a superuser and bypasses RLS unconditionally, even
-with FORCE ROW LEVEL SECURITY. Setup rows are written on that owner
-connection; the role is switched only for the read under test.
+Every DB assertion runs against the least-privilege, NOSUPERUSER application
+role (``persistence.db_roles.APP_DB_ROLE``, REQ-L2-PL-010), via raw
+``cursor.execute`` — the default test connection is a superuser and bypasses
+RLS unconditionally, even with FORCE ROW LEVEL SECURITY. Setup rows are written
+on that owner connection; the role (and the enforcement GUCs) are switched only
+for the read under test.
+
+``tenant_id`` is stamped in :func:`_seed_two_tenants` so positive filtering
+(tenant X sees exactly X's rows) is testable, not just the empty-without-GUC
+negatives.
 """
 from __future__ import annotations
 
@@ -57,6 +57,7 @@ from persistence.db_roles import APP_DB_ROLE
 from persistence.tests.test_rls_coverage import (
     RLS_EXEMPT_PLAIN_TABLES,
     RLS_EXEMPT_TABLES,
+    RLS_STAGED_TABLES,
 )
 
 pytestmark = pytest.mark.django_db(transaction=True)
@@ -73,21 +74,15 @@ PLAIN_CHILD_TABLES = {
     "as_webhook_delivery_log": "application.models.WebhookDeliveryLog",
 }
 
-#: Tables whose *primary* production access path is the Celery outbox poller,
-#: which by design runs with no tenant context armed
-#: (``application.event_bus`` ``poll_and_dispatch`` never calls
-#: ``set_request_tenant``). A GUC-keyed RLS policy is inexpressible on them — no
-#: ``tenant_id`` column — and a policy on the workspace id would make the worker
-#: blind and blind the poller to writes. They are declared in
-#: ``RLS_EXEMPT_TABLES`` and covered below by the declaration, the no-tenant-
-#: column and the compensating-control assertions instead of by a "must be
-#: empty without GUC" assertion they could never pass.
-#:
-#: "Primary", not "only": the Django admin is a second production access path on
-#: all four (``application/admin.py`` registers each of them) and it is not
-#: tenant-scoped, which is why every justification below has to name its admin
-#: exposure instead of claiming a closed set of readers.
-WORKER_OWNED_TABLES = frozenset(
+#: The four plain ``as_*`` tables now in staged RLS scope (issue #1136). They
+#: are the subset of :data:`PLAIN_CHILD_TABLES` that carry a GUC-guarded policy
+#: behind ``RLS_AS_ENFORCED`` instead of an exemption. Their primary production
+#: access path is still the Celery outbox poller, which runs with no tenant
+#: context armed (``application.event_bus`` ``poll_and_dispatch``), but the
+#: policy predicate is permissive while the GUC is unset, so the poller is
+#: untouched in the default state. The declaration is asserted below against
+#: ``RLS_STAGED_TABLES`` instead of ``RLS_EXEMPT_TABLES``.
+STAGED_PLAIN_CHILD_TABLES = frozenset(
     {
         "as_domain_event_outbox",
         "as_domain_event_dlq",
@@ -96,15 +91,17 @@ WORKER_OWNED_TABLES = frozenset(
     }
 )
 
-#: The subset of :data:`WORKER_OWNED_TABLES` holding outbound-webhook
+#: The subset of :data:`STAGED_PLAIN_CHILD_TABLES` holding outbound-webhook
 #: configuration and its attempt log, i.e. the two tables whose compensating
 #: control is purely a "no user-reachable reader exists" code-path argument.
 WEBHOOK_TABLES = frozenset(
     {"as_webhook_subscription", "as_webhook_delivery_log"}
 )
 
-#: The plain child tables that DO carry a policy, i.e. the ones for which
-#: "empty without the GUC" is a property the project actually guarantees.
+#: The plain child tables that carry a policy, i.e. the ones for which
+#: "empty without the GUC" is a property the project actually guarantees. Since
+#: issue #1136 the four ``as_*`` tables are covered too (staged), so this is all
+#: five plain child tables.
 RLS_GUARDED_TABLES = frozenset(PLAIN_CHILD_TABLES) - set(RLS_EXEMPT_TABLES)
 
 #: Production modules allowed to reference a webhook model, and why. A reader
@@ -113,8 +110,11 @@ RLS_GUARDED_TABLES = frozenset(PLAIN_CHILD_TABLES) - set(RLS_EXEMPT_TABLES)
 WEBHOOK_READER_ALLOWLIST = {
     "application/models.py": "the model definitions themselves",
     "application/admin.py": (
-        "Django admin change lists (reqogniloom/urls.py mounts /admin/) - a "
-        "staff-superuser operator surface, not a tenant-scoped one"
+        "Django admin change lists/change pages (reqogniloom/urls.py mounts "
+        "/admin/) - tenant-scoped per request.user.tenant_id by "
+        "TenantScopedAdminMixin, i.e. application code, not a database "
+        "guarantee; a future registration without the mixin would reopen the "
+        "cross-tenant path"
     ),
     "application/webhook_dispatcher.py": (
         "the poller-driven subscriber: process_event / _load_webhook_configs "
@@ -123,131 +123,120 @@ WEBHOOK_READER_ALLOWLIST = {
 }
 
 # ---------------------------------------------------------------------------
-# CR-17 exemption-record contract
+# Staged-record contract (issue #1136; was the CR-17 exemption contract)
 # ---------------------------------------------------------------------------
-# The claims each ``RLS_EXEMPT_TABLES`` justification must carry *verbatim*, as
-# ``(marker, what the marker stands for)`` pairs, plus the ones every one of
-# the four entries has to state. This exists because a length check is not a
-# record: an earlier revision only required > 200 characters, so the
-# admin-exposure sentences could be deleted and the suite would stay green.
+# The claims each ``RLS_STAGED_TABLES`` entry must carry *verbatim*, as
+# ``(marker, what the marker stands for)`` pairs. This exists because a length
+# check is not a record: an earlier revision only required > 200 characters, so
+# the load-bearing sentences could be deleted and the suite would stay green.
 # A marker is a phrase, not a length, so shortening or dropping the sentence
 # that carries it fails the test.
 #
-# The admin markers are attributed per table, deliberately. Verified against
-# ``application/admin.py`` and ``application/models.py``: the secret and the
-# writable foreign ``workspace_id`` belong to ``as_webhook_subscription``
-# alone, the rendered ``payload`` to the outbox and the DLQ, and the two
-# read-only admins are called out as such — including the three tables for
-# which the "admin can mint or retarget a foreign workspace_id" claim does NOT
-# hold.
-_ADMIN_DETAIL_PAYLOAD_CLAIM = (
-    "the admin change page renders payload and workspace_id",
-    "the admin detail page shows another tenant's row payload to a staff "
-    "superuser (verified: both fields are in readonly_fields, which Django "
-    "renders rather than edits)",
-)
-_ADMIN_NO_MINT_CLAIM = (
-    "no admin add/edit form can mint or retarget a foreign workspace_id",
-    "the claim that a superuser can mint or retarget a row into another tenant "
-    "through the admin form is explicitly REFUTED for this table (verified "
-    "form fields / permissions in application/admin.py)",
-)
-_ADMIN_READ_ONLY_CLAIM = (
-    "has_add_permission, has_change_permission and has_delete_permission all "
-    "return False",
-    "the registered admin for this table is read-only, which is what makes the "
-    "refuted mint/retarget claim refuted rather than merely unverified",
-)
-_ADMIN_CHANGEABLE_OUTBOX_CLAIM = (
-    "an editable claimed_at",
-    "the real admin write path on the outbox (default add/delete permissions "
-    "plus an editable claimed_at) instead of the mint/retarget claim",
-)
-
-#: Shared by all four entries: the fix shape and the status markers, plus the
-#: compensating-control statement. Every one of these four tables has a control
-#: that is service-layer and code-path only, and a staff superuser with
-#: Django-admin access, so none of the four may be documented as if the
-#: database backed it up.
-_CR17_SHARED_CLAIMS = (
+# The texts are re-derived against ``application/admin.py`` as it stands now:
+# all four admins inherit ``TenantScopedAdminMixin``, so the old "a staff
+# superuser reaches another tenant's rows" claim is STALE and must not appear.
+# The staged entries state the opposite — the admin is tenant-scoped by app
+# code — while being explicit that this is NOT a database guarantee.
+_STAGED_SHARED_CLAIMS: tuple[tuple[str, str], ...] = (
     (
-        "app.current_tenant",
-        "the session variable the standard policy is keyed on, and therefore why "
-        "it cannot simply be applied to this table",
+        "app.rls_as_enforced",
+        "the GUC that gates the staged policy (off by default)",
     ),
     (
-        "stamp tenant_id onto the outbox payload at emission time",
-        "the required fix shape (the one memory.projector already uses) — the "
-        "entry is not complete without naming it",
+        "RLS_AS_ENFORCED",
+        "the flag that arms the GUC, so the entry cannot be read as already "
+        "enforced",
+    ),
+    (
+        "pl_workspace.tenant_id",
+        "where the nullable tenant_id is backfilled from",
+    ),
+    (
+        "NULL by design",
+        "an unresolvable workspace anchor stays NULL (O-2: no delete)",
+    ),
+    (
+        "counted and logged, never deleted",
+        "the orphan policy: counted + WARNING, never a destructive cleanup",
+    ),
+    (
+        "fail-closed once enforced",
+        "a NULL tenant_id matches nothing when the flag is flipped",
+    ),
+    (
+        "enforcement behind flag",
+        "the policy is inert until the flag is flipped (DEFAULT OFF)",
+    ),
+    (
+        "still not enforced in production default",
+        "the DEFAULT-OFF status is stated, not implied",
     ),
     (
         "service-layer and code-path only",
-        "the compensating control is a service-layer / code-path argument, NOT a "
-        "database-enforced guarantee",
+        "the compensating control is an app-level argument, NOT a database "
+        "guarantee",
     ),
     (
-        "human-reachable cross-tenant",
-        "a staff superuser with Django-admin access remains a human-reachable "
-        "cross-tenant path on this table",
+        "NOT a database guarantee",
+        "the admin's tenant-scoping is application code, not enforcement",
     ),
     (
-        "still OPEN",
-        "the residual risk is still open, i.e. not closed by this entry",
+        "TenantScopedAdminMixin",
+        "the mechanism that tenant-scopes the admin today (app code)",
+    ),
+    (
+        "A4",
+        "the flag flip is gated on the poller tenant-arming work (A4/R-2)",
+    ),
+    (
+        "R-7",
+        "the fail-open, app-role-settable GUC residual is named",
+    ),
+    (
+        "R-8",
+        "the superuser-owned DEFINER residual is named",
+    ),
+    (
+        "CR-17 residual risk, now staged rather than open",
+        "the status moved from open residual to staged coverage",
     ),
 )
 
-CR17_JUSTIFICATION_CLAIMS: dict[str, tuple[tuple[str, str], ...]] = {
+#: Table-specific marker per staged plain child table, so the staged entry
+#: names its own model/admin instead of copying one paragraph across all four.
+STAGED_JUSTIFICATION_CLAIMS: dict[str, tuple[tuple[str, str], ...]] = {
     "as_domain_event_outbox": (
-        _ADMIN_DETAIL_PAYLOAD_CLAIM,
-        _ADMIN_NO_MINT_CLAIM,
-        _ADMIN_CHANGEABLE_OUTBOX_CLAIM,
+        (
+            "DomainEventOutbox",
+            "the outbox admin is named (tenant-scoped by the mixin, app code)",
+        ),
     ),
     "as_domain_event_dlq": (
-        _ADMIN_DETAIL_PAYLOAD_CLAIM,
-        _ADMIN_NO_MINT_CLAIM,
-        _ADMIN_READ_ONLY_CLAIM,
+        (
+            "DomainEventDLQAdmin",
+            "the DLQ admin is named (tenant-scoped by the mixin, app code)",
+        ),
     ),
     "as_webhook_subscription": (
         (
-            "editable field on both the admin add form and the admin change form",
-            "the HMAC secret is stored in the clear and is rendered/rewritable "
-            "on the admin pages, so a staff superuser sees secret material "
-            "(verified: secret is a plain CharField and is absent only from "
-            "list_display)",
-        ),
-        (
-            "both accept a foreign workspace_id",
-            "the admin add/edit path for this table has no tenant-ownership "
-            "validation, so a superuser can mint or retarget a subscription into "
-            "another tenant",
-        ),
-        (
-            "cross-secret",
-            "the admin is a cross-secret path, not only a cross-tenant one",
+            "secret-bearing table",
+            "the HMAC-secret exposure of this specific table is named",
         ),
     ),
     "as_webhook_delivery_log": (
-        _ADMIN_READ_ONLY_CLAIM,
         (
-            "the table has no workspace_id column at all",
-            "this table has nothing an admin form could set even if the form "
-            "were writable, which is part of why the mint/retarget claim is "
-            "refuted rather than merely unverified here",
-        ),
-        (
-            "WebhookSubscription.__str__",
-            "the admin change page renders the owning subscription, whose "
-            "__str__ prints the owning workspace_id and endpoint URL — how tenant "
-            "data reaches the admin on a table with no workspace_id of its own",
+            "WebhookDeliveryLogAdmin",
+            "the delivery-log admin is named (tenant-scoped through the "
+            "subscription's workspace, app code)",
         ),
     ),
 }
 
 #: Every entry's full claim list: the shared markers plus the table-specific
 #: ones. Built once so the test and the failure message cannot drift apart.
-CR17_ALL_CLAIMS: dict[str, tuple[tuple[str, str], ...]] = {
-    table: _CR17_SHARED_CLAIMS + specific
-    for table, specific in CR17_JUSTIFICATION_CLAIMS.items()
+STAGED_ALL_CLAIMS: dict[str, tuple[tuple[str, str], ...]] = {
+    table: _STAGED_SHARED_CLAIMS + specific
+    for table, specific in STAGED_JUSTIFICATION_CLAIMS.items()
 }
 
 # ---------------------------------------------------------------------------
@@ -265,10 +254,11 @@ CR17_ALL_CLAIMS: dict[str, tuple[tuple[str, str], ...]] = {
 #:   SELECT FOR UPDATE, ``_finalize_success`` / ``_finalize_failure`` write the
 #:   outcome back and the backlog count at :551 aggregates across tenants.
 #: * ``application/admin.py`` — the Django admin (registered at
-#:   ``application/admin.py:44``). Its reads happen inside Django, not in this
+#:   ``application/admin.py:55``). Its reads happen inside Django, not in this
 #:   repository's source, so no AST can see them; the registration itself is
-#:   the detectable marker, and the change list renders ``workspace_id`` of
-#:   every tenant.
+#:   the detectable marker. ``DomainEventOutboxAdmin`` inherits
+#:   ``TenantScopedAdminMixin``, so it narrows to the operator's tenant — but
+#:   that is application code, not a database guarantee.
 OUTBOX_READER_MODULES = {
     "application/event_bus.py": (
         "the Celery OutboxPoller - candidate listing, SELECT FOR UPDATE claim, "
@@ -277,8 +267,8 @@ OUTBOX_READER_MODULES = {
     ),
     "application/admin.py": (
         "Django admin change list and change page (registered at "
-        "application/admin.py:44) - a staff-superuser operator surface, not a "
-        "tenant-scoped one"
+        "application/admin.py:55) - tenant-scoped per request.user.tenant_id "
+        "by TenantScopedAdminMixin (application code, not a database guarantee)"
     ),
 }
 
@@ -314,13 +304,30 @@ OUTBOX_NON_QUERYING_REFERENCE_SAMPLE = {
 
 
 def _arm_app_role() -> None:
+    """Switch to the app role AND arm both staged-RLS enforcement GUCs.
+
+    Arming the GUCs is what makes ``test_empty_without_tenant_guc`` assert the
+    *sharp* state for the staged tables: without it the policy would be
+    permissive and the negative would prove nothing. ``app.current_tenant`` is
+    deliberately left unset for that assertion.
+    """
     with connection.cursor() as cursor:
         cursor.execute(f'SET ROLE "{APP_DB_ROLE}"')
+        cursor.execute("SET app.rls_as_enforced = 'on'")
+        cursor.execute("SET app.rls_preauth_enforced = 'on'")
 
 
 def _disarm_app_role() -> None:
+    """Reset both enforcement GUCs and the role.
+
+    Resetting the GUCs matters: they are session-scoped, so a value left armed
+    here would leak into later tests and silently change their meaning (F-07 /
+    AC-23).
+    """
     with connection.cursor() as cursor:
         cursor.execute("RESET app.current_tenant")
+        cursor.execute("RESET app.rls_as_enforced")
+        cursor.execute("RESET app.rls_preauth_enforced")
         cursor.execute("RESET ROLE")
 
 
@@ -579,6 +586,7 @@ def _seed_two_tenants(label: str = "cr17") -> dict:
         outbox_row = DomainEventOutbox.objects.create(
             event_type=DomainEventOutbox.EventType.REQUIREMENT_CREATED,
             workspace_id=workspace.id,
+            tenant_id=tenant.id,
             entity_id=artifact.id,
             payload={"artifact_id": str(artifact.id)},
         )
@@ -586,18 +594,23 @@ def _seed_two_tenants(label: str = "cr17") -> dict:
             event_id=outbox_row.event_id,
             event_type=outbox_row.event_type,
             workspace_id=workspace.id,
+            tenant_id=tenant.id,
             entity_id=artifact.id,
             payload={"artifact_id": str(artifact.id)},
             error_message="boom",
         )
         subscription = WebhookSubscription.objects.create(
             workspace_id=workspace.id,
+            tenant_id=tenant.id,
             event_types="RequirementCreated",
             url=f"https://example.invalid/{label}-{slot}",
             secret=f"secret-{label}-{slot}",
         )
         WebhookDeliveryLog.objects.create(
             subscription=subscription,
+            # Stamped from the owning subscription's tenant (F-03): without it
+            # the positive filter assertion below would be untestable.
+            tenant_id=tenant.id,
             event_id=outbox_row.event_id,
             event_type=outbox_row.event_type,
             status_code=500,
@@ -641,15 +654,14 @@ def test_app_role_is_the_least_privilege_non_superuser_role():
 class TestPlainChildTablesUnderAppRole:
     @pytest.mark.parametrize("table", sorted(RLS_GUARDED_TABLES))
     def test_empty_without_tenant_guc(self, table):
-        """The CR-17 requirement: two tenants with rows, direct child-table
-        query as the app role with no tenant context -> empty/policy-filtered.
+        """Two tenants with rows, direct child-table query as the app role with
+        the enforcement GUC armed but no tenant context -> empty.
 
-        Scoped to :data:`RLS_GUARDED_TABLES` — the four worker-owned tables have
-        no ``tenant_id`` column to key a policy on, so this assertion is
-        unreachable for them by construction rather than unmet. Their state is
-        asserted further down: exempt declaration, no tenant column, and the
-        compensating controls that are what actually keeps the cross-tenant
-        readability in them unreachable today.
+        ``_arm_app_role`` arms ``app.rls_as_enforced`` / ``app.rls_preauth_enforced``,
+        so this asserts the *sharp* state for all five guarded plain child
+        tables (``bl_delta_index_entry`` plus the four staged ``as_*`` tables).
+        Without the arm the staged policies would be permissive and the
+        negative would prove nothing.
         """
         _seed_two_tenants("cr17-unarmed")
 
@@ -662,8 +674,9 @@ class TestPlainChildTablesUnderAppRole:
         assert visible == 0, (
             f"{table} ({PLAIN_CHILD_TABLES[table]}) returned {visible} row(s) "
             "to the least-privilege application role with app.current_tenant "
-            "unset — a plain child model with no RLS policy is a cross-tenant "
-            "read for any code path that queries it directly"
+            "unset and the enforcement GUC armed — a guarded table that leaks "
+            "rows is a cross-tenant read for any code path that queries it "
+            "directly"
         )
 
     def test_delta_index_entry_filters_to_the_owning_tenant(self):
@@ -740,6 +753,94 @@ class TestPlainChildTablesUnderAppRole:
 
 
 @_pg_only
+@pytest.mark.parametrize("table", sorted(STAGED_PLAIN_CHILD_TABLES))
+def test_staged_plain_child_table_filters_to_the_owning_tenant(table):
+    """AC-9: with the enforcement GUC armed and ``app.current_tenant=X`` the
+    staged table exposes exactly X's rows and none of the other tenant's.
+
+    The seed stamps ``tenant_id`` (F-03), so this is a real positive filter
+    assertion, not just the empty-without-GUC negative.
+    """
+    seeded = _seed_two_tenants("cr17-staged-filter")
+    tenant_a, tenant_b = seeded["tenants"]
+
+    _arm_app_role()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute("SET app.current_tenant = %s", [str(tenant_a.id)])
+            cursor.execute(
+                f"SELECT count(*) FROM {table} WHERE tenant_id = %s",
+                [str(tenant_a.id)],
+            )
+            own = cursor.fetchone()[0]
+            cursor.execute(
+                f"SELECT count(*) FROM {table} WHERE tenant_id = %s",
+                [str(tenant_b.id)],
+            )
+            foreign = cursor.fetchone()[0]
+    finally:
+        _disarm_app_role()
+
+    assert own == 1, (
+        f"{table} exposed {own} of tenant A's own rows to tenant A under "
+        "enforcement (expected exactly 1)"
+    )
+    assert foreign == 0, (
+        f"{table} exposed {foreign} of tenant B's rows to tenant A under "
+        "enforcement"
+    )
+
+
+@_pg_only
+def test_staged_plain_child_table_rejects_a_foreign_tenant_write():
+    """AC-10 WITH CHECK: arming the GUC makes a foreign-tenant INSERT fail;
+    with the GUC unset the same INSERT succeeds (permissive default)."""
+    seeded = _seed_two_tenants("cr17-staged-write")
+    tenant_a, tenant_b = seeded["tenants"]
+    foreign_ws = seeded["workspaces"][1].id
+
+    insert_sql = (
+        "INSERT INTO as_domain_event_outbox "
+        "(id, event_id, event_type, workspace_id, tenant_id, entity_id, payload, "
+        " created_at, published, retry_count) "
+        "VALUES (%s, %s, 'RequirementCreated', %s, %s, %s, '{}'::jsonb, now(), "
+        " false, 0)"
+    )
+    params = [
+        str(uuid.uuid4()),
+        str(uuid.uuid4()),
+        str(foreign_ws),
+        str(tenant_b.id),
+        str(uuid.uuid4()),
+    ]
+
+    rejected = None
+    _arm_app_role()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute("SET app.current_tenant = %s", [str(tenant_a.id)])
+            with pytest.raises(Exception) as excinfo:
+                cursor.execute(insert_sql, params)
+            rejected = excinfo.value
+    finally:
+        _disarm_app_role()
+
+    assert "row-level security" in str(rejected).lower(), (
+        "writing a row stamped for another tenant was not rejected under "
+        f"enforcement: {rejected}"
+    )
+
+    # Permissive branch: SET ROLE but leave both GUCs unset -> the predicate is
+    # TRUE and the write must go through (THIS IS THE DEFAULT-OFF SHIP).
+    with connection.cursor() as cursor:
+        cursor.execute(f'SET ROLE "{APP_DB_ROLE}"')
+        try:
+            cursor.execute(insert_sql, params)
+        finally:
+            cursor.execute("RESET ROLE")
+
+
+@_pg_only
 def test_dlq_service_denies_a_foreign_workspace_id():
     """The compensating control for ``as_domain_event_dlq``: both user-facing
     entry points resolve ``workspace_id`` through the tenant-scoped
@@ -750,13 +851,14 @@ def test_dlq_service_denies_a_foreign_workspace_id():
     ``event_id`` must not move their DLQ row back into the outbox, neither with
     that tenant's ``workspace_id`` nor with the caller's own.
 
-    This is what keeps the DB-level gap on that table unreachable over the
-    API today, and it is asserted here so the gap is reported with its actual
-    exposure rather than as an open hole. It is a service-layer control, not a
-    database one: the row itself stays readable by any code path that queries
-    ``DomainEventDLQ`` directly, which is why ``as_domain_event_dlq`` stays in
-    ``RLS_EXEMPT_TABLES`` as named CR-17 residual risk until the tenant stamp
-    exists.
+    This keeps the row's exposure unreachable over the API, and it is asserted
+    here so the control is reported as a control. It is a service-layer control,
+    not a database one: while the flag is OFF the row itself stays readable by
+    any code path that queries ``DomainEventDLQ`` directly. Since issue #1136
+    the table no longer sits in ``RLS_EXEMPT_TABLES`` — it carries a
+    GUC-guarded, staged policy — but that policy is permissive until
+    ``RLS_AS_ENFORCED`` is flipped, so this compensating control still carries
+    the guarantee in the default state.
     """
     from application.base import NotFoundError
     from application.dlq_service import DlqService
@@ -804,142 +906,133 @@ def test_dlq_service_denies_a_foreign_workspace_id():
 
 
 # ---------------------------------------------------------------------------
-# Worker-owned tables: documented residual risk instead of unreachable asserts
+# Staged plain-child tables (#1136): declaration + tenant key + policy
 # ---------------------------------------------------------------------------
 #
-# ``test_empty_without_tenant_guc`` asks for database enforcement these four
-# tables cannot carry. The tests below assert what the project does guarantee,
-# which is narrower but true and enforceable, so the cross-tenant readability
-# stays visible in the suite instead of being deleted from it.
+# These four tables used to be declared cross-tenant-readable (an exemption).
+# They are now covered by a staged, GUC-guarded policy, so the tests below
+# assert what the project guarantees today: the declaration moved to
+# ``RLS_STAGED_TABLES`` and carries a new, verbatim claim set; the live schema
+# carries the tenant key and the policy; and the compensating controls that
+# still matter while the flag is OFF are code-path arguments, not a database
+# guarantee.
 
 
-def test_module_inventory_matches_the_rls_exemption_registry():
-    """:data:`WORKER_OWNED_TABLES` and the CR-17 registry must name one set.
+def test_module_inventory_matches_the_rls_staged_registry():
+    """:data:`STAGED_PLAIN_CHILD_TABLES` and the staged registry must name one
+    set, and the four must actually be guarded now.
 
     Without this, either list could drift: a table could be added here and
-    quietly left out of ``RLS_EXEMPT_TABLES`` (an unreported gap again), or
-    exempted there while this module still claims it is unguarded.
+    quietly left out of ``RLS_STAGED_TABLES``, or staged there while this module
+    still claims it is unguarded.
     """
-    assert WORKER_OWNED_TABLES == set(RLS_EXEMPT_PLAIN_TABLES), (
-        "this module's CR-17 inventory and persistence.tests.test_rls_coverage's "
-        "plain-table exemptions have diverged: "
-        f"{sorted(WORKER_OWNED_TABLES ^ set(RLS_EXEMPT_PLAIN_TABLES))}"
+    assert STAGED_PLAIN_CHILD_TABLES == set(RLS_STAGED_TABLES) & set(
+        PLAIN_CHILD_TABLES
+    ), (
+        "this module's staged inventory and test_rls_coverage's RLS_STAGED_TABLES "
+        "have diverged: "
+        f"{sorted(STAGED_PLAIN_CHILD_TABLES ^ (set(RLS_STAGED_TABLES) & set(PLAIN_CHILD_TABLES)))}"
     )
-    assert WORKER_OWNED_TABLES <= set(PLAIN_CHILD_TABLES), (
-        "WORKER_OWNED_TABLES names a table that CR-17 does not inventory"
+    assert STAGED_PLAIN_CHILD_TABLES <= set(PLAIN_CHILD_TABLES), (
+        "STAGED_PLAIN_CHILD_TABLES names a table that CR-17 does not inventory"
     )
-    assert RLS_GUARDED_TABLES == {"bl_delta_index_entry"}, (
+    assert RLS_GUARDED_TABLES == set(PLAIN_CHILD_TABLES), (
         "the guarded plain-child set moved: "
-        f"{sorted(RLS_GUARDED_TABLES)}. A newly guarded table belongs back in "
-        "test_empty_without_tenant_guc; a newly exempted one needs the "
-        "compensating-control assertions instead."
+        f"{sorted(RLS_GUARDED_TABLES)}. Every plain child table carries a policy "
+        "since #1136; a newly unguarded one needs a staged entry and the "
+        "declaration assertions instead."
     )
-    assert set(CR17_ALL_CLAIMS) == set(WORKER_OWNED_TABLES), (
-        "the CR-17 claim contract and the worker-owned inventory have drifted: "
-        f"{sorted(set(CR17_ALL_CLAIMS) ^ set(WORKER_OWNED_TABLES))}. A newly "
-        "exempted table has no required claims yet, so its justification could "
-        "be shortened back to a generic paragraph without any test noticing"
+    assert not RLS_EXEMPT_PLAIN_TABLES, (
+        "a plain child table is still declared exempt; the four as_* tables are "
+        "staged now, so RLS_EXEMPT_PLAIN_TABLES must stay empty"
+    )
+    assert set(STAGED_ALL_CLAIMS) == set(STAGED_PLAIN_CHILD_TABLES), (
+        "the staged claim contract and the staged inventory have drifted: "
+        f"{sorted(set(STAGED_ALL_CLAIMS) ^ set(STAGED_PLAIN_CHILD_TABLES))}. A "
+        "newly staged table has no required claims yet, so its justification "
+        "could be shortened back to a generic paragraph without any test noticing"
     )
 
 
-@pytest.mark.parametrize("table", sorted(WORKER_OWNED_TABLES))
-def test_worker_owned_table_is_declared_rls_exempt_with_a_justification(table):
-    """The four tables must stay *declared* as cross-tenant-readable, in
-    writing, and the declaration must still carry every specific claim CR-17
-    records for that table.
+@pytest.mark.parametrize("table", sorted(STAGED_PLAIN_CHILD_TABLES))
+def test_staged_table_is_declared_staged_with_a_justification(table):
+    """Each of the four tables must be declared *staged* (not exempt), in
+    writing, and the declaration must still carry every specific claim.
 
-    This is the replacement for asserting they return zero rows, which they
-    provably do not. The exemption is what makes the gap a reviewed decision
-    rather than a hole: delete the entry, empty the justification, replace it
-    with a bare "TODO" or shorten it back to a generic paragraph, and this test
-    fails.
-
-    Precisely what the contract is, because the previous wording overstated it.
-    Equivalence that IS established: the RLS-guarded plain child
-    (``bl_delta_index_entry``) is held to the same database-enforced bar as the
-    other guarded tables — empty without the GUC, filtering to the owning tenant
-    once one is armed, and a WITH CHECK that rejects a foreign-tenant INSERT
-    (``TestPlainChildTablesUnderAppRole``). Equivalence that is NOT established
-    and must not be implied: the four worker-owned tables are *not* equivalent to
-    those tables and are not treated as if they were — they carry no policy, are
-    exempted, and are held only to the declaration, the no-tenant-column check
-    and the compensating-control checks below. The text contract asserted here
-    is imposed by THIS module and only on these four; ``test_rls_coverage``
-    imposes no text contract at all on its own ``TenantScopedModel`` exemptions
-    (``at_api_key``, ``at_refresh_token``, ``at_user_role``, ``audit_entry`` —
-    four, not three), only the staleness check that their model still exists,
-    is still of the same kind, and still has no policy.
+    This replaces the old exemption test (F-02): that one read
+    ``RLS_EXEMPT_TABLES[table]`` and would now raise ``KeyError``. The staged
+    record is what makes the coverage a reviewed decision rather than a silent
+    claim: delete the entry, empty the justification, replace it with a bare
+    "TODO" or shorten it back to a generic paragraph, and this test fails.
     """
-    assert table in RLS_EXEMPT_TABLES, (
-        f"{table} ({PLAIN_CHILD_TABLES[table]}) is readable across tenants by "
-        f"{APP_DB_ROLE} with app.current_tenant unset and is not declared in "
-        "RLS_EXEMPT_TABLES — CR-17 residual risk is unreported again"
+    assert table in RLS_STAGED_TABLES, (
+        f"{table} ({PLAIN_CHILD_TABLES[table]}) carries a staged policy but is "
+        "not declared in RLS_STAGED_TABLES - the coverage is unreported"
+    )
+    assert table not in RLS_EXEMPT_TABLES, (
+        f"{table} is both staged (policy shipped) and exempt; a table can only "
+        "be one of the two"
     )
 
-    justification = RLS_EXEMPT_TABLES[table].strip()
+    justification = RLS_STAGED_TABLES[table].strip()
     assert len(justification) > 200, (
-        f"the RLS_EXEMPT_TABLES entry for {table} is {len(justification)} "
-        "characters long; the convention is a justification that names the "
-        "blocking code path, not a placeholder"
+        f"the RLS_STAGED_TABLES entry for {table} is {len(justification)} "
+        "characters long; the convention is a justification that names the GUC, "
+        "the tenant_id source and the residuals, not a placeholder"
     )
 
-    claims = CR17_ALL_CLAIMS[table]
+    claims = STAGED_ALL_CLAIMS[table]
     missing = [claim for marker, claim in claims if marker not in justification]
     assert not missing, (
-        f"the RLS_EXEMPT_TABLES entry for {table} no longer states "
+        f"the RLS_STAGED_TABLES entry for {table} no longer states "
         + "; ".join(f"({i + 1}) {claim}" for i, claim in enumerate(missing))
-        + ". The exemption record is the only place CR-17's exposure for this "
-        "table is written down, so shortening it back to a generic paragraph "
-        "is a silent deletion of the finding: re-derive the claim against "
-        "application/admin.py and application/models.py and restore the exact "
-        "wording, or amend CR17_JUSTIFICATION_CLAIMS in this module if the "
-        "claim itself is no longer true."
+        + ". The staged record is the only place this table's coverage and its "
+        "residuals are written down, so shortening it back to a generic "
+        "paragraph is a silent deletion of the finding: re-derive the claim "
+        "against application/admin.py, application/models.py and the migration, "
+        "and restore the exact wording, or amend STAGED_JUSTIFICATION_CLAIMS in "
+        "this module if the claim itself is no longer true."
     )
 
 
 @_pg_only
-@pytest.mark.parametrize("table", sorted(WORKER_OWNED_TABLES))
-def test_worker_owned_table_cannot_carry_a_tenant_keyed_policy(table):
-    """Machine-checks the *reason* the exemption exists, on the live schema.
-
-    A policy is a predicate over columns. These tables have no ``tenant_id``
-    column, and no foreign key that could join one in, and their
-    ``workspace_id`` is a bare UUID rather than a reference to a tenant-scoped
-    row — so ``USING (tenant_id = current_setting('app.current_tenant'))``
-    cannot be written for them at all. The poller cannot be the thing that
-    supplies the tenant either: it must read a row to learn which tenant the
-    row belongs to.
-
-    So this is where the four tables' exposure actually comes from, asserted
-    against the database rather than asserted in prose. The day someone adds
-    ``tenant_id`` (the CR-17 fix: stamp it onto the outbox payload at emission
-    time, the shape already used for ``memory.projector``) this test fails and
-    forces the exemption to be re-litigated instead of quietly outliving the
-    fix.
+@pytest.mark.parametrize("table", sorted(STAGED_PLAIN_CHILD_TABLES))
+def test_staged_plain_child_table_carries_tenant_key_and_policy(table):
+    """The three facts that make the table staged, asserted on the live schema:
+    the ``tenant_id`` column exists, a policy exists, and the table is not
+    exempt. Also checks the raw FK is validated.
     """
     columns = _column_names(table)
-    targets = _foreign_key_targets(table)
+    assert "tenant_id" in columns, (
+        f"{table} has no tenant_id column: the staged migration "
+        f"(application/0030) did not land. Columns: {sorted(columns)}"
+    )
 
-    assert "tenant_id" not in columns, (
-        f"{table} now carries a tenant_id column ({sorted(columns)}), so the "
-        "standard policy is expressible — drop the RLS_EXEMPT_TABLES entry and "
-        "ship the policy"
-    )
-    assert "workspace_id" in columns or targets, (
-        f"{table} no longer carries the workspace anchor CR-17 described — it "
-        f"has neither a workspace_id column nor a foreign key: {sorted(columns)}"
-    )
-    if "workspace_id" in columns:
-        assert "workspace" not in targets, (
-            f"{table}.workspace_id is now a foreign key, so a policy can resolve "
-            "the owning tenant through it — re-litigate the exemption"
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT policyname FROM pg_policies "
+            "WHERE schemaname = 'public' AND tablename = %s",
+            [table],
         )
-    for target in sorted(targets):
-        assert "tenant_id" not in _column_names(target), (
-            f"{table} reaches a tenant_id column through a foreign key to "
-            f"{target}, so a policy can join the tenant in — re-litigate the "
-            "exemption"
+        policies = {row[0] for row in cursor.fetchall()}
+    assert policies, f"{table} carries no RLS policy on the live schema"
+
+    assert table not in RLS_EXEMPT_TABLES, (
+        f"{table} still has an RLS_EXEMPT_TABLES entry although it is staged"
+    )
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT convalidated FROM pg_constraint WHERE conname = %s",
+            [f"{table}_tenant_id_fk"],
         )
+        constraint = cursor.fetchone()
+    assert constraint is not None, (
+        f"{table} has no tenant_id FK constraint (application/0030/0031)"
+    )
+    assert constraint[0] is True, (
+        f"{table}.tenant_id FK is not VALIDATED (application/0031)"
+    )
 
 
 @pytest.mark.parametrize("table", sorted(WEBHOOK_TABLES))
@@ -947,21 +1040,22 @@ def test_webhook_table_has_no_reader_outside_the_worker_and_the_admin(table):
     """COMPENSATING CONTROL, AND IT IS NOT A DATABASE GUARANTEE.
 
     For the two webhook tables the only non-test references in the backend tree
-    are the model definitions, the Django admin (a staff-superuser operator
-    surface, not a tenant-scoped one) and the poller-driven subscriber — and
-    the subscriber filters on the ``workspace_id`` carried by the event it was
-    handed, not on a tenant identity the database vouched for. No REST view, no
-    serializer and no MCP tool reads either table, so the cross-tenant
-    readability that CR-17 confirmed is not reachable by any tenant-scoped API
-    today.
+    are the model definitions, the Django admin (tenant-scoped per request by
+    ``TenantScopedAdminMixin``, i.e. application code) and the poller-driven
+    subscriber — and the subscriber filters on the ``workspace_id`` carried by
+    the event it was handed, not on a tenant identity the database vouched for.
+    No REST view, no serializer and no MCP tool reads either table, so the
+    cross-tenant readability of the raw table is not reachable by any
+    tenant-scoped API today.
 
     That is a CODE-PATH argument, checked here as one: this scans the sources,
     and it fails the moment a reader appears outside
     :data:`WEBHOOK_READER_ALLOWLIST`. It is not RLS, and it would not survive a
-    raw query, a management command, a new endpoint or a second service. Raw
-    Row-Level-Security enforcement on both tables remains OPEN, pending the
-    ``tenant_id`` outbox-payload stamp named in
-    ``RLS_EXEMPT_TABLES``.
+    raw query, a management command, a new endpoint or a second service. The
+    staged policy shipped (application/0032) but is permissive while
+    ``RLS_AS_ENFORCED`` is unset, so the compensating control is still not a
+    database guarantee while the flag is OFF; it is defense-in-depth until A4 +
+    the flag flip.
     """
     referencing = _production_modules_referencing(PLAIN_CHILD_TABLES[table].split(".")[-1])
 
@@ -1025,11 +1119,12 @@ def test_outbox_table_has_no_reader_outside_the_poller_and_the_admin():
     The claim being made is therefore narrow and is stated as a code-path
     argument, not a database guarantee: no REST view, serializer, MCP tool or
     management command reads ``as_domain_event_outbox`` outside the declared
-    set today, so the cross-tenant readability CR-17 confirmed is not reachable
+    set today, so the cross-tenant readability of the raw table is not reachable
     by any tenant-scoped API. It would not survive a raw query, a second service
-    or a new poller written against a different table. Raw Row-Level-Security
-    enforcement on the outbox remains OPEN, pending the ``tenant_id``
-    outbox-payload stamp named in ``RLS_EXEMPT_TABLES``.
+    or a new poller written against a different table. The staged policy shipped
+    (application/0032) but is permissive while ``RLS_AS_ENFORCED`` is unset, so
+    the compensating control is still not a database guarantee while the flag is
+    OFF; it is defense-in-depth until A4 + the flag flip.
     """
     model = PLAIN_CHILD_TABLES["as_domain_event_outbox"].split(".")[-1]
     access = _production_table_access(model)
@@ -1044,9 +1139,9 @@ def test_outbox_table_has_no_reader_outside_the_poller_and_the_admin():
     assert not unvetted, (
         f"{model} is now READ from {unvetted}. This test's compensating control "
         "is 'no undeclared reader exists' — a new reader sees every tenant's "
-        "outbox row, because nothing at the database layer stops it, so it has "
-        "to be tenant-scoped and CR-17's outbox exemption justification updated "
-        f"with it rather than inherited from this allowlist. Details: "
+        "outbox row, because the staged policy is permissive while the flag is "
+        "OFF, so it has to be tenant-scoped and the staged outbox justification "
+        "updated with it rather than inherited from this allowlist. Details: "
         + "; ".join(f"{module}: {access[module]['read']}" for module in unvetted)
     )
 

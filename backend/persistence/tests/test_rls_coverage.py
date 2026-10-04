@@ -22,13 +22,15 @@ Adding a new ``TenantScopedModel``? Ship an RLS migration alongside it (copy the
 shape from ``persistence/0067_rls_remaining_pl_tables.py``). Only add a table to
 :data:`RLS_EXEMPT_TABLES` if it genuinely cannot carry the standard policy, and
 document the concrete blocking code path in the mapping's value — that string is
-the review artefact. For the four plain worker-owned tables the value is held to
-a sharper contract: ``persistence/tests/test_rls_plain_child_models.py``
-requires each of their justifications to state specific, individually named
-claims (the Django-admin exposure of that table, the compensating-control
-status, the required ``tenant_id`` stamp and the OPEN status) rather than
-merely being long, so a later edit cannot quietly shorten the record back to a
-generic paragraph.
+the review artefact. A table whose policy has shipped but is gated behind a
+DEFAULT-OFF GUC belongs in :data:`RLS_STAGED_TABLES` instead (issue #1136): it is
+covered, not exempt. The four plain worker-owned ``as_*`` entries there are held
+to a sharper contract by ``persistence/tests/test_rls_plain_child_models.py`` —
+each staged justification must state specific, individually named claims (the
+GUC + flag, the ``tenant_id`` source, orphan behaviour, the compensating-control
+status and that the admin is tenant-scoped by ``TenantScopedAdminMixin`` app
+code rather than by a database guarantee) rather than merely being long, so a
+later edit cannot quietly shorten the record back to a generic paragraph.
 """
 from __future__ import annotations
 
@@ -55,30 +57,12 @@ _pg_only = pytest.mark.skipif(not _IS_POSTGRES, reason="PostgreSQL-only assertio
 # are debt, not design: removing an entry requires reworking that path (see the
 # Systemaudit follow-ups), not relaxing this test.
 #
-# Two kinds of debt share this mapping. Most entries are ``TenantScopedModel``
-# tables, which are covered by this guard and only skipped here. The four
-# worker-owned ``application`` tables are plain ``models.Model`` classes with a
-# bare ``workspace_id`` UUID and no ``tenant_id`` column at all - see
-# ``persistence/tests/test_rls_plain_child_models.py``, which owns their CR-17
-# evidence. A GUC-keyed policy is not merely unimplemented on those four, it is
-# inexpressible: there is no column to compare. They are listed here so the
-# cross-tenant readability of those four tables stays a named, reviewed
-# exemption instead of an unnoticed gap, and so CR-17
-# (docs/se/reports/deep_audit/system-audit-2026-09/09-evidence-register.md) can
-# be reported as PARTIALLY closed with them as open residual risk.
-#
-# Honesty convention for the four plain entries: an entry states the exposure it
-# cannot close, including the Django-admin paths a staff superuser can still
-# reach, and says plainly which claims do NOT hold for that table instead of
-# copying one exposure across all four. Those claims are asserted verbatim by
-# ``CR17_JUSTIFICATION_CLAIMS`` in the plain-child module.
+# As of issue #1136 only two entries remain, both ``TenantScopedModel``-kind:
+# ``at_refresh_token`` (STOPP-S1 — the refresh WRITE path stays out of scope)
+# and ``audit_entry`` (out of scope for this change). The four worker-owned
+# ``application`` tables that used to live here now carry a nullable
+# ``tenant_id`` and a GUC-guarded policy and moved to :data:`RLS_STAGED_TABLES`.
 RLS_EXEMPT_TABLES: dict[str, str] = {
-    "at_api_key": (
-        "AuthenticationService.validate_api_key looks the key hash up via "
-        "ApiKey.unscoped BEFORE any tenant context exists - resolving the "
-        "tenant is the purpose of that query. Under the standard policy every "
-        "API-key authentication would return zero rows and fail."
-    ),
     "at_refresh_token": (
         "SA-32 rotation state. Written by "
         "PasswordAuthenticationService.issue_refresh_token during /auth/login/ "
@@ -88,13 +72,11 @@ RLS_EXEMPT_TABLES: dict[str, str] = {
         "chicken-and-egg reason as at_api_key. Under the standard policy the "
         "INSERT would be rejected and every refresh would return zero rows, "
         "i.e. reuse detection would fail closed on every legitimate refresh. "
-        "The rows carry no credential material (opaque jti/sid only)."
-    ),
-    "at_user_role": (
-        "PasswordAuthenticationService.resolve_roles reads UserRole.unscoped at "
-        "token issuance, which its own docstring documents as happening before "
-        "a tenant context is active. Under the standard policy the JWT would be "
-        "minted with an empty 'roles' claim, silently stripping permissions."
+        "The rows carry no credential material (opaque jti/sid only). "
+        "STOPP-S1 (issue #1136): the refresh WRITE path "
+        "(rotate_refresh_token / issue_refresh_token / _revoke_refresh_family) "
+        "is deliberately OUT OF SCOPE for the staged RLS ship; the table stays "
+        "exempt until its own change with a dedicated auth regression suite."
     ),
     "audit_entry": (
         "Append-only audit log with two tenant-context-free paths: "
@@ -108,172 +90,149 @@ RLS_EXEMPT_TABLES: dict[str, str] = {
         "stamps the tenant onto the outbox payload (the fix shape already used "
         "for memory.projector) before RLS can be turned on here."
     ),
+}
+
+# ---------------------------------------------------------------------------
+# Staged (policy shipped, enforcement DEFAULT OFF) — issue #1136
+# ---------------------------------------------------------------------------
+# A table moves here when its RLS policy *exists* but is gated behind a
+# connection-level GUC that is unset by default, so no production path is
+# constrained until the corresponding flag is flipped. The predicate shape is
+# permissive-when-unset:
+#
+#     current_setting('<guc>', true) IS DISTINCT FROM 'on' OR tenant_id = ...
+#
+# These are NOT exemptions (an exemption means "cannot carry a policy"); they
+# are staged coverage. The key facts each entry must state: the GUC, the
+# tenant_id source, OFF/ON behaviour, orphan behaviour, the fail-open residual
+# R-7 and the superuser-owner residual R-8. The four plain ``as_*`` entries are
+# additionally held to verbatim claims by
+# ``persistence/tests/test_rls_plain_child_models.py``.
+RLS_STAGED_TABLES: dict[str, str] = {
+    "at_api_key": (
+        "STAGED PRE-AUTH RLS (issue #1136). GUC app.rls_preauth_enforced "
+        "(flag RLS_PREAUTH_ENFORCED) gates the policy on the table; while the "
+        "GUC is unset (the production default) the predicate is fully "
+        "permissive and every API-key authentication is unchanged. The lookup "
+        "itself moved behind the SECURITY DEFINER function "
+        "public.auth_api_key_lookup (auth_tenancy/0016) because the credential "
+        "read runs before any tenant context exists; tenant identity is "
+        "resolved from the joined pl_user.tenant_id. When armed, a row with "
+        "NULL tenant_id is fail-closed (invisible); enforcement is still not "
+        "enabled in production default. Residual R-7: the GUC is an "
+        "app-role-settable, fail-open placeholder custom GUC, so RLS here is "
+        "defense-in-depth against ORM mistakes, not against a compromised "
+        "session. Residual R-8: the DEFINER owner is the superuser migration "
+        "role, so the function body is constrained (no dynamic SQL, fixed "
+        "search_path, schema-qualified) and the escalation is exactly the two "
+        "read-only lookups."
+    ),
+    "at_user_role": (
+        "STAGED PRE-AUTH RLS (issue #1136). GUC app.rls_preauth_enforced "
+        "(flag RLS_PREAUTH_ENFORCED) gates the policy; while unset (the "
+        "production default) the predicate is fully permissive and login role "
+        "resolution is unchanged. The read moved behind the SECURITY DEFINER "
+        "function public.auth_resolve_roles (auth_tenancy/0016); enforcement "
+        "is still not enabled in production default. Residual R-9: the "
+        "function is a tenant-agnostic bypass read - it returns a user's roles "
+        "across every workspace, exactly as UserRole.unscoped did; that is "
+        "faithful but broader than one row. Residual R-7 (app-role-settable, "
+        "fail-open GUC) and R-8 (superuser-owned DEFINER) apply here as on "
+        "at_api_key."
+    ),
     "as_domain_event_outbox": (
-        "Transactional outbox, claimed and written back by the Celery "
-        "OutboxPoller with no tenant context armed: "
-        "application.event_bus.poll_and_dispatch (application/event_bus.py:458) "
-        "lists unpublished rows of EVERY tenant (:490-496), _claim_event (:322) "
-        "takes each under SELECT FOR UPDATE (:335-339), _finalize_success (:365) "
-        "flips it to published, _move_to_dlq (:412) deletes it, and the backlog "
-        "count at :551 aggregates across tenants. The poller cannot know which "
-        "tenant a row belongs to before it has read it - the same "
-        "chicken-and-egg as audit_entry. A WITH CHECK policy would reject the "
-        "poller's write-backs, so a claimed row would never be marked published "
-        "and would be redelivered on every claim-timeout reclaim forever; a "
-        "USING policy would reduce the candidate set to zero rows and stop the "
-        "event bus outright. publish() stores only a bare workspace_id (:208) "
-        "and the table has no tenant_id column, so there is nothing a policy "
-        "could compare. "
-        "ADMIN EXPOSURE, verified against application/admin.py:44-70: the "
-        "DomainEventOutbox change list prints event_type, entity_id, published, "
-        "retry_count and workspace_id for EVERY tenant, because the ModelAdmin "
-        "overrides neither get_queryset nor anything else and a plain "
-        "models.Model has no tenant-scoped manager to filter on; the admin change "
-        "page renders payload and workspace_id, because both are in "
-        "readonly_fields, which Django displays instead of editing. That is "
-        "another tenant's event payload on a staff superuser's screen. On the "
-        "write side the honest claim is narrower than 'a row can be minted or "
-        "retargeted': no admin add/edit form can mint or retarget a foreign "
-        "workspace_id on this table, since every field except claimed_at is "
-        "readonly and both the add and the change form expose exactly "
-        "['claimed_at']. What the admin really permits is an editable claimed_at "
-        "plus the default has_add_permission and has_delete_permission (neither "
-        "is overridden, so both are True for a staff superuser), so a superuser "
-        "can force another tenant's row to be reclaimed or delete it outright. "
-        "COMPENSATING CONTROL STATUS: the control on this table is service-layer "
-        "and code-path only, NOT a database guarantee, and a staff superuser "
-        "with Django-admin access therefore remains a human-reachable "
-        "cross-tenant path over these rows. "
-        "Needs the fix audit_entry names: stamp tenant_id onto the outbox "
-        "payload at emission time (the shape already used for "
-        "memory.projector) so the poller can arm app.current_tenant per row "
-        "before writing back. CR-17 residual risk, still OPEN."
+        "STAGED WORKER RLS (issue #1136). GUC app.rls_as_enforced (flag "
+        "RLS_AS_ENFORCED) gates the policy (enforcement behind flag); while unset (the production "
+        "default) the predicate is fully permissive and the Celery outbox "
+        "poller is unchanged. tenant_id is nullable and backfilled from "
+        "pl_workspace.tenant_id via workspace_id (application/0031); a row "
+        "whose workspace_id resolves to no tenant remains NULL by design "
+        "(counted and logged, never deleted) and is fail-closed once enforced. "
+        "Enforcement is still not enforced in production default; the flag flip "
+        "is gated on A4 (poller tenant arming, residual R-2). The compensating "
+        "control outside the DB is service-layer and code-path only - NOT a "
+        "database guarantee: the Django admin (DomainEventOutbox is registered "
+        "with TenantScopedAdminMixin) is tenant-scoped by app code, but that is "
+        "not a database guarantee. Residual R-7 (app-role-settable, fail-open "
+        "GUC) and R-8 (superuser-owned DEFINER functions) apply. CR-17 residual "
+        "risk, now staged rather than open."
     ),
     "as_domain_event_dlq": (
-        "Dead-letter queue written from that same tenant-context-free poller "
-        "(app.current_tenant never armed): application.event_bus._move_to_dlq "
-        "inserts here "
-        "(application/event_bus.py:401) with the workspace_id copied off the "
-        "outbox record, so a WITH CHECK policy would reject the DLQ INSERT for "
-        "precisely the event that failed - the error path would lose its own "
-        "evidence - and the DLQ depth count at :552 is a cross-tenant "
-        "maintenance read that a USING policy would silently reduce to zero. "
-        "The one user-facing reader, application.dlq_service.DlqService."
-        "list_dlq / replay_dlq_event (application/dlq_service.py:112 and :160), "
-        "is NOT a database control: it resolves ownership through the "
-        "tenant-scoped Workspace.objects and then filters on the bare "
-        "workspace_id, which makes a foreign workspace_id indistinguishable "
-        "from an unknown one but leaves the row itself unguarded. No tenant_id "
-        "column exists to key a policy on. "
-        "ADMIN EXPOSURE, verified against application/admin.py:73-109: the "
-        "change list prints event_type, event_id, retry_count, moved_at and "
-        "workspace_id for every tenant (no get_queryset override, unfiltered "
-        "default manager), and the admin change page renders payload and "
-        "workspace_id - plus error_message - all three of which are in "
-        "readonly_fields and therefore displayed rather than edited; "
-        "error_message is searchable as well (search_fields). Here the "
-        "mint/retarget claim is refuted rather than asserted: no admin add/edit "
-        "form can mint or retarget a foreign workspace_id on this table, "
-        "because has_add_permission, has_change_permission and "
-        "has_delete_permission all return False (admin.py:102-109) and both "
-        "forms are empty - the admin is strictly read-only here. "
-        "COMPENSATING CONTROL STATUS: the control on this table is service-layer "
-        "and code-path only, NOT a database guarantee. DlqService.list_dlq / "
-        "replay_dlq_event are the only user-facing entry points and they resolve "
-        "ownership through the tenant-scoped Workspace.objects, but nothing "
-        "fences the admin path, so a staff superuser with Django-admin access "
-        "remains a human-reachable cross-tenant path over these rows. "
-        "Needs the fix audit_entry names: stamp tenant_id onto the outbox "
-        "payload at emission time (the shape already used for memory.projector) "
-        "before RLS can be turned on here. CR-17 residual risk, still OPEN."
+        "STAGED WORKER RLS (issue #1136). GUC app.rls_as_enforced (flag "
+        "RLS_AS_ENFORCED) gates the policy (enforcement behind flag); while unset (the production "
+        "default) the predicate is fully permissive and the poller's DLQ "
+        "write-back is unchanged. tenant_id is nullable and backfilled from "
+        "pl_workspace.tenant_id via workspace_id (application/0031); an "
+        "unresolvable workspace leaves it NULL by design (counted and logged, "
+        "never deleted), fail-closed once enforced. Enforcement is still not "
+        "enforced in production default (flag flip gated on A4). The DLQ admin "
+        "(DomainEventDLQAdmin via TenantScopedAdminMixin) is tenant-scoped by "
+        "app code and DlqService resolves ownership through tenant-scoped "
+        "Workspace.objects, but the control is service-layer and code-path "
+        "only, NOT a database guarantee. Residual R-7/R-8 apply. CR-17 residual "
+        "risk, now staged rather than open."
     ),
     "as_webhook_subscription": (
-        "Read only by the webhook subscriber, which the OutboxPoller invokes "
-        "with app.current_tenant unset: application.webhook_dispatcher."
-        "_load_webhook_configs filters on the event's workspace_id "
-        "(application/webhook_dispatcher.py:145) from process_event, i.e. from "
-        "application.event_bus.poll_and_dispatch, so a USING policy would "
-        "return no subscriptions at all and silently disable every outbound "
-        "webhook. The isolation that exists here is an application filter on a "
-        "caller-supplied workspace_id, not a database fence, and the Django "
-        "admin change list (application/admin.py:117) lists every tenant's "
-        "subscriptions to a staff superuser. No tenant_id column exists to key "
-        "a policy on. "
-        "ADMIN EXPOSURE - THIS IS THE SECRET-BEARING TABLE, verified against "
-        "application/models.py:177 and application/admin.py:117-131: secret is a "
-        "plain CharField, stored in the clear and never hashed, and while it is "
-        "deliberately NOT in list_display (so the change list does not print it) "
-        "it is an editable field on both the admin add form and the admin change "
-        "form, so opening the change page of any tenant's subscription shows that "
-        "tenant's HMAC secret in the clear and lets a staff superuser rewrite "
-        "it. Worse, the admin add form and the admin change form both accept a "
-        "foreign workspace_id: workspace_id is a bare db_index UUID "
-        "(models.py:172) rather than a foreign key, the ModelAdmin overrides "
-        "neither form nor save_model nor get_queryset, and has_add_permission / "
-        "has_change_permission / has_delete_permission are the Django defaults "
-        "(True), so no tenant-ownership validation runs on that path at all. A "
-        "staff superuser can therefore mint a subscription under another "
-        "tenant's workspace or retarget an existing one, which redirects that "
-        "tenant's events to a URL of the superuser's choosing and lets them mint "
-        "or replace its HMAC secret - the admin is a human-reachable cross-tenant "
-        "AND cross-secret path here, not merely a cross-tenant one. "
-        "COMPENSATING CONTROL STATUS: the control on this table is service-layer "
-        "and code-path only, NOT a database guarantee. The subscriber's "
-        "workspace_id filter is an application filter on a caller-supplied id "
-        "and it does not run on the admin path at all. Raw RLS stays OPEN. "
-        "Needs the fix audit_entry names: stamp tenant_id onto the outbox "
-        "payload at emission time (the shape already used for memory.projector) "
-        "so the subscriber can arm app.current_tenant before it reads. CR-17 "
-        "residual risk, still OPEN."
+        "STAGED WORKER RLS (issue #1136). GUC app.rls_as_enforced (flag "
+        "RLS_AS_ENFORCED) gates the policy (enforcement behind flag); while unset (the production "
+        "default) the predicate is fully permissive and outbound webhooks keep "
+        "working. tenant_id is nullable and backfilled from "
+        "pl_workspace.tenant_id via workspace_id (application/0031); an "
+        "unresolvable workspace leaves it NULL by design (counted and logged, "
+        "never deleted), fail-closed once enforced. Enforcement is still not "
+        "enforced in production default (flag flip gated on A4). This is the "
+        "secret-bearing table: WebhookSubscriptionAdmin (TenantScopedAdminMixin) "
+        "excludes the HMAC secret from the form and makes workspace_id "
+        "read-only, so the admin is tenant-scoped by app code - but that is "
+        "service-layer and code-path only, NOT a database guarantee. Residual "
+        "R-7/R-8 apply. CR-17 residual risk, now staged rather than open."
     ),
     "as_webhook_delivery_log": (
-        "Webhook attempt log, read and written only from that same "
-        "poller-driven subscriber: _already_delivered reads it by "
-        "subscription+event_id (application/webhook_dispatcher.py:195) and "
-        "_dispatch_with_retry INSERTs one row per attempt (:243), both with "
-        "app.current_tenant unset. A WITH CHECK policy would reject every "
-        "delivery-log INSERT, and a USING policy would make _already_delivered "
-        "answer False for every event, which at-least-once outbox delivery "
-        "(REQ-072) reads as never-delivered and answers by redelivering. The "
-        "rows hang off WebhookSubscription by FK, but that table's workspace_id "
-        "is a bare UUID with no tenant identity behind it, so there is still "
-        "nothing a policy could compare. "
-        "ADMIN EXPOSURE, verified against application/admin.py:134-174: the "
-        "mint/retarget claim is refuted here rather than asserted - no admin "
-        "add/edit form can mint or retarget a foreign workspace_id on this "
-        "table, because has_add_permission, has_change_permission and "
-        "has_delete_permission all return False and the table has no "
-        "workspace_id column at all (models.py:204-218) to set even if the form "
-        "were writable; the admin is read-only. The read exposure is one hop "
-        "away: the change page renders the owning subscription, and "
-        "WebhookSubscription.__str__ (models.py:194-195) prints "
-        "'WebhookSubscription:<workspace_id>:<url>', so the owning "
-        "workspace_id and the endpoint URL of every tenant are readable by a "
-        "staff superuser, and search_fields spans event_id, event_type and "
-        "error_message. "
-        "COMPENSATING CONTROL STATUS: the control on this table is service-layer "
-        "and code-path only, NOT a database guarantee, and a staff superuser "
-        "with Django-admin access remains a human-reachable cross-tenant path "
-        "over these rows. Raw RLS stays OPEN. "
-        "Needs the fix audit_entry names: stamp tenant_id onto the outbox "
-        "payload at emission time (the shape already used for memory.projector) "
-        "before RLS can be turned on here. CR-17 residual risk, still OPEN."
+        "STAGED WORKER RLS (issue #1136). GUC app.rls_as_enforced (flag "
+        "RLS_AS_ENFORCED) gates the policy (enforcement behind flag); while unset (the production "
+        "default) the predicate is fully permissive and delivery logging is "
+        "unchanged. tenant_id is nullable and backfilled from the owning "
+        "subscription's pl_workspace.tenant_id (application/0031); the table "
+        "has no workspace_id of its own, an unresolvable subscription leaves "
+        "tenant_id NULL by design (counted and logged, never deleted), "
+        "fail-closed once enforced. Enforcement is still not enforced in "
+        "production default (flag flip gated on A4). "
+        "WebhookDeliveryLogAdmin (TenantScopedAdminMixin via "
+        "subscription__workspace_id) is tenant-scoped by app code, but that is "
+        "service-layer and code-path only, NOT a database guarantee. Residual "
+        "R-7/R-8 apply. CR-17 residual risk, now staged rather than open."
     ),
 }
 
+#: staged table -> the GUC its policy must reference (AC-19). The pre-auth
+#: tables share one GUC; the four worker tables share the other.
+STAGED_POLICY_GUCS: dict[str, str] = {
+    "at_api_key": "app.rls_preauth_enforced",
+    "at_user_role": "app.rls_preauth_enforced",
+    "as_domain_event_outbox": "app.rls_as_enforced",
+    "as_domain_event_dlq": "app.rls_as_enforced",
+    "as_webhook_subscription": "app.rls_as_enforced",
+    "as_webhook_delivery_log": "app.rls_as_enforced",
+}
+
+#: staged table -> (app_label, migration name) that ships its CREATE POLICY.
+#: Needed because a GUC name alone cannot attribute a policy to a table (both
+#: pre-auth tables share ``app.rls_preauth_enforced``) - AC-19 (N-02).
+STAGED_POLICY_MIGRATIONS: dict[str, tuple[str, str]] = {
+    "at_api_key": ("auth_tenancy", "0017_preauth_staged_rls"),
+    "at_user_role": ("auth_tenancy", "0017_preauth_staged_rls"),
+    "as_domain_event_outbox": ("application", "0032_as_staged_rls"),
+    "as_domain_event_dlq": ("application", "0032_as_staged_rls"),
+    "as_webhook_subscription": ("application", "0032_as_staged_rls"),
+    "as_webhook_delivery_log": ("application", "0032_as_staged_rls"),
+}
+
 #: Which of the :data:`RLS_EXEMPT_TABLES` entries are plain child tables rather
-#: than ``TenantScopedModel`` tables. The coverage guard skips an exempt table
-#: either way, so this set exists only to pin the *kind* of debt each entry is:
-#: without it, converting an exempt ``TenantScopedModel`` into a plain model
-#: (or the reverse) would silently pass the staleness guard below.
-RLS_EXEMPT_PLAIN_TABLES: frozenset[str] = frozenset(
-    {
-        "as_domain_event_outbox",
-        "as_domain_event_dlq",
-        "as_webhook_subscription",
-        "as_webhook_delivery_log",
-    }
-)
+#: than ``TenantScopedModel`` tables. Empty since issue #1136: the four plain
+#: worker-owned ``as_*`` tables moved out of ``RLS_EXEMPT_TABLES`` into
+#: :data:`RLS_STAGED_TABLES` (they now carry a ``tenant_id`` column and a
+#: GUC-guarded policy). No plain table remains exempt.
+RLS_EXEMPT_PLAIN_TABLES: frozenset[str] = frozenset()
 
 
 # ---------------------------------------------------------------------------
@@ -331,18 +290,61 @@ def _tenant_scoped_tables() -> dict[str, str]:
 def _plain_model_tables() -> set[str]:
     """Every ``db_table`` of a concrete model that is NOT a ``TenantScopedModel``.
 
-    These are invisible to :func:`_tenant_scoped_tables` by construction, so an
-    exemption for one cannot be validated against that inventory - the four
-    worker-owned ``application`` tables are plain ``models.Model`` classes with
-    a bare ``workspace_id`` UUID and no ``tenant_id`` column. The exemption
-    staleness guard needs them to tell "the model was renamed or dropped" from
-    "the exemption is filed under the wrong kind of debt".
+    These are invisible to :func:`_tenant_scoped_tables` by construction, so a
+    :data:`RLS_STAGED_TABLES` entry for one cannot be validated against that
+    inventory - the four worker-owned ``application`` tables are plain
+    ``models.Model`` classes. As of issue #1136 they carry a nullable
+    ``tenant_id`` and a GUC-guarded policy, but they remain plain models (no
+    ``TenantScopedModel`` migration) by design. This inventory lets the
+    staleness guard tell "the model was renamed or dropped" from "the entry is
+    filed under the wrong kind of table".
     """
     return {
         model._meta.db_table
         for model in apps.get_models()
         if not issubclass(model, TenantScopedModel) and not model._meta.abstract
     }
+
+
+def _forced_tables_on_live_schema() -> set[str]:
+    """Tables carrying ``pg_class.relforcerowsecurity`` (FORCE RLS) on the DB."""
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT relname FROM pg_class WHERE relforcerowsecurity = true"
+        )
+        return {row[0] for row in cursor.fetchall()}
+
+
+def _staged_policy_fragments(table: str) -> list[str]:
+    """Every ``CREATE POLICY ... ON <table> ...;`` statement for *table*.
+
+    Reads the migration named by :data:`STAGED_POLICY_MIGRATIONS` (N-02: a GUC
+    alone cannot attribute a policy to a table, both pre-auth tables share one)
+    and returns the full policy statement(s), so the AC-19 test can assert the
+    GUC in both the USING and the WITH CHECK clause.
+    """
+    app_label, migration_name = STAGED_POLICY_MIGRATIONS[table]
+    loader = MigrationLoader(None, ignore_no_migrations=True)
+    migration = loader.disk_migrations[(app_label, migration_name)]
+    fragments: list[str] = []
+    for operation in migration.operations:
+        if not isinstance(operation, RunSQL):
+            continue
+        for fragment in _sql_fragments(operation.sql):
+            fragments.extend(
+                match.group(0)
+                for match in _CREATE_POLICY_FOR_TABLE_RE(table).finditer(fragment)
+            )
+    return fragments
+
+
+def _CREATE_POLICY_FOR_TABLE_RE(table: str) -> re.Pattern[str]:
+    # Non-greedy up to the statement-ending ``;`` so USING and WITH CHECK stay
+    # inside one match.
+    return re.compile(
+        rf"CREATE\s+POLICY\s+\S+\s+ON\s+{re.escape(table)}\b.*?;",
+        re.IGNORECASE | re.DOTALL,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -370,28 +372,23 @@ def test_every_tenant_scoped_model_has_an_rls_policy_migration():
 
 
 def test_rls_exemptions_are_still_tenant_scoped_tables():
-    """ANTIREGRESSION CHECK ONLY — it enforces NO isolation, and for an exempt
-    table such as ``at_api_key`` it is CURRENTLY A NO-OP.
+    """ANTIREGRESSION CHECK ONLY — it enforces NO isolation.
 
     What it actually does, and nothing more: for every entry in
     :data:`RLS_EXEMPT_TABLES` it asserts that the model still exists as a
-    concrete model, that the entry is still filed under the right *kind* of debt
-    (``RLS_EXEMPT_PLAIN_TABLES``), and that no ``CREATE POLICY`` for that table
-    has appeared in the migration graph. That is a defence-in-depth tripwire: it
-    can only ever fail when the exemption goes stale — the model was renamed or
-    dropped, the debt kind flipped, or the policy finally shipped.
+    concrete model, that the entry is still filed under the right *kind* of
+    debt (``RLS_EXEMPT_PLAIN_TABLES``), and that no ``CREATE POLICY`` for that
+    table has appeared in the migration graph. That is a defence-in-depth
+    tripwire: it can only ever fail when the exemption goes stale — the model
+    was renamed or dropped, the debt kind flipped, or the policy finally
+    shipped.
 
-    What it does NOT do: it does not make any exempt table safer. ``at_api_key``
-    is the sharpest example — ``AuthenticationService.validate_api_key`` must
-    resolve the tenant from the row before any tenant context can exist, so the
-    table carries no policy by design and its rows stay readable by the
-    least-privilege application role with ``app.current_tenant`` unset. All three
-    assertions above are satisfied trivially for it today, i.e. this test is a
-    no-op with respect to that table's actual exposure and stays one until the
-    auth path is reworked. The same is true, with a different reason, of
-    ``at_refresh_token``, ``at_user_role`` and ``audit_entry``, and of the four
-    plain worker-owned tables, whose real evidence lives in
-    ``persistence/tests/test_rls_plain_child_models.py``.
+    Since issue #1136 only ``at_refresh_token`` (STOPP-S1, refresh write path
+    out of scope) and ``audit_entry`` (out of scope) remain exempt, both
+    ``TenantScopedModel``-kind. The pre-auth tables ``at_api_key`` /
+    ``at_user_role`` and the four ``as_*`` tables are no longer exempt — they
+    are staged (:data:`RLS_STAGED_TABLES`) and the invariant test below proves
+    they are covered, not exempt.
 
     So the original wording — "a stale exemption must not silently keep hiding a
     real gap" — overclaimed: an exemption here does not hide a gap, it NAMES
@@ -429,17 +426,85 @@ def test_rls_exemptions_are_still_tenant_scoped_tables():
 
 @_pg_only
 @pytest.mark.django_db
+def test_no_table_is_covered_and_exempt_or_staged():
+    """AC-1: a table is never simultaneously exempt and covered, and staged
+    tables are covered (policy shipped) but deliberately not FORCEd.
+
+    ``declared != enforced``: the staged policy exists in the migration graph,
+    so the table is covered — but ``FORCE`` is intentionally absent while the
+    GUC flag is DEFAULT OFF (FORCE would bind only owner connections and blur
+    the staged signal; see F-10 / security F9 and residual R-8).
+    """
+    declared = _tables_with_policy_in_migrations()
+    forced = _forced_tables_on_live_schema()
+
+    assert not (set(RLS_EXEMPT_TABLES) & declared), (
+        "table(s) both exempt and covered by a policy: "
+        f"{sorted(set(RLS_EXEMPT_TABLES) & declared)}"
+    )
+    assert not (set(RLS_EXEMPT_TABLES) & set(RLS_STAGED_TABLES)), (
+        "table(s) both exempt and staged: "
+        f"{sorted(set(RLS_EXEMPT_TABLES) & set(RLS_STAGED_TABLES))}"
+    )
+    assert set(RLS_STAGED_TABLES) <= declared, (
+        "staged table(s) with no CREATE POLICY in the migration graph: "
+        f"{sorted(set(RLS_STAGED_TABLES) - declared)}"
+    )
+    assert set(RLS_STAGED_TABLES).isdisjoint(forced), (
+        "staged table(s) carry FORCE ROW LEVEL SECURITY; the staged ship is "
+        "deliberately NO FORCE (it would bind only owner connections and not "
+        f"rescue the DEFINER functions): {sorted(set(RLS_STAGED_TABLES) & forced)}"
+    )
+
+
+@pytest.mark.parametrize("table", sorted(RLS_STAGED_TABLES))
+def test_staged_policy_uses_its_declared_guc(table):
+    """AC-19 (N-01): each staged table's policy references its declared GUC in
+    BOTH clauses.
+
+    A policy contains the GUC twice — once in ``USING`` and once in
+    ``WITH CHECK`` (``... IS DISTINCT FROM 'on' OR tenant_id = ...``). The
+    assertion is therefore per-clause (>=1 occurrence in each), not "exactly
+    one occurrence" in the whole statement.
+    """
+    guc = STAGED_POLICY_GUCS[table]
+    marker = f"current_setting('{guc}', true)"
+    fragments = _staged_policy_fragments(table)
+
+    assert fragments, (
+        f"no CREATE POLICY for staged table {table} found in migration "
+        f"{STAGED_POLICY_MIGRATIONS[table]}"
+    )
+    for fragment in fragments:
+        using_clause, separator, with_check_clause = fragment.partition("WITH CHECK")
+        assert separator, (
+            f"policy for {table} has no WITH CHECK clause: {fragment!r}"
+        )
+        assert marker in using_clause, (
+            f"USING clause of the {table} policy does not reference its declared "
+            f"GUC {guc!r}: {using_clause!r}"
+        )
+        assert marker in with_check_clause, (
+            f"WITH CHECK clause of the {table} policy does not reference its "
+            f"declared GUC {guc!r}: {with_check_clause!r}"
+        )
+
+
+@_pg_only
+@pytest.mark.django_db
 def test_rls_policies_exist_on_the_live_schema():
     """The declared policies actually landed — catches a misspelled table name.
 
     The static test above only proves a ``CREATE POLICY`` statement mentions the
     table. This one proves the statement was valid SQL against the real schema.
+    Staged tables (issue #1136) are included in the policy expectation but
+    excluded from the FORCE expectation — they are ENABLEd, not FORCEd.
     """
-    expected = {
-        table
-        for table in _tenant_scoped_tables()
-        if table not in RLS_EXEMPT_TABLES
-    }
+    tenant_tables = set(_tenant_scoped_tables())
+    expected_policy = (tenant_tables - set(RLS_EXEMPT_TABLES)) | (
+        set(RLS_STAGED_TABLES) - tenant_tables
+    )
+    expected_forced = tenant_tables - set(RLS_EXEMPT_TABLES) - set(RLS_STAGED_TABLES)
 
     with connection.cursor() as cursor:
         cursor.execute(
@@ -453,12 +518,16 @@ def test_rls_policies_exist_on_the_live_schema():
         )
         forced = {row[0] for row in cursor.fetchall()}
 
-    assert not (expected - with_policy), (
-        "Tenant-scoped tables without an RLS policy in pg_policies: "
-        f"{sorted(expected - with_policy)}"
+    assert not (expected_policy - with_policy), (
+        "tables without an RLS policy in pg_policies: "
+        f"{sorted(expected_policy - with_policy)}"
     )
-    assert not (expected - forced), (
+    assert not (expected_forced - forced), (
         "Tenant-scoped tables missing ENABLE+FORCE ROW LEVEL SECURITY "
         "(without FORCE the table owner bypasses the policy entirely): "
-        f"{sorted(expected - forced)}"
+        f"{sorted(expected_forced - forced)}"
+    )
+    assert set(RLS_STAGED_TABLES).isdisjoint(forced), (
+        "staged table(s) unexpectedly have FORCE ROW LEVEL SECURITY: "
+        f"{sorted(set(RLS_STAGED_TABLES) & forced)}"
     )
