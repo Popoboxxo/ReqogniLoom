@@ -264,7 +264,7 @@ CREATE POLICY T_tenant_isolation ON T
 ```
 Reverse je `T`: `DROP POLICY IF EXISTS T_tenant_isolation ON T;`
 `ALTER TABLE T NO FORCE ROW LEVEL SECURITY;` `ALTER TABLE T DISABLE ROW LEVEL SECURITY;`
-(live in `auth_tenancy/migrations/0019`).
+(live in `auth_tenancy/migrations/0017`).
 
 ### IC-2 — `as_*`: nullable `tenant_id` + staged Policy
 
@@ -309,7 +309,8 @@ Reverse je Tabelle `T`: `DROP POLICY IF EXISTS T_tenant_isolation ON T;`
 
 ### IC-3 — Flag/GUC (M3-Auflösung: Option (i), GUC-guarded permissive Policy)
 
-Zwei unabhängige Flags, Muster wie `settings.py:610-618` (`AUTHZ_*_ENFORCED`):
+Zwei unabhängige Flags, Muster wie `settings.py:583-591` (`AUTHZ_*_ENFORCED`; korrigierte
+Zitat-Angabe, zuvor fälschlich `:610-618`):
 
 ```python
 # backend/reqogniloom/settings.py
@@ -422,10 +423,10 @@ Reihenfolge ist bindend. **Reversibility-Unit (F-04):** Code-Änderung (P2), SSO
 SSOT-Änderung zurückgerollt werden — sie erzwingt genau die gemeinsame Rücknahme. Ein
 partieller Rollback (nur `migrate <app> <prior>`) ist damit per Design rot, nicht ein Bug.
 
-**P1 — Pre-Auth-Funktionen** (`auth_tenancy/0018`): IC-1a/1b anlegen + Grants.
+**P1 — Pre-Auth-Funktionen** (`auth_tenancy/0016_auth_api_key_lookup_functions`): IC-1a/1b anlegen + Grants.
 **P2 — Pre-Auth-Code-Switch** (Python, kein Migrationsschritt): die zwei Aufrufer aus
 IC-1 auf die Funktionen umstellen. Voraussetzung für `RLS_PREAUTH_ENFORCED=on`.
-**P3 — Pre-Auth-Staged-Policy** (`auth_tenancy/0019`): IC-1d anwenden (ENABLE +
+**P3 — Pre-Auth-Staged-Policy** (`auth_tenancy/0017_preauth_staged_rls`): IC-1d anwenden (ENABLE +
 GUC-guarded Policy auf `at_api_key`, `at_user_role`). Kein FORCE.
 Enforcement hinter `RLS_PREAUTH_ENFORCED`.
 **P4 — `as_*` Spalte** (`application/0030`): nullable `tenant_id` + FK `NOT VALID` ×4.
@@ -530,8 +531,8 @@ niemals gleichzeitig covered UND exempt**; `declared != enforced`.
 
 | App | Nr. | Deps | Forward | Reverse |
 |---|---|---|---|---|
-| `auth_tenancy` | `0018` | `0017_admin_lockout_expiry_index`, `persistence 0048_app_role` | IC-1a/1b-Funktionen, REVOKE PUBLIC, GRANT EXECUTE an `APP_DB_ROLE` | `DROP FUNCTION IF EXISTS` (beide) |
-| `auth_tenancy` | `0019` | `0018` | IC-1d: ENABLE + GUC-guarded Policy (`app.rls_preauth_enforced`) auf `at_api_key`, `at_user_role` | DROP POLICY, DISABLE |
+| `auth_tenancy` | `0016_auth_api_key_lookup_functions` | `0015_alter_apikey_scope`, `persistence 0048_app_role` | IC-1a/1b-Funktionen, REVOKE PUBLIC, GRANT EXECUTE an `APP_DB_ROLE` | `DROP FUNCTION IF EXISTS` (beide) |
+| `auth_tenancy` | `0017_preauth_staged_rls` | `0016_auth_api_key_lookup_functions` | IC-1d: ENABLE + GUC-guarded Policy (`app.rls_preauth_enforced`) auf `at_api_key`, `at_user_role` | DROP POLICY, DISABLE |
 | `application` | `0030` | `0029_drop_redundant_idem_expires_index` | `AddField tenant_id` (nullable, `db_index=True`) ×4 + `RunSQL ADD CONSTRAINT <fk> FOREIGN KEY (tenant_id) REFERENCES pl_tenant(id) ON DELETE RESTRICT NOT VALID` | `RunSQL DROP CONSTRAINT IF EXISTS` (reverse_sql der RunSQL) **vor** `RemoveField` ×4 |
 | `application` | `0031` | `0030` | Backfill aus `pl_workspace` (bzw. Sub-`workspace_id`); `ALTER TABLE ... VALIDATE CONSTRAINT`; Orphan-Zählung/WARNING | `RunPython` setzt `tenant_id = NULL` |
 | `application` | `0032` | `0031` | IC-2: ENABLE + GUC-guarded Policy ×4, kein FORCE | DROP POLICY, DISABLE |
@@ -607,19 +608,33 @@ niemals gleichzeitig covered UND exempt**; `declared != enforced`.
     `docker compose -f deploy/docker-compose.yml -f testing/docker-compose.test.yml --project-directory . run --rm -T backend-test pytest -q backend/persistence/tests/test_rls_coverage.py backend/persistence/tests/test_rls_plain_child_models.py`
 18. **AC-18** — `at_refresh_token` hat **keine** Policy und **keinen** Code-Switch; die
     STOPP-S1-Begründung steht in `RLS_EXEMPT_TABLES["at_refresh_token"]` und im Risk-Register.
-19. **AC-19 (F-01)** — Statischer Test `test_staged_policy_uses_its_declared_guc`:
+19. **AC-19 (F-01, N-01, N-02)** — Statischer Test `test_staged_policy_uses_its_declared_guc`:
     für jeden `RLS_STAGED_TABLES`-Eintrag extrahiert er die `CREATE POLICY`-Fragmente aus
-    der jeweiligen Migration und assertet genau einen `current_setting('<STAGED_POLICY_GUCS[t]>', true)`
-    (as_* → `app.rls_as_enforced`; preauth → `app.rls_preauth_enforced`).
+    der per `STAGED_POLICY_MIGRATIONS[t] = (app_label, migration)` attribuierten Migration
+    (N-02: ein Tabellen→Migrations-Mapping, weil sich preauth-Tabellen einen GUC teilen)
+    und assertet **pro Klausel** mindestens ein `current_setting('<STAGED_POLICY_GUCS[t]>', true)`
+    — **nicht** „genau ein Vorkommen": jede Policy nennt den GUC zweimal (`USING` **und**
+    `WITH CHECK`, N-01). as_* → `app.rls_as_enforced`; preauth → `app.rls_preauth_enforced`.
 20. **AC-20 (F-05/F8)** — Für jede IC-1-Funktion: `pg_get_userbyid(proowner)` ==
     Tabellen-Owner; der Reviewer-Report enthält die Body-Prüfung „kein dynamisches SQL,
     schema-qualifiziert, fixer search_path". Residual R-8 (Owner ist Superuser) ist in
     `RLS_STAGED_TABLES` und im Risk-Register dokumentiert.
-21. **AC-21 (F-06/F3)** — Über den neuen Raw-SQL-Pfad laufen alle Statusentscheidungen
-    unverändert: revoked → `AuthenticationFailed("api_key_revoked")`; `expires_at` in der
+21. **AC-21 (F-06/F3, NEW-4)** — Über den neuen Raw-SQL-Pfad laufen alle Statusentscheidungen
+    unverändert; das Agent-Prädikat ist **verbatim** zu prüfen:
+    ```python
+    api_key.principal_type == PRINCIPAL_TYPE_AGENT and (
+        normalize_api_key_scope(api_key.scope) is None
+        or not isinstance(api_key.workspace_ids, list)
+        or not api_key.workspace_ids
+        or api_key.expires_at is None
+    )  # -> AuthenticationFailed("invalid_api_key")
+    ```
+    Dazu: revoked → `AuthenticationFailed("api_key_revoked")`; `expires_at` in der
     Vergangenheit → `api_key_expired`; `tenant_id is None` oder `user_is_active == False`
-    → `invalid_api_key`; Agent-Key ohne `scope`/nicht-leere `workspace_ids`/`expires_at`
-    → `invalid_api_key` (Spiegel von `authentication.py:528-558`).
+    → `invalid_api_key` (Spiegel von `authentication.py:528-558`). Da `scope` in der DB
+    `NOT NULL` ist, wird der `scope is None`-Zweig zusätzlich direkt über
+    `normalize_api_key_scope(None) is None` gepinnt und der Integralfall mit einem
+    ungültigen Scope-String getestet.
 22. **AC-22 (F4)** — Rollen-Normalisierung über den SQL-Pfad ist dedupliziert, sortiert
     und kleingeschrieben (eigener Test mit gemischter Groß-/Kleinschreibung und Duplikaten).
 23. **AC-23 (F-07)** — `_disarm_app_role` resettet `app.rls_as_enforced` **und**
@@ -627,13 +642,20 @@ niemals gleichzeitig covered UND exempt**; `declared != enforced`.
     sieht einen leeren/neutralen GUC-Zustand.
 24. **AC-24 (F-09)** — `makemigrations --check --dry-run` ist sauber (keine
     Model-State-Divergenz durch die raw-FK).
-25. **AC-25 (F5)** — `django check`-Hook: ist ein RLS-Flag `True`, enthält
+25. **AC-25 (F5, NEW-1)** — `django check`-Hook: ist ein RLS-Flag `True`, enthält
     `DATABASES['default']['OPTIONS']['options']` die passende `-c app.*=on`-Klausel; sonst
-    schlägt der Check fehl. `settings_test.py` pinnt beide Flags `False`.
-26. **AC-26 (F-11/O-3)** — Exit-Kriterium: sobald A4 landet und der jeweilige Flag
+    schlägt der Check fehl. Der Positiv-Zweig wird durch einen Unit-Test exercisiert
+    (`override_settings(RLS_PREAUTH_ENFORCED=True)` ⇒ Check liefert einen Fehler mit
+    `persistence.E001`); AC-12 assertet zugleich, dass der zentrale Helper
+    `_build_pg_options()` bei Flag ON die GUC-Klausel tatsächlich ausgibt.
+    `settings_test.py` pinnt beide Flags `False`.
+26. **AC-26 (F-11/O-3, NEW-2)** — Exit-Kriterium: sobald A4 landet und der jeweilige Flag
     geflippt ist, schrumpft `RLS_STAGED_TABLES` auf die noch nicht aktivierten Einträge
     (Ziel: `∅`), und für STOPP-S1 existiert ein **eigenes Folge-Issue** (Refresh-Writepfad
-    + dedizierte Auth-Regression-Suite).
+    + dedizierte Auth-Regression-Suite). Darüber hinaus verlangt NEW-2 für **jedes**
+    Residual R-7, R-8 und R-9 (nicht nur STOPP-S1) ein **Tracking-Issue + Owner +
+    Review-Datum**, bevor der jeweilige Flag geflippt wird; bis dahin bleibt es ein
+    dokumentiertes, getracktes Residual und **kein Blocker für den DEFAULT-OFF-Ship**.
 
 ---
 
@@ -643,7 +665,7 @@ niemals gleichzeitig covered UND exempt**; `declared != enforced`.
 |---|---|---|---|
 | R-1 | **STOPP-S1 — Refresh-Token-Pfad nicht risikofrei schließbar in diesem Change.** `rotate_refresh_token` verdichtet Lesen (`authentication.py:387-391`), Sperren, Spend-UPDATE (`:424-425`), Family-Burn (`:455-459`) und Insert (`password_authentication.py:271-277`) zu einer auth-kritischen Transaktion; Reuse-Detection/Grace (`:402-422`) und die Logout-Best-Effort-Semantik (`:461-485`) sind load-bearing. Ein Code-Switch in dieselbe Change würde Auth-Verhalten ändern, ohne dedizierte Regression-Suite. | Auth könnte brechen | **Nicht scharf schalten.** Minimaler sicherer Teilsatz = `at_api_key` + `at_user_role` (read-only). `at_refresh_token` bleibt exempt; IC-1c ist nur Design-Vertrag für ein Folge-Review. **Follow-up-Issue verpflichtend (O-3/AC-26).** |
 | R-2 | Flag ON bricht den Outbox-Poller (Kandidatenliste + Write-backs ohne Tenant) | Event-Bus steht | **Enforcement DEFAULT OFF.** ON erst nach A4 (Poller-Tenant-Arming + `SECURITY DEFINER`-Kandidatenliste). A4 ist Voraussetzung, nicht Teil des OFF-Ships. |
-| R-3 | Weitere `.unscoped`-Leser von `at_api_key` außerhalb des Funktionpfads | RLS würde sie still leeren | Vor `RLS_PREAUTH_ENFORCED=on`: grep-Inventar aller `ApiKey.unscoped`/`UserRole.unscoped`-Leser; nicht verifizierte Fundstellen blockieren den Flip. (In diesem Change nicht vollständig verifiziert.) |
+| R-3 | Weitere `.unscoped`-Leser von `at_api_key` außerhalb des Funktionpfads | RLS würde sie still leeren | **Bleibt eine dokumentierte Pre-Flip-Aufgabe** (in diesem Change bewusst NICHT geflippt und nicht vollständig verifiziert): Vor `RLS_PREAUTH_ENFORCED=on`: grep-Inventar aller `ApiKey.unscoped`/`UserRole.unscoped`-Leser; nicht verifizierte Fundstellen blockieren den Flip. Als offene Verifikations-Aufgabe im Addendum (Iteration 2) geführt. |
 | R-4 | Orphan-Zeilen mit NULL-`tenant_id` | Bei ON unsichtbar (fail-closed), bis sie gestampt sind | Backfill zählt + loggt; Writer-Stamp (A4) nötig; kein Delete (O-2 entschieden). |
 | R-5 | Flag-Flip erfordert Restart, kein echter Hot-Toggle | Betriebsfenster | **O-1 entschieden: Env-Flag + Restart akzeptiert.** Runtime-Flag-Registry = eigenes Thema. Runbook-Notiz in IC-3. |
 | R-6 | FK `NOT VALID` → `VALIDATE` | Lock auf großer Tabelle | `ADD CONSTRAINT ... NOT VALID` sperrt schwach; `VALIDATE` nach Backfill; reverse-fähig. `ON DELETE RESTRICT`. |
@@ -651,6 +673,9 @@ niemals gleichzeitig covered UND exempt**; `declared != enforced`.
 | **R-8** | **DEFINER-Owner ist der Bootstrap-/Migrations-Superuser (security F8 / F-05).** Die Funktionen sind superuser-owned → RLS-Bypass; `NOT rolsuper` ist nicht zusicherbar. | Größere Privilegien-Eskalation als nötig | Harte Body-Constraints (kein dynamisches SQL, fester `search_path`, schema-qualifiziert), Reviewer-Obligation (AC-2/AC-20); bevorzugte Härtung als getrackter Follow-up: dedizierte NOLOGIN-Owner-Rolle / Ownership-Transfer. |
 | **R-9** | **`auth_resolve_roles` ist ein tenant-agnostischer RLS-Bypass-Read (security F10).** Nach Pre-Auth-ON liefert die Funktion die Rollen eines Users über alle Workspaces — faithful zu `UserRole.unscoped` (`password_authentication.py:164-167`), aber bewusst breiter als „eine Zeile". | Bypass-Read-Primitive | Dokumentiertes Residual; optionales `tenant_id`-Join wäre Verhaltensänderung und ist out of scope. |
 | R-10 | Config-Drift: `settings_test.py` ersetzt `DATABASES` ohne OPTIONS (security F5) | Staged GUC fehlt unbemerkt | Zentrale GUC-Verdrahtung + `django check` (AC-25) + Flags in `settings_test.py` gepinnt. |
+| **R-11** | **Partial-Deploy-Fail-Mode (security-auditor LOW, Iteration 3).** Läuft der neue Code (P2-Code-Switch) gegen eine DB, in der `0016`/`0017` (Funktionen + `GRANT EXECUTE`) noch fehlen, wirft der Raw-SQL-Pre-Auth-Pfad `UndefinedFunction`/`InsufficientPrivilege` → **fail-closed 500** statt 401. | Auth-Outage mit lautem Fehler bei Teil-Deploy | **ACCEPTED für den DEFAULT-OFF-Ship**: Deploys führen `migrate` vor `serve` aus (Reihenfolge in §Staged Rollout bindend), und ein lauter 500 ist einer Verschleierung der Fehlkonfiguration als Credential-Fehler vorzuziehen. Owner: Follow-up-Härtung (Startup-/`pg_proc`+ACL-Check) — **kein Code-Change in diesem Ship**. |
+| **R-12** | **Dual-`0016`-Leaf bei Merge-Reihenfolge (database-engineer Finding #1).** Mergt `#1135-admin-bruteforce-lockout` vor `#1136`, existieren zwei `0016`-Leaves in `auth_tenancy` (`0016_admin_login_lockout` vs. `0016_auth_api_key_lookup_functions`). | Django meldet „conflicting migrations / multiple leaf nodes" beim Merge | Auf dem **zuerst gemergten PR** normal; der **zweite** PR fügt eine Django-**Merge-Migration** (`makemigrations --merge`) hinzu und löst die Kette dort auf. Explizit als Residual geführt; **kein** Umnummerieren dieses Changes. |
+| R-13 | **Index-Evidenz (database-engineer Finding #4).** `tenant_id` erhält `db_index=True` (Migration-State) bzw. den FK-Support-Index; es gibt (noch) keinen `EXPLAIN`-Beleg. | Kein gemessener, sondern ein abgeleiteter Nutzen | Bewusst akzeptiert: der Index bedient den FK-Delete-Check (`ON DELETE RESTRICT` gegen `pl_tenant`) und die künftige Policy-Prädikat-Spalte unter Enforcement. Kein Code-Change; bei ON-Flip ggf. `EXPLAIN`-Evidenz nachreichen. |
 
 **Residual, das dokumentiert-exempt bleibt, falls nicht geschlossen:** `at_refresh_token`
 und `audit_entry` bleiben in `RLS_EXEMPT_TABLES` mit explizitem, weiterhin gültigem
@@ -755,6 +780,67 @@ Keine offenen Fragen mehr; nichts blieb unauflösbar ohne User-Entscheidung.
 
 ---
 
+## Implementierungs-Addendum (Iteration 2, senior-developer)
+
+Dieses Addendum hält die bei der Umsetzung nötigen Korrekturen und Abweichungen
+fest; die Verträge oben bleiben bindend.
+
+**Migrations-Nummern (Abweichung, erzwungen durch die Branch-Realität).** Der
+Branch `fix/1136-rls-coverage` basiert auf `origin/main`, dessen `auth_tenancy`-Leaf
+`0015_alter_apikey_scope` ist. Die in Iteration 1 angenommene Kette
+`0016_admin_login_lockout` / `0017_admin_lockout_expiry_index` lebt auf dem noch
+nicht gemergten Branch `fix/1135-admin-bruteforce-lockout`. Die Migrationen heißen
+daher in diesem Change:
+
+- `auth_tenancy/0016_auth_api_key_lookup_functions` (Deps: `auth_tenancy 0015`,
+  `persistence 0048_app_role`)
+- `auth_tenancy/0017_preauth_staged_rls` (Dep: `0016`)
+- `application/0030_as_staged_tenant_id`, `application/0031_backfill_staged_tenant_id`,
+  `application/0032_as_staged_rls` (Dep-Kette `0029 → 0030 → 0031 → 0032`)
+
+Wird `#1135` vor `#1136` gemergt, kollidieren die `0016`-Leaves beider Branches;
+das ist mit einer Django-Merge-Migration (`makemigrations --merge`) aufzulösen,
+nicht durch Umnummerieren dieses Changes (siehe **R-12**).
+
+`application/0030` deklariert zusätzlich explizit
+`("persistence", "0001_initial")` als Dependency (statt nur transitiv), weil die
+Migration eine Raw-FK auf `pl_tenant` anlegt; 0031/0032 erben das transitiv.
+(`makemigrations --check` bleibt sauber, kein Zyklus.)
+
+**Review-Notes (Iteration 2).**
+
+- **N-01** — AC-19 assertet pro Klausel (≥1 in `USING` **und** in `WITH CHECK`),
+  nicht „genau ein Vorkommen".
+- **N-02** — `STAGED_POLICY_MIGRATIONS: dict[str, tuple[str, str]]` (Tabelle →
+  `(app_label, migration)`) attribuiert jede Policy ihrer Tabelle; nötig, weil
+  sich `at_api_key`/`at_user_role` den GUC `app.rls_preauth_enforced` teilen.
+- **NEW-1** — AC-25-Positiv-Zweig als Unit-Test
+  (`override_settings(RLS_PREAUTH_ENFORCED=True)` ⇒ `persistence.E001`); AC-12
+  assertet, dass `reqogniloom.settings._build_pg_options()` bei Flag ON die
+  `-c app.rls_*=on`-Klausel ausgibt.
+- **NEW-2** — AC-26 verlangt für **R-7, R-8 und R-9** ein Tracking-Issue + Owner +
+  Review-Datum vor dem jeweiligen Flag-Flip (nicht nur für STOPP-S1).
+- **NEW-4** — das Agent-Prädikat ist in AC-21 verbatim ausgeschrieben.
+- **Zitat** — `settings.py:610-618` → `:583-591` korrigiert.
+
+**SSOT-Symbolnamen (Umsetzung):** `STAGED_JUSTIFICATION_CLAIMS` /
+`STAGED_ALL_CLAIMS` (ersetzt `CR17_*`), `STAGED_PLAIN_CHILD_TABLES` (ersetzt
+`WORKER_OWNED_TABLES`), `RLS_EXEMPT_PLAIN_TABLES = frozenset()`.
+
+**R-3 — offene Pre-Flip-Verifikations-Aufgabe:** Der grep-Inventar aller
+`ApiKey.unscoped`/`UserRole.unscoped`-Leser außerhalb des Funktionpfads ist in
+diesem Change NICHT geflippt und NICHT abschließend verifiziert; er bleibt eine
+dokumentierte Aufgabe vor `RLS_PREAUTH_ENFORCED=on`.
+
+**STOPP-S1 (unverändert bestätigt):** `at_refresh_token` hat keine Policy und
+keinen Code-Switch; `rotate_refresh_token` / `issue_refresh_token` /
+`_revoke_refresh_family` bleiben unangetastet. Die Design-Verträge IC-1c sind
+Nicht-Ziel dieses Changes.
+
+---
+
 *Erstellt durch `concept-specifier` am 2026-10-04; Revision 1 (Review-Loop). Kein Produktcode,
 keine Migration, kein Push. Nächster Schritt: Re-Review durch `concept-reviewer`
 (Loop `concept-specify-loop`), danach Planung; Implementierung erst nach Plan.*
+*Addendum Iteration 2: `senior-developer`, 2026-10-04 — Umsetzung gegen den
+APPROVED-Stand `a3c24418` plus die Review-Notes N-01/N-02/NEW-1/NEW-2/NEW-4.*
