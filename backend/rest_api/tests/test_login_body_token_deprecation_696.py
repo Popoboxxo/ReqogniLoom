@@ -10,7 +10,8 @@ XSS vector REQ-052 closed.
 Covered here:
 
 * default behaviour is unchanged (body token present, marked with
-  ``Deprecation: true`` — RFC 9745),
+  ``Deprecation: true`` — the earlier IETF draft boolean form; RFC 9745 later
+  defined the field as an HTTP-date),
 * with ``AUTH_LOGIN_INCLUDE_BODY_TOKEN=False`` the field is omitted while the
   httpOnly cookies are still set and cookie auth still authenticates a
   follow-up request (the flag must never break the supported path),
@@ -89,7 +90,7 @@ def test_default_still_returns_body_token_and_marks_it_deprecated(admin_user):
     body = resp.json()
     assert body["token"]
     assert body["user"]["username"] == "bodytokenadmin"
-    # RFC 9745 marker so tooling can detect the deprecated field.
+    # Draft boolean deprecation marker so tooling can detect the field.
     assert resp.headers["Deprecation"] == "true"
 
 

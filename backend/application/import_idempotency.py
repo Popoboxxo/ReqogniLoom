@@ -21,15 +21,34 @@ Contract (ADR-014 §3):
 * TTL 24 h (configurable); :func:`purge_expired` is the cleanup seam
   (scheduled as a Celery-beat task).
 
-Residual (documented, not a silent fail-open): the fingerprint is a plain
-SHA-256 over (method, path, payload, dry_run), not an HMAC, because the stored
-value is never returned to a client and is scoped per tenant/user; the ADR's
-HMAC recommendation (§7) is a hardening follow-up, not a correctness gap.
+Fingerprint (ADR-014 §7, decision D2a): the request fingerprint is a **keyed
+HMAC-SHA-256** over (method, path, payload, dry_run). The key is
+``IMPORT_FINGERPRINT_SECRET`` when set; otherwise a domain-separated key is
+derived from ``SECRET_KEY`` (see :func:`_fingerprint_secret`) and
+``manage.py check`` warns (``application.W001``) that an explicit secret should
+be configured in production. The digest is 64 hex chars, so the stored column
+needs no widening/migration.
+
+Migration/compat strategy (D2a): fingerprints written before this change are
+plain SHA-256 values and no longer match the keyed digest. A replay of an *old*
+key within its TTL window can therefore answer ``409 IDEMPOTENCY_KEY_REUSED``
+instead of a cached replay. The mismatch is confined to the
+``(tenant_id, user_id, endpoint, key)`` scope and self-heals after
+``IMPORT_IDEMPOTENCY_TTL_HOURS`` (24 h); rotating ``SECRET_KEY`` (or
+``IMPORT_FINGERPRINT_SECRET``) has the same bounded effect. No schema/data
+migration is performed.
+
+Concurrency (ADR-014 §3/§7): on PostgreSQL the per-tenant key cap is enforced
+under a transaction-scoped, tenant-keyed advisory lock
+(:func:`_acquire_tenant_lock`) so the count → evict → insert sequence cannot
+race past the cap; other vendors keep the pre-existing best-effort behaviour
+(see the helper's docstring).
 """
 
 from __future__ import annotations
 
 import hashlib
+import hmac
 import logging
 from dataclasses import dataclass
 from datetime import timedelta
@@ -37,7 +56,7 @@ from typing import Any, Dict, Optional
 from uuid import UUID
 
 from django.conf import settings
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, connection, transaction
 from django.utils import timezone
 
 logger = logging.getLogger(__name__)
@@ -63,6 +82,33 @@ def _tenant_limit() -> int:
     return getattr(settings, "IMPORT_IDEMPOTENCY_MAX_KEYS_PER_TENANT", 10000)
 
 
+def _acquire_tenant_lock(tenant_id: UUID) -> None:
+    """Serialize new-key admission per tenant (ADR-014 §3/§7).
+
+    A per-tenant *count* cap cannot be expressed as a database constraint, so
+    the count → evict → insert sequence in :func:`begin` is made atomic with a
+    transaction-scoped, tenant-keyed advisory lock. PostgreSQL's
+    ``pg_advisory_xact_lock`` is released automatically when the enclosing
+    ``transaction.atomic()`` commits or rolls back — which happens before the
+    import itself runs (:func:`begin` only claims the key).
+
+    Guarded by ``connection.vendor``: on non-PostgreSQL vendors (SQLite in some
+    test configurations) there is no advisory-lock primitive, so the
+    pre-existing best-effort behaviour is retained (documented, not silently
+    changed). The unique constraint still guarantees key uniqueness on every
+    vendor; only the *count* cap is best-effort there.
+    """
+    if connection.vendor != "postgresql":
+        return
+    # ``hashtext`` maps the tenant UUID to the 32-bit advisory-lock key space.
+    # A hash collision between two tenants only over-serializes them; it cannot
+    # let a tenant exceed its cap.
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT pg_advisory_xact_lock(hashtext(%s))", [str(tenant_id)]
+        )
+
+
 def _enforce_tenant_limit(*, tenant_id: UUID, now: Any) -> None:
     """Reject a new key once *tenant_id* holds its key cap (ADR-014 §3/§7).
 
@@ -71,6 +117,10 @@ def _enforce_tenant_limit(*, tenant_id: UUID, now: Any) -> None:
     key's replay/takeover is untouched. Raises the same request-level conflict
     code as an in-flight key (409 + ``Retry-After``), since the client can
     retry once cleanup/TTL has freed a slot.
+
+    Callers hold the tenant-scoped advisory lock (:func:`_acquire_tenant_lock`),
+    so the count and the following insert are atomic with respect to other
+    new-key admissions for the same tenant.
     """
     from application.models import ImportIdempotencyRecord
 
@@ -134,6 +184,28 @@ class CachedImportResult:
     body: Dict[str, Any]
 
 
+def _fingerprint_secret() -> bytes:
+    """Return the HMAC key for the request fingerprint (ADR-014 §7, D2a).
+
+    Prefers the explicit ``IMPORT_FINGERPRINT_SECRET``. When it is empty — or
+    only whitespace, which is stripped so a whitespace-only value cannot
+    silently defeat the check below — a domain-separated key is derived from
+    ``SECRET_KEY`` so the fingerprint is *always* keyed (never a plain SHA-256)
+    without inventing a new secret. The derived fallback is a documented
+    limitation surfaced at ``manage.py check`` time by
+    ``application.checks.check_import_fingerprint_secret``. The strip matches
+    that check exactly, so ``application.W001`` fires whenever this fallback is
+    taken (``IMPORT_FINGERPRINT_SECRET="   "`` included).
+    """
+    explicit = (getattr(settings, "IMPORT_FINGERPRINT_SECRET", "") or "").strip()
+    if explicit:
+        return explicit.encode("utf-8")
+    secret_key = getattr(settings, "SECRET_KEY", "") or ""
+    return hashlib.sha256(
+        b"import-fingerprint:" + secret_key.encode("utf-8")
+    ).digest()
+
+
 def compute_fingerprint(
     *,
     method: str,
@@ -143,11 +215,13 @@ def compute_fingerprint(
 ) -> str:
     """Return the request fingerprint for the idempotency scope.
 
-    Covers method + path + payload bytes + ``extra`` (the caller passes the
-    ``dry_run`` flag) so a replay of a semantically different request is
-    detected as a key reuse. No plaintext payload is stored.
+    Keyed HMAC-SHA-256 over method + path + payload bytes + ``extra`` (the
+    caller passes ``dry_run``/``entity_type``) so a replay of a semantically
+    different request is detected as a key reuse. No plaintext payload is
+    stored. The return value is the 64-char hex digest (unchanged length, so no
+    column migration).
     """
-    digest = hashlib.sha256()
+    digest = hmac.new(_fingerprint_secret(), digestmod=hashlib.sha256)
     digest.update(method.upper().encode("utf-8"))
     digest.update(b"\x00")
     digest.update(path.encode("utf-8"))
@@ -190,6 +264,10 @@ def begin(
             .first()
         )
         if record is None:
+            # Serialize new-key admission for this tenant: the count → evict →
+            # insert sequence below must be atomic or concurrent distinct keys
+            # could each observe a free slot and push the store past the cap.
+            _acquire_tenant_lock(tenant_id)
             # Opportunistic cleanup: expired successes and abandoned in-flight
             # claims do not accumulate unboundedly (ADR-014 §3/§7).
             ImportIdempotencyRecord.objects.filter(expires_at__lt=now).delete()

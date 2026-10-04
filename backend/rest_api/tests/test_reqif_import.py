@@ -33,9 +33,9 @@ from workflow.services import create_default_workflow
 _SECRET = "test-secret-placeholder-not-a-real-key"
 
 # The suite pins the v2 contract on explicitly: the production default is
-# IMPORT_CONTRACT_V2=False (ADR-014 §5 Phase 1), so every v2 assertion below
-# activates the contract through these overrides instead of relying on the
-# ambient default. The legacy-rollback test overrides it back to False.
+# IMPORT_CONTRACT_V2=True (ADR-014 §5 Phase 2), so every v2 assertion below
+# activates the contract through these overrides rather than relying on the
+# ambient default. The legacy-rollback tests override it back to False.
 _JWT_OVERRIDES = dict(
     AUTH_JWT_SECRET=_SECRET,
     AUTH_JWT_ISSUER="reqflow",
@@ -564,6 +564,9 @@ def test_reqif_import_legacy_fallback_when_contract_v2_disabled(
     assert body["success"] is True
     assert "contract" not in body
     assert "counts" not in body
+    # ADR-014 §5: the deprecated legacy path advertises its sunset.
+    assert resp["Deprecation"] == "true"
+    assert "31 Dec 2026" in resp["Sunset"]
 
 
 @override_settings(**_JWT_OVERRIDES)

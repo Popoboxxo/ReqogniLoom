@@ -29,6 +29,10 @@ _JWT_OVERRIDES = dict(
 
 _V2_OVERRIDES = dict(_JWT_OVERRIDES, IMPORT_CONTRACT_V2=True)
 
+# The v2 contract is the production default now (ADR-014 §5 Phase 2); tests
+# that assert the legacy fallback shape pin it off explicitly.
+_LEGACY_OVERRIDES = dict(_JWT_OVERRIDES, IMPORT_CONTRACT_V2=False)
+
 _VALID_CSV = (
     b"title,description,category,status\n"
     b"INT04 Req One,First,functional,draft\n"
@@ -100,7 +104,7 @@ def _requirement_count(tenant_id, workspace_id) -> int:
 # ---------- BOM (Finding 083) ----------
 
 
-@override_settings(**_JWT_OVERRIDES)
+@override_settings(**_V2_OVERRIDES)
 @pytest.mark.django_db
 def test_bom_upload_imports_correctly(import_admin_user):
     _user, tenant, workspace = import_admin_user
@@ -111,15 +115,16 @@ def test_bom_upload_imports_correctly(import_admin_user):
 
     assert resp.status_code == 201
     body = resp.json()
+    assert body["contract"] == "v2"
     assert body["success"] is True
-    assert body["imported_count"] == 1
+    assert body["counts"]["succeeded"] == 1
     assert _requirement_count(tenant.id, workspace.id) == 1
 
 
 # ---------- Dedupe (Finding 072) ----------
 
 
-@override_settings(**_JWT_OVERRIDES)
+@override_settings(**_V2_OVERRIDES)
 @pytest.mark.django_db
 def test_importing_same_file_twice_creates_no_duplicates(import_admin_user):
     _user, tenant, workspace = import_admin_user
@@ -128,14 +133,15 @@ def test_importing_same_file_twice_creates_no_duplicates(import_admin_user):
 
     first = _upload(client, workspace.id, _VALID_CSV)
     assert first.status_code == 201
-    assert first.json()["imported_count"] == 2
+    assert first.json()["counts"]["succeeded"] == 2
 
+    # A pure duplicate import writes nothing: v2 answers 200 (no Created).
     second = _upload(client, workspace.id, _VALID_CSV)
-    assert second.status_code == 201
+    assert second.status_code == 200
     body = second.json()
     assert body["success"] is True
-    assert body["imported_count"] == 0
-    assert body["skipped_count"] == 2
+    assert body["counts"]["succeeded"] == 0
+    assert body["counts"]["skipped"] == 2
 
     assert _requirement_count(tenant.id, workspace.id) == 2
 
@@ -143,18 +149,23 @@ def test_importing_same_file_twice_creates_no_duplicates(import_admin_user):
 # ---------- Legacy contract (flag off) ----------
 
 
-@override_settings(**_JWT_OVERRIDES)
+@override_settings(**_LEGACY_OVERRIDES)
 @pytest.mark.django_db
 def test_legacy_response_shape_unchanged(import_admin_user):
     _user, _tenant, workspace = import_admin_user
     client = APIClient()
     _login(client)
 
-    body = _upload(client, workspace.id, _VALID_CSV).json()
+    resp = _upload(client, workspace.id, _VALID_CSV)
+    body = resp.json()
 
     assert "contract" not in body
     assert body["errors"] == []
     assert body["status"] == "ok"
+    # ADR-014 §5: the deprecated legacy path advertises its sunset.
+    assert resp["Deprecation"] == "true"
+    assert "31 Dec 2026" in resp["Sunset"]
+    assert resp["Sunset"].endswith("GMT")
 
 
 # ---------- Contract v2: envelope, status matrix, replay ----------

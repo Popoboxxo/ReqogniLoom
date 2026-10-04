@@ -12,9 +12,11 @@
 //     result (not as `reqif-import-error`),
 //   * ReqIF Idempotency-Key replay -> the replay badge on the second import.
 //
-// The two ReqIF branches depend on `IMPORT_CONTRACT_V2`, whose ADR-014 §5
-// Phase-1 default is OFF. When the running backend answers the legacy contract
-// they are skipped with the exact flag to enable (never silently passed) — see
+// The two ReqIF branches depend on `IMPORT_CONTRACT_V2`, which since the
+// 2026-10-04 amendment (ADR-014 §5 Phase 2 / D2b) is ON by default;
+// `IMPORT_CONTRACT_V2=false` is the rollback switch back to the legacy
+// contract. When the running backend answers the legacy contract they are
+// skipped with the exact flag to check (never silently passed) — see
 // `importContractV2Active`.
 import { test, expect, type APIRequestContext } from '@playwright/test';
 import {
@@ -38,8 +40,8 @@ const INVALID_CSV = `title,description,category
 const MALFORMED_REQIF = '<not-a-valid-reqif><unclosed>';
 
 const IMPORT_CONTRACT_HINT =
-  'IMPORT_CONTRACT_V2 is off on the running backend (ADR-014 §5 Phase 1 default). ' +
-  'Set IMPORT_CONTRACT_V2=True and recreate the backend, then re-run this spec.';
+  'IMPORT_CONTRACT_V2 is off on the running backend (rollback switch, ADR-014 §5). ' +
+  'Set IMPORT_CONTRACT_V2=true and recreate the backend, then re-run this spec.';
 
 /**
  * Probe the live backend for the ADR-014 v2 contract.
