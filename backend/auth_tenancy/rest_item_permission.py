@@ -19,18 +19,18 @@ Endpoints:
         Body: {"user_id", "artifact_id" (optional), "permission_level": read|write|none}
         201: {"permission": {...}} on success
         400: validation error (unknown level, malformed UUID)
-        403: caller is not admin
+        403: caller is not admin, or is not a member of the workspace
         404: workspace does not exist (raised by the service)
     GET    /api/v1/workspaces/{workspace_id}/permissions/
         Query: ?user_id=... (required) [&artifact_id=...]
         200: {"permissions": [...]} on success
         400: missing user_id
-        403: caller is not admin
+        403: caller is not admin, or is not a member of the workspace (#1131)
     DELETE /api/v1/workspaces/{workspace_id}/permissions/
         Body / query: {"permission_id"} or ?permission_id=...
         204: revoked
         400: missing permission_id
-        403: caller is not admin
+        403: caller is not admin, or is not a member of the workspace
         404: no rule with that id
 
 The view intentionally does NOT embed auditing logic — the service writes the
@@ -50,7 +50,11 @@ from rest_framework.views import APIView
 from auth_tenancy.context import AuthContext
 from auth_tenancy.models import ITEM_PERMISSION_LEVEL_CHOICES, ItemPermission
 from auth_tenancy.rest import HasOperationPermission
-from auth_tenancy.services import ItemPermissionService, Operation
+from auth_tenancy.services import (
+    AuthorizationService,
+    ItemPermissionService,
+    Operation,
+)
 from auth_tenancy.services.item_permission import PermissionDecision
 
 from persistence.errors import (
@@ -58,6 +62,7 @@ from persistence.errors import (
     PermissionDeniedError,
     ValidationError,
 )
+from persistence.tenancy import TenantContext
 
 logger = logging.getLogger(__name__)
 
@@ -167,6 +172,11 @@ class ItemPermissionViewSet(APIView):
         Implicit via the :class:`ItemPermissionService` which calls
         :meth:`ServiceBase._set_tenant_context` and uses the tenant-scoped
         default manager on :class:`ItemPermission`.
+
+    Workspace fence:
+        Every verb first calls :meth:`_workspace_membership_denial`, so a
+        workspace the caller is not a member of answers the canonical
+        ``403 PERMISSION_DENIED`` instead of an empty ``200`` (GitHub #1131).
     """
 
     permission_classes = [HasOperationPermission]
@@ -202,6 +212,53 @@ class ItemPermissionViewSet(APIView):
         except (ValueError, TypeError):
             raise ValidationError(f"Invalid workspace_id: {ws_raw!r}")
 
+    @staticmethod
+    def _workspace_membership_denial(
+        request: Request, ctx: AuthContext, workspace_id: UUID
+    ) -> Optional[Response]:
+        """Return a canonical 403 unless *ctx* holds a role in *workspace_id*.
+
+        GitHub #1131. This collection route names its target workspace in the
+        URL (``workspaces/<uuid:workspace_id>/permissions/``) but, unlike the
+        sibling ``.../permission-definition/`` route, carried no
+        workspace-membership guard. For a workspace the caller is not a member
+        of — another tenant, a same-tenant workspace without a role, or an id
+        that does not exist — the auth layer keeps the tenant-wide role union
+        (``workspace_id=None``), so RBAC passes and the tenant-scoped
+        :class:`ItemPermissionService` answers ``200 {"permissions": []}``: an
+        existence oracle for foreign workspace ids.
+
+        The guard mirrors
+        :func:`rest_api.global_default_views._require_workspace_membership`
+        (the #1077 sibling route) and reuses the same
+        :meth:`AuthorizationService.active_roles_for` predicate, so every
+        non-member case answers the one canonical ``403 PERMISSION_DENIED``
+        envelope and a foreign id stays indistinguishable from a non-existent
+        one. It runs before any ``user_id`` handling and never branches on it.
+
+        Boundary/direct-call shape: when no tenant context is active — a caller
+        that bypassed ``AuthTenancyAuthentication``, e.g. the view-unit tests
+        that invoke the handler directly — there is nothing to scope the
+        membership lookup against, so the guard defers to the context's roles.
+        This mirrors ``resource_scope._has_active_role_in_workspace``; routed
+        traffic always activates a tenant before the view runs, so it is
+        unreachable there.
+        """
+        if not TenantContext.is_set():
+            return None
+
+        roles = AuthorizationService().active_roles_for(
+            user_id=ctx.user_id, workspace_id=workspace_id
+        )
+        if roles:
+            return None
+        return _err(
+            request,
+            "PERMISSION_DENIED",
+            "You are not a member of this workspace.",
+            status.HTTP_403_FORBIDDEN,
+        )
+
     # -- POST: grant -------------------------------------------------------
 
     def post(self, request: Request, **kwargs: Any) -> Response:
@@ -218,6 +275,10 @@ class ItemPermissionViewSet(APIView):
         """
         ctx = self._auth_context(request)
         workspace_id = self._workspace_id_from_kwargs(request)
+
+        denied = self._workspace_membership_denial(request, ctx, workspace_id)
+        if denied is not None:
+            return denied
 
         data = request.data or {}
         if not isinstance(data, dict):
@@ -295,6 +356,10 @@ class ItemPermissionViewSet(APIView):
         ctx = self._auth_context(request)
         workspace_id = self._workspace_id_from_kwargs(request)
 
+        denied = self._workspace_membership_denial(request, ctx, workspace_id)
+        if denied is not None:
+            return denied
+
         user_id_raw = request.query_params.get("user_id")
         if user_id_raw is None:
             return _err(
@@ -349,6 +414,10 @@ class ItemPermissionViewSet(APIView):
         """
         ctx = self._auth_context(request)
         workspace_id = self._workspace_id_from_kwargs(request)
+
+        denied = self._workspace_membership_denial(request, ctx, workspace_id)
+        if denied is not None:
+            return denied
 
         body = request.data if isinstance(request.data, dict) else {}
         permission_id_raw = (
