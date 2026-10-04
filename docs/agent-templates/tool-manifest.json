@@ -2976,6 +2976,10 @@
           "change_reason": {
             "type": "string",
             "description": "Optional audit reason for archiving."
+          },
+          "expected_version": {
+            "type": "integer",
+            "description": "Optional last-seen workflow revision of the Goal version. When supplied and a concurrent transition has already moved it on, the call is rejected with a version conflict instead of overwriting the winner (GitHub #1129)."
           }
         },
         "required": [
@@ -3022,6 +3026,10 @@
           "change_reason": {
             "type": "string",
             "description": "Alias of reason."
+          },
+          "expected_version": {
+            "type": "integer",
+            "description": "Optional last-seen workflow revision of the Goal version; a stale value is rejected with a version conflict instead of overwriting the winner (GitHub #1129)."
           }
         },
         "required": [
@@ -3068,6 +3076,10 @@
           "change_reason": {
             "type": "string",
             "description": "Audit reason; defaults to 'reactivated'."
+          },
+          "expected_version": {
+            "type": "integer",
+            "description": "Optional last-seen workflow revision of the Goal version; a stale value is rejected with a version conflict instead of overwriting the winner (GitHub #1129)."
           }
         },
         "required": [
@@ -4024,6 +4036,10 @@
           "change_reason": {
             "type": "string",
             "description": "Reason for the approval. Required by the Entwurf -> Freigegeben transition; a default is supplied when omitted."
+          },
+          "expected_version": {
+            "type": "integer",
+            "description": "Optional last-seen workflow revision of the MainGoal version. When supplied and a concurrent approval has already moved it on, the call is rejected with a version conflict instead of overwriting the winner (GitHub #1129)."
           }
         },
         "required": [

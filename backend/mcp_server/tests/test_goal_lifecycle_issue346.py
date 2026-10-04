@@ -68,6 +68,19 @@ def _provision(workspace, *, preset: str = "goal_default", item_type: str = "Goa
         TenantContext.clear_tenant()
 
 
+def _workflow_version(tenant_id, goal_id) -> int:
+    """Read the Goal's current ``WorkflowItemState.version`` (optimistic lock key)."""
+    from workflow.models import WorkflowItemState
+
+    TenantContext.set_tenant(tenant_id)
+    try:
+        return WorkflowItemState.objects.get(
+            item_id=goal_id, item_type="Goal"
+        ).version
+    finally:
+        TenantContext.clear_tenant()
+
+
 def _workspace_with_goal(name: str, *, title: str = "Goal A", description: str = ""):
     """Provision a workspace with the goal_default workflow and one draft Goal."""
     tenant, workspace = _tenant_and_workspace(name, name=name, goals_enabled=True)
@@ -300,6 +313,129 @@ def test_goal_reactivate_unknown_id_returns_not_found():
 
     assert result.success is False
     assert result.error_code == "NOT_FOUND"
+
+
+# ---------------------------------------------------------------------------
+# expected_version optimistic locking (GitHub #1129)
+#
+# goal.outdate / goal.reactivate called the service without the caller's
+# last-seen revision, so two concurrent MCP writers were last-writer-wins.
+# A stale expected_version must now be a caller-retryable conflict.
+# ---------------------------------------------------------------------------
+
+
+def test_goal_outdate_stale_expected_version_is_rejected():
+    group, ctx, workspace, created = _workspace_with_goal("I1129-O1")
+    goal_id = uuid.UUID(created["id"])
+    stale = _workflow_version(workspace.tenant_id, goal_id)
+
+    # A concurrent session moves the version on.
+    moved = group.execute_tool(
+        tool_name="goal.transition",
+        params={
+            "goal_id": str(goal_id),
+            "target_state": "Freigegeben",
+            "change_reason": "first session wins",
+        },
+        auth_context=ctx,
+        api_key=VALID_API_KEY,
+    )
+    assert moved.success is True, moved.message
+
+    result = group.execute_tool(
+        tool_name="goal.outdate",
+        params={"goal_id": str(goal_id), "expected_version": stale},
+        auth_context=ctx,
+        api_key=VALID_API_KEY,
+    )
+
+    assert result.success is False
+    assert "Version conflict" in (result.message or ""), result.message
+
+    read = group.execute_tool(
+        tool_name="goal.read",
+        params={"goal_id": str(goal_id)},
+        auth_context=ctx,
+        api_key=VALID_API_KEY,
+    )
+    assert read.data["status"] == "Freigegeben"
+
+
+def test_goal_reactivate_stale_expected_version_is_rejected():
+    group, ctx, workspace, created = _workspace_with_goal("I1129-R1")
+    goal_id = uuid.UUID(created["id"])
+
+    # Approve then archive so a restore is a valid transition.
+    group.execute_tool(
+        tool_name="goal.transition",
+        params={
+            "goal_id": str(goal_id),
+            "target_state": "Freigegeben",
+            "change_reason": "Approved.",
+        },
+        auth_context=ctx,
+        api_key=VALID_API_KEY,
+    )
+    group.execute_tool(
+        tool_name="goal.delete",
+        params={"goal_id": str(goal_id)},
+        auth_context=ctx,
+        api_key=VALID_API_KEY,
+    )
+    stale = _workflow_version(workspace.tenant_id, goal_id)
+
+    first = group.execute_tool(
+        tool_name="goal.reactivate",
+        params={"goal_id": str(goal_id), "expected_version": stale},
+        auth_context=ctx,
+        api_key=VALID_API_KEY,
+    )
+    assert first.success is True, first.message
+
+    # The revision is stale now: a second restore must be rejected, not
+    # silently replayed.
+    result = group.execute_tool(
+        tool_name="goal.reactivate",
+        params={"goal_id": str(goal_id), "expected_version": stale},
+        auth_context=ctx,
+        api_key=VALID_API_KEY,
+    )
+
+    assert result.success is False
+    assert "Version conflict" in (result.message or ""), result.message
+
+
+def test_goal_reactivate_current_expected_version_succeeds():
+    group, ctx, workspace, created = _workspace_with_goal("I1129-R2")
+    goal_id = uuid.UUID(created["id"])
+
+    group.execute_tool(
+        tool_name="goal.transition",
+        params={
+            "goal_id": str(goal_id),
+            "target_state": "Freigegeben",
+            "change_reason": "Approved.",
+        },
+        auth_context=ctx,
+        api_key=VALID_API_KEY,
+    )
+    group.execute_tool(
+        tool_name="goal.delete",
+        params={"goal_id": str(goal_id)},
+        auth_context=ctx,
+        api_key=VALID_API_KEY,
+    )
+    current = _workflow_version(workspace.tenant_id, goal_id)
+
+    result = group.execute_tool(
+        tool_name="goal.reactivate",
+        params={"goal_id": str(goal_id), "expected_version": current},
+        auth_context=ctx,
+        api_key=VALID_API_KEY,
+    )
+
+    assert result.success is True, result.message
+    assert result.data["status"] == "Entwurf"
 
 
 # ---------------------------------------------------------------------------

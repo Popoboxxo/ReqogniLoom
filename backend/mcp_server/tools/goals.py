@@ -345,6 +345,16 @@ class GoalToolGroup(BaseToolGroup):
                         "type": "string",
                         "description": "Optional audit reason for archiving.",
                     },
+                    "expected_version": {
+                        "type": "integer",
+                        "description": (
+                            "Optional last-seen workflow revision of the Goal "
+                            "version. When supplied and a concurrent transition "
+                            "has already moved it on, the call is rejected with "
+                            "a version conflict instead of overwriting the "
+                            "winner (GitHub #1129)."
+                        ),
+                    },
                 },
                 "required": ["goal_id"],
             },
@@ -377,6 +387,15 @@ class GoalToolGroup(BaseToolGroup):
                         "type": "string",
                         "description": "Alias of reason.",
                     },
+                    "expected_version": {
+                        "type": "integer",
+                        "description": (
+                            "Optional last-seen workflow revision of the Goal "
+                            "version; a stale value is rejected with a version "
+                            "conflict instead of overwriting the winner "
+                            "(GitHub #1129)."
+                        ),
+                    },
                 },
                 "required": ["goal_id"],
             },
@@ -405,6 +424,15 @@ class GoalToolGroup(BaseToolGroup):
                     "change_reason": {
                         "type": "string",
                         "description": "Audit reason; defaults to 'reactivated'.",
+                    },
+                    "expected_version": {
+                        "type": "integer",
+                        "description": (
+                            "Optional last-seen workflow revision of the Goal "
+                            "version; a stale value is rejected with a version "
+                            "conflict instead of overwriting the winner "
+                            "(GitHub #1129)."
+                        ),
                     },
                 },
                 "required": ["goal_id"],
@@ -724,6 +752,7 @@ class GoalToolGroup(BaseToolGroup):
         goal_id: UUID,
         auth_context: AuthContext,
         change_reason: Optional[str],
+        expected_version: Optional[int] = None,
     ) -> ToolResult:
         """Shared implementation of ``goal.delete`` / ``goal.outdate``.
 
@@ -736,16 +765,28 @@ class GoalToolGroup(BaseToolGroup):
         ``GoalService.transition_status`` / ``WorkflowFacade`` path
         ``goal.transition`` uses, so role / change_reason gates apply
         identically (no parallel delete logic).
+
+        GitHub #1129: ``expected_version`` is forwarded to the service so a
+        concurrent writer is not silently overwritten. A lost race raises
+        ``OptimisticLockError`` and is mapped to the same caller-retryable
+        conflict ``goal.transition`` reports (CR-08).
         """
         service = GoalService()
         try:
             goal = service.archive(
-                goal_id, auth_context, change_reason=change_reason
+                goal_id,
+                auth_context,
+                change_reason=change_reason,
+                expected_version=expected_version,
             )
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
         except PermissionDeniedError as exc:
             return ToolResult.error("PERMISSION_DENIED", str(exc))
+        except OptimisticLockError as exc:
+            # GitHub #1129: same mapping as goal.transition (CR-08) — a lost
+            # race is caller-retryable, not an internal error.
+            return ToolResult.error("VALIDATION_ERROR", f"Version conflict: {exc}")
         except ValidationError as exc:
             return self._invalid_target_state_error(
                 service, goal_id, auth_context, str(exc)
@@ -760,6 +801,7 @@ class GoalToolGroup(BaseToolGroup):
             goal_id=require_uuid(params, "goal_id"),
             auth_context=auth_context,
             change_reason=params.get("change_reason"),
+            expected_version=params.get("expected_version"),
         )
 
     def _handle_outdate(
@@ -780,6 +822,7 @@ class GoalToolGroup(BaseToolGroup):
             goal_id=self._require_goal_id(params),
             auth_context=auth_context,
             change_reason=params.get("reason") or params.get("change_reason"),
+            expected_version=params.get("expected_version"),
         )
 
     def _handle_reactivate(
@@ -792,17 +835,27 @@ class GoalToolGroup(BaseToolGroup):
         ``workflow.services.reactivate()`` — see ``_handle_outdate`` for why,
         and ``GoalService.restore`` for why the pre-archive state is
         deliberately not restored.
+
+        GitHub #1129: ``expected_version`` is forwarded to the service so a
+        concurrent writer is not silently overwritten (``OptimisticLockError``
+        -> caller-retryable ``Version conflict``, mirroring CR-08).
         """
         goal_id = self._require_goal_id(params)
         service = GoalService()
         try:
             goal = service.restore(
-                goal_id, auth_context, change_reason=params.get("change_reason")
+                goal_id,
+                auth_context,
+                change_reason=params.get("change_reason"),
+                expected_version=params.get("expected_version"),
             )
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
         except PermissionDeniedError as exc:
             return ToolResult.error("PERMISSION_DENIED", str(exc))
+        except OptimisticLockError as exc:
+            # GitHub #1129: same mapping as goal.transition (CR-08).
+            return ToolResult.error("VALIDATION_ERROR", f"Version conflict: {exc}")
         except ValidationError as exc:
             return self._invalid_target_state_error(
                 service, goal_id, auth_context, str(exc)
@@ -905,6 +958,16 @@ class MainGoalToolGroup(BaseToolGroup):
                             "supplied when omitted."
                         ),
                     },
+                    "expected_version": {
+                        "type": "integer",
+                        "description": (
+                            "Optional last-seen workflow revision of the "
+                            "MainGoal version. When supplied and a concurrent "
+                            "approval has already moved it on, the call is "
+                            "rejected with a version conflict instead of "
+                            "overwriting the winner (GitHub #1129)."
+                        ),
+                    },
                 },
                 "required": ["main_goal_id"],
             },
@@ -990,17 +1053,30 @@ class MainGoalToolGroup(BaseToolGroup):
         status}``. A client that renders the result straight away would show an
         empty MainGoal, so the row is re-read and serialized in full — the same
         lesson the REST ``MainGoalViewSet.approve`` action learned.
+
+        GitHub #1129: ``expected_version`` is forwarded to the service so a
+        concurrent approval is not silently overwritten. A lost race raises
+        ``OptimisticLockError`` and is mapped to the same caller-retryable
+        conflict ``goal.transition`` reports (CR-08).
         """
         main_goal_id = require_uuid(params, "main_goal_id")
         change_reason = params.get("change_reason")
         service = MainGoalService()
         try:
-            service.approve(main_goal_id, auth_context, change_reason=change_reason)
+            service.approve(
+                main_goal_id,
+                auth_context,
+                change_reason=change_reason,
+                expected_version=params.get("expected_version"),
+            )
             result = _main_goal_payload(service.get(main_goal_id, auth_context))
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
         except PermissionDeniedError as exc:
             return ToolResult.error("PERMISSION_DENIED", str(exc))
+        except OptimisticLockError as exc:
+            # GitHub #1129: same mapping as goal.transition (CR-08).
+            return ToolResult.error("VALIDATION_ERROR", f"Version conflict: {exc}")
         except ValidationError as exc:
             return ToolResult.error("VALIDATION_ERROR", str(exc))
         return ToolResult.ok({"main_goal": result})

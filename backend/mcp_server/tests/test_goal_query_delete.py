@@ -61,6 +61,19 @@ def _provision(workspace, *, preset: str, item_type: str) -> None:
         TenantContext.clear_tenant()
 
 
+def _workflow_version(tenant_id, goal_id) -> int:
+    """Read the Goal's current ``WorkflowItemState.version`` (optimistic lock key)."""
+    from workflow.models import WorkflowItemState
+
+    TenantContext.set_tenant(tenant_id)
+    try:
+        return WorkflowItemState.objects.get(
+            item_id=goal_id, item_type="Goal"
+        ).version
+    finally:
+        TenantContext.clear_tenant()
+
+
 # ---------------------------------------------------------------------------
 # goal.query
 # ---------------------------------------------------------------------------
@@ -313,3 +326,88 @@ def test_goal_delete_is_reversible_via_transition():
     )
     assert result.success is True, result.message
     assert result.data["status"] == "Entwurf"
+
+
+# ---------------------------------------------------------------------------
+# expected_version optimistic locking (GitHub #1129)
+#
+# goal.delete (and its goal.outdate / goal.reactivate siblings) used to call
+# the service without the caller's last-seen revision, so two concurrent MCP
+# writers were last-writer-wins. A stale expected_version must now be a
+# caller-retryable conflict that leaves the winner's state untouched.
+# ---------------------------------------------------------------------------
+
+
+def test_goal_delete_stale_expected_version_is_rejected_without_overwrite():
+    tenant, workspace = _tenant_and_workspace("I1129-D1", name="W9", goals_enabled=True)
+    _provision(workspace, preset="goal_default", item_type="Goal")
+    ctx = _ctx(tenant_id=tenant.id)
+    group = GoalToolGroup()
+
+    created = group.execute_tool(
+        tool_name="goal.create",
+        params={"workspace_id": str(workspace.id), "title": "Goal A"},
+        auth_context=ctx,
+        api_key=VALID_API_KEY,
+    )
+    goal_id = uuid.UUID(created.data["id"])
+    stale = _workflow_version(tenant.id, goal_id)
+
+    # Another session moves the version on: its revision is now newer than
+    # the one this caller saw.
+    moved = group.execute_tool(
+        tool_name="goal.transition",
+        params={
+            "goal_id": str(goal_id),
+            "target_state": "Freigegeben",
+            "change_reason": "first session wins",
+        },
+        auth_context=ctx,
+        api_key=VALID_API_KEY,
+    )
+    assert moved.success is True, moved.message
+
+    result = group.execute_tool(
+        tool_name="goal.delete",
+        params={"goal_id": str(goal_id), "expected_version": stale},
+        auth_context=ctx,
+        api_key=VALID_API_KEY,
+    )
+
+    assert result.success is False
+    assert "Version conflict" in (result.message or ""), result.message
+
+    # No last-writer-wins: the winner's state survives the rejected delete.
+    read = group.execute_tool(
+        tool_name="goal.read",
+        params={"goal_id": str(goal_id)},
+        auth_context=ctx,
+        api_key=VALID_API_KEY,
+    )
+    assert read.data["status"] == "Freigegeben"
+
+
+def test_goal_delete_current_expected_version_succeeds():
+    tenant, workspace = _tenant_and_workspace("I1129-D2", name="W10", goals_enabled=True)
+    _provision(workspace, preset="goal_default", item_type="Goal")
+    ctx = _ctx(tenant_id=tenant.id)
+    group = GoalToolGroup()
+
+    created = group.execute_tool(
+        tool_name="goal.create",
+        params={"workspace_id": str(workspace.id), "title": "Goal A"},
+        auth_context=ctx,
+        api_key=VALID_API_KEY,
+    )
+    goal_id = uuid.UUID(created.data["id"])
+    current = _workflow_version(tenant.id, goal_id)
+
+    result = group.execute_tool(
+        tool_name="goal.delete",
+        params={"goal_id": str(goal_id), "expected_version": current},
+        auth_context=ctx,
+        api_key=VALID_API_KEY,
+    )
+
+    assert result.success is True, result.message
+    assert result.data["status"] == "Archiviert"
