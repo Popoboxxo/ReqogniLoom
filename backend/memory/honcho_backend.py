@@ -24,7 +24,7 @@ the external service -- a real cross-tenant data leak. All data methods route
 their ids through :meth:`_peer_id` / :meth:`_workspace_id` /
 :meth:`_honcho_workspace_id`; none of them ever passes a raw ReqogniLoom id.
 
-Verified SDK surface (``honcho-ai==2.3.0``, the PyPI distribution of
+Verified SDK surface (``honcho-ai==2.5.1``, the PyPI distribution of
 ``plastic-labs/honcho``; NOT the unrelated legacy ``honcho`` Procfile
 process-manager package, which is a completely different project):
 
@@ -34,7 +34,7 @@ process-manager package, which is a completely different project):
   ``POST /v3/workspaces/{ws}/peers`` (verified by running the real client;
   the published docs claim peer handles are lazy, which is not true of this
   release), so it must never be called with a throwaway id.
-* ``peer.conclusions`` -> ``ConclusionScope`` (observer == observed == peer),
+* ``peer.conclusions`` -> ``ConclusionsView`` (observer == observed == peer),
   i.e. the peer's self-conclusions, with ``.create()`` / ``.query()`` /
   ``.list()`` / ``.delete()``. "Conclusions" are Honcho's name for the derived
   facts this app calls memory entries.
@@ -166,7 +166,7 @@ while being unable to embed a single memory entry.
 LLM PINNING IS NOT POSSIBLE FROM THIS CLIENT (researched, not assumed)
 ----------------------------------------------------------------------
 Honcho runs its own LLM calls (deriver / dialectic / summary / dream)
-*server-side*. ``honcho-ai==2.3.0`` exposes no provider, model, API-key or
+*server-side*. ``honcho-ai==2.5.1`` exposes no provider, model, API-key or
 base-URL parameter anywhere: neither on the ``Honcho(...)`` constructor
 (``api_key``/``environment``/``base_url``/``workspace_id``/``timeout``/
 ``max_retries``/``default_headers``/``default_query``/``http_client``) nor on
@@ -250,7 +250,7 @@ def _with_engine_enabled(current: Any) -> Any:
     (see :meth:`HonchoMemoryBackend._ensure_engine_configuration`).
 
     Works for both ``SessionConfiguration`` and ``WorkspaceConfiguration`` --
-    the former subclasses the latter unchanged in ``honcho-ai==2.3.0``, so both
+    the former subclasses the latter unchanged in ``honcho-ai==2.5.1``, so both
     expose the same four fields and ``model_copy`` keeps the concrete class.
 
     The SDK is imported lazily (see the module docstring's Global Constraint):
@@ -325,21 +325,26 @@ def _safe_generate_embedding(text: str) -> Optional[List[float]]:
         return None
 
 
-#: Placeholder observer/observed pair used only to reach ``ConclusionScope.delete()``.
+#: Placeholder observer/observed pair used only to construct a
+#: ``ConclusionsView`` whose ``delete()`` is called.
 #:
 #: Deleting a conclusion is a workspace-level operation in Honcho
 #: (``DELETE /v3/workspaces/{workspace_id}/conclusions/{conclusion_id}`` --
 #: the observer/observed pair is not part of the route and ``delete()`` never
-#: reads it), but the SDK only exposes ``delete()`` through a peer-scoped
-#: ``ConclusionScope``.
+#: reads it), but ``honcho-ai==2.5.1`` only exposes ``delete()`` through a
+#: ``ConclusionsView``.
 #:
 #: :meth:`HonchoMemoryBackend._delete_conclusion` therefore constructs a
-#: ``ConclusionScope`` directly instead of going through ``client.peer(...)``.
+#: ``ConclusionsView`` directly instead of going through ``client.peer(...)``.
 #: That is deliberate: ``client.peer()`` is a get-or-create that always POSTs
 #: to ``/peers``, so routing a delete through it would create a junk peer in
 #: every tenant's Honcho workspace -- one that Honcho would then start building
-#: a representation for. The id is deliberately not a valid ``tenant_uuid`` pair
-#: so it can never collide with a real memory peer if it ever does get sent.
+#: a representation for. ``ConclusionsView.__init__`` only stores these four
+#: fields (it makes no network call), and ``delete()`` sends only the workspace
+#: id and the conclusion id (plus the workspace-level ``_ensure_workspace``), so
+#: neither placeholder ever reaches Honcho as a peer. The id is deliberately not
+#: a valid ``tenant_uuid`` pair so it can never collide with a real memory peer
+#: if it ever does get sent.
 _FORGET_SCOPE_PEER = "__reqogniloom_forget__"
 
 
@@ -497,7 +502,7 @@ class HonchoMemoryBackend(MemoryBackend):
         return client.peer(self._scope_peer_id(tenant_id, scope, scope_id))
 
     def _conclusions(self, tenant_id: UUID, scope: str, scope_id: UUID) -> Any:
-        """Return the ``ConclusionScope`` holding this scope's memory entries."""
+        """Return the ``ConclusionsView`` holding this scope's memory entries."""
         return self._peer(tenant_id, scope, scope_id).conclusions
 
     def _delete_conclusion(self, tenant_id: UUID, conclusion_id: str) -> None:
@@ -507,13 +512,13 @@ class HonchoMemoryBackend(MemoryBackend):
         to ``reqogniloom_<tenant_id>`` and that workspace is part of the delete
         route, so an id belonging to another tenant resolves to nothing.
 
-        See :data:`_FORGET_SCOPE_PEER` for why the ``ConclusionScope`` is built
+        See :data:`_FORGET_SCOPE_PEER` for why the ``ConclusionsView`` is built
         directly rather than via ``client.peer(...)``.
         """
-        from honcho.conclusions import ConclusionScope  # honcho-ai, lazy (see _ensure_client)
+        from honcho.conclusions import ConclusionsView  # honcho-ai, lazy (see _ensure_client)
 
         client = self._ensure_client(tenant_id)
-        scope = ConclusionScope(
+        scope = ConclusionsView(
             client,
             self._honcho_workspace_id(tenant_id),
             _FORGET_SCOPE_PEER,
@@ -903,7 +908,7 @@ class HonchoMemoryBackend(MemoryBackend):
         an answer already known to be degraded.
 
         ``get_card()`` rather than the ``card`` attribute: the installed
-        ``honcho-ai==2.3.0`` exposes *both* as methods, and ``card()`` is a
+        ``honcho-ai==2.5.1`` exposes *both* as methods, and ``card()`` is a
         deprecation shim that warns on every call (verified by introspecting the
         SDK in the deployed container).
         """
