@@ -77,12 +77,22 @@ class _Routes:
     def __call__(self, req: urllib.request.Request, timeout: Optional[float] = None) -> _FakeResponse:
         self.requests.append(req)
         self.timeouts.append(timeout)
-        path = urllib.parse.urlsplit(req.full_url).path
-        if path in self.errors:
-            raise self.errors[path]
-        if path not in self.routes:
-            raise AssertionError(f"unexpected request path: {path}")
-        return _FakeResponse(json.dumps(self.routes[path]).encode("utf-8"))
+        parts = urllib.parse.urlsplit(req.full_url)
+        path = parts.path
+        # Exact query-inclusive key wins (needed to serve page=2 differently
+        # from page=1); a bare path key still matches, so existing fixtures
+        # that ignore the query string keep working.
+        key = f"{path}?{parts.query}" if parts.query else path
+        for candidate in (key, path):
+            if candidate in self.errors:
+                raise self.errors[candidate]
+        if key in self.routes:
+            route = self.routes[key]
+        elif path in self.routes:
+            route = self.routes[path]
+        else:
+            raise AssertionError(f"unexpected request path: {key}")
+        return _FakeResponse(json.dumps(route).encode("utf-8"))
 
 
 def _http_error(code: int, body: str) -> urllib.error.HTTPError:
@@ -288,6 +298,76 @@ class ResponseShapeTests(unittest.TestCase):
         with patch("urllib.request.urlopen", routes), self.assertRaises(client_mod.ReqogniLoomError) as ctx:
             client_mod.resolve_workspace_id(client, None)
         self.assertIn("unexpected list response", str(ctx.exception))
+
+
+class PaginationTests(unittest.TestCase):
+    def test_list_workspaces_follows_next_across_pages(self) -> None:
+        routes = _Routes(
+            {
+                "/api/v1/workspaces/": {
+                    "count": 3,
+                    "next": f"{_BASE_URL}/api/v1/workspaces/?page=2",
+                    "previous": None,
+                    "results": [{"id": "ws-1"}, {"id": "ws-2"}],
+                },
+                "/api/v1/workspaces/?page=2": {
+                    "count": 3,
+                    "next": None,
+                    "previous": None,
+                    "results": [{"id": "ws-3"}],
+                },
+            }
+        )
+        with patch("urllib.request.urlopen", routes):
+            workspaces = _client().list_workspaces()
+        self.assertEqual([w["id"] for w in workspaces], ["ws-1", "ws-2", "ws-3"])
+        self.assertEqual(len(routes.requests), 2)
+
+    def test_list_interviews_follows_next_across_pages(self) -> None:
+        first = "/api/v1/interviews/?workspace_id=ws-1&status=in_progress"
+        second = "/api/v1/interviews/?workspace_id=ws-1&status=in_progress&page=2"
+        routes = _Routes(
+            {
+                first: {
+                    "count": 2,
+                    "next": f"{_BASE_URL}{second}",
+                    "previous": None,
+                    "results": [{"id": "sess-1"}],
+                },
+                second: {
+                    "count": 2,
+                    "next": None,
+                    "previous": None,
+                    "results": [{"id": "sess-2"}],
+                },
+            }
+        )
+        with patch("urllib.request.urlopen", routes):
+            sessions = _client().list_interviews("ws-1", status="in_progress")
+        self.assertEqual([s["id"] for s in sessions], ["sess-1", "sess-2"])
+
+    def test_list_workspaces_stops_on_repeated_next(self) -> None:
+        loop_url = f"{_BASE_URL}/api/v1/workspaces/?page=2"
+        routes = _Routes(
+            {
+                "/api/v1/workspaces/": {
+                    "count": 2,
+                    "next": loop_url,
+                    "previous": None,
+                    "results": [{"id": "ws-1"}],
+                },
+                "/api/v1/workspaces/?page=2": {
+                    "count": 2,
+                    "next": loop_url,
+                    "previous": None,
+                    "results": [{"id": "ws-2"}],
+                },
+            }
+        )
+        with patch("urllib.request.urlopen", routes):
+            workspaces = _client().list_workspaces()
+        self.assertEqual([w["id"] for w in workspaces], ["ws-1", "ws-2"])
+        self.assertEqual(len(routes.requests), 2)
 
 
 class ApiKeyTests(unittest.TestCase):

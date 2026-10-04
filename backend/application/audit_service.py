@@ -231,6 +231,15 @@ class AuditReport:
     instead, while ``counts.blockers``/``counts.warnings`` keep describing
     what is actually in ``findings`` (e.g. for the Adopt-workflow's live,
     shrink-on-resolve badge behaviour when the run was not truncated).
+
+    Issue #1150: ``total_blockers_available`` is now the *effective* blocker
+    count — a blocker matched by an active waiver is no longer blocking (see
+    ``baseline_facade``), so it is excluded here too; after a waiver the
+    counter drops by exactly one. ``total_effective_blockers`` is the same
+    value under an explicit name; ``total_suppressed_blockers_available``
+    keeps the suppressed subset visible. ``total_findings_available`` /
+    ``total_warnings_available`` remain raw, pre-waiver counts (nothing is
+    hidden). ``counts.blockers`` stays descriptive of the returned window.
     """
 
     tier: str
@@ -291,6 +300,9 @@ class AuditReport:
             "truncated": self.truncated,
             "total_findings_available": self.total_findings_available,
             "total_blockers_available": self.total_blockers_available,
+            # Issue #1150: explicit alias for the same effective (waiver-aware)
+            # blocker count, kept alongside the historical field name.
+            "total_effective_blockers": self.total_blockers_available,
             "total_warnings_available": self.total_warnings_available,
             # #569, additive: absolute (pre-cap, pre-filter) suppression totals.
             "total_suppressed_available": self.total_suppressed_available,
@@ -871,13 +883,9 @@ class AuditService(ServiceBase):
 
         primary_scope = scopes[0] if scopes else None
         total_findings = len(result.findings)
-        # Full (pre-cap) severity totals for the dashboard's count badges
-        # (BUG-15 follow-up M3) — computed once here over the uncapped
-        # engine result, not over the (possibly capped) report.findings.
-        total_blockers = sum(
-            1 for f in result.findings if f.severity is Severity.BLOCKER
+        total_warnings = sum(
+            1 for f in result.findings if f.severity is Severity.WARNING
         )
-        total_warnings = total_findings - total_blockers
 
         # #569: evaluate suppressions at decision time (D3) — no persisted state,
         # no background job. The full (uncapped) run is the basis for both the
@@ -896,6 +904,21 @@ class AuditService(ServiceBase):
             total_suppressed += 1
             if finding.severity is Severity.BLOCKER:
                 total_suppressed_blockers += 1
+
+        # Issue #1150: a waived blocker no longer blocks (baseline_facade treats
+        # a suppressed blocker as gone), so the effective pre-cap count must not
+        # keep including it. ``total_blockers_available`` now counts the
+        # *effective* blockers (active waivers removed); ``total_effective_blockers``
+        # spells the same value out as an explicit alias for API consumers, and
+        # ``total_suppressed_blockers_available`` preserves the suppressed subset.
+        # ``suppression_by_index`` was built with the same ``now``-aware matcher,
+        # so an expired waiver is not counted as effective there.
+        total_blockers = sum(
+            1
+            for index, finding in enumerate(result.findings)
+            if finding.severity is Severity.BLOCKER
+            and index not in suppression_by_index
+        )
 
         indexed = list(enumerate(result.findings))
         suppressed_filtered = 0

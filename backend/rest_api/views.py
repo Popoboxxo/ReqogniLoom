@@ -34,12 +34,20 @@ from typing import Any, Callable
 import uuid
 from uuid import UUID
 
+from django.conf import settings
 from django.http import Http404, HttpResponse
 from django.utils import timezone
-from drf_spectacular.utils import OpenApiParameter, extend_schema
-from rest_framework import status, viewsets
+from drf_spectacular.utils import (
+    OpenApiParameter,
+    OpenApiRequest,
+    OpenApiResponse,
+    OpenApiTypes,
+    extend_schema,
+    inline_serializer,
+)
+from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import APIException
+from rest_framework.exceptions import APIException, NotFound
 from rest_framework.negotiation import BaseContentNegotiation
 from rest_framework.renderers import JSONRenderer
 from rest_framework.request import Request
@@ -65,7 +73,9 @@ from application.services import (
     WorkspaceService,
     ExportService,
     ReqifExportService,
+    ReqifImportResult,
     ReqifImportService,
+    ReqifParseError,
     ImportService,
     AdrService,
     RiskService,
@@ -76,6 +86,13 @@ from application.services import (
 )
 from application.goal_service import GoalService
 from application.main_goal_service import MainGoalService
+from application.import_idempotency import (
+    IdempotencyConflict,
+    abort as abort_idempotency_key,
+    begin as begin_idempotency_key,
+    compute_fingerprint,
+    finalize_success as finalize_idempotency_success,
+)
 from application.base import (
     SuppressionExpiredError,
     WaiverFindingNotBlockingError,
@@ -159,6 +176,9 @@ from rest_api.serializers import (
     detect_lang,
     extract_preset_tier,
 )
+# INT-06 (findings 075/077/090): the shared error-response schema for the
+# documented error cases on the audited endpoints.
+from rest_api.openapi import ErrorResponseSerializer
 
 # GH-443: every soft-deleting ``destroy()`` below repeats the same paragraph
 # verbatim. That is deliberate duplication, not an oversight: drf-spectacular
@@ -235,6 +255,24 @@ _EXC_TO_CODE: dict[type, str] = {
     NotFoundError: "NOT_FOUND",
     OptimisticLockError: "CONFLICT",
 }
+
+
+def _with_request_id(body: dict[str, Any]) -> dict[str, Any]:
+    """Add ``request_id`` to an error envelope body (ADR-014 §1, finding 077).
+
+    The ``X-Request-ID`` response header already exists
+    (``reqogniloom.middleware.RequestIdMiddleware``); ADR-014 §1 mirrors the
+    same correlation id into the error body so a client can correlate a failed
+    request with the server log without depending on a header alone. The copy
+    is additive and null when no request context is active (e.g. direct view
+    calls in unit tests), never a fabricated id.
+    """
+    from reqogniloom.middleware import get_request_id
+
+    error = body.get("error")
+    if isinstance(error, dict) and "request_id" not in error:
+        error["request_id"] = get_request_id()
+    return body
 
 
 def _service_error_response(exc: Exception, lang: str = "en") -> Response:
@@ -3108,6 +3146,11 @@ class TraceLinkViewSet(BaseEntityViewSet):
                 links_qs = svc.list_links_for_workspace_queryset(
                     workspace_id=workspace_id, ctx=ctx
                 )
+                # INT-05 (AUD-2026-09-073): ``paginate_queryset`` raises DRF's
+                # ``NotFound`` for an invalid ``page`` (0/abc/out-of-range). The
+                # outer ``except NotFound: raise`` below (added ahead of the
+                # broad service handlers) lets it reach the framework as a
+                # **404** instead of being rewritten to a 500.
                 page = self.paginator.paginate_queryset(
                     links_qs, request, view=self
                 )
@@ -3246,6 +3289,13 @@ class TraceLinkViewSet(BaseEntityViewSet):
                 # artifact being viewed is by definition the live one.
                 item["source_is_outdated"] = bool(src.get("is_outdated", False))
                 item["target_is_outdated"] = bool(tgt.get("is_outdated", False))
+        except NotFound:
+            # INT-05 (AUD-2026-09-073): DRF's ``NotFound`` from the paginator is
+            # a legitimate 404 — re-raise it so DRF's exception handler renders
+            # the status, instead of the broad handlers below converting it to a
+            # 500. ``NotFound`` here can only come from pagination (the service
+            # raises ``NotFoundError``, which is a separate class).
+            raise
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
         except Exception as exc:
@@ -6047,7 +6097,7 @@ class AdrViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         inside ``WorkflowFacade.transition``, which this delegates to via
         ``AdrService.transition_status``).
 
-        Body: ``{superseded_by_id, change_reason?, credential?}``.
+        Body: ``{superseded_by_id, change_reason?, credential?, expected_version?}``.
         """
         lang = detect_lang(request)
         superseded_by_raw = request.data.get("superseded_by_id")
@@ -6060,6 +6110,13 @@ class AdrViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             )
         try:
             ctx = get_auth_context(request)
+            # AUD-2026-09-282: this special route used to drop any version
+            # precondition, leaving it last-writer-wins while the generic
+            # ``transitions/`` route is CAS-protected. Forward the client's
+            # ``If-Match``/``expected_version`` into the engine (stale -> 409).
+            expected_version = self.resolve_expected_version_int(
+                request, request.data
+            )
             item = self._svc().transition_status(
                 UUID(pk),
                 "Superseded",
@@ -6067,6 +6124,7 @@ class AdrViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 change_reason=request.data.get("change_reason") or "",
                 superseded_by_id=UUID(str(superseded_by_raw)),
                 credential=request.data.get("credential") or "",
+                expected_version=expected_version,
             )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
@@ -6676,9 +6734,26 @@ class GoalViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             if isinstance(request.data, dict)
             else None
         )
+        # AUD-2026-09-282: forward the client's If-Match/expected_version so
+        # this special route is CAS-protected like the generic one; a stale
+        # revision answers 409 instead of last-writer-wins.
+        try:
+            expected_version = self.resolve_expected_version_int(
+                request, request.data
+            )
+        except ValueError as exc:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         try:
             ctx = get_auth_context(request)
-            item = self._svc().archive(UUID(pk), ctx, change_reason=change_reason)
+            item = self._svc().archive(
+                UUID(pk),
+                ctx,
+                change_reason=change_reason,
+                expected_version=expected_version,
+            )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
         except ValueError:
@@ -6715,9 +6790,24 @@ class GoalViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             if isinstance(request.data, dict)
             else None
         )
+        # AUD-2026-09-282: see outdate() above — same CAS precondition.
+        try:
+            expected_version = self.resolve_expected_version_int(
+                request, request.data
+            )
+        except ValueError as exc:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         try:
             ctx = get_auth_context(request)
-            item = self._svc().restore(UUID(pk), ctx, change_reason=change_reason)
+            item = self._svc().restore(
+                UUID(pk),
+                ctx,
+                change_reason=change_reason,
+                expected_version=expected_version,
+            )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
         except ValueError:
@@ -6886,12 +6976,29 @@ class MainGoalViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         try:
             ctx = get_auth_context(request)
             change_reason = request.data.get("change_reason") if hasattr(request, "data") else None
-            self._svc().approve(UUID(pk), ctx, change_reason=change_reason)
+            # AUD-2026-09-282: this special route used to drop any version
+            # precondition, leaving it last-writer-wins while the generic
+            # ``transitions/`` route is CAS-protected. Forward the client's
+            # ``If-Match``/``expected_version`` into the engine (stale -> 409).
+            expected_version = self.resolve_expected_version_int(
+                request, request.data
+            )
+            self._svc().approve(
+                UUID(pk),
+                ctx,
+                change_reason=change_reason,
+                expected_version=expected_version,
+            )
             # Return the FULL serialized MainGoal (not the service's bare
             # {id, sequence_number, status} dict), matching create/generate/
             # current — the frontend replaces its panel state with this
             # response and would otherwise blank out `content`.
             item = self._svc().get(UUID(pk), ctx)
+        except ValueError as exc:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
         except Exception as exc:
@@ -7468,14 +7575,26 @@ class ChangeRequestViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         change_reason = request.data.get("change_reason", "") or ""
         try:
             ctx = get_auth_context(request)
+            # AUD-2026-09-282: forward the client's If-Match/expected_version so
+            # this special route is CAS-protected like the generic one; a stale
+            # revision answers 409 instead of last-writer-wins.
+            expected_version = self.resolve_expected_version_int(
+                request, request.data
+            )
             item = self._svc().transition_status(
                 cr_id=UUID(pk),
                 target_status=target_status,
                 ctx=ctx,
                 change_reason=change_reason or None,
+                expected_version=expected_version,
             )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
+        except ValueError as exc:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         except Exception as exc:
             return _service_error_response(exc, lang)
         return Response(ChangeRequestSerializer(_cr_to_dict(item)).data)
@@ -7956,16 +8075,26 @@ class CsvImportView(APIView):
     REQ-L2-RF-016: Frontend CSV import UI.
 
     Body: multipart/form-data with:
-        - ``file``: CSV file (RFC 4180, UTF-8).
+        - ``file``: CSV file (RFC 4180, UTF-8, optional UTF-8 BOM).
         - ``entity_type``: "Requirement" | "ArchitectureElement" | "TestCase"
 
+    Headers (contract v2 only, ADR-014 §3):
+        - ``Idempotency-Key`` (optional, opaque, ≤ 255 chars): a replay of the
+          same payload returns the cached body with ``idempotent_replay: true``
+          and the same status; a different payload on the same key is 409
+          ``IDEMPOTENCY_KEY_REUSED``.
+
     Returns:
-        201 with ImportResult summary on success.
-        400 with validation errors (missing file, bad entity_type, malformed CSV,
-        row limit exceeded, per-row validation failures).
+        Legacy (``IMPORT_CONTRACT_V2=false``, default): 201 on success, 400 on
+        validation failure — the pre-ADR response shape, unchanged.
+
+        Contract v2 (ADR-014 §2): 201 when ``succeeded > 0`` and nothing
+        failed, 200 for a purely-skipped (duplicate-only) import, 207 for a
+        partial success and 422 when every row failed.
     """
 
     _VALID_ENTITY_TYPES = {"Requirement", "ArchitectureElement", "TestCase"}
+    _IDEMPOTENCY_ENDPOINT = "workspace-csv-import"
 
     def post(self, request: Request, pk: str = None, **kwargs: Any) -> Response:
         """Handle CSV import POST request."""
@@ -7982,6 +8111,8 @@ class CsvImportView(APIView):
             ctx = get_auth_context(request)
         except Exception as exc:
             return _service_error_response(exc, lang)
+
+        contract_v2 = bool(getattr(settings, "IMPORT_CONTRACT_V2", False))
 
         # --- Validate entity_type ---
         entity_type = request.data.get("entity_type")
@@ -8013,9 +8144,30 @@ class CsvImportView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Read file content (UTF-8)
+        # ADR-014 §2: read the raw bytes once; they also feed the idempotency
+        # fingerprint. Unreadable/0-byte bodies are request-level 400.
         try:
-            csv_text = uploaded_file.read().decode("utf-8")
+            raw_body = uploaded_file.read()
+        except Exception:  # noqa: BLE001 — unreadable upload stream
+            logger.exception("CsvImportView: failed to read uploaded file")
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR", lang, message="CSV file could not be read."
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not raw_body:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message="CSV file is empty."),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Finding 083: decode with ``utf-8-sig`` so an Excel-exported BOM is
+        # stripped instead of corrupting the first header cell ("\ufefftitle").
+        # ``utf-8-sig`` is identical to ``utf-8`` for a BOM-less file.
+        try:
+            csv_text = raw_body.decode("utf-8-sig")
         except UnicodeDecodeError:
             return Response(
                 build_error_response(
@@ -8034,6 +8186,52 @@ class CsvImportView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # --- Optional Idempotency-Key (ADR-014 §3, contract v2) ---
+        idem_key = None
+        fingerprint = None
+        if contract_v2:
+            raw_key = request.headers.get("Idempotency-Key")
+            if raw_key is not None:
+                idem_key = raw_key
+                if not idem_key or len(idem_key) > 255:
+                    return Response(
+                        build_error_response(
+                            "VALIDATION_ERROR",
+                            lang,
+                            message="Idempotency-Key must contain 1 to 255 characters.",
+                        ),
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                fingerprint = compute_fingerprint(
+                    method="POST",
+                    path=request.path,
+                    payload=raw_body,
+                    extra=f"entity_type={entity_type}",
+                )
+                try:
+                    cached = begin_idempotency_key(
+                        tenant_id=ctx.tenant_id,
+                        user_id=ctx.user_id,
+                        endpoint=self._IDEMPOTENCY_ENDPOINT,
+                        key=idem_key,
+                        fingerprint=fingerprint,
+                    )
+                except IdempotencyConflict as conflict:
+                    return self._idempotency_conflict_response(conflict, lang)
+                if cached is not None:
+                    body = dict(cached.body or {})
+                    body["idempotent_replay"] = True
+                    return Response(body, status=cached.status_code)
+
+        def _abort_claim() -> None:
+            if idem_key:
+                abort_idempotency_key(
+                    tenant_id=ctx.tenant_id,
+                    user_id=ctx.user_id,
+                    endpoint=self._IDEMPOTENCY_ENDPOINT,
+                    key=idem_key,
+                )
+
         # --- Delegate to ImportService ---
         try:
             svc = ImportService()
@@ -8044,37 +8242,91 @@ class CsvImportView(APIView):
                 ctx=ctx,
             )
         except ValidationError as exc:
+            _abort_claim()
             return Response(
                 build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
                 status=status.HTTP_400_BAD_REQUEST,
             )
         except NotFoundError as exc:
+            _abort_claim()
             return _service_error_response(exc, lang)
         except PermissionDeniedError as exc:
+            _abort_claim()
             return _service_error_response(exc, lang)
         except Exception as exc:
+            _abort_claim()
             logger.exception("CsvImportView: unhandled exception")
             return _service_error_response(exc, lang)
 
-        # --- Build response ---
-        response_data = {
-            "success": result.success,
-            "imported_count": result.imported_count,
-            "skipped_count": result.skipped_count,
-            "status": result.status,
-            "errors": [
-                {
-                    "row_number": e.row_number,
-                    "field": e.field,
-                    "message": e.message,
-                }
-                for e in result.errors
-            ],
-            "warnings": result.warnings,
-        }
+        result.request_id = result.request_id or str(uuid.uuid4())
 
-        http_status = status.HTTP_201_CREATED if result.success else status.HTTP_400_BAD_REQUEST
-        return Response(response_data, status=http_status)
+        # --- Legacy response (ADR-014 §5 Phase 1 rollback, default) ---
+        if not contract_v2:
+            legacy_body = {
+                "success": result.success,
+                "imported_count": result.imported_count,
+                "skipped_count": result.skipped_count,
+                "status": result.status,
+                "errors": [
+                    {
+                        "row_number": e.row_number,
+                        "field": e.field,
+                        "message": e.message,
+                    }
+                    for e in result.errors
+                ],
+                "warnings": result.warnings,
+            }
+            http_status = (
+                status.HTTP_201_CREATED if result.success else status.HTTP_400_BAD_REQUEST
+            )
+            return Response(legacy_body, status=http_status)
+
+        # --- Contract v2 response (ADR-014 §2) ---
+        body = result.to_dict()
+        counts = result.counts
+        if counts["failed"] == 0:
+            http_status = (
+                status.HTTP_201_CREATED
+                if counts["succeeded"] > 0
+                else status.HTTP_200_OK
+            )
+        else:
+            http_status = (
+                status.HTTP_207_MULTI_STATUS
+                if counts["succeeded"] > 0
+                else status.HTTP_422_UNPROCESSABLE_ENTITY
+            )
+
+        if idem_key:
+            if result.success:
+                # Only terminal successes are replayable (ADR-014 §3).
+                finalize_idempotency_success(
+                    tenant_id=ctx.tenant_id,
+                    user_id=ctx.user_id,
+                    endpoint=self._IDEMPOTENCY_ENDPOINT,
+                    key=idem_key,
+                    fingerprint=fingerprint,
+                    status_code=http_status,
+                    body=body,
+                )
+            else:
+                _abort_claim()
+
+        return Response(body, status=http_status)
+
+    @staticmethod
+    def _idempotency_conflict_response(
+        conflict: IdempotencyConflict, lang: str
+    ) -> Response:
+        """Map an :class:`IdempotencyConflict` to 409 + stable cause code."""
+        resp = Response(
+            build_error_response(conflict.code, lang, message=str(conflict)),
+            status=status.HTTP_409_CONFLICT,
+        )
+        if conflict.retry_after is not None:
+            resp["Retry-After"] = str(conflict.retry_after)
+        return resp
 
 
 # ---------------------------------------------------------------------------
@@ -8187,6 +8439,37 @@ class ReqifExportView(APIView):
         404 if the workspace does not exist in the active tenant.
     """
 
+    @extend_schema(
+        # INT-06 finding 078: the export returns an XML document, but the
+        # generated schema advertised "No response body" — a generated client
+        # could not know the media type. Declare it explicitly.
+        responses={
+            # drf-spectacular's tuple-key form `(status, media_type)` is the
+            # supported way to pin a non-JSON media type (the APIView's default
+            # renderer is JSON, so the export was documented as "No response
+            # body"). The export genuinely serves application/xml.
+            (200, "application/xml"): OpenApiResponse(
+                response=OpenApiTypes.BINARY,
+                description=(
+                    "ReqIF 1.2 XML document "
+                    "(Content-Disposition: attachment; filename \"<slug>.reqif\")."
+                ),
+            ),
+            400: OpenApiResponse(
+                response=ErrorResponseSerializer,
+                description="Workspace ID is required (unreachable via the URL route).",
+            ),
+            404: OpenApiResponse(
+                response=ErrorResponseSerializer,
+                description="Workspace not found in the active tenant.",
+            ),
+        },
+        description=(
+            "Handle ReqIF export GET request.\n\n"
+            "Returns `application/xml` (ReqIF 1.2 document). Errors use the "
+            "standard error envelope and carry `request_id` (ADR-014 §1)."
+        ),
+    )
     def get(self, request: Request, pk: str = None, **kwargs: Any) -> HttpResponse | Response:
         """Handle ReqIF export GET request."""
         lang = detect_lang(request)
@@ -8234,26 +8517,148 @@ class ReqifImportView(APIView):
 
     Body: multipart/form-data with:
         - ``file``: ReqIF 1.2 XML file (.reqif / .xml, UTF-8).
+        - ``entity_type``: optional; if present it must name a known entity
+          type, otherwise the request is rejected with 400.
 
     Query params:
         - ``dry_run``: "true" | "false" (default "false"). When true, the
           whole import pipeline runs and is rolled back — the response
           report reflects what a real import would do without persisting.
 
-    Returns:
-        200 with the import report (counts + errors per entity kind, plus
-        relation counts and warnings) on success, including dry-run.
-        400 on a hard error (missing/empty file, unparseable XML, ReqIF
-        structural violation) — nothing is persisted.
+    Headers:
+        - ``Idempotency-Key`` (optional, opaque, ≤ 255 chars): the first call
+          stores a terminal success; a replay returns the same body/status with
+          ``idempotent_replay: true``. A different payload on the same key is
+          ``409 IDEMPOTENCY_KEY_REUSED``; a concurrent call is ``409
+          IDEMPOTENCY_IN_FLIGHT`` + ``Retry-After`` (ADR-014 §3).
+
+    Returns (ADR-014 §2, contract v2):
+        200 — ``failed == 0`` (success, with or without write effect; a
+              skipped-only document is a success, never a Created).
+        207 Multi-Status — ``succeeded > 0 and failed > 0`` (partial success).
+        422 — ``failed > 0 and succeeded == 0`` (total object failure) or a
+              file-level ``PARSE_ERROR`` (invalid .reqif XML, REQ-L2-RQ-001 AC5).
+        400 — request-level: missing/0-byte file, unknown ``entity_type``,
+              size limit, unreadable body, overlong ``Idempotency-Key``.
+        409 — idempotency key reused / in flight.
+
+    The legacy ``needs``/``requirements``/``relations`` keys stay additive
+    during the deprecation window (§5). Set ``IMPORT_CONTRACT_V2=false`` to
+    fall back to the pre-ADR response (``success`` always True, HTTP 200).
     """
 
+    _VALID_ENTITY_TYPES = {
+        "Requirement",
+        "StakeholderNeed",
+        "ArchitectureElement",
+        "TestCase",
+    }
+    #: Types the ReqIF importer actually derives from the file. The other
+    #: members of ``_VALID_ENTITY_TYPES`` have no ReqIF path, so accepting them
+    #: would be a silent no-op (F10) — they are refused instead.
+    _REQIF_ENTITY_TYPES = {"Requirement", "StakeholderNeed"}
+    _IDEMPOTENCY_ENDPOINT = "workspace-reqif-import"
+
+    @extend_schema(
+        # INT-06 finding 078: the import reads request.FILES, but the generated
+        # schema declared no requestBody at all — a generated client could not
+        # know how to send the file.
+        request=OpenApiRequest(
+            request=inline_serializer(
+                name="ReqifImportUpload",
+                fields={
+                    "file": serializers.FileField(
+                        help_text="ReqIF 1.2 XML file (.reqif / .xml, UTF-8)."
+                    ),
+                    "entity_type": serializers.CharField(
+                        required=False,
+                        help_text=(
+                            "Optional; if present must be 'Requirement' or "
+                            "'StakeholderNeed'."
+                        ),
+                    ),
+                },
+            ),
+            # The view reads request.FILES, i.e. multipart/form-data only.
+        ),
+        parameters=[
+            OpenApiParameter(
+                name="id",
+                type=str,
+                location=OpenApiParameter.PATH,
+                description="Workspace UUID.",
+            ),
+            OpenApiParameter(
+                name="dry_run",
+                type=bool,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "When true the whole import pipeline runs and is rolled "
+                    "back; the report reflects what a real import would do."
+                ),
+            ),
+        ],
+        responses={
+            200: OpenApiResponse(
+                response=None,
+                description=(
+                    "Import result (ADR-014 contract v2): success "
+                    "(`failed == 0`), with or without write effect. Body carries "
+                    "`success`/`counts`/`items`/`request_id`."
+                ),
+            ),
+            207: OpenApiResponse(
+                response=None,
+                description=(
+                    "Partial success (ADR-014 §2): `succeeded > 0 and "
+                    "failed > 0`. Body carries `counts`/`items`/`request_id`."
+                ),
+            ),
+            400: OpenApiResponse(
+                response=ErrorResponseSerializer,
+                description=(
+                    "Request-level error: missing/0-byte file, unknown "
+                    "`entity_type`, size limit, unreadable body, overlong "
+                    "`Idempotency-Key`."
+                ),
+            ),
+            409: OpenApiResponse(
+                response=ErrorResponseSerializer,
+                description=(
+                    "Idempotency-Key reused (`IDEMPOTENCY_KEY_REUSED`) or in "
+                    "flight (`IDEMPOTENCY_IN_FLIGHT`)."
+                ),
+            ),
+            422: OpenApiResponse(
+                response=None,
+                description=(
+                    "Total object failure (ADR-014 §2) or a file-level "
+                    "`PARSE_ERROR` (invalid .reqif XML, REQ-L2-RQ-001 AC5)."
+                ),
+            ),
+            500: OpenApiResponse(
+                response=ErrorResponseSerializer,
+                description="Internal server error.",
+            ),
+        },
+    )
     def post(self, request: Request, pk: str = None, **kwargs: Any) -> Response:
-        """Handle ReqIF import POST request."""
+        """Handle ReqIF import POST request.
+
+        Every response body uses the standard error envelope on failure and
+        carries ``request_id`` (ADR-014 §1, mirrored from ``X-Request-ID``) so
+        a client can correlate a failed import with the server log.
+        """
         lang = detect_lang(request)
 
         if not pk:
             return Response(
-                build_error_response("VALIDATION_ERROR", lang, message="Workspace ID is required"),
+                _with_request_id(
+                    build_error_response(
+                        "VALIDATION_ERROR", lang, message="Workspace ID is required"
+                    )
+                ),
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -8262,38 +8667,141 @@ class ReqifImportView(APIView):
         except Exception as exc:
             return _service_error_response(exc, lang)
 
+        # ADR-014 §5: entity_type handling belongs to the v2 contract. Under
+        # the legacy rollback (IMPORT_CONTRACT_V2=false) the field is ignored
+        # exactly as it was before v2, so the rollback is complete.
+        contract_v2 = bool(getattr(settings, "IMPORT_CONTRACT_V2", False))
+        if contract_v2:
+            # ADR-014 §2: a ReqIF file derives its own entity type, so the
+            # field is accepted only for compatibility. Only types the ReqIF
+            # importer can actually act on are accepted — the pre-v2 allowlist
+            # contained types with no ReqIF path, where the field was a silent
+            # no-op. An unknown *or* ineffective type is a request-level 400.
+            entity_type = request.data.get("entity_type")
+            if entity_type is not None and entity_type not in self._REQIF_ENTITY_TYPES:
+                return Response(
+                    _with_request_id(
+                        build_error_response(
+                            "VALIDATION_ERROR",
+                            lang,
+                            message=(
+                                f"Unsupported entity_type '{entity_type}' for ReqIF "
+                                f"import. Allowed: {sorted(self._REQIF_ENTITY_TYPES)}"
+                            ),
+                        )
+                    ),
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
         uploaded_file = request.FILES.get("file")
         if not uploaded_file:
             return Response(
-                build_error_response(
-                    "VALIDATION_ERROR", lang,
-                    message="No ReqIF file uploaded. Provide a 'file' field in multipart/form-data.",
+                _with_request_id(
+                    build_error_response(
+                        "VALIDATION_ERROR", lang,
+                        message="No ReqIF file uploaded. Provide a 'file' field in multipart/form-data.",
+                    )
                 ),
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # ADR-014 §2: unreadable/0-byte body is a request-level 400. Read the
+        # raw bytes once — they also feed the idempotency fingerprint.
         try:
-            reqif_text = uploaded_file.read().decode("utf-8")
+            raw_body = uploaded_file.read()
+        except Exception:  # noqa: BLE001 — unreadable upload stream
+            logger.exception("ReqifImportView: failed to read uploaded file")
+            return Response(
+                _with_request_id(
+                    build_error_response(
+                        "VALIDATION_ERROR", lang,
+                        message="ReqIF file could not be read.",
+                    )
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not raw_body:
+            return Response(
+                _with_request_id(
+                    build_error_response(
+                        "VALIDATION_ERROR", lang, message="ReqIF file is empty."
+                    )
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            reqif_text = raw_body.decode("utf-8")
         except UnicodeDecodeError:
             return Response(
-                build_error_response(
-                    "VALIDATION_ERROR", lang,
-                    message="ReqIF file must be UTF-8 encoded.",
+                _with_request_id(
+                    build_error_response(
+                        "VALIDATION_ERROR", lang,
+                        message="ReqIF file must be UTF-8 encoded.",
+                    )
                 ),
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
         if not reqif_text.strip():
             return Response(
-                build_error_response(
-                    "VALIDATION_ERROR", lang,
-                    message="ReqIF file is empty.",
+                _with_request_id(
+                    build_error_response(
+                        "VALIDATION_ERROR", lang, message="ReqIF file is empty."
+                    )
                 ),
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
         dry_run_raw = request.query_params.get("dry_run", "false")
         dry_run = str(dry_run_raw).strip().lower() in ("1", "true", "yes")
+
+        # --- Optional Idempotency-Key (ADR-014 §3) ---
+        idem_key = None
+        fingerprint = None
+        if contract_v2:
+            raw_key = request.headers.get("Idempotency-Key")
+            if raw_key is not None:
+                idem_key = raw_key
+                if not idem_key or len(idem_key) > 255:
+                    return Response(
+                        _with_request_id(
+                            build_error_response(
+                                "VALIDATION_ERROR",
+                                lang,
+                                message="Idempotency-Key must contain 1 to 255 characters.",
+                            )
+                        ),
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                fingerprint = compute_fingerprint(
+                    method="POST",
+                    path=request.path,
+                    payload=raw_body,
+                    extra=f"dry_run={dry_run}",
+                )
+                try:
+                    cached = begin_idempotency_key(
+                        tenant_id=ctx.tenant_id,
+                        user_id=ctx.user_id,
+                        endpoint=self._IDEMPOTENCY_ENDPOINT,
+                        key=idem_key,
+                        fingerprint=fingerprint,
+                    )
+                except IdempotencyConflict as conflict:
+                    return self._idempotency_conflict_response(conflict, lang)
+                if cached is not None:
+                    body = dict(cached.body or {})
+                    body["idempotent_replay"] = True
+                    return Response(body, status=cached.status_code)
+
+        def _abort_claim() -> None:
+            if idem_key:
+                abort_idempotency_key(
+                    tenant_id=ctx.tenant_id,
+                    user_id=ctx.user_id,
+                    endpoint=self._IDEMPOTENCY_ENDPOINT,
+                    key=idem_key,
+                )
 
         try:
             svc = ReqifImportService()
@@ -8303,20 +8811,87 @@ class ReqifImportView(APIView):
                 ctx=ctx,
                 dry_run=dry_run,
             )
-        except ValidationError as exc:
+        except ReqifParseError as exc:
+            _abort_claim()
+            if contract_v2:
+                # ADR-014 §2: file-level parse error -> 422 PARSE_ERROR.
+                parse_result = ReqifImportResult.parse_failure(
+                    str(exc), dry_run=dry_run, request_id=str(uuid.uuid4())
+                )
+                return Response(
+                    parse_result.to_dict(),
+                    status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                )
             return Response(
-                build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
+                _with_request_id(
+                    build_error_response("VALIDATION_ERROR", lang, message=str(exc))
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except ValidationError as exc:
+            _abort_claim()
+            return Response(
+                _with_request_id(
+                    build_error_response("VALIDATION_ERROR", lang, message=str(exc))
+                ),
                 status=status.HTTP_400_BAD_REQUEST,
             )
         except NotFoundError as exc:
+            _abort_claim()
             return _service_error_response(exc, lang)
         except PermissionDeniedError as exc:
+            _abort_claim()
             return _service_error_response(exc, lang)
         except Exception as exc:
+            _abort_claim()
             logger.exception("ReqifImportView: unhandled exception")
             return _service_error_response(exc, lang)
 
-        return Response(result.to_dict(), status=status.HTTP_200_OK)
+        if not contract_v2:
+            # ADR-014 §5 rollback: the pre-v2 response (success hard True, 200).
+            legacy_body = {
+                "success": True,
+                "dry_run": result.dry_run,
+                "needs": result.needs.to_dict(),
+                "requirements": result.requirements.to_dict(),
+                "relations": result.relations.to_dict(),
+                "warnings": result.warnings,
+            }
+            return Response(legacy_body, status=status.HTTP_200_OK)
+
+        body = result.to_dict()
+        http_status = result.http_status
+
+        if idem_key:
+            if result.success:
+                # ADR-014 §3: only terminal successes are replayable.
+                finalize_idempotency_success(
+                    tenant_id=ctx.tenant_id,
+                    user_id=ctx.user_id,
+                    endpoint=self._IDEMPOTENCY_ENDPOINT,
+                    key=idem_key,
+                    fingerprint=fingerprint,
+                    status_code=http_status,
+                    body=body,
+                )
+            else:
+                # Partial/total failure is retry-friendly — never cached.
+                _abort_claim()
+
+        return Response(body, status=http_status)
+
+    @staticmethod
+    def _idempotency_conflict_response(
+        conflict: IdempotencyConflict, lang: str
+    ) -> Response:
+        """Map an :class:`IdempotencyConflict` to 409 + stable cause code."""
+        resp = Response(
+            build_error_response(conflict.code, lang, message=str(conflict)),
+            status=status.HTTP_409_CONFLICT,
+        )
+        if conflict.retry_after is not None:
+            resp["Retry-After"] = str(conflict.retry_after)
+        return resp
 
 
 class GlossaryTermViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
@@ -8366,12 +8941,18 @@ class GlossaryTermViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             # REQ-006: include_deleted=true exposes soft-deleted terms (admin use)
             include_deleted = parse_include_deleted(request.query_params)
             terms = self._svc().list_by_workspace(ctx, workspace_id, include_deleted=include_deleted)
-            return self._paginate(
-                request, terms, lambda t: GlossaryTermSerializer(t).data
-            )
         except Exception as e:
             logger.exception("Error in GlossaryTermViewSet.list")
             return _service_error_response(e, lang)
+
+        # INT-05 (AUD-2026-09-073): the pagination call is deliberately kept
+        # *outside* the ``try/except Exception`` above — DRF's ``NotFound``
+        # (invalid ``page``) must propagate to the framework as a **404**
+        # instead of being caught by the broad handler and answered as a 500.
+        # Mirrors ``WorkspaceViewSet.list``.
+        return self._paginate(
+            request, terms, lambda t: GlossaryTermSerializer(t).data
+        )
 
     def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:
         ctx = get_auth_context(request)

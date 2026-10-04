@@ -6,11 +6,14 @@ Registers:
 * :class:`BaselineSnapshot` — immutable baseline header (COMP-BL-003)
 * :class:`BaselineDeltaIndexEntry` — append-only index entry
 
-Tenant isolation:
-    ``BaselineSnapshot`` inherits ``TenantScopedModel`` and uses the
-    ``unscoped()`` manager in admin so all workspaces are visible.
-    ``BaselineDeltaIndexEntry`` is a plain ``models.Model`` (no tenant FK); it
-    uses the default manager.
+Tenant isolation (SEC-04, ADR-011):
+    ``BaselineSnapshot`` inherits ``TenantScopedModel`` and
+    ``TenantScopedAdminMixin`` (``tenant_lookup = 'tenant_id'``).
+    ``BaselineDeltaIndexEntry`` is a plain ``models.Model`` (no tenant FK), so
+    the mixin scopes it through its parent snapshot
+    (``tenant_lookup = None``, ``workspace_lookup`` is unused for a tenant FK;
+    the field path ``baseline__tenant_id`` is used instead). Both are narrowed
+    to the requesting staff user's tenant.
 
 Read-only models:
     ``BaselineDeltaIndexEntry`` is append-only (mirroring the immutability of
@@ -24,11 +27,13 @@ from __future__ import annotations
 
 from django.contrib import admin
 
+from persistence.tenant_admin import TenantScopedAdminMixin
+
 from .models import BaselineDeltaIndexEntry, BaselineSnapshot
 
 
 @admin.register(BaselineSnapshot)
-class BaselineSnapshotAdmin(admin.ModelAdmin):
+class BaselineSnapshotAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
     """Admin view for the immutable baseline header (REQ-L2-BL-001/002/005)."""
 
     list_display = (
@@ -50,19 +55,20 @@ class BaselineSnapshotAdmin(admin.ModelAdmin):
         "version",
     )
 
-    def get_queryset(self, request):
-        # CRITICAL: bypass the tenant-isolating default manager.
-        return BaselineSnapshot.unscoped.all()
-
 
 @admin.register(BaselineDeltaIndexEntry)
-class BaselineDeltaIndexEntryAdmin(admin.ModelAdmin):
+class BaselineDeltaIndexEntryAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
     """Admin view for the append-only baseline delta index.
 
     Read-only: delta entries are immutable (mirroring the parent snapshot).
     The DB trigger in migration 0001_initial rejects UPDATE/DELETE; the admin
     is locked down to read-only for parity.
+
+    No tenant FK of its own: scoped through the parent snapshot's tenant
+    (``baseline__tenant_id``).
     """
+
+    tenant_lookup = "baseline__tenant_id"
 
     list_display = (
         "baseline",

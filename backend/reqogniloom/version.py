@@ -103,6 +103,19 @@ def _resolve_app_version() -> str:
     return _UNKNOWN
 
 
+def get_app_version() -> str:
+    """Public entry point for the human-facing application version (ADR-017).
+
+    Thin wrapper over :func:`_resolve_app_version` so non-view callers (the MCP
+    ``serverInfo``/discovery payloads) depend on a stable public name rather
+    than the private helper. Resolution order stays
+    ``APP_VERSION`` env -> root ``VERSION`` file -> ``"unknown"`` — the single
+    source ``GET /api/v1/version/`` already uses, so the server cannot
+    advertise two different versions.
+    """
+    return _resolve_app_version()
+
+
 class VersionView(APIView):
     """``GET /api/v1/version/`` — deployed build metadata.
 
@@ -136,4 +149,4 @@ class VersionView(APIView):
         )
 
 
-__all__ = ["VersionView"]
+__all__ = ["VersionView", "get_app_version"]

@@ -1,0 +1,104 @@
+---
+type: EVIDENCE
+scope: docker-stack-services
+status: success
+date: 2026-09-29
+author_agent: docker
+---
+
+# Stack-Services (docker compose ps)
+
+Repo: C:\Repositories\ai-native-reqflow-POC
+Branch: chore/system-audit-2026-09 (== main, abd61aed)
+Working tree clean (only untracked `.kimi-code/`, NOT touched by this run).
+Command:
+  docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.override.yml --project-directory . ps
+
+## RESULT (verbatim)
+
+    NAME                                      IMAGE                                                                     COMMAND                  SERVICE           CREATED       STATUS                        PORTS
+    ai-native-reqflow-poc-backend-1           sha256:f45053df0afc25a2c6f255f2e7e6c658618b29c4cda42ef31ded3f52ddc98c00   "sh -c 'python manag…"   backend           2 days ago    Up About a minute (healthy)   0.0.0.0:8001->8000/tcp, [::]:8001->8000/tcp
+    ai-native-reqflow-poc-bluepencil-1        node:22-slim                                                              "docker-entrypoint.s…"   bluepencil        11 days ago   Up About a minute (healthy)
+    ai-native-reqflow-poc-celery-1            sha256:f45053df0afc25a2c6f255f2e7e6c658618b29c4cda42ef31ded3f52ddc98c00   "sh -c 'celery -A re…"   celery            2 days ago    Up About a minute (healthy)   8000/tcp
+    ai-native-reqflow-poc-celery-beat-1       sha256:f45053df0afc25a2c6f255f2e7e6c658618b29c4cda42ef31ded3f52ddc98c00   "sh -c 'celery -A re…"   celery-beat       2 days ago    Up About a minute (healthy)   8000/tcp
+    ai-native-reqflow-poc-frontend-1          ai-native-reqflow-poc-frontend:dev                                        "docker-entrypoint.s…"   frontend          2 days ago    Up About a minute (healthy)   0.0.0.0:5173->5173/tcp, [::]:5173->5173/tcp
+    ai-native-reqflow-poc-postgres-1          pgvector/pgvector:pg16                                                    "docker-entrypoint.s…"   postgres          2 weeks ago   Up About a minute (healthy)   5432/tcp
+    ai-native-reqflow-poc-postgres-backup-1   pgvector/pgvector:pg16                                                    "/bin/bash -c 'set -…"   postgres-backup   2 days ago    Up About a minute             5432/tcp
+    ai-native-reqflow-poc-redis-1             redis:7-alpine                                                            "/bin/sh -c 'if [ -z…"   redis             9 days ago    Up About a minute (healthy)   6379/tcp
+
+## One-shot services (correctly Exited 0, not a failure)
+
+    ai-native-reqflow-poc-migrate-1         Exited (0) 2 days ago
+    ai-native-reqflow-poc-llm-preflight-1   Exited (0) 2 days ago
+
+`migrate` and `llm-preflight` carry `restart: "no"` and are gated by
+`service_completed_successfully`. Exit 0 = contract satisfied.
+
+## Health-check output per service (docker inspect)
+
+    ai-native-reqflow-poc-backend-1        healthy
+    ai-native-reqflow-poc-celery-1          healthy
+    ai-native-reqflow-poc-celery-beat-1     healthy
+    ai-native-reqflow-poc-frontend-1        healthy
+    ai-native-reqflow-poc-postgres-1        healthy
+    ai-native-reqflow-poc-redis-1           healthy
+    ai-native-reqflow-poc-bluepencil-1      healthy
+    ai-native-reqflow-poc-postgres-backup-1  (no healthcheck defined in compose)
+
+## SERVICE INVENTORY — corrects the prior audit finding
+
+`docker compose -f deploy/docker-compose.yml config --services` (9, NOT 8):
+
+    llm-preflight
+    postgres
+    redis
+    celery
+    celery-beat
+    migrate
+    postgres-backup
+    backend
+    frontend
+
+`docker compose -f deploy/docker-compose.minimal.yml config --services` (5):
+
+    postgres
+    migrate
+    redis
+    backend
+    frontend
+
+### Prior finding "Default-Compose hat 8 Services" — REFUTED
+The default stack has **9** services. The 9th is `llm-preflight` (one-shot
+config gate added for #1050), which the prior audit's count predates.
+A 10th container (`bluepencil`, profile-gated) is also running on this host.
+
+### Prior finding "build.sh ohne Wirkung bei pull-basierter Release-Compose" — CONFIRMED (holds)
+`deploy/docker-compose.yml` pins `image: ghcr.io/popoboxxo/reqogniloom-backend:1.8.0-beta.16`
+with **no `build:` section**. Any `build.sh` is therefore a no-op for that file.
+The dev override (`deploy/docker-compose.override.yml`) is what adds `build:`
++ `pull_policy: build` for backend/migrate/celery/celery-beat/frontend.
+Note the running backend/celery/celery-beat containers are the SHARED image
+`sha256:f45053df0...` (built locally), while `llm-preflight` still runs the
+PULLED `ghcr.io/...:1.8.0-beta.16` — i.e. the live stack is a MIX of pulled
+release images and locally built dev images. Audit agents must not assume a
+single image lineage.
+
+### Prior finding "migrate-Service führt DDL aus" — CONFIRMED
+294 rows in `django_migrations`; latest = `persistence.0102_adr_deciders_issue_assignee_artifact_stakeholder`.
+`migrate` also runs the post_migrate self-init (`application.self_init`, REQ-188).
+
+## CAVEATS for downstream agents
+
+1. **Backend host port is 8001, not 8000.** `ports: "${BACKEND_PORT:-8001}:8000"`.
+   `BACKEND_PORT` is NOT set in `deploy/.env`, so the default 8001 applies.
+   Port 8000 is free/unbound on the host.
+2. **Frontend host port is 5173, not 3000.** The dev override uses
+   `ports: !override - "5173:5173"` (Vite dev server). Port 3000 is unbound.
+3. `postgres`, `redis`, `celery`, `celery-beat` publish **no** host ports.
+4. Leftover audit stacks from earlier work are still running and were NOT
+   removed (destructive op, no authorization): `reqlo-audit-w1-test-*`,
+   `reqlo-audit-w0-w1-security-test-*`. They are separate Compose projects and
+   do not collide on host ports.
+5. The stack was **already running** when this audit began — Docker Desktop
+   had not been started, so the `restart: unless-stopped` policy resurrected
+   every container when the engine came up. See stack-composition.log.

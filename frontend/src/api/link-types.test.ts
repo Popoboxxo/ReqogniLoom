@@ -3,14 +3,20 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { apiClient } from "./client";
 import { linkTypesApi } from "./link-types";
 
-vi.mock("./client", () => ({
-  apiClient: {
-    get: vi.fn(),
-    post: vi.fn(),
-    put: vi.fn(),
-    delete: vi.fn(),
-  },
-}));
+// Preserve the real `asList`/type exports (INT-05) while stubbing the HTTP
+// client, so the wrapper's envelope-unwrapping logic is exercised for real.
+vi.mock("./client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./client")>();
+  return {
+    ...actual,
+    apiClient: {
+      get: vi.fn(),
+      post: vi.fn(),
+      put: vi.fn(),
+      delete: vi.fn(),
+    },
+  };
+});
 
 const definition = {
   label: {
@@ -44,7 +50,7 @@ describe("linkTypesApi", () => {
     vi.mocked(apiClient.get).mockResolvedValue([row]);
     const result = await linkTypesApi.listForWorkspace(row.workspace_id);
     expect(apiClient.get).toHaveBeenCalledWith(
-      `/workspaces/${row.workspace_id}/link-type-definitions/`,
+      `/workspaces/${row.workspace_id}/link-type-definitions/?page_size=100`,
     );
     expect(result[0].key).toBe("verifies");
   });
@@ -75,7 +81,21 @@ describe("linkTypesApi", () => {
   it("reads global defaults from the tenant route", async () => {
     vi.mocked(apiClient.get).mockResolvedValue([]);
     await linkTypesApi.listGlobal();
-    expect(apiClient.get).toHaveBeenCalledWith("/link-type-defaults/");
+    expect(apiClient.get).toHaveBeenCalledWith("/link-type-defaults/?page_size=100");
+  });
+
+  it("unwraps the StandardPagination envelope from the backend (INT-05)", async () => {
+    vi.mocked(apiClient.get).mockResolvedValue({
+      count: 1,
+      next: null,
+      previous: null,
+      page_size: 100,
+      max_page_size: 100,
+      results: [row],
+    });
+    const result = await linkTypesApi.listForWorkspace(row.workspace_id);
+    expect(result).toHaveLength(1);
+    expect(result[0].key).toBe("verifies");
   });
 
   it("creates a global type with key and definition", async () => {

@@ -32,7 +32,7 @@ from auth_tenancy.rest import HasOperationPermission
 from auth_tenancy.services import AuthorizationService
 from auth_tenancy.services.authorization import LastAdminError
 from auth_tenancy.services.user_account import UserAccountService
-from rest_api.serializers import build_error_response
+from rest_api.serializers import StandardPagination, build_error_response
 
 # No `from persistence.models import User` here on purpose (ADR-01 / REQ-066):
 # this module must stay free of direct model access/imports, so the "user"
@@ -92,6 +92,11 @@ class UserViewSet(ViewSet):
 
     permission_classes = [HasOperationPermission]
 
+    #: INT-05 (AUD-2026-09-074): the list route used to return a bare array and
+    #: ignored ``page``/``page_size``; it now uses the project-wide
+    #: ``StandardPagination`` envelope like every other list route.
+    pagination_class = StandardPagination
+
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self._accounts = UserAccountService()
@@ -107,13 +112,32 @@ class UserViewSet(ViewSet):
             return _err("authentication_required", "Not authenticated", status.HTTP_401_UNAUTHORIZED)
         if not self._authz.is_tenant_admin(user_id=ctx.user_id, tenant_id=ctx.tenant_id):
             return _err("PERMISSION_DENIED", "tenant-admin role required.", status.HTTP_403_FORBIDDEN)
-        users = self._accounts.list_for_tenant(tenant_id=ctx.tenant_id)
-        # Per-row tenant-admin flag so the UI can render "Grant"/"Revoke"
-        # correctly (rather than blindly offering both actions on every row).
-        # N+1 `is_tenant_admin` calls, not a batched query — mirrors the
-        # single-user-at-a-time pattern already used by every other action in
-        # this ViewSet, and tenant user rosters are small (multi-user
-        # management is not built for thousands of users per tenant).
+        users = list(self._accounts.list_for_tenant(tenant_id=ctx.tenant_id))
+
+        # INT-05 (AUD-2026-09-074): paginated via ``StandardPagination``. The
+        # paginator is resolved *outside* any broad ``try/except`` so its DRF
+        # ``NotFound`` (invalid ``page``) propagates as **404** rather than
+        # being swallowed into a 500 (the AUD-2026-09-073 mechanism).
+        paginator: StandardPagination = self.pagination_class()
+        page = paginator.paginate_queryset(users, request, view=self)
+        if page is not None:
+            # Per-row tenant-admin flag so the UI can render "Grant"/"Revoke"
+            # correctly (rather than blindly offering both actions on every
+            # row). N+1 `is_tenant_admin` calls, not a batched query — mirrors
+            # the single-user-at-a-time pattern already used by every other
+            # action in this ViewSet, and tenant user rosters are small
+            # (multi-user management is not built for thousands of users per
+            # tenant). Applied to the current page only, keeping the cost
+            # O(page_size) instead of O(N).
+            rows = [
+                _user_to_dict(
+                    u,
+                    is_tenant_admin=self._authz.is_tenant_admin(user_id=u.id, tenant_id=ctx.tenant_id),
+                )
+                for u in page
+            ]
+            return paginator.get_paginated_response(rows)
+
         return Response(
             [
                 _user_to_dict(

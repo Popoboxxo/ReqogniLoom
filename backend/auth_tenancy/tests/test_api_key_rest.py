@@ -75,15 +75,29 @@ class TestApiKeyList:
         request = factory.get("/api/v1/api-keys/")
         request.auth_context = _make_auth_context()
 
-        view = ApiKeyViewSet()
-        view._authn = mock_instance
-        response = view.list(request)
+        # Exercise the endpoint through DRF dispatch: ``list`` runs
+        # ``StandardPagination``, which requires a DRF ``Request`` (it reads
+        # ``request.query_params``). Calling ``view.list`` with the raw
+        # WSGIRequest bypassed that wrapper and crashed. The authn/permission/
+        # throttle gates are disabled for this focused test; the patched
+        # ``AuthenticationService`` is still what ``__init__`` builds.
+        view = ApiKeyViewSet.as_view(
+            {"get": "list"},
+            authentication_classes=[],
+            permission_classes=[],
+            throttle_classes=[],
+        )
+        response = view(request)
 
         assert response.status_code == status.HTTP_200_OK
         body = response.data
-        assert isinstance(body, list)
-        assert len(body) == 2
-        for entry in body:
+        # INT-05: list is paginated via the shared StandardPagination envelope.
+        assert body["count"] == 2
+        assert body["page_size"] == 25
+        assert body["max_page_size"] == 100
+        entries = body["results"]
+        assert len(entries) == 2
+        for entry in entries:
             assert "id" in entry
             assert "name" in entry
             assert "created_at" in entry

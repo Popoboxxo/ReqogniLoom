@@ -219,11 +219,101 @@ flush is needed for a test.
 
 ---
 
+## 6. Restore — a backup is only proven by restoring it (ADR-012, DATA-02)
+
+Backup and restore have exactly **one** source of truth (ADR-012): the
+`postgres-backup` sidecar. The former `scripts/backup.sh` / `scripts/restore.sh`
+were removed — they could never succeed, and their in-place `--clean --if-exists`
+restore was not atomic. There is no second path.
+
+### 6.1 Format / location contract
+
+| Property | Value |
+|----------|-------|
+| Producer | `postgres-backup` sidecar only (`deploy/docker-compose.yml`) |
+| Format | plain `pg_dump` SQL, gzip-compressed: **`reqogniloom_<YYYYmmdd_HHMMSS>.sql.gz`** |
+| Location | named Docker volume **`postgres_backup_data`**, mounted at `/backups` inside the sidecar — **never** a host `./backups` folder |
+| Marker | `/backups/.last_backup_status` = `<iso8601> status=<ok\|failed\|offhost_failed> copy_blocks=<n> file=<path>` |
+| Retention | newest `BACKUP_RETENTION` dumps (default 7) every `BACKUP_INTERVAL` s (default 21600 = 6 h) → default horizon ≈ 42 h |
+| Not part of the contract | no `.dump`/`.sql`-only variant, no second producer |
+
+The recovery horizon is only `BACKUP_RETENTION × BACKUP_INTERVAL`; widen both in
+`.env` for a longer on-host history.
+
+### 6.2 Off-host export (opt-in, DATA-02)
+
+```bash
+# .env: an absolute path on a genuinely separate filesystem/remote mount
+BACKUP_OFFHOST_DIR=/mnt/nfs/reqlo-backups
+
+docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.offhost.yml \
+  --project-directory . up -d postgres-backup
+```
+
+The sidecar then copies each verified `.sql.gz` to the mount. If the copy fails
+the **local dump is kept** and the run reports `status=offhost_failed` (non-zero)
+— an absent off-host copy is never silent. Without the overlay nothing changes.
+
+**Residual risks (ADR-012 — named, not fixed here):** the exported artifact is
+still **unencrypted** (`gzip` is compression, not encryption); **remote
+retention is not implemented** (the sidecar prunes only the local volume); and
+the repository cannot verify that the configured path is genuinely off-host.
+Media/user uploads are not in the dump and the **minimal stack has no sidecar at
+all** (`docker-compose.minimal.yml`) — those two require a manual route.
+
+### 6.3 Atomic restore into an isolated target
+
+Never restore into the live database and never run `--clean --if-exists` against
+it. The procedure below creates a **throwaway target**, restores the newest real
+dump in **one transaction** (`--single-transaction`: any error rolls the whole
+restore back) and leaves the live database untouched.
+
+```bash
+PG_IMAGE=pgvector/pgvector:pg16
+VOLUME="$(docker volume ls -q --filter name=postgres_backup_data | head -1)"
+NET=reqlo-restore-$$; TGT=reqlo-restore-pg-$$
+
+docker network create "$NET"
+docker run -d --name "$TGT" --network "$NET" --network-alias target \
+  -e POSTGRES_DB=restored -e POSTGRES_USER=rt -e POSTGRES_PASSWORD=rt "$PG_IMAGE"
+until docker exec "$TGT" pg_isready -U rt -d restored >/dev/null 2>&1; do sleep 2; done
+
+docker run --rm --network "$NET" -v "$VOLUME":/backups:ro -e PGPASSWORD=rt \
+  "$PG_IMAGE" bash -c '
+    set -euo pipefail
+    f=$(ls -1t /backups/reqogniloom_*.sql.gz | head -1)
+    echo "restoring $f"
+    gzip -t "$f"
+    gunzip -c "$f" | psql -h target -U rt -d restored \
+      --single-transaction -v ON_ERROR_STOP=1 -q -o /dev/null
+    echo "restore committed"
+  '
+
+# inspect (optional):  docker exec "$TGT" psql -U rt -d restored -c '\dt'
+docker rm -f "$TGT"; docker network rm "$NET"
+```
+
+`exit 0` + `restore committed` means the dump is restorable. Any error aborts the
+transaction and leaves the target with zero tables — that is the property that
+replaces the old non-atomic restore.
+
+**Automated gate (preferred):** `deploy/verify-restore.sh` runs this whole
+procedure against a self-contained 15-table source using the **real** inlined
+sidecar command block, asserts **15/15 tables / 0 errors**, and proves that an
+injected error rolls back to zero tables.
+
+```bash
+deploy/verify-restore.sh
+```
+
+---
+
 ## Gate summary
 
 | # | Check | PASS signal |
 |---|-------|-------------|
 | #1074 | `COPY` blocks in the newest dump + `status=ok`; `BACKUP_ONCE` run exits 0 | `COPY blocks >= 1` |
+| ADR-012 | `deploy/verify-restore.sh` / §6 atomic isolated restore | ALL CASES PASSED (15/15, 0 errors, rollback) |
 | #1053 | `/health` `status: ok`, `embedding_dimensions` not `mismatch` | both |
 | #1050 | `llm-preflight` OK, session reaches the container, one real LLM call succeeds | no `MissingSessionID` |
 | #1051 | Honcho logs `derived x-opencode-session for 9 engine module(s)` | present |
@@ -235,4 +325,6 @@ flush is needed for a test.
 #1074 (empty-but-successful backup), #1054 (nginx stale backend IP),
 #1050 (missing `LLM_OPENCODE_SESSION`), #1051 (Honcho engine modules cannot
 authenticate), #1052 (no Honcho deriver/queue worker), #1053
-(`align_embedding_dimensions` fails against the app role).
+(`align_embedding_dimensions` fails against the app role),
+ADR-012 (sidecar is the single backup source; the dead `scripts/backup.sh` /
+`scripts/restore.sh` were removed; §6 is the atomic restore contract).

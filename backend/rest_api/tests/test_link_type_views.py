@@ -54,7 +54,11 @@ def test_global_list_returns_the_seeded_types(api):
     client, _ws = api
     response = client.get("/api/v1/link-type-defaults/")
     assert response.status_code == 200
-    assert {row["key"] for row in response.json()} >= {"verifies", "derives-from"}
+    # INT-05 (AUD-2026-09-074): the route now answers with the
+    # StandardPagination envelope instead of a bare array.
+    body = response.json()
+    assert {"count", "next", "previous", "page_size", "max_page_size", "results"} <= body.keys()
+    assert {row["key"] for row in body["results"]} >= {"verifies", "derives-from"}
 
 
 @pytest.mark.django_db
@@ -111,9 +115,11 @@ def test_workspace_list_returns_resolved_rows(api):
     client, ws = api
     response = client.get(f"/api/v1/workspaces/{ws.id}/link-type-definitions/")
     assert response.status_code == 200
+    # INT-05 (AUD-2026-09-074): StandardPagination envelope, not a bare array.
     body = response.json()
-    assert all("is_customized" in row for row in body)
-    assert all("definition" in row for row in body)
+    assert {"count", "results"} <= body.keys()
+    assert all("is_customized" in row for row in body["results"])
+    assert all("definition" in row for row in body["results"])
 
 
 @pytest.mark.django_db

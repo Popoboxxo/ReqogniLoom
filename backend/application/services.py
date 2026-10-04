@@ -180,6 +180,7 @@ from application.reqif_import_service import (  # noqa: F401,E402
     ReqifEntityReport,
     ReqifImportResult,
     ReqifImportService,
+    ReqifParseError,
 )
 
 # ---------------------------------------------------------------------------
@@ -276,6 +277,7 @@ __all__ = [
     # COMP-AS-008b ReqIF 1.2 import (REQ-147)
     "ReqifImportService",
     "ReqifImportResult",
+    "ReqifParseError",
     "ReqifEntityReport",
     # Datenmodell-Konsolidierung Phase 5 — ArtifactVersionService
     "ArtifactVersionService",

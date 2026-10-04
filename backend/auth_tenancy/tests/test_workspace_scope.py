@@ -10,7 +10,11 @@ from __future__ import annotations
 
 import uuid
 
-from auth_tenancy.workspace_scope import resolve_request_workspace_id
+from auth_tenancy.workspace_scope import (
+    resolve_create_workspace_mismatch,
+    resolve_request_named_workspace_id,
+    resolve_request_workspace_id,
+)
 
 
 class _Match:
@@ -102,13 +106,41 @@ def test_body_ignored_for_safe_methods() -> None:
     assert resolve_request_workspace_id(request) is None
 
 
-def test_body_ignored_for_non_json_content_type() -> None:
+def test_body_ignored_for_unsupported_content_type() -> None:
+    """Only JSON/form-urlencoded/multipart bodies can name the workspace.
+
+    A plain-text/XML body is not parsed for a workspace id; the request falls
+    through to the view's own handling. (Before ADR-013 this test asserted
+    multipart was ignored — that was the create bypass M1 closes.)
+    """
     request = _Request(
         method="POST",
-        content_type="multipart/form-data; boundary=x",
+        content_type="text/plain",
         data={"workspace_id": str(uuid.uuid4())},
     )
     assert resolve_request_workspace_id(request) is None
+
+
+def test_resolves_form_urlencoded_body_on_write_methods() -> None:
+    """A form-encoded create must name its target workspace (SEC-02 M1)."""
+    ws = uuid.uuid4()
+    request = _Request(
+        method="POST",
+        content_type="application/x-www-form-urlencoded",
+        data={"workspace_id": str(ws)},
+    )
+    assert resolve_request_workspace_id(request) == ws
+
+
+def test_resolves_multipart_body_on_write_methods() -> None:
+    """A multipart create must name its target workspace (SEC-02 M1)."""
+    ws = uuid.uuid4()
+    request = _Request(
+        method="POST",
+        content_type="multipart/form-data; boundary=x",
+        data={"workspace_id": str(ws)},
+    )
+    assert resolve_request_workspace_id(request) == ws
 
 
 def test_malformed_values_yield_none() -> None:
@@ -130,3 +162,105 @@ def test_non_dict_body_yields_none() -> None:
 
 def test_request_without_resolver_match_yields_none() -> None:
     assert resolve_request_workspace_id(_Request()) is None
+
+
+# ---------------------------------------------------------------------------
+# SEC-02 review residual — body is authoritative over query on a create, and a
+# URL/query-vs-body mismatch is rejected (ADR-013 amendment)
+# ---------------------------------------------------------------------------
+
+
+def test_body_wins_over_query_on_write_methods() -> None:
+    """A flat create persists the body value, so it must scope authorization.
+
+    Regression for the residual: a query parameter named workspace A scoped the
+    caller's roles to A while the body persisted into workspace B.
+    """
+    query_ws, body_ws = uuid.uuid4(), uuid.uuid4()
+    request = _Request(
+        method="POST",
+        query_params={"workspace_id": str(query_ws)},
+        data={"workspace_id": str(body_ws)},
+    )
+    assert resolve_request_workspace_id(request) == body_ws
+
+
+def test_url_kwarg_still_wins_over_body_on_nested_route() -> None:
+    """A nested route's routed workspace stays authoritative (view persists it).
+
+    The body must never override the URL, or auth scoping and persistence would
+    diverge in the other direction.
+    """
+    routed, body_ws = uuid.uuid4(), uuid.uuid4()
+    request = _Request(
+        method="POST",
+        resolver_match=_Match(
+            {"workspace_pk": str(routed)}, route="api/v1/workspaces/<uuid:workspace_pk>/needs/"
+        ),
+        query_params={"workspace_id": str(routed)},
+        data={"workspace_id": str(body_ws)},
+    )
+    assert resolve_request_workspace_id(request) == routed
+
+
+def test_request_named_workspace_ignores_body() -> None:
+    query_ws = uuid.uuid4()
+    request = _Request(
+        method="POST",
+        query_params={"workspace_id": str(query_ws)},
+        data={"workspace_id": str(uuid.uuid4())},
+    )
+    assert resolve_request_named_workspace_id(request) == query_ws
+
+
+def test_create_workspace_mismatch_detects_query_vs_body() -> None:
+    request = _Request(
+        method="POST",
+        query_params={"workspace_id": str(uuid.uuid4())},
+        data={"workspace_id": str(uuid.uuid4())},
+    )
+    assert resolve_create_workspace_mismatch(request) is True
+
+
+def test_create_workspace_mismatch_detects_url_vs_body() -> None:
+    request = _Request(
+        method="POST",
+        resolver_match=_Match(
+            {"workspace_pk": str(uuid.uuid4())}, route="api/v1/workspaces/<uuid:workspace_pk>/needs/"
+        ),
+        data={"workspace_id": str(uuid.uuid4())},
+    )
+    assert resolve_create_workspace_mismatch(request) is True
+
+
+def test_create_workspace_mismatch_false_when_consistent() -> None:
+    ws = uuid.uuid4()
+    request = _Request(
+        method="POST",
+        query_params={"workspace_id": str(ws)},
+        data={"workspace_id": str(ws)},
+    )
+    assert resolve_create_workspace_mismatch(request) is False
+
+
+def test_create_workspace_mismatch_false_for_safe_methods() -> None:
+    request = _Request(
+        method="GET",
+        query_params={"workspace_id": str(uuid.uuid4())},
+        data={"workspace_id": str(uuid.uuid4())},
+    )
+    assert resolve_create_workspace_mismatch(request) is False
+
+
+def test_create_workspace_mismatch_false_when_body_only() -> None:
+    request = _Request(method="POST", data={"workspace_id": str(uuid.uuid4())})
+    assert resolve_create_workspace_mismatch(request) is False
+
+
+def test_create_workspace_mismatch_false_for_malformed_values() -> None:
+    request = _Request(
+        method="POST",
+        query_params={"workspace_id": "not-a-uuid"},
+        data={"workspace_id": str(uuid.uuid4())},
+    )
+    assert resolve_create_workspace_mismatch(request) is False
