@@ -253,7 +253,10 @@ describe("CsvImport ReqIF v2 outcome (ADR-014)", () => {
     importReqifMock.mockReset();
   });
 
-  afterEach(() => cleanup());
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
 
   async function pickReqif(
     user: ReturnType<typeof userEvent.setup>,
@@ -315,5 +318,62 @@ describe("CsvImport ReqIF v2 outcome (ADR-014)", () => {
     await user.click(screen.getByTestId("reqif-import-btn"));
 
     expect(await screen.findByTestId("reqif-import-replay-badge")).toBeInTheDocument();
+  });
+
+  it("falls back to a v4 UUID when crypto.randomUUID is unavailable (#1128)", async () => {
+    // Secure-context API missing — e.g. a plain-HTTP origin. `getRandomValues`
+    // is still there, so a real RFC4122 v4 UUID must be synthesized.
+    vi.stubGlobal("crypto", {
+      getRandomValues: (array: Uint8Array): Uint8Array => {
+        array.fill(0);
+        return array;
+      },
+    });
+
+    const user = userEvent.setup();
+    importReqifMock.mockResolvedValue({
+      success: true,
+      dry_run: false,
+      contract: "v2",
+      counts: { succeeded: 1, skipped: 0, failed: 0, total: 1 },
+      needs: reqifEnv({ created: 1 }),
+      requirements: reqifEnv(),
+      relations: reqifEnv(),
+      warnings: [],
+    });
+
+    render(<CsvImport />);
+    await pickReqif(user);
+    await user.click(screen.getByTestId("reqif-import-btn"));
+
+    await waitFor(() => expect(importReqifMock).toHaveBeenCalled());
+    // All-zero bytes with version/variant bits set → deterministic UUID.
+    expect(importReqifMock.mock.calls[0][3]).toBe(
+      "reqif-00000000-0000-4000-8000-000000000000"
+    );
+  });
+
+  it("falls back to a time-random id when crypto is entirely absent (#1128)", async () => {
+    // No `crypto` at all — the date/random style from canvas-geometry.ts.
+    vi.stubGlobal("crypto", {});
+
+    const user = userEvent.setup();
+    importReqifMock.mockResolvedValue({
+      success: true,
+      dry_run: false,
+      contract: "v2",
+      counts: { succeeded: 1, skipped: 0, failed: 0, total: 1 },
+      needs: reqifEnv({ created: 1 }),
+      requirements: reqifEnv(),
+      relations: reqifEnv(),
+      warnings: [],
+    });
+
+    render(<CsvImport />);
+    await pickReqif(user);
+    await user.click(screen.getByTestId("reqif-import-btn"));
+
+    await waitFor(() => expect(importReqifMock).toHaveBeenCalled());
+    expect(importReqifMock.mock.calls[0][3]).toMatch(/^reqif-\d+-[0-9a-z]+$/);
   });
 });
