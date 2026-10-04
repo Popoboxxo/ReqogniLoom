@@ -186,6 +186,20 @@ CSRF_TRUSTED_ORIGINS = [
     "http://127.0.0.1:3000",
 ]
 
+# Issue #1135: the admin brute-force lockout thresholds are read from the
+# environment via decouple in settings.py, so a stray ADMIN_LOGIN_LOCKOUT_* var
+# in a developer's .env would silently change suite behaviour — THRESHOLD=1
+# would lock the persisted admin out after a single failure and break
+# persistence/tests/test_admin_login.py. Pinned here to settings.py's documented
+# defaults for the same reason as the throttle rates above: test behaviour must
+# not depend on which env vars the runner happens to export. The dedicated
+# lockout suite (auth_tenancy/tests/test_admin_login_lockout.py) overrides these
+# explicitly via override_settings to assert the limiting behaviour itself.
+ADMIN_LOGIN_LOCKOUT_ENABLED = True
+ADMIN_LOGIN_LOCKOUT_THRESHOLD = 5
+ADMIN_LOGIN_LOCKOUT_WINDOW_SECONDS = 900
+ADMIN_LOGIN_LOCKOUT_DURATION_SECONDS = 900
+
 # ---------------------------------------------------------------------------
 # Static files — plain, non-manifest storage. settings.py's
 # CompressedManifestStaticFilesStorage (SA-40, WhiteNoise) requires a
