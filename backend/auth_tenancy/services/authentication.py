@@ -19,16 +19,18 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import json
 import logging
 import secrets
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 from uuid import UUID
 
 from django.conf import settings
-from django.db import transaction
+from django.db import connection, transaction
 from django.db.models import Q
+from django.utils import timezone as django_timezone
 
 from ..context import AuthMethod, IdentityClaims
 from ..errors import AuthenticationFailed
@@ -66,9 +68,53 @@ class ApiKeyCreationResult:
     plaintext: str
 
 
+class ApiKeyLookupRow(NamedTuple):
+    """One ``public.auth_api_key_lookup`` row (issue #1136, IC-1a-caller).
+
+    The pre-auth credential lookup runs *before* any tenant context exists, so
+    it can no longer go through the ORM (``ApiKey.unscoped``) once the table
+    carries an RLS policy. It is served instead by a ``SECURITY DEFINER``
+    function owned by the table owner, which the app role may ``EXECUTE``.
+    This is the explicit, typed result contract of that function — the columns
+    are named deterministically at the call site (no ``SELECT *``).
+
+    ``expires_at`` is a raw column here, not the model property
+    ``ApiKey.is_expired``: the caller computes expiry in Python so the exact
+    same comparison (``<= now``) and status handling as before apply.
+    """
+
+    id: UUID
+    user_id: UUID
+    key_hash: str
+    revoked_at: datetime | None
+    expires_at: datetime | None
+    principal_type: str
+    scope: str | None
+    workspace_ids: list
+    agent_label: str
+    tenant_id: UUID | None
+    user_is_active: bool
+
+
 def _api_key_pepper() -> str:
     """Return the configured server-side pepper, or ``""`` when unset."""
     return (getattr(settings, "API_KEY_PEPPER", "") or "").strip()
+
+
+def _coerce_workspace_ids(value: object) -> object:
+    """Decode a JSONB ``workspace_ids`` value read through a raw cursor.
+
+    Django parses ``JSONField`` values in the ORM layer (``from_db_value``); a
+    raw ``cursor.execute`` returns jsonb as its text representation. The
+    ``validate_api_key`` contract expects a list, so decode here — a malformed
+    value is returned unchanged and then rejected by the agent predicate.
+    """
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except (TypeError, ValueError):
+            return value
+    return value
 
 
 def _reuse_grace_seconds() -> float:
@@ -489,10 +535,13 @@ class AuthenticationService:
     def validate_api_key(self, plaintext: str) -> IdentityClaims:
         """Validate an API key in constant time (REQ-L3-AT001-002).
 
-        The lookup uses the stored hash as the index key, then re-verifies with
-        ``hmac.compare_digest`` so the decision never short-circuits on a partial
-        match. Lookup uses the ``unscoped`` manager because no tenant context
-        exists yet at authentication time.
+        The lookup is served by the ``SECURITY DEFINER`` function
+        ``public.auth_api_key_lookup`` (issue #1136, IC-1a), not by
+        ``ApiKey.unscoped``: the credential lookup runs before any tenant
+        context exists, so it must escape the new staged RLS policy on
+        ``at_api_key``. The function returns the row; the decision stays here —
+        the stored hash is re-verified with ``hmac.compare_digest`` so it never
+        short-circuits on a partial match.
 
         Args:
             plaintext: The raw API key (e.g. ``reqlo_...``).
@@ -502,19 +551,29 @@ class AuthenticationService:
 
         Raises:
             AuthenticationFailed: ``invalid_api_key`` (unknown / not matching) or
-                ``api_key_revoked``.
+                ``api_key_revoked`` / ``api_key_expired``.
         """
         # SA-34: a key may be stored peppered (new) or unpeppered (issued
         # before API_KEY_PEPPER was configured). Both forms are looked up in one
         # indexed query; only ``hash_api_key`` decides which form new keys get.
         candidates = api_key_hash_candidates(plaintext)
-        api_key = (
-            ApiKey.unscoped.select_related("user")
-            .filter(key_hash__in=candidates)
-            .first()
-        )
-        if api_key is None:
+        # Explicit column list (no ``SELECT *``) so the positional mapping to
+        # ``ApiKeyLookupRow`` is stable and auditable (IC-1a-caller, F-06).
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT id, user_id, key_hash, revoked_at, expires_at, "
+                "principal_type, scope, workspace_ids, agent_label, tenant_id, "
+                "user_is_active FROM public.auth_api_key_lookup(%s)",
+                [list(candidates)],
+            )
+            row = cursor.fetchone()
+        if row is None:
             raise AuthenticationFailed("invalid_api_key")
+        # ``workspace_ids`` is jsonb; a raw cursor hands it back as text, so it
+        # is decoded before the assembled row is validated.
+        values = list(row)
+        values[7] = _coerce_workspace_ids(values[7])
+        api_key = ApiKeyLookupRow(*values)
 
         # Defensive re-verification in constant time (REQ-L3-AT001-002). Every
         # candidate is compared so the loop does not exit early on the first
@@ -528,17 +587,19 @@ class AuthenticationService:
         if api_key.revoked_at is not None:
             raise AuthenticationFailed("api_key_revoked")
 
-        if api_key.is_expired:
+        # ``ApiKeyLookupRow`` carries the raw column, so expire is computed here
+        # exactly as ``ApiKey.is_expired`` did (NULL = never expires).
+        if api_key.expires_at is not None and api_key.expires_at <= django_timezone.now():
             # E2.1: a key with a hard expiry stops authenticating the moment it
             # passes, exactly like a revoked one. Distinct error code so the
             # caller can tell "rotate me" from "you were cut off".
             raise AuthenticationFailed("api_key_expired")
 
-        if api_key.user.tenant_id is None:
+        if api_key.tenant_id is None:
             # Key valid but user has no tenant -> resolution will fail downstream.
             raise AuthenticationFailed("invalid_api_key")
 
-        if not api_key.user.is_active:
+        if not api_key.user_is_active:
             # Fix round 3 (C-2): a deactivated user's API key must stop
             # authenticating immediately, mirroring `resolve_active_user`
             # (bearer-token refresh path) and the login path, both of which
@@ -559,7 +620,7 @@ class AuthenticationService:
 
         return IdentityClaims(
             user_id=api_key.user_id,
-            tenant_id=api_key.user.tenant_id,
+            tenant_id=api_key.tenant_id,
             roles=(),  # roles are resolved by AuthorizationService from UserRole.
             auth_method=AuthMethod.API_KEY,
             api_key_id=api_key.id,

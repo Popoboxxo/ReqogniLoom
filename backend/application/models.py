@@ -115,6 +115,12 @@ class DomainEventOutbox(models.Model):
     event_id = models.UUIDField(unique=True, default=uuid.uuid4, editable=False)
     event_type = models.CharField(max_length=64, choices=EventType.choices)
     workspace_id = models.UUIDField(db_index=True)
+    # Staged RLS (#1136): nullable tenant anchor backfilled from
+    # ``pl_workspace.tenant_id`` (application/0031) and guarded by a
+    # GUC-permissive policy (application/0032, DEFAULT OFF). Still a plain
+    # ``models.Model`` with no Python FK so ``makemigrations --check`` stays
+    # clean — the FK to ``pl_tenant`` is raw SQL only.
+    tenant_id = models.UUIDField(null=True, blank=True, db_index=True)
     entity_id = models.UUIDField()
     payload = models.JSONField(default=dict)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -155,6 +161,8 @@ class DomainEventDLQ(models.Model):
     event_id = models.UUIDField(unique=True)
     event_type = models.CharField(max_length=64)
     workspace_id = models.UUIDField()
+    # Staged RLS (#1136): see DomainEventOutbox.tenant_id.
+    tenant_id = models.UUIDField(null=True, blank=True, db_index=True)
     entity_id = models.UUIDField()
     payload = models.JSONField(default=dict)
     error_message = models.TextField(blank=True)
@@ -177,6 +185,8 @@ class WebhookSubscription(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     workspace_id = models.UUIDField(db_index=True)
+    # Staged RLS (#1136): see DomainEventOutbox.tenant_id.
+    tenant_id = models.UUIDField(null=True, blank=True, db_index=True)
     # Comma-separated event types, e.g. "RequirementCreated,WorkflowTransitioned"
     event_types = models.CharField(max_length=512, default="")
     url = models.URLField(max_length=2048)
@@ -214,6 +224,9 @@ class WebhookDeliveryLog(models.Model):
         on_delete=models.CASCADE,
         related_name="delivery_logs",
     )
+    # Staged RLS (#1136): backfilled from the owning subscription's workspace
+    # (application/0031); guarded by a GUC-permissive policy (application/0032).
+    tenant_id = models.UUIDField(null=True, blank=True, db_index=True)
     event_id = models.UUIDField(db_index=True)
     event_type = models.CharField(max_length=64)
     attempt = models.IntegerField(default=1)
