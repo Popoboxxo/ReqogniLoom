@@ -731,7 +731,12 @@ class AttributeMigrationService(ServiceBase):
                         f"step {index} ({step['op']}) had "
                         f"{outcome['counts']['failed']} failure(s)"
                     )
-            status = self._status_for(steps, write=write, abort=abort)
+            status = self._status_for(
+                steps,
+                write=write,
+                abort=abort,
+                workspaces_selected=scope_effect["workspaces_selected"],
+            )
         except _StepAbort as exc:
             status = "failed"
             logger.warning("AWMS run %s aborted: %s", run.id, exc.message)
@@ -756,6 +761,11 @@ class AttributeMigrationService(ServiceBase):
                 "steps": steps,
                 "summary": summary,
             }
+            # #1146: a zero-match apply gets an explicit diagnostic instead of
+            # an ``applied`` status with matched:0.
+            message = self._empty_selection_message(scope_effect, write=write)
+            if message is not None:
+                report["message"] = message
             run.status = status
             run.finished_at = timezone.now()
             run.counts = {**summary, "target_scope": scope_effect["target_scope"]}
@@ -881,13 +891,42 @@ class AttributeMigrationService(ServiceBase):
         }
 
     @staticmethod
-    def _status_for(steps: list[dict[str, Any]], *, write: bool, abort: bool) -> str:
+    def _status_for(
+        steps: list[dict[str, Any]],
+        *,
+        write: bool,
+        abort: bool,
+        workspaces_selected: int | None = None,
+    ) -> str:
         has_failures = any(step["counts"]["failed"] for step in steps)
         if has_failures:
             return "failed" if abort else "partial"
         if not write:
             return "planned"
+        if workspaces_selected == 0:
+            # #1146: an apply that selected no workspace did nothing. Reporting
+            # ``applied`` here made a plan whose preset matched nothing look
+            # successful while changing zero rows; fail honestly instead.
+            return "failed"
         return "applied"
+
+    @staticmethod
+    def _empty_selection_message(
+        scope_effect: dict[str, Any], *, write: bool
+    ) -> str | None:
+        """Diagnostic for a run whose scope matched zero workspaces (#1146).
+
+        Returns ``None`` for a dry run so its ``planned`` preview semantics stay
+        intact; otherwise a message naming the scope that selected nothing.
+        """
+        if not write or scope_effect["workspaces_selected"] != 0:
+            return None
+        presets = ", ".join(scope_effect["definition_presets"])
+        return (
+            "0 workspaces matched the plan scope "
+            f"(preset: {presets}); nothing was changed. Check scope.preset and "
+            "scope.workspace against the tenant's workspaces."
+        )
 
     def _assert_same_tenant(self, ctx: AuthContext, scope: dict[str, Any]) -> None:
         tenant = scope.get("tenant", "current")
@@ -935,7 +974,16 @@ class AttributeMigrationService(ServiceBase):
         for workspace in qs.order_by("name"):
             preset_name = ""
             if isinstance(workspace.preset, dict):
-                preset_name = str(workspace.preset.get("name", ""))
+                # #1146: API-created workspaces persist the tier under ``tier``
+                # (``{"tier": "standard", ...}``) with no ``name`` key, while
+                # legacy/seeded rows use the older ``{"name": ...}`` shape.
+                # Prefer ``tier``, fall back to ``name`` — the same precedence
+                # ``rest_api.serializers.normalize_preset_blob`` documents.
+                preset_name = str(
+                    workspace.preset.get("tier")
+                    or workspace.preset.get("name")
+                    or ""
+                )
             if presets and preset_name not in presets:
                 continue
             resolved.append({"id": workspace.id, "preset": preset_name})
