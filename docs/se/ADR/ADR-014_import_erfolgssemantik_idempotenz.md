@@ -4,6 +4,7 @@ title: "Fehler-/Erfolgssemantik und Idempotenz von Importen und Outbox: ein Impo
 status: accepted
 date: "2026-10-02"
 accepted_date: "2026-10-02"
+last_updated: "2026-10-04"
 sunset: "2026-12-31"
 deciders: [user, api-specialist]
 affected_reqs: [REQ-147, REQ-L1-034, REQ-L2-RQ-001, REQ-072, REQ-L1-021, REQ-L2-AS-014, REQ-L3-IMP-001, REQ-L3-IMP-002]
@@ -13,7 +14,7 @@ superseded_by: null
 # ADR-014: Fehler-/Erfolgssemantik und Idempotenz von Importen und Outbox
 
 **Status:** accepted
-**Datum:** 2026-10-02 (Erstellung) / 2026-10-02 (Akzeptanz)
+**Datum:** 2026-10-02 (Erstellung) / 2026-10-02 (Akzeptanz) / 2026-10-04 (Finalisierung D2a/D2b, #1128)
 **Entscheider:** user (Entscheidungsinstanz/Freigabe), api-specialist (Autor)
 
 ## Lifecycle-Vermerk
@@ -23,7 +24,7 @@ superseded_by: null
 | 2026-10-02 | `proposed` (erstellt durch `api-specialist`) | Entscheidungsvorlage aus `INTERFACE_CONTRACTS.md` §2/§7.2. |
 | 2026-10-02 | Review durch `concept-reviewer` | Inhaltlich APPROVED nach Re-Review; der zuvor beanstandete Match-Key-/Upsert-Widerspruch ist in §3 aufgelöst (ReqIF = reiner Upsert, `duplicate_policy` nur CSV). |
 | 2026-10-02 | `review → accepted` (durch `se-architect`/User) | Verdikt: Option A verbindlich. Der Vertragsvorschlag aus `INTERFACE_CONTRACTS.md` §2 wird mit der Akzeptanz zum verbindlichen Vertrag. Umsetzung des INT-01-Vollvertrags (Ergebnismodell v2, 207/422, Savepoint, `Idempotency-Key`, ReqIF-Upsert) freigegeben. |
-| 2026-10-04 | Amendment D2a/D2b (Issue #1128) | Fachliche Präzisierung **ohne Statuswechsel** (weiterhin `accepted`): (D2a) der Idempotenz-Fingerprint ist jetzt ein **keyed HMAC-SHA-256** mit serverseitigem Secret statt plain SHA-256; (D2b) `IMPORT_CONTRACT_V2` ist jetzt **standardmäßig `true`** (Phase 2). Body in §5/§7 entsprechend abgeglichen; `status`, `adr_id` und `sunset` unverändert. |
+| 2026-10-04 | `accepted` bleibt; Amendment D2a/D2b (#1128) | Fachliche Präzisierung **ohne Statuswechsel** (weiterhin `accepted`): **D2a:** Fingerprint auf **HMAC-SHA-256 (keyed, serverseitiges Secret)** umgestellt statt plain SHA-256 — ersetzt die frühere SHA-256/unkeyed-Aussage (F6) und löst den Widerspruch zu §7 (Threat Model) auf. **D2b:** `IMPORT_CONTRACT_V2`-**Default auf `on`** gesetzt (zuvor dokumentierter Default `off`); Phase-2-Semantik ist damit Default, das Flag bleibt Rollback-Schalter. Body in §5/§7 entsprechend abgeglichen; `status`, `adr_id` und `sunset` unverändert (kein Statuswechsel, kein Sunset-Wechsel). |
 
 **Amendment 2026-10-04 (Issue #1128, D2a/D2b):** Der Body dieses ADR wurde mit der
 Entscheidung des Amendments abgeglichen — Fingerprint (§5/§7) = keyed HMAC; `IMPORT_CONTRACT_V2`
@@ -441,18 +442,21 @@ eine zweite Schreibwirkung für dasselbe `event_id` entstehen.
 ### 5. Deprecation-Fenster (3-phasig) und Rollback
 
 Kein Breaking Change ohne Fenster (mindestens 2 Minor-Releases **oder** 90 Tage, whichever
-is longer) mit `Deprecation: true`- und `Sunset`-Header. Der konkrete `Sunset`-Wert wird
+is longer) mit `Deprecation: true`- und `Sunset`-Header. Der konkrete `Sunset`-Wert wurde
 **beim Statuswechsel `proposed → accepted`** als `accepted_date + 90 Tage` (ISO-8601,
-HTTP-date) festgeschrieben und dann im Header geführt. Maßgeblich ist das Frontmatter
-`sunset: 2026-12-31`; der Header-Wert ist `Sunset: Thu, 31 Dec 2026 00:00:00 GMT` (der in
-früheren Entwürfen genannte Beispielwert `Wed, 31 Dec 2026 23:59:59 GMT` war fehlerhaft:
-der 31.12.2026 ist ein **Donnerstag**, und der Datumswert wird als Tagesbeginn in GMT
-formatiert). Der Wert wird nicht als Literal dupliziert, sondern über die gemeinsame
-Hilfsfunktion `reqogniloom.health.sunset_header_value` aus der Einstellung
-`IMPORT_CONTRACT_SUNSET` (Default `2026-12-31`) formatiert. Die Header werden **nur** auf
-den **Legacy**-Antworten (`IMPORT_CONTRACT_V2=false`) gesetzt: die abgekündigte Seite des
-Fensters ist der Legacy-Vertrag, nicht die v2-Ersatzantwort (Umsetzungspräzisierung des
-Amendments 2026-10-04).
+HTTP-date) festgeschrieben und wird seither im Header geführt (`accepted_date = 2026-10-02`,
+`sunset = 2026-12-31`, F10). Maßgeblich ist das Frontmatter `sunset: 2026-12-31`; der
+Header-Wert ist `Sunset: Thu, 31 Dec 2026 00:00:00 GMT` (der in früheren Entwürfen genannte
+Beispielwert `Wed, 31 Dec 2026 23:59:59 GMT` war fehlerhaft: der 31.12.2026 ist ein
+**Donnerstag**, und der Datumswert wird als Tagesbeginn in GMT formatiert). Der Wert wird
+nicht als Literal dupliziert, sondern über die gemeinsame Hilfsfunktion
+`reqogniloom.health.sunset_header_value` aus der Einstellung `IMPORT_CONTRACT_SUNSET`
+(Default `2026-12-31`) formatiert. Die Header werden **nur** auf den **Legacy**-Antworten
+(`IMPORT_CONTRACT_V2=false`) gesetzt: die abgekündigte Seite des Fensters ist der
+Legacy-Vertrag, nicht die v2-Ersatzantwort (Umsetzungspräzisierung des Amendments
+2026-10-04). Mit dem Default `IMPORT_CONTRACT_V2 = on` (D2b, 2026-10-04) ist das
+**Phase-2-Verhalten der Default**; das Deprecation-/Sunset-Fenster bleibt davon unberührt
+und gilt weiterhin für die Legacy-Konsumenten der Phase-1-Keys.
 
 | Phase | Inhalt | Bricht |
 |---|---|---|
@@ -460,22 +464,29 @@ Amendments 2026-10-04).
 | **2 — Semantik** | `success = (failed == 0)`; Teilerfolg ⇒ 207, Totalfehler ⇒ 422. | Clients, die `success === true` auch bei `failed > 0` erwarten |
 | **3 — Cleanup** | Legacy-Keys entfernt. | nicht migrierte Clients |
 
+**Flag-Default (D2b, 2026-10-04, #1128):** `IMPORT_CONTRACT_V2` ist **default `on`**;
+damit ist **Phase 2 der Default** (v2-Semantik aktiv), und Phase 3 (Cleanup) wird nach
+Ablauf des Deprecation-/Sunset-Fensters erreicht. Das Setzen auf `off` fährt auf das
+Phase-1-Verhalten zurück.
+
 **Rollback:** Feature-Flag `IMPORT_CONTRACT_V2` (**Default `on`**, Phase 2 — Amendment
-2026-10-04 / D2b); explizites `IMPORT_CONTRACT_V2=false` stellt das Phase-1-Verhalten
-wieder her. Importe sind atomar bzw. je Objekt gekapselt — kein Datenverlust. Der
-`Idempotency-Key`-Replay ist additiv und separat abschaltbar.
+2026-10-04 / D2b, s. Flag-Default); explizites `IMPORT_CONTRACT_V2=false`/`off` stellt das
+Phase-1-Verhalten wieder her. Importe sind atomar bzw. je Objekt gekapselt — kein
+Datenverlust. Der `Idempotency-Key`-Replay ist additiv und separat abschaltbar.
 (Bezug: `INTERFACE_CONTRACTS.md` §2.4 `:165-179`, §2.7 `:201-205`.)
 
-**Umsetzungsvermerk (2026-10-02, INT-01-Vollvertrag):** Die v2-Semantik
+**Umsetzungsvermerk (2026-10-02, INT-01-Vollvertrag; Default aktualisiert 2026-10-04,
+D2b/#1128):** Die v2-Semantik
 (`success ⇔ counts.failed == 0`, 200/207/422, `counts`/`items`/`contract`/
 `idempotent_replay`/`request_id`) ist vollständig implementiert und durch die Suite
-abgedeckt. **Nachtrag (Amendment 2026-10-04 / D2b):** Der Default ist jetzt `on`
-(Phase 2, Consumer-Migration abgeschlossen); die v2-Tests pinnen den Vertrag weiterhin
-explizit per `@override_settings(IMPORT_CONTRACT_V2=True)`, die Legacy-Rollback-Tests
-per `False`. Das Flag ist ein echter Rollback-Schalter: bei `false` werden — neben dem
-Response-Vertrag — auch die `Idempotency-Key`-Verarbeitung und die `entity_type`-Prüfung
-übersprungen, sodass das Verhalten exakt dem Stand vor v2 entspricht, und die
-Legacy-Antworten tragen `Deprecation`/`Sunset`.
+abgedeckt, die den Vertrag weiterhin explizit per
+`@override_settings(IMPORT_CONTRACT_V2=True)` pinnt, die Legacy-Rollback-Tests per `False`.
+Der **Default ist `on`** (`IMPORT_CONTRACT_V2 = True`, Phase 2, Consumer-Migration
+abgeschlossen): Die Phase-2-Semantik ist damit das Standardverhalten, ohne dass eine
+separate Deploy-Entscheidung nötig ist. Das Flag bleibt ein echter **Rollback-Schalter**:
+bei `off` werden — neben dem Response-Vertrag — auch die `Idempotency-Key`-Verarbeitung
+und die `entity_type`-Prüfung übersprungen, sodass das Verhalten exakt dem Stand vor v2
+(Phase 1) entspricht, und die Legacy-Antworten tragen `Deprecation`/`Sunset`.
 
 **Per-Tenant-Limit (Umsetzung §3/§7):** Die Ablage ist pro Tenant begrenzt
 (`IMPORT_IDEMPOTENCY_MAX_KEYS_PER_TENANT`, Default 10000). Beim Anlegen eines *neuen*
@@ -484,9 +495,16 @@ ablaufenden Keys verdrängt, damit ein aktiver Tenant nie dauerhaft ausgesperrt 
 die Ablage durch viele eindeutige Keys nicht unbeschränkt wächst. Der Replay/Takeover
 eines bereits vorhandenen Keys ist davon unberührt.
 
-**Fingerprint-Verfahren (§7, Amendment 2026-10-04 / D2a):** Der Fingerprint ist ein
-**keyed HMAC-SHA-256** über (Methode, Pfad, Payload, `dry_run`) — **nicht** plain SHA-256.
-Der Schlüssel kommt aus `IMPORT_FINGERPRINT_SECRET`; ist die Einstellung leer, wird ein
+**Fingerprint-Verfahren (§7, Entscheidung F6; finalisiert 2026-10-04, D2a/#1128):** Der
+Fingerprint ist ein **HMAC-SHA-256** (keyed) über (Methode, Pfad, Payload, `dry_run`),
+geschlüsselt mit einem **serverseitigen Secret** — **kein unkeyed SHA-256**. Begründung:
+Der HMAC bindet den Fingerprint an ein Server-Secret, sodass ein Angreifer ohne Secret
+den Wert nicht nachbilden und die Ablage nicht als Orakel nutzen kann
+(Defense-in-Depth gegen eine Lese-Offenlegung der `Idempotency-Key`-Ablage). Das Verfahren
+ist damit mit §7 (Threat Model) konsistent; die frühere SHA-256/unkeyed-Aussage samt
+„HMAC als Hardening-Follow-up" ist **ersetzt**. Der Fingerprint wird weiterhin niemals an
+einen Client ausgeliefert und ist strikt per `(tenant_id, user_id)` gescoped. Der
+Schlüssel kommt aus `IMPORT_FINGERPRINT_SECRET`; ist die Einstellung leer, wird ein
 domänengetrennter Schlüssel aus `SECRET_KEY` abgeleitet
 (`sha256("import-fingerprint:" + SECRET_KEY)`), und `manage.py check` meldet
 `application.W001` mit der Empfehlung, in Produktion ein eigenes Secret zu setzen (die
@@ -552,9 +570,10 @@ authentifizierte **REST**-Aufrufe mit Tenant-Kontext.
   pro Key; überlange Keys werden abgelehnt (§3).
 - **Nur Erfolge cachen:** Nur terminale Erfolge werden gespeichert; Fehler werden nicht
   als Dauerergebnis repliziert (§3).
-- **Kein sensitiver Inhalt im Fingerprint:** Fingerprint = keyed Hash (HMAC) über
-  Methode + Pfad + Body-Hash, ohne Klartext-Nutzdaten; Replay nur an denselben
-  `(tenant, user)`; Fehlermeldungen ohne Payload-Inhalt.
+- **Kein sensitiver Inhalt im Fingerprint:** Fingerprint = **HMAC-SHA-256** (keyed,
+  serverseitiges Secret) über Methode + Pfad + Body-Hash, ohne Klartext-Nutzdaten;
+  Replay nur an denselben `(tenant, user)`; Fehlermeldungen ohne Payload-Inhalt
+  (§5, Entscheidung F6 / D2a).
 
 **4. Was sind die Konsequenzen?** Restrisiko: Rate-basierte Enumeration von Keys bleibt
 möglich, wird aber durch Tenant-Scope, TTL und Limit begrenzt; ein geleakter Key

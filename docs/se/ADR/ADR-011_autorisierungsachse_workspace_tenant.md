@@ -3,6 +3,7 @@ adr_id: ADR-011
 title: "Zwei-Ebenen-Autorisierung: Tenant bleibt Isolationshülle, Workspace wird objektabgeleitete Achse mit explizitem Ressourcen-Scope"
 status: accepted
 date: "2026-10-01"
+last_updated: "2026-10-04"
 deciders: [user, senior-developer]
 affected_reqs: [REQ-L0-008, REQ-L1-042, REQ-L1-098, REQ-L2-AS-041, REQ-L2-AT-002, REQ-L2-AT-003, REQ-L2-AT-018, REQ-L2-PL-010, REQ-L2-PL-012, REQ-L2-RA-006]
 superseded_by: null
@@ -30,6 +31,14 @@ REQ-L2-PL-012 (Vollständige Tenant-Isolation), REQ-L2-RA-006 (RBAC-Enforcement 
 Review-Verdikt `concept-reviewer` **APPROVED**, `validator` **COMPLIANT** (MADR-Lifecycle,
 Datum + Grund dokumentiert). `deciders` bleiben `user, senior-developer`; User ist die
 Freigabe-Instanz, die Reviewer ändern den Status nicht.
+
+**Finalbestätigung (2026-10-04, D5):** Die Entscheidung „Workspace ist die führende Ebene
+der Objekt-Autorisierung" (Entscheidung Punkt 2) wird hiermit **final bestätigt**; sie
+bleibt inhaltlich unverändert (`accepted`). Die in `ADR-013` dokumentierte Einschränkung
+für Collection-Routen (`list`/`create`) ist ein Amendment und berührt diese
+Achsenentscheidung nicht. `last_updated` auf `2026-10-04` gesetzt; `date: "2026-10-01"`
+bleibt das ursprüngliche Entscheidungsdatum. Kein Statuswechsel, keine
+Entscheidungsänderung.
 
 ---
 

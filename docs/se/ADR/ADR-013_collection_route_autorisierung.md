@@ -3,7 +3,7 @@ adr_id: ADR-013
 title: "Collection-Route-Regel als einschränkendes Amendment zu ADR-011 §3: List filtert/erfordert Workspace, Create validiert den Ziel-Workspace, 404-vs-403 ohne cross-tenant Existenzleck"
 status: accepted
 date: "2026-10-02"
-last_updated: "2026-10-02"
+last_updated: "2026-10-04"
 deciders: [user, senior-developer]
 affected_reqs: [REQ-L0-008, REQ-L1-010, REQ-L1-039, REQ-L1-042, REQ-L1-098, REQ-L2-AT-002, REQ-L2-AT-003, REQ-L2-AT-018, REQ-L2-RA-006, REQ-L2-PL-010]
 superseded_by: null
@@ -170,6 +170,14 @@ sicher zu erkennen.
    auf das es keine Rolle hat) und ist **kein** Mandantenleck; es wird hier explizit als
    Residual benannt, damit die ADR-Aussage nicht „kein Existenzleck überhaupt"
    überzeichnet.
+   **Finale Entscheidung zum Residual (D1, 2026-10-04, #1131):** Die
+   403-vs-404-Unterscheidung auf **Objekt-Routen** ist **final und akzeptiert**; eine
+   Angleichung an ein einheitliches 404 („uniform-404") wird **nicht** umgesetzt und ist
+   **kein** offener Punkt mehr. Für ein aufgelöstes Objekt im aktiven Tenant gilt
+   dauerhaft: **403 = Objekt existiert, aber dem Aufrufer fehlt eine Rolle**;
+   **404 = Objekt existiert nicht** (bzw. fremd-tenant/malformt). Ein uniformes 404
+   würde diese für legitime Mitglieder nützliche Unterscheidung ersatzlos aufgeben und
+   wurde deshalb nach Abwägung bewusst verworfen.
 
 3. **Rollen-Wiederverwendung statt Doppelprüfung.** Der Auth-Layer
    (`AuthTenancyAuthentication`) leitet den Ziel-Workspace bei Objekt-Routen bereits
@@ -256,6 +264,8 @@ sicher zu erkennen.
    unterscheidbar (deklariert, kein Mandantenleck).
 
 ---
+
+## Konsequenzen
 
 **Positiv:**
 
@@ -430,3 +440,14 @@ Kein Push, kein Tag, kein Merge.*
     Vorgänger-Lauf um 14 (10062 → 10076).
 - Nächster formaler Schritt: Re-Review durch `concept-reviewer` (`accepted` bleibt bis
   dahin bestehen, da der Code-Fix und die Suite die Voraussetzung sind).
+- **2026-10-04 — Finalisierung des Residuals (`accepted` bleibt; D1/#1131).** Grund:
+  Das 403-vs-404-Residual auf **Objekt-Routen** wird hiermit **final und akzeptiert**.
+  Festgehalten: Für ein aufgelöstes Objekt im aktiven Tenant bleiben **403 = Objekt
+  existiert ohne Rolle** und **404 = Objekt existiert nicht** dauerhaft unterscheidbar;
+  **kein uniform-404**. Dies ist eine bewusste, abschließende Entscheidung — kein
+  offener Punkt und keine geplante Folgeänderung. Die Entscheidungssubstanz aus
+  Entscheidung Punkt 2 wird dadurch präzisiert, nicht geändert. Zusätzlich MADR-Struktur
+  geheilt: fehlende H2-Überschrift `## Konsequenzen` über den bestehenden
+  **Positiv:**/**Negativ:**-Listen ergänzt. Frontmatter `last_updated` auf `2026-10-04`
+  gesetzt; `date: "2026-10-02"` bleibt das ursprüngliche Entscheidungsdatum. Kein
+  Produktcode, kein Push.
