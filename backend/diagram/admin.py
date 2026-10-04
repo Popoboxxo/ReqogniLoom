@@ -9,19 +9,21 @@ Datenmodell-Konsolidierung Task 28c-2 retired ``DiagramVersion`` (and with it
 its read-only admin); content history now lives in
 ``persistence.ArtifactVersion`` alongside every other artifact type's.
 
-Tenant isolation:
-    ``Diagram`` inherits ``TenantScopedModel``. ``get_queryset`` uses the
-    ``unscoped()`` manager to bypass the tenant filter.
+Tenant isolation (SEC-04, ADR-011):
+    ``Diagram`` inherits ``TenantScopedModel`` and ``TenantScopedAdminMixin``,
+    so the admin is narrowed to the requesting staff user's tenant.
 """
 from __future__ import annotations
 
 from django.contrib import admin
 
+from persistence.tenant_admin import TenantScopedAdminMixin
+
 from .models import Diagram
 
 
 @admin.register(Diagram)
-class DiagramAdmin(admin.ModelAdmin):
+class DiagramAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
     """Admin view for the Diagram record (REQ-L2-DS-001)."""
 
     list_display = (
@@ -35,7 +37,3 @@ class DiagramAdmin(admin.ModelAdmin):
     search_fields = ("name", "description")
     ordering = ("-created_at",)
     readonly_fields = ("created_at", "created_by", "modified_at", "modified_by", "version")
-
-    def get_queryset(self, request):
-        # CRITICAL: bypass the tenant-isolating default manager.
-        return Diagram.unscoped.all()

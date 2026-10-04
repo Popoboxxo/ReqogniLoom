@@ -214,7 +214,10 @@ def test_list_users_succeeds_for_tenant_admin(tenant, workspace):
     client = _make_authed_client(tenant, workspace, is_tenant_admin=True)
     resp = client.get("/api/v1/users/")
     assert resp.status_code == 200, resp.content
-    usernames = {u["username"] for u in resp.json()}
+    # INT-05 (AUD-2026-09-074): StandardPagination envelope, not a bare array.
+    body = resp.json()
+    assert {"count", "next", "previous", "page_size", "max_page_size", "results"} <= body.keys()
+    usernames = {u["username"] for u in body["results"]}
     assert "umv-True-False" in usernames
 
 

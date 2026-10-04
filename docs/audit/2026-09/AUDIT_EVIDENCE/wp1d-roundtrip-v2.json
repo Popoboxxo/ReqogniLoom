@@ -1,0 +1,154 @@
+{
+ "csv": {
+  "_pre": {
+   "count": 1
+  },
+  "1_good_crlf_utf8": {
+   "status": 400,
+   "secs": 0.05,
+   "resp": "{\"success\": false, \"imported_count\": 0, \"skipped_count\": 3, \"status\": \"rollback\", \"errors\": [], \"warnings\": []}"
+  },
+  "1_after": {
+   "count": 1,
+   "titles": []
+  },
+  "2_reimport_identical": {
+   "status": 400,
+   "secs": 0.04,
+   "resp": "{\"success\": false, \"imported_count\": 0, \"skipped_count\": 3, \"status\": \"rollback\", \"errors\": [], \"warnings\": []}"
+  },
+  "2_after": {
+   "count": 1,
+   "titles": []
+  },
+  "3_with_bom": {
+   "status": 400,
+   "secs": 0.02,
+   "resp": "{\"success\": false, \"imported_count\": 0, \"skipped_count\": 3, \"status\": \"validation_error\", \"errors\": [{\"row_number\": 2, \"field\": \"title\", \"message\": \"Required field 'title' is missing or empty.\"}, {\"row_number\": 3, \"field\": \"title\", \"message\": \"Required field 'title' is missing or empty.\"}, {\"row_number\": 4, \"field\": \"title\", \"message\": \"Required field 'title' is missing or empty.\"}], \"warnings\": [\"Unrecognized column(s) ignored, their data was NOT imported: ﻿title. Expected columns for 'Requirement': artifact_id, category, complexity_fibonacci, created_at, description, id, level, lifecycle_status, modified_at, status, suspect, title, type, uid, verification_method, version.\"]}"
+  },
+  "3_after": {
+   "count": 1,
+   "titles": []
+  },
+  "4_semicolon_delim": {
+   "status": 400,
+   "secs": 0.02,
+   "resp": "{\"success\": false, \"imported_count\": 0, \"skipped_count\": 3, \"status\": \"validation_error\", \"errors\": [{\"row_number\": 2, \"field\": \"title\", \"message\": \"Required field 'title' is missing or empty.\"}, {\"row_number\": 3, \"field\": \"title\", \"message\": \"Required field 'title' is missing or empty.\"}, {\"row_number\": 4, \"field\": \"title\", \"message\": \"Required field 'title' is missing or empty.\"}], \"warnings\": [\"Unrecognized column(s) ignored, their data was NOT imported: title;description;category;status;type;level;complexity_fibonacci;verification_method;suspect;lifecycle_status;uid. Expected columns for 'Requirement': artifact_id, category, complexity_fibonacci, created_at, description, id, level, lifecycle_status, modified_at, status, suspect, title, type, uid, verification_method, version.\"]}"
+  },
+  "4_after": {
+   "count": 1,
+   "titles": []
+  },
+  "5_lf_only": {
+   "status": 400,
+   "secs": 0.03,
+   "resp": "{\"success\": false, \"imported_count\": 0, \"skipped_count\": 3, \"status\": \"rollback\", \"errors\": [], \"warnings\": []}"
+  },
+  "6_latin1_bytes": {
+   "status": 400,
+   "secs": 0.04,
+   "resp": "{\"error\": {\"code\": \"VALIDATION_ERROR\", \"message\": \"CSV file must be UTF-8 encoded.\", \"details\": []}}"
+  },
+  "7_bad_rows": {
+   "status": 400,
+   "secs": 0.02,
+   "resp": "{\"success\": false, \"imported_count\": 0, \"skipped_count\": 5, \"status\": \"validation_error\", \"errors\": [{\"row_number\": 3, \"field\": \"title\", \"message\": \"Required field 'title' is missing or empty.\"}], \"warnings\": []}"
+  },
+  "7_after": {
+   "count": 1,
+   "titles": []
+  },
+  "8_unknown_entity_type": {
+   "status": 400,
+   "secs": 0.02,
+   "resp": "{\"error\": {\"code\": \"VALIDATION_ERROR\", \"message\": \"Unsupported entity_type 'RequirementX'. Allowed: ['ArchitectureElement', 'Requirement', 'TestCase']\", \"details\": []}}"
+  },
+  "9_no_file": {
+   "status": 400,
+   "resp": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"No CSV file uploaded. Provide a 'file' field in multipart/form-data.\",\"details\":[]}}"
+  },
+  "10_foreign_workspace_with_A_token": {
+   "status": 400,
+   "secs": 0.03,
+   "resp": "{\"success\": false, \"imported_count\": 0, \"skipped_count\": 3, \"status\": \"validation_error\", \"errors\": [{\"row_number\": 2, \"field\": \"level\", \"message\": \"must be one of ['1', '2', '3', '4']\"}, {\"row_number\": 2, \"field\": \"type\", \"message\": \"must be one of ['FeatureReq', 'SyReq', 'UseCase']\"}], \"warnings\": []}"
+  },
+  "10_after_B": {
+   "count": 1
+  }
+ },
+ "reqif": {
+  "import_ctype_application/xml": {
+   "status": 415,
+   "resp": "{\"error\": {\"code\": \"UNSUPPORTED_MEDIA_TYPE\", \"message\": \"Unsupported media type \\\"application/xml\\\" in request.\", \"details\": {\"detail\": \"Unsupported media type \\\"application/xml\\\" in request.\"}}}"
+  },
+  "import_ctype_text/xml": {
+   "status": 415,
+   "resp": "{\"error\": {\"code\": \"UNSUPPORTED_MEDIA_TYPE\", \"message\": \"Unsupported media type \\\"text/xml\\\" in request.\", \"details\": {\"detail\": \"Unsupported media type \\\"text/xml\\\" in request.\"}}}"
+  },
+  "import_ctype_application/octet-stream": {
+   "status": 415,
+   "resp": "{\"error\": {\"code\": \"UNSUPPORTED_MEDIA_TYPE\", \"message\": \"Unsupported media type \\\"application/octet-stream\\\" in request.\", \"details\": {\"detail\": \"Unsupported media type \\\"application/octet-stream\\\" in request.\"}}}"
+  },
+  "import_ctype_multipart/form-data": {
+   "status": 200,
+   "resp": "{\"success\": true, \"dry_run\": false, \"needs\": {\"created\": 0, \"updated\": 0, \"skipped\": 20, \"errors\": [{\"identifier\": \"_069f1bd2-3adc-403e-b5cb-ae123d4f2c4f\", \"message\": \"An internal error occurred while importing this object.\"}, {\"identifier\": \"_06d50eb5-dfc7-4718-9cea-cb3a9138ee15\", \"message\": \"An internal error occurred while importing this object.\"}, {\"identifier\": \"_2e221d5c-ab06-4f40-ad4d-fc9df11bb9d2\", \"message\": \"An internal error occurred while importing this object.\"}, {\"identifier\": \"_3d962937-5a30-4928-a8d0-670d084bd1b1\", \"message\": \"An internal error occurred while importing this object.\"}, {\"identifier\": \"_3f1593c3-8295-4710-bcec-e15ce78d1c47\", \"message\": \"An internal error occurred while importing this object.\"}, {\"identifier\": \"_41c0a48e-70fc-4297-99ab-58a2445f46c0\", \"message\": \"An internal error occurred while importing this object.\"}, {\"identifier\": \"_538058c6-e988-4c92-84"
+  },
+  "_count_in_B_before": 1,
+  "_count_in_B_after": 1,
+  "_titles_in_B": [
+   "WP1D-PROBE-B Requirement ÄÖÜ 🚀"
+  ],
+  "import_again": {
+   "status": 415,
+   "resp": "{\"error\": {\"code\": \"UNSUPPORTED_MEDIA_TYPE\", \"message\": \"Unsupported media type \\\"application/xml\\\" in request.\", \"details\": {\"detail\": \"Unsupported media type \\\"application/xml\\\" in request.\"}}}"
+  },
+  "_count_in_B_after_second": 1,
+  "export_B_after_import": {
+   "status": 200,
+   "bytes": 9175
+  },
+  "uid_overlap": 12,
+  "n_spec_objects_A": 915,
+  "n_spec_objects_B": 2,
+  "has_spec_object_content_A": false,
+  "has_spec_object_content_B": false,
+  "empty_uid_attrs_B": 0,
+  "nonempty_uid_attrs_B": 2,
+  "umlaut_present_B": false
+ },
+ "pdf": {
+  "A_own_888reqs": {
+   "status": 200,
+   "secs": 0.75,
+   "bytes": 60664,
+   "ctype": "application/pdf",
+   "disposition": "attachment; filename=\"Zahnbürste_SysEng_Demo_requirement_document.pdf\"",
+   "pdf_header": "%PDF-1.4",
+   "fonts": [
+    "Helvetica",
+    "Helvetica-Bold"
+   ],
+   "has_Type0": false,
+   "has_Identity_H": false,
+   "has_ToUnicode": false,
+   "font_subset_prefix": []
+  },
+  "B_own_small": {
+   "status": 200,
+   "secs": 0.06,
+   "bytes": 2202,
+   "ctype": "application/pdf",
+   "disposition": "attachment; filename=\"WP1D_Probe_WS_requirement_document.pdf\"",
+   "pdf_header": "%PDF-1.4",
+   "fonts": [
+    "Helvetica",
+    "Helvetica-Bold",
+    "ZapfDingbats"
+   ],
+   "has_Type0": false,
+   "has_Identity_H": false,
+   "has_ToUnicode": false,
+   "font_subset_prefix": []
+  }
+ }
+}

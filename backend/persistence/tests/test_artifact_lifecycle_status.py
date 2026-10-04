@@ -82,7 +82,10 @@ def outdated_env(db):
         workspace_id=workspace.id,
         item_type="Requirement",
         preset="minimal",
-        workflow_json={"states": ["draft"], "transitions": []},
+        # "outdated" is declared so the fixture can reproduce the legacy
+        # soft-delete row this migration mapped onto ``lifecycle_status``; the
+        # DATA-06 trigger only accepts a definition's declared states.
+        workflow_json={"states": ["draft", "outdated"], "transitions": []},
     )
     WorkflowItemState.objects.create(
         tenant=tenant,

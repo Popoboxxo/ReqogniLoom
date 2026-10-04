@@ -34,6 +34,16 @@ tools:
 - mcp__reqogniloom__requirement_bundle.export
 - mcp__reqogniloom__requirement_bundle.attribute_schema
 - mcp__reqogniloom__requirement_bundle.compression_status
+- mcp__reqogniloom__interview.start
+- mcp__reqogniloom__interview.get_state
+- mcp__reqogniloom__interview.answer
+- mcp__reqogniloom__interview.get
+- mcp__reqogniloom__interview.list
+- mcp__reqogniloom__interview.grounding_context
+- mcp__reqogniloom__interview.set_target
+- mcp__reqogniloom__interview.propose
+- mcp__reqogniloom__interview.formalize
+- mcp__reqogniloom__interview.abandon
 ---
 
 # Requirements Lead

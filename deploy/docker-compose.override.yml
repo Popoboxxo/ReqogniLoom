@@ -67,9 +67,17 @@ services:
       # Read-only: docs/se/ (SE requirements register) for the
       # migrate_se_docs management command (ReqFlow self-migration).
       - ./docs:/app/docs:ro
+    # Issue #1116: do NOT run `manage.py migrate` here. This service connects as
+    # the least-privilege app role (base file: DB_USER: ${DB_APP_USER:-reqogniloom_app}),
+    # which cannot ALTER TABLE, so an inline migration crash-looped `up` with
+    # `must be owner of table ...` on any ADD-COLUMN migration (e.g. 0102).
+    # Migrations are already applied by the dedicated `migrate` service, which
+    # runs as the owner role (DB_USER: ${DB_USER:-reqogniloom}), and the
+    # inherited `depends_on: migrate: service_completed_successfully` (base file)
+    # holds this container back until that owner-role run has completed. Keeping
+    # the long-running backend on the app role preserves RLS tenant isolation.
     command: >
-      sh -c "python manage.py migrate --noinput &&
-             uvicorn reqogniloom.asgi:application --host 0.0.0.0 --port 8000 --reload"
+      sh -c "uvicorn reqogniloom.asgi:application --host 0.0.0.0 --port 8000 --reload"
 
   migrate:
     # Development: run current source so the REQ-188 post_migrate self-init

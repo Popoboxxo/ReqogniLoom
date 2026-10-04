@@ -96,8 +96,10 @@ export interface AuditReport {
   truncated: boolean;
   /** Total findings the run actually produced, before any truncation/windowing. */
   total_findings_available: number;
-  /** True blocker count before truncation (code review M3 — counts.blockers only covers the returned/capped subset). */
+  /** True blocker count before truncation (code review M3 — counts.blockers only covers the returned/capped subset). Effective: waived blockers are excluded (#1150). */
   total_blockers_available: number;
+  /** #1150: explicit alias of `total_blockers_available` (same effective, waiver-aware value). */
+  total_effective_blockers: number;
   /** True warning count before truncation (see total_blockers_available). */
   total_warnings_available: number;
   /**

@@ -1,6 +1,16 @@
-﻿# ADR-002: Event-Bus für interne Systemereignisse
+---
+adr_id: ADR-002
+title: "Event-Bus für interne Systemereignisse"
+status: proposed
+date: 2026-06-28
+deciders: [user]
+affected_reqs: [REQ-L1-043, REQ-L2-TE-016, REQ-L2-VS-002]
+superseded_by: null
+---
 
-**Status:** PROPOSED
+# ADR-002: Event-Bus für interne Systemereignisse
+
+**Status:** proposed
 **Datum:** 2026-06-28
 **Entscheider:** Architekt + Tech-Lead
 **Betroffene REQs:** REQ-L1-043, REQ-L2-TE-016, REQ-L2-VS-002

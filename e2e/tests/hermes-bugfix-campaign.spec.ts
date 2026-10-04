@@ -215,7 +215,12 @@ test.describe('[REQ-134] API-Key Management — retrieve endpoint', () => {
     });
     expect(response.status()).toBe(200);
     const body = await response.json();
-    expect(Array.isArray(body)).toBe(true);
+    // Tolerate both response shapes: bare array (w1) and StandardPagination
+    // envelope {count, next, previous, results} (w2, INT-05/AUD-2026-09-074).
+    // No `?? []` fallback here: `items` is only used for this proof, so an
+    // empty fallback would make the assertion vacuously true.
+    const items = Array.isArray(body) ? body : body?.results;
+    expect(Array.isArray(items)).toBe(true);
   });
 
   test('[REQ-134] GET /api/v1/api-keys/{id}/ returns 200 — not 405', async ({ request }) => {

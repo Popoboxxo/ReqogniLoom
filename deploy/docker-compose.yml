@@ -368,6 +368,12 @@ services:
       BACKUP_MAX_CONSECUTIVE_FAILURES: ${BACKUP_MAX_CONSECUTIVE_FAILURES:-3}
       # true = one dump, then exit with its status (the runbook gate).
       BACKUP_ONCE: ${BACKUP_ONCE:-false}
+      # Off-host export (ADR-012, DATA-02). Dormant by default; the opt-in
+      # overlay deploy/docker-compose.offhost.yml mounts a host/remote
+      # filesystem at /offhost and flips ENABLED to true. Container path is
+      # fixed; the host path lives only in the overlay.
+      BACKUP_OFFHOST_ENABLED: ${BACKUP_OFFHOST_ENABLED:-false}
+      BACKUP_OFFHOST_DIR: /offhost
     volumes:
       - postgres_backup_data:/backups
     # bash, not sh: the exit-code check needs `set -o pipefail`, which dash/
@@ -384,6 +390,8 @@ services:
         BACKUP_MAX_CONSECUTIVE_FAILURES="$${BACKUP_MAX_CONSECUTIVE_FAILURES:-3}"
         BACKUP_RETENTION="$${BACKUP_RETENTION:-7}"
         BACKUP_ONCE="$${BACKUP_ONCE:-false}"
+        BACKUP_OFFHOST_ENABLED="$${BACKUP_OFFHOST_ENABLED:-false}"
+        BACKUP_OFFHOST_DIR="$${BACKUP_OFFHOST_DIR:-/offhost}"
         # Dot-prefixed so the retention glob (reqogniloom_*.sql.gz) never
         # matches it. Written on EVERY attempt, success or failure: this is the
         # file docs/DEPLOY_RUNBOOK.md reads to decide whether the last backup
@@ -451,6 +459,25 @@ services:
             rm -f "$${outfile}"
             record_status failed "$${copies}" none
             return 1
+          fi
+
+          # Off-host export (ADR-012, DATA-02), opt-in via the offhost overlay.
+          # The local dump is already verified and is deliberately NOT deleted
+          # if this fails — the data is safe on-host. The failure is still
+          # reported non-zero (and in the marker file), so an absent off-host
+          # copy is never silent.
+          if [ "$${BACKUP_OFFHOST_ENABLED}" = "true" ]; then
+            if [ ! -d "$${BACKUP_OFFHOST_DIR}" ]; then
+              echo "[backup] FAILED: BACKUP_OFFHOST_ENABLED=true but $${BACKUP_OFFHOST_DIR} is not mounted — local dump kept" >&2
+              record_status offhost_failed "$${copies}" "$${outfile}"
+              return 1
+            fi
+            if ! cp "$${outfile}" "$${BACKUP_OFFHOST_DIR}/"; then
+              echo "[backup] FAILED: could not copy $${outfile} to off-host $${BACKUP_OFFHOST_DIR} — local dump kept" >&2
+              record_status offhost_failed "$${copies}" "$${outfile}"
+              return 1
+            fi
+            echo "[backup] exported $$(basename "$${outfile}") to off-host $${BACKUP_OFFHOST_DIR}"
           fi
 
           echo "[backup] wrote $$(du -h "$${outfile}" | cut -f1) to $${outfile} ($${copies} COPY blocks verified)"
@@ -564,7 +591,7 @@ services:
   # Django Backend — All backend ARCH-L1 systems
   # ─────────────────────────────────────────────────────────
   backend:
-    image: ghcr.io/popoboxxo/reqogniloom-backend:${REQOGNILOOM_VERSION:-1.8.0-beta.17}
+    image: ghcr.io/popoboxxo/reqogniloom-backend:${REQOGNILOOM_VERSION:-1.8.0-beta.18}
     deploy:
       resources:
         limits:
@@ -639,6 +666,9 @@ services:
         max-size: "10m"
         max-file: "3"
     healthcheck:
+      # ADR-010 §3: /health/ is a deprecated alias for /health/ready, so this
+      # probe now goes red on a cache/worker/beat outage instead of staying
+      # falsely green (finding AUD-2026-09-031).
       test: ["CMD-SHELL", "curl -f http://localhost:8000/health/ || exit 1"]
       interval: 30s
       timeout: 10s
@@ -680,7 +710,7 @@ services:
   # openai/ollama/azure needs no session id and must not be blocked by this
   # gate. Only the opencode_go combination is fatal.
   llm-preflight:
-    image: ghcr.io/popoboxxo/reqogniloom-backend:${REQOGNILOOM_VERSION:-1.8.0-beta.17}
+    image: ghcr.io/popoboxxo/reqogniloom-backend:${REQOGNILOOM_VERSION:-1.8.0-beta.18}
     # Same image tag as backend/celery, but it never pulls anything extra and
     # runs no Django code — only /bin/sh. Tiny limit because it is a shell.
     deploy:
@@ -752,7 +782,7 @@ services:
   # SYSTEM_ADMIN_PASSWORD is required only when the admin does not exist yet
   # (mirrors createsuperuser --noinput). See backend/application/self_init.py.
   migrate:
-    image: ghcr.io/popoboxxo/reqogniloom-backend:${REQOGNILOOM_VERSION:-1.8.0-beta.17}
+    image: ghcr.io/popoboxxo/reqogniloom-backend:${REQOGNILOOM_VERSION:-1.8.0-beta.18}
     deploy:
       resources:
         limits:
@@ -799,7 +829,7 @@ services:
   # Handles async tasks: LLM calls, Webhooks, GitHub integration
   # ─────────────────────────────────────────────────────────
   celery:
-    image: ghcr.io/popoboxxo/reqogniloom-backend:${REQOGNILOOM_VERSION:-1.8.0-beta.17}
+    image: ghcr.io/popoboxxo/reqogniloom-backend:${REQOGNILOOM_VERSION:-1.8.0-beta.18}
     deploy:
       resources:
         limits:
@@ -890,11 +920,30 @@ services:
   # Celery Beat Scheduler — Periodic Tasks (REQ-030)
   # ─────────────────────────────────────────────────────────
   celery-beat:
-    image: ghcr.io/popoboxxo/reqogniloom-backend:${REQOGNILOOM_VERSION:-1.8.0-beta.17}
+    image: ghcr.io/popoboxxo/reqogniloom-backend:${REQOGNILOOM_VERSION:-1.8.0-beta.18}
     deploy:
       resources:
         limits:
-          memory: 256M
+          # RES-05 / AUD-2026-09-121(a): raised from 256M because the old limit
+          # left beat pinned at its ceiling (observed 255.5 MiB / 256 MiB,
+          # memory.peak == memory.max) and any spawned probe was OOM-killed
+          # (exit 137). Measured live on this host with cgroup v2
+          # (memory.current / memory.stat anon / memory.peak + docker stats)
+          # over an observation window and repeated forced-healthcheck runs:
+          #   * beat steady state (it runs llm_adapter's embedding-model
+          #     preload at boot): 407 MiB anon (non-reclaimable); cgroup
+          #     current 625-716 MiB once reclaimable page cache is included.
+          #   * functional probe `manage.py check_celery_beat` (now preload-skip,
+          #     see llm_adapter/apps.py): +94 to +129 MiB transient anon; the
+          #     combined non-reclaimable anon peak measured 536 MiB, fully
+          #     released on exit (no accumulation over 5 consecutive runs).
+          # 768M = ~1.43x the measured 536 MiB anon peak (>200 MiB / 43%
+          # headroom). memory.peak may still reach the limit because the kernel
+          # fills spare space with reclaimable page cache — that is expected and
+          # not an OOM risk while anon stays well below the limit. The value
+          # matches the dev `celery` limit in docker-compose.override.yml.
+          # Lower it only with a fresh measurement.
+          memory: 768M
     # SA-49: Grace period for Celery Beat to shut down gracefully.
     stop_grace_period: 30s
     restart: unless-stopped
@@ -926,15 +975,28 @@ services:
         max-size: "10m"
         max-file: "3"
     healthcheck:
-      # celery-beat has no worker to `inspect ping`, so this checks the beat
-      # process itself is still running (#171 — makes a restart-loop like
-      # "module reqogniloom was not found" visible via `docker ps`/health status
-      # instead of failing silently).
-      test: ["CMD-SHELL", "pgrep -f 'celery.*beat' > /dev/null || exit 1"]
+      # Functional beat probe (ADR-010 §3, RES-05 / AUD-2026-09-121(a)):
+      # `check_celery_beat` exits 0 only while the beat-scheduled heartbeat is
+      # fresh (written by `admin_ops.record_celery_beat_heartbeat` on its 60s
+      # cadence), so a hung-but-alive beat now turns unhealthy. The old
+      # `pgrep` proved only that the process existed.
+      #
+      # Memory: the probe is a short-lived Django boot, kept light by skipping
+      # llm_adapter's embedding preload for `check_celery_beat`
+      # (backend/llm_adapter/apps.py). Without that skip it peaked at ~743 MiB
+      # and retained ~140 MiB after exit under the old 256M limit, so it was
+      # OOM-killed (exit 137). With the skip it adds ~94 MiB transient
+      # (combined peak ~509 MiB) and releases it on exit — see the measured
+      # memory-limit rationale above.
+      test: ["CMD-SHELL", "python manage.py check_celery_beat"]
       interval: 30s
-      timeout: 10s
+      timeout: 15s
+      # Tolerate transient probe slowness/single hiccups before flagging
+      # unhealthy; the heartbeat itself only goes stale after 3 missed runs.
       retries: 3
-      start_period: 40s
+      # Beat must boot and dispatch its first beat-cadence heartbeat before the
+      # first check can pass; 120s covers boot + one full interval with margin.
+      start_period: 120s
     depends_on:
       postgres:
         condition: service_healthy
@@ -950,7 +1012,7 @@ services:
   # React Frontend — ARCH-L1-001 ReactFrontend
   # ─────────────────────────────────────────────────────────
   frontend:
-    image: ghcr.io/popoboxxo/reqogniloom-frontend:${REQOGNILOOM_VERSION:-1.8.0-beta.17}
+    image: ghcr.io/popoboxxo/reqogniloom-frontend:${REQOGNILOOM_VERSION:-1.8.0-beta.18}
     deploy:
       resources:
         limits:

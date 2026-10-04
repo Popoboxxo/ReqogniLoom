@@ -23,10 +23,18 @@ Contract:
                                   input text), so local/CI similarity queries
                                   return sensible orderings.
 
-DIMENSIONS (issue #794): every ``VectorField`` in this project is sized from
-``persistence.embedding_dimensions.EMBEDDING_VECTOR_DIMENSIONS``, which is
-pinned to the *default* provider's output width (384). The default
-configuration therefore works end to end with no operator action.
+DIMENSIONS (#794, #1149): every ``VectorField`` in this project is sized from
+``persistence.embedding_dimensions.EMBEDDING_VECTOR_DIMENSIONS`` (default
+384). The ``mock`` and ``sentence-transformers`` providers emit exactly that
+configured width instead of a hardcoded 384 (#1149): ``mock`` generates
+``EMBEDDING_VECTOR_DIMENSIONS`` values directly, and the
+``sentence-transformers`` provider adapts its native model output to the
+configured width via :func:`_fit_vector_to_dimensions` (zero-pad when the
+model is narrower, truncate when it is wider). Zero padding preserves cosine
+similarity exactly — zero components contribute nothing to either the dot
+product or the L2 norm — and truncation, though lossy, is explicit. Both are
+preferable to the silently skipped write a hardcoded width mismatch used to
+cause.
 
     History: ``EMBEDDING_PROVIDER``'s default changed from ``openai`` to
     ``sentence-transformers`` (Task 1 of the ai-memory-and-search plan) while
@@ -39,14 +47,15 @@ configuration therefore works end to end with no operator action.
     ``artifact.search`` permanently empty. #794 resized the columns and made
     the residual mismatch loud rather than silent.
 
-Selecting a NON-default provider whose native width differs from
-``EMBEDDING_VECTOR_DIMENSIONS`` (``ollama``/``nomic-embed-text`` -> 768,
-``openai``/``text-embedding-3-small`` -> 1536) reintroduces the mismatch and
-is no longer silent: ``llm_adapter.checks.check_embedding_dimensions`` reports
-it via ``manage.py check`` at startup, and the first skipped write logs at
-WARNING (:func:`warn_dimension_mismatch`). To actually run such a provider,
-change ``EMBEDDING_VECTOR_DIMENSIONS``, generate the resulting ``AlterField``
-migrations for every embedding column and re-run ``manage.py
+The ``ollama`` (native 768) and ``openai`` (native 1536) providers still
+validate their response against their own native width and do NOT adapt to
+``EMBEDDING_VECTOR_DIMENSIONS``. Selecting one whose native width differs from
+the configured column width reintroduces the mismatch, which is loud rather
+than silent: ``llm_adapter.checks.check_embedding_dimensions`` reports it via
+``manage.py check`` at startup, and the first skipped write logs at WARNING
+(:func:`warn_dimension_mismatch`). To run such a provider, set
+``EMBEDDING_VECTOR_DIMENSIONS`` to its native width, generate the resulting
+``AlterField`` migrations for every embedding column and re-run ``manage.py
 backfill_embeddings`` (existing vectors cannot be cast between widths and are
 discarded). On an image deployment, use
 ``python manage.py align_embedding_dimensions`` instead of
@@ -61,6 +70,8 @@ import random
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional, Type
+
+from persistence.embedding_dimensions import EMBEDDING_VECTOR_DIMENSIONS
 
 logger = logging.getLogger(__name__)
 
@@ -161,9 +172,46 @@ def get_embedding_provider(config: Optional[EmbeddingProviderConfig] = None) -> 
     return provider_cls(cfg)
 
 
+def _fit_vector_to_dimensions(vector: List[float], dimensions: int) -> List[float]:
+    """Resize ``vector`` to exactly ``dimensions`` entries (#1149).
+
+    Every embedding column is sized from ``EMBEDDING_VECTOR_DIMENSIONS`` and
+    pgvector rejects a write whose width differs with a ``DataError`` that
+    would poison the caller's ambient transaction — so a provider must emit
+    exactly the configured width. A provider whose underlying model has a
+    fixed native width (``sentence-transformers``' ``all-MiniLM-L6-v2`` is
+    384-dim) cannot otherwise honour a non-default
+    ``EMBEDDING_VECTOR_DIMENSIONS`` (e.g. the ambient 768):
+
+    * **shorter than configured** -> zero-pad. Zero components contribute
+      nothing to a dot product or an L2 norm, so cosine similarity — the
+      metric every embedding search in this project uses — is preserved
+      exactly.
+    * **longer than configured** -> truncate. Lossy, but explicit and still
+      far better than the write being silently skipped, which is what a
+      hardcoded width produced before #1149.
+
+    Args:
+        vector: The provider's native embedding.
+        dimensions: The configured output width (a positive integer).
+
+    Returns:
+        A new list of length ``dimensions``.
+    """
+    if len(vector) == dimensions:
+        return list(vector)
+    if len(vector) > dimensions:
+        return list(vector[:dimensions])
+    return list(vector) + [0.0] * (dimensions - len(vector))
+
+
 @register_embedding_provider("mock")
 class MockEmbeddingProvider(EmbeddingProvider):
-    dimensions = 384
+    # Emit the configured width directly (issue #1149). Hardcoding 384 here
+    # made every test/dev run structurally dimension-inconsistent whenever
+    # EMBEDDING_VECTOR_DIMENSIONS was 768, which triggered the write-side
+    # warn_dimension_mismatch and skipped the embedding.
+    dimensions = EMBEDDING_VECTOR_DIMENSIONS
 
     def __init__(self, config: EmbeddingProviderConfig) -> None:
         self._config = config
@@ -180,9 +228,14 @@ class MockEmbeddingProvider(EmbeddingProvider):
 class SentenceTransformersEmbeddingProvider(EmbeddingProvider):
     """Default provider: runs in-process, no extra container/service.
     Model weights are bundled into the backend/celery Docker image at build
-    time (Task 12 adds the download step to the Dockerfile)."""
+    time (Task 12 adds the download step to the Dockerfile).
 
-    dimensions = 384
+    The model's native width (384 for ``all-MiniLM-L6-v2``) is adapted to the
+    configured ``EMBEDDING_VECTOR_DIMENSIONS`` by
+    :func:`_fit_vector_to_dimensions`, so the emitted vector always matches
+    the embedding columns (issue #1149)."""
+
+    dimensions = EMBEDDING_VECTOR_DIMENSIONS
     _DEFAULT_MODEL = "all-MiniLM-L6-v2"
     _model = None  # class-level lazy singleton -- loading the model is expensive (~100ms+)
     # Which model name _model was actually built from. The cache is KEYED by
@@ -209,7 +262,10 @@ class SentenceTransformersEmbeddingProvider(EmbeddingProvider):
         try:
             model = self._get_model()
             vector = model.encode(text, normalize_embeddings=True)
-            return vector.tolist()
+            # #1149: adapt the model's native width to the configured column
+            # width so a non-default EMBEDDING_VECTOR_DIMENSIONS does not make
+            # every write get skipped by the dimension guard.
+            return _fit_vector_to_dimensions(vector.tolist(), self.dimensions)
         except Exception as exc:
             logger.warning("sentence-transformers embedding failed: %s", exc)
             return None

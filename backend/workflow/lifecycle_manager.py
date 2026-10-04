@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Iterable, Optional
 from uuid import UUID
 
 from django.db import transaction
@@ -413,6 +413,29 @@ class StateLifecycleManager:
             signature_seal=validation_result.seal,
         )
 
+    def _allowed_roles_from(
+        self, current_state: str, workspace_id: UUID, item_type: str
+    ) -> set[str]:
+        """Return the union of roles any declared transition out of
+        *current_state* permits (lower-cased).
+
+        Used by :meth:`force_transition` as a graph-informed role gate that
+        still works when the forced edge itself is not modeled. An empty set
+        means the workspace has no definition / no outgoing edge and callers
+        fall back to their own explicit role requirement.
+        """
+        from .definition_store import WorkflowDefinitionError
+
+        try:
+            definition = self._store.get_definition(workspace_id, item_type)
+        except WorkflowDefinitionError:
+            return set()
+        allowed: set[str] = set()
+        for transition in definition.transitions:
+            if transition.from_state == current_state:
+                allowed.update(str(r).lower() for r in transition.allowed_roles)
+        return allowed
+
     @transaction.atomic
     def force_transition(
         self,
@@ -422,33 +445,76 @@ class StateLifecycleManager:
         target_state: str,
         change_reason: str,
         actor: str,
+        *,
+        actor_roles: Optional["Iterable[str]"] = None,
+        allow_system: bool = False,
     ) -> TransitionOutcome:
         """Transition an item to ``target_state`` bypassing normal
         preset-transition validation.
 
-        Used exclusively by the outdate()/reactivate() escape hatch —
-        outdating must work from ANY current state, on ANY preset, even ones
-        that never modeled a "rejected"-style path in their transitions list.
+        This is the system-level escape hatch: it can move an item from ANY
+        current state on ANY preset, including edges the preset never modeled.
+        It must therefore not be a silent, role-free state writer
+        (AUD-2026-09-170). Two gates are enforced independently of the graph:
+
+        * ``change_reason`` must be a non-empty string -- a forced move always
+          has to be explainable in the append-only history.
+        * Unless the caller explicitly passes ``allow_system=True`` (a
+          TTL/maintenance housekeeping path such as the interview
+          auto-abandon), ``actor_roles`` must be supplied and, when the
+          workspace definition declares any transition out of the current
+          state, the actor must hold at least one of the roles that edge
+          allows. A caller that cannot name a permitted role is rejected.
 
         Args:
             item_id:       UUID of the item to transition.
             item_type:     Entity type string.
             workspace_id:  Workspace UUID.
             target_state:  New state to force onto the item.
-            change_reason: Audit reason string for the history entry.
+            change_reason: Audit reason string for the history entry (required).
             actor:         User UUID string or AI-agent client identifier.
+            actor_roles:   Effective roles of the acting principal. Required
+                           unless ``allow_system`` is True.
+            allow_system:  Mark the call as system housekeeping that has no
+                           user role context (e.g. the stale-session sweep).
+                           Still requires a non-empty ``change_reason``.
 
         Returns:
             TransitionOutcome with the transition details.
 
         Raises:
+            WorkflowStateError: Missing/blank ``change_reason``, a caller
+                                without ``allow_system`` that names no
+                                ``actor_roles``, or a role not permitted for
+                                the forced edge.
             WorkflowItemState.DoesNotExist: No item state record found.
         """
+        if not (change_reason or "").strip():
+            raise WorkflowStateError(
+                "force_transition requires a non-empty change_reason"
+            )
+
         item_state = (
             WorkflowItemState.objects.select_for_update()
             .get(item_id=item_id, item_type=item_type, workspace_id=workspace_id)
         )
         previous_state = item_state.current_state
+
+        if not allow_system:
+            roles = {str(r).lower() for r in (actor_roles or ())}
+            if not roles:
+                raise WorkflowStateError(
+                    "force_transition requires an explicit actor_roles set "
+                    "(or allow_system=True for system housekeeping)"
+                )
+            allowed_roles = self._allowed_roles_from(previous_state, workspace_id, item_type)
+            if allowed_roles and not (allowed_roles & roles):
+                raise WorkflowStateError(
+                    f"force_transition role not allowed: leaving "
+                    f"{previous_state!r} requires one of {sorted(allowed_roles)}, "
+                    f"actor has {sorted(roles)}"
+                )
+
         item_state.current_state = target_state
         item_state.version += 1
         item_state.save(update_fields=["current_state", "version"])

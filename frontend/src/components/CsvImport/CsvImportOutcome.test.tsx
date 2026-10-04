@@ -232,3 +232,88 @@ describe("CsvImport drop zone keyboard operation (UI-30)", () => {
     expect(click).toHaveBeenCalledTimes(2);
   });
 });
+
+describe("CsvImport ReqIF v2 outcome (ADR-014)", () => {
+  const importReqifMock = vi.mocked(importApi.importReqif);
+
+  function reqifEnv(overrides: Record<string, unknown> = {}) {
+    return {
+      created: 0,
+      updated: 0,
+      skipped: 0,
+      failed: 0,
+      errors: [],
+      items: [],
+      ...overrides,
+    };
+  }
+
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+    importReqifMock.mockReset();
+  });
+
+  afterEach(() => cleanup());
+
+  async function pickReqif(
+    user: ReturnType<typeof userEvent.setup>,
+  ): Promise<void> {
+    const file = new File(["<req-if/>"], "a.reqif", { type: "application/xml" });
+    await user.upload(screen.getByTestId("reqif-file-input"), file);
+  }
+
+  it("renders the v2 failed items of a 207 partial success", async () => {
+    const user = userEvent.setup();
+    importReqifMock.mockResolvedValue({
+      success: false,
+      dry_run: false,
+      contract: "v2",
+      counts: { succeeded: 1, skipped: 0, failed: 1, total: 2 },
+      needs: reqifEnv({ created: 1 }),
+      requirements: reqifEnv({
+        failed: 1,
+        items: [
+          {
+            row: 2,
+            identifier: "REQ-2",
+            kind: "Requirement",
+            status: "failed",
+            cause: { code: "INVALID_VALUE", message: "Title too long" },
+          },
+        ],
+      }),
+      relations: reqifEnv(),
+      warnings: [],
+    });
+
+    render(<CsvImport />);
+    await pickReqif(user);
+    await user.click(screen.getByTestId("reqif-import-btn"));
+
+    const failedList = await screen.findByTestId("reqif-import-failed-requirements");
+    expect(failedList).toHaveTextContent("INVALID_VALUE");
+    expect(failedList).toHaveTextContent("Title too long");
+    expect(screen.getByTestId("reqif-import-counts")).toHaveTextContent("failed: 1");
+  });
+
+  it("flags an idempotent replay", async () => {
+    const user = userEvent.setup();
+    importReqifMock.mockResolvedValue({
+      success: true,
+      dry_run: false,
+      contract: "v2",
+      counts: { succeeded: 1, skipped: 0, failed: 0, total: 1 },
+      idempotent_replay: true,
+      needs: reqifEnv({ created: 1 }),
+      requirements: reqifEnv(),
+      relations: reqifEnv(),
+      warnings: [],
+    });
+
+    render(<CsvImport />);
+    await pickReqif(user);
+    await user.click(screen.getByTestId("reqif-import-btn"));
+
+    expect(await screen.findByTestId("reqif-import-replay-badge")).toBeInTheDocument();
+  });
+});

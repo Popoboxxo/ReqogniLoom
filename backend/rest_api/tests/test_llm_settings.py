@@ -245,14 +245,21 @@ def test_put_updates_provider_and_stores_api_key_write_only(llm_tenant):
         {
             "provider": "anthropic",
             "api_key": "sk-secret-value",
-            "model_name": "claude-3-opus-20240229",
+            # AUD-2026-09-200 (DOC-03): this used to pin the retired model id
+            # ``claude-3-opus-20240229`` as the expected value, which encoded a
+            # dead Anthropic product in the test. The assertion below only
+            # proves that an explicitly written model_name round-trips, so it
+            # uses a neutral, provider-independent placeholder: no future model
+            # deprecation can invalidate it. The provider's own current default
+            # is asserted in tests/test_llm_int_02_03.py.
+            "model_name": "test-model-roundtrip",
         },
         format="json",
     )
     assert resp.status_code == 200
     body = resp.json()
     assert body["provider"] == "anthropic"
-    assert body["model_name"] == "claude-3-opus-20240229"
+    assert body["model_name"] == "test-model-roundtrip"
     assert body["api_key_is_set"] is True
     assert "api_key" not in body
 

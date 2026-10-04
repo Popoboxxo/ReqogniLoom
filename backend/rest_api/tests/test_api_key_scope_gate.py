@@ -11,6 +11,7 @@ from auth_tenancy.context import AuthContext, AuthMethod
 from auth_tenancy.rest import HasOperationPermission
 from auth_tenancy.services import Operation
 from rest_api.auth_enforcer import RbacPermission
+from rest_api.auth_views import MeView
 
 
 def _ctx(scope: str) -> AuthContext:
@@ -26,8 +27,13 @@ def _ctx(scope: str) -> AuthContext:
     )
 
 
-class _View:
-    required_operation = None
+# ADR-013 switched the ADR-011 resource-scope seam on by default, and that seam
+# denies *unclassified* view classes. These tests exercise the API-key
+# capability gate in isolation, so the synthetic view must be a real, classified
+# (tenant-scoped) surface; otherwise the resource-scope seam - which is covered
+# by its own tests - would deny it before the gate under test runs. Every
+# assertion below is unchanged; only the harness view is classified now.
+_View = MeView
 
 
 def _request(method: str, ctx: AuthContext):

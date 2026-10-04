@@ -73,16 +73,57 @@ export interface ReqifEntityReport {
   created: number;
   updated: number;
   skipped: number;
+  failed: number;
   errors: ReqifEntityError[];
+  items: ReqifItem[];
+}
+
+/** One structured per-item outcome (ADR-014 §1, contract v2). */
+export interface ReqifItem {
+  row: number | null;
+  identifier: string | null;
+  kind: string | null;
+  status: "succeeded" | "skipped" | "failed";
+  cause: { code: string; message: string };
+}
+
+export interface ReqifCounts {
+  succeeded: number;
+  skipped: number;
+  failed: number;
+  total: number;
 }
 
 export interface ReqifImportResult {
   success: boolean;
   dry_run: boolean;
+  /** Contract version reported by the backend; "v2" on ADR-014 responses. */
+  contract?: string;
+  counts?: ReqifCounts;
+  items?: ReqifItem[];
+  idempotent_replay?: boolean;
+  request_id?: string;
   needs: ReqifEntityReport;
   requirements: ReqifEntityReport;
   relations: ReqifEntityReport;
   warnings: string[];
+}
+
+/**
+ * Type guard for a ReqIF import *result* body.
+ *
+ * ADR-014 contract v2 answers partial/total object failures with 207/422 and a
+ * full result envelope — that is a result, not a transport error. Treating
+ * every non-2xx as opaque would discard the per-item report (the same UI-30
+ * regression the CSV path already fixed).
+ */
+function isReqifImportResult(body: unknown): body is ReqifImportResult {
+  return (
+    typeof body === "object" &&
+    body !== null &&
+    typeof (body as ReqifImportResult).success === "boolean" &&
+    typeof (body as ReqifImportResult).needs === "object"
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -157,12 +198,16 @@ export const importApi = {
    * @param file - ReqIF 1.2 XML file (.reqif / .xml, UTF-8).
    * @param dryRun - When true, runs the full pipeline and rolls it back;
    *   the returned report reflects what a real import would do.
+   * @param idempotencyKey - Optional `Idempotency-Key` (ADR-014 §3). The first
+   *   call stores the terminal success; a retry with the same key and payload
+   *   replays the cached result without a second write effect.
    * @returns ReqifImportResult with per-entity-kind counts and warnings.
    */
   async importReqif(
     workspaceId: UUID,
     file: File,
-    dryRun = false
+    dryRun = false,
+    idempotencyKey?: string
   ): Promise<ReqifImportResult> {
     // Auth flows via the httpOnly cookie (REQ-052); this POST additionally
     // carries the CSRF token from the csrftoken cookie.
@@ -171,6 +216,7 @@ export const importApi = {
     headers["Accept-Language"] = lang;
     const csrf = readCookie("csrftoken");
     if (csrf) headers["X-CSRFToken"] = csrf;
+    if (idempotencyKey) headers["Idempotency-Key"] = idempotencyKey;
 
     const formData = new FormData();
     formData.append("file", file);
@@ -193,6 +239,16 @@ export const importApi = {
       body = { error: { message: `HTTP ${resp.status}` } };
     }
 
+    // ADR-014 v2: a 207/422 object-level failure still carries the full result
+    // envelope — keep the per-item report instead of collapsing it to an Error.
+    if (isReqifImportResult(body)) {
+      return {
+        ...body,
+        warnings: body.warnings ?? [],
+        items: body.items ?? [],
+      };
+    }
+
     if (!resp.ok) {
       const errMsg =
         (body as { error?: { message?: string } })?.error?.message ??
@@ -200,6 +256,6 @@ export const importApi = {
       throw new Error(errMsg);
     }
 
-    return body as ReqifImportResult;
+    throw new Error(`ReqIF import failed (HTTP ${resp.status})`);
   },
 };

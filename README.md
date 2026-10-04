@@ -948,26 +948,34 @@ docker compose -f deploy/docker-compose.yml --project-directory . logs -f
 
 ### Backup & Restore
 
-**Automatic backups:** the `postgres-backup` sidecar service already runs `pg_dump` on a schedule (`BACKUP_INTERVAL`, default 24h) and retains the last `BACKUP_RETENTION` (default 7) gzip-compressed dumps in the `postgres_backup_data` volume — no manual cron job needed.
+**One source of truth (ADR-012):** the `postgres-backup` sidecar is the **only**
+backup producer. It runs `pg_dump` on a schedule (`BACKUP_INTERVAL`) and retains
+the newest `BACKUP_RETENTION` dumps as `.sql.gz` in the named volume
+`postgres_backup_data` — no manual cron job needed. The former
+`scripts/backup.sh` / `scripts/restore.sh` operator scripts were removed: they
+could never succeed (dead legacy path, never copied the dump into the container)
+and their in-place `--clean --if-exists` restore was not atomic.
 
-**Manual backup:**
+The **format/location contract**, retention tuning, off-host export and the
+**atomic restore procedure** (restore into an isolated target database inside a
+single transaction; the live database is never overwritten) live in
+[`docs/DEPLOY_RUNBOOK.md`](docs/DEPLOY_RUNBOOK.md) §6.
+
+Verify the backup **and** that it restores (isolated throwaway target, 15/15
+tables, 0 errors, rollback on an injected error):
+
+```bash
+deploy/verify-restore.sh
+```
+
+**Manual backup** (ad-hoc only — the sidecar remains the scheduled producer):
 
 ```bash
 docker compose -f deploy/docker-compose.yml --project-directory . exec postgres pg_dump -U reqogniloom reqogniloom > backup.sql
 ```
 
-**Manual restore:**
-
-```bash
-docker compose -f deploy/docker-compose.yml --project-directory . exec -T postgres psql -U reqogniloom reqogniloom < backup.sql
-```
-
-**Restore from an automatic backup:**
-
-```bash
-docker compose -f deploy/docker-compose.yml --project-directory . exec postgres-backup sh -c 'gunzip -c /backups/reqogniloom_<timestamp>.sql.gz' | \
-  docker compose -f deploy/docker-compose.yml --project-directory . exec -T postgres psql -U reqogniloom reqogniloom
-```
+Never restore a `.sql` dump into the live database in place; see the runbook for
+the atomic isolated-target procedure.
 
 There is also an application-level Disaster Recovery mechanism (`admin.backup_create`/`admin.backup_list`/`admin.restore` MCP tools, Admin role + `X-Captcha: RESTORE` header) that snapshots artifacts as JSON into the `backend_dr_backups` volume — a separate, artifact-level complement to the raw Postgres dumps above.
 

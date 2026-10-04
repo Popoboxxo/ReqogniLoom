@@ -262,13 +262,22 @@ class TestListAndGet:
 
 
 class TestAbandonedTtl:
-    """spec §9: a session untouched past ABANDONED_TTL lazily flips to
-    abandoned on the next read -- no scheduled job."""
+    """spec §9: a session untouched past ABANDONED_TTL is flipped to abandoned
+    only by the explicit bulk housekeeping sweep in ``list_sessions``
+    (AUD-2026-09-169). Single-entity reads (``get_state``) and single-entity
+    writes are side-effect free and must never flip DB state on their own."""
 
-    def test_get_state_flips_stale_session_to_abandoned(self, ctx, workspace):
-        from persistence.models import InterviewSession
+    def test_get_state_does_not_mutate_stale_session(
+        self, ctx, workspace_with_interview_workflow
+    ):
+        """Regression for AUD-2026-09-169: the detail GET used to force an
+        ``in_progress -> abandoned`` transition (a DB write inside a GET).
+        It must now return the true state and leave the row untouched."""
+        from workflow.models import WorkflowItemState
 
-        session = InterviewService().start(ctx, "Requirement", workspace.id)
+        session = InterviewService().start(
+            ctx, "Requirement", workspace_with_interview_workflow.id
+        )
         TenantContext.set_tenant(ctx.tenant_id)
         try:
             # Simulate a session nobody touched in a long time by
@@ -277,12 +286,55 @@ class TestAbandonedTtl:
             InterviewSession.objects.filter(id=session.id).update(
                 modified_at=timezone.now() - ABANDONED_TTL - timedelta(days=1)
             )
+            version_before = WorkflowItemState.objects.get(
+                item_id=session.id, item_type="Interview"
+            ).version
         finally:
             TenantContext.clear_tenant()
 
         state = InterviewService().get_state(ctx, session.id)
 
-        assert state["status"] == "abandoned"
+        assert state["status"] == "in_progress"
+        TenantContext.set_tenant(ctx.tenant_id)
+        try:
+            row = WorkflowItemState.objects.get(
+                item_id=session.id, item_type="Interview"
+            )
+            assert row.current_state == "in_progress"
+            assert row.version == version_before
+        finally:
+            TenantContext.clear_tenant()
+
+    def test_read_does_not_bump_version_without_provisioned_workflow(
+        self, ctx, workspace
+    ):
+        """Regression for AUD-2026-09-169 defect 3+4: the old no-row fallback
+        bumped ``InterviewSession.version`` while persisting no state change.
+
+        With no ``WorkflowItemState`` row (the plain ``workspace`` fixture has
+        no provisioned workflow) a read must neither flip the status nor touch
+        the optimistic-lock counter -- that phantom 409 was reproducible on
+        every stale read."""
+        from persistence.models import InterviewSession as ISModel
+
+        session = InterviewService().start(ctx, "Requirement", workspace.id)
+        TenantContext.set_tenant(ctx.tenant_id)
+        try:
+            ISModel.objects.filter(id=session.id).update(
+                modified_at=timezone.now() - ABANDONED_TTL - timedelta(days=1)
+            )
+            version_before = ISModel.unscoped.get(id=session.id).version
+        finally:
+            TenantContext.clear_tenant()
+
+        resolved = InterviewService()._get_session(ctx, session.id)
+
+        assert resolved.status == "in_progress"
+        TenantContext.set_tenant(ctx.tenant_id)
+        try:
+            assert ISModel.unscoped.get(id=session.id).version == version_before
+        finally:
+            TenantContext.clear_tenant()
 
     def test_recent_session_is_not_flipped(self, ctx, workspace):
         session = InterviewService().start(ctx, "Requirement", workspace.id)
@@ -1144,29 +1196,45 @@ class TestWorkflowIntegration:
         history = WorkflowHistoryEntry.objects.filter(item_state=item_state)
         assert history.filter(from_state="in_progress", to_state="completed").exists()
 
-    def test_lazy_abandon_transitions_workflow_state(self, ctx, workspace_with_interview_workflow):
-        from workflow.models import WorkflowItemState
+    def test_housekeeping_abandon_records_workflow_history_entry(
+        self, ctx, workspace_with_interview_workflow
+    ):
+        """Regression for AUD-2026-09-169: the auto-abandon must go through the
+        engine (real state write + append-only history), not the old
+        version-bump-without-state-change fallback.
 
-        session = InterviewService().start(ctx, "Requirement", workspace_with_interview_workflow.id)
+        The only path that persists an auto-abandon is the explicit bulk
+        housekeeping sweep in ``list_sessions`` -- single-entity reads/writes
+        are pure, so the sweep is triggered here exactly the way production
+        does it (a list call)."""
+        from workflow.models import WorkflowHistoryEntry, WorkflowItemState
+
+        workspace = workspace_with_interview_workflow
+        session = InterviewService().start(ctx, "Requirement", workspace.id)
         stale_time = timezone.now() - ABANDONED_TTL - timedelta(days=1)
         from persistence.models import InterviewSession as ISModel
 
         ISModel.objects.filter(id=session.id).update(modified_at=stale_time)
 
-        state = InterviewService().get_state(ctx, session.id)
+        InterviewService().list_sessions(ctx, workspace.id, status="in_progress")
 
-        assert state["status"] == "abandoned"
-        item_state = WorkflowItemState.objects.get(item_id=session.id, item_type="Interview")
+        item_state = WorkflowItemState.objects.get(
+            item_id=session.id, item_type="Interview"
+        )
         assert item_state.current_state == "abandoned"
+        assert WorkflowHistoryEntry.objects.filter(
+            item_state=item_state,
+            from_state="in_progress",
+            to_state="abandoned",
+        ).exists()
 
-    def test_lazy_abandon_without_provisioned_workflow_falls_back(self, ctx, workspace):
-        """No WorkflowItemState row exists (workspace fixture has no
-        provisioned workflow) -- force_transition raises DoesNotExist, and
-        the in-memory-only fallback must still flip the status (Task 12: the
-        `status` column is dropped, so this can no longer be a direct field
-        write -- there is nothing left to persist it to; the in-memory value
-        _get_session returns is the only record, see the Task 12 report
-        Finding 2)."""
+    def test_read_of_stale_session_without_provisioned_workflow_is_pure(
+        self, ctx, workspace
+    ):
+        """No WorkflowItemState row exists (the plain ``workspace`` fixture has
+        no provisioned workflow). A read must not pretend to abandon it
+        (AUD-2026-09-169): ``_get_session`` reports ``in_progress`` and writes
+        nothing -- the old in-memory-only fallback is gone."""
         session = InterviewService().start(ctx, "Requirement", workspace.id)
         from persistence.models import InterviewSession as ISModel
 
@@ -1175,7 +1243,7 @@ class TestWorkflowIntegration:
 
         resolved = InterviewService()._get_session(ctx, session.id)
 
-        assert resolved.status == "abandoned"
+        assert resolved.status == "in_progress"
 
     def test_list_sessions_sweep_does_not_re_abandon_an_already_completed_session(
         self, ctx, workspace_with_interview_workflow

@@ -204,8 +204,16 @@ class InterviewViewSet(FreeTextSanitizationMixin, viewsets.ViewSet):
         from workflow import state_reader
 
         status_map = state_reader.current_states("Interview", (s.id for s in sessions))
+        # AUD-112: expose a `count` so clients that only trust the DRF count
+        # field (e.g. the Hermes Python plugin's stats()) never mistake one
+        # page length for a total or degrade `open interviews` to None. The
+        # list itself is not paginated, so count == len(results) and there is
+        # no next/previous link.
         return Response(
-            {"results": [_session_to_dict(s, status_map=status_map) for s in sessions]}
+            {
+                "count": len(sessions),
+                "results": [_session_to_dict(s, status_map=status_map) for s in sessions],
+            }
         )
 
     @action(detail=False, methods=["get"], url_path="by-artifact/(?P<artifact_id>[^/.]+)")

@@ -10,20 +10,23 @@ Read-only:
     and the model ``save``/``delete`` overrides reject UPDATE/DELETE.  The
     admin is locked down to read-only to match.
 
-Tenant isolation:
-    ``AuditEntry`` inherits ``TenantScopedModel``. ``get_queryset`` uses the
-    ``unscoped()`` manager (whose ``AppendOnlyUnscopedManager`` subclass
-    blocks UPDATE/DELETE just like the default manager).
+Tenant isolation (SEC-04, ADR-011):
+    ``AuditEntry`` inherits ``TenantScopedModel`` and ``TenantScopedAdminMixin``,
+    so ``get_queryset`` and the per-object permission checks are narrowed to the
+    requesting staff user's tenant. Read-only is preserved (the mixin's checks
+    AND the model's append-only guards).
 """
 from __future__ import annotations
 
 from django.contrib import admin
 
+from persistence.tenant_admin import TenantScopedAdminMixin
+
 from .models import AuditEntry
 
 
 @admin.register(AuditEntry)
-class AuditEntryAdmin(admin.ModelAdmin):
+class AuditEntryAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
     """Admin view for the append-only audit log (REQ-L2-AL-001/002/003)."""
 
     list_display = (
@@ -58,10 +61,6 @@ class AuditEntryAdmin(admin.ModelAdmin):
         "modified_by",
         "version",
     )
-
-    def get_queryset(self, request):
-        # CRITICAL: bypass the tenant-isolating default manager.
-        return AuditEntry.unscoped.all()
 
     def has_add_permission(self, request):
         return False  # read-only

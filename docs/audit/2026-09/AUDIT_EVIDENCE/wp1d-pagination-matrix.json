@@ -1,0 +1,2197 @@
+{
+ "inventory": [
+  {
+   "path": "/api/v1/requirements/",
+   "status": 200,
+   "secs": 0.04,
+   "bytes": 843,
+   "envelope": "page",
+   "keys": [
+    "count",
+    "max_page_size",
+    "next",
+    "page_size",
+    "previous",
+    "results"
+   ],
+   "page_size_echo": 1,
+   "max_page_size": 100,
+   "count": 888,
+   "n_items": 1
+  },
+  {
+   "path": "/api/v1/artifacts/",
+   "status": 200,
+   "secs": 0.02,
+   "bytes": 298,
+   "envelope": "page",
+   "keys": [
+    "count",
+    "max_page_size",
+    "next",
+    "page_size",
+    "previous",
+    "results"
+   ],
+   "page_size_echo": 1,
+   "max_page_size": 100,
+   "count": 1176,
+   "n_items": 1
+  },
+  {
+   "path": "/api/v1/architecture/",
+   "status": 200,
+   "secs": 0.03,
+   "bytes": 729,
+   "envelope": "page",
+   "keys": [
+    "count",
+    "max_page_size",
+    "next",
+    "page_size",
+    "previous",
+    "results"
+   ],
+   "page_size_echo": 1,
+   "max_page_size": 100,
+   "count": 33,
+   "n_items": 1
+  },
+  {
+   "path": "/api/v1/testcases/",
+   "status": 200,
+   "secs": 0.03,
+   "bytes": 829,
+   "envelope": "page",
+   "keys": [
+    "count",
+    "max_page_size",
+    "next",
+    "page_size",
+    "previous",
+    "results"
+   ],
+   "page_size_echo": 1,
+   "max_page_size": 100,
+   "count": 30,
+   "n_items": 1
+  },
+  {
+   "path": "/api/v1/trace-links/",
+   "status": 200,
+   "secs": 0.03,
+   "bytes": 768,
+   "envelope": "page",
+   "keys": [
+    "count",
+    "max_page_size",
+    "next",
+    "page_size",
+    "previous",
+    "results"
+   ],
+   "page_size_echo": 1,
+   "max_page_size": 500,
+   "count": 1974,
+   "n_items": 1
+  },
+  {
+   "path": "/api/v1/tracelinks/",
+   "status": 200,
+   "secs": 0.03,
+   "bytes": 767,
+   "envelope": "page",
+   "keys": [
+    "count",
+    "max_page_size",
+    "next",
+    "page_size",
+    "previous",
+    "results"
+   ],
+   "page_size_echo": 1,
+   "max_page_size": 500,
+   "count": 1974,
+   "n_items": 1
+  },
+  {
+   "path": "/api/v1/workspaces/",
+   "status": 200,
+   "secs": 0.02,
+   "bytes": 724,
+   "envelope": "page",
+   "keys": [
+    "count",
+    "max_page_size",
+    "next",
+    "page_size",
+    "previous",
+    "results"
+   ],
+   "page_size_echo": 1,
+   "max_page_size": 100,
+   "count": 401,
+   "n_items": 1
+  },
+  {
+   "path": "/api/v1/adrs/",
+   "status": 200,
+   "secs": 0.04,
+   "bytes": 731,
+   "envelope": "page",
+   "keys": [
+    "count",
+    "max_page_size",
+    "next",
+    "page_size",
+    "previous",
+    "results"
+   ],
+   "page_size_echo": 1,
+   "max_page_size": 100,
+   "count": 12,
+   "n_items": 1
+  },
+  {
+   "path": "/api/v1/risks/",
+   "status": 200,
+   "secs": 0.04,
+   "bytes": 834,
+   "envelope": "page",
+   "keys": [
+    "count",
+    "max_page_size",
+    "next",
+    "page_size",
+    "previous",
+    "results"
+   ],
+   "page_size_echo": 1,
+   "max_page_size": 100,
+   "count": 22,
+   "n_items": 1
+  },
+  {
+   "path": "/api/v1/goals/",
+   "status": 200,
+   "secs": 0.02,
+   "bytes": 86,
+   "envelope": "page",
+   "keys": [
+    "count",
+    "max_page_size",
+    "next",
+    "page_size",
+    "previous",
+    "results"
+   ],
+   "page_size_echo": 1,
+   "max_page_size": 100,
+   "count": 0,
+   "n_items": 0
+  },
+  {
+   "path": "/api/v1/main-goals/",
+   "status": 200,
+   "secs": 0.02,
+   "bytes": 86,
+   "envelope": "page",
+   "keys": [
+    "count",
+    "max_page_size",
+    "next",
+    "page_size",
+    "previous",
+    "results"
+   ],
+   "page_size_echo": 1,
+   "max_page_size": 100,
+   "count": 0,
+   "n_items": 0
+  },
+  {
+   "path": "/api/v1/issues/",
+   "status": 200,
+   "secs": 0.03,
+   "bytes": 717,
+   "envelope": "page",
+   "keys": [
+    "count",
+    "max_page_size",
+    "next",
+    "page_size",
+    "previous",
+    "results"
+   ],
+   "page_size_echo": 1,
+   "max_page_size": 100,
+   "count": 55,
+   "n_items": 1
+  },
+  {
+   "path": "/api/v1/change-requests/",
+   "status": 200,
+   "secs": 0.03,
+   "bytes": 86,
+   "envelope": "page",
+   "keys": [
+    "count",
+    "max_page_size",
+    "next",
+    "page_size",
+    "previous",
+    "results"
+   ],
+   "page_size_echo": 1,
+   "max_page_size": 100,
+   "count": 0,
+   "n_items": 0
+  },
+  {
+   "path": "/api/v1/test-runs/",
+   "status": 200,
+   "secs": 0.02,
+   "bytes": 608,
+   "envelope": "page",
+   "keys": [
+    "count",
+    "max_page_size",
+    "next",
+    "page_size",
+    "previous",
+    "results"
+   ],
+   "page_size_echo": 1,
+   "max_page_size": 100,
+   "count": 2,
+   "n_items": 1
+  },
+  {
+   "path": "/api/v1/search/?q=a",
+   "status": 200,
+   "secs": 0.61,
+   "bytes": 5116,
+   "envelope": "custom",
+   "keys": [
+    "limit",
+    "page",
+    "query",
+    "results",
+    "total_count"
+   ],
+   "page_size_echo": null,
+   "max_page_size": null,
+   "count": null,
+   "n_items": 20
+  },
+  {
+   "path": "/api/v1/api-keys/",
+   "status": 200,
+   "secs": 0.13,
+   "bytes": 54452,
+   "envelope": "BARE-LIST",
+   "n_items": 200
+  },
+  {
+   "path": "/api/v1/diagrams/",
+   "status": 200,
+   "secs": 0.03,
+   "bytes": 86,
+   "envelope": "page",
+   "keys": [
+    "count",
+    "max_page_size",
+    "next",
+    "page_size",
+    "previous",
+    "results"
+   ],
+   "page_size_echo": 1,
+   "max_page_size": 100,
+   "count": 0,
+   "n_items": 0
+  },
+  {
+   "path": "/api/v1/icds/",
+   "status": 200,
+   "secs": 0.09,
+   "bytes": 647,
+   "envelope": "page",
+   "keys": [
+    "count",
+    "max_page_size",
+    "next",
+    "page_size",
+    "previous",
+    "results"
+   ],
+   "page_size_echo": 1,
+   "max_page_size": 100,
+   "count": 95,
+   "n_items": 1
+  },
+  {
+   "path": "/api/v1/metrics/",
+   "status": 200,
+   "secs": 1.89,
+   "bytes": 782446,
+   "envelope": "custom",
+   "keys": [
+    "computed_at",
+    "open_risks",
+    "timeframe",
+    "traceability_coverage",
+    "volatility",
+    "warnings",
+    "workflow_gaps",
+    "workspace_id"
+   ],
+   "page_size_echo": null,
+   "max_page_size": null,
+   "count": null,
+   "array_key": "warnings",
+   "n_items": 0
+  },
+  {
+   "path": "/api/v1/glossary/",
+   "status": 200,
+   "secs": 0.03,
+   "bytes": 580,
+   "envelope": "page",
+   "keys": [
+    "count",
+    "max_page_size",
+    "next",
+    "page_size",
+    "previous",
+    "results"
+   ],
+   "page_size_echo": 1,
+   "max_page_size": 100,
+   "count": 6,
+   "n_items": 1
+  },
+  {
+   "path": "/api/v1/interviews/",
+   "status": 200,
+   "secs": 0.02,
+   "bytes": 14,
+   "envelope": "custom",
+   "keys": [
+    "results"
+   ],
+   "page_size_echo": null,
+   "max_page_size": null,
+   "count": null,
+   "n_items": 0
+  },
+  {
+   "path": "/api/v1/comments/",
+   "status": 405,
+   "secs": 0.02,
+   "bytes": 141,
+   "envelope": "custom",
+   "keys": [
+    "error"
+   ],
+   "page_size_echo": null,
+   "max_page_size": null,
+   "count": null,
+   "n_items": null
+  },
+  {
+   "path": "/api/v1/notifications/",
+   "status": 200,
+   "secs": 0.02,
+   "bytes": 589,
+   "envelope": "custom",
+   "keys": [
+    "notifications",
+    "unread_count"
+   ],
+   "page_size_echo": null,
+   "max_page_size": null,
+   "count": null,
+   "array_key": "notifications",
+   "n_items": 3
+  },
+  {
+   "path": "/api/v1/users/",
+   "status": 200,
+   "secs": 0.03,
+   "bytes": 1948,
+   "envelope": "BARE-LIST",
+   "n_items": 12
+  },
+  {
+   "path": "/api/v1/needs/",
+   "status": 200,
+   "secs": 0.03,
+   "bytes": 691,
+   "envelope": "page",
+   "keys": [
+    "count",
+    "max_page_size",
+    "next",
+    "page_size",
+    "previous",
+    "results"
+   ],
+   "page_size_echo": 1,
+   "max_page_size": 100,
+   "count": 20,
+   "n_items": 1
+  },
+  {
+   "path": "/api/v1/workflows/",
+   "status": 200,
+   "secs": 0.02,
+   "bytes": 52,
+   "envelope": "page",
+   "keys": [
+    "count",
+    "next",
+    "previous",
+    "results"
+   ],
+   "page_size_echo": null,
+   "max_page_size": null,
+   "count": 0,
+   "n_items": 0
+  },
+  {
+   "path": "/api/v1/baselines/",
+   "status": 200,
+   "secs": 0.02,
+   "bytes": 86,
+   "envelope": "page",
+   "keys": [
+    "count",
+    "max_page_size",
+    "next",
+    "page_size",
+    "previous",
+    "results"
+   ],
+   "page_size_echo": 1,
+   "max_page_size": 100,
+   "count": 0,
+   "n_items": 0
+  },
+  {
+   "path": "/api/v1/traceability/cycles/",
+   "status": 200,
+   "secs": 0.04,
+   "bytes": 23,
+   "envelope": "custom",
+   "keys": [
+    "count",
+    "cycles"
+   ],
+   "page_size_echo": null,
+   "max_page_size": null,
+   "count": 0,
+   "array_key": "cycles",
+   "n_items": 0
+  },
+  {
+   "path": "/api/v1/attribute-catalog/",
+   "status": 200,
+   "secs": 0.02,
+   "bytes": 14,
+   "envelope": "custom",
+   "keys": [
+    "entries"
+   ],
+   "page_size_echo": null,
+   "max_page_size": null,
+   "count": null,
+   "array_key": "entries",
+   "n_items": 0
+  },
+  {
+   "path": "/api/v1/link-type-defaults/",
+   "status": 200,
+   "secs": 0.02,
+   "bytes": 6426,
+   "envelope": "BARE-LIST",
+   "n_items": 11
+  },
+  {
+   "path": "/api/v1/workflow-defaults/",
+   "status": 200,
+   "secs": 0.02,
+   "bytes": 56957,
+   "envelope": "custom",
+   "keys": [
+    "workflow_defaults"
+   ],
+   "page_size_echo": null,
+   "max_page_size": null,
+   "count": null,
+   "array_key": "workflow_defaults",
+   "n_items": 55
+  },
+  {
+   "path": "/api/v1/permission-defaults/",
+   "status": 200,
+   "secs": 0.04,
+   "bytes": 685,
+   "envelope": "custom",
+   "keys": [
+    "enforcement_mode",
+    "permission_json",
+    "tenant_id",
+    "updated_at"
+   ],
+   "page_size_echo": null,
+   "max_page_size": null,
+   "count": null,
+   "n_items": null
+  },
+  {
+   "path": "/api/v1/permission-mismatches/",
+   "status": 200,
+   "secs": 0.03,
+   "bytes": 52,
+   "envelope": "page",
+   "keys": [
+    "count",
+    "next",
+    "previous",
+    "results"
+   ],
+   "page_size_echo": null,
+   "max_page_size": null,
+   "count": 0,
+   "n_items": 0
+  },
+  {
+   "path": "/api/v1/attribute-migration/runs/",
+   "status": 200,
+   "secs": 0.05,
+   "bytes": 21,
+   "envelope": "custom",
+   "keys": [
+    "count",
+    "runs"
+   ],
+   "page_size_echo": null,
+   "max_page_size": null,
+   "count": 0,
+   "array_key": "runs",
+   "n_items": 0
+  },
+  {
+   "path": "/api/v1/system/memory/entries/?scope=system",
+   "status": 400,
+   "secs": 0.02,
+   "bytes": 86,
+   "envelope": "custom",
+   "keys": [
+    "error"
+   ],
+   "page_size_echo": null,
+   "max_page_size": null,
+   "count": null,
+   "n_items": null
+  },
+  {
+   "path": "/api/v1/workspaces/4eee7ca1-eedd-4a7e-bb14-47e6493cbf88/needs/",
+   "status": 200,
+   "secs": 0.05,
+   "bytes": 739,
+   "envelope": "page",
+   "keys": [
+    "count",
+    "max_page_size",
+    "next",
+    "page_size",
+    "previous",
+    "results"
+   ],
+   "page_size_echo": 1,
+   "max_page_size": 100,
+   "count": 20,
+   "n_items": 1
+  },
+  {
+   "path": "/api/v1/workspaces/4eee7ca1-eedd-4a7e-bb14-47e6493cbf88/baselines/",
+   "status": 200,
+   "secs": 0.02,
+   "bytes": 86,
+   "envelope": "page",
+   "keys": [
+    "count",
+    "max_page_size",
+    "next",
+    "page_size",
+    "previous",
+    "results"
+   ],
+   "page_size_echo": 1,
+   "max_page_size": 100,
+   "count": 0,
+   "n_items": 0
+  },
+  {
+   "path": "/api/v1/workspaces/4eee7ca1-eedd-4a7e-bb14-47e6493cbf88/reviews/pending/",
+   "status": 200,
+   "secs": 0.05,
+   "bytes": 479,
+   "envelope": "page",
+   "keys": [
+    "count",
+    "max_page_size",
+    "next",
+    "page_size",
+    "previous",
+    "results"
+   ],
+   "page_size_echo": 1,
+   "max_page_size": 100,
+   "count": 92,
+   "n_items": 1
+  },
+  {
+   "path": "/api/v1/workspaces/4eee7ca1-eedd-4a7e-bb14-47e6493cbf88/memory/entries/",
+   "status": 200,
+   "secs": 0.03,
+   "bytes": 161,
+   "envelope": "custom",
+   "keys": [
+    "backend",
+    "degraded",
+    "detail",
+    "digest_available",
+    "items",
+    "ok",
+    "page",
+    "page_size",
+    "total"
+   ],
+   "page_size_echo": 1,
+   "max_page_size": null,
+   "count": null,
+   "array_key": "items",
+   "n_items": 0
+  },
+  {
+   "path": "/api/v1/workspaces/4eee7ca1-eedd-4a7e-bb14-47e6493cbf88/link-type-definitions/",
+   "status": 200,
+   "secs": 0.02,
+   "bytes": 7900,
+   "envelope": "BARE-LIST",
+   "n_items": 11
+  },
+  {
+   "path": "/api/v1/workspaces/4eee7ca1-eedd-4a7e-bb14-47e6493cbf88/permissions/?user_id=7298a00b-f228-4269-9b89-31f55794af5d",
+   "status": 200,
+   "secs": 0.04,
+   "bytes": 18,
+   "envelope": "custom",
+   "keys": [
+    "permissions"
+   ],
+   "page_size_echo": null,
+   "max_page_size": null,
+   "count": null,
+   "array_key": "permissions",
+   "n_items": 0
+  },
+  {
+   "path": "/api/v1/admin/theme-palettes/",
+   "status": 200,
+   "secs": 0.02,
+   "bytes": 29459,
+   "envelope": "custom",
+   "keys": [
+    "results"
+   ],
+   "page_size_echo": null,
+   "max_page_size": null,
+   "count": null,
+   "n_items": 4
+  },
+  {
+   "path": "/api/v1/prompt-variables/",
+   "status": 200,
+   "secs": 0.02,
+   "bytes": 11330,
+   "envelope": "custom",
+   "keys": [
+    "count",
+    "variables",
+    "workspace_id"
+   ],
+   "page_size_echo": null,
+   "max_page_size": null,
+   "count": 32,
+   "array_key": "variables",
+   "n_items": 32
+  },
+  {
+   "path": "/api/v1/admin/rate-limits/",
+   "status": 200,
+   "secs": 0.02,
+   "bytes": 1133,
+   "envelope": "custom",
+   "keys": [
+    "scopes",
+    "tenant_id",
+    "updated_at"
+   ],
+   "page_size_echo": null,
+   "max_page_size": null,
+   "count": null,
+   "n_items": null
+  }
+ ],
+ "histogram": {
+  "page": 24,
+  "custom": 16,
+  "BARE-LIST": 4
+ },
+ "stress": [
+  {
+   "path": "/api/v1/requirements/",
+   "qs": "?page_size=1",
+   "status": 200,
+   "bytes": 843,
+   "page_size_echo": 1,
+   "count": 888,
+   "n_results": 1,
+   "err": null,
+   "msg": null
+  },
+  {
+   "path": "/api/v1/requirements/",
+   "qs": "?page_size=100000",
+   "status": 200,
+   "bytes": 65656,
+   "page_size_echo": 100,
+   "count": 888,
+   "n_results": 100,
+   "err": null,
+   "msg": null
+  },
+  {
+   "path": "/api/v1/requirements/",
+   "qs": "?page_size=0",
+   "status": 200,
+   "bytes": 16304,
+   "page_size_echo": 25,
+   "count": 888,
+   "n_results": 25,
+   "err": null,
+   "msg": null
+  },
+  {
+   "path": "/api/v1/requirements/",
+   "qs": "?page_size=-5",
+   "status": 200,
+   "bytes": 16305,
+   "page_size_echo": 25,
+   "count": 888,
+   "n_results": 25,
+   "err": null,
+   "msg": null
+  },
+  {
+   "path": "/api/v1/requirements/",
+   "qs": "?page_size=99999999999999999999",
+   "status": 200,
+   "bytes": 65670,
+   "page_size_echo": 100,
+   "count": 888,
+   "n_results": 100,
+   "err": null,
+   "msg": null
+  },
+  {
+   "path": "/api/v1/requirements/",
+   "qs": "?page_size=abc",
+   "status": 200,
+   "bytes": 16306,
+   "page_size_echo": 25,
+   "count": 888,
+   "n_results": 25,
+   "err": null,
+   "msg": null
+  },
+  {
+   "path": "/api/v1/requirements/",
+   "qs": "?page_size=1e400",
+   "status": 200,
+   "bytes": 16308,
+   "page_size_echo": 25,
+   "count": 888,
+   "n_results": 25,
+   "err": null,
+   "msg": null
+  },
+  {
+   "path": "/api/v1/requirements/",
+   "qs": "?page=1",
+   "status": 200,
+   "bytes": 16292,
+   "page_size_echo": 25,
+   "count": 888,
+   "n_results": 25,
+   "err": null,
+   "msg": null
+  },
+  {
+   "path": "/api/v1/requirements/",
+   "qs": "?page=0",
+   "status": 404,
+   "bytes": 93,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "err": "NOT_FOUND",
+   "msg": "Invalid page."
+  },
+  {
+   "path": "/api/v1/requirements/",
+   "qs": "?page=-3",
+   "status": 404,
+   "bytes": 93,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "err": "NOT_FOUND",
+   "msg": "Invalid page."
+  },
+  {
+   "path": "/api/v1/requirements/",
+   "qs": "?page=abc",
+   "status": 404,
+   "bytes": 93,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "err": "NOT_FOUND",
+   "msg": "Invalid page."
+  },
+  {
+   "path": "/api/v1/requirements/",
+   "qs": "?page=99999999",
+   "status": 404,
+   "bytes": 93,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "err": "NOT_FOUND",
+   "msg": "Invalid page."
+  },
+  {
+   "path": "/api/v1/requirements/",
+   "qs": "?page=99999999999999999999",
+   "status": 404,
+   "bytes": 93,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "err": "NOT_FOUND",
+   "msg": "Invalid page."
+  },
+  {
+   "path": "/api/v1/requirements/",
+   "qs": "",
+   "status": 200,
+   "bytes": 16292,
+   "page_size_echo": 25,
+   "count": 888,
+   "n_results": 25,
+   "err": null,
+   "msg": null
+  },
+  {
+   "path": "/api/v1/requirements/",
+   "qs": "?limit=10000&offset=0",
+   "status": 200,
+   "bytes": 16313,
+   "page_size_echo": 25,
+   "count": 888,
+   "n_results": 25,
+   "err": null,
+   "msg": null
+  },
+  {
+   "path": "/api/v1/requirements/",
+   "qs": "?page_size=100&page=2",
+   "status": 200,
+   "bytes": 66068,
+   "page_size_echo": 100,
+   "count": 888,
+   "n_results": 100,
+   "err": null,
+   "msg": null
+  },
+  {
+   "path": "/api/v1/workspaces/",
+   "qs": "?page_size=1",
+   "status": 200,
+   "bytes": 724,
+   "page_size_echo": 1,
+   "count": 401,
+   "n_results": 1,
+   "err": null,
+   "msg": null
+  },
+  {
+   "path": "/api/v1/workspaces/",
+   "qs": "?page_size=100000",
+   "status": 200,
+   "bytes": 53329,
+   "page_size_echo": 100,
+   "count": 401,
+   "n_results": 100,
+   "err": null,
+   "msg": null
+  },
+  {
+   "path": "/api/v1/workspaces/",
+   "qs": "?page_size=0",
+   "status": 200,
+   "bytes": 13452,
+   "page_size_echo": 25,
+   "count": 401,
+   "n_results": 25,
+   "err": null,
+   "msg": null
+  },
+  {
+   "path": "/api/v1/workspaces/",
+   "qs": "?page_size=-5",
+   "status": 200,
+   "bytes": 13453,
+   "page_size_echo": 25,
+   "count": 401,
+   "n_results": 25,
+   "err": null,
+   "msg": null
+  },
+  {
+   "path": "/api/v1/workspaces/",
+   "qs": "?page_size=99999999999999999999",
+   "status": 200,
+   "bytes": 53343,
+   "page_size_echo": 100,
+   "count": 401,
+   "n_results": 100,
+   "err": null,
+   "msg": null
+  },
+  {
+   "path": "/api/v1/workspaces/",
+   "qs": "?page_size=abc",
+   "status": 200,
+   "bytes": 13454,
+   "page_size_echo": 25,
+   "count": 401,
+   "n_results": 25,
+   "err": null,
+   "msg": null
+  },
+  {
+   "path": "/api/v1/workspaces/",
+   "qs": "?page_size=1e400",
+   "status": 200,
+   "bytes": 13456,
+   "page_size_echo": 25,
+   "count": 401,
+   "n_results": 25,
+   "err": null,
+   "msg": null
+  },
+  {
+   "path": "/api/v1/workspaces/",
+   "qs": "?page=1",
+   "status": 200,
+   "bytes": 13440,
+   "page_size_echo": 25,
+   "count": 401,
+   "n_results": 25,
+   "err": null,
+   "msg": null
+  },
+  {
+   "path": "/api/v1/workspaces/",
+   "qs": "?page=0",
+   "status": 404,
+   "bytes": 93,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "err": "NOT_FOUND",
+   "msg": "Invalid page."
+  },
+  {
+   "path": "/api/v1/workspaces/",
+   "qs": "?page=-3",
+   "status": 404,
+   "bytes": 93,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "err": "NOT_FOUND",
+   "msg": "Invalid page."
+  },
+  {
+   "path": "/api/v1/workspaces/",
+   "qs": "?page=abc",
+   "status": 404,
+   "bytes": 93,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "err": "NOT_FOUND",
+   "msg": "Invalid page."
+  },
+  {
+   "path": "/api/v1/workspaces/",
+   "qs": "?page=99999999",
+   "status": 404,
+   "bytes": 93,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "err": "NOT_FOUND",
+   "msg": "Invalid page."
+  },
+  {
+   "path": "/api/v1/workspaces/",
+   "qs": "?page=99999999999999999999",
+   "status": 404,
+   "bytes": 93,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "err": "NOT_FOUND",
+   "msg": "Invalid page."
+  },
+  {
+   "path": "/api/v1/workspaces/",
+   "qs": "",
+   "status": 200,
+   "bytes": 13440,
+   "page_size_echo": 25,
+   "count": 401,
+   "n_results": 25,
+   "err": null,
+   "msg": null
+  },
+  {
+   "path": "/api/v1/workspaces/",
+   "qs": "?limit=10000&offset=0",
+   "status": 200,
+   "bytes": 13461,
+   "page_size_echo": 25,
+   "count": 401,
+   "n_results": 25,
+   "err": null,
+   "msg": null
+  },
+  {
+   "path": "/api/v1/workspaces/",
+   "qs": "?page_size=100&page=2",
+   "status": 200,
+   "bytes": 53533,
+   "page_size_echo": 100,
+   "count": 401,
+   "n_results": 100,
+   "err": null,
+   "msg": null
+  },
+  {
+   "path": "/api/v1/api-keys/",
+   "qs": "?page_size=1",
+   "status": 200,
+   "bytes": 54452,
+   "n_results": 200,
+   "envelope": "BARE-LIST"
+  },
+  {
+   "path": "/api/v1/api-keys/",
+   "qs": "?page_size=100000",
+   "status": 200,
+   "bytes": 54452,
+   "n_results": 200,
+   "envelope": "BARE-LIST"
+  },
+  {
+   "path": "/api/v1/api-keys/",
+   "qs": "?page_size=0",
+   "status": 200,
+   "bytes": 54452,
+   "n_results": 200,
+   "envelope": "BARE-LIST"
+  },
+  {
+   "path": "/api/v1/api-keys/",
+   "qs": "?page_size=-5",
+   "status": 200,
+   "bytes": 54452,
+   "n_results": 200,
+   "envelope": "BARE-LIST"
+  },
+  {
+   "path": "/api/v1/api-keys/",
+   "qs": "?page_size=99999999999999999999",
+   "status": 200,
+   "bytes": 54452,
+   "n_results": 200,
+   "envelope": "BARE-LIST"
+  },
+  {
+   "path": "/api/v1/api-keys/",
+   "qs": "?page_size=abc",
+   "status": 200,
+   "bytes": 54452,
+   "n_results": 200,
+   "envelope": "BARE-LIST"
+  },
+  {
+   "path": "/api/v1/api-keys/",
+   "qs": "?page_size=1e400",
+   "status": 200,
+   "bytes": 54452,
+   "n_results": 200,
+   "envelope": "BARE-LIST"
+  },
+  {
+   "path": "/api/v1/api-keys/",
+   "qs": "?page=1",
+   "status": 200,
+   "bytes": 54452,
+   "n_results": 200,
+   "envelope": "BARE-LIST"
+  },
+  {
+   "path": "/api/v1/api-keys/",
+   "qs": "?page=0",
+   "status": 200,
+   "bytes": 54452,
+   "n_results": 200,
+   "envelope": "BARE-LIST"
+  },
+  {
+   "path": "/api/v1/api-keys/",
+   "qs": "?page=-3",
+   "status": 200,
+   "bytes": 54452,
+   "n_results": 200,
+   "envelope": "BARE-LIST"
+  },
+  {
+   "path": "/api/v1/api-keys/",
+   "qs": "?page=abc",
+   "status": 200,
+   "bytes": 54452,
+   "n_results": 200,
+   "envelope": "BARE-LIST"
+  },
+  {
+   "path": "/api/v1/api-keys/",
+   "qs": "?page=99999999",
+   "status": 200,
+   "bytes": 54452,
+   "n_results": 200,
+   "envelope": "BARE-LIST"
+  },
+  {
+   "path": "/api/v1/api-keys/",
+   "qs": "?page=99999999999999999999",
+   "status": 200,
+   "bytes": 54452,
+   "n_results": 200,
+   "envelope": "BARE-LIST"
+  },
+  {
+   "path": "/api/v1/api-keys/",
+   "qs": "",
+   "status": 200,
+   "bytes": 54452,
+   "n_results": 200,
+   "envelope": "BARE-LIST"
+  },
+  {
+   "path": "/api/v1/api-keys/",
+   "qs": "?limit=10000&offset=0",
+   "status": 200,
+   "bytes": 54452,
+   "n_results": 200,
+   "envelope": "BARE-LIST"
+  },
+  {
+   "path": "/api/v1/api-keys/",
+   "qs": "?page_size=100&page=2",
+   "status": 200,
+   "bytes": 54452,
+   "n_results": 200,
+   "envelope": "BARE-LIST"
+  },
+  {
+   "path": "/api/v1/trace-links/",
+   "qs": "?page_size=1",
+   "status": 200,
+   "bytes": 768,
+   "page_size_echo": 1,
+   "count": 1974,
+   "n_results": 1,
+   "err": null,
+   "msg": null
+  },
+  {
+   "path": "/api/v1/trace-links/",
+   "qs": "?page_size=100000",
+   "status": 200,
+   "bytes": 301516,
+   "page_size_echo": 500,
+   "count": 1974,
+   "n_results": 500,
+   "err": null,
+   "msg": null
+  },
+  {
+   "path": "/api/v1/trace-links/",
+   "qs": "?page_size=0",
+   "status": 200,
+   "bytes": 14600,
+   "page_size_echo": 25,
+   "count": 1974,
+   "n_results": 25,
+   "err": null,
+   "msg": null
+  },
+  {
+   "path": "/api/v1/trace-links/",
+   "qs": "?page_size=-5",
+   "status": 200,
+   "bytes": 14601,
+   "page_size_echo": 25,
+   "count": 1974,
+   "n_results": 25,
+   "err": null,
+   "msg": null
+  },
+  {
+   "path": "/api/v1/trace-links/",
+   "qs": "?page_size=99999999999999999999",
+   "status": 200,
+   "bytes": 301530,
+   "page_size_echo": 500,
+   "count": 1974,
+   "n_results": 500,
+   "err": null,
+   "msg": null
+  },
+  {
+   "path": "/api/v1/trace-links/",
+   "qs": "?page_size=abc",
+   "status": 200,
+   "bytes": 14602,
+   "page_size_echo": 25,
+   "count": 1974,
+   "n_results": 25,
+   "err": null,
+   "msg": null
+  },
+  {
+   "path": "/api/v1/trace-links/",
+   "qs": "?page_size=1e400",
+   "status": 200,
+   "bytes": 14604,
+   "page_size_echo": 25,
+   "count": 1974,
+   "n_results": 25,
+   "err": null,
+   "msg": null
+  },
+  {
+   "path": "/api/v1/trace-links/",
+   "qs": "?page=1",
+   "status": 200,
+   "bytes": 14588,
+   "page_size_echo": 25,
+   "count": 1974,
+   "n_results": 25,
+   "err": null,
+   "msg": null
+  },
+  {
+   "path": "/api/v1/trace-links/",
+   "qs": "?page=0",
+   "status": 500,
+   "bytes": 95,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "err": "INTERNAL_SERVER_ERROR",
+   "msg": "An internal error occurred."
+  },
+  {
+   "path": "/api/v1/trace-links/",
+   "qs": "?page=-3",
+   "status": 500,
+   "bytes": 95,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "err": "INTERNAL_SERVER_ERROR",
+   "msg": "An internal error occurred."
+  },
+  {
+   "path": "/api/v1/trace-links/",
+   "qs": "?page=abc",
+   "status": 500,
+   "bytes": 95,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "err": "INTERNAL_SERVER_ERROR",
+   "msg": "An internal error occurred."
+  },
+  {
+   "path": "/api/v1/trace-links/",
+   "qs": "?page=99999999",
+   "status": 500,
+   "bytes": 95,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "err": "INTERNAL_SERVER_ERROR",
+   "msg": "An internal error occurred."
+  },
+  {
+   "path": "/api/v1/trace-links/",
+   "qs": "?page=99999999999999999999",
+   "status": 500,
+   "bytes": 95,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "err": "INTERNAL_SERVER_ERROR",
+   "msg": "An internal error occurred."
+  },
+  {
+   "path": "/api/v1/trace-links/",
+   "qs": "",
+   "status": 200,
+   "bytes": 14588,
+   "page_size_echo": 25,
+   "count": 1974,
+   "n_results": 25,
+   "err": null,
+   "msg": null
+  },
+  {
+   "path": "/api/v1/trace-links/",
+   "qs": "?limit=10000&offset=0",
+   "status": 200,
+   "bytes": 14609,
+   "page_size_echo": 25,
+   "count": 1974,
+   "n_results": 25,
+   "err": null,
+   "msg": null
+  },
+  {
+   "path": "/api/v1/trace-links/",
+   "qs": "?page_size=100&page=2",
+   "status": 200,
+   "bytes": 60987,
+   "page_size_echo": 100,
+   "count": 1974,
+   "n_results": 100,
+   "err": null,
+   "msg": null
+  },
+  {
+   "path": "/api/v1/search/?q=a",
+   "qs": "?page_size=1",
+   "status": 200,
+   "bytes": 5116,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": 20,
+   "err": null,
+   "msg": null
+  },
+  {
+   "path": "/api/v1/search/?q=a",
+   "qs": "?page_size=100000",
+   "status": 200,
+   "bytes": 5116,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": 20,
+   "err": null,
+   "msg": null
+  },
+  {
+   "path": "/api/v1/search/?q=a",
+   "qs": "?page_size=0",
+   "status": 200,
+   "bytes": 5116,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": 20,
+   "err": null,
+   "msg": null
+  },
+  {
+   "path": "/api/v1/search/?q=a",
+   "qs": "?page_size=-5",
+   "status": 200,
+   "bytes": 5116,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": 20,
+   "err": null,
+   "msg": null
+  },
+  {
+   "path": "/api/v1/search/?q=a",
+   "qs": "?page_size=99999999999999999999",
+   "status": 200,
+   "bytes": 5116,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": 20,
+   "err": null,
+   "msg": null
+  },
+  {
+   "path": "/api/v1/search/?q=a",
+   "qs": "?page_size=abc",
+   "status": 200,
+   "bytes": 5116,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": 20,
+   "err": null,
+   "msg": null
+  },
+  {
+   "path": "/api/v1/search/?q=a",
+   "qs": "?page_size=1e400",
+   "status": 200,
+   "bytes": 5116,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": 20,
+   "err": null,
+   "msg": null
+  },
+  {
+   "path": "/api/v1/search/?q=a",
+   "qs": "?page=1",
+   "status": 200,
+   "bytes": 5116,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": 20,
+   "err": null,
+   "msg": null
+  },
+  {
+   "path": "/api/v1/search/?q=a",
+   "qs": "?page=0",
+   "status": 400,
+   "bytes": 81,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "err": "VALIDATION_ERROR",
+   "msg": "page must be >= 1."
+  },
+  {
+   "path": "/api/v1/search/?q=a",
+   "qs": "?page=-3",
+   "status": 400,
+   "bytes": 81,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "err": "VALIDATION_ERROR",
+   "msg": "page must be >= 1."
+  },
+  {
+   "path": "/api/v1/search/?q=a",
+   "qs": "?page=abc",
+   "status": 400,
+   "bytes": 94,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "err": "VALIDATION_ERROR",
+   "msg": "page and limit must be integers"
+  },
+  {
+   "path": "/api/v1/search/?q=a",
+   "qs": "?page=99999999",
+   "status": 200,
+   "bytes": 70,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": 0,
+   "err": null,
+   "msg": null
+  },
+  {
+   "path": "/api/v1/search/?q=a",
+   "qs": "?page=99999999999999999999",
+   "status": 200,
+   "bytes": 82,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": 0,
+   "err": null,
+   "msg": null
+  },
+  {
+   "path": "/api/v1/search/?q=a",
+   "qs": "",
+   "status": 200,
+   "bytes": 5116,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": 20,
+   "err": null,
+   "msg": null
+  },
+  {
+   "path": "/api/v1/search/?q=a",
+   "qs": "?limit=10000&offset=0",
+   "status": 400,
+   "bytes": 95,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "err": "VALIDATION_ERROR",
+   "msg": "limit must be between 1 and 100."
+  },
+  {
+   "path": "/api/v1/search/?q=a",
+   "qs": "?page_size=100&page=2",
+   "status": 200,
+   "bytes": 5034,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": 20,
+   "err": null,
+   "msg": null
+  },
+  {
+   "path": "/api/v1/users/",
+   "qs": "?page_size=1",
+   "status": 200,
+   "bytes": 1948,
+   "n_results": 12,
+   "envelope": "BARE-LIST"
+  },
+  {
+   "path": "/api/v1/users/",
+   "qs": "?page_size=100000",
+   "status": 200,
+   "bytes": 1948,
+   "n_results": 12,
+   "envelope": "BARE-LIST"
+  },
+  {
+   "path": "/api/v1/users/",
+   "qs": "?page_size=0",
+   "status": 200,
+   "bytes": 1948,
+   "n_results": 12,
+   "envelope": "BARE-LIST"
+  },
+  {
+   "path": "/api/v1/users/",
+   "qs": "?page_size=-5",
+   "status": 200,
+   "bytes": 1948,
+   "n_results": 12,
+   "envelope": "BARE-LIST"
+  },
+  {
+   "path": "/api/v1/users/",
+   "qs": "?page_size=99999999999999999999",
+   "status": 200,
+   "bytes": 1948,
+   "n_results": 12,
+   "envelope": "BARE-LIST"
+  },
+  {
+   "path": "/api/v1/users/",
+   "qs": "?page_size=abc",
+   "status": 200,
+   "bytes": 1948,
+   "n_results": 12,
+   "envelope": "BARE-LIST"
+  },
+  {
+   "path": "/api/v1/users/",
+   "qs": "?page_size=1e400",
+   "status": 200,
+   "bytes": 1948,
+   "n_results": 12,
+   "envelope": "BARE-LIST"
+  },
+  {
+   "path": "/api/v1/users/",
+   "qs": "?page=1",
+   "status": 200,
+   "bytes": 1948,
+   "n_results": 12,
+   "envelope": "BARE-LIST"
+  },
+  {
+   "path": "/api/v1/users/",
+   "qs": "?page=0",
+   "status": 200,
+   "bytes": 1948,
+   "n_results": 12,
+   "envelope": "BARE-LIST"
+  },
+  {
+   "path": "/api/v1/users/",
+   "qs": "?page=-3",
+   "status": 200,
+   "bytes": 1948,
+   "n_results": 12,
+   "envelope": "BARE-LIST"
+  },
+  {
+   "path": "/api/v1/users/",
+   "qs": "?page=abc",
+   "status": 200,
+   "bytes": 1948,
+   "n_results": 12,
+   "envelope": "BARE-LIST"
+  },
+  {
+   "path": "/api/v1/users/",
+   "qs": "?page=99999999",
+   "status": 200,
+   "bytes": 1948,
+   "n_results": 12,
+   "envelope": "BARE-LIST"
+  },
+  {
+   "path": "/api/v1/users/",
+   "qs": "?page=99999999999999999999",
+   "status": 200,
+   "bytes": 1948,
+   "n_results": 12,
+   "envelope": "BARE-LIST"
+  },
+  {
+   "path": "/api/v1/users/",
+   "qs": "",
+   "status": 200,
+   "bytes": 1948,
+   "n_results": 12,
+   "envelope": "BARE-LIST"
+  },
+  {
+   "path": "/api/v1/users/",
+   "qs": "?limit=10000&offset=0",
+   "status": 200,
+   "bytes": 1948,
+   "n_results": 12,
+   "envelope": "BARE-LIST"
+  },
+  {
+   "path": "/api/v1/users/",
+   "qs": "?page_size=100&page=2",
+   "status": 200,
+   "bytes": 1948,
+   "n_results": 12,
+   "envelope": "BARE-LIST"
+  },
+  {
+   "path": "/api/v1/link-type-defaults/",
+   "qs": "?page_size=1",
+   "status": 200,
+   "bytes": 6426,
+   "n_results": 11,
+   "envelope": "BARE-LIST"
+  },
+  {
+   "path": "/api/v1/link-type-defaults/",
+   "qs": "?page_size=100000",
+   "status": 200,
+   "bytes": 6426,
+   "n_results": 11,
+   "envelope": "BARE-LIST"
+  },
+  {
+   "path": "/api/v1/link-type-defaults/",
+   "qs": "?page_size=0",
+   "status": 200,
+   "bytes": 6426,
+   "n_results": 11,
+   "envelope": "BARE-LIST"
+  },
+  {
+   "path": "/api/v1/link-type-defaults/",
+   "qs": "?page_size=-5",
+   "status": 200,
+   "bytes": 6426,
+   "n_results": 11,
+   "envelope": "BARE-LIST"
+  },
+  {
+   "path": "/api/v1/link-type-defaults/",
+   "qs": "?page_size=99999999999999999999",
+   "status": 200,
+   "bytes": 6426,
+   "n_results": 11,
+   "envelope": "BARE-LIST"
+  },
+  {
+   "path": "/api/v1/link-type-defaults/",
+   "qs": "?page_size=abc",
+   "status": 200,
+   "bytes": 6426,
+   "n_results": 11,
+   "envelope": "BARE-LIST"
+  },
+  {
+   "path": "/api/v1/link-type-defaults/",
+   "qs": "?page_size=1e400",
+   "status": 200,
+   "bytes": 6426,
+   "n_results": 11,
+   "envelope": "BARE-LIST"
+  },
+  {
+   "path": "/api/v1/link-type-defaults/",
+   "qs": "?page=1",
+   "status": 200,
+   "bytes": 6426,
+   "n_results": 11,
+   "envelope": "BARE-LIST"
+  },
+  {
+   "path": "/api/v1/link-type-defaults/",
+   "qs": "?page=0",
+   "status": 200,
+   "bytes": 6426,
+   "n_results": 11,
+   "envelope": "BARE-LIST"
+  },
+  {
+   "path": "/api/v1/link-type-defaults/",
+   "qs": "?page=-3",
+   "status": 200,
+   "bytes": 6426,
+   "n_results": 11,
+   "envelope": "BARE-LIST"
+  },
+  {
+   "path": "/api/v1/link-type-defaults/",
+   "qs": "?page=abc",
+   "status": 200,
+   "bytes": 6426,
+   "n_results": 11,
+   "envelope": "BARE-LIST"
+  },
+  {
+   "path": "/api/v1/link-type-defaults/",
+   "qs": "?page=99999999",
+   "status": 200,
+   "bytes": 6426,
+   "n_results": 11,
+   "envelope": "BARE-LIST"
+  },
+  {
+   "path": "/api/v1/link-type-defaults/",
+   "qs": "?page=99999999999999999999",
+   "status": 200,
+   "bytes": 6426,
+   "n_results": 11,
+   "envelope": "BARE-LIST"
+  },
+  {
+   "path": "/api/v1/link-type-defaults/",
+   "qs": "",
+   "status": 200,
+   "bytes": 6426,
+   "n_results": 11,
+   "envelope": "BARE-LIST"
+  },
+  {
+   "path": "/api/v1/link-type-defaults/",
+   "qs": "?limit=10000&offset=0",
+   "status": 200,
+   "bytes": 6426,
+   "n_results": 11,
+   "envelope": "BARE-LIST"
+  },
+  {
+   "path": "/api/v1/link-type-defaults/",
+   "qs": "?page_size=100&page=2",
+   "status": 200,
+   "bytes": 6426,
+   "n_results": 11,
+   "envelope": "BARE-LIST"
+  },
+  {
+   "path": "/api/v1/metrics/",
+   "qs": "?page_size=1",
+   "status": 200,
+   "bytes": 782446,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "err": null,
+   "msg": null
+  },
+  {
+   "path": "/api/v1/metrics/",
+   "qs": "?page_size=100000",
+   "status": 200,
+   "bytes": 782446,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "err": null,
+   "msg": null
+  },
+  {
+   "path": "/api/v1/metrics/",
+   "qs": "?page_size=0",
+   "status": 200,
+   "bytes": 782446,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "err": null,
+   "msg": null
+  },
+  {
+   "path": "/api/v1/metrics/",
+   "qs": "?page_size=-5",
+   "status": 200,
+   "bytes": 782446,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "err": null,
+   "msg": null
+  },
+  {
+   "path": "/api/v1/metrics/",
+   "qs": "?page_size=99999999999999999999",
+   "status": 200,
+   "bytes": 782446,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "err": null,
+   "msg": null
+  },
+  {
+   "path": "/api/v1/metrics/",
+   "qs": "?page_size=abc",
+   "status": 200,
+   "bytes": 782446,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "err": null,
+   "msg": null
+  },
+  {
+   "path": "/api/v1/metrics/",
+   "qs": "?page_size=1e400",
+   "status": 200,
+   "bytes": 782446,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "err": null,
+   "msg": null
+  },
+  {
+   "path": "/api/v1/metrics/",
+   "qs": "?page=1",
+   "status": 200,
+   "bytes": 782446,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "err": null,
+   "msg": null
+  },
+  {
+   "path": "/api/v1/metrics/",
+   "qs": "?page=0",
+   "status": 200,
+   "bytes": 782446,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "err": null,
+   "msg": null
+  },
+  {
+   "path": "/api/v1/metrics/",
+   "qs": "?page=-3",
+   "status": 200,
+   "bytes": 782446,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "err": null,
+   "msg": null
+  },
+  {
+   "path": "/api/v1/metrics/",
+   "qs": "?page=abc",
+   "status": 200,
+   "bytes": 782446,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "err": null,
+   "msg": null
+  },
+  {
+   "path": "/api/v1/metrics/",
+   "qs": "?page=99999999",
+   "status": 200,
+   "bytes": 782446,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "err": null,
+   "msg": null
+  },
+  {
+   "path": "/api/v1/metrics/",
+   "qs": "?page=99999999999999999999",
+   "status": 200,
+   "bytes": 782446,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "err": null,
+   "msg": null
+  },
+  {
+   "path": "/api/v1/metrics/",
+   "qs": "",
+   "status": 200,
+   "bytes": 782446,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "err": null,
+   "msg": null
+  },
+  {
+   "path": "/api/v1/metrics/",
+   "qs": "?limit=10000&offset=0",
+   "status": 200,
+   "bytes": 782446,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "err": null,
+   "msg": null
+  },
+  {
+   "path": "/api/v1/metrics/",
+   "qs": "?page_size=100&page=2",
+   "status": 200,
+   "bytes": 782446,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "err": null,
+   "msg": null
+  },
+  {
+   "path": "/api/v1/glossary/",
+   "qs": "?page_size=1",
+   "status": 200,
+   "bytes": 580,
+   "page_size_echo": 1,
+   "count": 6,
+   "n_results": 1,
+   "err": null,
+   "msg": null
+  },
+  {
+   "path": "/api/v1/glossary/",
+   "qs": "?page_size=100000",
+   "status": 200,
+   "bytes": 22291,
+   "page_size_echo": 100,
+   "count": 6,
+   "n_results": 6,
+   "err": null,
+   "msg": null
+  },
+  {
+   "path": "/api/v1/glossary/",
+   "qs": "?page_size=0",
+   "status": 200,
+   "bytes": 22290,
+   "page_size_echo": 25,
+   "count": 6,
+   "n_results": 6,
+   "err": null,
+   "msg": null
+  },
+  {
+   "path": "/api/v1/glossary/",
+   "qs": "?page_size=-5",
+   "status": 200,
+   "bytes": 22290,
+   "page_size_echo": 25,
+   "count": 6,
+   "n_results": 6,
+   "err": null,
+   "msg": null
+  },
+  {
+   "path": "/api/v1/glossary/",
+   "qs": "?page_size=99999999999999999999",
+   "status": 200,
+   "bytes": 22291,
+   "page_size_echo": 100,
+   "count": 6,
+   "n_results": 6,
+   "err": null,
+   "msg": null
+  },
+  {
+   "path": "/api/v1/glossary/",
+   "qs": "?page_size=abc",
+   "status": 200,
+   "bytes": 22290,
+   "page_size_echo": 25,
+   "count": 6,
+   "n_results": 6,
+   "err": null,
+   "msg": null
+  },
+  {
+   "path": "/api/v1/glossary/",
+   "qs": "?page_size=1e400",
+   "status": 200,
+   "bytes": 22290,
+   "page_size_echo": 25,
+   "count": 6,
+   "n_results": 6,
+   "err": null,
+   "msg": null
+  },
+  {
+   "path": "/api/v1/glossary/",
+   "qs": "?page=1",
+   "status": 200,
+   "bytes": 22290,
+   "page_size_echo": 25,
+   "count": 6,
+   "n_results": 6,
+   "err": null,
+   "msg": null
+  },
+  {
+   "path": "/api/v1/glossary/",
+   "qs": "?page=0",
+   "status": 500,
+   "bytes": 95,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "err": "INTERNAL_SERVER_ERROR",
+   "msg": "An internal error occurred."
+  },
+  {
+   "path": "/api/v1/glossary/",
+   "qs": "?page=-3",
+   "status": 500,
+   "bytes": 95,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "err": "INTERNAL_SERVER_ERROR",
+   "msg": "An internal error occurred."
+  },
+  {
+   "path": "/api/v1/glossary/",
+   "qs": "?page=abc",
+   "status": 500,
+   "bytes": 95,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "err": "INTERNAL_SERVER_ERROR",
+   "msg": "An internal error occurred."
+  },
+  {
+   "path": "/api/v1/glossary/",
+   "qs": "?page=99999999",
+   "status": 500,
+   "bytes": 95,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "err": "INTERNAL_SERVER_ERROR",
+   "msg": "An internal error occurred."
+  },
+  {
+   "path": "/api/v1/glossary/",
+   "qs": "?page=99999999999999999999",
+   "status": 500,
+   "bytes": 95,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "err": "INTERNAL_SERVER_ERROR",
+   "msg": "An internal error occurred."
+  },
+  {
+   "path": "/api/v1/glossary/",
+   "qs": "",
+   "status": 200,
+   "bytes": 22290,
+   "page_size_echo": 25,
+   "count": 6,
+   "n_results": 6,
+   "err": null,
+   "msg": null
+  },
+  {
+   "path": "/api/v1/glossary/",
+   "qs": "?limit=10000&offset=0",
+   "status": 200,
+   "bytes": 22290,
+   "page_size_echo": 25,
+   "count": 6,
+   "n_results": 6,
+   "err": null,
+   "msg": null
+  },
+  {
+   "path": "/api/v1/glossary/",
+   "qs": "?page_size=100&page=2",
+   "status": 500,
+   "bytes": 95,
+   "page_size_echo": null,
+   "count": null,
+   "n_results": null,
+   "err": "INTERNAL_SERVER_ERROR",
+   "msg": "An internal error occurred."
+  }
+ ]
+}

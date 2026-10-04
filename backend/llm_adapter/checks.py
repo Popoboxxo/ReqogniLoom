@@ -6,17 +6,24 @@ Registered from :meth:`llm_adapter.apps.LlmAdapterConfig.ready`, so
 Why a system check rather than a log line: both failure modes guarded here are
 *silent by construction*.
 
-**Embedding dimensions (#794).** Embedding generation is best-effort everywhere
-(``embedding_service``'s module docstring), so a vector whose width does not
-match the ``vector(N)`` column it is destined for is skipped, not raised — on
-the write side (``RequirementService._generate_and_store_embedding`` et al.)
-and on the read side (``search_service._run_semantic_query``). Before #794 that
-was the *shipped default* configuration, and it produced exactly one observable
+**Embedding dimensions (#794, #1149).** Embedding generation is best-effort
+everywhere (``embedding_service``'s module docstring), so a vector whose width
+does not match the ``vector(N)`` column it is destined for is skipped, not
+raised — on the write side
+(``RequirementService._generate_and_store_embedding`` et al.) and on the read
+side (``search_service._run_semantic_query``). Before #794 that was the
+*shipped default* configuration, and it produced exactly one observable
 symptom: ``artifact.search`` returned nothing, forever, with no error anywhere.
 #794 fixes the default by resizing the columns; this check covers the
 remaining, still-reachable variants of the same trap — an operator switching
 ``EMBEDDING_PROVIDER`` to ``ollama`` (768-dim) or ``openai`` (1536-dim) without
 also resizing the columns.
+
+#1149 reconciliation: the ``mock`` and ``sentence-transformers`` providers no
+longer hardcode 384. They report and emit exactly
+``EMBEDDING_VECTOR_DIMENSIONS``, so this comparison is consistent with the
+columns for them by construction. It still fires for ``ollama``/``openai``,
+whose native widths do not adapt to the configured dimension.
 
 **OpenCode Go session (#1050).** ``LLM_OPENCODE_SESSION`` is *required* by the
 Zen-Go endpoint (a request without the ``x-opencode-session`` header gets
@@ -108,6 +115,10 @@ def check_embedding_dimensions(app_configs: Any = None, **kwargs: Any) -> List[D
                 )
             ]
 
+        # #1149: for ``mock``/``sentence-transformers`` this is already the
+        # configured EMBEDDING_VECTOR_DIMENSIONS (they adapt their output to
+        # it). For ``ollama``/``openai`` it is their native model width, which
+        # is what the columns must be resized to.
         provider_dimensions = get_embedding_provider(cfg).dimensions
         mismatched = [
             (label, dimensions)

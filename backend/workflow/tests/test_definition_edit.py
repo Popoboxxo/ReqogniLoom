@@ -47,13 +47,20 @@ def _make_def(tenant_id: uuid.UUID, ws: str, preset: str = "extended") -> None:
     )
 
 
+def _ws(tenant_id: uuid.UUID) -> str:
+    """A real workspace row so the DATA-06 ``we_item_state`` FK resolves."""
+    from persistence.tests.factories import make_workspace_id
+
+    return str(make_workspace_id(tenant_id))
+
+
 class _Base:
     def setup_method(self) -> None:
         from persistence.tenancy import TenantContext
 
         self.tenant_id = _tenant_id()
         TenantContext.set_tenant(self.tenant_id)
-        self.ws = str(uuid.uuid4())
+        self.ws = _ws(self.tenant_id)
         self.store = WorkflowDefinitionStore()
         _make_def(self.tenant_id, self.ws)
 
@@ -211,7 +218,7 @@ class TestInitialize:
     def test_initialize_creates_per_entity_default(self) -> None:
         from workflow.services import initialize_definition
 
-        ws = str(uuid.uuid4())
+        ws = _ws(self.tenant_id)
         dto = initialize_definition(ws, "Adr", tenant_id=self.tenant_id)
         assert dto.preset == "adr_default"
         assert "Draft" in dto.states
@@ -222,7 +229,7 @@ class TestInitialize:
     def test_initialize_is_idempotent(self) -> None:
         from workflow.services import initialize_definition
 
-        ws = str(uuid.uuid4())
+        ws = _ws(self.tenant_id)
         initialize_definition(ws, "Adr", tenant_id=self.tenant_id)
         initialize_definition(ws, "Adr", tenant_id=self.tenant_id)
         assert (
@@ -246,7 +253,7 @@ class TestFacadeAuditIntegration:
 
         self.tenant_id = _tenant_id()
         TenantContext.set_tenant(self.tenant_id)
-        self.ws = str(uuid.uuid4())
+        self.ws = _ws(self.tenant_id)
         _make_def(self.tenant_id, self.ws)
 
     def teardown_method(self) -> None:

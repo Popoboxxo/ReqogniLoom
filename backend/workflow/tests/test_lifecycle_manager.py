@@ -53,7 +53,12 @@ def _tenant_id() -> uuid.UUID:
 
 
 def _ws() -> uuid.UUID:
-    return uuid.uuid4()
+    # DATA-06: ``we_item_state.workspace_id`` now has a real FK to
+    # ``pl_workspace``, so the fixture must return a workspace that exists
+    # (a random UUID used to be enough).
+    from persistence.tests.factories import make_workspace_id
+
+    return make_workspace_id()
 
 
 def _make_def_record(
@@ -537,9 +542,10 @@ class TestStatusMirror:
     def _make_requirement(self, ws: uuid.UUID):
         from persistence.models import Artifact, Requirement, Workspace
 
-        workspace = Workspace.unscoped.create(
-            tenant_id=self._tenant_id, id=ws, name="Mirror WS"
-        )
+        # ``ws`` is a real workspace row created by ``_ws()`` (DATA-06: the
+        # ``we_item_state.workspace_id`` FK forbids a dangling id), so reuse it
+        # instead of inserting a second workspace with the same primary key.
+        workspace = Workspace.unscoped.get(id=ws)
         artifact = Artifact.unscoped.create(
             tenant_id=self._tenant_id,
             workspace=workspace,

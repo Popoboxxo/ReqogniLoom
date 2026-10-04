@@ -43,7 +43,9 @@ non-skipped regression coverage:
      ``mcp_server/tests/test_mcp_api_key_roles.py`` for the established
      precedent) and skips cleanly — instead of hanging or failing — when no
      live Redis is reachable (e.g. a bare ``pytest`` run outside
-     docker-compose) or in CI. Run it explicitly via:
+     docker-compose). CI (GitHub ``backend-test`` and Woodpecker
+     ``test-backend``) provides a Redis service and exports ``REDIS_URL``, so
+     this test DOES run there (AUD-2026-09-198). Run it explicitly via:
 
         docker compose run --rm backend pytest \
             mcp_server/tests/test_e2e_sse_transport.py -m integration -v
@@ -317,12 +319,23 @@ def test_sse_message_malformed_json_publishes_parse_error_event() -> None:
 # Live Redis round trip (integration marker — see conventions in
 # test_mcp_api_key_roles.py). Requires a reachable Redis; the project's test
 # settings point CELERY_BROKER_URL at "memory://" (settings_test.py), so this
-# is deliberately NOT part of the default unit suite.
+# only runs where a real Redis is reachable — which now includes CI
+# (AUD-2026-09-198). It skips cleanly, with a reason, where none is.
 # ---------------------------------------------------------------------------
 
 
 def _integration_redis_url() -> str:
-    """Build a real Redis URL from env vars, matching docker-compose defaults."""
+    """Build a real Redis URL for the live round trip.
+
+    ``REDIS_URL`` wins when set — GitHub CI exports ``redis://localhost:6379``
+    for its service container and docker-compose exports the compose-network
+    URL. Otherwise fall back to the ``REDIS_HOST``/``REDIS_PORT``/
+    ``REDIS_PASSWORD`` triple used by the project's compose files, defaulting
+    to the compose service name ``redis``.
+    """
+    url = os.environ.get("REDIS_URL")
+    if url:
+        return url
     host = os.environ.get("REDIS_HOST", "redis")
     port = os.environ.get("REDIS_PORT", "6379")
     password = os.environ.get("REDIS_PASSWORD", "")
@@ -346,10 +359,12 @@ _REDIS_REACHABLE = _redis_reachable(_INTEGRATION_REDIS_URL)
 
 
 @pytest.mark.integration
-@pytest.mark.skipif(
-    bool(os.environ.get("CI") or os.environ.get("GITHUB_ACTIONS")),
-    reason="SSE live-Redis round trip requires a reachable Redis (skipped in CI)",
-)
+# AUD-2026-09-198 (DOC-03): there used to be a second `skipif` that disabled
+# this test in *every* CI run (`CI`/`GITHUB_ACTIONS`), hiding the MCP live-SSE
+# path from the pipeline entirely. The GitHub `backend-test` job (and the
+# Woodpecker `test-backend` step) now provide a real Redis service and export
+# `REDIS_URL`, so the only remaining skip is the honest one: no reachable Redis
+# (e.g. a bare local `pytest` run without the compose stack).
 @pytest.mark.skipif(
     not _REDIS_REACHABLE,
     reason=(
