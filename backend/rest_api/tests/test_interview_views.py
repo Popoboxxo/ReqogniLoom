@@ -108,6 +108,21 @@ class TestInterviewStartAndList:
         assert response.status_code == 200
         assert start.data["id"] in [s["id"] for s in response.data["results"]]
 
+    def test_list_returns_total_count(self, authed_client, workspace):
+        """AUD-112: the Hermes Python plugin's `open interviews` counter reads
+        the DRF `count` field only (`_total_count`), so a bare
+        `{"results": [...]}` envelope leaves the counter permanently None."""
+        authed_client.post(
+            "/api/v1/interviews/",
+            {"artifact_type": "Requirement", "workspace_id": str(workspace.id)},
+            format="json",
+        )
+        response = authed_client.get(f"/api/v1/interviews/?workspace_id={workspace.id}")
+
+        assert response.status_code == 200
+        assert response.data["count"] == len(response.data["results"])
+        assert response.data["count"] >= 1
+
     def test_list_reflects_the_engine_state_not_the_stale_column(
         self, authed_client, workspace
     ):

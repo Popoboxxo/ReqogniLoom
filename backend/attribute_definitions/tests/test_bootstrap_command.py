@@ -1,10 +1,13 @@
 """Bootstrap command: introspection output and idempotency."""
 from __future__ import annotations
 
+import copy
 import uuid
+from io import StringIO
 
 import pytest
 from django.core.management import call_command
+from django.core.management.base import CommandError
 
 from attribute_definitions.global_definition_store import (
     GlobalAttributeDefinitionStore,
@@ -644,3 +647,398 @@ def test_testcase_provenance_controls_are_not_exposed_as_editable() -> None:
             "TestCaseArtifactForm adapter and must not be introspected as an "
             "editable control."
         )
+
+
+# --- #1112: --reconcile-field-kinds migrates field kinds / retired entries ---
+
+
+def _attrs_by_name(row: GlobalAttributeDefinition) -> dict[str, dict]:
+    return {a["name"]: a for a in row.definition_json["attributes"]}
+
+
+def _legacy_stakeholder(row: GlobalAttributeDefinition) -> None:
+    """Rewrite ``stakeholder`` to its pre-ADR-006 free-text shape.
+
+    ADR-006 (#1111) turned ``StakeholderNeed.stakeholder`` from a flat
+    free-text field into a catalogue-backed ``multi-enum``. An instance
+    bootstrapped before that cut keeps the old shape forever because the
+    additive bootstrap diff is name-based only (#1112).
+    """
+    payload = copy.deepcopy(row.definition_json)
+    for attribute in payload["attributes"]:
+        if attribute["name"] == "stakeholder":
+            attribute["kind"] = "extended"
+            attribute["type"] = "text"
+            attribute["options"] = []
+            attribute["multiple"] = False
+            attribute["allow_external"] = False
+            # An admin presentation customization that must survive.
+            attribute["label"] = {"de": "Eigenes Label", "en": "Custom label"}
+            attribute["order"] = 321
+    row.definition_json = payload
+    row.save(update_fields=["definition_json"])
+
+
+def _add_legacy_origin_link(row: GlobalAttributeDefinition) -> None:
+    """Append the pre-ADR-006 ``origin_link`` phantom to a row.
+
+    It was a matrix ``_new(...)`` entry (``kind="extended"``) with zero writers,
+    removed in ADR-006 (#1111); a pre-cut instance still carries it.
+    """
+    payload = copy.deepcopy(row.definition_json)
+    payload["attributes"].append(
+        {
+            "name": "origin_link",
+            "kind": "extended",
+            "type": "text",
+            "section": "traceability",
+            "order": 120,
+            "label": {"de": "Quellverweis", "en": "Origin link"},
+        }
+    )
+    row.definition_json = payload
+    row.save(update_fields=["definition_json"])
+
+
+@pytest.mark.django_db
+def test_reconcile_field_kinds_migrates_a_stale_type_and_keeps_admin_meta(
+    tenant,
+) -> None:
+    call_command("bootstrap_attribute_definitions", "--tenant", str(tenant.id))
+    row = GlobalAttributeDefinition.unscoped.get(
+        tenant_id=tenant.id, item_type="StakeholderNeed", preset="standard"
+    )
+    _legacy_stakeholder(row)
+
+    call_command(
+        "bootstrap_attribute_definitions",
+        "--tenant",
+        str(tenant.id),
+        reconcile_field_kinds=True,
+    )
+
+    row.refresh_from_db()
+    stakeholder = _attrs_by_name(row)["stakeholder"]
+    fresh = {
+        a["name"]: a
+        for a in introspect_core_attributes("StakeholderNeed", "standard")
+    }["stakeholder"]
+    assert stakeholder["kind"] == "core"
+    assert stakeholder["type"] == "multi-enum"
+    assert stakeholder["options"] == fresh["options"]
+    assert stakeholder["options"], "a multi-enum must carry catalogue options"
+    # Admin-owned presentation metadata is untouched by the reconcile.
+    assert stakeholder["label"] == {"de": "Eigenes Label", "en": "Custom label"}
+    assert stakeholder["order"] == 321
+
+
+@pytest.mark.django_db
+def test_reconcile_field_kinds_migrates_an_actor_reference(tenant) -> None:
+    call_command("bootstrap_attribute_definitions", "--tenant", str(tenant.id))
+    row = GlobalAttributeDefinition.unscoped.get(
+        tenant_id=tenant.id, item_type="Adr", preset="standard"
+    )
+    payload = copy.deepcopy(row.definition_json)
+    for attribute in payload["attributes"]:
+        if attribute["name"] == "deciders":
+            attribute["kind"] = "extended"
+            attribute["type"] = "text"
+            attribute["multiple"] = False
+            attribute["allow_external"] = False
+    row.definition_json = payload
+    row.save(update_fields=["definition_json"])
+
+    call_command(
+        "bootstrap_attribute_definitions",
+        "--tenant",
+        str(tenant.id),
+        reconcile_field_kinds=True,
+    )
+
+    row.refresh_from_db()
+    deciders = _attrs_by_name(row)["deciders"]
+    assert deciders["kind"] == "core"
+    assert deciders["type"] == "actor"
+    assert deciders["multiple"] is True
+
+
+@pytest.mark.django_db
+def test_reconcile_keeps_and_previews_a_retired_attribute_without_the_opt_in(
+    tenant,
+) -> None:
+    """F-1112-1: a name absent from the catalogue is previewed, never deleted.
+
+    An attribute the current introspection does not produce may be a retired
+    catalogue entry (the ``origin_link`` phantom) OR an admin-added global
+    attribute — the stored blob cannot tell them apart. The default reconcile
+    therefore keeps it and only prints the blast radius.
+    """
+    call_command("bootstrap_attribute_definitions", "--tenant", str(tenant.id))
+    row = GlobalAttributeDefinition.unscoped.get(
+        tenant_id=tenant.id, item_type="Requirement", preset="standard"
+    )
+    _add_legacy_origin_link(row)
+
+    out = StringIO()
+    call_command(
+        "bootstrap_attribute_definitions",
+        "--tenant",
+        str(tenant.id),
+        reconcile_field_kinds=True,
+        stdout=out,
+    )
+
+    row.refresh_from_db()
+    assert "origin_link" in _attrs_by_name(row), "deleted without the opt-in"
+    preview = out.getvalue()
+    assert "origin_link" in preview, "the blast radius must be previewed"
+    assert "--allow-attribute-removal" in preview
+    assert "Requirement/standard" in preview
+
+
+@pytest.mark.django_db
+def test_reconcile_removes_a_retired_attribute_only_with_the_opt_in(
+    tenant,
+) -> None:
+    """F-1112-1: with the explicit opt-in the removal is previewed and applied."""
+    call_command("bootstrap_attribute_definitions", "--tenant", str(tenant.id))
+    row = GlobalAttributeDefinition.unscoped.get(
+        tenant_id=tenant.id, item_type="Requirement", preset="standard"
+    )
+    _add_legacy_origin_link(row)
+
+    out = StringIO()
+    call_command(
+        "bootstrap_attribute_definitions",
+        "--tenant",
+        str(tenant.id),
+        reconcile_field_kinds=True,
+        allow_attribute_removal=True,
+        stdout=out,
+    )
+
+    row.refresh_from_db()
+    by_name = _attrs_by_name(row)
+    assert "origin_link" not in by_name
+    assert "title" in by_name, "the catalogue-owned attribute set must survive"
+    preview = out.getvalue()
+    assert "origin_link" in preview, "removal must be previewed before it happens"
+    assert "removing attribute" in preview
+
+
+@pytest.mark.django_db
+def test_reconcile_spares_an_admin_added_global_attribute_by_default(
+    tenant,
+) -> None:
+    """F-1112-1: admin-added GLOBAL extended attributes survive by default.
+
+    ``attribute_definition_service.create_global`` appends a ``kind="extended"``
+    name that no model/matrix walk produces, exactly like a retired catalogue
+    entry. The reconcile must not delete it unless the operator asks.
+    """
+    call_command("bootstrap_attribute_definitions", "--tenant", str(tenant.id))
+    row = GlobalAttributeDefinition.unscoped.get(
+        tenant_id=tenant.id, item_type="Risk", preset="standard"
+    )
+    payload = copy.deepcopy(row.definition_json)
+    payload["attributes"].append(
+        {
+            "name": "admin_added_field",
+            "kind": "extended",
+            "type": "text",
+            "section": "general",
+            "order": 900,
+            "label": {"de": "Admin-Feld", "en": "Admin field"},
+        }
+    )
+    row.definition_json = payload
+    row.save(update_fields=["definition_json"])
+
+    call_command(
+        "bootstrap_attribute_definitions",
+        "--tenant",
+        str(tenant.id),
+        reconcile_field_kinds=True,
+    )
+
+    row.refresh_from_db()
+    assert "admin_added_field" in _attrs_by_name(row)
+
+
+@pytest.mark.django_db
+def test_allow_attribute_removal_without_reconcile_is_refused(tenant) -> None:
+    call_command("bootstrap_attribute_definitions", "--tenant", str(tenant.id))
+    with pytest.raises(
+        CommandError, match="--allow-attribute-removal requires --reconcile"
+    ):
+        call_command(
+            "bootstrap_attribute_definitions",
+            "--tenant",
+            str(tenant.id),
+            allow_attribute_removal=True,
+        )
+
+
+@pytest.mark.django_db
+def test_sync_new_fields_preserves_other_top_level_definition_keys(tenant) -> None:
+    """F-1112-4: the write must not discard unrelated top-level keys."""
+    call_command("bootstrap_attribute_definitions", "--tenant", str(tenant.id))
+    row = GlobalAttributeDefinition.unscoped.get(
+        tenant_id=tenant.id, item_type="Risk", preset="standard"
+    )
+    payload = copy.deepcopy(row.definition_json)
+    payload["section_flow"] = [
+        {"kind": "section", "name": section["name"]}
+        for section in payload["sections"]
+    ]
+    payload["attributes"] = [
+        a for a in payload["attributes"] if a["name"] != "detection"
+    ]
+    row.definition_json = payload
+    row.save(update_fields=["definition_json"])
+
+    call_command(
+        "bootstrap_attribute_definitions",
+        "--tenant",
+        str(tenant.id),
+        sync_new_fields=True,
+    )
+
+    row.refresh_from_db()
+    assert row.definition_json["section_flow"] == payload["section_flow"]
+    assert "detection" in _attrs_by_name(row)
+
+
+@pytest.mark.django_db
+def test_reconcile_field_kinds_is_idempotent(tenant) -> None:
+    call_command("bootstrap_attribute_definitions", "--tenant", str(tenant.id))
+    _legacy_stakeholder(
+        GlobalAttributeDefinition.unscoped.get(
+            tenant_id=tenant.id, item_type="StakeholderNeed", preset="standard"
+        )
+    )
+
+    call_command(
+        "bootstrap_attribute_definitions",
+        "--tenant",
+        str(tenant.id),
+        reconcile_field_kinds=True,
+    )
+    row = GlobalAttributeDefinition.unscoped.get(
+        tenant_id=tenant.id, item_type="StakeholderNeed", preset="standard"
+    )
+    version = row.version
+    payload = copy.deepcopy(row.definition_json)
+
+    call_command(
+        "bootstrap_attribute_definitions",
+        "--tenant",
+        str(tenant.id),
+        reconcile_field_kinds=True,
+    )
+    row.refresh_from_db()
+    assert row.version == version, "an idempotent re-run bumped version"
+    assert row.definition_json == payload
+
+
+@pytest.mark.django_db
+def test_reconcile_field_kinds_propagates_but_spares_customized_workspaces(
+    tenant,
+) -> None:
+    call_command("bootstrap_attribute_definitions", "--tenant", str(tenant.id))
+    global_row = GlobalAttributeDefinition.unscoped.get(
+        tenant_id=tenant.id, item_type="StakeholderNeed", preset="standard"
+    )
+    _legacy_stakeholder(global_row)
+
+    ws_store = WorkspaceAttributeDefinitionStore()
+    mirrored_id = uuid.uuid4()
+    mirrored = ws_store.resolve(
+        tenant.id, mirrored_id, "StakeholderNeed", "standard"
+    )
+    assert mirrored.is_customized is False
+
+    customized_id = uuid.uuid4()
+    customized = ws_store.resolve(
+        tenant.id, customized_id, "StakeholderNeed", "standard"
+    )
+    custom_payload = copy.deepcopy(customized.definition_json)
+    for attribute in custom_payload["attributes"]:
+        if attribute["name"] == "stakeholder":
+            attribute["type"] = "text"
+            attribute["label"] = {"de": "Lokal", "en": "Local"}
+    customized.definition_json = custom_payload
+    customized.is_customized = True
+    customized.save(update_fields=["definition_json", "is_customized"])
+
+    call_command(
+        "bootstrap_attribute_definitions",
+        "--tenant",
+        str(tenant.id),
+        reconcile_field_kinds=True,
+    )
+
+    mirrored.refresh_from_db()
+    assert _attrs_by_name(mirrored)["stakeholder"]["type"] == "multi-enum"
+
+    customized.refresh_from_db()
+    local = _attrs_by_name(customized)["stakeholder"]
+    assert customized.is_customized is True
+    assert local["type"] == "text", "a customized workspace row was rewritten"
+    assert local["label"] == {"de": "Lokal", "en": "Local"}
+
+
+@pytest.mark.django_db
+def test_without_the_flag_a_stale_field_kind_is_left_alone(tenant) -> None:
+    """The mode is opt-in: the default path must not retype anything."""
+    call_command("bootstrap_attribute_definitions", "--tenant", str(tenant.id))
+    row = GlobalAttributeDefinition.unscoped.get(
+        tenant_id=tenant.id, item_type="StakeholderNeed", preset="standard"
+    )
+    _legacy_stakeholder(row)
+    before = copy.deepcopy(row.definition_json)
+
+    call_command("bootstrap_attribute_definitions", "--tenant", str(tenant.id))
+
+    row.refresh_from_db()
+    assert row.definition_json == before
+    assert _attrs_by_name(row)["stakeholder"]["type"] == "text"
+
+
+@pytest.mark.django_db
+def test_reconcile_field_kinds_with_reset_is_refused(tenant) -> None:
+    call_command("bootstrap_attribute_definitions", "--tenant", str(tenant.id))
+    with pytest.raises(
+        CommandError, match="--reconcile-field-kinds cannot be combined"
+    ):
+        call_command(
+            "bootstrap_attribute_definitions",
+            "--tenant",
+            str(tenant.id),
+            reconcile_field_kinds=True,
+            reset=True,
+        )
+
+
+def test_field_kind_keys_cover_the_structural_identity_only() -> None:
+    """A structural guard so widening the write set cannot happen unnoticed."""
+    from attribute_definitions.management.commands.bootstrap_attribute_definitions import (
+        FIELD_KIND_KEYS,
+        FIELD_KIND_TYPE_PAYLOAD_KEYS,
+    )
+    from attribute_definitions.schema import CORE_EDITABLE_META_PROPERTIES
+
+    assert FIELD_KIND_KEYS == (
+        "kind",
+        "type",
+        "multiple",
+        "allow_external",
+        "widget_key",
+        "fields",
+    )
+    assert set(FIELD_KIND_KEYS).isdisjoint(CORE_EDITABLE_META_PROPERTIES)
+    # ``options`` is admin-editable on a core enum, so it is only copied when
+    # the kind/type changes (see FIELD_KIND_TYPE_PAYLOAD_KEYS).
+    assert "options" in FIELD_KIND_TYPE_PAYLOAD_KEYS
+    assert "options" in CORE_EDITABLE_META_PROPERTIES
+

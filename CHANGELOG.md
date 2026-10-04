@@ -7,6 +7,64 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.0-beta.18] — 2026-10-03
+
+> **This beta is explicitly NOT an external production or QA release.** It is an
+> internal pre-release cut prepared on `release/v1.8.0-beta.18`, whose base is
+> `origin/main` = `e2229ac8` (PR #1140, the W4 close-out). It carries the
+> security, resilience and data hardening produced by the 2026-09 audit waves
+> W1–W4 and their `accepted` ADRs `ADR-010` … `ADR-018`. The hardening waves and
+> their ADRs were integrated as the pull requests below; the cut itself adds the
+> version carriers and the W4 close-out evidence. **The verification numbers in
+> this section were measured in the W4 close-out on `main` — this cut performs no
+> fresh suite run of its own** (see *Verification*). Hardening-, policy- and
+> evidence residues remain open and are listed under *Known open points*. Nothing
+> here constitutes a production, staging or QA deployment approval.
+
+### Added
+- **W1 — P0 hardening wave (PR #1134, merge `feab1087`; ADR-010…ADR-014):** the health contract (`/health/live` + `/health/ready`, ADR-010), the explicit authorization axis Workspace/Tenant (ADR-011), backup truth (ADR-012), collection-route authorization (ADR-013) and import success semantics / idempotency (ADR-014)
+- **W2 — P1 core wave (PR #1137, merge `3983a3c5`; ADR-015):** SEC-04/08, RES-04/05/06, DATA-05…09, INT-02…06, PLUG-02/03 and DOC-01/03/06. Adds **ADR-015** — Celery queue topology with four queues and distinct routing keys (`4498983c`, `fix(res-04,res-06): distinct celery routing keys`)
+- **W3 — P2 wave (PR #1139, merge `1e5d7574`; ADR-015…ADR-018):** accepts **ADR-016** (preset SSOT and the `refines` hierarchy edge, `59ab6c32`), **ADR-017** (plugin/server version SSOT, `18a272de`) and **ADR-018** (i18n contract: inline default only with a monotonically decreasing ratchet, `0cdb201c`)
+- **W4 — audit close-out on `main` (PR #1140, merge `e2229ac8`):** documentation and evidence only — the W4 close-out report (`b1a8eeb0`), the live re-test evidence (`d1ed53b5`) and the atomic restore-smoke evidence (`8e45a87f`) covering the four confirmed audit criticals plus restore, secret-scan and ADR-status proof
+- **Test surface hygiene (W2/W3):** distinct Celery routing keys per queue, self-consistent MCP server version sourcing (ADR-017), a fail-closed downgrade gate on persistence error (`aeaf9605`) and a decomposition default restricted to hierarchy link types (`78ca816c`)
+- **Release plumbing:** all 12 distribution version carriers advanced to `1.8.0-beta.18` (`VERSION`, `frontend/package.json`, `frontend/package-lock.json`, the Hermes plugin `package.json`/`hermes-plugin.json`/`package-lock.json`, both `dist` plugin manifests, `.env.example`, both compose files' image tags, and the site badge/footer)
+
+### Fixed
+- **AUD-2026-09-030 — MCP hung on a Redis outage (RES-01/02; ADR-010):** the MCP endpoint now answers within budget instead of timing out. Live re-test with Redis stopped: `401` in **1.52 s** on the cold request (the 1.5 s DNS budget) and **0.025 s** warm (cooldown path), versus `HTTP 000` / `curl exit 28` after 8 s before the fix. Redis was restored and the stack ended healthy
+- **AUD-2026-09-031 — `/health/` reported false-green while Redis was down (ADR-010):** `/health/ready` now fails closed with **503** (`cache` down) while `/health/live` stays **200**; before the fix `/health/` returned `200 ok` despite the outage
+- **AUD-2026-09-221 — rate limit ran before authentication (cache amplification; ADR-010):** the MCP IP backstop now runs *before* AuthN and the per-key bucket is only created after a successful authentication. Live test: five distinct invalid credentials produced five `401`s and **0** per-key buckets (only the intentionally IP-keyed backstop grew); before the fix the per-key bucket grew on a `401` (24 B → 61 B at 1 → 5 requests)
+- **AUD-2026-09-120 — one publish was delivered to four Celery queues (RES-04; ADR-015):** each queue now owns its routing key, so a message lands in exactly one queue. Controlled test with producers paused: 10 unrouted publishes landed **only** in `default` (+10), with `llm`/`events`/`memory` at 0
+- **CI/restore-smoke blockers (W4, `77cb2ac7`, `dec384b6`):** `deploy/verify-restore.sh` had no exec bit and its Compose invocation required a present `.env`; the CI step now materialises `.env` and invokes the script explicitly. `npm audit`/`undici` resolved via an `undici ^8.11.2` override plus in-range security bumps (`brace-expansion`, `dompurify`), and the Playwright CI now starts Celery worker + beat and waits bounded on `/health/ready` before the E2E shards
+- **E2E list-envelope drift (W4, `1d076854`):** the paginated-list assertions for the INT-05 endpoints were made envelope-tolerant and a strict-mode selector in the baseline view was corrected
+
+### Changed
+- **Health endpoint contract:** `/health/live` (liveness) and `/health/ready` (readiness, fail-closed) are the canonical probes; `/health/` remains as a **deprecated alias** that mirrors `/health/ready` and carries `Deprecation: true` + `Sunset: Thu, 01 Apr 2027 00:00:00 GMT`
+- **Celery queue topology (ADR-015):** the four declared queues (`default`, `llm`, `events`, `memory`) now carry distinct routing keys on the shared direct exchange, replacing the previous shared-delivery behaviour
+- **Cache resilience bounds:** `CACHES["default"]` uses a 2 s socket-connect timeout, a 5 s socket timeout and the bounded-DNS pool with a 1.5 s DNS budget (`CACHE_UNHEALTHY_COOLDOWN` 2.0 s); the fail-open path for rate limiting is explicit in the logs
+- **Import/ReqIF idempotency and workspace fence (ADR-011/014):** a cross-tenant request is a proper `403` in the shared JSON envelope, and import success semantics are pinned to an idempotent contract
+
+### Known open points
+- **#1135 — brute-force protection / lockout for Django admin login (SEC-04-Rest): OPEN, decision pending.** Needs a scope/policy decision, not a code fix
+- **#1136 — extend RLS coverage (pre-auth plus webhook/outbox tables) with a staged rollout (DATA-07-Rest): OPEN, decision pending.** Needs a scope/policy decision
+- **#1138 — decide the traceability anchor for plugin versioning (ADR-017 gap / 002-02): OPEN.** A `requirements` decision
+- **Further open audit issues #1128–#1133:** import-idempotency hardening (#1128), `expected_version` parity for MCP goal transitions and `main_goal.approve` (#1129), Redis TLS (`rediss://`) / frozen-server read stalls (#1130), the intra-tenant 403-vs-404 existence oracle (#1131), Celery beat preloading the embedding model (~407 MiB RSS; #1132) and self-seeding MCP live-stack API-key role tests (#1133)
+- **Residual W3 concept-review findings — not blocking:** `017-R2-01` (the plugin-manifest build generation is a stated mechanic; the committed `hermes-plugin.json` must be pinned to generation or explicitly declared hand-maintained) and `018-R2-01` (the i18n deadline budget enforces a decrease *until* the deadline but defines no follow-up target / re-arm)
+- **O1 (Low) — readiness-probe latency during an outage ~9.2 s:** `/health/ready` blocks ~9.2 s while Redis is down (sequential bounded dependency probes). Fail-closed behaviour is correct; a probe timeout < 9 s also reports non-200. Latency item, not a correctness defect
+- **O2 (Low, hygiene) — residual broker binding `default→events`:** the live broker's `_kombu.binding.default` set has a fifth member outside the declared `task_queues`; the controlled test found no duplicate delivery. Verify exactly four members on the next broker restart
+- **ADR-001…ADR-004 remain `proposed`** (out of scope for these waves)
+- **Traceability gap `open_adrs` (AUD-2026-09-333):** 0/835 REQs carry machine-readable `open_adrs`, so the REQ↔ADR link is not machine-checkable. Deliberately left to `requirements`
+
+### Verification
+The numbers below were **measured in the W4 close-out on `main` (`1e5d7574`)**. **This cut does not run its own suite** — the W4 commits add only documentation/evidence, and the version carriers change no code. All figures are traceable to `docs/audit/2026-09/review/W4_CLOSEOUT.md` and its evidence files `…/evidence/W4_LIVE_RETEST.md` and `…/evidence/W4_RESTORE_SMOKE.txt`:
+
+- **Backend:** `10341 passed, 13 skipped, 1 xfailed` — exit 0, Compose service `backend-test`, 37m37s. That is **+157** passing tests over the 10184 W1 baseline, with no new failures
+- **Frontend:** `251/251` test files and `2423/2423` tests passed, exit 0, container with **Node 22.17.0**. A host run under Node 26 is invalid (experimental global `localStorage` shadows `jsdom`) and is an environment artefact, not a regression
+- **E2E (Playwright/Chromium):** CI green on the merged `#1139` head — all 4 shards, **32/32 checks**. A local shard-1 run showed dev-stack state artefacts (`98 passed / 5 failed / 3 skipped`), not a `main` regression
+- **Restore smoke (ADR-012, DATA-01):** `ALL CASES PASSED (15/15 tables, 0 errors, rollback verified)`, exit 0; 15 COPY blocks, all row counts identical source vs. restored target, pgvector column restored as `vector(3)`, and a deliberately injected error rolled the single transaction back to 0 tables
+- **Secret scan:** gitleaks 8.30.1 — **0 findings** on the working tree **and** across the full **3843-commit** history
+- **ADR status:** ADR-010…ADR-018 are all `accepted` and not superseded; no orphaned `open_adrs` entries in `docs/se/**`
+- **DoD preset `rapid-prototyping`:** all preset gates are `false`, so the green suites, restore smoke, secret scan and live verification above were run **beyond** the required minimum
+
 ## [1.8.0-beta.17] — 2026-09-27
 
 > **This beta is explicitly NOT an external production or QA release.** It is an

@@ -7,19 +7,22 @@ profile / downgrade policy configuration:
 * :class:`WorkspacePresetConfig` — per-workspace preset tier + terminology
   profile (REQ-L2-PC-001/002/008, REQ-L3-PC002-003, REQ-L3-PC003-003)
 
-Tenant isolation:
-    ``WorkspacePresetConfig`` inherits ``TenantScopedModel`` and uses the
-    ``unscoped()`` manager in admin.
+Tenant isolation (SEC-04, ADR-011):
+    ``WorkspacePresetConfig`` inherits ``TenantScopedModel`` and
+    ``TenantScopedAdminMixin``, so the admin is narrowed to the requesting
+    staff user's tenant.
 """
 from __future__ import annotations
 
 from django.contrib import admin
 
+from persistence.tenant_admin import TenantScopedAdminMixin
+
 from .models import WorkspacePresetConfig
 
 
 @admin.register(WorkspacePresetConfig)
-class WorkspacePresetConfigAdmin(admin.ModelAdmin):
+class WorkspacePresetConfigAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
     """Admin view for the per-workspace preset configuration."""
 
     list_display = (
@@ -33,7 +36,3 @@ class WorkspacePresetConfigAdmin(admin.ModelAdmin):
     search_fields = ("workspace__name",)
     ordering = ("tenant", "workspace")
     readonly_fields = ("created_at", "created_by", "modified_at", "modified_by", "version")
-
-    def get_queryset(self, request):
-        # CRITICAL: bypass the tenant-isolating default manager.
-        return WorkspacePresetConfig.unscoped.all()

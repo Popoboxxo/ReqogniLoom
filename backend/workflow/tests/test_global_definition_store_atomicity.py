@@ -42,6 +42,7 @@ from django.db import OperationalError, close_old_connections, connections
 
 from persistence.models import Tenant
 from persistence.tenancy import TenantContext
+from persistence.tests.factories import make_workspace_id
 from workflow.definition_store import (
     OrphanedStateError,
     StateReferencedError,
@@ -94,7 +95,9 @@ def _make_global(tenant, states=("Open", "Closed")) -> GlobalWorkflowDefinition:
 def _make_derived(tenant, global_def, *, is_customized, states=None):
     return WorkflowEngineDefinition.objects.create(
         tenant=tenant,
-        workspace_id=uuid4(),
+        # DATA-06: a real workspace row, because a live item bound to this
+        # definition carries it into ``we_item_state.workspace_id`` (FK).
+        workspace_id=make_workspace_id(tenant.id),
         item_type="Issue",
         preset="issue_default",
         workflow_json=_graph(states or ("Open", "Closed")),
@@ -316,7 +319,7 @@ def test_delete_state_ignores_items_outside_inheriting_workspaces(tenant) -> Non
         _make_global(tenant)
         legacy = WorkflowEngineDefinition.objects.create(
             tenant=tenant,
-            workspace_id=uuid4(),
+            workspace_id=make_workspace_id(tenant.id),
             item_type="Issue",
             preset="issue_default",
             workflow_json=_graph(),

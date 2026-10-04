@@ -222,8 +222,19 @@ class TestBannerReadPermissions:
         """PUT must NOT declare an operation: a pure System-Admin (TenantRole
         only) resolves to ``active_roles=()`` and would be denied before the
         views' own ``is_tenant_admin`` elevation check ever ran. The write gate
-        lives in the service, and is covered by the classes above."""
-        assert self._allowed(view_cls, empty_roles_ctx, method="PUT") is True
+        lives in the service, and is covered by the classes above.
+
+        ADR-013: a workspace-scoped view is only reachable on a URL that names
+        its workspace, so the request carries one here too — exactly as the
+        real ``/workspaces/<id>/banner/`` route does. The assertion is about
+        the *matrix* gate, which stays open for PUT.
+        """
+        assert (
+            self._allowed(
+                view_cls, empty_roles_ctx, method="PUT", workspace_id=uuid.uuid4()
+            )
+            is True
+        )
 
     @pytest.mark.parametrize("view_cls", [GlobalBannerView, WorkspaceBannerView])
     def test_required_operation_does_not_raise_without_a_request(self, view_cls) -> None:

@@ -50,31 +50,68 @@ export async function getAuthToken(): Promise<string> {
 }
 
 /**
- * Get the first available workspace ID for the logged-in user.
- * Falls back to the tenant's default workspace from the login response.
+ * Resolve a workspace ID for the logged-in user by explicit identity.
+ *
+ * Issue #1115: this used to return `items[0]` from `/api/v1/workspaces/`, i.e.
+ * whatever the list happened to return first. That list is ordered by
+ * `-modified_at` and paginated (25/page) — see
+ * `backend/application/workspace_service.py::list_workspaces` — so on a
+ * developer database littered with leftover `e2e-*` workspaces the first row
+ * is almost always a test remnant. Such a remnant has no `draft -> in_review`
+ * workflow edge, which then breaks unrelated specs (`review-workflow.spec.ts`,
+ * `user-profile.spec.ts`) with "Transition not allowed". List order is not a
+ * contract, so match the explicitly expected workspace id instead and walk all
+ * pages of the list (an old seeded workspace is not on page 1 of a polluted
+ * tenant); if the workspace is absent, fail with a diagnostic instead of
+ * silently picking an arbitrary row.
+ *
+ * @param token JWT of the authenticated user.
+ * @param expectedWorkspaceId Workspace UUID to resolve. Defaults to the
+ *   workspace `seed_demo` creates for the demo tenant.
  */
-export async function getWorkspaceId(token: string): Promise<string> {
+export async function getWorkspaceId(
+  token: string,
+  expectedWorkspaceId: string = SEEDED_WORKSPACE_ID
+): Promise<string> {
   const ctx = await request.newContext({ baseURL: BASE_URL });
-  // Try /api/v1/workspaces/ first (may not be implemented)
   try {
-    const wsResp = await ctx.get('/api/v1/workspaces/', {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (wsResp.ok()) {
-      const body = await wsResp.json();
-      const items = Array.isArray(body) ? body : body.results ?? [];
-      if (items.length > 0 && items[0].id) {
-        await ctx.dispose();
-        return items[0].id as string;
+    // `page_size=100` (the documented maximum) keeps the number of requests
+    // low while remaining correct for tenants with far more workspaces.
+    let url: string | null = '/api/v1/workspaces/?page_size=100';
+    const visited = new Set<string>();
+    const sample: string[] = [];
+    while (url && !visited.has(url)) {
+      visited.add(url);
+      const resp = await ctx.get(url, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!resp.ok()) {
+        // Workspace listing unavailable (e.g. older deployment) — keep the
+        // documented fallback to the seeded id for this case only.
+        return expectedWorkspaceId;
       }
+      const body = await resp.json();
+      const items: Array<{ id?: string; name?: string }> = Array.isArray(body)
+        ? body
+        : body.results ?? [];
+      if (items.some((item) => item.id === expectedWorkspaceId)) {
+        return expectedWorkspaceId;
+      }
+      for (const item of items.slice(0, 10)) {
+        sample.push(`${item.name ?? '(unnamed)'} [${item.id ?? 'no-id'}]`);
+      }
+      const next = Array.isArray(body) ? null : (body.next as string | null | undefined);
+      url = next ?? null;
     }
-  } catch {
-    // endpoint not implemented — fall through
+    throw new Error(
+      `getWorkspaceId: no workspace with id '${expectedWorkspaceId}' among the ` +
+        `workspaces visible to this user (checked ${visited.size} page(s)` +
+        (sample.length ? `; e.g. ${sample.slice(0, 10).join('; ')}` : '') +
+        `). Pass the intended workspace id explicitly or re-seed the demo workspace.`
+    );
+  } finally {
+    await ctx.dispose();
   }
-  await ctx.dispose();
-  // Fall back to the workspace ID seeded by seed_demo (discovered at test setup time)
-  // This is the real workspace created for the demo tenant.
-  return SEEDED_WORKSPACE_ID;
 }
 
 /**

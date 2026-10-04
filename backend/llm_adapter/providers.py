@@ -88,6 +88,62 @@ class ProviderConfig:
     opencode_session: Optional[str] = None
 
 
+def _env_int(name: str, default: int) -> int:
+    """Read an integer environment variable without raising (INT-02).
+
+    A malformed ``LLM_TIMEOUT`` (or any other numeric env var) used to raise
+    ``ValueError`` from ``int(...)`` while resolving the provider config — so
+    every LLM call failed with a raw parser error instead of starting with a
+    controlled default. Missing/blank values and unparsable values both fall
+    back to *default*; the latter is logged at WARNING so the misconfiguration
+    stays observable.
+
+    Args:
+        name: Environment variable name.
+        default: Value returned when unset, blank or unparsable.
+
+    Returns:
+        The parsed integer, or *default*.
+    """
+    raw = os.environ.get(name)
+    if raw is None or raw.strip() == "":
+        return default
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        logger.warning(
+            "Invalid integer for %s=%r; using default %s", name, raw, default
+        )
+        return default
+
+
+def _env_float(name: str, default: float) -> float:
+    """Read a float environment variable without raising (INT-02).
+
+    Mirrors :func:`_env_int`: ``MOCK_LLM_DELAY`` / ``MOCK_LLM_ERROR_RATE`` used
+    to raise ``ValueError`` on a malformed value, turning a typo into an error
+    on every provider resolution. Unparsable values fall back to *default*
+    with a WARNING.
+
+    Args:
+        name: Environment variable name.
+        default: Value returned when unset, blank or unparsable.
+
+    Returns:
+        The parsed float, or *default*.
+    """
+    raw = os.environ.get(name)
+    if raw is None or raw.strip() == "":
+        return default
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        logger.warning(
+            "Invalid float for %s=%r; using default %s", name, raw, default
+        )
+        return default
+
+
 def _read_env_config() -> ProviderConfig:
     """Read ProviderConfig purely from environment variables.
 
@@ -110,7 +166,7 @@ def _read_env_config() -> ProviderConfig:
     """
     return ProviderConfig(
         provider_name=os.environ.get("LLM_PROVIDER", ""),
-        timeout=int(os.environ.get("LLM_TIMEOUT", "30")),
+        timeout=_env_int("LLM_TIMEOUT", 30),
         api_key=os.environ.get("LLM_API_KEY", ""),
         api_base_url=(
             os.environ.get("LLM_API_BASE_URL")
@@ -122,8 +178,8 @@ def _read_env_config() -> ProviderConfig:
         ),
         azure_deployment=os.environ.get("AZURE_OPENAI_DEPLOYMENT") or None,
         azure_api_version=os.environ.get("AZURE_OPENAI_API_VERSION") or None,
-        mock_delay=float(os.environ.get("MOCK_LLM_DELAY", "0.0")),
-        mock_error_rate=float(os.environ.get("MOCK_LLM_ERROR_RATE", "0.0")),
+        mock_delay=_env_float("MOCK_LLM_DELAY", 0.0),
+        mock_error_rate=_env_float("MOCK_LLM_ERROR_RATE", 0.0),
         opencode_session=os.environ.get("LLM_OPENCODE_SESSION") or None,
     )
 
@@ -136,9 +192,14 @@ def _apply_db_settings(cfg: ProviderConfig) -> ProviderConfig:
         (it always has a value — default ``mock``).
       - ``api_key`` / ``base_url`` / ``model_name`` override the env value only
         when the stored value is non-empty; otherwise the env fallback stays.
-      - Any failure (no active tenant context, DB unavailable, no row) is
-        swallowed and the untouched env config is returned — the environment
-        remains the source of truth when settings are not configured.
+      - A missing row (no settings saved yet) is a normal state and returns the
+        env config silently.
+      - Any *failure* (no active tenant context, DB unavailable, RLS rejection)
+        is still non-fatal — the untouched env config is returned so a broken
+        settings layer never takes LLM calls down — but is now logged at
+        WARNING (INT-02) instead of DEBUG, because silently falling back to the
+        environment made a real DB/RLS outage indistinguishable from "not
+        configured".
 
     .. important:: The unconditional ``provider`` precedence above is only
        sound because **a LlmSettings row exists if and only if an admin
@@ -168,7 +229,12 @@ def _apply_db_settings(cfg: ProviderConfig) -> ProviderConfig:
             cfg.model_name = row.model_name
         return cfg
     except Exception:  # noqa: BLE001 — settings are best-effort; env is the fallback.
-        logger.debug("LlmSettings lookup skipped; falling back to environment.")
+        # INT-02: a DB/RLS failure must stay observable. At DEBUG the adapter
+        # silently served mock/env configuration for a broken settings layer.
+        logger.warning(
+            "LlmSettings lookup failed; falling back to environment configuration.",
+            exc_info=True,
+        )
         return cfg
 
 
@@ -963,6 +1029,13 @@ def _parse_derivation_response(text: str) -> dict:
     generated requirement so callers always receive a usable structure. This
     mirrors the fallback behaviour of :class:`OpenAiProvider`.
 
+    INT-03: ``decompose_requirement`` in all five HTTP providers used this
+    helper's sibling parsers nowhere — it called a bare ``json.loads(text)`` and
+    let ``json.JSONDecodeError`` (with its raw parser text) escape into the
+    client-facing error envelope. The method now routes through this helper
+    too. Non-dict JSON (e.g. a bare list) is treated as malformed rather than
+    raising ``AttributeError`` on ``data.get``.
+
     Args:
         text: The raw completion text returned by the provider.
 
@@ -971,14 +1044,18 @@ def _parse_derivation_response(text: str) -> dict:
     """
     import json
 
+    cleaned = (text or "").replace("```json", "").replace("```", "").strip()
     try:
-        cleaned = text.replace("```json", "").replace("```", "").strip()
-        return json.loads(cleaned)
+        parsed = json.loads(cleaned)
     except json.JSONDecodeError:
-        logger.warning(
-            "Provider returned invalid JSON for derive_requirements: %s", text
-        )
-        return {"children": [{"title": "Generated Req", "description": text}]}
+        parsed = None
+    if isinstance(parsed, dict):
+        return parsed
+
+    logger.warning(
+        "Provider returned invalid JSON for derive_requirements: %s", text
+    )
+    return {"children": [{"title": "Generated Req", "description": text}]}
 
 
 def _parse_validation_response(text: str) -> dict:
@@ -1064,6 +1141,24 @@ def _parse_consistency_response(text: str) -> dict:
     }
 
 
+def _anthropic_token_usage(message: Any) -> Optional[int]:
+    """Return input+output tokens from an Anthropic message, ``None`` if absent.
+
+    INT-03 (finding 059): the previous form
+    ``message.usage.input_tokens + ... if hasattr(message, "usage") else None``
+    treats ``usage=None`` as present — ``hasattr`` is ``True`` for an attribute
+    whose value is ``None`` — and then raises ``AttributeError``. This reads
+    defensively and returns ``None`` when usage or the counters are missing.
+    """
+    usage = getattr(message, "usage", None)
+    if usage is None:
+        return None
+    input_tokens = getattr(usage, "input_tokens", None) or 0
+    output_tokens = getattr(usage, "output_tokens", None) or 0
+    total = input_tokens + output_tokens
+    return total or None
+
+
 # ---------------------------------------------------------------------------
 # Anthropic provider
 # ---------------------------------------------------------------------------
@@ -1077,7 +1172,11 @@ class AnthropicProvider(_BaseHttpProvider):
     """
 
     PROVIDER_NAME = "anthropic"
-    MODEL_NAME = "claude-3-opus-20240229"
+    # INT-02 (findings 052/346): the previous default
+    # ``claude-3-opus-20240229`` is a retired model id, so every Anthropic call
+    # without an explicit LLM_MODEL/LlmSettings.model_name failed. This default
+    # is a current model and remains overridable via env or DB settings.
+    MODEL_NAME = "claude-sonnet-4-5"
 
     def _chat(
         self, prompt: str, timeout: Optional[float] = None
@@ -1100,6 +1199,11 @@ class AnthropicProvider(_BaseHttpProvider):
         client = anthropic.Anthropic(
             api_key=self._config.api_key,
             base_url=self._config.api_base_url or None,
+            # INT-03 (finding 055): the SDK's own retry loop would otherwise
+            # multiply the PolicyEngine's retry budget (4 attempts x 3 SDK
+            # retries = up to 12 HTTP requests per logical call). All retrying
+            # is owned by resilient_call, so the SDK must not retry.
+            max_retries=0,
         )
         message = self._resilient(
             lambda: client.messages.create(
@@ -1111,11 +1215,7 @@ class AnthropicProvider(_BaseHttpProvider):
             timeout_seconds=effective_timeout,
         )
         text = message.content[0].text
-        token_usage = (
-            message.usage.input_tokens + message.usage.output_tokens
-            if hasattr(message, "usage")
-            else None
-        )
+        token_usage = _anthropic_token_usage(message)
         return text, token_usage
 
     def validate_artifact(
@@ -1134,6 +1234,8 @@ class AnthropicProvider(_BaseHttpProvider):
             client = anthropic.Anthropic(
                 api_key=self._config.api_key,
                 base_url=self._config.api_base_url or None,
+                # INT-03 (finding 055): see AnthropicProvider._chat.
+                max_retries=0,
             )
             message = self._resilient(
                 lambda: client.messages.create(
@@ -1157,11 +1259,7 @@ class AnthropicProvider(_BaseHttpProvider):
 
             raw = message.content[0].text
             data = _parse_validation_response(raw)
-            token_usage = (
-                message.usage.input_tokens + message.usage.output_tokens
-                if hasattr(message, "usage")
-                else None
-            )
+            token_usage = _anthropic_token_usage(message)
             return LlmResult(
                 score=float(data.get("score", 0.0)),
                 suggestions=data.get("suggestions", []),
@@ -1190,6 +1288,8 @@ class AnthropicProvider(_BaseHttpProvider):
             client = anthropic.Anthropic(
                 api_key=self._config.api_key,
                 base_url=self._config.api_base_url or None,
+                # INT-03 (finding 055): see AnthropicProvider._chat.
+                max_retries=0,
             )
             message = self._resilient(
                 lambda: client.messages.create(
@@ -1209,15 +1309,9 @@ class AnthropicProvider(_BaseHttpProvider):
                 ),
                 timeout_seconds=effective_timeout,
             )
-            import json
-
             raw = message.content[0].text
-            data = json.loads(raw)
-            token_usage = (
-                message.usage.input_tokens + message.usage.output_tokens
-                if hasattr(message, "usage")
-                else None
-            )
+            data = _parse_derivation_response(raw)
+            token_usage = _anthropic_token_usage(message)
             return LlmDecompositionResult(
                 score=float(data.get("score", 0.0)),
                 suggestions=data.get("suggestions", []),
@@ -1246,6 +1340,8 @@ class AnthropicProvider(_BaseHttpProvider):
             client = anthropic.Anthropic(
                 api_key=self._config.api_key,
                 base_url=self._config.api_base_url or None,
+                # INT-03 (finding 055): see AnthropicProvider._chat.
+                max_retries=0,
             )
             message = self._resilient(
                 lambda: client.messages.create(
@@ -1267,11 +1363,7 @@ class AnthropicProvider(_BaseHttpProvider):
             )
             raw = message.content[0].text
             data = _parse_consistency_response(raw)
-            token_usage = (
-                message.usage.input_tokens + message.usage.output_tokens
-                if hasattr(message, "usage")
-                else None
-            )
+            token_usage = _anthropic_token_usage(message)
             return LlmConsistencyResult(
                 score=float(data.get("score", 0.0)),
                 suggestions=data.get("suggestions", []),
@@ -1330,7 +1422,9 @@ class OpenAiProvider(_BaseHttpProvider):
     """
 
     PROVIDER_NAME = "openai"
-    MODEL_NAME = "gpt-4"
+    # INT-02 (finding 053): ``gpt-4`` is an alias for a shut-down snapshot; use
+    # a current, configurable default instead. Overridable via env / DB.
+    MODEL_NAME = "gpt-4.1"
 
     def _chat(
         self, prompt: str, timeout: Optional[float] = None
@@ -1348,6 +1442,9 @@ class OpenAiProvider(_BaseHttpProvider):
             api_key=self._config.api_key,
             base_url=self._config.api_base_url or None,
             timeout=effective_timeout,
+            # INT-03 (finding 055): SDK retries must not multiply the
+            # PolicyEngine budget — see AnthropicProvider._chat.
+            max_retries=0,
         )
         response = self._resilient(
             lambda: client.chat.completions.create(
@@ -1396,15 +1493,15 @@ class OpenAiProvider(_BaseHttpProvider):
         content: Optional[str] = None,
         timeout: Optional[float] = None,
     ) -> LlmDecompositionResult:
-        import json
-
         text, token_usage = self._invoke_chat(
             f"Decompose the following requirement (id: {requirement_id}) "
             f"into sub-requirements.{_format_artifact_context(title, content)}\n\n"
             "Return JSON: {score, suggestions, children: [{id, title, type}]}",
             timeout,
         )
-        data = json.loads(text)
+        # INT-03 (finding 057): route through the resilient parser instead of
+        # a bare json.loads() whose raw JSONDecodeError leaked to the client.
+        data = _parse_derivation_response(text)
         return LlmDecompositionResult(
             score=float(data.get("score", 0.0)),
             suggestions=data.get("suggestions", []),
@@ -1502,9 +1599,18 @@ class OllamaProvider(_BaseHttpProvider):
     def __init__(self, config: ProviderConfig) -> None:
         super().__init__(config)
         if not (config.api_base_url or "").strip():
+            # INT-02 (providers.py:1504-1508): the adapter reads LLM_BASE_URL /
+            # LLM_API_BASE_URL (see _read_env_config), so naming
+            # ``OLLAMA_BASE_URL`` here sent operators to a variable nothing
+            # reads. Name the variables that are actually honoured.
+            # INT-02 (providers.py:1504-1508): the adapter reads LLM_BASE_URL /
+            # LLM_API_BASE_URL (see _read_env_config), so naming
+            # ``OLLAMA_BASE_URL`` here sent operators to a variable nothing
+            # reads. Name the variables that are actually honoured.
             raise LlmNotConfiguredError(
                 "Ollama base_url is not configured. "
-                "Set OLLAMA_BASE_URL environment variable."
+                "Set LLM_BASE_URL (or LLM_API_BASE_URL) environment variable, "
+                "or configure a base_url via LLM settings."
             )
         self._base_url = config.api_base_url
         # Issue #196: a configured model_name (LLM_MODEL_NAME env or the
@@ -1546,8 +1652,14 @@ class OllamaProvider(_BaseHttpProvider):
         resp = self._resilient(_post, timeout_seconds=effective_timeout)
         data = resp.json()
         text = data.get("response", "")
-        # Ollama does not expose token counts in the same format; use eval_count
-        token_usage = data.get("eval_count") or None
+        # INT-03 (finding 054): Ollama reports prompt tokens separately
+        # (``prompt_eval_count``) from generated tokens (``eval_count``).
+        # Reading only ``eval_count`` systematically dropped the input side of
+        # every call from token accounting; sum both.
+        prompt_tokens = data.get("prompt_eval_count") or 0
+        eval_tokens = data.get("eval_count") or 0
+        total = prompt_tokens + eval_tokens
+        token_usage = total or None
         return text, token_usage
 
     def validate_artifact(
@@ -1584,15 +1696,14 @@ class OllamaProvider(_BaseHttpProvider):
         content: Optional[str] = None,
         timeout: Optional[float] = None,
     ) -> LlmDecompositionResult:
-        import json
-
         text, token_usage = self._invoke_chat(
             f"Decompose the following requirement (id: {requirement_id}) "
             f"into sub-requirements.{_format_artifact_context(title, content)}\n\n"
             "Return JSON: {score, suggestions, children: [{id, title, type}]}",
             timeout,
         )
-        data = json.loads(text)
+        # INT-03 (finding 057): resilient parser instead of bare json.loads().
+        data = _parse_derivation_response(text)
         return LlmDecompositionResult(
             score=float(data.get("score", 0.0)),
             suggestions=data.get("suggestions", []),
@@ -1672,7 +1783,8 @@ class AzureOpenAiProvider(_BaseHttpProvider):
     """
 
     PROVIDER_NAME = "azure"
-    MODEL_NAME = "gpt-4"
+    # INT-02 (finding 053): current configurable default, see OpenAiProvider.
+    MODEL_NAME = "gpt-4.1"
 
     def _chat(
         self, prompt: str, timeout: Optional[float] = None
@@ -1692,6 +1804,9 @@ class AzureOpenAiProvider(_BaseHttpProvider):
             azure_deployment=self._config.azure_deployment or "",
             api_version=self._config.azure_api_version or "2024-02-01",
             timeout=effective_timeout,
+            # INT-03 (finding 055): SDK retries must not multiply the
+            # PolicyEngine budget — see AnthropicProvider._chat.
+            max_retries=0,
         )
         response = self._resilient(
             lambda: client.chat.completions.create(
@@ -1738,15 +1853,14 @@ class AzureOpenAiProvider(_BaseHttpProvider):
         content: Optional[str] = None,
         timeout: Optional[float] = None,
     ) -> LlmDecompositionResult:
-        import json
-
         text, token_usage = self._invoke_chat(
             f"Decompose the following requirement (id: {requirement_id}) "
             f"into sub-requirements.{_format_artifact_context(title, content)}\n\n"
             "Return JSON: {score, suggestions, children: [{id, title, type}]}",
             timeout,
         )
-        data = json.loads(text)
+        # INT-03 (finding 057): resilient parser instead of bare json.loads().
+        data = _parse_derivation_response(text)
         return LlmDecompositionResult(
             score=float(data.get("score", 0.0)),
             suggestions=data.get("suggestions", []),
@@ -1884,6 +1998,9 @@ class OpencodeGoProvider(_BaseHttpProvider):
             base_url=self._base_url,
             timeout=effective_timeout,
             default_headers=headers or None,
+            # INT-03 (finding 055): SDK retries must not multiply the
+            # PolicyEngine budget — see AnthropicProvider._chat.
+            max_retries=0,
         )
         response = self._resilient(
             lambda: client.chat.completions.create(
@@ -1930,15 +2047,14 @@ class OpencodeGoProvider(_BaseHttpProvider):
         content: Optional[str] = None,
         timeout: Optional[float] = None,
     ) -> LlmDecompositionResult:
-        import json
-
         text, token_usage = self._invoke_chat(
             f"Decompose the following requirement (id: {requirement_id}) "
             f"into sub-requirements.{_format_artifact_context(title, content)}\n\n"
             "Return JSON: {score, suggestions, children: [{id, title, type}]}",
             timeout,
         )
-        data = json.loads(text)
+        # INT-03 (finding 057): resilient parser instead of bare json.loads().
+        data = _parse_derivation_response(text)
         return LlmDecompositionResult(
             score=float(data.get("score", 0.0)),
             suggestions=data.get("suggestions", []),

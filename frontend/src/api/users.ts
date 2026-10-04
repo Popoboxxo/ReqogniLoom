@@ -14,8 +14,8 @@
  *   DELETE /api/v1/users/{id}/tenant-admin/     — revoke tenant-admin (last-admin protected)
  */
 
-import { apiClient } from "./client";
-import type { UUID } from "../types";
+import { apiClient, asList } from "./client";
+import type { PaginatedResponse, UUID } from "../types";
 
 export interface ManagedUser {
   id: UUID;
@@ -32,9 +32,19 @@ export interface CreateUserPayload {
 }
 
 export const usersApi = {
-  /** List all users of the caller's tenant. Requires tenant-admin. */
+  /**
+   * List all users of the caller's tenant. Requires tenant-admin.
+   *
+   * INT-05 (AUD-2026-09-074): the endpoint now paginates, so the body is the
+   * standard envelope. Requests the ceiling (`page_size=100`) because a tenant
+   * roster is small and the picker renders all of it; `asList` tolerates the
+   * legacy bare array during the deprecation window.
+   */
   list: async (): Promise<ManagedUser[]> => {
-    return apiClient.get<ManagedUser[]>("/users/");
+    const body = await apiClient.get<PaginatedResponse<ManagedUser> | ManagedUser[]>(
+      "/users/?page_size=100",
+    );
+    return asList<ManagedUser>(body);
   },
 
   /** Create a new user in the caller's tenant. Requires tenant-admin. */

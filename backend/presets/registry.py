@@ -10,7 +10,12 @@ req_id : REQ-L2-PC-001, REQ-L2-PC-003, REQ-L2-PC-004, REQ-L2-PC-005,
 Design notes (ADR-PC-02):
 - Preset rules are data-driven: encoded as frozen dataclass instances, never in DB.
 - Three default presets are immutable (REQ-L2-PC-012).
-- This module is the Single Source of Truth for all preset rule data (ADR-04).
+- This module is the Single Source of Truth only for the *data-driven* preset
+  rules: ``mandatory_fields``, ``features``, ``baseline_scopes``,
+  ``workflow_configurability``, ``change_reason`` plus the ``is_default`` /
+  ``parent_tier`` metadata. Workflow graphs, attribute tiers and invariant sets
+  remain code and are deliberately *not* configured here (ADR-016).
+  ``(ADR-04)`` below still names the product-wide "Configurable Rigor" concept.
 - FeatureGateService (COMP-PC-003) accesses presets exclusively via
   get_preset_config() — internal interface IF-PC-INT-001.
 """
@@ -231,7 +236,11 @@ _DEFAULT_REGISTRY: dict[str, PresetConfig] = {
 
 
 class PresetRegistry:
-    """Static source of truth for all preset configurations.
+    """Static source of truth for the data-driven preset configurations.
+
+    Scope note (ADR-016): "source of truth" covers exactly the ``PresetConfig``
+    fields — workflow graphs, attribute tiers and invariant sets are code and
+    live elsewhere (see the module docstring).
 
     Exposes only the three built-in presets in v1. Custom preset support
     (REQ-L3-PC001-004, priority: optional) is locked for now — see

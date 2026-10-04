@@ -1589,16 +1589,11 @@ class ToolRegistry:
         Returns:
             A denial reason, or ``None`` when the call is within the fence.
         """
-        allowed = ctx.api_key_workspace_ids
-        if not allowed:
-            return None
-        if target_workspace_id is not None and str(target_workspace_id) in allowed:
-            return None
-        return (
-            "This API key is restricted to specific workspaces and may not be "
-            "used for this call. Target the workspace the key was issued for, "
-            "or use a key without a workspace restriction."
-        )
+        # ADR-011 SEC-03: one fence implementation shared with REST, so the two
+        # transports cannot drift apart.
+        from auth_tenancy.resource_scope import workspace_fence_denial
+
+        return workspace_fence_denial(ctx.api_key_workspace_ids, target_workspace_id)
 
     def _check_rbac(self, ctx: AuthContext, tool_name: Optional[str] = None) -> Optional[str]:
         """Return error message if write is not permitted, else None.

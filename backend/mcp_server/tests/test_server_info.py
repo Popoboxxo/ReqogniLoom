@@ -25,6 +25,24 @@ import json
 import pytest
 from django.test import Client
 
+from reqogniloom.version import get_app_version
+
+
+@pytest.mark.django_db
+def test_server_info_version_matches_the_app_version() -> None:
+    """ADR-017: the discovery payload reports the real server version, not the
+    old hardcoded ``"1.0.0"`` — same resolver as ``/api/v1/version/``."""
+    payload = json.loads(Client().get("/mcp/").content)
+    assert payload["version"] == get_app_version()
+
+
+@pytest.mark.django_db
+def test_server_info_version_follows_the_app_version_stamp(monkeypatch) -> None:
+    """The ``APP_VERSION`` build stamp is honoured (ADR-017)."""
+    monkeypatch.setenv("APP_VERSION", "9.9.9")
+    payload = json.loads(Client().get("/mcp/").content)
+    assert payload["version"] == "9.9.9"
+
 
 @pytest.mark.django_db
 def test_server_info_declares_every_routed_transport() -> None:

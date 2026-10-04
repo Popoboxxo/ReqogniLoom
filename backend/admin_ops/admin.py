@@ -10,11 +10,13 @@ Read-only:
     creation and restoration are driven by the admin_ops services (not by
     hand-editing rows), so the admin is locked down to read-only.
 
-Tenant isolation:
-    ``BackupMetadata`` is NOT a ``TenantScopedModel`` — backups are
-    system-level artefacts that may legitimately span tenants (see
-    admin_ops.models). The default manager is correct: there is no
-    tenant filter to bypass.
+Tenant isolation (SEC-04, ADR-011) — DELIBERATE EXCEPTION:
+    ``BackupMetadata`` is NOT a ``TenantScopedModel`` and is intentionally NOT
+    scoped by ``TenantScopedAdminMixin``: backups are system-level artefacts
+    that may legitimately span tenants (see admin_ops.models), and their
+    administration is a deployment-operator concern, not a tenant one. This is
+    the named exception to the SEC-04 admin sweep, not an oversight. All admin
+    write paths are read-only anyway.
 """
 from __future__ import annotations
 

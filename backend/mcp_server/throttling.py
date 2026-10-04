@@ -36,6 +36,25 @@ Two counters, mirroring the split :mod:`rest_api.throttling` settled on for
   forward ``X-Forwarded-For``, every caller collapses into a single bucket, and
   a tight per-IP limit would then be a self-inflicted outage rather than a
   defence.
+
+**Ordering contract (RES-02, findings 221 + N6).** The two counters are charged
+in a strict, credential-aware order, and the transport views must respect it:
+
+1. :func:`check_mcp_ip_rate_limit` runs first, *before* authentication. It keys
+   only on the client IP, so it can never mint a bucket for a presented value —
+   the unauthenticated flood is bounded without amplifying the cache.
+2. Authentication validates the credential.
+3. :func:`check_mcp_key_rate_limit` runs *after* authentication and only for
+   the now-verified credential.
+
+The pre-RES-02 code charged the per-credential bucket first, for *any* presented
+value. Because ``McpApiKeyRateThrottle`` keys on a digest of that value, every
+distinct — including every *invalid* — credential created its own
+``throttle_mcp_key_<sha256[:32]>`` key: a 401 could fill Redis, and an attacker
+could grow the keyspace without bound against ``maxmemory 256mb`` /
+``noeviction``. Keeping the per-key charge behind authentication is what closes
+that amplification; an unverified credential never reaches
+:func:`check_mcp_key_rate_limit`.
 """
 from __future__ import annotations
 
@@ -53,7 +72,8 @@ __all__ = [
     "McpApiKeyRateThrottle",
     "McpIpRateThrottle",
     "api_key_from_request",
-    "check_mcp_rate_limit",
+    "check_mcp_ip_rate_limit",
+    "check_mcp_key_rate_limit",
     "rate_limited_jsonrpc_response",
     "rate_limited_plain_response",
 ]
@@ -98,6 +118,11 @@ class McpApiKeyRateThrottle(DynamicRateThrottle):
     ``/mcp/messages/`` carries only a ``session_id`` whose server-side binding
     *is* the credential (REQ-018 / SYSTEM_AUDIT P-02). Both are secrets that
     identify one client, which is all this counter needs.
+
+    **Contract (RES-02):** the credential must be *authenticated* before this
+    counter is charged. Use :func:`check_mcp_key_rate_limit`, which never
+    charges an empty value; do not instantiate this class directly on an
+    unverified request value (see the module docstring on the amplification).
     """
 
     scope = "mcp_key"
@@ -136,38 +161,51 @@ class McpIpRateThrottle(DynamicRateThrottle):
         }
 
 
-def check_mcp_rate_limit(
-    request: HttpRequest, *, credential: Optional[str] = None
-) -> Optional[float]:
-    """Charge one MCP request against its buckets; return retry-after on refusal.
+def _charge_or_refuse(throttle: DynamicRateThrottle, request: HttpRequest) -> Optional[float]:
+    """Charge *throttle* for this request; return retry-after on refusal, else None.
 
-    Args:
-        request: The inbound request (only ``META`` is read).
-        credential: Explicit caller credential. ``None`` (the default) resolves
-            the API key from the request headers; pass a session id on the
-            message endpoint, or ``""`` to count against the per-IP bucket only.
-
-    Returns:
-        ``None`` when the request is within every limit — it has then been
-        counted. Otherwise the number of seconds the caller should wait, never
-        below ``1.0`` so a client can never read ``Retry-After: 0`` as
-        "retry immediately".
-
-    The per-credential bucket is checked first: a caller who has already blown
-    their own budget is rejected without also consuming the shared per-IP one,
-    which would otherwise let a single misbehaving client push everyone behind
-    the same proxy towards the backstop limit.
+    ``SimpleRateThrottle.wait()`` returns ``None`` once the recorded history has
+    overshot the bucket, which is treated as "wait the minimum" rather than
+    omitting the hint entirely (a client must never read ``Retry-After: 0`` as
+    "retry immediately"). Both helpers below share this so the floor lives in
+    exactly one place.
     """
-    if credential is None:
-        credential = api_key_from_request(request)
-
-    for throttle in (McpApiKeyRateThrottle(credential or ""), McpIpRateThrottle()):
-        if not throttle.allow_request(request, None):
-            # SimpleRateThrottle.wait() returns None when the history has
-            # already overshot the bucket; treat that as "wait the minimum"
-            # rather than omitting the hint entirely.
-            return max(float(throttle.wait() or 1.0), 1.0)
+    if not throttle.allow_request(request, None):
+        return max(float(throttle.wait() or 1.0), 1.0)
     return None
+
+
+def check_mcp_ip_rate_limit(request: HttpRequest) -> Optional[float]:
+    """Charge the per-IP backstop; return retry-after on refusal.
+
+    Safe to run **before** authentication: the bucket is keyed on the client IP
+    alone, so no presented credential can create a cache key here. This is the
+    only throttle the transport views charge before authenticating, and the
+    reason an unauthenticated flood is still bounded without amplifying the
+    Redis keyspace (RES-02 / findings 221, N6).
+    """
+    return _charge_or_refuse(McpIpRateThrottle(), request)
+
+
+def check_mcp_key_rate_limit(request: HttpRequest, credential: str) -> Optional[float]:
+    """Charge the per-credential budget for an **already-authenticated** credential.
+
+    The caller must have verified *credential* first. Charging an unverified
+    value is exactly the RES-02 amplification defect: :class:`McpApiKeyRateThrottle`
+    keys on a digest of whatever it is given, so every distinct value —
+    including every invalid API key an attacker presents — would mint its own
+    ``throttle_mcp_key_<sha256[:32]>`` cache key. A spray of random keys then
+    grows Redis without bound against ``maxmemory 256mb`` / ``noeviction``, and
+    a 401 fills buckets before any authentication happens.
+
+    An empty credential returns ``None`` immediately and touches no cache:
+    anonymous requests are bounded by :func:`check_mcp_ip_rate_limit` alone,
+    which is why the pre-RES-02 combined helper is gone rather than merely
+    reordered.
+    """
+    if not credential:
+        return None
+    return _charge_or_refuse(McpApiKeyRateThrottle(credential), request)
 
 
 def _retry_after_seconds(retry_after: float) -> int:

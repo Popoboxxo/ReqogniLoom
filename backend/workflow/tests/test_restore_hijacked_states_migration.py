@@ -42,7 +42,7 @@ def legacy_outdated(db):
 
     from django.utils import timezone
 
-    from persistence.models import Tenant
+    from persistence.models import Tenant, Workspace
     from workflow.models import (
         WorkflowEngineDefinition,
         WorkflowHistoryEntry,
@@ -52,12 +52,17 @@ def legacy_outdated(db):
     tenant = Tenant.objects.create(name="t-0018", slug="t-0018")
     TenantContext.set_tenant(tenant.id)
     try:
+        # DATA-06: a real workspace row (``we_item_state.workspace_id`` FK).
+        workspace = Workspace.objects.create(tenant=tenant, name="ws-0018")
         definition = WorkflowEngineDefinition.objects.create(
             tenant=tenant,
-            workspace_id=tenant.id,
+            workspace_id=workspace.id,
             item_type="Requirement",
             preset=WorkflowEngineDefinition.PRESET_MINIMAL,
-            workflow_json={"states": ["draft", "approved"], "transitions": []},
+            # "outdated" is declared so this fixture can reproduce the legacy
+            # soft-delete shape 0018 exists to repair; the DATA-06 trigger only
+            # accepts a definition's declared states.
+            workflow_json={"states": ["draft", "approved", "outdated"], "transitions": []},
         )
 
         def _stranded(history_from):
@@ -65,7 +70,7 @@ def legacy_outdated(db):
                 tenant=tenant,
                 item_id=uuid.uuid4(),
                 item_type="Requirement",
-                workspace_id=tenant.id,
+                workspace_id=workspace.id,
                 definition=definition,
                 current_state="outdated",
             )
@@ -77,7 +82,7 @@ def legacy_outdated(db):
                     to_state="outdated",
                     transitioned_by="tester",
                     transitioned_at=timezone.now(),
-                    workspace_id=tenant.id,
+                    workspace_id=workspace.id,
                 )
             return state
 

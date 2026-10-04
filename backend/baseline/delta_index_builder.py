@@ -269,8 +269,11 @@ class ScopeResolver:
         from django.db import connection
 
         # Recursive CTE: collect the root artifact and all descendants,
-        # expanding via parent_id AND via derives-from/refines TraceLinks
-        # (source is the child, target is the parent it derives from/refines).
+        # expanding via parent_id AND via derives-from TraceLinks
+        # (source is the child, target is the parent it derives from).
+        # `refines` is deliberately not expanded: it is a live built-in, but
+        # whether it is a hierarchy edge is an open decision (ADR candidate vi,
+        # see traceability/audit/hierarchy.py).
         # Postgres allows at most one self-reference to the recursive table
         # per recursive CTE, so the two edge sources (parent_id, TraceLinks)
         # are first unioned into a plain (non-recursive) 'edges' CTE; the

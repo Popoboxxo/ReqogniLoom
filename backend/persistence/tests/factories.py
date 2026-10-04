@@ -39,8 +39,8 @@ recommendation only.
 from __future__ import annotations
 
 import contextlib
-from typing import Iterator
-from uuid import uuid4
+from typing import Iterator, Optional
+from uuid import UUID, uuid4
 
 from django.utils import timezone
 
@@ -117,6 +117,30 @@ def make_workspace(tenant: Tenant, **kwargs) -> Workspace:
         workspace_id=workspace.id, tenant_id=workspace.tenant_id
     )
     return workspace
+
+
+def make_workspace_id(tenant_id: Optional[UUID] = None) -> UUID:
+    """Create a bare ``Workspace`` row and return its primary key.
+
+    Lightweight sibling of :func:`make_workspace` for tests that only need a
+    real ``pl_workspace`` row — e.g. so a ``we_item_state.workspace_id`` FK
+    resolves — and do not need the workspace's link-type catalog provisioned.
+    Falls back to the active :class:`~persistence.tenancy.TenantContext` when
+    ``tenant_id`` is omitted, mirroring :func:`make_workspace`'s expectation of
+    an active tenant context.
+
+    Created through ``unscoped`` on purpose: the callers are module-level test
+    helpers that build the workspace before (or outside) a tenant context is
+    active, exactly like the raw ``Workspace.objects.create`` they replace.
+    """
+    if tenant_id is None:
+        from persistence.tenancy import TenantContext
+
+        tenant_id = TenantContext.get_tenant()
+    workspace = Workspace.unscoped.create(
+        tenant_id=tenant_id, name=f"WS-{uuid4().hex[:12]}"
+    )
+    return workspace.id
 
 
 def assign_role(user: User, workspace: Workspace, role: str, *, suspended: bool = False) -> None:
@@ -267,6 +291,7 @@ __all__ = [
     "active_tenant",
     "make_user",
     "make_workspace",
+    "make_workspace_id",
     "assign_role",
     "editor_ctx",
     "ctx_for_user",

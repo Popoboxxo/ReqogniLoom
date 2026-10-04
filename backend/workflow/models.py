@@ -202,7 +202,21 @@ class WorkflowItemState(TenantScopedModel):
 
     item_id = models.UUIDField(db_index=True)
     item_type = models.CharField(max_length=128)
-    workspace_id = models.UUIDField(db_index=True)
+    # DATA-06 (audit-review 2026-09, findings 180/186): ``workspace_id`` used to
+    # be a bare UUIDField with only a btree index — 26 of 44 tables carried a
+    # workspace column with no referential guard, so the DB enforced nothing
+    # and tenant/workspace integrity hung entirely on application code
+    # (ADR-011 makes the workspace an object-derived authorization axis: the
+    # resource must carry its scope in the schema). Kept as ``workspace_id``
+    # (the FK is expressed through the ``workspace`` attribute below) so the
+    # denormalized column name — and every existing query, index and MCP/REST
+    # filter that reads ``workspace_id`` — is unchanged.
+    workspace = models.ForeignKey(
+        "persistence.Workspace",
+        on_delete=models.CASCADE,
+        related_name="workflow_item_states",
+        db_column="workspace_id",
+    )
     definition = models.ForeignKey(
         WorkflowEngineDefinition,
         on_delete=models.PROTECT,
@@ -216,11 +230,28 @@ class WorkflowItemState(TenantScopedModel):
             models.UniqueConstraint(
                 fields=["tenant", "item_id", "item_type"],
                 name="uq_we_state_tenant_item",
-            )
+            ),
+            # DATA-06 (finding 171): an item's state must be one of the states
+            # declared by its own WorkflowEngineDefinition. That relation is
+            # *cross-table* (``current_state`` vs. the definition's
+            # ``workflow_json->'states'`` array) and PostgreSQL forbids a
+            # subquery inside a CHECK ("cannot use subquery in check
+            # constraint"), so the membership rule is enforced by a
+            # ``BEFORE INSERT OR UPDATE`` trigger created in migration
+            # ``workflow/0021`` (``trg_we_state_current_state_in_definition``).
+            #
+            # The single-table half that *is* expressible as a real CHECK —
+            # a state key must never be empty — lives here, so ``pg_constraint``
+            # carries the DB-level guard the audit asked for while the trigger
+            # carries the definition-membership rule the CHECK cannot.
+            models.CheckConstraint(
+                condition=~models.Q(current_state=""),
+                name="ck_we_state_current_state_nonempty",
+            ),
         ]
         indexes = [
             models.Index(
-                fields=["workspace_id", "current_state"],
+                fields=["workspace", "current_state"],
                 name="idx_we_state_workspace_state",
             )
         ]
