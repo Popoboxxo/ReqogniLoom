@@ -74,7 +74,7 @@ Facts, not narrative:
 - **Workflow Automation** — Configurable requirement states and transitions
 
 ### AI Integration
-- **MCP Server** — native Model Context Protocol server; 35 tool-group prefixes (admin, adr, ai_derivation, architecture, artifact, attribute_catalog, attribute_definition, attribute_migration, audit, baseline, change_request, comment, context, diagram, events, glossary, goal, icd, interview, issue, link_type, main_goal, memory, needs, permissions, prompt_template, prompt_variable, requirement, requirement_bundle, review, risk, test, traceability, user, workspace), 219 individual tools — measured from `tools/list`; see `docs/api/MCP-SURFACE.md` for the count and how to re-derive it, and `docs/agent-templates/tool-manifest.json` for the machine-readable manifest. For Claude Desktop, Cursor, and other MCP-capable LLM platforms
+- **MCP Server** — native Model Context Protocol server; 35 tool-group prefixes (admin, adr, ai_derivation, architecture, artifact, attribute_catalog, attribute_definition, attribute_migration, audit, baseline, change_request, comment, context, diagram, events, glossary, goal, icd, interview, issue, link_type, main_goal, memory, needs, permissions, prompt_template, prompt_variable, requirement, requirement_bundle, review, risk, test, traceability, user, workspace), 223 individual tools — measured from `tools/list`; see `docs/api/MCP-SURFACE.md` for the count and how to re-derive it, and `docs/agent-templates/tool-manifest.json` for the machine-readable manifest. For Claude Desktop, Cursor, and other MCP-capable LLM platforms
 - **LLM Adapter** — Pluggable providers: Anthropic, OpenAI, Ollama (local), Azure OpenAI, opencode_go, or mock mode (default, no external calls)
 - **AI Derivation** — Configurable prompts to intelligently decompose Stakeholder Needs into System Requirements
 - **Semantic Glossary & Linking** — Intelligent requirement matching and terminology suggestions
@@ -111,7 +111,7 @@ graph TD
 
     subgraph L3["Layer 3 — Integration (transport only)"]
         REST["REST API<br/>DRF, 20+ ViewSets/APIViews<br/>JWT Auth + OpenAPI"]
-        MCP["MCP Server<br/>JSON-RPC 2.0<br/>35 tool-group prefixes, 219 tools"]
+        MCP["MCP Server<br/>JSON-RPC 2.0<br/>35 tool-group prefixes, 223 tools"]
     end
 
     subgraph L2["Layer 2 — Application (Single Entry Point, ADR-01)"]
@@ -387,6 +387,10 @@ You can connect external AI assistants like Claude Desktop, Cursor, OpenCode or 
 ReqogniLoom exposes an SSE (Server-Sent Events) transport endpoint for remote connections.
 
 **Important:** You need an active API key to authenticate (see Step 5 above).
+
+> **One command per client, German + English:** see [`docs/clients/`](docs/clients/README.md) —
+> generated from `clients/registry.yaml` for Claude Code, Codex, OpenCode, Kimi Code,
+> Antigravity and Hermes (transport, auth, verification and pitfalls per client).
 
 #### Example: Claude Desktop Configuration
 

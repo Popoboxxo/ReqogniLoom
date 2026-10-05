@@ -6,6 +6,7 @@
 | **Datum** | 2026-10-04 |
 | **Basis** | `v1.8.0-beta.18`, QS-Sandbox `172.20.5.120`, empirische Client-Tests |
 | **Bezug** | #1171 (konsolidiertes Issue), #1170 (`artifact_search`), #1169 (Codex headless), #1153 (Session-Header), #1085 (Doku-Drift) |
+| **Bugfix-Hub** | Umsetzung läuft als Bundle **B0** — [`docs/bugfix-hub/README.md`](../bugfix-hub/README.md) · [`docs/plans/2026-10-05-bugfix-hub-integrationen.md`](2026-10-05-bugfix-hub-integrationen.md) |
 | **Geltung** | Claude Code, Codex CLI, OpenCode, Kimi Code, Antigravity, Hermes |
 | **Nicht Teil dieses Plans** | Änderungen am MCP-Server selbst, an Rollen/Skills-Inhalten, an der LLM-Anbindung des Backends |
 
@@ -170,8 +171,8 @@ Beide Transporte sind verifiziert lauffähig. Es fehlt die Regel — hier die vo
 | Transport | Pfad | Wann verwenden | Verifiziert bei |
 |---|---|---|---|
 | **Streamable HTTP** | `/mcp/` | Client spricht Streamable HTTP nativ (bevorzugt: weniger bewegliche Teile) | Codex 0.151.0 (12 Workspaces) |
-| **SSE** | `/mcp/sse/` | Client-Plugin/Store-Lösung sieht SSE vor (Claude-Plugin, Antigravity) | Claude Code 2.1.267 (49 Requirements), Antigravity (`tools/list` → 219 Tools) |
-| **stdio-Bridge** | lokales Skript | Client kann nur stdio (OpenCode `type:"local"`, Hermes) — nötig für Env-Isolation | OpenCode, Hermes (219 Tools) |
+| **SSE** | `/mcp/sse/` | Client-Plugin/Store-Lösung sieht SSE vor (Claude-Plugin, Antigravity) | Claude Code 2.1.267 (49 Requirements), Antigravity (`tools/list` → 222 Tools) |
+| **stdio-Bridge** | lokales Skript | Client kann nur stdio (OpenCode `type:"local"`, Hermes) — nötig für Env-Isolation | OpenCode, Hermes (222 Tools) |
 
 ### 3.4 Single Source of Truth für die Client-Artefakte
 
@@ -350,9 +351,9 @@ npx skills add ./dist/plugins/antigravity/reqogniloom -a antigravity
 ```
 **c) Fallback:** `mcpServers.reqogniloom`-Block manuell in `~/.gemini/config/mcp_config.json` bzw. `.agents/mcp_config.json` mergen; Variablen `${REQOGNILOOM_MCP_URL}` / `${REQOGNILOOM_API_KEY}` müssen in der Umgebung aufgelöst werden.
 **d) Modell/Provider:** Kein ReqogniLoom-spezifischer Teil; Hinweis auf die Plattform-Reife (Preview) bleibt.
-**e) Verify (erwartet):** SSE-Session gegen `/mcp/sse/` mit `X-API-Key` → `initialize` (202 + Event) → `tools/list` liefert **219 Tools** (verifiziert). Antigravity-Panel zeigt `reqogniloom` verbunden.
+**e) Verify (erwartet):** SSE-Session gegen `/mcp/sse/` mit `X-API-Key` → `initialize` (202 + Event) → `tools/list` liefert **222 Tools** (verifiziert). Antigravity-Panel zeigt `reqogniloom` verbunden.
 **f) Fallstricke:** CPU-Feature (oben); Antigravity ist Preview mit dokumentierten Sicherheitsfindungen → **Read-only-Key** empfehlen; wie OpenCode **keine** Tool-Beschränkung je Skill.
-**g) Testkriterien:** Paket-Build-Test (rc=0, `plugin.json`/`mcp_config.json` md5-gleich zum Repo-`dist`), SSE-Handshake, Tool-Zahl 219.
+**g) Testkriterien:** Paket-Build-Test (rc=0, `plugin.json`/`mcp_config.json` md5-gleich zum Repo-`dist`), SSE-Handshake, Tool-Zahl 222.
 **h) Offen bis Stufe 2:** Veröffentlichung im MCP-Store statt Datei-Merge.
 
 #### 4.2.6 Hermes — AP-1.11 · 1 PT
@@ -361,11 +362,11 @@ npx skills add ./dist/plugins/antigravity/reqogniloom -a antigravity
 **b) Ein-Befehl (L2):**
 ```bash
 hermes mcp add reqogniloom          # discovery-first
-hermes mcp test reqogniloom         # -> ✓ Connected, 219 Tools
+hermes mcp test reqogniloom         # -> ✓ Connected, 222 Tools
 ```
 **c) Fallback:** `mcp_servers.<name>` in der Hermes-Konfiguration + Bridge-Pfad; Desktop-Plugin zusätzlich über `integrations/hermes-plugin/` (README fehlt → AP-1.11 liefert sie nach).
 **d) Modell/Provider:** unabhängig (Hermes nutzt seine eigene LLM-Config).
-**e) Verify (erwartet):** `hermes mcp test` → `✓ Connected` (QA: 2232 ms, 219 Tools); echte Calls: `requirement_query` → **49**, `architecture_query` → 1, `artifact_search "Motorsafe"` → Top-Treffer korrekt.
+**e) Verify (erwartet):** `hermes mcp test` → `✓ Connected` (QA: 2232 ms, 222 Tools); echte Calls: `requirement_query` → **49**, `architecture_query` → 1, `artifact_search "Motorsafe"` → Top-Treffer korrekt.
 **f) Fallstricke:** Zwei getrennte Integrationspfade (Desktop-Plugin vs. Agent-Plugin) — in der Doku klar trennen; `integrations/hermes-plugin/` hat heute keine README.
 **g) Testkriterien:** `mcp test` grün + zwei echte Tool-Calls mit Gegenprobe.
 **h) Offen bis Stufe 2:** Katalogeintrag (dann `hermes mcp install reqogniloom` = L3).
@@ -675,7 +676,7 @@ Dieser Plan führt **keine** neue Schwachstelle ein, sondern erweitert bestehend
 | OpenCode: Plugin-Install | `opencode plugin <module>` (`-g` für global) | `opencode plugin --help` |
 | Kimi: Provider-Registry | `kimi provider add <api.json>` (Feld `type` Pflicht) | QA (`Skipping invalid entry …`) |
 | Kimi: Config-Check | `kimi doctor` | `kimi --help` |
-| Hermes: MCP-Install | `hermes mcp add` / `hermes mcp test <name>` | QA (219 Tools, 2232 ms) |
+| Hermes: MCP-Install | `hermes mcp add` / `hermes mcp test <name>` | QA (222 Tools, 2232 ms) |
 | Hermes: Katalog | `hermes mcp catalog` / `hermes mcp install <name>` | `hermes mcp --help` |
 | Antigravity: Skills | `npx skills add <pkg> -a antigravity` | `INSTALL.md` |
 | MCP-Registry: Publish | `mcp-publisher init/login github-oidc/publish/validate` | Registry-Doku |

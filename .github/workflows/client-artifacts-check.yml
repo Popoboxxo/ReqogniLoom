@@ -1,0 +1,73 @@
+name: Client artifacts check
+
+# Drift gate for the generated client documentation (#1171, Bundle B0, AP-1.5).
+#
+# clients/registry.yaml is the single source of truth; docs/clients/** is
+# generated from it. This job fails on:
+#   1. a hand edit of a generated file (render.py --check reports STALE),
+#   2. a registry <-> shipped-snippet contradiction (transport path / literal key),
+#   3. a German/English parity break,
+#   4. a broken relative link inside docs/clients/**.
+#
+# Read-only, no secrets: safe on pull requests from forks.
+on:
+  pull_request:
+    paths:
+      - 'clients/**'
+      - 'scripts/clients/**'
+      - 'docs/clients/**'
+      - 'dist/**'
+      - 'docs/agent-templates/INSTALL.md'
+      - 'docs/plans/2026-10-04-one-click-client-installation.md'
+      - '.github/workflows/client-artifacts-check.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'clients/**'
+      - 'scripts/clients/**'
+      - 'docs/clients/**'
+      - 'dist/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: client-artifacts-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  client-artifacts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.12'
+      - name: Install renderer dependency
+        run: pip install --disable-pip-version-check pyyaml
+      - name: Render check (drift / parity / registry-vs-snippet)
+        run: python scripts/clients/render.py --check
+      - name: Bash syntax of installer/verifier
+        run: |
+          set -euo pipefail
+          bash -n scripts/clients/install.sh
+          bash -n scripts/clients/verify.sh
+      - name: Relative link check in docs/clients
+        run: |
+          python - <<'PY'
+          import re, sys
+          from pathlib import Path
+          root = Path("docs/clients")
+          link = re.compile(r"\]\((?!https?://|#|mailto:)([^)]+)\)")
+          problems = []
+          for md in sorted(root.glob("*.md")):
+              for m in link.finditer(md.read_text(encoding="utf-8")):
+                  target = m.group(1).split("#", 1)[0]
+                  if target and not (root / target).exists():
+                      problems.append(f"{md.as_posix()}: broken link -> {target}")
+          if problems:
+              print("\n".join(problems), file=sys.stderr)
+              sys.exit(1)
+          print("link check OK")
+          PY

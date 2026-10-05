@@ -1,0 +1,502 @@
+# ReqogniLoom client connection registry — Single Source of Truth (#1171 / B0).
+#
+# Every generated client artifact (docs/clients/**, snippets referenced below,
+# marketplace/server.json in Stufe 2) is derived from this file. `render.py`
+# reads it; `client-artifacts-check.yml` fails when the committed artifacts no
+# longer match. Editing a snippet or a client doc by hand is therefore a
+# deliberate CI failure, not a silent drift.
+#
+# Verified against v1.8.0-beta.18 (QS sandbox 172.20.5.120); see
+# docs/plans/2026-10-04-one-click-client-installation.md for the QA evidence.
+
+version_source: VERSION
+
+conventions:
+  mcp_url_env: REQOGNILOOM_MCP_URL
+  api_key_env: REQOGNILOOM_API_KEY
+  api_key_prefix: reqlo_
+  default_auth_header: X-API-Key
+  transport_paths:
+    streamable_http: /mcp/
+    sse: /mcp/sse/
+  # Rule (plan §3.3): prefer Streamable HTTP when the client speaks it natively;
+  # use SSE for plugin/store paths; stdio bridge when the client is stdio-only.
+  transport_rule_de:
+    - "**Streamable HTTP** (`/mcp/`): Client spricht es nativ — bevorzugt."
+    - "**SSE** (`/mcp/sse/`): Plugin-/Store-Weg sieht SSE vor (Claude-Plugin, Antigravity)."
+    - "**stdio-Bridge** (lokales Skript): Client kann nur stdio (OpenCode `local`, Hermes)."
+  transport_rule_en:
+    - "**Streamable HTTP** (`/mcp/`): client speaks it natively — preferred."
+    - "**SSE** (`/mcp/sse/`): plugin/store path expects SSE (Claude plugin, Antigravity)."
+    - "**stdio bridge** (local script): stdio-only client (OpenCode `local`, Hermes)."
+
+smoke:
+  # One identical test across all clients (plan §4.3); the reference number is
+  # a REST cross-check, never a free-text guess.
+  task_de: "Nutze das reqogniloom-MCP-Werkzeug und nenne die Anzahl der Requirements im Workspace <workspace-id>."
+  task_en: "Use the reqogniloom MCP tool and report the number of requirements in workspace <workspace-id>."
+  second_de: "Liste die Workspaces."
+  second_en: "List the workspaces."
+  pass_de: "Bestanden, wenn beide Zahlen der REST-Gegenprobe entsprechen UND der MCP-Call im Client-Log sichtbar ist."
+  pass_en: "Pass when both numbers match the REST cross-check AND the MCP call is visible in the client log."
+
+clients:
+  - id: claude-code
+    name: Claude Code
+    tested_version: "2.1.267"
+    target_level: L3
+    status: supported
+    transport: sse
+    url_path: /mcp/sse/
+    auth_header: X-API-Key
+    config_artifact: dist/plugins/claude-code/reqogniloom/.mcp.json
+    skills_dir: "~/.claude/skills"
+    install_de:
+      - lang: bash
+        text: |
+          # Stufe 1 (lokal, aus dem geklonten Repo):
+          claude plugin marketplace add ./dist/plugins/claude-code
+          claude plugin install reqogniloom@claude-code
+          export REQOGNILOOM_MCP_URL="https://<host>"
+          export REQOGNILOOM_API_KEY="reqlo_…"
+    install_en:
+      - lang: bash
+        text: |
+          # Stage 1 (local, from the cloned repo):
+          claude plugin marketplace add ./dist/plugins/claude-code
+          claude plugin install reqogniloom@claude-code
+          export REQOGNILOOM_MCP_URL="https://<host>"
+          export REQOGNILOOM_API_KEY="reqlo_…"
+    fallback_de:
+      - lang: bash
+        text: |
+          claude mcp add --transport http reqogniloom \
+            "$REQOGNILOOM_MCP_URL/mcp/sse/" \
+            --header "X-API-Key: $REQOGNILOOM_API_KEY"
+    fallback_en:
+      - lang: bash
+        text: |
+          claude mcp add --transport http reqogniloom \
+            "$REQOGNILOOM_MCP_URL/mcp/sse/" \
+            --header "X-API-Key: $REQOGNILOOM_API_KEY"
+    verify:
+      command: "claude mcp list"
+      expected_de: "`plugin:reqogniloom:reqogniloom: http://<host>/mcp/sse/ (SSE) - ✔ Connected`"
+      expected_en: "`plugin:reqogniloom:reqogniloom: http://<host>/mcp/sse/ (SSE) - ✔ Connected`"
+      tool_result: "49 Requirements (QA reference workspace)"
+    prereq_de:
+      - "`claude` ≥ 2.1.x im `PATH`."
+      - "Netzwerkzugriff auf den MCP-Endpunkt."
+      - "`reqlo_…`-Key mit passender Rolle (read-only für Audit-Zwecke empfohlen)."
+    prereq_en:
+      - "`claude` ≥ 2.1.x on `PATH`."
+      - "Network access to the MCP endpoint."
+      - "A `reqlo_…` key with the right role (read-only recommended for audit use)."
+    provider_de:
+      - "Standard-Anthropic-Abo/-Key unverändert. Für eigene Anthropic-kompatible Endpunkte: `ANTHROPIC_BASE_URL`, `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`, `ANTHROPIC_CUSTOM_HEADERS`."
+      - "Die Warnung `[claude-code:unrecognized_model]` ist bei Fremdmodellen kosmetisch."
+    provider_en:
+      - "Standard Anthropic subscription/key unchanged. For custom Anthropic-compatible endpoints: `ANTHROPIC_BASE_URL`, `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`, `ANTHROPIC_CUSTOM_HEADERS`."
+      - "The `[claude-code:unrecognized_model]` warning is cosmetic with third-party models."
+    pitfalls_de:
+      - "Marketplace-/Entry-Name **muss** `plugin.json → name` entsprechen, sonst `Plugin \"x\" not found in marketplace \"y\"`."
+      - "Reservierte Marketplace-Namen (`claude-plugins-official`) sind gesperrt."
+      - "Relative `source`-Pfade werden ab der Marketplace-Wurzel aufgelöst."
+    pitfalls_en:
+      - "Marketplace/entry name **must** match `plugin.json → name`, else `Plugin \"x\" not found in marketplace \"y\"`."
+      - "Reserved marketplace names (`claude-plugins-official`) are blocked."
+      - "Relative `source` paths resolve from the marketplace root."
+    roles_de:
+      - "Der Key-Scope (Rolle am Server) entscheidet über die Rechte — nicht die Skill-Auswahl. Für Audit/Preview eine read-only-Rolle binden."
+    roles_en:
+      - "The key scope (server-side role) decides permissions — not the skill selection. Bind a read-only role for audit/preview."
+    update_de:
+      - "`claude plugin update reqogniloom` (Version aus `VERSION`)."
+      - "Deinstallation: `claude plugin uninstall reqogniloom`."
+    update_en:
+      - "`claude plugin update reqogniloom` (version fed from `VERSION`)."
+      - "Uninstall: `claude plugin uninstall reqogniloom`."
+
+  - id: codex
+    name: Codex CLI
+    tested_version: "0.151.0"
+    target_level: L3
+    status: supported
+    transport: streamable_http
+    url_path: /mcp/
+    auth_header: "Authorization: Bearer"
+    config_artifact: dist/codex/config.toml.snippet
+    skills_dir: "~/.codex/skills"
+    install_de:
+      - lang: bash
+        text: |
+          codex mcp add reqogniloom --url "$REQOGNILOOM_MCP_URL/mcp/"
+          codex mcp list            # -> reqogniloom   enabled
+          export REQOGNILOOM_API_KEY="reqlo_…"   # via bearer_token_env_var
+    install_en:
+      - lang: bash
+        text: |
+          codex mcp add reqogniloom --url "$REQOGNILOOM_MCP_URL/mcp/"
+          codex mcp list            # -> reqogniloom   enabled
+          export REQOGNILOOM_API_KEY="reqlo_…"   # read via bearer_token_env_var
+    fallback_de:
+      - lang: toml
+        text: |
+          [mcp_servers.reqogniloom]
+          url = "https://your-reqogniloom-host/mcp/"
+          bearer_token_env_var = "REQOGNILOOM_API_KEY"
+    fallback_en:
+      - lang: toml
+        text: |
+          [mcp_servers.reqogniloom]
+          url = "https://your-reqogniloom-host/mcp/"
+          bearer_token_env_var = "REQOGNILOOM_API_KEY"
+    verify:
+      command: "codex mcp list"
+      expected_de: "`reqogniloom   enabled`; danach ein headless Call liefert die Workspace-Liste."
+      expected_en: "`reqogniloom   enabled`; then a headless call returns the workspace list."
+      tool_result: "12 Workspaces (REST cross-check count = 12)"
+    prereq_de:
+      - "`codex` ≥ 0.151 im `PATH`."
+      - "Ein eigener Modell-/Provider-Eintrag (siehe Modell/Provider)."
+      - "`reqlo_…`-Key; er wird über `bearer_token_env_var` gelesen, nie in die Config geschrieben."
+    prereq_en:
+      - "`codex` ≥ 0.151 on `PATH`."
+      - "A custom model/provider entry (see Model/Provider)."
+      - "A `reqlo_…` key read via `bearer_token_env_var`, never written into the config."
+    provider_de:
+      - "**`wire_api = \"responses\"` ist Pflicht** — Codex ≥ 0.151 lehnt `\"chat\"` ab (sonst lädt die Config nicht)."
+      - "Headless-MCP-Calls brauchen `--dangerously-bypass-approvals-and-sandbox`; sonst blockiert die Approval-Policy **jeden** MCP-Aufruf (nur in kontrollierten Läufen)."
+      - "Der LLM-Endpunkt muss die Responses-API sprechen; nicht jedes Modell tut das."
+    provider_en:
+      - "**`wire_api = \"responses\"` is mandatory** — Codex ≥ 0.151 rejects `\"chat\"` (otherwise the config fails to load)."
+      - "Headless MCP calls need `--dangerously-bypass-approvals-and-sandbox`; otherwise the approval policy blocks **every** MCP call (controlled runs only)."
+      - "The LLM endpoint must speak the Responses API; not every model does."
+    pitfalls_de:
+      - "`wire_api=\"chat\"` → Config lädt nicht."
+      - "„MCP tool call requires approval, but approval policy is never\" → Bypass fehlt."
+      - "Die Warnung „bubblewrap not found\" betrifft nur die Shell-Sandbox (für MCP irrelevant)."
+    pitfalls_en:
+      - "`wire_api=\"chat\"` → config fails to load."
+      - "\"MCP tool call requires approval, but approval policy is never\" → bypass missing."
+      - "The \"bubblewrap not found\" warning only affects the shell sandbox (irrelevant for MCP)."
+    roles_de:
+      - "Bearer-Transport ist die einzige von Codex unterstützte Form für einen `reqlo_`-Key; der Key-Scope steuert die Rechte."
+    roles_en:
+      - "Bearer is the only transport Codex supports for a `reqlo_` key; the key scope governs permissions."
+    update_de:
+      - "Config-Snippet aktualisieren bzw. `codex mcp remove reqogniloom` + erneut `add`."
+    update_en:
+      - "Update the config snippet, or `codex mcp remove reqogniloom` + `add` again."
+
+  - id: opencode
+    name: OpenCode
+    tested_version: "1.18.31"
+    target_level: L3
+    status: supported
+    transport: sse
+    url_path: /mcp/sse/
+    auth_header: X-API-Key
+    config_artifact: dist/opencode/opencode.json.snippet
+    skills_dir: ".opencode/skills"
+    install_de:
+      - lang: bash
+        text: |
+          # Kanonische Form (remote/SSE), identisch zum ausgelieferten Snippet:
+          opencode mcp add reqogniloom --url "$REQOGNILOOM_MCP_URL/mcp/sse/"
+          opencode mcp list                 # -> ✓ reqogniloom connected
+    install_en:
+      - lang: bash
+        text: |
+          # Canonical form (remote/SSE), identical to the shipped snippet:
+          opencode mcp add reqogniloom --url "$REQOGNILOOM_MCP_URL/mcp/sse/"
+          opencode mcp list                 # -> ✓ reqogniloom connected
+    fallback_de:
+      - lang: json
+        text: |
+          {
+            "mcp": {
+              "reqogniloom": {
+                "type": "remote",
+                "url": "{env:REQOGNILOOM_MCP_URL}/mcp/sse/",
+                "headers": { "X-API-Key": "{env:REQOGNILOOM_API_KEY}" }
+              }
+            }
+          }
+    fallback_en:
+      - lang: json
+        text: |
+          {
+            "mcp": {
+              "reqogniloom": {
+                "type": "remote",
+                "url": "{env:REQOGNILOOM_MCP_URL}/mcp/sse/",
+                "headers": { "X-API-Key": "{env:REQOGNILOOM_API_KEY}" }
+              }
+            }
+          }
+    verify:
+      command: "opencode mcp list"
+      expected_de: "`✓ reqogniloom connected`; danach ein echter Tool-Call (`requirement_query` → 49)."
+      expected_en: "`✓ reqogniloom connected`; then a real tool call (`requirement_query` → 49)."
+      tool_result: "49 Requirements"
+    prereq_de:
+      - "`opencode` im `PATH`; Skills-Ablage beschreibbar."
+      - "`reqlo_…`-Key."
+    prereq_en:
+      - "`opencode` on `PATH`; skills directory writable."
+      - "A `reqlo_…` key."
+    provider_de:
+      - "`opencode-go/…`-Modelle funktionieren (verifiziert)."
+      - "Free-Tier-Modelle (`opencode/*-free`) waren zum Testzeitpunkt serverseitig defekt (`UnknownError`) — Umgebungszustand, kein Produktfehler."
+    provider_en:
+      - "`opencode-go/…` models work (verified)."
+      - "Free-tier models (`opencode/*-free`) were server-side broken at test time (`UnknownError`) — environment state, not a product bug."
+    pitfalls_de:
+      - "**Historischer Widerspruch (aufgelöst):** `docs/agent-templates/INSTALL.md` nannte `type:\"http\"` + `options.headers`; das ausgelieferte Snippet und diese Seite verwenden `type:\"remote\"` + Top-Level-`headers` — das ist die kanonische Form."
+      - "`{env:NAME}` wird expandiert, ein blankes `{...}` nicht (wird literal gesendet → stille Fehlfunktion)."
+      - "`DOMAIN_MODEL.md` muss **zwei Ebenen über** `skills/<name>/SKILL.md` liegen."
+      - "Keine client-seitige Tool-Beschränkung je Skill → Rechte über den Key-Scope steuern."
+    pitfalls_en:
+      - "**Historical contradiction (resolved):** `docs/agent-templates/INSTALL.md` said `type:\"http\"` + `options.headers`; the shipped snippet and this page use `type:\"remote\"` + top-level `headers` — that is the canonical form."
+      - "`{env:NAME}` is expanded, a bare `{...}` is not (sent literally → silent failure)."
+      - "`DOMAIN_MODEL.md` must sit **two levels above** `skills/<name>/SKILL.md`."
+      - "No client-side per-skill tool restriction → govern permissions via the key scope."
+    roles_de:
+      - "Read-only-Rolle für Fremd-/Preview-Nutzung; der Key-Scope ist die einzige wirksame Grenze."
+    roles_en:
+      - "Read-only role for third-party/preview use; the key scope is the only effective boundary."
+    update_de:
+      - "Snippet/Config neu ziehen; `opencode plugin <modul>` (Stufe 2) installiert MCP + Skills in einem Schritt."
+    update_en:
+      - "Re-pull the snippet/config; `opencode plugin <module>` (Stage 2) installs MCP + skills in one step."
+
+  - id: kimi-code
+    name: Kimi Code
+    tested_version: "2.1.1"
+    target_level: L2
+    status: partial
+    transport: streamable_http
+    url_path: /mcp/
+    auth_header: "Authorization: Bearer"
+    config_artifact: ""
+    skills_dir: "~/.kimi-code/skills"
+    install_de:
+      - lang: bash
+        text: |
+          # Kimi hat kein natives MCP-Add-Kommando -> Installer-Skript
+          scripts/clients/install.sh --client kimi-code \
+            --url "https://<host>" --key-env REQOGNILOOM_API_KEY
+          kimi doctor        # -> Konfiguration valide
+    install_en:
+      - lang: bash
+        text: |
+          # Kimi has no native MCP-add command -> installer script
+          scripts/clients/install.sh --client kimi-code \
+            --url "https://<host>" --key-env REQOGNILOOM_API_KEY
+          kimi doctor        # -> configuration valid
+    fallback_de:
+      - lang: json
+        text: |
+          // ~/.kimi-code/mcp.json
+          {
+            "mcpServers": {
+              "reqogniloom": {
+                "type": "http",
+                "url": "https://<host>/mcp/",
+                "headers": { "Authorization": "Bearer ${REQOGNILOOM_API_KEY}" }
+              }
+            }
+          }
+    fallback_en:
+      - lang: json
+        text: |
+          // ~/.kimi-code/mcp.json
+          {
+            "mcpServers": {
+              "reqogniloom": {
+                "type": "http",
+                "url": "https://<host>/mcp/",
+                "headers": { "Authorization": "Bearer ${REQOGNILOOM_API_KEY}" }
+              }
+            }
+          }
+    verify:
+      command: "kimi doctor"
+      expected_de: "Konfiguration valide; danach echter Tool-Call → Workspace-Liste."
+      expected_en: "Configuration valid; then a real tool call → workspace list."
+      tool_result: "12 Workspaces (REST cross-check count = 12)"
+    prereq_de:
+      - "`kimi` im `PATH`; Schreibzugriff auf `~/.kimi-code/`."
+      - "`reqlo_…`-Key."
+    prereq_en:
+      - "`kimi` on `PATH`; write access to `~/.kimi-code/`."
+      - "A `reqlo_…` key."
+    provider_de:
+      - "Kimi nutzt eigene/managed Provider. Fremd-Provider nur über eine Registry: `kimi provider add <api.json>` — das Feld `type` ist **Pflicht**."
+      - "Managed-Quota kann einen Lauf mit 403 blockieren („usage limit\") — kein ReqogniLoom-Fehler."
+    provider_en:
+      - "Kimi uses its own/managed providers. Third-party providers only via a registry: `kimi provider add <api.json>` — the `type` field is **mandatory**."
+      - "Managed quota can block a run with 403 (\"usage limit\") — not a ReqogniLoom error."
+    pitfalls_de:
+      - "Kein `kimi mcp`-Kommando — ein Skript ist heute der einzige Weg."
+      - "Fremd-Registry ohne `type` wird verworfen: „Skipping invalid entry … (id, name, api, type, models)\"."
+      - "Cloudflare kann Nicht-Browser-Clients mit `403 code: 1010` abweisen (User-Agent setzen)."
+    pitfalls_en:
+      - "No `kimi mcp` command — a script is the only path today."
+      - "A third-party registry entry without `type` is dropped: \"Skipping invalid entry … (id, name, api, type, models)\"."
+      - "Cloudflare can reject non-browser clients with `403 code: 1010` (set a User-Agent)."
+    roles_de:
+      - "Key-Scope steuert die Rechte; read-only für Audit-Zwecke."
+    roles_en:
+      - "Key scope governs permissions; read-only for audit use."
+    update_de:
+      - "Installer erneut ausführen (idempotent)."
+      - "L3 erst mit einem Upstream-`kimi mcp add` (Feature-Request offen)."
+    update_en:
+      - "Re-run the installer (idempotent)."
+      - "L3 only once upstream ships `kimi mcp add` (feature request open)."
+
+  - id: antigravity
+    name: Antigravity
+    tested_version: "preview"
+    target_level: L3
+    status: partial
+    transport: sse
+    url_path: /mcp/sse/
+    auth_header: X-API-Key
+    config_artifact: dist/plugins/antigravity/reqogniloom/mcp_config.json
+    skills_dir: ".agents/skills"
+    install_de:
+      - lang: bash
+        text: |
+          # MCP-Config importieren (Store oder Datei) + Skills
+          npx skills add ./dist/plugins/antigravity/reqogniloom -a antigravity
+    install_en:
+      - lang: bash
+        text: |
+          # Import the MCP config (store or file) + skills
+          npx skills add ./dist/plugins/antigravity/reqogniloom -a antigravity
+    fallback_de:
+      - lang: json
+        text: |
+          // ~/.gemini/config/mcp_config.json  (oder .agents/mcp_config.json)
+          {
+            "mcpServers": {
+              "reqogniloom": {
+                "type": "sse",
+                "url": "${REQOGNILOOM_MCP_URL}/mcp/sse/",
+                "headers": { "X-API-Key": "${REQOGNILOOM_API_KEY}" }
+              }
+            }
+          }
+    fallback_en:
+      - lang: json
+        text: |
+          // ~/.gemini/config/mcp_config.json  (or .agents/mcp_config.json)
+          {
+            "mcpServers": {
+              "reqogniloom": {
+                "type": "sse",
+                "url": "${REQOGNILOOM_MCP_URL}/mcp/sse/",
+                "headers": { "X-API-Key": "${REQOGNILOOM_API_KEY}" }
+              }
+            }
+          }
+    verify:
+      command: "SSE-Handshake gegen /mcp/sse/ mit X-API-Key"
+      expected_de: "`initialize` (202 + Event) → `tools/list` liefert **223 Tools**; das Antigravity-Panel zeigt `reqogniloom` verbunden."
+      expected_en: "`initialize` (202 + event) → `tools/list` returns **223 tools**; the Antigravity panel shows `reqogniloom` connected."
+      tool_result: "223 tools"
+    prereq_de:
+      - "Antigravity-Installation."
+      - "**Host-CPU mit `pclmulqdq`** — sonst bricht das Binary mit exit 132 ab („compiled with pclmul enabled\", nicht software-lösbar)."
+      - "`reqlo_…`-Key."
+    prereq_en:
+      - "Antigravity installation."
+      - "**Host CPU with `pclmulqdq`** — otherwise the binary aborts with exit 132 (\"compiled with pclmul enabled\", not software-fixable)."
+      - "A `reqlo_…` key."
+    provider_de:
+      - "Kein ReqogniLoom-spezifischer Teil; Antigravity ist eine Preview-Plattform."
+    provider_en:
+      - "No ReqogniLoom-specific part; Antigravity is a preview platform."
+    pitfalls_de:
+      - "CPU-Feature fehlt → `exit 132` / `pclmul` (in GitHub-hosted CI nicht abbildbar)."
+      - "Antigravity ist Preview mit dokumentierten Sicherheitsfindungen → **read-only-Key** verwenden."
+      - "Wie OpenCode: **keine** Tool-Beschränkung je Skill."
+    pitfalls_en:
+      - "Missing CPU feature → `exit 132` / `pclmul` (not reproducible on GitHub-hosted CI)."
+      - "Antigravity is preview with documented security findings → use a **read-only key**."
+      - "Like OpenCode: **no** per-skill tool restriction."
+    roles_de:
+      - "Read-only-Rolle ist hier besonders empfohlen."
+    roles_en:
+      - "A read-only role is especially recommended here."
+    update_de:
+      - "Paket/Store-Update neu ziehen; Stufe-2-Ziel: Veröffentlichung im MCP-Store statt Datei-Merge."
+    update_en:
+      - "Re-pull the package/store update; Stage-2 goal: publish in the MCP store instead of merging files."
+
+  - id: hermes
+    name: Hermes
+    tested_version: "current stack"
+    target_level: L3
+    status: supported
+    transport: stdio
+    url_path: ""
+    auth_header: "X-API-Key"
+    config_artifact: integrations/hermes-plugin/reqogniloom/hermes-plugin.json
+    skills_dir: "~/.hermes/skills"
+    install_de:
+      - lang: bash
+        text: |
+          hermes mcp add reqogniloom          # discovery-first
+          hermes mcp test reqogniloom         # -> ✓ Connected, 223 Tools
+    install_en:
+      - lang: bash
+        text: |
+          hermes mcp add reqogniloom          # discovery-first
+          hermes mcp test reqogniloom         # -> ✓ Connected, 223 tools
+    fallback_de:
+      - lang: bash
+        text: |
+          # Desktop-Plugin (Electron) zusätzlich:
+          # integrations/hermes-plugin/reqogniloom  (siehe README dort)
+          # Agent-Skill (TUI/Web/CLI) – additiv:
+          hermes skills install https://raw.githubusercontent.com/Popoboxxo/ReqogniLoom/main/integrations/hermes-skill/reqogniloom/SKILL.md
+    fallback_en:
+      - lang: bash
+        text: |
+          # Desktop plugin (Electron) additionally:
+          # integrations/hermes-plugin/reqogniloom  (see its README)
+          # Agent skill (TUI/Web/CLI) – additive:
+          hermes skills install https://raw.githubusercontent.com/Popoboxxo/ReqogniLoom/main/integrations/hermes-skill/reqogniloom/SKILL.md
+    verify:
+      command: "hermes mcp test reqogniloom"
+      expected_de: "`✓ Connected` (QA: 2232 ms, 223 Tools); echte Calls: `requirement_query` → 49, `architecture_query` → 1."
+      expected_en: "`✓ Connected` (QA: 2232 ms, 223 tools); real calls: `requirement_query` → 49, `architecture_query` → 1."
+      tool_result: "223 tools; requirement_query = 49"
+    prereq_de:
+      - "Hermes-Installation; MCP-Bridge (`reqogniloom-mcp-bridge`)."
+      - "Key in `~/.hermes/.env`."
+    prereq_en:
+      - "Hermes installation; MCP bridge (`reqogniloom-mcp-bridge`)."
+      - "Key in `~/.hermes/.env`."
+    provider_de:
+      - "Unabhängig von ReqogniLoom — Hermes nutzt seine eigene LLM-Config."
+    provider_en:
+      - "Independent of ReqogniLoom — Hermes uses its own LLM config."
+    pitfalls_de:
+      - "Zwei getrennte Integrationspfade (Desktop-Plugin vs. Agent-/Skill-Connector) — klar trennen."
+      - "`Cancel` im Plugin ruft seit #1152 `interview.abandon` auf, damit Sessions nicht als `in_progress` liegen bleiben."
+    pitfalls_en:
+      - "Two separate integration paths (desktop plugin vs. agent/skill connector) — keep them apart."
+      - "The plugin's `Cancel` calls `interview.abandon` as of #1152 so sessions do not linger as `in_progress`."
+    roles_de:
+      - "Key-Scope steuert die Rechte; read-only für reine Lesezwecke."
+    roles_en:
+      - "Key scope governs permissions; read-only for pure read use."
+    update_de:
+      - "Repo-Pull bzw. Store-Update; Stufe-2-Ziel: Katalogeintrag → `hermes mcp install reqogniloom`."
+    update_en:
+      - "Repo pull or store update; Stage-2 goal: catalog entry → `hermes mcp install reqogniloom`."

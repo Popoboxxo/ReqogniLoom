@@ -1,5 +1,11 @@
 # Agent Template Installation
 
+> **Per-client, one-command installs (DE/EN):** see
+> [`docs/clients/`](../clients/README.md). That tree is generated from
+> `clients/registry.yaml` and is the single source of truth for transport,
+> auth, configuration, verification and pitfalls. This file covers the
+> repackaging pipeline and the generated `dist/` artifacts.
+
 ## Claude Code
 
 1. Add the local marketplace (once per machine, or point at the published
@@ -34,20 +40,24 @@ OpenCode has no plugin-marketplace install path — merge the generated MCP
 block into your own project's config and drop the skill files where
 OpenCode already looks for them:
 
-1. Merge `dist/opencode/opencode.json.snippet`'s `mcp.reqogniloom` block
+1. Prefer the one command (canonical, `remote`/SSE):
+   ```bash
+   opencode mcp add reqogniloom --url "$REQOGNILOOM_MCP_URL/mcp/sse/"
+   ```
+   Or merge `dist/opencode/opencode.json.snippet`'s `mcp.reqogniloom` block
    into your project's `opencode.json` (or `~/.config/opencode/opencode.json`
-   for a user-wide install). Here's the expected configuration format:
+   for a user-wide install). This is the **canonical** shape — earlier
+   documentation showed a `type:"http"` + `options.headers` variant that never
+   matched the shipped snippet and is now a CI failure to reintroduce:
 
    ```json
    {
      "mcp": {
        "reqogniloom": {
-         "type": "http",
-         "url": "{env:REQOGNILOOM_MCP_URL}/mcp/",
-         "options": {
-           "headers": {
-             "X-API-Key": "{env:REQOGNILOOM_API_KEY}"
-           }
+         "type": "remote",
+         "url": "{env:REQOGNILOOM_MCP_URL}/mcp/sse/",
+         "headers": {
+           "X-API-Key": "{env:REQOGNILOOM_API_KEY}"
          }
        }
      }
