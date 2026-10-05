@@ -10,7 +10,9 @@ interview.set_target (issue #540, confirms a grounding_context()
 candidate as formalize()'s update target -- Requirement only: formalize()'s
 grounded-update branch) /
 interview.propose (multi-artifact plan Task 6, read-only pending-proposal
-readout).
+readout) /
+interview.chat (issue #1164, server-generated conversational turn -- MCP
+parity with REST's POST /api/v1/interviews/{id}/chat/).
 """
 from __future__ import annotations
 
@@ -55,6 +57,7 @@ class InterviewToolGroup(BaseToolGroup):
         "interview.set_target": "_handle_set_target",
         "interview.abandon": "_handle_abandon",
         "interview.propose": "_handle_propose",
+        "interview.chat": "_handle_chat",
     }
 
     _TOOL_SCHEMAS = [
@@ -294,6 +297,39 @@ class InterviewToolGroup(BaseToolGroup):
                 "required": ["session_id"],
             },
         },
+        {
+            "name": "interview.chat",
+            "description": (
+                "Drive one server-generated conversational turn for an "
+                "in_progress interview session (write). Persists the user "
+                "message plus the assistant's reply to the session transcript "
+                "and extracts any protocol fields the model recognised. "
+                "Returns {reply, state}; multi-kind sessions may additionally "
+                "return a pending artifact proposal (read it via "
+                "interview.propose). Requires a resolvable LLM provider and "
+                "raises VALIDATION_ERROR when none is available -- unlike the "
+                "fail-open grounding path this path cannot degrade to a "
+                "silent no-op."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "session_id": {
+                        "type": "string",
+                        "description": "UUID of the interview session.",
+                    },
+                    "message": {
+                        "type": "string",
+                        "description": (
+                            "Free-form user message for this turn. Optional; "
+                            "omitted/empty starts the assistant's side of the "
+                            "conversation from the session's current state."
+                        ),
+                    },
+                },
+                "required": ["session_id"],
+            },
+        },
     ]
 
     def __init__(self, service: Optional[InterviewService] = None) -> None:
@@ -522,6 +558,42 @@ class InterviewToolGroup(BaseToolGroup):
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
         return ToolResult.ok({"proposal": proposal})
+
+    def _handle_chat(
+        self, *, params: Dict[str, Any], auth_context, api_key: str
+    ) -> ToolResult:
+        """Server-generated chat turn -- MCP parity with REST chat (issue #1164).
+
+        ``message`` is optional (schema parity with REST's
+        ``request.data.get("message", "")``): an absent/None value normalises
+        to the empty string rather than reaching the service as None.
+
+        The state dict inside the result is returned untouched. It is
+        ``InterviewService.get_state()``'s payload, keyed ``session_id`` --
+        the same key every other interview.* handler returns state under
+        (start/get_state/answer/abandon/set_target), so it must NOT be renamed
+        to REST's ``id`` here or this one tool would answer with a different
+        state shape than its siblings. REST renames at its own facade because
+        every REST action exposes ``id``.
+        """
+        session_id = require_uuid(params, "session_id")
+        message = params.get("message") or ""
+        try:
+            result = self._service.generate_chat_turn(auth_context, session_id, message)
+        except NotFoundError as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+        except ValidationError as exc:
+            return ToolResult.error("VALIDATION_ERROR", str(exc))
+
+        write_mcp_audit(
+            ctx=auth_context,
+            operation="update",
+            entity_type="InterviewSession",
+            entity_id=session_id,
+            tool_name="interview.chat",
+            api_key=api_key,
+        )
+        return ToolResult.ok(result)
 
 
 __all__ = ["InterviewToolGroup"]

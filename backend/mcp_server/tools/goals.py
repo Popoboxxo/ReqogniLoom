@@ -885,6 +885,7 @@ class MainGoalToolGroup(BaseToolGroup):
 
     _TOOL_MAP = {
         "main_goal.read": "_handle_read",
+        "main_goal.query": "_handle_query",
         "main_goal.generate": "_handle_generate",
         "main_goal.create_manual": "_handle_create_manual",
         "main_goal.approve": "_handle_approve",
@@ -981,6 +982,24 @@ class MainGoalToolGroup(BaseToolGroup):
                 "required": ["workspace_id"],
             },
         },
+        {
+            # GitHub #1097: the MainGoal equivalent of goal.query -- closes the
+            # pre-#1080 "fetch without list" gap the entity-surface ratchet
+            # recorded (a MainGoal was reachable only by id or lineage id).
+            "name": "main_goal.query",
+            "description": (
+                "List all MainGoal versions of a workspace, newest first "
+                "(read-only). Every member of the workspace may list its "
+                "MainGoals read-only. The result is scoped to the caller's "
+                "tenant and the given workspace. Returns "
+                "{\"main_goals\": [...], \"count\": N}."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {"workspace_id": {"type": "string"}},
+                "required": ["workspace_id"],
+            },
+        },
     ]
 
     def _handle_read(
@@ -1009,6 +1028,34 @@ class MainGoalToolGroup(BaseToolGroup):
                 }
             )
         return ToolResult.ok({"main_goal": _main_goal_payload(main_goal)})
+
+    def _handle_query(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        """GitHub #1097: enumerate every MainGoal version of a workspace.
+
+        Read-only replacement for the "fetch by id / by lineage id" pair that
+        used to be the only way to reach a MainGoal over MCP (the same
+        #1080 "fetch without list" shape goal.query closed for Goals). The
+        service filters by both ``workspace_id`` and ``tenant_id``, so the
+        result is scoped to the caller's tenant and workspace; the tool is
+        RBAC read-exempt (registered in ``_READ_ONLY_TOOL_NAMES``), so every
+        workspace member may call it.
+        """
+        workspace_id = require_uuid(params, "workspace_id")
+        try:
+            main_goals = MainGoalService().list_all(workspace_id, auth_context)
+        except PermissionDeniedError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
+        # Batch-resolve status for the whole page in one query instead of one
+        # engine lookup per row (N+1 avoidance) -- same rationale as goal.query.
+        status_map = resolve_status_map("MainGoal", [mg.id for mg in main_goals])
+        return ToolResult.ok(
+            {
+                "main_goals": [_main_goal_payload(mg, status_map) for mg in main_goals],
+                "count": len(main_goals),
+            }
+        )
 
     def _handle_generate(
         self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str

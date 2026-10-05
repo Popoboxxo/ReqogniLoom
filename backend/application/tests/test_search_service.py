@@ -868,3 +868,99 @@ class TestSearchCustomFieldsBackingArtifact:
 
         assert [h.id for h in result.results] == [str(term.id)]
         assert result.results[0].custom_fields == {}
+
+
+# ---------- Relevance threshold (issue #1170) ----------
+
+
+class TestMinScoreFilter:
+    """`min_score` is an opt-in relevance floor: hits below it are dropped
+    after ranking but before `total_count`/pagination, so the reported count
+    reflects the filtered set. Default 0 must keep the pre-#1170 behaviour
+    (no filtering) — see the tool/description disclosure for why there is no
+    positive default (the fused score band has no clean relevance gap)."""
+
+    def _make_ctx(self):
+        ctx = MagicMock()
+        ctx.active_roles = ("viewer",)
+        ctx.tenant_id = uuid.uuid4()
+        ctx.user_id = uuid.uuid4()
+        return ctx
+
+    def _hits(self, scores):
+        return [
+            SearchHit(
+                id=str(uuid.uuid4()),
+                artifact_type="TestCase",
+                title=f"Hit {i}",
+                description="",
+                relevance_score=score,
+                workspace_id=str(uuid.uuid4()),
+            )
+            for i, score in enumerate(scores)
+        ]
+
+    def _run(self, hits, **kwargs):
+        svc = SearchService()
+        ctx = self._make_ctx()
+        with (
+            patch("application.search_service.TenantContext"),
+            patch(
+                "application.search_service.SearchService._search_entity_type",
+                return_value=hits,
+            ),
+        ):
+            return svc.search(
+                query="req", ctx=ctx, type_filter=["TestCase"], **kwargs
+            )
+
+    def test_min_score_drops_hits_below_threshold(self):
+        result = self._run(self._hits([0.9, 0.5, 0.2, 0.0]), min_score=0.5)
+        assert [h.relevance_score for h in result.results] == [0.9, 0.5]
+        assert result.total_count == 2
+
+    def test_threshold_is_inclusive(self):
+        result = self._run(self._hits([0.5, 0.499]), min_score=0.5)
+        assert [h.relevance_score for h in result.results] == [0.5]
+        assert result.total_count == 1
+
+    def test_total_count_reflects_filtered_hits_before_pagination(self):
+        result = self._run(
+            self._hits([0.9, 0.8, 0.7, 0.6, 0.5, 0.1]),
+            min_score=0.5,
+            limit=2,
+        )
+        assert result.total_count == 5
+        assert len(result.results) == 2
+        assert [h.relevance_score for h in result.results] == [0.9, 0.8]
+
+    def test_default_does_not_filter(self):
+        result = self._run(self._hits([0.9, 0.1, 0.0]))
+        assert result.total_count == 3
+
+    def test_default_keeps_low_scoring_fulltext_matches(self):
+        """Rationale for the default 0 (issue #1170): the normalized
+        full-text scale is tiny (ts_rank measured at 0.06 in practice), so a
+        positive default would silently drop valid full-text-only matches.
+        The fused semantic band in the QA report (0.25-0.33) has no clean
+        relevance gap either, so filtering stays opt-in."""
+        result = self._run(self._hits([0.06, 0.02]))
+        assert result.total_count == 2
+
+    def test_explicit_zero_matches_default(self):
+        result = self._run(self._hits([0.9, 0.0]), min_score=0.0)
+        assert result.total_count == 2
+
+    def test_negative_min_score_raises(self):
+        with pytest.raises(ValidationError, match="min_score"):
+            self._run(self._hits([0.9]), min_score=-0.1)
+
+    def test_non_numeric_min_score_raises(self):
+        with pytest.raises(ValidationError, match="min_score"):
+            self._run(self._hits([0.9]), min_score="high")
+
+    def test_min_score_above_one_raises(self):
+        """F6b: ``min_score`` is a relevance floor in [0, 1]; ``> 1`` can never
+        match and must be rejected rather than silently filtering everything."""
+        with pytest.raises(ValidationError, match="min_score"):
+            self._run(self._hits([0.9]), min_score=1.5)

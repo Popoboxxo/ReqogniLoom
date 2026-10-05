@@ -918,6 +918,7 @@ class SearchService(ServiceBase):
         page: int = _DEFAULT_PAGE,
         limit: int = _DEFAULT_LIMIT,
         scope: str = "workspace",
+        min_score: float = 0.0,
     ) -> SearchResult:
         """Execute the search and return ranked, paginated results.
 
@@ -944,6 +945,13 @@ class SearchService(ServiceBase):
                 ``AuthorizationService.accessible_workspace_ids()`` --  an
                 explicit ``workspace_id`` is ignored in this mode, since
                 ``scope="tenant"`` means "all my workspaces", not one).
+            min_score: Optional relevance floor (issue #1170). ``0.0``
+                (default) applies no filtering -- every match is returned, as
+                before. A value ``> 0`` drops every hit whose
+                ``relevance_score`` is below it *after* the global ranking and
+                *before* ``total_count`` and pagination, so ``total_count``
+                reflects the filtered result set and the page window is taken
+                from that set. Must be in ``[0, 1]``.
 
         Returns:
             SearchResult with ranked hits and pagination metadata.
@@ -958,6 +966,16 @@ class SearchService(ServiceBase):
             raise ValidationError("page must be >= 1.")
         if limit < 1 or limit > _MAX_LIMIT:
             raise ValidationError(f"limit must be between 1 and {_MAX_LIMIT}.")
+
+        # Validate the optional relevance floor (issue #1170). Coerce first so
+        # a non-numeric value from a direct caller degrades to a validation
+        # error instead of a TypeError surfacing as INTERNAL_ERROR.
+        try:
+            min_score = float(min_score)
+        except (TypeError, ValueError):
+            raise ValidationError("min_score must be a number in [0, 1].") from None
+        if min_score < 0.0 or min_score > 1.0:
+            raise ValidationError("min_score must be in [0, 1].")
 
         # Validate type filter (REQ-L3-SEARCH-004)
         effective_types: List[str]
@@ -1044,6 +1062,13 @@ class SearchService(ServiceBase):
         # stable tiebreaker across entity types — the per-type SQL already
         # orders by created_at.
         hits.sort(key=lambda h: (-h.relevance_score, h.title))
+
+        # Optional relevance floor (issue #1170): applied AFTER the global
+        # ranking and BEFORE total_count/pagination, so total_count mirrors
+        # the hits a caller actually gets and the page window is a slice of
+        # the filtered set. ``min_score == 0`` is the "no filtering" default.
+        if min_score > 0.0:
+            hits = [hit for hit in hits if hit.relevance_score >= min_score]
 
         total_count = len(hits)
 

@@ -340,6 +340,45 @@ class InterviewViewSet(FreeTextSanitizationMixin, viewsets.ViewSet):
             return _service_error_response(exc, lang)
         return Response(result)
 
+    @action(detail=True, methods=["post"], url_path="set_target")
+    def set_target(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """POST /api/v1/interviews/{id}/set_target/ {"artifact_id": ...}.
+
+        MCP-parity for interview.set_target (issue #1164): pins an existing
+        Requirement as this session's formalize() update target. Delegates
+        straight to InterviewService.set_target(); the Requirement-only and
+        in_progress guards live in the service and surface through
+        _SERVICE_EXCEPTIONS (ValidationError -> 400, NotFoundError -> 404).
+        """
+        lang = detect_lang(request)
+        session_id, error = parse_uuid_param(pk, lang, name="id")
+        if error is not None:
+            return error
+        # Parse the body UUID here rather than handing a raw string to the
+        # service: an invalid artifact_id would otherwise make the ORM raise
+        # django.core.exceptions.ValidationError inside the service's
+        # ``Requirement.objects.filter(artifact_id=...)`` and surface as a 500
+        # (issue #460 class). The MCP handler validates the same param via
+        # require_uuid, so this keeps both protocols rejecting malformed input
+        # with the same clean 400.
+        artifact_id, error = parse_uuid_param(
+            request.data.get("artifact_id"), lang, name="artifact_id"
+        )
+        if error is not None:
+            return error
+        try:
+            ctx = get_auth_context(request)
+            result = InterviewService().set_target(ctx, session_id, artifact_id)
+        except _SERVICE_EXCEPTIONS as exc:
+            return _service_error_response(exc, lang)
+        # set_target() returns InterviewService.get_state()'s raw dict (keyed
+        # "session_id"); normalise it the same way _state_dict()/chat() do, so
+        # every state-returning REST action keeps the ViewSet's "id" contract
+        # rather than leaking the service's internal key.
+        if isinstance(result, dict) and "session_id" in result:
+            result["id"] = result.pop("session_id")
+        return Response(result)
+
     @action(detail=True, methods=["post"], url_path="chat")
     def chat(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """POST /api/v1/interviews/{id}/chat/ {"message": ...} -- server-generated turn (spec §5)."""

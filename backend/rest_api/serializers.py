@@ -192,6 +192,27 @@ _ERROR_MESSAGES: dict[str, dict[str, str]] = {
         "en": "A required service is temporarily unavailable.",
         "de": "Ein erforderlicher Dienst ist vorübergehend nicht verfügbar.",
     },
+    # Issue #1165: an LLM provider timeout or transport failure is an expected,
+    # retry-able upstream condition, not an internal server error.
+    "LLM_TIMEOUT": {
+        "en": (
+            "The AI service did not answer within the allotted time. "
+            "Please retry later."
+        ),
+        "de": (
+            "Der KI-Dienst hat nicht innerhalb der vorgesehenen Zeit "
+            "geantwortet. Bitte versuchen Sie es später erneut."
+        ),
+    },
+    "LLM_UNAVAILABLE": {
+        "en": (
+            "The AI service is temporarily unavailable. Please retry later."
+        ),
+        "de": (
+            "Der KI-Dienst ist vorübergehend nicht verfügbar. "
+            "Bitte versuchen Sie es später erneut."
+        ),
+    },
     # RFC #1002 PR B: the configurable write ratelimit for memory.write. Kept
     # distinct from the DRF transport throttles (which answer a plain 429 body):
     # REST maps this to HTTP 429 with a Retry-After header and MCP to the

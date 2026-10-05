@@ -59,6 +59,7 @@ from application.services import (
     ValidationError,
 )
 from application.search_service import SEARCHABLE_ARTIFACT_TYPES
+from application.trace_link_service import MAX_WORKSPACE_LINKS_PAGE_SIZE
 from application.traceability_suggest_service import (
     SuggestLinksResponseError,
     TraceabilitySuggestService,
@@ -70,6 +71,7 @@ from traceability.audit import AuditScope
 from mcp_server.protocol_handler import ToolResult
 from mcp_server.tools.base import (
     BaseToolGroup,
+    ParameterError,
     mcp_audit_handoff,
     optional_uuid,
     require_param,
@@ -96,6 +98,12 @@ DEFAULT_CONTEXT_TOKEN_BUDGETS: Dict[str, Optional[int]] = {
 }
 
 _VALID_CONTEXT_DEPTHS = frozenset(DEFAULT_CONTEXT_TOKEN_BUDGETS)
+
+#: Upper bound for the 1-based ``page`` of ``traceability.query_links`` (#1098).
+#: Keeps ``(page - 1) * page_size`` far inside Postgres' bigint OFFSET ceiling
+#: (2**63 - 1) so an absurd page number is a clean VALIDATION_ERROR instead of an
+#: overflowing OFFSET surfacing as INTERNAL_ERROR.
+_MAX_TRACEABILITY_LINKS_PAGE = 1_000_000
 
 
 def _get_context_token_budget(workspace: Any, depth: str) -> Optional[int]:
@@ -188,6 +196,10 @@ class CrossCuttingToolGroup(BaseToolGroup):
 
     _TOOL_MAP = {
         "traceability.query": "_handle_traceability_query",
+        # issue #1098: workspace-wide TraceLink enumeration (the collection
+        # sibling of traceability.query, whose artifact_id requirement made the
+        # entity addressable but not discoverable over MCP).
+        "traceability.query_links": "_handle_traceability_query_links",
         "traceability.suggest_links": "_handle_traceability_suggest_links",
         "traceability.create_link": "_handle_traceability_create_link",
         "artifact.search": "_handle_artifact_search",
@@ -220,6 +232,48 @@ class CrossCuttingToolGroup(BaseToolGroup):
                     },
                 },
                 "required": ["artifact_id"],
+            },
+        },
+        {
+            "name": "traceability.query_links",
+            "description": (
+                "Enumerate the TraceLinks of a whole workspace, in creation "
+                "order, page by page (issue #1098). Counterpart to "
+                "traceability.query, "
+                "which requires an artifact_id and only answers 'what links does "
+                "this artifact have' — this answers 'list every link in the "
+                "workspace', i.e. the MCP form of "
+                "GET /api/v1/tracelinks/?workspace_id=. Read-only. Returns real "
+                "stored Artifact ids as strings (id, source_id, target_id, "
+                "link_type, version, created_at, ...), so a source_id/target_id "
+                "can be fed straight back into traceability.query."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "workspace_id": {
+                        "type": "string",
+                        "description": "UUID of the workspace whose links to list.",
+                    },
+                    "link_type": {
+                        "type": "string",
+                        "description": (
+                            "Optional TraceLink type filter (e.g. 'verifies'). "
+                            "Omit to list every link type. Not an enum: the "
+                            "catalog is tenant-/workspace-configurable; call "
+                            "link_type.list to discover the valid keys."
+                        ),
+                    },
+                    "page": {
+                        "type": "integer",
+                        "description": "Page number, 1-based (default 1).",
+                    },
+                    "page_size": {
+                        "type": "integer",
+                        "description": "Rows per page, 1..500 (default 25).",
+                    },
+                },
+                "required": ["workspace_id"],
             },
         },
         {
@@ -308,11 +362,25 @@ class CrossCuttingToolGroup(BaseToolGroup):
         {
             "name": "artifact.search",
             "description": (
-                "Search across all artifact types. Combines a semantic "
-                "full-text pass (PostgreSQL tsvector) with a lexical pass "
-                "that matches the query as a case-insensitive substring of "
-                "an artifact's title, uid or ID — so exact names and ID "
-                "fragments are found too, and rank above semantic matches."
+                "Search across all artifact types. Each hit's "
+                "relevance_score is a normalized fused rank in [0, 1] built "
+                "from up to three passes: (1) a full-text pass over a "
+                "PostgreSQL tsvector (ts_rank); (2) a lexical pass that "
+                "scores a case-insensitive exact/substring match of the "
+                "query against an artifact's title, uid or ID (exact title "
+                "> exact uid/ID > title prefix > title substring > ID "
+                "substring); and (3) where an embedding exists, an "
+                "embedding/cosine semantic pass. When the semantic pass "
+                "contributes hits, the passes are combined by Reciprocal "
+                "Rank Fusion; otherwise they are combined by the maximum "
+                "normalized score. Either way a relevance_score expresses "
+                "relative rank position, not an absolute similarity. By "
+                "default no filtering is applied: every matching artifact "
+                "is returned, ordered by descending score, and total_count "
+                "counts all of them. Pass min_score (in [0, 1]) to drop "
+                "hits whose relevance_score is below it — total_count then "
+                "counts only the surviving hits, and pagination is applied "
+                "after the filter."
             ),
             "inputSchema": {
                 "type": "object",
@@ -339,6 +407,18 @@ class CrossCuttingToolGroup(BaseToolGroup):
                     },
                     "page": {"type": "integer", "description": "Page number (default 1)."},
                     "limit": {"type": "integer", "description": "Page size (default 20)."},
+                    "min_score": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1,
+                        "description": (
+                            "Optional relevance floor in [0, 1]; default 0 "
+                            "applies no filtering. When > 0, hits whose "
+                            "relevance_score is below this value are dropped "
+                            "before pagination, and total_count counts only "
+                            "the surviving hits."
+                        ),
+                    },
                 },
                 "required": ["query"],
             },
@@ -747,6 +827,77 @@ class CrossCuttingToolGroup(BaseToolGroup):
         })
 
     # ------------------------------------------------------------------
+    # traceability.query_links (#1098)
+    # ------------------------------------------------------------------
+
+    def _handle_traceability_query_links(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        """traceability.query_links — enumerate a workspace's TraceLinks (#1098).
+
+        Read-only (no audit entry). The required ``workspace_id`` lets the
+        dispatch read-scoping gate narrow the caller's roles to that workspace
+        before the query runs (same class as ``traceability.coverage``).
+        Pagination mirrors the workspace branch of
+        ``GET /api/v1/tracelinks/?workspace_id=`` — ``count`` + ``page`` +
+        ``page_size`` + ``max_page_size`` + ``results`` — so an agent can walk
+        a large link graph page by page instead of loading all of it at once.
+        """
+        workspace_id = require_uuid(params, "workspace_id")
+
+        page_raw = params.get("page", 1)
+        page_size_raw = params.get("page_size", 25)
+        # Genuine Python ints only (BE-R5): ``bool`` is an ``int`` subclass, so
+        # "page=true" must not silently mean page 1, and a JSON float such as
+        # 1.5 must not be truncated to a valid-looking page.
+        if (
+            not isinstance(page_raw, int)
+            or isinstance(page_raw, bool)
+            or not isinstance(page_size_raw, int)
+            or isinstance(page_size_raw, bool)
+        ):
+            return ToolResult.error(
+                "VALIDATION_ERROR", "Parameters 'page' and 'page_size' must be integers."
+            )
+        page = page_raw
+        page_size = page_size_raw
+        if page < 1 or page > _MAX_TRACEABILITY_LINKS_PAGE:
+            return ToolResult.error(
+                "VALIDATION_ERROR",
+                f"Parameter 'page' must be in 1..{_MAX_TRACEABILITY_LINKS_PAGE}.",
+            )
+        if page_size < 1 or page_size > MAX_WORKSPACE_LINKS_PAGE_SIZE:
+            return ToolResult.error(
+                "VALIDATION_ERROR",
+                f"Parameter 'page_size' must be in 1..{MAX_WORKSPACE_LINKS_PAGE_SIZE}.",
+            )
+        link_type = params.get("link_type") or None
+
+        try:
+            payload = self._trace_service.list_workspace_links_page(
+                workspace_id=workspace_id,
+                ctx=auth_context,
+                link_type=link_type,
+                page=page,
+                page_size=page_size,
+            )
+        except PermissionDeniedError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
+        except NotFoundError as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+        except ValidationError as exc:
+            return ToolResult.error("VALIDATION_ERROR", str(exc))
+        except Exception:
+            logger.exception(
+                "traceability.query_links failed for workspace=%s", workspace_id
+            )
+            # #697 (CWE-209): the logged traceback is for the operator; the
+            # caller gets the canonical masked message.
+            return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
+
+        return ToolResult.ok(payload)
+
+    # ------------------------------------------------------------------
     # traceability.suggest_links — SysEng 2.0 N3 (first stage)
     # ------------------------------------------------------------------
 
@@ -927,6 +1078,12 @@ class CrossCuttingToolGroup(BaseToolGroup):
         exactly the workspaces the caller holds an active role in. With an
         explicit ``workspace_id`` the behaviour is unchanged — the dispatcher
         gate has already checked membership in that one workspace.
+
+        Issue #1170: accepts an optional ``min_score`` (in [0, 1], default 0 =
+        no filtering) that is threaded into :meth:`SearchService.search`, which
+        drops hits below it *after* ranking and *before* computing
+        ``total_count`` — so the reported count reflects the filtered set
+        rather than the whole corpus.
         """
         query_str = require_param(params, "query")
         workspace_id = optional_uuid(params, "workspace_id")
@@ -936,6 +1093,21 @@ class CrossCuttingToolGroup(BaseToolGroup):
         )
         page: int = int(params.get("page", 1))
         limit: int = int(params.get("limit", 20))
+        min_score_raw = params.get("min_score", 0.0)
+        # BE-R5 (F3): ``bool`` is an ``int`` subclass, so ``float(True)`` would
+        # silently mean ``1.0`` — reject explicitly, mirroring the page/
+        # page_size guard above.
+        if isinstance(min_score_raw, bool):
+            raise ParameterError("Parameter 'min_score' must be a number in [0, 1].")
+        try:
+            min_score = float(min_score_raw)
+        except (TypeError, ValueError):
+            # F4: do not echo the arbitrary caller value back in the message.
+            raise ParameterError(
+                "Parameter 'min_score' must be a number in [0, 1]."
+            ) from None
+        if min_score < 0.0 or min_score > 1.0:
+            raise ParameterError("Parameter 'min_score' must be in [0, 1].")
 
         try:
             result = self._search_service.search(
@@ -946,6 +1118,7 @@ class CrossCuttingToolGroup(BaseToolGroup):
                 page=page,
                 limit=limit,
                 scope="workspace" if workspace_id is not None else "tenant",
+                min_score=min_score,
             )
         except ValidationError as exc:
             return ToolResult.error("VALIDATION_ERROR", str(exc))

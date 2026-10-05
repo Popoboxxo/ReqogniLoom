@@ -279,3 +279,182 @@ def test_health_probe_sends_the_configured_session_header(monkeypatch):
 
     assert row["status"] == "ok"
     assert captured["config"].opencode_session == "sess-abc123"
+
+
+# ---------------------------------------------------------------------------
+# Preflight smoke test: the session header on the wire (issue #1186)
+# ---------------------------------------------------------------------------
+
+
+def test_opencode_session_header_reaches_the_wire_request(monkeypatch):
+    """[Issue #1186] Prove the header is *effective*, not merely configured.
+
+    The tests above stop one seam short of the truth: they assert the config
+    field is populated (``ProviderConfig.opencode_session``) or the SDK
+    *constructor kwargs* (``default_headers``). Neither proves that
+    ``x-opencode-session`` is actually attached to the outbound HTTP request
+    the OpenCode Zen-Go endpoint sees — a refactor that dropped the header at
+    a different layer (or passed it under the wrong name) would still satisfy
+    those. This smoke test closes that gap.
+
+    It drives ``OpencodeGoProvider._chat`` end to end while ``openai.OpenAI``
+    is the REAL SDK client, only substituting the transport seam:
+    ``httpx.MockTransport`` intercepts the actual chat-completions POST and the
+    handler records ``request.headers``. The fake JSON body is a minimal valid
+    chat completion so the provider's ``_resilient`` path succeeds and returns
+    normally. Deterministic, offline, no network.
+
+    HONCHO BOUNDARY: the dialectic/Honcho path (#1153) lives outside this
+    repository — its honcho entrypoint/deriver run in separate containers
+    (``deploy/docker-compose.yml``) — so its wire headers are unobservable from
+    pytest in-repo. This test is the reproducible proof for the *OpenCode Go
+    provider* header only; it is not a statement about Honcho.
+    """
+    openai = pytest.importorskip("openai")
+    httpx = pytest.importorskip("httpx")
+
+    from llm_adapter.providers import ProviderConfig
+
+    session_id = "sess-wire-abc123"
+    captured_requests: list = []
+
+    def handler(request):
+        # Record the effective headers exactly as the transport received them.
+        captured_requests.append(request)
+        return httpx.Response(
+            200,
+            json={
+                "id": "chatcmpl-wire-probe",
+                "object": "chat.completion",
+                "created": 0,
+                "model": "claude-sonnet-4-5",
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {"role": "assistant", "content": "ok"},
+                        "finish_reason": "stop",
+                    }
+                ],
+                "usage": {
+                    "prompt_tokens": 1,
+                    "completion_tokens": 1,
+                    "total_tokens": 2,
+                },
+            },
+        )
+
+    real_openai_cls = openai.OpenAI
+    http_client = httpx.Client(transport=httpx.MockTransport(handler))
+
+    def _openai_with_mock_transport(**kwargs):
+        kwargs["http_client"] = http_client
+        return real_openai_cls(**kwargs)
+
+    # Patch the exact symbol the provider imports (``from openai import
+    # OpenAI``). Patching the attribute rather than replacing the whole
+    # ``openai`` module in sys.modules keeps the package importable: the real
+    # SDK lazily imports ``openai.resources.*`` submodules at call time, which
+    # a bare fake module would break.
+    monkeypatch.setattr(openai, "OpenAI", _openai_with_mock_transport, raising=True)
+
+    provider = OpencodeGoProvider(
+        ProviderConfig(
+            provider_name="opencode_go",
+            api_key="sk-dummy",
+            opencode_session=session_id,
+        )
+    )
+    try:
+        text, _token_usage = provider._chat("hello")
+    finally:
+        http_client.close()
+
+    assert text == "ok"
+    assert len(captured_requests) == 1, "exactly one chat-completions request"
+    wire_request = captured_requests[0]
+    assert wire_request.method == "POST"
+    assert wire_request.url.path.endswith("/chat/completions")
+    assert wire_request.headers["x-opencode-session"] == session_id
+
+
+@pytest.mark.parametrize(
+    "session_value",
+    [None, "   "],
+    ids=["unset", "blank"],
+)
+def test_opencode_session_header_absent_from_the_wire_when_unset(
+    monkeypatch, session_value
+):
+    """[Issue #1186 / F6a] NEGATIVE wire proof: no header when unset/blank.
+
+    The positive test above proves the header reaches the wire when
+    ``opencode_session`` is set. This is its inverse: an unset (``None``) or
+    whitespace-only (``"   "``) session must produce a request with NO
+    ``x-opencode-session`` header at all — sending an empty header would still
+    be rejected as ``400 MissingSessionID``, so "absent" is the contract the
+    provider documents. A regression that always attached the header (e.g.
+    dropping the ``if session_id:`` guard) would satisfy the positive test but
+    fail here.
+
+    Same transport-seam approach as the positive test: the real ``openai.OpenAI``
+    SDK client with an ``httpx.MockTransport`` recording the outbound request.
+    """
+    openai = pytest.importorskip("openai")
+    httpx = pytest.importorskip("httpx")
+
+    from llm_adapter.providers import ProviderConfig
+
+    captured_requests: list = []
+
+    def handler(request):
+        captured_requests.append(request)
+        return httpx.Response(
+            200,
+            json={
+                "id": "chatcmpl-wire-probe",
+                "object": "chat.completion",
+                "created": 0,
+                "model": "claude-sonnet-4-5",
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {"role": "assistant", "content": "ok"},
+                        "finish_reason": "stop",
+                    }
+                ],
+                "usage": {
+                    "prompt_tokens": 1,
+                    "completion_tokens": 1,
+                    "total_tokens": 2,
+                },
+            },
+        )
+
+    real_openai_cls = openai.OpenAI
+    http_client = httpx.Client(transport=httpx.MockTransport(handler))
+
+    def _openai_with_mock_transport(**kwargs):
+        kwargs["http_client"] = http_client
+        return real_openai_cls(**kwargs)
+
+    monkeypatch.setattr(openai, "OpenAI", _openai_with_mock_transport, raising=True)
+
+    provider = OpencodeGoProvider(
+        ProviderConfig(
+            provider_name="opencode_go",
+            api_key="sk-dummy",
+            opencode_session=session_value,
+        )
+    )
+    try:
+        text, _token_usage = provider._chat("hello")
+    finally:
+        http_client.close()
+
+    assert text == "ok"
+    assert len(captured_requests) == 1, "exactly one chat-completions request"
+    wire_request = captured_requests[0]
+    assert wire_request.method == "POST"
+    # ``httpx.Headers`` membership is case-insensitive, so this proves the
+    # header is genuinely absent rather than merely differently cased.
+    assert "x-opencode-session" not in wire_request.headers
