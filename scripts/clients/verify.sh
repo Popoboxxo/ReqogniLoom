@@ -40,22 +40,26 @@ case "$CLIENT" in
     require_bin claude
     out="$(claude mcp list 2>&1 || true)"
     expect_marker "$out" "reqogniloom"
+    echo "info: skills ship inside the installed reqogniloom plugin (no separate copy)."
     ;;
   codex)
     require_bin codex
     out="$(codex mcp list 2>&1 || true)"
     expect_marker "$out" "reqogniloom"
     expect_marker "$out" "enabled"
+    echo "info: skills expected at ${HOME}/.codex/skills"
     ;;
   opencode)
     require_bin opencode
     out="$(opencode mcp list 2>&1 || true)"
     expect_marker "$out" "reqogniloom"
+    echo "info: skills expected at .opencode/skills (DOMAIN_MODEL.md at .opencode/)"
     ;;
   hermes)
     require_bin hermes
     out="$(hermes mcp test reqogniloom 2>&1 || true)"
     expect_marker "$out" "Connected"
+    echo "info: skills expected at ${HOME}/.hermes/skills/reqogniloom"
     ;;
   kimi-code|antigravity)
     # No native status command: the config file is the artifact. A full smoke
@@ -63,6 +67,11 @@ case "$CLIENT" in
     echo "info: $CLIENT has no native status command."
     echo "info: run the in-client smoke task and cross-check against REST:"
     echo "      GET /api/v1/requirements/?workspace_id=<id> -> count"
+    if [ "$CLIENT" = "kimi-code" ]; then
+      echo "info: skills expected at ${HOME}/.kimi-code/skills"
+    else
+      echo "info: skills expected at .agents/skills (DOMAIN_MODEL.md at .agents/)"
+    fi
     ;;
   *)
     echo "unknown client: $CLIENT" >&2; exit 2 ;;

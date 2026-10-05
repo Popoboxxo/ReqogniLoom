@@ -20,8 +20,9 @@
 ## 2. Installation (ein Befehl)
 
 ```bash
-# MCP-Config importieren (Store oder Datei) + Skills
-npx skills add ./dist/plugins/antigravity/reqogniloom -a antigravity
+# Ein Befehl: MCP-Config + Skills (-> .agents/skills, DOMAIN_MODEL.md)
+scripts/clients/install.sh --client antigravity \
+  --url "$REQOGNILOOM_MCP_URL" --key-env REQOGNILOOM_API_KEY
 ```
 
 ## 3. Konfiguration

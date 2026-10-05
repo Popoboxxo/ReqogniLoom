@@ -130,13 +130,17 @@ clients:
     install_de:
       - lang: bash
         text: |
-          codex mcp add reqogniloom --url "$REQOGNILOOM_MCP_URL/mcp/"
+          # Ein Befehl: MCP-Server + Skills (-> ~/.codex/skills):
+          scripts/clients/install.sh --client codex \
+            --url "$REQOGNILOOM_MCP_URL" --key-env REQOGNILOOM_API_KEY
           codex mcp list            # -> reqogniloom   enabled
           export REQOGNILOOM_API_KEY="reqlo_…"   # via bearer_token_env_var
     install_en:
       - lang: bash
         text: |
-          codex mcp add reqogniloom --url "$REQOGNILOOM_MCP_URL/mcp/"
+          # One command: MCP server + skills (-> ~/.codex/skills):
+          scripts/clients/install.sh --client codex \
+            --url "$REQOGNILOOM_MCP_URL" --key-env REQOGNILOOM_API_KEY
           codex mcp list            # -> reqogniloom   enabled
           export REQOGNILOOM_API_KEY="reqlo_…"   # read via bearer_token_env_var
     fallback_de:
@@ -202,14 +206,16 @@ clients:
     install_de:
       - lang: bash
         text: |
-          # Kanonische Form (remote/SSE), identisch zum ausgelieferten Snippet:
-          opencode mcp add reqogniloom --url "$REQOGNILOOM_MCP_URL/mcp/sse/"
+          # Ein Befehl: MCP-Server (remote/SSE) + Skills (-> .opencode/skills, DOMAIN_MODEL.md):
+          scripts/clients/install.sh --client opencode \
+            --url "$REQOGNILOOM_MCP_URL" --key-env REQOGNILOOM_API_KEY
           opencode mcp list                 # -> ✓ reqogniloom connected
     install_en:
       - lang: bash
         text: |
-          # Canonical form (remote/SSE), identical to the shipped snippet:
-          opencode mcp add reqogniloom --url "$REQOGNILOOM_MCP_URL/mcp/sse/"
+          # One command: MCP server (remote/SSE) + skills (-> .opencode/skills, DOMAIN_MODEL.md):
+          scripts/clients/install.sh --client opencode \
+            --url "$REQOGNILOOM_MCP_URL" --key-env REQOGNILOOM_API_KEY
           opencode mcp list                 # -> ✓ reqogniloom connected
     fallback_de:
       - lang: json
@@ -285,6 +291,7 @@ clients:
       - lang: bash
         text: |
           # Kimi hat kein natives MCP-Add-Kommando -> Installer-Skript
+          # (MCP-Config + Skills -> ~/.kimi-code/skills)
           scripts/clients/install.sh --client kimi-code \
             --url "https://<host>" --key-env REQOGNILOOM_API_KEY
           kimi doctor        # -> Konfiguration valide
@@ -292,6 +299,7 @@ clients:
       - lang: bash
         text: |
           # Kimi has no native MCP-add command -> installer script
+          # (MCP config + skills -> ~/.kimi-code/skills)
           scripts/clients/install.sh --client kimi-code \
             --url "https://<host>" --key-env REQOGNILOOM_API_KEY
           kimi doctor        # -> configuration valid
@@ -351,10 +359,10 @@ clients:
     roles_en:
       - "Key scope governs permissions; read-only for audit use."
     update_de:
-      - "Installer erneut ausführen (idempotent)."
+      - "Installer erneut ausführen (Skills: copy-if-absent, kein Refresh — bestehende Skill-Ordner bleiben unverändert)."
       - "L3 erst mit einem Upstream-`kimi mcp add` (Feature-Request offen)."
     update_en:
-      - "Re-run the installer (idempotent)."
+      - "Re-run the installer (skills: copy-if-absent, no refresh — existing skill folders stay unchanged)."
       - "L3 only once upstream ships `kimi mcp add` (feature request open)."
 
   - id: antigravity
@@ -370,13 +378,15 @@ clients:
     install_de:
       - lang: bash
         text: |
-          # MCP-Config importieren (Store oder Datei) + Skills
-          npx skills add ./dist/plugins/antigravity/reqogniloom -a antigravity
+          # Ein Befehl: MCP-Config + Skills (-> .agents/skills, DOMAIN_MODEL.md)
+          scripts/clients/install.sh --client antigravity \
+            --url "$REQOGNILOOM_MCP_URL" --key-env REQOGNILOOM_API_KEY
     install_en:
       - lang: bash
         text: |
-          # Import the MCP config (store or file) + skills
-          npx skills add ./dist/plugins/antigravity/reqogniloom -a antigravity
+          # One command: MCP config + skills (-> .agents/skills, DOMAIN_MODEL.md)
+          scripts/clients/install.sh --client antigravity \
+            --url "$REQOGNILOOM_MCP_URL" --key-env REQOGNILOOM_API_KEY
     fallback_de:
       - lang: json
         text: |
@@ -450,12 +460,18 @@ clients:
     install_de:
       - lang: bash
         text: |
-          hermes mcp add reqogniloom          # discovery-first
+          # Ein Befehl: MCP-Server + Agent-Skill (-> ~/.hermes/skills/reqogniloom).
+          # --url ist Pflicht-Argument, wird von Hermes (stdio) aber ignoriert:
+          scripts/clients/install.sh --client hermes \
+            --url "https://<host>" --key-env REQOGNILOOM_API_KEY
           hermes mcp test reqogniloom         # -> ✓ Connected, 223 Tools
     install_en:
       - lang: bash
         text: |
-          hermes mcp add reqogniloom          # discovery-first
+          # One command: MCP server + agent skill (-> ~/.hermes/skills/reqogniloom).
+          # --url is a required argument but ignored by Hermes (stdio):
+          scripts/clients/install.sh --client hermes \
+            --url "https://<host>" --key-env REQOGNILOOM_API_KEY
           hermes mcp test reqogniloom         # -> ✓ Connected, 223 tools
     fallback_de:
       - lang: bash

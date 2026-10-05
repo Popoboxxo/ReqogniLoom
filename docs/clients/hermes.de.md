@@ -19,7 +19,10 @@
 ## 2. Installation (ein Befehl)
 
 ```bash
-hermes mcp add reqogniloom          # discovery-first
+# Ein Befehl: MCP-Server + Agent-Skill (-> ~/.hermes/skills/reqogniloom).
+# --url ist Pflicht-Argument, wird von Hermes (stdio) aber ignoriert:
+scripts/clients/install.sh --client hermes \
+  --url "https://<host>" --key-env REQOGNILOOM_API_KEY
 hermes mcp test reqogniloom         # -> ✓ Connected, 223 Tools
 ```
 

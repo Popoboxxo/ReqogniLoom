@@ -20,7 +20,9 @@
 ## 2. Installation (one command)
 
 ```bash
-codex mcp add reqogniloom --url "$REQOGNILOOM_MCP_URL/mcp/"
+# One command: MCP server + skills (-> ~/.codex/skills):
+scripts/clients/install.sh --client codex \
+  --url "$REQOGNILOOM_MCP_URL" --key-env REQOGNILOOM_API_KEY
 codex mcp list            # -> reqogniloom   enabled
 export REQOGNILOOM_API_KEY="reqlo_…"   # read via bearer_token_env_var
 ```

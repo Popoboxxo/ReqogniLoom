@@ -19,8 +19,9 @@
 ## 2. Installation (ein Befehl)
 
 ```bash
-# Kanonische Form (remote/SSE), identisch zum ausgelieferten Snippet:
-opencode mcp add reqogniloom --url "$REQOGNILOOM_MCP_URL/mcp/sse/"
+# Ein Befehl: MCP-Server (remote/SSE) + Skills (-> .opencode/skills, DOMAIN_MODEL.md):
+scripts/clients/install.sh --client opencode \
+  --url "$REQOGNILOOM_MCP_URL" --key-env REQOGNILOOM_API_KEY
 opencode mcp list                 # -> ✓ reqogniloom connected
 ```
 

@@ -20,6 +20,7 @@
 
 ```bash
 # Kimi hat kein natives MCP-Add-Kommando -> Installer-Skript
+# (MCP-Config + Skills -> ~/.kimi-code/skills)
 scripts/clients/install.sh --client kimi-code \
   --url "https://<host>" --key-env REQOGNILOOM_API_KEY
 kimi doctor        # -> Konfiguration valide
@@ -65,5 +66,5 @@ Vollständige, generierte Konfiguration (Env-Var-Referenzen, nie ein literaler K
 
 ## 8. Update / Deinstallation
 
-- Installer erneut ausführen (idempotent).
+- Installer erneut ausführen (Skills: copy-if-absent, kein Refresh — bestehende Skill-Ordner bleiben unverändert).
 - L3 erst mit einem Upstream-`kimi mcp add` (Feature-Request offen).
