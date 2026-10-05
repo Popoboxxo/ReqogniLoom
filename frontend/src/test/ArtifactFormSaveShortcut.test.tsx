@@ -105,7 +105,16 @@ function fieldError(field: string, message: string): unknown {
  * `act()` because the hook's handler starts a save, which is a state update:
  * the same reason `fireEvent` wraps its dispatch.
  */
-function pressSave(init: KeyboardEventInit = {}): KeyboardEvent {
+async function pressSave(
+  init: KeyboardEventInit = {}
+): Promise<KeyboardEvent> {
+  // Issue #1087 flake: `useSaveShortcut` attaches its document listener in a
+  // PASSIVE effect, which React flushes asynchronously AFTER the commit that
+  // `findByTestId` resolves on. Dispatching synchronously from the mount would
+  // sometimes outrun that flush under CI load, so no listener was attached and
+  // `preventDefault()` never ran. Draining pending passive effects first makes
+  // the attach deterministic without touching the hook.
+  await act(async () => {});
   const event = new KeyboardEvent("keydown", {
     key: "s",
     code: "KeyS",
@@ -179,7 +188,7 @@ describe("ArtifactForm Ctrl/Cmd+S (#1087)", () => {
     const title = screen.getByTestId("artifact-field-title");
     await user.clear(title);
     await user.type(title, "Geändert");
-    pressSave();
+    await pressSave();
 
     await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
     expect(onSave.mock.calls[0][0]).toMatchObject({ title: "Geändert" });
@@ -188,8 +197,8 @@ describe("ArtifactForm Ctrl/Cmd+S (#1087)", () => {
   it("prevents the browser default so no save dialog opens over the form", async () => {
     await mountForm(vi.fn().mockResolvedValue(undefined));
 
-    const ctrl = pressSave();
-    const cmd = pressSave({ key: "s", code: "KeyS", metaKey: true, ctrlKey: false });
+    const ctrl = await pressSave();
+    const cmd = await pressSave({ key: "s", code: "KeyS", metaKey: true, ctrlKey: false });
 
     // `defaultPrevented` is the only externally observable proof that the
     // browser's own "Save page as…" was suppressed.
@@ -205,7 +214,7 @@ describe("ArtifactForm Ctrl/Cmd+S (#1087)", () => {
     // left alone rather than swallowed.
     await mountForm(vi.fn().mockResolvedValue(undefined));
 
-    const event = pressSave({ key: "S", code: "KeyS", shiftKey: true });
+    const event = await pressSave({ key: "S", code: "KeyS", shiftKey: true });
 
     expect(event.defaultPrevented).toBe(false);
   });
@@ -215,9 +224,9 @@ describe("ArtifactForm Ctrl/Cmd+S (#1087)", () => {
     const onSave = vi.fn().mockReturnValue(pending.promise);
     await mountForm(onSave);
 
-    pressSave();
-    pressSave();
-    pressSave();
+    await pressSave();
+    await pressSave();
+    await pressSave();
 
     await waitFor(() => expect(screen.getByTestId("artifact-form-save")).toBeDisabled());
     expect(onSave).toHaveBeenCalledTimes(1);
@@ -244,7 +253,7 @@ describe("ArtifactForm Ctrl/Cmd+S (#1087)", () => {
     act(() => {
       screen.getByTestId("artifact-form-save").click();
     });
-    pressSave();
+    await pressSave();
 
     expect(onSave).toHaveBeenCalledTimes(1);
     await act(async () => {
@@ -284,7 +293,7 @@ describe("ArtifactForm Ctrl/Cmd+S (#1087)", () => {
     );
     await screen.findByTestId("artifact-form");
 
-    const event = pressSave();
+    const event = await pressSave();
 
     expect(onSave).not.toHaveBeenCalled();
     expect(event.defaultPrevented).toBe(false);
@@ -307,7 +316,7 @@ describe("ArtifactForm Ctrl/Cmd+S (#1087)", () => {
     );
     await screen.findByTestId("artifact-form-load-error");
 
-    pressSave();
+    await pressSave();
 
     expect(onSave).not.toHaveBeenCalled();
   });
@@ -318,7 +327,7 @@ describe("ArtifactForm error-to-field focus (#1087)", () => {
     const onSave = vi.fn().mockRejectedValue(fieldError("title", "is required"));
     await mountForm(onSave);
 
-    pressSave();
+    await pressSave();
 
     await waitFor(() =>
       expect(screen.getByTestId("artifact-field-title")).toHaveFocus()
@@ -344,7 +353,7 @@ describe("ArtifactForm error-to-field focus (#1087)", () => {
       );
     await mountForm(onSave);
 
-    pressSave();
+    await pressSave();
 
     await waitFor(() => expect(screen.getByTestId("artifact-field-effort")).toHaveFocus());
   });
@@ -378,9 +387,11 @@ describe("ArtifactForm error-to-field focus (#1087)", () => {
     // Precondition: the expert section really was collapsed.
     expect(screen.queryByTestId("artifact-field-effort")).not.toBeInTheDocument();
 
-    pressSave();
+    await pressSave();
 
-    await waitFor(() => expect(screen.getByTestId("artifact-field-effort")).toHaveFocus());
+    await waitFor(() => expect(screen.getByTestId("artifact-field-effort")).toHaveFocus(), {
+      timeout: 2000,
+    });
     expect(screen.getByTestId("artifact-section-toggle-advanced")).toHaveAttribute(
       "aria-expanded",
       "true"
@@ -412,7 +423,7 @@ describe("ArtifactForm error-to-field focus (#1087)", () => {
     );
     await screen.findByTestId("artifact-form");
 
-    pressSave();
+    await pressSave();
 
     await waitFor(() => expect(screen.getByTestId("req-title-input")).toHaveFocus());
   });
@@ -451,7 +462,7 @@ describe("ArtifactForm error-to-field focus (#1087)", () => {
     );
     await screen.findByTestId("artifact-form");
 
-    pressSave();
+    await pressSave();
 
     await waitFor(() =>
       expect(screen.getByTestId("artifact-widget-risk_matrix")).toHaveFocus()
@@ -462,7 +473,7 @@ describe("ArtifactForm error-to-field focus (#1087)", () => {
     const onSave = vi.fn().mockRejectedValue({ error: { message: "Server exploded" } });
     await mountForm(onSave);
 
-    pressSave();
+    await pressSave();
 
     // The reload mock invokes the `ArtifactForm` definition fetch, which
     // chains render → effect → focus. Under parallel load on CI that chain
@@ -480,7 +491,7 @@ describe("ArtifactForm error-to-field focus (#1087)", () => {
     const onSave = vi.fn().mockRejectedValue({ error: { message: "Server exploded" } });
     await mountForm(onSave);
 
-    pressSave();
+    await pressSave();
 
     const banner = await screen.findByTestId("artifact-form-error");
     expect(banner).toHaveAttribute("tabindex", "-1");
@@ -495,7 +506,7 @@ describe("ArtifactForm error-to-field focus (#1087)", () => {
     await user.click(title);
     expect(title).toHaveFocus();
 
-    pressSave();
+    await pressSave();
 
     await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
     expect(title).toHaveFocus();
