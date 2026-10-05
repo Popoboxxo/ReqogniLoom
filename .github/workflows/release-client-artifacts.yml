@@ -1,0 +1,100 @@
+# DRAFT — Stufe 2, Trigger erst nach Entscheidungen E1–E7 aktivieren
+#
+# Builds and validates the generated client packages and attaches them to a
+# DRAFT GitHub Release. Nothing here may publish accidentally: the only trigger
+# is `workflow_dispatch`, and the release write step additionally requires the
+# explicit `enable_publish` input.
+#
+# Semantics: docs/plans/2026-10-04-one-click-client-installation.md §5.3
+# (row `release-client-artifacts.yml`, Welle W1).
+#
+# HARDENING (inherited from docker-publish.yml):
+#   * trigger         — workflow_dispatch only; never push / tags / schedule.
+#   * approval gate   — job-level `environment: release` before any write.
+#   * concurrency     — no cancel-in-progress; a cancelled release job would
+#                       leave a half-populated draft release.
+#   * least privilege — workflow `contents: read`; the release job adds
+#                       `contents: write` (draft release + assets only).
+#   * pinning         — every action pinned to an immutable commit SHA.
+#
+# needs: ci  # Gate: erst nach Entscheidungen als echten jobs-Bezug aktivieren
+name: Release client artifacts (DRAFT)
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to populate (e.g. v1.8.0)'
+        required: true
+        type: string
+      enable_publish:
+        description: 'Actually create/update the draft release (default off)'
+        required: false
+        type: boolean
+        default: false
+
+# One release at a time; never cancel an in-flight run (see header).
+concurrency:
+  group: release-client-artifacts-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: Build client artifacts and attach to draft release
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Approval gate: this environment must carry required reviewers before the
+    # release job may touch a release.
+    environment: release
+    permissions:
+      contents: write # create/update the draft release and upload assets
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.12'
+
+      - name: Install renderer dependency
+        run: pip install --disable-pip-version-check pyyaml
+
+      - name: Validate generated client artifacts (drift / parity)
+        run: python scripts/clients/render.py --check
+
+      - name: Build client package archives
+        run: |
+          set -euo pipefail
+          VERSION_VALUE="$(tr -d '[:space:]' < VERSION)"
+          mkdir -p release-assets
+          # Payload dirs only: exclude __pycache__, build_*.py, tests and the
+          # nested local dist/plugins/claude-code/.claude-plugin/marketplace.json.
+          EXCLUDES=(--exclude='__pycache__' --exclude='build_*.py' --exclude='test_*.py' --exclude='marketplace.json')
+          tar -czf "release-assets/reqogniloom-claude-code-${VERSION_VALUE}.tar.gz" "${EXCLUDES[@]}" -C dist/plugins/claude-code reqogniloom
+          tar -czf "release-assets/reqogniloom-codex-${VERSION_VALUE}.tar.gz" "${EXCLUDES[@]}" -C dist/codex skills config.toml.snippet
+          tar -czf "release-assets/reqogniloom-opencode-${VERSION_VALUE}.tar.gz" "${EXCLUDES[@]}" -C dist/opencode skills opencode.json.snippet
+          tar -czf "release-assets/reqogniloom-antigravity-${VERSION_VALUE}.tar.gz" "${EXCLUDES[@]}" -C dist/plugins/antigravity reqogniloom
+          ls -l release-assets
+
+      # DRAFT: the write step is inert unless a human sets enable_publish=true.
+      # Under the active workflow_dispatch-only trigger GitHub never sets it, so
+      # a plain dispatch validates and builds but publishes nothing.
+      - name: Create or update draft GitHub Release (DRAFT)
+        if: inputs.enable_publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$TAG" ]]; then
+            echo "ERROR: tag input is required" >&2
+            exit 1
+          fi
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" release-assets/* --clobber
+          else
+            gh release create "$TAG" release-assets/* \
+              --draft --title "Client artifacts ${TAG}" --notes "Generated client packages."
+          fi

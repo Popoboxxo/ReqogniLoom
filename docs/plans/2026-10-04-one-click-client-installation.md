@@ -430,7 +430,7 @@ Ein **einziger** Testfall, der über alle Clients identisch formuliert ist — d
 {
   "source": "git-subdir",
   "url": "Popoboxxo/ReqogniLoom",
-  "path": "dist/plugins/claude-code"
+  "path": "dist/plugins/claude-code/reqogniloom"
 }
 ```
 Damit ist der öffentliche Ein-Befehl-Weg nur noch eine Datei + ein CI-Check entfernt.

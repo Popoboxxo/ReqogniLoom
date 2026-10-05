@@ -1,0 +1,97 @@
+# DRAFT — Stufe 2, Trigger erst nach Entscheidungen E1–E7 aktivieren
+#
+# Publishes server.json to the official MCP registry via GitHub OIDC
+# (`mcp-publisher login github-oidc`) — no personal access token. See plan
+# §5.3 (row `publish-mcp-registry.yml`) and decision E1 (namespace, W3).
+#
+# The only trigger is `workflow_dispatch`. By default the run is fully inert:
+# the third-party `mcp-publisher` binary is NOT downloaded and NOT executed
+# unless enable_publish=true. The documented sequence stays:
+#     validate -> login github-oidc -> publish
+#
+# TODO before activation: pin mcp-publisher release tag + verify SHA256 (repo hardening convention)
+#
+# needs: ci  # Gate: erst nach Entscheidungen als echten jobs-Bezug aktivieren
+name: Publish to MCP registry (DRAFT)
+
+on:
+  workflow_dispatch:
+    inputs:
+      enable_publish:
+        description: 'Actually login and publish to the MCP registry (default off)'
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: mcp-registry-publish-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Publish server.json to registry.modelcontextprotocol.io
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Approval gate before any write to the registry.
+    environment: release
+    permissions:
+      contents: read
+      id-token: write # GitHub OIDC for `mcp-publisher login github-oidc`
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      # TODO before activation: pin mcp-publisher release tag + verify SHA256 (repo hardening convention)
+      # Inert by default: the third-party binary runs only when a human sets
+      # enable_publish=true. A plain dispatch downloads and executes nothing.
+      - name: Install mcp-publisher
+        if: inputs.enable_publish == true
+        run: |
+          set -euo pipefail
+          OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
+          case "$(uname -m)" in
+            x86_64) ARCH=amd64 ;;
+            aarch64|arm64) ARCH=arm64 ;;
+            *) echo "unsupported architecture: $(uname -m)" >&2; exit 1 ;;
+          esac
+          # TODO before activation: pin this to a release tag and verify its SHA256
+          # instead of resolving `latest` at run time (repo hardening convention).
+          URL="https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_${OS}_${ARCH}.tar.gz"
+          curl -fsSL -o /tmp/mcp-publisher.tar.gz "$URL"
+          tar -xzf /tmp/mcp-publisher.tar.gz -C /tmp mcp-publisher
+          sudo install -m 0755 /tmp/mcp-publisher /usr/local/bin/mcp-publisher
+          mcp-publisher --help >/dev/null
+
+      # Documented sequence (plan §5.3): validate -> login github-oidc -> publish.
+      - name: Validate server.json (fail-fast before publish)
+        if: inputs.enable_publish == true
+        run: |
+          set -euo pipefail
+          if [[ ! -f server.json ]]; then
+            echo "DRAFT: server.json not generated yet — registry publish inactive (W3)."
+            exit 0
+          fi
+          mcp-publisher validate
+
+      # DRAFT: the two write steps below run only with enable_publish=true.
+      - name: Login (GitHub OIDC) (DRAFT)
+        if: inputs.enable_publish == true
+        run: |
+          set -euo pipefail
+          if [[ ! -f server.json ]]; then
+            echo "DRAFT: no server.json — skipping login."
+            exit 0
+          fi
+          mcp-publisher login github-oidc
+
+      - name: Publish to MCP registry (DRAFT)
+        if: inputs.enable_publish == true
+        run: |
+          set -euo pipefail
+          if [[ ! -f server.json ]]; then
+            echo "DRAFT: no server.json — skipping publish."
+            exit 0
+          fi
+          mcp-publisher publish

@@ -191,7 +191,7 @@ hier als Bundle geführt. Stufe 1 (ohne Store-Veröffentlichung) = AP-B0.1…B0.
   `scripts/clients/install.sh` / `verify.sh`, `docs/clients/**` (7×2 Dateien),
   CI-Gate „Client-Artefakte" (Drift-/Paritäts-/Schema-/Versions-Check).
 - **Status: umgesetzt.** Alle Artefakte vorhanden; `render.py --check` meldet
-  „14 client artifacts up to date", Renderer-Tests (5) und `dist`-Paritäts-/Regenerationstests (46) grün.
+  „16 client/store artifacts up to date", Renderer-Tests (7) und `dist`-Paritäts-/Regenerationstests (46) grün.
 
 **AP-B0.2 — Doku-Sofortfixes (unabhängig publizierbar)**
 - **#1169** Codex: `wire_api="responses"` + Approval-Bypass für headless + geeignete Modelle.
@@ -214,6 +214,12 @@ hier als Bundle geführt. Stufe 1 (ohne Store-Veröffentlichung) = AP-B0.1…B0.
 **AP-B0.5 — Plugin-Versionierungs-Anker (#1138)** · SE-Entscheidung
 - Traceability-Anker für Plugin-Versionierung (ADR-017-Lücke) festlegen; Auswirkung auf
   Store-Versionen (B0 Stufe 2, `VERSION`-Kopplung).
+
+**Status Stufe 2 — Drafts liegen:** `.claude-plugin/marketplace.json` und `server.json`
+(beide aus `VERSION`) sowie fünf Workflow-Drafts (`release-client-artifacts`, `publish-npm`,
+`publish-marketplace`, `publish-mcp-registry`, `client-smoke`) und `docs/clients/STAGE2.md`
+sind vorbereitet; **keine Publikation aktiv** (Trigger nur `workflow_dispatch`,
+Entscheidungen E1–E7 offen).
 
 **DoD B0:** Plan-DoD Stufe 1 erfüllt (ein Befehl je Client, DE/EN-Parität, CI-Gate grün,
 belegter Smoke-Test); #1169/#649/#92 geschlossen oder explizit auf Store-Welle geplant.
@@ -241,7 +247,7 @@ belegter Smoke-Test); #1169/#649/#92 geschlossen oder explizit auf Store-Welle g
 | **W2** | B1 komplett (#1164, #1098, #1097, #1170, #1101, #1133) | MCP-Parität | — |
 | **W3** | B3.2 (#988) | Plugin/Frontend | — |
 | **W4** | B0 Doku + Registry/Skripte (#1171/#1169/#649) | Client-Onboarding | W2 (Config-Modell stabil) |
-| **W5** | B0 Stores + Tokens (#92, #1138) | Supply-Chain/Produkt | W4, Entscheidungen E1–E4 |
+| **W5** | B0 Stores + Tokens (#92, #1138) | Supply-Chain/Produkt | W4, Entscheidungen E1–E7 |
 
 ---
 

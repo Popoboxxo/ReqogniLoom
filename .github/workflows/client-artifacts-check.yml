@@ -17,6 +17,9 @@ on:
       - 'scripts/clients/**'
       - 'docs/clients/**'
       - 'dist/**'
+      - '.claude-plugin/**'
+      - 'server.json'
+      - 'VERSION'
       - 'docs/agent-templates/INSTALL.md'
       - 'docs/plans/2026-10-04-one-click-client-installation.md'
       - '.github/workflows/client-artifacts-check.yml'
@@ -27,6 +30,9 @@ on:
       - 'scripts/clients/**'
       - 'docs/clients/**'
       - 'dist/**'
+      - '.claude-plugin/**'
+      - 'server.json'
+      - 'VERSION'
 
 permissions:
   contents: read

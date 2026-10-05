@@ -97,7 +97,9 @@ Details, Arbeitspakete, Aufwände und DoD: siehe Arbeitsplan §3.
 > **B0 Stufe 1 in place:** Registry (`clients/registry.yaml`), Renderer
 > (`scripts/clients/render.py`), Doku DE/EN (`docs/clients/**`), Skripte
 > (`scripts/clients/install.sh` / `verify.sh`) und CI-Gate
-> (`.github/workflows/client-artifacts-check.yml`) sind umgesetzt; Renderer `--check` grün (14 Artefakte).
+> (`.github/workflows/client-artifacts-check.yml`) sind umgesetzt; Renderer `--check` grün (16 Artefakte: 14 Client + 2 Store).
+>
+> **B0 Stufe 2 — Drafts liegen:** `.claude-plugin/marketplace.json`, `server.json` (beide aus `VERSION`) und fünf Workflow-Drafts (`release-client-artifacts`, `publish-npm`, `publish-marketplace`, `publish-mcp-registry`, `client-smoke`) plus `docs/clients/STAGE2.md` sind vorbereitet; **keine Publikation aktiv** (Trigger nur `workflow_dispatch`, Entscheidungen E1–E7 offen).
 
 ## 6. Verwandte Dokumente
 

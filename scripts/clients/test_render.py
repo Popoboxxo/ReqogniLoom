@@ -68,3 +68,15 @@ def test_every_client_has_both_language_pages() -> None:
     for client_id in render.CLIENT_IDS:
         assert render.DOCS_DIR / f"{client_id}.md" in files
         assert render.DOCS_DIR / f"{client_id}.de.md" in files
+
+
+def test_store_artifacts_are_planned_and_valid() -> None:
+    registry = render.load_registry()
+    files = render.plan_outputs(registry)
+    assert render.MARKETPLACE_PATH in files
+    assert render.SERVER_JSON_PATH in files
+    assert render.validate_store_artifacts(registry, files) == []
+
+
+def test_stage2_docs_are_parity_equal() -> None:
+    assert render.check_stage2_parity() == []

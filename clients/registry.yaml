@@ -40,6 +40,30 @@ smoke:
   pass_de: "Bestanden, wenn beide Zahlen der REST-Gegenprobe entsprechen UND der MCP-Call im Client-Log sichtbar ist."
   pass_en: "Pass when both numbers match the REST cross-check AND the MCP call is visible in the client log."
 
+store:
+  # Stufe-2 distribution metadata (plan §5.1/§5.2). E1 and E3 are provisional —
+  # see docs/clients/STAGE2.md for the open decisions. render.py generates the
+  # repo-root .claude-plugin/marketplace.json and server.json from this section;
+  # a hand edit of either artifact is a CI failure (--check).
+  marketplace:
+    name: reqogniloom-marketplace
+    owner:
+      name: ReqogniLoom
+    repo: Popoboxxo/ReqogniLoom
+    plugin: reqogniloom
+    plugin_path: dist/plugins/claude-code/reqogniloom
+    description: "ReqogniLoom Claude Code marketplace — SE agent roles plus a native MCP connection."
+    plugin_description: "ReqogniLoom SE agent roles + MCP connection"
+  mcp_registry:
+    # E1 vorläufig: persönlicher Namespace. Vor dem ersten echten Publish
+    # bestätigen oder auf die Organisation umziehen.
+    name: io.github.popoboxxo/reqogniloom
+    description: "ReqogniLoom MCP server: requirements, architecture and test management."
+    repository_url: https://github.com/Popoboxxo/ReqogniLoom
+    remote_path: /mcp/
+    auth_header: X-API-Key
+    provisional: "E1 provisional: personal namespace io.github.popoboxxo; confirm or switch to the org before the first publish"
+
 clients:
   - id: claude-code
     name: Claude Code
