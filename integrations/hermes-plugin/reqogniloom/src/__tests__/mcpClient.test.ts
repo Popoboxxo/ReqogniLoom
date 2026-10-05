@@ -3,6 +3,7 @@ import {
   callMcpTool,
   McpRpcError,
   interviewAnswer,
+  interviewAbandon,
   interviewFormalize,
   interviewGetState,
   interviewGroundingContext,
@@ -210,6 +211,22 @@ describe("interview.* wrappers", () => {
 
     expect(result.resulting_artifact_ids).toEqual(["art-1"]);
     expect(result.status).toBe("completed");
+  });
+
+  it("interviewAbandon calls interview.abandon with the session id", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        result: { ...{}, session_id: "s-1", status: "abandoned" },
+      })
+    );
+
+    await interviewAbandon({ fetch: fetchMock }, CONNECTION, "s-1");
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(body.method).toBe("interview.abandon");
+    expect(body.params).toEqual({ session_id: "s-1" });
   });
 
   it("interviewList passes status through as a query param when given", async () => {

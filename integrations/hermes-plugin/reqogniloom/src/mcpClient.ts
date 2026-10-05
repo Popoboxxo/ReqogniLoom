@@ -200,3 +200,15 @@ export async function interviewSetTarget(
     artifact_id: artifactId,
   }) as Promise<InterviewState>;
 }
+
+// GitHub #1152: interview.abandon is registered server-side (write-gated),
+// so Cancel can actually end the session instead of leaving it in_progress.
+export async function interviewAbandon(
+  network: HermesNetworkAPI,
+  connection: Connection,
+  sessionId: string
+): Promise<InterviewState> {
+  return callMcpTool(network, connection, "interview.abandon", {
+    session_id: sessionId,
+  }) as Promise<InterviewState>;
+}

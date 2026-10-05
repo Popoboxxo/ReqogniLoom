@@ -1,6 +1,7 @@
 import type { HermesPluginAPI } from "./hermes-api-types";
 import { listWorkspaces, type Connection, type Workspace, ReqogniLoomApiError } from "./api";
 import {
+  interviewAbandon,
   interviewAnswer,
   interviewFormalize,
   interviewGetState,
@@ -319,12 +320,27 @@ export function closeInterview(): void {
 // Cancel out of the in-progress form back to the interview list -- unlike
 // closeInterview() (used by the completed/abandoned read-only view's "Close",
 // where there is genuinely nothing left to browse), Cancel must not skip past
-// the list the user came from. The session itself is left in_progress
-// server-side (no interview.abandon MCP tool exists to actually abort it);
-// re-fetching the list means it shows up there for the user to resume.
+// the list the user came from. It also actually abandons the session
+// server-side via interview.abandon (#1152) so cancelled sessions stop piling
+// up as in_progress; re-fetching the list then shows the correct remainder.
 export async function cancelInterview(): Promise<void> {
+  const sessionId = state.activeInterview?.session_id;
+  let abandonError: string | null = null;
+  if (state.connection && sessionId) {
+    try {
+      await interviewAbandon(api().network, state.connection, sessionId);
+    } catch (err) {
+      abandonError =
+        err instanceof Error ? err.message : "Failed to cancel interview.";
+    }
+  }
   setState({ activeInterview: null });
   await openInterviews();
+  // openInterviews clears interviewError on success; restore the abandon
+  // failure afterwards so the user learns the session was NOT ended.
+  if (abandonError) {
+    setState({ interviewError: abandonError });
+  }
 }
 
 // Test-only helper: resets module-level state and the cached API reference

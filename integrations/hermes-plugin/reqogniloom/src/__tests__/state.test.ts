@@ -26,6 +26,7 @@ vi.mock("../mcpClient", async () => {
     interviewFormalize: vi.fn(),
     interviewGroundingContext: vi.fn(),
     interviewSetTarget: vi.fn(),
+    interviewAbandon: vi.fn(),
   };
 });
 
@@ -414,18 +415,48 @@ describe("interview state", () => {
     expect(getState().view).toBe("connected");
   });
 
-  it("cancelInterview clears activeInterview and returns to the interviews list instead of skipping past it", async () => {
+  it("cancelInterview abandons the session server-side and returns to the interviews list", async () => {
     await connectedState();
     vi.mocked(mcpClient.interviewStart).mockResolvedValue(fakeInterviewState);
     await startNewInterview("Requirement");
+    vi.mocked(mcpClient.interviewAbandon).mockResolvedValue({
+      ...fakeInterviewState,
+      status: "abandoned",
+    });
     const summaries = [{ id: "s-1", workspace_id: "ws-1", artifact_type: "Requirement", status: "in_progress" }];
     vi.mocked(mcpClient.interviewList).mockResolvedValue(summaries);
 
     await cancelInterview();
 
+    expect(mcpClient.interviewAbandon).toHaveBeenCalledWith(expect.anything(), expect.anything(), "s-1");
     expect(getState().activeInterview).toBeNull();
     expect(getState().view).toBe("interviews");
     expect(getState().interviewList).toEqual(summaries);
+  });
+
+  it("cancelInterview surfaces a failed abandon but still returns to the list", async () => {
+    await connectedState();
+    vi.mocked(mcpClient.interviewStart).mockResolvedValue(fakeInterviewState);
+    await startNewInterview("Requirement");
+    vi.mocked(mcpClient.interviewAbandon).mockRejectedValue(new Error("not in_progress"));
+    vi.mocked(mcpClient.interviewList).mockResolvedValue([]);
+
+    await cancelInterview();
+
+    expect(getState().activeInterview).toBeNull();
+    expect(getState().view).toBe("interviews");
+    expect(getState().interviewError).toBe("not in_progress");
+  });
+
+  it("cancelInterview calls no abandon tool when there is no active interview", async () => {
+    await connectedState();
+    vi.mocked(mcpClient.interviewAbandon).mockClear();
+    vi.mocked(mcpClient.interviewList).mockResolvedValue([]);
+
+    await cancelInterview();
+
+    expect(mcpClient.interviewAbandon).not.toHaveBeenCalled();
+    expect(getState().view).toBe("interviews");
   });
 
   it("resumeInterview loads an existing session via interviewGetState", async () => {
