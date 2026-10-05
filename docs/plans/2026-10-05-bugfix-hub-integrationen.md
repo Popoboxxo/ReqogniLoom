@@ -124,6 +124,11 @@ speichert den realen Autor.
   `[]`, fehlender Key.
 
 **AP-B2.2 — Honcho-Dialektik-Header (#1153)** · 1–2 PT
+
+**Status: umgesetzt** — alle drei Honcho-Services (`honcho`, `honcho-deriver`, `honcho-migrate`)
+digest-gepinnt; Docker-freier Deploy-Contract-Guard `backend/memory/tests/test_honcho_deploy_contract.py`
+ergänzt; `memory.ask`-Degradation unterscheidbar markiert (`engine_error:<Class>` vs. `unknown_scope:<Class>`,
+`degraded=True` unverändert); #1153 → `verify`.
 - Konfigurationspfad prüfen: liest der Dialektik-Resolver
   `DIALECTIC_LEVELS__*__MODEL_CONFIG__OVERRIDES__PROVIDER_PARAMS__EXTRA_HEADERS__*`?
 - Fix im Honcho-Override/Deployment **oder** Upstream-Meldung; bis dahin Dialektik als

@@ -1066,9 +1066,36 @@ services:
   # plastic-labs/honcho project — verified to exist and be ~190MB via its GHCR
   # manifest; the project's own repo has no docker-compose.yml referencing this
   # image, only a local `build:`-from-source dev compose, but its CI publish
-  # pipeline does produce and push this tag). Pinned to `latest` deliberately,
-  # not a specific vX.Y.Z tag: the honcho-ai 2.3.0 Python SDK this project's
-  # memory/honcho_backend.py was verified against targets server API routes
+  # pipeline does produce and push this tag).
+  #
+  # PINNED TO A DIGEST (#1153): the reference below is `…:latest@sha256:…` — the
+  # canonical immutable form, keeping the human-readable `:latest` tag AND
+  # pinning the resolved manifest digest. WHY: `:latest` is a MOVING tag. When
+  # upstream republished it, a deployment silently pulled a different image than
+  # the one this stack was verified against, which is the #1153 failure mode
+  # (the compose wiring reaches the SDK params correctly — the defect was the
+  # stale/updated `:latest` itself). A digest is reproducible: the same bytes
+  # are fetched on every host and every rebuild, so "verified against the image"
+  # stays true. All THREE services that run this image (`honcho`,
+  # `honcho-deriver`, `honcho-migrate`) carry the SAME digest so they cannot
+  # drift apart — a migrate run against a different server build than the API
+  # would be exactly the silent half-configuration this stack avoids elsewhere.
+  #
+  # UPDATE INSTRUCTION (do this in one step, never per-service): re-resolve the
+  # digest for the tag, then replace it in EVERY location that carries it — the
+  # three `image:` lines below, BOTH occurrences in `deploy/README.md`, and
+  # `_EXPECTED_DIGEST` in
+  # backend/memory/tests/test_honcho_deploy_contract.py. Either works:
+  #   docker buildx imagetools inspect ghcr.io/plastic-labs/honcho:latest
+  #   docker manifest inspect ghcr.io/plastic-labs/honcho:latest
+  # Copy the MANIFEST-LIST / index `Digest:` (Docker also reports it as
+  # `Docker-Content-Digest`) — NOT `config.digest`, which is the per-architecture
+  # child manifest and differs by platform. Substitute `sha256:…` after the `@`
+  # in all locations above, then re-run the deploy-contract guard.
+  #
+  # Pinned to `latest`+digest deliberately, not a specific vX.Y.Z tag: the
+  # honcho-ai 2.3.0 Python SDK this project's memory/honcho_backend.py was
+  # verified against targets server API routes
   # (`/v3/workspaces/.../conclusions`) that postdate the newest vX.Y.Z tag
   # visible on GHCR at verification time (v2.0.3) — only `latest`/`staging`
   # are confirmed to carry that surface. Re-pin to an explicit tag once a v3.x
@@ -1106,7 +1133,7 @@ services:
   # missing ... Run alembic upgrade head first.` (verified against a real
   # fresh volume). Mirrors this project's own `migrate` service pattern.
   honcho-migrate:
-    image: ghcr.io/plastic-labs/honcho:latest
+    image: ghcr.io/plastic-labs/honcho:latest@sha256:350b778af29b8b5b0b9a5b5436a00ea912acc7490908a9cb4fb7d80fa963e5c2
     profiles: ["honcho"]
     depends_on:
       honcho-postgres:
@@ -1168,7 +1195,7 @@ services:
   # is indented to 2 spaces here, one level less than a service-level
   # `environment:` block, purely because it is no longer nested in a service.
   honcho:
-    image: ghcr.io/plastic-labs/honcho:latest
+    image: ghcr.io/plastic-labs/honcho:latest@sha256:350b778af29b8b5b0b9a5b5436a00ea912acc7490908a9cb4fb7d80fa963e5c2
     profiles: ["honcho"]
     depends_on:
       honcho-postgres:
@@ -1290,7 +1317,7 @@ services:
   # Prometheus exporter on :9090 only when `METRICS_ENABLED` is set; leave it
   # off (the default) and nothing listens.
   honcho-deriver:
-    image: ghcr.io/plastic-labs/honcho:latest
+    image: ghcr.io/plastic-labs/honcho:latest@sha256:350b778af29b8b5b0b9a5b5436a00ea912acc7490908a9cb4fb7d80fa963e5c2
     profiles: ["honcho"]
     restart: unless-stopped
     depends_on:

@@ -158,6 +158,12 @@ inside this scope's observations; failure degrades to
 an unreachable engine or an unknown scope can never raise -- and a clean
 ``None`` answer is a non-degraded "nothing known", not an outage (F9).
 
+The degraded ``detail`` is classified by :func:`_degraded_detail`: an
+engine/transport failure yields ``"engine_error:<ExceptionClassName>"``, a
+rejected unknown scope ``"unknown_scope:<ExceptionClassName>"``. The two
+prefixes keep an outage distinguishable from a caller error, carry no user
+data, and leave the exception class name retrievable as a substring.
+
 EMBEDDING CONFIGURATION (GH #911)
 ---------------------------------
 Honcho embeds memory entries through an OpenAI-compatible endpoint configured
@@ -249,6 +255,57 @@ _LEGACY_UNPREFIXED_SCOPES = ("user", "workspace")
 #: obviously derived from the peer it belongs to. See
 #: :meth:`HonchoMemoryBackend._scope_session_id`.
 _SESSION_ID_PREFIX = "s"
+
+#: Stable prefix marking a degraded ``ask`` as an ENGINE/TRANSPORT failure --
+#: the peer/chat call could not reach or be answered by the engine (an SDK
+#: ``ServerError``, a timeout, a missing session, ...). See
+#: :func:`_degraded_detail` for the full contract.
+_DEGRADED_ENGINE_PREFIX = "engine_error:"
+
+#: Stable prefix marking a degraded ``ask`` as a rejected UNKNOWN SCOPE -- the
+#: caller passed a ``scope`` this backend does not know, so no engine call was
+#: ever attempted. Deliberately distinct from :data:`_DEGRADED_ENGINE_PREFIX`
+#: so a caller can tell "the engine is down" (retryable, an outage) from "you
+#: asked for a scope that does not exist" (a caller bug) without parsing logs.
+_DEGRADED_UNKNOWN_SCOPE_PREFIX = "unknown_scope:"
+
+#: Marker the scope resolvers use in their rejection message (kept in sync with
+#: ``memory.backends._scope_filter`` and :meth:`HonchoMemoryBackend._scope_peer_id`).
+#: :func:`_degraded_detail` classifies on this marker rather than on the
+#: exception type: an SDK ``ValueError`` is an engine error, not a scope
+#: rejection, and must not be mislabelled.
+_UNKNOWN_SCOPE_MARKER = "unknown memory scope"
+
+
+def _degraded_detail(exc: BaseException) -> str:
+    """Return the non-user-data ``detail`` for a degraded ``ask`` answer.
+
+    Consumed by :class:`memory.backends.MemoryAnswer.detail`. Contract:
+
+    * NON-EMPTY for every degraded outcome -- a degraded answer always says
+      *why* it degraded (the old bare ``type(exc).__name__`` did too, but could
+      not distinguish causes);
+    * DETERMINISTIC for a given cause: an engine/transport failure yields
+      ``"engine_error:<ExceptionClassName>"`` (stable per exception class), a
+      rejected unknown scope yields ``"unknown_scope:<ExceptionClassName>"``;
+    * DISCRIMINABLE: the :data:`_DEGRADED_ENGINE_PREFIX` prefix marks an
+      engine/transport failure, :data:`_DEGRADED_UNKNOWN_SCOPE_PREFIX` a
+      rejected scope -- so "the engine is down" and "you asked for a scope
+      that does not exist" never collapse into the same token;
+    * CONTAINS NO USER DATA: only the exception *class name* enters the string,
+      never the exception message (which can embed the query text or memory
+      content) and never any memory text;
+    * the exception CLASS NAME stays RETRIEVABLE as a substring, so a consumer
+      that matched the old bare ``"RuntimeError"`` keeps matching.
+
+    Classification is by the :data:`_UNKNOWN_SCOPE_MARKER` the scope resolvers
+    put in their ``ValueError``, not by exception type alone: a Honcho SDK
+    ``ValueError`` flowing out of ``peer.chat`` is an engine error.
+    """
+    name = type(exc).__name__
+    if isinstance(exc, ValueError) and _UNKNOWN_SCOPE_MARKER in str(exc):
+        return f"{_DEGRADED_UNKNOWN_SCOPE_PREFIX}{name}"
+    return f"{_DEGRADED_ENGINE_PREFIX}{name}"
 
 
 def _with_engine_enabled(current: Any) -> Any:
@@ -1013,8 +1070,19 @@ class HonchoMemoryBackend(MemoryBackend):
         an unreachable engine, a missing session (Honcho answers a sessionless
         dialectic call with ``MissingSessionID``/HTTP 400), an unknown scope
         rejected by :meth:`_scope_peer_id` -- degrades to
-        ``MemoryAnswer(degraded=True)`` with an empty text and the exception
-        class name in ``detail`` (no user data). A ``None`` answer (Honcho's way
+        ``MemoryAnswer(degraded=True)`` with an empty text and a non-empty
+        ``detail`` carrying NO user data. ``degraded`` is ``True`` for every
+        such failure; the ``detail`` string is built by
+        :func:`_degraded_detail` and follows that helper's contract:
+
+        * ``"engine_error:<ExceptionClassName>"`` for an engine/transport
+          failure (e.g. an SDK ``ServerError`` -> ``"engine_error:ServerError"``);
+        * ``"unknown_scope:<ExceptionClassName>"`` for a scope rejected by
+          :meth:`_scope_peer_id` (no engine call was attempted).
+
+        The prefixes let a caller distinguish an outage from a caller error
+        without parsing logs, and the exception class name stays retrievable as
+        a substring for backward compatibility. A ``None`` answer (Honcho's way
         of saying "nothing relevant known") is a clean, non-degraded empty
         answer, distinct from an outage (F9).
 
@@ -1046,7 +1114,7 @@ class HonchoMemoryBackend(MemoryBackend):
                 generated_at=generated_at,
                 backend="honcho",
                 degraded=True,
-                detail=type(exc).__name__,
+                detail=_degraded_detail(exc),
             )
 
         # Without ``include_evidence`` the SDK returns the bare answer string, or

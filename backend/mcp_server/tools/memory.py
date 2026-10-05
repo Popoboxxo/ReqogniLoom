@@ -255,10 +255,13 @@ class MemoryToolGroup(BaseToolGroup):
         (pgvector) returns ``degraded=True`` instead of raising. The response
         mirrors the digest's four keys -- ``answer``/``generated_at``/
         ``backend``/``degraded`` -- plus ``detail``, with ``generated_at``
-        serialised to ISO-8601. ``detail`` carries the degradation cause's
-        exception class name (never user data) when the answer degraded, so a
-        caller can tell a backend outage apart from "nothing known"; it is an
-        empty string on a successful answer.
+        serialised to ISO-8601. ``detail`` carries the degradation cause as
+        ``engine_error:<ExceptionClassName>`` or
+        ``unknown_scope:<ExceptionClassName>`` (never user data) when the answer
+        degraded, so a caller can tell a backend outage apart from an unknown
+        scope -- and both from "nothing known". The exception class name stays a
+        substring for backwards compatibility. It is an empty string on a
+        successful answer.
 
         Registered as a WRITE tool (``_WRITE_TOOL_PREFIXES``): the call drives a
         generative LLM, so a read_only/Viewer key must not reach it.

@@ -72,7 +72,7 @@ Status: `open` → `triaged` → `in-progress` → `verify` → `closed`.
 | #1170 | `artifact_search` ohne Relevanzschwelle | B1 | P3 | verify |
 | #1101 | VCRM MCP-only, im OpenAPI nicht sichtbar | B1 | P3 | verify |
 | #1133 | MCP-Live-Stack-Rollentests nicht self-seeding | B1 | P3 | verify |
-| #1153 | Honcho-Dialektik HTTP 500 (`MissingSessionID`) | B2 | P1 | triaged |
+| #1153 | Honcho-Dialektik HTTP 500 (`MissingSessionID`) | B2 | P1 | verify |
 | #1186 | Preflight-Smoke: `x-opencode-session` erreicht Provider | B2 | P2 | verify |
 | #1163 | `check_consistency` TypeError bei `score: null` | B2 | P1 | verify |
 | #1165 | `architecture.decompose` LLM-Timeout → generischer 500 | B2 | P1 | verify |

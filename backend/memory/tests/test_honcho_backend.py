@@ -33,6 +33,13 @@ from persistence.tests.factories import active_tenant, make_user, make_workspace
 _HONCHO_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")
 
 
+class ServerError(Exception):
+    """Stand-in for the Honcho SDK's ``ServerError`` (an engine/transport
+    failure). The optional ``honcho-ai`` package is never imported here (see
+    the module docstring), so the double is declared locally.
+    """
+
+
 def _conclusion(entry_id: str, content: str):
     """Minimal stand-in for honcho's ``Conclusion`` (only the fields we read)."""
     return SimpleNamespace(id=entry_id, content=content)
@@ -745,8 +752,13 @@ class TestHonchoAsk:
         assert answer.text == ""
         assert answer.backend == "honcho"
         # F5 (backend-reviewer): the degradation carries the (non-user-data)
-        # cause so a caller can tell an outage from "nothing known".
-        assert answer.detail == "RuntimeError"
+        # cause so a caller can tell an outage from "nothing known" -- now
+        # classified as an ENGINE error (not the bare exception name).
+        assert answer.detail == "engine_error:RuntimeError"
+        # Backward compatibility: a consumer that matched the old bare class
+        # name still matches it as a substring.
+        assert "RuntimeError" in answer.detail
+        assert answer.detail != "RuntimeError"
 
     def test_ask_degrades_on_a_missing_session_error(self):
         """A sessionless/unknown dialectic call makes Honcho answer
@@ -760,6 +772,69 @@ class TestHonchoAsk:
 
         assert answer.degraded is True
         assert answer.text == ""
+        assert answer.detail == "engine_error:RuntimeError"
+
+    def test_ask_marks_a_honcho_server_error_as_an_engine_error(self):
+        """(a) A Honcho SDK ``ServerError`` must surface as an ENGINE error,
+        never as the bare token ``"ServerError"`` -- so a caller can act on the
+        failure class (retry an outage) without parsing logs.
+        """
+        backend, client = _backend_with_mock_client()
+        tenant_id, user_id = uuid4(), uuid4()
+        peer = client.peer(f"{tenant_id}_{user_id}")
+        peer.chat.side_effect = ServerError("upstream 503")
+
+        answer = backend.ask(tenant_id, "user", user_id, "q?")
+
+        # (c) degraded is True on an engine failure.
+        assert answer.degraded is True
+        assert answer.text == ""
+        assert answer.detail == "engine_error:ServerError"
+        assert answer.detail != "ServerError"
+
+    def test_ask_of_an_unknown_scope_carries_a_distinguishable_token(self):
+        """(b) An unknown-scope rejection yields a token distinct from an
+        engine outage, so the two degraded causes never collapse.
+        """
+        backend, _client = _backend_with_mock_client()
+
+        answer = backend.ask(uuid4(), "not-a-scope", uuid4(), "q?")
+
+        assert answer.degraded is True
+        assert answer.text == ""
+        assert answer.detail == "unknown_scope:ValueError"
+        assert not answer.detail.startswith("engine_error:")
+
+    def test_ask_degraded_detail_never_leaks_query_or_memory_content(self):
+        """(d) ``detail`` is a diagnosis, not user data: neither the query nor
+        any memory content (which an SDK error message can embed) may appear.
+        """
+        backend, client = _backend_with_mock_client()
+        tenant_id, user_id = uuid4(), uuid4()
+        secret_query = "how do I rotate the prod DB credentials"
+        secret_content = "the answer is hunter2"
+        peer = client.peer(f"{tenant_id}_{user_id}")
+        peer.chat.side_effect = ServerError(f"{secret_query} / {secret_content}")
+
+        answer = backend.ask(tenant_id, "user", user_id, secret_query)
+
+        assert answer.detail == "engine_error:ServerError"
+        assert secret_query not in answer.detail
+        assert secret_content not in answer.detail
+
+    def test_degraded_detail_is_stable_per_exception_class(self):
+        """The helper is deterministic for a given exception class, and keeps
+        the class name retrievable as a substring (backward compatibility).
+        """
+        from memory.honcho_backend import _degraded_detail
+
+        assert _degraded_detail(RuntimeError("a")) == _degraded_detail(RuntimeError("b"))
+        assert _degraded_detail(ServerError("x")) == "engine_error:ServerError"
+        assert _degraded_detail(ValueError("unknown memory scope: 'x'")) == (
+            "unknown_scope:ValueError"
+        )
+        # An engine-side ValueError is NOT a scope rejection.
+        assert _degraded_detail(ValueError("bad argument")) == "engine_error:ValueError"
 
     def test_ask_reports_a_none_answer_as_empty_but_not_degraded(self):
         backend, client = _backend_with_mock_client()
@@ -779,14 +854,6 @@ class TestHonchoAsk:
         backend.ask(tenant_id, "user", user_id, "q?")
 
         assert f"{tenant_id}_{user_id}" in client.peers_by_id
-
-    def test_ask_of_an_unknown_scope_degrades(self):
-        backend, _client = _backend_with_mock_client()
-
-        answer = backend.ask(uuid4(), "not-a-scope", uuid4(), "q?")
-
-        assert answer.degraded is True
-        assert answer.text == ""
 
     def test_ask_timeout_defaults_and_is_env_overridable(self, monkeypatch):
         """F2 (code-reviewer): the SDK client must be built with a bounded

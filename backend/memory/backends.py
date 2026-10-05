@@ -269,10 +269,14 @@ class MemoryAnswer:
       best-effort rendering. :meth:`MemoryBackend.ask` never raises -- a
       failing backend always degrades into this flag instead, exactly like
       :meth:`MemoryBackend.digest`.
-    * ``detail`` is an optional, non-user-data diagnosis of a degraded answer
-      (e.g. the exception class name), so "the engine is down" is
-      distinguishable from "asked, nothing known" without the caller having to
-      parse logs. Empty on a successful answer; never carries memory content.
+    * ``detail`` is an optional, non-user-data diagnosis of a degraded answer,
+      following the ``engine_error:<ExceptionClassName>`` /
+      ``unknown_scope:<ExceptionClassName>`` convention, so "the engine is down"
+      is distinguishable from "you asked for a scope that does not exist"
+      without the caller having to parse logs. The exception class name stays a
+      substring of ``detail``, so a consumer that matched the old bare class
+      name keeps matching. Empty on a successful answer; never carries memory
+      content.
     """
 
     text: str
