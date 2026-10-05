@@ -2,13 +2,47 @@
 
 | Feld | Wert |
 |---|---|
-| **Status** | Entwurf zur Review (noch nicht umgesetzt) |
+| **Status** | Stufe 1 überwiegend umgesetzt · Stufe 2 als Draft (kein Publish) · Stand 2026-10-05 |
 | **Datum** | 2026-10-04 |
 | **Basis** | `v1.8.0-beta.18`, QS-Sandbox `172.20.5.120`, empirische Client-Tests |
 | **Bezug** | #1171 (konsolidiertes Issue), #1170 (`artifact_search`), #1169 (Codex headless), #1153 (Session-Header), #1085 (Doku-Drift) |
 | **Bugfix-Hub** | Umsetzung läuft als Bundle **B0** — [`docs/bugfix-hub/README.md`](../bugfix-hub/README.md) · [`docs/plans/2026-10-05-bugfix-hub-integrationen.md`](2026-10-05-bugfix-hub-integrationen.md) |
 | **Geltung** | Claude Code, Codex CLI, OpenCode, Kimi Code, Antigravity, Hermes |
 | **Nicht Teil dieses Plans** | Änderungen am MCP-Server selbst, an Rollen/Skills-Inhalten, an der LLM-Anbindung des Backends |
+
+---
+
+## Umsetzungsstand (2026-10-05)
+
+> Fortschritt gegenüber diesem Konzept; die Konzeptabschnitte unten bleiben als Referenz erhalten.
+> **Branch/PR:** `feat/bugfix-hub-integrations` · PR #1191 (alle CI-Checks grün).
+
+### Stufe 1 — lokal umgesetzt (überwiegend)
+- `clients/registry.yaml` als Single Source of Truth; `scripts/clients/render.py` erzeugt `docs/clients/**` (6 Clients × DE/EN) sowie `.claude-plugin/marketplace.json` + `server.json` — idempotent, `--check` ist das Drift-Gate.
+- `scripts/clients/install.sh` / `verify.sh`: **ein** Befehl installiert je Client **MCP + Rollen/Skills** (idempotent, `--dry-run`, Key nur als Env-Var-Name). Vier in den Smoke-Tests gefundene Installer-Defekte (Claude-Marketplace-ID, OpenCode-`X-API-Key`-Header, Hermes `--url`, Kimi-Schema) sind behoben.
+- Doku `docs/clients/**` (DE/EN, paritätisch), verlinkt aus `README.md` §9 und `docs/agent-templates/INSTALL.md`; der OpenCode-Widerspruch ist aufgelöst.
+- **#649** Hermes-Skill-Connector implementiert (`integrations/hermes-skill/reqogniloom/`).
+- **#1169** (Codex `wire_api="responses"` + Approval-Bypass) in `docs/clients/codex.md` dokumentiert.
+- CI-Gate `client-artifacts-check.yml` (Drift/Parität/Links/Registry↔Snippet) liegt vor.
+
+### Stufe 2 — Drafts liegen (keine Publikation)
+- `.claude-plugin/marketplace.json`, `server.json`; fünf Workflow-Drafts (`release-client-artifacts`, `publish-npm`, `publish-marketplace`, `publish-mcp-registry`, `client-smoke`) — nur `workflow_dispatch`, Publish inert (`enable_publish=false`), keine Secrets.
+
+### Smoke-Tests (2026-10-05, lokaler Stack)
+| Client | install/connect | echter Tool-Call | Verdikt |
+|---|---|---|---|
+| OpenCode | PASS | `requirement.query`=3, `workspace.list`=420 == REST | **PASS** |
+| Claude Code | PASS | OAuth abgelaufen | ENV-LIMITED |
+| Hermes | PASS | Provider-Header fehlt | ENV-LIMITED |
+| Kimi Code | PASS (Config) | headless keine Tools | ENV-LIMITED (**L2**) |
+| Codex / Antigravity | — | auf Host nicht installiert | ENV-LIMITED |
+
+Beleg: `docs/bugfix-hub/smoke/2026-10-05-client-smoke.md`.
+
+### Noch offen
+- **DoD Stufe 1:** CI-Gate greift erst nach Merge auf `main` (Drift-Nachweis); Claude-/Hermes-Daten-Call nur mit echter Provider-Auth belegbar; Kimi bleibt L2 (Upstream-`kimi mcp add` offen).
+- **Stufe 2:** Publikation nicht aktiv; Entscheidungen **E1, E4–E7** offen (E2/E3 vorläufig gesetzt).
+- **Offene Einzel-Issues:** #92 (Workspace-Tokens + UI-MCP-Config), #1138 (Plugin-Versionierungs-Anker).
 
 ---
 
