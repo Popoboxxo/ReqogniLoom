@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **REST contract consistency (#1177, bugfix-hub bundle B4):**
+  - `GET /api/v1/reviews/` — the collection root for the pending-review queue,
+    previously a `404`; it delegates to the same `ReviewQueueService` and returns
+    the same `StandardPagination` envelope as `/api/v1/reviews/pending/`.
+  - `GET /openapi.json` (alias `GET /api/openapi.json`) — the OpenAPI document as
+    JSON (`SpectacularJSONAPIView`). `/api/schema/` stays the YAML entry point;
+    the no-slash `GET /api/schema` is now routed explicitly (APPEND_SLASH is
+    disabled project-wide, CR-03).
+
+### Changed
+- **Multi-word REST paths unified on canonical kebab-case (#1177):**
+  backward-compatible aliases were added so both spellings resolve to the same
+  `ViewSet` — `/api/v1/test-cases/` + `/testcases/`, `/trace-links/` +
+  `/tracelinks/`, `/test-runs/` + `/testruns/`, `/main-goals/` + `/maingoals/`,
+  `/change-requests/` + `/changerequests/`. Documented in
+  `docs/api/REST-CONVENTIONS.md` §7. No existing client breaks.
+- **`GET /api/v1/users/` envelope transition recorded (#1177 / INT-05):** the
+  list endpoint returns the `{count, …, results}` envelope rather than a bare
+  array; the change shipped with its in-repo consumers
+  (`frontend/src/api/users.ts` requests `?page_size=100`, and
+  `e2e/tests/user-management.spec.ts` accepts the envelope) and is now documented
+  as a completed breaking transition in `docs/api/REST-CONVENTIONS.md` §6.
+
 ## [1.8.0-beta.18] — 2026-10-03
 
 > **This beta is explicitly NOT an external production or QA release.** It is an

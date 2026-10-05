@@ -210,6 +210,26 @@ def test_workspace_scoped_route_answers_identically(env):
 
 
 @override_settings(**_JWT_OVERRIDES)
+def test_collection_root_answers_like_the_flat_pending_route(env):
+    """#1177: ``GET /api/v1/reviews/`` is the collection root for the same queue.
+
+    The root and ``/reviews/pending/`` are one handler, one service, one
+    envelope — the root is not a second, weaker list and not a 404 (the
+    measured #1177 symptom).
+    """
+    admin_client = _login(env["admin"])
+    _create_proposal(env)
+    ws = env["workspace"].id
+
+    root = admin_client.get(f"/api/v1/reviews/?workspace_id={ws}")
+    pending = admin_client.get(f"/api/v1/reviews/pending/?workspace_id={ws}")
+
+    assert root.status_code == 200, root.content
+    assert pending.status_code == 200, pending.content
+    assert root.json() == pending.json()
+
+
+@override_settings(**_JWT_OVERRIDES)
 def test_state_narrowing_selects_only_proposals(env):
     admin_client = _login(env["admin"])
     proposal_id = _create_proposal(env, "The AI proposal")

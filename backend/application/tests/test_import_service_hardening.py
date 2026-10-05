@@ -192,7 +192,9 @@ class TestErrorReporting:
         assert result.status == "rollback"
         assert len(result.errors) > 0
         assert result.errors[0].field == "persistence"
-        assert "simulated DB failure" in result.errors[0].message
+        # CWE-209 / issue #1185: the client-facing message is generic; the raw
+        # exception text ("simulated DB failure") stays in the log only.
+        assert "simulated DB failure" not in result.errors[0].message
         assert result.failed_count == 2
         assert result.items[0]["cause"]["code"] == "PERSISTENCE_ERROR"
 

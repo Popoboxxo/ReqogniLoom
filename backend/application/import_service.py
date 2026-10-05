@@ -74,6 +74,15 @@ CAUSE_QUOTING_ERROR = "QUOTING_ERROR"
 CAUSE_UNKNOWN_TYPE = "UNKNOWN_TYPE"
 CAUSE_BOM_DETECTED = "BOM_DETECTED"
 
+# Client-facing text for a rolled-back persistence error (CWE-209, issue #1185).
+# The database exception's type/message/traceback can carry psycopg/SQL internals
+# and must never travel in the HTTP body; only the stable ``CAUSE_PERSISTENCE_ERROR``
+# code and this generic sentence are exposed. The full error is logged via
+# ``logger.exception`` in the atomic-insert handler.
+PERSISTENCE_ERROR_MESSAGE = (
+    "Import rolled back after a persistence error. No changes were applied."
+)
+
 # Required fields per entity type (REQ-L3-IMP-001). Derived from the shared
 # round-trip field registry so importer and exporter cannot drift apart; every
 # supported entity requires a non-empty ``title``.
@@ -417,16 +426,19 @@ class ImportService(ServiceBase):
             # Finding 079: a rollback must name its cause. The previous empty
             # ``errors`` list made a failed import indistinguishable from a
             # clean one for any caller that only read ``errors``.
+            #
+            # CWE-209 (issue #1185): the exception's type/message/traceback can
+            # contain psycopg/SQL internals. It is logged in full here and only
+            # the stable ``CAUSE_PERSISTENCE_ERROR`` code plus a generic sentence
+            # reach the client-facing result.
             logger.exception(
                 "ImportService: DB error during atomic insert, rolling back. "
-                "entity_type=%s workspace_id=%s",
+                "entity_type=%s workspace_id=%s error_type=%s",
                 entity_type,
                 ws_uuid,
+                type(exc).__name__,
             )
-            message = (
-                f"Import rolled back after a persistence error: "
-                f"{type(exc).__name__}: {exc}"
-            )
+            message = PERSISTENCE_ERROR_MESSAGE
             return ImportResult(
                 success=False,
                 imported_count=0,
@@ -1131,4 +1143,9 @@ class ImportService(ServiceBase):
         return inserted
 
 
-__all__ = ["ImportService", "ImportResult", "ImportRowError"]
+__all__ = [
+    "PERSISTENCE_ERROR_MESSAGE",
+    "ImportResult",
+    "ImportRowError",
+    "ImportService",
+]

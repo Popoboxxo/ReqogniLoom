@@ -1,9 +1,16 @@
 """REST surface for the pending-review queue (issue #1089).
 
-Two routes, one service, one contract:
+Routes, one service, one contract (#1089; collection root added by #1177):
 
+    GET /api/v1/reviews/                     ?workspace_id=<uuid>
     GET /api/v1/reviews/pending/?workspace_id=<uuid>
     GET /api/v1/workspaces/<workspace_id>/reviews/pending/
+
+``/api/v1/reviews/`` is the collection root and the flat ``/reviews/pending/``
+is the same :class:`ReviewsPendingView` under a differently-named URL — the
+root gives a generic client the resource's natural URL (the SPA shows a review
+queue but the bare collection used to 404), while ``pending/`` names the queue.
+Neither is a second code path.
 
 Both call :class:`application.review_queue_service.ReviewQueueService`, the
 same Layer-2 service the MCP tool ``review.list_pending`` uses — that tool
@@ -154,7 +161,10 @@ def _pending_response(
 
 
 class ReviewsPendingView(APIView):
-    """GET /api/v1/reviews/pending/ — the workspace's pending review queue.
+    """GET /api/v1/reviews/ and /api/v1/reviews/pending/ — pending review queue.
+
+    Registered under both URLs (#1177): the collection root ``reviews/`` and the
+    ``reviews/pending/`` alias share this one handler.
 
     Query parameters:
         ``workspace_id`` (required, UUID) — the workspace to scope to.
