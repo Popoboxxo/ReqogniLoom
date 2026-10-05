@@ -425,6 +425,7 @@ _EXCEPTIONS = {
     "APIRootView": "DRF router API root, no resource",
     "RedirectView": "URL format-suffix redirect",
     "SpectacularAPIView": "public OpenAPI schema",
+    "SpectacularJSONAPIView": "public OpenAPI JSON schema",
     "SpectacularSwaggerView": "public Swagger UI",
     "SpectacularRedocView": "public ReDoc UI",
     "VersionView": "public version endpoint",
