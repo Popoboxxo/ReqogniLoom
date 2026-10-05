@@ -402,6 +402,8 @@ Ein **einziger** Testfall, der über alle Clients identisch formuliert ist — d
 1. `scripts/clients/install.sh --client <x>` funktioniert für **alle sechs** Clients und ist idempotent (2. Lauf ohne Änderung).
 2. `docs/clients/README.md` + `README.de.md` listen alle sechs Clients mit Transport, Auth, Verify und Fallstricken.
 3. Je Client existiert ein **belegter** Smoke-Test (Ausgabe im PR/Issue dokumentiert).
+   **Stand 2026-10-05: teilweise erfüllt** — 1× PASS (opencode), 2× ENV-LIMITED (claude-code, hermes — nur Connect), 1× FAIL (kimi-code), 2× nicht ausführbar (codex, antigravity); Server-MCP-Quergegencheck PASS (223 Tools, `workspace.list`=420, `requirement.query`=3 == REST). Beleg: [`docs/bugfix-hub/smoke/2026-10-05-client-smoke.md`](../bugfix-hub/smoke/2026-10-05-client-smoke.md).
+   **Stand 2026-10-06 (Re-Smoke nach Fix): weitgehend erfüllt, aber nicht vollständig** — vier Installer-Defekte behoben und re-verifiziert; **opencode full PASS** (echte MCP-Tool-Calls `requirement.query`=3 / `workspace.list`=420 == REST); **claude-code, hermes** install/connect PASS, Daten-Tool-Call **ENV-LIMITED** (externe LLM-/Provider-Auth); **kimi-code ENV-LIMITED/L2** (kein PASS); server-seitiger MCP PASS (223 Tools). Kein Gesamt-PASS. Beleg: Report §9.
 4. CI-Gate „Client-Artefakte" ist grün und würde Doku-Drift rot machen (Nachweis: absichtliche Drift im Test-PR).
 5. Kein Client-Dokument widerspricht einem anderen (Peer-Review gegen `registry.yaml`).
 6. `README.md` §9 und `docs/agent-templates/INSTALL.md` verweisen auf `docs/clients/` (keine Doppelpflege mehr).

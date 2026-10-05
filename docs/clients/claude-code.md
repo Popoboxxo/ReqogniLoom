@@ -22,7 +22,7 @@
 ```bash
 # Stage 1 (local, from the cloned repo):
 claude plugin marketplace add ./dist/plugins/claude-code
-claude plugin install reqogniloom@claude-code
+claude plugin install reqogniloom@reqogniloom-marketplace --scope user -y
 export REQOGNILOOM_MCP_URL="https://<host>"
 export REQOGNILOOM_API_KEY="reqlo_…"
 ```
@@ -50,6 +50,7 @@ claude mcp add --transport http reqogniloom \
 
 ## 6. Pitfalls
 
+- `plugin@marketplace` names the **marketplace name** from `marketplace.json → name` (`reqogniloom-marketplace`) — **not** the source folder (`claude-code`); the installer reads the name from the file.
 - Marketplace/entry name **must** match `plugin.json → name`, else `Plugin "x" not found in marketplace "y"`.
 - Reserved marketplace names (`claude-plugins-official`) are blocked.
 - Relative `source` paths resolve from the marketplace root.

@@ -100,6 +100,10 @@ Details, Arbeitspakete, Aufwände und DoD: siehe Arbeitsplan §3.
 > (`.github/workflows/client-artifacts-check.yml`) sind umgesetzt; Renderer `--check` grün (16 Artefakte: 14 Client + 2 Store).
 >
 > **B0 Stufe 2 — Drafts liegen:** `.claude-plugin/marketplace.json`, `server.json` (beide aus `VERSION`) und fünf Workflow-Drafts (`release-client-artifacts`, `publish-npm`, `publish-marketplace`, `publish-mcp-registry`, `client-smoke`) plus `docs/clients/STAGE2.md` sind vorbereitet; **keine Publikation aktiv** (Trigger nur `workflow_dispatch`, Entscheidungen E1–E7 offen).
+>
+> **B0-Smoke 2026-10-05 ausgeführt (Plan §4.3):** **1× PASS** (opencode — echter Tool-Call `requirement.query`=3 / `workspace.list`=420 == REST), **2× ENV-LIMITED** (claude-code, hermes — Connect belegt, echter Call blockiert), **1× FAIL** (kimi-code), **2× nicht ausführbar** (codex, antigravity); zusätzlich Server-MCP-Quergegencheck PASS (223 Tools, `workspace.list`=420, `requirement.query`=3 == REST). **DoD 3 damit nur teilweise erfüllt.** 3 `install.sh`-Defekte (claude-code-Marketplace-ID, opencode-Header, hermes `--url`) — s. Report §4/§8. Beleg: [`docs/bugfix-hub/smoke/2026-10-05-client-smoke.md`](smoke/2026-10-05-client-smoke.md).
+>
+> **B0-Re-Smoke 2026-10-06 (nach Fix, Plan §4.3/§4.5):** vier Installer-Defekte behoben und re-verifiziert (claude-code-Marketplace-ID, opencode-Header, hermes `--url`, kimi-code-Schema). Ergebnis je Client: **opencode = full PASS** (echte MCP-Tool-Calls `requirement.query`=3 / `workspace.list`=420 == REST); **claude-code** und **hermes** = install/connect PASS, Daten-Tool-Call **ENV-LIMITED** (externe LLM-/Provider-Auth); **kimi-code** = **ENV-LIMITED/L2** (kein PASS); server-seitiger MCP PASS (223 Tools). **DoD 3: weitgehend erfüllt, aber nicht vollständig** — kein Gesamt-PASS. Beleg: Report §9.
 
 ## 6. Verwandte Dokumente
 

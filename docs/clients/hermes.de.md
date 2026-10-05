@@ -5,22 +5,23 @@
 
 | | |
 |---|---|
-| Transport | stdio bridge |
-| Endpoint | stdio bridge |
-| Auth | `X-API-Key` |
+| Transport | Streamable HTTP |
+| Endpoint | `/mcp/` |
+| Auth | `Authorization: Bearer` |
 | Zielstufe | L3 |
 | Getestet | current stack |
 
 ## 1. Voraussetzungen
 
-- Hermes-Installation; MCP-Bridge (`reqogniloom-mcp-bridge`).
-- Key in `~/.hermes/.env`.
+- Hermes-Installation (aktueller Stack).
+- Key in `~/.hermes/.env` — `${REQOGNILOOM_API_KEY}` wird beim Server-Start interpoliert.
 
 ## 2. Installation (ein Befehl)
 
 ```bash
-# Ein Befehl: MCP-Server + Agent-Skill (-> ~/.hermes/skills/reqogniloom).
-# --url ist Pflicht-Argument, wird von Hermes (stdio) aber ignoriert:
+# Ein Befehl: MCP-Server (remote) + Agent-Skill (-> ~/.hermes/skills/reqogniloom).
+# Der Installer merged mcp_servers.reqogniloom non-interaktiv via
+# `hermes config set` (Env-Referenz statt Key):
 scripts/clients/install.sh --client hermes \
   --url "https://<host>" --key-env REQOGNILOOM_API_KEY
 hermes mcp test reqogniloom         # -> ✓ Connected, 223 Tools
@@ -30,11 +31,13 @@ hermes mcp test reqogniloom         # -> ✓ Connected, 223 Tools
 
 Vollständige, generierte Konfiguration (Env-Var-Referenzen, nie ein literaler Key):
 
-```bash
-# Desktop-Plugin (Electron) zusätzlich:
-# integrations/hermes-plugin/reqogniloom  (siehe README dort)
-# Agent-Skill (TUI/Web/CLI) – additiv:
-hermes skills install https://raw.githubusercontent.com/Popoboxxo/ReqogniLoom/main/integrations/hermes-skill/reqogniloom/SKILL.md
+```yaml
+# ~/.hermes/config.yaml  (Windows: %LOCALAPPDATA%\hermes\config.yaml)
+mcp_servers:
+  reqogniloom:
+    url: "https://<host>/mcp/"
+    headers:
+      Authorization: "Bearer ${REQOGNILOOM_API_KEY}"
 ```
 
 ## 4. Modell / Provider
@@ -49,7 +52,10 @@ hermes skills install https://raw.githubusercontent.com/Popoboxxo/ReqogniLoom/ma
 
 ## 6. Fallstricke
 
-- Zwei getrennte Integrationspfade (Desktop-Plugin vs. Agent-/Skill-Connector) — klar trennen.
+- `hermes mcp add` ist discovery-first (fragt den Key am TTY ab, probt den Server) — der Installer nutzt daher `hermes config set` (non-interaktiv, idempotent).
+- `hermes config set` schreibt `config.yaml` über PyYAML neu → **Kommentarzeilen gehen verloren**; der Installer legt vorher ein Backup an.
+- Der Bearer-Token steht nur als `${REQOGNILOOM_API_KEY}`-Referenz in der Config; der Wert liegt in `~/.hermes/.env`.
+- Zwei getrennte Integrationspfade (Desktop-Plugin `integrations/hermes-plugin/reqogniloom` vs. Agent-/Skill-Connector) — klar trennen.
 - `Cancel` im Plugin ruft seit #1152 `interview.abandon` auf, damit Sessions nicht als `in_progress` liegen bleiben.
 
 ## 7. Rechte & Key-Scope
@@ -58,4 +64,5 @@ hermes skills install https://raw.githubusercontent.com/Popoboxxo/ReqogniLoom/ma
 
 ## 8. Update / Deinstallation
 
+- Installer erneut ausführen; oder direkt `hermes config set mcp_servers.reqogniloom…`.
 - Repo-Pull bzw. Store-Update; Stufe-2-Ziel: Katalogeintrag → `hermes mcp install reqogniloom`.

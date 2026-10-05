@@ -192,6 +192,11 @@ hier als Bundle geführt. Stufe 1 (ohne Store-Veröffentlichung) = AP-B0.1…B0.
   CI-Gate „Client-Artefakte" (Drift-/Paritäts-/Schema-/Versions-Check).
 - **Status: umgesetzt.** Alle Artefakte vorhanden; `render.py --check` meldet
   „16 client/store artifacts up to date", Renderer-Tests (7) und `dist`-Paritäts-/Regenerationstests (46) grün.
+- **Smoke-Status 2026-10-05 (Plan-DoD Stufe 1, Punkt 3): teilweise erfüllt** — 1× PASS
+  (opencode), 2× ENV-LIMITED (claude-code, hermes — nur Connect), 1× FAIL (kimi-code),
+  2× nicht ausführbar (codex, antigravity); Server-MCP-Quergegencheck PASS (223 Tools,
+  `workspace.list`=420, `requirement.query`=3 == REST). Beleg:
+  [`docs/bugfix-hub/smoke/2026-10-05-client-smoke.md`](../bugfix-hub/smoke/2026-10-05-client-smoke.md).
 
 **AP-B0.2 — Doku-Sofortfixes (unabhängig publizierbar)**
 - **#1169** Codex: `wire_api="responses"` + Approval-Bypass für headless + geeignete Modelle.
@@ -221,8 +226,10 @@ hier als Bundle geführt. Stufe 1 (ohne Store-Veröffentlichung) = AP-B0.1…B0.
 sind vorbereitet; **keine Publikation aktiv** (Trigger nur `workflow_dispatch`,
 Entscheidungen E1–E7 offen).
 
-**DoD B0:** Plan-DoD Stufe 1 erfüllt (ein Befehl je Client, DE/EN-Parität, CI-Gate grün,
-belegter Smoke-Test); #1169/#649/#92 geschlossen oder explizit auf Store-Welle geplant.
+**DoD B0:** Plan-DoD Stufe 1 **weitgehend erfüllt, aber nicht vollständig** (ein Befehl je Client,
+DE/EN-Parität, CI-Gate grün; Smoke-Test belegt, jedoch kein Gesamt-PASS — opencode full PASS,
+claude-code/hermes install/connect PASS mit ENV-LIMITED Daten-Call, kimi-code ENV-LIMITED/L2;
+Stand 2026-10-06, s. Report §9); #1169/#649/#92 geschlossen oder explizit auf Store-Welle geplant.
 
 ---
 

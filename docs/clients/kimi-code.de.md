@@ -20,10 +20,10 @@
 
 ```bash
 # Kimi hat kein natives MCP-Add-Kommando -> Installer-Skript
-# (MCP-Config + Skills -> ~/.kimi-code/skills)
+# (MCP-Config ~/.kimi-code/mcp.json + Skills -> ~/.kimi-code/skills)
 scripts/clients/install.sh --client kimi-code \
   --url "https://<host>" --key-env REQOGNILOOM_API_KEY
-kimi doctor        # -> Konfiguration valide
+kimi               # -> /mcp-config zeigt reqogniloom
 ```
 
 ## 3. Konfiguration
@@ -35,9 +35,9 @@ Vollständige, generierte Konfiguration (Env-Var-Referenzen, nie ein literaler K
 {
   "mcpServers": {
     "reqogniloom": {
-      "type": "http",
+      "transport": "http",
       "url": "https://<host>/mcp/",
-      "headers": { "Authorization": "Bearer ${REQOGNILOOM_API_KEY}" }
+      "bearerTokenEnvVar": "REQOGNILOOM_API_KEY"
     }
   }
 }
@@ -50,13 +50,16 @@ Vollständige, generierte Konfiguration (Env-Var-Referenzen, nie ein literaler K
 
 ## 5. Verifikation
 
-- **Befehl:** `kimi doctor`
-- **Erwartet:** Konfiguration valide; danach echter Tool-Call → Workspace-Liste.
+- **Befehl:** `kimi  (in-client; /mcp-config zeigt reqogniloom)`
+- **Erwartet:** `reqogniloom` erscheint mit seinen Tools; `kimi doctor` validiert nur `config.toml`/`tui.toml` — **nicht** `mcp.json`.
 - **Tool-Call-Ergebnis:** 12 Workspaces (REST cross-check count = 12)
 
 ## 6. Fallstricke
 
-- Kein `kimi mcp`-Kommando — ein Skript ist heute der einzige Weg.
+- Kein `kimi mcp`-Kommando — der Installer schreibt `~/.kimi-code/mcp.json`.
+- `headers.Authorization: Bearer ${VAR}` wird **nicht** interpoliert (literal gesendet → 401, keine Tools); stattdessen `bearerTokenEnvVar: "REQOGNILOOM_API_KEY"` verwenden.
+- Der Installer schreibt `mcp.json` deterministisch neu (vorheriges Backup `mcp.json.bak-*`); weitere `mcpServers` darin werden **nicht** zusammengeführt.
+- `kimi doctor` prüft nur `config.toml`/`tui.toml`, nicht `mcp.json`.
 - Fremd-Registry ohne `type` wird verworfen: „Skipping invalid entry … (id, name, api, type, models)".
 - Cloudflare kann Nicht-Browser-Clients mit `403 code: 1010` abweisen (User-Agent setzen).
 
@@ -66,5 +69,5 @@ Vollständige, generierte Konfiguration (Env-Var-Referenzen, nie ein literaler K
 
 ## 8. Update / Deinstallation
 
-- Installer erneut ausführen (Skills: copy-if-absent, kein Refresh — bestehende Skill-Ordner bleiben unverändert).
+- Installer erneut ausführen (`mcp.json` wird neu geschrieben, Backup unter `mcp.json.bak-*`; Skills: copy-if-absent, kein Refresh).
 - L3 erst mit einem Upstream-`kimi mcp add` (Feature-Request offen).

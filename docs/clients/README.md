@@ -13,7 +13,7 @@ One client, one page, **German and English**. Every page is generated from `clie
 | OpenCode | SSE | `X-API-Key` | L3 | [OpenCode](opencode.md) |
 | Kimi Code | Streamable HTTP | `Authorization: Bearer` | L2 | [Kimi Code](kimi-code.md) |
 | Antigravity | SSE | `X-API-Key` | L3 | [Antigravity](antigravity.md) |
-| Hermes | stdio bridge | `X-API-Key` | L3 | [Hermes](hermes.md) |
+| Hermes | Streamable HTTP | `Authorization: Bearer` | L3 | [Hermes](hermes.md) |
 
 ## Conventions
 
@@ -25,7 +25,7 @@ One client, one page, **German and English**. Every page is generated from `clie
 
 - **Streamable HTTP** (`/mcp/`): client speaks it natively — preferred.
 - **SSE** (`/mcp/sse/`): plugin/store path expects SSE (Claude plugin, Antigravity).
-- **stdio bridge** (local script): stdio-only client (OpenCode `local`, Hermes).
+- **stdio bridge** (local script): when a client only speaks stdio.
 
 ## Unified smoke test
 

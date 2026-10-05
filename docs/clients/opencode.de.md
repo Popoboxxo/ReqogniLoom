@@ -22,6 +22,8 @@
 # Ein Befehl: MCP-Server (remote/SSE) + Skills (-> .opencode/skills, DOMAIN_MODEL.md):
 scripts/clients/install.sh --client opencode \
   --url "$REQOGNILOOM_MCP_URL" --key-env REQOGNILOOM_API_KEY
+# (intern: opencode mcp add reqogniloom --url "$REQOGNILOOM_MCP_URL/mcp/sse/" \
+#   --header "X-API-Key={env:REQOGNILOOM_API_KEY}")
 opencode mcp list                 # -> ✓ reqogniloom connected
 ```
 
@@ -56,6 +58,7 @@ Vollständige, generierte Konfiguration (Env-Var-Referenzen, nie ein literaler K
 
 - **Historischer Widerspruch (aufgelöst):** `docs/agent-templates/INSTALL.md` nannte `type:"http"` + `options.headers`; das ausgelieferte Snippet und diese Seite verwenden `type:"remote"` + Top-Level-`headers` — das ist die kanonische Form.
 - `{env:NAME}` wird expandiert, ein blankes `{...}` nicht (wird literal gesendet → stille Fehlfunktion).
+- Der Installer setzt den Key-Header als `X-API-Key={env:REQOGNILOOM_API_KEY}` (Platzhalter, nie ein literaler Key in der Config).
 - `DOMAIN_MODEL.md` muss **zwei Ebenen über** `skills/<name>/SKILL.md` liegen.
 - Keine client-seitige Tool-Beschränkung je Skill → Rechte über den Key-Scope steuern.
 

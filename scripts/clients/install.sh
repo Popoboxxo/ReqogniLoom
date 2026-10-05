@@ -116,8 +116,20 @@ copy_skills() {
 install_claude_code() {
   require_bin claude
   local marketplace="${SCRIPT_DIR}/../../dist/plugins/claude-code"
+  # `plugin@marketplace` must name the marketplace declared in its own
+  # marketplace.json ("name"), not the source directory (claude-code):
+  # otherwise `Plugin "reqogniloom" not found in marketplace "<id>"`.
+  local marketplace_name
+  marketplace_name="$(sed -n 's/.*"name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
+    "${marketplace}/.claude-plugin/marketplace.json" | head -n 1)"
+  if [ -z "$marketplace_name" ]; then
+    echo "error: no marketplace name in ${marketplace}/.claude-plugin/marketplace.json" >&2
+    exit 3
+  fi
   run claude plugin marketplace add "$marketplace"
-  run claude plugin install reqogniloom@claude-code
+  # --scope user keeps the plugin out of the project tree; -y accepts the
+  # marketplace-declared command without prompting (required off a TTY).
+  run claude plugin install "reqogniloom@${marketplace_name}" --scope user -y
   # The plugin ships its own skills/ and agents/ — nothing to copy separately.
   echo "export REQOGNILOOM_MCP_URL=\"$URL\""
   echo "export ${KEY_ENV}=\"reqlo_...\"   # set this in your shell"
@@ -135,7 +147,10 @@ install_codex() {
 
 install_opencode() {
   require_bin opencode
-  run opencode mcp add reqogniloom --url "$URL/mcp/sse/"
+  # The key header is passed as an opencode env placeholder (env indirection);
+  # `--header` keeps the value literal, so no secret ever lands in argv.
+  run opencode mcp add reqogniloom --url "$URL/mcp/sse/" \
+    --header "X-API-Key={env:${KEY_ENV}}"
   local skills_dir="${SKILLS_DIR:-.opencode/skills}"
   copy_skills "${REPO_ROOT}/dist/opencode/skills" "$skills_dir"
   # SKILL.md links resolve '../../DOMAIN_MODEL.md' from skills/<name>/:
@@ -149,13 +164,17 @@ install_kimi_code() {
   if [ "$DRY_RUN" -eq 0 ]; then mkdir -p "$dir"; fi
   backup_file "$file"
   local payload
+  # Kimi's mcp.json schema keys off `transport` and resolves the bearer token
+  # from `bearerTokenEnvVar`; a literal `headers.Authorization: Bearer ${VAR}`
+  # is NOT interpolated and is sent verbatim (→ 401, no tools). The value is
+  # an env-var *name*, never a secret.
   payload=$(cat <<JSON
 {
   "mcpServers": {
     "reqogniloom": {
-      "type": "http",
+      "transport": "http",
       "url": "$URL/mcp/",
-      "headers": { "Authorization": "Bearer \${${KEY_ENV}}" }
+      "bearerTokenEnvVar": "${KEY_ENV}"
     }
   }
 }
@@ -206,7 +225,16 @@ JSON
 
 install_hermes() {
   require_bin hermes
-  run hermes mcp add reqogniloom
+  # `hermes mcp add` is discovery-first: it prompts for a key on a TTY and
+  # probes the server, which does not work as an installer step. Use Hermes'
+  # own non-interactive config writer instead (same `mcp_servers` schema, deep
+  # merge, idempotent). The bearer token is referenced by env-var name only;
+  # Hermes interpolates ${VAR} from ~/.hermes/.env at spawn time.
+  local cfg
+  cfg="$(hermes config path 2>/dev/null || true)"
+  if [ -n "$cfg" ]; then backup_file "$cfg"; fi
+  run hermes config set mcp_servers.reqogniloom.url "$URL/mcp/"
+  run hermes config set mcp_servers.reqogniloom.headers.Authorization "Bearer \${${KEY_ENV}}"
   copy_if_absent "${REPO_ROOT}/integrations/hermes-skill/reqogniloom" \
     "${SKILLS_DIR:-$HOME/.hermes/skills}/reqogniloom"
 }

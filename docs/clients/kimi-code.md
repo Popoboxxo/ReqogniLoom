@@ -20,10 +20,10 @@
 
 ```bash
 # Kimi has no native MCP-add command -> installer script
-# (MCP config + skills -> ~/.kimi-code/skills)
+# (MCP config ~/.kimi-code/mcp.json + skills -> ~/.kimi-code/skills)
 scripts/clients/install.sh --client kimi-code \
   --url "https://<host>" --key-env REQOGNILOOM_API_KEY
-kimi doctor        # -> configuration valid
+kimi               # -> /mcp-config lists reqogniloom
 ```
 
 ## 3. Configuration
@@ -35,9 +35,9 @@ Complete, generated configuration (env-var references, never a literal key):
 {
   "mcpServers": {
     "reqogniloom": {
-      "type": "http",
+      "transport": "http",
       "url": "https://<host>/mcp/",
-      "headers": { "Authorization": "Bearer ${REQOGNILOOM_API_KEY}" }
+      "bearerTokenEnvVar": "REQOGNILOOM_API_KEY"
     }
   }
 }
@@ -50,13 +50,16 @@ Complete, generated configuration (env-var references, never a literal key):
 
 ## 5. Verification
 
-- **Command:** `kimi doctor`
-- **Expected:** Configuration valid; then a real tool call → workspace list.
+- **Command:** `kimi  (in-client; /mcp-config zeigt reqogniloom)`
+- **Expected:** `reqogniloom` appears with its tools; `kimi doctor` validates only `config.toml`/`tui.toml` — **not** `mcp.json`.
 - **Tool-call result:** 12 Workspaces (REST cross-check count = 12)
 
 ## 6. Pitfalls
 
-- No `kimi mcp` command — a script is the only path today.
+- No `kimi mcp` command — the installer writes `~/.kimi-code/mcp.json`.
+- `headers.Authorization: Bearer ${VAR}` is **not** interpolated (sent literally → 401, no tools); use `bearerTokenEnvVar: "REQOGNILOOM_API_KEY"` instead.
+- The installer rewrites `mcp.json` deterministically (prior backup `mcp.json.bak-*`); other `mcpServers` entries are **not** merged.
+- `kimi doctor` validates only `config.toml`/`tui.toml`, not `mcp.json`.
 - A third-party registry entry without `type` is dropped: "Skipping invalid entry … (id, name, api, type, models)".
 - Cloudflare can reject non-browser clients with `403 code: 1010` (set a User-Agent).
 
@@ -66,5 +69,5 @@ Complete, generated configuration (env-var references, never a literal key):
 
 ## 8. Update / uninstall
 
-- Re-run the installer (skills: copy-if-absent, no refresh — existing skill folders stay unchanged).
+- Re-run the installer (`mcp.json` is rewritten, backup at `mcp.json.bak-*`; skills: copy-if-absent, no refresh).
 - L3 only once upstream ships `kimi mcp add` (feature request open).

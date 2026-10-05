@@ -24,11 +24,11 @@ conventions:
   transport_rule_de:
     - "**Streamable HTTP** (`/mcp/`): Client spricht es nativ — bevorzugt."
     - "**SSE** (`/mcp/sse/`): Plugin-/Store-Weg sieht SSE vor (Claude-Plugin, Antigravity)."
-    - "**stdio-Bridge** (lokales Skript): Client kann nur stdio (OpenCode `local`, Hermes)."
+    - "**stdio-Bridge** (lokales Skript): falls ein Client ausschließlich stdio spricht."
   transport_rule_en:
     - "**Streamable HTTP** (`/mcp/`): client speaks it natively — preferred."
     - "**SSE** (`/mcp/sse/`): plugin/store path expects SSE (Claude plugin, Antigravity)."
-    - "**stdio bridge** (local script): stdio-only client (OpenCode `local`, Hermes)."
+    - "**stdio bridge** (local script): when a client only speaks stdio."
 
 smoke:
   # One identical test across all clients (plan §4.3); the reference number is
@@ -80,7 +80,7 @@ clients:
         text: |
           # Stufe 1 (lokal, aus dem geklonten Repo):
           claude plugin marketplace add ./dist/plugins/claude-code
-          claude plugin install reqogniloom@claude-code
+          claude plugin install reqogniloom@reqogniloom-marketplace --scope user -y
           export REQOGNILOOM_MCP_URL="https://<host>"
           export REQOGNILOOM_API_KEY="reqlo_…"
     install_en:
@@ -88,7 +88,7 @@ clients:
         text: |
           # Stage 1 (local, from the cloned repo):
           claude plugin marketplace add ./dist/plugins/claude-code
-          claude plugin install reqogniloom@claude-code
+          claude plugin install reqogniloom@reqogniloom-marketplace --scope user -y
           export REQOGNILOOM_MCP_URL="https://<host>"
           export REQOGNILOOM_API_KEY="reqlo_…"
     fallback_de:
@@ -123,10 +123,12 @@ clients:
       - "Standard Anthropic subscription/key unchanged. For custom Anthropic-compatible endpoints: `ANTHROPIC_BASE_URL`, `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`, `ANTHROPIC_CUSTOM_HEADERS`."
       - "The `[claude-code:unrecognized_model]` warning is cosmetic with third-party models."
     pitfalls_de:
+      - "`plugin@marketplace` referenziert den **Marketplace-Namen** aus `marketplace.json → name` (`reqogniloom-marketplace`) — **nicht** den Quellordner (`claude-code`); der Installer liest den Namen aus der Datei."
       - "Marketplace-/Entry-Name **muss** `plugin.json → name` entsprechen, sonst `Plugin \"x\" not found in marketplace \"y\"`."
       - "Reservierte Marketplace-Namen (`claude-plugins-official`) sind gesperrt."
       - "Relative `source`-Pfade werden ab der Marketplace-Wurzel aufgelöst."
     pitfalls_en:
+      - "`plugin@marketplace` names the **marketplace name** from `marketplace.json → name` (`reqogniloom-marketplace`) — **not** the source folder (`claude-code`); the installer reads the name from the file."
       - "Marketplace/entry name **must** match `plugin.json → name`, else `Plugin \"x\" not found in marketplace \"y\"`."
       - "Reserved marketplace names (`claude-plugins-official`) are blocked."
       - "Relative `source` paths resolve from the marketplace root."
@@ -233,6 +235,8 @@ clients:
           # Ein Befehl: MCP-Server (remote/SSE) + Skills (-> .opencode/skills, DOMAIN_MODEL.md):
           scripts/clients/install.sh --client opencode \
             --url "$REQOGNILOOM_MCP_URL" --key-env REQOGNILOOM_API_KEY
+          # (intern: opencode mcp add reqogniloom --url "$REQOGNILOOM_MCP_URL/mcp/sse/" \
+          #   --header "X-API-Key={env:REQOGNILOOM_API_KEY}")
           opencode mcp list                 # -> ✓ reqogniloom connected
     install_en:
       - lang: bash
@@ -240,6 +244,8 @@ clients:
           # One command: MCP server (remote/SSE) + skills (-> .opencode/skills, DOMAIN_MODEL.md):
           scripts/clients/install.sh --client opencode \
             --url "$REQOGNILOOM_MCP_URL" --key-env REQOGNILOOM_API_KEY
+          # (internally: opencode mcp add reqogniloom --url "$REQOGNILOOM_MCP_URL/mcp/sse/" \
+          #   --header "X-API-Key={env:REQOGNILOOM_API_KEY}")
           opencode mcp list                 # -> ✓ reqogniloom connected
     fallback_de:
       - lang: json
@@ -285,11 +291,13 @@ clients:
     pitfalls_de:
       - "**Historischer Widerspruch (aufgelöst):** `docs/agent-templates/INSTALL.md` nannte `type:\"http\"` + `options.headers`; das ausgelieferte Snippet und diese Seite verwenden `type:\"remote\"` + Top-Level-`headers` — das ist die kanonische Form."
       - "`{env:NAME}` wird expandiert, ein blankes `{...}` nicht (wird literal gesendet → stille Fehlfunktion)."
+      - "Der Installer setzt den Key-Header als `X-API-Key={env:REQOGNILOOM_API_KEY}` (Platzhalter, nie ein literaler Key in der Config)."
       - "`DOMAIN_MODEL.md` muss **zwei Ebenen über** `skills/<name>/SKILL.md` liegen."
       - "Keine client-seitige Tool-Beschränkung je Skill → Rechte über den Key-Scope steuern."
     pitfalls_en:
       - "**Historical contradiction (resolved):** `docs/agent-templates/INSTALL.md` said `type:\"http\"` + `options.headers`; the shipped snippet and this page use `type:\"remote\"` + top-level `headers` — that is the canonical form."
       - "`{env:NAME}` is expanded, a bare `{...}` is not (sent literally → silent failure)."
+      - "The installer passes the key header as `X-API-Key={env:REQOGNILOOM_API_KEY}` (placeholder, never a literal key in the config)."
       - "`DOMAIN_MODEL.md` must sit **two levels above** `skills/<name>/SKILL.md`."
       - "No client-side per-skill tool restriction → govern permissions via the key scope."
     roles_de:
@@ -315,18 +323,18 @@ clients:
       - lang: bash
         text: |
           # Kimi hat kein natives MCP-Add-Kommando -> Installer-Skript
-          # (MCP-Config + Skills -> ~/.kimi-code/skills)
+          # (MCP-Config ~/.kimi-code/mcp.json + Skills -> ~/.kimi-code/skills)
           scripts/clients/install.sh --client kimi-code \
             --url "https://<host>" --key-env REQOGNILOOM_API_KEY
-          kimi doctor        # -> Konfiguration valide
+          kimi               # -> /mcp-config zeigt reqogniloom
     install_en:
       - lang: bash
         text: |
           # Kimi has no native MCP-add command -> installer script
-          # (MCP config + skills -> ~/.kimi-code/skills)
+          # (MCP config ~/.kimi-code/mcp.json + skills -> ~/.kimi-code/skills)
           scripts/clients/install.sh --client kimi-code \
             --url "https://<host>" --key-env REQOGNILOOM_API_KEY
-          kimi doctor        # -> configuration valid
+          kimi               # -> /mcp-config lists reqogniloom
     fallback_de:
       - lang: json
         text: |
@@ -334,9 +342,9 @@ clients:
           {
             "mcpServers": {
               "reqogniloom": {
-                "type": "http",
+                "transport": "http",
                 "url": "https://<host>/mcp/",
-                "headers": { "Authorization": "Bearer ${REQOGNILOOM_API_KEY}" }
+                "bearerTokenEnvVar": "REQOGNILOOM_API_KEY"
               }
             }
           }
@@ -347,16 +355,16 @@ clients:
           {
             "mcpServers": {
               "reqogniloom": {
-                "type": "http",
+                "transport": "http",
                 "url": "https://<host>/mcp/",
-                "headers": { "Authorization": "Bearer ${REQOGNILOOM_API_KEY}" }
+                "bearerTokenEnvVar": "REQOGNILOOM_API_KEY"
               }
             }
           }
     verify:
-      command: "kimi doctor"
-      expected_de: "Konfiguration valide; danach echter Tool-Call → Workspace-Liste."
-      expected_en: "Configuration valid; then a real tool call → workspace list."
+      command: "kimi  (in-client; /mcp-config zeigt reqogniloom)"
+      expected_de: "`reqogniloom` erscheint mit seinen Tools; `kimi doctor` validiert nur `config.toml`/`tui.toml` — **nicht** `mcp.json`."
+      expected_en: "`reqogniloom` appears with its tools; `kimi doctor` validates only `config.toml`/`tui.toml` — **not** `mcp.json`."
       tool_result: "12 Workspaces (REST cross-check count = 12)"
     prereq_de:
       - "`kimi` im `PATH`; Schreibzugriff auf `~/.kimi-code/`."
@@ -371,11 +379,17 @@ clients:
       - "Kimi uses its own/managed providers. Third-party providers only via a registry: `kimi provider add <api.json>` — the `type` field is **mandatory**."
       - "Managed quota can block a run with 403 (\"usage limit\") — not a ReqogniLoom error."
     pitfalls_de:
-      - "Kein `kimi mcp`-Kommando — ein Skript ist heute der einzige Weg."
+      - "Kein `kimi mcp`-Kommando — der Installer schreibt `~/.kimi-code/mcp.json`."
+      - "`headers.Authorization: Bearer ${VAR}` wird **nicht** interpoliert (literal gesendet → 401, keine Tools); stattdessen `bearerTokenEnvVar: \"REQOGNILOOM_API_KEY\"` verwenden."
+      - "Der Installer schreibt `mcp.json` deterministisch neu (vorheriges Backup `mcp.json.bak-*`); weitere `mcpServers` darin werden **nicht** zusammengeführt."
+      - "`kimi doctor` prüft nur `config.toml`/`tui.toml`, nicht `mcp.json`."
       - "Fremd-Registry ohne `type` wird verworfen: „Skipping invalid entry … (id, name, api, type, models)\"."
       - "Cloudflare kann Nicht-Browser-Clients mit `403 code: 1010` abweisen (User-Agent setzen)."
     pitfalls_en:
-      - "No `kimi mcp` command — a script is the only path today."
+      - "No `kimi mcp` command — the installer writes `~/.kimi-code/mcp.json`."
+      - "`headers.Authorization: Bearer ${VAR}` is **not** interpolated (sent literally → 401, no tools); use `bearerTokenEnvVar: \"REQOGNILOOM_API_KEY\"` instead."
+      - "The installer rewrites `mcp.json` deterministically (prior backup `mcp.json.bak-*`); other `mcpServers` entries are **not** merged."
+      - "`kimi doctor` validates only `config.toml`/`tui.toml`, not `mcp.json`."
       - "A third-party registry entry without `type` is dropped: \"Skipping invalid entry … (id, name, api, type, models)\"."
       - "Cloudflare can reject non-browser clients with `403 code: 1010` (set a User-Agent)."
     roles_de:
@@ -383,10 +397,10 @@ clients:
     roles_en:
       - "Key scope governs permissions; read-only for audit use."
     update_de:
-      - "Installer erneut ausführen (Skills: copy-if-absent, kein Refresh — bestehende Skill-Ordner bleiben unverändert)."
+      - "Installer erneut ausführen (`mcp.json` wird neu geschrieben, Backup unter `mcp.json.bak-*`; Skills: copy-if-absent, kein Refresh)."
       - "L3 erst mit einem Upstream-`kimi mcp add` (Feature-Request offen)."
     update_en:
-      - "Re-run the installer (skills: copy-if-absent, no refresh — existing skill folders stay unchanged)."
+      - "Re-run the installer (`mcp.json` is rewritten, backup at `mcp.json.bak-*`; skills: copy-if-absent, no refresh)."
       - "L3 only once upstream ships `kimi mcp add` (feature request open)."
 
   - id: antigravity
@@ -476,67 +490,81 @@ clients:
     tested_version: "current stack"
     target_level: L3
     status: supported
-    transport: stdio
-    url_path: ""
-    auth_header: "X-API-Key"
-    config_artifact: integrations/hermes-plugin/reqogniloom/hermes-plugin.json
+    transport: streamable_http
+    url_path: /mcp/
+    auth_header: "Authorization: Bearer"
+    config_artifact: ""
     skills_dir: "~/.hermes/skills"
     install_de:
       - lang: bash
         text: |
-          # Ein Befehl: MCP-Server + Agent-Skill (-> ~/.hermes/skills/reqogniloom).
-          # --url ist Pflicht-Argument, wird von Hermes (stdio) aber ignoriert:
+          # Ein Befehl: MCP-Server (remote) + Agent-Skill (-> ~/.hermes/skills/reqogniloom).
+          # Der Installer merged mcp_servers.reqogniloom non-interaktiv via
+          # `hermes config set` (Env-Referenz statt Key):
           scripts/clients/install.sh --client hermes \
             --url "https://<host>" --key-env REQOGNILOOM_API_KEY
           hermes mcp test reqogniloom         # -> ✓ Connected, 223 Tools
     install_en:
       - lang: bash
         text: |
-          # One command: MCP server + agent skill (-> ~/.hermes/skills/reqogniloom).
-          # --url is a required argument but ignored by Hermes (stdio):
+          # One command: MCP server (remote) + agent skill (-> ~/.hermes/skills/reqogniloom).
+          # The installer merges mcp_servers.reqogniloom non-interactively via
+          # `hermes config set` (env reference instead of a key):
           scripts/clients/install.sh --client hermes \
             --url "https://<host>" --key-env REQOGNILOOM_API_KEY
           hermes mcp test reqogniloom         # -> ✓ Connected, 223 tools
     fallback_de:
-      - lang: bash
+      - lang: yaml
         text: |
-          # Desktop-Plugin (Electron) zusätzlich:
-          # integrations/hermes-plugin/reqogniloom  (siehe README dort)
-          # Agent-Skill (TUI/Web/CLI) – additiv:
-          hermes skills install https://raw.githubusercontent.com/Popoboxxo/ReqogniLoom/main/integrations/hermes-skill/reqogniloom/SKILL.md
+          # ~/.hermes/config.yaml  (Windows: %LOCALAPPDATA%\hermes\config.yaml)
+          mcp_servers:
+            reqogniloom:
+              url: "https://<host>/mcp/"
+              headers:
+                Authorization: "Bearer ${REQOGNILOOM_API_KEY}"
     fallback_en:
-      - lang: bash
+      - lang: yaml
         text: |
-          # Desktop plugin (Electron) additionally:
-          # integrations/hermes-plugin/reqogniloom  (see its README)
-          # Agent skill (TUI/Web/CLI) – additive:
-          hermes skills install https://raw.githubusercontent.com/Popoboxxo/ReqogniLoom/main/integrations/hermes-skill/reqogniloom/SKILL.md
+          # ~/.hermes/config.yaml  (Windows: %LOCALAPPDATA%\hermes\config.yaml)
+          mcp_servers:
+            reqogniloom:
+              url: "https://<host>/mcp/"
+              headers:
+                Authorization: "Bearer ${REQOGNILOOM_API_KEY}"
     verify:
       command: "hermes mcp test reqogniloom"
       expected_de: "`✓ Connected` (QA: 2232 ms, 223 Tools); echte Calls: `requirement_query` → 49, `architecture_query` → 1."
       expected_en: "`✓ Connected` (QA: 2232 ms, 223 tools); real calls: `requirement_query` → 49, `architecture_query` → 1."
       tool_result: "223 tools; requirement_query = 49"
     prereq_de:
-      - "Hermes-Installation; MCP-Bridge (`reqogniloom-mcp-bridge`)."
-      - "Key in `~/.hermes/.env`."
+      - "Hermes-Installation (aktueller Stack)."
+      - "Key in `~/.hermes/.env` — `${REQOGNILOOM_API_KEY}` wird beim Server-Start interpoliert."
     prereq_en:
-      - "Hermes installation; MCP bridge (`reqogniloom-mcp-bridge`)."
-      - "Key in `~/.hermes/.env`."
+      - "Hermes installation (current stack)."
+      - "Key in `~/.hermes/.env` — `${REQOGNILOOM_API_KEY}` is interpolated at server start."
     provider_de:
       - "Unabhängig von ReqogniLoom — Hermes nutzt seine eigene LLM-Config."
     provider_en:
       - "Independent of ReqogniLoom — Hermes uses its own LLM config."
     pitfalls_de:
-      - "Zwei getrennte Integrationspfade (Desktop-Plugin vs. Agent-/Skill-Connector) — klar trennen."
+      - "`hermes mcp add` ist discovery-first (fragt den Key am TTY ab, probt den Server) — der Installer nutzt daher `hermes config set` (non-interaktiv, idempotent)."
+      - "`hermes config set` schreibt `config.yaml` über PyYAML neu → **Kommentarzeilen gehen verloren**; der Installer legt vorher ein Backup an."
+      - "Der Bearer-Token steht nur als `${REQOGNILOOM_API_KEY}`-Referenz in der Config; der Wert liegt in `~/.hermes/.env`."
+      - "Zwei getrennte Integrationspfade (Desktop-Plugin `integrations/hermes-plugin/reqogniloom` vs. Agent-/Skill-Connector) — klar trennen."
       - "`Cancel` im Plugin ruft seit #1152 `interview.abandon` auf, damit Sessions nicht als `in_progress` liegen bleiben."
     pitfalls_en:
-      - "Two separate integration paths (desktop plugin vs. agent/skill connector) — keep them apart."
+      - "`hermes mcp add` is discovery-first (prompts for the key on a TTY, probes the server) — the installer uses `hermes config set` instead (non-interactive, idempotent)."
+      - "`hermes config set` rewrites `config.yaml` via PyYAML → **comment lines are lost**; the installer takes a backup first."
+      - "The bearer token lives only as a `${REQOGNILOOM_API_KEY}` reference in the config; the value stays in `~/.hermes/.env`."
+      - "Two separate integration paths (desktop plugin `integrations/hermes-plugin/reqogniloom` vs. agent/skill connector) — keep them apart."
       - "The plugin's `Cancel` calls `interview.abandon` as of #1152 so sessions do not linger as `in_progress`."
     roles_de:
       - "Key-Scope steuert die Rechte; read-only für reine Lesezwecke."
     roles_en:
       - "Key scope governs permissions; read-only for pure read use."
     update_de:
+      - "Installer erneut ausführen; oder direkt `hermes config set mcp_servers.reqogniloom…`."
       - "Repo-Pull bzw. Store-Update; Stufe-2-Ziel: Katalogeintrag → `hermes mcp install reqogniloom`."
     update_en:
+      - "Re-run the installer; or set the values directly via `hermes config set mcp_servers.reqogniloom…`."
       - "Repo pull or store update; Stage-2 goal: catalog entry → `hermes mcp install reqogniloom`."
