@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title data-i18n="meta.title">ReqogniLoom — AI-native requirements and test management</title>
-  <meta name="description" content="ReqogniLoom is an AI-native requirements and test management system for systems engineering: MBSE-compatible artifact decomposition, V-Model traceability L0–L4, a REST API and a native MCP server with 215 tools." data-i18n-content="meta.description">
+  <meta name="description" content="ReqogniLoom is an AI-native requirements and test management system for systems engineering: MBSE-compatible artifact decomposition, V-Model traceability L0–L4, a REST API and a native MCP server with 223 tools." data-i18n-content="meta.description">
   <meta name="color-scheme" content="dark light">
   <link rel="icon" href="./assets/img/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="./assets/css/tokens.css">
@@ -91,7 +91,7 @@
         <p class="hero-lead" data-i18n="hero.lead">Model requirements, architecture elements, test cases and decisions as artifacts, tie them together with first-class trace links, and let both people and AI assistants work on the same data — through a REST API and a native MCP server.</p>
 
         <div class="badge-row" data-testid="hero-badges">
-          <span class="badge badge--info">v1.8.0-beta.18</span>
+          <span class="badge badge--info">v1.8.0-beta.19</span>
           <span class="badge badge--success" data-i18n="hero.badge.license">MIT licensed</span>
           <span class="badge badge--neutral" data-i18n="hero.badge.selfhosted">Self-hosted via Docker Compose</span>
           <span class="badge badge--neutral" data-i18n="hero.badge.dualsurface">REST API + native MCP server</span>
@@ -274,7 +274,7 @@
               <h4 data-i18n="arch.modules">Key modules</h4>
               <ul class="module-list">
                 <li><code>rest_api</code><span data-i18n="arch.l3.m1">Django REST Framework under /api/v1/ with JWT auth and an OpenAPI 3.0 schema (drf-spectacular)</span></li>
-                <li><code>mcp_server</code><span data-i18n="arch.l3.m2">Native Model Context Protocol server, JSON-RPC 2.0, 31 tool-group prefixes and 215 tools</span></li>
+                <li><code>mcp_server</code><span data-i18n="arch.l3.m2">Native Model Context Protocol server, JSON-RPC 2.0, 35 tool-group prefixes and 223 tools</span></li>
               </ul>
               <p class="panel-adr"><span data-i18n="arch.adrLabel">ADRs</span>: ADR-01 (single entry point)</p>
             </div>
@@ -625,7 +625,7 @@ curl -sf http://localhost:8001/health/                                 # {"statu
         <p class="footer-note" data-i18n="footer.built">Built from the repository documentation: README, docs/ and the VERSION file.</p>
       </div>
       <div class="footer-col">
-        <p class="footer-meta"><span data-i18n="footer.versionLabel">Version</span>: <span class="mono">1.8.0-beta.18</span></p>
+        <p class="footer-meta"><span data-i18n="footer.versionLabel">Version</span>: <span class="mono">1.8.0-beta.19</span></p>
         <p class="footer-meta"><span data-i18n="footer.licenseLabel">License</span>: MIT</p>
         <p class="footer-meta">
           <a href="https://github.com/Popoboxxo/ReqogniLoom" data-testid="footer-github" data-i18n="footer.repo">Repository on GitHub</a>

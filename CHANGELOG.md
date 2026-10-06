@@ -31,6 +31,72 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `e2e/tests/user-management.spec.ts` accepts the envelope) and is now documented
   as a completed breaking transition in `docs/api/REST-CONVENTIONS.md` §6.
 
+## [1.8.0-beta.19] — 2026-10-05
+
+> **This beta is explicitly NOT an external production or QA release.** It is an
+> internal pre-release cut prepared on `release/v1.8.0-beta.19`, whose base is
+> `origin/main` = `49e34a4b` (PR #1175). It bundles the 2026-10 bugfix round
+> (Welle 0–4), the Dependabot batch #1119–#1127 and the decision records D1–D6.
+> **This cut performs no fresh suite run of its own** — the verification figures
+> in this section are the ones recorded by the individual merges; the cut itself
+> only advances the version carriers and adds this section. Nothing here
+> constitutes a production, staging or QA deployment approval.
+
+### Added
+- **Dependabot batch (#1119–#1127):** backend `honcho-ai` 2.5.1 (#1119, code
+  migrated from `ConclusionScope` to `ConclusionsView`, `015ad7ac`), `anthropic`
+  (#1121), `openai` (#1123), `uvicorn` (#1125); frontend `dompurify` 3.4.16
+  (#1120), `@testing-library/dom` (#1122), `@testing-library/jest-dom` (#1124),
+  `@tanstack/react-query` 5.104.0 (#1126), `jsdom` 30.1.1 (#1127, which required
+  upgrading Vitest 4 → 5.x, `10fb4da7`)
+- **`memory.ask` MCP tool (REQ-192, #1154, PR #1175, `f5facbf0`):** natural-language
+  query over long-term memory. Adds `MemoryBackend.ask()` with a Honcho dialectic
+  backend implementation (`peer.chat`), exposed through the `memory_entry_service`
+  facade and a write-gated MCP tool (read-only/Viewer keys cannot drive LLM spend).
+  Backends without a dialectic API (default pgvector) degrade gracefully to a
+  structured unsupported result instead of an HTTP 500. The canonical tool manifest
+  was regenerated (220 tools)
+- **D4 — staged RLS coverage (#1136, PR #1174):** SECURITY-DEFINER pre-auth path plus
+  `as_*` worker tables carrying `tenant_id`; enforcement defaults **OFF** (staged
+  rollout). Includes the revised coverage spec (`3de3506a`, `a3c24418`, `6c419013`)
+- **Bugfix round 2026-10 — Welle 0 (CI/release blocker, #1145, PR #1158,
+  `a0bf1816`):** pin the image SHA to the tag commit and fail closed
+- **Bugfix round 2026-10 — Welle 1 (beta.18 bugs, #1146/#1147/#1148/#1149/#1150/#1151,
+  PR #1159, `26ec4180`):** resolve the beta.18 backend, MCP and LLM bugs
+- **Bugfix round 2026-10 — Welle 2 (security residuals, #1129/#1130, PR #1160,
+  `69164358`):** goal optimistic locking (`expected_version`) and bounded-Redis TLS
+  DNS (`rediss://`) handling
+- **Bugfix round 2026-10 — Welle 3 (dev/test/data, #1112/#1115/#1116, PR #1161,
+  `30d69c4c`):** dev migrate role, E2E auth helper and attribute reconcile
+- **Bugfix round plan (PR #1162, `22ee1bf0`/`107a2173`):** the `docs/audit/2026-10/`
+  implementation plan for the round
+
+### Fixed
+- **D1 — item-permissions fenced by workspace membership (#1131, PR #1167,
+  `9f1d51e1`):** the item-permissions route now returns **403** for a foreign
+  workspace instead of a misleading `200 []`
+- **D2 — import hardening (#1128, PR #1168):** a keyed HMAC fingerprint replaces the
+  unkeyed SHA-256, `IMPORT_CONTRACT_V2` defaults **on** (with deprecation/Sunset and a
+  hard tenant cap), and a `crypto.randomUUID` feature-detect guard with a secure
+  fallback closes the browser-compatibility gap (`2cc79fa4`, `c5659506`, `9a963014`)
+- **D3 — DB-backed brute-force lockout for Django admin login (#1135, PR #1172,
+  `a70e88a9`):** admin login is now locked out after repeated failures
+
+### Changed
+- **D6 — deployment-state spike (#1153):** root-cause analysis only, no code fix
+  (the decision is config-key versus upstream defect; see
+  `docs/audit/2026-10/bugfix-round-plan.md`). The dependent `memory.ask` (#1154,
+  REQ-192) is delivered above
+- **ADRs ADR-011 (authorization axis Workspace/Tenant), ADR-013 (collection-route
+  authorization) and ADR-014 (import success semantics / idempotency) finalised
+  (`1f274584`)**
+- **Release plumbing:** all distribution version carriers advanced to
+  `1.8.0-beta.19` (`VERSION`, `frontend/package.json`, `frontend/package-lock.json`,
+  the Hermes plugin `package.json`/`hermes-plugin.json`/`package-lock.json`, both
+  `dist` plugin manifests, `.env.example`, both compose files' image tags, the site
+  badge/footer, and the generated `docs/agent-templates/tool-manifest.json`
+  `generated_from`)
+
 ## [1.8.0-beta.18] — 2026-10-03
 
 > **This beta is explicitly NOT an external production or QA release.** It is an

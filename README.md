@@ -1059,7 +1059,7 @@ find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null
 
 ## MCP Server
 
-ReqogniLoom ships a native MCP (Model Context Protocol) server alongside the REST API. The server exposes **25 tool-group prefixes** (40+ individual tools, verified floor — see `backend/mcp_server/tests/test_mcp_api_key_roles.py`) for requirements engineering, stakeholder needs, architecture, test management, traceability, ADRs, risks, issues, glossary, change requests, goals, diagrams, AI derivation, workspace administration, permissions, backups, audit, and user management. Several prefixes share one underlying tool-group implementation (e.g. `traceability`/`artifact`/`context` all route to `CrossCuttingToolGroup`, `audit`/`events` to `AuditToolGroup`) — see `backend/mcp_server/tool_registry.py` for the full prefix → implementation map.
+ReqogniLoom ships a native MCP (Model Context Protocol) server alongside the REST API. The server exposes **35 tool-group prefixes** (223 individual tools — see `docs/agent-templates/tool-manifest.json` for the current count) for requirements engineering, stakeholder needs, architecture, test management, traceability, ADRs, risks, issues, glossary, change requests, goals, diagrams, AI derivation, workspace administration, permissions, backups, audit, and user management. Several prefixes share one underlying tool-group implementation (e.g. `traceability`/`artifact`/`context` all route to `CrossCuttingToolGroup`, `audit`/`events` to `AuditToolGroup`) — see `backend/mcp_server/tool_registry.py` for the full prefix → implementation map.
 
 ### Transport Endpoints
 
@@ -1200,7 +1200,7 @@ curl -X POST http://localhost:8000/mcp/ \
 }
 ```
 
-### Tool Groups (25 prefixes)
+### Tool Groups (35 prefixes)
 
 | Prefix | Purpose | Example tools | Role required |
 |--------|---------|---------------|---------------|

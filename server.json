@@ -2,7 +2,7 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.popoboxxo/reqogniloom",
   "description": "ReqogniLoom MCP server: requirements, architecture and test management.",
-  "version": "1.8.0-beta.18",
+  "version": "1.8.0-beta.19",
   "repository": {
     "url": "https://github.com/Popoboxxo/ReqogniLoom",
     "source": "github"
