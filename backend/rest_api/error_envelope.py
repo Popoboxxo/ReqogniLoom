@@ -19,7 +19,10 @@ from __future__ import annotations
 from typing import Any
 
 from rest_framework import status
+from rest_framework.response import Response
 from rest_framework.views import exception_handler as drf_exception_handler
+
+from reqogniloom.db_errors import db_unavailable_payload, is_db_saturation_error
 
 #: Stable, string error codes for the HTTP statuses DRF answers without an
 #: explicit ``code`` of its own (#1081). Before this map existed, every such
@@ -47,6 +50,16 @@ _STATUS_TO_CODE: dict[int, str] = {
 
 def reqogniloom_exception_handler(exc: Exception, context: dict[str, Any]) -> Any:
     """Normalise all DRF errors to ``{"error": {"code", "message", "details"}}``."""
+    # #1166: PostgreSQL connection-slot exhaustion is not a DRF exception, so
+    # DRF's own handler returns None and Django would render an HTML 500. Map it
+    # explicitly to HTTP 503 + the SAME envelope before delegating.
+    if is_db_saturation_error(exc):
+        return Response(
+            db_unavailable_payload(),
+            status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            headers={"Retry-After": "1"},
+        )
+
     response = drf_exception_handler(exc, context)
     if response is None:
         return None

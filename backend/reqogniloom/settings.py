@@ -270,6 +270,14 @@ MIDDLEWARE = [
     # app.current_tenant stay active on the worker thread after the request,
     # leaking into the next unauthenticated code path on the same thread.
     "auth_tenancy.middleware.AuthTenancyMiddleware",
+    # #1166: return the JSON error envelope with HTTP 503 for /api/ requests
+    # that fail because PostgreSQL has no free connection slots, instead of
+    # letting the raw OperationalError become Django's HTML 500. Placed last
+    # so its ``process_exception`` hook (called innermost-first) sees the
+    # exception before Django converts it to a response. DRF views are already
+    # covered by the exception handler in REST_FRAMEWORK; this covers the
+    # plain-Django /api/ views as well.
+    "reqogniloom.middleware.DatabaseUnavailableMiddleware",
 ]
 
 # ---------------------------------------------------------------------------
@@ -379,11 +387,25 @@ DATABASES = {
         "PASSWORD": _get_required_secret("DB_PASSWORD"),
         "HOST": config("DB_HOST", default="postgres"),
         "PORT": config("DB_PORT", default="5432"),
-        # SA-43: Connection pooling to avoid exhausting available connections.
-        # CONN_MAX_AGE = 60 means connections idle for >60s are recycled,
-        # reducing per-request overhead. (Default 0 creates a new connection
-        # per request and discards it — wasteful under load.)
-        "CONN_MAX_AGE": config("DB_CONN_MAX_AGE", default=60, cast=int),
+        # #1166 — DEFAULT 0, not 60. Under ASGI, Django runs each request's
+        # sync stack in a thread-sensitive executor created per request
+        # (asgiref ThreadSensitiveContext; django/core/handlers/asgi.py), and a
+        # Django DB connection is thread-local. With CONN_MAX_AGE > 0 the
+        # connection created in that short-lived thread is NOT closed at
+        # request_finished (it is younger than the max age), so every finished
+        # request leaves a PostgreSQL backend open until garbage collection —
+        # a steady leak that exhausted the ~97 non-superuser slots after a
+        # ~180-request burst (#1166). CONN_MAX_AGE = 0 makes Django close the
+        # connection at the end of each request, so the number of live backends
+        # is bounded by the number of *concurrently executing* requests, which
+        # the gunicorn worker additionally caps (see reqogniloom/worker.py and
+        # DEPLOY: BACKEND_THREADS).
+        #
+        # Trade-off: a non-zero value does remove per-request connect overhead,
+        # but it is only safe with a connection pooler in front of PostgreSQL
+        # (PgBouncer, or an in-process pool). Without one, keep it 0. Still
+        # environment-overridable for operators who add such a pooler.
+        "CONN_MAX_AGE": config("DB_CONN_MAX_AGE", default=0, cast=int),
         # M2: Detect and transparently refresh stale connections after PG restart
         # or network disruption (e.g., PgBouncer reconnect). Without this, requests
         # on a recycled connection that PG no longer recognizes fail with "connection lost".

@@ -7,9 +7,13 @@ M4: RequestIdFilter for injecting request_id into every log record.
 import contextvars
 import logging
 import uuid
-from typing import Callable
+from collections.abc import Callable
 
-from django.http import HttpRequest, HttpResponse
+from django.http import HttpRequest, HttpResponse, JsonResponse
+
+from reqogniloom.db_errors import db_unavailable_payload, is_db_saturation_error
+
+logger = logging.getLogger(__name__)
 
 # Thread-local context variable for the current request ID.
 # Available to logging formatters and other request-scoped code via
@@ -89,3 +93,43 @@ class RequestIdMiddleware:
             # N4: Reset context to prevent stale request_id from leaking to the next request
             # on thread-reused WSGI workers.
             _request_id_context.reset(token)
+
+
+class DatabaseUnavailableMiddleware:
+    """Return a JSON 503 for /api/ requests blocked by DB slot exhaustion (#1166).
+
+    Narrow by design: the hook only reacts to a
+    :class:`django.db.utils.OperationalError` whose message matches a
+    connection-capacity signature (:func:`is_db_saturation_error`) and only for
+    paths under ``/api/``, so Django's normal 500/HTML handling is untouched for
+    every other failure and every other route.
+
+    DRF views are already covered by ``rest_api.error_envelope``; this is the
+    backstop for the plain-Django views reachable under ``/api/`` (e.g.
+    ``/api/v1/version/``) and for failures raised before/around DRF dispatch.
+    """
+
+    def __init__(self, get_response: Callable[[HttpRequest], HttpResponse]) -> None:
+        self.get_response = get_response
+
+    def __call__(self, request: HttpRequest) -> HttpResponse:
+        return self.get_response(request)
+
+    def process_exception(
+        self, request: HttpRequest, exception: BaseException
+    ) -> HttpResponse | None:
+        if not is_db_saturation_error(exception):
+            return None
+        if not getattr(request, "path", "").startswith("/api/"):
+            return None
+        # The raw psycopg text can carry host/user/DSN fragments (CWE-209); it
+        # stays in the server log, never in the response body.
+        logger.error(
+            "Database connection slots exhausted for %s: %s",
+            request.path,
+            exception,
+        )
+        response = JsonResponse(db_unavailable_payload(), status=503)
+        response["Retry-After"] = "1"
+        return response
+

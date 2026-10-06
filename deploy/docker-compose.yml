@@ -646,6 +646,22 @@ services:
       # above consume the same values in EMBEDDING_MODEL_CONFIG__* form.
       HONCHO_EMBEDDING_BASE_URL: ${HONCHO_EMBEDDING_BASE_URL:-http://host.docker.internal:11434/v1}
       HONCHO_EMBEDDING_MODEL: ${HONCHO_EMBEDDING_MODEL:-nomic-embed-text}
+      # #1166: HTTP request connections must NOT be pooled. Under ASGI each
+      # request's sync stack runs in a thread created per request, and a Django
+      # DB connection is thread-local — with a non-zero CONN_MAX_AGE the
+      # connection of an already-finished request stays open (leak) until GC,
+      # which exhausted PostgreSQL's non-superuser slots. 0 closes it at
+      # request_finished, so live backends track *concurrent* requests only.
+      DB_CONN_MAX_AGE: ${DB_CONN_MAX_AGE:-0}
+      # #1166: cap concurrent requests per worker. The stock uvicorn worker
+      # ignores gunicorn's `--threads`; reqogniloom.worker.BoundedUvicornWorker
+      # (used by the `command:` below) maps it onto uvicorn's limit_concurrency,
+      # which answers excess connections with 503 instead of spawning yet more
+      # threads/DB connections. `ASGI_THREADS` is the env fallback the worker
+      # reads when `--threads` is left at its default. 4 workers x 16 = 64,
+      # safely below the ~97 non-superuser slots (which celery/beat/migrate also
+      # draw on). Keep workers x threads below that free-slot budget.
+      ASGI_THREADS: ${BACKEND_THREADS:-16}
     # Makes host.docker.internal resolve on Linux (built-in on Docker Desktop)
     # for the health probe's default base URL.
     extra_hosts:
@@ -655,6 +671,22 @@ services:
       # named volume so they survive restarts/rebuilds and are writable by the
       # non-root app user (the image seeds ownership; see backend/Dockerfile).
       - backend_dr_backups:/app/backups
+    # #1166: override the image CMD so the per-worker concurrency cap is part of
+    # the deployment contract and operator-tunable (BACKEND_WORKERS /
+    # BACKEND_THREADS). `BoundedUvicornWorker` turns `--threads` into uvicorn's
+    # `limit_concurrency` — the stock uvicorn worker ignores the flag, so
+    # without this line the cap would be a no-op. Together with DB_CONN_MAX_AGE=0
+    # above, PostgreSQL backends per process are bounded by `--threads`.
+    command: >
+      gunicorn reqogniloom.asgi:application
+      -k reqogniloom.worker.BoundedUvicornWorker
+      --bind 0.0.0.0:8000
+      --workers ${BACKEND_WORKERS:-4}
+      --threads ${BACKEND_THREADS:-16}
+      --timeout 30
+      --graceful-timeout 30
+      --max-requests 1000
+      --max-requests-jitter 50
     # BACKEND_PORT overridable per .env — the 2026-08-31 production incident that
     # triggered this whole compose rework (docs/UMSETZUNGSPLAN_DOCKER-COMPOSE-2026-08-31.md)
     # was exactly this: two instances (QS/PROD) sharing a hardcoded host port.
