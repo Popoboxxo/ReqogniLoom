@@ -259,8 +259,74 @@ Ziel: Honcho nicht nur als Schreib-Log, sondern als **abfragbares, ableitendes**
 - **Status: umgesetzt (Schreib-Hälfte), 2026-10-06.** Skill: neue Subkommandos `memory-query`/`memory-digest`/`memory-ask`/`memory-write` (Mapping auf MCP `memory.query/digest/ask/write`), globales `--workspace-id` mit Fallback `REQOGNILOOM_WORKSPACE_ID`, client-seitige Scope-Validierung (`workspace`/`artifact`/`user`), Behandlung beider MCP-Fehlerformen, Exit `0`/`1`. Plugin: READ `memory.query`/`memory.digest`/`memory.ask` („degraded“ ≠ „leer“), gegateter WRITE-Capture = Toggle + **Review-Schritt vor** `memory.write` (kein Auto-Submit). Refs #1155, Refs #1156, Refs #649.
 - **P4 (offen, bewusst nicht implementiert):** Vorschlags-Schleife **„Capture → `proposed`-Artefakt → Accept“** — siehe AP-B5.4.
 
-**AP-B5.4 — Vorschlags-Schleife (P4, Konzept+Impl)** · #1155 Aspekt 2
+**AP-B5.4 — Vorschlags-Schleife (P4, Konzept+Impl)** · #1155 Aspekt 2, refs #1156, #856, #121, #1089
 - Generischer Pfad „Wissen → Vorschlag als `proposed`-Artefakt → Mensch bestätigt". #856 ist nur Design; erst Konzept/ADR, dann `suggestion.list/accept/reject` (MCP+REST+UI). Größter Brocken, bewusst zuletzt.
+- **Konzept/ADR-Teil erledigt:** Entscheidungsvorlage
+  [`ADR-019`](../se/ADR/ADR-019_generischer_vorschlag_lebenszyklus.md) (Status `proposed`,
+  User-Freigabe ausstehend) verabschiedet den Modellrahmen; hier nur die Zusammenfassung.
+
+**AP-B5.4-Konzept — Generischer Vorschlags-Lebenszyklus (Entscheidungsvorlage, kein Code)**
+
+**Ausgangslage (belegt):** Es gibt **vier inkompatible, gelebte** Vorschlagsmechanismen —
+Workflow-Zustand `proposed` (`workflow/definition_store.py:605,628,644-711`), die TraceLink-Felder
+`proposed_by`/`proposed_at` (`persistence/models.py:1965-1976`), den Interview-Snapshot
+`grounding_snapshot["pending_proposal"]` (`interview_service.py:2088-2091`) und
+`ContextEdge.origin="llm-suggested"` (`context_graph/models.py:56-64`). Die Produzenten
+(`TraceabilitySuggestService.suggest_links`, `traceability_suggest_service.py:237-338`;
+`AiDerivationService`, `ai_derivation_service.py:616-728`; `ArchitectureDecomposeService.generate_draft`,
+`architecture_decompose_service.py:21-24`; `AuditService.propose_remediation`) sind **transient**
+und persistieren nichts — ein nicht sofort angenommener Vorschlag ist verloren (#121).
+
+**Gewähltes Modell (ADR-019, Zielrichtung):** eine neue, mandanten-gescopte Entität
+`Suggestion` (`TenantScopedModel`, erbt `AuditableModel`; FORCE RLS, CI-Gate
+`test_rls_coverage.py`) mit Lebenszyklus `open | accepted | rejected | superseded`, Produzent/
+Provenienz, optionaler Ziel-Referenz und `payload`. Sie **ersetzt keinen** bestehenden
+Mechanismus, sondern ist **durable Quittung + Inbox + Provenienz** darüber; Accept läuft über
+eine **per-kind Adapter-Registry** (`artifact_create` → M1, `trace_link` → M2-Proposal,
+`interview_grounding` → M3, `context_edge` → neuer, kleiner Origin-Adapter) und delegiert
+**immer** an den bestehenden Pfad — keine neue State-Machine-Logik. Der Agent-Guard bleibt
+fail-closed und greift **je Adapter** (Agent darf eigenen Vorschlag nicht bestätigen): M1 über
+Rule 0, `trace_link` über `AgentSelfConfirmError` in `confirm_proposed_link`/
+`discard_proposed_link`. Die bestehende `ReviewQueueService` (`review_queue_service.py`, #1089)
+bleibt die eine transportübergreifende Sicht und wird nur additiv erweitert. **MVP-Schnitt:**
+genau ein Produzent — `TraceabilitySuggestService.suggest_links` (reichste Provenienz:
+`finding_index`/`rule_id`/`score`/`rationale`); der `trace_link`-Adapter **legt beim Produzieren
+einen M2-Proposal-TraceLink an** (`TraceLinkService.create_trace_link`, Stempel `:601-617`) und
+**bestätigt beim Accept** (`confirm_proposed_link`, `:637-676`; Reject: `discard_proposed_link`)
+— so ist der Accept-Pfad technisch real, nicht „confirm eines nicht existierenden Links"
+(Scope-Änderung: Produzent persistiert jetzt einen Proposal-Link). **Produzenten-Kontext
+(001-09):** Der M2-Stempel `:601-617` greift nur bei `actor_type=="agent"` **und**
+`api_key_id`; der MVP-Produktionspfad ist daher **explizit auf Agent-/API-Key-Kontexte
+begrenzt** (MCP `traceability.suggest_links`). Der Human-Bearer-REST-Trigger
+(`traceability_suggest_views.py:80-82`) ist **out of scope** und wird **fail-closed** abgewiesen
+(`ProducerContextRequiredError` → 409) — kein ungestempelter Link, kein stiller
+Human-in-the-Loop-Bypass. **Kanten-Dedup (001-10):** vor dem `create` prüft der Produzent auf
+einen bereits existierenden Proposal-Link derselben Kante (`uq_tracelink_edge`) und hängt die
+neue Suggestion an diesen, statt hart zu scheitern (erweitert O7).
+
+**STOP-Gate (warum hier kein MVP implementiert wird):** Das ADR entscheidet bewusst **nur die
+Zielrichtung plus einen MVP-Schnitt**, kein Gesamtmodell — elf Sub-Entscheidungen brauchen
+Produkt-Input (O1 Produzenten-Scope, O2 Langfrist-Rolle von `Suggestion`, O3 `minimal`/
+`interview_default`-Semantik, O4 Migration der TraceLink-Felder, O5 MCP-Präfix `suggestion`
+vs. Fold in `review` (Manifest-Regeneration!), O6 UI-Inbox, O7 Idempotenz/Dedup inkl.
+Kanten-Dedup (`uq_tracelink_edge`), O8 eigener Entitätstyp vs. Generic-Artifact, O9 Retention,
+O10 M2-Proposal vs. Suggestion-only, O11 Atomarität Proposal-Link ↔ Suggestion-Quittung). Ohne
+`concept-reviewer`-Review und `proposed → accepted` durch den User entsteht **kein** Modell,
+**keine** Migration, **kein** Tool.
+
+**Offene Entscheidungen (Produkt):** O1–O11 wie in ADR-019 §Offene Punkte; zusätzlich muss der
+MCP-Surface-Entscheid (O5) mit der Manifest-Pflege (`docs/agent-templates/tool-manifest.json`,
+Drift-Gate `test_tool_manifest_drift.py`) und dem REST-/RBAC-Pfad (`rest_api/urls.py:213-261`,
+`rest_api/auth_enforcer.py:60`) verzahnt werden. Das Threat-Model der neuen Entität
+(Payload-Injection/Provenienz-Trust, Tenant-Isolation beim Accept) steht in ADR-019 §Kontext.
+
+**UI-Follow-up (eigenes Arbeitspaket nach O6):** „Vorschläge"-Inbox (Annehmen/Ablehnen mit
+Provenienz „Vorschlag von …"), i18n DE/EN, `data-testid`, Anbindung an die bestehende
+Pending-Review-Ansicht; ohne UI erfüllt die Entität allein das DoD von #1155/#1156 nicht.
+
+> **Abgrenzung:** ADR-019 ist eine Entscheidungsvorlage (`proposed`) und ändert keinen Code.
+> Umsetzung erst nach User-Approval als eigenes Arbeitspaket; die konkreten `suggestion.list/
+> accept/reject`-Endpunkte (MCP+REST) folgen daraus.
 
 **DoD B5:** Abnahmekriterien aus #1155 (NL-Antwort über MCP+REST+UI quellenbelegt; Vorschlag als `proposed`; Plugin belegt Lesen+Schreiben; abgeleitete Repräsentation nach funktionierender Quote nachweisbar).
 
