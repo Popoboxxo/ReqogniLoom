@@ -32,7 +32,10 @@ REQ-142, REQ-L2-TE-020):
   * **immutable version table** (GlossaryTerm, Diagram, Icd) — every listed
     version has a stored snapshot,
   * **immutable row per version / lineage** (Goal, MainGoal) — editing means
-    POSTing a new version; there is deliberately no ``/diff/`` endpoint.
+    POSTing a new version. GH-1200 added a lineage-anchored ``/diff/`` endpoint
+    for both types, covered by their own dedicated tests
+    (test_goal_views.py / test_main_goal_views.py); this module keeps asserting
+    the version-list behaviour.
 
 .. note::
    The two TestCase assertions require the GH-737 normalisation fix in
@@ -632,9 +635,11 @@ def test_icd_versions_and_diff(
 # ---------------------------------------------------------------------------
 # Family 3 — immutable row per version (REQ-L2-TE-020)
 #
-# Goal/MainGoal are never mutated in place: PATCH is a deliberate 405 and there
-# is no /diff/ endpoint. "Updating" means POSTing a new version, which must show
-# up in the lineage's version list.
+# Goal/MainGoal are never mutated in place: PATCH is a deliberate 405.
+# "Updating" means POSTing a new version, which must show up in the lineage's
+# version list. GH-1200 added a lineage-anchored `/diff/` endpoint for both
+# types (see rest_api/tests/test_goal_views.py / test_main_goal_views.py);
+# these tests stay scoped to the version-list behaviour they were written for.
 # ---------------------------------------------------------------------------
 
 

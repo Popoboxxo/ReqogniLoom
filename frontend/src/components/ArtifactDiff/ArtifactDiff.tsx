@@ -12,13 +12,12 @@
  * - Version selector dropdowns for from/to
  * - Close button
  *
- * As of REQ-142, rich field-level rendering is implemented for all 10
- * artifact kinds — every kind now exposes a `/diff/` endpoint on the
- * backend (diagram and glossary were the last two, wired against their
- * immutable DiagramVersion / GlossaryTermVersion history tables). The
- * generic "no field-level renderer for this kind" fallback below is kept
- * as a defensive safety net for any future kind added ahead of its
- * backend endpoint, not the primary path.
+ * As of REQ-142 + GH-1200, rich field-level rendering is implemented for every
+ * artifact kind that exposes a `/diff/` endpoint on the backend (diagram and
+ * glossary were the last two before REQ-142; goal and mainGoal followed in
+ * GH-1200 with lineage-anchored diffs). The generic "no field-level renderer
+ * for this kind" fallback below is kept as a defensive safety net for any
+ * future kind added ahead of its backend endpoint, not the primary path.
  *
  * Interfaces:
  *   IF-RF-INT-001  ← RequirementEditor / ArchitectureEditor opens this view
@@ -104,6 +103,44 @@ export interface ArtifactDiffRange {
  * and issue #213).
  */
 const CREATION_BASELINE_VERSION = 0;
+
+/**
+ * Upper bound on a single diff fetch (GH-1200).
+ *
+ * The `diffFetcher` supplied by callers is backed by `apiClient`, which already
+ * aborts after 30s — but `ArtifactDiff` is a pure component whose fetchers are
+ * props, so a caller (or a future one) may supply a request with no timeout at
+ * all. A hung promise would keep `loading` true forever and leave the panel
+ * spinning with no way out. This bound guarantees the component's own
+ * `catch`/`finally` always run, so the loading state is always left and a
+ * visible message is always rendered.
+ */
+const DIFF_FETCH_TIMEOUT_MS = 15_000;
+
+/** Thrown when a diff fetch exceeds {@link DIFF_FETCH_TIMEOUT_MS}. */
+class DiffFetchTimeoutError extends Error {
+  constructor() {
+    super(`Diff request timed out after ${DIFF_FETCH_TIMEOUT_MS}ms.`);
+    this.name = "DiffFetchTimeoutError";
+  }
+}
+
+/** Reject with {@link DiffFetchTimeoutError} if *promise* does not settle in time. */
+function withDiffTimeout<T>(promise: Promise<T>): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new DiffFetchTimeoutError()), DIFF_FETCH_TIMEOUT_MS);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      },
+    );
+  });
+}
 
 interface ArtifactDiffProps {
   entityId: UUID;
@@ -342,9 +379,15 @@ export function ArtifactDiff({
     setLoading(true);
     setError(null);
     try {
-      const result = await diffFetcher(entityId, fromVersion, toVersion);
+      const result = await withDiffTimeout(
+        diffFetcher(entityId, fromVersion, toVersion),
+      );
       if (requestId !== diffRequestIdRef.current) return; // superseded — ignore
       setDiffResult(result);
+      // A late success arriving after the component's own timeout (but before
+      // the transport's longer abort) must clear the "unavailable" banner it
+      // transiently showed, or the error and the fields would coexist.
+      setError(null);
     } catch (err) {
       if (requestId !== diffRequestIdRef.current) return; // superseded — ignore
       setError(extractErrorMessage(err));
@@ -414,6 +457,14 @@ export function ArtifactDiff({
       if (above) setToVersion(above.version);
     }
   };
+
+  // GH-1200: a lineaged artifact with a single stored version resolves to
+  // from === to, so `fetchDiff` deliberately fetches nothing. Before this the
+  // panel simply rendered the two selects and then nothing — a silent dead end
+  // that read as "the Diff button does not work". There is genuinely no diff
+  // to show, so say so instead of hanging on an empty body.
+  const noComparison =
+    fromVersion !== null && toVersion !== null && fromVersion >= toVersion;
 
   return (
     <div data-testid="artifact-diff-view" className={styles.panel}>
@@ -498,7 +549,16 @@ export function ArtifactDiff({
 
       {error && (
         <div role="alert" data-testid="diff-error" className={styles.error}>
-          Error: {error}
+          {t("diff.unavailable")}
+          {`: ${error}`}
+        </div>
+      )}
+
+      {/* GH-1200: the degenerate from === to case fetches nothing by design.
+          Surface it instead of rendering an empty body below the selects. */}
+      {noComparison && !loading && !error && (
+        <div role="alert" data-testid="diff-unavailable" className={styles.note}>
+          {t("diff.noComparison")}
         </div>
       )}
 
@@ -519,11 +579,10 @@ export function ArtifactDiff({
       )}
 
       {/* Fallback — generic summary for any kind without a field-level
-          renderer. All 10 kinds are backend-backed as of REQ-142
-          (RICH_DIFF_KINDS === DIFF_SUPPORTED_KINDS === all kinds), so
-          this branch is unreachable today; kept as a defensive safety
-          net for a future 11th kind added ahead of its backend
-          endpoint. */}
+          renderer. Every backend-backed kind is a member of
+          RICH_DIFF_KINDS (which mirrors DIFF_SUPPORTED_KINDS), so this
+          branch is unreachable for them; kept as a defensive safety net
+          for a future kind added ahead of its backend endpoint. */}
       {diffResult && !loading && !RICH_DIFF_KINDS.has(entityType) && (
         <div data-testid="diff-generic-fallback" data-kind={entityType}>
           <p className={styles.fallbackHint}>

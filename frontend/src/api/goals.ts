@@ -10,7 +10,7 @@
  */
 
 import { apiClient, getList } from "./client";
-import type { ArtifactVersion, Goal, UUID } from "../types";
+import type { ArtifactDiffResult, ArtifactVersion, Goal, UUID } from "../types";
 import type {
   WorkflowTransitionResult,
   WorkflowTransitionsResponse,
@@ -42,6 +42,18 @@ export const goalsApi = {
   /** GET /goals/{id}/versions/ — all versions of this Goal's lineage. */
   versions(goalId: UUID): Promise<ArtifactVersion[]> {
     return apiClient.get<ArtifactVersion[]>(`/goals/${goalId}/versions/`);
+  },
+
+  /**
+   * GET /goals/{id}/diff/?from_version=&to_version= — field-level diff between
+   * two versions of this Goal's lineage (GH-1200). Signature mirrors
+   * `requirementsApi.diff` / `adrsApi.diff` so the shared DiffPanel can
+   * dispatch to it.
+   */
+  diff(goalId: UUID, fromVersion: number, toVersion: number): Promise<ArtifactDiffResult> {
+    return apiClient.get<ArtifactDiffResult>(
+      `/goals/${goalId}/diff/?from_version=${fromVersion}&to_version=${toVersion}`
+    );
   },
 
   /**

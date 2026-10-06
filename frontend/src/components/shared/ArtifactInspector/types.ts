@@ -107,8 +107,9 @@ export interface BaselineSummary {
  *
  * Backend coverage (GET /api/v1/<kind>/<id>/{diff,versions}/):
  *   requirement, architecture, stakeholderNeed (/needs/), adr, risk,
- *   issue, testCase (/testcases/), icd, diagram, glossary (REQ-142).
- * All 10 kinds are now backend-backed.
+ *   issue, testCase (/testcases/), icd, diagram, glossary (REQ-142),
+ *   goal, mainGoal (GH-1200 — lineage-anchored diff).
+ * All kinds are now backend-backed.
  */
 export const DIFF_SUPPORTED_KINDS: ReadonlySet<ArtifactKind> = new Set([
   "requirement",
@@ -121,4 +122,9 @@ export const DIFF_SUPPORTED_KINDS: ReadonlySet<ArtifactKind> = new Set([
   "icd",
   "diagram",
   "glossary",
+  // GH-1200: GoalViewSet/MainGoalViewSet now expose a `diff` action alongside
+  // `versions`, delegating to ArtifactDiffService.diff_for_goal /
+  // .diff_for_main_goal (lineage-anchored ArtifactVersion history).
+  "goal",
+  "mainGoal",
 ]);

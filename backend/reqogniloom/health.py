@@ -27,12 +27,14 @@ from __future__ import annotations
 import datetime as _dt
 import email.utils as _email_utils
 import logging
-from typing import Callable
+from collections.abc import Callable
 
 from django.conf import settings as django_settings
 from django.db import connection
 from django.http import JsonResponse
 from django.views import View
+
+from reqogniloom.db_errors import is_db_saturation_error
 
 logger = logging.getLogger(__name__)
 
@@ -163,7 +165,7 @@ def _run_required_checks() -> dict[str, str]:
     The database and memory-backend probes stay local (they read the ORM and
     the active memory backend), matching the previous ``HealthView`` behaviour.
     """
-    from admin_ops.health_rest import (  # noqa: PLC0415 - lazy: avoids an import cycle at URL-load time
+    from admin_ops.health_rest import (
         _check_celery_beat,
         _check_celery_worker,
         _check_redis,
@@ -180,12 +182,17 @@ def _run_required_checks() -> dict[str, str]:
         # #697 (CWE-209): readiness is reachable without authentication, and a
         # psycopg error's str() carries host, port, user and DSN fragments. Only
         # the status code reaches the client; the real cause goes to the log.
-        results["database"] = "down"
+        # #1166: a connection-slot exhaustion is reported with its own static
+        # status marker so the dependency detail can say ``db_unavailable``
+        # instead of the generic ``dependency_down``.
+        results["database"] = (
+            "db_unavailable" if is_db_saturation_error(exc) else "down"
+        )
         logger.warning("Health check: database degraded - %s", exc)
 
     if db_ok:
         try:
-            from memory.backends import get_memory_backend  # noqa: PLC0415
+            from memory.backends import get_memory_backend
 
             memory_ok, memory_detail = get_memory_backend().health_check()
         except Exception as exc:  # noqa: BLE001 - health check must never crash
@@ -361,7 +368,14 @@ def _readiness_payload() -> tuple[dict, int]:
         {
             "name": name,
             "status": required.get(name, "down"),
-            "detail": _DEPENDENCY_DOWN_DETAIL,
+            # #1166: connection-slot exhaustion gets its own static detail so an
+            # operator can distinguish overload from a genuinely unreachable DB.
+            # Both values are fixed markers — never the raw probe error.
+            "detail": (
+                "db_unavailable"
+                if required.get(name) == "db_unavailable"
+                else _DEPENDENCY_DOWN_DETAIL
+            ),
         }
         for name in _REQUIRED_CHECK_NAMES
         if required.get(name) != "ok"

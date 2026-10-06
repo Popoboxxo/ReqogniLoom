@@ -430,3 +430,82 @@ def test_main_goal_list_limit_and_negative_limit():
     negative_req.auth_context = ctx
     negative_resp = MainGoalViewSet.as_view({"get": "list"})(negative_req)
     assert negative_resp.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# GH-1200: GET /api/v1/main-goals/{pk}/diff/ — workspace-chain field-level diff
+# (mirrors AdrViewSet.diff/RiskViewSet.diff query contract).
+# ---------------------------------------------------------------------------
+
+
+def _create_main_goal(factory, ctx, workspace_id, content):
+    req = factory.post(
+        "/api/v1/main-goals/",
+        {"workspace_id": str(workspace_id), "content": content},
+        format="json",
+    )
+    req.auth_context = ctx
+    resp = MainGoalViewSet.as_view({"post": "create"})(req)
+    assert resp.status_code == 201
+    return resp.data
+
+
+def test_main_goal_diff_endpoint_returns_field_level_diff():
+    """GH-1200: the `diff` action MainGoalViewSet was missing now resolves."""
+    tenant, workspace = _new_tenant_and_workspace(
+        "T13", name="W13", goals_enabled=True
+    )
+    ctx = _make_auth_context(tenant_id=tenant.id)
+    factory = APIRequestFactory()
+
+    _create_main_goal(factory, ctx, workspace.id, "Vision v1")
+    second = _create_main_goal(factory, ctx, workspace.id, "Vision v2")
+    assert second["sequence_number"] == 2
+
+    diff_req = factory.get(
+        f"/api/v1/main-goals/{second['id']}/diff/?from_version=1&to_version=2"
+    )
+    diff_req.auth_context = ctx
+    diff_resp = MainGoalViewSet.as_view({"get": "diff"})(diff_req, pk=second["id"])
+
+    assert diff_resp.status_code == 200, diff_resp.data
+    assert diff_resp.data["from_version"] == 1
+    assert diff_resp.data["to_version"] == 2
+    assert diff_resp.data["entity_type"] == "MainGoal"
+    by_name = {f["name"]: f for f in diff_resp.data["fields"]}
+    assert by_name["content"]["status"] == "modified"
+    assert by_name["content"]["from"] == "Vision v1"
+    assert by_name["content"]["to"] == "Vision v2"
+
+
+def test_main_goal_diff_rejects_foreign_tenant():
+    """Tenant fence: a MainGoal id from another tenant must answer 404."""
+    tenant_a, workspace_a = _new_tenant_and_workspace(
+        "T14a", name="W14a", goals_enabled=True
+    )
+    ctx_a = _make_auth_context(tenant_id=tenant_a.id)
+    factory = APIRequestFactory()
+    created = _create_main_goal(factory, ctx_a, workspace_a.id, "Private vision")
+
+    tenant_b = Tenant.objects.create(name="T14b", slug="gh1200-main-goal-foreign")
+    ctx_b = _make_auth_context(tenant_id=tenant_b.id)
+
+    diff_req = factory.get(f"/api/v1/main-goals/{created['id']}/diff/")
+    diff_req.auth_context = ctx_b
+    diff_resp = MainGoalViewSet.as_view({"get": "diff"})(diff_req, pk=created["id"])
+
+    assert diff_resp.status_code == 404
+
+
+def test_main_goal_diff_unknown_id_returns_404():
+    tenant = Tenant.objects.create(name="T15")
+    ctx = _make_auth_context(tenant_id=tenant.id)
+    factory = APIRequestFactory()
+
+    missing_id = str(uuid.uuid4())
+    diff_req = factory.get(f"/api/v1/main-goals/{missing_id}/diff/")
+    diff_req.auth_context = ctx
+    diff_resp = MainGoalViewSet.as_view({"get": "diff"})(diff_req, pk=missing_id)
+
+    assert diff_resp.status_code == 404
+

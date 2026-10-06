@@ -2337,7 +2337,9 @@
     "initialState": {
       "title": "Initial state",
       "body": "This version has no stored predecessor. What you see are the values it was created with — which is why every field is marked as added."
-    }
+    },
+    "unavailable": "Diff unavailable",
+    "noComparison": "Diff unavailable — there are no two versions of this item to compare."
   },
   "linkType": {
     "title": "Link Types",

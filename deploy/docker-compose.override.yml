@@ -76,8 +76,16 @@ services:
     # inherited `depends_on: migrate: service_completed_successfully` (base file)
     # holds this container back until that owner-role run has completed. Keeping
     # the long-running backend on the app role preserves RLS tenant isolation.
+    #
+    # #1166: same concurrency bound as the production command, expressed with
+    # uvicorn's own flag (the dev server is plain uvicorn, not gunicorn). The
+    # default is higher than prod's because dev runs a SINGLE process against a
+    # local PostgreSQL with ample slots; it exists only to stop a runaway
+    # client from spawning unbounded threads/DB connections. DB_CONN_MAX_AGE
+    # defaults to 0 in settings, so a request's DB connection is closed at
+    # request end even with the hot-reload auto-recreate loop.
     command: >
-      sh -c "uvicorn reqogniloom.asgi:application --host 0.0.0.0 --port 8000 --reload"
+      sh -c "uvicorn reqogniloom.asgi:application --host 0.0.0.0 --port 8000 --reload --limit-concurrency ${BACKEND_THREADS:-32}"
 
   migrate:
     # Development: run current source so the REQ-188 post_migrate self-init

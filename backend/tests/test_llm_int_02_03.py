@@ -133,7 +133,15 @@ def test_invalid_mock_delay_and_error_rate_fall_back(monkeypatch):
 
 
 def test_db_settings_failure_is_logged_at_warning(monkeypatch, caplog):
-    """A DB/RLS failure in the settings overlay is observable (INT-02)."""
+    """A DB/RLS failure in the settings overlay is observable (INT-02).
+
+    #1190: the WARNING is reserved for *real* failures. ``_apply_db_settings``
+    now skips the tenant-scoped lookup quietly when no tenant context is set
+    (the normal startup/Celery/test state), so this test activates a tenant
+    context to exercise the genuine DB-failure branch.
+    """
+    import uuid
+
     import persistence.models as pm
 
     class _BoomManager:
@@ -146,9 +154,14 @@ def test_db_settings_failure_is_logged_at_warning(monkeypatch, caplog):
     monkeypatch.setattr(pm, "LlmSettings", _BoomLlmSettings)
 
     from llm_adapter.providers import _apply_db_settings
+    from persistence.tenancy import TenantContext
 
-    with caplog.at_level("WARNING", logger="llm_adapter.providers"):
-        cfg = _apply_db_settings(ProviderConfig(provider_name="mock"))
+    TenantContext.set_tenant(uuid.uuid4())
+    try:
+        with caplog.at_level("WARNING", logger="llm_adapter.providers"):
+            cfg = _apply_db_settings(ProviderConfig(provider_name="mock"))
+    finally:
+        TenantContext.clear_tenant()
 
     # Still non-fatal: the env config is preserved ...
     assert cfg.provider_name == "mock"

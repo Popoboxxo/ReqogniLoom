@@ -140,6 +140,15 @@ def _apply_db_settings(cfg: EmbeddingProviderConfig) -> EmbeddingProviderConfig:
     _apply_db_settings for LlmSettings -- same best-effort semantics: any
     failure (no row, DB unavailable, provider not yet registered) leaves cfg
     untouched, env stays the fallback.
+
+    Unlike LlmSettings (#1190), this override is **process-wide**, not
+    tenant-scoped: ``SystemMemorySettings`` is an ``AuditableModel`` (a single
+    global row, per its own docstring), so its lookup does not require a
+    :class:`~persistence.tenancy.TenantContext` and must not be gated on one --
+    doing so would drop the global embedding override on worker/management
+    paths that legitimately run without a tenant. Failures are already quiet
+    (DEBUG, no traceback), so the alarming-WARNING half of #1190 does not
+    apply here.
     """
     if _settings_override_provider is None:
         return cfg
