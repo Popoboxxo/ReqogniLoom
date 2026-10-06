@@ -1,3 +1,13 @@
+/**
+ * Host bridge for the Bluepencil review layer.
+ *
+ * The alpha.2 re-vendor of the element plus this bridge deliver the note
+ * author mapping: the element reads `identity.getUser`, which this module
+ * exposes on `window.rfBluepencil`.
+ *
+ * The remaining `app.name` / `exportedBy: "unknown"` export behavior is an
+ * upstream element feature (tracked separately), not a host-bridge defect.
+ */
 import { readCookie } from "../api/client";
 
 /** Identity metadata consumed by the Bluepencil element. */

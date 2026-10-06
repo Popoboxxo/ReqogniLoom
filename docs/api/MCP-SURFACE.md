@@ -23,10 +23,10 @@ generated OpenAPI at `GET /api/schema/` and `/api/schema/swagger-ui/`
 
 | Figure | Value |
 |--------|-------|
-| Tools | **220** |
+| Tools | **223** |
 | Tool-group prefixes | **35** |
-| Version | `v1.8.0-beta.18` (`VERSION`, `1.8.0-beta.18`) — `memory.ask` (REQ-192, [#1154](https://github.com/Popoboxxo/ReqogniLoom/issues/1154)) is the first tool-surface change since the beta.16 measurement below |
-| Measured at | `98b1c9a8` on `fix/beta16-qa-sweep` — i.e. the `v1.8.0-beta.16` tag commit `9eb2fc58` plus [#1080](https://github.com/Popoboxxo/ReqogniLoom/issues/1080) (`65c732b4`, adds `test.run_list`) |
+| Version | `v1.8.0-beta.18` (`VERSION`, `1.8.0-beta.18`) — `interview.chat` ([#1164](https://github.com/Popoboxxo/ReqogniLoom/issues/1164)), `traceability.query_links` ([#1098](https://github.com/Popoboxxo/ReqogniLoom/issues/1098)) and `main_goal.query` ([#1097](https://github.com/Popoboxxo/ReqogniLoom/issues/1097)) are the tool-surface changes since the beta.16 measurement below; `memory.ask` (REQ-192, [#1154](https://github.com/Popoboxxo/ReqogniLoom/issues/1154)) preceded them |
+| Measured at | `fix/artifact-form-save-shortcut-flake` working tree above `7b585bb4` — i.e. the `v1.8.0-beta.16` tag commit `9eb2fc58` plus [#1080](https://github.com/Popoboxxo/ReqogniLoom/issues/1080) (`65c732b4`, `test.run_list`), [#1154](https://github.com/Popoboxxo/ReqogniLoom/issues/1154) (`memory.ask`), [#1164](https://github.com/Popoboxxo/ReqogniLoom/issues/1164) (`interview.chat`), [#1098](https://github.com/Popoboxxo/ReqogniLoom/issues/1098) (`traceability.query_links`) and [#1097](https://github.com/Popoboxxo/ReqogniLoom/issues/1097) (`main_goal.query`) |
 | Source of truth | `docs/agent-templates/tool-manifest.json`, `tool_count` field |
 
 History of the number, so a future reader can tell an intentional change from a
@@ -39,7 +39,9 @@ stale copy:
 | 215 | a docs PR that copied the previous figure instead of measuring | wrong |
 | 218 / 35 | measured on `v1.8.0-beta.16` @ `9eb2fc58` ([#1080](https://github.com/Popoboxxo/ReqogniLoom/issues/1080)) | correct for that commit |
 | 219 / 35 | after `test.run_list` ([#1080](https://github.com/Popoboxxo/ReqogniLoom/issues/1080)) | correct until `memory.ask` |
-| **220 / 35** | after `memory.ask` (REQ-192, [#1154](https://github.com/Popoboxxo/ReqogniLoom/issues/1154)) | **current** |
+| 220 / 35 | after `memory.ask` (REQ-192, [#1154](https://github.com/Popoboxxo/ReqogniLoom/issues/1154)) | correct until `interview.chat` / `traceability.query_links` |
+| 222 / 35 | after `interview.chat` ([#1164](https://github.com/Popoboxxo/ReqogniLoom/issues/1164)) and `traceability.query_links` ([#1098](https://github.com/Popoboxxo/ReqogniLoom/issues/1098)) | correct until `main_goal.query` |
+| **223 / 35** | after `main_goal.query` ([#1097](https://github.com/Popoboxxo/ReqogniLoom/issues/1097)) | **current** |
 
 ### How to re-derive the number
 
@@ -88,7 +90,7 @@ document cannot silently rot:
 | Guard | What it pins |
 |-------|--------------|
 | `backend/mcp_server/tests/test_tool_manifest_drift.py` | committed manifest ↔ live registry, field by field (`is_write`, `prefix`, `description`, `inputSchema`, `tool_count`) |
-| `backend/mcp_server/tests/test_entity_surface_parity.py` | the 220/35 figure, and that every REST-exposed entity is readable over MCP |
+| `backend/mcp_server/tests/test_entity_surface_parity.py` | the 223/35 figure, and that every REST-exposed entity is readable over MCP |
 | `backend/mcp_server/tests/test_export_tool_manifest.py` | the manifest's own shape invariants |
 
 If you add or remove a tool, run all three; if the count moves, update the
@@ -98,7 +100,7 @@ table in §1 and §2 **in the same change**, with the new version and commit.
 
 ## 2. Tool groups
 
-35 prefixes, 220 tools. Tools are called as `<prefix>.<tool_name>`.
+35 prefixes, 223 tools. Tools are called as `<prefix>.<tool_name>`.
 
 | Group | Tools | Names |
 |-------|------:|-------|
@@ -120,10 +122,10 @@ table in §1 and §2 **in the same change**, with the new version and commit.
 | `glossary` | 7 | `glossary.create`, `glossary.delete`, `glossary.outdate`, `glossary.query`, `glossary.read`, `glossary.reactivate`, `glossary.update` |
 | `goal` | 10 | `goal.create`, `goal.create_version`, `goal.delete`, `goal.list_versions`, `goal.outdate`, `goal.query`, `goal.read`, `goal.reactivate`, `goal.transition`, `goal.update` |
 | `icd` | 4 | `icd.create`, `icd.query`, `icd.read`, `icd.update` |
-| `interview` | 10 | `interview.abandon`, `interview.answer`, `interview.formalize`, `interview.get`, `interview.get_state`, `interview.grounding_context`, `interview.list`, `interview.propose`, `interview.set_target`, `interview.start` |
+| `interview` | 11 | `interview.abandon`, `interview.answer`, `interview.chat`, `interview.formalize`, `interview.get`, `interview.get_state`, `interview.grounding_context`, `interview.list`, `interview.propose`, `interview.set_target`, `interview.start` |
 | `issue` | 7 | `issue.create`, `issue.delete`, `issue.outdate`, `issue.query`, `issue.read`, `issue.reactivate`, `issue.update` |
 | `link_type` | 5 | `link_type.create`, `link_type.get`, `link_type.list`, `link_type.reset`, `link_type.update` |
-| `main_goal` | 5 | `main_goal.approve`, `main_goal.create_manual`, `main_goal.generate`, `main_goal.list_versions`, `main_goal.read` |
+| `main_goal` | 6 | `main_goal.approve`, `main_goal.create_manual`, `main_goal.generate`, `main_goal.list_versions`, `main_goal.query`, `main_goal.read` |
 | `memory` | 7 | `memory.ask`, `memory.digest`, `memory.forget`, `memory.get`, `memory.list`, `memory.query`, `memory.write` |
 | `needs` | 8 | `needs.create`, `needs.derive_requirements`, `needs.get_traces`, `needs.outdate`, `needs.query`, `needs.read`, `needs.reactivate`, `needs.update` |
 | `permissions` | 4 | `permissions.check`, `permissions.list`, `permissions.revoke`, `permissions.set_rule` |
@@ -134,7 +136,7 @@ table in §1 and §2 **in the same change**, with the new version and commit.
 | `review` | 4 | `review.approve`, `review.list_pending`, `review.reject`, `review.request_changes` |
 | `risk` | 7 | `risk.create`, `risk.delete`, `risk.outdate`, `risk.query`, `risk.read`, `risk.reactivate`, `risk.update` |
 | `test` | 14 | `test.create`, `test.derive_from_requirement`, `test.get`, `test.link`, `test.mark_reviewed`, `test.outdate`, `test.query`, `test.reactivate`, `test.run_complete`, `test.run_create`, `test.run_get`, `test.run_list`, `test.run_report_results`, `test.update` |
-| `traceability` | 5 | `traceability.coverage`, `traceability.create_link`, `traceability.query`, `traceability.suggest_links`, `traceability.vcrm` |
+| `traceability` | 6 | `traceability.coverage`, `traceability.create_link`, `traceability.query`, `traceability.query_links`, `traceability.suggest_links`, `traceability.vcrm` |
 | `user` | 9 | `user.activate`, `user.assign_role`, `user.assign_tenant_admin`, `user.create`, `user.deactivate`, `user.list`, `user.reactivate_role`, `user.revoke_tenant_admin`, `user.suspend_role` |
 | `workspace` | 7 | `workspace.close`, `workspace.delete`, `workspace.get_context`, `workspace.get_preferences`, `workspace.list`, `workspace.llm_system_prompt`, `workspace.reactivate` |
 
@@ -159,13 +161,15 @@ means a new tool, not a new namespace.
 | `testcase.*` | There is no `testcase` prefix. The TestCase entity lives in the `test` group. | `test.get`, `test.query`, `test.create`, `test.update`, `test.link`, `test.mark_reviewed`, `test.outdate`, `test.reactivate`, `test.derive_from_requirement` |
 | any API-key management tool | Key lifecycle is a REST-only governance path; MCP exposes no `api_key.*` / `permissions.key.*` group, so a compromised MCP client cannot mint itself a key. | REST `POST/GET/DELETE /api/v1/api-keys/` |
 | notification tools | The notification feed is human-facing. | REST `GET /api/v1/notifications/` |
-| `main_goal.query` | Only `main_goal.read` (by id) and `main_goal.list_versions` (by lineage) exist, so a MainGoal is not enumerable by workspace. | REST `GET /api/v1/main-goals/?workspace_id=` |
-| a workspace-wide TraceLink enumeration | `traceability.query` needs an `artifact_id`; there is no "list every link in this workspace" tool. | `traceability.coverage` (counts, does not enumerate) |
 
-The last two were found by the entity-surface parity ratchet
-(`backend/mcp_server/tests/entity_surface_matrix.py`) when it was written for
-[#1080](https://github.com/Popoboxxo/ReqogniLoom/issues/1080), and are
-recorded there as ratcheted gaps rather than left unmentioned.
+Two gaps the entity-surface parity ratchet
+(`backend/mcp_server/tests/entity_surface_matrix.py`) recorded when it was
+written for [#1080](https://github.com/Popoboxxo/ReqogniLoom/issues/1080) are
+now closed and no longer belong in this table: workspace-wide MainGoal
+enumeration, closed by [#1097](https://github.com/Popoboxxo/ReqogniLoom/issues/1097)
+(`main_goal.query`), and workspace-wide TraceLink enumeration, closed by
+[#1098](https://github.com/Popoboxxo/ReqogniLoom/issues/1098)
+(`traceability.query_links`).
 
 One more absence worth stating explicitly, because the opposite claim is the one
 in circulation: **`memory.write` does exist.** See §4.
@@ -197,6 +201,29 @@ it.
 `confidence` (default `1.0`), `change_reason`. Scope `artifact` without an
 `artifact_id` is rejected rather than silently landing in the workspace scope.
 
+`memory.digest` additionally answers *whether the engine derives at all*
+([#1155](https://github.com/Popoboxxo/ReqogniLoom/issues/1155) AP-B5.1):
+besides `digest`, `generated_at`, `backend`, `degraded` the response carries
+`derivation_status` (one of `ok` / `none` / `failed` / `unsupported` /
+`unknown`) and `derived_count` (exact count or `null` — never a fabricated
+total). `degraded` says whether *this read* worked; `derivation_status` says
+what the *Deriver* did for the scope. The two are independent on purpose: a
+scope can answer perfectly (`degraded: false`) while its deriver is losing
+work (`derivation_status: "failed"`). Note what `ok` does and does not claim:
+it means the scope **has produced** derived output, **not** that the deriver
+is currently healthy — a Zen-Go quota death (HTTP 429) on a scope with earlier
+output keeps reading `ok`, because the SDK exposes no per-unit error flag and
+the server counts the dead units as processed; only a provable
+`queue_status` accounting gap surfaces as `failed`. `pgvector` always answers
+`unsupported`/`null`. The same pair rides on the REST digest bodies
+(`.../memory/digest/`), and the scope-less capability (`unsupported` for
+pgvector, `unknown` for honcho — the envelope has no scope to probe) is added
+to the memory response envelope
+(`backend`/`ok`/`detail`/`degraded`/`digest_available`/`ask_available`/
+`derivation_status`) that `memory.list`/`memory.query`/`memory.forget` and
+the admin health row all carry. There is no dedicated `memory.health` MCP
+tool; the envelope is the health surface on this group.
+
 `memory.ask` ([#1154](https://github.com/Popoboxxo/ReqogniLoom/issues/1154),
 REQ-192) parameters: `query` (required; at most 10000 characters), `workspace_id`
 (required; also the scope id when no artifact is named), `artifact_id`
@@ -212,6 +239,15 @@ response mirrors the digest shape plus a degradation hint: `answer`,
 RBAC-gated by the same read matrix and never raises — but unlike the digest it
 is **write-gated**: it invokes a generative LLM call, so a read-only/Viewer key
 must not be able to drive LLM spend (same rule as `interview.grounding_context`).
+
+The REST mirror now exists ([#1155](https://github.com/Popoboxxo/ReqogniLoom/issues/1155)
+Aspekt 1): `POST /api/v1/workspaces/{workspace_id}/memory/ask/` (view
+`WorkspaceMemoryAskView`, route name `workspace-memory-ask`) delegates to the
+same `MemoryEntryService.ask`, takes the same `query` / `artifact_id` /
+`reasoning_level` body and returns the same five keys, and is WRITE-gated
+identically — closing the MCP↔REST asymmetry this tool used to have. The
+REST-side contract is written out in
+[REST conventions § 9](REST-CONVENTIONS.md#9-memoryask-on-rest--a-write-gated-read-with-an-explicit-degradation-state).
 
 Writes are rate-limited per `(tenant, user)` via
 `MEMORY_WRITE_RATE_LIMIT_PER_HOUR` (default `60`; `0` = unlimited). The active
@@ -291,33 +327,35 @@ requirement × component × test case × result, per workspace.
 | REST route | **none** |
 | OpenAPI operations mentioning `vcrm` | **0** |
 
-A full-text search of the generated OpenAPI schema for `vcrm` returns no hits
-(`backend/rest_api/**` and `backend/rest_api/openapi.py` contain **0**
-occurrences), which is exactly the trap [#1085](https://github.com/Popoboxxo/ReqogniLoom/issues/1085)
-point 5 reports: a reader who searches the REST documentation never finds the
-capability. This section is the canonical answer to "where does VCRM live".
+A full-text search of the generated OpenAPI schema for `vcrm` returns no hits:
+no route, view, serializer or OpenAPI source under `backend/rest_api/**`
+mentions `vcrm` (the only case-insensitive hits are two prose comments in
+`rest_api/tests/`). That is exactly the trap
+[#1085](https://github.com/Popoboxxo/ReqogniLoom/issues/1085) point 5 reports: a
+reader who searches the REST documentation never finds the capability. This
+section is the canonical answer to "where does VCRM live".
 
 Implementation: `backend/traceability/vcrm_report_generator.py` (Layer 1,
 `VCRMReportGenerator`), re-exported through
 `backend/traceability/services.py` (`generate_vcrm`, `export_vcrm_csv`,
 `export_vcrm_pdf`).
 
-**Unreachable third format.** `export_vcrm_pdf(workspace_id, baseline_id?)` is
-implemented and unit-tested, but *no transport exposes it*: the MCP tool accepts
-`format` = `json` \| `csv` only, and there is no REST route. So PDF exists in
-the code and in the tests, and nowhere else — a reader of either the code or the
-API docs will come away with a different picture. Recommendation: add
-`format: "pdf"` to `traceability.vcrm`, or note the gap here and in the
-component architecture doc (COMP-TE-004), which currently lists
-`export_vcrm_pdf()` as part of the interface without saying nothing calls it.
+**`export_vcrm_pdf` is unused by design.** `export_vcrm_pdf(workspace_id,
+baseline_id?)` is implemented and unit-tested, but **no transport reaches it**:
+the MCP tool accepts `format` = `json` \| `csv` only, and there is no REST route.
+The absence is a decision, not a gap — adding `format: "pdf"` would change the
+`traceability.vcrm` contract and the canonical `tool-manifest.json`, and the PDF
+is a human-presentation artifact with no agent-readable payload. It stays an
+intentionally-unreachable helper, recorded in the surface matrix
+(`backend/mcp_server/tests/entity_surface_matrix.py`, `MCP_ONLY_BY_DESIGN`).
+COMP-TE-004 lists `export_vcrm_pdf()` as part of the interface; this paragraph
+is the authoritative note that nothing calls it.
 
 Same shape, same reason: `traceability.coverage` and `audit.se_audit` (from
 [#1001](https://github.com/Popoboxxo/ReqogniLoom/issues/1001)) are also
-MCP-only. **Recommendation (not implemented here — the REST surface is owned by
-another workstream):** either expose `GET /api/v1/vcrm/?workspace_id=` and
-`GET /api/v1/vcrm/export.csv/?workspace_id=`, or state the MCP-only status in the
-OpenAPI description of the traceability operations, so the asymmetry is visible
-from the REST schema instead of only from this file.
+MCP-only. That MCP-only status is now stated from the REST side as well — see
+[REST conventions § 5](REST-CONVENTIONS.md#5-vcrm-is-mcp-only), so a reader of
+the REST docs learns the capability exists instead of only finding it here.
 
 ---
 

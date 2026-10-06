@@ -148,10 +148,20 @@ class TestSystemHealthResponseShape:
             "degraded",
             "digest_available",
             "ask_available",
+            "derivation_status",
         }
         assert isinstance(memory_component["degraded"], bool)
         assert isinstance(memory_component["digest_available"], bool)
         assert isinstance(memory_component["ask_available"], bool)
+        # AP-B5.1 (#1155): the scope-less derivation capability is a status
+        # word from the shared enum, never user data.
+        assert memory_component["derivation_status"] in {
+            "ok",
+            "none",
+            "failed",
+            "unsupported",
+            "unknown",
+        }
 
         # database check runs for real against the test DB and must be ok.
         db_component = next(c for c in body["components"] if c["name"] == "database")
@@ -599,4 +609,69 @@ class TestSystemHealthMemoryComponents:
             result = health_rest._check_memory()
 
         assert result["ask_available"] is False
+        assert result["status"] == STATUS_OK
+
+    def test_memory_component_carries_derivation_status(self) -> None:
+        """AP-B5.1 (#1155): the admin ``memory`` row must propagate
+        ``derivation_status`` -- the scope-less capability answer, so the
+        dashboard can tell "will never derive" (pgvector) apart from
+        "derivable, not probed here" (honcho) without a scope probe.
+        """
+        from admin_ops import health_rest
+
+        payload = {
+            "backend": "pgvector",
+            "ok": True,
+            "detail": "pgvector reachable",
+            "degraded": False,
+            "digest_available": True,
+            "ask_available": False,
+            "derivation_status": "unsupported",
+        }
+        with patch("memory.health.health_view", return_value=payload):
+            result = health_rest._check_memory()
+
+        assert result["derivation_status"] == "unsupported"
+        assert result["backend"] == "pgvector"
+
+    def test_memory_component_coerces_rogue_derivation_status(self) -> None:
+        """S4: the row must never forward a value outside the shared enum --
+        a rogue/future-version payload reads as ``unknown`` ("cannot tell"),
+        exactly like the ``bool()`` coercion of the capability flags above it.
+        """
+        from admin_ops import health_rest
+
+        payload = {
+            "backend": "honcho",
+            "ok": True,
+            "detail": "honcho reachable",
+            "degraded": False,
+            "digest_available": True,
+            "ask_available": True,
+            "derivation_status": "healthy",  # not a VALID_DERIVATION_STATUSES value
+        }
+        with patch("memory.health.health_view", return_value=payload):
+            result = health_rest._check_memory()
+
+        assert result["derivation_status"] == "unknown"
+        assert result["status"] == STATUS_OK
+
+    def test_memory_component_defaults_derivation_status_when_absent(self) -> None:
+        """A partial/older payload without the field must default to
+        ``unknown`` -- never 500, and never a claimed capability the probe
+        did not report."""
+        from admin_ops import health_rest
+
+        payload = {
+            "backend": "pgvector",
+            "ok": True,
+            "detail": "pgvector reachable",
+            "degraded": False,
+            "digest_available": True,
+            "ask_available": False,
+        }
+        with patch("memory.health.health_view", return_value=payload):
+            result = health_rest._check_memory()
+
+        assert result["derivation_status"] == "unknown"
         assert result["status"] == STATUS_OK

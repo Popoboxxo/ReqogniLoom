@@ -1,7 +1,7 @@
 # ReqFlow — Codebase-Übersicht (IST-Zustand)
 
 > **Status:** Greenfield-Implementierung abgeschlossen + v1.1 Features (SE-Phasen 1–6) + Canvas/Mermaid (REQ-L1-056/057) + v1.2 Memory Admin UI (Phasen 1–5) + Memory-Engine/Digest (RFC #1002 F6)  
-> **Letzte Aktualisierung:** 2026-09-21  
+> **Letzte Aktualisierung:** 2026-10-06  
 > **Branch:** `feat/memory-rfc-1002-f6`  
 > **Validierung:** 1130/1130 pytest Tests grün; 111/112 E2E Tests (Playwright) grün; `manage.py check` 0 Issues
 
@@ -17,7 +17,7 @@ ReqFlow ist ein Requirements-Management-Tool mit AI- und Systems-Engineering-Sup
 - **Layer 0 (Foundation):** Persistierung, Auth/Tenancy, Konfiguration, Audit
 - **Layer 1 (Domain Services):** LLM-Adapter, Traceability, Workflow, Baseline, Diagram, ICD
 - **Layer 2 (Orchestration):** ApplicationService (16 Services, Single Entry Point)
-- **Layer 3 (Interfaces):** REST API + MCP Server (220 Tools, 35 Tool-Gruppen-Präfixe — Stand `v1.8.0-beta.18`, siehe [api/MCP-SURFACE.md](api/MCP-SURFACE.md) für die Messmethode)
+- **Layer 3 (Interfaces):** REST API + MCP Server (223 Tools, 35 Tool-Gruppen-Präfixe — Stand `v1.8.0-beta.19`, siehe [api/MCP-SURFACE.md](api/MCP-SURFACE.md) für die Messmethode)
 - **Layer 4 (Frontend):** React-SPA
 - **Cross-Cutting:** SeMetrics (Read Model), ResilienceOrchestrator
 
@@ -332,10 +332,10 @@ from memory.backends import (
     MemoryBackend,                # ABC für pluggable Backends
     PgvectorMemoryBackend,        # Default: PostgreSQL pgvector + HNSW
     MemoryHealth,                 # {ok, backend, detail, degraded}
-    MemoryDigest,                 # {text, generated_at, backend, degraded} (RFC #1002 F6)
+    MemoryDigest,                 # {text, generated_at, backend, degraded, derivation_status, derived_count} (RFC #1002 F6 / AP-B5.1)
 )
 from memory.honcho_backend import HonchoMemoryBackend
-from memory.health import envelope, health_view   # {backend, ok, detail, degraded, digest_available}
+from memory.health import envelope, health_view   # {backend, ok, detail, degraded, digest_available, derivation_status}
 from memory.projector import MemoryProjector      # PCA 2D projection + clustering
 ```
 
@@ -343,7 +343,7 @@ from memory.projector import MemoryProjector      # PCA 2D projection + clusteri
 - `models.py` — `MemoryEntry` (Tabelle `mem_memory_entry`; Scopes `user`/`workspace`/`artifact`, Embeddings + HNSW-Index, `superseded_by`-FK), `WorkspaceMemorySettings`, `SystemMemorySettings`
 - `backends.py` — `MemoryBackend` (ABC) + `PgvectorMemoryBackend` (Default) + `MemoryDigest`/`MemoryHealth`; Registry via `register_memory_backend()`/`get_memory_backend()`
 - `honcho_backend.py` — `HonchoMemoryBackend`: optionales externes Backend; führt einen lokalen Mirror in `mem_memory_entry` (`backend_ref` = Honcho-Conclusion-id)
-- `health.py` — Response-Envelope (`envelope()`/`health_view()`) mit `{backend, ok, detail, degraded, digest_available}` (F9/F6)
+- `health.py` — Response-Envelope (`envelope()`/`health_view()`) mit `{backend, ok, detail, degraded, digest_available, derivation_status}` (F9/F6/AP-B5.1). Scope-loses `derivation_status` (`ok|none|failed|unsupported|unknown`): pgvector `unsupported`, honcho `unknown` (Per-Scope-Wahrheit nur im Digest)
 - `policy.py` — `MemoryPolicy` (Scope-/Rollen-Matrix); `ratelimit.py` — Write-Rate-Limit
 - `context_builder.py` — Baut Speicherkontext aus Live-Daten
 - `projector.py` — PCA-2D-Projektion + Ähnlichkeits-Clustering (HNSW-nah)
@@ -353,7 +353,7 @@ from memory.projector import MemoryProjector      # PCA 2D projection + clusteri
 **Backend-Vertrag (RFC #1002):** Zwei Methodengenerationen auf `MemoryBackend` — die ursprüngliche Fassade (`upsert`/`query`/`list_recent`/`forget`/`health_check`) und die kanonische Store-API (`write`/`list_entries`/`count`/`delete_entry`/`delete_scope`/`health`/`digest`). Beide sind abstrakt; die alten Methoden delegieren an die neuen.
 
 **Digest (`digest`, RFC #1002 F6 / Phase 3):**
-- `MemoryDigest(text, generated_at, backend, degraded)`; `MemoryBackend.digest(tenant_id, scope, scope_id)` ist der einzige Read, der „was erinnert dieser Scope gerade?“ in einem begrenzten, prompt-tauglichen String beantwortet.
+- `MemoryDigest(text, generated_at, backend, degraded, derivation_status, derived_count)`; `MemoryBackend.digest(tenant_id, scope, scope_id)` ist der einzige Read, der „was erinnert dieser Scope gerade?“ in einem begrenzten, prompt-tauglichen String beantwortet. `derivation_status` (AP-B5.1) ist `ok|none|failed|unsupported|unknown` und beschreibt den **Deriver** (nicht den Read); `derived_count` ist die exakte Anzahl abgeleiteter Conclusions, wenn das Backend sie exakt begrenzen kann, sonst `null` (nie ein erfundener Zählerstand); pgvector liefert immer `unsupported`/`null`.
 - `PgvectorMemoryBackend.digest()` rendert deterministisch die neuesten `_DIGEST_MAX_FACTS` = 20 lebenden Fakten (`-created_at, -id`); kein Embedding nötig, Rows mit NULL-Embedding werden mitgerendert.
 - `HonchoMemoryBackend.digest()` liest zuerst das abgeleitete Artefakt der Engine (peer representation der Scope-Session, sonst peer card), dann die Conclusion-Liste (`list_recent`), zuletzt den lokalen Mirror (`list_entries`, ohne Netzwerk).
 - **`degraded`-Semantik:** ein Fehler des Backends/Netzwerks setzt `degraded=True`; ein leerer, aber gesunder Scope ist `degraded=False` (F9: „down“ ist nicht „leer“). `digest()` wirft nie — ein Fehler degradiert in das Flag. Nur ein Fehler der letzten Fallback-Stufe liefert einen leeren Text.
@@ -654,7 +654,7 @@ POST /api/v1/auth/logout             # Optional (stateless, JWT in localStorage)
 ---
 
 #### `mcp_server/` (ARCH-L1-003)
-**Modell:** MCP-Server (JSON-RPC 2.0) mit Tool-Gruppen, direkt gegen ApplicationService (ADR-01). **220 Tools in 35 Gruppen-Präfixen** (gemessen auf `v1.8.0-beta.18` mit `memory.ask` (REQ-192 / #1154) als letzter Ergänzung, siehe `docs/api/MCP-SURFACE.md`; die vollständige, generierte Tool-Liste inkl. `inputSchema` steht in `docs/agent-templates/tool-manifest.json`, die lesbare Referenz in [`docs/api/MCP-SURFACE.md`](api/MCP-SURFACE.md)).
+**Modell:** MCP-Server (JSON-RPC 2.0) mit Tool-Gruppen, direkt gegen ApplicationService (ADR-01). **223 Tools in 35 Gruppen-Präfixen** (gemessen auf `v1.8.0-beta.19` mit `main_goal.query` (#1097) als letzter Ergänzung, siehe `docs/api/MCP-SURFACE.md`; die vollständige, generierte Tool-Liste inkl. `inputSchema` steht in `docs/agent-templates/tool-manifest.json`, die lesbare Referenz in [`docs/api/MCP-SURFACE.md`](api/MCP-SURFACE.md)).
 
 > **Zahlen nicht aus diesem Dokument übernehmen.** Die Werkzeuganzahl ändert sich mit jedem neuen Tool; maßgeblich sind `tool-manifest.json` und die Messmethode in [`docs/api/MCP-SURFACE.md` §1](api/MCP-SURFACE.md#1-catalogue-size) (`tools/list` per `curl` oder offline `manage.py export_tool_manifest`). Die früheren Angaben in diesem Dokument (143, 171, 172, 212, 215) waren Kopien ohne Nachmessung; die CI-Guards `test_tool_manifest_drift.py` und `test_entity_surface_parity.py` verhindern inzwischen, dass eine Zahl still veraltet.
 
@@ -1137,7 +1137,7 @@ Returns `204 No Content`. The key is immediately invalidated.
 
 ### Tool Reference
 
-> **Auszug, nicht die Referenz.** Der MCP-Server bietet **220 Tools in 35 Gruppen-Präfixen** (Stand `v1.8.0-beta.18`, zuletzt erweitert um `memory.ask`). Die vollständige, generierte Liste mit `inputSchema` steht in [`docs/agent-templates/tool-manifest.json`](agent-templates/tool-manifest.json); die lesbare Referenz samt Methoden zum Nachmessen der Zahlen ist [`docs/api/MCP-SURFACE.md`](api/MCP-SURFACE.md). Die früher hier genannten „12 tool groups" waren ein längst überholter Stand.
+> **Auszug, nicht die Referenz.** Der MCP-Server bietet **223 Tools in 35 Gruppen-Präfixen** (Stand `v1.8.0-beta.19`, zuletzt erweitert um `main_goal.query` (#1097)). Die vollständige, generierte Liste mit `inputSchema` steht in [`docs/agent-templates/tool-manifest.json`](agent-templates/tool-manifest.json); die lesbare Referenz samt Methoden zum Nachmessen der Zahlen ist [`docs/api/MCP-SURFACE.md`](api/MCP-SURFACE.md). Die früher hier genannten „12 tool groups" waren ein längst überholter Stand.
 >
 > Tools werden als `<prefix>.<tool_name>` aufgerufen, z. B. `requirement.query` oder `test.run_create`.
 

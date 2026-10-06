@@ -54,6 +54,7 @@ from __future__ import annotations
 
 import json
 import logging
+import socket
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 from uuid import UUID
@@ -65,6 +66,7 @@ from traceability.audit import Finding, RuleEngine, Severity
 from traceability.audit.registry import ARCH_003, TRACE_P4, TRACE_P5
 from traceability.types import LinkType
 
+from application.ai_derivation_service import LlmResponseError
 from application.audit_service import AuditService
 from application.base import (
     NotFoundError,
@@ -93,6 +95,13 @@ _VERIFICATION_TIER = "extended"
 # now the ``max_breadth``/``max_depth`` config variables, resolvable per
 # workspace.
 ARCH_DECOMPOSE_PROMPT_SLOT = "architecture_decompose_tree"
+
+#: LLM capability purpose name passed to ``provider.complete()``. Must stay in
+#: the workspace-wide set of ``llm_adapter.timeouts.WORKSPACE_WIDE_PURPOSES``
+#: (issue #1165) so this call runs under the long-running timeout instead of
+#: the tight per-artifact default and a timeout reaches the boundary as a
+#: deterministic error rather than a generic HTTP 500.
+_ARCH_DECOMPOSE_PURPOSE = "arch_decompose_tree"
 
 # Absolute, non-configurable ceiling (code-review finding on this task,
 # spec §3.1 blast-radius concern). ``resolve_config_values``'s precedence
@@ -168,6 +177,51 @@ class DecompositionAuditError(ValidationError):
     def __init__(self, message: str, findings: List[Dict[str, Any]]) -> None:
         super().__init__(message)
         self.findings = findings
+
+
+def _is_timeout_failure(error: BaseException) -> bool:
+    """Return True when *error* is, or wraps, a provider timeout (issue #1165).
+
+    A real outbound call fails inside ``llm_adapter.resilient_transport``,
+    which wraps the terminal failure in an ``LlmTransportError`` and preserves
+    the reason text ("Carries the final error text ... so the CapabilityRouter's
+    message-based categorisation still applies"). The resilience taxonomy's own
+    ``TimeoutError`` is not a builtin ``TimeoutError`` subclass, so the reason
+    text is the timeout signal that survives the wrapper — mirrors
+    ``AiReviewService._is_timeout_failure`` (issue #951).
+
+    ``socket`` is imported at module level rather than in this function so the
+    ``(TimeoutError, socket.timeout)`` check stays identical to the ai_review
+    precedent.
+    """
+    if isinstance(error, (TimeoutError, socket.timeout)):
+        return True
+    return "timeout" in str(error).lower()
+
+
+class DecompositionLlmError(LlmResponseError):
+    """Base: the provider behind architecture.decompose failed (issue #1165).
+
+    Subclasses :class:`LlmResponseError` so every existing catch path keeps
+    working unchanged, while the REST view can catch the two specific
+    subclasses below and answer a deterministic 503/504 instead of the generic
+    500 the bare ``except Exception`` used to produce.
+    """
+
+    #: Stable error code the REST envelope answers with.
+    error_code = "LLM_UNAVAILABLE"
+
+
+class DecompositionLlmTimeoutError(DecompositionLlmError):
+    """The provider timed out after the resilience policy was exhausted."""
+
+    error_code = "LLM_TIMEOUT"
+
+
+class DecompositionLlmUnavailableError(DecompositionLlmError):
+    """The provider was unavailable (transport failure / open circuit)."""
+
+    error_code = "LLM_UNAVAILABLE"
 
 
 # ---------------------------------------------------------------------------
@@ -765,13 +819,16 @@ class ArchitectureDecomposeService(ServiceBase):
                 exceeded (checked before the real-provider call only -- the
                 mock-fallback path is exempt, matching every other flow's
                 graceful-degradation contract, ADR-02).
+            DecompositionLlmTimeoutError: The provider call timed out after
+                the resilience policy was exhausted (subclass of
+                ``LlmResponseError``, issue #1165).
+            DecompositionLlmUnavailableError: The provider was unreachable
+                (transport failure / open circuit breaker; subclass of
+                ``LlmResponseError``, issue #1165).
         """
         from django.conf import settings
 
-        from application.ai_derivation_service import (
-            AiDerivationService,
-            LlmResponseError,
-        )
+        from application.ai_derivation_service import AiDerivationService
         from application.prompt_resolver import resolve_and_render
         from llm_adapter.audit_logger import LlmAuditLogger
         from llm_adapter.providers import (
@@ -780,6 +837,7 @@ class ArchitectureDecomposeService(ServiceBase):
             MockLlmProvider,
             get_provider,
         )
+        from llm_adapter.timeouts import resolve_timeout_seconds
         from llm_adapter.token_tracking import (
             approximate_token_count,
             is_over_daily_limit,
@@ -839,17 +897,23 @@ class ArchitectureDecomposeService(ServiceBase):
                 "Try again later or raise TENANT_TOKEN_LIMIT_PER_DAY."
             )
 
+        timeout = resolve_timeout_seconds(_ARCH_DECOMPOSE_PURPOSE)
         try:
             raw = provider.complete(
-                prompt, purpose="arch_decompose_tree", context=context
+                prompt,
+                purpose=_ARCH_DECOMPOSE_PURPOSE,
+                context=context,
+                timeout=timeout,
             )
         except Exception as error:
             if degraded:
                 raise
             logger.warning(
-                "architecture.decompose: provider %s call failed: %s",
+                "architecture.decompose: provider %s call failed (timeout=%ss): %s",
                 provider_name,
+                timeout,
                 error,
+                exc_info=True,
             )
             audit_logger.log_llm_call(
                 provider=provider_name,
@@ -859,8 +923,21 @@ class ArchitectureDecomposeService(ServiceBase):
                 success=False,
                 error=str(error),
             )
-            raise LlmResponseError(
-                f"architecture.decompose LLM call failed: {error}"
+            # Issue #1165: translate the transport failure into an
+            # application-level typed error so the REST layer can answer a
+            # deterministic 503/504 instead of the generic 500. The raw
+            # provider text stays in the log (CWE-209); the caller-facing
+            # wording is provided by the REST i18n registry keyed on
+            # ``error_code``.
+            if _is_timeout_failure(error):
+                raise DecompositionLlmTimeoutError(
+                    f"The LLM provider '{provider_name}' did not answer the "
+                    f"architecture.decompose request within {timeout:.0f}s. "
+                    "Please retry later."
+                ) from error
+            raise DecompositionLlmUnavailableError(
+                f"The LLM provider '{provider_name}' is temporarily "
+                "unavailable. Please retry later."
             ) from error
 
         if not degraded:
@@ -972,6 +1049,9 @@ __all__ = [
     "CommitResult",
     "DecompositionNotAvailableError",
     "DecompositionAuditError",
+    "DecompositionLlmError",
+    "DecompositionLlmTimeoutError",
+    "DecompositionLlmUnavailableError",
     "ARCH_DECOMPOSE_PROMPT_TEMPLATE",
     "ARCH_DECOMPOSE_PROMPT_SLOT",
 ]

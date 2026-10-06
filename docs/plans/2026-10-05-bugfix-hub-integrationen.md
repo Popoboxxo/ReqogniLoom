@@ -1,0 +1,414 @@
+# Bugfix-Hub — Arbeitsplan: Externe Anbindungen, Plugins, API & Integrationen
+
+| Feld | Wert |
+|---|---|
+| **Status** | Entwurf zur Umsetzung |
+| **Datum** | 2026-10-05 |
+| **Basis** | `v1.8.0-beta.18`, Issue-Bestand 2026-10-05 |
+| **Hub-Index** | [`docs/bugfix-hub/README.md`](../bugfix-hub/README.md) |
+| **Bezug** | #1171 (One-Click-Client-Doku), #1153, #1155/#1156, #1164, #1177, #1185 |
+| **Geltung** | Fremd-Clients/-Provider, MCP-Surface, REST-/OpenAPI, Plugins, Supply-Chain |
+| **Nicht Teil** | Reine UI-/Datenmodell-Kampagnen, RLS-Härtung, SE-Kaskade (siehe Hub §2) |
+
+---
+
+## 0. Management Summary
+
+Der Issue-Bestand enthält eine klar abgrenzbare Gruppe von Fehlern und Lücken an der
+**Außengrenze** des Systems: Fremd-Harnesse, MCP-Server-Surface, REST-Contract, externe
+LLM-Provider und Plugins. Diese Issues werden in **vier Fix-Bundles** (B1–B4) plus das
+**Leit-Bundle B0** (Client-Onboarding, #1171) geordnet.
+
+Leitprinzip: **Erst den Fremd-Vertrag beweisbar machen, dann schließen.** Jedes Issue gilt erst
+als erledigt, wenn ein Smoke-Test gegen den betroffenen Client/Provider das erwartete Ergebnis
+zeigt — nicht, wenn nur „der Code geändert" ist.
+
+- **B0** setzt den bestehenden One-Click-Plan (Stufe 1) um: `docs/clients/` (DE/EN),
+  `clients/registry.yaml` als Single Source of Truth, Installer/Verifier, CI-Gate.
+- **B1** schließt die MCP↔REST-Paritätslücken (#1164, #1098, #1097) und dokumentiert die
+  MCP-only-Flächen (#1101) sowie das Suchverhalten (#1170).
+- **B2** härtet die externen Provider-Pfade: `score:null` (#1163), Honcho-Header (#1153),
+  Preflight-Beleg (#1186) und das Fehler-Mapping bei LLM-Timeouts (#1165).
+- **B3** bringt die Plugins auf den echten Serververtrag (#1152) und aktualisiert das
+  vendored Bluepencil-Bundle (#988).
+- **B4** vereinheitlicht den REST-Contract (#1177) und schließt den Info-Leak (#1185).
+
+**Grobe Reihenfolge:** B4/B3-Sofortfixes (klein, risikolos) → B2 → B1 → B0-Doku → B0-Stores.
+
+---
+
+## 1. Zielbild und Definition „erledigt"
+
+Jedes Bundle hat ein eigenes DoD. Übergreifend gilt für **jedes** Issue:
+
+1. **Reproduktion** dokumentiert (Befehl + realer Ist-Zustand, wo möglich gegen Sandbox/Client).
+2. **Fix** auf `feat/*`/`fix/*`, keine Änderung auf `main`.
+3. **Verifikation** mit erwartetem Ergebnis (Smoke-Test oder Regressionstest im Repo).
+4. **Close-Kommentar** am Issue mit Beleg; Status-Board im Hub auf `closed`.
+
+---
+
+## 2. Inventar — Bundles
+
+| Bundle | Name | Issues | Prio-Mix |
+|---|---|---|---|
+| **B0** | Client-Onboarding / One-Click | #1171, #1169, #649, #92, #1138 | P1–P2 |
+| **B1** | MCP-Surface-Parität | #1164, #1098, #1097, #1170, #1101, #1133 | P1–P3 |
+| **B2** | Externe LLM-/Provider-Robustheit | #1153, #1186, #1163, #1165 | P1–P2 |
+| **B3** | Plugin-Runtime & Fremd-Bundles | #1152, #988 | P2 |
+| **B4** | API-Contract-Konsistenz | #1177, #1185 | P1 |
+
+---
+
+## 3. Bundles im Detail
+
+### 3.1 B4 — API-Contract-Konsistenz (Sofortstart)
+
+**Ziel:** Ein generischer REST-Client (SDK-Generator, Automation) kann alle Ressourcen ohne
+Sonderfälle konsumieren; Fehlerantworten leaken keine DB-Interna.
+
+**AP-B4.1 — Import-Fehlerantwort entschärfen (#1185)** · 0,5 PT
+- `backend/application/import_service.py:426-442`: `type(exc): str(exc)` aus der
+  Client-Antwort entfernen; intern loggen, nach außen generische Meldung + stabile
+  `code` (Muster aus dem bestehenden Envelope).
+- Test: Import mit absichtlich fehlerhafter Payload → Antwort enthält **kein** `psycopg`/
+  Traceback-Fragment; Log enthält den vollen Fehler.
+
+**AP-B4.2 — REST-Inkonsistenzen (#1177)** · 2–3 PT
+1. `/api/v1/users/` auf paginierte Envelope umstellen (`{count,…,results}`) — Breaking Change
+   nur mit Versionierung/Übergang; Entscheidung E1.
+2. `/api/v1/reviews/` Collection-Root ergänzen (Liste delegiert an `pending/`-Daten).
+3. Bindestrich-Schema: Ist-Zustand dokumentieren **oder** Alias-Routen ergänzen
+   (`/testcases/` ↔ `/test-cases/` etc.) — Entscheidung E2.
+4. `/openapi.json` (JSON) bereitstellen; `/api/schema/` mit korrektem `Content-Type`
+   (`application/vnd.oai.openapi+json` bzw. `application/yaml`) ausliefern.
+
+**DoD B4:** `openapi.json` per `Content-Type` korrekt abrufbar; `/users/` und `/reviews/`
+im Envelope konsistent; kein DB-Interna-Leak; Regressionstests in `backend/rest_api/tests/`.
+
+---
+
+### 3.2 B3 — Plugin-Runtime & Fremd-Bundles
+
+**Ziel:** Die ausgelieferten Plugins bedienen den **tatsächlichen** Serververtrag.
+
+**AP-B3.1 — Hermes-Plugin `Cancel` → `interview.abandon` (#1152)** · 0,5–1 PT
+- `integrations/hermes-plugin/reqogniloom/src/mcpClient.ts`: `interviewAbandon()` ergänzen
+  (Tool existiert serverseitig, write-gated; `session_id`-Guard wie `formalize`).
+- `state.ts::cancelInterview()`: erst `interviewAbandon(sessionId)`, dann Liste neu laden;
+  Fehler analog `formalizeInterview` behandeln. Veralteten Kommentar („no interview.abandon
+  MCP tool exists") entfernen.
+- Tests: `__tests__/mcpClient.test.ts` + `state.test.ts` — `cancelInterview` ruft
+  `interview.abandon` mit `session_id`; veralteter Kommentar weg.
+
+**AP-B3.2 — Bluepencil-Bundle re-vendorn (#988)** · 1 PT
+- `frontend/public/bluepencil/latest/` aus einem Build mit Upstream-#15 neu vendorn,
+  `latest.json` SHA256 synchronisieren, Frontend-Image neu bauen.
+- Verifikation: Notiz eines eingeloggten Nutzers wird mit dessen Namen gespeichert,
+  nicht `anonymous`; Export zeigt App statt `"unknown"` (letzteres ggf. Upstream-Rest).
+
+**DoD B3:** `cancelInterview` schließt die Session serverseitig (`abandoned`); Bluepencil
+speichert den realen Autor.
+
+---
+
+### 3.3 B2 — Externe LLM-/Provider-Robustheit
+
+**Ziel:** Provider-Fehler und Provider-Antworten sind deterministisch, korrekt gemappt und belegt.
+
+**AP-B2.1 — `score: null` normalisieren (#1163)** · 0,5 PT *(in Arbeit)*
+- Helper `_score_or_default(value, default)` in `backend/llm_adapter/providers.py`; alle
+  `float(data.get("score", X))`-Stellen (aktuell 20) darauf umstellen, **Default je Aufrufer
+  erhalten** (0.0 für consistency/validation, 1.0 für derive).
+- Test: `{"score": null, …}` → `score == default`, kein `TypeError`; ebenso `"abc"`,
+  `[]`, fehlender Key.
+
+**AP-B2.2 — Honcho-Dialektik-Header (#1153)** · 1–2 PT
+
+**Status: umgesetzt** — alle drei Honcho-Services (`honcho`, `honcho-deriver`, `honcho-migrate`)
+digest-gepinnt; Docker-freier Deploy-Contract-Guard `backend/memory/tests/test_honcho_deploy_contract.py`
+ergänzt; `memory.ask`-Degradation unterscheidbar markiert (`engine_error:<Class>` vs. `unknown_scope:<Class>`,
+`degraded=True` unverändert); #1153 → `verify`.
+- Konfigurationspfad prüfen: liest der Dialektik-Resolver
+  `DIALECTIC_LEVELS__*__MODEL_CONFIG__OVERRIDES__PROVIDER_PARAMS__EXTRA_HEADERS__*`?
+- Fix im Honcho-Override/Deployment **oder** Upstream-Meldung; bis dahin Dialektik als
+  „nicht betreibbar" kennzeichnen.
+- Preflight-Beleg (#1186): Test, der beweist, dass der Header **beim Provider ankommt**
+  (nicht nur gesetzt ist). Quelle/Anschluss: #1050/#1051, `test_opencode_session_check_1050.py`.
+
+**AP-B2.3 — LLM-Timeout-Fehler-Mapping (#1165)** · 1 PT
+- `architecture_decompose_views.py`: `LlmTransportError`/`TimeoutError` → **503/504** mit
+  `code: LLM_TIMEOUT|LLM_UNAVAILABLE` (Muster `LlmNotConfiguredError → LLM_NOT_CONFIGURED`).
+- `arch_decompose_tree` in `llm_adapter/timeouts.py::WORKSPACE_WIDE_PURPOSES` aufnehmen.
+- Retry-Politik für Timeouts prüfen (4×30 s + Backoff = ~128 s bis sicherer Fehlschlag).
+- Test: Provider-Timeout → 503/504 statt generischer 500.
+
+**Abhängigkeit:** #1166 (DB-Pool-Erschöpfung) ist Betriebsthema und wird hier nur als
+Umgebungszustand referenziert (nicht gefixt); er verfälscht sonst B2-Messungen.
+
+---
+
+### 3.4 B1 — MCP-Surface-Parität
+
+**Ziel:** Keine Fähigkeit existiert nur auf einem der beiden Transporte; jede Asymmetrie ist
+begründet und dokumentiert.
+
+**AP-B1.1 — Interview-Symmetrie (#1164)** · 1,5–2 PT
+- REST-Action `POST /api/v1/interviews/{id}/set_target/` → `InterviewService.set_target`
+  (gleiche Status-Guards wie MCP).
+- MCP-Tool `interview.chat` → derselbe Service-Pfad wie `InterviewViewSet.chat`
+  (Guard „nur `in_progress`", single/multi-Dispatch; vgl. #1152).
+- Optional: beide Oberflächen aus einer gemeinsamen Operationsliste ableiten.
+
+**AP-B1.2 — TraceLink-Enumerieren über MCP (#1098)** · 1 PT
+- `traceability.query_links` mit den REST-Filtern (`workspace_id`, `link_type`,
+  `source_id`/`target_id`, `item_type`, Pagination); read-only, in `_READ_ONLY_TOOL_NAMES`.
+- `entity_surface_matrix.py` von Gap auf „kein Gap"; `docs/api/MCP-SURFACE.md` aktualisieren.
+
+**AP-B1.3 — `main_goal.query` (#1097)** · 1 PT
+- Rollenentscheidung nötig (E3): wer darf MainGoals eines Workspace listen?
+- Tool + Rollen-Vertrag in der Tool-Beschreibung; Tenant-Isolation wie übrige Queries.
+
+**AP-B1.4 — `artifact_search`-Schwelle/Transparenz (#1170)** · 0,5–1 PT
+- Optionaler `min_score` (Default > 0) **oder** Tool-Schema/Beschreibung korrigieren,
+  damit `total_count` echte Treffer spiegelt; Pass (tsvector vs. Substring) benennen.
+
+**AP-B1.5 — VCRM-Sichtbarkeit & toter Code (#1101)** · 0,5–1 PT
+- Empfehlung (b): im OpenAPI/MCP-Surface markieren, dass VCRM MCP-only ist; alternativ
+  `GET /api/v1/vcrm/` (Produktentscheidung E4).
+- `export_vcrm_pdf`: an einen Transport hängen **oder** als tot markieren.
+
+**AP-B1.6 — MCP-Rollentests self-seeding (#1133)** · 0,5 PT
+- `test_mcp_api_key_roles.py`: Fixture erzeugt Workspace/Rolle über den kanonischen
+  Provisioning-Pfad, statt `"Demo Workspace"` anzunehmen; sonst klarer Skip.
+
+---
+
+### 3.5 B0 — Client-Onboarding / One-Click (Leit-Bundle #1171)
+
+Umsetzung des bestehenden Plans
+[`2026-10-04-one-click-client-installation.md`](2026-10-04-one-click-client-installation.md),
+hier als Bundle geführt. Stufe 1 (ohne Store-Veröffentlichung) = AP-B0.1…B0.3.
+
+**AP-B0.1 — Stufe 1: Registry + Renderer + Skripte + Doku DE/EN + CI-Gate**
+(Plan-APs 1.1–1.5) · ≈ 9–13 PT
+- `clients/registry.yaml` (Single Source of Truth), `scripts/clients/render.py` (idempotent),
+  `scripts/clients/install.sh` / `verify.sh`, `docs/clients/**` (7×2 Dateien),
+  CI-Gate „Client-Artefakte" (Drift-/Paritäts-/Schema-/Versions-Check).
+- **Status: umgesetzt.** Alle Artefakte vorhanden; `render.py --check` meldet
+  „16 client/store artifacts up to date", Renderer-Tests (7) und `dist`-Paritäts-/Regenerationstests (46) grün.
+- **Smoke-Status 2026-10-05 (Plan-DoD Stufe 1, Punkt 3): teilweise erfüllt** — 1× PASS
+  (opencode), 2× ENV-LIMITED (claude-code, hermes — nur Connect), 1× FAIL (kimi-code),
+  2× nicht ausführbar (codex, antigravity); Server-MCP-Quergegencheck PASS (223 Tools,
+  `workspace.list`=420, `requirement.query`=3 == REST). Beleg:
+  [`docs/bugfix-hub/smoke/2026-10-05-client-smoke.md`](../bugfix-hub/smoke/2026-10-05-client-smoke.md).
+
+**AP-B0.2 — Doku-Sofortfixes (unabhängig publizierbar)**
+- **#1169** Codex: `wire_api="responses"` + Approval-Bypass für headless + geeignete Modelle.
+- **#1171** Kernlücken: Kimi Code, Hermes-MCP, OpenCode-Widerspruch auflösen.
+- Transport-Entscheidungsregel (`/mcp/` vs. `/mcp/sse/` vs. stdio-Bridge) zentral dokumentieren.
+- **Status: umgesetzt.** Codex-Headless-Konfiguration im Registry-/Renderer-Modell abgebildet
+  (#1169 → `verify`); Kimi Code/Hermes/OpenCode in `docs/clients/**` generiert und der
+  OpenCode-Widerspruch beseitigt; Transportregel zentral in der Matrix dargestellt.
+
+**AP-B0.3 — Hermes-Skill-Connector (#649)** · 1 PT
+- `integrations/hermes-skill/reqogniloom/` (`SKILL.md` + stdlib-`scripts/` + `references/`)
+  gemäß Issue-Entwurf; verifiziert über `hermes skills install <url>` bzw. `tap add`.
+  Additiv zum Desktop-Plugin, ersetzt dessen Wert für Web/TUI/CLI.
+
+**AP-B0.4 — Workspace-Tokens & MCP-Config-Copy (#92)** · 2–3 PT
+- Backend: workspace-scoped Token (Scope im Token, kein Cross-Workspace-Zugriff).
+- UI: Workspace-UUID sichtbar + Copy; „MCP Connection Info"-Panel mit Copy-Config.
+- Verzahnung mit #1171: die kopierte Config muss dem `registry.yaml`-Modell entsprechen.
+
+**AP-B0.5 — Plugin-Versionierungs-Anker (#1138)** · SE-Entscheidung
+- Traceability-Anker für Plugin-Versionierung (ADR-017-Lücke) festlegen; Auswirkung auf
+  Store-Versionen (B0 Stufe 2, `VERSION`-Kopplung).
+
+**Status Stufe 2 — Drafts liegen:** `.claude-plugin/marketplace.json` und `server.json`
+(beide aus `VERSION`) sowie fünf Workflow-Drafts (`release-client-artifacts`, `publish-npm`,
+`publish-marketplace`, `publish-mcp-registry`, `client-smoke`) und `docs/clients/STAGE2.md`
+sind vorbereitet; **keine Publikation aktiv** (Trigger nur `workflow_dispatch`,
+Entscheidungen E1–E7 offen).
+
+**DoD B0:** Plan-DoD Stufe 1 **weitgehend erfüllt, aber nicht vollständig** (ein Befehl je Client,
+DE/EN-Parität, CI-Gate grün; Smoke-Test belegt, jedoch kein Gesamt-PASS — opencode full PASS,
+claude-code/hermes install/connect PASS mit ENV-LIMITED Daten-Call, kimi-code ENV-LIMITED/L2;
+Stand 2026-10-06, s. Report §9); #1169/#649/#92 geschlossen oder explizit auf Store-Welle geplant.
+
+---
+
+### 3.6 B5 — Memory/Honcho als echtes Gedächtnis (#1155)
+
+Ziel: Honcho nicht nur als Schreib-Log, sondern als **abfragbares, ableitendes** Gedächtnis über alle vier Oberflächen (System, Plugins, MCP, REST). Fünf Aspekte, in Wellen P1→P4.
+
+**AP-B5.1 — Derivation sichtbar + ehrliches health/digest (P1, Backend)** · #1155 Aspekte 4+5
+- honcho-ai-2.5.1-SDK-Surface **empirisch prüfen** (conclusion-level, queue/work-units), dann abgeleiteten Zustand erfassen.
+- digest/health meldet `derivation_status` (`ok|none|failed|unsupported|unknown`) + best-effort `derived_count`; „nichts abgeleitet" ≠ „kein Wissen" ≠ „healthy" (F9).
+- #1052-Klasse: fehlgeschlagene Work-Units (`processed=true` + error) erkennbar, soweit das SDK hergibt; Zen-Go-Quote-Abhängigkeit (429) dokumentieren.
+- pgvector: `unsupported`. Envelope in MCP (memory-Antworten der Gruppe + Digest-Felder) + REST + admin-health; Tests. **Kein dediziertes MCP-Tool `memory.health`** — die health-Oberfläche dieser Gruppe ist das Response-Envelope (`memory.list`/`memory.query`/`memory.forget`) plus die admin-`memory`-Reihe.
+- **Status: umgesetzt (2026-10-06, Fix-Iteration 1).** SDK-Surface empirisch verifiziert (read-only-Probe im Backend-Container): `Conclusion.level` (explicit/deductive/inductive/contradiction) + server-seitige `filters={"level": ...}` + `Honcho.queue_status` (Work-Unit-Counter, **kein** per-unit error flag) existieren; kein sonstiger Queue-/Deriver-Zugriff. Umsetzung: `HonchoMemoryBackend._derivation_probe` (eine Peer-Auflösung + eine Conclusions-Seite + Queue-Check, gibt die gelesene Seite an `digest()` zurück) → `MemoryDigest.derivation_status`/`derived_count` (additiv, Default `unknown`/`None`); health-envelope + MCP-Digest/`memory.list`-Envelope + REST-Digest + admin-health `memory`-Reihe (Coercion gegen das gemeinsame Enum); pgvector `unsupported`, honcho scope-less `unknown` (Per-Scope-Wahrheit nur im Digest). Queue-Lücke (`total > completed+in_progress+pending`) wird auf **jedem** sauberen Pfad geprüft und **überstimmt `ok`** — ein Deriver, der nach vorhandenem Output stirbt, meldet `failed` statt dauerhaft `ok`. Verbleibende Limitation (präzise): ein Quote-/429-bedingter Ausfall, den der Server als `completed` zählt, hinterlässt **keine** Lücke und ist client-seitig unsichtbar — Scopes mit früherem Output lesen weiter `ok`, Scopes ohne Output lesen `none`; `ok` ist eine historische Aussage, keine Liveness. Dokumentiert in `deploy/README.md` (§Derivation visibility) und `docs/api/MCP-SURFACE.md` §4. Tests: memory + MCP-memory + admin-health (453 passed, 1 skipped) inkl. Contract, failed-überschreibt-ok auf beiden Pfaden und Single-Read-Pin.
+
+**AP-B5.2 — memory.ask REST + UI (P2, Backend+Frontend)** · #1155 Aspekt 1
+- REST `POST /api/v1/workspaces/<id>/memory/ask/` (Spiegel des MCP `_handle_ask`, WRITE-gated) → `MemoryEntryService.ask`.
+- Frontend: `memoryApi.ask()` + „Frag das Gedächtnis"-Panel (MemoryPage), i18n DE/EN, `data-testid`, Tests.
+- **Status: umgesetzt (2026-10-06).** REST-View `WorkspaceMemoryAskView` + Route `workspace-memory-ask` (`POST /api/v1/workspaces/<uuid:workspace_id>/memory/ask/`, registriert in `rest_api/urls.py`), delegiert an `MemoryEntryService.ask` (Body `query`/`artifact_id`/`reasoning_level`; Antwort `answer`/`generated_at`/`backend`/`degraded`/`detail` — Spiegel von MCP `_handle_ask`, F9-getrennte Zustände). WRITE-gated über den Default-`RbacPermission` (POST → `Operation.WRITE`); das `memory.write`-Rate-Limit gilt bewusst **nicht** — ask persistiert nichts, würde sonst den admin-konfigurierten Write-Zähler umdefinieren und den MCP-Pfad asymmetrisch lassen (Kosten stattdessen über WRITE-Gate, Transport-Throttles und `MEMORY_ASK_TIMEOUT` begrenzt). Frontend: `memoryApi.ask()` + `MemoryAskPanel` („Frag das Gedächtnis", eingebunden in `MemoryPage`), i18n DE/EN, `data-testid`. Tests: `TestMemoryAskRest` in `memory/tests/test_memory_rest.py` (Shape/F9, Forwarding, Artifact-Scope, Validierung, WRITE-Gate, Fremd-Workspace-Fence, i18n-Envelope).
+
+**AP-B5.3 — Hermes-Plugin Memory-Zugriff (P3, Plugin)** · #1155 Aspekt 3 + #1156
+- Hermes-Plugin (Desktop) + Skill: (a) Kontext beziehen (`memory.query`/`digest`/`ask` ins Prompt), (b) einspeisen (`memory.write`). Echter Tool-Call-Beleg. #1156 „Zuhören & Antizipieren" als Schreib-Hälfte (Toggle + Review vor Übernahme).
+- **Status: umgesetzt (Schreib-Hälfte), 2026-10-06.** Skill: neue Subkommandos `memory-query`/`memory-digest`/`memory-ask`/`memory-write` (Mapping auf MCP `memory.query/digest/ask/write`), globales `--workspace-id` mit Fallback `REQOGNILOOM_WORKSPACE_ID`, client-seitige Scope-Validierung (`workspace`/`artifact`/`user`), Behandlung beider MCP-Fehlerformen, Exit `0`/`1`. Plugin: READ `memory.query`/`memory.digest`/`memory.ask` („degraded“ ≠ „leer“), gegateter WRITE-Capture = Toggle + **Review-Schritt vor** `memory.write` (kein Auto-Submit). Refs #1155, Refs #1156, Refs #649.
+- **P4 (offen, bewusst nicht implementiert):** Vorschlags-Schleife **„Capture → `proposed`-Artefakt → Accept“** — siehe AP-B5.4.
+
+**AP-B5.4 — Vorschlags-Schleife (P4, Konzept+Impl)** · #1155 Aspekt 2, refs #1156, #856, #121, #1089
+- Generischer Pfad „Wissen → Vorschlag als `proposed`-Artefakt → Mensch bestätigt". #856 ist nur Design; erst Konzept/ADR, dann `suggestion.list/accept/reject` (MCP+REST+UI). Größter Brocken, bewusst zuletzt.
+- **Konzept/ADR-Teil erledigt:** Entscheidungsvorlage
+  [`ADR-019`](../se/ADR/ADR-019_generischer_vorschlag_lebenszyklus.md) (Status `proposed`,
+  User-Freigabe ausstehend) verabschiedet den Modellrahmen; hier nur die Zusammenfassung.
+  ADR-019 entscheidungsreif (Review `RVW-2026-10-06-003`, Iteration 3: APPROVED; Freigabe offen).
+- **Umsetzungsplan (geordnet):** `WP1–WP7`, Reihenfolge/Wellen, Risiken und MVP-DoD in
+  [`2026-10-06-adr-019-umsetzungsplan-vorschlags-schleife.md`](2026-10-06-adr-019-umsetzungsplan-vorschlags-schleife.md)
+  — pausiert bis `proposed → accepted`, kein Code.
+
+**AP-B5.4-Konzept — Generischer Vorschlags-Lebenszyklus (Entscheidungsvorlage, kein Code)**
+
+**Ausgangslage (belegt):** Es gibt **vier inkompatible, gelebte** Vorschlagsmechanismen —
+Workflow-Zustand `proposed` (`workflow/definition_store.py:605,628,644-711`), die TraceLink-Felder
+`proposed_by`/`proposed_at` (`persistence/models.py:1965-1976`), den Interview-Snapshot
+`grounding_snapshot["pending_proposal"]` (`interview_service.py:2088-2091`) und
+`ContextEdge.origin="llm-suggested"` (`context_graph/models.py:56-64`). Die Produzenten
+(`TraceabilitySuggestService.suggest_links`, `traceability_suggest_service.py:237-338`;
+`AiDerivationService`, `ai_derivation_service.py:616-728`; `ArchitectureDecomposeService.generate_draft`,
+`architecture_decompose_service.py:21-24`; `AuditService.propose_remediation`) sind **transient**
+und persistieren nichts — ein nicht sofort angenommener Vorschlag ist verloren (#121).
+
+**Gewähltes Modell (ADR-019, Zielrichtung):** eine neue, mandanten-gescopte Entität
+`Suggestion` (`TenantScopedModel`, erbt `AuditableModel`; FORCE RLS, CI-Gate
+`test_rls_coverage.py`) mit Lebenszyklus `open | accepted | rejected | superseded`, Produzent/
+Provenienz, optionaler Ziel-Referenz und `payload`. Sie **ersetzt keinen** bestehenden
+Mechanismus, sondern ist **durable Quittung + Inbox + Provenienz** darüber; Accept läuft über
+eine **per-kind Adapter-Registry** (`artifact_create` → M1, `trace_link` → M2-Proposal,
+`interview_grounding` → M3, `context_edge` → neuer, kleiner Origin-Adapter) und delegiert
+**immer** an den bestehenden Pfad — keine neue State-Machine-Logik. Der Agent-Guard bleibt
+fail-closed und greift **je Adapter** (Agent darf eigenen Vorschlag nicht bestätigen): M1 über
+Rule 0, `trace_link` über `AgentSelfConfirmError` in `confirm_proposed_link`/
+`discard_proposed_link`. Die bestehende `ReviewQueueService` (`review_queue_service.py`, #1089)
+bleibt die eine transportübergreifende Sicht und wird nur additiv erweitert. **MVP-Schnitt:**
+genau ein Produzent — `TraceabilitySuggestService.suggest_links` (reichste Provenienz:
+`finding_index`/`rule_id`/`score`/`rationale`); der `trace_link`-Adapter **legt beim Produzieren
+einen M2-Proposal-TraceLink an** (`TraceLinkService.create_trace_link`, Stempel `:601-617`) und
+**bestätigt beim Accept** (`confirm_proposed_link`, `:637-676`; Reject: `discard_proposed_link`)
+— so ist der Accept-Pfad technisch real, nicht „confirm eines nicht existierenden Links"
+(Scope-Änderung: Produzent persistiert jetzt einen Proposal-Link). **Produzenten-Kontext
+(001-09):** Der M2-Stempel `:601-617` greift nur bei `actor_type=="agent"` **und**
+`api_key_id`; der MVP-Produktionspfad ist daher **explizit auf Agent-/API-Key-Kontexte
+begrenzt** (MCP `traceability.suggest_links`). Der Human-Bearer-REST-Trigger
+(`traceability_suggest_views.py:80-82`) ist **out of scope** und wird **fail-closed** abgewiesen
+(`ProducerContextRequiredError` → 409) — kein ungestempelter Link, kein stiller
+Human-in-the-Loop-Bypass. **Kanten-Dedup (001-10):** vor dem `create` prüft der Produzent auf
+einen bereits existierenden Proposal-Link derselben Kante (`uq_tracelink_edge`) und hängt die
+neue Suggestion an diesen, statt hart zu scheitern (erweitert O7).
+
+**STOP-Gate (warum hier kein MVP implementiert wird):** Das ADR entscheidet bewusst **nur die
+Zielrichtung plus einen MVP-Schnitt**, kein Gesamtmodell — elf Sub-Entscheidungen brauchen
+Produkt-Input (O1 Produzenten-Scope, O2 Langfrist-Rolle von `Suggestion`, O3 `minimal`/
+`interview_default`-Semantik, O4 Migration der TraceLink-Felder, O5 MCP-Präfix `suggestion`
+vs. Fold in `review` (Manifest-Regeneration!), O6 UI-Inbox, O7 Idempotenz/Dedup inkl.
+Kanten-Dedup (`uq_tracelink_edge`), O8 eigener Entitätstyp vs. Generic-Artifact, O9 Retention,
+O10 M2-Proposal vs. Suggestion-only, O11 Atomarität Proposal-Link ↔ Suggestion-Quittung). Ohne
+`concept-reviewer`-Review und `proposed → accepted` durch den User entsteht **kein** Modell,
+**keine** Migration, **kein** Tool.
+
+**Offene Entscheidungen (Produkt):** O1–O11 wie in ADR-019 §Offene Punkte; zusätzlich muss der
+MCP-Surface-Entscheid (O5) mit der Manifest-Pflege (`docs/agent-templates/tool-manifest.json`,
+Drift-Gate `test_tool_manifest_drift.py`) und dem REST-/RBAC-Pfad (`rest_api/urls.py:213-261`,
+`rest_api/auth_enforcer.py:60`) verzahnt werden. Das Threat-Model der neuen Entität
+(Payload-Injection/Provenienz-Trust, Tenant-Isolation beim Accept) steht in ADR-019 §Kontext.
+
+**UI-Follow-up (eigenes Arbeitspaket nach O6):** „Vorschläge"-Inbox (Annehmen/Ablehnen mit
+Provenienz „Vorschlag von …"), i18n DE/EN, `data-testid`, Anbindung an die bestehende
+Pending-Review-Ansicht; ohne UI erfüllt die Entität allein das DoD von #1155/#1156 nicht.
+
+> **Abgrenzung:** ADR-019 ist eine Entscheidungsvorlage (`proposed`) und ändert keinen Code.
+> Umsetzung erst nach User-Approval als eigenes Arbeitspaket; die konkreten `suggestion.list/
+> accept/reject`-Endpunkte (MCP+REST) folgen daraus.
+
+**DoD B5:** Abnahmekriterien aus #1155 (NL-Antwort über MCP+REST+UI quellenbelegt; Vorschlag als `proposed`; Plugin belegt Lesen+Schreiben; abgeleitete Repräsentation nach funktionierender Quote nachweisbar).
+
+---
+
+## 4. Verzahnung mit #1171 und dem One-Click-Plan
+
+- #1171 ist der **Dach-Issue** für B0; der bestehende Plan liefert bereits eine verifizierte
+  Client-Matrix, Transportregel und Store-Landkarte. Dieser Arbeitsplan **dupliziert ihn nicht**,
+  sondern verankert ihn im Hub und schneidet die sofort machbaren Teile heraus.
+- Der Hub verlinkt beide Richtungen: Hub → Plan (dieser) → One-Click-Plan.
+- **Nächster konkreter Schritt für #1171:** `clients/registry.yaml` als Single Source of Truth
+  anlegen und `docs/clients/` daraus generieren — damit ist der OpenCode-Widerspruch
+  technisch ausgeschlossen (nicht nur redaktionell).
+
+---
+
+## 5. Reihenfolge (Wellen)
+
+| Welle | Inhalt | Typ | Abhängigkeit |
+|---|---|---|---|
+| **W0** | B4.1 (#1185), B3.1 (#1152), B2.1 (#1163) | Sofortfixes, klein/risikolos | — |
+| **W1** | B2 komplett (#1153, #1186, #1165) | Provider-Robustheit | W0 |
+| **W2** | B1 komplett (#1164, #1098, #1097, #1170, #1101, #1133) | MCP-Parität | — |
+| **W3** | B3.2 (#988) | Plugin/Frontend | — |
+| **W4** | B0 Doku + Registry/Skripte (#1171/#1169/#649) | Client-Onboarding | W2 (Config-Modell stabil) |
+| **W5** | B0 Stores + Tokens (#92, #1138) | Supply-Chain/Produkt | W4, Entscheidungen E1–E7 |
+
+---
+
+## 6. Risiken
+
+| Risiko | Wirkung | Gegenmaßnahme |
+|---|---|---|
+| Breaking Change am REST-Envelope (#1177) | Clients brechen | Übergangs-/Versionierungsentscheidung E1, erst nach SDK-Abgleich |
+| Honcho-Fix ist Upstream (#1153) | nicht lokal lösbar | Deploy-Override + Upstream-Meldung + ehrliche Doku |
+| Bluepencil-Re-Vendor (#988) braucht externen Build | Verzögerung | Host-Bridge ist bereits da; nur Bundle-Tausch nötig |
+| #1171 Stufe 1 ist 9–13 PT | lange Kette | strikt Stufe 1/2 trennen, Doku zuerst |
+| Zwei Marktplätze (Claude/Codex) driften | inkonsistente Versionen | beides aus `registry.yaml` generieren |
+| Provider-Timeout-Messung durch #1166 verfälscht | falsche Diagnose | DB-Pool-Zustand vor B2-Messung prüfen |
+
+---
+
+## 7. Entscheidungsbedarf
+
+| # | Frage | Empfehlung |
+|---|---|---|
+| E1 | `/users/`-Envelope-Bruch: sofort oder versioniert? | Versionierter Übergang (Alias/`v2`), nie still umstellen |
+| E2 | Bindestrich-Schema: dokumentieren oder Alias-Routen? | Alias-Routen ergänzen + Neuanlagen normen |
+| E3 | Wer darf `main_goal.query` (Rollenvertrag)? | Workspace-Mitglied read-only; Vertrag in Tool-Beschreibung |
+| E4 | VCRM REST (#1101): neues Interface oder MCP-only sichtbar? | Zuerst MCP-only sichtbar machen (b) |
+| E5 | #92 Token-Scope: Header oder In-Token? | In-Token (Scope gehasht), UI zeigt nur Workspace-UUID |
+| E6 | Bluepencil: eigenes Re-Vendor oder Upstream-Sync-Prozess? | Einmal re-vendorn + `latest.json`-SHA als CI-Check |
+
+---
+
+## 8. Anhänge
+
+### Anhang A — Issue → Bundle → Closure-Kriterium
+
+| Issue | Bundle | Closure-Kriterium |
+|---|---|---|
+| #1185 | B4 | Regressionstest: keine DB-Interna in Antwort |
+| #1177 | B4 | `/openapi.json` + Envelope-Tests grün |
+| #1152 | B3 | Test: `cancelInterview` → `interview.abandon` |
+| #988 | B3 | Notiz trägt realen Autor, SHA synchron |
+| #1163 | B2 | Test: `score:null` → Default, kein `TypeError` |
+| #1153 | B2 | Dialektik-Call 200 **oder** Doku „nicht betreibbar" |
+| #1186 | B2 | Preflight beweist Header-Zustellung |
+| #1165 | B2 | Timeout → 503/504 mit `LLM_TIMEOUT` |
+| #1164 | B1 | `set_target` REST + `interview.chat` MCP verifiziert |
+| #1098 | B1 | `traceability.query_links` ohne `artifact_id` |
+| #1097 | B1 | `main_goal.query` mit Rollenvertrag |
+| #1170 | B1 | Schwelle/Transparenz + Paritäts-Matrix |
+| #1101 | B1 | VCRM sichtbar/tot-Code entschieden |
+| #1133 | B1 | Tests self-seeding, keine SetupErrors |
+| #1171 | B0 | Plan-DoD Stufe 1 |
+| #1169 | B0 | Codex-Doku korrigiert |
+| #649 | B0 | Hermes-Skill installierbar/verifiziert |
+| #92 | B0 | Workspace-Token + UI-Copy |
+| #1138 | B0 | ADR-Anker gesetzt |

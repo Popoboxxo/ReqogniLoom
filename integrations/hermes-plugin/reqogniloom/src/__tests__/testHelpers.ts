@@ -1,10 +1,10 @@
 import type { AppState } from "../state";
 
-// Shared across InterviewListView/InterviewFormView/ReqogniLoomPanel tests --
-// every one of them exercises the "already connected, viewing interviews"
+// Shared across InterviewListView/InterviewFormView/ReqogniLoomPanel/
+// ConnectedView tests -- every one of them exercises the "already connected"
 // slice of AppState, so a single baseline avoids each file re-declaring the
-// same 11-field literal (and every new AppState field having to be added
-// in three places at once).
+// same literal (and every new AppState field having to be added in several
+// places at once).
 export function makeAppState(overrides: Partial<AppState> = {}): AppState {
   return {
     view: "interviews",
@@ -18,6 +18,18 @@ export function makeAppState(overrides: Partial<AppState> = {}): AppState {
     interviewList: [],
     interviewError: null,
     interviewBusy: false,
+    memoryEntries: [],
+    memoryDigest: null,
+    memoryAnswer: null,
+    memoryDegraded: false,
+    memoryDetail: null,
+    memoryLoading: false,
+    memoryError: null,
+    memoryLoaded: false,
+    captureEnabled: false,
+    pendingCapture: null,
+    captureBusy: false,
+    captureError: null,
     ...overrides,
   };
 }

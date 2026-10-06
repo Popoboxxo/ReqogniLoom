@@ -37,6 +37,8 @@ import urllib.parse
 
 import pytest
 
+from auth_tenancy.provisioning import DEFAULT_WORKSPACE_NAME
+
 # ---------------------------------------------------------------------------
 # Stack base URLs — match docker-compose port mapping
 # ---------------------------------------------------------------------------
@@ -333,19 +335,57 @@ def seeded_workspace_id(bearer_token: str) -> str:
     seeded workspace by name (``DEFAULT_WORKSPACE_NAME`` in
     ``auth_tenancy.provisioning``), which is the workspace bootstrap_admin binds
     the admin's admin role to.
+
+    A live stack that was never seeded (no ``bootstrap_admin``/``seed_demo``)
+    used to fail this fixture with a plain ``assert`` — a pytest *SetupError*
+    for all four consumers. It is now self-seeding: when the named workspace is
+    absent, it provisions one through the canonical REST path
+    (``POST /api/v1/workspaces/`` → ``WorkspaceService.create_workspace``,
+    which grants the creator an admin ``UserRole`` — #232) and re-resolves the
+    created id from the list. Only if even that is impossible does it
+    ``pytest.skip`` with a reason, so a missing seed degrades to a clean skip
+    instead of a setup error.
     """
     workspaces = _list_all_workspaces(bearer_token)
-    assert workspaces, "No workspaces found — is seed_demo loaded?"
     seeded = next(
-        (w for w in workspaces if w.get("name") == "Demo Workspace"), None
+        (w for w in workspaces if w.get("name") == DEFAULT_WORKSPACE_NAME), None
     )
-    assert seeded, (
-        "Seeded 'Demo Workspace' not found after paging through all "
-        f"{len(workspaces)} workspace(s) — is bootstrap_admin/seed_demo "
-        f"loaded? First names: "
-        f"{[w.get('name') for w in workspaces[:20]]}"
+    if seeded is not None:
+        return seeded["id"]
+
+    # Absent — self-seed via the canonical existing REST provisioning route
+    # (no bespoke provisioning path). The admin Bearer token is used on
+    # purpose: the endpoint binds the creating principal an admin UserRole in
+    # the new workspace (#232), which is exactly the role the consumers need.
+    status, data = _http_request(
+        f"{REST_URL}/workspaces/",
+        method="POST",
+        headers={"Authorization": f"Bearer {bearer_token}"},
+        data={
+            "name": DEFAULT_WORKSPACE_NAME,
+            "preset": {"tier": "extended"},
+            "terminology_profile": "se_mode",
+        },
     )
-    return seeded["id"]
+    created_id = data.get("id") if isinstance(data, dict) else None
+    if status != 201 or not created_id:
+        pytest.skip(
+            "Demo Workspace absent and not self-seedable: "
+            f"POST /workspaces/ returned {status} {data}"
+        )
+
+    # Re-resolve by the returned id from the same list the consumers' role
+    # lookups read, rather than trusting the create response's own echo.
+    resolved = next(
+        (w for w in _list_all_workspaces(bearer_token) if w.get("id") == created_id),
+        None,
+    )
+    if resolved is None:
+        pytest.skip(
+            "Demo Workspace absent and not self-seedable: "
+            f"created workspace {created_id} not visible in the workspace list"
+        )
+    return resolved["id"]
 
 
 # ---------------------------------------------------------------------------

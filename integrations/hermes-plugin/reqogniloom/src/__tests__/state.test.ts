@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { HermesPluginAPI } from "../hermes-api-types";
 import { ReqogniLoomApiError, type Workspace } from "../api";
-import type { InterviewState } from "../mcpClient";
+import type { InterviewState, InterviewSummary, MemoryQueryResult } from "../mcpClient";
 
 // Mock the api module so state.ts's calls to listWorkspaces are fully
 // controlled by each test without touching real network.fetch.
@@ -13,8 +13,8 @@ vi.mock("../api", async () => {
   };
 });
 
-// Mock the mcpClient module so state.ts's interview.* calls are fully
-// controlled by each test without touching real network.fetch.
+// Mock the mcpClient module so state.ts's interview.* / memory.* calls are
+// fully controlled by each test without touching real network.fetch.
 vi.mock("../mcpClient", async () => {
   const actual = await vi.importActual<typeof import("../mcpClient")>("../mcpClient");
   return {
@@ -26,6 +26,11 @@ vi.mock("../mcpClient", async () => {
     interviewFormalize: vi.fn(),
     interviewGroundingContext: vi.fn(),
     interviewSetTarget: vi.fn(),
+    interviewAbandon: vi.fn(),
+    memoryQuery: vi.fn(),
+    memoryDigest: vi.fn(),
+    memoryAsk: vi.fn(),
+    memoryWrite: vi.fn(),
   };
 });
 
@@ -34,17 +39,23 @@ import * as mcpClient from "../mcpClient";
 import {
   __resetStateForTesting,
   answerInterviewField,
+  askMemory,
+  cancelCapture,
   cancelInterview,
   chooseWorkspace,
   closeInterview,
+  confirmCapture,
   connectWithCredentials,
   disconnect,
   formalizeInterview,
   getState,
   initState,
+  loadMemoryContext,
   openInBrowser,
   openInterviews,
+  requestCapture,
   resumeInterview,
+  setCaptureEnabled,
   setInterviewTarget,
   startNewInterview,
   subscribe,
@@ -86,6 +97,10 @@ const workspaceB: Workspace = { id: "ws-2", name: "Beta" };
 beforeEach(() => {
   __resetStateForTesting();
   listWorkspacesMock.mockReset();
+  vi.mocked(mcpClient.memoryQuery).mockReset();
+  vi.mocked(mcpClient.memoryDigest).mockReset();
+  vi.mocked(mcpClient.memoryAsk).mockReset();
+  vi.mocked(mcpClient.memoryWrite).mockReset();
 });
 
 describe("initState", () => {
@@ -148,6 +163,32 @@ describe("initState", () => {
   it("drops a stored connection with an empty baseUrl", async () => {
     const stored = JSON.stringify({
       connection: { baseUrl: "", apiKey: "reqlo_abc", workspaceId: "ws-1" },
+      workspaceName: "Alpha",
+    });
+    const api = createMockApi(stored);
+    await initState(api);
+
+    expect(getState().view).toBe("connect");
+    expect(api.storage.delete).toHaveBeenCalledWith("reqogniloom-connection");
+  });
+
+  it("drops a stored connection with a missing workspaceId instead of restoring a half-dead panel", async () => {
+    const stored = JSON.stringify({
+      connection: { baseUrl: "https://example.com", apiKey: "reqlo_abc" },
+      workspaceName: "Alpha",
+    });
+    const api = createMockApi(stored);
+    await initState(api);
+
+    const state = getState();
+    expect(state.view).toBe("connect");
+    expect(state.connection).toBeNull();
+    expect(api.storage.delete).toHaveBeenCalledWith("reqogniloom-connection");
+  });
+
+  it("drops a stored connection with an empty workspaceId", async () => {
+    const stored = JSON.stringify({
+      connection: { baseUrl: "https://example.com", apiKey: "reqlo_abc", workspaceId: "" },
       workspaceName: "Alpha",
     });
     const api = createMockApi(stored);
@@ -414,18 +455,48 @@ describe("interview state", () => {
     expect(getState().view).toBe("connected");
   });
 
-  it("cancelInterview clears activeInterview and returns to the interviews list instead of skipping past it", async () => {
+  it("cancelInterview abandons the session server-side and returns to the interviews list", async () => {
     await connectedState();
     vi.mocked(mcpClient.interviewStart).mockResolvedValue(fakeInterviewState);
     await startNewInterview("Requirement");
+    vi.mocked(mcpClient.interviewAbandon).mockResolvedValue({
+      ...fakeInterviewState,
+      status: "abandoned",
+    });
     const summaries = [{ id: "s-1", workspace_id: "ws-1", artifact_type: "Requirement", status: "in_progress" }];
     vi.mocked(mcpClient.interviewList).mockResolvedValue(summaries);
 
     await cancelInterview();
 
+    expect(mcpClient.interviewAbandon).toHaveBeenCalledWith(expect.anything(), expect.anything(), "s-1");
     expect(getState().activeInterview).toBeNull();
     expect(getState().view).toBe("interviews");
     expect(getState().interviewList).toEqual(summaries);
+  });
+
+  it("cancelInterview surfaces a failed abandon but still returns to the list", async () => {
+    await connectedState();
+    vi.mocked(mcpClient.interviewStart).mockResolvedValue(fakeInterviewState);
+    await startNewInterview("Requirement");
+    vi.mocked(mcpClient.interviewAbandon).mockRejectedValue(new Error("not in_progress"));
+    vi.mocked(mcpClient.interviewList).mockResolvedValue([]);
+
+    await cancelInterview();
+
+    expect(getState().activeInterview).toBeNull();
+    expect(getState().view).toBe("interviews");
+    expect(getState().interviewError).toBe("not in_progress");
+  });
+
+  it("cancelInterview calls no abandon tool when there is no active interview", async () => {
+    await connectedState();
+    vi.mocked(mcpClient.interviewAbandon).mockClear();
+    vi.mocked(mcpClient.interviewList).mockResolvedValue([]);
+
+    await cancelInterview();
+
+    expect(mcpClient.interviewAbandon).not.toHaveBeenCalled();
+    expect(getState().view).toBe("interviews");
   });
 
   it("resumeInterview loads an existing session via interviewGetState", async () => {
@@ -648,6 +719,352 @@ describe("interview state", () => {
     expect(result).toBeNull();
     expect(getState().interviewBusy).toBe(false);
     expect(getState().interviewError).toMatch(/aborted due to timeout/);
+  });
+});
+
+describe("stale async guards", () => {
+  it("openInterviews discards a stale response when the user disconnects mid-flight", async () => {
+    await connectedState();
+    let resolveList!: (value: InterviewSummary[]) => void;
+    vi.mocked(mcpClient.interviewList).mockReturnValue(
+      new Promise<InterviewSummary[]>((resolve) => {
+        resolveList = resolve;
+      })
+    );
+
+    const pending = openInterviews();
+    await disconnect();
+    resolveList([{ id: "s-1", workspace_id: "ws-1", artifact_type: "Requirement", status: "in_progress" }]);
+    await pending;
+
+    const state = getState();
+    expect(state.connection).toBeNull();
+    expect(state.view).toBe("connect");
+    expect(state.interviewList).toEqual([]);
+  });
+
+  it("startNewInterview discards a stale response when the user disconnects mid-flight", async () => {
+    await connectedState();
+    let resolveStart!: (value: InterviewState) => void;
+    vi.mocked(mcpClient.interviewStart).mockReturnValue(
+      new Promise<InterviewState>((resolve) => {
+        resolveStart = resolve;
+      })
+    );
+
+    const pending = startNewInterview("Requirement");
+    await disconnect();
+    resolveStart(fakeInterviewState);
+    await pending;
+
+    const state = getState();
+    expect(state.connection).toBeNull();
+    expect(state.view).toBe("connect");
+    expect(state.activeInterview).toBeNull();
+  });
+
+  it("resumeInterview discards a stale response when the user disconnects mid-flight", async () => {
+    await connectedState();
+    let resolveGet!: (value: InterviewState) => void;
+    vi.mocked(mcpClient.interviewGetState).mockReturnValue(
+      new Promise<InterviewState>((resolve) => {
+        resolveGet = resolve;
+      })
+    );
+
+    const pending = resumeInterview("s-1");
+    await disconnect();
+    resolveGet(fakeInterviewState);
+    await pending;
+
+    const state = getState();
+    expect(state.connection).toBeNull();
+    expect(state.view).toBe("connect");
+    expect(state.activeInterview).toBeNull();
+  });
+});
+
+describe("memory read", () => {
+  const sampleEntry = { entry_id: "e-1", content: "SSO required", scope: "workspace" as const, workspace_id: "ws-1" };
+
+  it("loadMemoryContext loads entries and merges the digest", async () => {
+    await connectedState();
+    vi.mocked(mcpClient.memoryQuery).mockResolvedValue({ entries: [sampleEntry], degraded: false, detail: null });
+    vi.mocked(mcpClient.memoryDigest).mockResolvedValue({ digest: "Workspace summary", degraded: false });
+
+    await loadMemoryContext("ws-1");
+
+    expect(mcpClient.memoryQuery).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ scope: "workspace", workspace_id: "ws-1", query: expect.any(String) })
+    );
+    const state = getState();
+    expect(state.memoryEntries).toEqual([sampleEntry]);
+    expect(state.memoryDigest).toBe("Workspace summary");
+    expect(state.memoryDegraded).toBe(false);
+    expect(state.memoryLoading).toBe(false);
+    expect(state.memoryLoaded).toBe(true);
+  });
+
+  it("memoryLoaded starts false and flips true even when a load fails", async () => {
+    await connectedState();
+    expect(getState().memoryLoaded).toBe(false);
+
+    vi.mocked(mcpClient.memoryQuery).mockRejectedValue(new Error("boom"));
+    await loadMemoryContext("ws-1");
+
+    expect(getState().memoryLoaded).toBe(true);
+  });
+
+  it("keeps a degraded read distinct from a genuine empty result", async () => {
+    await connectedState();
+    vi.mocked(mcpClient.memoryQuery).mockResolvedValue({
+      entries: [],
+      degraded: true,
+      detail: "engine_error:TimeoutError",
+    });
+    vi.mocked(mcpClient.memoryDigest).mockRejectedValue(new Error("digest down"));
+
+    await loadMemoryContext("ws-1");
+
+    const state = getState();
+    expect(state.memoryEntries).toEqual([]);
+    expect(state.memoryDegraded).toBe(true);
+    expect(state.memoryDetail).toBe("engine_error:TimeoutError");
+    expect(state.memoryError).toBeNull();
+  });
+
+  it("an empty healthy read is not degraded", async () => {
+    await connectedState();
+    vi.mocked(mcpClient.memoryQuery).mockResolvedValue({ entries: [], degraded: false, detail: null });
+    vi.mocked(mcpClient.memoryDigest).mockResolvedValue({ digest: "", degraded: false });
+
+    await loadMemoryContext("ws-1");
+
+    expect(getState().memoryDegraded).toBe(false);
+    expect(getState().memoryEntries).toEqual([]);
+  });
+
+  it("a failed digest does not discard the entries memory.query returned", async () => {
+    await connectedState();
+    vi.mocked(mcpClient.memoryQuery).mockResolvedValue({ entries: [sampleEntry], degraded: false });
+    vi.mocked(mcpClient.memoryDigest).mockRejectedValue(new Error("no digest"));
+
+    await loadMemoryContext("ws-1");
+
+    expect(getState().memoryEntries).toEqual([sampleEntry]);
+    expect(getState().memoryDigest).toBeNull();
+  });
+
+  it("loadMemoryContext surfaces a query failure as memoryError", async () => {
+    await connectedState();
+    vi.mocked(mcpClient.memoryQuery).mockRejectedValue(new Error("boom"));
+
+    await loadMemoryContext("ws-1");
+
+    expect(getState().memoryError).toBe("boom");
+    expect(getState().memoryLoading).toBe(false);
+  });
+
+  it("loadMemoryContext discards a stale response when the user disconnects mid-flight", async () => {
+    await connectedState();
+    let resolveQuery!: (value: MemoryQueryResult) => void;
+    vi.mocked(mcpClient.memoryQuery).mockReturnValue(
+      new Promise<MemoryQueryResult>((resolve) => {
+        resolveQuery = resolve;
+      })
+    );
+
+    const pending = loadMemoryContext("ws-1");
+    await disconnect();
+    resolveQuery({ entries: [sampleEntry], degraded: false });
+    await pending;
+
+    const state = getState();
+    expect(state.connection).toBeNull();
+    expect(state.memoryEntries).toEqual([]);
+  });
+
+  it("askMemory stores the answer", async () => {
+    await connectedState();
+    vi.mocked(mcpClient.memoryAsk).mockResolvedValue({ answer: "yes", degraded: false, detail: "" });
+
+    await askMemory("ws-1", "is sso required?");
+
+    expect(mcpClient.memoryAsk).toHaveBeenCalledWith(expect.anything(), expect.anything(), {
+      query: "is sso required?",
+      workspace_id: "ws-1",
+    });
+    expect(getState().memoryAnswer).toBe("yes");
+    expect(getState().memoryLoading).toBe(false);
+  });
+
+  it("askMemory surfaces a failure and ignores a blank query", async () => {
+    await connectedState();
+    vi.mocked(mcpClient.memoryAsk).mockRejectedValue(new Error("llm down"));
+
+    await askMemory("ws-1", "is sso required?");
+    expect(getState().memoryError).toBe("llm down");
+
+    vi.mocked(mcpClient.memoryAsk).mockClear();
+    await askMemory("ws-1", "   ");
+    expect(mcpClient.memoryAsk).not.toHaveBeenCalled();
+  });
+});
+
+describe("gated capture", () => {
+  it("requestCapture stages a draft without any network call", async () => {
+    await connectedState();
+    setCaptureEnabled(true);
+
+    requestCapture("Use PostgreSQL 16");
+
+    expect(getState().pendingCapture).toBe("Use PostgreSQL 16");
+    expect(mcpClient.memoryWrite).not.toHaveBeenCalled();
+  });
+
+  it("does nothing while capture is disabled", async () => {
+    await connectedState();
+
+    requestCapture("fact");
+
+    expect(getState().captureEnabled).toBe(false);
+    expect(getState().pendingCapture).toBeNull();
+  });
+
+  it("confirmCapture performs memory.write and clears the draft", async () => {
+    await connectedState();
+    setCaptureEnabled(true);
+    requestCapture("Use PostgreSQL 16");
+    vi.mocked(mcpClient.memoryWrite).mockResolvedValue({
+      entry_id: "e-1",
+      content: "Use PostgreSQL 16",
+      scope: "workspace",
+    });
+
+    await confirmCapture();
+
+    expect(mcpClient.memoryWrite).toHaveBeenCalledTimes(1);
+    expect(mcpClient.memoryWrite).toHaveBeenCalledWith(expect.anything(), expect.anything(), {
+      content: "Use PostgreSQL 16",
+      scope: "workspace",
+      workspace_id: "ws-1",
+    });
+    expect(getState().pendingCapture).toBeNull();
+  });
+
+  it("confirmCapture does not write without a pending draft", async () => {
+    await connectedState();
+    setCaptureEnabled(true);
+
+    await confirmCapture();
+
+    expect(mcpClient.memoryWrite).not.toHaveBeenCalled();
+  });
+
+  it("does not write when capture was disabled before confirm", async () => {
+    await connectedState();
+    setCaptureEnabled(true);
+    requestCapture("fact");
+    setCaptureEnabled(false);
+
+    await confirmCapture();
+
+    expect(mcpClient.memoryWrite).not.toHaveBeenCalled();
+  });
+
+  it("toggling off discards a pending draft", async () => {
+    await connectedState();
+    setCaptureEnabled(true);
+    requestCapture("fact");
+
+    setCaptureEnabled(false);
+
+    expect(getState().captureEnabled).toBe(false);
+    expect(getState().pendingCapture).toBeNull();
+  });
+
+  it("cancelCapture clears the draft without a network call", async () => {
+    await connectedState();
+    setCaptureEnabled(true);
+    requestCapture("fact");
+
+    cancelCapture();
+
+    expect(getState().pendingCapture).toBeNull();
+    expect(mcpClient.memoryWrite).not.toHaveBeenCalled();
+  });
+
+  it("keeps the draft and surfaces captureError when memory.write fails", async () => {
+    await connectedState();
+    setCaptureEnabled(true);
+    requestCapture("fact");
+    vi.mocked(mcpClient.memoryWrite).mockRejectedValue(new Error("rate limited"));
+
+    await confirmCapture();
+
+    expect(getState().pendingCapture).toBe("fact");
+    // A write failure belongs to the capture surface, not the read section.
+    expect(getState().captureError).toBe("rate limited");
+    expect(getState().memoryError).toBeNull();
+    expect(getState().captureBusy).toBe(false);
+  });
+
+  it("clears captureError when a new draft is requested or cancelled", async () => {
+    await connectedState();
+    setCaptureEnabled(true);
+    requestCapture("first");
+    vi.mocked(mcpClient.memoryWrite).mockRejectedValue(new Error("boom"));
+    await confirmCapture();
+    expect(getState().captureError).toBe("boom");
+
+    requestCapture("second");
+    expect(getState().captureError).toBeNull();
+
+    vi.mocked(mcpClient.memoryWrite).mockRejectedValue(new Error("boom again"));
+    await confirmCapture();
+    expect(getState().captureError).toBe("boom again");
+    cancelCapture();
+    expect(getState().captureError).toBeNull();
+  });
+
+  it("ignores a second confirmCapture while the first is in flight (no double write)", async () => {
+    await connectedState();
+    setCaptureEnabled(true);
+    requestCapture("Use PostgreSQL 16");
+
+    let resolveWrite!: (value: { entry_id: string; content: string; scope: "workspace" }) => void;
+    vi.mocked(mcpClient.memoryWrite).mockReturnValue(
+      new Promise((resolve) => {
+        resolveWrite = resolve;
+      })
+    );
+
+    const first = confirmCapture();
+    // Second click while the first awaits: must be a no-op, not a second write.
+    const second = confirmCapture();
+
+    expect(mcpClient.memoryWrite).toHaveBeenCalledTimes(1);
+    expect(getState().captureBusy).toBe(true);
+
+    resolveWrite({ entry_id: "e-1", content: "Use PostgreSQL 16", scope: "workspace" });
+    await Promise.all([first, second]);
+
+    expect(mcpClient.memoryWrite).toHaveBeenCalledTimes(1);
+    expect(getState().captureBusy).toBe(false);
+    expect(getState().pendingCapture).toBeNull();
+  });
+
+  it("leaves captureBusy false after a successful confirm", async () => {
+    await connectedState();
+    setCaptureEnabled(true);
+    requestCapture("fact");
+    vi.mocked(mcpClient.memoryWrite).mockResolvedValue({ entry_id: "e-1", content: "fact", scope: "workspace" });
+
+    await confirmCapture();
+
+    expect(getState().captureBusy).toBe(false);
   });
 });
 

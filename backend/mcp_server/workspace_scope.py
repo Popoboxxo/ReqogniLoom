@@ -187,6 +187,7 @@ _TOOL_TARGETS: Dict[str, Tuple[Tuple[str, str], ...]] = {
     "goal.update": (("goal_id", "goal"),),
     "interview.abandon": (("session_id", "interview"),),
     "interview.answer": (("session_id", "interview"),),
+    "interview.chat": (("session_id", "interview"),),
     "interview.formalize": (("session_id", "interview"),),
     "interview.grounding_context": (("session_id", "interview"),),
     "interview.set_target": (("session_id", "interview"),),

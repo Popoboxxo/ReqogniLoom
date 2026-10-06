@@ -1,6 +1,6 @@
 {
   "generated_from": "reqogniloom==1.8.0-beta.19",
-  "tool_count": 220,
+  "tool_count": 223,
   "tools": [
     {
       "name": "admin.backup_create",
@@ -864,7 +864,7 @@
       "name": "artifact.search",
       "prefix": "artifact",
       "is_write": false,
-      "description": "Search across all artifact types. Combines a semantic full-text pass (PostgreSQL tsvector) with a lexical pass that matches the query as a case-insensitive substring of an artifact's title, uid or ID — so exact names and ID fragments are found too, and rank above semantic matches.",
+      "description": "Search across all artifact types. Each hit's relevance_score is a normalized fused rank in [0, 1] built from up to three passes: (1) a full-text pass over a PostgreSQL tsvector (ts_rank); (2) a lexical pass that scores a case-insensitive exact/substring match of the query against an artifact's title, uid or ID (exact title > exact uid/ID > title prefix > title substring > ID substring); and (3) where an embedding exists, an embedding/cosine semantic pass. When the semantic pass contributes hits, the passes are combined by Reciprocal Rank Fusion; otherwise they are combined by the maximum normalized score. Either way a relevance_score expresses relative rank position, not an absolute similarity. By default no filtering is applied: every matching artifact is returned, ordered by descending score, and total_count counts all of them. Pass min_score (in [0, 1]) to drop hits whose relevance_score is below it — total_count then counts only the surviving hits, and pagination is applied after the filter.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -902,6 +902,12 @@
           "limit": {
             "type": "integer",
             "description": "Page size (default 20)."
+          },
+          "min_score": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "description": "Optional relevance floor in [0, 1]; default 0 applies no filtering. When > 0, hits whose relevance_score is below this value are dropped before pagination, and total_count counts only the surviving hits."
           }
         },
         "required": [
@@ -3424,6 +3430,28 @@
       }
     },
     {
+      "name": "interview.chat",
+      "prefix": "interview",
+      "is_write": true,
+      "description": "Drive one server-generated conversational turn for an in_progress interview session (write). Persists the user message plus the assistant's reply to the session transcript and extracts any protocol fields the model recognised. Returns {reply, state}; multi-kind sessions may additionally return a pending artifact proposal (read it via interview.propose). Requires a resolvable LLM provider and raises VALIDATION_ERROR when none is available -- unlike the fail-open grounding path this path cannot degrade to a silent no-op.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "description": "UUID of the interview session."
+          },
+          "message": {
+            "type": "string",
+            "description": "Free-form user message for this turn. Optional; omitted/empty starts the assistant's side of the conversation from the session's current state."
+          }
+        },
+        "required": [
+          "session_id"
+        ]
+      }
+    },
+    {
       "name": "interview.formalize",
       "prefix": "interview",
       "is_write": true,
@@ -4090,6 +4118,23 @@
       "prefix": "main_goal",
       "is_write": false,
       "description": "List all MainGoal versions for a workspace, oldest first.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "workspace_id"
+        ]
+      }
+    },
+    {
+      "name": "main_goal.query",
+      "prefix": "main_goal",
+      "is_write": false,
+      "description": "List all MainGoal versions of a workspace, newest first (read-only). Every member of the workspace may list its MainGoals read-only. The result is scoped to the caller's tenant and the given workspace. Returns {\"main_goals\": [...], \"count\": N}.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -6367,6 +6412,36 @@
         },
         "required": [
           "artifact_id"
+        ]
+      }
+    },
+    {
+      "name": "traceability.query_links",
+      "prefix": "traceability",
+      "is_write": false,
+      "description": "Enumerate the TraceLinks of a whole workspace, in creation order, page by page (issue #1098). Counterpart to traceability.query, which requires an artifact_id and only answers 'what links does this artifact have' — this answers 'list every link in the workspace', i.e. the MCP form of GET /api/v1/tracelinks/?workspace_id=. Read-only. Returns real stored Artifact ids as strings (id, source_id, target_id, link_type, version, created_at, ...), so a source_id/target_id can be fed straight back into traceability.query.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "UUID of the workspace whose links to list."
+          },
+          "link_type": {
+            "type": "string",
+            "description": "Optional TraceLink type filter (e.g. 'verifies'). Omit to list every link type. Not an enum: the catalog is tenant-/workspace-configurable; call link_type.list to discover the valid keys."
+          },
+          "page": {
+            "type": "integer",
+            "description": "Page number, 1-based (default 1)."
+          },
+          "page_size": {
+            "type": "integer",
+            "description": "Rows per page, 1..500 (default 25)."
+          }
+        },
+        "required": [
+          "workspace_id"
         ]
       }
     },

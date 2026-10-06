@@ -11,9 +11,9 @@
     "closed, so there is nothing left to accept."
   ],
   "measured_at": {
-    "version": "1.8.0-beta.16",
-    "commit": "9eb2fc58",
-    "note": "219 tools / 35 tool-group prefixes after the #1080 test.run_list addition."
+    "version": "1.8.0-beta.18",
+    "commit": "7b585bb4",
+    "note": "223 tools / 35 tool-group prefixes after interview.chat (#1164), traceability.query_links (#1098) and main_goal.query (#1097); still no known gaps."
   },
   "violations": []
 }

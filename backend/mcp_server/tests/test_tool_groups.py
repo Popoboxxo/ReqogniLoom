@@ -1264,6 +1264,124 @@ class TestCrossCuttingToolGroup:
         # Empty query param → ParameterError → VALIDATION_ERROR
         assert result.success is False
 
+    def _mock_search_result(self, search_svc):
+        from application.services import SearchResult
+
+        mock_result = MagicMock(spec=SearchResult)
+        mock_result.results = []
+        mock_result.total_count = 0
+        mock_result.page = 1
+        mock_result.limit = 20
+        search_svc.search.return_value = mock_result
+
+    def test_artifact_search_forwards_min_score_to_service(self):
+        group, _, search_svc, _ = self._group()
+        self._mock_search_result(search_svc)
+
+        result = group.execute_tool(
+            tool_name="artifact.search",
+            params={"query": "authentication", "min_score": 0.5},
+            auth_context=EDITOR_CTX,
+            api_key=VALID_API_KEY,
+        )
+        assert result.success is True
+        assert search_svc.search.call_args.kwargs["min_score"] == 0.5
+
+    def test_artifact_search_defaults_min_score_to_zero(self):
+        group, _, search_svc, _ = self._group()
+        self._mock_search_result(search_svc)
+
+        group.execute_tool(
+            tool_name="artifact.search",
+            params={"query": "authentication"},
+            auth_context=EDITOR_CTX,
+            api_key=VALID_API_KEY,
+        )
+        assert search_svc.search.call_args.kwargs["min_score"] == 0.0
+
+    def test_artifact_search_rejects_negative_min_score(self):
+        group, _, search_svc, _ = self._group()
+        result = group.execute_tool(
+            tool_name="artifact.search",
+            params={"query": "authentication", "min_score": -1},
+            auth_context=EDITOR_CTX,
+            api_key=VALID_API_KEY,
+        )
+        assert result.success is False
+        assert result.error_code == "VALIDATION_ERROR"
+        search_svc.search.assert_not_called()
+
+    def test_artifact_search_schema_publishes_min_score(self):
+        group, _, _, _ = self._group()
+        schema = next(
+            s for s in group.get_tool_schemas() if s["name"] == "artifact.search"
+        )["inputSchema"]
+
+        min_score = schema["properties"]["min_score"]
+        assert min_score["type"] == "number"
+        assert min_score["minimum"] == 0
+        # F2: the schema must advertise the same [0, 1] range the handler and
+        # SearchService.search enforce — ``minimum`` alone contradicted the
+        # "relevance floor in [0, 1]" description.
+        assert min_score["maximum"] == 1
+
+    def test_artifact_search_rejects_non_numeric_min_score(self):
+        """F6b: a non-numeric ``min_score`` is a caller error, not a crash."""
+        group, _, search_svc, _ = self._group()
+        result = group.execute_tool(
+            tool_name="artifact.search",
+            params={"query": "authentication", "min_score": "high"},
+            auth_context=EDITOR_CTX,
+            api_key=VALID_API_KEY,
+        )
+        assert result.success is False
+        assert result.error_code == "VALIDATION_ERROR"
+        search_svc.search.assert_not_called()
+
+    def test_artifact_search_rejects_bool_min_score(self):
+        """F6b: JSON ``true`` must not coerce via ``float()`` to ``1.0``."""
+        group, _, search_svc, _ = self._group()
+        result = group.execute_tool(
+            tool_name="artifact.search",
+            params={"query": "authentication", "min_score": True},
+            auth_context=EDITOR_CTX,
+            api_key=VALID_API_KEY,
+        )
+        assert result.success is False
+        assert result.error_code == "VALIDATION_ERROR"
+        search_svc.search.assert_not_called()
+
+    def test_artifact_search_rejects_min_score_above_one(self):
+        """F2: the schema/description advertise [0, 1]; the handler must enforce
+        the upper bound too, not only the lower one."""
+        group, _, search_svc, _ = self._group()
+        result = group.execute_tool(
+            tool_name="artifact.search",
+            params={"query": "authentication", "min_score": 1.5},
+            auth_context=EDITOR_CTX,
+            api_key=VALID_API_KEY,
+        )
+        assert result.success is False
+        assert result.error_code == "VALIDATION_ERROR"
+        search_svc.search.assert_not_called()
+
+    def test_artifact_search_description_discloses_no_default_filtering(self):
+        """Issue #1170: the description must not imply a filter that is not
+        there, and must name the passes that produce the fused score."""
+        group, _, _, _ = self._group()
+        description = next(
+            s for s in group.get_tool_schemas() if s["name"] == "artifact.search"
+        )["description"]
+
+        assert "min_score" in description
+        # F1/F5: corrected disclosure — full-text pass (tsvector/ts_rank),
+        # semantic pass (embedding/cosine), and the conditional combination.
+        assert "no filtering is applied" in description
+        assert "tsvector" in description
+        assert "embedding/cosine semantic pass" in description
+        assert "Reciprocal Rank Fusion" in description
+        assert "maximum normalized score" in description
+
     def test_artifact_get_tree_requires_workspace_id(self):
         group, _, _, _ = self._group()
         result = group.execute_tool(

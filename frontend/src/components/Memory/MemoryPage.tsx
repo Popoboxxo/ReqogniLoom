@@ -22,6 +22,7 @@ import type { Artifact } from "../../types";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
 import { PageHeader } from "../shared/PageHeader";
 import { AddMemoryFactDialog } from "./AddMemoryFactDialog";
+import { MemoryAskPanel } from "./MemoryAskPanel";
 import { contributorLabel, formatMemoryDate } from "./memory-format";
 import styles from "./MemoryPage.module.css";
 
@@ -519,6 +520,14 @@ export function MemoryPage(): JSX.Element {
           </>
         )}
       </section>
+
+      {/* RFC #1002 #1155 Aspekt 1: ask the memory in free text. Workspace
+          scope by default; on the artifact tab the selected artifact is
+          passed through so the question targets that artifact's memory. */}
+      <MemoryAskPanel
+        workspaceId={activeWorkspace.id}
+        artifactId={activeTab === "artifact" && artifactId ? artifactId : undefined}
+      />
 
       <div className={styles.controlsRow}>
         <div className={styles.searchGroup}>

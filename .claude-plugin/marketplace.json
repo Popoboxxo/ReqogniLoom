@@ -1,0 +1,20 @@
+{
+  "name": "reqogniloom-marketplace",
+  "owner": {
+    "name": "ReqogniLoom"
+  },
+  "description": "ReqogniLoom Claude Code marketplace — SE agent roles plus a native MCP connection.",
+  "version": "1.8.0-beta.19",
+  "plugins": [
+    {
+      "name": "reqogniloom",
+      "source": {
+        "source": "git-subdir",
+        "url": "Popoboxxo/ReqogniLoom",
+        "path": "dist/plugins/claude-code/reqogniloom"
+      },
+      "description": "ReqogniLoom SE agent roles + MCP connection",
+      "version": "1.8.0-beta.19"
+    }
+  ]
+}

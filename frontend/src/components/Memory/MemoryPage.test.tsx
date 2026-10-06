@@ -18,7 +18,10 @@ vi.mock("../../api/memory", () => ({
     createArtifactMemory: vi.fn(),
     getSelfOverview: vi.fn(),
     deleteSelfMemory: vi.fn(),
+    ask: vi.fn(),
   },
+  // MemoryAskPanel imports this at module scope and maps over it on render.
+  MEMORY_REASONING_LEVELS: ["minimal", "low", "medium", "high", "max"],
 }));
 
 // Keep `extractApiErrorMessage` real; only stub the artifact-pagination helper.
@@ -131,6 +134,13 @@ describe("MemoryPage", () => {
       generated_at: "2026-09-01T12:00:00Z",
       backend: "honcho",
       degraded: false,
+    });
+    vi.mocked(memoryApi.ask).mockResolvedValue({
+      answer: "42",
+      generated_at: "2026-09-01T12:00:00Z",
+      backend: "honcho",
+      degraded: false,
+      detail: "",
     });
   });
 
@@ -346,6 +356,47 @@ describe("MemoryPage", () => {
 
     await waitFor(() => {
       expect(memoryApi.getWorkspaceDigest).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  // --- ask (RFC #1002 #1155 Aspekt 1) ----------------------------------
+
+  it("mounts the ask panel and asks the workspace scope", async () => {
+    const user = userEvent.setup();
+    render(<MemoryPage />);
+    await screen.findByTestId("memory-row-w1");
+
+    await user.type(screen.getByTestId("memory-ask-input"), "what changed?");
+    await user.click(screen.getByTestId("memory-ask-submit"));
+
+    await waitFor(() => {
+      expect(memoryApi.ask).toHaveBeenCalledWith("ws-1", {
+        query: "what changed?",
+        artifactId: undefined,
+        reasoningLevel: undefined,
+      });
+    });
+    expect(await screen.findByTestId("memory-ask-answer")).toHaveTextContent("42");
+  });
+
+  it("targets the selected artifact when the artifact tab is active", async () => {
+    vi.mocked(client.getAllPages).mockResolvedValue([
+      { id: "art-1", artifact_type: "Requirement" },
+    ] as never);
+    const user = userEvent.setup();
+    render(<MemoryPage />);
+    await screen.findByTestId("memory-row-w1");
+
+    await user.click(screen.getByTestId("memory-tab-artifact"));
+    await user.selectOptions(screen.getByTestId("memory-artifact-select"), "art-1");
+    await user.type(screen.getByTestId("memory-ask-input"), "why?");
+    await user.click(screen.getByTestId("memory-ask-submit"));
+
+    await waitFor(() => {
+      expect(memoryApi.ask).toHaveBeenCalledWith(
+        "ws-1",
+        expect.objectContaining({ query: "why?", artifactId: "art-1" })
+      );
     });
   });
 });

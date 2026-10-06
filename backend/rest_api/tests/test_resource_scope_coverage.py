@@ -44,6 +44,7 @@ _FRAMEWORK_CLASSES = {
     "APIRootView",
     "RedirectView",
     "SpectacularAPIView",
+    "SpectacularJSONAPIView",
     "SpectacularSwaggerView",
     "SpectacularRedocView",
     "VersionView",

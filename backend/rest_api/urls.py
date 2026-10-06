@@ -9,9 +9,12 @@ Registers:
   /api/v1/artifacts/          ArtifactViewSet
   /api/v1/requirements/       RequirementViewSet
   /api/v1/architecture/       ArchitectureElementViewSet
-  /api/v1/testcases/          TestCaseViewSet
+  /api/v1/test-cases/         TestCaseViewSet (canonical kebab-case, #1177)
+  /api/v1/testcases/          TestCaseViewSet (legacy un-hyphenated alias, #1177)
   /api/v1/tracelinks/         TraceLinkViewSet (legacy path, kept for compat)
   /api/v1/trace-links/        TraceLinkViewSet (kebab-case alias, fix #233)
+  /api/v1/reviews/            pending-review queue collection root (#1177, #1089)
+  /api/v1/reviews/pending/    pending-review queue (flat, ?workspace_id=)
   /api/v1/baselines/          BaselineViewSet  (preset-gated)
   /api/v1/workspaces/{id}/baselines/  BaselineViewSet list/create, workspace-scoped (issue #49)
   /api/v1/workflows/          WorkflowDefinitionViewSet
@@ -67,6 +70,7 @@ from memory.memory_rest import (
     SystemMemorySettingsView,
     SystemMemoryWorkspaceDeleteView,
     SystemMemoryWorkspaceOverviewView,
+    WorkspaceMemoryAskView,
     WorkspaceMemoryDigestView,
     WorkspaceMemoryEntriesView,
     WorkspaceMemorySearchView,
@@ -211,6 +215,11 @@ router.register(r"requirements", RequirementViewSet, basename="requirement")
 router.register(r"needs", StakeholderNeedViewSet, basename="need")
 router.register(r"architecture", ArchitectureElementViewSet, basename="architecture")
 router.register(r"testcases", TestCaseViewSet, basename="testcase")
+# fix #1177 (B4): kebab-case is the canonical multi-word spelling (see the
+# trace-links alias below and main-goals/change-requests/test-runs). Register
+# the canonical "test-cases" too; "testcases" stays for backward compatibility
+# (frontend/src/api/testcases.ts and the rest of the legacy spellings).
+router.register(r"test-cases", TestCaseViewSet, basename="test-case")
 router.register(r"tracelinks", TraceLinkViewSet, basename="tracelink")
 # fix #233: "tracelinks" predates the kebab-case convention used by every
 # other multi-word route (main-goals, change-requests, test-runs, ...) and
@@ -227,9 +236,16 @@ router.register(r"adrs", AdrViewSet, basename="adr")
 router.register(r"risks", RiskViewSet, basename="risk")
 router.register(r"goals", GoalViewSet, basename="goal")
 router.register(r"main-goals", MainGoalViewSet, basename="main-goal")
+# #1177 alias: the un-hyphenated legacy spelling stays reachable alongside the
+# canonical "main-goals" so no existing client breaks.
+router.register(r"maingoals", MainGoalViewSet, basename="maingoal")
 router.register(r"issues", IssueViewSet, basename="issue")
 router.register(r"change-requests", ChangeRequestViewSet, basename="change-request")
+# #1177 alias: canonical "change-requests" plus the legacy un-hyphenated form.
+router.register(r"changerequests", ChangeRequestViewSet, basename="changerequest")
 router.register(r"test-runs", TestRunViewSet, basename="test-run")
+# #1177 alias: canonical "test-runs" plus the legacy un-hyphenated form.
+router.register(r"testruns", TestRunViewSet, basename="testrun")
 router.register(r"search", SearchViewSet, basename="search")
 router.register(r"api-keys", ApiKeyViewSet, basename="api-key")
 router.register(r"diagrams", DiagramViewSet, basename="diagram")
@@ -586,6 +602,14 @@ urlpatterns = [
         WorkspaceMemoryDigestView.as_view(),
         name="workspace-memory-digest",
     ),
+    # AP-B5.2 (#1155 Aspekt 1): natural-language Q&A over one memory scope --
+    # REST mirror of the WRITE-gated MCP ``memory.ask`` tool, delegating to
+    # the same ``MemoryEntryService.ask``.
+    path(
+        "workspaces/<uuid:workspace_id>/memory/ask/",
+        WorkspaceMemoryAskView.as_view(),
+        name="workspace-memory-ask",
+    ),
     # RFC #1002 PR B: global entry detail/forget + promote, artifact memory,
     # and the DSGVO export. Literal sub-paths precede the ``<str:entry_id>``
     # detail route (they cannot collide: ``str`` never matches a slash).
@@ -926,6 +950,16 @@ urlpatterns = [
     # every other unscoped list endpoint in this API uses, the nested one the
     # workspace-scoped convention. Approving/rejecting stays on the existing
     # `POST /<entity>/<pk>/transitions/` action — see review_views' docstring.
+    # Collection root (#1177): the SPA renders a review queue, yet GET
+    # /api/v1/reviews/ 404'd while only /reviews/pending/ existed. The root is
+    # the same handler as pending/ (same ReviewQueueService, same workspace
+    # scoping/permissions, same StandardPagination envelope) — one data source,
+    # two paths, so a generic client can list the collection at its natural URL.
+    path(
+        "reviews/",
+        ReviewsPendingView.as_view(),
+        name="api-v1-reviews",
+    ),
     path(
         "reviews/pending/",
         ReviewsPendingView.as_view(),

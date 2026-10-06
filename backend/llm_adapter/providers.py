@@ -1141,6 +1141,23 @@ def _parse_consistency_response(text: str) -> dict:
     }
 
 
+def _score_or_default(value: Any, default: float = 0.0) -> float:
+    """Coerce a provider-supplied ``score`` to ``float``, falling back safely.
+
+    ``data.get("score", default)`` only applies ``default`` when the key is
+    *missing*. Models routinely emit valid JSON with an explicit
+    ``"score": null`` (or another non-numeric value) in degraded responses,
+    which made ``float(None)`` raise an uncaught ``TypeError`` (#1163). This
+    normalises both cases to ``default`` while leaving numeric scores — and the
+    caller-specific default (0.0 for consistency/validation, 1.0 for
+    derivation) — intact.
+    """
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def _anthropic_token_usage(message: Any) -> Optional[int]:
     """Return input+output tokens from an Anthropic message, ``None`` if absent.
 
@@ -1261,7 +1278,7 @@ class AnthropicProvider(_BaseHttpProvider):
             data = _parse_validation_response(raw)
             token_usage = _anthropic_token_usage(message)
             return LlmResult(
-                score=float(data.get("score", 0.0)),
+                score=_score_or_default(data.get("score"), 0.0),
                 suggestions=data.get("suggestions", []),
                 provider=self.PROVIDER_NAME,
                 model=self.model_name,
@@ -1313,7 +1330,7 @@ class AnthropicProvider(_BaseHttpProvider):
             data = _parse_derivation_response(raw)
             token_usage = _anthropic_token_usage(message)
             return LlmDecompositionResult(
-                score=float(data.get("score", 0.0)),
+                score=_score_or_default(data.get("score"), 0.0),
                 suggestions=data.get("suggestions", []),
                 provider=self.PROVIDER_NAME,
                 model=self.model_name,
@@ -1365,7 +1382,7 @@ class AnthropicProvider(_BaseHttpProvider):
             data = _parse_consistency_response(raw)
             token_usage = _anthropic_token_usage(message)
             return LlmConsistencyResult(
-                score=float(data.get("score", 0.0)),
+                score=_score_or_default(data.get("score"), 0.0),
                 suggestions=data.get("suggestions", []),
                 provider=self.PROVIDER_NAME,
                 model=self.model_name,
@@ -1400,7 +1417,7 @@ class AnthropicProvider(_BaseHttpProvider):
         )
         data = _parse_derivation_response(text)
         return LlmDecompositionResult(
-            score=float(data.get("score", 1.0)),
+            score=_score_or_default(data.get("score"), 1.0),
             suggestions=data.get("suggestions", []),
             provider=self.PROVIDER_NAME,
             model=self.model_name,
@@ -1478,7 +1495,7 @@ class OpenAiProvider(_BaseHttpProvider):
         )
         data = _parse_validation_response(text)
         return LlmResult(
-            score=float(data.get("score", 0.0)),
+            score=_score_or_default(data.get("score"), 0.0),
             suggestions=data.get("suggestions", []),
             provider=self.PROVIDER_NAME,
             model=self.model_name,
@@ -1503,7 +1520,7 @@ class OpenAiProvider(_BaseHttpProvider):
         # a bare json.loads() whose raw JSONDecodeError leaked to the client.
         data = _parse_derivation_response(text)
         return LlmDecompositionResult(
-            score=float(data.get("score", 0.0)),
+            score=_score_or_default(data.get("score"), 0.0),
             suggestions=data.get("suggestions", []),
             provider=self.PROVIDER_NAME,
             model=self.model_name,
@@ -1543,7 +1560,7 @@ class OpenAiProvider(_BaseHttpProvider):
             data = {"children": [{"title": "Generated Req", "description": text}]}
 
         return LlmDecompositionResult(
-            score=float(data.get("score", 1.0)),
+            score=_score_or_default(data.get("score"), 1.0),
             suggestions=data.get("suggestions", []),
             provider=self.PROVIDER_NAME,
             model=self.model_name,
@@ -1566,7 +1583,7 @@ class OpenAiProvider(_BaseHttpProvider):
         )
         data = _parse_consistency_response(text)
         return LlmConsistencyResult(
-            score=float(data.get("score", 0.0)),
+            score=_score_or_default(data.get("score"), 0.0),
             suggestions=data.get("suggestions", []),
             provider=self.PROVIDER_NAME,
             model=self.model_name,
@@ -1681,7 +1698,7 @@ class OllamaProvider(_BaseHttpProvider):
         )
         data = _parse_validation_response(text)
         return LlmResult(
-            score=float(data.get("score", 0.0)),
+            score=_score_or_default(data.get("score"), 0.0),
             suggestions=data.get("suggestions", []),
             provider=self.PROVIDER_NAME,
             model=self.model_name,
@@ -1705,7 +1722,7 @@ class OllamaProvider(_BaseHttpProvider):
         # INT-03 (finding 057): resilient parser instead of bare json.loads().
         data = _parse_derivation_response(text)
         return LlmDecompositionResult(
-            score=float(data.get("score", 0.0)),
+            score=_score_or_default(data.get("score"), 0.0),
             suggestions=data.get("suggestions", []),
             provider=self.PROVIDER_NAME,
             model=self.model_name,
@@ -1728,7 +1745,7 @@ class OllamaProvider(_BaseHttpProvider):
         )
         data = _parse_consistency_response(text)
         return LlmConsistencyResult(
-            score=float(data.get("score", 0.0)),
+            score=_score_or_default(data.get("score"), 0.0),
             suggestions=data.get("suggestions", []),
             provider=self.PROVIDER_NAME,
             model=self.model_name,
@@ -1757,7 +1774,7 @@ class OllamaProvider(_BaseHttpProvider):
         )
         data = _parse_derivation_response(text)
         return LlmDecompositionResult(
-            score=float(data.get("score", 1.0)),
+            score=_score_or_default(data.get("score"), 1.0),
             suggestions=data.get("suggestions", []),
             provider=self.PROVIDER_NAME,
             model=self.model_name,
@@ -1838,7 +1855,7 @@ class AzureOpenAiProvider(_BaseHttpProvider):
         )
         data = _parse_validation_response(text)
         return LlmResult(
-            score=float(data.get("score", 0.0)),
+            score=_score_or_default(data.get("score"), 0.0),
             suggestions=data.get("suggestions", []),
             provider=self.PROVIDER_NAME,
             model=self._config.azure_deployment or self.model_name,
@@ -1862,7 +1879,7 @@ class AzureOpenAiProvider(_BaseHttpProvider):
         # INT-03 (finding 057): resilient parser instead of bare json.loads().
         data = _parse_derivation_response(text)
         return LlmDecompositionResult(
-            score=float(data.get("score", 0.0)),
+            score=_score_or_default(data.get("score"), 0.0),
             suggestions=data.get("suggestions", []),
             provider=self.PROVIDER_NAME,
             model=self._config.azure_deployment or self.model_name,
@@ -1885,7 +1902,7 @@ class AzureOpenAiProvider(_BaseHttpProvider):
         )
         data = _parse_consistency_response(text)
         return LlmConsistencyResult(
-            score=float(data.get("score", 0.0)),
+            score=_score_or_default(data.get("score"), 0.0),
             suggestions=data.get("suggestions", []),
             provider=self.PROVIDER_NAME,
             model=self._config.azure_deployment or self.model_name,
@@ -1914,7 +1931,7 @@ class AzureOpenAiProvider(_BaseHttpProvider):
         )
         data = _parse_derivation_response(text)
         return LlmDecompositionResult(
-            score=float(data.get("score", 1.0)),
+            score=_score_or_default(data.get("score"), 1.0),
             suggestions=data.get("suggestions", []),
             provider=self.PROVIDER_NAME,
             model=self._config.azure_deployment or self.model_name,
@@ -2032,7 +2049,7 @@ class OpencodeGoProvider(_BaseHttpProvider):
         )
         data = _parse_validation_response(text)
         return LlmResult(
-            score=float(data.get("score", 0.0)),
+            score=_score_or_default(data.get("score"), 0.0),
             suggestions=data.get("suggestions", []),
             provider=self.PROVIDER_NAME,
             model=self.model_name,
@@ -2056,7 +2073,7 @@ class OpencodeGoProvider(_BaseHttpProvider):
         # INT-03 (finding 057): resilient parser instead of bare json.loads().
         data = _parse_derivation_response(text)
         return LlmDecompositionResult(
-            score=float(data.get("score", 0.0)),
+            score=_score_or_default(data.get("score"), 0.0),
             suggestions=data.get("suggestions", []),
             provider=self.PROVIDER_NAME,
             model=self.model_name,
@@ -2079,7 +2096,7 @@ class OpencodeGoProvider(_BaseHttpProvider):
         )
         data = _parse_consistency_response(text)
         return LlmConsistencyResult(
-            score=float(data.get("score", 0.0)),
+            score=_score_or_default(data.get("score"), 0.0),
             suggestions=data.get("suggestions", []),
             provider=self.PROVIDER_NAME,
             model=self.model_name,
@@ -2108,7 +2125,7 @@ class OpencodeGoProvider(_BaseHttpProvider):
         )
         data = _parse_derivation_response(text)
         return LlmDecompositionResult(
-            score=float(data.get("score", 1.0)),
+            score=_score_or_default(data.get("score"), 1.0),
             suggestions=data.get("suggestions", []),
             provider=self.PROVIDER_NAME,
             model=self.model_name,

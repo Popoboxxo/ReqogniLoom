@@ -1,0 +1,95 @@
+# DRAFT — Stufe 2, Trigger erst nach Entscheidungen E1–E7 aktivieren
+#
+# npm Trusted Publishing via OIDC — NO long-lived NPM_TOKEN (plan §5.3 / §6).
+# Pre-releases (VERSION contains '-') go to dist-tag `next`, stable versions to
+# `latest`. The only trigger is `workflow_dispatch`, and the publish step
+# additionally requires the explicit `enable_publish` input, so a dispatch alone
+# never publishes.
+#
+# IMPORTANT: a repository-root `package.json` DOES exist, but it is not the npm
+# module we want to publish. This workflow resolves the intended Stufe-2 package
+# directory explicitly and never publishes the repo root; until that package
+# exists (decisions E2/E4 pending) the step is a documented no-op.
+#
+# needs: ci  # Gate: erst nach Entscheidungen als echten jobs-Bezug aktivieren
+name: Publish npm package (DRAFT)
+
+on:
+  workflow_dispatch:
+    inputs:
+      enable_publish:
+        description: 'Actually publish to npm (default off)'
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: npm-publish-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Publish npm package via OIDC trusted publishing
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Approval gate before any write to the registry.
+    environment: release
+    # OIDC is the only credential: no NPM_TOKEN secret is referenced anywhere.
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: '22.14'
+          registry-url: 'https://registry.npmjs.org'
+          package-manager-cache: false # never cache in release builds
+
+      - name: Determine dist-tag from VERSION (next for pre-releases)
+        id: disttag
+        run: |
+          set -euo pipefail
+          VERSION_VALUE="$(tr -d '[:space:]' < VERSION)"
+          if [[ "$VERSION_VALUE" == *-* ]]; then
+            TAG=next
+          else
+            TAG=latest
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "dist-tag=$TAG (VERSION=$VERSION_VALUE)"
+
+      # DRAFT: the intended Stufe-2 npm package does not exist yet (dist/opencode
+      # is only a snippet package, not an npm module) and the repo root MUST
+      # never be published. PACKAGE_DIR is the future package location; the
+      # guards below make it impossible to publish the repo root even if
+      # enable_publish=true.
+      - name: Publish to npm (DRAFT)
+        if: inputs.enable_publish == true
+        env:
+          NPM_DIST_TAG: ${{ steps.disttag.outputs.tag }}
+          PACKAGE_DIR: dist/npm/reqogniloom-opencode
+        run: |
+          set -euo pipefail
+          # Hard guard: never operate on the repository root.
+          if [[ -z "${PACKAGE_DIR}" || "${PACKAGE_DIR}" == "." || "${PACKAGE_DIR}" == "./" ]]; then
+            echo "ERROR: refusing to publish the repository root" >&2
+            exit 1
+          fi
+          if [[ ! -d "${PACKAGE_DIR}" ]]; then
+            echo "DRAFT: intended npm package '${PACKAGE_DIR}' does not exist yet — npm publish inactive (E2/E4 pending)."
+            exit 0
+          fi
+          NAME="$(npm pkg get name --prefix "${PACKAGE_DIR}" 2>/dev/null || true)"
+          PKG_VERSION="$(npm pkg get version --prefix "${PACKAGE_DIR}" 2>/dev/null || true)"
+          NAME="${NAME//\"/}"
+          PKG_VERSION="${PKG_VERSION//\"/}"
+          if [[ -z "${NAME}" || "${NAME}" == "{}" || -z "${PKG_VERSION}" || "${PKG_VERSION}" == "{}" ]]; then
+            echo "DRAFT: '${PACKAGE_DIR}' has no name/version — nothing to publish (E2/E4 pending)."
+            exit 0
+          fi
+          ( cd "${PACKAGE_DIR}" && npm publish --provenance --tag "$NPM_DIST_TAG" --access public )

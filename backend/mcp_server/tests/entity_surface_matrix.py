@@ -57,9 +57,10 @@ class _Spec:
     ``needs_collection_tool`` requires that at least one ``mcp_reads`` entry
     can enumerate the entity *without* an object id. #1080's shape was a
     working fetch-by-id and no list, so a new entity that only has a fetch is
-    the regression this catches. It is ``False`` for two pre-existing,
-    pre-#1080 gaps that are documented rather than fixed here; the reason is
-    mandatory in that case.
+    the regression this catches. It is ``False`` only for a documented,
+    pre-existing gap; the reason is mandatory in that case. No entity
+    currently needs that exemption -- the last one, ``main_goal``, was closed
+    by #1097 (``main_goal.query``).
     """
 
     rest_collection: str
@@ -119,21 +120,14 @@ ENTITY_SPECS: dict[str, _Spec] = {
     "goal": _Spec("/api/v1/goals/", ("goal.read", "goal.query"), "Goal"),
     "main_goal": _Spec(
         "/api/v1/main-goals/",
-        ("main_goal.read", "main_goal.list_versions"),
+        ("main_goal.read", "main_goal.query", "main_goal.list_versions"),
         "MainGoal",
-        # KNOWN GAP, pre-#1080, not fixed here: MCP offers no
-        # ``main_goal.query``, so a MainGoal is only reachable by an id or by
-        # a lineage id. REST's ``GET /api/v1/main-goals/?workspace_id=``
-        # enumerates a workspace's main goals. Same *shape* as #1080 (fetch
-        # without list), found by this matrix when it was written — reported
-        # in the #1080 sweep and left as a follow-up, because closing it means
-        # adding a new tool to a governance-gated group (main_goal is
-        # ADMIN-tier), which is a product decision, not a docs fix.
-        needs_collection_tool=False,
-        collection_gap=(
-            "no main_goal.query; only main_goal.read (by id) and "
-            "main_goal.list_versions (by lineage_id) exist"
-        ),
+        # GitHub #1097: this row used to be the module's recorded gap -- MCP
+        # offered no ``main_goal.query``, so a MainGoal was reachable only by
+        # an id (main_goal.read) or a lineage id (main_goal.list_versions),
+        # while REST's ``GET /api/v1/main-goals/?workspace_id=`` enumerated a
+        # workspace's main goals. #1097 added the collection tool, so the
+        # ratchet is closed and the gap (needs_collection_tool=False) removed.
     ),
     "change_request": _Spec(
         "/api/v1/change-requests/",
@@ -151,19 +145,8 @@ ENTITY_SPECS: dict[str, _Spec] = {
     ),
     "trace_link": _Spec(
         "/api/v1/tracelinks/",
-        ("traceability.query",),
+        ("traceability.query", "traceability.query_links"),
         "TraceLink",
-        # KNOWN GAP, pre-#1080, not fixed here: ``traceability.query`` requires
-        # an ``artifact_id``, so MCP can answer "what links does this artifact
-        # have" but not "list every link in the workspace", which
-        # ``GET /api/v1/tracelinks/?workspace_id=`` does. Reported in the #1080
-        # sweep; the closest read-only aggregate that would close it is
-        # ``traceability.coverage``, which counts rather than enumerates.
-        needs_collection_tool=False,
-        collection_gap=(
-            "traceability.query needs an artifact_id; no workspace-wide link "
-            "enumeration tool exists"
-        ),
     ),
     "baseline": _Spec(
         "/api/v1/baselines/", ("baseline.list", "baseline.get"), "Baseline"
@@ -259,10 +242,15 @@ REST_ONLY_BY_DESIGN: tuple[_Exclusion, ...] = (
 MCP_ONLY_BY_DESIGN: tuple[_Exclusion, ...] = (
     _Exclusion(
         "traceability.vcrm",
-        "Verification Cross Reference Matrix export. MCP-only; the REST "
-        "surface has no VCRM route and no OpenAPI operation mentioning "
-        "``vcrm``, so REST documentation cannot point at it. Documented in "
-        "docs/api/MCP-SURFACE.md.",
+        "Verification Cross Reference Matrix export (requirement x component "
+        "x testcase x result). MCP-only by design: it is an agent-facing "
+        "aggregate with no CRUD entity, so it owns no REST collection and no "
+        "OpenAPI operation mentioning ``vcrm`` -- REST docs cannot point at "
+        "it. The PDF variant export_vcrm_pdf() is implemented and unit-tested "
+        "but intentionally reachable from no transport (the MCP tool accepts "
+        "``format=json|csv`` only); unused-by-design, not a gap. Documented "
+        "in docs/api/MCP-SURFACE.md section 6 (MCP side) and "
+        "docs/api/REST-CONVENTIONS.md section 5 (REST side).",
         issue="#1085",
     ),
     _Exclusion(

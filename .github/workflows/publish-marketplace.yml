@@ -1,0 +1,69 @@
+# DRAFT — Stufe 2, Trigger erst nach Entscheidungen E1–E7 aktivieren
+#
+# Mirrors the marketplace/plugin versions from VERSION by regenerating the
+# client artifacts and committing the result (or opening a PR). See plan §5.3
+# and decisions E3 (marketplace lives in this repo) / E4 (betas in curated
+# stores). Everything is guarded by enable_publish=true, so a plain dispatch
+# changes nothing.
+#
+# needs: ci  # Gate: erst nach Entscheidungen als echten jobs-Bezug aktivieren
+name: Sync marketplace versions (DRAFT)
+
+on:
+  workflow_dispatch:
+    inputs:
+      enable_publish:
+        description: 'Actually commit/push the regenerated marketplace files (default off)'
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: marketplace-sync-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    name: Mirror marketplace/plugin versions from VERSION
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Approval gate before any commit/push.
+    environment: release
+    permissions:
+      contents: write # commit the regenerated marketplace/plugin files
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.12'
+
+      - name: Install renderer dependency
+        run: pip install --disable-pip-version-check pyyaml
+
+      - name: Mirror versions from VERSION (regenerate client artifacts)
+        run: python scripts/clients/render.py
+
+      - name: Show resulting diff
+        run: git --no-pager diff --stat
+
+      # DRAFT: commit + push only when a human explicitly sets
+      # enable_publish=true; a plain dispatch stops after the diff above.
+      - name: Commit marketplace/version sync (DRAFT)
+        if: inputs.enable_publish
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet; then
+            echo "no marketplace changes to commit"
+            exit 0
+          fi
+          git add -A
+          git commit -m "chore(marketplace): sync versions from VERSION [skip ci]"
+          git push

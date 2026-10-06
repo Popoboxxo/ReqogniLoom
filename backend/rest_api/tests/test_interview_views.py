@@ -374,3 +374,79 @@ class TestInterviewChat:
             )
 
         assert response.status_code == 400
+
+
+class TestInterviewSetTarget:
+    """REST parity for MCP interview.set_target (issue #1164)."""
+
+    def test_set_target_delegates_to_service(self, authed_client, workspace):
+        start = authed_client.post(
+            "/api/v1/interviews/",
+            {"artifact_type": "Requirement", "workspace_id": str(workspace.id)},
+            format="json",
+        )
+        session_id = start.data["id"]
+        artifact_id = str(uuid.uuid4())
+        service_result = {"session_id": session_id, "status": "in_progress"}
+
+        with patch("rest_api.interview_views.InterviewService") as mock_service_cls:
+            mock_service_cls.return_value.set_target.return_value = service_result
+            response = authed_client.post(
+                f"/api/v1/interviews/{session_id}/set_target/",
+                {"artifact_id": artifact_id},
+                format="json",
+            )
+
+        assert response.status_code == 200, response.content
+        # The view normalises get_state()'s "session_id" to the ViewSet's "id"
+        # contract, exactly like state/answer/chat do.
+        assert response.data == {"id": session_id, "status": "in_progress"}
+        mock_service_cls.return_value.set_target.assert_called_once()
+        call_args = mock_service_cls.return_value.set_target.call_args.args
+        # args == (ctx, session_id, artifact_id) — the view parses both the
+        # path pk and the body artifact_id into UUIDs before the service call.
+        assert call_args[1] == uuid.UUID(session_id)
+        assert call_args[2] == uuid.UUID(artifact_id)
+
+    def test_set_target_malformed_artifact_id_returns_400(self, authed_client, workspace):
+        start = authed_client.post(
+            "/api/v1/interviews/",
+            {"artifact_type": "Requirement", "workspace_id": str(workspace.id)},
+            format="json",
+        )
+        session_id = start.data["id"]
+
+        response = authed_client.post(
+            f"/api/v1/interviews/{session_id}/set_target/",
+            {"artifact_id": "not-a-uuid"},
+            format="json",
+        )
+
+        assert response.status_code == 400
+
+    def test_set_target_on_completed_session_returns_400(self, authed_client, workspace):
+        start = authed_client.post(
+            "/api/v1/interviews/",
+            {"artifact_type": "Requirement", "workspace_id": str(workspace.id)},
+            format="json",
+        )
+        session_id = start.data["id"]
+        authed_client.post(
+            f"/api/v1/interviews/{session_id}/answer/",
+            {"field": "title", "value": "SSO login"},
+            format="json",
+        )
+        authed_client.post(
+            f"/api/v1/interviews/{session_id}/answer/",
+            {"field": "rationale", "value": "Users need single sign-on."},
+            format="json",
+        )
+        authed_client.post(f"/api/v1/interviews/{session_id}/formalize/")
+
+        response = authed_client.post(
+            f"/api/v1/interviews/{session_id}/set_target/",
+            {"artifact_id": str(uuid.uuid4())},
+            format="json",
+        )
+
+        assert response.status_code == 400

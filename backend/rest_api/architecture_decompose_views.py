@@ -33,6 +33,8 @@ from application.architecture_decompose_service import (
     ArchitectureDecomposeService,
     DecompositionAuditError,
     DecompositionDraft,
+    DecompositionLlmTimeoutError,
+    DecompositionLlmUnavailableError,
     DecompositionNotAvailableError,
 )
 from application.base import NotFoundError, PermissionDeniedError, ValidationError
@@ -110,6 +112,23 @@ class WorkspaceArchitectureDecomposeView(APIView):
             return Response(
                 build_error_response("PERMISSION_DENIED", lang, message=str(exc)),
                 status=status.HTTP_403_FORBIDDEN,
+            )
+        except DecompositionLlmTimeoutError as exc:
+            # Issue #1165: an expected provider timeout is not an internal
+            # server error — answer 504 with a stable code and a localised,
+            # retry-able message (the view deliberately does NOT echo the raw
+            # provider exception; its detail is logged in the service,
+            # CWE-209).
+            return Response(
+                build_error_response(exc.error_code, lang),
+                status=status.HTTP_504_GATEWAY_TIMEOUT,
+            )
+        except DecompositionLlmUnavailableError as exc:
+            # Issue #1165: transport failure / open circuit breaker (not a
+            # timeout) is an upstream-availability problem → 503.
+            return Response(
+                build_error_response(exc.error_code, lang),
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
         except Exception:
             return Response(

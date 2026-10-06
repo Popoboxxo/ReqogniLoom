@@ -227,7 +227,7 @@ describe("bluepencil loader — teardown", () => {
     const element = document.createElement("bluepencil-notes");
     document.body.append(element);
     const destroy = vi.fn();
-    window.bluepencilAttach = { destroy, version: "0.1.0-alpha.1" };
+    window.bluepencilAttach = { destroy, version: "0.1.0-alpha.2" };
     installBluepencilHost({ getUser: () => ({ name: "Ada Lovelace" }) });
 
     completeAttach();

@@ -128,6 +128,9 @@ class TestMemoryToolGroupHandlers:
             assert len(result.data["entries"]) == 2
             assert result.data["backend"] == "pgvector"
             assert "degraded" in result.data
+            # AP-B5.1 (#1155): the envelope's derivation capability rides on
+            # every envelope-carrying MCP memory response.
+            assert result.data["derivation_status"] == "unsupported"
 
     def test_digest_returns_workspace_summary(self, monkeypatch):
         """``memory.digest`` answers the four-key digest shape (RFC #1002 F6)."""
@@ -148,10 +151,16 @@ class TestMemoryToolGroupHandlers:
                 "generated_at",
                 "backend",
                 "degraded",
+                "derivation_status",
+                "derived_count",
             }
             assert "Fact one." in result.data["digest"]
             assert result.data["backend"] == "pgvector"
             assert result.data["degraded"] is False
+            # AP-B5.1 (#1155): the derivation pair rides on the MCP digest too;
+            # pgvector never derives, so it is "unsupported" with no count.
+            assert result.data["derivation_status"] == "unsupported"
+            assert result.data["derived_count"] is None
             # generated_at must be an ISO-8601 string, not a raw datetime.
             assert isinstance(result.data["generated_at"], str)
             datetime.fromisoformat(result.data["generated_at"])
@@ -183,6 +192,8 @@ class TestMemoryToolGroupHandlers:
                 "generated_at",
                 "backend",
                 "degraded",
+                "derivation_status",
+                "derived_count",
             }
             assert "Artifact fact." in result.data["digest"]
             datetime.fromisoformat(result.data["generated_at"])

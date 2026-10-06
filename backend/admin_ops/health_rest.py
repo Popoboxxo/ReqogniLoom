@@ -439,10 +439,27 @@ def _check_memory_backend() -> dict[str, str]:
         return {"name": "memory_backend", "status": STATUS_DOWN, "detail": str(exc)}
 
 
+def _derivation_status_field(data: dict[str, Any]) -> str:
+    """Coerce the memory envelope's ``derivation_status`` into the shared enum.
+
+    The sibling capability flags above are coerced with ``bool()`` for exactly
+    this reason: the admin row must never forward a value outside the
+    documented vocabulary. A rogue or future-version payload reads as
+    ``unknown`` ("cannot tell") here rather than as an unverified capability
+    claim, so the dashboard's derivation column stays machine-interpretable
+    against ``memory.backends.VALID_DERIVATION_STATUSES``.
+    """
+    from memory.backends import VALID_DERIVATION_STATUSES  # noqa: PLC0415
+
+    raw = data.get("derivation_status", "unknown")
+    return raw if raw in VALID_DERIVATION_STATUSES else "unknown"
+
+
 def _check_memory() -> dict[str, Any]:
     """RFC #1002 PR B/F6 ``memory`` component.
 
-    Shape: ``{backend, ok, detail, degraded, digest_available, ask_available}``.
+    Shape: ``{backend, ok, detail, degraded, digest_available, ask_available,
+    derivation_status}``.
 
     Uses the same cached helper (``memory.health.health_view``) that every REST
     and MCP memory response uses, so this row and the per-response ``degraded``
@@ -450,7 +467,10 @@ def _check_memory() -> dict[str, Any]:
     the component still fits the dashboard's ``ok/degraded/down`` vocabulary.
     ``digest_available`` and ``ask_available`` are optional capability flags and
     degrade to ``False`` when the probe payload omits them, so a partial/older
-    payload can never 500 the health snapshot.
+    payload can never 500 the health snapshot. ``derivation_status`` (AP-B5.1,
+    #1155) is the scope-less capability answer (``unsupported``/``unknown``)
+    and defaults to ``unknown`` when the payload omits it -- the per-scope
+    derivation truth lives on the digest surface, not in this row.
     """
     try:
         from memory.health import health_view  # noqa: PLC0415
@@ -471,6 +491,7 @@ def _check_memory() -> dict[str, Any]:
             "degraded": data["degraded"],
             "digest_available": bool(data.get("digest_available", False)),
             "ask_available": bool(data.get("ask_available", False)),
+            "derivation_status": _derivation_status_field(data),
         }
     except Exception as exc:  # noqa: BLE001 - never let the row break the snapshot
         logger.warning("System health: memory check failed - %s", exc)
@@ -483,6 +504,7 @@ def _check_memory() -> dict[str, Any]:
             "degraded": True,
             "digest_available": False,
             "ask_available": False,
+            "derivation_status": "unknown",
         }
 
 

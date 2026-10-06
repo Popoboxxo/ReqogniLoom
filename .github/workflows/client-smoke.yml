@@ -1,0 +1,103 @@
+# DRAFT — Stufe 2, Trigger erst nach Entscheidungen E1–E7 aktivieren
+#
+# Real-client smoke matrix against a local Compose instance. The unified smoke
+# test is defined in docs/plans/2026-10-04-one-click-client-installation.md §4.3;
+# install/verify come from scripts/clients/. The only trigger is
+# `workflow_dispatch` — the nightly schedule from plan §5.3 stays off until
+# E1–E7 are decided.
+#
+# NOTE (draft): the client CLI binaries (claude/codex/opencode/hermes) are not
+# provisioned by this skeleton yet. Add the per-client provisioning step when
+# the workflow is activated (W1–W5); until then a dispatch exercises the Compose
+# boot path and fails cleanly at install.sh's `require_bin` guard.
+#
+# needs: ci  # Gate: erst nach Entscheidungen als echten jobs-Bezug aktivieren
+name: Client smoke (DRAFT)
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: client-smoke-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: Smoke ${{ matrix.client }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      # Each client reports its own result; a red leg must not abort the others.
+      fail-fast: false
+      matrix:
+        client:
+          - claude-code
+          - codex
+          - opencode
+          - kimi-code
+          - hermes
+          # ANTIGRAVITY IS DELIBERATELY EXCLUDED: its binary requires a host CPU
+          # with `pclmulqdq` (exit 132 otherwise) and is therefore not
+          # reproducible on GitHub-hosted runners — plan §5.3 / Anhang C.
+          # Decision E5: self-hosted runner with such a CPU, or documented
+          # manual acceptance. Re-add `antigravity` here only if E5 says so.
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Materialise compose env file
+        # deploy/docker-compose.yml declares `env_file: .env`; CI has no .env
+        # (gitignored), so materialise it from the tracked example first.
+        run: cp .env.example .env
+
+      - name: Start postgres/redis/backend from the real compose files
+        run: |
+          set -euo pipefail
+          docker compose \
+            -f deploy/docker-compose.yml \
+            -f testing/docker-compose.test.yml \
+            up -d postgres redis backend
+
+      - name: Wait for the backend health endpoint (host port 8001)
+        run: |
+          set -euo pipefail
+          for _ in $(seq 1 60); do
+            if curl -fsS "http://localhost:8001/health/" >/dev/null 2>&1; then
+              echo "backend healthy"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "ERROR: backend did not become healthy in time" >&2
+          docker compose -f deploy/docker-compose.yml logs --tail=100 backend >&2 || true
+          exit 1
+
+      - name: Install client against the local instance
+        env:
+          CLIENT: ${{ matrix.client }}
+          # Test key (QA workspace only) — referenced, never a literal. May not
+          # exist yet in the draft state; that is intentional.
+          REQOGNILOOM_API_KEY: ${{ secrets.QA_CLIENT_KEY }}
+        run: |
+          set -euo pipefail
+          scripts/clients/install.sh \
+            --client "$CLIENT" \
+            --url "http://localhost:8001" \
+            --key-env REQOGNILOOM_API_KEY \
+            --yes
+
+      - name: Verify client connection
+        env:
+          CLIENT: ${{ matrix.client }}
+          REQOGNILOOM_API_KEY: ${{ secrets.QA_CLIENT_KEY }}
+        run: |
+          set -euo pipefail
+          scripts/clients/verify.sh --client "$CLIENT"
+
+      - name: Tear down the compose instance
+        if: always()
+        run: |
+          set -euo pipefail
+          docker compose -f deploy/docker-compose.yml -f testing/docker-compose.test.yml down -v || true

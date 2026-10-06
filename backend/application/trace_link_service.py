@@ -39,7 +39,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, Any, List, Optional
 from uuid import UUID
 
 from django.db.models import Q
@@ -95,6 +95,65 @@ class TraceEdgeDTO:
     source_id: UUID
     target_id: UUID
     link_type: str
+
+
+#: Hard ceiling for one page of the workspace-wide link listing (#1098).
+#: Mirrors ``rest_api.serializers.TraceLinkPagination.max_page_size`` so the
+#: REST and MCP transports accept the same upper bound; kept here (Layer 2) so
+#: Layer 3 (mcp_server) does not have to import rest_api just for the number.
+MAX_WORKSPACE_LINKS_PAGE_SIZE = 500
+
+
+def _json_safe(value: Any) -> Any:
+    """Render a UUID/datetime scalar as a JSON-serializable primitive.
+
+    The MCP response encoder calls ``json.dumps`` without a ``default=`` hook
+    (``mcp_server.protocol_handler``), so a raw ``datetime``/``UUID`` in a tool
+    payload crashes the transport. Mirrors ``GenericCrudToolGroup._jsonify``.
+    """
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    if isinstance(value, UUID):
+        return str(value)
+    return value
+
+
+def _trace_link_to_dict(link: Any) -> dict:
+    """REST-shaped TraceLink dict for the workspace-wide MCP listing (#1098).
+
+    Mirrors the scalar fields of ``rest_api.views._tracelink_to_dict`` without
+    importing ``rest_api`` (ADR-01: Layer 2 may not depend on Layer 3) — the
+    two transports must agree on the wire shape, but the dependency must point
+    from Layer 3 down to Layer 2, never the reverse.
+
+    ``source_id``/``target_id`` are the real stored *Artifact* ids rendered as
+    strings, exactly like the REST dict, so an id returned here can be fed
+    straight back into ``traceability.query`` or a ``DELETE /tracelinks/<id>/``.
+    Dates/UUIDs are ISO-/str-rendered (matching DRF's wire form) because the
+    MCP encoder requires JSON-safe primitives — see :func:`_json_safe`.
+
+    Display-only enrichment that needs other rows is deliberately omitted:
+    ``source_title``/``target_title``/``*_type``/``*_is_outdated`` would add an
+    endpoint-resolution query per row, and ``proposed_by_label`` a relation
+    fetch — both defeat the O(page_size) memory intent of the paginated read
+    (#571) that this listing follows. Callers that need titles use the REST
+    endpoint or resolve ids through the artifact tools.
+    """
+    return {
+        "id": str(link.id),
+        "source_id": str(link.source_id),
+        "target_id": str(link.target_id),
+        "link_type": link.link_type,
+        "version": link.version,
+        "created_at": _json_safe(link.created_at),
+        "rationale": getattr(link, "rationale", "") or "",
+        "suspect_flagged_at": _json_safe(getattr(link, "suspect_flagged_at", None)),
+        "suspect_source_change": _json_safe(
+            getattr(link, "suspect_source_change", None)
+        ),
+        "proposed_by_id": _json_safe(getattr(link, "proposed_by_id", None)),
+        "proposed_at": _json_safe(getattr(link, "proposed_at", None)),
+    }
 
 
 class TraceLinkService(ServiceBase):
@@ -1362,6 +1421,49 @@ class TraceLinkService(ServiceBase):
         from traceability.services import list_trace_links_queryset
 
         return list_trace_links_queryset(workspace_id=workspace_id, link_type=link_type)
+
+    def list_workspace_links_page(
+        self,
+        workspace_id: UUID,
+        ctx: AuthContext,
+        *,
+        link_type: Optional[str] = None,
+        page: int = 1,
+        page_size: int = 25,
+    ) -> dict:
+        """Return one page of a workspace's TraceLinks, REST-shaped (#1098).
+
+        Backs the MCP ``traceability.query_links`` tool — the workspace-wide
+        enumeration counterpart to ``traceability.query`` (which needs an
+        ``artifact_id``). Mirrors the workspace branch of
+        ``GET /api/v1/tracelinks/?workspace_id=``: it paginates on the *lazy*
+        queryset (:meth:`list_links_for_workspace_queryset`, fix #571), so
+        ``LIMIT``/``OFFSET`` are pushed to the database and memory stays
+        O(page_size) instead of materializing every link (and its wide pgvector
+        embedding) in the workspace.
+
+        Args:
+            workspace_id: Workspace whose links to list.
+            ctx: AuthContext for tenant scoping.
+            link_type: Optional link-type filter (additive; ``None`` = all).
+            page: 1-based page number.
+            page_size: Rows per page (caller enforces the ceiling).
+
+        Returns:
+            A dict with ``count`` (total matching rows), ``page``, ``page_size``,
+            ``max_page_size`` and ``results`` (the REST-shaped link dicts).
+        """
+        queryset = self.list_links_for_workspace_queryset(workspace_id, ctx, link_type)
+        total = queryset.count()
+        offset = (page - 1) * page_size
+        page_rows = list(queryset[offset : offset + page_size])
+        return {
+            "count": total,
+            "page": page,
+            "page_size": page_size,
+            "max_page_size": MAX_WORKSPACE_LINKS_PAGE_SIZE,
+            "results": [_trace_link_to_dict(link) for link in page_rows],
+        }
 
     def list_incoming(self, entity_id: UUID, ctx: AuthContext) -> List[TraceEdgeDTO]:
         """List TraceLinks where *entity_id* is the target (MCP-05, Codeberg #117).

@@ -1137,7 +1137,9 @@ class TestWorkspaceMemoryEntryRest:
             response = client.get(f"{_WS_SEARCH.format(ws=ws.id)}?q=dark&scope=workspace")
 
             assert response.status_code == 200
-            assert {"items", "query", "scopes", "backend", "degraded"} <= set(response.data)
+            assert {"items", "query", "scopes", "backend", "degraded", "derivation_status"} <= set(
+                response.data
+            )
 
     def test_degraded_is_reported_when_backend_unhealthy(self, monkeypatch):
         monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
@@ -1297,10 +1299,15 @@ class TestMemoryDigestRest:
                 "generated_at",
                 "backend",
                 "degraded",
+                "derivation_status",
+                "derived_count",
             }
             assert "digest me" in response.data["digest"]
             assert response.data["backend"] == "pgvector"
             assert response.data["degraded"] is False
+            # AP-B5.1 (#1155): the derivation pair rides on the REST digest.
+            assert response.data["derivation_status"] == "unsupported"
+            assert response.data["derived_count"] is None
             assert isinstance(response.data["generated_at"], str)
             datetime.fromisoformat(response.data["generated_at"])
 
@@ -1333,6 +1340,8 @@ class TestMemoryDigestRest:
                 "generated_at",
                 "backend",
                 "degraded",
+                "derivation_status",
+                "derived_count",
             }
             assert "artifact digest me" in response.data["digest"]
             datetime.fromisoformat(response.data["generated_at"])
@@ -1399,3 +1408,275 @@ class TestMemorySelfServiceEntries:
             assert response.data["entry_count"] == 1
             assert response.data["entries"][0]["content"] == "mine"
             assert {"backend", "degraded"} <= set(response.data)
+
+
+# ---------------------------------------------------------------------------
+# AP-B5.2 (#1155 Aspekt 1) -- POST .../memory/ask/, the REST mirror of MCP
+# ``memory.ask``
+# ---------------------------------------------------------------------------
+
+_WS_ASK = "/api/v1/workspaces/{ws}/memory/ask/"
+
+
+def _fake_dialectic(
+    monkeypatch, *, degraded=False, detail="", answer="Because X, therefore Y."
+):
+    """Patch the active pgvector backend's ``ask`` to answer like a dialectic
+    engine and record every call, so the view's delegation (query/scope/
+    artifact/reasoning_level forwarding) is observable without Honcho.
+
+    Returns the call list; each entry carries the positional args the service
+    passed to the backend.
+    """
+    from django.utils import timezone
+
+    from memory.backends import MemoryAnswer, PgvectorMemoryBackend
+
+    calls: list[dict] = []
+
+    def _ask(self, tenant_id, scope, scope_id, query, *, reasoning_level=None):
+        calls.append(
+            {
+                "tenant_id": tenant_id,
+                "scope": scope,
+                "scope_id": scope_id,
+                "query": query,
+                "reasoning_level": reasoning_level,
+            }
+        )
+        return MemoryAnswer(
+            text="" if degraded else answer,
+            generated_at=timezone.now(),
+            backend="pgvector",
+            degraded=degraded,
+            detail=detail,
+        )
+
+    monkeypatch.setattr(PgvectorMemoryBackend, "ask", _ask)
+    return calls
+
+
+@pytest.mark.django_db
+class TestMemoryAskRest:
+    """AP-B5.2: ``POST /api/v1/workspaces/<uuid>/memory/ask/`` mirrors the
+    WRITE-gated MCP ``memory.ask`` tool over the same service path."""
+
+    def test_shape_mirrors_mcp_and_pgvector_degrades_honestly(self, monkeypatch):
+        """F9 on the REST mirror: pgvector has no dialectic engine, so the
+        answer is explicitly degraded with the capability detail -- never an
+        empty non-degraded answer. Same five keys as the MCP payload."""
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            _user, token = editor_user_and_token(tenant, ws)
+
+            response = _client_for(token).post(
+                _WS_ASK.format(ws=ws.id), {"query": "what do we know?"}, format="json"
+            )
+
+            assert response.status_code == 200
+            assert set(response.data) == {
+                "answer",
+                "generated_at",
+                "backend",
+                "degraded",
+                "detail",
+            }
+            assert response.data["answer"] == ""
+            assert response.data["backend"] == "pgvector"
+            assert response.data["degraded"] is True
+            assert response.data["detail"] == "no dialectic engine"
+            datetime.fromisoformat(response.data["generated_at"])
+
+    def test_forwards_query_scope_and_reasoning_level(self, monkeypatch):
+        calls = _fake_dialectic(monkeypatch)
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            _user, token = editor_user_and_token(tenant, ws)
+
+            response = _client_for(token).post(
+                _WS_ASK.format(ws=ws.id),
+                {"query": "what did we decide about auth?", "reasoning_level": "high"},
+                format="json",
+            )
+
+            assert response.status_code == 200
+            assert response.data["answer"] == "Because X, therefore Y."
+            assert response.data["degraded"] is False
+            assert response.data["detail"] == ""
+            assert calls[0]["scope"] == "workspace"
+            assert calls[0]["scope_id"] == ws.id
+            assert calls[0]["query"] == "what did we decide about auth?"
+            assert calls[0]["reasoning_level"] == "high"
+
+    def test_artifact_id_targets_the_artifact_scope(self, monkeypatch):
+        calls = _fake_dialectic(monkeypatch)
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            artifact = _make_artifact(tenant, ws)
+            _user, token = editor_user_and_token(tenant, ws)
+
+            response = _client_for(token).post(
+                _WS_ASK.format(ws=ws.id),
+                {"query": "q", "artifact_id": str(artifact.id)},
+                format="json",
+            )
+
+            assert response.status_code == 200
+            assert calls[0]["scope"] == "artifact"
+            assert calls[0]["scope_id"] == artifact.id
+
+    def test_missing_query_is_validation_error(self, monkeypatch):
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            _user, token = editor_user_and_token(tenant, ws)
+            client = _client_for(token)
+
+            for body in ({}, {"query": ""}, {"query": "   "}):
+                response = client.post(_WS_ASK.format(ws=ws.id), body, format="json")
+                assert response.status_code == 400
+                assert response.data["error"]["code"] == "VALIDATION_ERROR"
+
+    def test_unknown_reasoning_level_is_validation_error(self, monkeypatch):
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            _user, token = editor_user_and_token(tenant, ws)
+
+            response = _client_for(token).post(
+                _WS_ASK.format(ws=ws.id),
+                {"query": "q", "reasoning_level": "turbo"},
+                format="json",
+            )
+
+            assert response.status_code == 400
+            assert response.data["error"]["code"] == "VALIDATION_ERROR"
+
+    def test_malformed_artifact_id_is_validation_error(self, monkeypatch):
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            _user, token = editor_user_and_token(tenant, ws)
+
+            response = _client_for(token).post(
+                _WS_ASK.format(ws=ws.id),
+                {"query": "q", "artifact_id": "not-a-uuid"},
+                format="json",
+            )
+
+            assert response.status_code == 400
+            assert response.data["error"]["code"] == "VALIDATION_ERROR"
+
+    def test_viewer_is_denied_by_the_write_gate(self, monkeypatch):
+        """WRITE gate parity with MCP ``memory.ask``: a Viewer is denied 403
+        before the handler -- the LLM-invoking call must never be reachable
+        with read-only standing."""
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            user = make_user(tenant)
+            UserRole.unscoped.create(tenant=tenant, user=user, workspace=ws, role="viewer")
+            user.set_password(_FACTORY_PASSWORD)
+            user.save(update_fields=["password"])
+            viewer_token = _login_for_token(user.username, _FACTORY_PASSWORD)
+
+            response = _client_for(viewer_token).post(
+                _WS_ASK.format(ws=ws.id), {"query": "let me in"}, format="json"
+            )
+
+            assert response.status_code == 403
+            assert response.data["error"]["code"] == "PERMISSION_DENIED"
+
+    def test_non_member_is_denied(self, monkeypatch):
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            _user, token = editor_user_and_token(tenant, workspace=None)
+
+            response = _client_for(token).post(
+                _WS_ASK.format(ws=ws.id), {"query": "q"}, format="json"
+            )
+
+            assert response.status_code in (403, 404)
+
+    def test_artifact_of_a_foreign_workspace_is_denied(self, monkeypatch):
+        """The MemoryPolicy fence behind the RBAC gate: an editor may pass
+        RbacPermission on their OWN workspace URL, but aiming an ``artifact_id``
+        at another workspace's artifact is denied by the service (mirrors MCP
+        ``test_ask_denies_workspace_caller_has_no_role_in``)."""
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            foreign = make_workspace(tenant)
+            artifact = _make_artifact(tenant, foreign)
+            _user, token = editor_user_and_token(tenant, ws)
+
+            response = _client_for(token).post(
+                _WS_ASK.format(ws=ws.id),
+                {"query": "secret?", "artifact_id": str(artifact.id)},
+                format="json",
+            )
+
+            # Same tolerance as the artifact-digest sibling: the owning-
+            # workspace resolution may answer 403 (policy denial) or 404
+            # (artifact not resolvable in scope) -- both fence the foreign
+            # artifact, neither leaks its existence.
+            assert response.status_code in (403, 404)
+
+    def test_degraded_detail_is_passed_through(self, monkeypatch):
+        """F9 detail passthrough: an engine outage (``engine_error:<Class>``)
+        reaches the caller verbatim so it stays distinguishable from "nothing
+        known" and from a caller-side scope error."""
+        _calls = _fake_dialectic(
+            monkeypatch, degraded=True, detail="engine_error:ServerError"
+        )
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            _user, token = editor_user_and_token(tenant, ws)
+
+            response = _client_for(token).post(
+                _WS_ASK.format(ws=ws.id), {"query": "q"}, format="json"
+            )
+
+            assert response.status_code == 200
+            assert response.data["degraded"] is True
+            assert response.data["answer"] == ""
+            assert response.data["detail"] == "engine_error:ServerError"
+
+    def test_unauthenticated_and_denied_keep_the_envelope_under_german_locale(
+        self, monkeypatch,
+    ):
+        """i18n: with ``Accept-Language: de`` the error bodies keep the single
+        unified envelope with the registry codes; the localized message
+        catalog itself is pinned centrally in ``test_locale_middleware.py``."""
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        de = "de-DE,de;q=0.9"
+        unauth = APIClient().post(
+            _WS_ASK.format(ws=uuid.uuid4()),
+            {"query": "q"},
+            format="json",
+            HTTP_ACCEPT_LANGUAGE=de,
+        )
+        assert unauth.status_code == 401
+        assert unauth.data["error"]["code"] == "AUTHENTICATION_REQUIRED"
+
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            user = make_user(tenant)
+            UserRole.unscoped.create(tenant=tenant, user=user, workspace=ws, role="viewer")
+            user.set_password(_FACTORY_PASSWORD)
+            user.save(update_fields=["password"])
+            viewer_token = _login_for_token(user.username, _FACTORY_PASSWORD)
+
+            denied = _client_for(viewer_token).post(
+                _WS_ASK.format(ws=ws.id),
+                {"query": "q"},
+                format="json",
+                HTTP_ACCEPT_LANGUAGE=de,
+            )
+            assert denied.status_code == 403
+            assert denied.data["error"]["code"] == "PERMISSION_DENIED"

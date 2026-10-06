@@ -61,6 +61,28 @@ describe("memoryApi", () => {
     );
   });
 
+  it("asks a workspace question and maps camelCase to snake_case", async () => {
+    vi.mocked(apiClient.post).mockResolvedValue({});
+    await memoryApi.ask(WS, {
+      query: "why dark mode?",
+      artifactId: ART,
+      reasoningLevel: "high",
+    });
+    expect(apiClient.post).toHaveBeenCalledWith(`/workspaces/${WS}/memory/ask/`, {
+      query: "why dark mode?",
+      artifact_id: ART,
+      reasoning_level: "high",
+    });
+  });
+
+  it("omits artifact_id and reasoning_level when not given", async () => {
+    vi.mocked(apiClient.post).mockResolvedValue({});
+    await memoryApi.ask(WS, { query: "why?" });
+    expect(apiClient.post).toHaveBeenCalledWith(`/workspaces/${WS}/memory/ask/`, {
+      query: "why?",
+    });
+  });
+
   it("forgets an entry and forwards the change reason", async () => {
     vi.mocked(apiClient.delete).mockResolvedValue({ deleted: true });
     await memoryApi.forgetEntry(ENTRY, "cleanup");

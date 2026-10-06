@@ -148,6 +148,45 @@ fill for it. If the header is stripped in transit, the operator sees the 401
 proxy, not in this plugin. (Why a header rather than a cookie: see the
 preflight argument in "Configuration".)
 
+## Memory capabilities
+
+ReqogniLoom exposes an AI long-term memory surface over its MCP server. The
+Hermes integration reaches it through four dotted tool names:
+
+| Tool | Direction | What it does |
+| --- | --- | --- |
+| `memory.query` | read | Semantic search over a `workspace`/`user`/`artifact` scope; returns `entries` plus `degraded`/`detail`. |
+| `memory.digest` | read | Prompt-ready summary of a scope (`digest`, `derivation_status`, `derived_count`). |
+| `memory.ask` | read | Natural-language answer (`answer`, `degraded`, `detail`). RBAC write-gated on the backend because it drives a generative LLM call, but it mutates nothing. |
+| `memory.write` | **write** | Persists one fact (`content`, `scope` ∈ `workspace\|user\|artifact`). The only memory tool that mutates state, and the only one gated behind an explicit user confirmation. |
+
+A read that legitimately returns no rows is reported **separately** from a
+backend that could not answer: `degraded=true` together with a `detail` cause is
+"backend unavailable/degraded", while an empty `entries` list with
+`degraded=false` is a genuine "nothing remembered". Clients must not collapse
+the two into one empty state.
+
+Writing is never automatic. Capture is a two-step, user-driven flow — an on/off
+**toggle** that enables the surface, then a **Review** step that stages the
+draft locally, and only an explicit **Confirm** issues `memory.write`; Cancel
+(or turning the toggle off) discards the draft. Nothing typed or toggled reaches
+the backend on its own, and no auto-submit path exists.
+
+**Where this lives.** The shipped implementation of the surface above is the
+Hermes desktop plugin (`integrations/hermes-plugin/reqogniloom/` — the read
+panel with its degraded/empty split and the toggle + Review capture gate) plus
+the importable skill (`integrations/hermes-skill/reqogniloom/` — the
+`memory-query` / `memory-digest` / `memory-ask` / `memory-write` CLI
+subcommands). This agent-plugin POC (`integrations/hermes-agent-plugin/`) is
+slash-command/dashboard-only and does **not** call the memory surface yet.
+
+**P4 boundary.** The follow-on stage "capture → `proposed` artifact → human
+accept" is deliberately **not** implemented. It is the proposal loop deferred to
+P4 of the bugfix-hub work plan
+(`docs/plans/2026-10-05-bugfix-hub-integrationen.md`, AP-B5.4). The capture gate
+described here only persists a memory fact via `memory.write`; it never proposes
+an artifact.
+
 ## Files
 
 ```text

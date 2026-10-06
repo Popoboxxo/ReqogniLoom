@@ -704,8 +704,9 @@ class WorkspaceMemoryDigestView(APIView):
     memory (``scope="workspace"``). Delegates to
     :class:`application.memory_entry_service.MemoryEntryService`; the body is
     the digest's own fields (``digest``/``generated_at``/``backend``/
-    ``degraded``), so F9's degradation signal is carried by the digest itself
-    rather than by a second health probe.
+    ``degraded`` + the AP-B5.1 derivation pair ``derivation_status``/
+    ``derived_count``), so F9's degradation signal is carried by the digest
+    itself rather than by a second health probe.
     """
 
     def get(self, request: Request, workspace_id: UUID, *args: Any, **kwargs: Any) -> Response:
@@ -723,6 +724,8 @@ class WorkspaceMemoryDigestView(APIView):
                 "generated_at": digest.generated_at.isoformat(),
                 "backend": digest.backend,
                 "degraded": digest.degraded,
+                "derivation_status": digest.derivation_status,
+                "derived_count": digest.derived_count,
             }
         )
 
@@ -767,6 +770,86 @@ class WorkspaceMemorySearchView(APIView):
         except (PermissionDeniedError, NotFoundError, ValidationError) as exc:
             return _memory_error_response(exc, lang)
         return Response(result)
+
+
+class WorkspaceMemoryAskView(APIView):
+    """``POST /api/v1/workspaces/<uuid:workspace_id>/memory/ask/``.
+
+    AP-B5.2 (#1155 Aspekt 1): the REST mirror of the MCP ``memory.ask`` tool
+    (:meth:`mcp_server.tools.memory.MemoryToolGroup._handle_ask`) -- a
+    natural-language question answered by the active backend's dialectic
+    surface (Honcho ``peer.chat``; pgvector has none and degrades honestly,
+    F9). Delegates to :meth:`application.memory_entry_service.
+    MemoryEntryService.ask`; nothing is re-implemented here, so both
+    transports share one validation, one policy and one answer shape.
+
+    Request body: ``query`` (required, non-blank, <= ``MAX_ASK_QUERY_CHARS``),
+    ``artifact_id`` (optional UUID -- aims the question at the artifact scope
+    instead of the workspace scope), ``reasoning_level`` (optional, one of
+    ``memory.backends.VALID_REASONING_LEVELS``). All three are validated by
+    the service -- a missing/blank query or an unknown level answers
+    ``VALIDATION_ERROR``/400 before any backend call; only the
+    ``artifact_id`` UUID shape is parsed here (same helper as the entries/
+    search views).
+
+    Response mirrors the MCP payload exactly: ``answer``/``generated_at``
+    (ISO-8601)/``backend``/``degraded``/``detail``. ``detail`` carries the
+    degradation cause (``engine_error:<Class>`` / ``unknown_scope:<Class>`` /
+    ``"no dialectic engine"``, never user data), so an outage stays
+    distinguishable from "nothing known" (F9). ``derivation_status`` does
+    NOT ride along: ``MemoryAnswer`` carries no such field (it is a
+    :class:`MemoryDigest`-only signal) and the MCP tool does not emit one --
+    inventing a second read just to fill a REST-only key would break the
+    mirror.
+
+    Authorization is the WRITE gate, identical to MCP ``memory.ask`` (a
+    ``_WRITE_TOOL_PREFIXES`` tool) and to this module's ``memory.write``
+    surfaces: the default ``RbacPermission`` maps POST to ``Operation.WRITE``
+    and fails closed, so a Viewer-role member is denied 403 before this
+    handler runs, and the API-key capability tier denies a ``read_only`` key
+    independently of RBAC. Inside the service the scope matrix
+    (``MemoryPolicy``) additionally fences the workspace/artifact scope.
+
+    The ``memory.write`` rate limit (:mod:`memory.ratelimit`, RFC #1002 PR B)
+    deliberately does NOT apply here: its counter and admin knob are a
+    WRITES-per-hour quota (``mem:write:rl:*``,
+    ``MEMORY_WRITE_RATE_LIMIT_PER_HOUR``) guarding the persistence +
+    embedding budget, while ``ask`` stores nothing; charging ask calls to
+    that counter would silently re-define an admin-configured knob AND let
+    question-asking starve legitimate writes. The canonical MCP path enforces
+    no such limit either, and a limit only on REST would be both asymmetric
+    across transports and trivially bypassed through the other one. Cost of
+    the LLM-invoking call is bounded instead by the WRITE gate, the transport
+    throttles and ``MEMORY_ASK_TIMEOUT``. A dedicated ask quota, if ever
+    wanted, belongs in ``MemoryEntryService.ask`` so both transports inherit
+    it -- out of scope here.
+    """
+
+    def post(self, request: Request, workspace_id: UUID, *args: Any, **kwargs: Any) -> Response:
+        lang = detect_lang(request)
+        ctx = _auth_or_401(request, lang)
+        if isinstance(ctx, Response):
+            return ctx
+        try:
+            artifact_id = _parse_uuid_param(request.data.get("artifact_id"), "artifact_id")
+            answer = MemoryEntryService().ask(
+                ctx,
+                query=request.data.get("query"),
+                workspace_id=workspace_id,
+                artifact_id=artifact_id,
+                reasoning_level=request.data.get("reasoning_level"),
+            )
+        except (PermissionDeniedError, NotFoundError, ValidationError) as exc:
+            return _memory_error_response(exc, lang)
+        return Response(
+            {
+                "answer": answer.text,
+                "generated_at": answer.generated_at.isoformat(),
+                "backend": answer.backend,
+                "degraded": answer.degraded,
+                "detail": answer.detail,
+            }
+        )
 
 
 class MemoryEntryDetailView(APIView):
@@ -917,6 +1000,8 @@ class ArtifactMemoryDigestView(APIView):
                 "generated_at": digest.generated_at.isoformat(),
                 "backend": digest.backend,
                 "degraded": digest.degraded,
+                "derivation_status": digest.derivation_status,
+                "derived_count": digest.derived_count,
             }
         )
 
@@ -1071,6 +1156,7 @@ __all__ = [
     "WorkspaceMemoryEntriesView",
     "WorkspaceMemorySearchView",
     "WorkspaceMemoryDigestView",
+    "WorkspaceMemoryAskView",
     "MemoryEntryDetailView",
     "MemoryEntryPromoteView",
     "ArtifactMemoryView",

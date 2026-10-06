@@ -1,0 +1,132 @@
+# Bugfix-Hub — Externe Anbindungen, Plugins, API & Integrationen
+
+| Feld | Wert |
+|---|---|
+| **Status** | Aktiv (laufender Index) |
+| **Angelegt** | 2026-10-05 |
+| **Basis** | `v1.8.0-beta.18`, GitHub-Issue-Bestand 2026-10-05 |
+| **Arbeitsplan** | [`docs/plans/2026-10-05-bugfix-hub-integrationen.md`](../plans/2026-10-05-bugfix-hub-integrationen.md) |
+| **Leit-Plan** | [`docs/plans/2026-10-04-one-click-client-installation.md`](../plans/2026-10-04-one-click-client-installation.md) · Issue #1171 |
+| **Scope** | Fremd-Clients/-Provider, MCP-Server-Surface, REST-/OpenAPI-Contract, Plugin-Runtime, Supply-Chain |
+
+## 1. Zweck
+
+Dieser Hub bündelt die **offenen GitHub-Issues**, die Fremdsysteme betreffen, zu wenigen
+lauffähigen **Fix-Bundles**. Er ist der Einstiegspunkt (Index + Status-Board); die operative
+Reihenfolge, Arbeitspakete und Definition-of-Done liegen im Arbeitsplan (s. o.).
+
+Ziel ist nicht „alle Issues auf einmal", sondern: pro Bundle ein **belegter** Fix-Pfad
+(Reproduktion → Fix → Verifikation gegen den echten Client/Provider → Issue-Closure).
+
+## 2. Scope-Abgrenzung
+
+**In Scope (extern):**
+- **Client-Onboarding & Fremd-Harness:** Claude Code, Codex, OpenCode, Kimi Code, Antigravity, Hermes.
+- **MCP-Server-Surface:** Paritätslücken MCP ↔ REST, Tool-Suche, Tool-Schemas.
+- **REST-API & OpenAPI:** Envelope-, Routing-, Schema- und Fehler-Contract.
+- **Externe LLM-Provider:** Timeouts, Fehler-Mapping, Response-Parsing, Honcho-Dialektik.
+- **Plugins:** Hermes Desktop/Agent, Bluepencil-Review-Layer, Plugin-Versionierung.
+- **Supply-Chain & Token-Scope:** Store-Publikation, npm-Plugin, workspace-scoped API-Tokens.
+
+**Out of Scope (eigene Hubs/Backlog):**
+- Reine UI-/Layout-Bugs ohne Integrationsbezug (#1176, #1094, #1095, #1089, #801 …).
+- Datenmodell-Kampagnen (#1178 Duplikaterkennung, #941/#934 Attribut v3).
+- RLS-/Security-Härtungskampagnen (#1179–#1184, #1166 DB-Pool als Betriebsthema — nur beobachtend verlinkt).
+- SE-Kaskade/Traceability-Grundsatzentscheidungen (#877, #878, #879, #1110).
+
+> Grenzfälle: #1166 (DB-Pool) und #1165 (LLM-Timeout) sind Betriebs-/Provider-Themen und daher
+> über Bundle **B2** bzw. als Abhängigkeit gelistet, nicht als eigener Code-Fix hier.
+
+## 3. Prozess (Triage → Fix → Closure)
+
+```
+Issue (open)
+  │ 1. Triage: Bundle + Prio zuordnen, Reproduktion prüfen
+  ▼
+Bundles (dieser Hub)  ──►  Arbeitsplan (APs, DoD, Aufwand)
+  │ 2. Fix auf feat/fix-Branch, Test/Beleg
+  ▼
+Verifikation gegen echten Fremd-Client/Provider (Smoke-Test-Nachweis)
+  │ 3. PR + Issue-Closure (Closes #NNN)
+  ▼
+Status-Board aktualisiert
+```
+
+`fix(bundle-x): … (Closes #NNN)` — jede Schließung wird im Status-Board nachgeführt.
+
+## 4. Status-Board
+
+Legende Prio: **P1** = blockiert produktiven Fremd-Einsatz · **P2** = Funktion eingeschränkt · **P3** = Komfort/Doku.
+Status: `open` → `triaged` → `in-progress` → `verify` → `closed`.
+
+| Issue | Titel (kurz) | Bundle | Prio | Status |
+|---|---|---|---|---|
+| #1171 | Client-Doku One-Click je Harness (DE/EN) | B0 | P1 | triaged |
+| #1169 | Codex headless: Approval-Bypass + `wire_api=responses` | B0 | P1 | verify |
+| #649 | Importierbarer Hermes-Skill (Connector) | B0 | P2 | triaged |
+| #92 | Workspace-spezifische API-Tokens + MCP-Config-Copy | B0 | P2 | triaged |
+| #1138 | Traceability-Anker für Plugin-Versionierung | B0 | P2 | triaged |
+| #1164 | Interview MCP↔REST-Asymmetrie (`set_target`/`chat`) | B1 | P1 | verify |
+| #1098 | Kein workspace-weites TraceLink-Enumerieren über MCP | B1 | P2 | verify |
+| #1097 | `main_goal` nicht per Workspace über MCP auflistbar | B1 | P2 | verify |
+| #1170 | `artifact_search` ohne Relevanzschwelle | B1 | P3 | verify |
+| #1101 | VCRM MCP-only, im OpenAPI nicht sichtbar | B1 | P3 | verify |
+| #1133 | MCP-Live-Stack-Rollentests nicht self-seeding | B1 | P3 | verify |
+| #1153 | Honcho-Dialektik HTTP 500 (`MissingSessionID`) | B2 | P1 | verify |
+| #1186 | Preflight-Smoke: `x-opencode-session` erreicht Provider | B2 | P2 | verify |
+| #1163 | `check_consistency` TypeError bei `score: null` | B2 | P1 | verify |
+| #1165 | `architecture.decompose` LLM-Timeout → generischer 500 | B2 | P1 | verify |
+| #1152 | Hermes-Plugin `Cancel` ruft `interview.abandon` nicht | B3 | P2 | verify |
+| #988 | Bluepencil-Bundle ohne Identity-Fix („anonymous") | B3 | P2 | triaged |
+| #1177 | REST-Inkonsistenzen (Envelope/404/Bindestrich/openapi.json) | B4 | P1 | verify |
+| #1185 | Import-Fehlerantwort leakt DB-Interna (CWE-209) | B4 | P1 | verify |
+| #1155 | Honcho als echtes Langzeitgedächtnis (RFC, 4 Oberflächen) | B5 | P1 | in-progress |
+| #1156 | „Zuhören & Antizipieren"-Modus in allen Plugins | B5 | P2 | in-progress |
+| #1154 | `memory.ask` (MCP, NL-Abfrage) | B5 | P1 | closed |
+
+## 5. Bundles (Kurzfassung)
+
+| Bundle | Name | Issues | Ziel |
+|---|---|---|---|
+| **B0** | Client-Onboarding / One-Click | #1171, #1169, #649, #92, #1138 | Jeder Harness in **einem** Befehl angebunden, Doku DE/EN, Store-Stufe |
+| **B1** | MCP-Surface-Parität | #1164, #1098, #1097, #1170, #1101, #1133 | Keine MCP↔REST-Lücke; Surface dokumentiert & getestet |
+| **B2** | Externe LLM-/Provider-Robustheit | #1153, #1186, #1163, #1165 | Provider-Fehler deterministisch, korrekt gemappt, belegt |
+| **B3** | Plugin-Runtime & Fremd-Bundles | #1152, #988 | Plugins bedienen den echten Serververtrag |
+| **B4** | API-Contract-Konsistenz | #1177, #1185 | Einheitlicher Envelope, saubere Fehler, standardkonformes OpenAPI |
+| **B5** | Memory/Honcho als echtes Gedächtnis | #1155, #1156, #1154 | Derivation sichtbar, NL-Abfrage (REST/UI), Plugin-Zugang, Vorschlags-Schleife |
+
+Details, Arbeitspakete, Aufwände und DoD: siehe Arbeitsplan §3.
+
+> **B0 Stufe 1 in place:** Registry (`clients/registry.yaml`), Renderer
+> (`scripts/clients/render.py`), Doku DE/EN (`docs/clients/**`), Skripte
+> (`scripts/clients/install.sh` / `verify.sh`) und CI-Gate
+> (`.github/workflows/client-artifacts-check.yml`) sind umgesetzt; Renderer `--check` grün (16 Artefakte: 14 Client + 2 Store).
+>
+> **B0 Stufe 2 — Drafts liegen:** `.claude-plugin/marketplace.json`, `server.json` (beide aus `VERSION`) und fünf Workflow-Drafts (`release-client-artifacts`, `publish-npm`, `publish-marketplace`, `publish-mcp-registry`, `client-smoke`) plus `docs/clients/STAGE2.md` sind vorbereitet; **keine Publikation aktiv** (Trigger nur `workflow_dispatch`, Entscheidungen E1–E7 offen).
+>
+> **B0-Smoke 2026-10-05 ausgeführt (Plan §4.3):** **1× PASS** (opencode — echter Tool-Call `requirement.query`=3 / `workspace.list`=420 == REST), **2× ENV-LIMITED** (claude-code, hermes — Connect belegt, echter Call blockiert), **1× FAIL** (kimi-code), **2× nicht ausführbar** (codex, antigravity); zusätzlich Server-MCP-Quergegencheck PASS (223 Tools, `workspace.list`=420, `requirement.query`=3 == REST). **DoD 3 damit nur teilweise erfüllt.** 3 `install.sh`-Defekte (claude-code-Marketplace-ID, opencode-Header, hermes `--url`) — s. Report §4/§8. Beleg: [`docs/bugfix-hub/smoke/2026-10-05-client-smoke.md`](smoke/2026-10-05-client-smoke.md).
+>
+> **B0-Re-Smoke 2026-10-06 (nach Fix, Plan §4.3/§4.5):** vier Installer-Defekte behoben und re-verifiziert (claude-code-Marketplace-ID, opencode-Header, hermes `--url`, kimi-code-Schema). Ergebnis je Client: **opencode = full PASS** (echte MCP-Tool-Calls `requirement.query`=3 / `workspace.list`=420 == REST); **claude-code** und **hermes** = install/connect PASS, Daten-Tool-Call **ENV-LIMITED** (externe LLM-/Provider-Auth); **kimi-code** = **ENV-LIMITED/L2** (kein PASS); server-seitiger MCP PASS (223 Tools). **DoD 3: weitgehend erfüllt, aber nicht vollständig** — kein Gesamt-PASS. Beleg: Report §9.
+>
+> **B5 P1 erledigt (2026-10-06, AP-B5.1, Fix-Iteration 1):** `derivation_status` (`ok|none|failed|unsupported|unknown`) + `derived_count` sind umgesetzt und getestet — Digest (Honcho-Probe auf der empirisch verifizierten honcho-ai-2.5.1-Surface: `Conclusion.level`, `queue_status`-Work-Unit-Accounting, **ein** Read pro Digest-Pfad für Status und Faktenrendering), REST-/MCP-Digest-Surface, health-Envelope (pgvector `unsupported`, honcho scope-less `unknown`) und admin-health. #1052-Klasse: eine nachweisbare Queue-Lücke (`total > completed+in_progress+pending`) wird auf **jedem** sauberen Pfad geprüft und **überstimmt `ok`** — ein Deriver, der nach vorhandenem Output stirbt, meldet `failed`. Präzise Limitation: ein Quote-/429-Ausfall, den Honcho als `completed` zählt, hinterlässt keine Lücke und ist client-seitig unsichtbar — Scopes **mit** früherem Output lesen weiter `ok` (nicht `none`), Scopes ohne Output lesen `none`; `ok` ist historisch, nicht liveness. Dokumentiert in `deploy/README.md` (§Derivation visibility) und `docs/api/MCP-SURFACE.md` §4. **P2–P4 (memory.ask REST/UI, Plugin-Zugang, Vorschlags-Schleife) — P2 siehe Folgeeintrag, P3–P4 offen** → #1155 bleibt `in-progress`.
+
+> **B5 P2 (AP-B5.2) erledigt (2026-10-06, REST + UI):** REST-Spiegel von MCP `memory.ask` (`POST /api/v1/workspaces/<id>/memory/ask/`, View `WorkspaceMemoryAskView`, Route `workspace-memory-ask`) delegiert an denselben `MemoryEntryService.ask` und liefert exakt die MCP-Antwortform (`answer`/`generated_at`/`backend`/`degraded`/`detail`, F9-getrennte Zustände „degraded“ vs. „leer“); WRITE-gated wie das MCP-Tool (`Viewer`/`read_only` → 403 vor dem Handler), das `memory.write`-Rate-Limit gilt **bewusst nicht** (ask speichert nichts; sonst asymmetrisch zum MCP-Pfad). Frontend: `memoryApi.ask()` + „Frag das Gedächtnis“-Panel (`MemoryAskPanel`, eingebunden in `MemoryPage`), i18n DE/EN, `data-testid`; Tests über `memory/tests/test_memory_rest.py` (`TestMemoryAskRest`). **Zusammen mit P1 ist #1155 Aspekt 1 vollständig — die MCP↔REST-Asymmetrie ist geschlossen. P3–P4 (Plugin-Zugang, Vorschlags-Schleife) offen** → #1155 bleibt `in-progress`.
+
+> **B5 P3 (AP-B5.3) umgesetzt — Schreib-Hälfte (2026-10-06, Hermes-Plugin + Skill):** Das Hermes-Plugin (Desktop, `integrations/hermes-plugin/reqogniloom/`) liest das Gedächtnis über `memory.query`/`memory.digest`/`memory.ask` und hält „degraded“ (`memoryDegraded`/`memoryDetail`) sauber getrennt von einem echten Leerergebnis (F9); der gegatete WRITE-Capture ist ein Toggle (ein/aus) plus **Review-Schritt vor** `memory.write` — kein Auto-Submit (Confirm ist der einzige Aufrufpfad, doppelklick-idempotent; Cancel bzw. Ausschalten des Toggles verwirft den Entwurf). Das Skill (`integrations/hermes-skill/reqogniloom/`) erhält die Subkommandos `memory-query`/`memory-digest`/`memory-ask`/`memory-write` (Mapping auf MCP `memory.query/digest/ask/write`), ein globales `--workspace-id` (Fallback `REQOGNILOOM_WORKSPACE_ID`), client-seitige Scope-Validierung (`workspace`/`artifact`/`user`), Normalisierung beider MCP-Fehlerformen und Exit-Codes `0`/`1`. Damit ist die **Schreib-Hälfte von #1156** umgesetzt; die **Vorschlags-Hälfte** (Capture → `proposed`-Artefakt → Accept) ist **P4** (AP-B5.4, §3.6) und bewusst offen → #1156 `in-progress`. #1155 Aspekt 3 erledigt, P4 offen → #1155 bleibt `in-progress`. Refs #1155, Refs #1156, Refs #649.
+
+## 6. Verwandte Dokumente
+
+- Leit-Plan One-Click: `docs/plans/2026-10-04-one-click-client-installation.md`
+- MCP-Surface: `docs/api/MCP-SURFACE.md` · REST: `docs/api/REST-CONVENTIONS.md`
+- Client-Installation (generiert aus `clients/registry.yaml`): `docs/clients/`
+- Agent-Templates: `docs/agent-templates/INSTALL.md`, `docs/agent-templates/DOMAIN_MODEL.md`
+
+## 7. Kennzahlen
+
+| Metrik | Ziel |
+|---|---|
+| Issues in B0–B4 auf `closed`/`verify` | 100 % mit Beleg |
+| MCP↔REST-Paritätsgaps (B1) | 0 |
+| Client-Harnesse auf L2 / L3 | 6/6 (L2) · ≥4/6 (L3) |
+| Doku-Widersprüche zwischen Client-Dateien | 0 (CI-erzwungen, B0) |
+| „Client verbindet nicht"-Supportfälle | sinkend |

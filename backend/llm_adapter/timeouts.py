@@ -10,6 +10,7 @@ longer than that:
 - ``ai_derivation.derive_glossary_from_workspace``
 - ``traceability.suggest_links``
 - ``audit.ai_review``
+- ``architecture.decompose`` (issue #1165)
 
 Before this module those calls inherited the 25s cap (or the provider's 30s
 config default), always timed out and surfaced as an ``INTERNAL_ERROR`` /
@@ -35,8 +36,9 @@ DEFAULT_LONG_RUNNING_TIMEOUT_SECONDS = 180.0
 #: tight per-artifact default. The values are the ``purpose`` strings the
 #: services pass to ``provider.complete()`` — keep them in sync with
 #: ``AiDerivationService.derive_glossary_from_workspace``,
-#: ``TraceabilitySuggestService._complete``, ``AiReviewService._complete``
-#: and ``BundleCompressionService._call_provider`` (Requirement Bundle
+#: ``TraceabilitySuggestService._complete``, ``AiReviewService._complete``,
+#: ``ArchitectureDecomposeService._complete_tree`` (issue #1165) and
+#: ``BundleCompressionService._call_provider`` (Requirement Bundle
 #: Export, Plan 2 Task 1) — the latter's prompt embeds an entire rendered
 #: requirement bundle (potentially many requirements' full field sets), the
 #: same "spans more than one artifact" shape as the other three entries, not
@@ -46,6 +48,7 @@ WORKSPACE_WIDE_PURPOSES = frozenset(
         "derive_glossary_from_workspace",
         "traceability_suggest_links",
         "audit_ai_review",
+        "arch_decompose_tree",
         "bundle_compression",
     }
 )

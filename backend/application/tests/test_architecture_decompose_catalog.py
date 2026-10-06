@@ -134,7 +134,7 @@ def test_the_prompt_carries_the_workspace_overridden_caps(ctx_workspace, monkeyp
     captured: dict = {}
 
     class _Provider:
-        def complete(self, prompt, *, purpose, context):
+        def complete(self, prompt, *, purpose, context, timeout=None):
             captured["prompt"] = prompt
             captured["context"] = context
             return "[]"
@@ -201,7 +201,7 @@ def test_the_prompt_clamps_an_absurd_explicit_override_to_the_absolute_ceiling(
     captured: dict = {}
 
     class _Provider:
-        def complete(self, prompt, *, purpose, context):
+        def complete(self, prompt, *, purpose, context, timeout=None):
             captured["prompt"] = prompt
             captured["context"] = context
             return "[]"

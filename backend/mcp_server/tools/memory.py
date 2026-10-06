@@ -225,7 +225,14 @@ class MemoryToolGroup(BaseToolGroup):
         ``artifact_id`` is given; with an ``artifact_id`` the service resolves
         the artifact's owning workspace itself. The response is the digest's
         own fields — ``generated_at`` is serialised to ISO-8601 because the
-        service returns a ``datetime``.
+        service returns a ``datetime``. Besides ``digest``/``generated_at``/
+        ``backend``/``degraded`` the answer carries the AP-B5.1 (#1155)
+        derivation pair: ``derivation_status`` (one of ``ok``/``none``/
+        ``failed``/``unsupported``/``unknown`` — whether the engine's DERIVER
+        has produced anything for this scope, machine-distinguishable from
+        "the read itself degraded") and ``derived_count`` (exact count only
+        when the backend could bound it, else ``null`` — never a fabricated
+        total). On pgvector the pair is always ``unsupported``/``null``.
         """
         workspace_id = require_param(params, "workspace_id")
         artifact_id = optional_uuid(params, "artifact_id")
@@ -239,6 +246,8 @@ class MemoryToolGroup(BaseToolGroup):
                 "generated_at": digest.generated_at.isoformat(),
                 "backend": digest.backend,
                 "degraded": digest.degraded,
+                "derivation_status": digest.derivation_status,
+                "derived_count": digest.derived_count,
             }
 
         return self._service_call(_call)
@@ -255,10 +264,13 @@ class MemoryToolGroup(BaseToolGroup):
         (pgvector) returns ``degraded=True`` instead of raising. The response
         mirrors the digest's four keys -- ``answer``/``generated_at``/
         ``backend``/``degraded`` -- plus ``detail``, with ``generated_at``
-        serialised to ISO-8601. ``detail`` carries the degradation cause's
-        exception class name (never user data) when the answer degraded, so a
-        caller can tell a backend outage apart from "nothing known"; it is an
-        empty string on a successful answer.
+        serialised to ISO-8601. ``detail`` carries the degradation cause as
+        ``engine_error:<ExceptionClassName>`` or
+        ``unknown_scope:<ExceptionClassName>`` (never user data) when the answer
+        degraded, so a caller can tell a backend outage apart from an unknown
+        scope -- and both from "nothing known". The exception class name stays a
+        substring for backwards compatibility. It is an empty string on a
+        successful answer.
 
         Registered as a WRITE tool (``_WRITE_TOOL_PREFIXES``): the call drives a
         generative LLM, so a read_only/Viewer key must not reach it.

@@ -349,6 +349,11 @@ _WRITE_TOOL_PREFIXES: Tuple[str, ...] = (
     # 2026-08-20 UI-visibility fix: interview.abandon writes a workflow
     # transition (in_progress -> abandoned) -- same write gate as formalize.
     "interview.abandon",
+    # Issue #1164: interview.chat appends the user/assistant turn to
+    # InterviewSession.transcript AND drives a real LLM call, so it belongs to
+    # both the write and the LLM-spend classes -- same gate as
+    # interview.grounding_context.
+    "interview.chat",
     # Task 7 of the AI-memory spec: memory.forget deletes a MemoryEntry row --
     # memory.query/memory.list/memory.get are read-only (see
     # _READ_ONLY_TOOL_NAMES below).
@@ -420,6 +425,10 @@ _READ_ONLY_TOOL_NAMES: frozenset[str] = frozenset(
         # is what scopes the dispatcher gate to that workspace.
         "test.run_list",
         "traceability.query",
+        # #1098: workspace-wide TraceLink enumeration. It does not end on
+        # ".read"/".query" ("query_links" suffix differs), so it must be listed
+        # explicitly or it would fail closed to WRITE-gated.
+        "traceability.query_links",
         "traceability.suggest_links",
         "artifact.search",
         "artifact.get_tree",
@@ -454,6 +463,11 @@ _READ_ONLY_TOOL_NAMES: frozenset[str] = frozenset(
         # duplicated here.
         "goal.list_versions",
         "main_goal.list_versions",
+        # GitHub #1097: workspace-wide MainGoal enumeration. It ends on
+        # ".query" (already exempt via the shared suffix convention below), but
+        # the explicit entry pins it against a future refactor of that
+        # convention rather than relying on it implicitly.
+        "main_goal.query",
         # Requirement Bundle Export, Plan 1 Task 6: both tools are read-only
         # exports/discovery, no persistence — same class as artifact.search.
         "requirement_bundle.export",
@@ -708,6 +722,10 @@ _TOOL_FEATURE_MAP: Dict[str, str] = {
     "architecture.link": "architecture_links",
     "test.link": "test_links",
     "traceability.query": "traceability",
+    # #1098: its collection sibling is gated by the same feature key as
+    # traceability.query — a preset that disables traceability for a workspace
+    # must not leave the link graph enumerable through the new tool.
+    "traceability.query_links": "traceability",
     "artifact.get_tree": "artifact_tree",
 }
 

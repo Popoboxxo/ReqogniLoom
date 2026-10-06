@@ -7,7 +7,8 @@ about *two* requests interacting, or because the honest answer is "this fails,
 and that is correct".
 
 **Related:** [MCP surface reference](MCP-SURFACE.md) · generated OpenAPI at
-`GET /api/schema/` and `/api/schema/swagger-ui/`
+`GET /openapi.json` (JSON), `GET /api/schema/` (YAML, JSON via `Accept`) and
+`/api/schema/swagger-ui/` — see §8.
 
 ---
 
@@ -55,7 +56,7 @@ not an oversight: it is the behaviour for callers that do not track versions.
 | Resource | `ETag` on GET/PATCH | `If-Match` | `expected_version` |
 |----------|--------------------|------------|--------------------|
 | `/api/v1/requirements/{id}/` | yes | yes | yes |
-| `/api/v1/testcases/{id}/` | yes | yes | yes |
+| `/api/v1/test-cases/{id}/` (alias `testcases`) | yes | yes | yes |
 | `/api/v1/architecture/{id}/` | — | — | yes |
 | `/api/v1/needs/{id}/` | — | — | yes |
 | `/api/v1/adrs/{id}/` | — | — | yes |
@@ -230,3 +231,203 @@ stable one: the resolution is registry-driven, so a newly added artifact-backed
 type resolves without anyone remembering to add it to a list. If you are reading
 this on a build older than #1075, treat "Icd resolves" as not yet true and pass
 `artifact_id` instead.
+
+---
+
+## 5. VCRM is MCP-only
+
+The **Verification Cross Reference Matrix** (COMP-TE-004,
+[#410](https://github.com/Popoboxxo/ReqogniLoom/issues/410)) is available
+**only through MCP**, as the tool `traceability.vcrm`. There is deliberately no
+REST counterpart:
+
+| | |
+|---|---|
+| MCP tool | `traceability.vcrm` |
+| Parameters | `workspace_id` (required), `format` = `json` (default) \| `csv` |
+| REST route | **none** |
+| OpenAPI operations mentioning `vcrm` | **0** |
+
+No route, view, serializer or OpenAPI source under `backend/rest_api/**`
+mentions `vcrm` (the only case-insensitive hits are two prose comments in
+`rest_api/tests/`), so no REST route and no generated OpenAPI operation
+mentions it. A client searching only the REST documentation will not find the
+capability — that is the trap
+[#1085](https://github.com/Popoboxxo/ReqogniLoom/issues/1085) point 5 reports.
+
+VCRM is an agent-facing aggregate (requirement × component × test case ×
+result), not a CRUD entity, so it owns no REST collection. The canonical
+description of where VCRM lives is
+[MCP surface reference § 6](MCP-SURFACE.md#6-vcrm--a-capability-with-no-rest-route),
+which also records that the PDF variant `export_vcrm_pdf()` is implemented and
+tested but intentionally reachable from no transport (unused-by-design). This
+section is the REST-side statement of the same decision, so the asymmetry is
+visible from both documents and neither contradicts the other.
+
+---
+
+## 6. List responses: one pagination envelope
+
+Every list/collection endpoint under `/api/v1/` — the workflow-backed entity
+ViewSets, `/users/`, `/api-keys/`, `/reviews/`, `/reviews/pending/`,
+`/link-type-defaults/` and the workspace-scoped link types — answers with the
+same offset envelope:
+
+```json
+{
+  "count": 42,
+  "next": "…?page=3",
+  "previous": "…?page=1",
+  "page_size": 25,
+  "max_page_size": 100,
+  "results": [ /* … */ ]
+}
+```
+
+`page` (1-based) and `page_size` (default 25, hard-capped at 100) are the query
+parameters. The effective `page_size` and the ceiling `max_page_size` are echoed
+so a client can tell a *capped* page from a *short last* page. An invalid `page`
+answers **404** (`rest_api.serializers.StandardPagination`), never a 500.
+
+### `/users/` — a completed breaking transition
+
+`GET /api/v1/users/` used to return a **bare JSON array** and ignored
+`page`/`page_size`, unlike every other list endpoint. It now returns the
+envelope above (audit finding INT-05, AUD-2026-09-074). This is a **breaking
+change** for a client that assumed an array:
+
+* The in-repo consumers were migrated with it — `frontend/src/api/users.ts`
+  requests `?page_size=100` and reads `results`, and
+  `e2e/tests/user-management.spec.ts` accepts the envelope.
+* A consumer that still reads the response body as a top-level array must switch
+  to `body.results`. `count`/`next`/`previous` stay additive for clients that
+  already read them.
+
+---
+
+## 7. Path spelling: canonical kebab-case, aliases keep working
+
+Multi-word collection paths use **kebab-case** as the canonical spelling. Every
+resource whose spelling was historically mixed is registered under **both**
+forms — the canonical path and a backward-compatible alias — so no existing
+client breaks and new clients have a single rule:
+
+| Canonical (kebab-case) | Backward-compatible alias |
+|------------------------|---------------------------|
+| `/api/v1/test-cases/` | `/api/v1/testcases/` |
+| `/api/v1/trace-links/` | `/api/v1/tracelinks/` |
+| `/api/v1/test-runs/` | `/api/v1/testruns/` |
+| `/api/v1/main-goals/` | `/api/v1/maingoals/` |
+| `/api/v1/change-requests/` | `/api/v1/changerequests/` |
+
+Both spellings resolve to the **same** `ViewSet` and the **same** objects —
+neither is a separate implementation, a second serializer or a second service.
+New clients should use the canonical column; the alias column is frozen (it
+exists for compatibility and is not a place to add new routes). §1 names the
+canonical spelling and the tests cover both forms resolving identically.
+
+---
+
+## 8. OpenAPI access points and content types
+
+The generated OpenAPI 3 document is reachable four ways. All are **public** (no
+Bearer token / tenant context required):
+
+| URL | Format | `Content-Type` |
+|-----|--------|----------------|
+| `GET /openapi.json` | JSON | `application/vnd.oai.openapi+json` |
+| `GET /api/openapi.json` | JSON | `application/vnd.oai.openapi+json` |
+| `GET /api/schema/` | YAML by default; JSON with `Accept: application/json` | `application/vnd.oai.openapi` (YAML) / `application/vnd.oai.openapi+json` (JSON) |
+| `GET /api/schema` | same as `/api/schema/` | same |
+
+`/openapi.json` is the canonical machine-readable document for SDK generators
+that cannot consume YAML. `/api/openapi.json` is an alias — it matches the path
+the auth middleware's exemption list (`auth_tenancy.middleware`) already carries,
+and the path the SE requirements name. `/api/schema/` is kept unchanged as the
+YAML entry point.
+
+Because `APPEND_SLASH` is disabled project-wide (CR-03), the non-trailing
+`/api/schema` had no redirect to fall back on and used to 404; it is therefore
+routed explicitly and now answers directly.
+
+The `Content-Type` is set on both renderers, so a strict client (one that refuses
+to parse a body whose media type it does not recognise) can consume the document
+without a special case.
+
+---
+
+## 9. `memory.ask` on REST — a write-gated read with an explicit degradation state
+
+`POST /api/v1/workspaces/{workspace_id}/memory/ask/` (view
+`WorkspaceMemoryAskView`, route name `workspace-memory-ask`) is the REST mirror
+of the MCP tool `memory.ask`
+([MCP surface reference § 4](MCP-SURFACE.md#4-the-memory-group-in-full)).
+Before [#1155](https://github.com/Popoboxxo/ReqogniLoom/issues/1155) Aspekt 1 the
+capability existed only over MCP; this route closes that asymmetry. Both
+transports delegate to the same `MemoryEntryService.ask`, so they share one
+validation, one `MemoryPolicy` and one answer shape — the REST body is not a
+second implementation.
+
+### Request
+
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| `query` | string | **yes** | Non-blank; at most 10000 characters (`MAX_ASK_QUERY_CHARS`). |
+| `artifact_id` | UUID | no | Aims the question at that artifact's scope; the service resolves the owning workspace itself, so the workspace path segment is still required. |
+| `reasoning_level` | string | no | One of `minimal` / `low` / `medium` / `high` / `max` (`VALID_REASONING_LEVELS`). |
+
+A missing or blank `query`, an unknown `reasoning_level` or a malformed
+`artifact_id` answers **`400 VALIDATION_ERROR`** before any backend call.
+
+### Response
+
+```json
+{
+  "answer": "…",
+  "generated_at": "2026-10-06T12:34:56.789012+00:00",
+  "backend": "honcho",
+  "degraded": false,
+  "detail": ""
+}
+```
+
+Field-for-field the MCP payload; `generated_at` is ISO-8601. `derivation_status`
+does **not** appear here: it is a `MemoryDigest`-only signal and the MCP tool
+does not emit it either, so adding it on REST alone would break the mirror.
+
+### Authorization is the WRITE gate
+
+The route is a `POST`, so the default `RbacPermission` maps it to
+`Operation.WRITE` and fails closed: a Viewer-role member is denied **`403`
+before the handler runs**, and an API key on the `read_only` capability tier is
+denied independently of RBAC. The MCP tool is write-gated the same way
+(`_WRITE_TOOL_PREFIXES`) — the call drives a generative LLM, so "it only reads"
+is not a reason to let a read-only credential spend tokens. Inside the service
+`MemoryPolicy` additionally fences the workspace/artifact scope.
+
+### No `memory.write` rate limit — deliberately
+
+`memory.ask` is **not** charged to the `memory.write` fixed-window limiter
+(`memory.ratelimit`, `MEMORY_WRITE_RATE_LIMIT_PER_HOUR`, default `60`): that
+counter is a writes-per-hour quota guarding the persistence + embedding budget,
+while `ask` stores nothing. Charging it would silently redefine an
+admin-configured knob and let question-asking starve legitimate writes. The MCP
+path enforces no such limit either, so a REST-only limit would be asymmetric
+across transports and trivially bypassed through the other one. Cost is bounded
+instead by the WRITE gate, the transport throttles and `MEMORY_ASK_TIMEOUT`. A
+dedicated ask quota, if ever wanted, belongs in `MemoryEntryService.ask` so both
+transports inherit it.
+
+### F9: `degraded` and an empty `answer` are different states
+
+`degraded` is the field to inspect before trusting `answer`:
+
+* `degraded: true` — the engine could not answer (no dialectic surface on this
+  backend, unreachable engine, unknown scope). `detail` names the cause as
+  `engine_error:<ClassName>`, `unknown_scope:<ClassName>` or
+  `"no dialectic engine"`, and never carries user data.
+* `degraded: false` with an empty `answer` — a genuine "nothing known".
+
+`ask` never raises and never answers `500` for a backend-side failure; a failing
+backend degrades into the flag, exactly like `digest`. On `pgvector`, which has
+no generative engine, this degradation is the normal shape, not an error.

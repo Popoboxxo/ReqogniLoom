@@ -61,6 +61,10 @@ non-zero, and `backend`/`celery`/`celery-beat` declare
 now aborts `up -d` with an actionable message instead of producing a silently dead deployment. The
 check is conditional: mock/anthropic/openai/ollama/azure deployments are unaffected.
 
+> **Related (#1153):** this preflight only proves the session value is *present* in the environment.
+> A Honcho deployment can still answer incorrectly if the `honcho` image drifts off its verified
+> digest — see `## Troubleshooting: Stale Honcho image (#1153)` below.
+
 ## Optional profiles (off by default)
 
 
@@ -289,6 +293,49 @@ ReqogniLoom's UI — the summary/dream job simply never lands. Pin `SUMMARY_MODE
 `DREAM_DEDUCTION_MODEL_CONFIG__*` and `DREAM_INDUCTION_MODEL_CONFIG__*` alongside the
 deriver/dialectic block (see the `honcho` service comments; RFC #1002 finding F6).
 
+**Pinned image (#1153).** Everything above only holds for the *verified* image. All three services
+that run the Honcho image (`honcho`, `honcho-deriver`, `honcho-migrate`) are pinned to
+`ghcr.io/plastic-labs/honcho:latest@sha256:350b778af29b8b5b0b9a5b5436a00ea912acc7490908a9cb4fb7d80fa963e5c2`,
+so the moving `:latest` tag cannot silently resolve to a different build than the one the wiring
+above was verified against. For the failure mode and the recreate command, see
+`## Troubleshooting: Stale Honcho image (#1153)` below.
+
+### Derivation visibility (`derivation_status`) and the Zen-Go quota dependency (#1155)
+
+Everything above can fail **silently**: the API stays up, memory reads keep working, and yet the
+Deriver never produces anything — the beta.18 symptom, where every document stayed `level="explicit"`
+(0 derived artefacts) while the UI still showed "healthy". Since AP-B5.1 the Deriver's state is
+reported machine-readably, independent of the read's own `degraded` flag. Two surfaces carry the
+field, and they answer different questions:
+
+- **per scope** — `memory.digest` (MCP) and `GET /api/v1/workspaces/<id>/memory/digest/` (REST, plus
+  the artifact variant): `derivation_status` + `derived_count` describe *this* scope's deriver.
+- **scope-less** — the memory response envelope (`memory.list` / `memory.query` / `memory.forget`
+  over MCP, the REST memory endpoints, and the admin `memory` health row): only the *capability*
+  answer, because that surface has no scope to probe.
+
+| `derivation_status` | Meaning |
+|---|---|
+| `ok` | *Per scope:* this scope **has produced** derived output at some point (non-empty peer representation/card, or a conclusion at level `deductive`/`inductive`/`contradiction`). `derived_count` carries the exact count when the probe could bound it, else `null`. **`ok` does not mean "the deriver is currently healthy"** — read the quota limit below. |
+| `none` | *Per scope:* probed cleanly — nothing derived (yet). Writes exist, but all are `explicit`. **Not** an outage. |
+| `failed` | *Per scope:* demonstrable failure — Honcho's `queue_status` accounting shows units vanished without completing (`total > completed + in_progress + pending`), the #1052 class. This **outranks `ok`**: a Deriver that dies after having produced output reads `failed`, while the digest text still carries that output. |
+| `unknown` | *Per scope:* engine unreachable (or scope rejected) — the state is not determinable, never collapsed into `none`. |
+| `unsupported` | The active backend has no deriver at all (pgvector) — on both surfaces. On the scope-less envelope `honcho` answers `unknown` ("can derive, not probed here"); its per-scope truth appears only on a digest. |
+
+**Quota limit of this signal (read this before trusting `ok`).** The dominant #1155 root cause is the
+Zen-Go endpoint's rate limit (HTTP 429): the Deriver dies *server-side* and Honcho counts the affected
+work units as processed. The SDK surface (verified against `honcho-ai==2.5.1`) exposes **no per-unit
+error flag** and no last-error/last-run detail, so such a loss leaves **no accounting gap** and is
+client-undetectable: a scope that had already derived something keeps reading `ok`, a scope without
+any output reads `none` — neither reads `failed`. `failed` fires only on the provable gap. Therefore:
+
+- digests persistently reporting `none` despite growing explicit writes → check the quota and the
+  `honcho-deriver` logs (section (b) above);
+- digests reporting `ok` while the derived artefact stops growing → same checks; `ok` is a
+  *historical* statement about the scope, not a liveness probe of the deriver.
+
+Both cases are the documented blind spot of a client-side view, not a backend bug.
+
 
 ## Troubleshooting: LLM calls fail with ConnectError (backend container DNS)
 
@@ -379,6 +426,62 @@ docker compose -f deploy/docker-compose.yml --project-directory . ps
 `honcho` and `honcho-postgres` must be `running`/`healthy`.
 
 See RFC #1002 §F12 (and issue #918).
+
+## Troubleshooting: Stale Honcho image (#1153)
+
+**Symptom.** The optional Honcho engine answers incorrectly while everything *looks* healthy.
+Honcho's dialectic endpoint returns HTTP 500 — or the underlying provider call surfaces
+`400 {"type":"error","error":{"type":"MissingSessionID", …}}` — and the background engine modules
+(deriver, summary, dream) fail in the background. Memory **reads** keep working and
+`GET /health/` looks green, so nothing surfaces in ReqogniLoom's UI and the summary/dream layers
+simply never land.
+
+**Cause.** A **stale/moved `:latest` image**, not a repo-code bug. `ghcr.io/plastic-labs/honcho:latest`
+is a *moving* tag: a host that pulled it at a different time ran a different build than the one the
+stack was verified against. The compose wiring already reaches the SDK parameters correctly — the
+`x-opencode-session` shim and the `extra_headers` kwarg are all in place — but the running container
+came from a different build than the verified one.
+
+**Fix.** Recreate the two long-running engine services so they pick up the pinned image — run from
+the repository root:
+
+```bash
+docker compose -f deploy/docker-compose.yml --project-directory . --profile honcho up -d --force-recreate honcho honcho-deriver
+```
+
+`docker compose restart <service>` is **not** sufficient: a restart reuses the existing container
+and its already-pulled image, so a stale image is never replaced. Only a recreate
+(`--force-recreate`, or a re-run `up -d` after the image reference changed) re-resolves and
+re-creates the container.
+
+**Digest pin.** All three services that run the Honcho image — `honcho`, `honcho-deriver` and
+`honcho-migrate` — are pinned to the verified immutable reference:
+
+```
+ghcr.io/plastic-labs/honcho:latest@sha256:350b778af29b8b5b0b9a5b5436a00ea912acc7490908a9cb4fb7d80fa963e5c2
+```
+
+`honcho-migrate` is pinned as well on purpose: if migrations ran on a different build than the
+server, the Alembic/embedding schema could drift from what the API and deriver expect.
+
+**Update.** When the upstream `:latest` image is refreshed, the new digest must be updated in all
+three places that pin it: the three `image:` lines (the `honcho`, `honcho-deriver` and
+`honcho-migrate` services) in `deploy/docker-compose.yml`, this README, and `_EXPECTED_DIGEST` in
+`backend/memory/tests/test_honcho_deploy_contract.py`; then re-run the guard test above. Copy the
+value from the manifest-list/index `Digest:` field — not `config.digest`.
+
+**Spike evidence.** This digest is the manually verified reference (the live spike imports
+`src.config.settings` inside the *pinned* image and asserts
+`sdk_params["extra_headers"]["x-opencode-session"]` is the configured value). The deploy contract is
+regression-guarded, Docker-free and Django-free, by
+`backend/memory/tests/test_honcho_deploy_contract.py`; run it on the host with:
+
+```bash
+cd backend && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest memory/tests/test_honcho_deploy_contract.py -q
+```
+
+The guard asserts the shared `x-honcho-env` session value, the nine-module entrypoint shim for both
+`honcho` and `honcho-deriver`, and the digest pin (all three services sharing one image).
 
 ## Optional: switch the embedding provider (and resize the schema)
 

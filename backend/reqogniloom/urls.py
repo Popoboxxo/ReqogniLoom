@@ -3,7 +3,8 @@ ReqFlow URL configuration.
 
 ARCH-L1-002 RestApiAdapter: All API routes are registered under /api/v1/.
 ARCH-L1-003 McpServer: MCP transport endpoint registered under /mcp/.
-OpenAPI schema: served via drf-spectacular at /api/schema/.
+OpenAPI schema: served via drf-spectacular at /api/schema/ (YAML) and
+/openapi.json (JSON; alias /api/openapi.json).
 
 TODO(ARCH-L1-002): Register domain-specific API routers once rest_api app
   implements ViewSets (requirements, architecture, tests, baselines, etc.).
@@ -15,6 +16,7 @@ from django.contrib import admin
 from django.urls import include, path, re_path
 from drf_spectacular.views import (
     SpectacularAPIView,
+    SpectacularJSONAPIView,
     SpectacularRedocView,
     SpectacularSwaggerView,
 )
@@ -44,8 +46,23 @@ urlpatterns = [
     path("api/v1/version/", VersionView.as_view(), name="version"),
     # Django admin
     path("admin/", admin.site.urls),
-    # OpenAPI schema (drf-spectacular)
+    # OpenAPI schema (drf-spectacular). Public entry points (#1177):
+    #   /openapi.json      — canonical machine-readable JSON document; SDK
+    #                        generators that cannot consume YAML use this.
+    #   /api/openapi.json  — alias matching the path the auth middleware already
+    #                        exempts (auth_tenancy.middleware.EXEMPT_PATH_PREFIXES)
+    #                        and the SE requirement text names.
+    #   /api/schema/       — YAML by default, JSON via Accept (kept unchanged).
+    #   /api/schema        — no-slash alias: APPEND_SLASH is disabled (CR-03), so
+    #                        without this the bare path 404s instead of redirecting.
+    path("openapi.json", SpectacularJSONAPIView.as_view(), name="openapi-json"),
+    path(
+        "api/openapi.json",
+        SpectacularJSONAPIView.as_view(),
+        name="api-openapi-json",
+    ),
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
+    path("api/schema", SpectacularAPIView.as_view(), name="schema-noslash"),
     path(
         "api/schema/swagger-ui/",
         SpectacularSwaggerView.as_view(url_name="schema"),

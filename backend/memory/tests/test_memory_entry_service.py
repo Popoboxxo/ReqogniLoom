@@ -439,6 +439,10 @@ class TestDigest:
             assert "prefers dark mode" in digest.text
             assert digest.backend == "pgvector"
             assert digest.degraded is False
+            # AP-B5.1 (#1155): pgvector never derives -- the digest must say so
+            # explicitly instead of leaving the deriver's state unstated.
+            assert digest.derivation_status == "unsupported"
+            assert digest.derived_count is None
 
     def test_workspace_digest_requires_a_role_in_the_workspace(self):
         with active_tenant() as tenant:
@@ -631,6 +635,44 @@ class TestDegradedEnvelope:
             envelope = _service().health()
 
             assert envelope["ask_available"] is False
+
+    def test_health_envelope_reports_derivation_status(self):
+        """AP-B5.1 (#1155): the envelope carries the scope-less derivation
+        capability. pgvector has no deriver at all, so the honest answer is
+        ``unsupported`` -- a client can tell "will never derive" apart from
+        "could not determine" without probing a scope. The per-scope truth
+        (``ok``/``none``/``failed``) travels on the digest, not here.
+        """
+        with active_tenant():
+            envelope = _service().health()
+
+            assert envelope["derivation_status"] == "unsupported"
+
+    def test_derivation_probe_normalises_rogue_backend_values(self, monkeypatch):
+        """The envelope vocabulary must not drift through a third-party
+        backend: any ``derivation_status`` outside ``VALID_DERIVATION_STATUSES``
+        normalises to ``unknown`` (and a valid value passes through)."""
+        from types import SimpleNamespace
+
+        from memory.health import _probe_derivation_status
+
+        monkeypatch.setattr(
+            "memory.health.get_memory_backend",
+            lambda: SimpleNamespace(derivation_status="banana"),
+        )
+        assert _probe_derivation_status() == "unknown"
+
+        monkeypatch.setattr(
+            "memory.health.get_memory_backend",
+            lambda: SimpleNamespace(derivation_status="unsupported"),
+        )
+        assert _probe_derivation_status() == "unsupported"
+
+        monkeypatch.setattr(
+            "memory.health.get_memory_backend",
+            lambda: (_ for _ in ()).throw(RuntimeError("no backend")),
+        )
+        assert _probe_derivation_status() == "unknown"
 
     def test_unhealthy_backend_marks_reads_and_writes_degraded(self, monkeypatch):
         monkeypatch.setattr(

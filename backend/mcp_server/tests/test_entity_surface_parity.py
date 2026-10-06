@@ -148,6 +148,9 @@ _COLLECTION_TOOLS = frozenset(
         "issue.query",
         "glossary.query",
         "goal.query",
+        # #1097: workspace-wide MainGoal enumeration -- the collection tool
+        # that closes the main_goal gap this list's ratchet recorded.
+        "main_goal.query",
         "change_request.query",
         "icd.query",
         "diagram.query",
@@ -157,6 +160,9 @@ _COLLECTION_TOOLS = frozenset(
         "interview.list",
         "workspace.list",
         "artifact.search",
+        # #1098: workspace-wide TraceLink enumeration — the collection tool
+        # that closes the trace_link gap this list's ratchet guards.
+        "traceability.query_links",
     }
 )
 
@@ -170,9 +176,10 @@ def test_every_entity_has_a_list_tool_not_just_a_fetch() -> None:
     collection tool — otherwise the entity is addressable but not
     discoverable, which is the same defect from the agent's side.
 
-    The two entities that predate this ratchet and are exempt carry their
-    reason in ``collection_gap``; a third one has to be justified the same way
-    or this assertion fails.
+    An entity that predates this ratchet and is exempt carries its
+    reason in ``collection_gap``; any such exemption has to be justified or
+    this assertion fails. No entity uses the escape hatch any more — #1097
+    closed the last one by adding ``main_goal.query``.
     """
     for key, spec in sorted(ENTITY_SPECS.items()):
         if not spec.needs_collection_tool:

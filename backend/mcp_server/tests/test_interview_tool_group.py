@@ -646,6 +646,104 @@ class TestInterviewToolGroup:
         assert result.error_code == "VALIDATION_ERROR"
         svc.abandon.assert_not_called()
 
+    # ------------------------------------------------------------------
+    # interview.chat (issue #1164)
+    # ------------------------------------------------------------------
+
+    @patch("mcp_server.tools.interview.write_mcp_audit")
+    def test_chat_calls_service_and_returns_result(self, mock_audit):
+        group, svc = self._group()
+        session = _mock_session()
+        svc.generate_chat_turn.return_value = {
+            "reply": "Noted.",
+            "state": _mock_state(session, missing_fields=[]),
+        }
+
+        result = group.execute_tool(
+            tool_name="interview.chat",
+            params={"session_id": str(session.id), "message": "We need SSO login"},
+            auth_context=EDITOR_CTX,
+            api_key=VALID_API_KEY,
+        )
+
+        assert result.success is True
+        assert result.data == svc.generate_chat_turn.return_value
+        svc.generate_chat_turn.assert_called_once_with(
+            EDITOR_CTX, session.id, "We need SSO login"
+        )
+        # State stays in get_state()'s "session_id" shape -- every interview.*
+        # handler returns state under that key, unlike REST which renames it
+        # to "id" at its own facade.
+        assert result.data["state"]["session_id"] == str(session.id)
+        mock_audit.assert_called_once()
+        call_kwargs = mock_audit.call_args.kwargs
+        assert call_kwargs["tool_name"] == "interview.chat"
+        assert call_kwargs["operation"] == "update"
+
+    @patch("mcp_server.tools.interview.write_mcp_audit")
+    def test_chat_defaults_missing_message_to_empty_string(self, mock_audit):
+        group, svc = self._group()
+        svc.generate_chat_turn.return_value = {"reply": "Hi", "state": {}}
+
+        result = group.execute_tool(
+            tool_name="interview.chat",
+            params={"session_id": str(SESSION_UUID)},
+            auth_context=EDITOR_CTX,
+            api_key=VALID_API_KEY,
+        )
+
+        assert result.success is True
+        svc.generate_chat_turn.assert_called_once_with(EDITOR_CTX, SESSION_UUID, "")
+
+    def test_chat_not_found_returns_not_found(self):
+        group, svc = self._group()
+        svc.generate_chat_turn.side_effect = NotFoundError(
+            f"InterviewSession {SESSION_UUID} not found"
+        )
+
+        result = group.execute_tool(
+            tool_name="interview.chat",
+            params={"session_id": str(SESSION_UUID)},
+            auth_context=EDITOR_CTX,
+            api_key=VALID_API_KEY,
+        )
+        assert result.success is False
+        assert result.error_code == "NOT_FOUND"
+
+    def test_chat_validation_error_returns_validation_error(self):
+        group, svc = self._group()
+        svc.generate_chat_turn.side_effect = ValidationError(
+            f"InterviewSession {SESSION_UUID} is completed, cannot chat."
+        )
+
+        result = group.execute_tool(
+            tool_name="interview.chat",
+            params={"session_id": str(SESSION_UUID)},
+            auth_context=EDITOR_CTX,
+            api_key=VALID_API_KEY,
+        )
+        assert result.success is False
+        assert result.error_code == "VALIDATION_ERROR"
+
+    def test_chat_requires_session_id(self):
+        group, svc = self._group()
+        result = group.execute_tool(
+            tool_name="interview.chat",
+            params={},
+            auth_context=EDITOR_CTX,
+            api_key=VALID_API_KEY,
+        )
+        assert result.success is False
+        assert result.error_code == "VALIDATION_ERROR"
+        svc.generate_chat_turn.assert_not_called()
+
+    def test_chat_schema_requires_session_id(self):
+        schemas = {s["name"]: s for s in InterviewToolGroup()._TOOL_SCHEMAS}
+        schema = schemas["interview.chat"]
+        assert schema["inputSchema"]["required"] == ["session_id"]
+        assert "message" in schema["inputSchema"]["properties"]
+        assert "message" not in schema["inputSchema"]["required"]
+
 
 # ---------------------------------------------------------------------------
 # Registration / RBAC classification structural checks
@@ -661,6 +759,9 @@ class TestInterviewToolGroupRegistration:
         assert "interview" in registry._groups
         assert isinstance(registry._groups["interview"], InterviewToolGroup)
 
+    def test_chat_is_registered_in_the_tool_map(self):
+        assert "interview.chat" in InterviewToolGroup._TOOL_MAP
+
     def test_write_tools_are_registered_as_write_tools(self):
         from mcp_server.tool_registry import _WRITE_TOOL_PREFIXES
 
@@ -671,6 +772,7 @@ class TestInterviewToolGroupRegistration:
             "interview.grounding_context",
             "interview.set_target",
             "interview.abandon",
+            "interview.chat",
         ):
             assert any(
                 tool_name == wt or tool_name.startswith(wt) for wt in _WRITE_TOOL_PREFIXES

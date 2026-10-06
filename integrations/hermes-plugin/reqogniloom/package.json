@@ -8,7 +8,8 @@
     "postbuild": "npm run verify-build",
     "verify-build": "node --experimental-vm-modules scripts/verify-build.mjs",
     "dev": "vite build --watch",
-    "test": "vitest run"
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
     "@testing-library/dom": "^10.4.1",
