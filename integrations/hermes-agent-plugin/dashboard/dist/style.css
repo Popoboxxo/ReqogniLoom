@@ -41,3 +41,63 @@
   font-size: 11px;
   opacity: 0.6;
 }
+
+/* Workspace picker + open-interview table (the tab used to show counts only). */
+.reqlo-workspace {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0;
+  font-size: 13px;
+}
+
+.reqlo-workspace select {
+  min-width: 240px;
+}
+
+.reqlo-section {
+  margin: 20px 0 8px;
+  font-size: 14px;
+}
+
+.reqlo-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.reqlo-table th,
+.reqlo-table td {
+  text-align: left;
+  padding: 6px 8px;
+  border-bottom: 1px solid rgba(128, 128, 128, 0.25);
+}
+
+.reqlo-table th {
+  font-weight: 600;
+  opacity: 0.7;
+}
+
+.reqlo-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.reqlo-empty,
+.reqlo-subtle {
+  font-size: 13px;
+  opacity: 0.7;
+}
+
+/* The connect form is now the exception (server demands a token), not the entry screen. */
+.reqlo-connect-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 420px;
+}
+
+.reqlo-connect-hint {
+  font-size: 12px;
+  opacity: 0.7;
+  margin: 0;
+}

@@ -7,27 +7,31 @@ in dist/index.js. No caching, no background scan — every request hits
 ReqogniLoom's REST API directly, same pattern as the /reqogniloom slash
 command in __init__.py (both share reqogniloom_client.py).
 
-Inbound authentication
-----------------------
+Inbound authentication (opt-in)
+-------------------------------
 The plugin runs no server of its own: it returns an ``APIRouter`` that an
 external Hermes dashboard mounts, and neither plugin.yaml nor
 dashboard/manifest.json carries a port, bind address, ``secrets`` or ``env``
-field, so the host hands the plugin no credential. Every endpoint is therefore
-gated on a shared secret the operator exports into the environment of the
-process that runs the dashboard:
+field, so the host hands the plugin no credential. Every endpoint is read-only
+and is served on the dashboard's own origin, behind the dashboard's own auth
+gate, so the plugin adds an *optional* second factor rather than a mandatory
+one:
 
-* ``REQOGNILOOM_DASHBOARD_TOKEN`` — expected value of the
-  ``X-ReqogniLoom-Dashboard-Token`` request header. Unset or empty rejects
-  *every* request: no default token, no dev-mode bypass, no "FastAPI missing,
-  allow" escape hatch. Misconfiguration fails closed, not open.
+* ``REQOGNILOOM_DASHBOARD_TOKEN`` — when **set**, the ``X-ReqogniLoom-Dashboard-Token``
+  request header must match it and the allowlists below must accept the
+  request; when **unset**, the gate is inert and the host dashboard's own auth
+  is the only gate. Failing closed on an unset variable (PLUG-12) made the tab
+  answer 403 to its own three requests on every install that had not exported a
+  secret the host never handed the plugin.
 * ``REQOGNILOOM_DASHBOARD_ALLOWED_ORIGINS`` — optional comma-separated
-  ``Origin`` allowlist. Unset means loopback only (``http://localhost:*``,
-  ``http://127.0.0.1:*``, ``http://[::1]:*``); it never widens to ``*``, and a
-  wildcard entry is discarded rather than honoured.
+  ``Origin`` allowlist, consulted **only while the token is set**. Unset means
+  loopback only (``http://localhost:*``, ``http://127.0.0.1:*``,
+  ``http://[::1]:*``); it never widens to ``*``, and a wildcard entry is
+  discarded rather than honoured.
 * ``REQOGNILOOM_DASHBOARD_ALLOWED_HOSTS`` — optional comma-separated ``Host``
-  allowlist with the same loopback default. It blunts DNS-rebinding, which the
-  ``Origin`` check cannot see: a rebound name reaches 127.0.0.1 while sending
-  an attacker-chosen ``Host``.
+  allowlist with the same loopback default and the same token-only scope. It
+  blunts DNS-rebinding, which the ``Origin`` check cannot see: a rebound name
+  reaches 127.0.0.1 while sending an attacker-chosen ``Host``.
 
 The credential travels in a custom request header rather than a cookie because
 a custom header forces a CORS preflight for every cross-origin browser
@@ -123,17 +127,21 @@ def enforce_dashboard_auth(headers: Optional[Mapping[str, str]]) -> None:
     all" — the rejection path, never a pass.
 
     Raises:
-        DashboardAuthError: 403 when the guard is unconfigured or the request's
-            origin/host is not allowlisted, 401 when the credential is missing
-            or wrong.
+        DashboardAuthError: 403 when the configured guard rejects the request's
+            origin/host, 401 when the credential is missing or wrong. While no
+            token is configured the guard returns ``None`` without inspecting
+            anything — the opt-in case (PLUG-12).
     """
     expected = _env(TOKEN_ENV_VAR)
     if not expected:
-        raise DashboardAuthError(
-            _FORBIDDEN,
-            f"{TOKEN_ENV_VAR} is not set — the dashboard API rejects every request "
-            f"until the operator exports it into the dashboard process environment",
-        )
+        # Opt-in, not fail-closed (PLUG-12): an unset token means "no second
+        # factor". The host dashboard's own auth gate and the browser's
+        # same-origin policy already guard this read-only surface, while failing
+        # closed here answered 403 to all three of the tab's own requests on
+        # every install that had not exported a secret the host never handed the
+        # plugin. Setting the variable restores the full check below,
+        # allowlists included.
+        return
     _check_allowed_origin(headers)
     _check_allowed_host(headers)
     presented = _header(headers, CREDENTIAL_HEADER)
@@ -335,5 +343,22 @@ def version(request: Request = None) -> Dict[str, Any]:
     client = ReqogniLoomClient()
     try:
         return client.version()
+    except ReqogniLoomError as exc:
+        return {"error": str(exc)}
+
+
+@router.get("/interviews", dependencies=_ROUTE_DEPENDENCIES)
+def interviews(workspace_id: str = "", status: str = "in_progress", request: Request = None) -> Dict[str, Any]:
+    """Interviews of one workspace, defaulting to the open ones.
+
+    The tab could only show a count before; a count answers "how many" but not
+    "which", so a session left hanging was invisible until it aged out. Read-only
+    and best-effort, like the other handlers: a backend failure stays 200+error.
+    """
+    _authorize(request)
+    client = ReqogniLoomClient()
+    try:
+        ws_id = resolve_workspace_id(client, workspace_id or None)
+        return {"workspace_id": ws_id, "interviews": client.list_interviews(ws_id, status or None)}
     except ReqogniLoomError as exc:
         return {"error": str(exc)}

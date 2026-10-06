@@ -1,8 +1,18 @@
 (function () {
   "use strict";
-  // reqogniloom dashboard plugin — POC. Ultra-basic stats tab: a handful of
-  // counts from ReqogniLoom's REST API. No build step (plain ES, like
+  // reqogniloom dashboard plugin — the ReqogniLoom tab: per-workspace counts and
+  // the interviews that are still open. No build step (plain ES, like
   // hermes-achievements' bundle) — this file is loaded as-is by the host.
+  //
+  // Two upstream defects shaped this file:
+  //
+  //   * the API's token gate is OPT-IN on the server side (PLUG-12), so the tab
+  //     now probes first and only asks for a credential when the server actually
+  //     demands one (401). Demanding a token the server never wanted was the most
+  //     visible defect of the first beta: "Connect" with nothing to connect to.
+  //   * a count answers "how many", never "which" — a session left hanging was
+  //     invisible. The tab lists the open interviews and lets the operator pick
+  //     the workspace instead of silently showing whichever one sorted first.
   var SDK = window.__HERMES_PLUGIN_SDK__;
   if (!SDK || !window.__HERMES_PLUGINS__) return;
 
@@ -10,8 +20,7 @@
   var hooks = SDK.hooks;
   var C = SDK.components;
 
-  // The dashboard API is fail-closed behind one custom request header, so the
-  // operator pastes the shared secret once per browser session.
+  // The token stays optional: only a server with a configured gate needs it.
   var TOKEN_KEY = "reqogniloom.dashboard.token";
   var CREDENTIAL_HEADER = "X-ReqogniLoom-Dashboard-Token";
   var TOKEN_ENV_VAR = "REQOGNILOOM_DASHBOARD_TOKEN";
@@ -63,12 +72,13 @@
         return "The dashboard host did not forward the " + CREDENTIAL_HEADER +
           " request header, so no token reached the API. This is a host/proxy problem — the token was never checked.";
       }
-      return "The dashboard rejected the token as invalid. Disconnect and re-enter the value of the " +
+      return "The dashboard API requires a token and rejected this one. Connect with the value of the " +
         TOKEN_ENV_VAR + " environment variable.";
     }
     if (status === 403) {
       if (text.indexOf(TOKEN_ENV_VAR.toLowerCase()) !== -1) {
-        return TOKEN_ENV_VAR + " is not set in the dashboard process, so the API refuses every request. Export it there and restart the dashboard.";
+        return "The dashboard process running this tab has " + TOKEN_ENV_VAR +
+          " unset while the plugin build still expects it. Restart the dashboard on a build with the opt-in gate, or export the variable.";
       }
       if (text.indexOf("origin") !== -1) {
         return "This page's origin is not in the dashboard allowlist. Add it to REQOGNILOOM_DASHBOARD_ALLOWED_ORIGINS in the dashboard process environment.";
@@ -90,32 +100,38 @@
 
   function networkError() {
     var err = new Error(
-      "The dashboard API could not be reached (network error) — the request got no answer at all, so the token was not rejected."
+      "The dashboard API could not be reached (network error) — the request got no answer at all."
     );
     err.status = 0;
     err.detail = "";
     return err;
   }
 
+  function queryString(params) {
+    var parts = [];
+    Object.keys(params).forEach(function (key) {
+      if (params[key]) parts.push(encodeURIComponent(key) + "=" + encodeURIComponent(params[key]));
+    });
+    return parts.length ? "?" + parts.join("&") : "";
+  }
+
   // The transport is window.fetch, not SDK.fetchJSON: that helper has no
   // definition, shim or vendored copy anywhere in this repo, so whether it even
   // accepts a headers option is unverifiable — and an option it ignored would
-  // silently reproduce today's 401. If a real SDK contract is ever proven, this
+  // silently reproduce a 401. If a real SDK contract is ever proven, this
   // function is the single place to revisit.
   //
   // The URL stays relative and same-origin: a custom header only triggers a
   // CORS preflight for cross-origin requests, so this call is unaffected and
   // the preflight guard still keeps a foreign-origin page out.
+  //
+  // No stored token → no header at all. That is the opt-in case and it must
+  // reach the server, which is why the old "reject before fetching" guard is
+  // gone.
   function api(path) {
-    // Read at call time, so both members of the parallel pair carry the header.
     var token = readToken();
-    if (!token) {
-      return Promise.reject(
-        new Error("The dashboard tab is not connected: no dashboard token in this browser session.")
-      );
-    }
     var headers = {};
-    headers[CREDENTIAL_HEADER] = token;
+    if (token) headers[CREDENTIAL_HEADER] = token;
 
     return window
       .fetch("/api/plugins/reqogniloom" + path, {
@@ -156,10 +172,53 @@
     );
   }
 
+  function InterviewList(props) {
+    var interviews = props.interviews;
+    if (!interviews || !interviews.length) {
+      return React.createElement(
+        "p",
+        { className: "reqlo-empty", "data-testid": "reqlo-interviews-empty" },
+        "No open interviews in this workspace."
+      );
+    }
+    var rows = interviews.map(function (session) {
+      var id = session.id || session.session_id || "";
+      return React.createElement(
+        "tr",
+        { key: id },
+        React.createElement("td", { className: "reqlo-mono" }, id ? id.slice(0, 8) : "—"),
+        React.createElement("td", null, session.artifact_type || session.session_kind || "—"),
+        React.createElement("td", null, session.phase || "—"),
+        React.createElement("td", null, session.status || "—"),
+        React.createElement("td", null, session.updated_at || session.created_at || "—")
+      );
+    });
+    return React.createElement(
+      "table",
+      { className: "reqlo-table", "data-testid": "reqlo-interviews-table" },
+      React.createElement(
+        "thead",
+        null,
+        React.createElement(
+          "tr",
+          null,
+          React.createElement("th", null, "Session"),
+          React.createElement("th", null, "Type"),
+          React.createElement("th", null, "Phase"),
+          React.createElement("th", null, "Status"),
+          React.createElement("th", null, "Updated")
+        )
+      ),
+      React.createElement("tbody", null, rows)
+    );
+  }
+
   function ReqogniLoomPage() {
-    var stateConnected = hooks.useState(hasToken());
-    var connected = stateConnected[0];
-    var setConnected = stateConnected[1];
+    // "probing" → ask the server whether it wants a credential at all;
+    // "connect" → it does (401/403), show the form; "ready" → we have data.
+    var statePhase = hooks.useState("probing");
+    var phase = statePhase[0];
+    var setPhase = statePhase[1];
 
     var stateDraft = hooks.useState("");
     var draft = stateDraft[0];
@@ -173,35 +232,63 @@
     var version = stateVersion[0];
     var setVersion = stateVersion[1];
 
+    var stateWorkspaces = hooks.useState([]);
+    var workspaces = stateWorkspaces[0];
+    var setWorkspaces = stateWorkspaces[1];
+
+    var stateWorkspaceId = hooks.useState("");
+    var workspaceId = stateWorkspaceId[0];
+    var setWorkspaceId = stateWorkspaceId[1];
+
+    var stateInterviews = hooks.useState([]);
+    var interviews = stateInterviews[0];
+    var setInterviews = stateInterviews[1];
+
     var stateError = hooks.useState(null);
     var error = stateError[0];
     var setError = stateError[1];
 
-    var stateLoading = hooks.useState(hasToken());
+    var stateLoading = hooks.useState(true);
     var loading = stateLoading[0];
     var setLoading = stateLoading[1];
+
+    function loadWorkspace(selected) {
+      return Promise.all([api("/stats" + queryString({ workspace_id: selected })), api("/interviews" + queryString({ workspace_id: selected }))])
+        .then(function (results) {
+          var statsResult = results[0];
+          var interviewsResult = results[1];
+          var firstError = (statsResult && statsResult.error) || (interviewsResult && interviewsResult.error);
+          setError(firstError || null);
+          setStats(statsResult);
+          setInterviews((interviewsResult && interviewsResult.interviews) || []);
+          setWorkspaceId((statsResult && statsResult.workspace_id) || selected || "");
+        });
+    }
 
     function load() {
       setLoading(true);
       setError(null);
-      Promise.all([api("/stats"), api("/version")])
-        .then(function (results) {
-          var statsResult = results[0];
-          var versionResult = results[1];
-          if (statsResult && statsResult.error) {
-            setError(statsResult.error);
-          }
-          setStats(statsResult);
+      return api("/version")
+        .then(function (versionResult) {
           setVersion(versionResult);
+          setPhase("ready");
+          return api("/workspaces").then(function (workspaceResult) {
+            var list = (workspaceResult && workspaceResult.workspaces) || [];
+            setWorkspaces(list);
+            var preferred = "";
+            for (var index = 0; index < list.length; index += 1) {
+              if (list[index] && list[index].id === workspaceId) preferred = workspaceId;
+            }
+            if (!preferred && list.length) preferred = list[0].id || "";
+            return list.length ? loadWorkspace(preferred) : null;
+          });
         })
         .catch(function (err) {
-          // A rejected credential means we are not connected: drop it and fall
-          // back to the form. A 403 is a server-side guard (unset token env
-          // var, allowlist) — there the token may well be correct.
-          if (err && err.status === 401) {
-            forgetToken();
-            setConnected(false);
-          }
+          setPhase("connect");
+          // A 401 means our stored token (if any) is not the answer: drop it so
+          // the form starts clean. A 403 is a server-side guard where the token
+          // may well be correct — keep it and show the reason.
+          if (err && err.status === 401) forgetToken();
           setError(err && err.message ? err.message : String(err));
         })
         .finally(function () {
@@ -209,11 +296,9 @@
         });
     }
 
-    // Keyed on `connected` so that connecting triggers the very first load
-    // without a second call, and disconnecting triggers none at all.
     hooks.useEffect(function () {
-      if (connected) load();
-    }, [connected]);
+      load();
+    }, []);
 
     function connect(event) {
       event.preventDefault();
@@ -227,81 +312,135 @@
         setError("This browser refused to store the token in sessionStorage (private mode?), so the tab cannot authenticate.");
         return;
       }
-      setConnected(true);
+      setPhase("probing");
+      load();
     }
 
     function disconnect() {
       forgetToken();
-      setConnected(false);
-      setDraft("");
       setStats(null);
       setVersion(null);
+      setInterviews([]);
       setError(null);
+      setPhase("probing");
+      load();
     }
 
-    if (!connected) {
+    function onSelectWorkspace(event) {
+      var selected = event.target.value;
+      setLoading(true);
+      setError(null);
+      loadWorkspace(selected)
+        .catch(function (err) {
+          if (err && err.status === 401) {
+            forgetToken();
+            setPhase("connect");
+          }
+          setError(err && err.message ? err.message : String(err));
+        })
+        .finally(function () {
+          setLoading(false);
+        });
+    }
+
+    var header = React.createElement(
+      "div",
+      { className: "reqlo-header" },
+      React.createElement("h2", null, "ReqogniLoom"),
+      React.createElement(
+        "div",
+        null,
+        phase === "ready"
+          ? React.createElement("button", {
+              type: "button",
+              onClick: load,
+              disabled: loading,
+              "data-testid": "reqlo-refresh-button"
+            }, loading ? "Loading…" : "Refresh")
+          : null,
+        hasToken()
+          ? React.createElement("button", {
+              type: "button",
+              onClick: disconnect,
+              "data-testid": "reqlo-disconnect-button"
+            }, "Disconnect")
+          : null
+      )
+    );
+
+    if (phase !== "ready") {
       return React.createElement(
         "div",
         { className: "reqlo-page" },
-        React.createElement("div", { className: "reqlo-header" },
-          React.createElement("h2", null, "ReqogniLoom")
-        ),
-        React.createElement(
-          "form",
-          { className: "reqlo-connect-form", onSubmit: connect },
-          React.createElement("label", { htmlFor: TOKEN_INPUT_ID }, "Dashboard token"),
-          React.createElement("input", {
-            id: TOKEN_INPUT_ID,
-            type: "password",
-            className: "reqlo-connect-input",
-            value: draft,
-            autoComplete: "off",
-            autoFocus: true,
-            "aria-describedby": error ? TOKEN_HINT_ID + " " + CONNECT_ERROR_ID : TOKEN_HINT_ID,
-            "data-testid": "reqlo-connect-token-input",
-            onChange: function (event) {
-              setDraft(event.target.value);
-            }
-          }),
-          React.createElement(
-            "p",
-            { className: "reqlo-connect-hint", id: TOKEN_HINT_ID },
-            "Must equal the " + TOKEN_ENV_VAR + " environment variable of the process that runs the dashboard."
-          ),
-          error
-            ? React.createElement("div", { className: "reqlo-error", id: CONNECT_ERROR_ID, role: "alert" }, error)
-            : null,
-          React.createElement(
-            "button",
-            { type: "submit", "data-testid": "reqlo-connect-submit" },
-            "Connect"
-          )
-        )
+        header,
+        phase === "probing"
+          ? React.createElement("p", { className: "reqlo-subtle", "data-testid": "reqlo-probing" }, "Loading…")
+          : React.createElement(
+              "form",
+              { className: "reqlo-connect-form", onSubmit: connect },
+              React.createElement("label", { htmlFor: TOKEN_INPUT_ID }, "Dashboard token"),
+              React.createElement("input", {
+                id: TOKEN_INPUT_ID,
+                type: "password",
+                className: "reqlo-connect-input",
+                value: draft,
+                autoComplete: "off",
+                autoFocus: true,
+                "aria-describedby": error ? TOKEN_HINT_ID + " " + CONNECT_ERROR_ID : TOKEN_HINT_ID,
+                "data-testid": "reqlo-connect-token-input",
+                onChange: function (event) {
+                  setDraft(event.target.value);
+                }
+              }),
+              React.createElement(
+                "p",
+                { className: "reqlo-connect-hint", id: TOKEN_HINT_ID },
+                "Only needed when the dashboard process sets " + TOKEN_ENV_VAR + " — the token must match it."
+              ),
+              error
+                ? React.createElement("div", { className: "reqlo-error", id: CONNECT_ERROR_ID, role: "alert" }, error)
+                : null,
+              React.createElement(
+                "button",
+                { type: "submit", "data-testid": "reqlo-connect-submit" },
+                "Connect"
+              )
+            )
       );
     }
+
+    var picker = workspaces.length
+      ? React.createElement(
+          "label",
+          { className: "reqlo-workspace" },
+          "Workspace",
+          React.createElement(
+            "select",
+            {
+              value: workspaceId,
+              onChange: onSelectWorkspace,
+              disabled: loading,
+              "data-testid": "reqlo-workspace-select"
+            },
+            workspaces.map(function (workspace) {
+              return React.createElement(
+                "option",
+                { key: workspace.id, value: workspace.id },
+                workspace.name || workspace.id
+              );
+            })
+          )
+        )
+      : null;
 
     return React.createElement(
       "div",
       { className: "reqlo-page" },
-      React.createElement("div", { className: "reqlo-header" },
-        React.createElement("h2", null, "ReqogniLoom"),
-        React.createElement("div", null,
-          React.createElement("button", {
-            type: "button",
-            onClick: load,
-            disabled: loading,
-            "data-testid": "reqlo-refresh-button"
-          }, loading ? "Loading…" : "Refresh"),
-          React.createElement("button", {
-            type: "button",
-            onClick: disconnect,
-            "data-testid": "reqlo-disconnect-button"
-          }, "Disconnect")
-        )
-      ),
+      header,
       error
         ? React.createElement("div", { className: "reqlo-error", id: PAGE_ERROR_ID, role: "alert" }, error)
         : null,
+      picker,
       React.createElement(
         "div",
         { className: "reqlo-grid" },
@@ -309,8 +448,10 @@
         React.createElement(StatCard, { value: stats ? stats.testcases : null, label: "Test Cases" }),
         React.createElement(StatCard, { value: stats ? stats.open_interviews : null, label: "Open Interviews" })
       ),
+      React.createElement("h3", { className: "reqlo-section" }, "Open interviews"),
+      React.createElement(InterviewList, { interviews: interviews }),
       version && version.app_version
-        ? React.createElement("div", { className: "reqlo-footer" }, "ReqogniLoom " + version.app_version + " (" + version.commit_short + ")")
+        ? React.createElement("div", { className: "reqlo-footer" }, "ReqogniLoom " + version.app_version + (version.commit_short ? " (" + version.commit_short + ")" : ""))
         : null
     );
   }

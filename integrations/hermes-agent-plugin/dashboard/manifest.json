@@ -1,9 +1,9 @@
 {
   "name": "reqogniloom",
   "label": "ReqogniLoom",
-  "description": "Basic requirements/testcase/interview stats from ReqogniLoom.",
+  "description": "ReqogniLoom interviews and artifacts: per-workspace counts and the interviews still open.",
   "icon": "ClipboardList",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "tab": { "path": "/reqogniloom", "position": "after:analytics" },
   "entry": "dist/index.js",
   "css": "dist/style.css",
