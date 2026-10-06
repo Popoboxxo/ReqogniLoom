@@ -136,6 +136,21 @@ Der Produktions-Build muss Bluepencil ausdrücklich mit
 reaktiviert einen bereits gebauten Production-Bundle nicht. Ein Upgrade von Browser-Assets,
 Manifest und Hash muss gemeinsam erfolgen.
 
+### Nachtrag #988: Autor-Mapping und Regression-Guard
+
+Issue #988 (jede Notiz wurde als Autor `anonymous` gespeichert) hatte als Ursache ein
+vendored Bundle, das älter war als der Identity-Fix von bluepencil. Der Fix ist das
+alpha.2-Re-Vendor (#1032, Commit `e9578790`) zusammen mit der Host-Bridge aus Abschnitt 2, die
+`identity.getUser` liefert. Ein neuer Regression-Guard
+`frontend/src/test/bluepencil-vendor.test.ts` pinnt den Manifest-SHA byte-exakt und prüft die
+Existenz des globalen Identity-Pfads im Bundle; ein veraltetes Re-Vendor oder eine SHA-Desynchronisation
+lässt damit den CI-Lauf fehlschlagen.
+
+Das verbleibende Verhalten `app.name` / `exportedBy: "unknown"` beim Export ist ein Upstream-Feature
+von bluepencil und wird separat verfolgt; es ist kein Defekt der Host-Bridge. Damit bleibt für #988
+keine hostseitige Unklarheit. Der Sidecar-Drift auf dem alpha.1-Stand unter `deploy/bluepencil/server.js`
+ist davon unberührt und bleibt, wie oben dokumentiert, bewusst nicht re-vendored.
+
 ## 6. HTTP-Vertrag des Sidecars
 
 Der Sidecar läuft mit `--base /bluepencil/api` und stellt folgende relative Endpunkte bereit:
@@ -164,7 +179,7 @@ In-flight-Install-Invalidierung, doppelte Probe-Vermeidung sowie Logout→Login:
 
 ```text
 cd frontend
-npx vitest run src/api/client.test.ts src/test/bluepencil-loader.test.ts src/test/bluepencil-loader-timeout.test.ts src/test/bluepencil-host.test.ts src/test/AuthContext.bluepencil.test.tsx src/test/AuthContext.login-timeout.test.tsx
+npx vitest run src/api/client.test.ts src/test/bluepencil-loader.test.ts src/test/bluepencil-loader-timeout.test.ts src/test/bluepencil-host.test.ts src/test/bluepencil-vendor.test.ts src/test/AuthContext.bluepencil.test.tsx src/test/AuthContext.login-timeout.test.tsx
 npm run lint
 npx tsc --noEmit -p tsconfig.json
 ```
