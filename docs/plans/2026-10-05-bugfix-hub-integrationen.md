@@ -264,6 +264,7 @@ Ziel: Honcho nicht nur als Schreib-Log, sondern als **abfragbares, ableitendes**
 - **Konzept/ADR-Teil erledigt:** Entscheidungsvorlage
   [`ADR-019`](../se/ADR/ADR-019_generischer_vorschlag_lebenszyklus.md) (Status `proposed`,
   User-Freigabe ausstehend) verabschiedet den Modellrahmen; hier nur die Zusammenfassung.
+  ADR-019 entscheidungsreif (Review `RVW-2026-10-06-003`, Iteration 3: APPROVED; Freigabe offen).
 
 **AP-B5.4-Konzept — Generischer Vorschlags-Lebenszyklus (Entscheidungsvorlage, kein Code)**
 

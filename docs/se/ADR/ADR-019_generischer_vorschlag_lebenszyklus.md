@@ -3,15 +3,25 @@ adr_id: ADR-019
 title: "Generischer Vorschlags-Lebenszyklus — persistierte Suggestion-Entität als Klammer über vier bestehende Mechanismen"
 status: proposed
 date: "2026-10-06"
-deciders: [orchestrator, ideation]
+deciders: [orchestrator, ideation, user]
 affected_reqs: [REQ-L1-009, REQ-L1-078, REQ-L2-WE-002, REQ-L2-WE-003, REQ-L2-WE-005, REQ-L2-WE-006, REQ-L2-AS-012, REQ-L2-AI-002, REQ-L2-AI-007, REQ-L2-AI-008, REQ-L2-RV-001, REQ-L2-TE-001, REQ-L2-TE-010, REQ-L2-TE-011, REQ-L2-RA-020, REQ-L2-PC-006]
 superseded_by: null
 ---
 
 # ADR-019: Generischer Vorschlags-Lebenszyklus — persistierte Suggestion-Entität als Klammer über vier bestehende Mechanismen
 
+## Entscheidungsvorlage
+
+- **Was ist zu entscheiden:** der Modellrahmen eines generischen Vorschlags-Lebenszyklus (neue `Suggestion`-Entität vs. Wiederverwendung/Erweiterung der Mechanismen M1–M4) und sein MVP-Schnitt; das Endmodell bleibt offen (O1–O11).
+- **Empfehlung (gewähltes Modell = Option A):** neue, mandanten-gescopte `Suggestion`-Entität als Kompositions-Schicht über M1–M4; **MVP mit genau einem Produzenten** (`TraceabilitySuggestService.suggest_links`, `trace_link`-Adapter).
+- **Konsequenzen bei Annahme:** neue Tabelle + Migration + FORCE-RLS/CI-Gate; Manifest-/REST-/UI-Folgearbeit; additiv, ohne Verhaltensänderung an M1–M4; Umsetzung erst nach User-Freigabe.
+- **Konsequenzen bei Ablehnung / Alternative:** der transiente Vorschlag bleibt ohne Warteplatz (#121 offen); die verworfenen Optionen B/C/D (erzwungene State-Machine / N Einzelmigrationen / Read-Model ohne Persistenz) sind in §Alternativen mit Risiko benannt.
+- **Geschätzter Aufwand MVP:** nicht abschließend geschätzt (Aufwandszahl offen); Umfang = eine neue Tabelle + Migration/RLS, ein Produzent, ein Accept-Adapter (+ UI-/Manifest-Folgepaket).
+- **Offene Produkt-Inputs:** O1–O11, s. §„Offene Punkte (require product input)".
+
 **Status:** proposed (2026-10-06) — Entscheidungsvorlage. **User-Freigabe ausstehend**
-(Statuswechsel `proposed → accepted` erst nach `concept-reviewer`-Review und User-Entscheid).
+(Statuswechsel `proposed → accepted` erst nach positivem `concept-reviewer`-Review
+`RVW-2026-10-06-003` (Iteration 3, APPROVED) und User-Entscheid).
 **Datum:** 2026-10-06
 **Entscheider (vorgeschlagen):** `orchestrator`, `ideation`; **Freigabe:** `user` (offen).
 **Betroffene REQs:** REQ-L1-009 (Konfigurierbarer Item-Level-Workflow mit Audit-Trail,
@@ -433,8 +443,24 @@ Modellentscheidungen (O1–O11) einem bewussten Produkt-Entscheid vorbehalten bl
   aufnehmen).
 - **`open_adrs`-Feld existiert repo-weit nicht** (vgl. ADR-016 §4, `AUD-2026-09-333`): die
   REQ↔ADR-Verknüpfung oben bleibt eine belegte Näherung.
-- **Freigabe ausstehend:** Status `proposed`; Umsetzung erst nach positivem Re-Review
-  (`concept-reviewer`, Iteration 3) und `proposed → accepted` durch den User.
+- **Freigabe ausstehend:** Status `proposed`; Umsetzung erst nach `proposed → accepted`
+  durch den User (Re-Review `RVW-2026-10-06-003`, Iteration 3, liegt mit Verdict APPROVED vor).
+
+---
+
+## Review-Round-Trail
+
+Review-Lifecycle über drei Iterationen; jede Iteration ist ein eigener Zyklus
+(s. `docs/se/reports/`). Status aller Findings zum Stand `RVW-2026-10-06-003`.
+
+| Review | Iter. | Verdict | Findings | Handling |
+|---|---|---|---|---|
+| `RVW-2026-10-06-001` | 1 | CHANGES_REQUESTED | 001-01, 001-02 (major); 001-03…001-06 (minor); 001-07, 001-08 (info) | **001-01** (major/blocking, Accept-Pfad) → in Iteration 2 gelöst (MVP-Produzent = `create_trace_link`, Accept = `confirm_proposed_link`); **001-02** (major, Threat-Model Payload-/Provenienz-Trust) → gelöst; **001-03** (Guard je Adapter), **001-04** (M4 als neuer, kleiner Adapter), **001-05** (Idempotenz-Zusage geschärft → O7), **001-06** (Pfad-/Zeilenpräzision) → gelöst; **001-07** (Autor-Rolle, info), **001-08** (info, keine Änderung) → adressiert. |
+| `RVW-2026-10-06-002` | 2 | CHANGES_REQUESTED | 001-09 (major/blocking); 001-10 (minor); 001-11 (info) | **001-09** (Human-Bypass am REST-Trigger) → in Iteration 3 gelöst (Scope auf Agent-/API-Key, fail-closed `ProducerContextRequiredError`); **001-10** (Kanten-Dedup `uq_tracelink_edge`) → gelöst (O7 erweitert); **001-11** (Atomarität Proposal-Link ↔ Suggestion-Quittung) → adressiert als O11. |
+| `RVW-2026-10-06-003` | 3 | APPROVED | 003-01 (info) | **003-01** (HTTP-Status-Mapping `409` vs. `403`) → als Umsetzungshinweis offen, nicht blockierend; bei der Umsetzung in der REST-/MCP-Fehler-Taxonomie zu verankern. |
+
+**Offen (nicht blockierend):** der einzige nicht geschlossene Befund ist `003-01` (info).
+Alle Findings `001-01`…`001-11` sind geschlossen bzw. adressiert; keine critical/major offen.
 
 ---
 
@@ -474,9 +500,10 @@ Modellentscheidungen (O1–O11) einem bewussten Produkt-Entscheid vorbehalten bl
     ist.
 
 **STOP-Gate:** Bis zur Klärung von O1–O11 und der User-Freigabe wird **kein** MVP implementiert —
-keine Migration, kein Modell, kein Tool. Die Befunde aus `RVW-2026-10-06-001` (Iteration 1) und
-`RVW-2026-10-06-002` (Iteration 2: 001-09/001-10/001-11) sind eingearbeitet; nächster Schritt ist
-der Re-Review (`concept-reviewer`, Iteration 3) dieses ADR.
+keine Migration, kein Modell, kein Tool. Alle drei Review-Iterationen sind abgeschlossen
+(`RVW-2026-10-06-001`, `RVW-2026-10-06-002`, `RVW-2026-10-06-003`); Iteration 3 endete mit
+Verdict **APPROVED**, einziger offener Befund ist `003-01` (info, nicht blockierend). Das ADR ist
+damit **entscheidungsreif**; nächster Schritt ist die User-Freigabe (`proposed → accepted`).
 
 ---
 
