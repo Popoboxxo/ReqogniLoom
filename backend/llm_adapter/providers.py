@@ -188,18 +188,23 @@ def _apply_db_settings(cfg: ProviderConfig) -> ProviderConfig:
     """Overlay persisted LlmSettings (REQ-L2-LLM-001) onto an env-based config.
 
     Behaviour:
-      - If a LlmSettings row exists for the active tenant, its ``provider`` wins
-        (it always has a value — default ``mock``).
+      - Without an active tenant context the lookup is skipped *quietly*
+        (#1190): the tenant-scoped ``LlmSettings`` query cannot be issued
+        without a tenant, and startup / Celery-bootstrap / management-command /
+        plain unit-test paths legitimately run without one. Returning the
+        untouched env config here is the normal fallback, not a failure, so no
+        WARNING or traceback is emitted.
+      - With an active tenant context, if a LlmSettings row exists for that
+        tenant its ``provider`` wins (it always has a value — default ``mock``).
       - ``api_key`` / ``base_url`` / ``model_name`` override the env value only
         when the stored value is non-empty; otherwise the env fallback stays.
       - A missing row (no settings saved yet) is a normal state and returns the
         env config silently.
-      - Any *failure* (no active tenant context, DB unavailable, RLS rejection)
-        is still non-fatal — the untouched env config is returned so a broken
-        settings layer never takes LLM calls down — but is now logged at
-        WARNING (INT-02) instead of DEBUG, because silently falling back to the
-        environment made a real DB/RLS outage indistinguishable from "not
-        configured".
+      - With an active tenant context, any *real* failure (DB unavailable, RLS
+        rejection) is still non-fatal — the untouched env config is returned so
+        a broken settings layer never takes LLM calls down — but is logged at
+        WARNING (INT-02), because silently falling back to the environment made
+        a real DB/RLS outage indistinguishable from "not configured".
 
     .. important:: The unconditional ``provider`` precedence above is only
        sound because **a LlmSettings row exists if and only if an admin
@@ -214,6 +219,19 @@ def _apply_db_settings(cfg: ProviderConfig) -> ProviderConfig:
        error anywhere.
     """
     try:
+        from persistence.tenancy import TenantContext
+
+        # #1190: the LlmSettings lookup is tenant-scoped. Without an active
+        # tenant context ``LlmSettings.objects.first()`` raises
+        # TenantContextNotSetError before any SQL is issued. That used to be
+        # swallowed and re-logged as an alarming WARNING + traceback on *every*
+        # LLM call in startup/Celery/management/test paths, even though "no
+        # tenant context" is a perfectly normal state there. Skip the lookup
+        # quietly and let the environment configuration — already read into
+        # ``cfg`` — stand; provider selection is never degraded by this branch.
+        if not TenantContext.is_set():
+            return cfg
+
         from persistence.models import LlmSettings
 
         row = LlmSettings.objects.first()
