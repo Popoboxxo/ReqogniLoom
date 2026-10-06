@@ -82,7 +82,10 @@ from link_types.catalog import normalize_artifact_type
 
 from application.models import Adr, Goal, Issue, MainGoal, Risk
 
-from application.artifact_version_service import ArtifactVersionService
+from application.artifact_version_service import (
+    ArtifactVersionService,
+    lineage_anchor_artifact_id,
+)
 from application.base import NotFoundError, ServiceBase
 
 logger = logging.getLogger(__name__)
@@ -136,16 +139,15 @@ _ENTITY_FIELDS: Dict[str, List[str]] = {
     "Diagram": ["payload_format", "payload", "canvas_json"],
     # REQ-L2-TE-020: Goal/MainGoal use an immutable-row-per-version pattern
     # (list_versions_for_goal/list_versions_for_main_goal go through
-    # GoalService/MainGoalService for that). These entries only cover the
-    # generic entity-diff dispatch tables (issue #219), and only resolve the
-    # v0 -> current comparison: Goal.version/MainGoal.version are never
-    # incremented (each edit is a new row), while the *displayed* version
-    # numbers are GoalService.list_versions()'s per-lineage sequence_number
-    # (1..N) — the two are not the same namespace, so diff_for_entity() still
-    # raises NotFoundError for any from_version/to_version pair beyond 0/1.
-    # A real Goal/MainGoal version diff needs a lineage-aware
-    # diff_for_goal(lineage_id, from_seq, to_seq), not this generic path.
-    # Issue #767: "status" excluded here too — same reasoning as above.
+    # GoalService/MainGoalService for that). The fields listed here are what
+    # ``snapshot_fields`` records into the shared ArtifactVersion store, keyed
+    # by the lineage's ``sequence_number`` on the sequence-1 Artifact.
+    # ``diff_for_entity`` still only resolves v0 -> current (Goal.version is
+    # the never-incremented optimistic-lock counter, not a revision number),
+    # but ``diff_for_goal``/``diff_for_main_goal`` resolve the lineage anchor
+    # and delegate to ``diff()``, so the real 1..N version history is
+    # diffable. Issue #767: "status" excluded here too — same reasoning as
+    # above.
     "Goal": ["title", "description"],
     "MainGoal": ["content", "source"],
     # Datenmodell-Konsolidierung Phase 5 (Task 27): these two types record
@@ -674,6 +676,84 @@ class ArtifactDiffService(ServiceBase):
         from application.main_goal_service import MainGoalService
 
         return MainGoalService().list_versions(workspace_id, ctx)
+
+    def diff_for_goal(
+        self,
+        lineage_id: UUID,
+        from_version: int,
+        to_version: int,
+        ctx: AuthContext,
+    ) -> Dict[str, Any]:
+        """Compute a field-level diff between two versions of a Goal lineage.
+
+        GH-1200: Goal is immutable-row-per-version — every edit writes a new
+        Goal row *and* a new Artifact (``GoalService.create_version``), and the
+        lineage's revisions are anchored on the sequence-1 Artifact's
+        ``ArtifactVersion`` rows with ``revision == sequence_number``. Resolving
+        that anchor and delegating to :meth:`diff` therefore gives Goal the same
+        real 1..N history every other artifact type has, instead of the
+        single-row ``diff_for_entity`` path that can only answer v0 -> current.
+
+        Args:
+            lineage_id: The ``lineage_id`` shared by every Goal version.
+            from_version: Source revision (0 = empty creation baseline).
+            to_version: Target revision (the lineage's ``sequence_number``).
+            ctx: Auth context for tenant scoping.
+
+        Returns:
+            The same structured diff dict shape as :meth:`diff`.
+
+        Raises:
+            NotFoundError: The lineage has no version-1 Artifact, or a
+                version has no stored revision.
+        """
+        self._set_tenant_context(ctx)
+
+        anchor_artifact_id = lineage_anchor_artifact_id(Goal, lineage_id)
+        if anchor_artifact_id is None:
+            raise NotFoundError(f"Goal lineage {lineage_id} not found")
+
+        return self.diff(anchor_artifact_id, from_version, to_version, ctx)
+
+    def diff_for_main_goal(
+        self,
+        workspace_id: UUID,
+        from_version: int,
+        to_version: int,
+        ctx: AuthContext,
+    ) -> Dict[str, Any]:
+        """Compute a field-level diff between two versions of a MainGoal chain.
+
+        GH-1200: MainGoal has no ``lineage_id`` column — its chain is the
+        workspace itself, and ``sequence_number`` is unique per workspace
+        (``uq_main_goal_workspace_sequence``). The revisions are anchored on the
+        sequence-1 Artifact (``MainGoalService._create_row``), so the anchor is
+        resolved by ``workspace_id`` and the diff delegates to :meth:`diff`.
+
+        Args:
+            workspace_id: The owning workspace (the MainGoal's "lineage").
+            from_version: Source revision (0 = empty creation baseline).
+            to_version: Target revision (the chain's ``sequence_number``).
+            ctx: Auth context for tenant scoping.
+
+        Returns:
+            The same structured diff dict shape as :meth:`diff`.
+
+        Raises:
+            NotFoundError: The workspace has no version-1 Artifact, or a
+                version has no stored revision.
+        """
+        self._set_tenant_context(ctx)
+
+        anchor_artifact_id = lineage_anchor_artifact_id(
+            MainGoal, workspace_id=workspace_id
+        )
+        if anchor_artifact_id is None:
+            raise NotFoundError(
+                f"MainGoal chain for workspace {workspace_id} not found"
+            )
+
+        return self.diff(anchor_artifact_id, from_version, to_version, ctx)
 
 
 __all__ = [

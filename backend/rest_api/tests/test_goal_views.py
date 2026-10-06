@@ -629,3 +629,148 @@ def test_goal_list_status_filter():
     non_matching_resp = GoalViewSet.as_view({"get": "list"})(non_matching_req)
     assert non_matching_resp.status_code == 200
     assert len(non_matching_resp.data["results"]) == 0
+
+
+# ---------------------------------------------------------------------------
+# GH-1200: GET /api/v1/goals/{pk}/diff/ — lineage-anchored field-level diff
+# (mirrors AdrViewSet.diff/RiskViewSet.diff query contract).
+# ---------------------------------------------------------------------------
+
+
+def test_goal_diff_endpoint_returns_field_level_diff():
+    """GH-1200: the `diff` action GoalViewSet was missing now resolves.
+
+    Creates two versions of one lineage and diffs sequence 1 -> 2, asserting
+    the same response shape the generic per-entity diff endpoints return.
+    """
+    tenant, workspace = _new_tenant_and_workspace(
+        "T18", name="W18", goals_enabled=True
+    )
+    ctx = _make_auth_context(tenant_id=tenant.id)
+    factory = APIRequestFactory()
+
+    first = _create_goal(
+        factory, ctx, workspace.id, "Goal v1", description="First draft"
+    )
+    # Append version 2 to the SAME lineage.
+    second_req = factory.post(
+        "/api/v1/goals/",
+        {
+            "workspace_id": str(workspace.id),
+            "title": "Goal v2",
+            "description": "Second draft",
+            "lineage_id": first["lineage_id"],
+        },
+        format="json",
+    )
+    second_req.auth_context = ctx
+    second_resp = GoalViewSet.as_view({"post": "create"})(second_req)
+    assert second_resp.status_code == 201
+    assert second_resp.data["sequence_number"] == 2
+
+    diff_req = factory.get(
+        f"/api/v1/goals/{second_resp.data['id']}/diff/?from_version=1&to_version=2"
+    )
+    diff_req.auth_context = ctx
+    diff_resp = GoalViewSet.as_view({"get": "diff"})(
+        diff_req, pk=second_resp.data["id"]
+    )
+
+    assert diff_resp.status_code == 200, diff_resp.data
+    assert diff_resp.data["from_version"] == 1
+    assert diff_resp.data["to_version"] == 2
+    assert diff_resp.data["entity_type"] == "Goal"
+    by_name = {f["name"]: f for f in diff_resp.data["fields"]}
+    assert by_name["title"]["status"] == "modified"
+    assert by_name["title"]["from"] == "Goal v1"
+    assert by_name["title"]["to"] == "Goal v2"
+
+
+def test_goal_diff_defaults_to_current_sequence_number():
+    """Omitting ?to_version= uses the addressed version's sequence_number.
+
+    A Goal's lock-counter ``version`` is never incremented (immutable rows);
+    the revision namespace used by `/versions/`/`/diff/` is ``sequence_number``.
+    The default must therefore address the lineage revision, not the lock.
+    """
+    tenant, workspace = _new_tenant_and_workspace(
+        "T19", name="W19", goals_enabled=True
+    )
+    ctx = _make_auth_context(tenant_id=tenant.id)
+    factory = APIRequestFactory()
+
+    first = _create_goal(factory, ctx, workspace.id, "Base goal 1")
+    second_req = factory.post(
+        "/api/v1/goals/",
+        {
+            "workspace_id": str(workspace.id),
+            "title": "Base goal 2",
+            "lineage_id": first["lineage_id"],
+        },
+        format="json",
+    )
+    second_req.auth_context = ctx
+    second_resp = GoalViewSet.as_view({"post": "create"})(second_req)
+    assert second_resp.status_code == 201
+
+    diff_req = factory.get(
+        f"/api/v1/goals/{second_resp.data['id']}/diff/?from_version=1"
+    )
+    diff_req.auth_context = ctx
+    diff_resp = GoalViewSet.as_view({"get": "diff"})(
+        diff_req, pk=second_resp.data["id"]
+    )
+
+    assert diff_resp.status_code == 200, diff_resp.data
+    assert diff_resp.data["to_version"] == 2
+    assert diff_resp.data["from_version"] == 1
+
+
+def test_goal_diff_rejects_foreign_tenant():
+    """Tenant fence: a Goal id from another tenant must answer 404, not leak."""
+    tenant_a, workspace_a = _new_tenant_and_workspace(
+        "T20a", name="W20a", goals_enabled=True
+    )
+    ctx_a = _make_auth_context(tenant_id=tenant_a.id)
+    factory = APIRequestFactory()
+    created = _create_goal(factory, ctx_a, workspace_a.id, "Private goal")
+
+    tenant_b = Tenant.objects.create(name="T20b", slug="gh1200-goal-foreign")
+    ctx_b = _make_auth_context(tenant_id=tenant_b.id)
+
+    diff_req = factory.get(f"/api/v1/goals/{created['id']}/diff/")
+    diff_req.auth_context = ctx_b
+    diff_resp = GoalViewSet.as_view({"get": "diff"})(diff_req, pk=created["id"])
+
+    assert diff_resp.status_code == 404
+
+
+def test_goal_diff_unknown_id_returns_404():
+    tenant = Tenant.objects.create(name="T21")
+    ctx = _make_auth_context(tenant_id=tenant.id)
+    factory = APIRequestFactory()
+
+    missing_id = str(uuid.uuid4())
+    diff_req = factory.get(f"/api/v1/goals/{missing_id}/diff/")
+    diff_req.auth_context = ctx
+    diff_resp = GoalViewSet.as_view({"get": "diff"})(diff_req, pk=missing_id)
+
+    assert diff_resp.status_code == 404
+
+
+def test_goal_diff_invalid_version_returns_400():
+    tenant, workspace = _new_tenant_and_workspace(
+        "T22", name="W22", goals_enabled=True
+    )
+    ctx = _make_auth_context(tenant_id=tenant.id)
+    factory = APIRequestFactory()
+    created = _create_goal(factory, ctx, workspace.id, "Goal for bad version")
+
+    diff_req = factory.get(
+        f"/api/v1/goals/{created['id']}/diff/?from_version=not-a-number"
+    )
+    diff_req.auth_context = ctx
+    diff_resp = GoalViewSet.as_view({"get": "diff"})(diff_req, pk=created["id"])
+
+    assert diff_resp.status_code == 400
+

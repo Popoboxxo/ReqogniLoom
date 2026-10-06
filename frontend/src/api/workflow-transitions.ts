@@ -101,7 +101,16 @@ export interface ReviewListItem {
   uid?: string | null;
   title: string;
   description?: string;
+  /**
+   * Optimistic-lock counter of the row (single-row types). For the
+   * immutable-row-per-version types (Goal/MainGoal) this is NOT the revision
+   * namespace used by `/versions/`/`/diff/` — that is `sequence_number`, which
+   * these types also return. Callers that need "the latest revision" must
+   * prefer `sequence_number` when present (GH-1200).
+   */
   version?: number;
+  /** Per-lineage/per-workspace revision number (Goal/MainGoal only). */
+  sequence_number?: number;
 }
 
 /**

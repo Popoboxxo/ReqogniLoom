@@ -137,11 +137,10 @@ const DIFF_KIND: Record<WorkflowArtifactType, DiffEntityType> = {
   diagram: "diagram",
   // Issue #372: ArtifactKind (shared/ArtifactInspector/types.ts) already
   // defines "goal"/"mainGoal" diff kinds; wire them here so ArtifactDiff
-  // labels/routes correctly. Note: GoalViewSet/MainGoalViewSet only expose
-  // a `versions` action today (no `diff` action yet), so "View Diff" will
-  // surface a fetch error for these two types until that backend gap is
-  // closed separately — out of scope for this fix (pending list + filter +
-  // approve/reject).
+  // labels/routes correctly. GH-1200 closed the backend gap this comment used
+  // to flag: GoalViewSet/MainGoalViewSet now expose a `diff` action alongside
+  // `versions` (ArtifactDiffService.diff_for_goal/.diff_for_main_goal), so
+  // "View Diff" fetches a real field-level diff for these two types too.
   goal: "goal",
   "main-goal": "mainGoal",
 };
@@ -744,7 +743,12 @@ export default function ReviewsView({
             <ArtifactDiff
               entityId={selected.id}
               entityType={DIFF_KIND[selectedArtifactType]}
-              currentVersion={selected.version ?? 1}
+              // GH-1200: Goal/MainGoal expose their revisions in the
+              // `sequence_number` namespace (1..N); `version` is the
+              // never-incremented optimistic-lock counter, so passing it made
+              // ArtifactDiff seed to === from and fetch nothing. Prefer the
+              // sequence number when the backend supplies it.
+              currentVersion={selected.sequence_number ?? selected.version ?? 1}
               diffFetcher={diff}
               versionsFetcher={versions}
               onClose={() => setShowDiff(false)}

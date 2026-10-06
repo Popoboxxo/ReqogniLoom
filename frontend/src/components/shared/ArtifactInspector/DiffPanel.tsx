@@ -24,6 +24,8 @@ import { testcasesApi } from "../../../api/testcases";
 import { icdsApi } from "../../../api/icds";
 import { diagramsApi } from "../../../api/diagrams";
 import { glossaryApi } from "../../../api/glossary";
+import { goalsApi } from "../../../api/goals";
+import { mainGoalApi } from "../../../api/main-goal";
 import type { ArtifactDiffResult, ArtifactVersion } from "../../../types";
 import {
   ArtifactDiff,
@@ -51,6 +53,9 @@ const DIFF_FETCHERS: Partial<Record<ArtifactKind, DiffFetcher>> = {
   icd: (id, from, to) => icdsApi.diff(id, from, to),
   diagram: (id, from, to) => diagramsApi.diff(id, from, to),
   glossary: (id, from, to) => glossaryApi.diff(id, from, to),
+  // GH-1200: Goal/MainGoal expose a lineage-anchored `/diff/` action now.
+  goal: (id, from, to) => goalsApi.diff(id, from, to),
+  mainGoal: (id, from, to) => mainGoalApi.diff(id, from, to),
 };
 
 const VERSIONS_FETCHERS: Partial<Record<ArtifactKind, VersionsFetcher>> = {
@@ -64,6 +69,9 @@ const VERSIONS_FETCHERS: Partial<Record<ArtifactKind, VersionsFetcher>> = {
   icd: (id) => icdsApi.versions(id),
   diagram: (id) => diagramsApi.versions(id),
   glossary: (id) => glossaryApi.versions(id),
+  // GH-1200: matching `/versions/` fetchers for the two Goal kinds.
+  goal: (id) => goalsApi.versions(id),
+  mainGoal: (id) => mainGoalApi.versions(id),
 };
 
 function diffFetcherFor(kind: ArtifactKind): DiffFetcher {

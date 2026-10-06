@@ -10,7 +10,7 @@
  */
 
 import { apiClient, getList } from "./client";
-import type { ArtifactVersion, MainGoal, UUID } from "../types";
+import type { ArtifactDiffResult, ArtifactVersion, MainGoal, UUID } from "../types";
 
 /**
  * Recommendation 3 (issue #221 review round 2): `MainGoalService.list_all`
@@ -64,5 +64,19 @@ export const mainGoalApi = {
   /** GET /main-goals/{id}/versions/ — all versions for this MainGoal's workspace. */
   versions(mainGoalId: UUID): Promise<ArtifactVersion[]> {
     return apiClient.get<ArtifactVersion[]>(`/main-goals/${mainGoalId}/versions/`);
+  },
+
+  /**
+   * GET /main-goals/{id}/diff/?from_version=&to_version= — field-level diff
+   * between two versions of the workspace's MainGoal chain (GH-1200).
+   */
+  diff(
+    mainGoalId: UUID,
+    fromVersion: number,
+    toVersion: number
+  ): Promise<ArtifactDiffResult> {
+    return apiClient.get<ArtifactDiffResult>(
+      `/main-goals/${mainGoalId}/diff/?from_version=${fromVersion}&to_version=${toVersion}`
+    );
   },
 };

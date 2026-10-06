@@ -6668,6 +6668,46 @@ class GoalViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             return _service_error_response(exc, lang)
         return Response(result)
 
+    @action(detail=True, methods=["get"], url_path="diff")
+    def diff(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """GET /api/v1/goals/{pk}/diff/?from_version=1&to_version=2
+
+        GH-1200: structured field-level diff between two versions of this
+        Goal's lineage. Mirrors the ``diff`` action every other artifact
+        ViewSet exposes (same ``from_version``/``to_version`` query contract)
+        but delegates to ``ArtifactDiffService.diff_for_goal`` — Goal is
+        immutable-row-per-version, so the generic entity-diff path cannot
+        address its sequence-number namespace (see that method's docstring).
+        ``to_version`` defaults to this version's ``sequence_number`` (the
+        lineage revision), not the lock-counter ``version``.
+        """
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            goal = self._svc().get(UUID(pk), ctx)
+
+            from_version = int(request.query_params.get("from_version", "0"))
+            to_version = int(
+                request.query_params.get("to_version", str(goal.sequence_number))
+            )
+
+            result = ArtifactDiffService().diff_for_goal(
+                lineage_id=goal.lineage_id,
+                from_version=from_version,
+                to_version=to_version,
+                ctx=ctx,
+            )
+        except (NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except ValueError as exc:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+        return Response(result)
+
     def partial_update(self, request: Request, pk: str, **kwargs: Any) -> Response:
         # fix #235: BaseEntityViewSet.partial_update() raises NotImplementedError
         # by default, uncaught by the exception handlers below — DRF's router
@@ -7037,6 +7077,45 @@ class MainGoalViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             result = ArtifactDiffService().list_versions_for_main_goal(main_goal.workspace_id, ctx)
         except (NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+        return Response(result)
+
+    @action(detail=True, methods=["get"], url_path="diff")
+    def diff(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """GET /api/v1/main-goals/{pk}/diff/?from_version=1&to_version=2
+
+        GH-1200: structured field-level diff between two versions of the
+        workspace's MainGoal chain. Mirrors the ``diff`` action every other
+        artifact ViewSet exposes (same ``from_version``/``to_version`` query
+        contract) and delegates to ``ArtifactDiffService.diff_for_main_goal``.
+        ``to_version`` defaults to this version's ``sequence_number``.
+        """
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            main_goal = self._svc().get(UUID(pk), ctx)
+
+            from_version = int(request.query_params.get("from_version", "0"))
+            to_version = int(
+                request.query_params.get(
+                    "to_version", str(main_goal.sequence_number)
+                )
+            )
+
+            result = ArtifactDiffService().diff_for_main_goal(
+                workspace_id=main_goal.workspace_id,
+                from_version=from_version,
+                to_version=to_version,
+                ctx=ctx,
+            )
+        except (NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except ValueError as exc:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         except Exception as exc:
             return _service_error_response(exc, lang)
         return Response(result)

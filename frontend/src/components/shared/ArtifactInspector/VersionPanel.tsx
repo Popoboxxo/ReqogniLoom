@@ -48,9 +48,9 @@ import styles from "./VersionPanel.module.css";
 
 // ---------------------------------------------------------------------------
 // API dispatch — every kind the backend exposes a `/versions/` endpoint for.
-// The base set mirrors DIFF_SUPPORTED_KINDS (same backend coverage), plus a
-// few kinds that only expose `/versions/` without a matching `/diff/`
-// endpoint yet (goal, mainGoal — REQ-L2-TE-020).
+// The base set mirrors DIFF_SUPPORTED_KINDS (same backend coverage). goal and
+// mainGoal are listed explicitly for clarity even though GH-1200 moved them
+// into DIFF_SUPPORTED_KINDS (they now expose a matching `/diff/` endpoint too).
 // ---------------------------------------------------------------------------
 
 const VERSION_SUPPORTED_KINDS: ReadonlySet<ArtifactKind> = new Set([
