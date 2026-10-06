@@ -238,6 +238,31 @@ Stand 2026-10-06, s. Report §9); #1169/#649/#92 geschlossen oder explizit auf S
 
 ---
 
+### 3.6 B5 — Memory/Honcho als echtes Gedächtnis (#1155)
+
+Ziel: Honcho nicht nur als Schreib-Log, sondern als **abfragbares, ableitendes** Gedächtnis über alle vier Oberflächen (System, Plugins, MCP, REST). Fünf Aspekte, in Wellen P1→P4.
+
+**AP-B5.1 — Derivation sichtbar + ehrliches health/digest (P1, Backend)** · #1155 Aspekte 4+5
+- honcho-ai-2.5.1-SDK-Surface **empirisch prüfen** (conclusion-level, queue/work-units), dann abgeleiteten Zustand erfassen.
+- digest/health meldet `derivation_status` (`ok|none|failed|unsupported|unknown`) + best-effort `derived_count`; „nichts abgeleitet" ≠ „kein Wissen" ≠ „healthy" (F9).
+- #1052-Klasse: fehlgeschlagene Work-Units (`processed=true` + error) erkennbar, soweit das SDK hergibt; Zen-Go-Quote-Abhängigkeit (429) dokumentieren.
+- pgvector: `unsupported`. Envelope in MCP (memory-Antworten der Gruppe + Digest-Felder) + REST + admin-health; Tests. **Kein dediziertes MCP-Tool `memory.health`** — die health-Oberfläche dieser Gruppe ist das Response-Envelope (`memory.list`/`memory.query`/`memory.forget`) plus die admin-`memory`-Reihe.
+- **Status: umgesetzt (2026-10-06, Fix-Iteration 1).** SDK-Surface empirisch verifiziert (read-only-Probe im Backend-Container): `Conclusion.level` (explicit/deductive/inductive/contradiction) + server-seitige `filters={"level": ...}` + `Honcho.queue_status` (Work-Unit-Counter, **kein** per-unit error flag) existieren; kein sonstiger Queue-/Deriver-Zugriff. Umsetzung: `HonchoMemoryBackend._derivation_probe` (eine Peer-Auflösung + eine Conclusions-Seite + Queue-Check, gibt die gelesene Seite an `digest()` zurück) → `MemoryDigest.derivation_status`/`derived_count` (additiv, Default `unknown`/`None`); health-envelope + MCP-Digest/`memory.list`-Envelope + REST-Digest + admin-health `memory`-Reihe (Coercion gegen das gemeinsame Enum); pgvector `unsupported`, honcho scope-less `unknown` (Per-Scope-Wahrheit nur im Digest). Queue-Lücke (`total > completed+in_progress+pending`) wird auf **jedem** sauberen Pfad geprüft und **überstimmt `ok`** — ein Deriver, der nach vorhandenem Output stirbt, meldet `failed` statt dauerhaft `ok`. Verbleibende Limitation (präzise): ein Quote-/429-bedingter Ausfall, den der Server als `completed` zählt, hinterlässt **keine** Lücke und ist client-seitig unsichtbar — Scopes mit früherem Output lesen weiter `ok`, Scopes ohne Output lesen `none`; `ok` ist eine historische Aussage, keine Liveness. Dokumentiert in `deploy/README.md` (§Derivation visibility) und `docs/api/MCP-SURFACE.md` §4. Tests: memory + MCP-memory + admin-health (453 passed, 1 skipped) inkl. Contract, failed-überschreibt-ok auf beiden Pfaden und Single-Read-Pin.
+
+**AP-B5.2 — memory.ask REST + UI (P2, Backend+Frontend)** · #1155 Aspekt 1
+- REST `POST /api/v1/workspaces/<id>/memory/ask/` (Spiegel des MCP `_handle_ask`, WRITE-gated) → `MemoryEntryService.ask`.
+- Frontend: `memoryApi.ask()` + „Frag das Gedächtnis"-Panel (MemoryPage), i18n DE/EN, `data-testid`, Tests.
+
+**AP-B5.3 — Hermes-Plugin Memory-Zugriff (P3, Plugin)** · #1155 Aspekt 3 + #1156
+- Hermes-Plugin (Desktop) + Skill: (a) Kontext beziehen (`memory.query`/`digest`/`ask` ins Prompt), (b) einspeisen (`memory.write`). Echter Tool-Call-Beleg. #1156 „Zuhören & Antizipieren" als Schreib-Hälfte (Toggle + Review vor Übernahme).
+
+**AP-B5.4 — Vorschlags-Schleife (P4, Konzept+Impl)** · #1155 Aspekt 2
+- Generischer Pfad „Wissen → Vorschlag als `proposed`-Artefakt → Mensch bestätigt". #856 ist nur Design; erst Konzept/ADR, dann `suggestion.list/accept/reject` (MCP+REST+UI). Größter Brocken, bewusst zuletzt.
+
+**DoD B5:** Abnahmekriterien aus #1155 (NL-Antwort über MCP+REST+UI quellenbelegt; Vorschlag als `proposed`; Plugin belegt Lesen+Schreiben; abgeleitete Repräsentation nach funktionierender Quote nachweisbar).
+
+---
+
 ## 4. Verzahnung mit #1171 und dem One-Click-Plan
 
 - #1171 ist der **Dach-Issue** für B0; der bestehende Plan liefert bereits eine verifizierte

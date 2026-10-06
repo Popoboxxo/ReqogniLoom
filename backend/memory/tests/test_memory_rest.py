@@ -1137,7 +1137,9 @@ class TestWorkspaceMemoryEntryRest:
             response = client.get(f"{_WS_SEARCH.format(ws=ws.id)}?q=dark&scope=workspace")
 
             assert response.status_code == 200
-            assert {"items", "query", "scopes", "backend", "degraded"} <= set(response.data)
+            assert {"items", "query", "scopes", "backend", "degraded", "derivation_status"} <= set(
+                response.data
+            )
 
     def test_degraded_is_reported_when_backend_unhealthy(self, monkeypatch):
         monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
@@ -1297,10 +1299,15 @@ class TestMemoryDigestRest:
                 "generated_at",
                 "backend",
                 "degraded",
+                "derivation_status",
+                "derived_count",
             }
             assert "digest me" in response.data["digest"]
             assert response.data["backend"] == "pgvector"
             assert response.data["degraded"] is False
+            # AP-B5.1 (#1155): the derivation pair rides on the REST digest.
+            assert response.data["derivation_status"] == "unsupported"
+            assert response.data["derived_count"] is None
             assert isinstance(response.data["generated_at"], str)
             datetime.fromisoformat(response.data["generated_at"])
 
@@ -1333,6 +1340,8 @@ class TestMemoryDigestRest:
                 "generated_at",
                 "backend",
                 "degraded",
+                "derivation_status",
+                "derived_count",
             }
             assert "artifact digest me" in response.data["digest"]
             datetime.fromisoformat(response.data["generated_at"])

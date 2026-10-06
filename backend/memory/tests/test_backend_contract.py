@@ -34,7 +34,13 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from memory.backends import MemoryAnswer, MemoryDigest, MemoryHealth, get_memory_backend
+from memory.backends import (
+    VALID_DERIVATION_STATUSES,
+    MemoryAnswer,
+    MemoryDigest,
+    MemoryHealth,
+    get_memory_backend,
+)
 from memory.honcho_backend import HonchoMemoryBackend
 from persistence.models import Artifact
 from persistence.tests.factories import active_tenant, make_user, make_workspace
@@ -369,6 +375,32 @@ class TestMemoryBackendContractCommon:
             assert "facts=0" in digest.text
             assert isinstance(digest.generated_at, datetime)
 
+    def test_digest_carries_a_valid_derivation_status(self, backend):
+        """AP-B5.1 (#1155): every digest names the DERIVER's state from the
+        shared enum, separately from ``degraded`` -- "nothing derived" must
+        stay machine-distinguishable from "the read failed" and from
+        "healthy". pgvector has no deriver at all -> ``unsupported``; the
+        Honcho fake (empty peer, no queue surface) probes cleanly -> ``none``.
+        The count is only ever an exact int or ``None`` -- never fabricated.
+        """
+        with active_tenant() as tenant:
+            scope_id = _scope_id(tenant, "user")
+
+            digest = backend.digest(tenant.id, "user", scope_id)
+
+            assert digest.derivation_status in VALID_DERIVATION_STATUSES
+            assert digest.derived_count is None or (
+                isinstance(digest.derived_count, int)
+                and not isinstance(digest.derived_count, bool)
+                and digest.derived_count >= 0
+            )
+            if isinstance(backend, HonchoMemoryBackend):
+                assert digest.derivation_status == "none"
+                assert digest.derived_count == 0
+            else:
+                assert digest.derivation_status == "unsupported"
+                assert digest.derived_count is None
+
     def test_digest_renders_written_facts_deterministically(self, backend):
         """Identical state ⇒ byte-identical text. This is what lets a caller
         cache a digest (or a test pin it) instead of pattern-matching a
@@ -596,3 +628,11 @@ class TestHonchoSpecificContract:
 
             assert answer.degraded is False
             assert answer.text == ""
+
+    def test_honcho_admits_no_scope_less_derivation_claim(self):
+        """AP-B5.1 (#1155): Honcho CAN derive, but the scope-less health
+        envelope has no scope to probe -- so the class-level capability stays
+        ``unknown`` ("derivation possible, not measured here") and the
+        per-scope truth travels on the digest. Claiming ``ok``/``none`` at
+        class level would be the beta.18 lie in a new coat."""
+        assert HonchoMemoryBackend.derivation_status == "unknown"

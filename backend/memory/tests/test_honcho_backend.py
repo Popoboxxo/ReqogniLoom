@@ -40,9 +40,16 @@ class ServerError(Exception):
     """
 
 
-def _conclusion(entry_id: str, content: str):
-    """Minimal stand-in for honcho's ``Conclusion`` (only the fields we read)."""
-    return SimpleNamespace(id=entry_id, content=content)
+def _conclusion(entry_id: str, content: str, level: str = "explicit"):
+    """Minimal stand-in for honcho's ``Conclusion`` (only the fields we read).
+
+    ``level`` mirrors ``honcho-ai==2.5.1``'s ``Conclusion.level`` (default
+    ``"explicit"``, see the module docstring of ``memory.honcho_backend``):
+    AP-B5.1's derivation probe distinguishes stored (``explicit``) from
+    derived (``deductive``/``inductive``/``contradiction``) conclusions by
+    exactly this field, so tests that simulate deriver output set it here.
+    """
+    return SimpleNamespace(id=entry_id, content=content, level=level)
 
 
 def _mock_client():
@@ -586,6 +593,11 @@ class TestHonchoDigest:
             session=backend._scope_session_id(tenant_id, "user", user_id)
         )
         assert "facts=" not in digest.text  # free-form prose is not counted
+        # AP-B5.1 (#1155): a non-empty representation IS deriver output, so the
+        # digest says so machine-readably -- without a count, because the
+        # prose cannot be counted without lying.
+        assert digest.derivation_status == "ok"
+        assert digest.derived_count is None
 
     def test_digest_falls_back_to_the_peer_card(self):
         backend, client = _backend_with_mock_client()
@@ -620,6 +632,10 @@ class TestHonchoDigest:
         assert "- two" in digest.text
         assert digest.backend == "honcho"
         assert digest.degraded is True
+        # AP-B5.1: the engine was unreachable, so whether it had derived
+        # anything is NOT determinable -- "unknown", never a silent "none".
+        assert digest.derivation_status == "unknown"
+        assert digest.derived_count is None
 
     def test_digest_falls_back_to_the_local_mirror_when_the_engine_is_down(self):
         """Last resort: the local mirror needs no network at all, so a caller
@@ -658,6 +674,63 @@ class TestHonchoDigest:
         assert digest.degraded is False
         assert digest.backend == "honcho"
         assert "(no facts remembered)" in digest.text
+        # AP-B5.1 (#1155): this is the beta.18 state made machine-readable --
+        # the engine answers cleanly and its Deriver produced nothing. That
+        # must read as "none", NOT as an outage (degraded stays False) and NOT
+        # as silent health.
+        assert digest.derivation_status == "none"
+        assert digest.derived_count == 0
+
+    def test_digest_reports_failed_derivation_from_the_queue(self):
+        """#1052 class on the digest surface: the read itself succeeds (the
+        engine answered), but the queue accounting proves work units vanished
+        without completing -- so the digest is NOT degraded yet honestly
+        reports ``failed`` derivation. This is the whole point of separating
+        ``degraded`` (did THIS read work) from ``derivation_status`` (did the
+        Deriver produce).
+        """
+        backend, client = _backend_with_mock_client()
+        tenant_id, user_id = uuid4(), uuid4()
+        peer = client.peer(f"{tenant_id}_{user_id}")
+        peer.representation.return_value = ""
+        peer.get_card.return_value = None
+        peer.conclusions.list.return_value = SimpleNamespace(items=[])
+        client.queue_status.return_value = SimpleNamespace(
+            total_work_units=10,
+            completed_work_units=6,
+            in_progress_work_units=2,
+            pending_work_units=1,  # 10 > 6+2+1 -> one unit disappeared
+        )
+
+        digest = backend.digest(tenant_id, "user", user_id)
+
+        assert digest.degraded is False
+        assert digest.derivation_status == "failed"
+        assert digest.derived_count == 0
+
+    def test_digest_reports_ok_with_exact_derived_count(self):
+        """Clean-but-empty engine answer + derived conclusions on the scope's
+        conclusion page -> ``ok`` with the exact count (page below the probe
+        budget, so the count is a total, not a floor).
+        """
+        backend, client = _backend_with_mock_client()
+        tenant_id, user_id = uuid4(), uuid4()
+        peer = client.peer(f"{tenant_id}_{user_id}")
+        peer.representation.return_value = ""
+        peer.get_card.return_value = None
+        peer.conclusions.list.return_value = SimpleNamespace(
+            items=[
+                _conclusion("a", "stored fact"),
+                _conclusion("b", "because X, therefore Y", level="deductive"),
+                _conclusion("c", "pattern noticed", level="inductive"),
+            ]
+        )
+
+        digest = backend.digest(tenant_id, "user", user_id)
+
+        assert digest.degraded is False
+        assert digest.derivation_status == "ok"
+        assert digest.derived_count == 2
 
     def test_digest_never_raises_when_engine_and_mirror_are_both_unavailable(self, monkeypatch):
         """The contract's last line of defence: if even the local mirror read
@@ -686,8 +759,10 @@ class TestHonchoDigest:
     def test_digest_clamps_its_page_request(self):
         """``_MAX_PAGE_SIZE`` discipline: Honcho 422s an oversized page size
         instead of clamping it, so the digest must never pass the raw cap
-        blindly."""
-        from memory.backends import _DIGEST_MAX_FACTS
+        blindly. The ambiguous path's ONE list call is the derivation probe's
+        page, which is itself clamped to the SDK's max page size.
+        """
+        from memory.honcho_backend import _DERIVATION_PROBE_PAGE_SIZE, _MAX_PAGE_SIZE
 
         backend, client = _backend_with_mock_client()
         tenant_id, user_id = uuid4(), uuid4()
@@ -698,8 +773,346 @@ class TestHonchoDigest:
 
         backend.digest(tenant_id, "user", user_id)
 
-        assert peer.conclusions.list.call_args.kwargs["size"] == _DIGEST_MAX_FACTS
-        assert _DIGEST_MAX_FACTS <= 100
+        assert peer.conclusions.list.call_args.kwargs["size"] == _DERIVATION_PROBE_PAGE_SIZE
+        assert _DERIVATION_PROBE_PAGE_SIZE <= _MAX_PAGE_SIZE
+
+    def test_digest_renders_facts_from_the_page_the_status_came_from(self):
+        """S3 (backend-reviewer F4 / code-reviewer F1): the clean-but-empty
+        engine path must classify derivation and render the facts from ONE
+        read. A second, differently-timed read of the same endpoint both costs
+        an extra peer get-or-create POST and can produce a payload whose fact
+        list does not match the page the status was derived from.
+        """
+        backend, client = _backend_with_mock_client()
+        tenant_id, user_id = uuid4(), uuid4()
+        peer = client.peer(f"{tenant_id}_{user_id}")
+        peer.representation.return_value = ""
+        peer.get_card.return_value = None
+        peer.conclusions.list.return_value = SimpleNamespace(
+            items=[_conclusion("a", "one"), _conclusion("b", "two")]
+        )
+
+        digest = backend.digest(tenant_id, "user", user_id)
+
+        assert peer.conclusions.list.call_count == 1, (
+            "the digest must not re-read the conclusion list it already probed"
+        )
+        assert digest.derivation_status == "none"
+        assert digest.derived_count == 0
+        assert "- one" in digest.text and "- two" in digest.text
+        assert "facts=2" in digest.text
+        assert digest.degraded is False
+
+    def test_digest_flags_failed_on_the_non_empty_engine_path(self):
+        """M1/S1 (backend-reviewer F1, the major finding): a scope that ALREADY
+        has derived output must not read ``ok`` forever while its Deriver is
+        demonstrably losing work. The queue gap outranks the historical
+        output; the digest text still carries that output.
+        """
+        backend, client = _backend_with_mock_client()
+        tenant_id, user_id = uuid4(), uuid4()
+        peer = client.peer(f"{tenant_id}_{user_id}")
+        peer.representation.return_value = "Knows that the answer is 42."
+        client.queue_status.return_value = SimpleNamespace(
+            total_work_units=9,
+            completed_work_units=5,
+            in_progress_work_units=2,
+            pending_work_units=1,  # 9 > 5+2+1 -> units vanished
+        )
+
+        digest = backend.digest(tenant_id, "user", user_id)
+
+        assert digest.degraded is False  # the READ worked; the DERIVER is losing
+        assert digest.derivation_status == "failed"
+        assert "Knows that the answer is 42." in digest.text
+
+    def test_digest_keeps_ok_on_the_non_empty_path_with_a_balanced_queue(self):
+        """The complement: a healthy queue must not be downgraded -- ``ok``
+        stays the answer when the scope has output and nothing is provably
+        lost."""
+        backend, client = _backend_with_mock_client()
+        tenant_id, user_id = uuid4(), uuid4()
+        peer = client.peer(f"{tenant_id}_{user_id}")
+        peer.representation.return_value = "Knows that the answer is 42."
+        client.queue_status.return_value = SimpleNamespace(
+            total_work_units=4,
+            completed_work_units=4,
+            in_progress_work_units=0,
+            pending_work_units=0,
+        )
+
+        digest = backend.digest(tenant_id, "user", user_id)
+
+        assert digest.degraded is False
+        assert digest.derivation_status == "ok"
+
+class TestHonchoDerivationState:
+    """AP-B5.1 (#1155): the derivation probe on the empirically verified
+    ``honcho-ai==2.5.1`` surface (``Conclusion.level`` + ``queue_status``).
+
+    The contract these tests pin is the HONEST-CEILING one: every status is
+    reported only from a signal the SDK actually returned -- ``ok`` from a
+    derived conclusion, ``failed`` from a provable queue-accounting gap,
+    ``none`` from a clean probe with nothing derived, ``unknown`` whenever a
+    call raised. No count is ever a floor dressed up as a total.
+    """
+
+    def _setup(self):
+        backend, client = _backend_with_mock_client()
+        tenant_id, user_id = uuid4(), uuid4()
+        peer = client.peer(f"{tenant_id}_{user_id}")
+        return backend, client, peer, tenant_id, user_id
+
+    @staticmethod
+    def _queue(client, total, completed, in_progress, pending):
+        client.queue_status.return_value = SimpleNamespace(
+            total_work_units=total,
+            completed_work_units=completed,
+            in_progress_work_units=in_progress,
+            pending_work_units=pending,
+        )
+
+    def test_derived_conclusions_yield_ok_with_exact_count(self):
+        from memory.honcho_backend import _DERIVATION_PROBE_PAGE_SIZE
+
+        backend, _client, peer, tenant_id, user_id = self._setup()
+        # 98 explicit + 2 derived = 100 items would SATURATE the page; keep it
+        # strictly below the budget so the count must be reported as exact.
+        items = [_conclusion(str(i), f"c{i}") for i in range(_DERIVATION_PROBE_PAGE_SIZE - 3)]
+        items.append(_conclusion("d1", "derived", level="deductive"))
+        items.append(_conclusion("d2", "derived too", level="inductive"))
+        peer.conclusions.list.return_value = SimpleNamespace(items=items)
+
+        status, count = self._state(backend, tenant_id, "user", user_id)
+
+        assert status == "ok"
+        assert count == 2  # page below the probe budget -> exact total
+
+    def test_saturated_page_with_derived_yields_ok_without_a_count(self):
+        """A full probe page of derived conclusions proves ``ok`` but NOT a
+        total -- more may sit beyond the budget, so the count must be ``None``
+        rather than a floor reported as an exact number."""
+        from memory.honcho_backend import _DERIVATION_PROBE_PAGE_SIZE
+
+        backend, _client, peer, tenant_id, user_id = self._setup()
+        items = [
+            _conclusion(str(i), f"c{i}", level="inductive")
+            for i in range(_DERIVATION_PROBE_PAGE_SIZE)
+        ]
+        peer.conclusions.list.return_value = SimpleNamespace(items=items)
+
+        status, count = self._state(backend, tenant_id, "user", user_id)
+
+        assert status == "ok"
+        assert count is None
+
+    def test_saturated_page_confirms_derived_level_server_side(self):
+        """Saturated all-explicit page: the probe must not conclude ``none``
+        from a truncated view -- it re-checks each derived level with a
+        server-side ``filters={"level": ...}`` query, and a hit yields ``ok``."""
+        from memory.honcho_backend import _DERIVATION_PROBE_PAGE_SIZE
+
+        backend, _client, peer, tenant_id, user_id = self._setup()
+        explicit = [_conclusion(str(i), f"c{i}") for i in range(_DERIVATION_PROBE_PAGE_SIZE)]
+
+        def _list(**kwargs):
+            if kwargs.get("filters"):
+                assert kwargs["filters"]["level"] in (
+                    "deductive",
+                    "inductive",
+                    "contradiction",
+                )
+                hit = kwargs["filters"]["level"] == "contradiction"
+                return SimpleNamespace(
+                    items=[_conclusion("x", "contra", level="contradiction")] if hit else []
+                )
+            return SimpleNamespace(items=explicit)
+
+        peer.conclusions.list.side_effect = _list
+
+        status, count = self._state(backend, tenant_id, "user", user_id)
+
+        assert status == "ok"
+        assert count is None  # confirmed existence, not an exact total
+
+    def test_clean_queue_without_derived_yields_none(self):
+        backend, client, peer, tenant_id, user_id = self._setup()
+        peer.conclusions.list.return_value = SimpleNamespace(
+            items=[_conclusion("a", "stored fact")]
+        )
+        self._queue(client, total=5, completed=5, in_progress=0, pending=0)
+
+        status, count = self._state(backend, tenant_id, "user", user_id)
+
+        assert status == "none"
+        assert count == 0
+        # The queue is scoped to the scope's own (tenant-namespaced) peer.
+        assert client.queue_status.call_args.kwargs["observer"] == f"{tenant_id}_{user_id}"
+
+    def test_queue_accounting_gap_yields_failed(self):
+        """#1052 class: work units that vanished without completing (and
+        without being counted as completed) are a DEMONSTRABLE failure --
+        the only honest ``failed`` signal the SDK surface offers."""
+        backend, client, peer, tenant_id, user_id = self._setup()
+        peer.conclusions.list.return_value = SimpleNamespace(items=[])
+        self._queue(client, total=10, completed=6, in_progress=1, pending=1)
+
+        status, count = self._state(backend, tenant_id, "user", user_id)
+
+        assert status == "failed"
+        assert count == 0
+
+    def test_queue_probe_failure_degrades_to_none(self):
+        """The queue is a best-effort EXTRA signal: if it raises, the proven
+        part of the answer (no derived conclusions) still stands, so the
+        status stays ``none`` rather than collapsing to ``unknown``."""
+        backend, client, peer, tenant_id, user_id = self._setup()
+        peer.conclusions.list.return_value = SimpleNamespace(items=[])
+        client.queue_status.side_effect = RuntimeError("queue endpoint unavailable")
+
+        status, count = self._state(backend, tenant_id, "user", user_id)
+
+        assert status == "none"
+        assert count == 0
+
+    def test_non_integer_queue_counters_are_ignored(self):
+        """Doubles/older server shapes must not corrupt the accounting: only
+        real non-negative ints count (``bool`` included -- it is an int
+        subclass and ``True`` would silently pass as ``1``)."""
+        backend, client, peer, tenant_id, user_id = self._setup()
+        peer.conclusions.list.return_value = SimpleNamespace(items=[])
+        self._queue(client, total=True, completed=0, in_progress=0, pending=0)
+
+        status, _count = self._state(backend, tenant_id, "user", user_id)
+
+        assert status == "none"
+
+    def test_inert_queue_counters_are_logged_not_silently_ignored(self, caplog):
+        """S2 (backend-reviewer F2): a failure detector that can never fire is
+        itself the #1052 failure mode ("nobody sees it"). When the queue
+        surface yields unusable counters the probe must leave a trace in the
+        logs, while still answering from the signal it DOES have."""
+        import logging
+
+        backend, client, peer, tenant_id, user_id = self._setup()
+        peer.conclusions.list.return_value = SimpleNamespace(items=[])
+        client.queue_status.return_value = SimpleNamespace(
+            total_work_units="many",
+            completed_work_units=None,
+            in_progress_work_units=0,
+            pending_work_units=0,
+        )
+
+        with caplog.at_level(logging.WARNING, logger="memory.honcho_backend"):
+            status, count = self._state(backend, tenant_id, "user", user_id)
+
+        assert status == "none"  # no provable gap -> never a guessed "failed"
+        assert count == 0
+        assert any("failure detection is inert" in rec.message for rec in caplog.records)
+
+    def test_conclusion_list_failure_yields_unknown(self):
+        """The probe's primary signal raised -> the derivation state is NOT
+        determinable; ``unknown``, never a silent ``none``."""
+        backend, _client, peer, tenant_id, user_id = self._setup()
+        peer.conclusions.list.side_effect = RuntimeError("engine unreachable")
+
+        status, count = self._state(backend, tenant_id, "user", user_id)
+
+        assert status == "unknown"
+        assert count is None
+
+    def test_unknown_scope_yields_unknown(self):
+        """A rejected scope never reaches the engine; the probe reports
+        ``unknown`` (a caller bug surfaced via the digest's degrade path, not
+        a derivation statement)."""
+        backend, _client, _peer, tenant_id, _user_id = self._setup()
+
+        status, count = self._state(backend, tenant_id, "not-a-scope", uuid4())
+
+        assert status == "unknown"
+        assert count is None
+
+    @staticmethod
+    def _state(backend, tenant_id, scope, scope_id):
+        """Two-value view of the probe (status, count).
+
+        The loaded page only matters to ``digest``, which renders from it; the
+        classification tests assert on the status/count pair, so unpacking the
+        3-tuple here once keeps every test readable instead of repeating
+        ``_derivation_probe(...)[0:2]`` ten times.
+        """
+        status, count, _items = backend._derivation_probe(tenant_id, scope, scope_id)
+        return status, count
+
+    def test_failed_outranks_ok_when_derived_output_already_exists(self):
+        """M1/S1 at probe level: derived conclusions AND a provable queue gap
+        -> ``failed``. "Has produced output once" must not mask "is losing
+        work now"; the count still reports what exists, so no information is
+        thrown away by the override."""
+        backend, client, peer, tenant_id, user_id = self._setup()
+        peer.conclusions.list.return_value = SimpleNamespace(
+            items=[_conclusion("d1", "because X, therefore Y", level="deductive")]
+        )
+        self._queue(client, total=5, completed=3, in_progress=1, pending=0)
+
+        status, count = self._state(backend, tenant_id, "user", user_id)
+
+        assert status == "failed"
+        assert count == 1
+
+    def test_probe_hands_back_the_page_it_classified_from(self):
+        """S3: the probe returns the loaded conclusions page so the caller can
+        render from the SAME read the status came from -- one peer resolution,
+        one list GET, no contradicting payload."""
+        from memory.backends import _DIGEST_MAX_FACTS
+
+        backend, _client, peer, tenant_id, user_id = self._setup()
+        items = [_conclusion(str(i), f"c{i}") for i in range(_DIGEST_MAX_FACTS + 5)]
+        peer.conclusions.list.return_value = SimpleNamespace(items=items)
+
+        status, count, page = backend._derivation_probe(tenant_id, "user", user_id)
+
+        assert status == "none"
+        assert count == 0
+        assert page is not None and len(page) == len(items)
+        assert [c.content for c in page[:_DIGEST_MAX_FACTS]][0] == "c0"
+
+    def test_unknown_from_a_failed_level_recheck_still_returns_the_page(self):
+        """The saturated-page level re-check raising makes the derivation
+        ANSWER undeterminable but not the page: the caller can still render
+        what was read instead of paying for another round trip."""
+        from memory.honcho_backend import _DERIVATION_PROBE_PAGE_SIZE
+
+        backend, _client, peer, tenant_id, user_id = self._setup()
+        explicit = [_conclusion(str(i), f"c{i}") for i in range(_DERIVATION_PROBE_PAGE_SIZE)]
+
+        def _list(**kwargs):
+            if kwargs.get("filters"):
+                raise RuntimeError("level filter unsupported on this build")
+            return SimpleNamespace(items=explicit)
+
+        peer.conclusions.list.side_effect = _list
+
+        status, count, page = backend._derivation_probe(tenant_id, "user", user_id)
+
+        assert status == "unknown"
+        assert count is None
+        assert page is not None and len(page) == _DERIVATION_PROBE_PAGE_SIZE
+
+    def test_double_without_level_attribute_counts_as_explicit(self):
+        """The SDK's own field default is ``"explicit"``; a double (or an
+        older response) that does not model ``level`` must be treated as a
+        verbatim stored conclusion, never as phantom deriver output."""
+        backend, client, peer, tenant_id, user_id = self._setup()
+        peer.conclusions.list.return_value = SimpleNamespace(
+            items=[SimpleNamespace(id="a", content="stored")]
+        )
+        self._queue(client, total=1, completed=1, in_progress=0, pending=0)
+
+        status, count = self._state(backend, tenant_id, "user", user_id)
+
+        assert status == "none"
+        assert count == 0
 
 
 class TestHonchoAsk:

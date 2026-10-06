@@ -201,6 +201,29 @@ it.
 `confidence` (default `1.0`), `change_reason`. Scope `artifact` without an
 `artifact_id` is rejected rather than silently landing in the workspace scope.
 
+`memory.digest` additionally answers *whether the engine derives at all*
+([#1155](https://github.com/Popoboxxo/ReqogniLoom/issues/1155) AP-B5.1):
+besides `digest`, `generated_at`, `backend`, `degraded` the response carries
+`derivation_status` (one of `ok` / `none` / `failed` / `unsupported` /
+`unknown`) and `derived_count` (exact count or `null` — never a fabricated
+total). `degraded` says whether *this read* worked; `derivation_status` says
+what the *Deriver* did for the scope. The two are independent on purpose: a
+scope can answer perfectly (`degraded: false`) while its deriver is losing
+work (`derivation_status: "failed"`). Note what `ok` does and does not claim:
+it means the scope **has produced** derived output, **not** that the deriver
+is currently healthy — a Zen-Go quota death (HTTP 429) on a scope with earlier
+output keeps reading `ok`, because the SDK exposes no per-unit error flag and
+the server counts the dead units as processed; only a provable
+`queue_status` accounting gap surfaces as `failed`. `pgvector` always answers
+`unsupported`/`null`. The same pair rides on the REST digest bodies
+(`.../memory/digest/`), and the scope-less capability (`unsupported` for
+pgvector, `unknown` for honcho — the envelope has no scope to probe) is added
+to the memory response envelope
+(`backend`/`ok`/`detail`/`degraded`/`digest_available`/`ask_available`/
+`derivation_status`) that `memory.list`/`memory.query`/`memory.forget` and
+the admin health row all carry. There is no dedicated `memory.health` MCP
+tool; the envelope is the health surface on this group.
+
 `memory.ask` ([#1154](https://github.com/Popoboxxo/ReqogniLoom/issues/1154),
 REQ-192) parameters: `query` (required; at most 10000 characters), `workspace_id`
 (required; also the scope id when no artifact is named), `artifact_id`

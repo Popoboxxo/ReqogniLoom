@@ -80,7 +80,9 @@ Status: `open` → `triaged` → `in-progress` → `verify` → `closed`.
 | #988 | Bluepencil-Bundle ohne Identity-Fix („anonymous") | B3 | P2 | triaged |
 | #1177 | REST-Inkonsistenzen (Envelope/404/Bindestrich/openapi.json) | B4 | P1 | verify |
 | #1185 | Import-Fehlerantwort leakt DB-Interna (CWE-209) | B4 | P1 | verify |
-| #1155/#1156 | Honcho-Langzeitgedächtnis + „Zuhören & Antizipieren" | B2/B0 | P2 | triaged |
+| #1155 | Honcho als echtes Langzeitgedächtnis (RFC, 4 Oberflächen) | B5 | P1 | in-progress |
+| #1156 | „Zuhören & Antizipieren"-Modus in allen Plugins | B5 | P2 | triaged |
+| #1154 | `memory.ask` (MCP, NL-Abfrage) | B5 | P1 | closed |
 
 ## 5. Bundles (Kurzfassung)
 
@@ -91,6 +93,7 @@ Status: `open` → `triaged` → `in-progress` → `verify` → `closed`.
 | **B2** | Externe LLM-/Provider-Robustheit | #1153, #1186, #1163, #1165 | Provider-Fehler deterministisch, korrekt gemappt, belegt |
 | **B3** | Plugin-Runtime & Fremd-Bundles | #1152, #988 | Plugins bedienen den echten Serververtrag |
 | **B4** | API-Contract-Konsistenz | #1177, #1185 | Einheitlicher Envelope, saubere Fehler, standardkonformes OpenAPI |
+| **B5** | Memory/Honcho als echtes Gedächtnis | #1155, #1156, #1154 | Derivation sichtbar, NL-Abfrage (REST/UI), Plugin-Zugang, Vorschlags-Schleife |
 
 Details, Arbeitspakete, Aufwände und DoD: siehe Arbeitsplan §3.
 
@@ -104,6 +107,8 @@ Details, Arbeitspakete, Aufwände und DoD: siehe Arbeitsplan §3.
 > **B0-Smoke 2026-10-05 ausgeführt (Plan §4.3):** **1× PASS** (opencode — echter Tool-Call `requirement.query`=3 / `workspace.list`=420 == REST), **2× ENV-LIMITED** (claude-code, hermes — Connect belegt, echter Call blockiert), **1× FAIL** (kimi-code), **2× nicht ausführbar** (codex, antigravity); zusätzlich Server-MCP-Quergegencheck PASS (223 Tools, `workspace.list`=420, `requirement.query`=3 == REST). **DoD 3 damit nur teilweise erfüllt.** 3 `install.sh`-Defekte (claude-code-Marketplace-ID, opencode-Header, hermes `--url`) — s. Report §4/§8. Beleg: [`docs/bugfix-hub/smoke/2026-10-05-client-smoke.md`](smoke/2026-10-05-client-smoke.md).
 >
 > **B0-Re-Smoke 2026-10-06 (nach Fix, Plan §4.3/§4.5):** vier Installer-Defekte behoben und re-verifiziert (claude-code-Marketplace-ID, opencode-Header, hermes `--url`, kimi-code-Schema). Ergebnis je Client: **opencode = full PASS** (echte MCP-Tool-Calls `requirement.query`=3 / `workspace.list`=420 == REST); **claude-code** und **hermes** = install/connect PASS, Daten-Tool-Call **ENV-LIMITED** (externe LLM-/Provider-Auth); **kimi-code** = **ENV-LIMITED/L2** (kein PASS); server-seitiger MCP PASS (223 Tools). **DoD 3: weitgehend erfüllt, aber nicht vollständig** — kein Gesamt-PASS. Beleg: Report §9.
+>
+> **B5 P1 erledigt (2026-10-06, AP-B5.1, Fix-Iteration 1):** `derivation_status` (`ok|none|failed|unsupported|unknown`) + `derived_count` sind umgesetzt und getestet — Digest (Honcho-Probe auf der empirisch verifizierten honcho-ai-2.5.1-Surface: `Conclusion.level`, `queue_status`-Work-Unit-Accounting, **ein** Read pro Digest-Pfad für Status und Faktenrendering), REST-/MCP-Digest-Surface, health-Envelope (pgvector `unsupported`, honcho scope-less `unknown`) und admin-health. #1052-Klasse: eine nachweisbare Queue-Lücke (`total > completed+in_progress+pending`) wird auf **jedem** sauberen Pfad geprüft und **überstimmt `ok`** — ein Deriver, der nach vorhandenem Output stirbt, meldet `failed`. Präzise Limitation: ein Quote-/429-Ausfall, den Honcho als `completed` zählt, hinterlässt keine Lücke und ist client-seitig unsichtbar — Scopes **mit** früherem Output lesen weiter `ok` (nicht `none`), Scopes ohne Output lesen `none`; `ok` ist historisch, nicht liveness. Dokumentiert in `deploy/README.md` (§Derivation visibility) und `docs/api/MCP-SURFACE.md` §4. **P2–P4 (memory.ask REST/UI, Plugin-Zugang, Vorschlags-Schleife) offen** → #1155 bleibt `in-progress`.
 
 ## 6. Verwandte Dokumente
 

@@ -704,8 +704,9 @@ class WorkspaceMemoryDigestView(APIView):
     memory (``scope="workspace"``). Delegates to
     :class:`application.memory_entry_service.MemoryEntryService`; the body is
     the digest's own fields (``digest``/``generated_at``/``backend``/
-    ``degraded``), so F9's degradation signal is carried by the digest itself
-    rather than by a second health probe.
+    ``degraded`` + the AP-B5.1 derivation pair ``derivation_status``/
+    ``derived_count``), so F9's degradation signal is carried by the digest
+    itself rather than by a second health probe.
     """
 
     def get(self, request: Request, workspace_id: UUID, *args: Any, **kwargs: Any) -> Response:
@@ -723,6 +724,8 @@ class WorkspaceMemoryDigestView(APIView):
                 "generated_at": digest.generated_at.isoformat(),
                 "backend": digest.backend,
                 "degraded": digest.degraded,
+                "derivation_status": digest.derivation_status,
+                "derived_count": digest.derived_count,
             }
         )
 
@@ -917,6 +920,8 @@ class ArtifactMemoryDigestView(APIView):
                 "generated_at": digest.generated_at.isoformat(),
                 "backend": digest.backend,
                 "degraded": digest.degraded,
+                "derivation_status": digest.derivation_status,
+                "derived_count": digest.derived_count,
             }
         )
 

@@ -300,6 +300,42 @@ so the moving `:latest` tag cannot silently resolve to a different build than th
 above was verified against. For the failure mode and the recreate command, see
 `## Troubleshooting: Stale Honcho image (#1153)` below.
 
+### Derivation visibility (`derivation_status`) and the Zen-Go quota dependency (#1155)
+
+Everything above can fail **silently**: the API stays up, memory reads keep working, and yet the
+Deriver never produces anything — the beta.18 symptom, where every document stayed `level="explicit"`
+(0 derived artefacts) while the UI still showed "healthy". Since AP-B5.1 the Deriver's state is
+reported machine-readably, independent of the read's own `degraded` flag. Two surfaces carry the
+field, and they answer different questions:
+
+- **per scope** — `memory.digest` (MCP) and `GET /api/v1/workspaces/<id>/memory/digest/` (REST, plus
+  the artifact variant): `derivation_status` + `derived_count` describe *this* scope's deriver.
+- **scope-less** — the memory response envelope (`memory.list` / `memory.query` / `memory.forget`
+  over MCP, the REST memory endpoints, and the admin `memory` health row): only the *capability*
+  answer, because that surface has no scope to probe.
+
+| `derivation_status` | Meaning |
+|---|---|
+| `ok` | *Per scope:* this scope **has produced** derived output at some point (non-empty peer representation/card, or a conclusion at level `deductive`/`inductive`/`contradiction`). `derived_count` carries the exact count when the probe could bound it, else `null`. **`ok` does not mean "the deriver is currently healthy"** — read the quota limit below. |
+| `none` | *Per scope:* probed cleanly — nothing derived (yet). Writes exist, but all are `explicit`. **Not** an outage. |
+| `failed` | *Per scope:* demonstrable failure — Honcho's `queue_status` accounting shows units vanished without completing (`total > completed + in_progress + pending`), the #1052 class. This **outranks `ok`**: a Deriver that dies after having produced output reads `failed`, while the digest text still carries that output. |
+| `unknown` | *Per scope:* engine unreachable (or scope rejected) — the state is not determinable, never collapsed into `none`. |
+| `unsupported` | The active backend has no deriver at all (pgvector) — on both surfaces. On the scope-less envelope `honcho` answers `unknown` ("can derive, not probed here"); its per-scope truth appears only on a digest. |
+
+**Quota limit of this signal (read this before trusting `ok`).** The dominant #1155 root cause is the
+Zen-Go endpoint's rate limit (HTTP 429): the Deriver dies *server-side* and Honcho counts the affected
+work units as processed. The SDK surface (verified against `honcho-ai==2.5.1`) exposes **no per-unit
+error flag** and no last-error/last-run detail, so such a loss leaves **no accounting gap** and is
+client-undetectable: a scope that had already derived something keeps reading `ok`, a scope without
+any output reads `none` — neither reads `failed`. `failed` fires only on the provable gap. Therefore:
+
+- digests persistently reporting `none` despite growing explicit writes → check the quota and the
+  `honcho-deriver` logs (section (b) above);
+- digests reporting `ok` while the derived artefact stops growing → same checks; `ok` is a
+  *historical* statement about the scope, not a liveness probe of the deriver.
+
+Both cases are the documented blind spot of a client-side view, not a backend bug.
+
 
 ## Troubleshooting: LLM calls fail with ConnectError (backend container DNS)
 

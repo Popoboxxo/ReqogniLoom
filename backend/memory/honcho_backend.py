@@ -38,6 +38,19 @@ process-manager package, which is a completely different project):
   i.e. the peer's self-conclusions, with ``.create()`` / ``.query()`` /
   ``.list()`` / ``.delete()``. "Conclusions" are Honcho's name for the derived
   facts this app calls memory entries.
+* ``Conclusion.level`` -> ``Literal["explicit", "deductive", "inductive",
+  "contradiction"]`` (re-verified by introspecting ``honcho-ai==2.5.1`` in the
+  deployed container for AP-B5.1 / #1155): ``explicit`` conclusions are
+  extracted verbatim from messages (every :meth:`write` creates one directly),
+  the other three are Deriver/Dream output -- so the level field, not a
+  content heuristic, is what distinguishes "stored" from "derived".
+  ``ConclusionsView.list`` accepts ``filters={"level": ...}`` server-side.
+* ``Honcho.queue_status(observer=..., sender=..., session=...)`` ->
+  ``QueueStatusResponse`` with ``total``/``completed``/``in_progress``/
+  ``pending`` ``_work_units`` counters (same verification run) -- the SDK's
+  ONLY work-unit surface. It carries no per-unit error flag and no
+  last-error/last-run detail, which bounds what :meth:`_queue_gap`
+  can honestly claim (see it).
 
 Object mapping
 --------------
@@ -137,8 +150,9 @@ card), then degrades in steps:
 
 1. representation / card -- the engine's own summary. ``degraded=False`` when
    either answered, even if it was empty;
-2. the scope's conclusion list (``list_recent``) -- used when the engine
-   answered cleanly with nothing to summarise yet;
+2. the scope's conclusion list -- the SAME bounded page the derivation probe
+   already read when the engine answered cleanly with nothing to summarise,
+   or ``list_recent`` when the engine read raised and no page exists;
 3. the LOCAL MIRROR rows (``list_entries``, no network) -- last resort when a
    network call raised, i.e. the engine is unreachable. This path sets
    ``degraded=True``, so a caller can still show *something* while the
@@ -146,6 +160,27 @@ card), then degrades in steps:
 
 Only a failure of step 3 as well yields an empty text. Like pgvector, an empty
 but healthy scope is ``degraded=False`` (F9), and the method never raises.
+
+Since AP-B5.1 (#1155) the digest additionally fills ``derivation_status`` /
+``derived_count``, consulting the probe on EVERY clean path: a non-empty
+representation or card is deriver output (``ok``); a clean-but-empty engine
+answer runs :meth:`_derivation_probe` (``ok`` / ``none`` from the conclusion
+levels); a demonstrable work-unit gap in ``queue_status`` yields ``failed``
+and OUTRANKS any earlier output; an unreachable engine yields ``unknown``
+rather than silently collapsing into ``none``.
+
+**What ``ok`` does NOT mean, and the residual blind spot.** ``ok`` asserts
+only that this scope HAS produced derived output -- never that the Deriver is
+currently healthy. The dominant #1155 root cause is the Zen-Go endpoint's rate
+limit (HTTP 429): the Deriver dies *server-side* and Honcho counts the
+affected work units as processed. ``honcho-ai==2.5.1`` exposes no per-unit
+error flag and no last-error/last-run surface (verified empirically, see the
+SDK-surface list above), so such a loss leaves no accounting gap and is
+**client-undetectable**: a scope with earlier output keeps reading ``ok`` and
+a scope without any reads ``none`` -- neither is ``failed``. ``failed`` fires
+only on the provable gap (``total > completed + in_progress + pending``).
+That limit is documented for operators in ``deploy/README.md`` (§Derivation
+visibility) rather than papered over with a guess.
 
 ``ask()`` (natural-language access)
 -----------------------------------
@@ -238,6 +273,19 @@ logger = logging.getLogger(__name__)
 #: short result set. Requests above this are clamped and the response is
 #: truncated to what the caller asked for.
 _MAX_PAGE_SIZE = 100
+
+#: Page budget for the derivation probe (:meth:`HonchoMemoryBackend.
+#: _derivation_probe`, AP-B5.1 #1155): one bounded newest-first page of the
+#: scope's conclusions is read. ``_MAX_PAGE_SIZE`` is reused because Honcho
+#: 422s oversized pages exactly like for every other list call.
+_DERIVATION_PROBE_PAGE_SIZE = _MAX_PAGE_SIZE
+
+#: Conclusion levels only the Deriver/Dream can produce (verified against
+#: ``honcho-ai==2.5.1``'s ``ConclusionLevel`` literal, see the module
+#: docstring). A conclusion at any of these levels is proof that derivation
+#: happened for the scope; ``explicit`` never is, because every ``write``
+#: creates one directly.
+_DERIVED_CONCLUSION_LEVELS = ("deductive", "inductive", "contradiction")
 
 #: Peer-id prefix for the ``artifact`` scope (RFC #1002). Deliberately NOT
 #: applied to ``user``/``workspace``: those keep the legacy unprefixed
@@ -423,6 +471,20 @@ def _safe_generate_embedding(text: str) -> Optional[List[float]]:
         return generate_embedding(text)
     except Exception:  # noqa: BLE001 - best-effort, see docstring
         return None
+
+
+def _unit_count(value: Any) -> Optional[int]:
+    """Parse one ``queue_status`` work-unit counter; ``None`` when unusable.
+
+    Guards the #1052 failure detection (see :meth:`HonchoMemoryBackend.
+    _queue_gap`) against test doubles and older server/SDK shapes: only
+    a real non-negative ``int`` counts. ``bool`` is explicitly rejected -- it
+    is an ``int`` subclass, and a stray ``True`` would silently pass as ``1``
+    and corrupt the queue accounting.
+    """
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value if value >= 0 else None
 
 
 #: Placeholder observer/observed pair used only to construct a
@@ -924,8 +986,9 @@ class HonchoMemoryBackend(MemoryBackend):
         1. the peer representation scoped to this scope's session, falling back
            to the peer card when the representation is empty -- Honcho's Deriver
            output, which is the richest and cheapest thing to hand a caller;
-        2. the scope's conclusion list (``list_recent``) when the engine
-           answered cleanly but has nothing to represent yet;
+        2. the scope's conclusion list -- the SAME bounded page the derivation
+           probe already read (step 1's clean-but-empty case), or ``list_recent``
+           when the engine read raised and no page exists yet;
         3. the LOCAL MIRROR rows (``list_entries``, no network) when a network
            call raised -- the engine is unreachable, so a best-effort local
            rendering is better than nothing, but ``degraded=True`` says so.
@@ -934,6 +997,27 @@ class HonchoMemoryBackend(MemoryBackend):
         answers cleanly and simply remembers nothing yields the sentinel body
         with ``degraded=False`` -- F9: "empty" is not "down". Never raises, and
         only a failure of the last step as well produces an empty text.
+
+        ``derivation_status`` (AP-B5.1, #1155) tracks the *Deriver*, not this
+        read, and is consulted on EVERY clean path:
+
+        * a non-empty representation/card is deriver output -> ``ok``;
+        * a clean-but-empty engine answer runs :meth:`_derivation_probe`
+          -> ``ok`` (derived conclusions found) / ``none`` / ``failed``;
+        * a demonstrable queue gap (units vanishing without completing)
+          OUTRANKS the historical output -> ``failed``, even while ``text``
+          still carries the derived artefact. Without this override a Deriver
+          that died after producing once would read ``ok`` forever, which is
+          the exact #1052 blind spot this AP exists to close;
+        * an unreachable engine -> ``unknown`` (an outage must not masquerade
+          as "nothing derived", and a scope that once derived must not
+          masquerade as healthy).
+
+        ``ok`` therefore means "this scope HAS produced derived output", never
+        "the deriver is currently healthy" -- see the module docstring's
+        quota paragraph for what the client surface cannot see at all.
+        ``derived_count`` is the exact derived-conclusion count only when the
+        probe bounded it exactly, else ``None`` -- never a fabricated total.
         """
         generated_at = timezone.now()
         try:
@@ -949,14 +1033,68 @@ class HonchoMemoryBackend(MemoryBackend):
             body, engine_failed = "", True
 
         if body:
+            # A non-empty representation/peer card is deriver OUTPUT, so the
+            # baseline answer is ``ok`` -- but ``ok`` only ever means "this
+            # scope has produced derived output", NEVER "the deriver is
+            # currently healthy". A demonstrable queue gap is a loss of work
+            # happening NOW and outranks the historical output (the text still
+            # carries that output), so the quota-death case on an already-
+            # derived scope cannot hide behind a permanent ``ok``.
+            if engine_failed:
+                status = "unknown"
+            else:
+                status = "ok"
+                try:
+                    peer_id = self._scope_peer_id(tenant_id, scope, scope_id)
+                except ValueError:  # pragma: no cover - a body proves resolution
+                    # Unreachable in practice: the body came from this scope's
+                    # peer, so the id construction worked. Guarded anyway
+                    # because ``digest`` must never raise; the answer then
+                    # stays the proven ``ok`` without the queue signal.
+                    peer_id = ""
+                if peer_id and self._queue_gap(tenant_id, peer_id):
+                    status = "failed"
             return MemoryDigest(
                 text=_digest_text("honcho", scope, facts=None, body=body),
                 generated_at=generated_at,
                 backend="honcho",
                 degraded=engine_failed,
+                derivation_status=status,
+                derived_count=None,
             )
 
         degraded = engine_failed
+        page_items: Optional[List[Any]] = None
+        if engine_failed:
+            # The engine could not be read at all -- whether it had derived
+            # anything is NOT determinable from here, and must not collapse
+            # into "none" (F9 applied to the Deriver).
+            derivation_status: str = "unknown"
+            derived_count: Optional[int] = None
+        else:
+            derivation_status, derived_count, page_items = self._derivation_probe(
+                tenant_id, scope, scope_id
+            )
+
+        if page_items is not None:
+            # The probe already read this scope's conclusions: render from THAT
+            # page rather than issuing a second, differently-timed read of the
+            # same endpoint. Re-reading would re-resolve the peer (every
+            # ``client.peer()`` is an HTTP POST, see the module docstring) and
+            # could render a fact list that does not match the page the status
+            # was derived from.
+            contents = [conclusion.content for conclusion in page_items[:_DIGEST_MAX_FACTS]]
+            return MemoryDigest(
+                text=_digest_text(
+                    "honcho", scope, facts=len(contents), body=_render_digest_facts(contents)
+                ),
+                generated_at=generated_at,
+                backend="honcho",
+                degraded=degraded,
+                derivation_status=derivation_status,
+                derived_count=derived_count,
+            )
+
         try:
             conclusions = self.list_recent(
                 tenant_id, scope, scope_id, limit=_DIGEST_MAX_FACTS
@@ -979,6 +1117,8 @@ class HonchoMemoryBackend(MemoryBackend):
                 generated_at=generated_at,
                 backend="honcho",
                 degraded=degraded,
+                derivation_status=derivation_status,
+                derived_count=derived_count,
             )
 
         try:
@@ -988,7 +1128,12 @@ class HonchoMemoryBackend(MemoryBackend):
             contents = [ref.content for ref in refs]
         except Exception:  # noqa: BLE001 - nothing left to fall back to
             return MemoryDigest(
-                text="", generated_at=generated_at, backend="honcho", degraded=True
+                text="",
+                generated_at=generated_at,
+                backend="honcho",
+                degraded=True,
+                derivation_status=derivation_status,
+                derived_count=derived_count,
             )
         return MemoryDigest(
             text=_digest_text(
@@ -997,6 +1142,8 @@ class HonchoMemoryBackend(MemoryBackend):
             generated_at=generated_at,
             backend="honcho",
             degraded=True,
+            derivation_status=derivation_status,
+            derived_count=derived_count,
         )
 
     def _engine_digest_body(self, tenant_id: UUID, scope: str, scope_id: UUID) -> Tuple[str, bool]:
@@ -1048,6 +1195,156 @@ class HonchoMemoryBackend(MemoryBackend):
         if card:
             return "\n".join(str(line) for line in card).strip(), False
         return "", False
+
+    def _queue_gap(self, tenant_id: UUID, peer_id: str) -> bool:
+        """Whether *peer_id*'s work-unit accounting shows a demonstrable gap.
+
+        ``True`` ONLY when all four ``queue_status`` counters were readable as
+        non-negative ints and ``total > completed + in_progress + pending`` --
+        work units that vanished without completing and without being counted,
+        the #1052 class. Everything else is ``False``: a balanced queue, an
+        unreadable queue, and counters this SDK build does not expose. Absence
+        of proof is never reported as proof of failure (F9); the one honest
+        failure signal on this surface is the accounting gap.
+
+        Two deliberate error directions:
+
+        * a transient race between the caller's conclusion read and this queue
+          read can briefly show a gap the server is about to close, so a
+          spurious ``failed`` is possible -- fail-LOUD, never fail-silent, and
+          the next digest corrects it (F9's asymmetry: a false alarm is
+          recoverable, a silent healthy lie is not);
+        * an unusable counter logs a WARNING, because a detector that can
+          never fire is itself invisible (#1052's failure mode): silently
+          returning ``False`` forever would disable failure detection without
+          leaving a trace. Logs IDs/type names only -- never queue content.
+
+        Never raises: the queue is a best-effort EXTRA signal on paths whose
+        primary answer already stands.
+        """
+        try:
+            queue = self._ensure_client(tenant_id).queue_status(observer=peer_id)
+            total = _unit_count(getattr(queue, "total_work_units", None))
+            completed = _unit_count(getattr(queue, "completed_work_units", None))
+            in_progress = _unit_count(getattr(queue, "in_progress_work_units", None))
+            pending = _unit_count(getattr(queue, "pending_work_units", None))
+        except Exception as exc:  # noqa: BLE001 - best-effort signal, see docstring
+            logger.warning(
+                "honcho memory: queue_status probe failed for tenant=%s peer=%s "
+                "(error type %s); failure detection skipped",
+                tenant_id,
+                peer_id,
+                type(exc).__name__,
+            )
+            return False
+
+        if None in (total, completed, in_progress, pending):
+            logger.warning(
+                "honcho memory: queue_status returned unusable counters for "
+                "tenant=%s peer=%s (total=%s completed=%s in_progress=%s "
+                "pending=%s); failure detection is inert on this surface",
+                tenant_id,
+                peer_id,
+                *(type(v).__name__ if v is None else "int" for v in
+                  (total, completed, in_progress, pending)),
+            )
+            return False
+
+        return total > completed + in_progress + pending
+
+    def _derivation_probe(
+        self, tenant_id: UUID, scope: str, scope_id: UUID
+    ) -> Tuple[str, Optional[int], Optional[List[Any]]]:
+        """Probe whether Honcho's Deriver has produced anything for this scope.
+
+        Returns ``(status, derived_count, items)`` with ``status`` from
+        ``VALID_DERIVATION_STATUSES`` minus ``unsupported`` (this backend
+        derives by design) and ``items`` the scope's bounded conclusion page
+        the classification was made from -- ``None`` when no page could be
+        read, which is the caller's signal to fall back to its own read.
+        Handing the page back is deliberate: re-reading the same endpoint
+        would re-resolve the peer (every ``client.peer()`` is an HTTP POST)
+        and could render facts that do not match the page the status came
+        from. Built ONLY on the surface verified against ``honcho-ai==2.5.1``
+        (see the module docstring) -- F9 discipline applied to the Deriver, so
+        every branch reports what the SDK actually showed:
+
+        * ``ok`` + exact count -- the scope's conclusion page contains
+          conclusions at a derived level (``deductive``/``inductive``/
+          ``contradiction``); the count is ``None`` when the page saturated,
+          because more derived conclusions may sit beyond the probe budget --
+          a floor is not a total and is never reported as one;
+        * ``ok`` + ``None`` -- a saturated page held no derived conclusion, but
+          a server-side ``filters={"level": ...}`` re-check found one;
+        * ``none`` -- probed cleanly, zero derived conclusions;
+        * ``failed`` -- :meth:`_queue_gap` proved a work-unit accounting gap.
+          Checked on EVERY clean path, so it outranks a ``ok`` earned from
+          earlier output: a Deriver that dies after having derived once must
+          not read healthy forever. The SDK exposes no per-unit error flag,
+          so a failure the server counts as ``completed`` stays invisible
+          from here -- that residual blind spot is the Zen-Go quota outage
+          (#1155, HTTP 429) and is documented in the module docstring and
+          ``deploy/README.md``, NOT papered over with a guess;
+        * ``unknown`` -- the page read raised (engine unreachable, scope
+          rejected), or the saturated-page level re-check raised. Never
+          guessed, never downgraded to ``none``.
+
+        Cost: one ``client.peer()`` get-or-create plus one bounded list GET,
+        plus one ``queue_status`` GET for the failure signal. Never raises.
+        """
+        try:
+            peer_id = self._scope_peer_id(tenant_id, scope, scope_id)
+            view = self._conclusions(tenant_id, scope, scope_id)
+            page = view.list(size=_DERIVATION_PROBE_PAGE_SIZE)
+            items = list(page.items[:_DERIVATION_PROBE_PAGE_SIZE])
+        except Exception as exc:  # noqa: BLE001 - the digest contract: never raise
+            logger.warning(
+                "honcho memory: derivation probe failed for tenant=%s scope=%s "
+                "(error type %s); reporting unknown",
+                tenant_id,
+                scope,
+                type(exc).__name__,
+            )
+            return "unknown", None, None
+
+        # ``level`` defaults to the SDK's own field default ("explicit") so a
+        # double that does not model the attribute is treated like a verbatim
+        # stored conclusion, never as phantom deriver output.
+        derived = [c for c in items if getattr(c, "level", "explicit") != "explicit"]
+        if derived:
+            bounded = len(items) < _DERIVATION_PROBE_PAGE_SIZE
+            status: str = "ok"
+            count: Optional[int] = len(derived) if bounded else None
+        elif len(items) >= _DERIVATION_PROBE_PAGE_SIZE:
+            # Saturated page: the newest N conclusions hold no derived item,
+            # but older ones might. Confirm server-side per derived level
+            # (one size-1 GET each) instead of guessing from a truncated view.
+            try:
+                confirmed = any(
+                    view.list(size=1, filters={"level": level}).items
+                    for level in _DERIVED_CONCLUSION_LEVELS
+                )
+            except Exception as exc:  # noqa: BLE001 - see the except above
+                logger.warning(
+                    "honcho memory: derivation level re-check failed for tenant=%s "
+                    "scope=%s (error type %s); reporting unknown",
+                    tenant_id,
+                    scope,
+                    type(exc).__name__,
+                )
+                # The page itself was read fine, so the caller can still render
+                # it -- only the derivation ANSWER is undeterminable.
+                return "unknown", None, items
+            status = "ok" if confirmed else "none"
+            count = None if confirmed else 0
+        else:
+            status, count = "none", 0
+
+        # The failure signal is scope-local and independent of whether output
+        # exists, so it is consulted on every clean path (see the docstring).
+        if self._queue_gap(tenant_id, peer_id):
+            status = "failed"
+        return status, count, items
 
     def ask(
         self,

@@ -115,6 +115,25 @@ VALID_MEMORY_SCOPES = ("user", "workspace", "artifact")
 #: which for Honcho is the SDK's own ``"low"`` default.
 VALID_REASONING_LEVELS = ("minimal", "low", "medium", "high", "max")
 
+#: Derivation states reported by :attr:`MemoryDigest.derivation_status` and by
+#: the health envelope's ``derivation_status`` key (AP-B5.1, #1155). The
+#: vocabulary exists so the answers "derivation happened", "nothing derived
+#: (yet)", "derivation demonstrably failed", "this backend cannot derive" and
+#: "cannot determine" stay machine-distinguishable -- F9's "down is not empty"
+#: discipline applied to the *Deriver* rather than the store, because a
+#: healthy backend that never derives is exactly the beta.18 Honcho symptom
+#: (#1155) that "degraded=False" alone cannot express:
+#:
+#: * ``ok`` -- the deriver produced output for the probed scope;
+#: * ``none`` -- probed cleanly, no derived output yet (explicit writes may
+#:   exist; none of them is derived);
+#: * ``failed`` -- a demonstrable failure signal (on Honcho: queue work units
+#:   vanished without completing, the #1052 class);
+#: * ``unsupported`` -- the backend has no deriver at all (pgvector);
+#: * ``unknown`` -- the probe could not determine: engine unreachable, or a
+#:   scope-less surface (the health envelope) that cannot name a scope.
+VALID_DERIVATION_STATUSES = ("ok", "none", "failed", "unsupported", "unknown")
+
 #: Upper bound on how many live facts a digest renders (RFC #1002 F6).
 #: A digest is prompt-sized context, not an export: an unbounded rendering would
 #: turn one cheap read into a token bomb for whoever injects it. 20 is the same
@@ -234,12 +253,26 @@ class MemoryDigest:
     unknown scope); ``text`` is then empty or a best-effort rendering from a
     local fallback. :meth:`MemoryBackend.digest` never raises -- a failing
     backend always degrades into this flag instead.
+
+    ``derivation_status`` + ``derived_count`` (AP-B5.1, #1155) answer a
+    question ``degraded`` deliberately does NOT cover: whether the engine has
+    *derived* anything for this scope. A backend can be perfectly healthy
+    (``degraded=False``) while its deriver never ran -- that is the exact
+    #1155 beta.18 state, and it must not masquerade as "healthy memory".
+    ``derivation_status`` is one of :data:`VALID_DERIVATION_STATUSES`;
+    ``derived_count`` is the number of derived conclusions when the backend
+    can bound it EXACTLY within its probe budget, else ``None`` -- a floor is
+    not a total and is never reported as one (F9: no invented counts). The
+    defaults (``unknown``/``None``) keep a backend that has not implemented
+    the probe honest instead of letting it claim ``ok``.
     """
 
     text: str
     generated_at: datetime
     backend: str
     degraded: bool = False
+    derivation_status: str = "unknown"
+    derived_count: Optional[int] = None
 
 
 @dataclass
@@ -295,6 +328,18 @@ class MemoryBackend(ABC):
     #: (``pgvector``) sets it ``False`` so ``memory.health.ask_available()``
     #: can advertise the capability without invoking ``ask``.
     ask_available: bool = True
+
+    #: Scope-less derivation status advertised on the health envelope
+    #: (``memory.health.envelope()``, AP-B5.1 #1155). This is deliberately NOT
+    #: the per-scope truth -- the health surface has no scope to probe -- only
+    #: the capability answer: a backend with no deriver at all (``pgvector``)
+    #: overrides this to ``unsupported``; a backend that CAN derive but whose
+    #: per-scope status travels on the digest (:class:`MemoryDigest.
+    #: derivation_status`) keeps the ``unknown`` default, which the envelope
+    #: reads as "derivation possible here, not probed on this surface". Must
+    #: be one of :data:`VALID_DERIVATION_STATUSES`; anything else is
+    #: normalised to ``unknown`` by the health probe.
+    derivation_status: str = "unknown"
 
     # -- canonical-store API (RFC #1002) ---------------------------------
 
@@ -383,6 +428,11 @@ class MemoryBackend(ABC):
           ``degraded=False``, because "nothing is remembered" must stay
           distinguishable from "the backend is down";
         * ``text`` is deterministic for identical state (see
+          :class:`MemoryDigest`);
+        * ``derivation_status`` is filled from the backend's real derivation
+          signal (AP-B5.1, #1155): ``unsupported`` where no deriver exists,
+          the probed state where one does, ``unknown`` where the probe could
+          not determine -- never a optimistic default (see
           :class:`MemoryDigest`).
         """
         ...
@@ -620,6 +670,12 @@ class PgvectorMemoryBackend(MemoryBackend):
     #: No generative/dialectic engine: :meth:`ask` degrades by design (see it).
     ask_available = False
 
+    #: No deriver of any kind: every stored fact is exactly what was written
+    #: (AP-B5.1, #1155). This is a capability statement, so :meth:`digest`
+    #: always answers ``unsupported`` -- even when the table itself is
+    #: unreachable, because ``degraded`` already carries the outage.
+    derivation_status = "unsupported"
+
     # -- canonical-store API --------------------------------------------
 
     def write(
@@ -743,7 +799,11 @@ class PgvectorMemoryBackend(MemoryBackend):
                 contents = [row.content for row in rows]
         except Exception:  # noqa: BLE001 - a digest must never raise, see docstring
             return MemoryDigest(
-                text="", generated_at=generated_at, backend="pgvector", degraded=True
+                text="",
+                generated_at=generated_at,
+                backend="pgvector",
+                degraded=True,
+                derivation_status="unsupported",
             )
         return MemoryDigest(
             text=_digest_text(
@@ -752,6 +812,7 @@ class PgvectorMemoryBackend(MemoryBackend):
             generated_at=generated_at,
             backend="pgvector",
             degraded=False,
+            derivation_status="unsupported",
         )
 
     def ask(
@@ -844,6 +905,7 @@ __all__ = [
     "MEMORY_BACKEND_REGISTRY",
     "VALID_MEMORY_SCOPES",
     "VALID_REASONING_LEVELS",
+    "VALID_DERIVATION_STATUSES",
     "register_memory_backend",
     "get_memory_backend",
     "resolve_memory_entry_owner",
