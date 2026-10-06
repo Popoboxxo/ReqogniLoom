@@ -33,3 +33,50 @@
   --bp-font: var(--font-sans);
   --bp-font-size: var(--font-size-sm);
 }
+
+/*
+ * Top-band reservation (issue #1176).
+ *
+ * The layer's `.bp-root` is a full-viewport `position: fixed` overlay whose
+ * z-index comes from the layer's own `--bp-z` (default 2147483000); its
+ * top-docked `.bp-bar` bar therefore paints above the shell's own top-right
+ * primary action row, so a real mouse click on a page's "create" button lands
+ * on `DIV.bp-bar` instead of the button. Lowering the overlay's z-index is not
+ * the fix: the same `.bp-root` also hosts the note panel and composer, which
+ * must stay above page content.
+ *
+ * Instead the shell reserves the bar's vertical band by pushing the main
+ * region down while the review layer is mounted. The reservation cannot be a
+ * fixed height — the bar wraps to a second row at narrow viewports (1024px),
+ * and a static value would under-reserve exactly there. `bluepencil/inset.ts`
+ * measures the layer's visible top chrome (bar, or its collapsed handle) and
+ * publishes its viewport bottom as `--review-layer-bar-bottom`; this rule adds
+ * the shared spacing token as the clearance. The `--space-6` floor keeps the
+ * shell's default padding before the layer has been measured.
+ *
+ * `:has()` scopes the reservation to the actual presence of the layer's mount
+ * element (a direct child of `<body>`, see the vendored `attach.js` mount
+ * step), so a build with `VITE_BLUEPENCIL_ENABLED` off reserves nothing and
+ * its layout is byte-identical to before.
+ *
+ * `main[role="main"]` is the AppShell route host (`AppShell.module.css`
+ * `.main`); the selector wins on specificity over the module's single class,
+ * regardless of sheet order.
+ */
+body:has(> bluepencil-notes) main[role="main"] {
+  padding-top: max(
+    var(--space-6),
+    calc(var(--review-layer-bar-bottom, 0px) + var(--space-4))
+  );
+}
+
+/*
+ * Bottom-docked chrome (`.bp-root[data-bp-dock="bottom"]`) moves the bar and
+ * handle to the bottom edge, leaving the top band free — keep the shell's
+ * default padding in that case so no dead space appears above the header. The
+ * element mounts `.bp-root` at body level (not inside the attach element), so
+ * this matches it anywhere under <body>.
+ */
+body:has(> bluepencil-notes):has(.bp-root[data-bp-dock="bottom"]) main[role="main"] {
+  padding-top: var(--space-6);
+}

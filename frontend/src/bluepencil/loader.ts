@@ -1,4 +1,5 @@
 import { installBluepencilHost, resetBluepencilHost } from "./host";
+import { startBluepencilInsetObserver, stopBluepencilInsetObserver } from "./inset";
 
 /** Vendored loader URL. */
 export const LOADER_SRC = "/bluepencil/latest/attach.js";
@@ -288,6 +289,10 @@ async function installBluepencilReviewLayerAt(generation: number): Promise<boole
 
     installBluepencilHost();
 
+    // Issue #1176: begin measuring the layer's top chrome so the shell can
+    // reserve its band before the element finishes mounting.
+    startBluepencilInsetObserver();
+
     const script = document.createElement("script");
     script.src = LOADER_SRC;
     script.async = true;
@@ -348,4 +353,5 @@ export function teardownBluepencilReviewLayer(): void {
   removeLayerNodes();
   destroyAttachHandle();
   resetHostSafely();
+  stopBluepencilInsetObserver();
 }

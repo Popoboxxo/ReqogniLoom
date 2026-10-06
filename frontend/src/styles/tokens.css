@@ -874,6 +874,19 @@
   --bp-md: 768px;
   --bp-lg: 1024px;
   --bp-xl: 1600px;
+
+  /*
+   * Review-layer clearance (issue #1176). The optional Bluepencil review layer
+   * renders a viewport-fixed top-right bar (`bp-bar`) whose stacking context
+   * sits above the page. Its height is not a design constant: the bar wraps
+   * onto a second row once the viewport narrows (it does at 1024px), so a
+   * fixed inset would still overlap the shell's top-right primary action row
+   * there. `styles/bluepencil.css` therefore reserves against the *measured*
+   * viewport bottom of the layer's top chrome, which `bluepencil/inset.ts`
+   * publishes here as a runtime pixel value — the same "runtime geometry with
+   * a safe default" pattern as `--sheet-viewport-height` above.
+   */
+  --review-layer-bar-bottom: 0px;
 }
 
 /* ==========================================================================
