@@ -13,7 +13,7 @@ from rest_framework.test import APIClient
 
 from auth_tenancy.models import ROLE_ADMIN, UserRole
 from persistence.middleware import clear_request_tenant, set_request_tenant
-from persistence.models import Tenant, User, Workspace
+from persistence.models import Requirement, Tenant, User, Workspace
 
 _SECRET = "test-secret-not-a-real-key"
 
@@ -25,6 +25,13 @@ _JWT_OVERRIDES = dict(
 )
 
 _VALID_CSV = b"title,description,category,status\nReq Alpha,First requirement,functional,draft\n"
+
+# A uid means the exported natural key is the business id (workspace-scoped),
+# not the exported primary key — so the collision path is really exercised.
+_UID_CSV = (
+    b"uid,title,description,category,status\n"
+    b"REQ-EXP-1,Req Alpha,First requirement,functional,draft\n"
+)
 
 
 @pytest.fixture
@@ -109,6 +116,64 @@ def test_requirements_export_returns_csv(export_admin_user):
     content = resp.content.decode("utf-8")
     assert "Req Alpha" in content
     assert "terminology_profile" in content
+
+
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
+def test_exported_csv_reimports_into_another_workspace(export_admin_user):
+    """#1194: GET export/csv -> POST import/csv into another workspace must not
+    collide on the exported primary keys; it migrates the row with a new identity.
+
+    A ``uid`` is seeded so the natural key is the business id (workspace-scoped,
+    absent in the target) rather than the exported ``id`` — otherwise the
+    natural-key dedupe would skip the row before the primary-key insert path is
+    reached and mask the regression.
+    """
+    user, tenant, workspace_a, workspace_b = export_admin_user
+    client = APIClient()
+    token = _login(client, "exportadmin", "exportpass123")
+    client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+    csv_file = io.BytesIO(_UID_CSV)
+    csv_file.name = "seed_uid.csv"
+    seed = client.post(
+        f"/api/v1/workspaces/{workspace_a.id}/import/csv/",
+        {"file": csv_file, "entity_type": "Requirement"},
+        format="multipart",
+    )
+    assert seed.status_code == 201, seed.content
+
+    export = client.get(
+        f"/api/v1/workspaces/{workspace_a.id}/export/csv/",
+        {"entity_type": "Requirement"},
+    )
+    assert export.status_code == 200
+
+    exported = io.BytesIO(export.content)
+    exported.name = "export_requirement.csv"
+    migrated = client.post(
+        f"/api/v1/workspaces/{workspace_b.id}/import/csv/",
+        {"file": exported, "entity_type": "Requirement"},
+        format="multipart",
+    )
+
+    assert migrated.status_code == 201, migrated.content
+    body = migrated.json()
+    assert body["contract"] == "v2"
+    assert body["counts"]["succeeded"] == 1
+    assert body["counts"]["failed"] == 0
+
+    set_request_tenant(tenant.id)
+    try:
+        source = Requirement.objects.get(artifact__workspace_id=workspace_a.id)
+        copy = Requirement.objects.get(artifact__workspace_id=workspace_b.id)
+    finally:
+        clear_request_tenant()
+    assert copy.uid == source.uid
+    assert copy.title == source.title
+    # Migrated row owns a new primary key, so the source primary key is intact.
+    assert copy.id != source.id
+    assert copy.artifact_id != source.artifact_id
 
 
 # ---------------------------------------------------------------------------

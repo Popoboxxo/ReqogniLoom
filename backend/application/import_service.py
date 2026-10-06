@@ -17,6 +17,13 @@ created_at and the model's modified timestamp), those values are preserved so an
 net for the ReqFlow self-migration. The field set is driven by the shared
 ``application.export_service.ENTITY_FIELD_SPECS`` registry.
 
+Collision-safe identity (ADR-014 §3, issue #1194): a preserved ``id`` /
+``artifact_id`` is adopted only while it is still free. Re-importing an export
+into another workspace (or anywhere the source row still exists) otherwise
+reuses the source primary keys and aborts the atomic batch on the global
+``pl_artifact_pkey`` / entity PK; a taken id therefore falls back to a freshly
+allocated UUID instead of failing.
+
 Interface contracts implemented:
   IF-AS-EXT-IN-001  — inbound: import_csv(csv_text, entity_type, workspace_id, ctx)
   IF-AS-EXT-OUT-007 — outbound: persistence ORM (Artifact + entity creates)
@@ -641,11 +648,20 @@ class ImportService(ServiceBase):
                     # report it as its own error instead of failing here.
                     continue
             if valid_ids:
+                # Scope the exported-``id`` match to the *target* workspace
+                # (issue #1194). ``id`` is the entity's primary key and the CSV
+                # round-trip column, but a primary key is unique across the
+                # whole database — matching it globally would classify the
+                # source record of an export->import migration into another
+                # workspace as a "duplicate" and silently drop it. A hit in the
+                # target workspace is still a duplicate (ADR-014 §3); a hit in
+                # a *different* workspace is a new row that gets a fresh
+                # identity in ``_insert_rows``.
                 existing_ids = {
                     str(pk).casefold()
-                    for pk in model.objects.filter(id__in=valid_ids).values_list(
-                        "id", flat=True
-                    )
+                    for pk in model.objects.filter(
+                        **scope, id__in=valid_ids
+                    ).values_list("id", flat=True)
                 }
 
         existing_titles = set()
@@ -898,6 +914,16 @@ class ImportService(ServiceBase):
         a hand-authored CSV) keep the previous behaviour: fresh UUIDs, version 1
         and current timestamps.
 
+        Collision-safe identity (ADR-014 §3, issue #1194): a preserved
+        ``id``/``artifact_id`` is adopted **only while it is still free** in the
+        database. Re-importing an export into another workspace — or anywhere
+        the source row still exists — otherwise reuses the source primary keys
+        and violates the global ``pl_artifact_pkey`` / entity PK, aborting the
+        whole atomic batch. The exported identity is therefore a hint, not an
+        authority: a taken id falls back to a freshly allocated UUID so the file
+        works as a migration path. ``version`` and the audit timestamps are data
+        (not keys) and are always carried over.
+
         ``auto_now`` / ``auto_now_add`` on ``created_at``/``modified_at``/
         ``updated_at`` are bypassed with a follow-up ``QuerySet.update()`` (which
         does not touch auto timestamps), the only way to write caller-supplied
@@ -990,6 +1016,58 @@ class ImportService(ServiceBase):
             else None
         )
 
+        # ---- Collision-safe identity (ADR-014 §3, issue #1194) ----
+        # Resolve, in two batched queries, which exported identity columns are
+        # still free. An ``export -> import`` reuses the source primary keys;
+        # adopting a taken one violates the global ``pl_artifact_pkey`` (or the
+        # entity table's own PK) and aborts the whole atomic batch. Only a free
+        # id is preserved; a taken id falls through to a fresh UUID, so the
+        # import works as a migration path. A same-workspace hit never reaches
+        # this point — the natural-key dedupe above already turned it into a
+        # ``DUPLICATE`` skip.
+        entity_model = (
+            persistence_models[entity_type]
+            if entity_type in _PERSISTENCE_ENTITY_TYPES
+            else app_models[entity_type]
+        )
+        preserved_artifact_ids: List[Any] = []
+        preserved_entity_ids: List[Any] = []
+        identity_columns = {
+            col: kind for col, kind in spec if col in _IDENTITY_COLUMNS
+        }
+        for _row_num, row in rows:
+            for col, kind in identity_columns.items():
+                if col not in row:
+                    continue
+                value = _import_value(row.get(col), kind)
+                if value is None:
+                    continue
+                if col == "artifact_id":
+                    preserved_artifact_ids.append(value)
+                elif col == "id":
+                    preserved_entity_ids.append(value)
+
+        taken_artifact_ids = (
+            {
+                str(pk)
+                for pk in Artifact.unscoped.filter(
+                    id__in=preserved_artifact_ids
+                ).values_list("id", flat=True)
+            }
+            if preserved_artifact_ids
+            else set()
+        )
+        taken_entity_ids = (
+            {
+                str(pk)
+                for pk in entity_model.unscoped.filter(
+                    id__in=preserved_entity_ids
+                ).values_list("id", flat=True)
+            }
+            if preserved_entity_ids
+            else set()
+        )
+
         inserted = 0
         for _row_num, row in rows:
             # ---- Parse row per field spec, splitting identity from content ----
@@ -1065,8 +1143,12 @@ class ImportService(ServiceBase):
                 workspace=workspace,
                 artifact_type=artifact_type_tag,
             )
-            if preserved_artifact_id is not None:
+            if (
+                preserved_artifact_id is not None
+                and str(preserved_artifact_id) not in taken_artifact_ids
+            ):
                 artifact_kwargs["id"] = preserved_artifact_id
+                taken_artifact_ids.add(str(preserved_artifact_id))
             if lifecycle_status_value is not None:
                 artifact_kwargs["lifecycle_status"] = lifecycle_status_value
             artifact = Artifact.objects.create(**artifact_kwargs)
@@ -1097,8 +1179,12 @@ class ImportService(ServiceBase):
                 )
                 mod_field = "updated_at"
 
-            if preserved_id is not None:
+            if (
+                preserved_id is not None
+                and str(preserved_id) not in taken_entity_ids
+            ):
                 create_kwargs["id"] = preserved_id
+                taken_entity_ids.add(str(preserved_id))
             if version is not None:
                 create_kwargs["version"] = version
 
