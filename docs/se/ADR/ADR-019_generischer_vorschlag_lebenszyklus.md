@@ -462,6 +462,11 @@ Review-Lifecycle über drei Iterationen; jede Iteration ist ein eigener Zyklus
 **Offen (nicht blockierend):** der einzige nicht geschlossene Befund ist `003-01` (info).
 Alle Findings `001-01`…`001-11` sind geschlossen bzw. adressiert; keine critical/major offen.
 
+**Umsetzung:** Der geordnete Umsetzungsplan (Arbeitspakete WP1–WP7, Reihenfolge/Wellen,
+Risiken, DoD) liegt in
+[`docs/plans/2026-10-06-adr-019-umsetzungsplan-vorschlags-schleife.md`](../plans/2026-10-06-adr-019-umsetzungsplan-vorschlags-schleife.md)
+— er startet erst nach `proposed → accepted` und implementiert selbst nichts.
+
 ---
 
 ## Offene Punkte (require product input)
