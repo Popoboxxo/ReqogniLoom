@@ -10,6 +10,10 @@ import {
   interviewList,
   interviewSetTarget,
   interviewStart,
+  memoryAsk,
+  memoryDigest,
+  memoryQuery,
+  memoryWrite,
 } from "../mcpClient";
 
 const CONNECTION = { baseUrl: "https://example.com", apiKey: "reqlo_abc", workspaceId: "ws-1" };
@@ -127,6 +131,26 @@ describe("callMcpTool", () => {
     await expect(callMcpTool({ fetch: fetchMock }, CONNECTION, "interview.get", {})).rejects.toBeInstanceOf(
       McpRpcError
     );
+  });
+
+  // Regression: `"error" in frame` treated `{jsonrpc,id,error:null}` as an
+  // error frame and then threw a TypeError on `frame.error.code`. It is not an
+  // error object, so the frame must fall through to the missing-result branch.
+  it("does not treat error:null as a JSON-RPC error frame (no TypeError)", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(JSON.stringify({ jsonrpc: "2.0", id: 1, error: null }));
+
+    await expect(callMcpTool({ fetch: fetchMock }, CONNECTION, "interview.get", {})).rejects.toMatchObject({
+      name: "McpRpcError",
+      code: -32603,
+    });
+  });
+
+  it("accepts a success frame that also carries error:null", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      JSON.stringify({ jsonrpc: "2.0", id: 1, result: { ok: true }, error: null })
+    );
+
+    await expect(callMcpTool({ fetch: fetchMock }, CONNECTION, "interview.get", {})).resolves.toEqual({ ok: true });
   });
 
   it("aborts the request after a timeout so a hung server cannot wedge the panel", async () => {
@@ -305,5 +329,133 @@ describe("interview.* wrappers", () => {
     const list = await interviewList({ fetch: fetchMock }, CONNECTION);
 
     expect(list).toEqual(sessions);
+  });
+});
+
+describe("memory.* wrappers", () => {
+  function bodyOf(fetchMock: ReturnType<typeof vi.fn>): { method: string; params: Record<string, unknown> } {
+    return JSON.parse(fetchMock.mock.calls[0][1].body as string);
+  }
+
+  it("memoryQuery calls memory.query with the dotted tool name and passes params through", async () => {
+    const entries = [
+      { entry_id: "e-1", content: "SSO is required", scope: "workspace", workspace_id: "ws-1" },
+    ];
+    const fetchMock = vi.fn().mockResolvedValue(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        result: { entries, query: "sso", scopes: ["workspace"], degraded: false, detail: null },
+      })
+    );
+
+    const result = await memoryQuery({ fetch: fetchMock }, CONNECTION, {
+      query: "sso",
+      scope: "workspace",
+      workspace_id: "ws-1",
+      top_k: 3,
+    });
+
+    const body = bodyOf(fetchMock);
+    expect(body.method).toBe("memory.query");
+    expect(body.params).toEqual({ query: "sso", scope: "workspace", workspace_id: "ws-1", top_k: 3 });
+    expect(result.entries).toEqual(entries);
+  });
+
+  it("memoryQuery omits unset optional params rather than sending undefined keys", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      JSON.stringify({ jsonrpc: "2.0", id: 1, result: { entries: [], degraded: false } })
+    );
+
+    await memoryQuery({ fetch: fetchMock }, CONNECTION, { query: "x", workspace_id: "ws-1" });
+
+    expect(bodyOf(fetchMock).params).toEqual({ query: "x", workspace_id: "ws-1" });
+  });
+
+  it("memoryQuery returns degraded+detail so a caller can tell outage from empty", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        result: { entries: [], degraded: true, detail: "engine_error:Timeout" },
+      })
+    );
+
+    const result = await memoryQuery({ fetch: fetchMock }, CONNECTION, { query: "x" });
+
+    expect(result.entries).toEqual([]);
+    expect(result.degraded).toBe(true);
+    expect(result.detail).toBe("engine_error:Timeout");
+  });
+
+  it("memoryQuery throws McpRpcError when the result has no entries array", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      JSON.stringify({ jsonrpc: "2.0", id: 1, result: { query: "x" } })
+    );
+
+    await expect(memoryQuery({ fetch: fetchMock }, CONNECTION, { query: "x" })).rejects.toMatchObject({
+      name: "McpRpcError",
+      code: -32603,
+    });
+  });
+
+  it("memoryDigest calls memory.digest with workspace_id and returns the digest", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        result: { digest: "The workspace remembers SSO.", backend: "pgvector", degraded: false, derivation_status: "unsupported", derived_count: null },
+      })
+    );
+
+    const result = await memoryDigest({ fetch: fetchMock }, CONNECTION, { workspace_id: "ws-1" });
+
+    const body = bodyOf(fetchMock);
+    expect(body.method).toBe("memory.digest");
+    expect(body.params).toEqual({ workspace_id: "ws-1" });
+    expect(result.digest).toBe("The workspace remembers SSO.");
+  });
+
+  it("memoryAsk calls memory.ask with query/workspace_id and returns the answer", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        result: { answer: "Yes, SSO is required.", backend: "honcho", degraded: false, detail: "" },
+      })
+    );
+
+    const result = await memoryAsk({ fetch: fetchMock }, CONNECTION, {
+      query: "is SSO required?",
+      workspace_id: "ws-1",
+      reasoning_level: "low",
+    });
+
+    const body = bodyOf(fetchMock);
+    expect(body.method).toBe("memory.ask");
+    expect(body.params).toEqual({ query: "is SSO required?", workspace_id: "ws-1", reasoning_level: "low" });
+    expect(result.answer).toBe("Yes, SSO is required.");
+  });
+
+  it("memoryWrite calls memory.write with content+scope and returns the created entry", async () => {
+    const entry = { entry_id: "e-9", content: "Use PostgreSQL 16", scope: "workspace", workspace_id: "ws-1" };
+    const fetchMock = vi.fn().mockResolvedValue(JSON.stringify({ jsonrpc: "2.0", id: 1, result: entry }));
+
+    const result = await memoryWrite({ fetch: fetchMock }, CONNECTION, {
+      content: "Use PostgreSQL 16",
+      scope: "workspace",
+      workspace_id: "ws-1",
+      change_reason: "user capture",
+    });
+
+    const body = bodyOf(fetchMock);
+    expect(body.method).toBe("memory.write");
+    expect(body.params).toEqual({
+      content: "Use PostgreSQL 16",
+      scope: "workspace",
+      workspace_id: "ws-1",
+      change_reason: "user capture",
+    });
+    expect(result).toEqual(entry);
   });
 });

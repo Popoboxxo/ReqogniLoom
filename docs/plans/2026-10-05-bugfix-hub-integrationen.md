@@ -256,6 +256,8 @@ Ziel: Honcho nicht nur als Schreib-Log, sondern als **abfragbares, ableitendes**
 
 **AP-B5.3 — Hermes-Plugin Memory-Zugriff (P3, Plugin)** · #1155 Aspekt 3 + #1156
 - Hermes-Plugin (Desktop) + Skill: (a) Kontext beziehen (`memory.query`/`digest`/`ask` ins Prompt), (b) einspeisen (`memory.write`). Echter Tool-Call-Beleg. #1156 „Zuhören & Antizipieren" als Schreib-Hälfte (Toggle + Review vor Übernahme).
+- **Status: umgesetzt (Schreib-Hälfte), 2026-10-06.** Skill: neue Subkommandos `memory-query`/`memory-digest`/`memory-ask`/`memory-write` (Mapping auf MCP `memory.query/digest/ask/write`), globales `--workspace-id` mit Fallback `REQOGNILOOM_WORKSPACE_ID`, client-seitige Scope-Validierung (`workspace`/`artifact`/`user`), Behandlung beider MCP-Fehlerformen, Exit `0`/`1`. Plugin: READ `memory.query`/`memory.digest`/`memory.ask` („degraded“ ≠ „leer“), gegateter WRITE-Capture = Toggle + **Review-Schritt vor** `memory.write` (kein Auto-Submit). Refs #1155, Refs #1156, Refs #649.
+- **P4 (offen, bewusst nicht implementiert):** Vorschlags-Schleife **„Capture → `proposed`-Artefakt → Accept“** — siehe AP-B5.4.
 
 **AP-B5.4 — Vorschlags-Schleife (P4, Konzept+Impl)** · #1155 Aspekt 2
 - Generischer Pfad „Wissen → Vorschlag als `proposed`-Artefakt → Mensch bestätigt". #856 ist nur Design; erst Konzept/ADR, dann `suggestion.list/accept/reject` (MCP+REST+UI). Größter Brocken, bewusst zuletzt.

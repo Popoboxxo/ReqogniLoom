@@ -46,11 +46,11 @@ in the skill itself.
 Run the client from this skill directory with `python`:
 
 ```bash
-# List the workspaces the key can see (REST)
+# List the workspaces the key can see (REST, all DRF pages are followed)
 python scripts/reqogniloom_client.py list-workspaces
 
 # Call any MCP tool with a JSON argument object
-python scripts/reqogniloom_client.py mcp --tool requirement_query \
+python scripts/reqogniloom_client.py mcp --tool requirement.query \
     --params '{"workspace_id": "00000000-0000-0000-0000-000000000000"}'
 ```
 
@@ -61,5 +61,54 @@ an MCP tool-execution error (`HTTP 200` with `result.isError`) — is printed as
 single normalised `code: message` line on stderr and the process exits with code
 `1`, never with a traceback.
 
+## Memory
+
+Read the workspace's long-term memory:
+
+```bash
+# Semantic search (workspace scope; omit --workspace-id to use the env default)
+python scripts/reqogniloom_client.py memory-query --query "reviewer" --top-k 5
+
+# Search several scopes at once
+python scripts/reqogniloom_client.py memory-query --query "reviewer" \
+    --scopes workspace,user
+
+# Prompt-ready digest of one scope
+python scripts/reqogniloom_client.py memory-digest --workspace-id <uuid>
+
+# Natural-language answer from one scope
+python scripts/reqogniloom_client.py memory-ask --query "what changed?" \
+    --workspace-id <uuid> --reasoning-level medium
+```
+
+Feed knowledge back in:
+
+```bash
+# Persist a fact for the calling user (no workspace/artifact id needed)
+python scripts/reqogniloom_client.py memory-write --content "prefers tabs" --scope user
+
+# Persist into a workspace or one artifact
+python scripts/reqogniloom_client.py memory-write --content "..." \
+    --scope workspace --workspace-id <uuid>
+python scripts/reqogniloom_client.py memory-write --content "..." \
+    --scope artifact --artifact-id <uuid>
+```
+
+`--workspace-id` is a global flag and defaults to `REQOGNILOOM_WORKSPACE_ID`;
+`memory-digest`, `memory-ask`, `memory-query` with a workspace scope and
+`memory-write --scope workspace` fail with a clear error when neither yields a
+value. `--scopes` is comma-separated, repeatable and takes precedence over
+`--scope`; `--artifact-id`, `--confidence` and `--change-reason` are optional.
+Only the arguments you actually provide are sent (no `null` values), and an
+incompatible `--scope`/`--artifact-id`/`--workspace-id` combination is
+rejected with a clear error instead of being silently dropped.
+
+Writing is a privileged action: the plugin gates `memory.write` behind an
+explicit user confirmation before it issues the call. This skill itself only
+frames the call — it never confirms on the user's behalf.
+
+The "memory → proposed artifact" stage is **P4** (see the bugfix hub plan) and
+is intentionally not implemented here.
+
 See [references/api.md](references/api.md) for the endpoints, the auth header,
-both error shapes and the exact JSON-RPC frame.
+both error shapes, the exact JSON-RPC frame and every memory tool argument.
