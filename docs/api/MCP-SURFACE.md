@@ -240,6 +240,15 @@ RBAC-gated by the same read matrix and never raises — but unlike the digest it
 is **write-gated**: it invokes a generative LLM call, so a read-only/Viewer key
 must not be able to drive LLM spend (same rule as `interview.grounding_context`).
 
+The REST mirror now exists ([#1155](https://github.com/Popoboxxo/ReqogniLoom/issues/1155)
+Aspekt 1): `POST /api/v1/workspaces/{workspace_id}/memory/ask/` (view
+`WorkspaceMemoryAskView`, route name `workspace-memory-ask`) delegates to the
+same `MemoryEntryService.ask`, takes the same `query` / `artifact_id` /
+`reasoning_level` body and returns the same five keys, and is WRITE-gated
+identically — closing the MCP↔REST asymmetry this tool used to have. The
+REST-side contract is written out in
+[REST conventions § 9](REST-CONVENTIONS.md#9-memoryask-on-rest--a-write-gated-read-with-an-explicit-degradation-state).
+
 Writes are rate-limited per `(tenant, user)` via
 `MEMORY_WRITE_RATE_LIMIT_PER_HOUR` (default `60`; `0` = unlimited). The active
 backend is selected by `MEMORY_BACKEND` (`pgvector` default, `honcho`

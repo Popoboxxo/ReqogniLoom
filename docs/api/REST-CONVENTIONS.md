@@ -353,3 +353,81 @@ routed explicitly and now answers directly.
 The `Content-Type` is set on both renderers, so a strict client (one that refuses
 to parse a body whose media type it does not recognise) can consume the document
 without a special case.
+
+---
+
+## 9. `memory.ask` on REST — a write-gated read with an explicit degradation state
+
+`POST /api/v1/workspaces/{workspace_id}/memory/ask/` (view
+`WorkspaceMemoryAskView`, route name `workspace-memory-ask`) is the REST mirror
+of the MCP tool `memory.ask`
+([MCP surface reference § 4](MCP-SURFACE.md#4-the-memory-group-in-full)).
+Before [#1155](https://github.com/Popoboxxo/ReqogniLoom/issues/1155) Aspekt 1 the
+capability existed only over MCP; this route closes that asymmetry. Both
+transports delegate to the same `MemoryEntryService.ask`, so they share one
+validation, one `MemoryPolicy` and one answer shape — the REST body is not a
+second implementation.
+
+### Request
+
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| `query` | string | **yes** | Non-blank; at most 10000 characters (`MAX_ASK_QUERY_CHARS`). |
+| `artifact_id` | UUID | no | Aims the question at that artifact's scope; the service resolves the owning workspace itself, so the workspace path segment is still required. |
+| `reasoning_level` | string | no | One of `minimal` / `low` / `medium` / `high` / `max` (`VALID_REASONING_LEVELS`). |
+
+A missing or blank `query`, an unknown `reasoning_level` or a malformed
+`artifact_id` answers **`400 VALIDATION_ERROR`** before any backend call.
+
+### Response
+
+```json
+{
+  "answer": "…",
+  "generated_at": "2026-10-06T12:34:56.789012+00:00",
+  "backend": "honcho",
+  "degraded": false,
+  "detail": ""
+}
+```
+
+Field-for-field the MCP payload; `generated_at` is ISO-8601. `derivation_status`
+does **not** appear here: it is a `MemoryDigest`-only signal and the MCP tool
+does not emit it either, so adding it on REST alone would break the mirror.
+
+### Authorization is the WRITE gate
+
+The route is a `POST`, so the default `RbacPermission` maps it to
+`Operation.WRITE` and fails closed: a Viewer-role member is denied **`403`
+before the handler runs**, and an API key on the `read_only` capability tier is
+denied independently of RBAC. The MCP tool is write-gated the same way
+(`_WRITE_TOOL_PREFIXES`) — the call drives a generative LLM, so "it only reads"
+is not a reason to let a read-only credential spend tokens. Inside the service
+`MemoryPolicy` additionally fences the workspace/artifact scope.
+
+### No `memory.write` rate limit — deliberately
+
+`memory.ask` is **not** charged to the `memory.write` fixed-window limiter
+(`memory.ratelimit`, `MEMORY_WRITE_RATE_LIMIT_PER_HOUR`, default `60`): that
+counter is a writes-per-hour quota guarding the persistence + embedding budget,
+while `ask` stores nothing. Charging it would silently redefine an
+admin-configured knob and let question-asking starve legitimate writes. The MCP
+path enforces no such limit either, so a REST-only limit would be asymmetric
+across transports and trivially bypassed through the other one. Cost is bounded
+instead by the WRITE gate, the transport throttles and `MEMORY_ASK_TIMEOUT`. A
+dedicated ask quota, if ever wanted, belongs in `MemoryEntryService.ask` so both
+transports inherit it.
+
+### F9: `degraded` and an empty `answer` are different states
+
+`degraded` is the field to inspect before trusting `answer`:
+
+* `degraded: true` — the engine could not answer (no dialectic surface on this
+  backend, unreachable engine, unknown scope). `detail` names the cause as
+  `engine_error:<ClassName>`, `unknown_scope:<ClassName>` or
+  `"no dialectic engine"`, and never carries user data.
+* `degraded: false` with an empty `answer` — a genuine "nothing known".
+
+`ask` never raises and never answers `500` for a backend-side failure; a failing
+backend degrades into the flag, exactly like `digest`. On `pgvector`, which has
+no generative engine, this degradation is the normal shape, not an error.

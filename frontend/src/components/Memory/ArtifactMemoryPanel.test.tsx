@@ -10,11 +10,22 @@ vi.mock("../../api/memory", () => ({
     createArtifactMemory: vi.fn(),
     getArtifactDigest: vi.fn(),
     forgetEntry: vi.fn(),
+    ask: vi.fn(),
   },
+  // MemoryAskPanel imports this at module scope and maps over it on render.
+  MEMORY_REASONING_LEVELS: ["minimal", "low", "medium", "high", "max"],
 }));
 
 vi.mock("../../context/AuthContext", () => ({
   useAuth: () => ({ roles: ["admin"] }),
+}));
+
+// The ask panel's workspace path segment comes from the workspace context.
+// Mutable so one test can simulate "no active workspace" (panel stays
+// unmounted) without re-declaring the whole module mock.
+let mockActiveWorkspace: { id: string } | null = { id: "ws-1" };
+vi.mock("../../context/WorkspaceContext", () => ({
+  useWorkspace: () => ({ activeWorkspace: mockActiveWorkspace }),
 }));
 
 vi.mock("react-i18next", () => ({
@@ -76,9 +87,17 @@ function page(overrides: Partial<Record<string, unknown>> = {}) {
 describe("ArtifactMemoryPanel", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockActiveWorkspace = { id: "ws-1" };
     vi.mocked(memoryApi.listArtifactMemory).mockResolvedValue(
       page({ items: [entry()], total: 1 })
     );
+    vi.mocked(memoryApi.ask).mockResolvedValue({
+      answer: "The API is idempotent.",
+      generated_at: "2026-09-01T12:00:00Z",
+      backend: "honcho",
+      degraded: false,
+      detail: "",
+    });
     vi.mocked(memoryApi.createArtifactMemory).mockResolvedValue(entry());
     vi.mocked(memoryApi.forgetEntry).mockResolvedValue({ deleted: true });
     vi.mocked(memoryApi.getArtifactDigest).mockResolvedValue({
@@ -242,5 +261,33 @@ describe("ArtifactMemoryPanel", () => {
     await waitFor(() => {
       expect(memoryApi.getArtifactDigest).toHaveBeenCalledTimes(2);
     });
+  });
+
+  // --- ask (RFC #1002 #1155 Aspekt 1) ----------------------------------
+
+  it("mounts the artifact-scoped ask panel and asks with the artifact id", async () => {
+    const user = userEvent.setup();
+    render(<ArtifactMemoryPanel artifactId={ARTIFACT_ID} />);
+    await screen.findByTestId("artifact-memory-row-e1");
+
+    await user.type(screen.getByTestId("artifact-memory-ask-input"), "why?");
+    await user.click(screen.getByTestId("artifact-memory-ask-submit"));
+
+    await waitFor(() => {
+      expect(memoryApi.ask).toHaveBeenCalledWith(
+        "ws-1",
+        expect.objectContaining({ query: "why?", artifactId: ARTIFACT_ID })
+      );
+    });
+  });
+
+  it("does not mount the ask panel when no workspace is active", async () => {
+    mockActiveWorkspace = null;
+    render(<ArtifactMemoryPanel artifactId={ARTIFACT_ID} />);
+    await screen.findByTestId("artifact-memory-row-e1");
+
+    expect(
+      screen.queryByTestId("artifact-memory-ask-panel")
+    ).not.toBeInTheDocument();
   });
 });

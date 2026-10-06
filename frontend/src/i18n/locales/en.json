@@ -1515,6 +1515,31 @@
       "degraded": "This digest came from a degraded memory backend and may be incomplete.",
       "backend": "Backend: {{backend}}",
       "generatedAt": "Generated: {{date}}"
+    },
+    "ask": {
+      "heading": "Ask the memory",
+      "hint": "One free-text question, and this scope's memory answers it. A limited answer is labelled as such.",
+      "queryLabel": "Question",
+      "queryPlaceholder": "What did the team decide about authentication? …",
+      "queryRequired": "Please enter a question.",
+      "reasoningLabel": "Depth",
+      "reasoningDefault": "Default (backend decides)",
+      "reasoning": {
+        "minimal": "Minimal",
+        "low": "Low",
+        "medium": "Medium",
+        "high": "High",
+        "max": "Maximum"
+      },
+      "submit": "Ask",
+      "keyboardHint": "Press Ctrl+Enter to ask.",
+      "empty": "No answer received.",
+      "degraded": "The memory could not answer this question normally (backend degraded or unreachable). The answer is not reliable.",
+      "detail": "Diagnosis: {{detail}}",
+      "error": "The question could not be asked.",
+      "backend": "Backend: {{backend}}",
+      "generatedAt": "Generated: {{date}}",
+      "derivation": "Derivation: {{status}}"
     }
   },
   "comments": {

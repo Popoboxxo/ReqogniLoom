@@ -1515,6 +1515,31 @@
       "degraded": "Der Digest stammt aus einem eingeschränkten Gedächtnis-Backend und ist möglicherweise unvollständig.",
       "backend": "Backend: {{backend}}",
       "generatedAt": "Erzeugt: {{date}}"
+    },
+    "ask": {
+      "heading": "Frag das Gedächtnis",
+      "hint": "Eine Frage in freiem Text, und das Gedächtnis dieses Bereichs antwortet darauf. Eine eingeschränkte Antwort wird als solche gekennzeichnet.",
+      "queryLabel": "Frage",
+      "queryPlaceholder": "Was hat das Team bei der Authentifizierung entschieden? …",
+      "queryRequired": "Bitte eine Frage eingeben.",
+      "reasoningLabel": "Tiefgang",
+      "reasoningDefault": "Standard (Backend entscheidet)",
+      "reasoning": {
+        "minimal": "Minimal",
+        "low": "Niedrig",
+        "medium": "Mittel",
+        "high": "Hoch",
+        "max": "Maximal"
+      },
+      "submit": "Frage stellen",
+      "keyboardHint": "Mit Strg+Enter fragen.",
+      "empty": "Keine Antwort erhalten.",
+      "degraded": "Das Gedächtnis konnte die Frage nicht regulär beantworten (Backend eingeschränkt oder nicht erreichbar). Die Antwort ist nicht verlässlich.",
+      "detail": "Diagnose: {{detail}}",
+      "error": "Frage konnte nicht gestellt werden.",
+      "backend": "Backend: {{backend}}",
+      "generatedAt": "Erzeugt: {{date}}",
+      "derivation": "Herleitung: {{status}}"
     }
   },
   "comments": {

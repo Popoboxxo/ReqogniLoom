@@ -70,6 +70,7 @@ from memory.memory_rest import (
     SystemMemorySettingsView,
     SystemMemoryWorkspaceDeleteView,
     SystemMemoryWorkspaceOverviewView,
+    WorkspaceMemoryAskView,
     WorkspaceMemoryDigestView,
     WorkspaceMemoryEntriesView,
     WorkspaceMemorySearchView,
@@ -600,6 +601,14 @@ urlpatterns = [
         "workspaces/<uuid:workspace_id>/memory/digest/",
         WorkspaceMemoryDigestView.as_view(),
         name="workspace-memory-digest",
+    ),
+    # AP-B5.2 (#1155 Aspekt 1): natural-language Q&A over one memory scope --
+    # REST mirror of the WRITE-gated MCP ``memory.ask`` tool, delegating to
+    # the same ``MemoryEntryService.ask``.
+    path(
+        "workspaces/<uuid:workspace_id>/memory/ask/",
+        WorkspaceMemoryAskView.as_view(),
+        name="workspace-memory-ask",
     ),
     # RFC #1002 PR B: global entry detail/forget + promote, artifact memory,
     # and the DSGVO export. Literal sub-paths precede the ``<str:entry_id>``

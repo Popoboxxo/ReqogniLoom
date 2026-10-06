@@ -274,6 +274,7 @@ _WORKSPACE_VIA_REQUEST = (
     "WorkspaceMemoryEntriesView",
     "WorkspaceMemorySearchView",
     "WorkspaceMemoryDigestView",
+    "WorkspaceMemoryAskView",
     "WorkspaceMemorySettingsView",
     "WorkspacePermissionDefinitionView",
     "WorkspacePermissionResetView",

@@ -12,10 +12,12 @@ import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { extractApiErrorMessage } from "../../api/client";
 import { memoryApi, type MemoryDigest, type MemoryEntry } from "../../api/memory";
+import { useWorkspace } from "../../context/WorkspaceContext";
 import { useHasRole } from "../../hooks/useHasRole";
 import type { UUID } from "../../types";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
 import { AddMemoryFactDialog } from "./AddMemoryFactDialog";
+import { MemoryAskPanel } from "./MemoryAskPanel";
 import { contributorLabel, formatMemoryDate } from "./memory-format";
 import styles from "./ArtifactMemoryPanel.module.css";
 
@@ -28,6 +30,12 @@ export function ArtifactMemoryPanel({
 }: ArtifactMemoryPanelProps): JSX.Element {
   const { t } = useTranslation();
   const hasRole = useHasRole();
+  // The ask endpoint's path segment is always a workspace id, even for an
+  // artifact-scoped question. Resolving it from the active workspace keeps
+  // this panel id-only (no call-site change) and matches `MemoryPage`; the
+  // ask panel only mounts once a real workspace is available.
+  const { activeWorkspace } = useWorkspace();
+  const workspaceId = activeWorkspace?.id;
 
   const [entries, setEntries] = useState<MemoryEntry[]>([]);
   const [total, setTotal] = useState(0);
@@ -283,6 +291,17 @@ export function ArtifactMemoryPanel({
             );
           })}
         </ul>
+      )}
+
+      {/* RFC #1002 #1155 Aspekt 1: artifact-scoped free-text question. The
+          panel is only mounted when the active workspace resolves the ask
+          endpoint's required path segment. */}
+      {workspaceId && (
+        <MemoryAskPanel
+          workspaceId={workspaceId}
+          artifactId={artifactId}
+          testIdPrefix="artifact-memory-ask"
+        />
       )}
 
       {showAdd && (

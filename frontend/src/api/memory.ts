@@ -6,6 +6,7 @@
  *
  *   GET|POST /workspaces/{ws}/memory/entries/     list / create (workspace scope)
  *   GET      /workspaces/{ws}/memory/search/      semantic search
+ *   POST     /workspaces/{ws}/memory/ask/         natural-language question (#1155 A1)
  *   GET      /workspaces/{ws}/memory/digest/      consolidated digest (F6)
  *   GET|DELETE /memory/entries/{entry_id}/        detail / forget
  *   POST     /memory/entries/{entry_id}/promote/  user -> workspace promote
@@ -30,6 +31,15 @@
  * views' `MemoryEntryService().write(...)` calls in `memory_rest.py`); user-
  * scope rows are written by agents/MCP. The UI therefore offers Team and
  * Artefakt in the add-fact dialog.
+ *
+ * Ask path note (RFC #1002 #1155 Aspekt 1): `POST /workspaces/{ws}/memory/ask/`
+ * is the natural-language surface. It is WRITE-gated on the REST side even
+ * though it only reads, because it drives the backend's generative engine;
+ * sending `artifact_id` retargets the question to that artifact's scope (the
+ * service resolves the owning workspace itself), so the workspace path segment
+ * is required either way. The answer carries the same F9 envelope as the other
+ * reads — `degraded` + `detail` mean "the engine could not answer", which is
+ * deliberately not the same state as an empty `answer`.
  */
 
 import { apiClient } from "./client";
@@ -100,6 +110,79 @@ export interface MemoryDigest {
   generated_at: string;
   backend: string;
   degraded: boolean;
+}
+
+/**
+ * Reasoning levels `ask` accepts — the exact vocabulary of the backend's
+ * `memory.backends.VALID_REASONING_LEVELS` (re-exported through
+ * `application/memory_entry_service.py`), which itself mirrors `honcho-ai`'s
+ * `peer.chat(reasoning_level=...)`. `undefined` means "let the backend decide",
+ * so the UI offers one explicit default entry alongside these five.
+ */
+export type MemoryReasoningLevel = "minimal" | "low" | "medium" | "high" | "max";
+
+/** All reasoning levels in ascending order. Mirrors `VALID_REASONING_LEVELS`. */
+export const MEMORY_REASONING_LEVELS: readonly MemoryReasoningLevel[] = [
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "max",
+];
+
+/**
+ * Derivation states of the backend's `VALID_DERIVATION_STATUSES` (AP-B5.1,
+ * #1155): "derived output exists" vs. "nothing derived yet" vs. "derivation
+ * demonstrably failed" vs. "this backend cannot derive" vs. "cannot tell".
+ * The same F9 discipline applied to the deriver rather than the store.
+ */
+export type MemoryDerivationStatus =
+  | "ok"
+  | "none"
+  | "failed"
+  | "unsupported"
+  | "unknown";
+
+/** Caller-facing `ask` options: `query` is mandatory, the rest narrows scope/effort. */
+export interface MemoryAskQuery {
+  /** The free-text question; must not be blank (the backend rejects an empty one). */
+  query: string;
+  /** Ask one artifact's memory instead of the workspace's. */
+  artifactId?: UUID;
+  /** How much reasoning the engine may spend; omitted means the backend default. */
+  reasoningLevel?: MemoryReasoningLevel;
+}
+
+/**
+ * Ask body as the REST endpoint wants it (snake_case on the wire). Built by
+ * {@link memoryApi.ask} from the camelCase {@link MemoryAskQuery}, so callers
+ * never hand-write the wire names.
+ */
+export interface MemoryAskPayload {
+  query: string;
+  artifact_id?: UUID;
+  reasoning_level?: MemoryReasoningLevel;
+}
+
+/**
+ * Natural-language answer of one scope's memory (RFC #1002 #1155 Aspekt 1).
+ *
+ * Field-for-field the digest's sibling: `answer` is the engine-written body,
+ * `generated_at` its ISO-8601 timestamp, `backend` the provider that produced
+ * it. F9 keeps the two "no content" states apart — `degraded === true` means
+ * the engine could not answer at all (no dialectic surface, unreachable,
+ * unknown scope) and `detail` names the cause as `engine_error:<Exc>` /
+ * `unknown_scope:<Exc>` without carrying user data, whereas `degraded ===
+ * false` with an empty `answer` is a genuine "nothing to say".
+ * `derivation_status` is optional: only a backend with a deriver reports it.
+ */
+export interface MemoryAnswer {
+  answer: string;
+  generated_at: string;
+  backend: string;
+  degraded: boolean;
+  detail: string;
+  derivation_status?: MemoryDerivationStatus;
 }
 
 /** `GET /memory/me/` overview; `entries` only present with `include_entries`. */
@@ -337,6 +420,24 @@ export const memoryApi = {
   getWorkspaceDigest(workspaceId: UUID): Promise<MemoryDigest> {
     return apiClient.get<MemoryDigest>(
       `/workspaces/${workspaceId}/memory/digest/`
+    );
+  },
+
+  /**
+   * POST /workspaces/{ws}/memory/ask/ — answer a free-text question from one
+   * scope's memory (RFC #1002 #1155 Aspekt 1).
+   *
+   * WRITE-gated on the REST side even though it only reads, and the response
+   * is the one surface where `degraded` must never be collapsed into "no
+   * answer": check `degraded`/`detail` before trusting `answer`.
+   */
+  ask(workspaceId: UUID, query: MemoryAskQuery): Promise<MemoryAnswer> {
+    const payload: MemoryAskPayload = { query: query.query };
+    if (query.artifactId) payload.artifact_id = query.artifactId;
+    if (query.reasoningLevel) payload.reasoning_level = query.reasoningLevel;
+    return apiClient.post<MemoryAnswer>(
+      `/workspaces/${workspaceId}/memory/ask/`,
+      payload
     );
   },
 

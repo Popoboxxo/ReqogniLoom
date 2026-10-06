@@ -1099,6 +1099,55 @@ class TestHonchoDerivationState:
         assert count is None
         assert page is not None and len(page) == _DERIVATION_PROBE_PAGE_SIZE
 
+    def test_queue_gap_outranks_unknown_on_the_level_recheck_failure_path(self):
+        """N1 (AP-B5.2, follow-up to #1155): the saturated-page level
+        re-check raising used to early-return ``unknown`` WITHOUT consulting
+        the queue gap -- the one path where the demonstrable ``failed``
+        signal was silently dropped. A provable work-unit accounting gap
+        outranks the undeterminable answer here exactly like everywhere else;
+        the page still travels back so the caller can render it."""
+        from memory.honcho_backend import _DERIVATION_PROBE_PAGE_SIZE
+
+        backend, client, peer, tenant_id, user_id = self._setup()
+        explicit = [_conclusion(str(i), f"c{i}") for i in range(_DERIVATION_PROBE_PAGE_SIZE)]
+
+        def _list(**kwargs):
+            if kwargs.get("filters"):
+                raise RuntimeError("level filter unsupported on this build")
+            return SimpleNamespace(items=explicit)
+
+        peer.conclusions.list.side_effect = _list
+        self._queue(client, total=10, completed=6, in_progress=1, pending=1)
+
+        status, count, page = backend._derivation_probe(tenant_id, "user", user_id)
+
+        assert status == "failed"
+        assert count is None
+        assert page is not None and len(page) == _DERIVATION_PROBE_PAGE_SIZE
+
+    def test_balanced_queue_keeps_unknown_on_the_level_recheck_failure_path(self):
+        """The complement of the N1 fix: a healthy queue must NOT upgrade the
+        undeterminable re-check answer to anything provable -- it stays
+        ``unknown``, never a silent ``ok`` and never a guessed ``failed``."""
+        from memory.honcho_backend import _DERIVATION_PROBE_PAGE_SIZE
+
+        backend, client, peer, tenant_id, user_id = self._setup()
+        explicit = [_conclusion(str(i), f"c{i}") for i in range(_DERIVATION_PROBE_PAGE_SIZE)]
+
+        def _list(**kwargs):
+            if kwargs.get("filters"):
+                raise RuntimeError("level filter unsupported on this build")
+            return SimpleNamespace(items=explicit)
+
+        peer.conclusions.list.side_effect = _list
+        self._queue(client, total=4, completed=4, in_progress=0, pending=0)
+
+        status, count, page = backend._derivation_probe(tenant_id, "user", user_id)
+
+        assert status == "unknown"
+        assert count is None
+        assert page is not None and len(page) == _DERIVATION_PROBE_PAGE_SIZE
+
     def test_double_without_level_attribute_counts_as_explicit(self):
         """The SDK's own field default is ``"explicit"``; a double (or an
         older response) that does not model ``level`` must be treated as a

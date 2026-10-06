@@ -1277,17 +1277,22 @@ class HonchoMemoryBackend(MemoryBackend):
         * ``ok`` + ``None`` -- a saturated page held no derived conclusion, but
           a server-side ``filters={"level": ...}`` re-check found one;
         * ``none`` -- probed cleanly, zero derived conclusions;
-        * ``failed`` -- :meth:`_queue_gap` proved a work-unit accounting gap.
-          Checked on EVERY clean path, so it outranks a ``ok`` earned from
-          earlier output: a Deriver that dies after having derived once must
-          not read healthy forever. The SDK exposes no per-unit error flag,
-          so a failure the server counts as ``completed`` stays invisible
-          from here -- that residual blind spot is the Zen-Go quota outage
-          (#1155, HTTP 429) and is documented in the module docstring and
-          ``deploy/README.md``, NOT papered over with a guess;
-        * ``unknown`` -- the page read raised (engine unreachable, scope
-          rejected), or the saturated-page level re-check raised. Never
-          guessed, never downgraded to ``none``.
+         * ``failed`` -- :meth:`_queue_gap` proved a work-unit accounting gap.
+           Checked on EVERY clean path, so it outranks a ``ok`` earned from
+           earlier output: a Deriver that dies after having derived once must
+           not read healthy forever. Also consulted on the saturated-page
+           level re-check failure path before that path falls back to
+           ``unknown`` (N1) -- a provable gap outranks an undeterminable
+           answer. The SDK exposes no per-unit error flag,
+           so a failure the server counts as ``completed`` stays invisible
+           from here -- that residual blind spot is the Zen-Go quota outage
+           (#1155, HTTP 429) and is documented in the module docstring and
+           ``deploy/README.md``, NOT papered over with a guess;
+         * ``unknown`` -- the page read raised (engine unreachable, scope
+           rejected), or the saturated-page level re-check raised AND the
+           queue showed no provable gap. Never guessed, never downgraded to
+           ``none``, and never upgraded to ``ok`` either -- an unanswerable
+           probe must not read healthy.
 
         Cost: one ``client.peer()`` get-or-create plus one bounded list GET,
         plus one ``queue_status`` GET for the failure signal. Never raises.
@@ -1333,7 +1338,17 @@ class HonchoMemoryBackend(MemoryBackend):
                     type(exc).__name__,
                 )
                 # The page itself was read fine, so the caller can still render
-                # it -- only the derivation ANSWER is undeterminable.
+                # it -- only the derivation ANSWER is undeterminable. A
+                # provable queue gap still outranks the undeterminable answer
+                # (N1, AP-B5.2 follow-up to #1155): the re-check failing says
+                # nothing about the work-unit accounting, so hiding ``failed``
+                # behind ``unknown`` here would leave the one demonstrable
+                # failure signal invisible on exactly one clean-ish path.
+                # ``_queue_gap`` never raises and answers ``False`` for an
+                # unreadable queue, so this can only upgrade a provable loss,
+                # never invent one -- the fallback stays ``unknown``, not ``ok``.
+                if self._queue_gap(tenant_id, peer_id):
+                    return "failed", None, items
                 return "unknown", None, items
             status = "ok" if confirmed else "none"
             count = None if confirmed else 0
