@@ -168,10 +168,42 @@ class ReqogniLoomClient:
 
     # -- interviews ----------------------------------------------------------
 
-    def start_interview(self, artifact_type: str, workspace_id: str) -> Dict[str, Any]:
-        return self._request(
-            "POST", "/api/v1/interviews/", {"artifact_type": artifact_type, "workspace_id": workspace_id}
-        )
+    def start_interview(
+        self,
+        artifact_type: Optional[str],
+        workspace_id: str,
+        *,
+        session_kind: str = "single",
+        seed_context: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """POST /api/v1/interviews/ — start a session.
+
+        ``session_kind="multi"`` starts the type-less multi-artifact discovery
+        session: it has no ``artifact_type`` (the server rejects one) and the
+        LLM proposes several, possibly differently-typed, artifacts over the
+        ``chat`` turns; ``proposal()`` reads that pending proposal back.
+        ``session_kind="single"`` drives one typed artifact, as before.
+        """
+        body: Dict[str, Any] = {"workspace_id": workspace_id, "session_kind": session_kind}
+        if artifact_type:
+            body["artifact_type"] = artifact_type
+        if seed_context:
+            body["seed_context"] = seed_context
+        return self._request("POST", "/api/v1/interviews/", body)
+
+    def proposal(self, session_id: str) -> Any:
+        """GET /api/v1/interviews/<id>/propose/ — the session's pending
+        multi-artifact proposal.
+
+        Returns the proposal object, or ``None`` while no chat turn has
+        produced a parseable one (the normal state of a single-kind session,
+        and of a multi session before its first successful chat turn). This is
+        a read-out, not a generator: it never triggers an LLM call.
+        """
+        result = self._request("GET", f"/api/v1/interviews/{session_id}/propose/")
+        if isinstance(result, dict) and "proposal" in result:
+            return result["proposal"]
+        return result
 
     def _interviews_query(self, workspace_id: str, status: Optional[str] = None) -> str:
         """Path of the interviews list endpoint; shared by list_interviews and
@@ -195,8 +227,19 @@ class ReqogniLoomClient:
     def chat(self, session_id: str, message: str) -> Dict[str, Any]:
         return self._request("POST", f"/api/v1/interviews/{session_id}/chat/", {"message": message})
 
-    def formalize(self, session_id: str) -> Dict[str, Any]:
-        return self._request("POST", f"/api/v1/interviews/{session_id}/formalize/", {})
+    def formalize(self, session_id: str, confirmed_proposal: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
+        """POST /api/v1/interviews/<id>/formalize/ — turn the session into real
+        artifact(s).
+
+        ``confirmed_proposal`` is required for multi-kind sessions: one item
+        per artifact (``{"type", "fields", "links"}``), all created in one
+        transaction. Single-kind sessions ignore it and create the one artifact
+        of their ``artifact_type``.
+        """
+        body: Dict[str, Any] = {}
+        if confirmed_proposal is not None:
+            body["confirmed_proposal"] = confirmed_proposal
+        return self._request("POST", f"/api/v1/interviews/{session_id}/formalize/", body)
 
     def abandon(self, session_id: str) -> Dict[str, Any]:
         return self._request("POST", f"/api/v1/interviews/{session_id}/abandon/", {})

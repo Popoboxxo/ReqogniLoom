@@ -1,37 +1,62 @@
-"""reqogniloom plugin — drive a ReqogniLoom requirements interview from Hermes.
+"""reqogniloom plugin — ReqogniLoom in Hermes: interviews, a dashboard tab and an
+ambient "listen & anticipate" mode.
 
-POC scope (see docs/superpowers/plans or PR description for the full
-picture): a single ``/reqogniloom`` slash command wrapping the
-``interview.*`` REST surface (``application/interview_service.py`` via
-``rest_api/interview_views.py``), plus a minimal read-only dashboard tab
-(``dashboard/``) showing a few counts.
+Three surfaces over one client (``reqogniloom_client.py``):
 
-Mirrors the shape of the other plugins in this Hermes install
-(``plugins/disk-cleanup``): flat package, ``plugin.yaml`` manifest,
-``register(ctx)`` wiring commands/hooks. No hooks needed here — this plugin
-is purely command-driven.
+* the ``/reqogniloom`` slash command — drive a single interview by hand;
+* the dashboard tab (``dashboard/``) — counts and open interviews per workspace;
+* the ``pre_llm_call`` hook — the optional *listen* mode: while it is on, the
+  user's own messages are captured into a type-less multi-artifact interview and
+  whatever the model proposes there is parked as a **suggestion**
+  (``/reqogniloom review``). Nothing is created silently: capture → propose →
+  ``/reqogniloom accept``.
 
-State: the "current interview session" is remembered across invocations of
-the slash command (each invocation is a fresh process call, not a running
-session) in a small JSON file under ``$HERMES_HOME/reqogniloom/state.json``.
+Artifact reads and writes beyond the interview flow are deliberately **not**
+re-implemented here. The ReqogniLoom MCP server already gives the agent the full
+artifact surface (220 tools across 35 groups); a second, partial client would
+only drift from it. This plugin owns the interview flow, the dashboard tab and
+the listening mode — the places the MCP surface does not cover.
+
+State lives in ``$HERMES_HOME/reqogniloom/state.json`` (see
+``reqogniloom_state.py``): the current interview, the listen switch and its
+pending suggestions. Every slash-command invocation is a fresh process, so that
+file is the only thing that carries over — and the capture worker is a detached
+process for the same reason (``_capture.py``).
 """
 from __future__ import annotations
 
 import json
 import logging
+import os
 import shlex
+import subprocess
+import sys
+import time
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from .reqogniloom_client import ReqogniLoomClient, ReqogniLoomError, resolve_workspace_id
+from .reqogniloom_state import load_state as _state_load, save_state as _state_save
 
 logger = logging.getLogger(__name__)
 
+#: Shortest user message worth capturing. A capture round costs one LLM turn on
+#: the ReqogniLoom side, so "ok", "danke" and a bare path are not worth one.
+MIN_CAPTURE_CHARS = 40
+
+#: Floor between two capture rounds, in seconds. Overridable per install through
+#: the ``listen`` block so a chatty session cannot queue a dozen LLM turns.
+DEFAULT_MIN_INTERVAL_SECONDS = 45
+
+#: A message starting with one of these is a command, not a statement about the
+#: system: slash commands, shell-ish prefixes and mentions are never captured.
+_SKIP_PREFIXES = ("/", "!", "$")
+
 
 def _hermes_home() -> Path:
-    import os
+    import os as _os
 
-    val = (os.environ.get("HERMES_HOME") or "").strip()
+    val = (_os.environ.get("HERMES_HOME") or "").strip()
     return Path(val) if val else Path.home() / ".hermes"
 
 
@@ -40,19 +65,13 @@ def _state_path() -> Path:
 
 
 def _load_state() -> Dict[str, Any]:
-    path = _state_path()
-    if not path.exists():
-        return {}
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return {}
+    """Kept as module-level names (rather than importing them at the call sites)
+    because the tests stand in for exactly these two functions."""
+    return _state_load()
 
 
 def _save_state(state: Dict[str, Any]) -> None:
-    path = _state_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(state), encoding="utf-8")
+    _state_save(state)
 
 
 _HELP_TEXT = """\
@@ -69,6 +88,16 @@ Subcommands:
   abandon                                Cancel the current interview.
   workspaces                             List workspaces visible to this API key.
   stats [workspace_id]                   Quick counts (requirements, testcases, open interviews).
+
+Listen mode ("hear along", nothing is created without your word):
+  listen on [workspace_id]               Capture your messages and have ReqogniLoom
+                                          propose artifacts from them.
+  listen off                             Stop capturing.
+  listen status                          Show whether capturing is on, and where.
+  review                                 List the pending suggestions.
+  accept <index|all>                     Turn suggestions into real artifacts.
+  dismiss <index|all>                    Drop suggestions without creating anything.
+
   help                                   Show this text.
 """
 
@@ -100,6 +129,153 @@ def _fmt_state(state: Dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+# ---------------------------------------------------------------------------
+# Listen mode
+# ---------------------------------------------------------------------------
+
+
+def _worth_capturing(text: str) -> bool:
+    """Cheap pre-filter, run before any I/O.
+
+    The bar is "does this look like a statement about the system?" — long enough
+    to carry a requirement or a risk, and not a command. Everything else is left
+    alone: a false positive costs an LLM turn and a bogus suggestion in the
+    review queue, which is worse than missing one message.
+    """
+    if len(text) < MIN_CAPTURE_CHARS:
+        return False
+    return not text.startswith(_SKIP_PREFIXES)
+
+
+def _spawn_capture(text: str, platform: str, session_key: str) -> None:
+    """Hand one message to the detached capture worker.
+
+    Detached because the hook runs on the turn's critical path: the worker makes
+    two to three network calls plus a server-side LLM turn. ``start_new_session``
+    keeps it alive past the turn (and past a parent that exits first); the
+    payload file is unlinked by the worker, and by us if the spawn itself
+    fails.
+    """
+    payload_dir = _state_path().parent
+    payload_dir.mkdir(parents=True, exist_ok=True)
+    payload = payload_dir / f"capture-{int(time.time() * 1000)}-{os.getpid()}.json"
+    payload.write_text(
+        json.dumps({"text": text, "platform": platform, "session_key": session_key}),
+        encoding="utf-8",
+    )
+    worker = Path(__file__).resolve().parent / "_capture.py"
+    try:
+        subprocess.Popen(
+            [sys.executable, str(worker), str(payload)],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+            close_fds=True,
+        )
+    except OSError as exc:
+        logger.warning("could not spawn reqogniloom capture worker: %s", exc)
+        try:
+            payload.unlink()
+        except OSError:
+            pass
+
+
+def _on_pre_llm_call(*, user_message: str = "", platform: str = "", session_id: str = "", **_kwargs: Any) -> None:
+    """``pre_llm_call`` observer: queue the user's own message for capture.
+
+    Returns ``None`` on every path: this hook is a side effect, not a context
+    provider — returning a string or ``{"context": ...}`` would inject text into
+    the user's own prompt, which is the opposite of "listen along".
+
+    Fail-open throughout. An exception here would be caught by the host anyway,
+    but a capture problem must never be visible in the conversation.
+    """
+    try:
+        state = _load_state()
+        listen = dict(state.get("listen") or {})
+        if not listen.get("enabled"):
+            return None
+        text = (user_message or "").strip()
+        if not _worth_capturing(text):
+            return None
+        now = time.time()
+        minimum = float(listen.get("min_interval_seconds") or DEFAULT_MIN_INTERVAL_SECONDS)
+        if now - float(listen.get("last_capture_at") or 0.0) < minimum:
+            return None
+        # Stamp before spawning: two turns in quick succession must not both
+        # clear the throttle and queue two identical capture rounds.
+        listen["last_capture_at"] = now
+        state["listen"] = listen
+        _save_state(state)
+        _spawn_capture(text, platform or "", session_id or "")
+    except Exception as exc:  # noqa: BLE001 — a hook must never break a turn
+        logger.debug("reqogniloom listen hook skipped: %s", exc)
+    return None
+
+
+def _fmt_duration(seconds: float) -> str:
+    seconds = max(0.0, seconds)
+    if seconds < 90:
+        return f"{int(seconds)}s"
+    return f"{int(seconds // 60)}min"
+
+
+def _listen_status(listen: Dict[str, Any]) -> str:
+    if not listen:
+        return "Listen mode: off (never configured). Turn it on with `/reqogniloom listen on [workspace_id]`."
+    if not listen.get("enabled"):
+        return "Listen mode: off. Turn it on with `/reqogniloom listen on [workspace_id]`."
+    last = float(listen.get("last_capture_at") or 0.0)
+    ago = "never" if not last else f"{_fmt_duration(time.time() - last)} ago"
+    return (
+        "Listen mode: on\n"
+        f"workspace:        {listen.get('workspace_id')}\n"
+        f"interview:        {listen.get('session_id') or '(opens with the first capture)'}\n"
+        f"throttle:         at most one capture every {listen.get('min_interval_seconds')}s\n"
+        f"last capture:     {ago}\n"
+        "Nothing is created without `/reqogniloom accept`."
+    )
+
+
+def _fmt_review(suggestions: Sequence[Dict[str, Any]]) -> str:
+    if not suggestions:
+        return "No pending suggestions. Turn listen mode on with `/reqogniloom listen on`, then review again."
+    lines = [f"{len(suggestions)} pending suggestion(s) — nothing is created until you accept:"]
+    for index, suggestion in enumerate(suggestions):
+        items = suggestion.get("items") or []
+        lines.append(f"[{index}] {suggestion.get('created_at', '?')} — {len(items)} artifact(s)")
+        for item in items:
+            fields = item.get("fields") if isinstance(item, dict) else None
+            title = ""
+            if isinstance(fields, dict):
+                title = str(fields.get("title") or fields.get("name") or "")
+            kind = item.get("type") if isinstance(item, dict) else "?"
+            lines.append(f"      - {kind}: {title or '(no title)'}")
+    lines.append("Accept with `/reqogniloom accept <index|all>`, drop with `/reqogniloom dismiss <index|all>`.")
+    return "\n".join(lines)
+
+
+def _select_suggestions(args: Sequence[str], count: int) -> Tuple[Optional[List[int]], Optional[str]]:
+    """Translate ``<index|all>`` arguments into indices. Returns ``(indices,
+    error)`` — exactly one of the two is set."""
+    if not args:
+        return None, "Usage: /reqogniloom <accept|dismiss> <index|all> (see /reqogniloom review)"
+    if len(args) == 1 and args[0].lower() == "all":
+        return list(range(count)), None
+    indices: List[int] = []
+    for raw in args:
+        try:
+            index = int(raw)
+        except ValueError:
+            return None, f"'{raw}' is not a suggestion index; use a number or 'all'."
+        if not 0 <= index < count:
+            return None, f"Suggestion index {index} is out of range (0–{count - 1})."
+        if index not in indices:
+            indices.append(index)
+    return indices, None
+
+
 def _handle_slash(raw_args: str) -> Optional[str]:
     """Entry point registered via ``ctx.register_command``. Never raises —
     every error path returns a human-readable string instead."""
@@ -126,7 +302,7 @@ def _handle_slash(raw_args: str) -> Optional[str]:
             explicit_ws = rest[1] if len(rest) > 1 else None
             workspace_id = resolve_workspace_id(client, explicit_ws)
             session = client.start_interview(artifact_type, workspace_id)
-            _save_state({"session_id": session["id"], "workspace_id": workspace_id})
+            _save_state(_with_ambient(state, {"session_id": session["id"], "workspace_id": workspace_id}))
             return f"Started interview {session['id']} ({artifact_type}) in workspace {workspace_id}.\n\n" + _fmt_state(
                 session
             )
@@ -165,7 +341,7 @@ def _handle_slash(raw_args: str) -> Optional[str]:
 
             if sub == "abandon":
                 client.abandon(session_id)
-                _save_state({})
+                _save_state(_with_ambient(state, {}))
                 return f"Abandoned interview {session_id}."
 
         if sub == "workspaces":
@@ -185,6 +361,15 @@ def _handle_slash(raw_args: str) -> Optional[str]:
                 f"open interviews: {stats['open_interviews']}"
             )
 
+        if sub == "listen":
+            return _handle_listen(client, state, rest)
+
+        if sub == "review":
+            return _fmt_review(state.get("suggestions") or [])
+
+        if sub in ("accept", "dismiss"):
+            return _handle_review_action(client, state, sub, rest)
+
     except ReqogniLoomError as exc:
         return f"ReqogniLoom error: {exc}"
     except Exception as exc:  # noqa: BLE001 — _handle_slash promises never to raise
@@ -194,9 +379,111 @@ def _handle_slash(raw_args: str) -> Optional[str]:
     return f"Unknown subcommand: {sub}\n\n{_HELP_TEXT}"
 
 
+def _with_ambient(previous: Dict[str, Any], interview: Dict[str, Any]) -> Dict[str, Any]:
+    """Build a new state that replaces the *interview* keys while keeping the
+    listen configuration and its suggestion queue.
+
+    ``session_id``/``workspace_id`` used to be written by replacing the whole
+    file, which silently switched listen mode off whenever a hand-driven
+    interview started or was abandoned.
+    """
+    merged = dict(interview)
+    for key in ("listen", "suggestions"):
+        if previous.get(key):
+            merged[key] = previous[key]
+    return merged
+
+
+def _handle_listen(client: ReqogniLoomClient, state: Dict[str, Any], rest: Sequence[str]) -> str:
+    action = (rest[0].lower() if rest else "status")
+    listen = dict(state.get("listen") or {})
+
+    if action == "status":
+        return _listen_status(listen)
+
+    if action == "off":
+        if not listen:
+            return "Listen mode was never on."
+        listen["enabled"] = False
+        state["listen"] = listen
+        _save_state(state)
+        return "Listen mode: off — your messages are no longer captured."
+
+    if action == "on":
+        explicit = rest[1] if len(rest) > 1 else listen.get("workspace_id")
+        workspace_id = resolve_workspace_id(client, explicit)
+        listen.update({"enabled": True, "workspace_id": workspace_id})
+        listen.setdefault("min_interval_seconds", DEFAULT_MIN_INTERVAL_SECONDS)
+        state["listen"] = listen
+        _save_state(state)
+        return (
+            f"Listen mode: on — workspace {workspace_id}.\n"
+            f"Capturing messages of at least {MIN_CAPTURE_CHARS} characters, at most one every "
+            f"{listen['min_interval_seconds']}s.\n"
+            "ReqogniLoom's proposals land in `/reqogniloom review`; nothing is created until "
+            "`/reqogniloom accept`."
+        )
+
+    return "Usage: /reqogniloom listen on [workspace_id] | off | status"
+
+
+def _handle_review_action(client: ReqogniLoomClient, state: Dict[str, Any], sub: str, rest: Sequence[str]) -> str:
+    suggestions = list(state.get("suggestions") or [])
+    if not suggestions:
+        return "Nothing to review: no pending suggestions."
+
+    targets, error = _select_suggestions(rest, len(suggestions))
+    if error:
+        return error
+    assert targets is not None  # _select_suggestions sets exactly one of the two
+
+    if sub == "dismiss":
+        remaining = [entry for index, entry in enumerate(suggestions) if index not in targets]
+        state["suggestions"] = remaining
+        _save_state(state)
+        return f"Dismissed {len(targets)} suggestion(s); {len(remaining)} still pending."
+
+    created: List[str] = []
+    failures: List[str] = []
+    remaining = list(suggestions)
+    # Highest index first: popping reindexes the list, and the human's indices
+    # refer to the list they just read in `/reqogniloom review`.
+    for index in sorted(targets, reverse=True):
+        entry = suggestions[index]
+        try:
+            result = client.formalize(entry.get("session_id"), confirmed_proposal=entry.get("items") or [])
+        except ReqogniLoomError as exc:
+            failures.append(f"[{index}] {exc}")
+            continue
+        ids = result.get("resulting_artifact_ids") if isinstance(result, dict) else None
+        created.extend(str(item) for item in (ids or []))
+        remaining.pop(index)
+
+    state["suggestions"] = remaining
+    _save_state(state)
+
+    lines: List[str] = []
+    if created:
+        lines.append(f"Created {len(created)} artifact(s): {', '.join(created)}")
+    if failures:
+        lines.append("Failed, still pending:")
+        lines.extend(f"      {line}" for line in failures)
+    if not created and not failures:
+        lines.append("Nothing was created — the server returned no artifact IDs.")
+    if remaining:
+        lines.append(f"{len(remaining)} suggestion(s) still pending.")
+    return "\n".join(lines)
+
+
 def register(ctx: Any) -> None:
     ctx.register_command(
         "reqogniloom",
         handler=_handle_slash,
         description="Start and drive a ReqogniLoom requirements interview.",
     )
+    # The hook is registered defensively: the slash command is the plugin's core
+    # and must still load on a host (or test double) whose context has no
+    # register_hook.
+    register_hook = getattr(ctx, "register_hook", None)
+    if callable(register_hook):
+        register_hook("pre_llm_call", _on_pre_llm_call)

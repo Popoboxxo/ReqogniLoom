@@ -1,5 +1,9 @@
 name: reqogniloom
-version: 0.1.0
-description: "Start and drive ReqogniLoom requirements interviews from Hermes via /reqogniloom, plus a basic dashboard stats tab."
+version: 0.2.0
+description: "ReqogniLoom in Hermes: interviews via /reqogniloom, a per-workspace dashboard tab, and an opt-in listen mode that proposes artifacts from what you say."
 author: "ReqogniLoom"
-hooks: []
+# Declarative only — registration happens in register(ctx), guarded so the slash
+# command still loads on a host whose context has no register_hook. pre_llm_call
+# observes the user's own messages in listen mode; it returns None and never
+# injects context into the turn.
+hooks: [pre_llm_call]

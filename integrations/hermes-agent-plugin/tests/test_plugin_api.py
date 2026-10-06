@@ -98,6 +98,7 @@ def _leaky_client() -> MagicMock:
     fake.list_workspaces.return_value = [{"id": _SECRET_WORKSPACE_ID, "name": _SECRET_WORKSPACE_NAME}]
     fake.stats.return_value = dict(_SECRET_COUNTS, workspace_id=_SECRET_WORKSPACE_ID)
     fake.version.return_value = {"app_version": "9.9.9"}
+    fake.list_interviews.return_value = []
     return fake
 
 
@@ -263,22 +264,41 @@ class InboundAuthGuardTests(DashboardAuthTestCase):
         with self.assertRaises(plugin_api.DashboardAuthError):
             plugin_api.enforce_dashboard_auth({plugin_api.CREDENTIAL_HEADER: _TEST_TOKEN + "x"})
 
-    def test_unset_token_env_var_rejects_every_request(self) -> None:
+    def test_unset_token_env_var_makes_the_gate_inert(self) -> None:
+        # PLUG-12: the token is an OPT-IN second factor. Unset means the host
+        # dashboard's own auth is the only gate, so a request with no credential
+        # at all is let through — and nothing is inspected, not even the
+        # allowlists (a foreign origin included).
         os.environ.pop(plugin_api.TOKEN_ENV_VAR, None)
-        for headers in (None, {}, _request().headers, {plugin_api.CREDENTIAL_HEADER: _TEST_TOKEN}):
-            with self.subTest(headers=headers), self.assertRaises(plugin_api.DashboardAuthError) as ctx:
-                plugin_api.enforce_dashboard_auth(headers)
-            self.assertEqual(ctx.exception.status_code, 403)
-            self.assertIn(plugin_api.TOKEN_ENV_VAR, ctx.exception.detail)
-            _assert_no_tenant_data(self, ctx.exception)
+        for headers in (
+            None,
+            {},
+            _request().headers,
+            {plugin_api.CREDENTIAL_HEADER: _TEST_TOKEN},
+            {"Origin": "http://evil.example", "Host": "evil.example"},
+        ):
+            with self.subTest(headers=headers):
+                self.assertIsNone(plugin_api.enforce_dashboard_auth(headers))
 
-    def test_blank_token_env_var_rejects_every_request(self) -> None:
+    def test_blank_token_env_var_makes_the_gate_inert(self) -> None:
+        # "" and "   " read exactly like unset: a whitespace value is a
+        # configuration typo, not a credential.
         for value in ("", "   "):
             with self.subTest(value=value):
                 os.environ[plugin_api.TOKEN_ENV_VAR] = value
-                with self.assertRaises(plugin_api.DashboardAuthError) as ctx:
-                    plugin_api.enforce_dashboard_auth(_headers())
-                self.assertEqual(ctx.exception.status_code, 403)
+                self.assertIsNone(plugin_api.enforce_dashboard_auth({}))
+
+    def test_a_configured_token_restores_the_full_gate(self) -> None:
+        # The opt-in must not weaken the configured case: with a token set, the
+        # allowlists are consulted again and a credential is required.
+        os.environ[plugin_api.TOKEN_ENV_VAR] = _TEST_TOKEN
+        self.assertIsNone(plugin_api.enforce_dashboard_auth(_headers()))
+        with self.assertRaises(plugin_api.DashboardAuthError) as ctx:
+            plugin_api.enforce_dashboard_auth(_headers(Origin="http://evil.example"))
+        self.assertEqual(ctx.exception.status_code, 403)
+        with self.assertRaises(plugin_api.DashboardAuthError) as ctx:
+            plugin_api.enforce_dashboard_auth({})
+        self.assertEqual(ctx.exception.status_code, 401)
 
     def test_non_mapping_header_source_is_rejected_not_raises(self) -> None:
         for headers in (None, "X-ReqogniLoom-Dashboard-Token: " + _TEST_TOKEN, object(), 42):
@@ -434,17 +454,40 @@ class HandlerGuardTests(DashboardAuthTestCase):
             self.assertAuthRejected(lambda: plugin_api.version(request=empty), 401)
         fake_client.assert_not_called()
 
-    def test_every_endpoint_rejects_when_the_token_env_var_is_unset(self) -> None:
+    def test_every_endpoint_serves_data_when_no_token_is_configured(self) -> None:
+        # The opt-in case, end to end through the handlers: with no token in the
+        # process environment the tab works out of the box (PLUG-12) instead of
+        # answering 403 to its own requests.
         fake_client = _leaky_client()
         os.environ.pop(plugin_api.TOKEN_ENV_VAR, None)
         with patch.object(plugin_api, "ReqogniLoomClient", return_value=fake_client):
-            for call in (
-                lambda: plugin_api.stats(workspace_id="", request=_request()),
-                lambda: plugin_api.workspaces(request=_request()),
-                lambda: plugin_api.version(request=_request()),
-            ):
-                self.assertAuthRejected(call, 403)
-        fake_client.assert_not_called()
+            self.assertEqual(
+                plugin_api.stats(workspace_id="", request=_request())["requirements"],
+                _SECRET_COUNTS["requirements"],
+            )
+            self.assertEqual(
+                plugin_api.workspaces(request=_request())["workspaces"][0]["id"], _SECRET_WORKSPACE_ID
+            )
+            self.assertEqual(plugin_api.version(request=_request())["app_version"], "9.9.9")
+            self.assertEqual(plugin_api.interviews(workspace_id="", request=_request())["interviews"], [])
+
+    def test_interviews_endpoint_resolves_the_workspace_and_defaults_to_open(self) -> None:
+        fake_client = _leaky_client()
+        fake_client.list_interviews.return_value = [{"id": "sess-1", "status": "in_progress"}]
+        with patch.object(plugin_api, "ReqogniLoomClient", return_value=fake_client):
+            payload = plugin_api.interviews(workspace_id="", request=_request())
+        self.assertEqual(payload["workspace_id"], _SECRET_WORKSPACE_ID)
+        self.assertEqual(payload["interviews"][0]["id"], "sess-1")
+        fake_client.list_interviews.assert_called_once_with(_SECRET_WORKSPACE_ID, "in_progress")
+
+    def test_interviews_endpoint_reports_backend_errors_as_data(self) -> None:
+        # Same contract as the other handlers: a backend failure is a 200 with an
+        # "error" key, not a 500 the tab cannot render.
+        fake_client = _leaky_client()
+        fake_client.list_interviews.side_effect = plugin_api.ReqogniLoomError("backend down")
+        with patch.object(plugin_api, "ReqogniLoomClient", return_value=fake_client):
+            payload = plugin_api.interviews(workspace_id="", request=_request())
+        self.assertEqual(payload, {"error": "backend down"})
 
     def test_every_endpoint_rejects_a_disallowed_origin(self) -> None:
         fake_client = _leaky_client()
@@ -497,7 +540,7 @@ class HandlerGuardTests(DashboardAuthTestCase):
         routes = [route for route in plugin_api.router.routes if getattr(route, "path", "").startswith("/")]
         self.assertEqual(
             sorted(route.path for route in routes),
-            ["/stats", "/version", "/workspaces"],
+            ["/interviews", "/stats", "/version", "/workspaces"],
         )
         for route in routes:
             with self.subTest(path=route.path):
@@ -536,12 +579,14 @@ class DashboardAuthHttpTests(DashboardAuthTestCase):
                 response = self._get(path, **{plugin_api.CREDENTIAL_HEADER: "not-the-token"})
                 self.assertEqual(response.status_code, 401)
 
-    def test_all_three_endpoints_answer_403_when_the_token_env_var_is_unset(self) -> None:
+    def test_all_endpoints_answer_200_when_the_token_env_var_is_unset(self) -> None:
+        # PLUG-12: no configured token ⇒ no second factor, so the tab gets its
+        # data instead of a 403 it cannot fix from the browser.
         os.environ.pop(plugin_api.TOKEN_ENV_VAR, None)
-        for path in ("/stats", "/workspaces", "/version"):
+        for path in ("/stats", "/workspaces", "/version", "/interviews"):
             with self.subTest(path=path):
                 response = self._get(path, **{plugin_api.CREDENTIAL_HEADER: _TEST_TOKEN})
-                self.assertEqual(response.status_code, 403)
+                self.assertEqual(response.status_code, 200)
 
     def test_rejection_response_carries_no_tenant_data(self) -> None:
         for headers in ({}, {plugin_api.CREDENTIAL_HEADER: "not-the-token"}):
@@ -704,20 +749,15 @@ class DashboardTabRequestShapeTests(DashboardAuthTestCase):
         self.assertIn(plugin_api.CREDENTIAL_HEADER, missing)
         self.assertNotIn(plugin_api.CREDENTIAL_HEADER, wrong)
 
-    def test_tab_shape_answers_403_when_the_guard_is_unconfigured(self) -> None:
-        # A third, separately handled failure class: the credential may well be
-        # correct, the server simply has nothing to compare it against.
-        # describeFailure() matches TOKEN_ENV_VAR, so the detail has to name it.
-        # (The bare 403 status for an unset token var is already covered by
-        # DashboardAuthHttpTests.test_all_three_endpoints_answer_403_when_the_token_env_var_is_unset;
-        # what is new here is the detail contract and the tab's header shape.)
+    def test_tab_shape_answers_200_when_no_token_is_configured(self) -> None:
+        # The regression that made the tab unusable: an unset token used to be a
+        # 403 for every request the tab made, with no way for the operator to fix
+        # it from the browser. With the gate opt-in (PLUG-12) the tab loads.
         os.environ.pop(plugin_api.TOKEN_ENV_VAR, None)
-        response = self._get("/stats", _tab_headers())
-        self.assertEqual(response.status_code, 403)
-        detail = response.json()["detail"]
-        self.assertIn(plugin_api.TOKEN_ENV_VAR, detail)
-        _assert_no_tenant_data(self, SimpleNamespace(detail=detail))
-        self.fake_client.assert_not_called()
+        for path in ("/stats", "/version"):
+            with self.subTest(path=path):
+                response = self._get(path, _tab_headers())
+                self.assertEqual(response.status_code, 200)
 
     def test_a_cookie_does_not_authenticate_the_tab_shape(self) -> None:
         # credentials: "same-origin" would attach a cookie if the host set one.
