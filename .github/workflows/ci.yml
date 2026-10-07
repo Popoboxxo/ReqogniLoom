@@ -293,43 +293,6 @@ jobs:
           npm audit --audit-level=high
         continue-on-error: false
 
-  hermes-plugin-test:
-    name: "Hermes IDE Plugin (integrations/hermes-plugin)"
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-
-      - name: Set up Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
-        with:
-          node-version: '22'
-          cache: npm
-          cache-dependency-path: integrations/hermes-plugin/reqogniloom/package-lock.json
-
-      - name: Install hermes-plugin dependencies
-        working-directory: integrations/hermes-plugin/reqogniloom
-        run: npm ci
-
-      - name: Typecheck
-        working-directory: integrations/hermes-plugin/reqogniloom
-        run: npx tsc --noEmit
-
-      - name: Run Vitest
-        working-directory: integrations/hermes-plugin/reqogniloom
-        run: npm run test
-
-      # "npm run build" also runs the verify-build guard as a postbuild step
-      # (fixes #545) -- it fails the job if the production bundle inlines
-      # React/its JSX runtime instead of keeping it external (the class of
-      # bug that silently broke this plugin in the
-      # feat/interview-management-hermes-plugin branch, undetected by both
-      # tsc --noEmit and vitest since neither exercises the real Vite build).
-      - name: Build and verify plugin bundle
-        working-directory: integrations/hermes-plugin/reqogniloom
-        run: npm run build
-
   # W1: actionlint gate over the workflow files. No path arguments: implicit
   # discovery collects every file in .github/workflows, so a new workflow
   # cannot slip past a stale hard-coded list. Discovery resolves the project

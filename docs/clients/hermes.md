@@ -55,7 +55,7 @@ mcp_servers:
 - `hermes mcp add` is discovery-first (prompts for the key on a TTY, probes the server) — the installer uses `hermes config set` instead (non-interactive, idempotent).
 - `hermes config set` rewrites `config.yaml` via PyYAML → **comment lines are lost**; the installer takes a backup first.
 - The bearer token lives only as a `${REQOGNILOOM_API_KEY}` reference in the config; the value stays in `~/.hermes/.env`.
-- Two separate integration paths (desktop plugin `integrations/hermes-plugin/reqogniloom` vs. agent/skill connector) — keep them apart.
+- One consolidated MCP-first path: the agent plugin `integrations/hermes-agent-plugin/` and the skill `integrations/hermes-skill/reqogniloom/` speak the same `POST /mcp/` contract; the agent plugin authenticates with `X-API-Key` (a Bearer JWT is rejected server-side).
 - The plugin's `Cancel` calls `interview.abandon` as of #1152 so sessions do not linger as `in_progress`.
 
 ## 7. Roles & key scope

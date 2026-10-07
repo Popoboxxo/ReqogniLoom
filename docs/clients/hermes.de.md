@@ -55,7 +55,7 @@ mcp_servers:
 - `hermes mcp add` ist discovery-first (fragt den Key am TTY ab, probt den Server) — der Installer nutzt daher `hermes config set` (non-interaktiv, idempotent).
 - `hermes config set` schreibt `config.yaml` über PyYAML neu → **Kommentarzeilen gehen verloren**; der Installer legt vorher ein Backup an.
 - Der Bearer-Token steht nur als `${REQOGNILOOM_API_KEY}`-Referenz in der Config; der Wert liegt in `~/.hermes/.env`.
-- Zwei getrennte Integrationspfade (Desktop-Plugin `integrations/hermes-plugin/reqogniloom` vs. Agent-/Skill-Connector) — klar trennen.
+- Ein konsolidierter MCP-First-Pfad: Agent-Plugin `integrations/hermes-agent-plugin/` und Skill `integrations/hermes-skill/reqogniloom/` sprechen denselben `POST /mcp/`-Vertrag; das Agent-Plugin authentifiziert sich mit `X-API-Key` (Bearer-JWT wird serverseitig abgelehnt).
 - `Cancel` im Plugin ruft seit #1152 `interview.abandon` auf, damit Sessions nicht als `in_progress` liegen bleiben.
 
 ## 7. Rechte & Key-Scope

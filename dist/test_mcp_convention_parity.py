@@ -1,6 +1,6 @@
 """Provider-parity guard for the MCP client configuration `dist/` ships.
 
-One convention, five builders, four generated artifacts -- and until now
+One convention, four builders, four generated artifacts -- and until now
 nothing tied them to each other beyond a per-builder smoke test that asserted
 whatever that builder happened to emit that week. This module pins the
 convention the *backend* implements, so a future edit that reintroduces a
@@ -34,7 +34,6 @@ parity guard even if that pipeline test is reworked.
 import importlib.util
 import json
 import re
-import shutil
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -142,18 +141,6 @@ CONFIG_BUILDERS: Final[tuple[BuilderSpec, ...]] = (
         container="mcp_servers",
         fmt="toml",
     ),
-)
-
-#: The one builder that renders no MCP config at all. It only resyncs the
-#: version in two committed manifests, so it is covered by the source-level
-#: guard below rather than by the emitted-config assertions.
-CONFIGLESS_BUILDER: Final = "hermes"
-HERMES_PLUGIN_ROOT: Final = REPO_ROOT / "integrations" / "hermes-plugin" / (
-    "reqogniloom"
-)
-HERMES_MANIFESTS: Final[tuple[str, ...]] = (
-    "package.json",
-    "hermes-plugin.json",
 )
 
 @dataclass(frozen=True)
@@ -447,10 +434,10 @@ def test_the_documented_env_var_names_are_the_only_ones_used(
 
 
 def test_no_builder_mentions_the_non_canonical_prefix() -> None:
-    """Source-level guard, and the only thing covering the config-less builder.
+    """Source-level guard for every builder on disk.
 
-    A sixth builder added tomorrow that copies the submodule's connection
-    block would fail here even though it has no committed artifact yet.
+    A builder added tomorrow that copies the submodule's connection block
+    would fail here even before it has a committed artifact.
     """
     offenders = {
         path.relative_to(REPO_ROOT).as_posix(): path.read_text(encoding="utf-8")
@@ -468,44 +455,8 @@ def test_every_builder_is_covered_by_this_guard() -> None:
     """Meta-guard: a builder this file does not know about is unguarded, and
     the failure would be silent. Fail here instead."""
     on_disk = {path.parent.name for path in DIST_DIR.rglob("build_*.py")}
-    covered = {spec.name for spec in CONFIG_BUILDERS} | {CONFIGLESS_BUILDER}
+    covered = {spec.name for spec in CONFIG_BUILDERS}
     assert on_disk == covered, (
         f"dist/ builders on disk {sorted(on_disk)} do not match the builders "
-        f"guarded here {sorted(covered)}; add the new one to CONFIG_BUILDERS "
-        f"or CONFIGLESS_BUILDER"
+        f"guarded here {sorted(covered)}; add the new one to CONFIG_BUILDERS"
     )
-
-
-def test_the_configless_builder_ships_no_mcp_config(tmp_path: Path) -> None:
-    """Hermes resyncs a version and nothing else, so none of the config-level
-    assertions above reach it. Pinned so that gap stays visible: a future
-    connection block has to be added to `CONFIG_BUILDERS` deliberately.
-
-    `dist/plugins/hermes/test_build_hermes_plugin.py` already covers
-    before/after key preservation; this asserts the absolute property instead
-    — no MCP connection config exists in the output at all, whatever the
-    committed manifest happens to contain today.
-    """
-    plugin_root = tmp_path / CONFIGLESS_BUILDER
-    plugin_root.mkdir()
-    for name in HERMES_MANIFESTS:
-        shutil.copy2(HERMES_PLUGIN_ROOT / name, plugin_root / name)
-
-    _load_builder(
-        DIST_DIR / "plugins/hermes/build_hermes_plugin.py"
-    ).build(plugin_root)
-
-    for name in HERMES_MANIFESTS:
-        raw = (plugin_root / name).read_text(encoding="utf-8")
-        data = json.loads(raw)
-        assert not env_refs(raw), (
-            f"the {CONFIGLESS_BUILDER} manifest {name} now interpolates "
-            f"{sorted(env_refs(raw))}; a hermes connection block is not "
-            f"covered by this file's config-level assertions"
-        )
-        assert NON_CANONICAL_ENV_PREFIX not in raw
-        assert API_KEY_PREFIX not in raw
-        assert "headers" not in data, (
-            f"the {CONFIGLESS_BUILDER} manifest {name} now declares auth "
-            f"headers; add hermes to CONFIG_BUILDERS to guard them"
-        )
