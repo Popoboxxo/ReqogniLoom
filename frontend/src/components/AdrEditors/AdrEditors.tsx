@@ -5,6 +5,7 @@ import { SplitView } from '../SplitView/SplitView';
 import { PageHeader } from '../shared/PageHeader';
 import { useInterviewStartCta } from '../shared/useInterviewStartCta';
 import { Dialog } from '../shared/Dialog';
+import { SAVE_SHORTCUT_ARIA, useSaveShortcut } from '../../hooks/useSaveShortcut';
 import { AdrList } from './AdrList';
 import { AdrArtifactForm } from './AdrArtifactForm';
 import { AdrSupersedePanel } from './AdrSupersedePanel';
@@ -41,6 +42,16 @@ export default function AdrEditors(): JSX.Element {
   const [createError, setCreateError] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const titleInputRef = useRef<HTMLInputElement>(null);
+  // #1100 follow-up: the create form owns the save shortcut, so the hook can
+  // tell a covered surface from the interaction context (see useSaveShortcut).
+  const formRef = useRef<HTMLFormElement>(null);
+  // FR-U5-01: a synchronous guard for BOTH submit entry points (the Create
+  // button's `onSubmit` and the `Ctrl`/`Cmd`+`S` shortcut). `isCreating` is
+  // React state, so a click followed by the chord inside one event-loop turn
+  // still reads a stale `false` and POSTs twice. Mirrors `savingRef` in
+  // `shared/ArtifactForm/ArtifactForm.tsx`. Set before the first await and
+  // cleared in `finally`.
+  const submittingRef = useRef(false);
 
   // 12.1/14.2: named after the result ("New ADR"), not the gesture ("+ New");
   // also the dialog title, matching ch. 12.8 ("dialog title repeats the
@@ -66,8 +77,11 @@ export default function AdrEditors(): JSX.Element {
   }, []);
 
   const handleCreateNew = async (): Promise<void> => {
+    // FR-U5-01: same-tick guard — see `submittingRef` above.
+    if (submittingRef.current) return;
     if (!activeWorkspace) return;
     if (!newTitle.trim()) return;
+    submittingRef.current = true;
     setCreateError(null);
     setIsCreating(true);
     try {
@@ -87,9 +101,26 @@ export default function AdrEditors(): JSX.Element {
       const msg = (e as { error?: { message?: string } })?.error?.message ?? t('adrs.createFailed');
       setCreateError(msg);
     } finally {
+      submittingRef.current = false;
       setIsCreating(false);
     }
   };
+
+  // #1100: the hand-written create dialog is not an `ArtifactForm`, so it has
+  // to opt into the shared shortcut itself — otherwise `Ctrl`/`Cmd`+`S` closes
+  // nothing here and the browser's "Save page as…" takes over. Enabled only
+  // while the dialog is open, so the detail form behind it keeps the chord
+  // otherwise. The hook's topmost-form rule makes the dialog win while it is
+  // open even though the detail form is still mounted.
+  useSaveShortcut({
+    onSave: handleCreateNew,
+    enabled: showCreateDialog,
+    isSaving: isCreating,
+    containerRef: formRef,
+    // Mirrors the Save button's `disabled={!newTitle.trim()}`: an empty title
+    // must not reach a submit path that only early-returns silently (#1100).
+    canSave: newTitle.trim().length > 0,
+  });
 
   // UI-LOW-3 (Systemaudit, LOW finding): `updated` is set only by the
   // ADR-Supersede flow (AdrSupersedePanel.handleSupersede) — see
@@ -262,6 +293,8 @@ export default function AdrEditors(): JSX.Element {
                 data-testid="adr-new-save-btn"
                 className="btn-primary"
                 disabled={isCreating || !newTitle.trim()}
+                aria-keyshortcuts={SAVE_SHORTCUT_ARIA}
+                title={t('artifactForm.saveShortcutHint', 'Speichern (Strg/Cmd+S)')}
               >
                 {isCreating ? t('actions.saving', 'Saving...') : t('actions.create', 'Erstellen')}
               </button>
@@ -270,6 +303,7 @@ export default function AdrEditors(): JSX.Element {
         >
           <form
             id="adr-create-form"
+            ref={formRef}
             onSubmit={(e) => { e.preventDefault(); void handleCreateNew(); }}
           >
             <label

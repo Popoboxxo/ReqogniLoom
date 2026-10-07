@@ -513,6 +513,38 @@ class UserNotificationPreference(AuditableModel):
         db_table = "at_user_notification_preference"
 
 
+class UserDisplayPreference(TenantScopedModel):
+    """Per-user display preference for the artifact UI (Issue #1096).
+
+    One row per user. Unlike :class:`UserNotificationPreference` this is a
+    ``TenantScopedModel``: the flag is served by the tenant-scoped self-service
+    route ``/api/v1/users/me/display-preferences/`` (``ResourceScope.TENANT``,
+    same as the sibling ``users/me/**`` routes), so the row carries the standard
+    tenant column and is covered by the RLS policy sweep (REQ-L2-PL-010).
+
+    ``show_readable_ids`` mirrors the frontend fallback in
+    ``frontend/src/hooks/useReadableIdsVisible.ts`` — readable ids are visible
+    unless the user hides them — so a missing row leaves the rendered behaviour
+    unchanged and the server default never has to be re-derived by the client.
+    """
+
+    user = models.OneToOneField(
+        "persistence.User",
+        on_delete=models.CASCADE,
+        related_name="display_preference",
+    )
+    show_readable_ids = models.BooleanField(default=True)
+
+    class Meta:
+        db_table = "at_user_display_preference"
+
+    def __str__(self) -> str:  # pragma: no cover - debug helper
+        return (
+            f"UserDisplayPreference(user={self.user_id}, "
+            f"show_readable_ids={self.show_readable_ids})"
+        )
+
+
 # ---------------------------------------------------------------------------
 # REQ-181/REQ-182/REQ-183/REQ-186/REQ-187  Permissions default model + rollout
 # ---------------------------------------------------------------------------
@@ -844,6 +876,7 @@ __all__ = [
     "WorkspacePermissionDefinition",
     "PermissionDecisionMismatch",
     "UserWorkspacePreference",
+    "UserDisplayPreference",
     "ROLE_ADMIN",
     "ROLE_EDITOR",
     "ROLE_VIEWER",

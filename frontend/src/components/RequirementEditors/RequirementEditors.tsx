@@ -58,12 +58,8 @@ import { TraceSpine, useDerivationChain } from '../shared/TraceSpine';
 import type { ChainArtifact } from '../shared/TraceSpine';
 import { BaselineDriftBadge } from '../shared/BaselineDriftBadge/BaselineDriftBadge';
 import { getArtifactRoute } from '../../utils/artifactRoutes';
-import { REQ_CATEGORIES } from '../../types';
 import styles from './RequirementEditors.module.css';
-// F-04 (code review, 2026-08-19): '.createLabelInline'/'.createInput' live in
-// the shared module (see its own header comment) so this create form
-// doesn't duplicate them locally.
-import fieldHints from '../shared/FieldHints.module.css';
+import { RequirementCreateFallbackForm } from './RequirementCreateFallbackForm';
 
 /**
  * RequirementEditors — main view with SplitView (list | detail)
@@ -560,109 +556,24 @@ export default function RequirementEditors(): JSX.Element {
           fieldTestIds={{ title: 'req-new-title-input' }}
           saveTestId="req-new-save-btn"
           definitionFallback={
-        <form
-          data-testid="create-req-form"
-          onSubmit={(e) => {
-            e.preventDefault();
-            void handleCreate();
-          }}
-          className={styles.createForm}
-        >
-          <label
-            htmlFor="new-req-title"
-            className={styles.createLabel}
-          >
-            {t('editor.title')}
-          </label>
-          <input
-            id="new-req-title"
-            data-testid="req-new-title-input"
-            ref={focusFallbackTitle}
-            type="text"
-            value={newTitle}
-            onChange={(e) => {
-              setNewTitle(e.target.value);
-              // The message described the *previous* attempt; keep it until
-              // the user actually starts correcting the input.
-              if (createError) setCreateError(null);
-            }}
-            disabled={isCreating}
-            placeholder={t('editor.newRequirementTitle')}
-            className={styles.createInput}
-          />
-
-          {/* BUG-11: description/category — ordinary create() fields the
-              backend already accepts, previously missing from this form. */}
-          <label htmlFor="new-req-description" className={fieldHints.createLabelInline}>
-            {t('editor.description')}
-          </label>
-          <textarea
-            id="new-req-description"
-            data-testid="req-new-description-input"
-            value={newDescription}
-            onChange={(e) => setNewDescription(e.target.value)}
-            disabled={isCreating}
-            rows={3}
-            className={fieldHints.createInput}
-          />
-
-          <label htmlFor="new-req-category" className={fieldHints.createLabelInline}>
-            {t('editor.category')}
-          </label>
-          <select
-            id="new-req-category"
-            data-testid="req-new-category-select"
-            value={newCategory}
-            onChange={(e) => setNewCategory(e.target.value)}
-            disabled={isCreating}
-            className={fieldHints.createInput}
-          >
-            <option value="">{t('editor.categoryPlaceholder')} --</option>
-            {REQ_CATEGORIES.map((cat) => (
-              <option key={cat} value={cat}>
-                {cat}
-              </option>
-            ))}
-          </select>
-
-          {/* #340: the server's own reason (e.g. "contains disallowed
-              content: HTML markup is not permitted in free-text fields")
-              belongs directly under the field that produced it — see
-              docs/architecture/UI_STYLE_GUIDE.md §5.2. */}
-          {createError && (
-            <p role="alert" data-testid="req-create-error" className={styles.formError}>
-              {createError}
-            </p>
-          )}
-          <div className={styles.formActions}>
-            {/* issue #719: the create dialog now uses the same shared
-                btn-secondary/btn-primary pair and the same "Erstellen"
-                (not "Speichern") verb as the Adr/Risk/Issue/TestCase create
-                dialogs. The hand-rolled inline styles below reproduced
-                btn-primary imprecisely — different padding and no shared
-                disabled/hover treatment — which is exactly the divergence
-                the audit flagged. */}
-            <button
-              data-testid="req-new-cancel-btn"
-              type="button"
-              className="btn-secondary"
-              onClick={handleCancelCreate}
-              disabled={isCreating}
-            >
-              {t('actions.cancel')}
-            </button>
-            <button
-              data-testid="req-new-save-btn"
-              type="submit"
-              className="btn-primary"
-              // BUG-02: title is required — disable rather than silently
-              // substitute a placeholder title on submit.
-              disabled={isCreating || !newTitle.trim()}
-            >
-              {isCreating ? t('actions.saving') : t('actions.create', 'Erstellen')}
-            </button>
-          </div>
-        </form>
+            <RequirementCreateFallbackForm
+              title={newTitle}
+              description={newDescription}
+              category={newCategory}
+              createError={createError}
+              isCreating={isCreating}
+              onTitleChange={(value) => {
+                setNewTitle(value);
+                // The message described the *previous* attempt; keep it until
+                // the user actually starts correcting the input.
+                if (createError) setCreateError(null);
+              }}
+              onDescriptionChange={setNewDescription}
+              onCategoryChange={setNewCategory}
+              onSubmit={() => void handleCreate()}
+              onCancel={handleCancelCreate}
+              focusTitle={focusFallbackTitle}
+            />
           }
         />
         </Dialog>

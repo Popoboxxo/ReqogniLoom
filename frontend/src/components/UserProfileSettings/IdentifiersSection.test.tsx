@@ -1,13 +1,15 @@
 /**
- * Issue #1094 — IdentifiersSection unit tests.
+ * Issue #1094 / #1096 — IdentifiersSection unit tests.
  *
  * Covers the two things this section on the profile page owns: the display
  * preference for readable ids, and the profile placement of the copy template
  * (the `<IdChip>` the whole app shares).
  *
- * The persistence gap is asserted too, in the sense that matters: the choice
- * survives a remount through `localStorage`, and the hint tells the user that
- * this is browser-local rather than a server-side preference.
+ * #1096 added persistence: the section is the writer for
+ * `GET/PATCH /api/v1/users/me/display-preferences/`. The tests below pin the
+ * server-backed lifecycle — load on mount, optimistic save, server value wins,
+ * rollback + visible error on a rejected save, and an explicit loading state —
+ * on top of the copy template from #1094.
  */
 
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -36,9 +38,13 @@ vi.mock("../../context/AuthContext", () => ({
   useAuth: () => mockUseAuth(),
 }));
 
+vi.mock("../../api/display-preferences", () => ({
+  displayPreferencesApi: { get: vi.fn(), update: vi.fn() },
+}));
+
 import { IdentifiersSection } from "./IdentifiersSection";
+import { displayPreferencesApi } from "../../api/display-preferences";
 import {
-  READABLE_IDS_STORAGE_KEY,
   READABLE_IDS_VISIBLE_DEFAULT,
   setReadableIdsVisible,
 } from "../../hooks/useReadableIdsVisible";
@@ -60,7 +66,16 @@ function signedInUser(): unknown {
   };
 }
 
+/** Render and wait until the initial GET has settled (no loading line). */
+async function renderSettled(): Promise<void> {
+  render(<IdentifiersSection />);
+  await waitFor(() => {
+    expect(screen.queryByTestId("identifiers-loading")).not.toBeInTheDocument();
+  });
+}
+
 beforeEach(() => {
+  vi.clearAllMocks();
   writeText.mockReset();
   writeText.mockResolvedValue(undefined);
   Object.defineProperty(navigator, "clipboard", {
@@ -69,54 +84,128 @@ beforeEach(() => {
   });
   mockUseAuth.mockReset();
   mockUseAuth.mockReturnValue({ user: signedInUser() });
+  // Server default: readable ids visible.
+  vi.mocked(displayPreferencesApi.get).mockResolvedValue({ show_readable_ids: true });
+  vi.mocked(displayPreferencesApi.update).mockImplementation(async (changes) => ({
+    show_readable_ids: changes.show_readable_ids ?? true,
+  }));
   setReadableIdsVisible(READABLE_IDS_VISIBLE_DEFAULT);
 });
 
 afterEach(() => {
-  window.localStorage?.removeItem?.(READABLE_IDS_STORAGE_KEY);
   setReadableIdsVisible(READABLE_IDS_VISIBLE_DEFAULT);
 });
 
 describe("IdentifiersSection (#1094)", () => {
-  it("renders the heading, the hint and the toggle", () => {
-    render(<IdentifiersSection />);
+  it("renders the heading, the hint and the toggle", async () => {
+    await renderSettled();
 
     expect(screen.getByTestId("identifiers-section")).toBeInTheDocument();
     expect(screen.getByText("Kennungen")).toBeInTheDocument();
     expect(screen.getByTestId("identifiers-show-readable")).toBeChecked();
   });
 
-  it("states the persistence gap instead of hiding it", () => {
-    // There is no display-preference endpoint in the repo (see the hook's
-    // header), so the user is told the choice is browser-local.
-    render(<IdentifiersSection />);
-    expect(screen.getByText(/nur in diesem Browser gespeichert/)).toBeInTheDocument();
+  it("tells the user the preference is account-scoped, not browser-local (#1096)", async () => {
+    await renderSettled();
+
+    expect(screen.getByText(/Benutzerkonto/)).toBeInTheDocument();
+    // The old browser-local disclaimer must be gone now that the server persists it.
+    expect(screen.queryByText(/nur in diesem Browser/)).not.toBeInTheDocument();
   });
 
-  it("hides the readable identifier when the toggle is switched off", () => {
-    render(<IdentifiersSection />);
+  it("hides the readable identifier when the toggle is switched off", async () => {
+    await renderSettled();
     expect(screen.getByTestId("identifiers-account-chip-value")).toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId("identifiers-show-readable"));
 
-    expect(screen.queryByTestId("identifiers-account-chip-value")).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.queryByTestId("identifiers-account-chip-value")).not.toBeInTheDocument();
+    });
     // The explanation follows the state.
     expect(screen.getByText(/Lesbare IDs sind ausgeblendet/)).toBeInTheDocument();
   });
 
-  it("keeps the choice across a remount", () => {
-    const { unmount } = render(<IdentifiersSection />);
-    fireEvent.click(screen.getByTestId("identifiers-show-readable"));
-    expect(window.localStorage.getItem(READABLE_IDS_STORAGE_KEY)).toBe("false");
-    unmount();
+  it("loads the preference from the server on mount", async () => {
+    vi.mocked(displayPreferencesApi.get).mockResolvedValue({ show_readable_ids: false });
 
-    render(<IdentifiersSection />);
+    await renderSettled();
+
+    expect(displayPreferencesApi.get).toHaveBeenCalledTimes(1);
     expect(screen.getByTestId("identifiers-show-readable")).not.toBeChecked();
     expect(screen.queryByTestId("identifiers-account-chip-value")).not.toBeInTheDocument();
   });
 
-  it("copies the account's system id and announces it", async () => {
+  it("saves a toggle through the endpoint with the new value", async () => {
+    await renderSettled();
+
+    fireEvent.click(screen.getByTestId("identifiers-show-readable"));
+
+    await waitFor(() => {
+      expect(displayPreferencesApi.update).toHaveBeenCalledWith({ show_readable_ids: false });
+    });
+  });
+
+  it("applies the server's returned value over the optimistic guess", async () => {
+    await renderSettled();
+    // The user hides it, but the server answers "still visible".
+    vi.mocked(displayPreferencesApi.update).mockResolvedValue({ show_readable_ids: true });
+
+    fireEvent.click(screen.getByTestId("identifiers-show-readable"));
+
+    await waitFor(() => {
+      expect(displayPreferencesApi.update).toHaveBeenCalledTimes(1);
+    });
+    expect(screen.getByTestId("identifiers-show-readable")).toBeChecked();
+    expect(screen.queryByTestId("identifiers-error")).not.toBeInTheDocument();
+  });
+
+  it("rolls back and shows an alert when the save is rejected", async () => {
+    await renderSettled();
+    vi.mocked(displayPreferencesApi.update).mockRejectedValue({
+      error: { message: "nope" },
+    });
+
+    fireEvent.click(screen.getByTestId("identifiers-show-readable"));
+
+    expect(await screen.findByTestId("identifiers-error")).toHaveTextContent("nope");
+    // The failed write must not survive as a silent local change.
+    expect(screen.getByTestId("identifiers-show-readable")).toBeChecked();
+  });
+
+  it("shows an alert when the initial load fails, without breaking the section", async () => {
+    vi.mocked(displayPreferencesApi.get).mockRejectedValue({ error: { message: "boom" } });
+
+    await renderSettled();
+
+    expect(screen.getByTestId("identifiers-error")).toHaveTextContent("boom");
+    // The section stays usable with the cached/default value.
+    expect(screen.getByTestId("identifiers-show-readable")).toBeInTheDocument();
+  });
+
+  it("shows an explicit loading state and disables the toggle until the GET settles", async () => {
+    let resolveGet: (value: { show_readable_ids: boolean }) => void = () => undefined;
+    vi.mocked(displayPreferencesApi.get).mockReturnValue(
+      new Promise((resolve) => {
+        resolveGet = resolve;
+      }),
+    );
+
     render(<IdentifiersSection />);
+
+    expect(screen.getByTestId("identifiers-loading")).toBeInTheDocument();
+    expect(screen.getByTestId("identifiers-show-readable")).toBeDisabled();
+
+    resolveGet({ show_readable_ids: false });
+
+    await waitFor(() => {
+      expect(screen.queryByTestId("identifiers-loading")).not.toBeInTheDocument();
+    });
+    expect(screen.getByTestId("identifiers-show-readable")).not.toBeChecked();
+  });
+
+  it("copies the account's system id and announces it", async () => {
+    await renderSettled();
 
     // The account's readable handle is its username — the same uid-vs-system-id
     // shape an artifact has, so the demonstration is the real behaviour.
@@ -132,19 +221,22 @@ describe("IdentifiersSection (#1094)", () => {
     );
   });
 
-  it("keeps the copy control available while the identifier is hidden", () => {
-    render(<IdentifiersSection />);
+  it("keeps the copy control available while the identifier is hidden", async () => {
+    await renderSettled();
     fireEvent.click(screen.getByTestId("identifiers-show-readable"));
 
+    await waitFor(() => {
+      expect(screen.queryByTestId("identifiers-account-chip-value")).not.toBeInTheDocument();
+    });
     expect(screen.getByTestId("identifiers-account-chip-copy")).toBeInTheDocument();
   });
 
-  it("shows a status line instead of an empty chip while the session is unresolved", () => {
+  it("shows a status line instead of an empty chip while the session is unresolved", async () => {
     // `AuthContext` resolves the session asynchronously; rendering a chip with
     // no identifier would read as "this account has no id".
     mockUseAuth.mockReturnValue({ user: null });
 
-    render(<IdentifiersSection />);
+    await renderSettled();
 
     const status = screen.getByTestId("identifiers-account-loading");
     expect(status).toHaveAttribute("role", "status");

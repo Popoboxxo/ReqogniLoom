@@ -1988,7 +1988,9 @@
     "showReadable": "Lesbare IDs anzeigen (z. B. REQ-001)",
     "readableShown": "Lesbare IDs werden angezeigt. Die System-ID bleibt zusätzlich kopierbar.",
     "readableHidden": "Lesbare IDs sind ausgeblendet. Die System-ID bleibt kopierbar.",
-    "persistenceNote": "Hinweis: Diese Einstellung wird nur in diesem Browser gespeichert. Für einen server-seitigen Benutzer-Vorzug wird noch ein eigener Endpunkt benötigt.",
+    "accountNote": "Diese Einstellung gehört zu Ihrem Benutzerkonto und gilt auf allen Geräten.",
+    "loading": "Einstellung wird geladen…",
+    "syncFailed": "Die Einstellung konnte nicht mit dem Server synchronisiert werden.",
     "accountLabel": "Ihr Konto",
     "accountUnavailable": "Konto wird geladen…"
   },

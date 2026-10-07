@@ -41,6 +41,7 @@ import type { ChainArtifact } from '../shared/TraceSpine';
 import { getArtifactRoute } from '../../utils/artifactRoutes';
 import { useEntityReset } from '../../hooks/use-entity-reset';
 import { useFormDirty } from '../../hooks/use-form-dirty';
+import { useSaveShortcut } from '../../hooks/useSaveShortcut';
 import { useNeedData } from './useNeedData';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { stakeholderNeedApi } from '../../api/stakeholder-need';
@@ -67,6 +68,9 @@ export default function NeedsEditors(): JSX.Element {
   const [newDescription, setNewDescription] = useState('');
   const [newCategory, setNewCategory] = useState('');
   const [createError, setCreateError] = useState<string | null>(null);
+  // #1100: in-flight guard for the create form, so `Ctrl`/`Cmd`+`S` held down
+  // cannot create the same need twice. The button is also disabled on it.
+  const [isCreating, setIsCreating] = useState(false);
 
   // Systemaudit 2026-08-27 UI-06: does the currently-open form have unsaved
   // local edits? Reported by NeedArtifactForm via onDirtyChange.
@@ -275,6 +279,7 @@ export default function NeedsEditors(): JSX.Element {
     if (!activeWorkspace || workspaces.length === 0) return;
     if (!newTitle.trim()) return;
     setCreateError(null);
+    setIsCreating(true);
     try {
       const resp = await stakeholderNeedApi.create(activeWorkspace.id, {
         title: newTitle.trim(),
@@ -292,8 +297,30 @@ export default function NeedsEditors(): JSX.Element {
       console.error(e);
       const msg = (e as { error?: { message?: string } })?.error?.message ?? t('needs.createFailed');
       setCreateError(msg);
+    } finally {
+      setIsCreating(false);
     }
   };
+
+  // #1100: the hand-written create dialog lives in NeedList, but the create
+  // state and handler live here — so this container opts the open dialog into
+  // the shared shortcut (see AdrEditors for the topmost-form rationale). While
+  // the dialog is open this handler wins over the detail form behind it.
+  // #1100 follow-up: the create form (in NeedList) is the shortcut's container,
+  // so a covering modal suspends it rather than saving behind the overlay.
+  const createFormRef = React.useRef<HTMLFormElement | null>(null);
+  useSaveShortcut({
+    onSave: handleCreateNew,
+    enabled: showCreate,
+    isSaving: isCreating,
+    containerRef: createFormRef,
+    // FR-U5-02 / a11y-U5-02: mirror the create submit button's own gate. An
+    // empty title must not reach a submit path that only early-returns
+    // silently; the chord is still swallowed, but `onSave` is not called
+    // (WCAG 3.3.1). Siblings (Adr/Risk/Issue/TestCase/Architecture) already
+    // pass this predicate.
+    canSave: (newTitle || '').trim().length > 0,
+  });
 
   // Shared by the PageHeader primary action and (formerly) the NeedList
   // "+ New" button — do not open the create form until real workspaces are
@@ -468,7 +495,9 @@ export default function NeedsEditors(): JSX.Element {
           setNewCategory={setNewCategory}
           onSubmitCreate={handleCreateNew}
           createError={createError}
+          isCreating={isCreating}
           onCreateClick={handleCreateNewClick}
+          createFormRef={createFormRef}
           onSelect={selectNeed}
         />
       }

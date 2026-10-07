@@ -344,6 +344,7 @@ _TENANT_SCOPED = {
     "UserPreferenceView": "caller's own preferences",
     "UserThemePreferenceView": "caller's own theme preference",
     "NotificationPreferenceView": "caller's own notification preferences",
+    "DisplayPreferenceView": "caller's own display preferences",
     "NotificationViewSet": "caller's own notification feed",
     "MemorySelfServiceView": "caller's own user-scoped memory",
     # tenant-wide configuration / catalogs
@@ -391,6 +392,7 @@ _TENANT_SCOPED = {
     "MetricsViewSet": "tenant-wide KPI read-model",
     "BundleCompressionStatusView": "async task status, tenant-owned",
     "ConsistencyStatusView": "async task status, tenant-owned",
+    "TraceabilitySuggestLinksStatusView": "async task status, tenant-owned",
     "scope_preview": "baseline scope preview",
     # admin / system operations
     "AdminRestoreView": "system-admin disaster recovery",

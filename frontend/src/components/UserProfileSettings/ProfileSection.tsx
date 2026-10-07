@@ -76,12 +76,20 @@ export function ProfileSection(): JSX.Element {
    * `isEditing`: in read mode there is nothing to save, and swallowing the
    * shortcut there would only deny the browser its own action.
    */
-  useSaveShortcut({ onSave: handleSave, enabled: isEditing, isSaving });
+  const sectionRef = useRef<HTMLElement | null>(null);
+  useSaveShortcut({
+    onSave: handleSave,
+    enabled: isEditing,
+    isSaving,
+    // #1100 follow-up: the section owns the shortcut, so a covering modal
+    // suspends it instead of saving the form behind the overlay.
+    containerRef: sectionRef,
+  });
 
   const displayName = [user?.first_name, user?.last_name].filter(Boolean).join(" ");
 
   return (
-    <section className={styles.section} data-testid="profile-section">
+    <section ref={sectionRef} className={styles.section} data-testid="profile-section">
       <h3 className={styles.heading}>{t("profile.nameHeading", "Name")}</h3>
 
       {error && (
