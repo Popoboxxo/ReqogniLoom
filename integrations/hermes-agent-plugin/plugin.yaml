@@ -1,5 +1,10 @@
 name: reqogniloom
 version: 0.2.0
+# Host-minimum per ADR-017: this POC artifact keeps its own SemVer (0.2.0).
+# minServerVersion is the lowest ReqogniLoom server version this plugin was
+# verified against (repo VERSION at the time); bump it only when the plugin
+# adopts newer server features — never sync it to the repo VERSION.
+minServerVersion: "1.8.0-beta.19"
 description: "ReqogniLoom in Hermes: interviews via /reqogniloom, a per-workspace dashboard tab, and an opt-in listen mode that proposes artifacts from what you say."
 author: "ReqogniLoom"
 # Declarative only — registration happens in register(ctx), guarded so the slash

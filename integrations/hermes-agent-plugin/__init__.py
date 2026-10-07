@@ -11,11 +11,14 @@ Three surfaces over one client (``reqogniloom_client.py``):
   (``/reqogniloom review``). Nothing is created silently: capture → propose →
   ``/reqogniloom accept``.
 
-Artifact reads and writes beyond the interview flow are deliberately **not**
-re-implemented here. The ReqogniLoom MCP server already gives the agent the full
-artifact surface (220 tools across 35 groups); a second, partial client would
-only drift from it. This plugin owns the interview flow, the dashboard tab and
-the listening mode — the places the MCP surface does not cover.
+Artifact reads and writes beyond this flow are deliberately **not**
+re-implemented here. The shared client (``reqogniloom_client.py``) speaks
+ReqogniLoom's native MCP server (``POST /mcp/``, ``X-API-Key``) for every
+operation — ``workspace.list``, the ``interview.*`` tools and the
+``requirement.query`` / ``test.query`` counts — so this plugin uses exactly the
+same tool surface the rest of the ecosystem does instead of maintaining a
+second, partial client that would drift from it. Only ``GET /api/v1/version/``
+stays on REST, because it is public and has no MCP tool.
 
 State lives in ``$HERMES_HOME/reqogniloom/state.json`` (see
 ``reqogniloom_state.py``): the current interview, the listen switch and its

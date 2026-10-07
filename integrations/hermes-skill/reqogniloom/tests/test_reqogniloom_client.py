@@ -23,7 +23,6 @@ import os
 import sys
 import unittest
 import urllib.error
-import urllib.parse
 import urllib.request
 from pathlib import Path
 from typing import Any
@@ -78,31 +77,6 @@ class _Recorder:
         return _FakeResponse(body)
 
 
-class _Routes:
-    """Answers each URL with its routed payload and records request details.
-
-    Keys are matched against the full request URL first, then against its
-    path, so both ``{base}/api/v1/workspaces/`` and a DRF ``next`` absolute URL
-    can be routed.
-    """
-
-    def __init__(self, routes: dict[str, Any]) -> None:
-        self.routes = routes
-        self.requests: list[urllib.request.Request] = []
-
-    def __call__(self, req: urllib.request.Request, timeout: float | None = None) -> _FakeResponse:
-        self.requests.append(req)
-        url = req.full_url
-        payload = self.routes.get(url)
-        if payload is None:
-            path = urllib.parse.urlsplit(url).path
-            payload = self.routes.get(path)
-        if payload is None:
-            raise AssertionError(f"unexpected request: {url}")
-        body = json.dumps(payload).encode("utf-8")
-        return _FakeResponse(body)
-
-
 def _sent_frame(recorder: Any) -> dict[str, Any]:
     """Return the JSON-RPC frame of the most recent recorded request."""
     return json.loads(recorder.requests[-1].data.decode("utf-8"))
@@ -114,8 +88,17 @@ def _mcp_params(recorder: Any) -> dict[str, Any]:
 
 
 def _ok_result(result: Any = None) -> dict[str, Any]:
-    """Wrap *result* in a successful JSON-RPC 2.0 response."""
-    return {"jsonrpc": "2.0", "id": 1, "result": result if result is not None else {"ok": True}}
+    """Wrap *result* in a successful MCP ``tools/call`` response.
+
+    The tool payload travels as the JSON string of ``content[0].text``, exactly
+    as the backend emits it; the client decodes that string back to *result*.
+    """
+    payload = result if result is not None else {"ok": True}
+    return {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": {"content": [{"type": "text", "text": json.dumps(payload)}]},
+    }
 
 
 def _run_memory(argv: list[str], payload: Any, env: dict[str, str] | None = None) -> tuple[int, Any, str, str]:
@@ -138,7 +121,7 @@ def _run_memory(argv: list[str], payload: Any, env: dict[str, str] | None = None
 
 def _http_error(code: int, body: str) -> urllib.error.HTTPError:
     return urllib.error.HTTPError(
-        url=f"{_BASE_URL}/api/v1/workspaces/",
+        url=f"{_BASE_URL}/mcp/",
         code=code,
         msg="boom",
         hdrs=None,
@@ -169,15 +152,43 @@ class NormalizeErrorTests(unittest.TestCase):
 
 
 class ListWorkspacesTests(unittest.TestCase):
-    def test_success_uses_get_and_x_api_key(self) -> None:
-        recorder = _Recorder({"count": 1, "results": [{"id": "ws-1"}]})
+    def test_success_uses_mcp_workspace_list(self) -> None:
+        recorder = _Recorder(
+            _ok_result({"workspaces": [{"id": "ws-1", "name": "W"}], "count": 1})
+        )
         with patch("urllib.request.urlopen", recorder):
             result = _client().list_workspaces()
-        self.assertEqual(result["results"][0]["id"], "ws-1")
+        self.assertEqual(result, {"count": 1, "workspaces": [{"id": "ws-1", "name": "W"}]})
         request = recorder.requests[0]
-        self.assertEqual(request.method, "GET")
-        self.assertEqual(request.full_url, f"{_BASE_URL}/api/v1/workspaces/")
+        self.assertEqual(request.method, "POST")
+        self.assertEqual(request.full_url, f"{_BASE_URL}/mcp/")
         self.assertEqual(request.get_header("X-api-key"), _API_KEY)
+        sent = json.loads(request.data.decode("utf-8"))
+        self.assertEqual(sent["method"], "tools/call")
+        self.assertEqual(sent["params"], {"name": "workspace.list", "arguments": {}})
+
+    def test_count_falls_back_to_list_length(self) -> None:
+        recorder = _Recorder(_ok_result({"workspaces": [{"id": "ws-1"}, {"id": "ws-2"}]}))
+        with patch("urllib.request.urlopen", recorder):
+            result = _client().list_workspaces()
+        self.assertEqual(result["count"], 2)
+        self.assertEqual(len(result["workspaces"]), 2)
+
+    def test_bare_list_payload_is_normalised(self) -> None:
+        recorder = _Recorder(_ok_result([{"id": "ws-1"}, {"id": "ws-2"}]))
+        with patch("urllib.request.urlopen", recorder):
+            result = _client().list_workspaces()
+        self.assertEqual(
+            result, {"count": 2, "workspaces": [{"id": "ws-1"}, {"id": "ws-2"}]}
+        )
+
+    def test_unexpected_shape_raises(self) -> None:
+        recorder = _Recorder(_ok_result({"items": []}))
+        with patch("urllib.request.urlopen", recorder), self.assertRaises(
+            client_mod.ReqogniLoomError
+        ) as ctx:
+            _client().list_workspaces()
+        self.assertIn("workspace.list", str(ctx.exception))
 
     def test_nested_error_shape_on_http_error_is_normalised(self) -> None:
         error = _http_error(
@@ -198,7 +209,7 @@ class ListWorkspacesTests(unittest.TestCase):
         self.assertEqual(str(ctx.exception), "invalid_api_key: Invalid API key.")
 
     def test_missing_api_key_raises_before_sending(self) -> None:
-        recorder = _Recorder({"results": []})
+        recorder = _Recorder(_ok_result({"workspaces": []}))
         client = client_mod.ReqogniLoomClient(base_url=_BASE_URL, api_key="")
         with patch("urllib.request.urlopen", recorder), self.assertRaises(
             client_mod.ReqogniLoomError
@@ -210,14 +221,13 @@ class ListWorkspacesTests(unittest.TestCase):
 
 class McpTests(unittest.TestCase):
     def test_success_builds_tools_call_frame(self) -> None:
-        recorder = _Recorder(
-            {"jsonrpc": "2.0", "id": 1, "result": {"content": [{"type": "text", "text": "42"}]}}
-        )
+        recorder = _Recorder(_ok_result({"value": 42}))
         with patch("urllib.request.urlopen", recorder):
             result = client_mod.extract_mcp_result(
-                _client().call_mcp("requirement.query", {"workspace_id": "ws-1"})
+                _client().call_mcp("requirement.query", {"workspace_id": "ws-1"}),
+                "requirement.query",
             )
-        self.assertEqual(result, {"content": [{"type": "text", "text": "42"}]})
+        self.assertEqual(result, {"value": 42})
         request = recorder.requests[0]
         self.assertEqual(request.method, "POST")
         self.assertEqual(request.full_url, f"{_BASE_URL}/mcp/")
@@ -229,6 +239,52 @@ class McpTests(unittest.TestCase):
             sent["params"], {"name": "requirement.query", "arguments": {"workspace_id": "ws-1"}}
         )
         self.assertIn("id", sent)
+
+    def test_content_text_is_decoded(self) -> None:
+        payload = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {"content": [{"type": "text", "text": '{"digest": "sum"}'}]},
+        }
+        self.assertEqual(client_mod.extract_mcp_result(payload), {"digest": "sum"})
+
+    def test_missing_content_blocks_raises(self) -> None:
+        payload = {"jsonrpc": "2.0", "id": 1, "result": {"isError": False}}
+        with self.assertRaises(client_mod.ReqogniLoomError) as ctx:
+            client_mod.extract_mcp_result(payload, "some.tool")
+        self.assertIn("some.tool", str(ctx.exception))
+        self.assertIn("no content blocks", str(ctx.exception))
+
+    def test_empty_content_blocks_raises(self) -> None:
+        payload = {"jsonrpc": "2.0", "id": 1, "result": {"content": []}}
+        with self.assertRaises(client_mod.ReqogniLoomError):
+            client_mod.extract_mcp_result(payload)
+
+    def test_non_json_content_raises(self) -> None:
+        payload = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {"content": [{"type": "text", "text": "not-json"}]},
+        }
+        with self.assertRaises(client_mod.ReqogniLoomError) as ctx:
+            client_mod.extract_mcp_result(payload, "some.tool")
+        self.assertIn("non-JSON MCP content for some.tool", str(ctx.exception))
+
+    def test_content_block_without_text_raises(self) -> None:
+        payload = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {"content": [{"type": "text"}]},
+        }
+        with self.assertRaises(client_mod.ReqogniLoomError) as ctx:
+            client_mod.extract_mcp_result(payload)
+        self.assertIn("no text", str(ctx.exception))
+
+    def test_non_object_result_raises(self) -> None:
+        payload = {"jsonrpc": "2.0", "id": 1, "result": "oops"}
+        with self.assertRaises(client_mod.ReqogniLoomError) as ctx:
+            client_mod.extract_mcp_result(payload)
+        self.assertIn("not an object", str(ctx.exception))
 
     def test_jsonrpc_nested_error_at_http_200_is_raised(self) -> None:
         payload = {
@@ -262,7 +318,7 @@ class McpTests(unittest.TestCase):
 
 class CommandLineTests(unittest.TestCase):
     def test_success_prints_result_and_returns_zero(self) -> None:
-        recorder = _Recorder({"count": 0, "results": []})
+        recorder = _Recorder(_ok_result({"workspaces": [], "count": 0}))
         out = io.StringIO()
         env = {"REQOGNILOOM_BASE_URL": _BASE_URL, "REQOGNILOOM_API_KEY": _API_KEY}
         with patch.dict(os.environ, env, clear=False), patch(
@@ -270,7 +326,9 @@ class CommandLineTests(unittest.TestCase):
         ), contextlib.redirect_stdout(out):
             rc = client_mod.main(["list-workspaces"])
         self.assertEqual(rc, 0)
-        self.assertEqual(json.loads(out.getvalue())["count"], 0)
+        printed = json.loads(out.getvalue())
+        self.assertEqual(printed["count"], 0)
+        self.assertEqual(printed["workspaces"], [])
 
     def test_missing_api_key_returns_one_without_traceback(self) -> None:
         err = io.StringIO()
@@ -786,90 +844,6 @@ class MemoryWriteTests(unittest.TestCase):
         )
         self.assertEqual(rc, 1)
         self.assertIn("VALIDATION_ERROR", err)
-
-
-class PaginationTests(unittest.TestCase):
-    def test_list_workspaces_follows_next_across_pages(self) -> None:
-        routes = _Routes(
-            {
-                f"{_BASE_URL}/api/v1/workspaces/": {
-                    "count": 3,
-                    "next": f"{_BASE_URL}/api/v1/workspaces/?page=2",
-                    "previous": None,
-                    "results": [{"id": "ws-1"}, {"id": "ws-2"}],
-                },
-                f"{_BASE_URL}/api/v1/workspaces/?page=2": {
-                    "count": 3,
-                    "next": None,
-                    "previous": f"{_BASE_URL}/api/v1/workspaces/",
-                    "results": [{"id": "ws-3"}],
-                },
-            }
-        )
-        env = {
-            "REQOGNILOOM_BASE_URL": _BASE_URL,
-            "REQOGNILOOM_API_KEY": _API_KEY,
-            "REQOGNILOOM_WORKSPACE_ID": "",
-        }
-        out = io.StringIO()
-        with patch.dict(os.environ, env, clear=False), patch(
-            "urllib.request.urlopen", routes
-        ), contextlib.redirect_stdout(out):
-            rc = client_mod.main(["list-workspaces"])
-        self.assertEqual(rc, 0)
-        self.assertEqual(len(routes.requests), 2)
-        result = json.loads(out.getvalue())
-        self.assertEqual([w["id"] for w in result["results"]], ["ws-1", "ws-2", "ws-3"])
-        self.assertEqual(result["count"], 3)
-        self.assertIsNone(result["next"])
-
-    def test_list_workspaces_stops_on_repeated_next(self) -> None:
-        loop_url = f"{_BASE_URL}/api/v1/workspaces/?page=2"
-        routes = _Routes(
-            {
-                f"{_BASE_URL}/api/v1/workspaces/": {
-                    "count": 2,
-                    "next": loop_url,
-                    "previous": None,
-                    "results": [{"id": "ws-1"}],
-                },
-                loop_url: {
-                    "count": 2,
-                    "next": loop_url,
-                    "previous": None,
-                    "results": [{"id": "ws-2"}],
-                },
-            }
-        )
-        env = {
-            "REQOGNILOOM_BASE_URL": _BASE_URL,
-            "REQOGNILOOM_API_KEY": _API_KEY,
-            "REQOGNILOOM_WORKSPACE_ID": "",
-        }
-        out = io.StringIO()
-        with patch.dict(os.environ, env, clear=False), patch(
-            "urllib.request.urlopen", routes
-        ), contextlib.redirect_stdout(out):
-            rc = client_mod.main(["list-workspaces"])
-        self.assertEqual(rc, 0)
-        self.assertEqual(len(routes.requests), 2)
-        result = json.loads(out.getvalue())
-        self.assertEqual([w["id"] for w in result["results"]], ["ws-1", "ws-2"])
-
-    def test_bare_array_is_concatenated(self) -> None:
-        route = _Routes({f"{_BASE_URL}/api/v1/workspaces/": [{"id": "ws-1"}, {"id": "ws-2"}]})
-        env = {
-            "REQOGNILOOM_BASE_URL": _BASE_URL,
-            "REQOGNILOOM_API_KEY": _API_KEY,
-            "REQOGNILOOM_WORKSPACE_ID": "",
-        }
-        out = io.StringIO()
-        with patch.dict(os.environ, env, clear=False), patch(
-            "urllib.request.urlopen", route
-        ), contextlib.redirect_stdout(out):
-            rc = client_mod.main(["list-workspaces"])
-        self.assertEqual(rc, 0)
-        self.assertEqual(json.loads(out.getvalue()), [{"id": "ws-1"}, {"id": "ws-2"}])
 
 
 if __name__ == "__main__":

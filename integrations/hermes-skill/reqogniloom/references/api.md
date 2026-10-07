@@ -1,7 +1,7 @@
 # ReqogniLoom API surface (Hermes skill connector)
 
-Minimal reference for the REST and MCP calls this skill makes. Full schema:
-`GET <base>/api/schema/` (OpenAPI) and `docs/agent-templates/tool-manifest.json` (MCP tools).
+Minimal reference for the MCP calls this skill makes. Full schema:
+`docs/agent-templates/tool-manifest.json` (MCP tools).
 
 ## Environment variables
 
@@ -15,20 +15,25 @@ No secret is ever hardcoded; only the environment is read.
 
 ## Authentication
 
-Every call sends `X-API-Key: <reqlo_...>`. The REST layer accepts it with
-precedence over `Authorization: Bearer` (`backend/auth_tenancy/rest.py`), and the
-MCP HTTP transport reads it from the same header (`backend/mcp_server/protocol_handler.py`).
+Every call sends `X-API-Key: <reqlo_...>`. The MCP HTTP transport reads it from
+that header (`backend/mcp_server/protocol_handler.py`). A missing key fails
+client-side before any request is sent.
 
 ## Endpoints
 
-### `GET /api/v1/workspaces/`
+### MCP `workspace.list`
 
-Lists the workspaces visible to the key. Returns a DRF page
-`{"count": N, "next": ..., "results": [...]}` or a bare array. The client
-follows `next` to the last page (guarding against a repeated `next`) and merges
-every page into one page dict — `results` concatenated, `next` cleared,
-`count`/`previous` kept — or into one array when the endpoint returns a bare
-array.
+Lists the workspaces visible to the key. Arguments are optional
+(`include_inactive`, default `false`; the CLI subcommand sends none). The tool
+returns the whole collection in one call — there is no pagination to follow.
+Its decoded payload is:
+
+```json
+{ "workspaces": [{ "id": "...", "name": "...", "description": "..." }], "count": 3 }
+```
+
+`list-workspaces` normalises this to `{"count": N, "workspaces": [...]}` (the
+`count` falls back to the list length when the server omits it).
 
 ### `POST /mcp/`
 
@@ -46,6 +51,16 @@ JSON-RPC 2.0. A tool call is:
 `protocol_handler.py` reads the tool name from `params.name` and the arguments
 from `params.arguments` for `tools/call`. Other methods (`tools/list`,
 `initialize`, `ping`) exist but are not used here.
+
+A successful result carries its payload as a JSON string in the first MCP
+content block, and the client decodes it before printing:
+
+```json
+{ "result": { "content": [ { "type": "text", "text": "{\"workspaces\": [], \"count\": 0}" } ] } }
+```
+
+Missing/empty content blocks or non-JSON text raise a normalised client error
+rather than leaking the raw envelope.
 
 ## Memory tools
 
@@ -94,7 +109,7 @@ this connector.
 
 ## Error shapes (both normalised to `code: message`)
 
-Nested — the REST envelope and JSON-RPC error frames:
+Nested — JSON-RPC error frames (and the legacy REST envelope):
 
 ```json
 { "error": { "code": "invalid_api_key", "message": "Invalid API key." } }

@@ -1,6 +1,6 @@
 ---
 name: reqogniloom
-description: REST and MCP client for ReqogniLoom from Hermes.
+description: MCP client for ReqogniLoom from Hermes.
 version: 0.1.0
 author: ReqogniLoom
 license: MIT
@@ -15,14 +15,13 @@ metadata:
       - requirements
       - traceability
       - mcp
-      - rest
       - integration
 ---
 
 # ReqogniLoom connector
 
 Small stdlib-only connector that lets this skill talk to a ReqogniLoom instance
-over its REST API and its native MCP server. It works on every Hermes surface —
+over its native MCP server (JSON-RPC 2.0). It works on every Hermes surface —
 TUI, web, CLI and desktop — because it depends on nothing beyond the Python
 standard library.
 
@@ -46,7 +45,7 @@ in the skill itself.
 Run the client from this skill directory with `python`:
 
 ```bash
-# List the workspaces the key can see (REST, all DRF pages are followed)
+# List the workspaces the key can see (MCP workspace.list)
 python scripts/reqogniloom_client.py list-workspaces
 
 # Call any MCP tool with a JSON argument object
@@ -55,11 +54,12 @@ python scripts/reqogniloom_client.py mcp --tool requirement.query \
 ```
 
 `--tool` is the MCP tool name; `--params` must be a JSON object (default `{}`).
-Results are printed to stdout as readable JSON. Any failure — transport error,
-REST error envelope, JSON-RPC protocol error (natural non-200 HTTP status), or
-an MCP tool-execution error (`HTTP 200` with `result.isError`) — is printed as a
-single normalised `code: message` line on stderr and the process exits with code
-`1`, never with a traceback.
+Results are printed to stdout as readable JSON — the `content[0].text` JSON
+block of an MCP result is decoded first, so you see the tool payload, not the
+raw MCP envelope. Any failure — transport error, JSON-RPC protocol error
+(natural non-200 HTTP status), or an MCP tool-execution error (`HTTP 200` with
+`result.isError`) — is printed as a single normalised `code: message` line on
+stderr and the process exits with code `1`, never with a traceback.
 
 ## Memory
 
@@ -110,5 +110,6 @@ frames the call — it never confirms on the user's behalf.
 The "memory → proposed artifact" stage is **P4** (see the bugfix hub plan) and
 is intentionally not implemented here.
 
-See [references/api.md](references/api.md) for the endpoints, the auth header,
-both error shapes, the exact JSON-RPC frame and every memory tool argument.
+See [references/api.md](references/api.md) for the MCP tool surface, the auth
+header, both error shapes, the exact JSON-RPC frame, the content-block decoding
+and every memory tool argument.

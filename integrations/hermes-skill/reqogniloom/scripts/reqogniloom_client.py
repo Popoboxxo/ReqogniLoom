@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Command-line connector for ReqogniLoom over REST and MCP.
+"""Command-line connector for ReqogniLoom over its native MCP server.
 
 Loaded as a Hermes skill script and usable from any surface (TUI, web, CLI,
 desktop). Standard library only, so it runs wherever Hermes runs.
@@ -34,8 +34,11 @@ from typing import Any
 
 DEFAULT_BASE_URL = "http://localhost:8001"
 REQUEST_TIMEOUT_SECONDS = 10
-WORKSPACES_PATH = "/api/v1/workspaces/"
 MCP_PATH = "/mcp/"
+
+#: MCP tool listing the workspaces visible to the API key. Replaces the old
+#: DRF ``GET /api/v1/workspaces/`` call, so the connector speaks one surface.
+WORKSPACE_LIST_TOOL = "workspace.list"
 
 EXIT_OK = 0
 EXIT_ERROR = 1
@@ -74,8 +77,8 @@ def _join_error(code: Any, message: Any) -> str:
 def normalize_error(payload: Any) -> str | None:
     """Normalise either server error shape to ``code: message``, else ``None``.
 
-    * nested: ``{"error": {"code": ..., "message": ...}}`` (REST envelope and
-      JSON-RPC error frames)
+    * nested: ``{"error": {"code": ..., "message": ...}}`` (JSON-RPC error
+      frames, plus the legacy REST envelope)
     * flat:   ``{"error": "invalid_api_key", "message": ...}``
     """
     if not isinstance(payload, dict):
@@ -112,8 +115,39 @@ def _mcp_error_text(result: dict[str, Any]) -> str:
     return "tool reported an error"
 
 
-def extract_mcp_result(payload: Any) -> Any:
-    """Return the printable ``result`` of a JSON-RPC response.
+def _decode_content(result: dict[str, Any], tool: str) -> Any:
+    """Decode the JSON payload of a successful MCP ``tools/call`` result.
+
+    The backend emits only ``content`` text blocks (no ``structuredContent``),
+    so the data has to be parsed out of the first block's ``text`` string. A
+    missing/empty content list or non-JSON text is a protocol violation, not an
+    empty result, and raises rather than printing a raw content block.
+    """
+    content = result.get("content")
+    if not isinstance(content, list) or not content:
+        raise ReqogniLoomError(
+            f"unexpected MCP result for {tool}: no content blocks"
+        )
+    block = content[0]
+    text = block.get("text") if isinstance(block, dict) else None
+    if not isinstance(text, str):
+        raise ReqogniLoomError(
+            f"unexpected MCP result for {tool}: first content block has no text"
+        )
+    try:
+        return json.loads(text)
+    except (json.JSONDecodeError, ValueError) as exc:
+        raise ReqogniLoomError(
+            f"non-JSON MCP content for {tool}: {text[:200]!r}"
+        ) from exc
+
+
+def extract_mcp_result(payload: Any, tool: str = "") -> Any:
+    """Return the decoded tool payload of a JSON-RPC response.
+
+    The ``result.content[0].text`` JSON block is decoded here, so every caller
+    (``mcp``, the memory commands and ``list-workspaces``) prints the tool
+    payload rather than the raw MCP content envelope.
 
     Raises :class:`ReqogniLoomError` for JSON-RPC error frames and for MCP
     tool-execution errors. Tool-execution errors arrive as HTTP 200 with
@@ -128,7 +162,11 @@ def extract_mcp_result(payload: Any) -> Any:
     result = payload["result"]
     if isinstance(result, dict) and result.get("isError") is True:
         raise ReqogniLoomError(_mcp_error_text(result))
-    return result
+    if not isinstance(result, dict):
+        raise ReqogniLoomError(
+            f"unexpected MCP result for {tool or 'the tool'}: not an object"
+        )
+    return _decode_content(result, tool or "the tool")
 
 
 def parse_params(raw: str) -> dict[str, Any]:
@@ -173,21 +211,30 @@ def _decode_json(raw: str, url: str) -> Any:
         raise ReqogniLoomError(f"non-JSON response from {url}") from exc
 
 
-def _list_items(payload: Any) -> list[Any] | None:
-    """Return the item list of a DRF page or bare array, else ``None``.
+def _workspaces_payload(payload: Any) -> dict[str, Any]:
+    """Normalise a ``workspace.list`` payload to ``{"count", "workspaces"}``.
 
-    ``None`` means the payload is not a collection shape, so callers should
-    not try to paginate it.
+    The MCP tool returns every workspace in one call (there is no DRF
+    pagination to follow any more), so the connector always emits the same
+    shape. A bare list is tolerated for symmetry with list-style tools; any
+    other shape is a server error, not an empty collection.
     """
+    if isinstance(payload, dict) and isinstance(payload.get("workspaces"), list):
+        workspaces = payload["workspaces"]
+        count = payload.get("count")
+        if not isinstance(count, int):
+            count = len(workspaces)
+        return {"count": count, "workspaces": workspaces}
     if isinstance(payload, list):
-        return payload
-    if isinstance(payload, dict) and isinstance(payload.get("results"), list):
-        return payload["results"]
-    return None
+        return {"count": len(payload), "workspaces": payload}
+    raise ReqogniLoomError(
+        "unexpected workspace.list response: expected an object with a "
+        f"'workspaces' list, got {type(payload).__name__}"
+    )
 
 
 class ReqogniLoomClient:
-    """Minimal REST/MCP client bound to environment configuration.
+    """Minimal MCP client bound to environment configuration.
 
     ``base_url``, ``api_key`` and ``workspace_id`` may be passed explicitly
     (used by tests); otherwise they are read from the environment.
@@ -231,41 +278,17 @@ class ReqogniLoomClient:
             raise ReqogniLoomError(f"could not read {url}: {exc}") from exc
         return _decode_json(raw, url)
 
-    def list_workspaces(self) -> Any:
-        """GET /api/v1/workspaces/ following DRF ``next`` to the last page.
+    def list_workspaces(self) -> dict[str, Any]:
+        """MCP ``workspace.list`` - workspaces visible to this API key.
 
-        DRF paginates this collection, so a single request only ever sees the
-        first page. A page-shaped response is merged back into one page dict
-        (``results`` concatenated, ``next`` cleared, ``count``/``previous``
-        kept); a bare array is concatenated into one list. A repeated ``next``
-        ends the loop, so a misbehaving server cannot spin it forever.
+        The MCP tool returns the whole collection in one call, so no
+        pagination is followed. The result is normalised to
+        ``{"count": N, "workspaces": [...]}``.
         """
-        seen: set[str] = set()
-        next_ref: str | None = WORKSPACES_PATH
-        items: list[Any] = []
-        page: dict[str, Any] | None = None
-        while next_ref:
-            if next_ref in seen:
-                break
-            seen.add(next_ref)
-            payload = self._request("GET", next_ref)
-            raise_for_error(payload)
-            page_items = _list_items(payload)
-            if page_items is None:
-                # Not a collection shape (single object or unexpected body):
-                # return it untouched rather than fabricating a list.
-                return payload
-            if isinstance(payload, dict) and page is None:
-                page = {key: value for key, value in payload.items() if key != "results"}
-            items.extend(page_items)
-            candidate = payload.get("next") if isinstance(payload, dict) else None
-            next_ref = candidate if isinstance(candidate, str) and candidate else None
-        if page is None:
-            # Only bare arrays were seen (or nothing at all).
-            return items
-        page["next"] = None
-        page["results"] = items
-        return page
+        payload = extract_mcp_result(
+            self.call_mcp(WORKSPACE_LIST_TOOL, {}), WORKSPACE_LIST_TOOL
+        )
+        return _workspaces_payload(payload)
 
     def call_mcp(self, tool: str, params: dict[str, Any] | None = None) -> Any:
         """POST /mcp/ with a JSON-RPC 2.0 ``tools/call`` request.
@@ -306,7 +329,7 @@ def build_parser() -> argparse.ArgumentParser:
     """Build the argument parser for the command-line interface."""
     parser = argparse.ArgumentParser(
         prog="reqogniloom_client",
-        description="Talk to ReqogniLoom over REST and MCP (stdlib only).",
+        description="Talk to ReqogniLoom over its MCP server (stdlib only).",
     )
     parser.add_argument(
         "--workspace-id",
@@ -316,7 +339,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="Default workspace UUID (falls back to REQOGNILOOM_WORKSPACE_ID).",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
-    subparsers.add_parser("list-workspaces", help="GET /api/v1/workspaces/")
+    subparsers.add_parser(
+        "list-workspaces", help="List workspaces via MCP workspace.list"
+    )
     mcp_parser = subparsers.add_parser("mcp", help="Call an MCP tool via POST /mcp/")
     mcp_parser.add_argument("--tool", required=True, help="MCP tool name")
     mcp_parser.add_argument(
@@ -559,12 +584,12 @@ def main(argv: list | None = None) -> int:
             result = client.list_workspaces()
         elif args.command == "mcp":
             result = extract_mcp_result(
-                client.call_mcp(args.tool, parse_params(args.params))
+                client.call_mcp(args.tool, parse_params(args.params)), args.tool
             )
         else:
             tool = MEMORY_COMMAND_TOOLS[args.command]
             result = extract_mcp_result(
-                client.call_mcp(tool, _memory_arguments(args, client))
+                client.call_mcp(tool, _memory_arguments(args, client)), tool
             )
     except ReqogniLoomError as exc:
         print(f"reqogniloom: error: {exc}", file=sys.stderr)

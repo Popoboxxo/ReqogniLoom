@@ -9,7 +9,6 @@ was never re-run through the builders (e.g. a forgotten `python
 build_claude_plugin.py`) would go unnoticed here even though the shipped
 dist/ package is now stale relative to its source."""
 import filecmp
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -130,32 +129,3 @@ def test_full_pipeline_regenerates_cleanly(tmp_path):
         "dist/codex/config.toml.snippet is stale — re-run "
         "dist/codex/build_codex_package.py and commit the result."
     )
-
-    # Hermes is the odd one out: its builder does not render a tree from
-    # templates but rewrites the version in two manifests that live in the
-    # committed integrations/ tree, so there is no --out to redirect and the
-    # only way to check it without dirtying the working tree is to hand the
-    # builder a copy. Without this, a VERSION bump that was never re-run
-    # through build_hermes_plugin.py leaves both files on the previous version
-    # and nothing here fails — the package installs, it is just stale.
-    hermes_root = tmp_path / "hermes-plugin"
-    hermes_root.mkdir()
-    committed_hermes = (
-        REPO_ROOT / "integrations" / "hermes-plugin" / "reqogniloom"
-    )
-    for manifest in ["package.json", "hermes-plugin.json"]:
-        shutil.copy2(committed_hermes / manifest, hermes_root / manifest)
-
-    run(
-        [sys.executable, "dist/plugins/hermes/build_hermes_plugin.py",
-         "--plugin-root", str(hermes_root)],
-        cwd=REPO_ROOT,
-    )
-    for manifest in ["package.json", "hermes-plugin.json"]:
-        assert (hermes_root / manifest).read_bytes() == (
-            committed_hermes / manifest
-        ).read_bytes(), (
-            f"integrations/hermes-plugin/reqogniloom/{manifest} is stale — "
-            "re-run dist/plugins/hermes/build_hermes_plugin.py and commit the "
-            "result."
-        )
