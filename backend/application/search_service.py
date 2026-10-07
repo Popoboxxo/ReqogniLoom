@@ -59,9 +59,7 @@ from dataclasses import replace as dataclass_replace
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
-from django.db import transaction
 from django.db.models import F
-from pgvector.django import CosineDistance
 
 from auth_tenancy.context import AuthContext
 
@@ -69,6 +67,7 @@ from auth_tenancy.context import AuthContext
 TenantContext = AuthContext
 
 from application.base import ServiceBase, ValidationError
+from application.vector_port import VectorHit, get_vector_port
 from llm_adapter.embedding_service import generate_embedding
 from persistence.custom_fields import coerce_custom_fields
 from persistence.models import Requirement, TraceLink
@@ -147,6 +146,17 @@ _RRF_K = 60
 # supporting index bounds an unbounded scan/sort otherwise — the HNSW index
 # does bound the *cost* here, but we still only need the top few dozen).
 _SEMANTIC_TOP_K = 50
+
+#: ORM path the semantic pass filters a type's rows by when a workspace is
+#: supplied. Requirement joins through ``pl_artifact`` (NOT the denormalized
+#: ``Requirement.workspace`` field -- see the port call in _run_semantic_query);
+#: TraceLink has no workspace of its own and resolves through ``source``; Icd
+#: carries ``workspace_id`` directly. ``None`` for a type with no such field.
+_SEMANTIC_WORKSPACE_FIELDS: Dict[str, Optional[str]] = {
+    "Requirement": "artifact__workspace_id",
+    "TraceLink": "source__workspace_id",
+    "Icd": "workspace_id",
+}
 
 
 @dataclass(frozen=True)
@@ -515,6 +525,88 @@ def _embedding_field_dimensions(entity_type: str) -> Optional[int]:
     return None
 
 
+def _semantic_search_hits(entity_type: str, hits: List[VectorHit]) -> List[SearchHit]:
+    """Hydrate port hits (id + distance) into SearchHit DTOs for *entity_type*.
+
+    The port returns only the nearest ids and their cosine distances, so the
+    rows are re-fetched by id and reordered to the port's closest-first order.
+    Each type resolves the same fields its pre-port branch did: Requirement's
+    ``title``/``description`` and its workspace through ``pl_artifact``;
+    TraceLink's synthetic ``<type>: <source> -> <target>`` title and workspace
+    through ``source``; Icd's name/description and own ``workspace_id``.
+    """
+    if not hits:
+        return []
+    ids = [hit.id for hit in hits]
+
+    if entity_type == "Requirement":
+        rows = {
+            row.id: row
+            for row in Requirement.objects.filter(id__in=ids).annotate(
+                ws_id=F("artifact__workspace_id")
+            )
+        }
+        return [
+            SearchHit(
+                id=str(hit.id),
+                artifact_type=entity_type,
+                title=rows[hit.id].title or "",
+                description=rows[hit.id].description or "",
+                relevance_score=_normalize_cosine_similarity(float(hit.distance)),
+                workspace_id=str(rows[hit.id].ws_id) if rows[hit.id].ws_id else "",
+            )
+            for hit in hits
+            if hit.id in rows
+        ]
+
+    if entity_type == "TraceLink":
+        rows = {
+            row.id: row
+            for row in TraceLink.objects.filter(id__in=ids).annotate(
+                ws_id=F("source__workspace_id")
+            )
+        }
+        return [
+            SearchHit(
+                id=str(hit.id),
+                artifact_type=entity_type,
+                title=(
+                    f"{rows[hit.id].link_type}: "
+                    f"{rows[hit.id].source_id} -> {rows[hit.id].target_id}"
+                ),
+                description="",
+                relevance_score=_normalize_cosine_similarity(float(hit.distance)),
+                workspace_id=str(rows[hit.id].ws_id) if rows[hit.id].ws_id else "",
+            )
+            for hit in hits
+            if hit.id in rows
+        ]
+
+    if entity_type == "Icd":
+        # Local import: icd is an Ext-layer app (see _embedding_field_dimensions).
+        from icd.models import Icd
+
+        rows = {row.id: row for row in Icd.unscoped.filter(id__in=ids)}
+        return [
+            SearchHit(
+                id=str(hit.id),
+                artifact_type=entity_type,
+                title=(
+                    (rows[hit.id].name or rows[hit.id].semantic_description or "ICD")[:200]
+                ),
+                description=rows[hit.id].semantic_description or "",
+                relevance_score=_normalize_cosine_similarity(float(hit.distance)),
+                workspace_id=(
+                    str(rows[hit.id].workspace_id) if rows[hit.id].workspace_id else ""
+                ),
+            )
+            for hit in hits
+            if hit.id in rows
+        ]
+
+    return []
+
+
 def _run_semantic_query(
     entity_type: str,
     query_embedding: Optional[List[float]],
@@ -527,11 +619,11 @@ def _run_semantic_query(
     ``embedding`` VectorField today -- everything else (and a missing/empty
     ``query_embedding``, e.g. no embedding provider configured) returns [].
 
-    Uses the Django ORM + pgvector's ``CosineDistance`` (mirroring
-    ``memory.backends.PgvectorMemoryBackend.query()``), NOT the raw-SQL
-    ``_TableSpec`` machinery the fulltext/lexical passes use above: pgvector's
-    cosine-distance operator needs the ORM's vector-aware query compiler, and
-    ``_TableSpec`` only ever described plain string/id columns.
+    Uses the :class:`application.vector_port.VectorPort` (pgvector adapter by
+    default, mirroring ``memory.backends.PgvectorMemoryBackend.query()``), NOT
+    the raw-SQL ``_TableSpec`` machinery the fulltext/lexical passes use above:
+    the cosine-distance operator needs the ORM's vector-aware query compiler,
+    and ``_TableSpec`` only ever described plain string/id columns.
 
     Degrades to [] on ANY error and NEVER raises -- REQ-L3-SEARCH-009's
     "degrade gracefully" precedent (same philosophy as
@@ -546,13 +638,13 @@ def _run_semantic_query(
     resizing the columns. Semantic search must never take fulltext/lexical
     results down with it when that happens.
 
-    The whole query additionally runs inside its own ``transaction.atomic()``
-    savepoint: a dimension-mismatch error is a real Postgres-level error
-    (``DataError``/``InternalError``, not a Python-level one), and an
-    uncaught DB error inside an ambient transaction leaves that *transaction*
-    aborted -- every subsequent query on the same connection would then raise
-    "current transaction is aborted" until a rollback happens, silently
-    breaking whichever entity types are searched *after* this one in
+    The pgvector adapter runs the query inside its own ``transaction.atomic()``
+    savepoint (the port owns it now): a dimension-mismatch error is a real
+    Postgres-level error (``DataError``/``InternalError``, not a Python-level
+    one), and an uncaught DB error inside an ambient transaction leaves that
+    *transaction* aborted -- every subsequent query on the same connection
+    would then raise "current transaction is aborted" until a rollback happens,
+    silently breaking whichever entity types are searched *after* this one in
     :meth:`SearchService.search`'s loop (e.g. under pytest-django, which wraps
     each test in one transaction, or any production caller that wraps
     ``search()`` in its own ``atomic()`` block). The savepoint means only this
@@ -584,107 +676,28 @@ def _run_semantic_query(
         return []
 
     def _dispatch() -> List[SearchHit]:
-        """Build+execute the per-type queryset. Runs inside the outer
-        ``transaction.atomic()``/``try`` below; a nested function (rather than
-        indenting the whole dispatch one level deeper) keeps this diff
-        reviewable against the pre-Task-9 shape of this branch-per-type body.
+        """Query the vector port for this type and hydrate the matching rows.
+
+        The ANN query is delegated to the active
+        :class:`~application.vector_port.VectorPort` (pgvector by default) and
+        the returned ids are re-fetched to build the DTOs. ``iterative_scan``
+        reproduces the pgvector hardening this path applied before the port
+        split (issue #977); the port now owns the ``atomic()`` savepoint that
+        used to wrap the query here.
         """
-        if entity_type == "Requirement":
-            # NOTE: filters via artifact__workspace_id, NOT the denormalized
-            # Requirement.workspace field -- the same choice the fulltext/
-            # lexical passes make above (_TABLE_SPECS["Requirement"].workspace_col
-            # = "a.workspace_id", joined through pl_artifact). Requirement.workspace
-            # is a #133 uniqueness-constraint helper kept in sync by
-            # RequirementService et al. on the *production* write path; it is
-            # not reliably populated everywhere a Requirement row can be
-            # created (e.g. test factories that construct rows directly), so
-            # using it here would silently under-match relative to the other
-            # two passes for the exact same entity type.
-            qs = Requirement.objects.filter(tenant_id=tenant_id, embedding__isnull=False)
-            if workspace_id is not None:
-                qs = qs.filter(artifact__workspace_id=workspace_id)
-            qs = (
-                qs.annotate(
-                    distance=CosineDistance("embedding", query_embedding),
-                    ws_id=F("artifact__workspace_id"),
-                )
-                .order_by("distance")[:_SEMANTIC_TOP_K]
-            )
-            return [
-                SearchHit(
-                    id=str(obj.id),
-                    artifact_type=entity_type,
-                    title=obj.title or "",
-                    description=obj.description or "",
-                    relevance_score=_normalize_cosine_similarity(float(obj.distance)),
-                    workspace_id=str(obj.ws_id) if obj.ws_id else "",
-                )
-                for obj in qs
-            ]
-
-        if entity_type == "TraceLink":
-            qs = TraceLink.objects.filter(tenant_id=tenant_id, embedding__isnull=False)
-            if workspace_id is not None:
-                qs = qs.filter(source__workspace_id=workspace_id)
-            qs = (
-                qs.annotate(
-                    distance=CosineDistance("embedding", query_embedding),
-                    ws_id=F("source__workspace_id"),
-                )
-                .order_by("distance")[:_SEMANTIC_TOP_K]
-            )
-            return [
-                SearchHit(
-                    id=str(obj.id),
-                    artifact_type=entity_type,
-                    title=f"{obj.link_type}: {obj.source_id} -> {obj.target_id}",
-                    description="",
-                    relevance_score=_normalize_cosine_similarity(float(obj.distance)),
-                    workspace_id=str(obj.ws_id) if obj.ws_id else "",
-                )
-                for obj in qs
-            ]
-
-        if entity_type == "Icd":
-            # Local import: icd is an Ext-layer app; application (Layer 2) does
-            # not otherwise depend on it. Mirrors the existing lazy,
-            # module-local cross-layer import precedent (e.g.
-            # ArchitectureElement.get_role()'s Layer0 -> Layer1 import of
-            # workflow.services) rather than adding a module-level dependency
-            # for a code path only reached for one of ten entity types.
-            from icd.models import Icd
-
-            qs = Icd.objects.filter(tenant_id=tenant_id, embedding__isnull=False)
-            if workspace_id is not None:
-                qs = qs.filter(workspace_id=workspace_id)
-            qs = (
-                qs.annotate(distance=CosineDistance("embedding", query_embedding))
-                .order_by("distance")[:_SEMANTIC_TOP_K]
-            )
-            return [
-                SearchHit(
-                    id=str(obj.id),
-                    artifact_type=entity_type,
-                    title=(obj.name or obj.semantic_description or "ICD")[:200],
-                    description=obj.semantic_description or "",
-                    relevance_score=_normalize_cosine_similarity(float(obj.distance)),
-                    workspace_id=str(obj.workspace_id) if obj.workspace_id else "",
-                )
-                for obj in qs
-            ]
-
-        return []
+        hits = get_vector_port().query_similar(
+            collection=entity_type,
+            query_vector=query_embedding,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+            workspace_field=_SEMANTIC_WORKSPACE_FIELDS.get(entity_type),
+            limit=_SEMANTIC_TOP_K,
+            iterative_scan=True,
+        )
+        return _semantic_search_hits(entity_type, hits)
 
     try:
-        with transaction.atomic():
-            # Issue #977: a filtered HNSW scan can post-filter away the very
-            # rows it should return (and is capped at ef_search=40). Enable
-            # pgvector's iterative scan for this transaction so the workspace
-            # filter cannot starve the result set. No-op on pgvector < 0.8.
-            from application.pgvector_ann import enable_iterative_ann_scan
-
-            enable_iterative_ann_scan()
-            return _dispatch()
+        return _dispatch()
     except Exception:
         logger.exception(
             "SearchService: semantic pgvector query error entity_type=%s "

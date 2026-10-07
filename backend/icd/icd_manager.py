@@ -290,6 +290,16 @@ class IcdPgVectorUnavailableError(RuntimeError):
     """
 
 
+class IcdQdrantUnavailableError(IcdPgVectorUnavailableError):
+    """Raised when the optional Qdrant vector backend is unavailable.
+
+    ADR-020 V2. Subclasses :class:`IcdPgVectorUnavailableError` so the existing
+    REST 503 mapping is unchanged; only the message names the actual backend.
+    The port's :class:`application.vector_port.QdrantBackendUnavailableError`
+    is translated into this class at the call site.
+    """
+
+
 # ---------------------------------------------------------------------------
 # COMP-ICD-001: IcdManager
 # ---------------------------------------------------------------------------
@@ -694,7 +704,12 @@ class IcdManager:
             ValueError: Query ICD has no embedding.
             IcdPgVectorUnavailableError: pgvector package/extension unavailable.
         """
-        from django.db.utils import OperationalError, ProgrammingError
+        from application.vector_port import (
+            COLLECTION_ICD,
+            QdrantBackendUnavailableError,
+            VectorBackendUnavailableError,
+            get_vector_port,
+        )
 
         icd = Icd.unscoped.filter(id=icd_id, tenant_id=tenant_id).first()
         if icd is None:
@@ -705,39 +720,47 @@ class IcdManager:
                 "ICD has no embedding — similarity search not possible"
             )
 
-        try:
-            from pgvector.django import CosineDistance
-        except ImportError as exc:
-            raise IcdPgVectorUnavailableError(
-                "pgvector package not installed — similarity search unavailable"
-            ) from exc
-
         safe_limit = max(1, min(int(limit or 10), 50))
 
-        queryset = (
-            Icd.unscoped.filter(tenant_id=tenant_id, embedding__isnull=False)
-            .exclude(id=icd.id)
-            .annotate(distance=CosineDistance("embedding", icd.embedding))
-            .order_by("distance")[:safe_limit]
-        )
-
         try:
-            rows = list(queryset)
-        except (ProgrammingError, OperationalError) as exc:
-            raise IcdPgVectorUnavailableError(
-                "pgvector extension not available — similarity search unavailable"
-            ) from exc
+            hits = get_vector_port().query_similar(
+                collection=COLLECTION_ICD,
+                query_vector=icd.embedding,
+                tenant_id=tenant_id,
+                exclude_id=icd.id,
+                limit=safe_limit,
+                # Mirrors the pre-port site: no transaction/iterative scan here.
+                iterative_scan=False,
+            )
+        except QdrantBackendUnavailableError as exc:
+            raise IcdQdrantUnavailableError(str(exc)) from exc
+        except VectorBackendUnavailableError as exc:
+            raise IcdPgVectorUnavailableError(str(exc)) from exc
+
+        if not hits:
+            return []
+
+        # The port returns only (id, distance); re-fetch the rows to build the
+        # DTOs, preserving the port's closest-first order.
+        distances = {hit.id: float(hit.distance) for hit in hits}
+        rows_by_id = {
+            row.id: row
+            for row in Icd.unscoped.filter(
+                id__in=list(distances), tenant_id=tenant_id
+            )
+        }
 
         return [
             SimilarIcdDTO(
-                icd_id=row.id,
-                name=row.name,
-                interface_type=row.interface_type or "",
-                version_number=row.current_revision,
+                icd_id=rows_by_id[hit.id].id,
+                name=rows_by_id[hit.id].name,
+                interface_type=rows_by_id[hit.id].interface_type or "",
+                version_number=rows_by_id[hit.id].current_revision,
                 # Cosine distance in [0, 2]; similarity = 1 - distance.
-                similarity_score=round(1.0 - float(row.distance), 6),
+                similarity_score=round(1.0 - distances[hit.id], 6),
             )
-            for row in rows
+            for hit in hits
+            if hit.id in rows_by_id
         ]
 
 
@@ -760,5 +783,6 @@ __all__ = [
     "IcdResult",
     "SimilarIcdDTO",
     "IcdPgVectorUnavailableError",
+    "IcdQdrantUnavailableError",
     "get_manager",
 ]

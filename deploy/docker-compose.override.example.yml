@@ -41,6 +41,19 @@
 #   #     MEMORY_BACKEND: honcho
 #   #     HONCHO_BASE_URL: http://host.docker.internal:8000
 #   #     HONCHO_API_KEY: ${HONCHO_API_KEY}
+#
+#   # Qdrant: also already bundled in docker-compose.yml behind the `qdrant`
+#   # Compose profile (the `qdrant` vector-backend service) -- no separate
+#   # checkout, no override needed (ADR-020). Just:
+#   #
+#   #   docker compose --profile qdrant up -d      # or: make qdrant
+#   #
+#   # Then, in .env (not committed):
+#   #   MEMORY_BACKEND=qdrant
+#   #   QDRANT_BASE_URL=http://qdrant:6333
+#   #
+#   # pgvector stays the DEFAULT; Qdrant is opt-in only, and the shipped
+#   # default publishes no host port (reach it over the compose network).
 
 # volumes:
 #   ollama_data:

@@ -3,8 +3,8 @@ admin_ops — REST adapter for the system health dashboard (admin-only).
 
 Drives ``GET /api/v1/admin/health/``: a single, fast, non-blocking snapshot
 of the runtime infrastructure (database, redis, celery worker/beat, MCP
-server, LLM provider config, memory embedding provider, memory backend)
-plus the most recent audit-log entries.
+server, LLM provider config, memory embedding provider, memory backend,
+optional qdrant vector backend) plus the most recent audit-log entries.
 
 Design constraints:
 
@@ -423,20 +423,117 @@ def _check_memory_embedding() -> dict[str, str]:
 
 
 def _check_memory_backend() -> dict[str, str]:
-    """Check the configured MemoryBackend via its own health_check()."""
+    """Check the configured MemoryBackend via its own health_check().
+
+    Status mapping (ADR-020 §4): the optional ``qdrant`` backend is NEVER
+    reported as ``down``. A configured-but-unreachable Qdrant is ``degraded``
+    -- visible in the snapshot, but never fatal, because it is not a mandatory
+    dependency and pgvector remains the source of truth. Every other backend
+    keeps the historical ``ok``/``down`` mapping unchanged.
+    """
     try:
         from memory.backends import get_memory_backend  # noqa: PLC0415
+        from memory.qdrant_backend import QdrantMemoryBackend  # noqa: PLC0415
 
         backend = get_memory_backend()
         ok, detail = backend.health_check()
+        if isinstance(backend, QdrantMemoryBackend):
+            # ADR-020 §4: degraded, never down (see docstring). ``health()``
+            # defines ``degraded = not ok`` for qdrant, so ``ok -> ok`` and
+            # ``not ok -> degraded`` is exactly the required mapping and saves
+            # a second, duplicate network probe.
+            status_value = STATUS_OK if ok else STATUS_DEGRADED
+        else:
+            status_value = STATUS_OK if ok else STATUS_DOWN
         return {
             "name": "memory_backend",
-            "status": STATUS_OK if ok else STATUS_DOWN,
+            "status": status_value,
             "detail": detail,
         }
     except Exception as exc:  # noqa: BLE001 - backend unreachable/misconfigured
         logger.warning("System health: memory backend check failed - %s", exc)
         return {"name": "memory_backend", "status": STATUS_DOWN, "detail": str(exc)}
+
+
+def _check_qdrant() -> dict[str, str]:
+    """Check the optional Qdrant vector backend (ADR-020), never fatally.
+
+    Qdrant is an OPTIONAL second vector backend: pgvector stays the source of
+    truth and the system keeps working without Qdrant. The row therefore
+    follows a deliberately asymmetric status contract:
+
+    * **not configured** (the *effective* base URL resolves to empty) ->
+      ``unknown`` with a ``not_configured`` detail. Nothing was probed, so
+      ``ok`` would claim a capability that was never checked and ``down``
+      would imply a mandatory dependency outage -- both are wrong.
+    * **configured and reachable** -> ``ok``.
+    * **configured but unreachable / timed out / errored** -> ``degraded``
+      (ADR-020 §4). The outage stays visible -- never silently swallowed --
+      but is NEVER ``down``: Qdrant is not a mandatory dependency and must not
+      turn ``/health/ready`` red (``reqogniloom.health._REQUIRED_CHECK_NAMES``).
+
+    The configured/not-configured gate is the EFFECTIVE configuration
+    (:func:`memory.qdrant_backend.resolve_effective_qdrant_config`, i.e. the
+    ``SystemMemorySettings`` ``qdrant_*`` override overlaid on the env --
+    exactly what ``QdrantMemoryBackend`` itself talks to), NOT the env-only
+    ``persistence.qdrant_config.is_qdrant_configured()``. A Qdrant configured
+    solely via the admin ``qdrant_base_url`` override therefore gets probed
+    instead of being reported ``not_configured`` while the backend is actually
+    using Qdrant (B1, split-brain fix).
+
+    Reuses the backend's raw-REST probe
+    (:meth:`~memory.qdrant_backend.QdrantMemoryBackend._http_health_probe`) so
+    this check and the backend agree on the ``/collections`` endpoint and the
+    ``api-key`` header, and ``qdrant_client`` is never imported here (the
+    backend imports it lazily). The probe budget is
+    :func:`_memory_probe_timeout_s` (issue #990) -- the same configurable
+    budget the other external memory probes use.
+    """
+    try:
+        from memory.qdrant_backend import (  # noqa: PLC0415
+            resolve_effective_qdrant_config,
+        )
+
+        config = resolve_effective_qdrant_config()
+    except Exception as exc:  # noqa: BLE001 - config resolution must never raise
+        logger.warning("System health: qdrant config resolution failed - %s", exc)
+        return {
+            "name": "qdrant",
+            "status": STATUS_UNKNOWN,
+            "detail": f"qdrant config unavailable: {type(exc).__name__}",
+        }
+
+    if not config.base_url:
+        return {
+            "name": "qdrant",
+            "status": STATUS_UNKNOWN,
+            "detail": "not_configured",
+        }
+
+    try:
+        import dataclasses
+
+        from memory.qdrant_backend import QdrantMemoryBackend  # noqa: PLC0415
+
+        probe_config = dataclasses.replace(
+            config, timeout=_memory_probe_timeout_s()
+        )
+        reachable, detail = QdrantMemoryBackend._http_health_probe(  # noqa: SLF001
+            probe_config
+        )
+    except Exception as exc:  # noqa: BLE001 - any probe failure is DEGRADED, never down
+        logger.warning("System health: qdrant probe failed - %s", exc)
+        return {
+            "name": "qdrant",
+            "status": STATUS_DEGRADED,
+            "detail": f"qdrant probe error: {type(exc).__name__}",
+        }
+
+    return {
+        "name": "qdrant",
+        "status": STATUS_OK if reachable else STATUS_DEGRADED,
+        "detail": detail,
+    }
 
 
 def _derivation_status_field(data: dict[str, Any]) -> str:
@@ -559,7 +656,8 @@ class SystemHealthView(APIView):
             {"name": "memory_embedding", "status": "ok", "detail": "..."},
             {"name": "memory_backend", "status": "ok", "detail": "..."},
             {"name": "memory", "status": "ok", "detail": "...",
-             "backend": "pgvector", "ok": true, "degraded": false}
+             "backend": "pgvector", "ok": true, "degraded": false},
+            {"name": "qdrant", "status": "unknown", "detail": "not_configured"}
           ],
           "recent_events": [ {...AuditEntry...}, ... ]
         }
@@ -609,6 +707,7 @@ class SystemHealthView(APIView):
             _check_memory_embedding(),
             _check_memory_backend(),
             _check_memory(),
+            _check_qdrant(),
         ]
         return Response(
             {

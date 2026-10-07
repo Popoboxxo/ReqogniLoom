@@ -167,3 +167,15 @@ numpy>=2.5.3,<3.0
 # against 2.5.1's `honcho.conclusions.ConclusionsView` (2.4.0 renamed the former
 # `ConclusionScope`, which this backend no longer references).
 honcho-ai==2.5.1
+
+# Optional external vector backend (ADR-020, MEMORY_BACKEND=qdrant + the V2
+# vector port; memory/qdrant_backend.py). Imported LAZILY: pgvector stays the
+# default and a pgvector-only deployment never imports this package, so it must
+# not add import-time weight or failure surface to the common path. Floor
+# 1.19.1 matches the pinned server image (qdrant/qdrant:v1.19.2 in
+# deploy/docker-compose.yml); the client is wire-compatible across the 1.x line,
+# so a range is used, consistent with the majority of this file. This change
+# requires regenerating requirements.lock (see the NOTE at the top of this file
+# and backend/REGENERATING_LOCK_FILE.md) — the lock is documentation only and is
+# not installed by Docker/CI.
+qdrant-client>=1.19.1,<2.0

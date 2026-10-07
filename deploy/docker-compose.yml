@@ -23,6 +23,13 @@
 # container started) unless you opt in:
 #   docker compose --profile honcho up -d
 #
+# OPTIONAL: Qdrant vector backend (MEMORY_BACKEND=qdrant, ADR-020)
+# The `qdrant` service below is gated behind the `qdrant` Compose profile —
+# defined in this same file so there is one file to read, but it costs nothing
+# (no image pulled, no container started) unless you opt in:
+#   docker compose --profile qdrant up -d      (or: make qdrant)
+# pgvector stays the DEFAULT; Qdrant is only used when MEMORY_BACKEND=qdrant.
+#
 # DEVELOPMENT OVERRIDE:
 # For development with hot-reload, docker-compose.override.yml
 # is automatically merged by Docker Compose. To use it, ensure the
@@ -238,6 +245,24 @@ x-honcho-env: &honcho-env
   # vectors already stored at the old width are DISCARDED by that ALTER
   # and must be regenerated. text-embedding-3-small in option (a)
   # sidesteps the whole topic (1536-dim, matches the untouched default).
+
+# Qdrant server config (ADR-020, opt-in via the `qdrant` profile below).
+# A top-level `x-` extension field: Compose ignores it as configuration; it
+# exists only to be aliased by the `qdrant` service, exactly like
+# `x-honcho-env` above. Double underscores map to Qdrant's nested YAML keys
+# (QDRANT__SERVICE__API_KEY -> service.api_key).
+x-qdrant-env: &qdrant-env
+  # Empty (the default) leaves Qdrant running WITHOUT auth -- correct for this
+  # internal-only service: it publishes no host port and is reachable only on
+  # the compose network as `qdrant:6333`. Set QDRANT_API_KEY in .env for a
+  # shared/long-lived deployment; the SAME value must then reach the client
+  # side (QDRANT_API_KEY) or every backend request gets HTTP 401.
+  # Verified 2026-10-07 against the pinned image: with an empty
+  # QDRANT__SERVICE__API_KEY, an unauthenticated GET /collections still answers
+  # 200, i.e. an empty value does NOT accidentally enable auth.
+  QDRANT__SERVICE__API_KEY: ${QDRANT_API_KEY:-}
+  # An optional, opt-in component must not phone home: telemetry hard-off.
+  QDRANT__TELEMETRY_DISABLED: "true"
 
 services:
   # ─────────────────────────────────────────────────────────
@@ -1428,6 +1453,64 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  # ---------------------------------------------------------------------
+  # OPTIONAL: Qdrant vector backend (MEMORY_BACKEND=qdrant, ADR-020)
+  # profiles: [qdrant] -- costs nothing (no pull, no start) unless you run
+  # `docker compose --profile qdrant up -d` (or `make qdrant`). Kept in this
+  # file (not a separate overlay) so there is exactly one full-stack file to
+  # read. pgvector stays the DEFAULT (MEMORY_BACKEND=pgvector); Qdrant is an
+  # opt-in SECOND operating mode, never a silent replacement.
+  #
+  # Then point ReqogniLoom's backend/celery at it (add to .env, not committed):
+  #   MEMORY_BACKEND=qdrant
+  #   QDRANT_BASE_URL=http://qdrant:6333
+  # Like HONCHO_BASE_URL, that value reaches the app through `env_file: .env`;
+  # nothing is injected into the `backend`/`celery` services here.
+  #
+  # NO HOST PORT IS PUBLISHED: Qdrant is reached only over the compose network
+  # as `qdrant:6333` (HTTP/REST) / `qdrant:6334` (gRPC), mirroring this file's
+  # convention that internal-only services stay internal. A vector index is not
+  # a user-facing API; publishing 6333/6334 would expose an
+  # unauthenticated-by-default store. If a local debugging bind is truly needed,
+  # add `ports: ["127.0.0.1:6333:6333"]` via an override -- localhost only,
+  # never 0.0.0.0. The shipped default has NO `ports:` at all.
+  #
+  # Image: qdrant/qdrant (official, Docker Hub), pinned to the released tag
+  # v1.19.2 AND its manifest-list digest (verified 2026-10-07 with
+  # `docker buildx imagetools inspect qdrant/qdrant:v1.19.2`). NEVER `latest`:
+  # a moving tag can silently swap the storage engine under a deployed index,
+  # and a Qdrant storage-format change is not something an unattended `up -d`
+  # should discover. Bump the tag+digest together, deliberately.
+  # ---------------------------------------------------------------------
+  qdrant:
+    image: qdrant/qdrant:v1.19.2@sha256:b7b0444c4c351c970b98e90a6f89c2ee4287c65b44e52b4cb503fa5b2aa927ad
+    profiles: ["qdrant"]
+    restart: unless-stopped
+    # Shared server-side config (API key, telemetry); see `x-qdrant-env` above.
+    environment: *qdrant-env
+    volumes:
+      # Persistent vector index. NOT covered by the Postgres backup sidecar
+      # (ADR-012) -- it is re-generable from the canonical Postgres rows via
+      # `memory_reconcile` + a reindex (see deploy/README.md).
+      - qdrant_data:/qdrant/storage
+    # The official image is Debian-based (ships bash) but bundles no HTTP
+    # client, so the probe opens a raw TCP connection to the HTTP port with
+    # bash's /dev/tcp redirection: success = the API accepts connections.
+    # Qdrant's /readyz and /livez are unauthenticated, but there is no
+    # curl/wget in the image to call them. Interval/timeout/retries/
+    # start_period follow the shape used by the other optional services.
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c ':> /dev/tcp/127.0.0.1/6333' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
   # ═════════════════════════════════════════════════════════
   # OPTIONAL: bluepencil review-notes sidecar (docs/bluepencil-integration.md, PR #972)
   # profiles: [bluepencil] — costs nothing (no pull, no start) unless you run
@@ -1483,3 +1566,4 @@ volumes:
   honcho_postgres_data:  # profile: honcho
   honcho_redis_data:     # profile: honcho
   bluepencil_data:       # profile: bluepencil (shared review-notes JSON store)
+  qdrant_data:           # profile: qdrant (vector index; re-generable from Postgres)

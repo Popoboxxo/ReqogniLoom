@@ -1,7 +1,7 @@
 ---
 adr_id: ADR-020
 title: "Qdrant als optionales Vektor-Backend — Revision der L2-Festlegung (pgvector-only) für Memory (V1) und Artefakt-Suche (V2)"
-status: proposed
+status: accepted
 date: "2026-10-07"
 deciders: [user, se-architect, planner]
 affected_reqs: [REQ-L1-038, REQ-L2-VS-001, REQ-L2-VS-002, REQ-L2-VS-003, REQ-L2-VS-004]
@@ -10,10 +10,10 @@ superseded_by: null
 
 # ADR-020: Qdrant als optionales Vektor-Backend — Revision der L2-Festlegung (pgvector-only) für Memory (V1) und Artefakt-Suche (V2)
 
-**Status:** proposed (2026-10-07) — Entscheidungsvorlage. **User-Freigabe ausstehend**
-(Statuswechsel `proposed → accepted` erst nach positivem Review und User-Entscheid).
+**Status:** accepted (2026-10-07) — Entscheidung angenommen. Freigegeben durch den User am
+2026-10-07; Umsetzung #1204 läuft.
 **Datum:** 2026-10-07
-**Entscheider (vorgeschlagen):** `user`, `se-architect`; **Autor:** `planner`; **Freigabe:** `user` (offen).
+**Entscheider (vorgeschlagen):** `user`, `se-architect`; **Autor:** `planner`; **Freigabe:** `user` (2026-10-07, erteilt).
 **Betroffene REQs:** REQ-L1-038 (Vektorsuche, `docs/se/L1/Gesamtsystem/L1_Gesamtsystem_Requirements.md`),
 REQ-L2-VS-001/-002/-003/-004
 (`docs/se/L1/Gesamtsystem/L2/VectorSearchServiceSystem/L2_VectorSearchServiceSystem_Requirements.md`).
@@ -328,8 +328,8 @@ Postgres-Wahrheit aufzugeben.
   pgvector-Adapter + bestehende Tests entsteht ein Regressionsrisiko.
 - **`open_adrs`-Feld existiert repo-weit nicht** (vgl. ADR-016 §4, `AUD-2026-09-333`): die
   REQ↔ADR-Verknüpfung bleibt eine belegte Näherung.
-- **Freigabe ausstehend:** Status `proposed`; Umsetzung erst nach `proposed → accepted` durch den
-  User.
+- **Freigabe erteilt:** Status `accepted` seit 2026-10-07 (Freigabe durch den User); die Umsetzung
+  #1204 läuft.
 
 ---
 
@@ -382,25 +382,33 @@ Postgres-Wahrheit aufzugeben.
 8. **O8 — Guard-Test-Design.** Konkrete Form des Isolation-Guards (Collection-Namens-Assertions vs.
    injizierter Tenant-/Workspace-Zwang im Backend/Port).
 
-**STOP-Gate:** Bis zur Klärung von O1–O8 und der User-Freigabe wird **nichts** implementiert —
-kein `QdrantMemoryBackend`, keine Compose-Änderung, kein Vektor-Port, keine Migration. Dieses ADR
-ist eine Entscheidungsvorlage (Status `proposed`).
+**Status der offenen Punkte:** Das ADR ist am 2026-10-07 durch den User **angenommen** (Status
+`accepted`); das frühere STOP-Gate ist damit aufgehoben und die Umsetzung #1204 läuft. O1–O8 sind
+**keine Blocker** mehr, sondern dokumentierte Defaults bzw. im Zuge der Umsetzung zu präzisierende
+Detailfragen (keine neuen Entscheidungen): O1/O2/O7 als gewählte Defaults (eigene
+`_artifacts`-Collection, Cosine, Qdrant ausschließlich Profil), O3/O4/O5/O8 als im jeweiligen
+Umsetzungsschritt zu klärende Details, O6 (eigenes ADR für V2) als Prozessfrage.
 
 ---
 
 ## Review-Round-Trail
 
-**Ausstehend.** Noch kein Review durchgeführt (Status `proposed`). Geplanter Lifecycle analog
-ADR-019: `concept-reviewer`-/`se-critic`-Review → Findings → Iteration(en) → Review-Protokoll/
--Report unter `docs/se/reviews/` bzw. `docs/se/reports/`. Tabelle wird nach dem ersten Review
-befüllt.
+**Kein Review durchgeführt.** Die Annahme (Status `accepted`) am 2026-10-07 erfolgte per
+**User-Direktive** (Freigabe durch den User) — es fand **kein** `concept-reviewer`-/`se-critic`-
+Review statt; ein solches wird nicht vorgetäuscht. Der reguläre Lifecycle analog ADR-019
+(`concept-reviewer`-/`se-critic`-Review → Findings → Iteration(en) → Review-Protokoll/-Report
+unter `docs/se/reviews/` bzw. `docs/se/reports/`) bleibt als Nachholoption dokumentiert; die
+Tabelle wird bei einem solchen Review befüllt.
 
 | Review | Iter. | Verdict | Findings | Handling |
 |---|---|---|---|---|
-| — | — | ausstehend | — | — |
+| — | — | nicht durchgeführt (Annahme per User-Direktive, 2026-10-07) | — | — |
 
 ---
 
-*Erstellt durch `planner` am 2026-10-07 als Entscheidungsvorlage (Status `proposed`).*
-*Kein Produktcode, keine Migration, keine Compose-/Config-Änderung, keine REQ-Datei-Änderung,
-kein Commit. Die L2-Fortschreibung erfolgt erst nach `proposed → accepted`.*
+*Erstellt durch `planner` am 2026-10-07 als Entscheidungsvorlage; angenommen (Status `accepted`)
+durch User-Direktive am 2026-10-07.*
+*Die Umsetzung #1204 hat am 2026-10-07 begonnen. Dieses ADR selbst enthält weiterhin keinen
+Produktcode, keine Migration, keine Compose-/Config-Änderung und keine REQ-Datei-Änderung; die
+L2-Fortschreibung (`L2_VectorSearchServiceSystem_Requirements.md:32,36`) erfolgt als Folgeaufgabe
+der Annahme.*

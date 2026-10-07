@@ -17,11 +17,18 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import pytest
 from rest_framework.parsers import JSONParser
 from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory
 
-from admin_ops.health_rest import STATUS_DOWN, STATUS_OK, STATUS_UNKNOWN, SystemHealthView
+from admin_ops.health_rest import (
+    STATUS_DEGRADED,
+    STATUS_DOWN,
+    STATUS_OK,
+    STATUS_UNKNOWN,
+    SystemHealthView,
+)
 from audit.models import AuditEntry
 from auth_tenancy.context import AuthContext
 from auth_tenancy.rest import HasOperationPermission
@@ -47,6 +54,11 @@ _MOCKED_MCP_SERVER = {
     "name": "mcp_server",
     "status": STATUS_OK,
     "detail": "11 tool group(s), 42 tool(s) registered",
+}
+_MOCKED_QDRANT = {
+    "name": "qdrant",
+    "status": STATUS_UNKNOWN,
+    "detail": "not_configured",
 }
 
 
@@ -74,6 +86,10 @@ def _patch_infra_checks():
         patch(
             "admin_ops.health_rest._check_mcp_server",
             return_value=_MOCKED_MCP_SERVER,
+        ),
+        patch(
+            "admin_ops.health_rest._check_qdrant",
+            return_value=_MOCKED_QDRANT,
         ),
     )
 
@@ -131,6 +147,7 @@ class TestSystemHealthResponseShape:
             "memory_embedding",
             "memory_backend",
             "memory",
+            "qdrant",
         ]
         for component in body["components"]:
             assert {"name", "status", "detail"} <= set(component.keys())
@@ -234,6 +251,10 @@ class TestSystemHealthResponseShape:
             patch(
                 "admin_ops.health_rest._check_mcp_server",
                 return_value=_MOCKED_MCP_SERVER,
+            ),
+            patch(
+                "admin_ops.health_rest._check_qdrant",
+                return_value=_MOCKED_QDRANT,
             ),
         )
         for p in patches:
@@ -569,7 +590,208 @@ class TestSystemHealthMemoryComponents:
         with patch("memory.health.health_view", return_value=payload):
             result = health_rest._check_memory()
 
-        assert result["digest_available"] is False
+        assert result["derivation_status"] == "unknown"
+        assert result["status"] == STATUS_OK
+
+
+class TestSystemHealthQdrant:
+    """The optional Qdrant vector backend component (ADR-020).
+
+    Qdrant is an optional second vector backend: not being configured is not a
+    failure (``unknown``, never ``ok``/``down``) and a configured-but-
+    unreachable Qdrant is ``degraded`` (visible, never fatal). All probes are
+    mocked so this suite stays offline.
+    """
+
+    def test_not_configured_is_unknown_not_ok_or_down(self, monkeypatch) -> None:
+        from admin_ops import health_rest
+
+        monkeypatch.delenv("QDRANT_BASE_URL", raising=False)
+        result = health_rest._check_qdrant()
+
+        assert result["name"] == "qdrant"
+        assert result["status"] == STATUS_UNKNOWN
+        assert result["status"] not in {STATUS_OK, STATUS_DOWN}
+        assert result["detail"] == "not_configured"
+
+    def test_configured_unreachable_is_degraded_not_down(self, monkeypatch) -> None:
+        from admin_ops import health_rest
+        from memory.qdrant_backend import QdrantMemoryBackend
+
+        monkeypatch.setenv("QDRANT_BASE_URL", "http://qdrant.invalid:6333")
+        with patch.object(
+            QdrantMemoryBackend,
+            "_http_health_probe",
+            return_value=(False, "qdrant unreachable: ConnectionError"),
+        ):
+            result = health_rest._check_qdrant()
+
+        assert result["status"] == STATUS_DEGRADED
+        assert result["status"] != STATUS_DOWN
+        assert "unreachable" in result["detail"]
+
+    def test_configured_reachable_is_ok(self, monkeypatch) -> None:
+        from admin_ops import health_rest
+        from memory.qdrant_backend import QdrantMemoryBackend
+
+        monkeypatch.setenv("QDRANT_BASE_URL", "http://qdrant.invalid:6333")
+        with patch.object(
+            QdrantMemoryBackend,
+            "_http_health_probe",
+            return_value=(True, "qdrant reachable"),
+        ):
+            result = health_rest._check_qdrant()
+
+        assert result["status"] == STATUS_OK
+
+    def test_db_override_only_config_is_treated_as_configured(self, monkeypatch) -> None:
+        """B1: the gate must use the EFFECTIVE config, not the env-only flag.
+
+        A Qdrant configured solely via ``SystemMemorySettings.qdrant_base_url``
+        has no ``QDRANT_BASE_URL`` env var, so the old env-only gate reported
+        ``not_configured`` while ``QdrantMemoryBackend`` was actually talking to
+        Qdrant -- a split-brain. The effective resolver is mocked to return a
+        DB-override URL with the env deliberately empty; the check must probe
+        and report the reachable result.
+        """
+        from admin_ops import health_rest
+        from memory.qdrant_backend import QdrantMemoryBackend
+        from persistence.qdrant_config import resolve_qdrant_config
+
+        monkeypatch.delenv("QDRANT_BASE_URL", raising=False)
+        effective = resolve_qdrant_config(base_url="http://qdrant.from-db:6333")
+
+        with (
+            patch(
+                "memory.qdrant_backend.resolve_effective_qdrant_config",
+                return_value=effective,
+            ),
+            patch.object(
+                QdrantMemoryBackend,
+                "_http_health_probe",
+                return_value=(True, "qdrant reachable"),
+            ) as probe,
+        ):
+            result = health_rest._check_qdrant()
+
+        assert result["detail"] != "not_configured"
+        assert result["status"] == STATUS_OK
+        probe.assert_called_once()
+
+    def test_db_override_only_unreachable_is_degraded_not_down(self, monkeypatch) -> None:
+        """B1: a DB-override-only, unreachable Qdrant degrades -- never down."""
+        from admin_ops import health_rest
+        from memory.qdrant_backend import QdrantMemoryBackend
+        from persistence.qdrant_config import resolve_qdrant_config
+
+        monkeypatch.delenv("QDRANT_BASE_URL", raising=False)
+        effective = resolve_qdrant_config(base_url="http://qdrant.from-db:6333")
+
+        with (
+            patch(
+                "memory.qdrant_backend.resolve_effective_qdrant_config",
+                return_value=effective,
+            ),
+            patch.object(
+                QdrantMemoryBackend,
+                "_http_health_probe",
+                return_value=(False, "qdrant unreachable: ConnectionError"),
+            ),
+        ):
+            result = health_rest._check_qdrant()
+
+        assert result["detail"] != "not_configured"
+        assert result["status"] == STATUS_DEGRADED
+        assert result["status"] != STATUS_DOWN
+
+    def test_empty_effective_base_url_is_not_configured(self, monkeypatch) -> None:
+        """An effective config with no base URL is ``not_configured``/``unknown``.
+
+        Guards the other half of B1: switching to the effective resolver must
+        not turn a genuinely unconfigured deployment into a probe (or into
+        ``ok``/``down``).
+        """
+        from admin_ops import health_rest
+        from persistence.qdrant_config import resolve_qdrant_config
+
+        monkeypatch.setenv("QDRANT_BASE_URL", "http://qdrant.invalid:6333")
+        empty = resolve_qdrant_config(base_url="")
+
+        with patch(
+            "memory.qdrant_backend.resolve_effective_qdrant_config",
+            return_value=empty,
+        ):
+            result = health_rest._check_qdrant()
+
+        assert result["status"] == STATUS_UNKNOWN
+        assert result["status"] not in {STATUS_OK, STATUS_DOWN}
+        assert result["detail"] == "not_configured"
+
+    @pytest.mark.django_db
+    def test_real_db_override_without_env_is_configured(self, monkeypatch) -> None:
+        """End-to-end B1: a real ``SystemMemorySettings`` override (no mock).
+
+        The mocked-resolver tests above prove the check *consumes* the effective
+        resolver; this one proves the resolver actually feeds a DB-only Qdrant
+        through to a probe, so an operator's admin-UI override is never reported
+        as ``not_configured``.
+        """
+        from admin_ops import health_rest
+        from memory.models import SystemMemorySettings
+        from memory.qdrant_backend import QdrantMemoryBackend
+
+        monkeypatch.delenv("QDRANT_BASE_URL", raising=False)
+        SystemMemorySettings.objects.create(qdrant_base_url="http://qdrant.from-db:6333")
+
+        with patch.object(
+            QdrantMemoryBackend,
+            "_http_health_probe",
+            return_value=(True, "qdrant reachable"),
+        ) as probe:
+            result = health_rest._check_qdrant()
+
+        assert result["detail"] != "not_configured"
+        assert result["status"] == STATUS_OK
+        probe.assert_called_once()
+
+    def test_probe_uses_the_memory_probe_budget(self, monkeypatch, settings) -> None:
+        """#990: the budget is ``_memory_probe_timeout_s()``, not a hard 1s."""
+        from admin_ops import health_rest
+        from memory.qdrant_backend import QdrantMemoryBackend
+
+        monkeypatch.setenv("QDRANT_BASE_URL", "http://qdrant.invalid:6333")
+        settings.HEALTH_PROBE_TIMEOUT_SECONDS = 7.5
+        with patch.object(
+            QdrantMemoryBackend,
+            "_http_health_probe",
+            return_value=(True, "qdrant reachable"),
+        ) as probe:
+            health_rest._check_qdrant()
+
+        assert probe.call_args.args[0].timeout == 7.5
+
+    def test_qdrant_backend_degraded_propagates_as_degraded(self) -> None:
+        """ADR-020 §4: a failed qdrant memory backend degrades, never fails."""
+        from admin_ops import health_rest
+        from memory.qdrant_backend import QdrantMemoryBackend
+
+        fake_backend = MagicMock(spec=QdrantMemoryBackend)
+        fake_backend.health_check.return_value = (False, "qdrant unreachable")
+        with patch("memory.backends.get_memory_backend", return_value=fake_backend):
+            result = health_rest._check_memory_backend()
+
+        assert result["status"] == STATUS_DEGRADED
+        assert result["status"] != STATUS_DOWN
+
+    def test_qdrant_backend_ok_still_reports_ok(self) -> None:
+        from admin_ops import health_rest
+        from memory.qdrant_backend import QdrantMemoryBackend
+
+        fake_backend = MagicMock(spec=QdrantMemoryBackend)
+        fake_backend.health_check.return_value = (True, "qdrant reachable")
+        with patch("memory.backends.get_memory_backend", return_value=fake_backend):
+            result = health_rest._check_memory_backend()
+
         assert result["status"] == STATUS_OK
 
     def test_memory_component_carries_ask_available(self) -> None:

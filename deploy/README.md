@@ -68,12 +68,13 @@ check is conditional: mock/anthropic/openai/ollama/azure deployments are unaffec
 ## Optional profiles (off by default)
 
 
-Both are Compose **profiles**: they cost nothing — no pull, no start — until you name them
+All three are Compose **profiles**: they cost nothing — no pull, no start — until you name them
 (`--profile <name>` / `COMPOSE_PROFILES=<name>`, or the `make` wrappers).
 
 | Profile | What | Status |
 |---|---|---|
 | `honcho` | Optional Honcho memory backend (`honcho-postgres`, `honcho-redis`, `honcho-migrate`, `honcho`). | Optional feature — fine to enable in production if you want it. |
+| `qdrant` | Optional Qdrant vector backend (`qdrant`), for `MEMORY_BACKEND=qdrant` (ADR-020). | Optional feature — **pgvector stays the default**; the vector index is regenerable from Postgres. Fine to enable in production if you want it (see below). |
 | `bluepencil` | Sidecar for the in-app annotation/review layer. | **DEBUG/QS ONLY — never enable it in production.** It is a *debugging* aid for seeing and measuring the layer in the real app, not a product feature: the sidecar has **no user auth and no tenant isolation** — one JSON file is shared by every workspace. A future production path would be a DRF `review_notes` store with server-side auth, RBAC, CSRF, and tenant isolation (`docs/bluepencil-integration.md`). See `deploy/bluepencil/README.md`. |
 
 ## First Stumbling Block: CSRF Cookie Requires Matching Security Settings
@@ -194,6 +195,7 @@ override; the minimal stack declares the first two plus `backend_dr_backups`.
 | `backend_dr_backups` | `backend:/app/backups` | admin DR dumps (`admin.backup_create`) |
 | `honcho_postgres_data`, `honcho_redis_data` | Honcho services | only with `--profile honcho` |
 | `bluepencil_data` | `bluepencil:/data` | review notes, only with the `bluepencil` profile |
+| `qdrant_data` | `qdrant:/qdrant/storage` | Qdrant vector index, only with the `qdrant` profile — **not** in the Postgres dump; regenerable from Postgres (see the Qdrant section) |
 
 ## Minimal stack
 
@@ -337,6 +339,108 @@ any output reads `none` — neither reads `failed`. `failed` fires only on the p
   *historical* statement about the scope, not a liveness probe of the deriver.
 
 Both cases are the documented blind spot of a client-side view, not a backend bug.
+
+
+## Optional: Qdrant vector backend (ADR-020)
+
+`pgvector` remains the **default** memory backend; Qdrant is an opt-in second operating mode, only
+available on the full stack (the minimal stack stays pgvector-only). Add `--profile qdrant`:
+
+```bash
+docker compose -f deploy/docker-compose.yml --project-directory . --profile qdrant up -d
+# or the wrapper: make qdrant
+```
+
+Then set these in `.env` (not committed) and **recreate** `backend`/`celery` (`up -d`, not
+`restart` — `env_file` is read at container creation):
+
+```bash
+MEMORY_BACKEND=qdrant
+QDRANT_BASE_URL=http://qdrant:6333
+```
+
+`QDRANT_BASE_URL` reaches the app the same way `HONCHO_BASE_URL` does: through `env_file: .env`.
+The compose file injects nothing into `backend`/`celery` itself.
+
+The service is **internal-only**: no host port is published — the backend reaches it over the
+compose network as `qdrant:6333` (HTTP/REST) / `qdrant:6334` (gRPC). A vector index is not a
+user-facing API; publishing it would expose an unauthenticated-by-default store. A local debugging
+bind, if ever needed, must be `127.0.0.1` only.
+
+**Multi-tenant security — set an API key.** With `QDRANT_API_KEY` empty, Qdrant is an
+**unauthenticated** store. That is acceptable only when a single app/tenant talks to it on an
+isolated network. As soon as **more than one tenant shares a Qdrant instance** — the normal case
+here, where tenant isolation is a first-class guarantee (ADR-03) — an API key is **required**: set
+`QDRANT_API_KEY` (and the matching `QDRANT__SERVICE__API_KEY` on the `qdrant` service) so the store
+can tell callers apart. The **debug `127.0.0.1` host-bind must only ever be used together with an
+API key**: a loopback bind keeps the port off the network but authenticates nobody who can reach
+the host, and a shared host is not tenant isolation.
+
+| Variable | Default | Notes |
+|----------|---------|-------|
+| `QDRANT_BASE_URL` | *(empty)* — set `http://qdrant:6333` | Internal HTTP/REST endpoint. |
+| `QDRANT_API_KEY` | *(empty)* | Only if Qdrant's API-key check is enabled; empty = no auth — acceptable **only** on an isolated single-app network, **required** for multi-tenant (see the security note above). Must match `QDRANT__SERVICE__API_KEY` on the `qdrant` service. |
+| `QDRANT_TIMEOUT` | `5` | Seconds (matches `DEFAULT_QDRANT_TIMEOUT` in `persistence/qdrant_config.py`). |
+| `QDRANT_DISTANCE` | `cosine` | Same metric as pgvector's `vector_cosine_ops`; `dot`/`euclid` are deliberate exceptions. |
+| `QDRANT_COLLECTION_PREFIX` | `reqlo` | One collection per workspace (`<prefix>_<tenant>_<workspace>`), plus `<prefix>_<tenant>_user` and the `_artifacts` collection. |
+| `QDRANT_HNSW_M` / `QDRANT_HNSW_EF_CONSTRUCT` | `16` / `64` | Mirror the pgvector HNSW index already shipped (`memory/models.py`). |
+| `QDRANT_PREFER_GRPC` | `false` | `true` uses the gRPC port `6334`. |
+
+**Embedding-dimension pitfall — there is no `QDRANT_VECTOR_DIMENSIONS`.** The width is deliberately
+**not** a separate setting: Qdrant collections are created at `EMBEDDING_VECTOR_DIMENSIONS` (the
+single source of truth for every embedding column — see *Optional: switch the embedding provider
+(and resize the schema)* below). A second, independent dimension variable could silently disagree
+with the model's actual output width, so a drift must fail loud instead. Change the provider and its
+width **together**, then rebuild the Qdrant collections at the new width (the index is regenerable —
+see the backup note).
+
+**No automatic fallback.** If `MEMORY_BACKEND=qdrant` is set and Qdrant is unreachable, memory is
+reported **degraded** — it does **not** silently fall back to pgvector (ADR-020 §4). A silent
+fallback would return stale or empty results and hide the outage. Switch back with
+`MEMORY_BACKEND=pgvector` in `.env` and recreate `backend`/`celery`; the pgvector data was never
+touched.
+
+### Artifact vector search (`ARTIFACT_VECTOR_BACKEND`, ADR-020 V2)
+
+`MEMORY_BACKEND` governs only the **AI memory** store. **Artifact** ANN search — semantic search over
+Requirements/TraceLinks/ICDs and the `find_similar_*` helpers — is a **separate** port that switches
+to Qdrant only through an explicit second selector:
+
+| Variable | Default | Notes |
+|----------|---------|-------|
+| `ARTIFACT_VECTOR_BACKEND` | `pgvector` | Artifact vector store: `pgvector` \| `qdrant`. Independent of `MEMORY_BACKEND` — the artifact store is never switched as a side effect of another knob (ADR-020 §4). |
+
+Leave it at `pgvector` (the default) unless you know an **artifact indexer is in place**. The Qdrant
+artifact adapter exists, but there is currently **no artifact indexer** (out of scope): the
+per-workspace `_artifacts` collections stay empty, so semantic search returns no hits. In addition,
+`find_similar_trace_links` and `find_similar_icds` carry **no workspace scope**; the Qdrant adapter
+fails loud (`QdrantBackendUnavailableError`) for them instead of scanning every workspace
+collection.
+
+Selecting `qdrant` requires **all** of: the explicit `ARTIFACT_VECTOR_BACKEND=qdrant`, the effective
+memory backend `qdrant`, an importable `qdrant_client` package, and a configured `QDRANT_BASE_URL`.
+If any condition is missing the artifact port stays on pgvector — it never switches implicitly.
+
+**Backup / restore of the Qdrant index.** The Postgres sidecar (ADR-012, `postgres_backup_data`)
+does **not** cover `qdrant_data` — the vector index is a separate named volume and is **not** in the
+`pg_dump`. That is acceptable because it is **regenerable**: Postgres (`mem_memory_entry` /
+`pl_requirement` / `pl_tracelink` / `icd_icd`) stays the source of truth and Qdrant holds only
+vectors plus the point id (`MemoryEntry.id`). After a restore or a rebuild, reconcile and reindex:
+
+```bash
+# READ-ONLY drift report: canonical Postgres rows vs. the external Qdrant points
+docker compose -f deploy/docker-compose.yml --project-directory . \
+  exec backend python manage.py memory_reconcile
+
+# Re-generate the vectors from the canonical rows (reindex/backfill path)
+docker compose -f deploy/docker-compose.yml --project-directory . \
+  exec backend python manage.py backfill_embeddings
+```
+
+The ADR-012 gates (`deploy/verify-restore.sh`, `deploy/verify-backup-command.sh`) prove the
+**Postgres** side and do **not** apply to the Qdrant volume; a genuine volume snapshot would be a
+separate, deliberate operation (stop `qdrant`, then copy `qdrant_data` with the usual volume
+tooling).
 
 
 ## Troubleshooting: LLM calls fail with ConnectError (backend container DNS)
