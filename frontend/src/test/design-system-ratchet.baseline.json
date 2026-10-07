@@ -1,14 +1,13 @@
 {
   "version": 1,
-  "recordedAt": "2026-09-27",
+  "recordedAt": "2026-10-07",
   "recordedBy": "DESIGN_SYSTEM_RATCHET_DUMP=1 npx vitest run src/test/design-system-ratchet.test.ts",
   "checks": {
     "button-missing-design-system-class": {
-      "maxViolations": 324,
+      "maxViolations": 285,
       "known": [
         "button-missing-design-system-class::components/ArchitectureEditors/ArchitectureEditors.tsx::button",
         "button-missing-design-system-class::components/ArtifactDiff/ArtifactDiff.tsx::button[data-testid=diff-close-btn]",
-        "button-missing-design-system-class::components/AttributeEditor/AttributeCatalogDialog.tsx::Dialog[data-testid=attribute-catalog-cancel]",
         "button-missing-design-system-class::components/AttributeEditor/AttributeEditorPage.tsx::button[data-testid=attribute-editor-add-from-catalog]",
         "button-missing-design-system-class::components/AttributeEditor/AttributeEditorPage.tsx::button[data-testid=attribute-editor-add-section]",
         "button-missing-design-system-class::components/AttributeEditor/AttributeEditorPage.tsx::button[data-testid=attribute-editor-export]",
@@ -18,7 +17,6 @@
         "button-missing-design-system-class::components/AttributeEditor/AttributeEditorPage.tsx::button[data-testid=attribute-editor-save]",
         "button-missing-design-system-class::components/AttributeEditor/AttributeEditorPage.tsx::button[data-testid=attribute-editor-view-list]",
         "button-missing-design-system-class::components/AttributeEditor/AttributeEditorPage.tsx::button[data-testid=attribute-editor-view-table]",
-        "button-missing-design-system-class::components/AttributeEditor/AttributeImportDialog.tsx::Dialog[data-testid=attribute-import-dialog-cancel]",
         "button-missing-design-system-class::components/AttributeEditor/AttributeInspector.tsx::button[data-testid=attribute-inspector-option-${index}-down]",
         "button-missing-design-system-class::components/AttributeEditor/AttributeInspector.tsx::button[data-testid=attribute-inspector-option-${index}-remove]",
         "button-missing-design-system-class::components/AttributeEditor/AttributeInspector.tsx::button[data-testid=attribute-inspector-option-${index}-up]",
@@ -31,9 +29,6 @@
         "button-missing-design-system-class::components/AttributeEditor/AttributeList.tsx::button[data-testid=attribute-section-${section}-down]",
         "button-missing-design-system-class::components/AttributeEditor/AttributeList.tsx::button[data-testid=attribute-section-${section}-rename]",
         "button-missing-design-system-class::components/AttributeEditor/AttributeList.tsx::button[data-testid=attribute-section-${section}-up]",
-        "button-missing-design-system-class::components/AttributeEditor/AttributeList.tsx::div[data-testid=attribute-row-${attribute.name}]",
-        "button-missing-design-system-class::components/AttributeEditor/AttributeTable.tsx::th[data-testid=attribute-table-sort-${column}]",
-        "button-missing-design-system-class::components/AttributeEditor/AttributeTable.tsx::tr[data-testid=attribute-table-row-${attribute.name}]",
         "button-missing-design-system-class::components/AttributeEditor/LayoutFlowEditor.tsx::button[data-testid=attribute-flow-${name}-add-spacer]",
         "button-missing-design-system-class::components/AttributeEditor/LayoutFlowEditor.tsx::button[data-testid=attribute-flow-${name}-token-${index}-down]",
         "button-missing-design-system-class::components/AttributeEditor/LayoutFlowEditor.tsx::button[data-testid=attribute-flow-${name}-token-${index}-remove]",
@@ -47,7 +42,6 @@
         "button-missing-design-system-class::components/Audit/audit-dashboard.tsx::button[data-testid=audit-refresh-btn]",
         "button-missing-design-system-class::components/Audit/audit-dashboard.tsx::button[data-testid=audit-waive-${finding.index}]",
         "button-missing-design-system-class::components/BaselinesView/BaselinesPanels.tsx::button[data-testid=compare-run-btn]",
-        "button-missing-design-system-class::components/BaselinesView/BaselinesView.tsx::SplitView[data-testid=baseline-list]",
         "button-missing-design-system-class::components/BaselinesView/BaselinesView.tsx::button",
         "button-missing-design-system-class::components/CsvImport/CsvImport.tsx::button[data-testid=csv-export-btn]",
         "button-missing-design-system-class::components/CsvImport/CsvImport.tsx::button[data-testid=csv-import-btn]",
@@ -56,25 +50,18 @@
         "button-missing-design-system-class::components/CsvImport/CsvImport.tsx::button[data-testid=reqif-export-btn]",
         "button-missing-design-system-class::components/CsvImport/CsvImport.tsx::button[data-testid=reqif-import-btn]",
         "button-missing-design-system-class::components/CsvImport/CsvImport.tsx::button[data-testid=reqif-import-reset]",
-        "button-missing-design-system-class::components/CsvImport/CsvImport.tsx::div[data-testid=csv-drop-zone]",
-        "button-missing-design-system-class::components/CsvImport/CsvImport.tsx::div[data-testid=reqif-file-picker]",
-        "button-missing-design-system-class::components/CsvImport/CsvImport.tsx::input[data-testid=csv-file-input]",
-        "button-missing-design-system-class::components/CsvImport/CsvImport.tsx::input[data-testid=reqif-file-input]",
         "button-missing-design-system-class::components/DashboardViews/DashboardViews.tsx::button",
         "button-missing-design-system-class::components/DashboardViews/WorkspaceCard.tsx::button[data-testid=workspace-card-preset-badge]",
-        "button-missing-design-system-class::components/DashboardViews/WorkspaceCard.tsx::div[data-testid=workspace-card-clickable-region]",
         "button-missing-design-system-class::components/DiagramGraphEditor/DiagramGraphEditorPage.tsx::button[data-testid=graph-edit-toggle]",
         "button-missing-design-system-class::components/DiagramGraphEditor/DiagramGraphEditorPage.tsx::button[data-testid=graph-editor-back]",
         "button-missing-design-system-class::components/DiagramGraphEditor/DiagramGraphEditorPage.tsx::button[data-testid=graph-editor-error-dismiss]",
         "button-missing-design-system-class::components/DiagramGraphEditor/DiagramGraphEditorPage.tsx::button[data-testid=graph-editor-save]",
         "button-missing-design-system-class::components/DiagramGraphEditor/DiagramGraphEditorPage.tsx::button[data-testid=graph-viewmode-code-btn]",
         "button-missing-design-system-class::components/DiagramGraphEditor/DiagramGraphEditorPage.tsx::button[data-testid=graph-viewmode-visual-btn]",
-        "button-missing-design-system-class::components/DiagramGraphEditor/GraphEdge.tsx::div[data-testid=graph-edge-${edge.id}]",
         "button-missing-design-system-class::components/DiagramGraphEditor/GraphInspectorPanel.tsx::button[data-testid=graph-inspector-artifact-clear]",
         "button-missing-design-system-class::components/DiagramGraphEditor/GraphInspectorPanel.tsx::button[data-testid=graph-inspector-clear-selection]",
         "button-missing-design-system-class::components/DiagramGraphEditor/GraphInspectorPanel.tsx::button[data-testid=graph-inspector-delete-edge]",
         "button-missing-design-system-class::components/DiagramGraphEditor/GraphInspectorPanel.tsx::button[data-testid=graph-inspector-delete-node]",
-        "button-missing-design-system-class::components/DiagramGraphEditor/GraphNode.tsx::div[data-testid=graph-node-${node.id}]",
         "button-missing-design-system-class::components/DiagramGraphEditor/GraphToolbar.tsx::button[data-testid=graph-fit-view]",
         "button-missing-design-system-class::components/DiagramGraphEditor/GraphToolbar.tsx::button[data-testid=graph-toggle-grid]",
         "button-missing-design-system-class::components/DiagramGraphEditor/GraphToolbar.tsx::button[data-testid=graph-toolbar-add-node]",
@@ -90,7 +77,6 @@
         "button-missing-design-system-class::components/DiagramView/DiagramDetailView.tsx::button[data-testid=diagram-save-btn]",
         "button-missing-design-system-class::components/DiagramView/DiagramDetailView.tsx::button[data-testid=diagram-viewmode-code-btn]",
         "button-missing-design-system-class::components/DiagramView/DiagramDetailView.tsx::button[data-testid=diagram-viewmode-visual-btn]",
-        "button-missing-design-system-class::components/DiagramView/DiagramList.tsx::ArtifactRow",
         "button-missing-design-system-class::components/DiagramView/DiagramList.tsx::button[data-testid=diagram-delete-${item.id}]",
         "button-missing-design-system-class::components/GlossaryView/GlossaryView.tsx::button[data-testid=glossary-create-link-button]",
         "button-missing-design-system-class::components/GlossaryView/GlossaryView.tsx::button[data-testid=glossary-delete-${term.id}]",
@@ -103,13 +89,9 @@
         "button-missing-design-system-class::components/GlossaryView/GlossaryView.tsx::button[data-testid=glossary-synonym-link-${term.id}-${idx}]",
         "button-missing-design-system-class::components/GlossaryView/GlossaryView.tsx::button[data-testid=glossary-synonym-linkbtn-${term.id}-${idx}]",
         "button-missing-design-system-class::components/GlossaryView/GlossaryView.tsx::button[data-testid=glossary-synonym-option-${term.id}-${idx}-${candidate.id}]",
-        "button-missing-design-system-class::components/GlossaryView/GlossaryView.tsx::div[data-testid=glossary-row-${term.id}]",
         "button-missing-design-system-class::components/IcdView/IcdDetailPane.tsx::button[data-testid=icd-new-version-btn]",
         "button-missing-design-system-class::components/IcdView/IcdDetailPane.tsx::button[data-testid=icd-new-version-cancel]",
         "button-missing-design-system-class::components/IcdView/IcdDetailPane.tsx::button[data-testid=icd-new-version-submit]",
-        "button-missing-design-system-class::components/IcdView/IcdDetailPane.tsx::li[data-testid=similar-icd-${icd.id}]",
-        "button-missing-design-system-class::components/IcdView/IcdList.tsx::ArtifactRow",
-        "button-missing-design-system-class::components/IcdView/IcdView.tsx::SplitView[data-testid=create-icd-form]",
         "button-missing-design-system-class::components/IcdView/IcdView.tsx::button",
         "button-missing-design-system-class::components/IcdView/SimilarIcdsPanel.tsx::button[data-testid=find-similar-icds-btn]",
         "button-missing-design-system-class::components/IcdView/SimilarIcdsPanel.tsx::button[data-testid=similar-icd-result-${hit.icd_id}]",
@@ -146,7 +128,6 @@
         "button-missing-design-system-class::components/NavigationShell/SidebarNavigation.tsx::button[data-testid=sidebar-theme-mode-toggle]",
         "button-missing-design-system-class::components/NavigationShell/SidebarNavigation.tsx::button[data-testid=workspace-switcher-option]",
         "button-missing-design-system-class::components/NavigationShell/SidebarNavigation.tsx::button[data-testid=workspace-switcher]",
-        "button-missing-design-system-class::components/NavigationShell/SidebarNavigation.tsx::div[data-testid=sidebar-overlay]",
         "button-missing-design-system-class::components/NeedsEditors/DeriveRequirementsPanel.tsx::button[data-testid=derive-requirements-accept]",
         "button-missing-design-system-class::components/NeedsEditors/DeriveRequirementsPanel.tsx::button[data-testid=derive-requirements-discard]",
         "button-missing-design-system-class::components/PermissionMatrix/PermissionMatrixEditor.tsx::button[data-testid=${testIdPrefix}-cancel]",
@@ -161,7 +142,6 @@
         "button-missing-design-system-class::components/RequirementEditors/ReqTraceLinkPanel.tsx::button[data-testid=req-tracelink-delete-btn]",
         "button-missing-design-system-class::components/RequirementEditors/ReqTraceLinkPanel.tsx::button[data-testid=req-tracelink-title]",
         "button-missing-design-system-class::components/RequirementEditors/RequirementEditors.tsx::button[data-testid=requirements-reload-btn]",
-        "button-missing-design-system-class::components/RequirementEditors/RequirementList.tsx::WorkspaceTree[data-testid=req-list-tree]",
         "button-missing-design-system-class::components/RequirementEditors/RequirementTreeNode.tsx::button[data-testid=req-tree-retry]",
         "button-missing-design-system-class::components/RequirementEditors/RequirementTreeNode.tsx::button[data-testid=req-tree-title]",
         "button-missing-design-system-class::components/RequirementEditors/RequirementTreeNode.tsx::button[data-testid=req-tree-toggle]",
@@ -169,19 +149,15 @@
         "button-missing-design-system-class::components/RequirementEditors/TraceabilityPanel.tsx::button",
         "button-missing-design-system-class::components/Reviews/ReviewsView.tsx::button[data-testid=review-list-item-${r.id}]",
         "button-missing-design-system-class::components/Reviews/ReviewsView.tsx::button[data-testid=reviews-bulk-confirm-btn]",
-        "button-missing-design-system-class::components/Reviews/ReviewsView.tsx::input[data-testid=review-select-${r.id}]",
         "button-missing-design-system-class::components/Settings/UserManagement/UserManagement.tsx::button[data-testid=user-management-toggle-active-${u.id}]",
         "button-missing-design-system-class::components/Settings/UserManagement/UserManagement.tsx::button[data-testid=user-management-toggle-admin-${u.id}]",
         "button-missing-design-system-class::components/SplitView/SplitView.tsx::button",
         "button-missing-design-system-class::components/SplitView/SplitView.tsx::button",
-        "button-missing-design-system-class::components/SplitView/SplitView.tsx::div[data-testid=splitview-divider]",
         "button-missing-design-system-class::components/SystemSettings/BannerSection.tsx::button[data-testid=banner-save-button]",
         "button-missing-design-system-class::components/SystemSettings/EnforcementFlipDialog.tsx::button[data-testid=flip-view-mismatches]",
         "button-missing-design-system-class::components/SystemSettings/EnforcementModePanel.tsx::button[data-testid=enforcement-flip-btn]",
         "button-missing-design-system-class::components/SystemSettings/EnforcementModePanel.tsx::button[data-testid=enforcement-rollback-btn]",
-        "button-missing-design-system-class::components/SystemSettings/MemoryManagementSection.tsx::Dialog[data-testid=memory-delete-confirm-btn]",
         "button-missing-design-system-class::components/SystemSettings/MemoryManagementSection.tsx::button[data-testid=memory-delete-btn-${row.workspace_id}]",
-        "button-missing-design-system-class::components/SystemSettings/MemorySystemSettingsSection.tsx::Dialog[data-testid=memory-settings-confirm-btn]",
         "button-missing-design-system-class::components/SystemSettings/MemorySystemSettingsSection.tsx::button[data-testid=memory-settings-reset-btn]",
         "button-missing-design-system-class::components/SystemSettings/MemorySystemSettingsSection.tsx::button[data-testid=memory-settings-save-btn]",
         "button-missing-design-system-class::components/SystemSettings/MemoryVisualizationSection.tsx::button[data-testid=memory-viz-list-next]",
@@ -205,7 +181,6 @@
         "button-missing-design-system-class::components/TestRuns/TestRunResultEntryGrid.tsx::button[data-testid=testrun-results-bulk-apply]",
         "button-missing-design-system-class::components/TestRuns/TestRunResultEntryGrid.tsx::button[data-testid=testrun-results-mark-remaining-passed]",
         "button-missing-design-system-class::components/TestRuns/TestRunResultEntryGrid.tsx::button[data-testid=testrun-results-save-all]",
-        "button-missing-design-system-class::components/TestRuns/TestRunsList.tsx::SplitView[data-testid=testrun-create-form]",
         "button-missing-design-system-class::components/TraceabilityView/TraceabilityView.tsx::button",
         "button-missing-design-system-class::components/TraceabilityView/TraceabilityView.tsx::button[data-testid=impact-run-btn]",
         "button-missing-design-system-class::components/UserProfileSettings/ApiKeysSection.tsx::button[data-testid=api-key-copy-btn]",
@@ -224,7 +199,6 @@
         "button-missing-design-system-class::components/WorkflowEditor/CanvasToolbar.tsx::button[data-testid=workflow-toggle-grid]",
         "button-missing-design-system-class::components/WorkflowEditor/CanvasToolbar.tsx::button[data-testid=workflow-zoom-in]",
         "button-missing-design-system-class::components/WorkflowEditor/CanvasToolbar.tsx::button[data-testid=workflow-zoom-out]",
-        "button-missing-design-system-class::components/WorkflowEditor/ConfirmDialog.tsx::WorkflowModal[data-testid=workflow-confirm-cancel]",
         "button-missing-design-system-class::components/WorkflowEditor/EntityTypeSelector.tsx::button[data-testid=workflow-entity-${type}]",
         "button-missing-design-system-class::components/WorkflowEditor/InspectorPanel.tsx::button[data-testid=workflow-inspector-collapse]",
         "button-missing-design-system-class::components/WorkflowEditor/InspectorPanel.tsx::button[data-testid=workflow-inspector-delete-state]",
@@ -233,12 +207,7 @@
         "button-missing-design-system-class::components/WorkflowEditor/InspectorPanel.tsx::button[data-testid=workflow-inspector-edit-transition]",
         "button-missing-design-system-class::components/WorkflowEditor/InspectorPanel.tsx::button[data-testid=workflow-inspector-expand]",
         "button-missing-design-system-class::components/WorkflowEditor/InspectorPanel.tsx::button[data-testid=workflow-inspector-transition-${transition.id}]",
-        "button-missing-design-system-class::components/WorkflowEditor/InspectorPanel.tsx::div[data-testid=workflow-inspector-resize]",
         "button-missing-design-system-class::components/WorkflowEditor/PresetSegmentedControl.tsx::button[data-testid=workflow-preset-option-${preset}]",
-        "button-missing-design-system-class::components/WorkflowEditor/StateDialog.tsx::WorkflowModal[data-testid=workflow-state-cancel]",
-        "button-missing-design-system-class::components/WorkflowEditor/StateNode.tsx::div[data-testid=workflow-state-node-${state.id}]",
-        "button-missing-design-system-class::components/WorkflowEditor/TransitionDialog.tsx::WorkflowModal[data-testid=workflow-transition-cancel]",
-        "button-missing-design-system-class::components/WorkflowEditor/TransitionEdge.tsx::div[data-testid=workflow-transition-edge-${transition.id}]",
         "button-missing-design-system-class::components/WorkflowEditor/WorkflowCanvas.tsx::button[data-testid=workflow-initialize-button]",
         "button-missing-design-system-class::components/WorkflowEditor/WorkflowEditorHeader.tsx::button",
         "button-missing-design-system-class::components/WorkflowEditor/WorkflowEditorHeader.tsx::button",
@@ -293,7 +262,6 @@
         "button-missing-design-system-class::components/shared/ArtifactInspector/RightSidebar.tsx::button[data-testid=artifact-inspector-collapse]",
         "button-missing-design-system-class::components/shared/ArtifactInspector/RightSidebar.tsx::button[data-testid=artifact-inspector-expand]",
         "button-missing-design-system-class::components/shared/ArtifactInspector/RightSidebar.tsx::button[data-testid=artifact-inspector-pin]",
-        "button-missing-design-system-class::components/shared/ArtifactInspector/RightSidebar.tsx::div[data-testid=artifact-inspector-resize]",
         "button-missing-design-system-class::components/shared/ArtifactInspector/TracePanel.tsx::button[data-testid=trace-filter-chip-${lt}]",
         "button-missing-design-system-class::components/shared/ArtifactInspector/TracePanel.tsx::button[data-testid=trace-filter-toggle-all]",
         "button-missing-design-system-class::components/shared/ArtifactInspector/TracePanel.tsx::button[data-testid=trace-retry]",
@@ -302,22 +270,17 @@
         "button-missing-design-system-class::components/shared/ArtifactInspector/VersionPanel.tsx::button[data-testid=version-overflow-${entry.version}]",
         "button-missing-design-system-class::components/shared/ArtifactInspector/VersionPanel.tsx::button[data-testid=version-retry]",
         "button-missing-design-system-class::components/shared/ArtifactInspector/VersionPanel.tsx::button[data-testid=version-switch-${entry.version}]",
-        "button-missing-design-system-class::components/shared/ArtifactRow/ArtifactRow.tsx::div",
-        "button-missing-design-system-class::components/shared/ArtifactRow/ArtifactRow.tsx::span",
         "button-missing-design-system-class::components/shared/CreateTraceLinkDialog/create-trace-link-dialog.tsx::button[data-testid=${testIdPrefix}-element-${el.id}]",
         "button-missing-design-system-class::components/shared/CreateTraceLinkDialog/create-trace-link-dialog.tsx::button[data-testid=${testIdPrefix}-type-${key}]",
         "button-missing-design-system-class::components/shared/CreateTraceLinkDialog/link-type-listbox.tsx::button",
-        "button-missing-design-system-class::components/shared/CreateTraceLinkDialog/link-type-listbox.tsx::li[data-testid=${optionTestIdPrefix}-option-${option.key}]",
         "button-missing-design-system-class::components/shared/CustomFieldsEditor.tsx::button[data-testid=custom-field-remove]",
         "button-missing-design-system-class::components/shared/Dialog/Dialog.tsx::button[data-testid=${testId}-close]",
-        "button-missing-design-system-class::components/shared/Dialog/Dialog.tsx::div[data-testid=${testId}-overlay]",
         "button-missing-design-system-class::components/shared/EmptyState/EmptyState.tsx::button",
         "button-missing-design-system-class::components/shared/EmptyState/EmptyState.tsx::button[data-testid=${props.testId ?? testId}-reset-filters]",
         "button-missing-design-system-class::components/shared/EmptyState/EmptyState.tsx::button[data-testid=${props.testId ?? testId}-retry]",
         "button-missing-design-system-class::components/shared/PageHeader.tsx::button",
         "button-missing-design-system-class::components/shared/RevealValue.tsx::button[data-testid=${testId}-copy]",
         "button-missing-design-system-class::components/shared/RevealValue.tsx::button[data-testid=${testId}-reveal]",
-        "button-missing-design-system-class::components/shared/RevealValue.tsx::span[data-testid=${testId}-value]",
         "button-missing-design-system-class::components/shared/TraceLinkPanel.tsx::button[data-testid=trace-link-delete-${trace.id}]",
         "button-missing-design-system-class::components/shared/TraceLinkPanel.tsx::button[data-testid=trace-link-open-${trace.id}]",
         "button-missing-design-system-class::components/shared/TraceSpine/TraceSpine.tsx::button[data-testid=${testId}-panel-item]",
@@ -325,9 +288,7 @@
         "button-missing-design-system-class::components/shared/TraceSpine/TraceSpine.tsx::button[data-testid=${testId}-verification]",
         "button-missing-design-system-class::components/shared/WorkspaceTree/workspace-tree.tsx::button[data-testid=${testIdPrefix}-add-child-${node.id}]",
         "button-missing-design-system-class::components/shared/WorkspaceTree/workspace-tree.tsx::button[data-testid=${testIdPrefix}-toggle-${node.id}]",
-        "button-missing-design-system-class::components/shared/WorkspaceTree/workspace-tree.tsx::li[data-testid=${testIdPrefix}-node-${node.id}]",
         "button-missing-design-system-class::components/shared/tag-input.tsx::button[data-testid=tag-remove-btn]",
-        "button-missing-design-system-class::components/shared/tag-input.tsx::div[data-testid=${testId}-input]",
         "button-missing-design-system-class::components/shared/trace-link-display.tsx::button[data-testid=${testIdPrefix}-delete]",
         "button-missing-design-system-class::components/shared/trace-link-display.tsx::button[data-testid=${testIdPrefix}-title]"
       ],
@@ -378,5 +339,84 @@
       "note": "Buttons whose whole label is a bare action verb that is used more than once in the component tree, so the object is unstated. Fix by naming the object in the label (i18n key + both locales)."
     }
   },
-  "exemptions": {}
+  "exemptions": {
+    "button-missing-design-system-class::components/AttributeEditor/AttributeList.tsx::div[data-testid=attribute-row-${attribute.name}]": {
+      "reason": "Clickable layout row/region, not a button: the whole row is the hit area and owns its own row chrome, so btn-* button chrome would fight the list/table layout (#1099)."
+    },
+    "button-missing-design-system-class::components/AttributeEditor/AttributeTable.tsx::th[data-testid=attribute-table-sort-${column}]": {
+      "reason": "Sortable table header cell, not a button: it is part of the table grid and carries the column chrome; a btn-* class would break the header layout (#1099)."
+    },
+    "button-missing-design-system-class::components/AttributeEditor/AttributeTable.tsx::tr[data-testid=attribute-table-row-${attribute.name}]": {
+      "reason": "Clickable layout row/region, not a button: the whole row is the hit area and owns its own row chrome, so btn-* button chrome would fight the list/table layout (#1099)."
+    },
+    "button-missing-design-system-class::components/CsvImport/CsvImport.tsx::div[data-testid=csv-drop-zone]": {
+      "reason": "Drag-and-drop zone / native file input, not a button: button chrome does not apply to a file-picker container or an <input type=file> (#1099)."
+    },
+    "button-missing-design-system-class::components/CsvImport/CsvImport.tsx::div[data-testid=reqif-file-picker]": {
+      "reason": "Drag-and-drop zone / native file input, not a button: button chrome does not apply to a file-picker container or an <input type=file> (#1099)."
+    },
+    "button-missing-design-system-class::components/CsvImport/CsvImport.tsx::input[data-testid=csv-file-input]": {
+      "reason": "Drag-and-drop zone / native file input, not a button: button chrome does not apply to a file-picker container or an <input type=file> (#1099)."
+    },
+    "button-missing-design-system-class::components/CsvImport/CsvImport.tsx::input[data-testid=reqif-file-input]": {
+      "reason": "Drag-and-drop zone / native file input, not a button: button chrome does not apply to a file-picker container or an <input type=file> (#1099)."
+    },
+    "button-missing-design-system-class::components/DashboardViews/WorkspaceCard.tsx::div[data-testid=workspace-card-clickable-region]": {
+      "reason": "Clickable layout row/region, not a button: the whole row is the hit area and owns its own row chrome, so btn-* button chrome would fight the list/table layout (#1099)."
+    },
+    "button-missing-design-system-class::components/DiagramGraphEditor/GraphEdge.tsx::div[data-testid=graph-edge-${edge.id}]": {
+      "reason": "React-Flow node/edge wrapper, not a button: selection and dragging are owned by the graph library's own node/edge chrome, so a btn-* class would be wrong (#1099)."
+    },
+    "button-missing-design-system-class::components/DiagramGraphEditor/GraphNode.tsx::div[data-testid=graph-node-${node.id}]": {
+      "reason": "React-Flow node/edge wrapper, not a button: selection and dragging are owned by the graph library's own node/edge chrome, so a btn-* class would be wrong (#1099)."
+    },
+    "button-missing-design-system-class::components/GlossaryView/GlossaryView.tsx::div[data-testid=glossary-row-${term.id}]": {
+      "reason": "Clickable layout row/region, not a button: the whole row is the hit area and owns its own row chrome, so btn-* button chrome would fight the list/table layout (#1099)."
+    },
+    "button-missing-design-system-class::components/IcdView/IcdDetailPane.tsx::li[data-testid=similar-icd-${icd.id}]": {
+      "reason": "Clickable layout row/region, not a button: the whole row is the hit area and owns its own row chrome, so btn-* button chrome would fight the list/table layout (#1099)."
+    },
+    "button-missing-design-system-class::components/NavigationShell/SidebarNavigation.tsx::div[data-testid=sidebar-overlay]": {
+      "reason": "Backdrop/overlay dismiss target, not a button: it is intentionally unstyled chrome layered behind the panel, with no button fill or label (#1099)."
+    },
+    "button-missing-design-system-class::components/Reviews/ReviewsView.tsx::input[data-testid=review-select-${r.id}]": {
+      "reason": "Native checkbox input, not a button: it is a form control with its own built-in affordance and accessible role (#1099)."
+    },
+    "button-missing-design-system-class::components/SplitView/SplitView.tsx::div[data-testid=splitview-divider]": {
+      "reason": "Pointer drag/resize handle, not a button: the interaction is a direct-manipulation gesture with separator semantics, so button chrome does not apply (#1099)."
+    },
+    "button-missing-design-system-class::components/WorkflowEditor/InspectorPanel.tsx::div[data-testid=workflow-inspector-resize]": {
+      "reason": "Pointer drag/resize handle, not a button: the interaction is a direct-manipulation gesture with separator semantics, so button chrome does not apply (#1099)."
+    },
+    "button-missing-design-system-class::components/WorkflowEditor/StateNode.tsx::div[data-testid=workflow-state-node-${state.id}]": {
+      "reason": "React-Flow node/edge wrapper, not a button: selection and dragging are owned by the graph library's own node/edge chrome, so a btn-* class would be wrong (#1099)."
+    },
+    "button-missing-design-system-class::components/WorkflowEditor/TransitionEdge.tsx::div[data-testid=workflow-transition-edge-${transition.id}]": {
+      "reason": "React-Flow node/edge wrapper, not a button: selection and dragging are owned by the graph library's own node/edge chrome, so a btn-* class would be wrong (#1099)."
+    },
+    "button-missing-design-system-class::components/shared/ArtifactInspector/RightSidebar.tsx::div[data-testid=artifact-inspector-resize]": {
+      "reason": "Pointer drag/resize handle, not a button: the interaction is a direct-manipulation gesture with separator semantics, so button chrome does not apply (#1099)."
+    },
+    "button-missing-design-system-class::components/shared/ArtifactRow/ArtifactRow.tsx::div": {
+      "reason": "Clickable layout row/region, not a button: the whole row is the hit area and owns its own row chrome, so btn-* button chrome would fight the list/table layout (#1099)."
+    },
+    "button-missing-design-system-class::components/shared/ArtifactRow/ArtifactRow.tsx::span": {
+      "reason": "Clickable row part, not a button: it sits inside the row's hit area and carries row text chrome, not a standalone button label (#1099)."
+    },
+    "button-missing-design-system-class::components/shared/CreateTraceLinkDialog/link-type-listbox.tsx::li[data-testid=${optionTestIdPrefix}-option-${option.key}]": {
+      "reason": "Listbox option row, not a button: selection and keyboard handling are owned by the listbox role, not by a button label (#1099)."
+    },
+    "button-missing-design-system-class::components/shared/Dialog/Dialog.tsx::div[data-testid=${testId}-overlay]": {
+      "reason": "Backdrop/overlay dismiss target, not a button: it is intentionally unstyled chrome layered behind the panel, with no button fill or label (#1099)."
+    },
+    "button-missing-design-system-class::components/shared/RevealValue.tsx::span[data-testid=${testId}-value]": {
+      "reason": "Click-to-copy inline text value, not a button: the affordance is a copy interaction on a text node; the sibling button elements carry the button chrome (#1099)."
+    },
+    "button-missing-design-system-class::components/shared/WorkspaceTree/workspace-tree.tsx::li[data-testid=${testIdPrefix}-node-${node.id}]": {
+      "reason": "Clickable layout row/region, not a button: the whole row is the hit area and owns its own row chrome, so btn-* button chrome would fight the list/table layout (#1099)."
+    },
+    "button-missing-design-system-class::components/shared/tag-input.tsx::div[data-testid=${testId}-input]": {
+      "reason": "Tag-input container, not a button: it is a text field hosting removable chips; the interactive controls inside are the chip remove buttons (#1099)."
+    }
+  }
 }
