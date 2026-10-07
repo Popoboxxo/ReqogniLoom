@@ -129,6 +129,24 @@ class _NoApiKeyEnv:
             os.environ["REQOGNILOOM_API_KEY"] = self._backup
 
 
+class _BaseUrlEnv:
+    """Sets ``REQOGNILOOM_BASE_URL`` for a test; passing ``None`` unsets it."""
+
+    def __init__(self, value: str | None) -> None:
+        self._value = value
+
+    def __enter__(self) -> None:
+        self._backup = os.environ.pop("REQOGNILOOM_BASE_URL", None)
+        if self._value is not None:
+            os.environ["REQOGNILOOM_BASE_URL"] = self._value
+
+    def __exit__(self, *exc_info: object) -> None:
+        if self._backup is None:
+            os.environ.pop("REQOGNILOOM_BASE_URL", None)
+        else:
+            os.environ["REQOGNILOOM_BASE_URL"] = self._backup
+
+
 def _keyless_client() -> Any:
     return client_mod.ReqogniLoomClient(base_url=_BASE_URL)
 
@@ -180,6 +198,8 @@ class ResolveWorkspaceIdTests(unittest.TestCase):
 
 class ConfigResolutionTests(unittest.TestCase):
     def test_defaults_when_env_unset(self) -> None:
+        # The default is intentionally unchanged (issue #1202 F5): local dev and
+        # existing configs keep working. Only the failure path became loud.
         env_backup = {k: os.environ.pop(k, None) for k in ("REQOGNILOOM_BASE_URL", "REQOGNILOOM_API_KEY")}
         try:
             client = client_mod.ReqogniLoomClient()
@@ -194,6 +214,31 @@ class ConfigResolutionTests(unittest.TestCase):
         client = client_mod.ReqogniLoomClient(base_url="http://example.test/", api_key="reqlo_abc")
         self.assertEqual(client.base_url, "http://example.test")  # trailing slash stripped
         self.assertEqual(client.api_key, "reqlo_abc")
+
+    def test_empty_base_url_env_is_rejected(self) -> None:
+        with _BaseUrlEnv(""), self.assertRaises(client_mod.ReqogniLoomError) as ctx:
+            client_mod.ReqogniLoomClient()
+        message = str(ctx.exception)
+        self.assertIn("REQOGNILOOM_BASE_URL", message)
+        self.assertIn("''", message)  # names the offending (empty) value
+
+    def test_whitespace_base_url_env_is_rejected(self) -> None:
+        with _BaseUrlEnv("   "), self.assertRaises(client_mod.ReqogniLoomError):
+            client_mod.ReqogniLoomClient()
+
+    def test_non_http_base_url_env_is_rejected(self) -> None:
+        with _BaseUrlEnv("ftp://example.test"), self.assertRaises(
+            client_mod.ReqogniLoomError
+        ) as ctx:
+            client_mod.ReqogniLoomClient()
+        message = str(ctx.exception)
+        self.assertIn("REQOGNILOOM_BASE_URL", message)
+        self.assertIn("ftp://example.test", message)
+
+    def test_explicit_non_http_base_url_is_rejected(self) -> None:
+        with self.assertRaises(client_mod.ReqogniLoomError) as ctx:
+            client_mod.ReqogniLoomClient(base_url="localhost:8001")
+        self.assertIn("localhost:8001", str(ctx.exception))
 
 
 class TransportFailureTests(unittest.TestCase):
@@ -245,6 +290,44 @@ class TransportFailureTests(unittest.TestCase):
         ) as ctx:
             _client().list_workspaces()
         self.assertIn("could not reach", str(ctx.exception))
+
+    def test_default_target_failure_names_env_var_and_default(self) -> None:
+        # No REQOGNILOOM_BASE_URL and no explicit base_url: the request silently
+        # went to the local default, so the error must say exactly that.
+        error = urllib.error.URLError(ConnectionRefusedError("Connection refused"))
+        with _BaseUrlEnv(None), patch("urllib.request.urlopen", side_effect=error), self.assertRaises(
+            client_mod.ReqogniLoomError
+        ) as ctx:
+            client_mod.ReqogniLoomClient(api_key=_API_KEY).list_workspaces()
+        message = str(ctx.exception)
+        self.assertIn("could not reach", message)
+        self.assertIn("REQOGNILOOM_BASE_URL", message)
+        self.assertIn("http://localhost:8001", message)
+        self.assertIn("default", message)
+
+    def test_default_target_read_failure_names_env_var_too(self) -> None:
+        # The read-side OSError branch gets the same hint as the send-side one.
+        response = _FakeResponse(read_error=TimeoutError("timed out"))
+        with _BaseUrlEnv(None), patch("urllib.request.urlopen", return_value=response), self.assertRaises(
+            client_mod.ReqogniLoomError
+        ) as ctx:
+            client_mod.ReqogniLoomClient(api_key=_API_KEY).list_workspaces()
+        message = str(ctx.exception)
+        self.assertIn("REQOGNILOOM_BASE_URL", message)
+        self.assertIn("http://localhost:8001", message)
+
+    def test_configured_target_failure_has_no_default_hint(self) -> None:
+        # A reachable-but-misconfigured instance must not get the misleading
+        # "you forgot REQOGNILOOM_BASE_URL" hint.
+        error = urllib.error.URLError(ConnectionRefusedError("Connection refused"))
+        with _BaseUrlEnv(None), patch("urllib.request.urlopen", side_effect=error), self.assertRaises(
+            client_mod.ReqogniLoomError
+        ) as ctx:
+            _client().list_workspaces()
+        message = str(ctx.exception)
+        self.assertIn("could not reach", message)
+        self.assertNotIn("REQOGNILOOM_BASE_URL", message)
+        self.assertNotIn("default", message)
 
     def test_non_json_body_becomes_reqogniloom_error(self) -> None:
         with patch("urllib.request.urlopen", return_value=_FakeResponse(b"<html>nope</html>")), self.assertRaises(

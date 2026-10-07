@@ -317,8 +317,8 @@ router = APIRouter()
 def stats(workspace_id: str = "", request: Request = None) -> Dict[str, Any]:
     """Counts for the resolved workspace; backend failures stay 200+error."""
     _authorize(request)
-    client = ReqogniLoomClient()
     try:
+        client = ReqogniLoomClient()
         ws_id = resolve_workspace_id(client, workspace_id or None)
         return client.stats(ws_id)
     except ReqogniLoomError as exc:
@@ -329,8 +329,8 @@ def stats(workspace_id: str = "", request: Request = None) -> Dict[str, Any]:
 def workspaces(request: Request = None) -> Dict[str, Any]:
     """Workspaces visible to the configured API key."""
     _authorize(request)
-    client = ReqogniLoomClient()
     try:
+        client = ReqogniLoomClient()
         return {"workspaces": client.list_workspaces()}
     except ReqogniLoomError as exc:
         return {"error": str(exc)}
@@ -340,8 +340,8 @@ def workspaces(request: Request = None) -> Dict[str, Any]:
 def version(request: Request = None) -> Dict[str, Any]:
     """ReqogniLoom build version; backend failures stay 200+error."""
     _authorize(request)
-    client = ReqogniLoomClient()
     try:
+        client = ReqogniLoomClient()
         return client.version()
     except ReqogniLoomError as exc:
         return {"error": str(exc)}
@@ -356,8 +356,8 @@ def interviews(workspace_id: str = "", status: str = "in_progress", request: Req
     and best-effort, like the other handlers: a backend failure stays 200+error.
     """
     _authorize(request)
-    client = ReqogniLoomClient()
     try:
+        client = ReqogniLoomClient()
         ws_id = resolve_workspace_id(client, workspace_id or None)
         return {"workspace_id": ws_id, "interviews": client.list_interviews(ws_id, status or None)}
     except ReqogniLoomError as exc:
