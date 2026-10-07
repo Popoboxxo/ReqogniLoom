@@ -32,9 +32,7 @@ from uuid import UUID
 
 from auth_tenancy.context import AuthContext
 from django.core.cache import cache
-from django.db import transaction
 from django.db.models import F, Q, QuerySet
-from django.db.utils import OperationalError, ProgrammingError
 from persistence.models import (
     Artifact,
     Requirement,
@@ -65,6 +63,12 @@ from application.models import DomainEventOutbox
 from application.optimistic_lock import (
     assert_expected_version,
     lock_for_version_check,
+)
+from application.vector_port import (
+    COLLECTION_REQUIREMENT,
+    QdrantBackendUnavailableError,
+    VectorBackendUnavailableError,
+    get_vector_port,
 )
 
 logger = logging.getLogger(__name__)
@@ -104,6 +108,17 @@ class PgVectorUnavailableError(RuntimeError):
     REQ-L2-VS-004: similarity search depends on pgvector. When the Python
     package is missing or the DB extension is not installed, the REST layer
     maps this to HTTP 503 (service unavailable) rather than a 500.
+    """
+
+
+class QdrantUnavailableError(PgVectorUnavailableError):
+    """Raised when the optional Qdrant vector backend is unavailable.
+
+    ADR-020 V2. Subclasses :class:`PgVectorUnavailableError` so the existing
+    REST mapping (HTTP 503, ``SERVICE_UNAVAILABLE``) is unchanged; only the
+    message names the actual backend. The port's
+    :class:`application.vector_port.QdrantBackendUnavailableError` is
+    translated into this class at the call site.
     """
 
 
@@ -981,41 +996,41 @@ class RequirementService(ServiceBase):
         else:
             query_embedding = req.embedding
 
-        try:
-            from pgvector.django import CosineDistance
-        except ImportError as exc:
-            raise PgVectorUnavailableError(
-                "pgvector package not installed — similarity search unavailable"
-            ) from exc
-
         safe_limit = max(1, min(int(limit or 10), 50))
 
-        queryset = Requirement.objects.filter(
-            tenant_id=ctx.tenant_id, embedding__isnull=False
-        )
-        if workspace_id is not None:
-            queryset = queryset.filter(artifact__workspace_id=workspace_id)
-        queryset = (
-            queryset.exclude(id=req.id)
-            .select_related("artifact")
-            .annotate(distance=CosineDistance("embedding", query_embedding))
-            .order_by("distance")[:safe_limit]
-        )
-
         try:
-            # Issue #977: the workspace filter is applied *after* the HNSW
-            # candidate scan, so with pgvector's default ef_search=40 a small
-            # workspace can get fewer hits than exist (or none). Enable the
-            # iterative scan for this transaction; no-op on pgvector < 0.8.
-            from application.pgvector_ann import enable_iterative_ann_scan
+            hits = get_vector_port().query_similar(
+                collection=COLLECTION_REQUIREMENT,
+                query_vector=query_embedding,
+                tenant_id=ctx.tenant_id,
+                workspace_id=workspace_id,
+                workspace_field="artifact__workspace_id",
+                exclude_id=req.id,
+                limit=safe_limit,
+                # Issue #977: the workspace filter is applied *after* the HNSW
+                # candidate scan, so with pgvector's default ef_search=40 a small
+                # workspace can get fewer hits than exist (or none). The port
+                # enables the iterative scan for this query; no-op on < 0.8.
+                iterative_scan=True,
+            )
+        except QdrantBackendUnavailableError as exc:
+            raise QdrantUnavailableError(str(exc)) from exc
+        except VectorBackendUnavailableError as exc:
+            raise PgVectorUnavailableError(str(exc)) from exc
 
-            with transaction.atomic():
-                enable_iterative_ann_scan()
-                rows = list(queryset)
-        except (ProgrammingError, OperationalError) as exc:
-            raise PgVectorUnavailableError(
-                "pgvector extension not available — similarity search unavailable"
-            ) from exc
+        if not hits:
+            return []
+
+        # The port returns only (id, distance); re-fetch the rows to build the
+        # DTOs, preserving the port's closest-first order.
+        distances = {hit.id: float(hit.distance) for hit in hits}
+        rows_by_id = {
+            row.id: row
+            for row in Requirement.objects.filter(id__in=list(distances)).select_related(
+                "artifact"
+            )
+        }
+        rows = [rows_by_id[hit.id] for hit in hits if hit.id in rows_by_id]
 
         # Datenmodell-Konsolidierung Phase 1: ``status`` is no longer written
         # by the workflow engine — resolved through state_reader (batched).
@@ -1034,7 +1049,7 @@ class RequirementService(ServiceBase):
                 category=row.category,
                 status=states.get(str(row.id)) or requirement_initial_state,
                 # Cosine distance in [0, 2]; similarity = 1 - distance.
-                similarity_score=round(1.0 - float(row.distance), 6),
+                similarity_score=round(1.0 - distances[row.id], 6),
             )
             for row in rows
         ]
@@ -1418,4 +1433,5 @@ __all__ = [
     "DecompositionResultDTO",
     "SimilarRequirementDTO",
     "PgVectorUnavailableError",
+    "QdrantUnavailableError",
 ]

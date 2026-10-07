@@ -884,9 +884,17 @@ class TraceLinkService(ServiceBase):
             ValidationError: Query trace link has no embedding.
             PgVectorUnavailableError: pgvector package/extension unavailable.
         """
-        from django.db.utils import OperationalError, ProgrammingError
         from persistence.models import TraceLink
-        from application.requirement_service import PgVectorUnavailableError
+        from application.requirement_service import (
+            PgVectorUnavailableError,
+            QdrantUnavailableError,
+        )
+        from application.vector_port import (
+            COLLECTION_TRACE_LINK,
+            QdrantBackendUnavailableError,
+            VectorBackendUnavailableError,
+            get_vector_port,
+        )
 
         self._set_tenant_context(ctx)
 
@@ -898,41 +906,44 @@ class TraceLinkService(ServiceBase):
                 "TraceLink has no embedding — similarity search not possible"
             )
 
-        try:
-            from pgvector.django import CosineDistance
-        except ImportError as exc:
-            raise PgVectorUnavailableError(
-                "pgvector package not installed — similarity search unavailable"
-            ) from exc
-
         safe_limit = max(1, min(int(limit or 10), 50))
 
-        queryset = (
-            TraceLink.objects.filter(
-                tenant_id=ctx.tenant_id, embedding__isnull=False
-            )
-            .exclude(id=link.id)
-            .annotate(distance=CosineDistance("embedding", link.embedding))
-            .order_by("distance")[:safe_limit]
-        )
-
         try:
-            rows = list(queryset)
-        except (ProgrammingError, OperationalError) as exc:
-            raise PgVectorUnavailableError(
-                "pgvector extension not available — similarity search unavailable"
-            ) from exc
+            hits = get_vector_port().query_similar(
+                collection=COLLECTION_TRACE_LINK,
+                query_vector=link.embedding,
+                tenant_id=ctx.tenant_id,
+                exclude_id=link.id,
+                limit=safe_limit,
+                # Mirrors the pre-port site: no transaction/iterative scan here.
+                iterative_scan=False,
+            )
+        except QdrantBackendUnavailableError as exc:
+            raise QdrantUnavailableError(str(exc)) from exc
+        except VectorBackendUnavailableError as exc:
+            raise PgVectorUnavailableError(str(exc)) from exc
+
+        if not hits:
+            return []
+
+        # The port returns only (id, distance); re-fetch the rows to build the
+        # DTOs, preserving the port's closest-first order.
+        distances = {hit.id: float(hit.distance) for hit in hits}
+        rows_by_id = {
+            row.id: row for row in TraceLink.objects.filter(id__in=list(distances))
+        }
 
         return [
             SimilarTraceLinkDTO(
-                id=row.id,
-                source_id=row.source_id,
-                target_id=row.target_id,
-                link_type=row.link_type,
+                id=rows_by_id[hit.id].id,
+                source_id=rows_by_id[hit.id].source_id,
+                target_id=rows_by_id[hit.id].target_id,
+                link_type=rows_by_id[hit.id].link_type,
                 # Cosine distance in [0, 2]; similarity = 1 - distance.
-                similarity_score=round(1.0 - float(row.distance), 6),
+                similarity_score=round(1.0 - distances[hit.id], 6),
             )
-            for row in rows
+            for hit in hits
+            if hit.id in rows_by_id
         ]
 
     # ---------- IF-AS-INT-001 (hard delete only, GH-484) ----------
