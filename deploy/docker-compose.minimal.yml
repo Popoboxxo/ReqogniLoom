@@ -1,9 +1,11 @@
 # ReqogniLoom — Minimal Stack
 #
 # Slimmest working setup: postgres, redis, backend, migrate, frontend. No
-# Celery worker/beat, no backup sidecar, no Honcho. For the full production
-# stack (async tasks, scheduled backups, optional Honcho memory profile) use
-# docker-compose.yml instead.
+# Celery worker/beat, no backup sidecar, no Honcho, no Qdrant. For the full
+# production stack (async tasks, scheduled backups, optional Honcho/Qdrant
+# memory profiles) use docker-compose.yml instead. This stack is pgvector-only
+# (ADR-020): the optional `qdrant` profile lives in docker-compose.yml and is
+# deliberately NOT available here, so MEMORY_BACKEND=pgvector stays the default.
 #
 # WHAT YOU LOSE vs. the full stack:
 #   • No async task processing — any feature that queues a Celery task
@@ -236,3 +238,5 @@ volumes:
   postgres_data:
   redis_data:            # Queue + cache persistence (/data) — AOF is on, so it must survive recreate
   backend_dr_backups:
+  # No qdrant_data here on purpose: the minimal stack is pgvector-only (ADR-020).
+  # The optional Qdrant vector backend + its volume live in docker-compose.yml.

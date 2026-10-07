@@ -28,7 +28,7 @@ DEV_COMPOSE := $(COMPOSE) -f deploy/docker-compose.yml -f deploy/docker-compose.
 MINIMAL_COMPOSE := $(COMPOSE) -f deploy/docker-compose.minimal.yml --project-directory .
 TEST_COMPOSE := $(COMPOSE) -f deploy/docker-compose.yml -f testing/docker-compose.test.yml --project-directory .
 
-.PHONY: up down minimal minimal-down honcho bluepencil bluepencil-down build test test-backend test-frontend test-e2e test-e2e-reseed help
+.PHONY: up down minimal minimal-down honcho qdrant qdrant-down bluepencil bluepencil-down build test test-backend test-frontend test-e2e test-e2e-reseed help
 
 ## up: Start the full dev stack (hot-reload override applied)
 up:
@@ -49,6 +49,14 @@ minimal-down:
 ## honcho: Add the optional Honcho memory backend to the running dev stack
 honcho:
 	$(DEV_COMPOSE) --profile honcho up -d
+
+## qdrant: Add the optional Qdrant vector backend to the running dev stack (ADR-020; opt-in only, pgvector stays the default — also set MEMORY_BACKEND=qdrant + QDRANT_BASE_URL=http://qdrant:6333 in .env)
+qdrant:
+	$(DEV_COMPOSE) --profile qdrant up -d
+
+## qdrant-down: Stop just the qdrant service (leaves the rest of the stack running)
+qdrant-down:
+	$(DEV_COMPOSE) --profile qdrant stop qdrant
 
 ## bluepencil: Add the optional bluepencil review-notes sidecar (QS/demo only — no auth, no tenant isolation). Two-part enable: starts the sidecar only; to arm the frontend review layer also set BLUEPENCIL_ENABLED=1 in .env and restart the frontend service
 bluepencil:
