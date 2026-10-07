@@ -31,6 +31,7 @@ import { ArchitectureArtifactForm } from "./ArchitectureArtifactForm";
 import { ArchitectureLegend } from "./ArchitectureLegend";
 import { Dialog } from "../shared/Dialog";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
+import { SAVE_SHORTCUT_ARIA, useSaveShortcut } from "../../hooks/useSaveShortcut";
 import { TraceLinkPanel } from "../shared/TraceLinkPanel";
 import { DeriveRequirementForm } from "../shared/DeriveRequirementForm";
 import { ArchitectureDecomposePanel } from "../ArchitectureDecompose/ArchitectureDecomposePanel";
@@ -105,6 +106,15 @@ export default function ArchitectureEditors(): JSX.Element {
   // editor in this quick-create form.
   const [newDescription, setNewDescription] = useState('');
   const [listSearch, setListSearch] = useState('');
+  // #1100: in-flight guard for the create form, so `Ctrl`/`Cmd`+`S` held down
+  // (or button-then-shortcut in one tick) cannot create twice. Matches the
+  // `isCreating` state every other hand-written create dialog already has.
+  const [isCreating, setIsCreating] = useState(false);
+  // FR-U5-01: the state above cannot see a same-tick double submit — React has
+  // not re-rendered between the click and the keydown — so the inline create
+  // handler also holds a synchronous ref (mirror of `savingRef` in
+  // `shared/ArtifactForm/ArtifactForm.tsx`).
+  const submittingRef = useRef(false);
   // REQ-175: lifecycle-status filter. ArchitectureElement has no denormalized
   // workflow status, so we filter on the available lifecycle_status field —
   // sourced from the backing Artifact since the Datenmodell-Konsolidierung.
@@ -206,6 +216,7 @@ export default function ArchitectureEditors(): JSX.Element {
     async (parentId?: string, customTitle?: string, customDescription?: string): Promise<void> => {
       if (!activeWorkspace) return;
       setListActionError(null);
+      setIsCreating(true);
       try {
         const created = await architectureApi.create({
           workspace_id: activeWorkspace.id,
@@ -225,15 +236,39 @@ export default function ArchitectureEditors(): JSX.Element {
         // markup in a title with a 400 naming the field. Logging that to the
         // console only made a rejected create look like a silent no-op.
         setListActionError(extractApiErrorMessage(err) ?? t("arch.createFailed"));
+      } finally {
+        setIsCreating(false);
       }
     },
     [activeWorkspace, t, refresh, navigate]
   );
 
   const handleInlineCreate = useCallback(async () => {
+    // FR-U5-01: same-tick guard for both the Create button and the chord. The
+    // two entry points both route here, so one guard covers the dialog; the
+    // tree's own "+ child" path (`handleCreate`) is a separate, single gesture.
+    if (submittingRef.current) return;
     if (!newTitle.trim()) return;
-    await handleCreate(undefined, newTitle.trim(), newDescription);
+    submittingRef.current = true;
+    try {
+      await handleCreate(undefined, newTitle.trim(), newDescription);
+    } finally {
+      submittingRef.current = false;
+    }
   }, [newTitle, newDescription, handleCreate]);
+
+  // #1100: the inline create form is hand-written, so it opts into the shared
+  // shortcut (see AdrEditors for the same wiring and the topmost-form
+  // rationale). Enabled only while the dialog is open; the hook's topmost-form
+  // rule makes it win over the detail form still mounted behind it.
+  const createFormRef = useRef<HTMLFormElement | null>(null);
+  useSaveShortcut({
+    onSave: handleInlineCreate,
+    enabled: showCreateForm,
+    isSaving: isCreating,
+    containerRef: createFormRef,
+    canSave: newTitle.trim().length > 0,
+  });
 
   // F-08 (Dialog migration): Escape / backdrop click / × must discard the
   // draft exactly like the existing Cancel button.
@@ -494,6 +529,7 @@ export default function ArchitectureEditors(): JSX.Element {
           testId="arch-new-dialog"
         >
         <form
+          ref={createFormRef}
           onSubmit={(e) => { e.preventDefault(); void handleInlineCreate(); }}
           className={styles.createForm}
         >
@@ -547,9 +583,11 @@ export default function ArchitectureEditors(): JSX.Element {
               data-testid="arch-new-save-btn"
               type="submit"
               className="btn-primary"
-              disabled={!newTitle.trim()}
+              disabled={isCreating || !newTitle.trim()}
+              aria-keyshortcuts={SAVE_SHORTCUT_ARIA}
+              title={t('artifactForm.saveShortcutHint', 'Speichern (Strg/Cmd+S)')}
             >
-              {t('actions.create', 'Erstellen')}
+              {isCreating ? t('actions.saving', 'Saving...') : t('actions.create', 'Erstellen')}
             </button>
           </div>
         </form>

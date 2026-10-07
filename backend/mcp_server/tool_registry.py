@@ -430,6 +430,10 @@ _READ_ONLY_TOOL_NAMES: frozenset[str] = frozenset(
         # explicitly or it would fail closed to WRITE-gated.
         "traceability.query_links",
         "traceability.suggest_links",
+        # #1197: status polling only reads a Celery task result via the
+        # tenant-ownership cache mapping — mirrors
+        # requirement_bundle.compression_status and BundleCompressionStatusView.
+        "traceability.suggest_links_status",
         "artifact.search",
         "artifact.get_tree",
         "context.change_impact",

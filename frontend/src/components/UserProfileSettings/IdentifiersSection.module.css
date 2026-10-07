@@ -74,10 +74,18 @@
   margin: var(--space-1) 0 0 0;
 }
 
-/* The persistence gap is a known limitation, not a warning to act on, so it is
-   quieter than the row hint. */
-.persistenceNote {
+/* Where the preference is stored (account-scoped, issue #1096) is informational,
+   so it is quieter than the row hint and follows the same family as
+   NotificationsSection's copy. */
+.accountNote {
   font-size: var(--font-size-xs);
   color: var(--color-text-muted);
+  margin: var(--space-1) 0 0 0;
+}
+
+/* A failed load or save (issue #1096) must be visible, not swallowed. */
+.error {
+  font-size: var(--font-size-sm);
+  color: var(--color-danger);
   margin: var(--space-1) 0 0 0;
 }

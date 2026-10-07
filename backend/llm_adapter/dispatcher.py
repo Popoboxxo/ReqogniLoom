@@ -146,9 +146,46 @@ class AsyncTaskDispatcher:
             }
 
         tenant_id = _resolve_tenant_id()
-        async_result = run_capability.apply_async(
-            args=[capability, kwargs, tenant_id],
-        )
+        return self.dispatch_task(run_capability, args=[capability, kwargs, tenant_id])
+
+    def dispatch_task(
+        self,
+        task: Any,
+        args: Optional[list] = None,
+        kwargs: Optional[Dict[str, Any]] = None,
+    ) -> Union[str, Dict[str, Any]]:
+        """Dispatch an arbitrary registered Celery task and return its task_id.
+
+        Generic sibling of :meth:`dispatch_async` for application-layer
+        long-runners that are *not* a single provider capability and therefore
+        cannot be routed through ``run_capability`` (issue #1197:
+        ``suggest-links`` runs the SE-Auditor plus a provider call inside
+        ``TraceabilitySuggestService.suggest_links``). Shares the exact same
+        broker-configured graceful stub, so a caller that gets the structured
+        ``{"error": {"code": "BROKER_NOT_CONFIGURED", ...}}`` dict can answer
+        ``503`` the same way it does for :meth:`dispatch_async`.
+
+        Args:
+            task: The imported ``@shared_task`` to enqueue.
+            args: Positional arguments forwarded to the task.
+            kwargs: Keyword arguments forwarded to the task.
+
+        Returns:
+            task_id string (UUID) on success, or the structured
+            ``BROKER_NOT_CONFIGURED`` error dict when no broker is configured.
+        """
+        if not _broker_configured():
+            return {
+                "error": {
+                    "code": BROKER_NOT_CONFIGURED,
+                    "message": (
+                        "Celery broker not configured. "
+                        "Set CELERY_BROKER_URL to enable async task dispatch."
+                    ),
+                }
+            }
+
+        async_result = task.apply_async(args=args or [], kwargs=kwargs or {})
         return async_result.id
 
     def get_task_status(self, task_id: str) -> TaskStatusResult:

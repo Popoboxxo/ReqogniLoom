@@ -28,6 +28,7 @@ Registers:
   /api/v1/admin/restore/      AdminRestoreView   (REQ-L1-046)
   /api/v1/admin/health/       SystemHealthView   (system health dashboard)
   /api/v1/users/me/preferences/ UserPreferenceView (REQ-L1-027)
+  /api/v1/users/me/display-preferences/ DisplayPreferenceView (Issue #1096)
 
 Schema endpoints (served at project-level via drf-spectacular):
   /api/v1/schema/             SpectacularAPIView
@@ -82,7 +83,10 @@ from rest_api.audit_views import (
     WorkspaceAuditView,
     WorkspaceAuditWaiverView,
 )
-from rest_api.traceability_suggest_views import WorkspaceTraceabilitySuggestLinksView
+from rest_api.traceability_suggest_views import (
+    TraceabilitySuggestLinksStatusView,
+    WorkspaceTraceabilitySuggestLinksView,
+)
 from rest_api.review_views import (
     ReviewsPendingView,
     WorkspaceReviewsPendingView,
@@ -106,6 +110,7 @@ from rest_api.diagram_canvas_views import (
     MermaidSourceView,
 )
 from rest_api.diagram_views import DiagramViewSet
+from rest_api.display_preference_views import DisplayPreferenceView
 from rest_api.icd_views import IcdViewSet
 from rest_api.interview_views import InterviewViewSet
 from rest_api.metrics_views import MetricsViewSet
@@ -460,6 +465,14 @@ urlpatterns = [
         "users/me/notification-preferences/",
         NotificationPreferenceView.as_view(),
         name="user-notification-preferences",
+    ),
+    # Display preferences (Issue #1096) — the caller's own UI display flags
+    # (readable-id visibility). Same self-service shape as the two routes
+    # directly above.
+    path(
+        "users/me/display-preferences/",
+        DisplayPreferenceView.as_view(),
+        name="user-display-preferences",
     ),
     # Theme Presets — the caller's own theme choice (GET/PUT).
     # NOTE: must precede any other users/me/ pattern that could shadow it.
@@ -890,6 +903,13 @@ urlpatterns = [
         "workspaces/<uuid:workspace_id>/traceability/suggest-links/",
         WorkspaceTraceabilitySuggestLinksView.as_view(),
         name="workspace-traceability-suggest-links",
+    ),
+    # #1197: poll a suggest-links Celery dispatch (?async=true). Flat route
+    # matching bundle-compression-status/ and consistency-status/.
+    path(
+        "traceability/suggest-links-status/<str:task_id>/",
+        TraceabilitySuggestLinksStatusView.as_view(),
+        name="api-v1-traceability-suggest-links-status",
     ),
     # SysEng 2.0 N1 (architecture.decompose) — Draft-Staging copilot.
     # commit/ must precede the generate route so it is not shadowed.

@@ -1988,7 +1988,9 @@
     "showReadable": "Show readable ids (e.g. REQ-001)",
     "readableShown": "Readable ids are shown. The system id remains copyable as well.",
     "readableHidden": "Readable ids are hidden. The system id remains copyable.",
-    "persistenceNote": "Note: this setting is stored in this browser only. A dedicated endpoint is still needed for a server-side user preference.",
+    "accountNote": "This setting belongs to your account and applies on all devices.",
+    "loading": "Loading setting…",
+    "syncFailed": "The setting could not be synced with the server.",
     "accountLabel": "Your account",
     "accountUnavailable": "Loading account…"
   },

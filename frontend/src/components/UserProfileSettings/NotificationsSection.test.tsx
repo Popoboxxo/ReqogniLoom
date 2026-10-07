@@ -28,6 +28,7 @@ import {
 import { NOTIFICATION_PREFERENCES_CHANGED_EVENT } from "../../hooks/useNotificationFeed";
 import { apiKeysApi } from "../../api/api-keys";
 import { memoryApi } from "../../api/memory";
+import { displayPreferencesApi } from "../../api/display-preferences";
 
 vi.mock("../../api/notification-preferences", async (importOriginal) => {
   const actual =
@@ -37,6 +38,12 @@ vi.mock("../../api/notification-preferences", async (importOriginal) => {
     notificationPreferencesApi: { get: vi.fn(), update: vi.fn() },
   };
 });
+
+// IdentifiersSection (#1096) fetches display preferences on mount; stub it so
+// the UserProfileSettings mount test (g) never reaches the network.
+vi.mock("../../api/display-preferences", () => ({
+  displayPreferencesApi: { get: vi.fn(), update: vi.fn() },
+}));
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: (key: string, fallback?: string) => fallback ?? key }),
@@ -97,6 +104,7 @@ describe("NotificationsSection", () => {
       ...changes,
     }));
     vi.mocked(apiKeysApi.list).mockResolvedValue([]);
+    vi.mocked(displayPreferencesApi.get).mockResolvedValue({ show_readable_ids: true });
     vi.mocked(memoryApi.getSelfOverview).mockResolvedValue({
       entry_count: 0,
       last_updated_at: null,

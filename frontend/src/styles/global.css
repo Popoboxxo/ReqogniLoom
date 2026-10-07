@@ -116,6 +116,47 @@ input, select, textarea {
   gap: var(--space-1);
 }
 
+/* Icon-only control (issue #1099). This closes the gap #1093 opened: its "Soll"
+ * text asked for `btn-icon`, which did not exist, and a component following
+ * that text rendered an unstyled UA button. It is a real variant now.
+ *
+ * Geometry reads the same button vocabulary as the text variants above
+ * (`--btn-h-md`, `--radius-btn`) and is square so a lone icon stays optically
+ * centred. Use it like `.btn-ghost` but for a single icon: it provides
+ * colour, hover/active feedback and the 36px hit area, while the caller keeps
+ * the icon at 16-20px in `currentColor` (never an emoji, see #1092).
+ *
+ * ACCESSIBLE NAME IS PART OF THE CONTRACT: an icon-only `<button
+ * className="btn-icon">` has no text content, so it MUST carry an accessible
+ * name — `aria-label`, `aria-labelledby`, or a visually-hidden label — and a
+ * `title` when the meaning is not obvious. CSS cannot enforce that, so it is
+ * stated here and verified in review. The 36px target clears WCAG 2.2 SC
+ * 2.5.8's 24px minimum; the visible focus ring comes from the global
+ * `:focus-visible` rule at the top of this file (SC 2.4.7). */
+.btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--btn-h-md);
+  min-width: var(--btn-h-md);
+  min-height: var(--btn-h-md);
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-btn);
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  line-height: 1;
+}
+.btn-icon:hover:not(:disabled) {
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+}
+.btn-icon:active:not(:disabled) {
+  background: var(--color-card-active-bg);
+}
+
 /* Task 14 (GESAMTTEST_BERICHT_2026-08-21.md §6 Top-1): the header "Neue X"
  * button (PageHeader's primaryAction, via this class) and the empty-state
  * CTA button (EmptyState's own `.primaryButton` module class) rendered as
@@ -176,7 +217,8 @@ input, select, textarea {
 .btn-primary:disabled,
 .btn-secondary:disabled,
 .btn-danger:disabled,
-.btn-ghost:disabled {
+.btn-ghost:disabled,
+.btn-icon:disabled {
   opacity: 0.55;
   cursor: not-allowed;
   transform: none;

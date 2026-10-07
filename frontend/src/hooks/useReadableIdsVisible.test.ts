@@ -147,6 +147,11 @@ describe("useReadableIdsVisible", () => {
         result.current[1](false);
       })
     ).not.toThrow();
+    // FR-U3-01: the in-memory value is authoritative. The just-set `false`
+    // must NOT be re-derived from the unreadable storage back to the default
+    // `true` — that silent revert was the review finding.
+    expect(result.current[0]).toBe(false);
+    expect(getReadableIdsVisible()).toBe(false);
   });
 
   it("exposes the current value outside React for non-component callers", () => {

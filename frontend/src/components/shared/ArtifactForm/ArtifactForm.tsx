@@ -726,6 +726,17 @@ export function ArtifactForm({
     onSave: handleSave,
     enabled: !isReadOnly && !loading && !loadError && definition !== null,
     isSaving: saving,
+    // #1100 follow-up: the form owns the shortcut, so a covering modal (confirm
+    // dialog, legend, export panel) suspends it instead of saving the form
+    // behind the overlay.
+    containerRef: formRef,
+    // FR-U5-02 / a11y-U5-02: a create form whose required fields are empty
+    // must not have its submit path called by the chord — mirror the Save
+    // button's own `disabled={saving || missingCreateValue}` so an empty
+    // required field cannot reach a submit that only early-returns silently.
+    // Always `true` in edit mode (`missingCreateValue` is create-mode only),
+    // so the detail editor is unaffected.
+    canSave: !missingCreateValue,
   });
 
   /**

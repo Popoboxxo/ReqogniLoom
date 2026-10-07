@@ -34,10 +34,15 @@
  * approach of `ui-ratchet.test.ts` and `design-tokens.test.ts`.
  *
  * The classes it enforces are the ones `styles/global.css` actually defines.
- * Read them from there rather than from an issue's "Soll" text — #1093 asks for
- * `btn-icon`, which **does not exist** in the design system. Blessing it here
- * would let a component pass the gate while rendering an unstyled button, so
- * it is deliberately absent from `CHROME_CLASSES`.
+ * Read them from there rather than from an issue's "Soll" text. Issue #1099
+ * closed the gap #1093 opened: #1093's "Soll" asked for `btn-icon`, which did
+ * not exist, and this gate would have waved it through while the component
+ * rendered an unstyled button — confirming a false statement. `btn-icon` is
+ * now a real variant in `global.css`, added to `CHROME_CLASSES`, and the test
+ * "enforces only ... classes that styles/global.css actually defines" pins
+ * every enforced class to a real CSS rule, so no future phantom class can
+ * slip past. `CHROME_CLASSES` stays an explicit *positive* list; the scanner
+ * never matches the `btn-*` prefix.
  *
  * Ratchet semantics
  * -----------------
@@ -58,6 +63,13 @@
  *   command in the message. Same two-test shape as `ui-ratchet.test.ts`
  *   (`toBeLessThanOrEqual` ratchet + `toBe` staleness detector).
  *
+ * The ceiling is *monotonically non-increasing* (issue #1099). The re-baseline
+ * command refuses to raise `maxViolations`: a fresh violation must be fixed,
+ * or explicitly exempted with a substantive reason — it can never be silently
+ * absorbed into the ceiling. That is what turns the baseline from a frozen
+ * backlog into a ratchet that only moves down. The only allowed increase is
+ * the bootstrap run that creates a missing baseline file.
+ *
  * Re-baselining (single command, no extra tooling):
  *
  *   DESIGN_SYSTEM_RATCHET_DUMP=1 npx vitest run src/test/design-system-ratchet.test.ts
@@ -68,10 +80,11 @@
  *     --project-directory . run --rm frontend-test \
  *     sh -c "npx vitest run src/test/design-system-ratchet.test.ts"   # with the env var set
  *
- * The dump rewrites `maxViolations` to the measured count and drops exemptions
- * that no longer match a real violation. It never invents an exemption: a new
- * violation is only ever *absorbed* into the ceiling, which keeps the
- * deliberate "look at this and decide" step in the diff.
+ * The dump rewrites `maxViolations` down to the measured count and drops
+ * exemptions that no longer match a real violation. It never invents an
+ * exemption and never raises the ceiling: a fresh violation is either fixed or
+ * explicitly exempted, so the deliberate "look at this and decide" step stays
+ * in the diff. A dump that would raise a ceiling aborts before writing.
  */
 import {
   existsSync,
@@ -93,12 +106,15 @@ const REPORT_ENV_VAR = "DESIGN_SYSTEM_RATCHET_REPORT";
 /**
  * The `btn-*` classes that carry *chrome* (fill, border, colour, geometry
  * base), i.e. the ones that make an element look like a design-system button.
- * Read from `styles/global.css` lines 103-247.
+ * Read from `styles/global.css`. This is an explicit POSITIVE list (issue
+ * #1099) — the scanner never matches the `btn-*` prefix, so an invented class
+ * cannot pass the gate, and the test "enforces only ... classes that
+ * styles/global.css actually defines" pins each entry to a real CSS rule.
  *
  * `btn-sm` / `btn-lg` are deliberately excluded: they only override height,
  * padding and font size, so `className="btn-sm"` on a bare `<button>` is
- * still a default UA button. `btn-icon` is excluded because it does not exist
- * at all — see the file header.
+ * still a default UA button. `btn-icon` *is* included — since #1099 it carries
+ * its own colour/geometry/hover chrome (see its rule in `global.css`).
  */
 const CHROME_CLASSES = [
   "btn-primary",
@@ -106,6 +122,7 @@ const CHROME_CLASSES = [
   "btn-danger",
   "btn-ghost",
   "btn-tab",
+  "btn-icon",
 ] as const;
 
 /** `<button>`, plus anything that behaves like one. */
@@ -162,6 +179,63 @@ function extractClassName(attrs: string): string | null {
 function condense(value: string): string {
   const flat = value.replace(/\s+/g, " ").trim();
   return flat.length > 80 ? `${flat.slice(0, 77)}...` : flat;
+}
+
+/**
+ * Check 4 (issue #1099) — an icon-only `.btn-icon` button must carry an
+ * accessible name.
+ *
+ * `global.css` documents the contract above the `.btn-icon` rule ("ACCESSIBLE
+ * NAME IS PART OF THE CONTRACT"), but a CSS comment cannot enforce it. A
+ * `.btn-icon` button has no text content by construction, so without
+ * `aria-label` / `aria-labelledby` / a visually-hidden label it is announced as
+ * an unlabelled "button" — WCAG 4.1.2 (Name, Role, Value), and the whole point
+ * of an icon-only control is lost on a screen reader. `title` is deliberately
+ * NOT accepted: it is not exposed as the accessible name by every assistive
+ * technology and never as the primary name, so it cannot stand in for one.
+ *
+ * Accessible-name attributes. `aria-label` and `aria-labelledby` are checked
+ * as attributes (not by resolving their value): a non-empty literal counts, an
+ * expression such as `{t("…")}` counts (the developer declared a name), and an
+ * explicit empty literal (`aria-label=""`) does not.
+ */
+const ARIA_LABEL_ATTR = "aria-label";
+const ARIA_LABELLEDBY_ATTR = "aria-labelledby";
+
+/** True when `attrs` carries `name` with a non-empty literal or any expression. */
+function hasNonEmptyAriaAttr(attrs: string, name: string): boolean {
+  const literal = new RegExp(
+    `\\b${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)')`,
+  ).exec(attrs);
+  if (literal !== null) {
+    const value = (literal[1] ?? literal[2] ?? "").trim();
+    return value !== "";
+  }
+  return new RegExp(`\\b${name}\\s*=\\s*\\{`).test(attrs);
+}
+
+/**
+ * Non-whitespace content of a `<button>`'s children after its child tags are
+ * removed — i.e. the element's text alternative, including a visually-hidden
+ * `<span>`. JSX expressions (`{t("close")}`) are left in place and count as
+ * content, so a translated label is never a false positive; an icon-only button
+ * (`<Icon />` child, no text) reduces to the empty string.
+ */
+function buttonTextContent(inner: string): string {
+  return inner
+    .replace(/<[^>]*>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Whether a `.btn-icon` `<button>` has an accessible name. `inner` is the raw
+ * JSX between the open and close tags, or `null` for a self-closing button.
+ */
+function hasAccessibleName(attrs: string, inner: string | null): boolean {
+  if (hasNonEmptyAriaAttr(attrs, ARIA_LABEL_ATTR)) return true;
+  if (hasNonEmptyAriaAttr(attrs, ARIA_LABELLEDBY_ATTR)) return true;
+  return inner !== null && buttonTextContent(inner) !== "";
 }
 
 /**
@@ -353,6 +427,21 @@ function firstGroup(match: RegExpMatchArray | null): string | undefined {
   return undefined;
 }
 
+/**
+ * True for lowercase HTML/SVG tag names (`button`, `div`, `li`, `th`, ...),
+ * false for React component names (`Dialog`, `SplitView`, `ArtifactRow`, ...).
+ *
+ * Issue #1099: a React component's `onClick` is a *prop*, not a DOM button.
+ * Whether the component forwards it to a DOM element is the component's own
+ * business, and a `btn-*` class cannot be applied to the component tag, so the
+ * gate must not demand one. JSX capitalises component names and lowercases
+ * intrinsic tags, which is a reliable discriminator in this codebase (no
+ * lowercase custom elements are used).
+ */
+function isIntrinsicElement(tag: string): boolean {
+  return /^[a-z]/.test(tag);
+}
+
 /** Locale JSON as loaded from `de.json`. */
 type LocaleValue = string | LocaleValue[] | { [key: string]: LocaleValue };
 
@@ -453,6 +542,11 @@ function scanMissingDesignSystemClass(): Violation[] {
     const rel = toRelative(file);
     for (const tag of scanOpenTags(source)) {
       const isButton = tag.tag === "button";
+      // Issue #1099: only intrinsic elements are judged. `<Dialog onClick=…>`,
+      // `<SplitView …>` and `<ArtifactRow …>` receive `onClick` as a React
+      // prop, not as a DOM handler; they used to be reported as "buttons
+      // without btn-* chrome", which is neither fixable nor true.
+      if (!isButton && !isIntrinsicElement(tag.tag)) continue;
       const isClickable =
         CLICK_HANDLER_PATTERN.test(tag.attrs) || BUTTON_ROLE_PATTERN.test(tag.attrs);
       if (!isButton && !isClickable) continue;
@@ -487,6 +581,43 @@ function scanMissingDesignSystemClass(): Violation[] {
         element: tag.tag,
         reason,
       });
+    }
+  }
+  return out;
+}
+
+interface IconButtonViolation {
+  file: string;
+  line: number;
+}
+
+/**
+ * Check 4 (issue #1099) — every `.btn-icon` button has an accessible name.
+ *
+ * Scanned over the component sources, mirroring check 1's open-tag scan. The
+ * `>` offset is computed from the tag's own attribute length rather than a
+ * naive `indexOf(">")`, so a `>` inside an attribute expression cannot
+ * truncate the child content and hide the missing name.
+ */
+function scanIconButtonsMissingAccessibleName(): IconButtonViolation[] {
+  const out: IconButtonViolation[] = [];
+  for (const file of collectComponentTsx()) {
+    const source = readScanned(file);
+    const rel = toRelative(file);
+    for (const tag of scanOpenTags(source)) {
+      if (tag.tag !== "button") continue;
+      if (!/\bbtn-icon\b/.test(tag.attrs)) continue;
+      const openEnd = tag.start + 1 + tag.tag.length + tag.attrs.length;
+      if (source[openEnd] !== ">") continue;
+      const selfClosing = source[openEnd - 1] === "/";
+      let inner: string | null = null;
+      if (!selfClosing) {
+        const close = source.indexOf("</button>", openEnd);
+        if (close === -1) continue;
+        inner = source.slice(openEnd + 1, close);
+      }
+      if (hasAccessibleName(tag.attrs, inner)) continue;
+      out.push({ file: rel, line: lineOf(source, tag.start) });
     }
   }
   return out;
@@ -719,6 +850,41 @@ function formatViolations(violations: Violation[]): string {
 
 const REBASELINE_HINT = `Re-baseline deliberately with:\n    ${DUMP_ENV_VAR}=1 npx vitest run src/test/design-system-ratchet.test.ts`;
 
+/**
+ * Monotonicity guard for re-baselining (issue #1099).
+ *
+ * The ratchet exists to drive the backlog down, so `maxViolations` is a
+ * one-way number: a re-baseline may keep it or lower it, never raise it. The
+ * old dump silently absorbed a fresh violation into the ceiling, which made
+ * the "re-baseline" command the very escape hatch the gate is meant to close.
+ * A genuinely new violation must now be fixed, or — if it is a legitimate
+ * exception — explicitly exempted with a substantive reason; both are visible
+ * decisions in the diff. The only allowed increase is the bootstrap run that
+ * creates a missing baseline file, otherwise the gate could never be installed.
+ *
+ * Extracted as a pure function so the policy is unit-testable in-process
+ * without spawning a re-baseline that would rewrite the real baseline.
+ */
+function assertBaselineNotRaised(
+  check: CheckId,
+  previousMax: number,
+  measuredUnexempted: number,
+  baselineExists: boolean,
+): void {
+  if (!baselineExists) return;
+  if (measuredUnexempted > previousMax) {
+    throw new Error(
+      `refusing to raise the "${check}" baseline from ${previousMax} to ` +
+        `${measuredUnexempted}: the design-system ratchet is monotonically ` +
+        "non-increasing (#1099).\n" +
+        "Fix the new violation(s), or — if they are legitimate exceptions — " +
+        "add one entry per violation to the `exemptions` map in " +
+        "design-system-ratchet.baseline.json with a substantive one-line " +
+        "reason. Never raise `maxViolations`.",
+    );
+  }
+}
+
 // One measurement per check, shared by the ratchet and drift tests.
 const measured = new Map<CheckId, Measured>();
 
@@ -732,6 +898,12 @@ if (process.env[DUMP_ENV_VAR] === "1") {
   for (const check of Object.keys(SCANNERS) as CheckId[]) {
     const result = measure(check, current);
     measured.set(check, result);
+    assertBaselineNotRaised(
+      check,
+      current.checks[check]?.maxViolations ?? 0,
+      result.unexempted.length,
+      existsSync(BASELINE_PATH),
+    );
     checks[check] = {
       maxViolations: result.unexempted.length,
       known: result.unexempted.map((v) => v.key).sort(),
@@ -782,7 +954,7 @@ if (process.env[REPORT_ENV_VAR] === "1") {
   }
 }
 
-describe("design-system ratchet (#954, #797, #1091, #1092, #1093)", () => {
+describe("design-system ratchet (#954, #797, #1091, #1092, #1093, #1099)", () => {
   it("records a baseline file for the re-baseline command to write", () => {
     expect(
       existsSync(BASELINE_PATH),
@@ -792,6 +964,48 @@ describe("design-system ratchet (#954, #797, #1091, #1092, #1093)", () => {
       expect(baseline.checks[check], `baseline has no entry for ${check}`).toBeDefined();
       expect(typeof baseline.checks[check].maxViolations).toBe("number");
     }
+  });
+
+  it("enforces only btn-* classes that styles/global.css actually defines", () => {
+    // Issue #1099: the gate once blessed `btn-icon`, a class the design system
+    // did not define, so a component could pass while rendering an unstyled
+    // button. A positive list only helps if every entry is real; this pins it
+    // to the stylesheet and fails on a future phantom class.
+    const css = readFileSync(join(SRC_DIR, "styles", "global.css"), "utf-8");
+    const undefinedClasses = CHROME_CLASSES.filter(
+      (cls) => !new RegExp(`\\.${cls}(?=[\\s,{:])`).test(css),
+    );
+    expect(
+      undefinedClasses,
+      [
+        "class(es) in CHROME_CLASSES have no rule in styles/global.css:",
+        ...undefinedClasses.map((cls) => `  .${cls}`),
+        "",
+        "Either add the variant to global.css (with tokens) or drop it from",
+        "CHROME_CLASSES. Never bless a class the design system does not define.",
+      ].join("\n"),
+    ).toEqual([]);
+  });
+
+  it("gives every .btn-icon button an accessible name (#1099)", () => {
+    // The `.btn-icon` rule carries its accessible-name contract in a comment
+    // (see `global.css` above `.btn-icon`) — this is the executable half. It is
+    // a plain assertion, not a baselined scanner, because there is no legacy
+    // backlog to freeze: the class was introduced in #1099 and every use must
+    // satisfy the contract from the start.
+    const violations = scanIconButtonsMissingAccessibleName();
+    expect(
+      violations.map((v) => `${v.file}:${v.line}`),
+      [
+        "`.btn-icon` button(s) without an accessible name:",
+        ...violations.map((v) => `  ${v.file}:${v.line}`),
+        "",
+        "`.btn-icon` is icon-only, so it has no text content: it MUST carry an",
+        "accessible name — `aria-label`, `aria-labelledby` or a visually-hidden",
+        "label. `title` alone is NOT sufficient (WCAG 4.1.2). See the contract",
+        "above the `.btn-icon` rule in src/styles/global.css.",
+      ].join("\n"),
+    ).toEqual([]);
   });
 
   for (const check of Object.keys(SCANNERS) as CheckId[]) {
@@ -897,5 +1111,58 @@ describe("design-system ratchet (#954, #797, #1091, #1092, #1093)", () => {
       misfiled,
       `exemption key(s) not prefixed with a known check id (${checks.join(", ")}):\n  ${misfiled.join("\n  ")}`,
     ).toEqual([]);
+  });
+});
+
+describe("re-baseline monotonicity policy (#1099)", () => {
+  it("allows a re-baseline that keeps the ceiling", () => {
+    expect(() =>
+      assertBaselineNotRaised("emoji-as-ui-glyph", 5, 5, true),
+    ).not.toThrow();
+  });
+
+  it("allows a re-baseline that lowers the ceiling", () => {
+    expect(() =>
+      assertBaselineNotRaised("emoji-as-ui-glyph", 5, 3, true),
+    ).not.toThrow();
+  });
+
+  it("refuses a re-baseline that would raise the ceiling", () => {
+    expect(() => assertBaselineNotRaised("emoji-as-ui-glyph", 5, 6, true)).toThrow(
+      /monotonically non-increasing/,
+    );
+  });
+
+  it("allows the bootstrap run that creates a missing baseline", () => {
+    expect(() =>
+      assertBaselineNotRaised("emoji-as-ui-glyph", 0, 6, false),
+    ).not.toThrow();
+  });
+});
+
+describe("icon-button accessible-name predicate (#1099)", () => {
+  it("accepts aria-label, aria-labelledby and visible/visually-hidden text", () => {
+    expect(hasAccessibleName('aria-label="Close"', null)).toBe(true);
+    expect(hasAccessibleName("aria-label={label}", null)).toBe(true);
+    expect(hasAccessibleName('aria-labelledby="dialog-title"', null)).toBe(true);
+    expect(hasAccessibleName("", "Schließen")).toBe(true);
+    expect(
+      hasAccessibleName("", '<span className="sr-only">Close</span>'),
+    ).toBe(true);
+  });
+
+  it("rejects an icon-only button and a title-only button", () => {
+    // No attributes, no children.
+    expect(hasAccessibleName("", null)).toBe(false);
+    expect(
+      hasAccessibleName("", '<svg viewBox="0 0 16 16"><path /></svg>'),
+    ).toBe(false);
+    // `title` alone is not the accessible name (WCAG 4.1.2).
+    expect(hasAccessibleName('title="Close"', "<Icon />")).toBe(false);
+  });
+
+  it("treats an explicitly empty aria-label literal as no name", () => {
+    expect(hasAccessibleName('aria-label=""', "<Icon />")).toBe(false);
+    expect(hasAccessibleName("aria-label=''", "<Icon />")).toBe(false);
   });
 });

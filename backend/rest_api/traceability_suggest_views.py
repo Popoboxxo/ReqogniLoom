@@ -18,6 +18,16 @@ facade (ADR-01 — no direct model/RuleEngine access in the view).
        first-stage acceptance criterion). Optional query params: ``scope``
        (document|project|global, default: project) and
        ``scope_artifact_id`` (required when scope=document).
+
+       ``?async=true`` (issue #1197): the run takes ~94.5 s on a large
+       workspace, so instead of blocking the request thread the endpoint
+       dispatches it to a Celery worker and answers ``202`` with a
+       ``task_id`` to poll at
+       ``GET /api/v1/traceability/suggest-links-status/{task_id}/``. Mirrors
+       the requirement-bundle ``?mode=compressed&async=true`` branch.
+
+  GET /api/v1/traceability/suggest-links-status/<task_id>/
+       Poll the task dispatched by the async branch above.
 """
 from __future__ import annotations
 
@@ -76,7 +86,19 @@ class WorkspaceTraceabilitySuggestLinksView(APIView):
                 build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        force_async = request.query_params.get("async", "").lower() == "true"
         try:
+            if force_async:
+                dispatch = TraceabilitySuggestService().suggest_links_async(
+                    workspace_id, get_auth_context(request), scopes=scopes
+                )
+                if isinstance(dispatch, dict):  # BROKER_NOT_CONFIGURED
+                    return Response(
+                        dispatch, status=status.HTTP_503_SERVICE_UNAVAILABLE
+                    )
+                return Response(
+                    {"task_id": dispatch}, status=status.HTTP_202_ACCEPTED
+                )
             result = TraceabilitySuggestService().suggest_links(
                 workspace_id, get_auth_context(request), scopes=scopes
             )
@@ -108,4 +130,36 @@ class WorkspaceTraceabilitySuggestLinksView(APIView):
             )
 
 
-__all__ = ["WorkspaceTraceabilitySuggestLinksView"]
+class TraceabilitySuggestLinksStatusView(APIView):
+    """GET /api/v1/traceability/suggest-links-status/<task_id>/ — #1197.
+
+    Polls the Celery task dispatched by
+    ``POST .../traceability/suggest-links/?async=true``. Follows
+    ``BundleCompressionStatusView`` / ``ConsistencyStatusView``'s bare-``APIView``
+    polling pattern (not a CRUD resource).
+
+    Response shape::
+
+        {"task_id": str,
+         "status": "pending"|"running"|"done"|"failed"|"not_found",
+         "result": dict|null,   # SuggestLinksResult.to_dict() when done
+         "error": str|null}     # worker exception when failed
+
+    An unknown/expired or foreign-tenant ``task_id`` reports
+    ``status="not_found"`` (ADR-03) rather than 403/404, so a cross-tenant
+    probe cannot learn "this task_id exists but isn't mine". Polling never
+    re-runs the computation and never creates a second job.
+    """
+
+    def get(self, request: Request, task_id: str, *args: Any, **kwargs: Any) -> Response:
+        result = TraceabilitySuggestService().get_suggest_links_status(
+            task_id, get_auth_context(request)
+        )
+        return Response(result)
+
+
+__all__ = [
+    "WorkspaceTraceabilitySuggestLinksView",
+    "TraceabilitySuggestLinksStatusView",
+]
+

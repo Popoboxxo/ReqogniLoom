@@ -1,25 +1,23 @@
 /**
  * Issue #1094 — the "readable ids may be hidden" display preference.
  *
- * Scope of the persistence, stated up front because it is a real gap and not an
- * oversight: **this preference is browser-local.** The two self-service
- * preference endpoints in the repo cannot carry it:
+ * Issue #1096 — persistence is now server-backed. The account-scoped endpoint
+ * `GET/PATCH /api/v1/users/me/display-preferences/` (wrapped by
+ * `api/display-preferences.ts`) is the source of truth. This hook remains the
+ * synchronous, app-wide *read* surface and the first-render cache:
  *
- *   - `GET/PATCH /api/v1/users/me/notification-preferences/` validates against
- *     the CLOSED four-kind trigger vocabulary
- *     (`application.notification_preference_service.ALL_KINDS`); an unknown
- *     kind is a 400 ("Unknown notification trigger(s)").
- *   - `GET/PATCH /api/v1/users/me/preferences/` is a *workspace-scoped* row
- *     whose one field is `optional_artifact_visibility` — read by
- *     `api/preferences.ts` as a fixed six-key `FeatureVisibility` map, and
- *     merged by the backend as `{**preset, **overrides}`. Smuggling a display
- *     flag in there would be a semantic abuse of "which optional artifact
- *     types are visible", it would need a `workspace_id` for what is a
- *     user-global preference, and no client would ever read it back.
+ *   - `localStorage` is the **first-render fallback**, so every `<IdChip>` can
+ *     paint immediately instead of waiting for a network round trip, and the
+ *     value survives a reload before the GET answers;
+ *   - the server response is written back through `setReadableIdsVisible`
+ *     (which also refreshes the cache), and a failed PATCH rolls the store back
+ *     to the previous value — the UI never keeps a change the server rejected.
  *
- * So the toggle is kept local (`localStorage`) and a backend display-preference
- * endpoint is reported as needed. Inventing a REST resource for it here would
- * have been out of scope and out of the reviewer's hands to revert.
+ * The network calls themselves live in `IdentifiersSection` (the only writer,
+ * on the profile page), where loading and error states have a place to render.
+ * Keeping this module synchronous is deliberate: it is read by *every* chip and
+ * row, so it must never own request lifecycle. See the backend
+ * `application/display_preference_service.py` for the server half.
  *
  * Why a module-level store with `useSyncExternalStore` rather than
  * `usePersistedListState` or a per-component `useState`:
@@ -37,7 +35,12 @@
 
 import { useCallback, useSyncExternalStore } from "react";
 
-/** localStorage key. `reqflow-` prefix matches the other persisted view state. */
+/**
+ * localStorage key for the first-render cache (issue #1096). `reqflow-` prefix
+ * matches the other persisted view state. The server value wins once it arrives;
+ * this key exists so the preference is available synchronously on the very first
+ * paint and offline.
+ */
 export const READABLE_IDS_STORAGE_KEY = "reqflow-display-readable-ids";
 
 /** Readable ids are shown unless the user says otherwise. */
@@ -74,15 +77,23 @@ let snapshot: boolean = normalize(typeof window === "undefined" ? null : readSto
 const listeners = new Set<() => void>();
 let storageBound = false;
 
+/** Notify every mounted subscriber, without touching the snapshot. */
+function notify(): void {
+  for (const listener of [...listeners]) listener();
+}
+
 function emit(): void {
   snapshot = normalize(readStorage());
-  for (const listener of [...listeners]) listener();
+  notify();
 }
 
 function onStorage(event: StorageEvent): void {
   // A `null` key is `localStorage.clear()`; a foreign key is another
   // preference's business.
   if (event.key !== null && event.key !== READABLE_IDS_STORAGE_KEY) return;
+  // Cross-tab path only: the `storage` event fires in documents OTHER than the
+  // one that wrote, so the in-memory snapshot here is stale and storage is the
+  // source for this notification.
   emit();
 }
 
@@ -120,7 +131,14 @@ export function getReadableIdsVisible(): boolean {
  */
 export function setReadableIdsVisible(next: boolean): void {
   writeStorage(String(next));
-  emit();
+  // FR-U3-01: the in-memory value is authoritative. Re-deriving the snapshot
+  // from `readStorage()` here (as this setter used to via `emit()`) silently
+  // reverted a freshly-set `false` back to the default `true` whenever storage
+  // was unavailable (private browsing, quota): `readStorage()` returns `null`,
+  // `normalize(null)` is the default. The value the user just chose vanished
+  // with no error. Only the cross-tab `storage` path re-reads storage.
+  snapshot = next;
+  notify();
 }
 
 /**

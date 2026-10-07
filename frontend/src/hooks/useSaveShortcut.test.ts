@@ -76,6 +76,16 @@ describe("isSaveShortcutEvent", () => {
       )
     ).toBe(false);
   });
+
+  it("does not match while an IME composition is in flight (#1100)", () => {
+    // The keystroke then belongs to the input method; acting on it (or
+    // swallowing it) would interrupt text entry.
+    expect(
+      isSaveShortcutEvent(
+        new KeyboardEvent("keydown", { ...CTRL_S, isComposing: true })
+      )
+    ).toBe(false);
+  });
 });
 
 describe("useSaveShortcut", () => {
@@ -194,5 +204,102 @@ describe("useSaveShortcut", () => {
     // combinations, which is what the save button advertises.
     expect(SAVE_SHORTCUT_ARIA).toBe("Control+S Meta+S");
     expect(SAVE_SHORTCUT_LABEL).toBe("Ctrl+S");
+  });
+
+  it("does not act while an IME composition is in flight (#1100)", () => {
+    const onSave = vi.fn();
+    renderHook(() => useSaveShortcut({ onSave }));
+
+    const event = press({ ...CTRL_S, isComposing: true });
+
+    expect(onSave).not.toHaveBeenCalled();
+    // Left entirely to the input method — no `preventDefault` either.
+    expect(event.defaultPrevented).toBe(false);
+  });
+
+  it("gives the chord to the topmost active form only (#1100)", () => {
+    // A modal create dialog over a still-mounted detail form both wire the
+    // hook. Only the dialog the user is looking at may save; otherwise the
+    // background form PATCHes at the same time.
+    const detailSave = vi.fn();
+    const dialogSave = vi.fn();
+    renderHook(() => useSaveShortcut({ onSave: detailSave }));
+    const { unmount } = renderHook(() => useSaveShortcut({ onSave: dialogSave }));
+
+    const event = press(CTRL_S);
+
+    expect(dialogSave).toHaveBeenCalledTimes(1);
+    expect(detailSave).not.toHaveBeenCalled();
+    expect(event.defaultPrevented).toBe(true);
+
+    // Closing the dialog hands the chord back to the form underneath.
+    unmount();
+    press(CTRL_S);
+    expect(detailSave).toHaveBeenCalledTimes(1);
+    expect(dialogSave).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not swallow the key when no form is active (#1100)", () => {
+    // The browser's native Ctrl+S must survive when there is nothing to save.
+    const onSave = vi.fn();
+    renderHook(() => useSaveShortcut({ onSave, enabled: false }));
+
+    const event = press(CTRL_S);
+
+    expect(event.defaultPrevented).toBe(false);
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
+  it("yields to a covering modal and acts once the form is inside it (#1100)", () => {
+    // A modal that carries no form of its own (confirm dialog, legend, export
+    // panel) does not register a handler, so the form behind it can still be
+    // topmost. Without the interaction-context gate, Ctrl+S would save the
+    // covered surface.
+    const onSave = vi.fn();
+    const form = document.createElement("form");
+    document.body.appendChild(form);
+    const dialog = document.createElement("div");
+    dialog.setAttribute("role", "dialog");
+    dialog.setAttribute("aria-modal", "true");
+    document.body.appendChild(dialog);
+    const containerRef = { current: form };
+    const { unmount } = renderHook(() =>
+      useSaveShortcut({ onSave, containerRef })
+    );
+
+    try {
+      const covered = press(CTRL_S);
+      expect(onSave).not.toHaveBeenCalled();
+      // The chord is still owned — the browser's own save dialog must not open
+      // over the modal either.
+      expect(covered.defaultPrevented).toBe(true);
+
+      // Now the modal is the surface that presents this form.
+      dialog.appendChild(form);
+      press(CTRL_S);
+      expect(onSave).toHaveBeenCalledTimes(1);
+    } finally {
+      unmount();
+      dialog.remove();
+      form.remove();
+    }
+  });
+
+  it("does not call onSave while the form is not savable, but swallows the chord (#1100)", () => {
+    // A form with an empty required title must not be *called* and then
+    // early-return silently inside its own submit path (WCAG 3.3.1).
+    const onSave = vi.fn();
+    const { rerender } = renderHook(
+      ({ canSave }: { canSave: boolean }) => useSaveShortcut({ onSave, canSave }),
+      { initialProps: { canSave: false } }
+    );
+
+    const blocked = press(CTRL_S);
+    expect(onSave).not.toHaveBeenCalled();
+    expect(blocked.defaultPrevented).toBe(true);
+
+    rerender({ canSave: true });
+    press(CTRL_S);
+    expect(onSave).toHaveBeenCalledTimes(1);
   });
 });

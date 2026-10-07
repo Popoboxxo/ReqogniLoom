@@ -1,6 +1,6 @@
 {
   "generated_from": "reqogniloom==1.8.0-beta.19",
-  "tool_count": 223,
+  "tool_count": 224,
   "tools": [
     {
       "name": "admin.backup_create",
@@ -6449,7 +6449,7 @@
       "name": "traceability.suggest_links",
       "prefix": "traceability",
       "is_write": false,
-      "description": "SysEng 2.0 N3 (first stage): run the SE-Auditor for a workspace, filter findings that name a missing trace link (TRACE-P1/-P1b/-P2), and rank each finding's deterministic candidate pool via the LLM adapter (mock by default). Read-only/advisory — nothing is persisted; every returned finding/candidate reference is a real one from this run. No pgvector/embedding search is performed.",
+      "description": "SysEng 2.0 N3 (first stage): run the SE-Auditor for a workspace, filter findings that name a missing trace link (TRACE-P1/-P1b/-P2), and rank each finding's deterministic candidate pool via the LLM adapter (mock by default). Read-only/advisory — nothing is persisted; every returned finding/candidate reference is a real one from this run. No pgvector/embedding search is performed. The synchronous run takes ~94.5 s on a large workspace: pass 'async'=true to dispatch it to a Celery worker and get a 'task_id' instead (poll it via 'traceability.suggest_links_status').",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -6464,10 +6464,32 @@
           "scope_artifact_id": {
             "type": "string",
             "description": "Required when scope=document (subtree root)."
+          },
+          "async": {
+            "type": "boolean",
+            "description": "Dispatch the run to a Celery worker and return '{task_id: str}' immediately (mirrors requirement_bundle.export's async branch) rather than blocking on the ~95 s synchronous run. Poll the task via 'traceability.suggest_links_status'."
           }
         },
         "required": [
           "workspace_id"
+        ]
+      }
+    },
+    {
+      "name": "traceability.suggest_links_status",
+      "prefix": "traceability",
+      "is_write": false,
+      "description": "Poll the status of a task_id returned by traceability.suggest_links with 'async'=true. Read-only. Response shape: {'task_id': str, 'status': str, 'result': dict|null, 'error': str|null}. 'status' is one of exactly: 'pending' (queued, not started), 'running' (worker started), 'done' (finished — 'result' carries the same suggestion payload the synchronous call returns), 'failed' (worker raised — read 'error'), 'not_found' (unknown, expired, or another tenant's task_id). A task_id dispatched by a different tenant is deliberately indistinguishable from an unknown one — both report status='not_found'. Polling never re-runs the computation or creates a second job.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "description": "task_id returned by traceability.suggest_links 'async'=true. Poll until 'status' leaves 'pending'/'running'."
+          }
+        },
+        "required": [
+          "task_id"
         ]
       }
     },

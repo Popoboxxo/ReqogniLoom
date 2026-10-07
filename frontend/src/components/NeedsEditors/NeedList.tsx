@@ -7,12 +7,13 @@
  * Search + status filter + sort remain in ListToolbar; WorkspaceTree
  * receives the already-filtered list and renders it as compact tree rows.
  */
-import { useState, useMemo, useRef } from 'react';
+import { useState, useMemo, useRef, type RefObject } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { ListToolbar } from '../shared/ListToolbar';
 import { EmptyState } from '../shared/EmptyState';
 import { Dialog } from '../shared/Dialog';
+import { SAVE_SHORTCUT_ARIA } from '../../hooks/useSaveShortcut';
 import { getStatusBadgeStyle } from '../../utils/statusBadge';
 import { WorkspaceTree } from '../shared/WorkspaceTree';
 import type { WorkspaceTreeNode } from '../shared/WorkspaceTree';
@@ -44,7 +45,15 @@ interface NeedListProps {
   setNewCategory?: (val: string) => void;
   onSubmitCreate?: () => void;
   createError?: string | null;
+  /** #1100: a create is in flight — the submit control reflects it. */
+  isCreating?: boolean;
   onCreateClick?: () => void;
+  /**
+   * #1100 follow-up: the create `<form>`, owned by NeedsEditors (which holds
+   * the shortcut) but rendered here. Lets `useSaveShortcut` tell a covered
+   * surface from the interaction context.
+   */
+  createFormRef?: RefObject<HTMLFormElement | null>;
   /**
    * UI-06 (Systemaudit 2026-08-27): optional select gate. When provided,
    * called instead of navigating directly — the parent (NeedsEditors) uses
@@ -115,7 +124,9 @@ export function NeedList({
   setNewCategory,
   onSubmitCreate,
   createError,
+  isCreating,
   onCreateClick,
+  createFormRef,
   onSelect,
 }: NeedListProps): JSX.Element {
   const { t } = useTranslation();
@@ -215,6 +226,7 @@ export function NeedList({
         >
           <form
             data-testid="need-create-form"
+            ref={createFormRef}
             onSubmit={(e) => {
               e.preventDefault();
               onSubmitCreate();
@@ -301,10 +313,15 @@ export function NeedList({
                 // generic enough to be worth disambiguating explicitly rather
                 // than relying on translation strings staying different.
                 aria-label={t('needs.submitCreateLabel', 'Bedarf jetzt erstellen')}
-                disabled={!(newTitle || '').trim()}
+                disabled={isCreating || !(newTitle || '').trim()}
                 className="btn-primary"
+                // #1100: the submit button is reachable via `Ctrl`/`Cmd`+`S`
+                // (wired in NeedsEditors) — advertise the binding here, the
+                // same way ArtifactForm annotates its own save control.
+                aria-keyshortcuts={SAVE_SHORTCUT_ARIA}
+                title={t('artifactForm.saveShortcutHint', 'Speichern (Strg/Cmd+S)')}
               >
-                {t('actions.create', 'Erstellen')}
+                {isCreating ? t('actions.saving', 'Saving...') : t('actions.create', 'Erstellen')}
               </button>
             </div>
           </form>
