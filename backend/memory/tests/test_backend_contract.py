@@ -42,6 +42,8 @@ from memory.backends import (
     get_memory_backend,
 )
 from memory.honcho_backend import HonchoMemoryBackend
+from memory.qdrant_backend import QdrantMemoryBackend
+from memory.tests.qdrant_fakes import FakeQdrantClient, FakeQdrantModels
 from persistence.models import Artifact
 from persistence.tests.factories import active_tenant, make_user, make_workspace
 
@@ -165,7 +167,7 @@ class _FakeHonchoClient:
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture(params=["pgvector", "honcho"])
+@pytest.fixture(params=["pgvector", "honcho", "qdrant"])
 def backend(request, monkeypatch):
     """Return a real backend instance for each registered implementation."""
     monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
@@ -181,6 +183,14 @@ def backend(request, monkeypatch):
         monkeypatch.setattr("requests.post", lambda *args, **kwargs: post)
         instance = HonchoMemoryBackend()
         instance._client = _FakeHonchoClient()
+        return instance
+    if request.param == "qdrant":
+        monkeypatch.setenv("MEMORY_BACKEND", "qdrant")
+        monkeypatch.setenv("QDRANT_BASE_URL", "http://qdrant.invalid")
+        # The in-memory fake client + models keep this offline, like honcho's.
+        instance = QdrantMemoryBackend()
+        instance._client = FakeQdrantClient()
+        instance._models_module = FakeQdrantModels
         return instance
     monkeypatch.setenv("MEMORY_BACKEND", "pgvector")
     return get_memory_backend()
@@ -353,7 +363,7 @@ class TestMemoryBackendContractCommon:
     def test_health_returns_memory_health(self, backend):
         result = backend.health()
         assert isinstance(result, MemoryHealth)
-        assert result.backend in ("pgvector", "honcho")
+        assert result.backend in ("pgvector", "honcho", "qdrant")
 
     def test_digest_of_an_empty_scope_is_not_degraded(self, backend):
         """F6 + F9: ``digest()`` answers for every backend, never raises, and an
@@ -369,7 +379,7 @@ class TestMemoryBackendContractCommon:
             digest = backend.digest(tenant.id, "user", scope_id)
 
             assert isinstance(digest, MemoryDigest)
-            assert digest.backend in ("pgvector", "honcho")
+            assert digest.backend in ("pgvector", "honcho", "qdrant")
             assert digest.degraded is False
             assert digest.text
             assert "facts=0" in digest.text
@@ -465,18 +475,21 @@ class TestMemoryBackendContractCommon:
             answer = backend.ask(tenant.id, "user", scope_id, "what do we know?")
 
             assert isinstance(answer, MemoryAnswer)
-            assert answer.backend in ("pgvector", "honcho")
+            assert answer.backend in ("pgvector", "honcho", "qdrant")
             assert isinstance(answer.degraded, bool)
             assert isinstance(answer.generated_at, datetime)
 
     def test_backend_ref_matches_backend_semantics(self, backend):
-        """pgvector IS the backend (no external ref); honcho mirrors a nanoid."""
+        """pgvector IS the backend (no external ref); honcho mirrors a nanoid;
+        qdrant uses the canonical point id (``str(entry_id)``) as its ref."""
         with active_tenant() as tenant:
             scope_id = _scope_id(tenant, "user")
             ref = backend.write(tenant.id, "user", scope_id, "fact")
             if isinstance(backend, HonchoMemoryBackend):
                 assert ref.backend_ref
                 assert ref.backend_ref != str(ref.entry_id)
+            elif isinstance(backend, QdrantMemoryBackend):
+                assert ref.backend_ref == str(ref.entry_id)
             else:
                 assert ref.backend_ref is None
 

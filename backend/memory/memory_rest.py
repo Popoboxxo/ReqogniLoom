@@ -83,9 +83,16 @@ from memory.health import envelope
 from memory.models import MemoryEntry, WorkspaceMemorySettings
 from memory.ratelimit import MemoryWriteRateLimitExceeded
 from persistence.models import User
+from persistence.qdrant_config import (
+    DEFAULT_QDRANT_COLLECTION_PREFIX,
+    DEFAULT_QDRANT_DISTANCE,
+    DEFAULT_QDRANT_HNSW_EF_CONSTRUCT,
+    DEFAULT_QDRANT_HNSW_M,
+    DEFAULT_QDRANT_TIMEOUT,
+    QDRANT_DISTANCE_ATTRS,
+)
 from rest_api.auth_enforcer import get_auth_context
 from rest_api.serializers import build_error_response, detect_lang
-
 
 #: Upper bound on rows returned by the DSGVO export (Auskunftsanspruch). Large
 #: enough for a realistic tenant, bounded so the endpoint cannot stream an
@@ -221,10 +228,37 @@ class SystemMemorySettingsWriteSerializer(serializers.Serializer):
     # that is surfaced as a health-check failure, not a save-time error, so an
     # admin can configure the URL and the backend in either order.
     memory_backend = serializers.ChoiceField(
-        choices=["pgvector", "honcho"], required=False, allow_null=True
+        choices=["pgvector", "honcho", "qdrant"], required=False, allow_null=True
     )
     honcho_base_url = serializers.CharField(required=False, allow_null=True, allow_blank=True, max_length=255)
     honcho_api_key = serializers.CharField(write_only=True, required=False, allow_blank=True, max_length=512)
+    # ADR-020 V1: Qdrant is an optional vector backend. It requires
+    # QDRANT_BASE_URL (or the qdrant_base_url override below); a missing value
+    # is surfaced as a health-check failure, not a save-time error, so an admin
+    # can configure URL and backend in either order. There is deliberately NO
+    # qdrant dimension field -- the width mirrors EMBEDDING_VECTOR_DIMENSIONS.
+    qdrant_base_url = serializers.CharField(
+        required=False, allow_null=True, allow_blank=True, max_length=255
+    )
+    qdrant_collection_prefix = serializers.CharField(
+        required=False, allow_null=True, allow_blank=True, max_length=64
+    )
+    qdrant_distance = serializers.ChoiceField(
+        # Vocabulary comes from the shared SSOT so the serializer can never
+        # reject a name the runtime backend accepts (or vice versa).
+        choices=list(QDRANT_DISTANCE_ATTRS),
+        required=False,
+        allow_null=True,
+    )
+    qdrant_timeout = serializers.FloatField(required=False, allow_null=True, min_value=0.1)
+    qdrant_hnsw_m = serializers.IntegerField(required=False, allow_null=True, min_value=1)
+    qdrant_hnsw_ef_construct = serializers.IntegerField(
+        required=False, allow_null=True, min_value=1
+    )
+    qdrant_prefer_grpc = serializers.BooleanField(required=False, allow_null=True)
+    qdrant_api_key = serializers.CharField(
+        write_only=True, required=False, allow_blank=True, max_length=512
+    )
     # RFC #1002 PR B: fixed-window write ratelimit for ``memory.write``.
     # ``0`` is an explicit "unlimited" override; ``null`` clears the override so
     # ``MEMORY_WRITE_RATE_LIMIT_PER_HOUR`` (default 60) wins again.
@@ -247,6 +281,18 @@ def _with_env_fallback(effective: dict) -> dict:
         "embedding_timeout": int(os.environ.get("EMBEDDING_TIMEOUT", "10")),
         "memory_backend": os.environ.get("MEMORY_BACKEND", "pgvector"),
         "honcho_base_url": os.environ.get("HONCHO_BASE_URL"),
+        "qdrant_base_url": os.environ.get("QDRANT_BASE_URL"),
+        "qdrant_collection_prefix": os.environ.get(
+            "QDRANT_COLLECTION_PREFIX", DEFAULT_QDRANT_COLLECTION_PREFIX
+        ),
+        "qdrant_distance": os.environ.get("QDRANT_DISTANCE", DEFAULT_QDRANT_DISTANCE),
+        "qdrant_timeout": float(os.environ.get("QDRANT_TIMEOUT", DEFAULT_QDRANT_TIMEOUT)),
+        "qdrant_hnsw_m": int(os.environ.get("QDRANT_HNSW_M", DEFAULT_QDRANT_HNSW_M)),
+        "qdrant_hnsw_ef_construct": int(
+            os.environ.get("QDRANT_HNSW_EF_CONSTRUCT", DEFAULT_QDRANT_HNSW_EF_CONSTRUCT)
+        ),
+        "qdrant_prefer_grpc": os.environ.get("QDRANT_PREFER_GRPC", "").strip().lower()
+        in ("1", "true", "yes", "on"),
         "memory_write_rate_limit_per_hour": int(
             os.environ.get("MEMORY_WRITE_RATE_LIMIT_PER_HOUR", "60")
         ),

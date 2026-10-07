@@ -372,6 +372,54 @@ class TestMemorySettingsRest:
             assert response.status_code == 200
             assert response.data["memory_backend"] == "honcho"
 
+    def test_put_accepts_qdrant_memory_backend(self):
+        """ADR-020 V1: QdrantMemoryBackend registers like honcho, so it must be
+        selectable -- and selecting it must not require the optional
+        ``qdrant_client`` package at save time (only when it is used)."""
+        from memory.backends import MEMORY_BACKEND_REGISTRY
+
+        assert "qdrant" in MEMORY_BACKEND_REGISTRY
+        with active_tenant() as tenant:
+            user, token = _superuser_and_token(tenant)
+            client = APIClient()
+            client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+            response = client.put(
+                "/api/v1/system/memory-settings/", {"memory_backend": "qdrant"}, format="json"
+            )
+            assert response.status_code == 200
+            assert response.data["memory_backend"] == "qdrant"
+
+    def test_put_qdrant_config_round_trips(self):
+        """ADR-020: the qdrant_* override fields persist and never leak the key."""
+        with active_tenant() as tenant:
+            user, token = _superuser_and_token(tenant)
+            client = APIClient()
+            client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+            response = client.put(
+                "/api/v1/system/memory-settings/",
+                {
+                    "qdrant_base_url": "http://qdrant:6333",
+                    "qdrant_collection_prefix": "reqlo_test",
+                    "qdrant_distance": "cosine",
+                    "qdrant_timeout": 7.5,
+                    "qdrant_hnsw_m": 32,
+                    "qdrant_hnsw_ef_construct": 128,
+                    "qdrant_prefer_grpc": True,
+                    "qdrant_api_key": "super-secret-qdrant-key",
+                },
+                format="json",
+            )
+            assert response.status_code == 200
+            assert response.data["qdrant_base_url"] == "http://qdrant:6333"
+            assert response.data["qdrant_collection_prefix_is_override"] is True
+            assert "qdrant_api_key" not in response.data
+            assert response.data["qdrant_api_key_is_set"] is True
+
+            get_response = client.get("/api/v1/system/memory-settings/")
+            assert get_response.data["qdrant_base_url"] == "http://qdrant:6333"
+            assert get_response.data["qdrant_prefer_grpc"] is True
+            assert "qdrant_api_key" not in get_response.data
+
     def test_put_rejects_unknown_memory_backend(self):
         """The choice list must still reject a backend that has no registry
         entry — otherwise get_memory_backend() raises deployment-wide (C-2)."""
@@ -571,6 +619,32 @@ class TestSystemMemorySettingsRuntimeRoundTrip:
             assert reset_response.status_code == 200
             with pytest.raises(ValueError, match="unknown memory backend"):
                 get_memory_backend()
+
+    def test_put_then_reset_round_trips_through_get_memory_backend_for_qdrant(
+        self, monkeypatch
+    ):
+        """ADR-020: the qdrant DB override wins over the env, and a reset hands
+        control back to the env again (mirrors the pgvector round trip)."""
+        from memory.backends import get_memory_backend
+
+        monkeypatch.setenv("MEMORY_BACKEND", "pgvector")
+        monkeypatch.setenv("QDRANT_BASE_URL", "http://qdrant-from-env.invalid")
+        with active_tenant() as tenant:
+            user, token = _superuser_and_token(tenant)
+            client = APIClient()
+            client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+            put_response = client.put(
+                "/api/v1/system/memory-settings/",
+                {"memory_backend": "qdrant"},
+                format="json",
+            )
+            assert put_response.status_code == 200
+            assert get_memory_backend().__class__.__name__ == "QdrantMemoryBackend"
+
+            reset_response = client.post("/api/v1/system/memory-settings/reset/")
+            assert reset_response.status_code == 200
+            assert get_memory_backend().__class__.__name__ == "PgvectorMemoryBackend"
 
 
 @pytest.mark.django_db

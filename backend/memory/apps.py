@@ -66,6 +66,12 @@ class MemoryConfig(AppConfig):
         # package is absent: the SDK import is lazy, inside _ensure_client().
         import memory.honcho_backend  # noqa: F401 - imported for its registration side effect
 
+        # Populates MEMORY_BACKEND_REGISTRY["qdrant"] (ADR-020 V1). Same
+        # contract as honcho: safe to import unconditionally even when the
+        # optional ``qdrant_client`` package is absent, because the SDK import
+        # is lazy inside QdrantMemoryBackend._ensure_client().
+        import memory.qdrant_backend  # noqa: F401 - imported for its registration side effect
+
         # SA-21: register the SystemMemorySettings embedding-override lookup
         # on llm_adapter's DI seam, so llm_adapter/embedding_service.py
         # (Layer 1) never imports memory.models (this Ext/Layer-2-placed app)

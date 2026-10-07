@@ -31,6 +31,13 @@ _OVERRIDABLE_FIELDS = (
     "embedding_timeout",
     "memory_backend",
     "honcho_base_url",
+    "qdrant_base_url",
+    "qdrant_collection_prefix",
+    "qdrant_distance",
+    "qdrant_timeout",
+    "qdrant_hnsw_m",
+    "qdrant_hnsw_ef_construct",
+    "qdrant_prefer_grpc",
     "memory_write_rate_limit_per_hour",
 )
 
@@ -43,11 +50,14 @@ _OVERRIDABLE_FIELDS = (
 # "" -> None on write keeps report and runtime in agreement, and makes
 # "clear the field in the UI" actually clear the override.
 # NOT applicable to embedding_provider/memory_backend (ChoiceFields, cannot be
-# blank) nor to embedding_timeout (IntegerField).
+# blank) nor to the numeric fields (embedding_timeout/qdrant_timeout/...).
 _BLANKABLE_TEXT_FIELDS = (
     "embedding_model_name",
     "ollama_base_url",
     "honcho_base_url",
+    "qdrant_base_url",
+    "qdrant_collection_prefix",
+    "qdrant_distance",
 )
 
 
@@ -61,7 +71,20 @@ class MemorySettingsService:
             value = getattr(row, field, None) if row is not None else None
             data[field] = value
             data[f"{field}_is_override"] = value is not None
-        data["honcho_api_key_is_set"] = bool(row.honcho_api_key) if row is not None else False
+        # Derive the "is set" flags from the PRESENCE of the encrypted column,
+        # never from the decrypting property (F8): ``row.qdrant_api_key`` calls
+        # ``decrypt_secret``, which raises ``InvalidToken`` over stored
+        # ciphertext once FIELD_ENCRYPTION_KEY has been rotated. That turned
+        # every admin GET into a 500 even though presence -- not decryptability
+        # -- is the only thing this flag reports. Presence is what the column
+        # already encodes (``encrypt_secret("")`` keeps ""), so the flag stays
+        # identical for healthy rows.
+        data["honcho_api_key_is_set"] = (
+            bool(row.honcho_api_key_encrypted) if row is not None else False
+        )
+        data["qdrant_api_key_is_set"] = (
+            bool(row.qdrant_api_key_encrypted) if row is not None else False
+        )
         return data
 
     @staticmethod
@@ -137,6 +160,8 @@ class MemorySettingsService:
                 setattr(row, field, value)
         if "honcho_api_key" in data and data["honcho_api_key"]:
             row.honcho_api_key = data["honcho_api_key"]
+        if "qdrant_api_key" in data and data["qdrant_api_key"]:
+            row.qdrant_api_key = data["qdrant_api_key"]
         if user_id is not None:
             if created or row.created_by_id is None:
                 row.created_by_id = user_id
@@ -166,6 +191,7 @@ class MemorySettingsService:
         for field in _OVERRIDABLE_FIELDS:
             setattr(row, field, None)
         row.honcho_api_key_encrypted = ""
+        row.qdrant_api_key_encrypted = ""
         if user_id is not None:
             if created or row.created_by_id is None:
                 row.created_by_id = user_id
