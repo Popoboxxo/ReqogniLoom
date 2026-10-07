@@ -105,27 +105,26 @@ x-honcho-env: &honcho-env
   # `backend`/`celery` services), so there is a single place to change it.
   #
   # WHY THE NINE `…__EXTRA_HEADERS__x-opencode-session` VARIABLES FROM #1051 ARE
-  # NOT IN THIS FILE, DESPITE THAT ISSUE LISTING THEM AS THE FIX: DOCKER
-  # SILENTLY DROPS ANY ENVIRONMENT VARIABLE WHOSE NAME CONTAINS A DASH. Verified
-  # here on ghcr.io/plastic-labs/honcho:latest with the exact variable names from
-  # the issue, by all four delivery mechanisms, and counting what actually
-  # arrived in the container:
+  # NOT SET LITERALLY HERE, DESPITE THAT ISSUE LISTING THEM AS THE FIX. An
+  # earlier revision justified this by claiming that Docker drops environment
+  # variables whose names contain a hyphen. That is FALSE for Docker 29.8.1
+  # (#1187, from the #1153 spike): on that version all four delivery mechanisms
+  # preserve dashed names, counting what actually arrives in the container:
   #
-  #   docker run -e "FOO__x-opencode-session=v"   -> dropped
-  #   docker run --env-file (dashed name)         -> dropped
-  #   compose environment:  (dashed key)          -> shown by `config`, DROPPED
-  #                                                 at container create
-  #   compose env_file:     (dashed name)         -> dropped
-  #   /bin/sh: export "A-B=1"                     -> "bad variable name"
+  #   docker run -e "FOO__x-opencode-session=v"   -> preserved
+  #   docker run --env-file (dashed name)         -> preserved
+  #   compose environment:  (dashed key)          -> preserved
+  #   compose env_file:     (dashed name)         -> preserved
+  #   /bin/sh: export "A-B=1"                     -> "bad variable name"  (still true — sh cannot create it)
   #
-  # So writing those nine keys into `environment:` would have produced a compose
-  # file that LOOKS correct (`docker compose config` even prints them) while
-  # every Honcho LLM call still died with 400 — the exact silent-dead-config
-  # class #1051 is about. `LLM_OPENCODE_SESSION` is set here instead, and the
-  # `honcho`/`honcho-deriver` entrypoints below materialise the nine dashed
-  # names at container start with Python's os.environ, which does accept them
-  # (verified: all nine land in ModelConfig.overrides.provider_params and
-  # survive resolve_model_config — the SDK kwarg `extra_headers`).
+  # The shim is nevertheless KEPT, and deliberately so: it is harmless on 29.8.1
+  # and keeps this configuration PORTABLE to older Docker versions and other
+  # runtimes where a dashed name may not survive. `LLM_OPENCODE_SESSION` is set
+  # here, and the `honcho`/`honcho-deriver` entrypoints below materialise the
+  # nine dashed names at container start with Python's os.environ, which does
+  # accept them (verified: all nine land in
+  # ModelConfig.overrides.provider_params and survive resolve_model_config —
+  # the SDK kwarg `extra_headers`).
   #
   # Left empty: no header is set at all, so a deployment on a real OpenAI key
   # sends nothing rather than an empty header.

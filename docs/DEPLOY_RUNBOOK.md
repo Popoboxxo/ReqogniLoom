@@ -141,8 +141,10 @@ still wrong.
 
 
 **Honcho side (#1051)**: the same value also feeds the nine Honcho engine-module
-header variables, derived at container start (Docker cannot carry an env var whose
-name contains a dash — see the note in `deploy/docker-compose.yml`):
+header variables, derived at container start. (Docker 29.8.1 *can* carry a dashed
+env name — the original "Docker drops it" note was false, #1187 — but the shim is
+kept deliberately: harmless, and portable to older Docker versions. See the note
+in `deploy/docker-compose.yml`.)
 
 ```bash
 $DC --profile honcho exec honcho sh -c 'env | grep -c x-opencode-session'  # 0 at rest is expected
