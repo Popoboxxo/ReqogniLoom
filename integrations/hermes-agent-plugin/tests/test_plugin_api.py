@@ -225,6 +225,28 @@ class DashboardApiTests(DashboardAuthTestCase):
             result = plugin_api.version(request=_request())
         self.assertIn("error", result)
 
+    def test_client_construction_failure_is_reported_not_raised(self) -> None:
+        # An invalid REQOGNILOOM_BASE_URL now fails in ReqogniLoomClient.__init__
+        # (issue #1202 F5). The handlers must keep their 200+error contract, so
+        # construction has to live inside their try/except ReqogniLoomError.
+        constructor_error = plugin_api.ReqogniLoomError(
+            "invalid REQOGNILOOM_BASE_URL 'ftp://nope': expected an http:// or https:// URL"
+        )
+        cases = (
+            (plugin_api.stats, {"workspace_id": ""}),
+            (plugin_api.workspaces, {}),
+            (plugin_api.version, {}),
+            (plugin_api.interviews, {"workspace_id": ""}),
+        )
+        for handler, kwargs in cases:
+            failing_constructor = MagicMock(side_effect=constructor_error)
+            with self.subTest(handler=handler.__name__), patch.object(
+                plugin_api, "ReqogniLoomClient", failing_constructor
+            ):
+                result = handler(request=_request(), **kwargs)
+            self.assertIn("error", result)
+            self.assertIn("REQOGNILOOM_BASE_URL", result["error"])
+
 
 class InboundAuthGuardTests(DashboardAuthTestCase):
     """The framework-free guard: enforce_dashboard_auth(headers) -> None."""

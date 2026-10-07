@@ -20,6 +20,11 @@ logger = logging.getLogger(__name__)
 #: whole response: a slow-drip backend can still exceed it in total.
 REQUEST_TIMEOUT_SECONDS = 10
 
+#: Used when neither the ``base_url`` argument nor ``REQOGNILOOM_BASE_URL``
+#: configures a target. Kept as the documented local-dev default; the failure
+#: path below makes it loud rather than letting a request hit it silently.
+_DEFAULT_BASE_URL = "http://localhost:8001"
+
 _AUTH_STATUS_CODES = (401, 403)
 
 
@@ -35,6 +40,21 @@ class _AuthError(ReqogniLoomError):
 
 def _env(name: str, default: str = "") -> str:
     return (os.environ.get(name) or default).strip()
+
+
+def _validate_base_url(value: str) -> None:
+    """Reject a base URL that cannot address a ReqogniLoom instance.
+
+    An empty or non-http(s) value is a configuration mistake: failing here
+    names the variable and the offending value at construction, instead of
+    surfacing later as a puzzling transport error against a malformed URL.
+    """
+    if value and value.startswith(("http://", "https://")):
+        return
+    raise ReqogniLoomError(
+        f"invalid REQOGNILOOM_BASE_URL {value!r}: expected an http:// or https:// URL, "
+        f"e.g. REQOGNILOOM_BASE_URL=http://localhost:8001"
+    )
 
 
 def _list_results(result: Any, path: str) -> List[Dict[str, Any]]:
@@ -68,11 +88,42 @@ class ReqogniLoomClient:
 
     - ``REQOGNILOOM_BASE_URL`` (default ``http://localhost:8001``)
     - ``REQOGNILOOM_API_KEY``  (``reqlo_...`` — sent as ``Bearer`` token)
+
+    An unset ``REQOGNILOOM_BASE_URL`` still falls back to the local default, but
+    a transport failure then says so explicitly: a silent miss against
+    ``localhost`` is the hardest misconfiguration to spot from the terse
+    ``URLError`` alone.
     """
 
     def __init__(self, base_url: Optional[str] = None, api_key: Optional[str] = None) -> None:
-        self.base_url = (base_url or _env("REQOGNILOOM_BASE_URL", "http://localhost:8001")).rstrip("/")
+        if base_url is not None:
+            configured = base_url.strip()
+            self._using_default_base_url = False
+        else:
+            env_value = os.environ.get("REQOGNILOOM_BASE_URL")
+            if env_value is None:
+                configured = _DEFAULT_BASE_URL
+                self._using_default_base_url = True
+            else:
+                configured = env_value.strip()
+                self._using_default_base_url = False
+        self.base_url = configured.rstrip("/")
+        _validate_base_url(self.base_url)
         self.api_key = api_key or _env("REQOGNILOOM_API_KEY")
+
+    def _unconfigured_target_hint(self) -> str:
+        """Actionable suffix for a transport failure when no base URL was
+        configured: the request silently went to the default, which is the
+        usual cause. Empty when ``REQOGNILOOM_BASE_URL`` (or an explicit
+        ``base_url``) is set, so a genuinely mis-addressed instance does not
+        get a misleading hint."""
+        if not self._using_default_base_url:
+            return ""
+        return (
+            f" — REQOGNILOOM_BASE_URL is not set, so the request went to the "
+            f"default {self.base_url}; set REQOGNILOOM_BASE_URL to your "
+            f"ReqogniLoom instance (e.g. https://reqogniloom.example.com)"
+        )
 
     def _request(
         self,
@@ -116,13 +167,16 @@ class ReqogniLoomClient:
                 raise _AuthError(message) from exc
             raise ReqogniLoomError(message) from exc
         except urllib.error.URLError as exc:
-            raise ReqogniLoomError(f"could not reach {url}: {exc.reason}") from exc
+            raise ReqogniLoomError(
+                f"could not reach {url}: {exc.reason}{self._unconfigured_target_hint()}"
+            ) from exc
         except (TimeoutError, OSError) as exc:
             # urlopen only wraps send-side failures in URLError; a timeout or
             # reset while reading the response body surfaces as a bare OSError.
             raise ReqogniLoomError(
                 f"could not read {url}: {exc} "
                 f"[type={type(exc).__name__}, errno={getattr(exc, 'errno', None)}]"
+                f"{self._unconfigured_target_hint()}"
             ) from exc
         if not raw:
             return {}

@@ -15,7 +15,10 @@ The guard therefore pins three invariants of ``deploy/docker-compose.yml``:
 2. BOTH engine processes that read it — ``honcho`` and ``honcho-deriver`` —
    still run the entrypoint shim that materialises the nine dashed
    ``…__EXTRA_HEADERS__x-opencode-session`` variables the engine resolves into
-   the ``extra_headers`` SDK kwarg (Docker itself drops dashed env names);
+   the ``extra_headers`` SDK kwarg. The shim is retained deliberately: Docker
+   29.8.1 preserves dashed env names (#1187), so it is not required on that
+   version, but it is harmless and keeps the config portable to older Docker
+   versions and other runtimes;
 3. all THREE services that run the Honcho image (``honcho``, ``honcho-deriver``,
    ``honcho-migrate``) reference the SAME ``:latest@sha256:…`` immutable image,
    so they cannot drift apart and the "verified against this image" claim in the

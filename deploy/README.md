@@ -263,11 +263,13 @@ docker compose -f deploy/docker-compose.yml --project-directory . --profile honc
 without it (`400 MissingSessionID`), so a pinned base URL is not enough — Dialectic answers HTTP 500
 and every engine module dies in the background. Honcho's escape hatch is
 `ModelConfig.provider_params["extra_headers"]`, which reaches the SDK as the `extra_headers` kwarg.
-The variable names that requires contain a **dash**, and **Docker silently drops every environment
-variable whose name contains a dash** — verified with `docker run -e`, `docker run --env-file`,
-Compose `environment:` and Compose `env_file:`. `docker compose config` even prints them, so a compose
-file full of them looks correct and is dead. The nine per-module variables are therefore *not* set
-literally: the single `LLM_OPENCODE_SESSION` value is passed instead, and the `honcho` /
+The variable names that requires contain a **dash**. An earlier note here attributed the shim to
+Docker dropping dashed names — that is **false** for Docker 29.8.1 (#1187, from the #1153 spike):
+`docker run -e`, `docker run --env-file`, Compose `environment:` and Compose `env_file:` all
+preserve a name with a hyphen (verified by counting what arrives in the container). The nine
+per-module variables are still *not* set literally — not because Docker would drop them, but to keep
+a single source of truth for the session value and to stay portable to older Docker versions and
+other runtimes. The `LLM_OPENCODE_SESSION` value is passed instead, and the `honcho` /
 `honcho-deriver` entrypoints materialise all nine names at container start (Python's `os.environ`
 accepts them; `sh`'s `export` does not). Set it in `.env` — required for `LLM_PROVIDER=opencode_go`
 too, and enforced by the `llm-preflight` service (#1050).
