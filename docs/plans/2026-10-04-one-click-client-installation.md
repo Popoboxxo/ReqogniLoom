@@ -43,6 +43,9 @@ Beleg: `docs/bugfix-hub/smoke/2026-10-05-client-smoke.md`.
 - **DoD Stufe 1:** CI-Gate greift erst nach Merge auf `main` (Drift-Nachweis); Claude-/Hermes-Daten-Call nur mit echter Provider-Auth belegbar; Kimi bleibt L2 (Upstream-`kimi mcp add` offen).
 - **Stufe 2:** Publikation nicht aktiv; Entscheidungen **E1, E4–E7** offen (E2/E3 vorläufig gesetzt).
 - **Offene Einzel-Issues:** #92 (Workspace-Tokens + UI-MCP-Config), #1138 (Plugin-Versionierungs-Anker).
+- **Hermes agenten-nativ (#1201/#1202):** Die Konsolidierung des Hermes-Pakets (MCP statt
+  Eigen-REST-Client) und die One-Click-Anbindung sind geordnet in
+  [`2026-10-07-umsetzungsplaene-1155-1201-1202-1204.md`](2026-10-07-umsetzungsplaene-1155-1201-1202-1204.md) §2/§3.
 
 ---
 

@@ -466,6 +466,10 @@ Alle Findings `001-01`…`001-11` sind geschlossen bzw. adressiert; keine critic
 Risiken, DoD) liegt in
 [`docs/plans/2026-10-06-adr-019-umsetzungsplan-vorschlags-schleife.md`](../plans/2026-10-06-adr-019-umsetzungsplan-vorschlags-schleife.md)
 — er startet erst nach `proposed → accepted` und implementiert selbst nichts.
+**Restpfade & Gesamtübersicht (2026-10-07):**
+[`docs/plans/2026-10-07-umsetzungsplaene-1155-1201-1202-1204.md`](../plans/2026-10-07-umsetzungsplaene-1155-1201-1202-1204.md) §1
+ordnet die Restpfade (Human-Bearer-REST-Trigger, `#1095`, `#1197`, `#1196`) ein; §0 führt die
+Gesamt-Reihenfolge über #1155/#1201/#1202/#1204. Dieses ADR bleibt inhaltlich unverändert.
 
 ---
 
