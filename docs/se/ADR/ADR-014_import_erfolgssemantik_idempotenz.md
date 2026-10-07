@@ -484,9 +484,29 @@ abgedeckt, die den Vertrag weiterhin explizit per
 Der **Default ist `on`** (`IMPORT_CONTRACT_V2 = True`, Phase 2, Consumer-Migration
 abgeschlossen): Die Phase-2-Semantik ist damit das Standardverhalten, ohne dass eine
 separate Deploy-Entscheidung nötig ist. Das Flag bleibt ein echter **Rollback-Schalter**:
-bei `off` werden — neben dem Response-Vertrag — auch die `Idempotency-Key`-Verarbeitung
-und die `entity_type`-Prüfung übersprungen, sodass das Verhalten exakt dem Stand vor v2
-(Phase 1) entspricht, und die Legacy-Antworten tragen `Deprecation`/`Sunset`.
+bei `off` werden — neben dem Response-Vertrag — auch die
+`Idempotency-Key`-Verarbeitung und die `entity_type`-Prüfung übersprungen, sodass das
+Verhalten exakt dem Stand vor v2 (Phase 1) entspricht, und die Legacy-Antworten tragen
+`Deprecation`/`Sunset`.
+
+**Umsetzungsvermerk (2026-10-07, Issue #1195):** Zwei inhaltliche Präzisierungen am
+v2-Ergebnismodell, deckungsgleich mit §1/§2 — **kein Statuswechsel**:
+
+- **`counts.total` = Anzahl der Datenzeilen der hochgeladenen Datei.** Der Wert wird
+  **vor jeder Schreibwirkung** gezählt und ist von einem späteren Rollback unabhängig
+  (§2). Er ist **nicht** die Summe `succeeded + skipped + failed`: diese Summe driftet,
+  sobald eine Zeile mehrere Fehler trägt oder ein Rollback Zeilen umklassifiziert. Für
+  einen dateibezogenen Parse-Fehler (`QUOTING_ERROR`, §1) gilt die Anzahl der bis zum
+  Fehler erkannten Datenzeilen, mindestens jedoch die Anzahl der gemeldeten Fehlerpaare.
+- **`items` trägt genau einen Eintrag je fehlgeschlagener Zeile.** Treffen mehrere
+  Fehler auf dieselbe Zeile, werden ihre Klartext-Ursachen in **einer** `message`
+  zusammengefasst (jede mit Feldname); der frühere Fragment-Text `"is required"` der
+  geteilten Attribut-Gate-Meldung wird beim CSV-Wrap um den Feldnamen ergänzt und mit
+  der Importer-eigenen Pflichtfeld-Meldung dedupliziert. Die
+  **Validierungs-Teilerfolgs-Semantik** aus §2 (`succeeded > 0 ∧ failed > 0` ⇒ **207**,
+  gültige Zeilen persistiert, ungültige als `failed`) ist damit implementiert und
+  **erreichbar**; ein **DB-Fehler nach der Validierung** bleibt der Totalfehler
+  (Rollback ⇒ **422**).
 
 **Per-Tenant-Limit (Umsetzung §3/§7):** Die Ablage ist pro Tenant begrenzt
 (`IMPORT_IDEMPOTENCY_MAX_KEYS_PER_TENANT`, Default 10000). Beim Anlegen eines *neuen*

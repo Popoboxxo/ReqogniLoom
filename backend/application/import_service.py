@@ -81,6 +81,13 @@ CAUSE_QUOTING_ERROR = "QUOTING_ERROR"
 CAUSE_UNKNOWN_TYPE = "UNKNOWN_TYPE"
 CAUSE_BOM_DETECTED = "BOM_DETECTED"
 
+# Prefix shared by every "required field missing" message produced by
+# ``_validate_row`` and the attribute gate (the wording issue #1195 aligned).
+# Used to derive the per-row cause code: a row whose errors include a
+# missing-required entry is ``MISSING_REQUIRED_FIELD``, any other validation
+# failure is ``INVALID_VALUE`` (review I1).
+_MISSING_REQUIRED_PREFIX = "Required field '"
+
 # Client-facing text for a rolled-back persistence error (CWE-209, issue #1185).
 # The database exception's type/message/traceback can carry psycopg/SQL internals
 # and must never travel in the HTTP body; only the stable ``CAUSE_PERSISTENCE_ERROR``
@@ -191,6 +198,8 @@ class ImportResult:
         request_id: Correlation id (INT-06).
         idempotent_replay: True when served from the ``Idempotency-Key`` cache.
         contract: Envelope contract id ("v2").
+        total_count: Number of data rows in the uploaded file (issue #1195),
+            counted before any write and unaffected by a rollback.
     """
 
     success: bool
@@ -206,22 +215,35 @@ class ImportResult:
     request_id: str = ""
     idempotent_replay: bool = False
     contract: str = CONTRACT_VERSION
+    # Number of data rows in the uploaded file, counted once before any write
+    # and independent of a later rollback (issue #1195). ``0`` means "unset";
+    # ``counts`` then falls back to deriving the total from the outcome counters.
+    total_count: int = 0
 
     @property
     def counts(self) -> Dict[str, int]:
         """v2 result counters (ADR-014 §1): succeeded/skipped/failed/total.
 
         ``skipped`` counts only duplicates (successful rows that were skipped
-        deliberately); batch validation failures count as ``failed``.
+        deliberately); failed rows count as ``failed``. ``total`` is the number
+        of **data rows in the uploaded file** (issue #1195), not the sum of the
+        outcomes: the sum drifts when one row carries several errors or when a
+        batch rollback reclassifies rows, so it must not be used as the file's
+        row count.
         """
         succeeded = self.imported_count
         skipped = self.duplicate_count
         failed = self.failed_count
+        total = (
+            self.total_count
+            if self.total_count > 0
+            else succeeded + skipped + failed
+        )
         return {
             "succeeded": succeeded,
             "skipped": skipped,
             "failed": failed,
-            "total": succeeded + skipped + failed,
+            "total": total,
         }
 
     def to_dict(self) -> Dict[str, Any]:
@@ -355,44 +377,80 @@ class ImportService(ServiceBase):
                 f"(got {len(rows)} data rows)."
             )
 
-        # ---------- Validate all rows, collect full error report ----------
-        validation_errors: List[ImportRowError] = []
+        # ---------- Validate all rows, collect a per-row error report ----------
+        # ADR-014 §2 / REQ-L3-IMP-001 (issue #1195): a validation error fails
+        # only its own row; the remaining valid rows are still persisted
+        # (partial success => 207). Grouping by row number also yields exactly
+        # one ``items`` entry per failed row instead of one per error.
+        row_errors: Dict[int, List[ImportRowError]] = {}
         for row_num, row in rows:
-            errs = self._validate_row(row_num, row, entity_type)
-            validation_errors.extend(errs)
+            for err in self._validate_row(row_num, row, entity_type):
+                row_errors.setdefault(row_num, []).append(err)
 
         # Ledger gap #1 / issue #881: same central gate the REST ViewSets
         # (WorkflowTransitionsMixin._validate_attribute_definition) and the
         # MCP artifact-write tools (mcp_server.tools.base.validate_artifact_write)
         # go through -- CSV bulk import used to bypass it entirely.
-        validation_errors.extend(
-            self._validate_attribute_definitions(rows, entity_type, ws_uuid, ctx)
-        )
+        for err in self._validate_attribute_definitions(rows, entity_type, ws_uuid, ctx):
+            row_errors.setdefault(err.row_number, []).append(err)
 
-        if validation_errors:
-            return self._failure_result(
-                entity_type=entity_type,
-                rows=rows,
-                errors=validation_errors,
-                cause_code=CAUSE_MISSING_REQUIRED_FIELD,
-                status="validation_error",
-                warnings=warnings,
-            )
+        # A missing required field is reported by both ``_validate_row`` and the
+        # shared attribute gate; collapse the duplicate wording per row so one
+        # row maps to one non-redundant cause (issue #1195).
+        for row_num, errs in row_errors.items():
+            row_errors[row_num] = self._dedupe_row_errors(errs)
+
+        validation_errors: List[ImportRowError] = [
+            err for errs in row_errors.values() for err in errs
+        ]
+        failed_count = len(row_errors)
+        valid_rows = [(num, row) for num, row in rows if num not in row_errors]
+        total_count = len(rows)
 
         # ---------- Natural-key dedupe (ADR-014 §3, Finding 072) ----------
         # A repeated upload (or a file with repeated rows) must not duplicate
         # entities: the second occurrence of an entity's natural key (``uid``
         # > ``id`` > normalised ``title``) is skipped as ``DUPLICATE``. This
         # runs before any write, so a full re-import of the same file is a
-        # no-op instead of an IntegrityError or a silent duplicate.
-        kept_rows, duplicate_items = self._dedupe_rows(
-            rows=rows, entity_type=entity_type, workspace_id=ws_uuid
-        )
+        # no-op instead of an IntegrityError or a silent duplicate. Only
+        # validation-clean rows are candidates -- a failed row is reported as
+        # failed, never folded into the skip count.
+        if valid_rows:
+            kept_rows, duplicate_items = self._dedupe_rows(
+                rows=valid_rows, entity_type=entity_type, workspace_id=ws_uuid
+            )
+        else:
+            kept_rows, duplicate_items = [], []
         duplicate_count = len(duplicate_items)
 
+        failed_items = self._failed_items(
+            entity_type=entity_type,
+            rows=rows,
+            row_errors=row_errors,
+            cause_code=CAUSE_MISSING_REQUIRED_FIELD,
+        )
+
+        if failed_count and not kept_rows:
+            # Nothing was (or can be) persisted: every validation-clean row is
+            # itself a duplicate. ``failed > 0`` => 422 (ADR-014 §2); the
+            # duplicates stay ``skipped`` and neutral.
+            return ImportResult(
+                success=False,
+                imported_count=0,
+                skipped_count=duplicate_count,
+                errors=validation_errors,
+                status="validation_error",
+                warnings=warnings,
+                failed_count=failed_count,
+                duplicate_count=duplicate_count,
+                items=failed_items + duplicate_items,
+                total_count=total_count,
+            )
+
         if not kept_rows:
-            # Every row was a duplicate: no write effect, no failure. The file
-            # imports "successfully" as a pure skip (ADR-014 §1/§2).
+            # No failures and no insertable rows: either the file had no data
+            # rows or every row was a duplicate. No write effect, no failure
+            # (ADR-014 §1/§2).
             return ImportResult(
                 success=True,
                 imported_count=0,
@@ -402,6 +460,7 @@ class ImportService(ServiceBase):
                 warnings=warnings,
                 duplicate_count=duplicate_count,
                 items=duplicate_items,
+                total_count=total_count,
             )
 
         # ---------- Atomic insert of all valid rows ----------
@@ -446,10 +505,21 @@ class ImportService(ServiceBase):
                 type(exc).__name__,
             )
             message = PERSISTENCE_ERROR_MESSAGE
+            persistence_item = self._failed_item(
+                entity_type, 0, None, CAUSE_PERSISTENCE_ERROR, message
+            )
+            # A rollback voids every write of the batch: all rows that were not
+            # skipped as duplicates are failed, independent of whether they had
+            # passed validation or were about to be inserted (ADR-014 §2).
+            rollback_failed = (
+                total_count - duplicate_count
+                or failed_count
+                or len(kept_rows)
+            )
             return ImportResult(
                 success=False,
                 imported_count=0,
-                skipped_count=0,
+                skipped_count=duplicate_count,
                 errors=[
                     ImportRowError(
                         row_number=0, field="persistence", message=message
@@ -457,19 +527,23 @@ class ImportService(ServiceBase):
                 ],
                 status="rollback",
                 warnings=warnings,
-                failed_count=len(kept_rows),
-                items=[self._failed_item(entity_type, 0, None, CAUSE_PERSISTENCE_ERROR, message)],
+                failed_count=rollback_failed,
+                duplicate_count=duplicate_count,
+                items=[persistence_item] + failed_items + duplicate_items,
+                total_count=total_count,
             )
 
         return ImportResult(
-            success=True,
+            success=(failed_count == 0),
             imported_count=imported,
             skipped_count=duplicate_count,
-            errors=[],
-            status="ok",
+            errors=validation_errors,
+            status="ok" if failed_count == 0 else "validation_error",
             warnings=warnings,
+            failed_count=failed_count,
             duplicate_count=duplicate_count,
-            items=duplicate_items,
+            items=failed_items + duplicate_items,
+            total_count=total_count,
         )
 
     # ---------- Private helpers ----------
@@ -492,6 +566,97 @@ class ImportService(ServiceBase):
             "cause": {"code": cause_code, "message": message},
         }
 
+    @staticmethod
+    def _dedupe_row_errors(errors: List[ImportRowError]) -> List[ImportRowError]:
+        """Collapse duplicate messages for a single row, first-seen order kept.
+
+        ``_validate_row`` and the shared attribute gate independently report the
+        same missing required field with different wording; once the attribute
+        wrap names the field the two messages are identical and this drops the
+        second (issue #1195).
+        """
+        seen: set[str] = set()
+        unique: List[ImportRowError] = []
+        for error in errors:
+            key = error.message.strip().casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            unique.append(error)
+        return unique
+
+    @staticmethod
+    def _row_error_message(errors: List[ImportRowError]) -> str:
+        """Join one row's distinct error messages into a single full message."""
+        messages: List[str] = []
+        for error in errors:
+            if error.message and error.message not in messages:
+                messages.append(error.message)
+        return "; ".join(messages) if messages else "Row failed validation."
+
+    @staticmethod
+    def _cause_code_for_errors(
+        errors: List[ImportRowError], default: str
+    ) -> str:
+        """Return the machine-readable cause code for one row's error list.
+
+        ADR-014 §1 defines ``MISSING_REQUIRED_FIELD`` and ``INVALID_VALUE`` as
+        distinct causes, but ``_failed_items`` used to stamp every failed
+        validation row with ``MISSING_REQUIRED_FIELD`` — even when the row only
+        tripped a length, enum or attribute-gate rule (review I1). Derive the
+        code per row instead: ``MISSING_REQUIRED_FIELD`` when the row carries
+        at least one missing-required error, otherwise ``INVALID_VALUE``.
+
+        A caller ``default`` other than ``MISSING_REQUIRED_FIELD`` is left
+        untouched, so non-validation causes (e.g. the parse path's
+        ``QUOTING_ERROR``) keep their exact code.
+        """
+        if default != CAUSE_MISSING_REQUIRED_FIELD:
+            return default
+        if any(
+            error.message.startswith(_MISSING_REQUIRED_PREFIX) for error in errors
+        ):
+            return CAUSE_MISSING_REQUIRED_FIELD
+        return CAUSE_INVALID_VALUE
+
+    @classmethod
+    def _failed_items(
+        cls,
+        *,
+        entity_type: str,
+        rows: List[Tuple[int, Dict[str, str]]],
+        row_errors: Dict[int, List[ImportRowError]],
+        cause_code: str,
+    ) -> List[Dict[str, Any]]:
+        """Build exactly one structured outcome entry per failed row.
+
+        Each entry carries the row's full message (all distinct causes joined)
+        so a row with several errors does not fan out into several ``items``
+        (issue #1195).
+        """
+        row_by_number = {num: row for num, row in rows}
+        items: List[Dict[str, Any]] = []
+        for row_number, errors in row_errors.items():
+            row = row_by_number.get(row_number)
+            identifier = None
+            if row is not None:
+                identifier = (
+                    (row.get("uid") or "").strip()
+                    or (row.get("id") or "").strip()
+                    or (row.get("title") or "").strip()
+                    or None
+                )
+            items.append(
+                cls._failed_item(
+                    entity_type,
+                    row_number,
+                    identifier,
+                    cls._cause_code_for_errors(errors, cause_code),
+                    cls._row_error_message(errors),
+                )
+            )
+        return items
+
     def _failure_result(
         self,
         *,
@@ -504,31 +669,21 @@ class ImportService(ServiceBase):
     ) -> ImportResult:
         """Build an all-or-nothing failure result with a structured item list.
 
-        The v2 ``items`` list is derived from ``errors`` so a failed import
-        always carries at least one named cause (Finding 079); the legacy
+        The v2 ``items`` list is derived from ``errors`` grouped per row so a
+        failed import always carries at least one named cause (Finding 079) and
+        exactly one entry per failed row (issue #1195); the legacy
         ``errors``/``skipped_count`` fields keep their pre-ADR values.
         """
-        items: List[Dict[str, Any]] = []
+        grouped: Dict[int, List[ImportRowError]] = {}
         for error in errors:
-            row = next((r for num, r in rows if num == error.row_number), None)
-            identifier = None
-            if row is not None:
-                identifier = (
-                    (row.get("uid") or "").strip()
-                    or (row.get("id") or "").strip()
-                    or (row.get("title") or "").strip()
-                    or None
-                )
-            items.append(
-                self._failed_item(
-                    entity_type,
-                    error.row_number,
-                    identifier,
-                    cause_code,
-                    error.message,
-                )
-            )
-        failed_rows = len({e.row_number for e in errors}) or (len(rows) or 1)
+            grouped.setdefault(error.row_number, []).append(error)
+        items = self._failed_items(
+            entity_type=entity_type,
+            rows=rows,
+            row_errors=grouped,
+            cause_code=cause_code,
+        )
+        failed_rows = len(grouped) or (len(rows) or 1)
         return ImportResult(
             success=False,
             imported_count=0,
@@ -538,6 +693,7 @@ class ImportService(ServiceBase):
             warnings=warnings,
             failed_count=failed_rows,
             items=items,
+            total_count=max(len(rows), failed_rows),
         )
 
     @classmethod
@@ -880,11 +1036,25 @@ class ImportService(ServiceBase):
                 # authoritative answer for the latter.
                 break
             except FieldValidationError as exc:
-                errors.extend(
-                    ImportRowError(row_number=row_num, field=name, message=msg)
-                    for name, messages in sorted(exc.errors.items())
-                    for msg in messages
-                )
+                for name, messages in sorted(exc.errors.items()):
+                    for msg in messages:
+                        # The shared gate phrases a missing required value as a
+                        # bare "is required"; wrap it with the field name and
+                        # reuse the CSV importer's own wording so the same
+                        # condition is not reported twice with different text
+                        # (issue #1195). Only the wrap changes -- the gate's
+                        # semantics for its other consumers stay untouched.
+                        if msg == "is required":
+                            message = (
+                                f"Required field '{name}' is missing or empty."
+                            )
+                        else:
+                            message = f"Field '{name}': {msg}"
+                        errors.append(
+                            ImportRowError(
+                                row_number=row_num, field=name, message=message
+                            )
+                        )
             except AttributeSchemaError as exc:
                 errors.extend(
                     ImportRowError(

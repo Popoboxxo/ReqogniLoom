@@ -46,6 +46,11 @@ _BOM_CSV = (
 
 _MISSING_TITLE_CSV = b"title,description\n,No title here\n"
 
+# Issue #1195: one valid row + one invalid row -> partial success (207).
+_MIXED_VALID_INVALID_CSV = (
+    b"title,description\nGood Row,valid\n,missing title\n"
+)
+
 
 @pytest.fixture
 def import_admin_user(db):
@@ -217,6 +222,58 @@ def test_v2_validation_failure_is_422_with_items(import_admin_user):
     assert body["counts"]["failed"] >= 1
     assert len(body["items"]) >= 1
     assert body["items"][0]["status"] == "failed"
+
+
+# ---------- Issue #1195: 207 partial success, total = data rows, one item/row ----------
+
+
+@override_settings(**_V2_OVERRIDES)
+@pytest.mark.django_db
+def test_v2_partial_validation_returns_207_with_data_row_total(import_admin_user):
+    """One valid + one invalid data row: the valid row is persisted and the
+    ADR-014 §2 validation-partial case (succeeded > 0, failed > 0) answers 207.
+    ``counts.total`` is the file's two data rows, and only the failed row
+    yields an ``items`` entry (with the field name in the full message)."""
+    _user, tenant, workspace = import_admin_user
+    client = APIClient()
+    _login(client)
+
+    resp = _upload(client, workspace.id, _MIXED_VALID_INVALID_CSV)
+
+    assert resp.status_code == 207, resp.content
+    body = resp.json()
+    assert body["success"] is False
+    assert body["counts"] == {
+        "succeeded": 1,
+        "skipped": 0,
+        "failed": 1,
+        "total": 2,
+    }
+    assert len(body["items"]) == 1
+    item = body["items"][0]
+    assert item["row"] == 3
+    assert item["status"] == "failed"
+    assert "title" in item["cause"]["message"]
+    # The valid row was really written; the invalid one was not.
+    assert _requirement_count(tenant.id, workspace.id) == 1
+
+
+@override_settings(**_V2_OVERRIDES)
+@pytest.mark.django_db
+def test_v2_all_invalid_reports_data_row_total(import_admin_user):
+    """A one-row all-invalid file is a 422 whose ``total`` is the file's one
+    data row (the old ``succeeded+skipped+failed`` sum double-counted it)."""
+    _user, _tenant, workspace = import_admin_user
+    client = APIClient()
+    _login(client)
+
+    resp = _upload(client, workspace.id, _MISSING_TITLE_CSV)
+
+    assert resp.status_code == 422
+    body = resp.json()
+    assert body["counts"]["total"] == 1
+    assert body["counts"]["failed"] == 1
+    assert len(body["items"]) == 1
 
 
 @override_settings(**_V2_OVERRIDES)

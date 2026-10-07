@@ -15,6 +15,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from application.import_service import ImportService
+from attribute_definitions.global_definition_store import GlobalAttributeDefinitionStore
 from persistence.middleware import clear_request_tenant, set_request_tenant
 from persistence.models import Requirement, Tenant, Workspace
 
@@ -237,3 +238,145 @@ class TestNormalPathRegression:
             "failed": 0,
             "total": 2,
         }
+
+
+# ---------- Issue #1195: data-row totals, one item per row, partial success ----------
+
+
+class TestIssue1195CountsAndItems:
+    """Regression for #1195: ``counts.total`` is the file's data-row count,
+    ``items`` carries exactly one full-message entry per failed row, and a
+    validation error fails only its own row (partial success)."""
+
+    _TITLE = {"name": "title", "kind": "core", "type": "text", "required": True}
+    _SAP_ID = {"name": "sap_id", "kind": "extended", "type": "text", "required": True}
+
+    def test_total_counts_file_rows_on_partial_validation(self):
+        """One valid + one invalid row: the valid row is persisted, the invalid
+        one fails, and ``total`` is the two data rows of the file (not the sum
+        of the outcomes)."""
+        _tenant, workspace = _workspace()
+        csv_text = "title,description\nGood Row,valid\n,missing title\n"
+
+        result = ImportService().import_csv(
+            csv_text, "Requirement", workspace.id, _ctx(workspace.tenant_id)
+        )
+
+        assert result.success is False
+        assert result.counts["total"] == 2
+        assert result.counts["succeeded"] == 1
+        assert result.counts["failed"] == 1
+        assert result.counts["skipped"] == 0
+
+        set_request_tenant(workspace.tenant_id)
+        try:
+            assert Requirement.objects.filter(artifact__workspace=workspace).count() == 1
+        finally:
+            clear_request_tenant()
+
+    def test_total_is_file_rows_even_when_the_batch_rolls_back(self):
+        """A persistence failure rolls every row back but must still report the
+        file's two data rows as ``total``."""
+        _tenant, workspace = _workspace()
+
+        with patch(
+            "application.import_service.ImportService._insert_rows",
+            side_effect=Exception("simulated DB failure"),
+        ):
+            result = ImportService().import_csv(
+                _CSV, "Requirement", workspace.id, _ctx(workspace.tenant_id)
+            )
+
+        assert result.status == "rollback"
+        assert result.counts["total"] == 2
+        assert result.counts["succeeded"] == 0
+        assert result.counts["failed"] == 2
+
+    def test_exactly_one_item_per_failed_row_with_full_message(self):
+        """A row that trips two validators (missing ``title`` and the required
+        extended ``sap_id``) yields exactly one ``items`` entry whose message
+        names both fields — not one entry per error and not a bare
+        "is required" fragment."""
+        _tenant, workspace = _workspace()
+        GlobalAttributeDefinitionStore().initialize(
+            workspace.tenant_id,
+            "Requirement",
+            "standard",
+            [self._TITLE, self._SAP_ID],
+        )
+
+        result = ImportService().import_csv(
+            "title,description\n,\n", "Requirement", workspace.id, _ctx(workspace.tenant_id)
+        )
+
+        assert result.counts["total"] == 1
+        assert result.counts["failed"] == 1
+        assert len(result.items) == 1
+        item = result.items[0]
+        assert item["row"] == 2
+        assert item["status"] == "failed"
+        message = item["cause"]["message"]
+        assert "title" in message
+        assert "sap_id" in message
+        assert "is required" not in message
+        # The legacy error graph still carries the machine-readable fields.
+        assert {e.field for e in result.errors} == {"title", "sap_id"}
+
+    def test_all_invalid_rows_total_equals_file_rows(self):
+        """A one-row file with an empty title reports ``total == 1``, not the
+        doubly-counted ``len(rows) + failed`` the old sum produced."""
+        _tenant, workspace = _workspace()
+
+        result = ImportService().import_csv(
+            "title,description\n,no title\n",
+            "Requirement",
+            workspace.id,
+            _ctx(workspace.tenant_id),
+        )
+
+        assert result.success is False
+        assert result.counts["total"] == 1
+        assert result.counts["failed"] == 1
+        assert len(result.items) == 1
+        assert result.items[0]["cause"]["code"] == "MISSING_REQUIRED_FIELD"
+
+
+# ---------- Review I1: cause code is derived per row ----------
+
+
+class TestPerRowCauseCode:
+    """A row that fails only a length/enum/attribute rule must report
+    ``INVALID_VALUE``; only a genuinely missing required field reports
+    ``MISSING_REQUIRED_FIELD``."""
+
+    def test_length_violation_reports_invalid_value(self):
+        _tenant, workspace = _workspace()
+        long_title = "x" * 501  # > 500-char length rule in ``_validate_row``
+
+        result = ImportService().import_csv(
+            f"title,description\n{long_title},too long\n",
+            "Requirement",
+            workspace.id,
+            _ctx(workspace.tenant_id),
+        )
+
+        assert result.success is False
+        assert result.status == "validation_error"
+        assert len(result.items) == 1
+        item = result.items[0]
+        assert item["cause"]["code"] == "INVALID_VALUE", item
+        assert "500" in item["cause"]["message"]
+
+    def test_quoted_parse_error_keeps_quoting_error(self):
+        """The non-validation default (a CSV parse error) is not rewritten by
+        the per-row derivation."""
+        _tenant, workspace = _workspace()
+
+        result = ImportService().import_csv(
+            _MALFORMED_QUOTING,
+            "Requirement",
+            workspace.id,
+            _ctx(workspace.tenant_id),
+        )
+
+        assert result.items[0]["cause"]["code"] == "QUOTING_ERROR"
