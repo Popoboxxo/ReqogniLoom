@@ -14,6 +14,7 @@ allocation, per the design spec's explicit decision.
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import Any, Dict, List
 from uuid import UUID
@@ -31,6 +32,8 @@ from application.attribute_definition_service import (
 from application.base import NotFoundError, ServiceBase, ValidationError
 
 MAX_DEPTH = 20  # mirrors ArtifactService.get_tree's recursive CTE cap
+
+logger = logging.getLogger(__name__)
 
 
 class BundleDepthExceededError(ValidationError):
@@ -562,6 +565,70 @@ class RequirementBundleQueryService(ServiceBase):
         return exportable
 
 
+def _active_tier(workspace_id: UUID) -> "str | None":
+    """Return the workspace's active rigor tier, or ``None`` when unresolvable.
+
+    The same lookup ``workflow.precondition_rules.check_mandatory_fields`` uses
+    (``presets.services.get_preset``), kept here because the discovery fallback
+    below can run before any attribute definition has been bootstrapped — the
+    very case in which ``gateway.resolve_definition`` itself raises and cannot
+    name the preset. Fail-open: a missing/unknown workspace yields ``None`` and
+    the caller reports an empty required set rather than 500-ing discovery.
+    """
+    try:
+        from presets.services import get_preset
+
+        return get_preset(str(workspace_id)).preset
+    except Exception:  # noqa: BLE001 — discovery must never fail on a preset lookup
+        return None
+
+
+def _gate_required_names(
+    ctx: AuthContext, workspace_id: UUID, item_type: str, tier: "str | None"
+) -> set:
+    """Effective approval-gate field names for ``(item_type, tier)`` (#1192).
+
+    Delegates to :func:`attribute_definitions.mandatory_fields.scoped_mandatory_fields`
+    — the exact resolver Rule 5 (``workflow.precondition_rules``) uses — so the
+    discovery endpoint can never drift from the gate. Fail-open: a malformed or
+    conflicting definition reports an empty set (the gate logs and fails open
+    the same way) instead of turning a schema read into a 500.
+    """
+    if not tier:
+        return set()
+    from attribute_definitions.mandatory_fields import scoped_mandatory_fields
+    from attribute_definitions.schema import (
+        AttributeDefinitionConflictError,
+        AttributeSchemaError,
+    )
+
+    try:
+        return set(scoped_mandatory_fields(ctx.tenant_id, workspace_id, item_type, tier))
+    except (AttributeSchemaError, AttributeDefinitionConflictError):
+        # A malformed or conflicting definition is an expected state during
+        # bootstrap; the gate fails open the same way. Warn so the fail-open is
+        # observable instead of silent (review R1).
+        logger.warning(
+            "Approval-gate required-name resolution failed for "
+            "workspace=%s item_type=%s tier=%s; reporting an empty required set",
+            workspace_id,
+            item_type,
+            tier,
+            exc_info=True,
+        )
+        return set()
+    except Exception:  # noqa: BLE001 — see docstring
+        logger.warning(
+            "Unexpected error resolving approval-gate required names for "
+            "workspace=%s item_type=%s tier=%s; reporting an empty required set",
+            workspace_id,
+            item_type,
+            tier,
+            exc_info=True,
+        )
+        return set()
+
+
 def describe_attribute_schema(
     ctx: AuthContext,
     workspace_id: UUID,
@@ -587,14 +654,21 @@ def describe_attribute_schema(
     :data:`attribute_definitions.schema.ITEM_TYPES`, not the hardcoded
     ``("Requirement",)`` this used to carry — every item type with a
     bootstrapped definition is discoverable through both transports. Discovery
-    now runs through the shared ``ArtifactAttributeGateway.discover`` (WS1), so
-    this and every future transport project the resolved definition through one
-    code path; the rows stay byte-compatible
-    (``{entity_type, attribute_name, is_visible}``). The static
-    ``REQUIREMENT_ALL_FIELDS`` fallback is kept ONLY for ``"Requirement"`` (the
-    one type it actually describes); a non-Requirement type whose definition is
-    missing contributes no rows rather than silently reporting Requirement field
-    names under another entity type.
+    runs through the shared ``ArtifactAttributeGateway.discover`` (WS1), so this
+    and every future transport project the resolved definition through one code
+    path. The static ``REQUIREMENT_ALL_FIELDS`` fallback is kept ONLY for
+    ``"Requirement"`` (the one type it actually describes); a non-Requirement
+    type whose definition is missing contributes no rows rather than silently
+    reporting Requirement field names under another entity type.
+
+    GitHub #1192: every row additionally carries ``is_required`` and ``tier``.
+    ``is_required`` names the *effective approval-gate* set for the workspace's
+    active preset (definition ``required`` flags **plus** the legacy
+    Requirement ``mandatory_fields``), resolved through the very
+    ``scoped_mandatory_fields`` Rule 5 consumes — so a form can mark the fields
+    an approval will demand *before* the user clicks "Freigeben". The keys are
+    purely additive: every pre-existing consumer reads ``entity_type`` /
+    ``attribute_name`` / ``is_visible`` by key and stays compatible.
 
     Raises:
         NotFoundError: *entity_type* is not one of the known schemas.
@@ -610,6 +684,16 @@ def describe_attribute_schema(
     gateway = ArtifactAttributeGateway()
     result: List[Dict[str, Any]] = []
     for et in known_types:
+        tier: "str | None" = None
+        try:
+            definition = gateway.resolve_definition(ctx, et, workspace_id)
+            tier = definition.get("preset")
+        except AttributeDefinitionNotFound:
+            # Keep going: `discover` below decides whether this type contributes
+            # the static Requirement fallback; an unresolved tier stays None and
+            # yields an empty required set (fail-open).
+            tier = _active_tier(workspace_id) if et == "Requirement" else None
+
         try:
             descriptors = gateway.discover(ctx, et, workspace_id)
         except AttributeDefinitionNotFound:
@@ -618,20 +702,27 @@ def describe_attribute_schema(
                 # fallback above describes Requirement columns only and must
                 # never be reported under a different ``entity_type``.
                 continue
+            required = _gate_required_names(ctx, workspace_id, et, tier)
             result.extend(
                 {
                     "entity_type": et,
                     "attribute_name": name,
                     "is_visible": True,
+                    "is_required": name in required,
+                    "tier": tier,
                 }
                 for name in REQUIREMENT_ALL_FIELDS
             )
             continue
+
+        required = _gate_required_names(ctx, workspace_id, et, tier)
         result.extend(
             {
                 "entity_type": et,
                 "attribute_name": descriptor.name,
                 "is_visible": descriptor.visible,
+                "is_required": descriptor.name in required,
+                "tier": tier,
             }
             for descriptor in descriptors
         )

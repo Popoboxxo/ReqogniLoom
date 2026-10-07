@@ -261,6 +261,40 @@ class TestAttributeSchemaEndpoint:
         assert rows["description"] is False
         assert rows["title"] is True
 
+    @staticmethod
+    def _schema_rows(authed_client, workspace):
+        resp = authed_client.get(
+            f"/api/v1/attribute-schema/?entity_type=Requirement&workspace_id={workspace.id}"
+        )
+        assert resp.status_code == 200
+        return {row["attribute_name"]: row for row in resp.json()}
+
+    def test_rows_carry_effective_required_flag_and_tier(self, authed_client, workspace):
+        """GitHub #1192: every row exposes the approval-gate ``is_required``
+        flag and the workspace's active ``tier``, additively."""
+        rows = self._schema_rows(authed_client, workspace)
+        assert {row["tier"] for row in rows.values()} == {"extended"}
+        assert rows["title"]["is_required"] is True
+        assert rows["acceptance_criteria"]["is_required"] is True
+        assert set(rows["title"]) == {
+            "entity_type",
+            "attribute_name",
+            "is_visible",
+            "is_required",
+            "tier",
+        }
+
+    def test_required_flag_follows_a_minimal_preset(self, authed_client, workspace):
+        """Under the minimal preset the gate demands only ``title``, so
+        ``acceptance_criteria`` must drop out of the required set."""
+        from presets.services import switch_preset
+
+        switch_preset(str(workspace.id), "minimal")
+        rows = self._schema_rows(authed_client, workspace)
+        assert {row["tier"] for row in rows.values()} == {"minimal"}
+        assert rows["title"]["is_required"] is True
+        assert rows["acceptance_criteria"]["is_required"] is False
+
 
 @pytest.mark.django_db
 class TestRequirementBundleCompressedMode:

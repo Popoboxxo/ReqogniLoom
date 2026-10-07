@@ -152,10 +152,17 @@ const DIFF_KIND: Record<WorkflowArtifactType, DiffEntityType> = {
  * locking and a server-side validator, and firing N of them in parallel turns
  * a partial failure into an unreadable pile of 409s. A failing item never
  * aborts the run — the caller reports both lists.
+ *
+ * Issue #1193: the rejected promise used to be swallowed (`catch {}`), so a
+ * server rejection — e.g. a missing/invalid `change_reason`, or the item no
+ * longer being in the proposal state — produced only a bare "N failed" count
+ * with no cause. The optional `onError` callback surfaces the thrown value per
+ * failing id so the caller can show *why* the approval did not go through.
  */
 export async function bulkConfirm(
   ids: readonly string[],
   confirmOne: (id: string) => Promise<unknown>,
+  onError?: (id: string, error: unknown) => void,
 ): Promise<{ confirmed: string[]; failed: string[] }> {
   const confirmed: string[] = [];
   const failed: string[] = [];
@@ -163,8 +170,9 @@ export async function bulkConfirm(
     try {
       await confirmOne(id);
       confirmed.push(id);
-    } catch {
+    } catch (error) {
       failed.push(id);
+      onError?.(id, error);
     }
   }
   return { confirmed, failed };
@@ -208,6 +216,9 @@ export default function ReviewsView({
   const [bulkResult, setBulkResult] = useState<{ ok: number; failed: number } | null>(
     null,
   );
+  // #1193: the first failure reason of the last bulk confirm, surfaced inline
+  // instead of being swallowed behind a bare "N failed" count.
+  const [bulkError, setBulkError] = useState<string | null>(null);
 
   const {
     items,
@@ -215,6 +226,9 @@ export default function ReviewsView({
     error,
     pendingProposalCount,
     proposalCountLoading,
+    totalPendingCount,
+    totalPendingCountLoading,
+    otherTypesPendingCount,
     transitions,
     transitionsLoading,
     history,
@@ -311,6 +325,7 @@ export default function ReviewsView({
     // survived a switch to a different artifact type or back to review mode,
     // where it describes a run against a queue that is no longer on screen.
     setBulkResult(null);
+    setBulkError(null);
   }, [search, selectedArtifactType, queueMode]);
 
   /**
@@ -331,7 +346,7 @@ export default function ReviewsView({
    * already sequential (see `bulkConfirm`).
    */
   const confirmProposal = useCallback(
-    async (id: string): Promise<void> => {
+    async (id: string, reason = ""): Promise<void> => {
       const detail = await workflowTransitionsApi.getTransitions(
         selectedArtifactType,
         id,
@@ -343,15 +358,33 @@ export default function ReviewsView({
         (candidate) => !candidate.requires_change_reason,
       );
       if (!confirm) {
-        throw new Error(`No confirm transition available for ${id}`);
+        // #1193: a human-readable cause, not a raw `No confirm transition
+        // available for <id>` string — this message is now what the bulk
+        // handler renders inline when a row cannot be confirmed.
+        throw new Error(t("reviews.transitionUnavailable"));
       }
-      await workflowTransitionsApi.transition(
-        selectedArtifactType,
-        id,
-        confirm.target_state,
-      );
+      // #1193: thread the reviewer's reason through. The confirm move does not
+      // require one today, but dropping whatever the user typed previously hid
+      // the case where a workspace's graph *does* require it — the server then
+      // answered 400 and the caller never saw it.
+      if (reason.trim()) {
+        await workflowTransitionsApi.transition(
+          selectedArtifactType,
+          id,
+          confirm.target_state,
+          reason,
+        );
+      } else {
+        // Keep the no-reason call shape byte-identical to before so existing
+        // callers/tests are unaffected when there is nothing to send.
+        await workflowTransitionsApi.transition(
+          selectedArtifactType,
+          id,
+          confirm.target_state,
+        );
+      }
     },
-    [selectedArtifactType],
+    [selectedArtifactType, t],
   );
 
   const selected = useMemo(
@@ -523,6 +556,19 @@ export default function ReviewsView({
             </option>
           ))}
         </select>
+        {/* #1193: the per-type filter made the page look empty while 68
+            approvals were pending elsewhere. The aggregate count answers "is
+            anything waiting at all?" independent of the selected type. */}
+        {!totalPendingCountLoading &&
+          totalPendingCount !== null &&
+          totalPendingCount > 0 && (
+            <span
+              className={styles.totalBadge}
+              data-testid="reviews-total-pending"
+            >
+              {t("reviews.totalPending", { count: totalPendingCount })}
+            </span>
+          )}
       </div>
 
       <label data-testid="reviews-queue-mode-toggle" className={styles.queueModeRow}>
@@ -554,14 +600,27 @@ export default function ReviewsView({
           disabled={isActing}
           onClick={async () => {
             setIsActing(true);
-            const { confirmed, failed } = await bulkConfirm(
-              selectedIds,
-              confirmProposal,
-            );
-            setSelectedIds([]);
-            setBulkResult({ ok: confirmed.length, failed: failed.length });
-            await refreshList();
-            setIsActing(false);
+            setBulkError(null);
+            // Fix F3: the state reset has to be unconditional. Previously a
+            // rejected `refreshList()` threw past `setIsActing(false)`, leaving
+            // the Confirm button disabled forever (nothing re-enables it).
+            try {
+              // #1193: collect the cause of every failed confirmation so the
+              // reviewer learns *why* (e.g. a rejected `change_reason`) instead
+              // of only that something failed.
+              const failures: string[] = [];
+              const { confirmed, failed } = await bulkConfirm(
+                selectedIds,
+                (id) => confirmProposal(id, changeReason),
+                (_id, error) => failures.push(extractErrorMessage(error)),
+              );
+              setSelectedIds([]);
+              setBulkResult({ ok: confirmed.length, failed: failed.length });
+              setBulkError(failures.length > 0 ? failures[0] : null);
+              await refreshList();
+            } finally {
+              setIsActing(false);
+            }
           }}
         >
           {t("workflow.proposal.bulkConfirm")} ({selectedIds.length})
@@ -575,6 +634,17 @@ export default function ReviewsView({
             : ""}
         </p>
       )}
+      {/* #1193: the cause behind the "N failed" count — previously the
+          rejection was swallowed entirely. */}
+      {bulkError && (
+        <p
+          role="alert"
+          data-testid="reviews-bulk-confirm-error"
+          className={styles.errorText}
+        >
+          {t("reviews.bulkConfirmError")}: {bulkError}
+        </p>
+      )}
 
       <ListToolbar
         searchValue={search}
@@ -583,6 +653,19 @@ export default function ReviewsView({
         countLabel={`${filtered.length} / ${items.length}`}
         testIdPrefix="reviews"
       />
+
+      {/* #1193: "In other types there are N open approvals" — the default
+          requirement filter can legitimately be empty while the workspace has
+          dozens of pending items under other types. This hint turns a silent
+          empty queue into a discoverable one. */}
+      {!isLoading && !error && otherTypesPendingCount > 0 && (
+        <p
+          data-testid="reviews-other-types-hint"
+          className={styles.mutedText}
+        >
+          {t("reviews.otherTypesHint", { count: otherTypesPendingCount })}
+        </p>
+      )}
 
       {isLoading && (
         <p role="status" className={styles.mutedText}>
@@ -783,12 +866,29 @@ export default function ReviewsView({
             </p>
           )}
 
+          {/* GitHub #1192: Rule 5 can refuse an approval while the preset's
+              mandatory fields are empty — the transition is still listed as
+              allowed, so the button gives no hint until the POST 400s. Explain
+              the gate up front; the artifact form marks the concrete fields.
+              The hint's `id` lets the Approve button reference it below, so the
+              explanation reaches assistive tech too, not only sighted users. */}
+          {approveAllowed ? (
+            <p
+              id="review-gate-hint"
+              data-testid="review-gate-hint"
+              className={styles.mutedText}
+            >
+              {t("reviews.gateHint")}
+            </p>
+          ) : null}
+
           <div className={styles.detailActions}>
             <button
               type="button"
               data-testid="review-approve-btn"
               className="btn-primary"
               disabled={isActing || transitionsLoading || !approveAllowed}
+              aria-describedby={approveAllowed ? "review-gate-hint" : undefined}
               onClick={() => handleAction(APPROVE_TARGET)}
               title={!isActing ? approveDisabledReason : undefined}
               aria-label={

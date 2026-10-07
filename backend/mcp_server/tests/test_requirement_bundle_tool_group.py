@@ -471,6 +471,33 @@ class TestAttributeSchemaTool:
         assert rows["title"] is True
         assert "sap_id" in rows
 
+    def test_attribute_schema_rows_carry_effective_required_flag_and_tier(self, rb_ctx):
+        """GitHub #1192: the MCP transport projects the same additive row shape
+        as REST — ``is_required`` (the effective approval-gate set) and the
+        workspace's active ``tier``. The ``rb_ctx`` workspace has no
+        ``WorkspacePresetConfig``, so it defaults to the minimal tier."""
+        _tenant, ctx, workspace = rb_ctx
+
+        result = _exec(
+            RequirementBundleToolGroup(),
+            "requirement_bundle.attribute_schema",
+            {"entity_type": "Requirement", "workspace_id": str(workspace.id)},
+            ctx,
+        )
+
+        assert result.success is True
+        rows = {row["attribute_name"]: row for row in result.data["attributes"]}
+        assert {row["tier"] for row in rows.values()} == {"minimal"}
+        assert rows["title"]["is_required"] is True
+        assert rows["acceptance_criteria"]["is_required"] is False
+        assert set(rows["title"]) == {
+            "entity_type",
+            "attribute_name",
+            "is_visible",
+            "is_required",
+            "tier",
+        }
+
 
 class TestToolSchemas:
     def test_get_tool_schemas_matches_tool_map(self):

@@ -197,7 +197,14 @@ class RequirementBundleToolGroup(BaseToolGroup):
                 "returned in its items[].fields; the item-level "
                 "'found_under_element_id' is not among them - it is the "
                 "element's backing Artifact id, not an ArchitectureElement "
-                "id (see requirement_bundle.export)."
+                "id (see requirement_bundle.export). Each attribute row also "
+                "carries 'is_required' (whether the workspace's active "
+                "approval gate demands the field - the effective mandatory "
+                "set resolved from the definition plus the legacy "
+                "Requirement mandatory_fields) and 'tier' (the workspace's "
+                "active rigor preset name, or null when unresolvable). Both "
+                "keys are additive: consumers reading only entity_type / "
+                "attribute_name / is_visible stay compatible."
             ),
             "inputSchema": {
                 "type": "object",

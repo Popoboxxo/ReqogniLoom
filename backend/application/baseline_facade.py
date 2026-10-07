@@ -881,6 +881,62 @@ class BaselineFacade(ServiceBase):
             tenant_id=ctx.tenant_id,
         )
 
+    @atomic_transaction
+    def purge_baseline(self, baseline_id: UUID | str, ctx: AuthContext) -> None:
+        """Administratively delete one Baseline, recording an audit entry.
+
+        GH-1199: the counterpart to the domain prohibition on the generic
+        baseline DELETE. Removing an appended baseline is an *administrative*
+        act, so it is gated on the ``admin`` role (the same role the workspace
+        hard-delete requires) and always writes an audit row —
+        ``operation="baseline.purge"``. Content immutability is untouched: the
+        baseline UPDATE path still raises unconditionally, and the DELETE
+        reaches the DB only because the Layer-1 helper arms the transaction-local
+        GUC ``app.baseline_admin_delete``.
+
+        Args:
+            baseline_id: UUID of the baseline to remove.
+            ctx: AuthContext; must hold the ``admin`` role.
+
+        Raises:
+            PermissionDeniedError: The caller is not an admin.
+            NotFoundError: The baseline does not exist for the caller's tenant.
+        """
+        self._set_tenant_context(ctx)
+        self._assert_permission(ctx, "admin")
+
+        from baseline.services import get as baseline_get
+        from baseline.services import purge_baseline as baseline_purge
+
+        key = UUID(str(baseline_id))
+        try:
+            detail = baseline_get(key, ctx.tenant_id)
+            # Review B1: the coarse gate above reads ``ctx.active_roles``. On
+            # this detail route the URL names no workspace, so those roles are
+            # the tenant-wide union (or the roles scoped by the object-scope
+            # seam when it is on). Re-authorise against the baseline's own
+            # workspace so an ``admin`` of workspace A can never purge a
+            # workspace-B baseline of the same tenant.
+            self._assert_workspace_admin(ctx, detail.workspace_id)
+            baseline_purge(key, ctx.tenant_id)
+        except Exception as exc:
+            # _remap_baseline_exc always raises (mapped or re-raised), so no
+            # delete can be reported as successful.
+            _remap_baseline_exc(exc)
+            raise
+
+        self._audit(
+            ctx=ctx,
+            operation="baseline.purge",
+            entity_type="Baseline",
+            entity_id=key,
+            details={
+                "workspace_id": str(detail.workspace_id),
+                "name": detail.name,
+                "scope": detail.scope,
+            },
+        )
+
     def get_item_at_baseline(
         self,
         baseline_id: UUID | str,
@@ -998,6 +1054,56 @@ class BaselineFacade(ServiceBase):
                 "Permission denied: reading baseline membership requires at "
                 "least 'viewer' role, user has "
                 f"{ctx.active_roles}"
+            )
+
+    @staticmethod
+    def _assert_workspace_admin(ctx: AuthContext, workspace_id: UUID | str) -> None:
+        """Require the caller to hold ``admin`` in *workspace_id* itself.
+
+        Review B1: :meth:`purge_baseline` is reached from a detail route that
+        names no workspace (``DELETE /api/v1/baselines/{pk}/purge/``). The auth
+        seam then either scopes the caller's roles to the baseline's workspace
+        (object-scope seam enabled) or hands over the tenant-wide union (seam
+        disabled, or a direct/service caller). The coarse
+        ``_assert_permission(ctx, "admin")`` cannot tell those apart and would
+        let an ``admin`` of workspace A purge a workspace-B baseline of the
+        same tenant. Reuse the already-scoped roles when ``ctx.workspace_id``
+        names the target; otherwise resolve the caller's roles against the
+        target workspace. Fail-closed on a lookup error, so a resolution
+        failure can never widen authority.
+        """
+        from auth_tenancy.models import ROLE_ADMIN
+
+        target = UUID(str(workspace_id))
+        already_scoped = (
+            ctx.workspace_id is not None and UUID(str(ctx.workspace_id)) == target
+        )
+        if already_scoped:
+            roles = {str(role).lower() for role in ctx.active_roles}
+        else:
+            from auth_tenancy.services import AuthorizationService
+
+            try:
+                roles = {
+                    str(role).lower()
+                    for role in AuthorizationService().active_roles_for(
+                        user_id=ctx.user_id, workspace_id=target
+                    )
+                }
+            except Exception:  # noqa: BLE001 — fail closed on resolution error
+                logger.warning(
+                    "Workspace-admin lookup failed for user=%s workspace=%s; "
+                    "denying baseline purge",
+                    ctx.user_id,
+                    target,
+                    exc_info=True,
+                )
+                roles = set()
+
+        if ROLE_ADMIN.lower() not in roles:
+            raise PermissionDeniedError(
+                "Permission denied: purging this baseline requires the 'admin' "
+                f"role in its workspace {target}; user has {sorted(roles)}"
             )
 
     def _memberships_armed(

@@ -191,6 +191,53 @@ def test_delete_verb_is_guarded_identically_to_the_post_route() -> None:
 
 
 @override_settings(**_JWT_OVERRIDES)
+def test_delete_with_baselines_message_no_longer_says_remove_them_first() -> None:
+    """#1199 requirement 1: the 409 must name the real removal path.
+
+    The old wording ended in "remove them first", which no route could satisfy.
+    It now points at the audited administrative baseline purge.
+    """
+    tenant, user, workspace = _env("Actionable Refusal")
+    _with_baseline(tenant, workspace)
+    client = _client(user)
+
+    response = client.post(
+        f"/api/v1/workspaces/{workspace.id}/delete/",
+        {"confirmation": "Actionable Refusal"},
+        format="json",
+    )
+
+    assert response.status_code == 409, response.content
+    message = response.json()["error"]["message"].lower()
+    assert "remove them first" not in message, message
+    assert "purge" in message, message
+
+
+@override_settings(**_JWT_OVERRIDES)
+def test_force_parameter_is_rejected_not_silently_ignored() -> None:
+    """#1199 requirement 4: ``?force=true`` never had an effect.
+
+    It used to be dropped on the floor, so a caller believed it had opted into
+    a cascade the server never performed. The request is now refused with a 400
+    naming the only path — the audited admin baseline purge — instead of hiding
+    an undocumented deletion path behind a query flag.
+    """
+    tenant, user, workspace = _env("No Force")
+    _with_baseline(tenant, workspace)
+    client = _client(user)
+
+    response = client.post(
+        f"/api/v1/workspaces/{workspace.id}/delete/?force=true",
+        {"confirmation": "No Force"},
+        format="json",
+    )
+
+    assert response.status_code == 400, response.content
+    assert "force" in response.json()["error"]["message"].lower(), response.json()
+    assert Workspace.unscoped.filter(pk=workspace.pk).exists()
+
+
+@override_settings(**_JWT_OVERRIDES)
 def test_delete_without_baselines_still_succeeds_with_204() -> None:
     """The counter-test: the guard must not block an ordinary workspace."""
     _, user, workspace = _env("No Baselines")

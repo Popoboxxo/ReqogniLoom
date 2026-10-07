@@ -149,6 +149,37 @@ export interface AttributeSpec {
   reveal?: AttributeReveal;
   mask?: AttributeMask;
   display_format?: AttributeDisplayFormat;
+  /**
+   * Effective approval-gate requirement (GitHub #1192), resolved by the backend
+   * from the workspace preset (definition `required` flags unioned with the
+   * legacy Requirement `mandatory_fields`). Unlike {@link AttributeSpec.required},
+   * which is the definition's own create/edit contract, this is the set Rule 5
+   * (`workflow.precondition_rules.check_mandatory_fields`) demands before an
+   * artifact may be approved — so a field can be `required: false` yet still
+   * `is_required: true` (the canonical case: `acceptance_criteria`).
+   *
+   * Optional: the resolved-definition endpoint does not carry it; `ArtifactForm`
+   * overlays it client-side from `GET /api/v1/attribute-schema/` and every
+   * pre-existing `AttributeSpec` literal stays valid.
+   */
+  is_required?: boolean;
+}
+
+/**
+ * One row of `GET /api/v1/attribute-schema/` (Requirement Bundle Export
+ * discovery, GitHub #882; extended with the gate flag in #1192).
+ *
+ * `is_required`/`tier` are additive: pre-existing consumers read the original
+ * three keys by name.
+ */
+export interface AttributeSchemaRow {
+  entity_type: string;
+  attribute_name: string;
+  is_visible: boolean;
+  /** True when the active preset's approval gate demands this field. */
+  is_required?: boolean;
+  /** Rigor tier the row was resolved for (`minimal`/`standard`/`extended`). */
+  tier?: string | null;
 }
 
 /** Where an attribute in a resolved (workspace-scoped) definition comes from
@@ -357,6 +388,25 @@ export const attributeDefinitionsApi = {
   ): Promise<ResolvedAttributeDefinition> {
     return apiClient.get<ResolvedAttributeDefinition>(
       workspacePath(workspaceId, itemType)
+    );
+  },
+
+  /**
+   * `GET /api/v1/attribute-schema/` — every attribute of `itemType` in
+   * `workspaceId` with its resolved visibility and, since GitHub #1192, the
+   * effective approval-gate flag (`is_required`) and `tier`. Used by the form
+   * to mark the fields a "Freigeben" will demand.
+   */
+  getSchema(
+    workspaceId: UUID,
+    itemType: AttributeItemType
+  ): Promise<AttributeSchemaRow[]> {
+    const query = new URLSearchParams({
+      workspace_id: workspaceId,
+      entity_type: itemType,
+    });
+    return apiClient.get<AttributeSchemaRow[]>(
+      `/attribute-schema/?${query.toString()}`
     );
   },
 

@@ -65,10 +65,17 @@ logger = logging.getLogger(__name__)
 _BASELINE_IMMUTABLE_DB_MARKER = "baselines are immutable"
 
 #: Message a caller receives when the workspace still holds baselines. #1084.
+#:
+#: #1199: the wording used to end in "remove them first", which was impossible —
+#: no route could remove a baseline. It now names the real, audited
+#: administrative path (``DELETE /api/v1/baselines/{id}/purge/``, admin-only)
+#: so the 409 is actionable instead of a dead end.
 _BASELINE_IMMUTABLE_MESSAGE = (
-    "Baselines are immutable, remove them first: a baseline is an append-only "
-    "audit artifact and cannot be deleted, so the workspace cannot be "
-    "hard-deleted while one exists."
+    "Baselines are immutable: each is an append-only audit artifact and is "
+    "never removed by the workspace cascade, so the workspace cannot be "
+    "hard-deleted while one exists. An administrator can remove each baseline "
+    "through the audited admin route DELETE /api/v1/baselines/{id}/purge/, "
+    "after which this hard-delete can be retried."
 )
 
 

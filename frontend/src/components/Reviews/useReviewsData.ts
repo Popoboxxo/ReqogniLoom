@@ -21,6 +21,7 @@ import {
 } from "../../api/workflow-transitions";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { extractErrorMessage } from "../../api/client";
+import { reviewsApi } from "../../api/reviews";
 import { getReviewsResolver } from "./reviewsResolver";
 
 // REQ-144: the review queue only ever shows items in this workflow state.
@@ -84,6 +85,20 @@ export const reviewKeys = {
    */
   proposalCount: (type: WorkflowArtifactType, workspaceId: string) =>
     ["reviews", type, "proposal-count", workspaceId] as const,
+  /**
+   * Aggregate count of *every* pending item in the workspace (#1193).
+   *
+   * Separate from `list`/`proposalCount` on purpose: those answer "what is in
+   * the queue I am looking at", this answers "how much is waiting anywhere".
+   * Keyed only by workspace (no artifact type) because that is the whole point
+   * — the Reviews UI defaulted to one type and therefore rendered an empty
+   * queue even when dozens of approvals were pending under other types.
+   */
+  pendingTotal: (workspaceId: string) =>
+    ["reviews", "pending-total", workspaceId] as const,
+  /** Pending count for one artifact type (#1193), derived from the same route. */
+  pendingTypeCount: (type: WorkflowArtifactType, workspaceId: string) =>
+    ["reviews", type, "pending-count", workspaceId] as const,
 };
 
 export interface UseReviewsDataParams {
@@ -129,6 +144,22 @@ export interface ReviewsData {
    */
   pendingProposalCount: number;
   proposalCountLoading: boolean;
+  /**
+   * Aggregate pending count for the whole workspace across every artifact type
+   * (#1193), or `null` while loading / on failure. Drives the "N pending
+   * decisions" badge and the "other types still have N" hint. "Pending" is the
+   * backend union of approval-gated items and AI proposals — see
+   * `reviewsApi.listPendingCount`; the UI copy must say "decisions", never
+   * "approvals" (fix F2).
+   */
+  totalPendingCount: number | null;
+  totalPendingCountLoading: boolean;
+  /**
+   * Pending count in artifact types *other* than the selected one (#1193),
+   * `0` when either aggregate count is not yet known. Zero on failure as well:
+   * the hint is informational, so a failed count must not surface an error.
+   */
+  otherTypesPendingCount: number;
   transitions: RequirementTransitions | null;
   transitionsLoading: boolean;
   history: WorkflowHistoryEntry[];
@@ -185,6 +216,28 @@ export function useReviewsData(params: UseReviewsDataParams): ReviewsData {
     enabled: !!workspaceId && !proposalsAreVisible,
   });
 
+  // #1193: how many decisions are pending *anywhere* in the workspace, and how
+  // many of those sit outside the currently selected artifact type. The first
+  // makes the queue honest about its own emptiness; the difference powers the
+  // "in other types there are N" hint.
+  //
+  // Both are best-effort: a failed count degrades to `null`/`0` rather than an
+  // error banner, because a badge nobody can act on must never displace the
+  // queue's own error state. The count is the union of approval-gated items and
+  // AI proposals (see `reviewsApi.listPendingCount`), so the UI labels it
+  // "pending decisions" (fix F2).
+  const pendingTotalQuery = useQuery({
+    queryKey: reviewKeys.pendingTotal(workspaceId ?? ""),
+    queryFn: () => reviewsApi.listPendingCount(workspaceId as string),
+    enabled: !!workspaceId,
+  });
+  const pendingTypeCountQuery = useQuery({
+    queryKey: reviewKeys.pendingTypeCount(artifactType, workspaceId ?? ""),
+    queryFn: () =>
+      reviewsApi.listPendingCount(workspaceId as string, artifactType),
+    enabled: !!workspaceId,
+  });
+
   const transitionsEnabled = !!selectedId;
   const transitionsQuery = useQuery({
     queryKey: reviewKeys.transitions(artifactType, selectedId ?? ""),
@@ -210,6 +263,16 @@ export function useReviewsData(params: UseReviewsDataParams): ReviewsData {
     // reviewer can no longer act on.
     await queryClient.invalidateQueries({
       queryKey: reviewKeys.proposalCount(artifactType, workspaceId),
+    });
+    // #1193: the badge and the "other types" hint are counts over the same
+    // queue a transition just changed, so they have to be refetched alongside
+    // it — otherwise an approval leaves the total advertising a pending item
+    // that is already decided.
+    await queryClient.invalidateQueries({
+      queryKey: reviewKeys.pendingTotal(workspaceId),
+    });
+    await queryClient.invalidateQueries({
+      queryKey: reviewKeys.pendingTypeCount(artifactType, workspaceId),
     });
   };
 
@@ -256,6 +319,18 @@ export function useReviewsData(params: UseReviewsDataParams): ReviewsData {
     proposalCountLoading: proposalsAreVisible
       ? listQuery.isLoading
       : proposalCountQuery.isLoading,
+    // #1193: `undefined` (loading or error) collapses to `null` so callers can
+    // distinguish "not known yet" from a genuine zero total.
+    totalPendingCount: pendingTotalQuery.data ?? null,
+    totalPendingCountLoading: pendingTotalQuery.isLoading,
+    // Only meaningful when BOTH counts resolved. If the per-type count failed
+    // while the total succeeded, subtracting an implicit 0 would over-report
+    // the "other types" number with items that are actually in this type.
+    otherTypesPendingCount:
+      pendingTotalQuery.data !== undefined &&
+      pendingTypeCountQuery.data !== undefined
+        ? Math.max(0, pendingTotalQuery.data - pendingTypeCountQuery.data)
+        : 0,
     transitions: transitionsEnabled ? transitionsQuery.data ?? null : null,
     transitionsLoading: transitionsEnabled && transitionsQuery.isLoading,
     history: historyEnabled ? historyQuery.data ?? [] : [],

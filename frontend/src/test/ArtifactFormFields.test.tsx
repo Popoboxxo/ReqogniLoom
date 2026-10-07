@@ -237,6 +237,82 @@ describe("ArtifactForm field library", () => {
     expect(onChange).toHaveBeenCalledWith([]);
   });
 
+  // Fix F1 (#1192 follow-up): a multi-enum can be definition-`required: false`
+  // yet demanded by the active preset's approval gate (`is_required: true`, the
+  // canonical case is `acceptance_criteria`/`stakeholder`). The group must
+  // announce the *effective* flag — FieldShell/EnumSelect already do; the old
+  // manual `attribute.required` on this group did not.
+  it("announces a gate-required multi-enum as required", () => {
+    render(
+      <MultiEnum
+        attribute={spec({
+          type: "multi-enum",
+          name: "stakeholder",
+          required: false,
+          is_required: true,
+          options: [
+            { value: "customer", label_de: "Kunde", label_en: "Customer" },
+          ],
+        })}
+        value={[]}
+        onChange={vi.fn()}
+        disabled={false}
+        testId="artifact-field-stakeholder"
+      />
+    );
+    expect(screen.getByTestId("artifact-field-stakeholder")).toHaveAttribute(
+      "aria-required",
+      "true"
+    );
+  });
+
+  it("keeps a definition-optional, non-gated multi-enum announced as not required", () => {
+    render(
+      <MultiEnum
+        attribute={spec({
+          type: "multi-enum",
+          name: "tags",
+          required: false,
+          options: [{ value: "a", label_de: "A", label_en: "A" }],
+        })}
+        value={[]}
+        onChange={vi.fn()}
+        disabled={false}
+        testId="artifact-field-tags"
+      />
+    );
+    expect(screen.getByTestId("artifact-field-tags")).toHaveAttribute(
+      "aria-required",
+      "false"
+    );
+  });
+
+  it("links a multi-enum group to its validation error via aria-describedby", () => {
+    render(
+      <MultiEnum
+        attribute={spec({
+          type: "multi-enum",
+          name: "tags",
+          options: [{ value: "a", label_de: "A", label_en: "A" }],
+        })}
+        value={[]}
+        onChange={vi.fn()}
+        disabled={false}
+        errors={["ist erforderlich"]}
+        testId="artifact-field-tags"
+      />
+    );
+    expect(screen.getByTestId("artifact-field-tags")).toHaveAttribute(
+      "aria-describedby",
+      "artifact-field-tags-error"
+    );
+    // The error node is owned by `FieldShell` (no testid of its own); resolve it
+    // by the id the group now points at.
+    expect(document.getElementById("artifact-field-tags-error")).toHaveTextContent(
+      "ist erforderlich"
+    );
+  });
+
   it("uses a native date input", () => {
     render(
       <DateField

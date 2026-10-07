@@ -60,6 +60,7 @@ import {
 } from "./fields";
 import { stripNonEditableValues } from "./payload";
 import { useArtifactDefinition } from "./useArtifactDefinition";
+import { useGateRequiredFields } from "./useGateRequiredFields";
 import { resolveWidget } from "./widget-registry";
 
 export interface ArtifactFormValues {
@@ -284,24 +285,44 @@ export function ArtifactForm({
   const { t, i18n } = useTranslation();
   const { definition: resolvedDefinition, loading, error: loadError } =
     useArtifactDefinition(itemType);
+  // GitHub #1192: field names the active preset's approval gate (Rule 5) will
+  // demand — a superset of the definition's own `required` flags. Best-effort;
+  // an empty set when the discovery request fails.
+  const gateRequired = useGateRequiredFields(itemType);
 
   // Issue #889: apply the adapter's per-attribute overrides once, so rendering
   // and payload building see the same definition. Kept out of the hook itself
   // because the fetched definition is the server's contract and the override is
   // a purely client-side rendering/validation decision.
+  //
+  // GitHub #1192: the gate flag is overlaid in the same pass, so a field the
+  // approval will demand (e.g. `acceptance_criteria`, definition
+  // `required: false`) renders its required marker *before* a refused
+  // "Freigeben". It is deliberately a separate `is_required` key — the
+  // definition's `required` stays the create/edit contract.
   const definition = useMemo(() => {
-    if (!resolvedDefinition || !attributeOverrides) return resolvedDefinition;
-    const names = Object.keys(attributeOverrides);
-    if (!names.length) return resolvedDefinition;
+    if (!resolvedDefinition) return resolvedDefinition;
+    const overridden =
+      attributeOverrides && Object.keys(attributeOverrides).length
+        ? {
+            ...resolvedDefinition,
+            attributes: resolvedDefinition.attributes.map((attribute) =>
+              attribute.name in attributeOverrides
+                ? { ...attribute, ...attributeOverrides[attribute.name] }
+                : attribute
+            ),
+          }
+        : resolvedDefinition;
+    if (!gateRequired.size) return overridden;
     return {
-      ...resolvedDefinition,
-      attributes: resolvedDefinition.attributes.map((attribute) =>
-        attribute.name in attributeOverrides
-          ? { ...attribute, ...attributeOverrides[attribute.name] }
+      ...overridden,
+      attributes: overridden.attributes.map((attribute) =>
+        gateRequired.has(attribute.name)
+          ? { ...attribute, is_required: true }
           : attribute
       ),
     };
-  }, [resolvedDefinition, attributeOverrides]);
+  }, [resolvedDefinition, attributeOverrides, gateRequired]);
   const [values, setValues] = useState<ArtifactFormValues>(initialValues);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string[]>>({});
   const [formError, setFormError] = useState<string | null>(null);

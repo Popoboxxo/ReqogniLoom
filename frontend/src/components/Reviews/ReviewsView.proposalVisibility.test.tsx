@@ -40,6 +40,13 @@ vi.mock("../../api/workflow-transitions", async (importOriginal) => {
     },
   };
 });
+// Stub the aggregate count wrapper (#1193): unmocked it calls the real axios
+// client, which makes an unwanted network request in jsdom. A bare vi.fn()
+// leaves the badge hidden, which is irrelevant to these tests.
+vi.mock("../../api/reviews", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../api/reviews")>();
+  return { ...actual, reviewsApi: { listPendingCount: vi.fn() } };
+});
 // A `t` that interpolates, so "Vorschlag von {{agent}}" is observable.
 vi.mock("react-i18next", () => {
   const t = (

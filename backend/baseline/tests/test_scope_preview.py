@@ -381,8 +381,14 @@ class TestScopePreviewEndpoint:
         from baseline.views import BaselineScopePreviewView
         return BaselineScopePreviewView.as_view()
 
-    def _auth_context(self):
-        """Build a minimal authenticated AuthContext for RBAC to allow READ.
+    def _auth_context(
+        self,
+        *,
+        roles: tuple[str, ...] = ("admin",),
+        user_id=None,
+        tenant_id=None,
+    ):
+        """Build a minimal authenticated AuthContext for RBAC to allow access.
 
         SA-23: scope_preview no longer accepts AllowAny, so requests must
         carry ``request.auth_context`` (set by BearerTokenAuthentication in
@@ -391,20 +397,32 @@ class TestScopePreviewEndpoint:
         from auth_tenancy.context import AuthContext, AuthMethod
 
         return AuthContext(
-            user_id=uuid.uuid4(),
-            tenant_id=uuid.uuid4(),
-            active_roles=("admin",),
+            user_id=user_id or uuid.uuid4(),
+            tenant_id=tenant_id or uuid.uuid4(),
+            active_roles=roles,
             auth_method=AuthMethod.BEARER_TOKEN,
         )
 
-    def _make_request(self, params: dict | None = None, authenticated: bool = True):
+    def _make_request(
+        self,
+        params: dict | None = None,
+        authenticated: bool = True,
+        *,
+        method: str = "get",
+        roles: tuple[str, ...] = ("admin",),
+        user_id=None,
+        tenant_id=None,
+    ):
         factory = RequestFactory()
-        request = factory.get(
+        builder = getattr(factory, method)
+        request = builder(
             "/api/v1/baselines/scope-preview/",
             data=params or {},
         )
         if authenticated:
-            request.auth_context = self._auth_context()
+            request.auth_context = self._auth_context(
+                roles=roles, user_id=user_id, tenant_id=tenant_id
+            )
         return request
 
     def test_endpoint_returns_count_and_sample(self):
@@ -477,22 +495,95 @@ class TestScopePreviewEndpoint:
         response = view(request)
         assert response.status_code == 400
 
-    def test_endpoint_global_scope_rejects_non_admin(self):
-        """REQ-L1-049: scope=global requires staff/superuser; else 403."""
-        from unittest.mock import patch
-
+    def test_endpoint_global_scope_allows_app_admin(self):
+        """Bug #1198: an authenticated App-Admin (app role ``admin``) may GET
+        ``scope=global``. Admin standing is mapped from ``request.auth_context``
+        (ROLE_ADMIN), NOT from Django ``is_staff``/``is_superuser`` — the UUID
+        ``request.user`` surrogate returned by AuthTenancyAuthentication carries
+        neither flag, which is why the old flag-based check rejected admins."""
         view = self._get_view()
         request = self._make_request(
             {
                 "scope": "global",
                 "workspace_id": str(uuid.uuid4()),
-            }
+            },
+            roles=("admin",),
         )
-        # Authenticated (RBAC-admin) but not a Django staff/superuser, so the
-        # view must reject the global scope with 403.
-        with patch("baseline.views._user_is_global_admin", return_value=False):
+        response = view(request)
+        assert response.status_code == 200
+        assert response.data["scope"] == "global"
+
+    def test_endpoint_global_scope_allows_tenant_admin(self):
+        """Bug #1198: a tenant-admin (active ``TenantRole``, only a read role in
+        the workspace) may GET ``scope=global`` via
+        AuthorizationService.is_tenant_admin — the tenant-admin branch is the
+        deciding factor, since a plain ``viewer`` alone is rejected for global
+        scope."""
+        from auth_tenancy.models import TenantRole
+        from persistence.models import Tenant, User
+        from persistence.tenancy import TenantContext
+
+        tenant = Tenant.objects.create(
+            name="ScopePreview-TA", slug=f"scope-ta-{uuid.uuid4().hex[:8]}"
+        )
+        TenantContext.set_tenant(tenant.id)
+        try:
+            admin = User.objects.create(
+                username=f"scope-ta-{uuid.uuid4().hex[:8]}",
+                email=f"scope-ta-{uuid.uuid4().hex[:8]}@t.test",
+                tenant=tenant,
+            )
+            TenantRole.objects.create(
+                tenant=tenant, user=admin, role=TenantRole.ROLE_ADMIN
+            )
+            view = self._get_view()
+            request = self._make_request(
+                {
+                    "scope": "global",
+                    "workspace_id": str(uuid.uuid4()),
+                },
+                # Viewer gets past RbacPermission READ; the global-scope grant
+                # must come from the tenant-admin branch, not from a role.
+                roles=("viewer",),
+                user_id=admin.id,
+                tenant_id=tenant.id,
+            )
             response = view(request)
+            assert response.status_code == 200
+            assert response.data["scope"] == "global"
+        finally:
+            TenantContext.clear_tenant()
+
+    def test_endpoint_global_scope_rejects_non_admin(self):
+        """Bug #1198: a non-admin (role ``viewer``, no ``TenantRole``) is
+        denied global scope with 403 and a message naming the requirement."""
+        view = self._get_view()
+        request = self._make_request(
+            {
+                "scope": "global",
+                "workspace_id": str(uuid.uuid4()),
+            },
+            roles=("viewer",),
+        )
+        response = view(request)
         assert response.status_code == 403
+        assert "admin" in response.data["detail"].lower()
+
+    def test_endpoint_post_is_method_not_allowed(self):
+        """Bug #1198: the endpoint is GET-only by design. All inputs are query
+        parameters and the read-only preview has no POST body contract, so a
+        POST is rejected with ``405 Method Not Allowed`` — this locks the
+        documented contract against a false POST expectation."""
+        view = self._get_view()
+        request = self._make_request(
+            {
+                "scope": "project",
+                "workspace_id": str(uuid.uuid4()),
+            },
+            method="post",
+        )
+        response = view(request)
+        assert response.status_code == 405
 
 
 # ---------------------------------------------------------------------------

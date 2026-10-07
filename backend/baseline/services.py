@@ -508,6 +508,70 @@ def _load_sample_items(
 
 
 # ---------------------------------------------------------------------------
+# IF-BL-EXT-IN-001: purge (administrative baseline removal, GH-1199)
+# ---------------------------------------------------------------------------
+
+
+def purge_baseline(baseline_id: uuid.UUID, tenant_id: uuid.UUID) -> None:
+    """Administratively delete one Baseline and all its delta entries.
+
+    The ONLY sanctioned removal path for an append-only baseline. The
+    ``bl_raise_immutable`` DB trigger still blocks UPDATE unconditionally and
+    DELETE unless the caller arms the transaction-local GUC
+    ``app.baseline_admin_delete`` (migration ``0011``); this function arms it
+    with ``set_config(..., is_local=true)`` so the exception evaporates with the
+    transaction. ``ALTER TABLE ... DISABLE TRIGGER`` is deliberately never used:
+    it is owner-only DDL and the runtime role ``reqogniloom_app`` cannot execute
+    it.
+
+    Authority (admin role) and the audit entry are the caller's job — see
+    ``application.baseline_facade.BaselineFacade.purge_baseline``. This Layer-1
+    function only performs the write, tenant-scoped through the parent
+    snapshot.
+
+    Args:
+        baseline_id: UUID of the baseline to purge.
+        tenant_id: Active tenant UUID (row-level isolation). A foreign-tenant
+            baseline is treated as not found.
+
+    Raises:
+        BaselineNotFoundError: No baseline with this id exists for *tenant_id*.
+
+    GH-1199.
+    """
+    from django.db import connection, transaction
+
+    from baseline.models import BaselineSnapshot
+
+    with transaction.atomic():
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT set_config('app.baseline_admin_delete', 'true', true)"
+            )
+        # ORM collector deletes the delta entries first (FK CASCADE), then the
+        # snapshot — both inside the GUC-armed transaction, so the trigger
+        # permits the DELETE. A zero count means the id does not exist for this
+        # tenant.
+        deleted, _ = BaselineSnapshot.unscoped.filter(
+            id=baseline_id, tenant_id=tenant_id
+        ).delete()
+        # Disarm immediately after the DELETE, before the not-found check. The
+        # trigger only needs the exception for this one statement; leaving the
+        # GUC armed would widen the window for the rest of the transaction.
+        # ``is_local=true`` scopes the reset to the same transaction. This
+        # matters under test harnesses (and any long transaction) that wrap
+        # several operations in one transaction: without the reset a *later*
+        # plain DELETE in that transaction would silently pass the trigger
+        # because the GUC was still 'true'.
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT set_config('app.baseline_admin_delete', '', true)"
+            )
+        if not deleted:
+            raise BaselineNotFoundError()
+
+
+# ---------------------------------------------------------------------------
 # Public surface declaration
 # ---------------------------------------------------------------------------
 
@@ -520,6 +584,7 @@ __all__ = [
     "get_item_at_baseline",
     "preview_scope_items",
     "resolve_scope_item_ids",
+    "purge_baseline",
     # Exceptions (re-exported for callers)
     "BaselineError",
     "BaselineImmutableError",

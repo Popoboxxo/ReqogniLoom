@@ -15,11 +15,24 @@ Permission semantics:
     project (SA-23 fix): no ``AllowAny`` override, so it falls back to the
     project-wide ``DEFAULT_PERMISSION_CLASSES`` (``RbacPermission``), which
     maps GET to ``Operation.READ`` and returns 401 for anonymous callers.
-  - ``scope == "global"`` additionally requires staff/superuser; the view
-    returns 403 otherwise.
+  - ``scope == "global"`` additionally requires an **administrative
+    principal**, resolved from the authenticated ``request.auth_context``:
+    either the ``admin`` app role (``ROLE_ADMIN``) or an active tenant-admin
+    (``TenantRole``). Django ``is_staff``/``is_superuser`` flags are only a
+    fallback for session-authenticated requests. The view returns 403
+    otherwise (bug #1198 — previously the check always read the UUID
+    ``request.user`` surrogate and rejected every app-admin).
   - For all other scopes, any authenticated user with read access is
     permitted to preview. Tighter per-workspace checks are delegated to the
     AuthAndTenancy layer (REQ-L1-039).
+
+Method contract (bug #1198):
+  - The endpoint is **GET-only by design**. A scope preview is a pure read
+    (it never mutates state) and reads all of its inputs from the query
+    string, so no POST form is offered. Any non-GET method is rejected by
+    DRF with ``405 Method Not Allowed`` — this is the intended contract, not
+    a defect. Callers that POSTed expecting 200 were following a false
+    expectation; REQ-L1-049 is documented here as GET.
 """
 from __future__ import annotations
 
@@ -41,23 +54,75 @@ logger = logging.getLogger(__name__)
 VALID_SCOPES = ("document", "project", "global")
 
 
-def _user_is_global_admin(request: Request) -> bool:
-    """Return whether the request's user is allowed to preview global scope.
+def _django_user_is_admin(user: Any) -> bool:
+    """Return whether a Django ``User``-like object is staff/superuser.
 
-    REQ-L1-049: scope=global requires staff/superuser. Unauthenticated
-    requests (request.user is AnonymousUser) and ordinary users are rejected.
-    The helper is exposed at module level so tests can patch it.
+    Only a genuine ``User`` reaches the ``True`` branch: ``AnonymousUser``
+    has ``is_authenticated is False`` and the UUID string that
+    ``AuthTenancyAuthentication`` feeds DRF as ``request.user`` lacks the
+    attributes entirely (``getattr`` defaults to ``False``).
     """
-    user = getattr(request, "user", None)
     if user is None:
         return False
-    # Django's User.is_authenticated is False for AnonymousUser
-    is_authed = getattr(user, "is_authenticated", False)
-    if not is_authed:
+    if not getattr(user, "is_authenticated", False):
         return False
-    is_staff = bool(getattr(user, "is_staff", False))
-    is_super = bool(getattr(user, "is_superuser", False))
-    return is_staff or is_super
+    return bool(getattr(user, "is_staff", False)) or bool(
+        getattr(user, "is_superuser", False)
+    )
+
+
+def _user_is_global_admin(request: Request) -> bool:
+    """Return whether the request's principal may preview ``scope="global"``.
+
+    REQ-L1-049: a global-scope preview spans every workspace of the tenant, so
+    only an administrative principal may request it.
+
+    Administrative standing is resolved from the authenticated
+    :class:`~auth_tenancy.context.AuthContext` (``request.auth_context``) — the
+    single source of truth for roles — **not** from Django's
+    ``is_staff``/``is_superuser`` flags. ``AuthTenancyAuthentication`` feeds
+    DRF the user id as ``request.user`` (a UUID string), so those flags are
+    never present on it and a check against them would reject every caller,
+    including a real admin (bug #1198).
+
+    A caller qualifies when either:
+
+    * the AuthContext carries the ``admin`` app role
+      (:data:`~auth_tenancy.models.ROLE_ADMIN`) — a workspace or tenant-wide
+      ``UserRole``, or
+    * the caller holds an active tenant-admin role
+      (:class:`~auth_tenancy.models.TenantRole`, the documented System-Admin
+      elevation; see ``auth_tenancy.resource_scope._is_tenant_admin``).
+
+    A genuine Django ``User`` with ``is_staff``/``is_superuser`` is still
+    honoured as a fallback, covering session-authenticated requests and request
+    objects assembled outside the auth seam. The helper fails closed: a
+    tenant-admin lookup error denies. Exposed at module level so tests can
+    patch it.
+    """
+    auth_context = getattr(request, "auth_context", None)
+    if auth_context is not None:
+        from auth_tenancy.models import ROLE_ADMIN
+
+        if auth_context.has_role(ROLE_ADMIN):
+            return True
+        user_id = getattr(auth_context, "user_id", None)
+        tenant_id = getattr(auth_context, "tenant_id", None)
+        if user_id is not None and tenant_id is not None:
+            try:
+                from auth_tenancy.services import AuthorizationService
+
+                if AuthorizationService().is_tenant_admin(
+                    user_id=user_id, tenant_id=tenant_id
+                ):
+                    return True
+            except Exception:  # noqa: BLE001 — fail closed on lookup error
+                logger.warning(
+                    "tenant-admin lookup failed for scope=global preview",
+                    exc_info=True,
+                )
+
+    return _django_user_is_admin(getattr(request, "user", None))
 
 
 def _parse_uuid(value: Any, field_name: str) -> uuid.UUID | None:
@@ -76,6 +141,10 @@ def scope_preview(request: Request) -> Response:
 
     Endpoint: ``GET /api/v1/baselines/scope-preview/``
 
+    The endpoint is GET-only by design (bug #1198): it is a pure read whose
+    inputs are query parameters, so a POST has no body contract to honour and
+    is rejected with ``405 Method Not Allowed`` — see the module docstring.
+
     Query parameters:
         scope:         "document" | "project" | "global" (required)
         workspace_id:  UUID (required for all scopes)
@@ -91,7 +160,8 @@ def scope_preview(request: Request) -> Response:
     Errors:
         400 — missing/invalid parameters, document scope without artifact_id
         401 — unauthenticated caller (SA-23: no anonymous access)
-        403 — global scope requested by non-admin user
+        403 — global scope requested by a non-admin user
+        405 — any non-GET method (the endpoint is read-only)
     """
     params: Mapping[str, str] = request.query_params
 
@@ -142,7 +212,7 @@ def scope_preview(request: Request) -> Response:
 
     if raw_scope == "global" and not _user_is_global_admin(request):
         return Response(
-            {"detail": "Global scope preview requires staff or superuser."},
+            {"detail": "Global scope preview requires an admin role or tenant-admin."},
             status=status.HTTP_403_FORBIDDEN,
         )
 

@@ -121,6 +121,22 @@ _ERROR_MESSAGES: dict[str, dict[str, str]] = {
         "en": "A conflict occurred with existing data.",
         "de": "Es ist ein Konflikt mit vorhandenen Daten aufgetreten.",
     },
+    # GH-1199: the baseline DELETE is refused because the resource is
+    # content-immutable — a domain prohibition, not a role denial. Kept distinct
+    # from PERMISSION_DENIED so a client does not mistake "cannot be deleted by
+    # anyone" for "you lack the role".
+    "BASELINE_IMMUTABLE": {
+        "en": (
+            "Baselines are content-immutable and cannot be deleted through this "
+            "route. An administrator can remove one via the audited route "
+            "DELETE /api/v1/baselines/{id}/purge/."
+        ),
+        "de": (
+            "Baselines sind inhaltlich unveränderlich und können über diese "
+            "Route nicht gelöscht werden. Ein Administrator kann sie über die "
+            "auditierte Route DELETE /api/v1/baselines/{id}/purge/ entfernen."
+        ),
+    },
     # GH-868/GH-923: a failed ``If-Match`` precondition (stale ETag). Kept
     # distinct from CONFLICT so a client can tell the two optimistic-locking
     # mechanisms apart: 412 PRECONDITION_FAILED = the ``If-Match`` header lost,

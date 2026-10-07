@@ -163,6 +163,12 @@ class AuditEntry(TenantScopedModel):
     # reconstructing it from ``baseline.create`` details. Reuses the
     # ``baseline.`` namespace of ``OP_BASELINE_CREATE`` above.
     OP_BASELINE_WAIVER_CREATE = "baseline.waiver_create"
+    # #1199: the administrative removal of an append-only baseline is its own
+    # governed act, distinct from the content-immutable ordinary edit path. An
+    # audit query for "who removed this governance artifact, when and why" must
+    # be answerable without reconstructing it from a generic ``delete``. Reuses
+    # the ``baseline.`` namespace of ``OP_BASELINE_CREATE`` above.
+    OP_BASELINE_PURGE = "baseline.purge"
     # NOTE (#265): ``op`` is validated against this list by
     # ``AuditLogWriter.write`` via ``full_clean``, and ``ServiceBase._audit``
     # re-raises the resulting ValidationError — so a service that audits an
@@ -234,6 +240,7 @@ class AuditEntry(TenantScopedModel):
         (OP_ATTRIBUTE_MIGRATION_ROLLBACK, "Attribute Migration Rollback"),
         (OP_EVENTS_REPLAY, "Events Replay"),
         (OP_BASELINE_WAIVER_CREATE, "Baseline Waiver Create"),
+        (OP_BASELINE_PURGE, "Baseline Purge"),
     ]
 
     SOURCE_REST = "rest"

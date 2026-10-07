@@ -119,7 +119,13 @@ export function FieldShell({
   children,
 }: FieldShellProps): JSX.Element {
   const help = helpText(attribute, language);
-  const labelClassName = `${styles.label} ${attribute.required ? styles.required : ""}`;
+  // GitHub #1192: the marker/`aria-required` reflect the *effective* approval
+  // gate too — a field can be definition-`required: false` yet demanded by Rule
+  // 5 (e.g. `acceptance_criteria` under the standard/extended preset). Other
+  // `required`-driven behaviours (create-mode expansion, enum "none" option,
+  // ActorPicker clearing) intentionally stay definition-only.
+  const isRequired = attribute.required || attribute.is_required === true;
+  const labelClassName = `${styles.label} ${isRequired ? styles.required : ""}`;
   // #1090 follow-up: when the label chain fell through to the data-error
   // marker, the raw field name is moved into the element's `title` — the
   // attribute an operator has to look up — and flagged via `data-label-gap`, so
@@ -180,7 +186,7 @@ export function ariaProps(
     errors?.length ? `${testId}-error` : null,
   ].filter(Boolean);
   return {
-    "aria-required": attribute.required,
+    "aria-required": attribute.required || attribute.is_required === true,
     "aria-invalid": Boolean(errors?.length),
     "aria-describedby": described.length ? described.join(" ") : undefined,
   };
