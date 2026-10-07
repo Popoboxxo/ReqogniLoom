@@ -2,6 +2,7 @@
 import logging
 import os
 import sys
+from typing import Sequence
 
 from django.apps import AppConfig
 
@@ -20,6 +21,15 @@ logger = logging.getLogger(__name__)
 # all-MiniLM-L6-v2 preload here (measured ~500 MiB peak, ~140 MiB retained per
 # run) would OOM-kill beat. Skipping it is what makes the functional probe
 # memory-viable.
+#
+# #1132: the `celery ... beat` process itself never executes a task -- it only
+# schedules periodic ones -- so it must never preload either. Skipping a
+# management command by name/argv[1] does not cover it, because beat's argv is
+# `celery -A reqogniloom beat ...` (argv[1] == '-A'), so `_should_skip_preload`
+# additionally recognises the `beat` subcommand (see
+# `_is_celery_beat_invocation`). Without that, beat paid the full preload at
+# boot: measured ~407 MiB anon steady state (deploy/docker-compose.yml,
+# celery-beat memory rationale).
 _PRELOAD_SKIP_COMMANDS = {
     "test",
     "migrate",
@@ -33,6 +43,19 @@ _PRELOAD_SKIP_COMMANDS = {
     "seed_demo",
     "check_celery_beat",
 }
+
+#: Celery's ``beat`` subcommand token (#1132). ``celery beat`` only schedules
+#: periodic tasks; it never runs one, so it never embeds. Matched as an exact
+#: argv token, not a substring, so unrelated entries such as
+#: ``check_celery_beat`` (already a skip-set member as one word) and
+#: ``worker -B`` (embedded beat inside a process that *does* run tasks) are not
+#: misclassified.
+_CELERY_BEAT_SUBCOMMAND = "beat"
+
+
+def _is_celery_beat_invocation(argv: Sequence[str]) -> bool:
+    """True when *argv* is a Celery ``beat`` command line (exact token match)."""
+    return _CELERY_BEAT_SUBCOMMAND in argv
 
 
 class LlmAdapterConfig(AppConfig):
@@ -165,9 +188,12 @@ class LlmAdapterConfig(AppConfig):
 
     @staticmethod
     def _should_skip_preload() -> bool:
-        """True for one-off management-command processes (see module docstring)."""
+        """True for processes that never embed (management commands, celery beat)."""
         if "pytest" in sys.modules:
             return True
         if len(sys.argv) > 1 and sys.argv[1] in _PRELOAD_SKIP_COMMANDS:
             return True
-        return False
+        # #1132: `celery -A reqogniloom beat ...` is scheduler-only; the
+        # embedding preload is pure waste there (~407 MiB anon measured, see
+        # deploy/docker-compose.yml's celery-beat memory rationale).
+        return _is_celery_beat_invocation(sys.argv)
