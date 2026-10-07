@@ -19,9 +19,9 @@ contract).
 
 **Status: verified against one live install, thin by design.** The mounted router
 was exercised against a running Hermes dashboard (`/api/plugins/reqogniloom/`:
-`/version`, `/stats`, `/workspaces` answered 200; the same routes answer 401
-without a credential when the gate is configured). The listen mode and the
-opt-in gate in this revision are unit-tested, not yet re-verified live. Built
+`/version`, `/stats`, `/workspaces` answered 200 through the host dashboard's own
+auth, which is the only gate). The listen mode in this revision is unit-tested,
+not yet re-verified live. Built
 against the plugin contract observed
 in [`NousResearch/hermes-agent`](https://github.com/NousResearch/hermes-agent)'s
 [`plugins/disk-cleanup`](https://github.com/NousResearch/hermes-agent/tree/main/plugins/disk-cleanup)
@@ -34,13 +34,27 @@ host's injected `window.__HERMES_PLUGIN_SDK__` but issues its own
 at all). Since then the plugin has been exercised against a live Hermes
 install ([#1202](https://github.com/Popoboxxo/ReqogniLoom/issues/1202),
 [#1203](https://github.com/Popoboxxo/ReqogniLoom/issues/1203)). The old
-`integrations/hermes-plugin/reqogniloom/` TS port was built against a
-different, unverified `@hermes/plugin-sdk` contract (a desktop-IDE-style
+`integrations/hermes-plugin/reqogniloom/` TS port targeted a different,
+unverified `@hermes/plugin-sdk` contract (a desktop-IDE-style
 `{id, name, register(ctx)}` with `ctx.register({area: "panes"|...})`) that
-doesn't match either of the two real reference plugins above — which is why
-this POC exists. That TS project is left in place for now
-(`integrations/hermes-plugin/`) but is very likely dead code — a follow-up
-should confirm and remove it.
+doesn't match either of the two real reference plugins above, and has been
+removed; this plugin and the skill are the shipped Hermes integrations.
+
+## Transport
+
+The shared client (`reqogniloom_client.py`) speaks ReqogniLoom's **native MCP
+server** for every operation: `POST {base_url}/mcp/` with a JSON-RPC 2.0
+`tools/call` frame, authenticated with the `X-API-Key` header. That is the same
+tool surface the rest of the ecosystem uses, so the plugin cannot drift from a
+second, partial API. The MCP transport rejects a `Bearer` JWT
+(`bearer_not_supported`), so the key must travel as `X-API-Key`. Tool results
+arrive as MCP content blocks (`result.content[0].text`, a JSON string) and are
+decoded by the client; tool-execution errors arrive as HTTP 200 with
+`result.isError`.
+
+Only `GET /api/v1/version/` stays on REST: it is public and has no MCP tool. It
+never sends the API key.
+
 
 ## Install
 
@@ -62,50 +76,9 @@ Environment variables, read at call time (no persisted config file):
   is rejected at construction, e.g. `invalid REQOGNILOOM_BASE_URL
   'ftp://nope': expected an http:// or https:// URL, e.g.
   REQOGNILOOM_BASE_URL=http://localhost:8001`.
-- `REQOGNILOOM_API_KEY` — a ReqogniLoom API key (`reqlo_...`), sent as a Bearer token
-
-### Dashboard inbound auth (see "Dashboard tab" below)
-
-- `REQOGNILOOM_DASHBOARD_TOKEN` — **optional, opt-in** second factor. When set,
-  it is the expected value of the `X-ReqogniLoom-Dashboard-Token` request
-  header, and the origin/host allowlists below are enforced alongside it. When
-  unset or blank, the gate is inactive and the host dashboard's own auth is the
-  only gate: the tab loads without any token. Must be exported into the
-  environment of the process that runs the Hermes dashboard (not into the
-  slash-command shell).
-- `REQOGNILOOM_DASHBOARD_ALLOWED_ORIGINS` — optional comma-separated
-  `Origin` allowlist, e.g. `https://dashboard.example,http://localhost:*`.
-  Unset means loopback only (`http://localhost:*`, `http://127.0.0.1:*`,
-  `http://[::1]:*`); it never widens to `*`, and a `*` entry is discarded
-  rather than honoured. An entry naming a port matches that port only — use
-  `host:*` for any port.
-- `REQOGNILOOM_DASHBOARD_ALLOWED_HOSTS` — optional comma-separated `Host`
-  allowlist, same loopback default. Blunts DNS-rebinding, where a rebound name
-  reaches `127.0.0.1` while sending an attacker-chosen `Host`.
-
-A custom request header is used instead of a cookie because it forces a CORS
-preflight for every cross-origin browser request, so a foreign-origin page can
-neither attach the credential silently nor read the response. Cookies are
-attached automatically by the browser and are CSRF-able; query parameters leak
-into access logs and browser history. The comparison is constant-time
-(`secrets.compare_digest`) and the token is never logged or echoed back.
-
-Failing **closed** on an unset token — the previous behaviour — is deliberately
-gone: it answered 403 to every request the read-only tab made on any install
-that had not exported a secret the host never handed the plugin, and the
-operator could not fix that from the browser. The endpoints are unchanged
-otherwise: same-origin only, read-only, and fully checked whenever a token *is*
-configured.
-
-The client side of this is the tab itself, not the host SDK: `dist/index.js`
-sends `X-ReqogniLoom-Dashboard-Token` on its own `window.fetch` calls **once a
-token is stored** — it probes `/version` first and only shows the connect form
-after a 401, so a workspace with the gate switched off needs no token at all.
-`SDK.fetchJSON` is
-deliberately unused — it has no definition, shim or vendored copy anywhere in
-this repo, so whether it even accepts a `headers` option is unverifiable, and
-an option it silently ignored would reproduce exactly the missing-header 401
-below. See "Using the dashboard tab".
+- `REQOGNILOOM_API_KEY` — a ReqogniLoom API key (`reqlo_...`), sent as the
+  `X-API-Key` header on every MCP call. It is **never** sent on the public
+  `GET /api/v1/version/` call. A missing key fails fast, before any request.
 
 ## Slash command
 
@@ -128,86 +101,20 @@ state file.
 
 ## Dashboard tab
 
-Read-only POC: three numbers (requirements, test cases, open interviews)
-for the resolved workspace, plus the ReqogniLoom build version. Backend
-routes are mounted at `/api/plugins/reqogniloom/` by the Hermes dashboard
-(`GET /stats`, `GET /workspaces`, `GET /version`) — see `dashboard/plugin_api.py`.
+Read-only: per-workspace artifact counters (requirements, test cases, open
+interviews) for the picked workspace, the open interviews as detail rows
+(session id, type, phase, status, updated), and the ReqogniLoom build version.
+Backend routes are mounted at `/api/plugins/reqogniloom/` by the Hermes
+dashboard (`GET /stats`, `GET /workspaces`, `GET /version`, `GET /interviews`)
+— see `dashboard/plugin_api.py`. The workspace picker defaults to the first
+visible workspace and re-loads the counters and interview rows on change.
 
-All three routes sit behind the opt-in inbound credential described in
-"Configuration": when `REQOGNILOOM_DASHBOARD_TOKEN` is set, a missing, empty
-or wrong token, a disallowed `Origin`, or a disallowed `Host` is refused with
-401/403 and never reaches ReqogniLoom; when it is unset the gate is inert and
-the host dashboard's own auth is the only gate. Only genuine `ReqogniLoomError`
-backend failures keep the older `200 + {"error": …}` contract. This is an edge
-gate, not a second tenant-auth layer: `REQOGNILOOM_API_KEY` remains the tenant
-credential.
-
-### Using the dashboard tab
-
-**Set up, on the server.** Export `REQOGNILOOM_DASHBOARD_TOKEN` into the
-environment of the process that runs the Hermes dashboard, then restart that
-process. The gate is opt-in: with the variable unset there is no second factor,
-the tab loads without a token, and the host dashboard's own auth is the only
-gate. With it set, the value is required and must be typed into the tab exactly
-(see "Host contract"). There is no default token and no dev-mode bypass.
-
-**Connect, in the tab.** Open the ReqogniLoom tab, paste that same value into
-the token field and press **Connect**. The value must equal the env var value
-exactly: surrounding whitespace is trimmed on both sides, everything else is
-compared byte for byte and is case-sensitive. The tab holds it in
-`sessionStorage` under the key `reqogniloom.dashboard.token` — deliberately not
-`localStorage` — so it disappears when the browser session ends and is gone
-after a restart, and the operator re-enters it. **Disconnect** clears it
-immediately. The value is read at call time and leaves the tab only as the
-`X-ReqogniLoom-Dashboard-Token` request header on same-origin
-`/api/plugins/reqogniloom/…` requests: never in a URL, never in a log, never
-echoed back.
-
-### Reading the failure modes
-
-| Status | Server detail | What it means | What to do |
-| --- | --- | --- | --- |
-| 401 | `missing X-ReqogniLoom-Dashboard-Token request header` | The request carried no token, so nothing was ever compared — this is *not* a wrong token. | With the tab connected, the host or an intermediate proxy is dropping the custom request header. This is the one case the plugin cannot fix from its own side. |
-| 401 | `invalid dashboard credential` | The header arrived, the value did not match. | **Disconnect** and re-enter the env var value. |
-| 403 | `REQOGNILOOM_DASHBOARD_TOKEN is not set` | Only an **older** build: the gate is opt-in now, so an unset token means "no second factor", not "reject everything". | Upgrade the plugin; or, if you want the second factor, export the variable into the dashboard process and restart it. |
-| 403 | `origin is not in the dashboard allowlist` / `host is not in the dashboard allowlist` | The page's origin or host is outside the allowlist (default: loopback only). | Add that origin/host to `REQOGNILOOM_DASHBOARD_ALLOWED_ORIGINS` / `REQOGNILOOM_DASHBOARD_ALLOWED_HOSTS` and restart the dashboard. A `*` entry is discarded by the server on purpose, so widening to one is not the fix. |
-
-A 401 also drops the stored token and returns the tab to the connect form; a
-403 keeps it, because the value may well be right while the guard is not
-configured. Each of these is rendered in the tab as a sentence built from the
-status code and the server's own detail — never from the token.
-
-### Host contract
-
-For the opt-in second factor to work, the operator and the host each own one
-half. Nothing in this plugin can supply either half on its own:
-
-- **The operator sets** `REQOGNILOOM_DASHBOARD_TOKEN` in the environment of the
-  process that runs the **Hermes dashboard** — *not* the slash-command shell.
-  The plugin is mounted into that process, so that is the only environment it
-  can read.
-- **The browser tab sends** `X-ReqogniLoom-Dashboard-Token` on its own
-  `window.fetch` calls. The server checks the same constant,
-  `CREDENTIAL_HEADER` in `dashboard/plugin_api.py`.
-- **The host (or any proxy in front of it) must forward** that custom request
-  header on same-origin **`/api/plugins/reqogniloom/*`** requests. This is
-  documented-host behaviour: the plugin neither controls it nor can detect it
-  from its own side, and neither `plugin.yaml` nor `dashboard/manifest.json`
-  declares a `secrets`/`env` field the host could fill for it. If the header is
-  stripped in transit, the operator sees the 401
-  "missing `X-ReqogniLoom-Dashboard-Token` request header" row above, and the
-  fix lies in the host or its proxy, not in this plugin.
-
-**Default behaviour.** With `REQOGNILOOM_DASHBOARD_TOKEN` unset the gate is
-inert: the tab loads, no token is needed, and the host dashboard's own auth is
-the only gate. With it set, the loopback-only `Origin`/`Host` allowlists apply
-alongside the exact-value comparison (`secrets.compare_digest`). Either
-allowlist can be widened via `REQOGNILOOM_DASHBOARD_ALLOWED_ORIGINS` /
-`REQOGNILOOM_DASHBOARD_ALLOWED_HOSTS`, and a `*` entry is discarded rather than
-honoured.
-
-(Why a header rather than a cookie: see the preflight argument in
-"Configuration".)
+The tab relies on the **host dashboard's own auth**: there is no plugin-level
+token, header or credential, and the tab loads straight into the data. The four
+routes are read-only and same-origin; a genuine `ReqogniLoomError` backend
+failure keeps the `200 + {"error": …}` contract so the tab can render it instead
+of a 500. `REQOGNILOOM_API_KEY` remains the outbound tenant credential and is
+never a dashboard credential.
 
 ## Listen mode ("hear along")
 
@@ -271,12 +178,12 @@ draft locally, and only an explicit **Confirm** issues `memory.write`; Cancel
 the backend on its own, and no auto-submit path exists.
 
 **Where this lives.** The shipped implementation of the surface above is the
-Hermes desktop plugin (`integrations/hermes-plugin/reqogniloom/` — the read
-panel with its degraded/empty split and the toggle + Review capture gate) plus
-the importable skill (`integrations/hermes-skill/reqogniloom/` — the
-`memory-query` / `memory-digest` / `memory-ask` / `memory-write` CLI
-subcommands). This agent-plugin POC (`integrations/hermes-agent-plugin/`) is
-slash-command/dashboard-only and does **not** call the memory surface yet.
+importable Hermes skill
+(`integrations/hermes-skill/reqogniloom/` — the `memory-query` /
+`memory-digest` / `memory-ask` / `memory-write` CLI subcommands, all backed by
+the `memory.*` MCP tools). This agent-plugin POC
+(`integrations/hermes-agent-plugin/`) is slash-command/dashboard-only and does
+**not** call the memory surface yet.
 
 **P4 boundary.** The follow-on stage "capture → `proposed` artifact → human
 accept" is deliberately **not** implemented. It is the proposal loop deferred to
@@ -290,7 +197,8 @@ an artifact.
 ```text
 plugin.yaml              # plugin manifest (name/version/description/hooks)
 __init__.py               # register(ctx) -> /reqogniloom command + pre_llm_call listen hook
-reqogniloom_client.py     # stdlib-only REST client shared by the command and the dashboard
+reqogniloom_client.py     # stdlib-only MCP client (REST only for GET /api/v1/version/),
+                          #   shared by the command and the dashboard
 reqogniloom_state.py      # state.json (interview, listen switch, suggestion queue) + lock
 _capture.py               # detached worker: one captured message -> one queued suggestion
 dashboard/
@@ -298,7 +206,7 @@ dashboard/
 ├── plugin_api.py          # FastAPI router, mounted under /api/plugins/reqogniloom/
 └── dist/
     ├── index.js            # dashboard tab UI (no build step — plain JS, host-injected React,
-    │                         # runtime token form + stats, all via window.fetch)
+    │                         # workspace picker + counters + open-interview rows, all via window.fetch)
     └── style.css
 tests/
 ├── _loader.py               # shared helper to load __init__.py as a package (relative-import support)
@@ -311,13 +219,19 @@ tests/
 ## Development
 
 ```bash
-cd tests
-python3 -m unittest test_reqogniloom_client.py test_slash_command.py test_plugin_api.py test_listen_mode.py -v
+# from the repo root — the plugin tests pin the MCP envelope, tool names and
+# both error shapes, plus a guard that every tool name exists in
+# docs/agent-templates/tool-manifest.json
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest integrations/hermes-agent-plugin/tests -q
 ```
 
 ```bash
-node --check dashboard/dist/index.js
-python3 -m py_compile __init__.py reqogniloom_client.py reqogniloom_state.py _capture.py dashboard/plugin_api.py
+node --check integrations/hermes-agent-plugin/dashboard/dist/index.js
+python -m py_compile integrations/hermes-agent-plugin/__init__.py \
+    integrations/hermes-agent-plugin/reqogniloom_client.py \
+    integrations/hermes-agent-plugin/reqogniloom_state.py \
+    integrations/hermes-agent-plugin/_capture.py \
+    integrations/hermes-agent-plugin/dashboard/plugin_api.py
 ```
 
 ### Verifying the dashboard tab
@@ -330,25 +244,26 @@ run from the repo root:
 # syntax of the bundle — nothing more than that
 node --check integrations/hermes-agent-plugin/dashboard/dist/index.js
 
-# the server-side half of the auth contract: header name and exact-value
-# comparison, origin/host allowlists, and the 401/403 status/detail pairs
-# dist/index.js branches on
+# the server side: every route serves without any credential, and the
+# 200 + {"error": …} contract survives a backend failure
 pytest integrations/hermes-agent-plugin/tests -q
 ```
 
 The browser half is a manual check, and it is the only one that exercises the
-host. With the gate switched **off** (no `REQOGNILOOM_DASHBOARD_TOKEN` in the
-dashboard process) the tab must load straight into the stat cards — no connect
-form, no prompt; if it asks for a token instead, the probe-first path or the
-server's opt-in gate is broken. With the gate **on**, export the variable into
-the dashboard process, open the tab, **Connect** with that value, see the three
-stat cards (Requirements, Test Cases, Open Interviews), the workspace picker and
-the open-interview table, then **Disconnect** and confirm the connect form
-returns. A 401 on that first load is the host-contract case above, not a wrong
-token.
+host. The tab must load straight into the stat cards — no connect form, no
+prompt. Then verify the workspace picker, the three counters (Requirements,
+Test Cases, Open Interviews) and the open-interview detail rows. If it asks for
+a token, a token-handling path has been reintroduced where it does not belong.
 
 ## Known gaps (POC scope)
 
+- **BLOCKED — ambient capture → `proposed` artifact (#1156).** The second half
+  of ambient capture — turning a captured message into a *proposed* artifact —
+  is blocked by [ADR-019](../../docs/se/ADR/ADR-019_generischer_vorschlag_lebenszyklus.md)
+  (status `proposed`), which defines the generic proposal lifecycle it would
+  depend on. It is therefore **not implemented**. The existing listen mode
+  (`_capture.py`, `tests/test_listen_mode.py`) is left **unchanged** and still
+  only queues suggestions for `/reqogniloom review`.
 - One hook, `pre_llm_call`, used only to capture the user's own messages while
   listen mode is on. It returns `None` and injects no context; the interview flow
   itself is still command/dashboard-driven.
@@ -356,15 +271,14 @@ token.
   `APIRouter`, not an app), so "default-bind to loopback" is **not**
   implementable from here, and the host contract (`plugin.yaml`,
   `dashboard/manifest.json`) declares no `secrets`/`env`/port field. The
-  inbound token must be injected by the operator into the dashboard process
-  environment, and whether the host preserves it is unverified.
-- `dist/index.js` does send `X-ReqogniLoom-Dashboard-Token` itself, from a
-  token the operator types into the tab at runtime. The earlier assumption that
-  the host's `SDK.fetchJSON` "handles host auth" was wrong: the host injects no
-  credential, and `fetchJSON` has no definition, shim or vendored copy in this
-  repo. What stays unverifiable is the host side — whether it forwards
-  arbitrary request headers on `/api/plugins/<name>/*`. If it does not, the tab
-  gets the 401 "missing … request header" case; see "Host contract".
+  dashboard tab therefore has no plugin-level credential: it relies on the host
+  dashboard's own auth, which is unverifiable from inside the plugin.
+- `dist/index.js` issues its own `window.fetch` calls with no credential, rather
+  than the host's `SDK.fetchJSON` — that helper has no definition, shim or
+  vendored copy in this repo, so its contract is unverifiable.
+- Follow-up: a per-workspace artifact drill-in is not built. The tab shows the
+  counters and the open-interview detail rows only; there is no `/artifacts`
+  endpoint to drill into yet.
 - The dashboard tab has a workspace picker and `/reqogniloom stats [workspace_id]`
   takes one, but the hand interview and listen mode still fall back to the first
   visible workspace when none is given.
@@ -375,14 +289,14 @@ token.
 - The proposal shape (`items`, `proposals`, or a bare list) is normalised
   defensively in `_capture.proposal_items` and has not been observed against a
   live *successful* multi-artifact chat turn.
-- `interview.chat` exists on the REST surface but not among the MCP tools, so the
-  ambient path cannot be driven through MCP. The artifact surface stays with MCP
-  (220 tools); this plugin owns the interview flow. Upstream:
+- The whole interview flow — including `interview.chat` (issue #1164) and the
+  `interview.propose` readout the ambient path depends on — is driven through
+  the MCP server, so there is no separate REST path to keep in sync. Upstream:
   [#1201](https://github.com/Popoboxxo/ReqogniLoom/issues/1201).
 - `chat`'s reply field is `reply`, confirmed against the backend contract:
   `InterviewService.generate_chat_turn` returns `{"reply": <str>,
-  "state": {...}}` (`backend/application/interview_service.py:1986`) and
-  `POST /api/v1/interviews/{id}/chat/` returns that body unchanged
-  (`backend/rest_api/interview_views.py:382-400`). The plugin reads
+  "state": {...}}` (`backend/application/interview_service.py:1986`) and the
+  MCP `interview.chat` tool returns that body unchanged
+  (`backend/mcp_server/tools/interview.py:_handle_chat`). The plugin reads
   `result.get("reply") or result.get("message")` (`__init__.py:329`); `reply`
   is the real field, `message` is only a defensive fallback.
