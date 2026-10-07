@@ -1,7 +1,12 @@
 import { useTranslation } from "react-i18next";
 
 import styles from "../ArtifactForm.module.css";
-import { FieldShell, optionLabel, type FieldProps } from "./FieldShell";
+import {
+  FieldShell,
+  ariaProps,
+  optionLabel,
+  type FieldProps,
+} from "./FieldShell";
 
 export function MultiEnum({
   attribute,
@@ -25,8 +30,13 @@ export function MultiEnum({
         id={testId}
         data-testid={testId}
         role="group"
-        aria-required={attribute.required}
-        aria-invalid={Boolean(errors?.length)}
+        // GitHub #1192: `ariaProps` carries the *effective* required flag
+        // (`attribute.required || attribute.is_required === true`) plus the
+        // help/error `aria-describedby` wiring every other control in the shell
+        // gets — the manual `attribute.required` here missed a gate-required
+        // field (`acceptance_criteria` under standard/extended), and the group
+        // was never linked to its help/error text.
+        {...ariaProps(attribute, testId, errors)}
       >
         {attribute.options.map((option) => {
           const isOn = selected.includes(option.value);

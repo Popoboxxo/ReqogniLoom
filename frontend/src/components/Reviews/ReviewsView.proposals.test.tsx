@@ -1,5 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 
+// Stub the aggregate count wrapper (#1193): importing `./ReviewsView` pulls it
+// in, and leaving it unmocked would point the module at the real axios client.
+vi.mock("../../api/reviews", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../api/reviews")>();
+  return { ...actual, reviewsApi: { listPendingCount: vi.fn() } };
+});
+
 import { pendingStateFor } from "./useReviewsData";
 import { bulkConfirm } from "./ReviewsView";
 

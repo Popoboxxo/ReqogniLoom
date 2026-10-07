@@ -12,6 +12,7 @@ from application.requirement_bundle_service import (
     MAX_DEPTH,
     BundleDepthExceededError,
     RequirementBundleQueryService,
+    describe_attribute_schema,
 )
 from auth_tenancy.context import AuthContext
 from persistence.models import (
@@ -565,3 +566,84 @@ class TestGetBundleFiltering:
             filter_mode="visible",
         )
         assert "title" in result.items[0].fields
+
+
+# ---------------------------------------------------------------------------
+# GitHub #1192 — effective required-field flag on the attribute schema
+# ---------------------------------------------------------------------------
+
+
+class TestDescribeAttributeSchemaRequired:
+    """``describe_attribute_schema`` rows carry the effective approval-gate
+    ``is_required`` flag and the active ``tier`` (GitHub #1192).
+
+    ``is_required`` names the set ``workflow.precondition_rules`` Rule 5
+    demands on approval — the definition ``required`` flags (visibility-aware)
+    UNION the legacy preset ``mandatory_fields`` for Requirement — not the
+    ``AttributeDescriptor.required`` create-payload flag alone. The keys are
+    additive: an existing consumer reading ``entity_type`` / ``attribute_name``
+    / ``is_visible`` by key stays compatible.
+    """
+
+    _ROW_KEYS = frozenset(
+        {"entity_type", "attribute_name", "is_visible", "is_required", "tier"}
+    )
+
+    @staticmethod
+    def _rows(auth_ctx, workspace, entity_type: str = "Requirement") -> dict:
+        rows = describe_attribute_schema(auth_ctx, workspace.id, entity_type)
+        return {row["attribute_name"]: row for row in rows}
+
+    def test_row_shape_is_additive(self, auth_ctx, workspace):
+        """Every row keeps the three legacy keys and adds exactly two."""
+        rows = self._rows(auth_ctx, workspace)
+        assert rows
+        for row in rows.values():
+            assert set(row) == self._ROW_KEYS
+
+    def test_minimal_preset_requires_only_title(self, auth_ctx, workspace):
+        """The default (minimal) workspace gate demands ``title`` only."""
+        rows = self._rows(auth_ctx, workspace)
+        assert {row["tier"] for row in rows.values()} == {"minimal"}
+        assert rows["title"]["is_required"] is True
+        assert rows["acceptance_criteria"]["is_required"] is False
+
+    def test_standard_preset_requires_acceptance_criteria(self, auth_ctx, workspace):
+        """Standard/extended add ``acceptance_criteria`` to the gate."""
+        from presets.services import switch_preset
+
+        switch_preset(str(workspace.id), "standard")
+        rows = self._rows(auth_ctx, workspace)
+        assert {row["tier"] for row in rows.values()} == {"standard"}
+        assert rows["title"]["is_required"] is True
+        assert rows["acceptance_criteria"]["is_required"] is True
+
+    def test_required_flag_is_the_gate_set_not_the_descriptor_flag(
+        self, auth_ctx, workspace, tenant
+    ):
+        """After bootstrapping, ``acceptance_criteria`` carries
+        ``required=False`` (the model column is ``blank=True``) yet the
+        standard preset's approval gate demands it. The row must follow
+        ``scoped_mandatory_fields`` — the same resolver Rule 5 uses — not
+        ``AttributeDescriptor.required``.
+        """
+        from django.core.management import call_command
+
+        from application.artifact_attribute_gateway import ArtifactAttributeGateway
+        from presets.services import switch_preset
+
+        with _active(tenant):
+            switch_preset(str(workspace.id), "standard")
+            call_command("bootstrap_attribute_definitions", tenant=str(tenant.id))
+
+        descriptors = {
+            descriptor.name: descriptor
+            for descriptor in ArtifactAttributeGateway().discover(
+                auth_ctx, "Requirement", workspace.id
+            )
+        }
+        assert descriptors["acceptance_criteria"].required is False
+
+        rows = self._rows(auth_ctx, workspace)
+        assert rows["acceptance_criteria"]["is_required"] is True
+        assert rows["title"]["is_required"] is True

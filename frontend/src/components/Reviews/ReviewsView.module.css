@@ -40,6 +40,22 @@
   box-sizing: border-box;
 }
 
+/*
+ * Issue #1193 — aggregate pending count on the type filter.
+ *
+ * The same badge tokens as the proposals count, so "N waiting" reads as one
+ * idiom across the Reviews toolbar rather than a second visual language.
+ */
+.totalBadge {
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--color-badge-info-bg);
+  color: var(--color-badge-info-text);
+  font-weight: var(--weight-semibold);
+  font-size: var(--font-size-sm);
+  white-space: nowrap;
+}
+
 .mutedText {
   color: var(--color-text-muted);
 }

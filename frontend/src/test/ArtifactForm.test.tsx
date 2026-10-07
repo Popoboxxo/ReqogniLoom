@@ -28,7 +28,7 @@ vi.mock("react-i18next", () => ({
 }));
 
 vi.mock("../api/attribute-definitions", () => ({
-  attributeDefinitionsApi: { getWorkspace: vi.fn() },
+  attributeDefinitionsApi: { getWorkspace: vi.fn(), getSchema: vi.fn() },
 }));
 
 vi.mock("../context/WorkspaceContext", () => ({
@@ -1642,5 +1642,102 @@ describe("ArtifactForm layout engine (WS4 #938)", () => {
     expect(css).toContain("@media (max-width: 768px)");
     expect(css).toContain("grid-column: 1 / -1;");
     expect(css).toMatch(/\.spacerToken\s*\{\s*display:\s*none;/);
+  });
+});
+
+// GitHub #1192: the approval gate (Rule 5) demands fields that the resolved
+// definition can declare `required: false` — the canonical case is
+// `acceptance_criteria` under the standard/extended preset. The form overlays
+// the effective gate flag from `GET /api/v1/attribute-schema/` so those fields
+// are visibly marked BEFORE a refused "Freigeben", not only after one.
+describe("ArtifactForm gate-required marking (#1192)", () => {
+  beforeEach(() => {
+    vi.mocked(attributeDefinitionsApi.getWorkspace).mockReset();
+    vi.mocked(attributeDefinitionsApi.getSchema).mockReset();
+    vi.mocked(usersApi.list).mockReset();
+    vi.mocked(usersApi.list).mockResolvedValue([]);
+    vi.mocked(attributeDefinitionsApi.getSchema).mockResolvedValue([]);
+  });
+
+  it("marks a gate-required field the definition declares required:false", async () => {
+    mockDefinition([
+      spec({ name: "acceptance_criteria", type: "textarea", required: false }),
+    ]);
+    vi.mocked(attributeDefinitionsApi.getSchema).mockResolvedValue([
+      {
+        entity_type: "Requirement",
+        attribute_name: "acceptance_criteria",
+        is_visible: true,
+        is_required: true,
+        tier: "standard",
+      },
+    ] as never);
+
+    render(
+      <ArtifactForm
+        itemType="Requirement"
+        artifactId="r-1"
+        initialValues={{ acceptance_criteria: "" }}
+        onSave={vi.fn()}
+      />
+    );
+
+    const control = await screen.findByTestId("artifact-field-acceptance_criteria");
+    // The gate set arrives asynchronously with the schema discovery request.
+    await waitFor(() => expect(control).toHaveAttribute("aria-required", "true"));
+    // Visible marker: the label carries the shared `required` class, which the
+    // stylesheet turns into the trailing `" *"` (ArtifactForm.module.css).
+    const label = document.querySelector(
+      'label[for="artifact-field-acceptance_criteria"]'
+    );
+    expect(label?.className).toContain("required");
+  });
+
+  it("keeps a definition-required field marked without any gate row", async () => {
+    mockDefinition([spec({ name: "title", required: true })]);
+    render(
+      <ArtifactForm
+        itemType="Requirement"
+        artifactId="r-1"
+        initialValues={{ title: "T" }}
+        onSave={vi.fn()}
+      />
+    );
+    const control = await screen.findByTestId("artifact-field-title");
+    await waitFor(() => expect(control).toHaveAttribute("aria-required", "true"));
+  });
+
+  it("does not mark an unrelated field when the schema only gates another one", async () => {
+    mockDefinition([spec({ name: "title", required: false })]);
+    vi.mocked(attributeDefinitionsApi.getSchema).mockResolvedValue([
+      {
+        entity_type: "Requirement",
+        attribute_name: "acceptance_criteria",
+        is_visible: true,
+        is_required: true,
+      },
+    ] as never);
+
+    render(
+      <ArtifactForm
+        itemType="Requirement"
+        artifactId="r-1"
+        initialValues={{ title: "T" }}
+        onSave={vi.fn()}
+      />
+    );
+
+    const control = await screen.findByTestId("artifact-field-title");
+    // Settle the discovery request first, so the negative assertion cannot pass
+    // merely because the overlay had not arrived yet.
+    await waitFor(() =>
+      expect(attributeDefinitionsApi.getSchema).toHaveBeenCalledWith(
+        "ws-1",
+        "Requirement"
+      )
+    );
+    expect(control).toHaveAttribute("aria-required", "false");
+    const label = document.querySelector('label[for="artifact-field-title"]');
+    expect(label?.className ?? "").not.toContain("required");
   });
 });

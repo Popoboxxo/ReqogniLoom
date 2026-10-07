@@ -12,5 +12,6 @@ export type {
 export { fieldErrorsFromException, parseFieldErrors } from "./field-errors";
 export { stripNonEditableValues } from "./payload";
 export { useArtifactDefinition } from "./useArtifactDefinition";
+export { useGateRequiredFields } from "./useGateRequiredFields";
 export { resolveWidget, WIDGET_FIELD_CONTRACTS, WIDGET_REGISTRY } from "./widget-registry";
 export type { WidgetComponent, WidgetProps } from "./widget-registry";
