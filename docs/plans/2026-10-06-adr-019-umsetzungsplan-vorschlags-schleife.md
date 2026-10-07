@@ -322,6 +322,12 @@ ADR-019 §Entscheidung 7:
 **STOP-Gate bleibt gültig:** Ohne `proposed → accepted` (User-Freigabe) und ohne Klärung von
 O1–O11 wird **kein** MVP implementiert — keine Migration, kein Modell, kein Tool, keine UI.
 
+> **Ergänzung 2026-10-07:** Die **Restpfade außerhalb dieses MVP** (Human-Bearer-REST-Trigger,
+> `#1095` `draft→proposed`, `#1197` async `suggest-links`, `#1196` Review-Massenfreigabe) sowie die
+> Gesamt-Reihenfolge der Themen #1155/#1201/#1202/#1204 sind geordnet in
+> [`2026-10-07-umsetzungsplaene-1155-1201-1202-1204.md`](2026-10-07-umsetzungsplaene-1155-1201-1202-1204.md)
+> §1 bzw. §0. Dieser Plan bleibt unverändert gültig und wird nicht dupliziert.
+
 ---
 
 *Erstellt am 2026-10-06 als reiner Umsetzungsplan zu ADR-019. Kein Produktcode, keine Migration,

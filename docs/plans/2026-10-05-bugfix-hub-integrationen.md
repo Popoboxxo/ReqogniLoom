@@ -9,6 +9,7 @@
 | **Bezug** | #1171 (One-Click-Client-Doku), #1153, #1155/#1156, #1164, #1177, #1185 |
 | **Geltung** | Fremd-Clients/-Provider, MCP-Surface, REST-/OpenAPI, Plugins, Supply-Chain |
 | **Nicht Teil** | Reine UI-/Datenmodell-Kampagnen, RLS-Härtung, SE-Kaskade (siehe Hub §2) |
+| **Restpfad-/Gesamtplanung** | [`2026-10-07-umsetzungsplaene-1155-1201-1202-1204.md`](2026-10-07-umsetzungsplaene-1155-1201-1202-1204.md) — #1155-P4-Restpfade, #1201/#1202 (Hermes agenten-nativ), #1204 (Qdrant) |
 
 ---
 
