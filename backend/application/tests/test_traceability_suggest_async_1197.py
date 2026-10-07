@@ -84,8 +84,18 @@ def ctx(user: User) -> AuthContext:
 
 class TestSuggestLinksAsyncTrigger:
     def test_returns_task_id_and_records_tenant_ownership(
-        self, tenant: Tenant, workspace: Workspace, ctx: AuthContext
+        self,
+        tenant: Tenant,
+        workspace: Workspace,
+        ctx: AuthContext,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
+        # Env pin: AsyncTaskDispatcher._broker_configured() reads the OS env var
+        # CELERY_BROKER_URL (not settings), so CI job set-1-core — which never
+        # exports it — would otherwise short-circuit dispatch before the patched
+        # apply_async is reached. Mirrors the canonical pattern in
+        # test_bundle_compression_service.py's TestCompressAsync.
+        monkeypatch.setenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
         fake_async = MagicMock()
         fake_async.id = "task-1197"
 
