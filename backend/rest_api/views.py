@@ -4235,11 +4235,54 @@ class BaselineViewSet(BaseEntityViewSet):
         )
 
     def destroy(self, request: Request, pk: str, **kwargs: Any) -> Response:
-        # Baselines should not be deleted in normal operations
+        """DELETE /api/v1/baselines/{pk}/ — refused: baselines are immutable.
+
+        GH-1199: this is a *domain* prohibition, not a role denial, so it answers
+        403 with the dedicated code ``BASELINE_IMMUTABLE`` instead of the generic
+        ``PERMISSION_DENIED`` the hard-coded response used to reuse — which made
+        "this resource cannot be deleted, by anyone" indistinguishable from "you
+        personally lack the role". The message names the one real removal path:
+        the admin-only, audited ``DELETE /api/v1/baselines/{pk}/purge/``.
+        """
         return Response(
-            build_error_response("PERMISSION_DENIED", detect_lang(request), message="Baselines cannot be deleted."),
+            build_error_response(
+                "BASELINE_IMMUTABLE",
+                detect_lang(request),
+                message=(
+                    "Baselines are content-immutable and cannot be deleted "
+                    "through this route. An administrator can remove one via "
+                    "the audited administrative route "
+                    "DELETE /api/v1/baselines/{id}/purge/."
+                ),
+            ),
             status=status.HTTP_403_FORBIDDEN,
         )
+
+    @action(detail=True, methods=["delete"], url_path="purge")
+    def purge(self, request: Request, pk: str = None, **kwargs: Any) -> Response:
+        """DELETE /api/v1/baselines/{pk}/purge/ — audited admin removal (GH-1199).
+
+        The only route that removes a baseline. Admin-only — checked in
+        ``BaselineFacade.purge_baseline``, the same role the workspace
+        hard-delete requires — and always audited (``operation="baseline.purge"``)
+        so the removal of an append-only governance artifact leaves a trail.
+        Baselines stay content-immutable: the UPDATE path is untouched, and the
+        DELETE only passes the ``bl_raise_immutable`` trigger under the
+        transaction-local GUC the service arms (never ``DISABLE TRIGGER``).
+
+        A missing/foreign baseline answers 404; a non-admin answers 403
+        ``PERMISSION_DENIED`` (a role denial, distinct from the generic route's
+        403 ``BASELINE_IMMUTABLE`` domain prohibition).
+        """
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            self._svc().purge_baseline(pk, ctx)
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 # ---------------------------------------------------------------------------
@@ -5769,11 +5812,35 @@ class WorkspaceViewSet(BaseEntityViewSet):
 
         #1084: a workspace that still holds baselines answers ``409 CONFLICT``
         with ``details.code == "baselines_immutable"`` and a message naming the
-        cause. Before, that case reached the ``bl_raise_immutable`` DB trigger
-        and surfaced as a 500, which made ``/delete/`` a dead end for exactly
-        those workspaces.
+        real removal path. Before, that case reached the ``bl_raise_immutable``
+        DB trigger and surfaced as a 500, which made ``/delete/`` a dead end for
+        exactly those workspaces.
+
+        #1199: ``?force=true`` is deliberately NOT supported and no longer
+        silently ignored. It used to be dropped on the floor, so a caller that
+        sent it believed it had opted into a cascade the server never performed.
+        Rather than hide a second, undocumented deletion path behind a query
+        flag, the request is rejected with a 400 naming the audited admin route
+        (``DELETE /api/v1/baselines/{id}/purge/``); the captcha semantics below
+        stay the only way to delete a workspace.
         """
         lang = detect_lang(request)
+        force = request.query_params.get("force")
+        if force is not None and str(force).strip().lower() in {"1", "true", "yes"}:
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    message=(
+                        "The 'force' parameter is not supported: baselines are "
+                        "append-only and are never removed implicitly. Delete "
+                        "each baseline through the audited admin route "
+                        "DELETE /api/v1/baselines/{id}/purge/ first, then retry "
+                        "this hard-delete."
+                    ),
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         confirmation = request.data.get("confirmation", "")
         if not confirmation:
             return Response(
