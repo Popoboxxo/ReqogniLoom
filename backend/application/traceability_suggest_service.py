@@ -57,6 +57,8 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 from uuid import UUID
 
+from django.core.cache import cache
+
 from auth_tenancy.context import AuthContext
 
 from application.audit_service import AuditFindingView, AuditService
@@ -74,6 +76,19 @@ logger = logging.getLogger(__name__)
 _SUPPORTED_RULE_IDS = frozenset({TRACE_P1, TRACE_P1B, TRACE_P2})
 
 _DEFAULT_MAX_CANDIDATES = 5
+
+#: Cache key prefix for the async dispatch ownership record (issue #1197).
+#: Mirrors ``_CONSISTENCY_TASK_TENANT_CACHE_PREFIX`` (requirement_service) and
+#: ``_TASK_TENANT_CACHE_PREFIX`` (bundle_compression_service): the Celery result
+#: backend is tenant-blind, so the dispatching tenant is recorded here and
+#: enforced on every poll (ADR-03).
+_TASK_TENANT_CACHE_PREFIX = "traceability_suggest_links_task_tenant"
+
+#: TTL for the task_id -> tenant_id ownership mapping. Must match or exceed
+#: Celery's own result-expiry window (this project does not override
+#: ``result_expires``, so the built-in 1-day default applies) — otherwise a
+#: still-pollable task would incorrectly look ``not_found`` to its own tenant.
+_TASK_TENANT_TTL_SECONDS = 86400
 
 _WORD_RE = re.compile(r"[a-zA-ZäöüÄÖÜß0-9]+")
 
@@ -336,6 +351,112 @@ class TraceabilitySuggestService(ServiceBase):
             total_findings_available=report.total_findings_available,
             suggestions=suggestions,
         )
+
+    # ------------------------------------------------------------------
+    # Async trigger + poll (issue #1197) — mirrors BundleCompressionService's
+    # compress_async / get_compression_status pair and RequirementService's
+    # check_consistency / get_consistency_status pair.
+    # ------------------------------------------------------------------
+
+    def suggest_links_async(
+        self,
+        workspace_id: str | UUID,
+        ctx: AuthContext,
+        *,
+        tier: Optional[str] = None,
+        scopes: Optional[Sequence[AuditScope]] = None,
+        max_candidates: int = _DEFAULT_MAX_CANDIDATES,
+    ) -> "str | Dict[str, Any]":
+        """Dispatch :meth:`suggest_links` to a Celery worker (#1197).
+
+        The synchronous run takes ~94.5 s on a large workspace and previously
+        blocked the request thread; this returns a ``task_id`` immediately so
+        the caller can poll :meth:`get_suggest_links_status`. The heavy path is
+        unchanged — the worker executes the same :meth:`suggest_links`.
+
+        Nothing is persisted by the run itself (read-only/advisory), so there is
+        no double-creation surface: a repeated POST dispatches a fresh
+        read-only job and every poll only reads the stored result.
+
+        Returns:
+            The ``task_id`` string on success, or ``AsyncTaskDispatcher``'s
+            structured ``{"error": {"code": "BROKER_NOT_CONFIGURED", ...}}``
+            dict when no broker is configured (REST/MCP answer 503).
+        """
+        self._set_tenant_context(ctx)
+
+        from application.tasks import run_traceability_suggest_links
+        from llm_adapter.dispatcher import AsyncTaskDispatcher
+
+        scopes_payload = (
+            [
+                {"scope": s.scope, "artifact_id": s.artifact_id}
+                for s in scopes
+            ]
+            if scopes
+            else None
+        )
+        dispatch = AsyncTaskDispatcher().dispatch_task(
+            run_traceability_suggest_links,
+            args=[
+                str(workspace_id),
+                str(ctx.tenant_id),
+                scopes_payload,
+                tier,
+                max_candidates,
+            ],
+        )
+
+        if isinstance(dispatch, str):
+            # ADR-03: Celery's result backend has no concept of tenant, so a
+            # task_id alone would let any authenticated user in any tenant poll
+            # another tenant's suggestions. Record the dispatcher's tenant and
+            # enforce it on every poll.
+            cache.set(
+                f"{_TASK_TENANT_CACHE_PREFIX}:{dispatch}",
+                str(ctx.tenant_id),
+                _TASK_TENANT_TTL_SECONDS,
+            )
+
+        return dispatch
+
+    def get_suggest_links_status(
+        self, task_id: str, ctx: AuthContext
+    ) -> Dict[str, Any]:
+        """Poll the outcome of a previously dispatched :meth:`suggest_links_async`.
+
+        Response shape (mirrors ``ConsistencyStatusView``)::
+
+            {"task_id": str,
+             "status": "pending"|"running"|"done"|"failed"|"not_found",
+             "result": dict|null,   # SuggestLinksResult.to_dict() when done
+             "error": str|null}     # worker exception when failed
+
+        ADR-03: an unknown/expired task_id and a foreign tenant's task_id are
+        deliberately indistinguishable — both report ``status="not_found"`` —
+        so a cross-tenant probe cannot learn "this task_id exists but isn't
+        mine".
+        """
+        self._set_tenant_context(ctx)
+
+        from llm_adapter.dispatcher import AsyncTaskDispatcher
+
+        owning_tenant_id = cache.get(f"{_TASK_TENANT_CACHE_PREFIX}:{task_id}")
+        if owning_tenant_id is None or owning_tenant_id != str(ctx.tenant_id):
+            return {
+                "task_id": task_id,
+                "status": "not_found",
+                "result": None,
+                "error": None,
+            }
+
+        status = AsyncTaskDispatcher().get_task_status(task_id)
+        return {
+            "task_id": status.task_id,
+            "status": status.status,
+            "result": status.result,
+            "error": status.error,
+        }
 
     # ------------------------------------------------------------------
     # Internal — deterministic candidate search (no embeddings/pgvector)

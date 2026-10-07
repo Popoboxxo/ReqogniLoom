@@ -283,6 +283,10 @@ TOOL_ENFORCED_WORKSPACE_SCOPE: frozenset[str] = frozenset(
 #: * ``requirement_bundle.compression_status`` — polls a Celery task result
 #:   through a tenant-ownership cache mapping the tool checks itself; the task
 #:   id is not an artifact and has no workspace.
+#: * ``traceability.suggest_links_status`` — same shape (#1197): polls the task
+#:   dispatched by ``traceability.suggest_links`` (``async=true``) through the
+#:   tenant-ownership cache mapping; the task id is not an artifact and has no
+#:   workspace.
 #: * ``audit.query`` — admin-gated in the handler (``_check_admin``) and
 #:   ``AuditEntry`` is tenant-scoped; its ``workspace_id`` parameter is
 #:   documented as *reserved* and does not filter.
@@ -328,6 +332,7 @@ TENANT_SCOPED_READ_TOOLS: frozenset[str] = frozenset(
         "user.list",
         "workspace.list",
         "requirement_bundle.compression_status",
+        "traceability.suggest_links_status",
         "audit.query",
         "requirement.query",
         "workspace.get_context",

@@ -188,9 +188,9 @@ def _complete_change_impact(prompt: str, *, context: Dict[str, Any]) -> str:
 
 
 class CrossCuttingToolGroup(BaseToolGroup):
-    """COMP-MC-006 — Cross-cutting tool group (5 tools).
+    """COMP-MC-006 — Cross-cutting tool group (6 tools).
 
-    All five tools are read-only and do NOT require audit entries.
+    All six tools are read-only and do NOT require audit entries.
     REQ-L2-MC-012: Lese-Operationen erzeugen KEINEN AuditLog-Eintrag.
     """
 
@@ -201,6 +201,8 @@ class CrossCuttingToolGroup(BaseToolGroup):
         # entity addressable but not discoverable over MCP).
         "traceability.query_links": "_handle_traceability_query_links",
         "traceability.suggest_links": "_handle_traceability_suggest_links",
+        # #1197: poll the async suggest-links dispatch.
+        "traceability.suggest_links_status": "_handle_traceability_suggest_links_status",
         "traceability.create_link": "_handle_traceability_create_link",
         "artifact.search": "_handle_artifact_search",
         "artifact.get_tree": "_handle_artifact_get_tree",
@@ -285,7 +287,10 @@ class CrossCuttingToolGroup(BaseToolGroup):
                 "candidate pool via the LLM adapter (mock by default). "
                 "Read-only/advisory — nothing is persisted; every returned "
                 "finding/candidate reference is a real one from this run. "
-                "No pgvector/embedding search is performed."
+                "No pgvector/embedding search is performed. The synchronous "
+                "run takes ~94.5 s on a large workspace: pass 'async'=true to "
+                "dispatch it to a Celery worker and get a 'task_id' instead "
+                "(poll it via 'traceability.suggest_links_status')."
             ),
             "inputSchema": {
                 "type": "object",
@@ -302,8 +307,49 @@ class CrossCuttingToolGroup(BaseToolGroup):
                         "type": "string",
                         "description": "Required when scope=document (subtree root).",
                     },
+                    "async": {
+                        "type": "boolean",
+                        "description": (
+                            "Dispatch the run to a Celery worker and return "
+                            "'{task_id: str}' immediately (mirrors "
+                            "requirement_bundle.export's async branch) rather "
+                            "than blocking on the ~95 s synchronous run. Poll "
+                            "the task via 'traceability.suggest_links_status'."
+                        ),
+                    },
                 },
                 "required": ["workspace_id"],
+            },
+        },
+        {
+            "name": "traceability.suggest_links_status",
+            "description": (
+                "Poll the status of a task_id returned by "
+                "traceability.suggest_links with 'async'=true. Read-only. "
+                "Response shape: {'task_id': str, 'status': str, 'result': "
+                "dict|null, 'error': str|null}. 'status' is one of exactly: "
+                "'pending' (queued, not started), 'running' (worker started), "
+                "'done' (finished — 'result' carries the same suggestion "
+                "payload the synchronous call returns), 'failed' (worker "
+                "raised — read 'error'), 'not_found' (unknown, expired, or "
+                "another tenant's task_id). A task_id dispatched by a "
+                "different tenant is deliberately indistinguishable from an "
+                "unknown one — both report status='not_found'. Polling never "
+                "re-runs the computation or creates a second job."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "task_id": {
+                        "type": "string",
+                        "description": (
+                            "task_id returned by traceability.suggest_links "
+                            "'async'=true. Poll until 'status' leaves "
+                            "'pending'/'running'."
+                        ),
+                    },
+                },
+                "required": ["task_id"],
             },
         },
         {
@@ -914,6 +960,8 @@ class CrossCuttingToolGroup(BaseToolGroup):
         Optional params:
             scope             : ``"document" | "project" | "global"``.
             scope_artifact_id : required when ``scope == "document"``.
+            async             : when truthy, dispatch to a Celery worker and
+                                return ``{"task_id": ...}`` immediately (#1197).
 
         No admin gate — mirrors ``traceability.query``/``audit.ai_review``:
         any authenticated caller with workspace access may run it.
@@ -937,7 +985,25 @@ class CrossCuttingToolGroup(BaseToolGroup):
                 )
             scopes = [AuditScope(scope, artifact_id=scope_artifact_id)]
 
+        async_param = params.get("async", False)
+        if isinstance(async_param, str):
+            force_async = async_param.strip().lower() == "true"
+        else:
+            force_async = bool(async_param)
+
         try:
+            if force_async:
+                dispatch = self._trace_suggest_service.suggest_links_async(
+                    workspace_id, auth_context, scopes=scopes
+                )
+                if isinstance(dispatch, dict):  # BROKER_NOT_CONFIGURED
+                    return ToolResult.error(
+                        "SERVICE_UNAVAILABLE",
+                        dispatch.get("error", {}).get(
+                            "message", "Async dispatch unavailable."
+                        ),
+                    )
+                return ToolResult.ok({"task_id": dispatch})
             result = self._trace_suggest_service.suggest_links(
                 workspace_id, auth_context, scopes=scopes
             )
@@ -951,6 +1017,26 @@ class CrossCuttingToolGroup(BaseToolGroup):
             return ToolResult.error("VALIDATION_ERROR", str(exc))
 
         return ToolResult.ok(result.to_dict())
+
+    # ------------------------------------------------------------------
+    # traceability.suggest_links_status (issue #1197)
+    # ------------------------------------------------------------------
+
+    def _handle_traceability_suggest_links_status(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        """traceability.suggest_links_status — poll an async suggest-links task.
+
+        Read-only. Delegates to
+        ``TraceabilitySuggestService.get_suggest_links_status`` so the
+        tenant-ownership fence (ADR-03) is enforced in exactly one place; an
+        unknown or foreign-tenant ``task_id`` reports ``status="not_found"``.
+        """
+        task_id = require_param(params, "task_id")
+        result = self._trace_suggest_service.get_suggest_links_status(
+            task_id, auth_context
+        )
+        return ToolResult.ok(result)
 
     # ------------------------------------------------------------------
     # traceability.create_link

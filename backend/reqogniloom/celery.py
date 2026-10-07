@@ -57,6 +57,13 @@ app.conf.task_default_routing_key = 'default'
 app.conf.task_routes = {
     'llm_adapter.*': {'queue': 'llm', 'routing_key': 'llm'},
     'application.dispatch_outbox_events': {'queue': 'events', 'routing_key': 'events'},
+    # #1197: the async suggest-links run is a long LLM-bound computation, so it
+    # belongs on the llm queue alongside llm_adapter.run_capability rather than
+    # blocking the default queue's short maintenance tasks.
+    'application.run_traceability_suggest_links': {
+        'queue': 'llm',
+        'routing_key': 'llm',
+    },
     'memory.*': {'queue': 'memory', 'routing_key': 'memory'},
 }
 
