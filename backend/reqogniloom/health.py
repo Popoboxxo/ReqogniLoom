@@ -7,7 +7,11 @@ COMP-RA-006 HealthEndpoint — implements the split contract of ADR-010:
   container (restart-safety, REQ-L1-032).
 * ``GET /health/ready`` — readiness: **fail-closed** (503) when any mandatory
   dependency is unhealthy. Mandatory: ``database``, ``memory_backend``,
-  ``cache`` (Redis), ``celery_worker``, ``celery_beat``.
+  ``cache`` (Redis), ``celery_worker``, ``celery_beat``. The one exception is
+  the OPTIONAL Qdrant memory backend (ADR-020 §4): when ``MEMORY_BACKEND=qdrant``
+  is configured but unreachable, ``memory_backend`` is reported as ``degraded``
+  and readiness stays 200 — pgvector remains the source of truth, so an
+  opt-in backend outage must never turn the container unhealthy.
 * ``GET /health/``      — deprecated alias for ``/health/ready`` (carries the
   ``Deprecation``/``Sunset`` headers) so the existing compose probe
   (``deploy/docker-compose.yml``) goes red on a mandatory dependency outage.
@@ -41,6 +45,13 @@ logger = logging.getLogger(__name__)
 #: Static failure marker exposed on the unauthenticated readiness endpoint.
 #: Never a DSN/host/secret (CWE-209); the real cause only goes to the log.
 _DEPENDENCY_DOWN_DETAIL = "dependency_down"
+
+#: Static detail marker for an OPTIONAL dependency that is configured but
+#: unreachable (ADR-020 §4, the Qdrant vector backend). Distinct from
+#: ``dependency_down`` so an operator can tell a mandatory outage from a
+#: degraded opt-in backend, and — like every other marker — never carries the
+#: raw probe error (CWE-209).
+_OPTIONAL_DEPENDENCY_DEGRADED_DETAIL = "optional_dependency_degraded"
 
 #: Mandatory readiness dependencies, in their public contract order. ``cache``
 #: is the ADR-010 contract name for the Redis probe, whose reused admin row is
@@ -154,13 +165,91 @@ def _probe_status(probe: Callable[[], dict]) -> str:
     return str(row.get("status", "down"))
 
 
+def _is_optional_memory_backend(backend: object) -> bool:
+    """Return True when *backend* is the optional Qdrant backend (ADR-020 §4).
+
+    Qdrant is an opt-in second vector backend; pgvector stays the source of
+    truth, so a reachability failure must be surfaced as ``degraded`` and must
+    never turn ``/health/ready`` red. The import is guarded and a failure is
+    treated as "not optional" (fail-closed): an unresolvable backend keeps the
+    historical ``down`` behaviour rather than silently exempting a mandatory
+    dependency from readiness.
+    """
+    try:
+        from memory.qdrant_backend import QdrantMemoryBackend
+    except Exception as exc:  # noqa: BLE001 - detection must never crash readiness
+        logger.warning("Health check: optional-backend detection failed - %s", exc)
+        return False
+    return isinstance(backend, QdrantMemoryBackend)
+
+
+def _probe_memory_backend() -> str:
+    """Probe the active memory backend and classify it for readiness.
+
+    Returns ``"ok"`` when healthy, ``"degraded"`` when the configured backend is
+    the OPTIONAL Qdrant backend (ADR-020 §4: visible, never fatal), and
+    ``"down"`` for every required backend failure or an unresolvable backend
+    (fail-closed). The raw probe detail is logged but never returned (CWE-209).
+    """
+    try:
+        from memory.backends import get_memory_backend
+
+        backend = get_memory_backend()
+    except Exception as exc:  # noqa: BLE001 - unresolved backend is fail-closed
+        logger.warning("Health check: memory backend probe failed - %s", exc)
+        return "down"
+
+    try:
+        memory_ok, memory_detail = backend.health_check()
+    except Exception as exc:  # noqa: BLE001 - health check must never crash readiness
+        memory_ok, memory_detail = False, exc
+
+    if memory_ok:
+        return "ok"
+    if _is_optional_memory_backend(backend):
+        logger.warning("Health check: optional memory backend degraded - %s", memory_detail)
+        return "degraded"
+    logger.warning("Health check: memory backend degraded - %s", memory_detail)
+    return "down"
+
+
+def _required_check_state(value: str | None) -> str:
+    """Map a required-check result to the public ``checks`` vocabulary.
+
+    ``degraded`` is reserved for the optional Qdrant memory backend (ADR-020
+    §4); every other non-``ok`` value is a mandatory failure (``error``).
+    """
+    if value == "ok":
+        return "ok"
+    if value == "degraded":
+        return "degraded"
+    return "error"
+
+
+def _dependency_detail(value: str | None) -> str:
+    """Return the static, CWE-209-safe ``dependencies`` detail marker for a value.
+
+    #1166: connection-slot exhaustion gets its own marker so an operator can
+    distinguish overload from a genuinely unreachable DB. ADR-020 §4: an
+    optional degraded dependency gets its own marker so it is not mistaken for a
+    mandatory outage. Everything else is the generic ``dependency_down``.
+    """
+    if value == "db_unavailable":
+        return "db_unavailable"
+    if value == "degraded":
+        return _OPTIONAL_DEPENDENCY_DEGRADED_DETAIL
+    return _DEPENDENCY_DOWN_DETAIL
+
+
 def _run_required_checks() -> dict[str, str]:
     """Run the mandatory readiness probes and return ``{contract_name: status}``.
 
     Reuses the bounded probes from :mod:`admin_ops.health_rest` (ADR-010 §7)
     instead of duplicating them; the admin ``redis`` row is mapped to the
     contract name ``cache``. Every probe is independently guarded. Any value
-    other than ``"ok"`` is a failed mandatory dependency (fail-closed).
+    other than ``"ok"`` is a failed mandatory dependency (fail-closed) — with
+    the single exception of ``"degraded"``, the optional Qdrant memory backend
+    (ADR-020 §4), which is non-fatal by design.
 
     The database and memory-backend probes stay local (they read the ORM and
     the active memory backend), matching the previous ``HealthView`` behaviour.
@@ -191,15 +280,7 @@ def _run_required_checks() -> dict[str, str]:
         logger.warning("Health check: database degraded - %s", exc)
 
     if db_ok:
-        try:
-            from memory.backends import get_memory_backend
-
-            memory_ok, memory_detail = get_memory_backend().health_check()
-        except Exception as exc:  # noqa: BLE001 - health check must never crash
-            memory_ok, memory_detail = False, exc
-        results["memory_backend"] = "ok" if memory_ok else "down"
-        if not memory_ok:
-            logger.warning("Health check: memory backend degraded - %s", memory_detail)
+        results["memory_backend"] = _probe_memory_backend()
     else:
         # The pgvector backend lookup reads the catalog, so without the DB the
         # dependency cannot be verified — fail closed rather than silently
@@ -358,28 +439,34 @@ def _strict_readiness() -> bool:
 
 
 def _readiness_payload() -> tuple[dict, int]:
-    """Build the ``/health/ready`` body and HTTP status (ADR-010 §2/§4/§6)."""
+    """Build the ``/health/ready`` body and HTTP status (ADR-010 §2/§4/§6).
+
+    ``dependencies`` lists every non-``ok`` check — including an optional
+    ``degraded`` backend, so the state stays observable — but only a genuine
+    mandatory failure (any value other than ``ok``/``degraded``) may drive the
+    503. ADR-020 §4: a configured-but-unreachable Qdrant backend is
+    ``degraded`` at HTTP 200 and never turns readiness red.
+    """
     required = _run_required_checks()
     checks = {
-        name: ("ok" if required.get(name) == "ok" else "error")
+        name: _required_check_state(required.get(name))
         for name in _REQUIRED_CHECK_NAMES
     }
     dependencies = [
         {
             "name": name,
             "status": required.get(name, "down"),
-            # #1166: connection-slot exhaustion gets its own static detail so an
-            # operator can distinguish overload from a genuinely unreachable DB.
-            # Both values are fixed markers — never the raw probe error.
-            "detail": (
-                "db_unavailable"
-                if required.get(name) == "db_unavailable"
-                else _DEPENDENCY_DOWN_DETAIL
-            ),
+            "detail": _dependency_detail(required.get(name)),
         }
         for name in _REQUIRED_CHECK_NAMES
         if required.get(name) != "ok"
     ]
+    # ADR-020 §4: only a genuine mandatory failure fails readiness. ``degraded``
+    # is the optional Qdrant memory backend and stays a 200 signal.
+    required_failed = any(
+        required.get(name) not in ("ok", "degraded")
+        for name in _REQUIRED_CHECK_NAMES
+    )
 
     warnings: list[str] = []
     advisory: dict[str, str] = {}
@@ -389,7 +476,7 @@ def _readiness_payload() -> tuple[dict, int]:
 
     if dependencies:
         status_value = "degraded"
-        http_status = 503 if _strict_readiness() else 200
+        http_status = 503 if (required_failed and _strict_readiness()) else 200
     elif warnings:
         status_value = "warning"
         http_status = 200
