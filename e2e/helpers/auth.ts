@@ -274,31 +274,55 @@ const E2E_API_KEY_MARKERS = [
  * the E2E suite (see {@link E2E_API_KEY_MARKERS}) are revoked — user-owned or
  * manually-created keys are left untouched. Revoking (DELETE) marks a key
  * inactive, which frees a slot against the cap.
+ *
+ * Pagination (fix F2, deliverable 5): the list request has to walk every page.
+ * DELETE only *soft*-revokes a key, so rows accumulate forever (287 rows were
+ * observed on a developer database) while `GET /api/v1/api-keys/` keeps its
+ * default page size of 25 — and those rows are ordered such that the soft-
+ * revoked ones come first, so the single unpaged request only ever saw rows
+ * that were already inactive and revoked nothing. The active keys sat beyond
+ * page 1 and kept climbing towards the cap. This now requests the documented
+ * maximum (`page_size=100`) and follows `next`, the same walk
+ * {@link getWorkspaceId} already uses for its list.
  */
 export async function revokeAllApiKeys(token: string): Promise<void> {
   const ctx = await request.newContext({ baseURL: BASE_URL });
   try {
-    const listResp = await ctx.get('/api/v1/api-keys/', {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (listResp.ok()) {
-      const body = await listResp.json();
-      const keys: Array<{ id: string; name?: string; revoked?: boolean }> = Array.isArray(body)
+    const keys: Array<{ id: string; name?: string; revoked?: boolean }> = [];
+    const visited = new Set<string>();
+    let url: string | null = '/api/v1/api-keys/';
+    let params: Record<string, string> | undefined = { page_size: '100' };
+    while (url && !visited.has(url)) {
+      visited.add(url);
+      const response = params
+        ? await ctx.get(url, { headers: { Authorization: `Bearer ${token}` }, params })
+        : await ctx.get(url, { headers: { Authorization: `Bearer ${token}` } });
+      if (!response.ok()) {
+        return; // listing unavailable — nothing this function can meaningfully do
+      }
+      const body = await response.json();
+      const page: Array<{ id: string; name?: string; revoked?: boolean }> = Array.isArray(
+        body
+      )
         ? body
         : body.results ?? [];
-      for (const key of keys) {
-        if (key.revoked) {
-          continue; // already inactive — does not count against the cap
-        }
-        const name = key.name ?? '';
-        const isE2eKey = E2E_API_KEY_MARKERS.some((marker) => name.includes(marker));
-        if (!isE2eKey) {
-          continue; // not created by the E2E suite — never touch it
-        }
-        await ctx.delete(`/api/v1/api-keys/${key.id}/`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+      keys.push(...page);
+      // `next` carries its own query string, so the follow-up requests send no params.
+      url = Array.isArray(body) ? null : (body.next ?? null);
+      params = undefined;
+    }
+    for (const key of keys) {
+      if (key.revoked) {
+        continue; // already inactive — does not count against the cap
       }
+      const name = key.name ?? '';
+      const isE2eKey = E2E_API_KEY_MARKERS.some((marker) => name.includes(marker));
+      if (!isE2eKey) {
+        continue; // not created by the E2E suite — never touch it
+      }
+      await ctx.delete(`/api/v1/api-keys/${key.id}/`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
     }
   } finally {
     await ctx.dispose();
