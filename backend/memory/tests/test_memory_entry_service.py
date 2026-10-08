@@ -237,6 +237,89 @@ class TestSearch:
                     ctx, query="x", scopes=["workspace"], workspace_id=foreign.id
                 )
 
+    def test_all_scopes_error_is_reported_degraded_not_empty(self, monkeypatch):
+        """F9: an all-scope backend outage must not look like an empty result.
+
+        Every scope's ``query`` raises, so ``items`` stays empty and the
+        per-item stamping never runs -- without the top-level override the
+        envelope's cached health probe would report a healthy backend and the
+        outage would be indistinguishable from "nothing remembered". The fake
+        reports a *healthy* ``health()`` on purpose: ``degraded`` can therefore
+        only become ``True`` through the per-call override, never through
+        ambient backend health. ``ok=False`` keeps the envelope invariant
+        ``degraded == (not ok) or health.degraded`` intact for a call that
+        could not reach the backend.
+        """
+        from types import SimpleNamespace
+
+        def _boom(*args, **kwargs):
+            raise RuntimeError("vector store unreachable")
+
+        fake = SimpleNamespace(
+            query=_boom,
+            health=lambda: MemoryHealth(ok=True, backend="fake", detail="", degraded=False),
+        )
+        monkeypatch.setattr(
+            "application.memory_entry_service.get_memory_backend", lambda: fake
+        )
+        # The cached health probe must read the *same* healthy fake; otherwise
+        # the assertion would ride on ambient backend health, not on the fix.
+        monkeypatch.setattr("memory.health.get_memory_backend", lambda: fake)
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            ctx = ctx_for_user(tenant, make_user(tenant), workspace=ws, roles=("editor",))
+
+            result = _service().search(
+                ctx, query="dark mode", scopes=["workspace"], workspace_id=ws.id
+            )
+
+            assert result["items"] == []
+            assert result["ok"] is False
+            assert result["degraded"] is True
+            assert result["detail"] == "search_backend_error:RuntimeError"
+            assert "vector store unreachable" not in result["detail"]
+
+    def test_partial_scope_failure_is_reported_degraded(self, monkeypatch):
+        """F9: a single failing scope must surface at the top level even when
+        another scope succeeds (returning no hits) -- the failure is not lost.
+
+        As above, the fake's ``health()`` is healthy so the ``degraded``/
+        ``ok`` assertions discriminate the per-call override from the cached
+        health envelope.
+        """
+        from types import SimpleNamespace
+
+        def _query(tenant_id, scope, scope_id, query, *, top_k):
+            if scope == "artifact":
+                raise RuntimeError("artifact scope unreachable")
+            return []
+
+        fake = SimpleNamespace(
+            query=_query,
+            health=lambda: MemoryHealth(ok=True, backend="fake", detail="", degraded=False),
+        )
+        monkeypatch.setattr(
+            "application.memory_entry_service.get_memory_backend", lambda: fake
+        )
+        monkeypatch.setattr("memory.health.get_memory_backend", lambda: fake)
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            artifact = _artifact(tenant, ws)
+            ctx = ctx_for_user(tenant, make_user(tenant), workspace=ws, roles=("editor",))
+
+            result = _service().search(
+                ctx,
+                query="note",
+                scopes=["workspace", "artifact"],
+                workspace_id=ws.id,
+                artifact_id=artifact.id,
+            )
+
+            assert result["ok"] is False
+            assert result["degraded"] is True
+            assert result["detail"] == "search_backend_error:RuntimeError"
+            assert "artifact scope unreachable" not in result["detail"]
+
 
 @pytest.mark.django_db
 class TestGetForgetDeleteScope:

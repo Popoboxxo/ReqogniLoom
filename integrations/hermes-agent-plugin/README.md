@@ -354,5 +354,5 @@ a token, a token-handling path has been reintroduced where it does not belong.
   "state": {...}}` (`backend/application/interview_service.py:1986`) and the
   MCP `interview.chat` tool returns that body unchanged
   (`backend/mcp_server/tools/interview.py:_handle_chat`). The plugin reads
-  `result.get("reply") or result.get("message")` (`__init__.py:329`); `reply`
+  `result.get("reply") or result.get("message")` (`__init__.py:352`); `reply`
   is the real field, `message` is only a defensive fallback.
