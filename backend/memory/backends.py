@@ -71,14 +71,16 @@ instead of the plan's bare ``TenantContext.set_tenant``.
 from __future__ import annotations
 
 import contextlib
+import logging
 import math
 import os
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Callable, Dict, Iterator, List, Optional, Sequence, Tuple, Type, Union
+from typing import Any, Callable, Dict, Iterator, List, Optional, Sequence, Tuple, Type, Union
 from uuid import UUID
 
+from django.db import transaction
 from django.utils import timezone
 from pgvector.django import CosineDistance
 
@@ -86,6 +88,9 @@ from llm_adapter.embedding_service import generate_embedding
 from memory.models import MemoryEntry
 from persistence.middleware import clear_request_tenant, set_request_tenant
 from persistence.tenancy import TenantContext
+
+
+logger = logging.getLogger(__name__)
 
 
 #: Identifier of a persisted memory entry, as issued by the *active* backend.
@@ -874,9 +879,55 @@ class PgvectorMemoryBackend(MemoryBackend):
                     embedding__isnull=False,
                 )
                 .annotate(distance=CosineDistance("embedding", query_embedding))
-                .order_by("distance")[:top_k]
+                .order_by("distance", "id")[:top_k]
             )
-            return [_ref_from_entry(e, distance=e.distance) for e in qs]
+            return [_ref_from_entry(e, distance=e.distance) for e in self._evaluate(qs)]
+
+    @staticmethod
+    def _evaluate(qs: Any) -> List[Any]:
+        """Evaluate *qs* under a transaction-local iterative ANN scan.
+
+        Same hardening :meth:`application.vector_port.PgVectorPort._evaluate`
+        applies to every other semantic-search site (#977/#978), and the one
+        this path was missing: the query walks the HNSW index
+        ``mem_entry_embedding_hnsw``, which yields ``hnsw.ef_search`` candidates
+        (pgvector default 40) *before* the scope / ``superseded_by`` /
+        ``embedding IS NOT NULL`` WHERE is applied. On a table that holds rows
+        from many scopes that post-filtering can discard every candidate and
+        hand back fewer rows than ``top_k`` asked for -- or none at all, even
+        though matching rows exist. The same default also caps the result set
+        at ``ef_search``, so a ``top_k`` beyond it could never be filled.
+
+        ``hnsw.iterative_scan = strict_order`` keeps the index producing
+        candidates until the LIMIT is satisfied while preserving exact
+        distance ordering. ``strict_order`` (not ``relaxed_order``) because
+        nearest-neighbour callers cannot tolerate rows out of distance order.
+
+        ``SET LOCAL`` is transaction-scoped, so the ``atomic()`` block is what
+        keeps the setting out of unrelated queries; it is at the same time the
+        savepoint that keeps a DB-level error (e.g. a dimension-mismatch
+        ``DataError``) from poisoning the caller's ambient transaction --
+        exactly the protection the other call sites used to have to wrap
+        around their own queryset evaluation.
+
+        Fail-open: ``enable_iterative_ann_scan()`` is itself a silent no-op on
+        pgvector < 0.8, and on any failure the queryset is still evaluated
+        normally, so this hardening can never turn into an outage. The import
+        is deferred to call time to keep ``memory`` -> ``application`` off the
+        import graph (the dependency points the other way already).
+        """
+        try:
+            from application.pgvector_ann import enable_iterative_ann_scan
+
+            with transaction.atomic():
+                enable_iterative_ann_scan()
+                return list(qs)
+        except Exception:  # noqa: BLE001 - accuracy hardening, never break a search
+            logger.debug(
+                "Iterative ANN scan not applied; falling back to the default scan",
+                exc_info=True,
+            )
+            return list(qs)
 
     def list_recent(
         self, tenant_id: UUID, scope: str, scope_id: UUID, limit: int = 20
