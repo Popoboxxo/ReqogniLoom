@@ -1,6 +1,6 @@
 {
   "generated_from": "reqogniloom==1.8.0-beta.19",
-  "tool_count": 224,
+  "tool_count": 227,
   "tools": [
     {
       "name": "admin.backup_create",
@@ -5831,6 +5831,64 @@
       }
     },
     {
+      "name": "suggestion.accept",
+      "prefix": "suggestion",
+      "is_write": true,
+      "description": "Accept an open suggestion: delegates to the existing per-kind domain path (for 'trace_link' the M2 confirm), then stamps the receipt accepted with a server-set decided_by/decided_at. An agent may not accept its own proposal (PERMISSION_DENIED).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUID of the suggestion to accept."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "suggestion.list",
+      "prefix": "suggestion",
+      "is_write": false,
+      "description": "List the open suggestions (ADR-019 durable proposal inbox) of a workspace, tenant-scoped. Each entry carries the producer, the server-set provenance (proposed_by/proposed_at) and the full payload. Read-only: suggestions whose kind is 'trace_link' point at a real, still-unconfirmed M2 proposal TraceLink that 'suggestion.accept' confirms.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "UUID of the workspace whose inbox is read."
+          }
+        },
+        "required": [
+          "workspace_id"
+        ]
+      }
+    },
+    {
+      "name": "suggestion.reject",
+      "prefix": "suggestion",
+      "is_write": true,
+      "description": "Reject an open suggestion: delegates to the per-kind discard path (for 'trace_link' the M2 discard removes the proposal link, never the linked artifacts), then stamps the receipt rejected with a server-set decided_by/decided_at.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUID of the suggestion to reject."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Optional human-readable rejection reason."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
       "name": "test.create",
       "prefix": "test",
       "is_write": true,
@@ -6448,8 +6506,8 @@
     {
       "name": "traceability.suggest_links",
       "prefix": "traceability",
-      "is_write": false,
-      "description": "SysEng 2.0 N3 (first stage): run the SE-Auditor for a workspace, filter findings that name a missing trace link (TRACE-P1/-P1b/-P2), and rank each finding's deterministic candidate pool via the LLM adapter (mock by default). Read-only/advisory — nothing is persisted; every returned finding/candidate reference is a real one from this run. No pgvector/embedding search is performed. The synchronous run takes ~94.5 s on a large workspace: pass 'async'=true to dispatch it to a Celery worker and get a 'task_id' instead (poll it via 'traceability.suggest_links_status').",
+      "is_write": true,
+      "description": "SysEng 2.0 N3 (first stage): run the SE-Auditor for a workspace, filter findings that name a missing trace link (TRACE-P1/-P1b/-P2), rank each finding's deterministic candidate pool via the LLM adapter (mock by default), and PERSIST the top-ranked candidate as an open 'trace_link' suggestion (a real, still-unconfirmed M2 proposal TraceLink) plus a durable inbox receipt a human accepts via suggestion.accept. One run leaves exactly one open suggestion per distinct edge; a repeated run dedups on the link edge. Production is agent/API-key only — a human trigger fails closed. No pgvector/embedding search is performed. The synchronous run takes ~94.5 s on a large workspace: pass 'async'=true to dispatch it to a Celery worker and get a 'task_id' instead (poll it via 'traceability.suggest_links_status').",
       "inputSchema": {
         "type": "object",
         "properties": {

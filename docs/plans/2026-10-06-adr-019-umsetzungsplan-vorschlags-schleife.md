@@ -7,7 +7,7 @@
 
 | Feld | Wert |
 |---|---|
-| **Status** | Entwurf — pausiert bis ADR-019 `proposed → accepted` |
+| **Status** | **Freigegeben** — ADR-019 `proposed → accepted` (2026-10-08); Umsetzung läuft (WP1–WP7, vollständig inkl. UI-Inbox WP6) |
 | **Datum** | 2026-10-06 |
 | **Bezug** | [ADR-019](../se/ADR/ADR-019_generischer_vorschlag_lebenszyklus.md) · #1155 (Aspekt 2 „Vorschlags-Schleife") · #1156 („Zuhören & Antizipieren") · #856 (nur Design) · #121 (`suggest_links` ohne Accept-Schritt) · #1089 (AI-Proposal-Authoring + Pending-Review-Queue) |
 | **Grundlage** | ADR-019 (Status `proposed`, entscheidungsreif; Review-Trail `RVW-2026-10-06-001…003`, Iteration 3 APPROVED); Arbeitseinheit **AP-B5.4** in [`2026-10-05-bugfix-hub-integrationen.md`](2026-10-05-bugfix-hub-integrationen.md) §3.6 |

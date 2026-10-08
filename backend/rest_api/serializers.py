@@ -208,6 +208,22 @@ _ERROR_MESSAGES: dict[str, dict[str, str]] = {
         "en": "A required service is temporarily unavailable.",
         "de": "Ein erforderlicher Dienst ist vorübergehend nicht verfügbar.",
     },
+    # ADR-019 WP5 / review finding 003-01: a suggestion may only be produced
+    # under an agent/API-key context. A human bearer trigger is refused
+    # fail-closed (409) rather than writing an unstamped, unreviewed proposal.
+    "PRODUCER_CONTEXT_REQUIRED": {
+        "en": (
+            "This action produces a reviewable proposal and may only run under "
+            "an agent/API-key context; a human trigger is refused. Use an "
+            "API key with an agent principal."
+        ),
+        "de": (
+            "Diese Aktion erzeugt einen prüfbaren Vorschlag und darf nur in "
+            "einem Agent-/API-Key-Kontext ausgeführt werden; ein menschlicher "
+            "Aufruf wird abgewiesen. Verwenden Sie einen API-Key mit "
+            "Agent-Principal."
+        ),
+    },
     # Issue #1165: an LLM provider timeout or transport failure is an expected,
     # retry-able upstream condition, not an internal server error.
     "LLM_TIMEOUT": {

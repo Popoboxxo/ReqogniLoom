@@ -13,10 +13,17 @@ polled instead of blocking the request thread.
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
 from celery import shared_task
 
 from application.event_bus import poll_and_dispatch
+
+if TYPE_CHECKING:
+    # ``AuthContext`` is only referenced in annotations; importing it under
+    # TYPE_CHECKING keeps the quoted annotation resolvable for linters without
+    # a runtime import (the function-local import below remains for runtime).
+    from auth_tenancy.context import AuthContext
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +56,8 @@ def run_traceability_suggest_links(
     scopes: "list[dict] | None" = None,
     tier: "str | None" = None,
     max_candidates: int = 5,
+    *,
+    api_key_id: "str | None" = None,
 ) -> dict:
     """Run the N3 ``suggest_links`` computation inside a Celery worker (#1197).
 
@@ -58,23 +67,25 @@ def run_traceability_suggest_links(
     invites proxy timeouts, so the async trigger dispatches it here instead and
     the caller polls ``suggest_links_status`` / the REST status endpoint.
 
-    Tenant isolation (ADR-03): only ``tenant_id`` crosses the queue boundary —
-    never the caller's credential. The worker re-arms *both* isolation layers
-    (``set_request_tenant``: ORM thread-local **and** ``SET
-    app.current_tenant`` for Postgres RLS) because it runs outside any request
-    thread, then builds a synthetic :meth:`AuthContext.system` tenant context.
-    The request that dispatched this task was already authorized by the
-    transport's RBAC gate before enqueueing, and the computation is read-only
-    and tenant-scoped, so no role is re-evaluated here (same rationale as
-    ``run_capability``).
+    Tenant isolation (ADR-03): only ``tenant_id`` and the API-key **id** cross
+    the queue boundary — never the caller's credential. The worker re-arms
+    *both* isolation layers (``set_request_tenant``: ORM thread-local **and**
+    ``SET app.current_tenant`` for Postgres RLS) because it runs outside any
+    request thread, then rebuilds the producer's **agent** :class:`AuthContext`
+    from the API-key row (:func:`_resolve_agent_context`).
+
+    Since ADR-019 WP5 the run *persists* a ``trace_link`` suggestion per
+    eligible finding, so it is a production and only an agent/API-key context
+    may run it. The dispatch path already refuses a human trigger
+    (``suggest_links_async``); this worker additionally **fails closed** with
+    :class:`~application.base.ProducerContextRequiredError` when no key id was
+    propagated or the key does not resolve to an active agent key in the
+    tenant, so no unstamped proposal can ever be written.
 
     Returns:
         The :meth:`SuggestLinksResult.to_dict` payload, stored verbatim in the
         Celery result backend and surfaced by the poll endpoint.
     """
-    from uuid import UUID
-
-    from auth_tenancy.context import AuthContext
     from persistence.middleware import clear_request_tenant, set_request_tenant
     from persistence.tenancy import TenantContext
     from traceability.audit import AuditScope
@@ -87,7 +98,7 @@ def run_traceability_suggest_links(
 
     try:
         set_request_tenant(tenant_id)
-        ctx = AuthContext.system(tenant_id=UUID(str(tenant_id)))
+        ctx = _resolve_agent_context(tenant_id, api_key_id)
         audit_scopes = (
             [
                 AuditScope(scope=row["scope"], artifact_id=row.get("artifact_id"))
@@ -121,6 +132,55 @@ def run_traceability_suggest_links(
                 logger.exception(
                     "run_traceability_suggest_links could not reset the tenant context"
                 )
+
+
+def _resolve_agent_context(tenant_id: str, api_key_id: "str | None") -> "AuthContext":
+    """Rebuild the producer's agent :class:`AuthContext` inside the worker.
+
+    ADR-03: only ``tenant_id`` and the API-key **id** cross the queue boundary,
+    never the credential. The key is looked up under the propagated tenant
+    (armed by ``set_request_tenant``; RLS at the DB layer narrows it further),
+    so a foreign-tenant key id cannot be used to forge provenance. Fail-closed:
+    a missing id, or an id that is not an active *agent* key in this tenant,
+    raises :class:`~application.base.ProducerContextRequiredError` — a human or
+    system context must never produce an unstamped proposal (ADR-019 7(f)).
+    """
+    from uuid import UUID
+
+    from application.base import ProducerContextRequiredError
+    from auth_tenancy.context import AuthContext, AuthMethod
+    from auth_tenancy.models import ApiKey
+
+    if not api_key_id:
+        raise ProducerContextRequiredError(
+            "run_traceability_suggest_links: no api_key_id was propagated; "
+            "refusing to produce a suggestion outside an agent/API-key context."
+        )
+    key = (
+        ApiKey.objects.filter(
+            id=api_key_id,
+            principal_type="agent",
+            revoked_at__isnull=True,
+        )
+        .select_related("user")
+        .first()
+    )
+    if key is None:
+        raise ProducerContextRequiredError(
+            "run_traceability_suggest_links: the propagated api_key_id does not "
+            "resolve to an active agent API key in this tenant."
+        )
+    return AuthContext(
+        user_id=key.user_id,
+        tenant_id=UUID(str(tenant_id)),
+        active_roles=(),
+        auth_method=AuthMethod.API_KEY,
+        api_key_id=key.id,
+        actor_type="agent",
+        agent_label=key.agent_label or "",
+        scope=key.scope,
+        api_key_workspace_ids=tuple(key.workspace_ids or ()),
+    )
 
 
 @shared_task(name="application.cleanup_import_idempotency_records")

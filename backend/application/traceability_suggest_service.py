@@ -62,7 +62,7 @@ from django.core.cache import cache
 from auth_tenancy.context import AuthContext
 
 from application.audit_service import AuditFindingView, AuditService
-from application.base import ServiceBase
+from application.base import ServiceBase, require_producer_context
 from traceability.audit import AuditScope
 from traceability.audit.registry import TRACE_P1, TRACE_P1B, TRACE_P2
 
@@ -281,8 +281,27 @@ class TraceabilitySuggestService(ServiceBase):
             SuggestLinksResponseError: The provider returned non-JSON content.
         """
         self._set_tenant_context(ctx)
+        # ADR-019 Decision 3/4, Zusage 7(f) (WP5): this run now PERSISTS a
+        # ``trace_link`` suggestion per distinct edge, so it is a
+        # production and must run under an agent/API-key context. A human
+        # bearer trigger is refused fail-closed (→ REST 409 /
+        # MCP PRODUCER_CONTEXT_REQUIRED) *before* the auditor or the provider
+        # is ever contacted — no unstamped, unreviewed proposal (001-09).
+        require_producer_context(ctx)
 
-        report = self._audit.run_audit(workspace_id, ctx, tier=tier, scopes=scopes)
+        # ADR-019 WP5/O7: audit the *confirmed* trace state. This run persists
+        # a ``trace_link`` proposal per finding below; without this the
+        # still-unconfirmed proposal would satisfy TRACE-P1/-P1b on a second
+        # run, the finding would vanish and the repeated run would not dedup on
+        # the edge as designed (it would return nothing). Unconfirmed proposals
+        # are not real trace edges for a completeness audit.
+        report = self._audit.run_audit(
+            workspace_id,
+            ctx,
+            tier=tier,
+            scopes=scopes,
+            include_proposal_links=False,
+        )
         findings = report.findings
 
         eligible = [
@@ -341,6 +360,15 @@ class TraceabilitySuggestService(ServiceBase):
         by_index: Dict[int, AuditFindingView] = {fv.index: fv for fv in findings}
         suggestions = self._build_suggestions(proposed, by_index, candidates_by_index)
 
+        # WP5: durably persist the top-ranked candidate of every ranked
+        # finding as a ``trace_link`` suggestion (M2 proposal + receipt). One
+        # run → exactly one ``open`` suggestion per **distinct edge** (two
+        # findings proposing the same source/target collapse to one receipt,
+        # B-02); the full ranked list stays in ``Suggestion.payload``. A
+        # repeated run dedups on the edge in the adapter (O7) instead of
+        # hard-failing on ``uq_tracelink_edge`` and reuses the open receipt.
+        self._persist_suggestions(suggestions, workspace_id, ctx)
+
         return SuggestLinksResult(
             tier=report.tier,
             provider=provider_name,
@@ -351,6 +379,49 @@ class TraceabilitySuggestService(ServiceBase):
             total_findings_available=report.total_findings_available,
             suggestions=suggestions,
         )
+
+    # ------------------------------------------------------------------
+    # Internal — durable persistence of the ranked suggestions (WP5 / ADR-019)
+    # ------------------------------------------------------------------
+
+    def _persist_suggestions(
+        self,
+        suggestions: List[LinkSuggestion],
+        workspace_id: "str | UUID",
+        ctx: AuthContext,
+    ) -> None:
+        """Persist the top-ranked candidate of every finding as a suggestion.
+
+        ADR-019 WP5. Every write is delegated to
+        :class:`~application.suggestion_service.SuggestionService` — the single
+        Layer-2 producer entry point (ADR-01) — which creates the real M2
+        proposal TraceLink *and* the durable receipt with server-set provenance.
+        ``payload`` is the **full** :meth:`LinkSuggestion.to_dict` (the whole
+        ranked list this service computed, never a caller-supplied object);
+        ``link_type`` is derived from ``payload.rule_id`` inside the adapter.
+        ``source_id``/``target_id`` are the real candidate ids; the adapter
+        re-validates the pair through the existing domain path (``payload`` is
+        untrusted, ADR-019 Decision 7).
+        """
+        from application.suggestion_service import SuggestionService
+
+        if not suggestions:
+            return
+        # One producer label for the whole run; a blank agent label falls back
+        # to the producing service name.
+        producer = ctx.agent_label or "traceability.suggest_links"
+        service = SuggestionService()
+        for suggestion in suggestions:
+            top = suggestion.ranked_candidates[0]
+            service.propose(
+                "trace_link",
+                ctx,
+                workspace_id=str(workspace_id),
+                payload=suggestion.to_dict(),
+                producer=producer,
+                source_id=suggestion.source_artifact_id,
+                target_id=top.artifact_id,
+            )
 
     # ------------------------------------------------------------------
     # Async trigger + poll (issue #1197) — mirrors BundleCompressionService's
@@ -372,11 +443,15 @@ class TraceabilitySuggestService(ServiceBase):
         The synchronous run takes ~94.5 s on a large workspace and previously
         blocked the request thread; this returns a ``task_id`` immediately so
         the caller can poll :meth:`get_suggest_links_status`. The heavy path is
-        unchanged — the worker executes the same :meth:`suggest_links`.
+        unchanged — the worker executes the same :meth:`suggest_links`, which
+        now persists a suggestion per eligible finding (ADR-019 WP5).
 
-        Nothing is persisted by the run itself (read-only/advisory), so there is
-        no double-creation surface: a repeated POST dispatches a fresh
-        read-only job and every poll only reads the stored result.
+        Production runs only in an agent/API-key context: the guard below fails
+        a human bearer trigger closed (→ 409) *before* anything is enqueued, so
+        no doomed job is dispatched. The worker rebuilds the same agent context
+        from the propagated ``api_key_id`` (the credential itself never crosses
+        the queue boundary). A repeated dispatch dedups on the trace-link edge
+        in the adapter (O7), so it does not create duplicate proposals.
 
         Returns:
             The ``task_id`` string on success, or ``AsyncTaskDispatcher``'s
@@ -384,6 +459,10 @@ class TraceabilitySuggestService(ServiceBase):
             dict when no broker is configured (REST/MCP answer 503).
         """
         self._set_tenant_context(ctx)
+        # ADR-019 001-09: production is agent/API-key only. Refuse a human
+        # trigger here (not only inside the worker) so the caller gets a clean
+        # 409 instead of a task that is guaranteed to fail.
+        require_producer_context(ctx)
 
         from application.tasks import run_traceability_suggest_links
         from llm_adapter.dispatcher import AsyncTaskDispatcher
@@ -405,6 +484,10 @@ class TraceabilitySuggestService(ServiceBase):
                 tier,
                 max_candidates,
             ],
+            # Only the key *id* crosses the queue boundary (never the secret);
+            # the worker looks the key up under the propagated tenant and
+            # rebuilds the agent AuthContext from it (fail-closed otherwise).
+            kwargs={"api_key_id": str(ctx.api_key_id)},
         )
 
         if isinstance(dispatch, str):

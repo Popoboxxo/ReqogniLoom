@@ -1,7 +1,7 @@
 ---
 adr_id: ADR-019
 title: "Generischer Vorschlags-Lebenszyklus — persistierte Suggestion-Entität als Klammer über vier bestehende Mechanismen"
-status: proposed
+status: accepted
 date: "2026-10-06"
 deciders: [orchestrator, ideation, user]
 affected_reqs: [REQ-L1-009, REQ-L1-078, REQ-L2-WE-002, REQ-L2-WE-003, REQ-L2-WE-005, REQ-L2-WE-006, REQ-L2-AS-012, REQ-L2-AI-002, REQ-L2-AI-007, REQ-L2-AI-008, REQ-L2-RV-001, REQ-L2-TE-001, REQ-L2-TE-010, REQ-L2-TE-011, REQ-L2-RA-020, REQ-L2-PC-006]
@@ -19,11 +19,16 @@ superseded_by: null
 - **Geschätzter Aufwand MVP:** nicht abschließend geschätzt (Aufwandszahl offen); Umfang = eine neue Tabelle + Migration/RLS, ein Produzent, ein Accept-Adapter (+ UI-/Manifest-Folgepaket).
 - **Offene Produkt-Inputs:** O1–O11, s. §„Offene Punkte (require product input)".
 
-**Status:** proposed (2026-10-06) — Entscheidungsvorlage. **User-Freigabe ausstehend**
-(Statuswechsel `proposed → accepted` erst nach positivem `concept-reviewer`-Review
-`RVW-2026-10-06-003` (Iteration 3, APPROVED) und User-Entscheid).
-**Datum:** 2026-10-06
-**Entscheider (vorgeschlagen):** `orchestrator`, `ideation`; **Freigabe:** `user` (offen).
+**Status:** accepted (2026-10-08) — **Freigegeben (User-Freigabe).** Statuswechsel
+`proposed → accepted` nach positivem `concept-reviewer`-Review `RVW-2026-10-06-003`
+(Iteration 3, APPROVED) und User-Entscheid. Das **STOP-Gate ist aufgehoben**; die
+Umsetzung erfolgt gemäß
+[`2026-10-06-adr-019-umsetzungsplan-vorschlags-schleife.md`](../../plans/2026-10-06-adr-019-umsetzungsplan-vorschlags-schleife.md)
+(WP1–WP7, vollständig inkl. UI-Inbox WP6). Der einzige offene, nicht blockierende Befund
+`003-01` (HTTP-Status-Mapping `409` vs. `403`) wird bei WP3/WP4 in der REST-/MCP-Fehler-Taxonomie
+verankert.
+**Datum (Entscheidungsvorlage):** 2026-10-06 · **Freigabe:** `user` (2026-10-08).
+**Entscheider:** `orchestrator`, `ideation`; **Freigabe:** `user` (erteilt).
 **Betroffene REQs:** REQ-L1-009 (Konfigurierbarer Item-Level-Workflow mit Audit-Trail,
 `docs/se/L1/Gesamtsystem/L1_Gesamtsystem_Requirements.md:218`), REQ-L1-078 (State Machine &
 Workflow, ebd. `:2135`), REQ-L2-WE-002 (WorkflowDefinition Management), REQ-L2-WE-003
@@ -443,8 +448,8 @@ Modellentscheidungen (O1–O11) einem bewussten Produkt-Entscheid vorbehalten bl
   aufnehmen).
 - **`open_adrs`-Feld existiert repo-weit nicht** (vgl. ADR-016 §4, `AUD-2026-09-333`): die
   REQ↔ADR-Verknüpfung oben bleibt eine belegte Näherung.
-- **Freigabe ausstehend:** Status `proposed`; Umsetzung erst nach `proposed → accepted`
-  durch den User (Re-Review `RVW-2026-10-06-003`, Iteration 3, liegt mit Verdict APPROVED vor).
+- **Freigabe erteilt:** Status `accepted` (2026-10-08); Umsetzung gemäß Umsetzungsplan
+  WP1–WP7. Re-Review `RVW-2026-10-06-003` (Iteration 3) liegt mit Verdict APPROVED vor.
 
 ---
 
@@ -508,11 +513,11 @@ Gesamt-Reihenfolge über #1155/#1201/#1202/#1204. Dieses ADR bleibt inhaltlich u
     Teilfehler einen Proposal-Link, der in der Suggestion-/`ReviewQueueService`-Sicht unsichtbar
     ist.
 
-**STOP-Gate:** Bis zur Klärung von O1–O11 und der User-Freigabe wird **kein** MVP implementiert —
-keine Migration, kein Modell, kein Tool. Alle drei Review-Iterationen sind abgeschlossen
-(`RVW-2026-10-06-001`, `RVW-2026-10-06-002`, `RVW-2026-10-06-003`); Iteration 3 endete mit
-Verdict **APPROVED**, einziger offener Befund ist `003-01` (info, nicht blockierend). Das ADR ist
-damit **entscheidungsreif**; nächster Schritt ist die User-Freigabe (`proposed → accepted`).
+**STOP-Gate aufgehoben (2026-10-08):** Mit der User-Freigabe (`proposed → accepted`) und der
+Einsortierung von O1–O11 (s. Umsetzungsplan §1) ist das STOP-Gate geschlossen; die Umsetzung ist
+freigegeben. Alle drei Review-Iterationen sind abgeschlossen (`RVW-2026-10-06-001`,
+`RVW-2026-10-06-002`, `RVW-2026-10-06-003`); Iteration 3 endete mit Verdict **APPROVED**, einziger
+offener Befund ist `003-01` (info, nicht blockierend).
 
 ---
 

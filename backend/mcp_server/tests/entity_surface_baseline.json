@@ -13,7 +13,7 @@
   "measured_at": {
     "version": "1.8.0-beta.18",
     "commit": "7b585bb4",
-    "note": "223 tools / 35 tool-group prefixes after interview.chat (#1164), traceability.query_links (#1098) and main_goal.query (#1097); still no known gaps."
+    "note": "227 tools / 36 tool-group prefixes after interview.chat (#1164), traceability.query_links (#1098) and main_goal.query (#1097); still no known gaps."
   },
   "violations": []
 }

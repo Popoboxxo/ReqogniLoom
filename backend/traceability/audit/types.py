@@ -108,6 +108,14 @@ class AuditContext:
     tenant_id: str
     scope: Optional[str] = None
     scope_artifact_id: Optional[str] = None
+    #: Whether :meth:`iter_trace_links` includes still-unconfirmed agent
+    #: proposals (``TraceLink.proposed_at IS NOT NULL``). Defaults to ``True``
+    #: so every existing audit caller is unchanged. A caller that audits the
+    #: *confirmed* trace state (ADR-019 WP5 — the ``traceability.suggest_links``
+    #: producer, whose own persisted proposal must not make the
+    #: derivation/allocation findings disappear on a repeated run) sets it to
+    #: ``False``.
+    include_proposal_links: bool = True
     _scope_item_ids: Optional[frozenset[str]] = field(
         default=None, repr=False, compare=False
     )
@@ -158,12 +166,18 @@ class AuditContext:
         ``tenant_id`` filter so resolution is deterministic regardless of the
         thread-local tenant context (the tenant is supplied explicitly to the
         engine — audit infrastructure, read-only, analogous to baseline).
+
+        Unconfirmed agent proposals (``proposed_at IS NOT NULL``) are only
+        yielded when :attr:`include_proposal_links` is set; a proposal is not
+        a real trace edge yet, so a *completeness* audit run over the confirmed
+        state must not count it (ADR-019 WP5 repeated-producer dedup).
         """
         from persistence.models import TraceLink
 
-        rows = TraceLink.unscoped.filter(tenant_id=self.tenant_id).values(
-            "id", "source_id", "target_id", "link_type"
-        )
+        rows = TraceLink.unscoped.filter(tenant_id=self.tenant_id)
+        if not self.include_proposal_links:
+            rows = rows.filter(proposed_at__isnull=True)
+        rows = rows.values("id", "source_id", "target_id", "link_type")
         for row in rows:
             yield {
                 "id": str(row["id"]),

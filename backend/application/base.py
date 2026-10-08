@@ -122,6 +122,52 @@ class SuppressionExpiredError(ValidationError):
     error_code = "SUPPRESSION_EXPIRED"
 
 
+class ProducerContextRequiredError(ValidationError):
+    """Raised when a proposal is produced outside an agent/API-key context.
+
+    ADR-019 Decision 3/4 + Zusage 7(f): the MVP production path is explicitly
+    limited to agent / API-key principals (MCP ``traceability.suggest_links``).
+    A human-bearer REST trigger would otherwise create an unstamped "proposal"
+    link with no ``proposed_by``/``proposed_at`` — a silent Human-in-the-Loop
+    bypass. The production adapter is therefore **fail-closed**: a context that
+    is not ``actor_type == "agent"`` with a non-null ``api_key_id`` is refused
+    with this error instead of writing anything.
+
+    A ``ValidationError`` subclass (same precedent as
+    :class:`BaselineGateBlockedError`) so every existing ``except
+    ValidationError`` caller keeps working, but a *distinct* type so the REST
+    layer can answer a dedicated code. HTTP mapping: **409 Conflict**
+    (WP3/WP4 register it in the REST/MCP error taxonomy; review finding
+    ``003-01``).
+    """
+
+    error_code = "PRODUCER_CONTEXT_REQUIRED"
+
+
+def require_producer_context(ctx: AuthContext) -> None:
+    """Fail closed unless *ctx* is an agent/API-key producer context.
+
+    ADR-019 Decision 3/4 + Zusage 7(f): the MVP production path is explicitly
+    limited to agent / API-key principals (MCP ``traceability.suggest_links``).
+    A human-bearer context would otherwise create an unstamped "proposal" link
+    (or, now, a suggestion receipt) with no ``proposed_by`` — a silent
+    Human-in-the-Loop bypass. Both :class:`SuggestionService` and the
+    ``TraceabilitySuggestService`` producer call this single helper so the
+    fail-closed rule cannot drift between them.
+
+    Raises:
+        ProducerContextRequiredError: the context is not ``actor_type ==
+            "agent"`` with a non-null ``api_key_id`` (→ HTTP 409).
+    """
+    if ctx.actor_type != "agent" or ctx.api_key_id is None:
+        raise ProducerContextRequiredError(
+            "Producing a suggestion requires an agent/API-key context "
+            "(actor_type='agent' and api_key_id set). A human bearer "
+            "context is refused fail-closed to prevent an unstamped, "
+            "unreviewed proposal."
+        )
+
+
 class OptimisticLockError(RuntimeError):
     """Raised when an update targets a stale version (REQ-L2-AS-004)."""
 
@@ -371,6 +417,8 @@ __all__ = [
     "WaiverReasonPolicyViolation",
     "WaiverFindingNotBlockingError",
     "SuppressionExpiredError",
+    "ProducerContextRequiredError",
+    "require_producer_context",
     "PermissionDeniedError",
     "NotFoundError",
     "ValidationError",

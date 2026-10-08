@@ -59,6 +59,7 @@ from application.services import (
     ValidationError,
 )
 from application.search_service import SEARCHABLE_ARTIFACT_TYPES
+from application.base import ProducerContextRequiredError
 from application.trace_link_service import MAX_WORKSPACE_LINKS_PAGE_SIZE
 from application.traceability_suggest_service import (
     SuggestLinksResponseError,
@@ -283,14 +284,19 @@ class CrossCuttingToolGroup(BaseToolGroup):
             "description": (
                 "SysEng 2.0 N3 (first stage): run the SE-Auditor for a "
                 "workspace, filter findings that name a missing trace link "
-                "(TRACE-P1/-P1b/-P2), and rank each finding's deterministic "
-                "candidate pool via the LLM adapter (mock by default). "
-                "Read-only/advisory — nothing is persisted; every returned "
-                "finding/candidate reference is a real one from this run. "
-                "No pgvector/embedding search is performed. The synchronous "
-                "run takes ~94.5 s on a large workspace: pass 'async'=true to "
-                "dispatch it to a Celery worker and get a 'task_id' instead "
-                "(poll it via 'traceability.suggest_links_status')."
+                "(TRACE-P1/-P1b/-P2), rank each finding's deterministic "
+                "candidate pool via the LLM adapter (mock by default), and "
+                "PERSIST the top-ranked candidate as an open 'trace_link' "
+                "suggestion (a real, still-unconfirmed M2 proposal TraceLink) "
+                "plus a durable inbox receipt a human accepts via "
+                "suggestion.accept. One run leaves exactly one open suggestion "
+                "per distinct edge; a repeated run dedups on the link edge. "
+                "Production is agent/API-key only — a human trigger fails "
+                "closed. No pgvector/embedding search is performed. The "
+                "synchronous run takes ~94.5 s on a large workspace: pass "
+                "'async'=true to dispatch it to a Celery worker and get a "
+                "'task_id' instead (poll it via "
+                "'traceability.suggest_links_status')."
             ),
             "inputSchema": {
                 "type": "object",
@@ -1011,6 +1017,11 @@ class CrossCuttingToolGroup(BaseToolGroup):
             return ToolResult.error("NOT_FOUND", str(exc))
         except PermissionDeniedError as exc:
             return ToolResult.error("PERMISSION_DENIED", str(exc))
+        except ProducerContextRequiredError as exc:
+            # ADR-019 7(f)/003-01: production now writes a suggestion per run,
+            # so only an agent/API-key context may trigger it. A human trigger
+            # fails closed with the REST 409 analogue, CODE "CONFLICT".
+            return ToolResult.error("CONFLICT", str(exc))
         except SuggestLinksResponseError as exc:
             return ToolResult.error("INTERNAL_ERROR", str(exc))
         except (ValidationError, ValueError) as exc:

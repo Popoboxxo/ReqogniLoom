@@ -91,6 +91,11 @@ from rest_api.review_views import (
     ReviewsPendingView,
     WorkspaceReviewsPendingView,
 )
+from rest_api.suggestion_views import (
+    SuggestionAcceptView,
+    SuggestionListView,
+    SuggestionRejectView,
+)
 from rest_api.architecture_decompose_views import (
     WorkspaceArchitectureDecomposeCommitView,
     WorkspaceArchitectureDecomposeView,
@@ -989,6 +994,28 @@ urlpatterns = [
         "workspaces/<uuid:workspace_id>/reviews/pending/",
         WorkspaceReviewsPendingView.as_view(),
         name="workspace-reviews-pending",
+    ),
+    # Generic suggestion inbox (ADR-019 WP4) — the REST half of the MCP
+    # `suggestion.*` tool group (WP3), both a thin adapter over the Layer-2
+    # `application.suggestion_service.SuggestionService`. Accept/reject delegate
+    # to the existing per-kind domain path (for `trace_link` the M2 confirm/
+    # discard) and then stamp the durable receipt; no state transition is
+    # reimplemented here. Error taxonomy (review finding 003-01):
+    # AgentSelfConfirmError -> 403, ProducerContextRequiredError -> 409.
+    path(
+        "suggestions/",
+        SuggestionListView.as_view(),
+        name="api-v1-suggestions",
+    ),
+    path(
+        "suggestions/<uuid:suggestion_id>/accept/",
+        SuggestionAcceptView.as_view(),
+        name="api-v1-suggestion-accept",
+    ),
+    path(
+        "suggestions/<uuid:suggestion_id>/reject/",
+        SuggestionRejectView.as_view(),
+        name="api-v1-suggestion-reject",
     ),
     # Artifact comments (Menschen-im-System spec §4) — nested sub-resource,
     # must precede router.urls so the artifacts/<pk>/ detail route cannot

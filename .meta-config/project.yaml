@@ -99,7 +99,7 @@ context_file:
 variables:
   PROJECT_NAME: ReqogniLoom
   PROJECT_DESCRIPTION: AI-natives Requirements- und Test-Management-Tool mit MBSE-kompatibler
-    Artefakt-Zerlegung, REST API + nativem MCP Server (35 Tool-Gruppen-Präfixe, 223
+    Artefakt-Zerlegung, REST API + nativem MCP Server (36 Tool-Gruppen-Präfixe, 227
     Tools), LLM-Adapter (Anthropic/OpenAI/Ollama/Azure/mock), Multi-Tenancy mit Row-Level-Isolation,
     11 core/built-in Trace-Link-Typen (tenant-extensible catalog), Baselines (3 Scopes),
     3 Rigor-Presets (minimal/standard/extended) und i18n (DE/EN).
@@ -147,7 +147,7 @@ variables:
     REST API unter /api/v1/ (DRF, 28 ViewSets + 74 APIViews, JWT-Auth mit vierstufiger
     RBAC-Matrix + Item-Level-Permissions, OpenAPI via drf-spectacular) und nativer
     MCP Server unter /mcp/ (JSON-RPC 2.0, auch /api/v1/mcp/; Transports: HTTP, SSE,
-    stdio; 35 Tool-Gruppen-Präfixe mit 223 Tools laut docs/agent-templates/tool-manifest.json;
+    stdio; 36 Tool-Gruppen-Präfixe mit 227 Tools laut docs/agent-templates/tool-manifest.json;
     API-Key `reqlo_*`). Fähigkeiten: Requirements Management, Architecture Elements
     (MBSE-kompatibel), Test-Management, 11 core/built-in Trace-Link-Typen (tenant-extensible
     catalog), Baselines (3 Scopes) mit Diff-Engine, Artifact-Diff (feld-level), History-Endpoint,
@@ -176,7 +176,7 @@ variables:
       memory/                                # AI Long-Term Memory (Workspace + Tenant-global)
       application/                           # Layer 2 (47 *_service.py Domain-Services, Single Entry Point)
       rest_api/                              # Layer 3 (DRF ViewSets + drf-spectacular OpenAPI)
-      mcp_server/                            # Layer 3 (MCP-Tool-Registry: 223 Tools, 35 Gruppen)
+      mcp_server/                            # Layer 3 (MCP-Tool-Registry: 227 Tools, 36 Gruppen)
       diagram/                               # Ext (SVG/PNG/Mermaid/PlantUML Renderer)
       icd/                                   # Ext (Interface Control Document Management)
       se_metrics/                            # Ext (KPI-Aggregation, Read-Model)
@@ -233,7 +233,7 @@ variables:
     e2e/playwright.config.ts        — Playwright-Konfiguration (Chromium, 4 Shards)
     scripts/build.sh              — Release-Build mit APP_VERSION/GIT_COMMIT_SHA/BUILD_TIME '
   KEY_PATTERNS: '- Django REST Framework (DRF) für REST-API-Endpoints (28 ViewSets
-    + 74 APIViews) - MCP-Server (JSON-RPC 2.0) mit 35 Tool-Gruppen-Präfixen und 223
+    + 74 APIViews) - MCP-Server (JSON-RPC 2.0) mit 36 Tool-Gruppen-Präfixen und 227
     Tools für AI-Integration (kanonisches Manifest: docs/agent-templates/tool-manifest.json,
     Drift-Gate: backend/mcp_server/tests/test_tool_manifest_drift.py) - drf-spectacular
     für OpenAPI 3.0 Schema-Generierung (Swagger-UI, ReDoc) - Single-Entry-Point Pattern
@@ -303,7 +303,7 @@ variables:
   REQ_CATEGORIES_LIST: |
     - **Functional** — Features, User Stories, CRUD auf Requirements/Architecture/TestCases/ADRs/Risks/Issues
     - **Non-Functional** — Performance, Sicherheit, Skalierbarkeit, Audit-Compliance, Multi-Tenancy
-    - **API** — REST API (/api/v1/, JWT-Auth, OpenAPI) und MCP Server (/mcp/ und /api/v1/mcp/, JSON-RPC 2.0, 35 Tool-Gruppen-Präfixe)
+    - **API** — REST API (/api/v1/, JWT-Auth, OpenAPI) und MCP Server (/mcp/ und /api/v1/mcp/, JSON-RPC 2.0, 36 Tool-Gruppen-Präfixe)
     - **UI/UX** — Frontend (React 19 SPA), 42 Component-Bereiche, i18n (DE/EN), Barrierefreiheit
     - **Data** — Generic Artifact Model, Multi-Tenancy via Row-Level-Security, Configurable Rigor
     - **Integration** — Externe Systeme, CSV-Bulk-Import, PDF-Report-Export, ReqIF 1.2-Import/Export, LLM-Provider (Anthropic/OpenAI/Ollama/Azure/mock)
@@ -363,7 +363,7 @@ variables:
     5. git tag v<version> (z.B. v1.8.0-beta.15)
     6. Release-Build via scripts/build.sh (bzw. make build) — NICHT nacktes docker compose build. scripts/build.sh berechnet APP_VERSION=$(cat VERSION), GIT_COMMIT_SHA=$(git rev-parse HEAD) und BUILD_TIME=$(date -u ...) und übergibt sie als Build-Args an `docker compose -f deploy/docker-compose.yml --project-directory . build`. Ein nacktes docker compose build lässt APP_VERSION/GIT_COMMIT_SHA/BUILD_TIME auf "unknown" — GET /api/v1/version/ liefert dann keine echten Werte. Die eigentliche Image-Publikation nach GHCR läuft in .github/workflows/docker-publish.yml.
     7. `docker compose -f deploy/docker-compose.yml --project-directory . push` (optional, Self-Hosted-First)
-    Stand VERSION 1.8.0-beta.15 (Release-Report docs/se/reports/RELEASE_v1.8.0-beta.15.md, alle Release-Gates bestanden): 620 Backend-Testdateien (`test_*.py` unter backend/), 54 E2E-Spec-Dateien unter e2e/tests/ (4 CI-Shards), MCP-Katalog 223 Tools in 35 Gruppen. Anzahl der pytest-/Playwright-Testfälle ist bewusst NICHT hier hinterlegt — sie nur per Testlauf ermitteln (`make test-backend`, `make test-frontend`, `npm run test:e2e` in e2e/), CI-Zahlen stehen im jeweiligen Release-Report.
+    Stand VERSION 1.8.0-beta.15 (Release-Report docs/se/reports/RELEASE_v1.8.0-beta.15.md, alle Release-Gates bestanden): 620 Backend-Testdateien (`test_*.py` unter backend/), 54 E2E-Spec-Dateien unter e2e/tests/ (4 CI-Shards), MCP-Katalog 227 Tools in 36 Gruppen. Anzahl der pytest-/Playwright-Testfälle ist bewusst NICHT hier hinterlegt — sie nur per Testlauf ermitteln (`make test-backend`, `make test-frontend`, `npm run test:e2e` in e2e/), CI-Zahlen stehen im jeweiligen Release-Report.
   SE_MIN_DEPTH: 1
   SE_MAX_DEPTH: 4
   SE_MAX_CRITIC_ITERATIONS: 1
