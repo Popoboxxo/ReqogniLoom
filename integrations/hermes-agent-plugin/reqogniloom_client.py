@@ -74,6 +74,13 @@ MCP_TOOLS: dict[str, str] = {
     "interview_abandon": "interview.abandon",
     "requirements": "requirement.query",
     "testcases": "test.query",
+    # ADR-019 proposal surface: the durable suggestion inbox and its decision
+    # tools, plus the server-side pending-review queue (workflow ``proposed``
+    # items + approval gates) an accepted capture lands in.
+    "suggestions": "suggestion.list",
+    "suggestion_accept": "suggestion.accept",
+    "suggestion_reject": "suggestion.reject",
+    "review_pending": "review.list_pending",
 }
 
 #: JSON-RPC server-defined codes emitted by the backend's ErrorFormatter
@@ -592,6 +599,58 @@ class ReqogniLoomClient:
 
     def abandon(self, session_id: str) -> dict[str, Any]:
         return self._mcp_call(MCP_TOOLS["interview_abandon"], {"session_id": session_id})
+
+    # -- suggestions / pending review (ADR-019) ------------------------------
+
+    def list_suggestions(self, workspace_id: str) -> list[dict[str, Any]]:
+        """MCP ``suggestion.list`` — the open ADR-019 proposals of a workspace.
+
+        Read-only, tenant-scoped. Each entry carries the server-set provenance
+        (``producer``/``proposed_by``/``proposed_at``) and the full ``payload``;
+        one entry is decided by id through :meth:`accept_suggestion` /
+        :meth:`reject_suggestion`.
+        """
+        payload = self._mcp_call(MCP_TOOLS["suggestions"], {"workspace_id": workspace_id})
+        return _list_from(payload, "suggestions")
+
+    def accept_suggestion(self, suggestion_id: str) -> dict[str, Any]:
+        """MCP ``suggestion.accept`` — accept one suggestion by id.
+
+        Delegates server-side to the per-kind domain path and stamps the
+        receipt accepted. An agent may not accept its own proposal: the server
+        answers ``PERMISSION_DENIED``, which classifies as the degradable
+        :class:`_PermissionError` and propagates unchanged.
+        """
+        return self._mcp_call(MCP_TOOLS["suggestion_accept"], {"id": suggestion_id})
+
+    def reject_suggestion(self, suggestion_id: str, reason: str = "") -> dict[str, Any]:
+        """MCP ``suggestion.reject`` — reject one suggestion by id.
+
+        The delegated discard path never destroys the target artifact; the
+        server stamps the receipt rejected. ``reason`` is omitted when empty so
+        the wire shape matches the tool schema's optional field.
+        """
+        arguments: dict[str, Any] = {"id": suggestion_id}
+        if reason:
+            arguments["reason"] = reason
+        return self._mcp_call(MCP_TOOLS["suggestion_reject"], arguments)
+
+    def list_pending_reviews(
+        self, workspace_id: str, item_type: str | None = None
+    ) -> list[dict[str, Any]]:
+        """MCP ``review.list_pending`` — the server-side pending-review queue.
+
+        Returns items whose current workflow state is one hop from a human
+        approval gate, including artifacts an agent created in the ``proposed``
+        state (``initial_state_for``). This is where the artifacts created by
+        ``/reqogniloom accept`` appear until a human confirms or discards them.
+        Read-only.
+        """
+        arguments: dict[str, Any] = {"workspace_id": workspace_id}
+        if item_type:
+            arguments["item_type"] = item_type
+        payload = self._mcp_call(MCP_TOOLS["review_pending"], arguments)
+        return _list_from(payload, "items")
 
     # -- stats (dashboard POC) -----------------------------------------------
 

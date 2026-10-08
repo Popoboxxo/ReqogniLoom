@@ -91,6 +91,9 @@ Environment variables, read at call time (no persisted config file):
 /reqogniloom abandon                                 Cancel the current interview
 /reqogniloom workspaces                              List workspaces visible to this API key
 /reqogniloom stats [workspace_id]                    Quick counts (requirements, testcases, open interviews)
+/reqogniloom suggestion list [workspace_id]          List server-side ADR-019 suggestions (read-only)
+/reqogniloom suggestion accept <id>                  Accept one server-side suggestion by id
+/reqogniloom suggestion reject <id> [reason...]      Reject one server-side suggestion by id
 /reqogniloom help                                    Show this text
 ```
 
@@ -125,7 +128,8 @@ Opt-in, off by default, and it never creates anything by itself:
 /reqogniloom listen status              # on/off, where, when the last capture was
 /reqogniloom listen off                 # stay quiet again
 /reqogniloom review                     # what ReqogniLoom proposed from your words
-/reqogniloom accept <index|all>         # create the artifacts you approve
+/reqogniloom review pending [ws]        # server-side queue: proposals awaiting a human
+/reqogniloom accept <index|all>         # create the captured artifacts as proposals
 /reqogniloom dismiss <index|all>        # drop them without creating anything
 ```
 
@@ -146,12 +150,58 @@ item, with the confirmed proposal passed back to the API — and removes them fr
 the queue. Nothing else creates artifacts, and a failed capture leaves the queue
 untouched.
 
+**What `accept` actually creates: proposals, not final requirements.** The
+accept path is `interview.formalize` under the plugin's API-key context, which
+is an *agent* principal. ReqogniLoom seeds an agent-created artifact into the
+workflow state **`proposed`** (`workflow.services.initial_state_for`), so the
+artifact is born as a proposal and waits for a human confirm — it is never
+adopted as a final requirement by the plugin. Use `/reqogniloom review pending`
+to list that server-side queue (`review.list_pending`) together with the ADR-019
+suggestion inbox (`suggestion.list`); nothing is auto-confirmed.
+
+This is the M1 proposal semantics (the workflow `proposed` state), reused rather
+than re-implemented (ADR-01 thin client). The plugin does **not** route artifact
+creation through the ADR-019 `suggestion.accept` adapter: in the ADR-019 MVP the
+`artifact_create` kind is registered but dormant, so no generic accept path for
+new artifacts exists server-side. `suggestion.list`/`suggestion.accept`/
+`suggestion.reject` are available in the client and surfaced by `review pending`
+for the kinds that *are* live (e.g. `trace_link`).
+
+One honest boundary: the `minimal` rigor preset deliberately has no `proposed`
+state (`workflow/definition_store.py`, `SCHEMAS_WITHOUT_PROPOSED`), so on a
+`minimal`-preset workspace `formalize` lands the artifact in the preset's normal
+initial state (`draft`) instead — still not a final/adopted requirement, but also
+not parked in the review queue. The proposal loop is only meaningful for the
+`standard`/`extended` presets. Forcing `proposed` into `minimal` is explicitly
+out of scope (ADR-019 O3).
+
 Two deliberate limits: at most one capture every 45 s per install (a chatty
 session must not queue an LLM turn per message), and a hard cap of 20 queued
 suggestions (oldest dropped first) so the queue cannot grow without bound.
 Duplicates are dropped by content hash. Diagnostics go to
 `$HERMES_HOME/reqogniloom/capture.log`; the worker writes nothing to stdout and
 never fails the turn it was spawned from.
+
+## Server-side suggestions (ADR-019)
+
+The ADR-019 suggestion inbox can also be decided straight from the command line,
+by **explicit id** — the listing itself stays read-only:
+
+```text
+/reqogniloom suggestion list [ws]                 # read-only: server-side suggestions of a workspace
+/reqogniloom suggestion accept <id>               # accept ONE server-side suggestion by id
+/reqogniloom suggestion reject <id> [reason...]   # reject ONE, with an optional reason
+```
+
+`accept` and `reject` always name exactly one suggestion id: there is no default
+and no `all`, so **nothing is ever accepted automatically**. An incomplete
+command (no id) prints the usage line and calls no tool. This is deliberately
+distinct from the listen-mode pair above: `accept <index|all>` formalizes the
+*local* suggestions that listen mode captured into `state.json`, whereas
+`suggestion accept|reject <id>` decide a *server-side* ADR-019 suggestion by its
+server id. An agent may not accept its own proposal — the server answers
+`PERMISSION_DENIED`, which the command renders as a readable
+`ReqogniLoom error: …` instead of raising.
 
 ## Memory capabilities
 
@@ -213,6 +263,7 @@ tests/
 ├── test_reqogniloom_client.py
 ├── test_slash_command.py
 ├── test_listen_mode.py     # listen switch, review queue, hook, capture worker
+├── test_suggestion_surface.py  # ADR-019 client surface, review pending, suggestion slash group
 └── test_plugin_api.py
 ```
 
@@ -257,13 +308,18 @@ a token, a token-handling path has been reintroduced where it does not belong.
 
 ## Known gaps (POC scope)
 
-- **BLOCKED — ambient capture → `proposed` artifact (#1156).** The second half
-  of ambient capture — turning a captured message into a *proposed* artifact —
-  is blocked by [ADR-019](../../docs/se/ADR/ADR-019_generischer_vorschlag_lebenszyklus.md)
-  (status `proposed`), which defines the generic proposal lifecycle it would
-  depend on. It is therefore **not implemented**. The existing listen mode
-  (`_capture.py`, `tests/test_listen_mode.py`) is left **unchanged** and still
-  only queues suggestions for `/reqogniloom review`.
+- **Ambient capture → `proposed` artifact (#1156) — wired, M1 path.** The
+  capture → proposed → review-before-adoption loop is connected: `/reqogniloom
+  accept` creates the captured artifacts via `interview.formalize` under the
+  plugin's agent API-key context, so `workflow.services.initial_state_for` seeds
+  them as **`proposed`** and they appear in the server-side review queue
+  (`review.list_pending`, `ReviewQueueService`), which `/reqogniloom review
+  pending` surfaces. Nothing is silently adopted. The `minimal` preset has no
+  `proposed` state by design (ADR-019 O3), so there the artifact starts in the
+  preset's normal initial state instead; the ADR-019 `artifact_create` adapter
+  that would give `minimal` a proposal loop is dormant in the MVP. The existing
+  listen mode (`_capture.py`, `tests/test_listen_mode.py`) is left unchanged and
+  still only queues suggestions for `/reqogniloom review`.
 - One hook, `pre_llm_call`, used only to capture the user's own messages while
   listen mode is on. It returns `None` and injects no context; the interview flow
   itself is still command/dashboard-driven.

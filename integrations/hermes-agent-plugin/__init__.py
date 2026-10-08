@@ -97,12 +97,28 @@ Listen mode ("hear along", nothing is created without your word):
                                           propose artifacts from them.
   listen off                             Stop capturing.
   listen status                          Show whether capturing is on, and where.
-  review                                 List the pending suggestions.
-  accept <index|all>                     Turn suggestions into real artifacts.
-  dismiss <index|all>                    Drop suggestions without creating anything.
+  review                                 List the pending local suggestions.
+  review pending [workspace_id]          List the server-side proposals awaiting review
+                                          (workflow review queue + suggestion inbox).
+  accept <index|all>                     Create the CAPTURED local suggestions as proposals.
+  dismiss <index|all>                    Drop local suggestions without creating anything.
+
+Server-side suggestions (ADR-019 — decided one at a time, by id, never automatically):
+  suggestion list [workspace_id]         List the server-side suggestions of a workspace.
+  suggestion accept <id>                 Accept ONE server-side suggestion by id.
+  suggestion reject <id> [reason...]     Reject ONE server-side suggestion by id.
+
+  `suggestion accept/reject` decide a server-side ADR-019 suggestion by id;
+  `accept <index|all>` only formalizes suggestions captured locally by listen mode.
 
   help                                   Show this text.
 """
+
+#: Shared usage line for the ``suggestion`` group; also the reply to a missing
+#: action or a missing ``<id>`` — so an incomplete command can never decide one.
+_SUGGESTION_USAGE = (
+    "Usage: /reqogniloom suggestion list [workspace_id] | accept <id> | reject <id> [reason...]"
+)
 
 
 def _fmt_missing_field(field: Any) -> str:
@@ -243,7 +259,10 @@ def _listen_status(listen: Dict[str, Any]) -> str:
 
 def _fmt_review(suggestions: Sequence[Dict[str, Any]]) -> str:
     if not suggestions:
-        return "No pending suggestions. Turn listen mode on with `/reqogniloom listen on`, then review again."
+        return (
+            "No pending suggestions. Turn listen mode on with `/reqogniloom listen on`, "
+            "then review again. See server-side proposals with `/reqogniloom review pending`."
+        )
     lines = [f"{len(suggestions)} pending suggestion(s) — nothing is created until you accept:"]
     for index, suggestion in enumerate(suggestions):
         items = suggestion.get("items") or []
@@ -256,6 +275,7 @@ def _fmt_review(suggestions: Sequence[Dict[str, Any]]) -> str:
             kind = item.get("type") if isinstance(item, dict) else "?"
             lines.append(f"      - {kind}: {title or '(no title)'}")
     lines.append("Accept with `/reqogniloom accept <index|all>`, drop with `/reqogniloom dismiss <index|all>`.")
+    lines.append("Accepted artifacts are created as proposals; see them with `/reqogniloom review pending`.")
     return "\n".join(lines)
 
 
@@ -368,7 +388,12 @@ def _handle_slash(raw_args: str) -> Optional[str]:
             return _handle_listen(client, state, rest)
 
         if sub == "review":
+            if rest and rest[0].lower() == "pending":
+                return _handle_review_pending(client, state, rest[1:])
             return _fmt_review(state.get("suggestions") or [])
+
+        if sub == "suggestion":
+            return _handle_suggestion(client, state, rest)
 
         if sub in ("accept", "dismiss"):
             return _handle_review_action(client, state, sub, rest)
@@ -444,7 +469,10 @@ def _handle_review_action(client: ReqogniLoomClient, state: Dict[str, Any], sub:
         remaining = [entry for index, entry in enumerate(suggestions) if index not in targets]
         state["suggestions"] = remaining
         _save_state(state)
-        return f"Dismissed {len(targets)} suggestion(s); {len(remaining)} still pending."
+        return (
+            f"Dismissed {len(targets)} suggestion(s); {len(remaining)} still pending. "
+            "Nothing was created on the server."
+        )
 
     created: List[str] = []
     failures: List[str] = []
@@ -468,6 +496,16 @@ def _handle_review_action(client: ReqogniLoomClient, state: Dict[str, Any], sub:
     lines: List[str] = []
     if created:
         lines.append(f"Created {len(created)} artifact(s): {', '.join(created)}")
+        # The accept path is interview.formalize under the plugin's API-key
+        # (agent) context: workflow.services.initial_state_for seeds the new
+        # artifacts as `proposed` wherever the workspace graph knows that state,
+        # so they await a human decision in the server-side review queue. They
+        # are never adopted as final requirements here.
+        lines.append(
+            "Created as proposals / awaiting review (agent context) — nothing is "
+            "adopted as final. Confirm or discard them in ReqogniLoom's review "
+            "surface; list them with `/reqogniloom review pending`."
+        )
     if failures:
         lines.append("Failed, still pending:")
         lines.extend(f"      {line}" for line in failures)
@@ -476,6 +514,128 @@ def _handle_review_action(client: ReqogniLoomClient, state: Dict[str, Any], sub:
     if remaining:
         lines.append(f"{len(remaining)} suggestion(s) still pending.")
     return "\n".join(lines)
+
+
+def _handle_review_pending(
+    client: ReqogniLoomClient, state: Dict[str, Any], rest: Sequence[str]
+) -> str:
+    """List the *server-side* proposals awaiting a human, not the local queue.
+
+    Two read-only surfaces, each degrading independently so one failing call
+    cannot sink the listing (the slash command's contract is "never raise; always
+    a readable string"):
+
+    * ``review.list_pending`` — the workflow review queue (items in the
+      ``proposed`` state, e.g. the artifacts ``/reqogniloom accept`` created,
+      plus approval-gate items);
+    * ``suggestion.list`` — the ADR-019 durable suggestion inbox (generic
+      proposals such as ``trace_link``).
+    """
+    listen = state.get("listen") or {}
+    explicit = rest[0] if rest else (listen.get("workspace_id") or state.get("workspace_id"))
+    workspace_id = resolve_workspace_id(client, explicit)
+
+    lines: List[str] = [f"Pending review in workspace {workspace_id}:"]
+
+    try:
+        reviews = client.list_pending_reviews(workspace_id)
+    except ReqogniLoomError as exc:
+        lines.append(f"  workflow queue:  unavailable ({exc})")
+    else:
+        if reviews:
+            lines.append(f"  workflow queue ({len(reviews)}):")
+            for item in reviews:
+                lines.append(
+                    f"    - {item.get('item_type', '?')} "
+                    f"{item.get('item_id', '?')} [{item.get('current_state', '?')}]"
+                )
+        else:
+            lines.append("  workflow queue:  nothing awaiting review.")
+
+    try:
+        suggestions = client.list_suggestions(workspace_id)
+    except ReqogniLoomError as exc:
+        lines.append(f"  suggestion inbox: unavailable ({exc})")
+    else:
+        if suggestions:
+            lines.append(f"  suggestion inbox ({len(suggestions)}):")
+            for suggestion in suggestions:
+                lines.append(
+                    f"    - {suggestion.get('kind', '?')} "
+                    f"{suggestion.get('id', '?')} [{suggestion.get('status', '?')}]"
+                )
+        else:
+            lines.append("  suggestion inbox: empty.")
+
+    lines.append("Nothing is adopted automatically — every item waits for a human confirm.")
+    return "\n".join(lines)
+
+
+def _fmt_suggestion_entry(suggestion: Dict[str, Any]) -> str:
+    """Render one server-side suggestion as a single line.
+
+    ``id`` / ``kind`` / ``status`` are always shown; the server-set provenance
+    (``producer`` or ``proposed_by``) is appended only when present, so the line
+    stays the same shape for a payload that omits it.
+    """
+    parts = [
+        str(suggestion.get("id", "?")),
+        str(suggestion.get("kind", "?")),
+        f"[{suggestion.get('status', '?')}]",
+    ]
+    producer = suggestion.get("producer") or suggestion.get("proposed_by")
+    if producer:
+        parts.append(f"by {producer}")
+    return "  ".join(parts)
+
+
+def _handle_suggestion(
+    client: ReqogniLoomClient, state: Dict[str, Any], rest: Sequence[str]
+) -> str:
+    """The ADR-019 ``suggestion`` group: list / accept / reject, by explicit id.
+
+    ``accept`` and ``reject`` decide exactly the one *server-side* suggestion
+    named on the command line — there is no default and no "all", so nothing is
+    ever auto-accepted. A missing ``<id>`` returns the usage string without
+    calling the tool. A ``PERMISSION_DENIED`` (e.g. an agent trying to accept
+    its own proposal) is a :class:`_PermissionError`, a
+    :class:`ReqogniLoomError`; it propagates to the caller's ``except
+    ReqogniLoomError`` and is rendered as a readable error, never raised.
+    """
+    action = rest[0].lower() if rest else ""
+    args = rest[1:]
+
+    if action == "list":
+        listen = state.get("listen") or {}
+        explicit = args[0] if args else (listen.get("workspace_id") or state.get("workspace_id"))
+        workspace_id = resolve_workspace_id(client, explicit)
+        suggestions = client.list_suggestions(workspace_id)
+        if not suggestions:
+            return f"No open suggestions in workspace {workspace_id}."
+        lines = [f"Open suggestions in workspace {workspace_id}:"]
+        lines.extend(f"  {_fmt_suggestion_entry(suggestion)}" for suggestion in suggestions)
+        lines.append(
+            "Decide one explicitly with `/reqogniloom suggestion accept <id>` or "
+            "`/reqogniloom suggestion reject <id> [reason...]`."
+        )
+        return "\n".join(lines)
+
+    if action == "accept":
+        if not args:
+            return _SUGGESTION_USAGE
+        result = client.accept_suggestion(args[0])
+    elif action == "reject":
+        if not args:
+            return _SUGGESTION_USAGE
+        result = client.reject_suggestion(args[0], " ".join(args[1:]))
+    else:
+        return _SUGGESTION_USAGE
+
+    status = result.get("status", "?") if isinstance(result, dict) else "?"
+    kind = result.get("kind") if isinstance(result, dict) else None
+    verb = "accepted" if action == "accept" else "rejected"
+    detail = f"{kind}, " if kind else ""
+    return f"Suggestion {args[0]} {verb} ({detail}status {status})."
 
 
 def register(ctx: Any) -> None:
