@@ -82,9 +82,30 @@ def _requirement_to_dict(
     surface (serializer + ``_dto_from_orm``) but not here, so an MCP agent
     could not see that a requirement had been flagged suspect by
     ``TraceLinkService.propagate_suspect_status``.
+
+    ``artifact_id`` is the same class of gap for the *identifier*: REST returns
+    both the Requirement row ``id`` and the backing ``artifact_id``, while MCP
+    returned only the row id — so an agent could not feed a
+    ``suggestion.list`` candidate's ``artifact_id`` into
+    ``requirement.get``/``requirement.query``.
     """
     result: Dict[str, Any] = {
         "id": str(req.id),
+        # The MCP requirement surface used to expose only the Requirement row
+        # id, while sibling tools hand back ARTIFACT ids:
+        # ``suggestion.list`` returns ``source_artifact_id`` and
+        # ``ranked_candidates[].artifact_id``, and ``traceability.create_link``
+        # consumes those artifact ids. REST ``/api/v1/requirements/`` already
+        # returns both ``id`` and ``artifact_id``
+        # (``rest_api/views.py::_dto_from_orm``), so without this an agent
+        # reading a suggestion could not resolve its artifact ids through
+        # ``requirement.get`` / ``requirement.query``. Additive and
+        # backwards-compatible.
+        "artifact_id": (
+            str(req.artifact_id)
+            if getattr(req, "artifact_id", None)
+            else None
+        ),
         # Epic #934 WS1: the definition exposes ``uid`` as a visible read-only
         # attribute and the REST serializer already returns it; the MCP read
         # projection omitted it, so the contract matrix's read-back check saw a
