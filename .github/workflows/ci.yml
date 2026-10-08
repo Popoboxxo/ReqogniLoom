@@ -264,6 +264,51 @@ jobs:
       - name: Run pytest for docs/agent-templates and dist
         run: pytest docs/agent-templates dist
 
+  # AUD-2026-09 (integrations stability, #1156): the Hermes agent plugin's
+  # capture-queue suite (integrations/hermes-agent-plugin/tests) was fully
+  # mocked but matched by NO CI job -- the backend-test matrix only
+  # enumerates backend/<app>/tests paths, and there is no other job that
+  # runs pytest outside backend/. The tests therefore asserted nothing in CI.
+  # They are pure-python, dependency-free (the README documents the
+  # PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 invocation), so one small job is enough.
+  #
+  # ENV LIMITATION this job CLOSES and does NOT close: it proves the plugin's
+  # MCP envelope contract, tool names and review-queue/suggestion plumbing
+  # run green deterministically. It does NOT cover a live ReqogniLoom backend,
+  # real LLM provider answer quality, quota-dependent derivation transitions,
+  # a live dialectic engine, or the end-to-end Celery queue (the backend
+  # consolidation E2E test never runs a consuming worker either) -- those stay
+  # real-provider/live-deployment territory.
+  hermes-plugin-test:
+    name: "Hermes Agent Plugin (integrations/hermes-agent-plugin)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.12'
+
+      - name: Install test dependency
+        # pytest is the only requirement: the plugin tests stub the MCP
+        # envelope, the tool manifest and the review queue themselves.
+        # Pinned to the backend/requirements.txt floor (pytest>=9.1.1,<10.0,
+        # CVE-2025-71176 / PYSEC-2026-1845) so this job cannot resolve an
+        # older, vulnerable version that the backend job refuses to run.
+        run: pip install "pytest>=9.1.1,<10.0"
+
+      - name: Run pytest for the hermes-agent-plugin suite
+        # PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 is the documented repo-root
+        # invocation (integrations/hermes-agent-plugin/README.md): the suite
+        # must not depend on whichever pytest plugins the runner happens to
+        # have installed.
+        env:
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
+        run: python -m pytest integrations/hermes-agent-plugin/tests -q
+
   frontend-test:
     runs-on: ubuntu-latest
     timeout-minutes: 15

@@ -810,7 +810,7 @@ graph LR
 - **postgres** — `pgvector/pgvector:pg16` (PostgreSQL 16 with the pgvector extension, created by the app's own `migrate` step on first start — see [PostgreSQL with pgvector](#postgresql-with-pgvector) below)
 - **postgres-backup** — `pgvector/pgvector:pg16` sidecar; dump/prune logic inlined into its `command:` (no bind-mounted script), runs every `BACKUP_INTERVAL` seconds (default 24h), retains `BACKUP_RETENTION` (default 7) gzip dumps
 - **redis** — `redis:7-alpine` (Celery broker + cache, `appendonly` persistence, 256mb `maxmemory`)
-- **migrate** — one-shot; runs `python manage.py migrate` then the `post_migrate` self-init signal; `backend`/`celery`/`celery-beat` wait for it via `service_completed_successfully`
+- **migrate** — one-shot; runs the `cleanup_workflow_orphans` preamble (a documented no-op on a clean database), then `python manage.py migrate` and the `post_migrate` self-init signal; `backend`/`celery`/`celery-beat` wait for it via `service_completed_successfully`
 - **backend** — Django REST API + MCP server (`:8000`), connects as the least-privilege `DB_APP_USER` role (RLS-enforced)
 - **celery** — async worker consuming the `default`, `llm`, `events` queues
 - **celery-beat** — periodic task scheduler (`django_celery_beat.schedulers:DatabaseScheduler`)
