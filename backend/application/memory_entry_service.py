@@ -29,6 +29,7 @@ backend without a dialectic engine.
 """
 from __future__ import annotations
 
+import logging
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 from uuid import UUID
 
@@ -52,6 +53,8 @@ from memory.ratelimit import check_write_rate_limit
 from persistence.errors import NotFoundError, ValidationError
 
 from .base import ServiceBase
+
+logger = logging.getLogger(__name__)
 
 #: Upper bound on ``page_size`` so a caller cannot turn a listing into a full
 #: table dump. Mirrors ``memory_rest.SystemMemoryEntriesListView.MAX_PAGE_SIZE``.
@@ -225,6 +228,13 @@ class MemoryEntryService(ServiceBase):
         ``scopes`` defaults to ``artifact`` when ``artifact_id`` is given, else
         ``workspace`` when ``workspace_id`` is given, else ``user``. Every
         requested scope must be readable by the caller (fail-closed).
+
+        A per-scope backend failure does not abort the search: the failing
+        scope is skipped and the top-level response surfaces it as
+        ``ok=False, degraded=True`` with a ``detail`` of the form
+        ``search_backend_error:<ExceptionClassName>`` (the raw message is logged,
+        never returned). This is how "the backend is down" stays
+        distinguishable from "nothing is remembered" (F9).
         """
         query = (query or "").strip()
         if not query:
@@ -247,7 +257,15 @@ class MemoryEntryService(ServiceBase):
                         ctx.tenant_id, scope, scope_id, query, top_k=top_k
                     )
                 except Exception as exc:  # noqa: BLE001 - F9: report, never swallow
-                    backend_error = str(exc)
+                    # Label the cause like the engine surfaces do
+                    # (``engine_error:<Class>``) so a backend outage is
+                    # distinguishable from "nothing remembered". Only the
+                    # exception *class* travels in the response -- the raw
+                    # message can leak backend/query internals and would make
+                    # the detail unstable across occurrences of one class; the
+                    # full message goes to the log instead.
+                    backend_error = f"search_backend_error:{type(exc).__name__}"
+                    logger.warning("memory search scope=%s failed: %r", scope, exc)
                     continue
                 for ref in refs:
                     key = str(ref.entry_id)
@@ -265,7 +283,19 @@ class MemoryEntryService(ServiceBase):
             item["degraded"] = degraded
             if backend_error is not None:
                 item["detail"] = backend_error
-        return {"items": items, "query": query, "scopes": scope_list, **envelope()}
+        response = {"items": items, "query": query, "scopes": scope_list, **envelope()}
+        if backend_error is not None:
+            # A failing scope must surface at the TOP level too: when every
+            # scope errors ``items`` is empty, so the per-item stamp above
+            # never runs and the envelope's cached health probe would report a
+            # healthy backend -- making an outage look like an empty result.
+            # ``ok=False`` keeps the envelope invariant
+            # ``degraded == (not ok) or health.degraded`` intact: this call
+            # could not reach the backend, so it is not a successful answer.
+            response["ok"] = False
+            response["degraded"] = True
+            response["detail"] = backend_error
+        return response
 
     def get(self, ctx: Any, *, entry_id: MemoryEntryId) -> Dict[str, Any]:
         """Return one entry's full view (provenance included)."""
