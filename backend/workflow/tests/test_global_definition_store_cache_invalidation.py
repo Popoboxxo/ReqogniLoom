@@ -13,7 +13,7 @@ from uuid import uuid4
 
 import pytest
 
-from persistence.models import Tenant
+from persistence.models import Tenant, Workspace
 from persistence.tenancy import TenantContext
 
 pytestmark = pytest.mark.django_db
@@ -52,8 +52,12 @@ def test_add_state_invalidates_cache_for_every_propagated_workspace(tenant):
             preset="issue_default",
             workflow_json=_workflow_json(),
         )
-        ws_a = uuid4()
-        ws_b = uuid4()
+        # F1: the definitions must point at real workspaces —
+        # ``WorkflowEngineDefinition.workspace`` is a validated FK to
+        # ``pl_workspace`` (workflow/0022), and a dangling UUID now fails at
+        # COMMIT instead of merely at ADD CONSTRAINT time.
+        ws_a = Workspace.objects.create(tenant=tenant, name="gdscache-ws-a").id
+        ws_b = Workspace.objects.create(tenant=tenant, name="gdscache-ws-b").id
         WorkflowEngineDefinition.objects.create(
             tenant=tenant, workspace_id=ws_a, item_type="Issue",
             preset="issue_default", workflow_json=_workflow_json(),
@@ -66,7 +70,9 @@ def test_add_state_invalidates_cache_for_every_propagated_workspace(tenant):
         )
         # A customized workspace never gets propagated to and must be
         # unaffected by this global edit (established _propagate() contract).
-        ws_customized = uuid4()
+        ws_customized = Workspace.objects.create(
+            tenant=tenant, name="gdscache-ws-customized"
+        ).id
         WorkflowEngineDefinition.objects.create(
             tenant=tenant, workspace_id=ws_customized, item_type="Issue",
             preset="issue_default", workflow_json=_workflow_json(states=("Custom",)),

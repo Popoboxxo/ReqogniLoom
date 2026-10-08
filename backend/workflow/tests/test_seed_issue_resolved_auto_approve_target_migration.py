@@ -10,12 +10,11 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from importlib import import_module
-from uuid import uuid4
 
 import pytest
 from django.apps import apps as django_apps
 
-from persistence.models import Tenant
+from persistence.models import Tenant, Workspace
 from persistence.tenancy import TenantContext
 
 pytestmark = pytest.mark.django_db
@@ -42,6 +41,16 @@ def _tenant_scope(tenant_id):
 @pytest.fixture
 def tenant():
     return Tenant.objects.create(name="gh370-tenant", slug="gh370-tenant")
+
+
+def _workspace(tenant, name):
+    """A real workspace row.
+
+    F1: ``WorkflowEngineDefinition.workspace`` is a validated FK to
+    ``pl_workspace`` (``workflow/0022``), so a dangling ``uuid4()`` now fails
+    at COMMIT instead of merely at ``ADD CONSTRAINT`` time.
+    """
+    return Workspace.objects.create(tenant=tenant, name=name)
 
 
 def _issue_workflow_json_without_resolved_target() -> dict:
@@ -87,7 +96,7 @@ def test_migration_propagates_to_non_customized_workspace_definitions(tenant):
         )
         non_customized = WorkflowEngineDefinition.objects.create(
             tenant=tenant,
-            workspace_id=uuid4(),
+            workspace_id=_workspace(tenant, "gh370-ws-non-customized").id,
             item_type="Issue",
             preset="issue_default",
             workflow_json=_issue_workflow_json_without_resolved_target(),
@@ -96,7 +105,7 @@ def test_migration_propagates_to_non_customized_workspace_definitions(tenant):
         )
         customized = WorkflowEngineDefinition.objects.create(
             tenant=tenant,
-            workspace_id=uuid4(),
+            workspace_id=_workspace(tenant, "gh370-ws-customized").id,
             item_type="Issue",
             preset="issue_default",
             workflow_json=_issue_workflow_json_without_resolved_target(),
@@ -124,7 +133,7 @@ def test_migration_backfills_orphaned_workspace_rows_with_no_global_link(tenant)
     with _tenant_scope(tenant.id):
         orphaned = WorkflowEngineDefinition.objects.create(
             tenant=tenant,
-            workspace_id=uuid4(),
+            workspace_id=_workspace(tenant, "gh370-ws-orphaned").id,
             item_type="Issue",
             preset="issue_default",
             workflow_json=_issue_workflow_json_without_resolved_target(),

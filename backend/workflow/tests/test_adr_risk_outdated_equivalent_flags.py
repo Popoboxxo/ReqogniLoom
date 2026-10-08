@@ -218,6 +218,18 @@ def p116_tenant(db):
     return Tenant.objects.create(name="p116-tenant", slug="p116-tenant")
 
 
+def _p116_workspace(tenant, name):
+    """A real workspace row.
+
+    F1: ``WorkflowEngineDefinition.workspace`` is a validated FK to
+    ``pl_workspace`` (``workflow/0022``), so a dangling ``uuid4()`` now fails
+    at COMMIT instead of merely at ``ADD CONSTRAINT`` time.
+    """
+    from persistence.models import Workspace
+
+    return Workspace.objects.create(tenant=tenant, name=name)
+
+
 def _make_item_state(tenant, *, item_type, current_state, workspace_id, definition):
     from workflow.models import WorkflowItemState
 
@@ -423,7 +435,7 @@ def test_migration_propagates_to_non_customized_workspace_definitions(p116_tenan
         )
         non_customized = WorkflowEngineDefinition.objects.create(
             tenant=p116_tenant,
-            workspace_id=uuid4(),
+            workspace_id=_p116_workspace(p116_tenant, "p116-ws-non-customized").id,
             item_type="Adr",
             preset="adr_default",
             workflow_json=_adr_workflow_json_without_flags(),
@@ -432,7 +444,7 @@ def test_migration_propagates_to_non_customized_workspace_definitions(p116_tenan
         )
         customized = WorkflowEngineDefinition.objects.create(
             tenant=p116_tenant,
-            workspace_id=uuid4(),
+            workspace_id=_p116_workspace(p116_tenant, "p116-ws-customized").id,
             item_type="Adr",
             preset="adr_default",
             workflow_json=_adr_workflow_json_without_flags(),
@@ -463,7 +475,7 @@ def test_migration_backfills_orphaned_workspace_rows_with_no_global_link(p116_te
     with _tenant_scope(p116_tenant.id):
         orphaned = WorkflowEngineDefinition.objects.create(
             tenant=p116_tenant,
-            workspace_id=uuid4(),
+            workspace_id=_p116_workspace(p116_tenant, "p116-ws-orphaned").id,
             item_type="Risk",
             preset="risk_default",
             workflow_json=_risk_workflow_json_without_flags(),
