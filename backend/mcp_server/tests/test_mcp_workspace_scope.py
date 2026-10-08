@@ -97,6 +97,25 @@ def _comment_audits(comment_id: UUID) -> int:
     ).count()
 
 
+def _make_suggestion(workspace: Workspace):
+    """Create one ``open`` trace_link Suggestion in *workspace* (B-01 setup)."""
+    from persistence.models import Suggestion
+
+    set_request_tenant(workspace.tenant_id)
+    try:
+        return Suggestion.unscoped.create(
+            tenant=workspace.tenant,
+            workspace=workspace,
+            kind="trace_link",
+            status=Suggestion.Status.OPEN,
+            producer="test",
+            payload={},
+            target_item_type="",
+        )
+    finally:
+        clear_request_tenant()
+
+
 @pytest.fixture
 def foreign_workspace(
     e2e_tenant: Tenant, e2e_preset: Dict[str, Any]
@@ -837,3 +856,120 @@ class TestWorkspaceScopeCoverage:
                 ), key
         finally:
             clear_request_tenant()
+
+
+# ---------------------------------------------------------------------------
+# suggestion.accept/reject — decision tools scoped by the suggestion's workspace
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestSuggestionDecisionToolsAreWorkspaceScoped:
+    """B-01: ``suggestion.accept``/``reject`` must gate on the suggestion row.
+
+    Both tools take only the suggestion ``id``. Without an entry in
+    ``mcp_server.workspace_scope._TOOL_TARGETS`` the dispatcher resolves no
+    target workspace and the WRITE gate runs on the caller's tenant-wide role
+    union, so an editor in workspace A could decide a suggestion of workspace B
+    (same tenant). The registry entry closes that; these tests pin it against
+    the real (unmocked) gate.
+    """
+
+    @pytest.mark.parametrize("tool_name", ["suggestion.accept", "suggestion.reject"])
+    def test_decision_of_a_foreign_workspace_suggestion_is_denied(
+        self,
+        tool_name: str,
+        e2e_userrole_member: UserRole,
+        e2e_api_key_member: str,
+        foreign_workspace: Workspace,
+    ) -> None:
+        suggestion = _make_suggestion(foreign_workspace)
+
+        with patch(
+            "application.suggestion_service.SuggestionService.accept"
+        ) as accept_handler, patch(
+            "application.suggestion_service.SuggestionService.reject"
+        ) as reject_handler:
+            result = _dispatch(
+                tool_name, {"id": str(suggestion.id)}, e2e_api_key_member
+            )
+
+        assert result.success is False
+        assert result.error_code == "PERMISSION_DENIED"
+        # The handler must never be reached (denied before any domain work).
+        accept_handler.assert_not_called()
+        reject_handler.assert_not_called()
+        suggestion.refresh_from_db()
+        assert suggestion.status == "open"
+
+    @pytest.mark.parametrize("tool_name", ["suggestion.accept", "suggestion.reject"])
+    def test_explicit_workspace_cannot_bypass_fenced_suggestion_target(
+        self,
+        tool_name: str,
+        e2e_tenant: Tenant,
+        e2e_workspace: Workspace,
+        e2e_userrole_member: UserRole,
+        e2e_user_member: User,
+        foreign_workspace: Workspace,
+    ) -> None:
+        """B-01 residual: an explicit ``workspace_id`` must not reopen the hole.
+
+        A caller fenced (WRITE only) to workspace A can send
+        ``workspace_id=A`` alongside a workspace-B suggestion id: the dispatch
+        gate then short-circuits to A and never resolves the suggestion's real
+        workspace. The handler must reject the undeclared ``workspace_id``
+        param (mirrors ``test_explicit_workspace_cannot_bypass_fenced_comment_target``).
+        """
+        suggestion = _make_suggestion(foreign_workspace)
+        key = AuthenticationService().create_api_key(
+            user_id=e2e_user_member.id,
+            tenant_id=e2e_tenant.id,
+            name="explicit-scope-suggestion-key",
+            principal_type="agent",
+            agent_label="audit-agent",
+            scope="write",
+            workspace_ids=[str(e2e_workspace.id)],
+            expires_at=timezone.now() + timedelta(days=1),
+        )
+
+        with patch(
+            "application.suggestion_service.SuggestionService.accept"
+        ) as accept_handler, patch(
+            "application.suggestion_service.SuggestionService.reject"
+        ) as reject_handler:
+            result = _dispatch(
+                tool_name,
+                {"id": str(suggestion.id), "workspace_id": str(e2e_workspace.id)},
+                key.plaintext,
+            )
+
+        assert result.success is False
+        assert result.error_code == "VALIDATION_ERROR"
+        # Undeclared param rejected before any domain work.
+        accept_handler.assert_not_called()
+        reject_handler.assert_not_called()
+        suggestion.refresh_from_db()
+        assert suggestion.status == "open"
+
+    @pytest.mark.parametrize("tool_name", ["suggestion.accept", "suggestion.reject"])
+    def test_decision_of_own_workspace_suggestion_is_admitted(
+        self,
+        tool_name: str,
+        e2e_userrole_member: UserRole,
+        e2e_api_key_member: str,
+        e2e_workspace: Workspace,
+    ) -> None:
+        """Positive control: the same caller/key, suggestion in their workspace."""
+        suggestion = _make_suggestion(e2e_workspace)
+        method = "accept" if tool_name == "suggestion.accept" else "reject"
+
+        with patch(
+            f"application.suggestion_service.SuggestionService.{method}",
+            return_value={"id": str(suggestion.id), "status": "accepted"},
+        ) as handler:
+            result = _dispatch(
+                tool_name, {"id": str(suggestion.id)}, e2e_api_key_member
+            )
+
+        assert result.success is True, result.message
+        handler.assert_called_once()

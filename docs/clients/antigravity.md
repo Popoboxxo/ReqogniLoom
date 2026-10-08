@@ -49,8 +49,8 @@ Complete, generated configuration (env-var references, never a literal key):
 ## 5. Verification
 
 - **Command:** `SSE-Handshake gegen /mcp/sse/ mit X-API-Key`
-- **Expected:** `initialize` (202 + event) → `tools/list` returns **223 tools**; the Antigravity panel shows `reqogniloom` connected.
-- **Tool-call result:** 223 tools
+- **Expected:** `initialize` (202 + event) → `tools/list` returns **227 tools**; the Antigravity panel shows `reqogniloom` connected.
+- **Tool-call result:** 227 tools
 
 ## 6. Pitfalls
 

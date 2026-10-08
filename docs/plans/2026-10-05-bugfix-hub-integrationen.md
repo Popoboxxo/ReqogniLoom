@@ -263,12 +263,18 @@ Ziel: Honcho nicht nur als Schreib-Log, sondern als **abfragbares, ableitendes**
 **AP-B5.4 — Vorschlags-Schleife (P4, Konzept+Impl)** · #1155 Aspekt 2, refs #1156, #856, #121, #1089
 - Generischer Pfad „Wissen → Vorschlag als `proposed`-Artefakt → Mensch bestätigt". #856 ist nur Design; erst Konzept/ADR, dann `suggestion.list/accept/reject` (MCP+REST+UI). Größter Brocken, bewusst zuletzt.
 - **Konzept/ADR-Teil erledigt:** Entscheidungsvorlage
-  [`ADR-019`](../se/ADR/ADR-019_generischer_vorschlag_lebenszyklus.md) (Status `proposed`,
-  User-Freigabe ausstehend) verabschiedet den Modellrahmen; hier nur die Zusammenfassung.
-  ADR-019 entscheidungsreif (Review `RVW-2026-10-06-003`, Iteration 3: APPROVED; Freigabe offen).
+  [`ADR-019`](../se/ADR/ADR-019_generischer_vorschlag_lebenszyklus.md) verabschiedet den
+  Modellrahmen; hier nur die Zusammenfassung.
+  **Status: `accepted` (User-Freigabe 2026-10-08)** nach Review `RVW-2026-10-06-003`
+  (Iteration 3: APPROVED); das STOP-Gate ist aufgehoben.
 - **Umsetzungsplan (geordnet):** `WP1–WP7`, Reihenfolge/Wellen, Risiken und MVP-DoD in
-  [`2026-10-06-adr-019-umsetzungsplan-vorschlags-schleife.md`](2026-10-06-adr-019-umsetzungsplan-vorschlags-schleife.md)
-  — pausiert bis `proposed → accepted`, kein Code.
+  [`2026-10-06-adr-019-umsetzungsplan-vorschlags-schleife.md`](2026-10-06-adr-019-umsetzungsplan-vorschlags-schleife.md).
+- **Status MVP-Umsetzung (2026-10-08, Branch `feat/1155-suggestion-loop`): im Working Tree
+  umgesetzt** — `Suggestion`-Entität + Migrationen `0107_suggestion.py`/`0108_suggestion_rls_policy.py`
+  (FORCE-RLS, fail-closed), `SuggestionService` + Per-Kind-Adapter-Registry, MCP-Gruppe
+  `suggestion.list/accept/reject`, REST-Views, Frontend-`SuggestionsInbox`;
+  `traceability.suggest_links` persistiert Vorschlag + Quittung und ist async (#1197).
+  Offene Restpfade: #1095/#1089 (WP-A4), #1196 (WP-A5), WP-A6 (Human-Bearer-REST-Trigger, fail-closed).
 
 **AP-B5.4-Konzept — Generischer Vorschlags-Lebenszyklus (Entscheidungsvorlage, kein Code)**
 
@@ -309,15 +315,16 @@ Human-in-the-Loop-Bypass. **Kanten-Dedup (001-10):** vor dem `create` prüft der
 einen bereits existierenden Proposal-Link derselben Kante (`uq_tracelink_edge`) und hängt die
 neue Suggestion an diesen, statt hart zu scheitern (erweitert O7).
 
-**STOP-Gate (warum hier kein MVP implementiert wird):** Das ADR entscheidet bewusst **nur die
+**STOP-Gate (historisch — am 2026-10-08 aufgehoben):** Das ADR entscheidet bewusst **nur die
 Zielrichtung plus einen MVP-Schnitt**, kein Gesamtmodell — elf Sub-Entscheidungen brauchen
 Produkt-Input (O1 Produzenten-Scope, O2 Langfrist-Rolle von `Suggestion`, O3 `minimal`/
 `interview_default`-Semantik, O4 Migration der TraceLink-Felder, O5 MCP-Präfix `suggestion`
 vs. Fold in `review` (Manifest-Regeneration!), O6 UI-Inbox, O7 Idempotenz/Dedup inkl.
 Kanten-Dedup (`uq_tracelink_edge`), O8 eigener Entitätstyp vs. Generic-Artifact, O9 Retention,
-O10 M2-Proposal vs. Suggestion-only, O11 Atomarität Proposal-Link ↔ Suggestion-Quittung). Ohne
-`concept-reviewer`-Review und `proposed → accepted` durch den User entsteht **kein** Modell,
-**keine** Migration, **kein** Tool.
+O10 M2-Proposal vs. Suggestion-only, O11 Atomarität Proposal-Link ↔ Suggestion-Quittung). Das
+Gate verlangte `concept-reviewer`-Review **und** `proposed → accepted` durch den User; beides
+ist eingetreten (Review `RVW-2026-10-06-003` APPROVED, Freigabe 2026-10-08), der MVP ist
+umgesetzt (s. Status oben).
 
 **Offene Entscheidungen (Produkt):** O1–O11 wie in ADR-019 §Offene Punkte; zusätzlich muss der
 MCP-Surface-Entscheid (O5) mit der Manifest-Pflege (`docs/agent-templates/tool-manifest.json`,
@@ -329,9 +336,10 @@ Drift-Gate `test_tool_manifest_drift.py`) und dem REST-/RBAC-Pfad (`rest_api/url
 Provenienz „Vorschlag von …"), i18n DE/EN, `data-testid`, Anbindung an die bestehende
 Pending-Review-Ansicht; ohne UI erfüllt die Entität allein das DoD von #1155/#1156 nicht.
 
-> **Abgrenzung:** ADR-019 ist eine Entscheidungsvorlage (`proposed`) und ändert keinen Code.
-> Umsetzung erst nach User-Approval als eigenes Arbeitspaket; die konkreten `suggestion.list/
-> accept/reject`-Endpunkte (MCP+REST) folgen daraus.
+> **Abgrenzung:** ADR-019 war die Entscheidungsvorlage (`proposed`); mit der User-Freigabe
+> (2026-10-08) ist sie `accepted` und die Umsetzung erfolgt als eigenes Arbeitspaket. Die
+> konkreten `suggestion.list/accept/reject`-Endpunkte (MCP+REST) sind im Working Tree
+> implementiert (Branch `feat/1155-suggestion-loop`); Restpfade s. o.
 
 **DoD B5:** Abnahmekriterien aus #1155 (NL-Antwort über MCP+REST+UI quellenbelegt; Vorschlag als `proposed`; Plugin belegt Lesen+Schreiben; abgeleitete Repräsentation nach funktionierender Quote nachweisbar).
 

@@ -94,6 +94,7 @@ from application.import_idempotency import (
     finalize_success as finalize_idempotency_success,
 )
 from application.base import (
+    ProducerContextRequiredError,
     SuppressionExpiredError,
     WaiverFindingNotBlockingError,
     WaiverReasonPolicyViolation,
@@ -225,6 +226,11 @@ _EXC_TO_HTTP: dict[type, int] = {
     WaiverReasonPolicyViolation: status.HTTP_400_BAD_REQUEST,
     WaiverFindingNotBlockingError: status.HTTP_400_BAD_REQUEST,
     SuppressionExpiredError: status.HTTP_409_CONFLICT,
+    # ADR-019 WP5 / review finding 003-01: a suggestion production attempt
+    # outside an agent/API-key context is fail-closed. A rejected
+    # precondition on a well-formed, authorised request, hence 409 (same
+    # convention as SuppressionExpiredError above) — never a silent no-op.
+    ProducerContextRequiredError: status.HTTP_409_CONFLICT,
     # #1084: a hard delete refused because the workspace still holds
     # append-only baselines. A rejected precondition, not a malformed request,
     # hence 409 — and registering the type is what also forwards the service's
@@ -252,6 +258,7 @@ _EXC_TO_CODE: dict[type, str] = {
     WaiverReasonPolicyViolation: "WAIVER_REASON_REJECTED",
     WaiverFindingNotBlockingError: "WAIVER_FINDING_NOT_BLOCKING",
     SuppressionExpiredError: "SUPPRESSION_EXPIRED",
+    ProducerContextRequiredError: "PRODUCER_CONTEXT_REQUIRED",
     BaselineImmutabilityError: "CONFLICT",
     NotFoundError: "NOT_FOUND",
     OptimisticLockError: "CONFLICT",

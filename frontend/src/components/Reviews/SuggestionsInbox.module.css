@@ -1,0 +1,104 @@
+/*
+ * <SuggestionsInbox> — styles (ADR-019 / WP6).
+ *
+ * Reuses the existing badge/list idioms of ReviewsView.module.css so the
+ * suggestion inbox reads as the same surface as the rest of the review queue.
+ * Every colour/size comes from styles/tokens.css — no hardcoded values beyond
+ * structural borders/box-sizing, matching the established convention.
+ */
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.row {
+  padding: var(--space-3);
+  margin-bottom: var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-1);
+}
+
+.kindBadge {
+  display: inline-block;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--color-badge-info-bg);
+  color: var(--color-badge-info-text);
+  font-size: var(--font-size-xs);
+  font-weight: var(--weight-semibold);
+  white-space: nowrap;
+}
+
+.provenance {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.target {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  margin-bottom: var(--space-2);
+  word-break: break-word;
+}
+
+.actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.mutedText {
+  color: var(--color-text-muted);
+}
+
+.heading {
+  margin: 0 0 var(--space-3);
+  font-size: var(--font-size-md);
+  font-weight: var(--weight-semibold);
+  color: var(--color-text);
+}
+
+.errorText {
+  color: var(--color-danger);
+}
+
+/* Dialog error text sits on --color-surface-raised, where the dark theme's
+   --color-danger (#ef4444) only reaches 3.89:1. --color-badge-danger-text is
+   the AA-safe rung: red-300 in dark (~7.7:1) and rose-800 on white in light.
+   Also used to visually hide the polite status live region. */
+.dialogErrorText {
+  color: var(--color-badge-danger-text);
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.label {
+  display: block;
+  font-weight: var(--weight-semibold);
+  margin-bottom: var(--space-1);
+}
+
+.reasonInput {
+  width: 100%;
+  box-sizing: border-box;
+}

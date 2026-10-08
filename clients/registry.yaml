@@ -453,9 +453,9 @@ clients:
           }
     verify:
       command: "SSE-Handshake gegen /mcp/sse/ mit X-API-Key"
-      expected_de: "`initialize` (202 + Event) → `tools/list` liefert **223 Tools**; das Antigravity-Panel zeigt `reqogniloom` verbunden."
-      expected_en: "`initialize` (202 + event) → `tools/list` returns **223 tools**; the Antigravity panel shows `reqogniloom` connected."
-      tool_result: "223 tools"
+      expected_de: "`initialize` (202 + Event) → `tools/list` liefert **227 Tools**; das Antigravity-Panel zeigt `reqogniloom` verbunden."
+      expected_en: "`initialize` (202 + event) → `tools/list` returns **227 tools**; the Antigravity panel shows `reqogniloom` connected."
+      tool_result: "227 tools"
     prereq_de:
       - "Antigravity-Installation."
       - "**Host-CPU mit `pclmulqdq`** — sonst bricht das Binary mit exit 132 ab („compiled with pclmul enabled\", nicht software-lösbar)."
@@ -503,7 +503,7 @@ clients:
           # `hermes config set` (Env-Referenz statt Key):
           scripts/clients/install.sh --client hermes \
             --url "https://<host>" --key-env REQOGNILOOM_API_KEY
-          hermes mcp test reqogniloom         # -> ✓ Connected, 223 Tools
+          hermes mcp test reqogniloom         # -> ✓ Connected, 227 Tools
     install_en:
       - lang: bash
         text: |
@@ -512,7 +512,7 @@ clients:
           # `hermes config set` (env reference instead of a key):
           scripts/clients/install.sh --client hermes \
             --url "https://<host>" --key-env REQOGNILOOM_API_KEY
-          hermes mcp test reqogniloom         # -> ✓ Connected, 223 tools
+          hermes mcp test reqogniloom         # -> ✓ Connected, 227 tools
     fallback_de:
       - lang: yaml
         text: |
@@ -533,9 +533,9 @@ clients:
                 Authorization: "Bearer ${REQOGNILOOM_API_KEY}"
     verify:
       command: "hermes mcp test reqogniloom"
-      expected_de: "`✓ Connected` (QA: 2232 ms, 223 Tools); echte Calls: `requirement_query` → 49, `architecture_query` → 1."
-      expected_en: "`✓ Connected` (QA: 2232 ms, 223 tools); real calls: `requirement_query` → 49, `architecture_query` → 1."
-      tool_result: "223 tools; requirement_query = 49"
+      expected_de: "`✓ Connected` (QA: 2232 ms, 227 Tools); echte Calls: `requirement_query` → 49, `architecture_query` → 1."
+      expected_en: "`✓ Connected` (QA: 2232 ms, 227 tools); real calls: `requirement_query` → 49, `architecture_query` → 1."
+      tool_result: "227 tools; requirement_query = 49"
     prereq_de:
       - "Hermes-Installation (aktueller Stack)."
       - "Key in `~/.hermes/.env` — `${REQOGNILOOM_API_KEY}` wird beim Server-Start interpoliert."

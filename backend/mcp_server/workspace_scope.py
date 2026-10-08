@@ -210,6 +210,13 @@ _TOOL_TARGETS: Dict[str, Tuple[Tuple[str, str], ...]] = {
     "risk.outdate": (("id", "risk"),),
     "risk.reactivate": (("id", "risk"),),
     "risk.update": (("id", "risk"),),
+    # B-01 (ADR-019 WP3): accept/reject name only the suggestion id. Without
+    # these entries ``_scoped_gate_context`` resolves no target workspace and
+    # the WRITE gate runs on the caller's tenant-wide role union, so an editor
+    # in workspace A could decide a suggestion of workspace B. The suggestion
+    # row carries the workspace directly (``ENTITY_SPECS["suggestion"]``).
+    "suggestion.accept": (("id", "suggestion"),),
+    "suggestion.reject": (("id", "suggestion"),),
     "test.derive_from_requirement": (("requirement_id", "requirement"),),
     "test.link": (("test_id", "testcase"), ("req_id", "requirement")),
     "test.outdate": (("id", "testcase"),),

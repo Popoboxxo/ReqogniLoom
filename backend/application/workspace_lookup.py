@@ -115,6 +115,12 @@ ENTITY_SPECS: Dict[str, EntityWorkspaceSpec] = {
         "persistence.models.TraceLink",
         workspace_field="source__workspace_id",
     ),
+    # ADR-019 WP4: a Suggestion is a workspace-scoped recipient/inbox row with a
+    # direct ``workspace`` FK, so the accept/reject REST routes derive their
+    # authorization target from the suggestion object (no client-supplied
+    # ``workspace_id`` required). ``objects`` is tenant-scoped, so a foreign id
+    # resolves to ``None`` and the view answers 404 rather than leaking.
+    "suggestion": EntityWorkspaceSpec("persistence.models.Suggestion"),
 }
 
 

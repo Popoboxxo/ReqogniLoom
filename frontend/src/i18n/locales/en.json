@@ -545,6 +545,35 @@
       "credentialRequired": "A password or TOTP code is required."
     }
   },
+  "suggestions": {
+    "mode": "Suggestions",
+    "heading": "Open suggestions",
+    "empty": "No open suggestions.",
+    "error": "Failed to load suggestions.",
+    "provenance": "Suggested by {{source}} · {{time}}",
+    "unknownSource": "an unknown source",
+    "target": "Target",
+    "accept": "Accept",
+    "reject": "Reject",
+    "acceptLabel": "Accept {{kind}} from {{source}}",
+    "rejectLabel": "Reject {{kind}} from {{source}}",
+    "rejectConfirmTitle": "Reject suggestion",
+    "rejectConfirmMessage": "Reject this suggestion? The target artifact is not changed.",
+    "rejectReasonLabel": "Reason",
+    "rejectReasonPlaceholder": "Why is this suggestion rejected?",
+    "rejectReasonRequired": "A reason is required to reject.",
+    "rejectConfirm": "Reject",
+    "cancel": "Cancel",
+    "actionError": "Action failed.",
+    "accepted": "Suggestion accepted.",
+    "rejected": "Suggestion rejected.",
+    "kind": {
+      "artifact_create": "Artifact proposal",
+      "trace_link": "Trace link proposal",
+      "interview_grounding": "Interview grounding",
+      "context_edge": "Context edge"
+    }
+  },
   "baselines": {
     "placeholder": "Baselines — in progress.",
     "empty": "No baselines available.",

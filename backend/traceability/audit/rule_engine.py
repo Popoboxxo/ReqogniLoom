@@ -45,6 +45,7 @@ class RuleEngine:
         workspace_id: str,
         tenant_id: str,
         scopes: Optional[Sequence[AuditScope]] = None,
+        include_proposal_links: bool = True,
     ) -> AuditResult:
         """Audit *workspace_id* under rigor *tier* and return all findings.
 
@@ -61,6 +62,11 @@ class RuleEngine:
             tenant_id: Active tenant UUID (as string).
             scopes: Explicit baseline scopes for scope-aware rules. Defaults to
                 ``[AuditScope("project")]``.
+            include_proposal_links: Forwarded to every :class:`AuditContext`
+                (see :attr:`AuditContext.include_proposal_links`). ``False``
+                audits the *confirmed* trace state — the ADR-019 WP5
+                ``traceability.suggest_links`` producer uses it so its own
+                persisted proposal does not erase the finding on a repeated run.
 
         Returns:
             :class:`AuditResult` with all findings in rule/scope order.
@@ -91,6 +97,7 @@ class RuleEngine:
                 workspace_id=workspace_id,
                 tenant_id=tenant_id,
                 scope=None,
+                include_proposal_links=include_proposal_links,
             )
             for rule in scope_agnostic:
                 result.findings.extend(
@@ -109,6 +116,7 @@ class RuleEngine:
                     tenant_id=tenant_id,
                     scope=audit_scope.scope,
                     scope_artifact_id=audit_scope.artifact_id,
+                    include_proposal_links=include_proposal_links,
                 )
                 for rule in scope_aware:
                     result.findings.extend(

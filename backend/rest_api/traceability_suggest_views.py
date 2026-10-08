@@ -38,7 +38,12 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from application.base import NotFoundError, PermissionDeniedError, ValidationError
+from application.base import (
+    NotFoundError,
+    PermissionDeniedError,
+    ProducerContextRequiredError,
+    ValidationError,
+)
 from application.traceability_suggest_service import (
     SuggestLinksResponseError,
     TraceabilitySuggestService,
@@ -112,6 +117,18 @@ class WorkspaceTraceabilitySuggestLinksView(APIView):
             return Response(
                 build_error_response("PERMISSION_DENIED", lang, message=str(exc)),
                 status=status.HTTP_403_FORBIDDEN,
+            )
+        except ProducerContextRequiredError as exc:
+            # ADR-019 Decision 3/4 + 001-09 (WP5): since the run persists a
+            # suggestion per finding, the human-bearer REST trigger is out of
+            # MVP scope and refused fail-closed (409) instead of writing an
+            # unstamped proposal. Must be caught before the generic
+            # ValidationError branch (it is a subclass).
+            return Response(
+                build_error_response(
+                    "PRODUCER_CONTEXT_REQUIRED", lang, message=str(exc)
+                ),
+                status=status.HTTP_409_CONFLICT,
             )
         except SuggestLinksResponseError as exc:
             return Response(

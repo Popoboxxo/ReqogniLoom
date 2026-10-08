@@ -14,7 +14,7 @@
  * backdrop dismissal, which the inline variants never offered.
  */
 
-import type { ReactNode } from 'react';
+import { useId, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Dialog } from './Dialog';
 
@@ -69,6 +69,12 @@ export function ConfirmDialog({
   children,
 }: ConfirmDialogProps): JSX.Element {
   const { t } = useTranslation();
+  // A-F9 (review round 2): the message paragraph gets a stable id and is
+  // linked as the dialog's accessible description. `Dialog` only derives an
+  // `aria-describedby` target from its own `description` prop, so we hand it
+  // the id of the body we render ourselves. Purely additive — no existing
+  // `<Dialog description=...>` consumer is affected.
+  const messageId = `${useId()}-message`;
 
   return (
     <Dialog
@@ -77,6 +83,7 @@ export function ConfirmDialog({
         if (!isSubmitting) onCancel();
       }}
       closeOnBackdropClick={!isSubmitting}
+      describedById={messageId}
       testId={testId}
       size="sm"
       footer={
@@ -102,7 +109,7 @@ export function ConfirmDialog({
         </>
       }
     >
-      <p data-testid={`${testId}-body`}>{message}</p>
+      <p id={messageId} data-testid={`${testId}-body`}>{message}</p>
       {children}
     </Dialog>
   );

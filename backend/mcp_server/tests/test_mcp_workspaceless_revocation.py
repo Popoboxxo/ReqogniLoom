@@ -10,7 +10,7 @@ dispatcher resolves the comment's owning workspace and evaluates the RBAC gate
 against it via ``_resolve_roles(ctx, workspace_id)`` — the *workspace-scoped*
 branch.
 
-That leaves the other branch untested: 21 of the 223 registered tools are WRITE
+That leaves the other branch untested: 21 of the 227 registered tools are WRITE
 tools that carry no ``workspace_id`` parameter and no target-object entry. For
 those, ``ToolRegistry._scoped_gate_context`` returns ``(ctx, None)`` and the gate
 runs on the tenant-wide aggregate produced by

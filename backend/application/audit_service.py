@@ -816,6 +816,7 @@ class AuditService(ServiceBase):
         offset: int = 0,
         include_suppressed: bool = True,
         now: Optional[datetime] = None,
+        include_proposal_links: bool = True,
     ) -> AuditReport:
         """Run the SE-Auditor for *workspace_id* and return findings + proposals.
 
@@ -851,6 +852,13 @@ class AuditService(ServiceBase):
                 the difference (m7).
             now: Injectable decision instant (#569/D3) for expiry evaluation of
                 persisted suppressions; ``None`` uses the current time.
+            include_proposal_links: Forwarded to :meth:`RuleEngine.run`. ``True``
+                (default) keeps unconfirmed agent proposals in the trace graph
+                (unchanged audit semantics). ``False`` audits only the
+                *confirmed* trace state — used by the ADR-019 WP5
+                ``traceability.suggest_links`` producer so its own persisted
+                proposal link does not erase the missing-link finding on a
+                repeated run (O7 edge dedup).
 
         Returns:
             :class:`AuditReport` with a remediation proposal attached to every
@@ -879,6 +887,7 @@ class AuditService(ServiceBase):
             workspace_id=ws_id,
             tenant_id=tenant_id,
             scopes=scopes,
+            include_proposal_links=include_proposal_links,
         )
 
         primary_scope = scopes[0] if scopes else None

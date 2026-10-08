@@ -23,10 +23,10 @@ generated OpenAPI at `GET /api/schema/` and `/api/schema/swagger-ui/`
 
 | Figure | Value |
 |--------|-------|
-| Tools | **224** |
-| Tool-group prefixes | **35** |
-| Version | `v1.8.0-beta.19` (`VERSION`, `1.8.0-beta.19`) — `interview.chat` ([#1164](https://github.com/Popoboxxo/ReqogniLoom/issues/1164)), `traceability.query_links` ([#1098](https://github.com/Popoboxxo/ReqogniLoom/issues/1098)), `main_goal.query` ([#1097](https://github.com/Popoboxxo/ReqogniLoom/issues/1097)) and `traceability.suggest_links_status` ([#1197](https://github.com/Popoboxxo/ReqogniLoom/issues/1197)) are the tool-surface changes since the beta.16 measurement below; `memory.ask` (REQ-192, [#1154](https://github.com/Popoboxxo/ReqogniLoom/issues/1154)) preceded them |
-| Measured at | `fix/artifact-form-save-shortcut-flake` working tree above `7b585bb4` — i.e. the `v1.8.0-beta.16` tag commit `9eb2fc58` plus [#1080](https://github.com/Popoboxxo/ReqogniLoom/issues/1080) (`65c732b4`, `test.run_list`), [#1154](https://github.com/Popoboxxo/ReqogniLoom/issues/1154) (`memory.ask`), [#1164](https://github.com/Popoboxxo/ReqogniLoom/issues/1164) (`interview.chat`), [#1098](https://github.com/Popoboxxo/ReqogniLoom/issues/1098) (`traceability.query_links`), [#1097](https://github.com/Popoboxxo/ReqogniLoom/issues/1097) (`main_goal.query`) and [#1197](https://github.com/Popoboxxo/ReqogniLoom/issues/1197) (`traceability.suggest_links_status`) |
+| Tools | **227** |
+| Tool-group prefixes | **36** |
+| Version | `v1.8.0-beta.19` (`VERSION`, `1.8.0-beta.19`) — the ADR-019 WP3 `suggestion` group (`suggestion.list`/`suggestion.accept`/`suggestion.reject`) is the newest tool-surface change, and `traceability.suggest_links` became a write tool; `interview.chat` ([#1164](https://github.com/Popoboxxo/ReqogniLoom/issues/1164)), `traceability.query_links` ([#1098](https://github.com/Popoboxxo/ReqogniLoom/issues/1098)), `main_goal.query` ([#1097](https://github.com/Popoboxxo/ReqogniLoom/issues/1097)) and `traceability.suggest_links_status` ([#1197](https://github.com/Popoboxxo/ReqogniLoom/issues/1197)) preceded them; `memory.ask` (REQ-192, [#1154](https://github.com/Popoboxxo/ReqogniLoom/issues/1154)) preceded those |
+| Measured at | ADR-019 WP3 (`suggestion` group, `traceability.suggest_links` write) on top of the `v1.8.0-beta.16` tag commit `9eb2fc58` plus [#1080](https://github.com/Popoboxxo/ReqogniLoom/issues/1080) (`65c732b4`, `test.run_list`), [#1154](https://github.com/Popoboxxo/ReqogniLoom/issues/1154) (`memory.ask`), [#1164](https://github.com/Popoboxxo/ReqogniLoom/issues/1164) (`interview.chat`), [#1098](https://github.com/Popoboxxo/ReqogniLoom/issues/1098) (`traceability.query_links`), [#1097](https://github.com/Popoboxxo/ReqogniLoom/issues/1097) (`main_goal.query`) and [#1197](https://github.com/Popoboxxo/ReqogniLoom/issues/1197) (`traceability.suggest_links_status`) |
 | Source of truth | `docs/agent-templates/tool-manifest.json`, `tool_count` field |
 
 History of the number, so a future reader can tell an intentional change from a
@@ -42,7 +42,8 @@ stale copy:
 | 220 / 35 | after `memory.ask` (REQ-192, [#1154](https://github.com/Popoboxxo/ReqogniLoom/issues/1154)) | correct until `interview.chat` / `traceability.query_links` |
 | 222 / 35 | after `interview.chat` ([#1164](https://github.com/Popoboxxo/ReqogniLoom/issues/1164)) and `traceability.query_links` ([#1098](https://github.com/Popoboxxo/ReqogniLoom/issues/1098)) | correct until `main_goal.query` |
 | 223 / 35 | after `main_goal.query` ([#1097](https://github.com/Popoboxxo/ReqogniLoom/issues/1097)) | correct until `traceability.suggest_links_status` |
-| **224 / 35** | after `traceability.suggest_links_status` ([#1197](https://github.com/Popoboxxo/ReqogniLoom/issues/1197)) | **current** |
+| 224 / 35 | after `traceability.suggest_links_status` ([#1197](https://github.com/Popoboxxo/ReqogniLoom/issues/1197)) | correct until the ADR-019 `suggestion` group |
+| **227 / 36** | after the ADR-019 WP3 `suggestion` group (`suggestion.list`, `suggestion.accept`, `suggestion.reject` — the 36th prefix) and `traceability.suggest_links` becoming **write** (it now persists a proposal + receipt, [#1155](https://github.com/Popoboxxo/ReqogniLoom/issues/1155)) | **current** |
 
 ### How to re-derive the number
 
@@ -91,7 +92,7 @@ document cannot silently rot:
 | Guard | What it pins |
 |-------|--------------|
 | `backend/mcp_server/tests/test_tool_manifest_drift.py` | committed manifest ↔ live registry, field by field (`is_write`, `prefix`, `description`, `inputSchema`, `tool_count`) |
-| `backend/mcp_server/tests/test_entity_surface_parity.py` | the 224/35 figure, and that every REST-exposed entity is readable over MCP |
+| `backend/mcp_server/tests/test_entity_surface_parity.py` | the 227/36 figure, and that every REST-exposed entity is readable over MCP |
 | `backend/mcp_server/tests/test_export_tool_manifest.py` | the manifest's own shape invariants |
 
 If you add or remove a tool, run all three; if the count moves, update the
@@ -101,7 +102,7 @@ table in §1 and §2 **in the same change**, with the new version and commit.
 
 ## 2. Tool groups
 
-35 prefixes, 224 tools. Tools are called as `<prefix>.<tool_name>`.
+36 prefixes, 227 tools. Tools are called as `<prefix>.<tool_name>`.
 
 | Group | Tools | Names |
 |-------|------:|-------|
@@ -136,6 +137,7 @@ table in §1 and §2 **in the same change**, with the new version and commit.
 | `requirement_bundle` | 3 | `requirement_bundle.attribute_schema`, `requirement_bundle.compression_status`, `requirement_bundle.export` |
 | `review` | 4 | `review.approve`, `review.list_pending`, `review.reject`, `review.request_changes` |
 | `risk` | 7 | `risk.create`, `risk.delete`, `risk.outdate`, `risk.query`, `risk.read`, `risk.reactivate`, `risk.update` |
+| `suggestion` | 3 | `suggestion.accept`, `suggestion.list`, `suggestion.reject` |
 | `test` | 14 | `test.create`, `test.derive_from_requirement`, `test.get`, `test.link`, `test.mark_reviewed`, `test.outdate`, `test.query`, `test.reactivate`, `test.run_complete`, `test.run_create`, `test.run_get`, `test.run_list`, `test.run_report_results`, `test.update` |
 | `traceability` | 7 | `traceability.coverage`, `traceability.create_link`, `traceability.query`, `traceability.query_links`, `traceability.suggest_links`, `traceability.suggest_links_status`, `traceability.vcrm` |
 | `user` | 9 | `user.activate`, `user.assign_role`, `user.assign_tenant_admin`, `user.create`, `user.deactivate`, `user.list`, `user.reactivate_role`, `user.revoke_tenant_admin`, `user.suspend_role` |
@@ -383,8 +385,11 @@ set is `mcp_server.tool_registry._GOVERNANCE_TOOL_NAMESPACES` /
 
 Note that `baseline.list` / `baseline.get` / `baseline.compare` stay READ-tier;
 only `baseline.create` (whose gate override/waiver is an approval-authority act)
-is governance. Similarly `review.*` and `interview.*` are ordinary content
-writes, not governance.
+is governance. Similarly `review.*`, `interview.*` and the ADR-019
+`suggestion.accept` / `suggestion.reject` are ordinary content writes, not
+governance (`suggestion.list` is read). `traceability.suggest_links` is a
+**write** tool: it now persists an M2 proposal link plus a durable `Suggestion`
+receipt (ADR-019 WP5), where it used to be a read-only advisory ranking.
 
 `tools/list` also narrows, never widens: both `tools/list` and the custom
 `tools/filter` accept `toolset` (a named phase preset), `filter`

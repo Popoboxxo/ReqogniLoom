@@ -177,7 +177,9 @@ class _FixedEngine:
     def __init__(self, findings: list) -> None:
         self._findings = findings
 
-    def run(self, *, tier, workspace_id, tenant_id, scopes=None) -> AuditResult:
+    def run(
+        self, *, tier, workspace_id, tenant_id, scopes=None, include_proposal_links=True
+    ) -> AuditResult:
         return AuditResult(tier=tier, findings=list(self._findings))
 
 

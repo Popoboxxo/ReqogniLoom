@@ -27,17 +27,23 @@ import inspect
 import json
 import re
 from typing import Iterator
+from uuid import UUID
 
 import pytest
 
 from application.audit_service import AuditFindingView, AuditReport, AuditService
+from application.base import ProducerContextRequiredError
 from application.traceability_suggest_service import TraceabilitySuggestService
-from auth_tenancy.context import AuthContext
+from auth_tenancy.context import AuthContext, AuthMethod
+from auth_tenancy.models import ApiKey
+from link_types.workspace_store import provision_workspace_link_types
 from persistence.models import (
     Artifact,
     Requirement,
     StakeholderNeed,
+    Suggestion,
     Tenant,
+    TraceLink,
     User,
     Workspace,
 )
@@ -83,16 +89,54 @@ def user(tenant: Tenant) -> User:
 @pytest.fixture
 def workspace(tenant: Tenant) -> Workspace:
     with _active(tenant):
-        return Workspace.objects.create(tenant=tenant, name="SuggestLinks-WS")
+        workspace = Workspace.objects.create(tenant=tenant, name="SuggestLinks-WS")
+        # ADR-019 WP5: suggest_links now persists a trace_link suggestion per
+        # finding, which needs the workspace's built-in link-type catalog.
+        provision_workspace_link_types(
+            workspace_id=workspace.id, tenant_id=tenant.id
+        )
+        return workspace
 
 
 @pytest.fixture
-def ctx(user: User) -> AuthContext:
+def api_key(user: User) -> ApiKey:
+    """An active agent API key — the only principal that may produce (Zusage 7(f))."""
+    # Arm the tenant context first: ApiKey is tenant-scoped and its manager
+    # raises TenantContextNotSetError without an active tenant.
+    with _active(user.tenant):
+        return ApiKey.objects.create(
+            tenant=user.tenant,
+            user=user,
+            name="suggest-links-agent",
+            key_hash="sha256p1:suggest-links-agent",
+            principal_type="agent",
+            agent_label="SuggestLinks Agent",
+        )
+
+
+@pytest.fixture
+def ctx(user: User, api_key: ApiKey) -> AuthContext:
+    """Agent/API-key context: suggest_links is a production since ADR-019 WP5."""
     return AuthContext(
         user_id=user.id,
         tenant_id=user.tenant.id,
         active_roles=("editor",),
-        auth_method="test",
+        auth_method=AuthMethod.API_KEY,
+        api_key_id=api_key.id,
+        actor_type="agent",
+        agent_label="SuggestLinks Agent",
+        tenant_name="SuggestLinks Tenant",
+    )
+
+
+@pytest.fixture
+def human_ctx(user: User) -> AuthContext:
+    """A human bearer context — must be refused fail-closed by the producer."""
+    return AuthContext(
+        user_id=user.id,
+        tenant_id=user.tenant.id,
+        active_roles=("editor",),
+        auth_method=AuthMethod.BEARER_TOKEN,
         api_key_id=None,
         tenant_name="SuggestLinks Tenant",
     )
@@ -107,7 +151,11 @@ def _artifact(tenant: Tenant, workspace: Workspace, artifact_type: str) -> Artif
 def _requirement(
     tenant: Tenant, workspace: Workspace, title: str = "Req", description: str = ""
 ) -> Requirement:
-    art = _artifact(tenant, workspace, "requirement")
+    # Canonical catalog artifact_type: link-type validation matches it exactly,
+    # and the audit resolves StakeholderNeeds/Requirements via the model join
+    # (not this string), so the canonical casing is required for WP5's
+    # persisted proposal links to be accepted.
+    art = _artifact(tenant, workspace, "Requirement")
     return Requirement.objects.create(
         tenant=tenant, artifact=art, title=title, description=description
     )
@@ -116,7 +164,8 @@ def _requirement(
 def _need(
     tenant: Tenant, workspace: Workspace, title: str = "Need", description: str = ""
 ) -> StakeholderNeed:
-    art = _artifact(tenant, workspace, "stakeholder_need")
+    # Canonical catalog artifact_type (see _requirement).
+    art = _artifact(tenant, workspace, "StakeholderNeed")
     return StakeholderNeed.objects.create(
         tenant=tenant, artifact=art, title=title, description=description
     )
@@ -718,3 +767,153 @@ class TestCandidatePoolExcludesOutdatedArtifacts:
 
         assert str(kept.artifact_id) in pool
         assert str(deleted.artifact_id) not in pool
+
+
+# ---------------------------------------------------------------------------
+# ADR-019 WP5 — the producer persists one suggestion per eligible finding
+# ---------------------------------------------------------------------------
+
+
+class TestSuggestLinksPersistsSuggestions:
+    def test_agent_run_persists_one_open_suggestion_per_distinct_edge(
+        self, tenant, workspace, ctx
+    ):
+        with _active(tenant):
+            _need(
+                tenant,
+                workspace,
+                "Login authentication need",
+                "Users must authenticate securely.",
+            )
+            _requirement(
+                tenant,
+                workspace,
+                "Login authentication requirement",
+                "The system shall authenticate users securely.",
+            )
+            result = TraceabilitySuggestService().suggest_links(
+                workspace.id, ctx, tier="standard"
+            )
+            persisted = list(Suggestion.objects.filter(workspace_id=workspace.id))
+
+            # Assertions stay inside the armed tenant context: Suggestion and
+            # TraceLink are tenant-scoped managers, so the per-row link lookup
+            # below needs an active TenantContext.
+            assert result.suggestions, "mock provider must rank at least one finding"
+            # ADR-019 WP5 / B-02: one persisted open receipt per *distinct edge*
+            # (same source/target collapses), not per finding — a second finding
+            # proposing the same edge must not add a duplicate, un-rejectable row.
+            expected_edges = {
+                (
+                    str(suggestion.source_artifact_id),
+                    str(suggestion.ranked_candidates[0].artifact_id),
+                )
+                for suggestion in result.suggestions
+            }
+            assert len(persisted) == len(expected_edges)
+            # No two receipts point at the same M2 proposal link.
+            assert len(persisted) == len({row.target_item_id for row in persisted})
+            for row in persisted:
+                assert row.status == Suggestion.Status.OPEN
+                assert row.kind == "trace_link"
+                assert row.producer == "SuggestLinks Agent"
+                # Server-set provenance from the API key, never from a payload.
+                assert row.proposed_by_id == ctx.api_key_id
+                assert row.proposed_at is not None
+                assert row.decided_by_id is None
+                # target_item_id is the real, still-unconfirmed M2 proposal link.
+                link = TraceLink.objects.get(id=row.target_item_id)
+                assert link.is_proposal is True
+                assert link.proposed_by_id == ctx.api_key_id
+                assert link.source_id == UUID(row.payload["source_artifact_id"])
+                assert link.target_id == UUID(
+                    row.payload["ranked_candidates"][0]["artifact_id"]
+                )
+
+    def test_repeated_run_dedupes_on_the_edge(self, tenant, workspace, ctx):
+        with _active(tenant):
+            _need(tenant, workspace, "Login authentication need", "auth login")
+            _requirement(
+                tenant, workspace, "Login authentication requirement", "auth login"
+            )
+            first = TraceabilitySuggestService().suggest_links(
+                workspace.id, ctx, tier="standard"
+            )
+            receipts_after_first = Suggestion.objects.filter(
+                workspace_id=workspace.id
+            ).count()
+            open_after_first = Suggestion.objects.filter(
+                workspace_id=workspace.id, status=Suggestion.Status.OPEN
+            ).count()
+
+            second = TraceabilitySuggestService().suggest_links(
+                workspace.id, ctx, tier="standard"
+            )
+            edges = list(TraceLink.objects.filter(link_type="derives-from"))
+            receipts = Suggestion.objects.filter(workspace_id=workspace.id)
+            open_receipts = receipts.filter(status=Suggestion.Status.OPEN)
+
+            # Assertions stay inside the armed tenant context: ``receipts`` is
+            # a lazy tenant-scoped queryset, so ``.count()`` here needs an
+            # active TenantContext.
+            assert first.suggestions and second.suggestions
+            # B-02/O7: the repeated run neither adds a receipt nor a second
+            # ``open`` row — it reuses the receipt of the edge.
+            assert receipts.count() == receipts_after_first
+            assert open_receipts.count() == open_after_first
+            edge_keys = {
+                (str(link.source_id), str(link.target_id), link.link_type)
+                for link in edges
+            }
+            assert len(edge_keys) == len(edges), "duplicate trace-link edges were created"
+
+    def test_human_bearer_context_is_refused_fail_closed(
+        self, tenant, workspace, human_ctx
+    ):
+        with _active(tenant):
+            _need(tenant, workspace, "Login authentication need", "auth login")
+            _requirement(
+                tenant, workspace, "Login authentication requirement", "auth login"
+            )
+            with pytest.raises(ProducerContextRequiredError):
+                TraceabilitySuggestService().suggest_links(
+                    workspace.id, human_ctx, tier="standard"
+                )
+            # Fail-closed wrote nothing: no receipt, no unstamped link.
+            assert not Suggestion.objects.filter(workspace_id=workspace.id).exists()
+            assert not TraceLink.objects.exists()
+
+
+class TestSuggestLinksAuditsConfirmedTraceState:
+    def test_suggest_links_forwards_include_proposal_links_false(
+        self, tenant, ctx
+    ):
+        """B-05: the producer audits only the *confirmed* trace state.
+
+        Its own persisted proposal must not satisfy the completeness rule on a
+        repeated run; the seam runs ``AuditService.run_audit`` ->
+        ``RuleEngine.run(include_proposal_links=False)``.
+        """
+
+        class _StubAudit:
+            def __init__(self) -> None:
+                self.kwargs: dict = {}
+
+            def run_audit(self, *args, **kwargs) -> AuditReport:
+                self.kwargs = kwargs
+                return AuditReport(
+                    tier="standard",
+                    scope=None,
+                    scope_artifact_id=None,
+                    findings=[],
+                    truncated=False,
+                    total_findings_available=0,
+                )
+
+        stub = _StubAudit()
+        with _active(tenant):
+            TraceabilitySuggestService(audit_service=stub).suggest_links(
+                "00000000-0000-0000-0000-000000000000", ctx, tier="standard"
+            )
+
+        assert stub.kwargs["include_proposal_links"] is False

@@ -17,7 +17,7 @@ ReqFlow ist ein Requirements-Management-Tool mit AI- und Systems-Engineering-Sup
 - **Layer 0 (Foundation):** Persistierung, Auth/Tenancy, Konfiguration, Audit
 - **Layer 1 (Domain Services):** LLM-Adapter, Traceability, Workflow, Baseline, Diagram, ICD
 - **Layer 2 (Orchestration):** ApplicationService (16 Services, Single Entry Point)
-- **Layer 3 (Interfaces):** REST API + MCP Server (224 Tools, 35 Tool-Gruppen-Präfixe — Stand `v1.8.0-beta.19`, siehe [api/MCP-SURFACE.md](api/MCP-SURFACE.md) für die Messmethode)
+- **Layer 3 (Interfaces):** REST API + MCP Server (227 Tools, 36 Tool-Gruppen-Präfixe — Stand `v1.8.0-beta.19`, siehe [api/MCP-SURFACE.md](api/MCP-SURFACE.md) für die Messmethode)
 - **Layer 4 (Frontend):** React-SPA
 - **Cross-Cutting:** SeMetrics (Read Model), ResilienceOrchestrator
 
@@ -654,7 +654,7 @@ POST /api/v1/auth/logout             # Optional (stateless, JWT in localStorage)
 ---
 
 #### `mcp_server/` (ARCH-L1-003)
-**Modell:** MCP-Server (JSON-RPC 2.0) mit Tool-Gruppen, direkt gegen ApplicationService (ADR-01). **224 Tools in 35 Gruppen-Präfixen** (gemessen auf `v1.8.0-beta.19` mit `traceability.suggest_links_status` (#1197) als letzter Ergänzung, siehe `docs/api/MCP-SURFACE.md`; die vollständige, generierte Tool-Liste inkl. `inputSchema` steht in `docs/agent-templates/tool-manifest.json`, die lesbare Referenz in [`docs/api/MCP-SURFACE.md`](api/MCP-SURFACE.md)).
+**Modell:** MCP-Server (JSON-RPC 2.0) mit Tool-Gruppen, direkt gegen ApplicationService (ADR-01). **227 Tools in 36 Gruppen-Präfixen** (gemessen auf `v1.8.0-beta.19`, zuletzt erweitert um die ADR-019-WP3-Gruppe `suggestion` (`suggestion.list`/`accept`/`reject`) und `traceability.suggest_links` als Write-Tool, siehe `docs/api/MCP-SURFACE.md`; die vollständige, generierte Tool-Liste inkl. `inputSchema` steht in `docs/agent-templates/tool-manifest.json`, die lesbare Referenz in [`docs/api/MCP-SURFACE.md`](api/MCP-SURFACE.md)).
 
 > **Zahlen nicht aus diesem Dokument übernehmen.** Die Werkzeuganzahl ändert sich mit jedem neuen Tool; maßgeblich sind `tool-manifest.json` und die Messmethode in [`docs/api/MCP-SURFACE.md` §1](api/MCP-SURFACE.md#1-catalogue-size) (`tools/list` per `curl` oder offline `manage.py export_tool_manifest`). Die früheren Angaben in diesem Dokument (143, 171, 172, 212, 215) waren Kopien ohne Nachmessung; die CI-Guards `test_tool_manifest_drift.py` und `test_entity_surface_parity.py` verhindern inzwischen, dass eine Zahl still veraltet.
 
@@ -1137,7 +1137,7 @@ Returns `204 No Content`. The key is immediately invalidated.
 
 ### Tool Reference
 
-> **Auszug, nicht die Referenz.** Der MCP-Server bietet **224 Tools in 35 Gruppen-Präfixen** (Stand `v1.8.0-beta.19`, zuletzt erweitert um `traceability.suggest_links_status` (#1197)). Die vollständige, generierte Liste mit `inputSchema` steht in [`docs/agent-templates/tool-manifest.json`](agent-templates/tool-manifest.json); die lesbare Referenz samt Methoden zum Nachmessen der Zahlen ist [`docs/api/MCP-SURFACE.md`](api/MCP-SURFACE.md). Die früher hier genannten „12 tool groups" waren ein längst überholter Stand.
+> **Auszug, nicht die Referenz.** Der MCP-Server bietet **227 Tools in 36 Gruppen-Präfixen** (Stand `v1.8.0-beta.19`, zuletzt erweitert um die ADR-019-WP3-Gruppe `suggestion` (`suggestion.list`/`accept`/`reject`) und `traceability.suggest_links` als Write-Tool). Die vollständige, generierte Liste mit `inputSchema` steht in [`docs/agent-templates/tool-manifest.json`](agent-templates/tool-manifest.json); die lesbare Referenz samt Methoden zum Nachmessen der Zahlen ist [`docs/api/MCP-SURFACE.md`](api/MCP-SURFACE.md). Die früher hier genannten „12 tool groups" waren ein längst überholter Stand.
 >
 > Tools werden als `<prefix>.<tool_name>` aufgerufen, z. B. `requirement.query` oder `test.run_create`.
 

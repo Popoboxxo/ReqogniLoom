@@ -9,9 +9,10 @@ that runs the same computation off-thread:
   dispatching tenant for ADR-03 ownership enforcement;
 * a poll of another tenant's / an unknown ``task_id`` is indistinguishable and
   never reaches the tenant-blind Celery result backend;
-* the worker task re-arms the tenant context and executes the real
+* the worker task re-arms the tenant context, rebuilds the producer's agent
+  context from the propagated ``api_key_id``, and executes the real
   ``suggest_links`` (RBAC is enforced at dispatch; the worker run is tenant
-  scoped and read-only).
+  scoped and now persists a suggestion per finding, ADR-019 WP5).
 """
 from __future__ import annotations
 
@@ -27,7 +28,8 @@ from application.traceability_suggest_service import (
     _TASK_TENANT_CACHE_PREFIX,
     TraceabilitySuggestService,
 )
-from auth_tenancy.context import AuthContext
+from auth_tenancy.context import AuthContext, AuthMethod
+from auth_tenancy.models import ApiKey
 from persistence.models import Tenant, User, Workspace
 from persistence.tenancy import TenantContext
 
@@ -73,12 +75,33 @@ def workspace(tenant: Tenant) -> Workspace:
 
 
 @pytest.fixture
-def ctx(user: User) -> AuthContext:
+def api_key(user: User) -> ApiKey:
+    """The agent key the worker rebuilds its producer context from (ADR-019 WP5)."""
+    # Arm the tenant context first: ApiKey is tenant-scoped and its manager
+    # raises TenantContextNotSetError without an active tenant.
+    with _active(user.tenant):
+        return ApiKey.objects.create(
+            tenant=user.tenant,
+            user=user,
+            name="suggest-links-async-agent",
+            key_hash="sha256p1:suggest-links-async-agent",
+            principal_type="agent",
+            agent_label="Async Agent",
+        )
+
+
+@pytest.fixture
+def ctx(user: User, api_key: ApiKey) -> AuthContext:
+    # ADR-019 WP5: suggest_links_async now produces, so the trigger must run
+    # under an agent/API-key context (fail-closed otherwise).
     return AuthContext(
         user_id=user.id,
         tenant_id=user.tenant.id,
         active_roles=("editor",),
-        auth_method="test",
+        auth_method=AuthMethod.API_KEY,
+        api_key_id=api_key.id,
+        actor_type="agent",
+        agent_label="Async Agent",
     )
 
 
@@ -109,6 +132,9 @@ class TestSuggestLinksAsyncTrigger:
 
         assert result == "task-1197"
         apply_async.assert_called_once()
+        # The producer's key id (never the secret) crosses the queue boundary.
+        dispatched_kwargs = apply_async.call_args.kwargs["kwargs"]
+        assert dispatched_kwargs["api_key_id"] == str(ctx.api_key_id)
         # ADR-03 ownership record: the tenant-blind Celery result backend is
         # only reachable through this mapping.
         assert (
@@ -191,7 +217,7 @@ class TestSuggestLinksStatusTenantFence:
 
 class TestSuggestLinksWorkerTask:
     def test_task_runs_the_real_service_with_a_tenant_scoped_ctx(
-        self, tenant: Tenant, workspace: Workspace
+        self, tenant: Tenant, workspace: Workspace, api_key: ApiKey
     ) -> None:
         from application import tasks as application_tasks
 
@@ -204,16 +230,34 @@ class TestSuggestLinksWorkerTask:
             out = application_tasks.run_traceability_suggest_links(
                 workspace_id=str(workspace.id),
                 tenant_id=str(tenant.id),
+                api_key_id=str(api_key.id),
             )
 
         assert out == {"tier": "standard", "suggestions": []}
         passed_ctx = suggest.call_args.args[1]
         assert passed_ctx.tenant_id == tenant.id
+        # ADR-019 WP5: the worker rebuilds the real agent producer context.
+        assert passed_ctx.api_key_id == api_key.id
+        assert passed_ctx.actor_type == "agent"
+        assert passed_ctx.agent_label == "Async Agent"
         # Tenant context is armed inside the worker, then torn down.
         assert not TenantContext.is_set()
 
-    def test_task_rebuilds_audit_scopes_from_plain_dicts(
+    def test_task_fails_closed_without_an_api_key_id(
         self, tenant: Tenant, workspace: Workspace
+    ) -> None:
+        """A worker run with no propagated key writes nothing (Zusage 7(f))."""
+        from application import tasks as application_tasks
+        from application.base import ProducerContextRequiredError
+
+        with pytest.raises(ProducerContextRequiredError):
+            application_tasks.run_traceability_suggest_links(
+                workspace_id=str(workspace.id),
+                tenant_id=str(tenant.id),
+            )
+
+    def test_task_rebuilds_audit_scopes_from_plain_dicts(
+        self, tenant: Tenant, workspace: Workspace, api_key: ApiKey
     ) -> None:
         from application import tasks as application_tasks
         from traceability.audit import AuditScope
@@ -230,6 +274,7 @@ class TestSuggestLinksWorkerTask:
                 tenant_id=str(tenant.id),
                 scopes=[{"scope": "document", "artifact_id": artifact_id}],
                 tier="extended",
+                api_key_id=str(api_key.id),
             )
 
         assert suggest.call_args.kwargs["scopes"] == [

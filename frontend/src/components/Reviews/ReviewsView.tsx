@@ -49,6 +49,7 @@ import { ForbiddenError } from "../../api/errors";
 import { useReviewsData, type ReviewQueueMode } from "./useReviewsData";
 import { SignatureDialog } from "./SignatureDialog";
 import { ReviewHistoryPanel } from "./ReviewHistoryPanel";
+import { SuggestionsInbox } from "./SuggestionsInbox";
 import { getWorkflowStatusLabel } from "../../utils/workflowStatus";
 import styles from "./ReviewsView.module.css";
 
@@ -69,6 +70,14 @@ const REVIEWS_PAGE_SIZE = 20;
 const PROPOSED_STATE = "proposed";
 
 type ReviewTab = "details" | "history";
+
+/**
+ * ADR-019 / WP6: which surface the left panel shows. `review` and `proposals`
+ * are the historical pending queues; `suggestions` is the persisted suggestion
+ * inbox. O6 chose to hang the inbox off this existing view instead of adding a
+ * second page/route.
+ */
+type ReviewsListMode = ReviewQueueMode | "suggestions";
 
 // REQ-168: per-type approve/reject targets. The review queue keeps the queue
 // scoped to the `in_review` state, so these are the only transitions the
@@ -211,7 +220,11 @@ export default function ReviewsView({
   const [actionError, setActionError] = useState<string | null>(null);
   const [isActing, setIsActing] = useState(false);
   const [pendingTransition, setPendingTransition] = useState<AllowedTransition | null>(null);
-  const [queueMode, setQueueMode] = useState<ReviewQueueMode>("review");
+  // ADR-019 / WP6: one mode value drives all three left-panel surfaces; the
+  // historical data hook below only ever sees the two queue modes it knows.
+  const [listMode, setListMode] = useState<ReviewsListMode>("review");
+  const queueMode: ReviewQueueMode =
+    listMode === "proposals" ? "proposals" : "review";
   const [selectedIds, setSelectedIds] = useState<readonly string[]>([]);
   const [bulkResult, setBulkResult] = useState<{ ok: number; failed: number } | null>(
     null,
@@ -326,7 +339,7 @@ export default function ReviewsView({
     // where it describes a run against a queue that is no longer on screen.
     setBulkResult(null);
     setBulkError(null);
-  }, [search, selectedArtifactType, queueMode]);
+  }, [search, selectedArtifactType, listMode]);
 
   /**
    * Confirm one proposal, resolving its target state from the item ITSELF.
@@ -532,7 +545,49 @@ export default function ReviewsView({
   const approveDisabledReason = buildDisabledReason(APPROVE_TARGET, approveAllowed);
   const rejectDisabledReason = buildDisabledReason(REJECT_TARGET, rejectAllowed);
 
-  const listPanel = (
+  // ADR-019 / WP6: the mode switch is shared by both surfaces so the review
+  // queue and the suggestion inbox are always reachable the same way. O6 keeps
+  // the inbox on this view (no second route).
+  const modeControls = (
+    <>
+      <label data-testid="reviews-queue-mode-toggle" className={styles.queueModeRow}>
+        <input
+          type="checkbox"
+          data-testid="reviews-queue-mode-checkbox"
+          checked={listMode === "proposals"}
+          onChange={(e) =>
+            setListMode(e.target.checked ? "proposals" : "review")
+          }
+        />
+        {t("workflow.proposal.queueMode")}
+        {/* #1089: "3 KI-Vorschläge warten auf Prüfung". Without the number the
+            toggle is an undiscoverable empty-looking switch — the reviewer has
+            no way to learn that the AI left something behind without first
+            clicking it. Hidden while loading or at zero, so a workspace with
+            no proposals keeps the same label it always had. */}
+        {proposalCountLoading ? null : pendingProposalCount > 0 ? (
+          <span className={styles.queueModeCount} data-testid="reviews-proposal-count">
+            {pendingProposalCount}
+          </span>
+        ) : null}
+      </label>
+
+      <label data-testid="reviews-suggestions-mode-toggle" className={styles.queueModeRow}>
+        <input
+          type="checkbox"
+          data-testid="reviews-suggestions-mode-checkbox"
+          checked={listMode === "suggestions"}
+          onChange={(e) => {
+            setListMode(e.target.checked ? "suggestions" : "review");
+            if (e.target.checked) setSelectedId(null);
+          }}
+        />
+        {t("suggestions.mode")}
+      </label>
+    </>
+  );
+
+  const reviewQueuePanel = (
     <div data-testid="reviews-list">
       <div className={styles.typeRow}>
         <label
@@ -571,27 +626,7 @@ export default function ReviewsView({
           )}
       </div>
 
-      <label data-testid="reviews-queue-mode-toggle" className={styles.queueModeRow}>
-        <input
-          type="checkbox"
-          data-testid="reviews-queue-mode-checkbox"
-          checked={queueMode === "proposals"}
-          onChange={(e) =>
-            setQueueMode(e.target.checked ? "proposals" : "review")
-          }
-        />
-        {t("workflow.proposal.queueMode")}
-        {/* #1089: "3 KI-Vorschläge warten auf Prüfung". Without the number the
-            toggle is an undiscoverable empty-looking switch — the reviewer has
-            no way to learn that the AI left something behind without first
-            clicking it. Hidden while loading or at zero, so a workspace with
-            no proposals keeps the same label it always had. */}
-        {proposalCountLoading ? null : pendingProposalCount > 0 ? (
-          <span className={styles.queueModeCount} data-testid="reviews-proposal-count">
-            {pendingProposalCount}
-          </span>
-        ) : null}
-      </label>
+      {modeControls}
 
       {queueMode === "proposals" && selectedIds.length > 0 && (
         <button
@@ -770,6 +805,18 @@ export default function ReviewsView({
       )}
     </div>
   );
+
+  // ADR-019 / WP6: O6 — the persisted-suggestion inbox is a third mode of the
+  // existing review surface, not a separate page.
+  const listPanel =
+    listMode === "suggestions" ? (
+      <div data-testid="reviews-list">
+        {modeControls}
+        <SuggestionsInbox />
+      </div>
+    ) : (
+      reviewQueuePanel
+    );
 
   const detailPanel = !selected ? (
     <p data-testid="review-detail-empty" className={styles.mutedText}>

@@ -150,7 +150,7 @@ class _ScopeAwareStubEngine:
         self._findings = list(findings)
         self.calls: list = []
 
-    def run(self, *, tier, workspace_id, tenant_id, scopes=None):
+    def run(self, *, tier, workspace_id, tenant_id, scopes=None, include_proposal_links=True):
         self.calls.append(scopes)
         effective = scopes if scopes is not None else [AuditScope("project")]
         wanted = {(s.scope, str(s.artifact_id or "")) for s in effective}

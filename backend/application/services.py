@@ -118,6 +118,7 @@ from application.base import (  # noqa: F401
     NotFoundError,
     OptimisticLockError,
     PermissionDeniedError,
+    ProducerContextRequiredError,
     ServiceBase,
     ValidationError,
 )
@@ -201,6 +202,11 @@ from application.effective_permission_service import (  # noqa: F401,E402
     EffectivePermission,
     EffectivePermissionService,
 )
+
+# ---------------------------------------------------------------------------
+# ADR-019 — generic proposal lifecycle facade (WP2)
+# ---------------------------------------------------------------------------
+from application.suggestion_service import SuggestionService  # noqa: F401,E402
 
 __all__ = [
     # Step-1 services
@@ -287,4 +293,7 @@ __all__ = [
     # COMP-AS-022 — effective permission resolution (ADR-01, #722)
     "EffectivePermissionService",
     "EffectivePermission",
+    # ADR-019 — generic proposal lifecycle (WP2)
+    "SuggestionService",
+    "ProducerContextRequiredError",
 ]

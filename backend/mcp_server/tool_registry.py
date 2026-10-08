@@ -429,7 +429,10 @@ _READ_ONLY_TOOL_NAMES: frozenset[str] = frozenset(
         # ".read"/".query" ("query_links" suffix differs), so it must be listed
         # explicitly or it would fail closed to WRITE-gated.
         "traceability.query_links",
-        "traceability.suggest_links",
+        # ADR-019 WP5: ``traceability.suggest_links`` now PERSISTS a
+        # ``Suggestion`` receipt per eligible finding, so it is a write tool
+        # and is deliberately NOT read-exempt any more. Only the status poll
+        # below stays read-only.
         # #1197: status polling only reads a Celery task result via the
         # tenant-ownership cache mapping — mirrors
         # requirement_bundle.compression_status and BundleCompressionStatusView.
@@ -456,6 +459,8 @@ _READ_ONLY_TOOL_NAMES: frozenset[str] = frozenset(
         "diagram.query",
         "admin.backup_list",
         "review.list_pending",
+        # ADR-019 WP3: the proposal inbox read; accept/reject are write-gated.
+        "suggestion.list",
         # Issue #114: BaselineToolGroup read-only tools (baseline.create is
         # the only mutating one — deliberately absent from this set so it
         # stays fail-closed WRITE-gated).
@@ -903,6 +908,7 @@ class ToolRegistry:
         from mcp_server.tools.prompt_variable import PromptVariableToolGroup
         from mcp_server.tools.diagram import DiagramToolGroup
         from mcp_server.tools.review import ReviewToolGroup
+        from mcp_server.tools.suggestion import SuggestionToolGroup
         from mcp_server.tools.baseline import BaselineToolGroup
         from mcp_server.tools.goals import GoalToolGroup, MainGoalToolGroup
         from mcp_server.tools.requirement_bundle import RequirementBundleToolGroup
@@ -955,6 +961,10 @@ class ToolRegistry:
             "ai_derivation": AiDerivationToolGroup(),
             "diagram": DiagramToolGroup(),
             "review": ReviewToolGroup(),
+            # ADR-019 WP3: the durable proposal inbox (list/accept/reject).
+            # suggestion.list is read-exempt below; accept/reject stay
+            # fail-closed write-gated via _is_write_tool.
+            "suggestion": SuggestionToolGroup(),
             # Issue #114: BaselineFacade was REST/UI-only — wraps it for MCP.
             "baseline": BaselineToolGroup(),
             # Task 7 of feat/ziele-hauptziel-design: Goal/MainGoal MCP tools.

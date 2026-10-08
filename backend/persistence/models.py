@@ -45,6 +45,7 @@ from django.conf import settings
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import IntegrityError, connection, models, transaction
 from django.db.models.functions import Lower
+from django.utils import timezone
 from django.utils.crypto import salted_hmac
 
 # REQ-L2-VS-004: pgvector Django integration. Requires the ``pgvector`` package
@@ -3847,6 +3848,154 @@ class UidSequence(TenantScopedModel):
         return f"UidSequence({self.workspace_id}/{self.item_type}={self.last_value})"
 
 
+class Suggestion(TenantScopedModel):
+    """Durable, tenant-scoped proposal receipt / inbox row (ADR-019).
+
+    ADR-019 (accepted 2026-10-08) introduces a generic proposal lifecycle as a
+    *composition* layer over the four existing mechanisms M1–M4
+    (workflow state ``proposed``, ``TraceLink.proposed_by``/``proposed_at``,
+    interview ``grounding_snapshot``, ``ContextEdge.origin``). This row is the
+    **durable receipt + inbox + provenance** over them: it does **not** own the
+    state machine — the responsible mechanism keeps the state authority. The
+    Layer-2 facade :class:`application.suggestion_service.SuggestionService`
+    dispatches accept/reject to a per-``kind`` adapter that calls the existing
+    domain path and then stamps this row.
+
+    Provenance is server-set from the authenticated principal (never from a
+    request body, ADR-019 Decision 7 / Threat-Model 3):
+
+    * :attr:`proposed_by` references the :class:`auth_tenancy.ApiKey` that
+      produced the suggestion — the same semantics as
+      :attr:`TraceLink.proposed_by`; ``SET_NULL`` so revoking a key never
+      deletes the historical receipt.
+    * :attr:`decided_by` references the human :class:`persistence.User` who
+      accepted/rejected; ``SET_NULL`` for the same reason.
+    * :attr:`producer` is a service/agent label chosen by trusted producer code
+      (e.g. ``"traceability.suggest_links"``); it is never read from a request
+      body.
+
+    ``payload`` is **untrusted** (LLM-produced). The accept path validates it
+    exclusively through the delegated domain path; it supplies candidate ids,
+    never decisions, and is never blind-materialized (ADR-019 Decision 7(b)).
+
+    Scope: :attr:`workspace` follows the prevailing Layer-0 convention for
+    workspace-scoped entities (a ``ForeignKey`` to :class:`Workspace`, cascade,
+    like ``Artifact``/``UidSequence``) so the inbox can be filtered per
+    workspace while RLS still isolates the tenant.
+    """
+
+    class Kind(models.TextChoices):
+        """The four proposal producers ADR-019 unifies under one lifecycle."""
+
+        ARTIFACT_CREATE = "artifact_create", "Artifact create"
+        TRACE_LINK = "trace_link", "Trace link"
+        INTERVIEW_GROUNDING = "interview_grounding", "Interview grounding"
+        CONTEXT_EDGE = "context_edge", "Context edge"
+
+    class Status(models.TextChoices):
+        """Proposal lifecycle. Hoheit remains with the delegated mechanism."""
+
+        OPEN = "open", "Open"
+        ACCEPTED = "accepted", "Accepted"
+        REJECTED = "rejected", "Rejected"
+        SUPERSEDED = "superseded", "Superseded"
+
+    kind = models.CharField(max_length=32, choices=Kind.choices)
+    status = models.CharField(
+        max_length=16,
+        choices=Status.choices,
+        default=Status.OPEN,
+        db_index=True,
+    )
+    producer = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text=(
+            "Service/agent label of the trusted producer (e.g. "
+            "'traceability.suggest_links'). Server-set from producer code, never "
+            "from a request body."
+        ),
+    )
+    proposed_by = models.ForeignKey(
+        "auth_tenancy.ApiKey",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="proposed_suggestions",
+        help_text=(
+            "API key of the producing agent (M2 semantics, like "
+            "TraceLink.proposed_by); server-set from ctx.api_key_id."
+        ),
+    )
+    proposed_at = models.DateTimeField(
+        default=timezone.now,
+        help_text="Server-set creation time of the proposal receipt.",
+    )
+    decided_by = models.ForeignKey(
+        "persistence.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        help_text=(
+            "Human principal who accepted/rejected; NULL while the suggestion "
+            "is still open."
+        ),
+    )
+    decided_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Server-set decision time; NULL while the suggestion is open.",
+    )
+    target_item_type = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        help_text=(
+            "Kind-specific target label (e.g. 'TraceLink'): the entity the "
+            "adapter acts on. Empty for a free-standing proposal."
+        ),
+    )
+    target_item_id = models.UUIDField(
+        null=True,
+        blank=True,
+        help_text=(
+            "UUID of the delegated target (e.g. the M2 proposal TraceLink id); "
+            "NULL when the adapter has nothing to reference yet."
+        ),
+    )
+    payload = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text=(
+            "UNTRUSTED producer payload (candidate ids, scores, rationale, "
+            "ranking). Never blind-materialized; validated through the "
+            "delegated domain path only."
+        ),
+    )
+    workspace = models.ForeignKey(
+        Workspace,
+        on_delete=models.CASCADE,
+        related_name="suggestions",
+    )
+
+    class Meta:
+        db_table = "pl_suggestion"
+        indexes = [
+            # The inbox query (`list_open`) filters (workspace, status) on
+            # every call; the tenant filter is served by the inherited
+            # ``tenant`` index + RLS.
+            models.Index(
+                fields=["workspace", "status"],
+                name="idx_suggestion_ws_status",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"Suggestion({self.kind}/{self.status})"
+
+
 # Public foundation surface. Other apps import from here.
 __all__ = [
     "AuditableModel",
@@ -3901,4 +4050,6 @@ __all__ = [
     "ChangeRequestAffectedItem",
     # Issue #932: local readable `uid` allocation.
     "UidSequence",
+    # ADR-019: generic proposal lifecycle (durable receipt / inbox).
+    "Suggestion",
 ]

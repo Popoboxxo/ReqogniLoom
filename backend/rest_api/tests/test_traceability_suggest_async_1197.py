@@ -206,3 +206,32 @@ class TestSuggestLinksStatusView:
         assert resp.status_code == 200
         assert resp.json()["status"] == "not_found"
         get_status.assert_not_called()
+
+
+@pytest.mark.django_db
+class TestSuggestLinksHumanTriggerFailsClosed:
+    """ADR-019 Decision 3/4 + review finding 001-09 (WP5).
+
+    ``suggest_links`` now persists a suggestion per eligible finding, so the
+    human-bearer REST trigger is out of MVP scope. It must fail closed with
+    409 (PRODUCER_CONTEXT_REQUIRED) instead of silently writing an unstamped,
+    unreviewed proposal — and before the (expensive) auditor/LLM run.
+    """
+
+    def test_sync_human_trigger_returns_409(
+        self, authed_client: APIClient, workspace: Workspace
+    ) -> None:
+        resp = authed_client.post(_SUGGEST_URL.format(ws=workspace.id))
+
+        assert resp.status_code == 409, resp.content
+        assert resp.json()["error"]["code"] == "PRODUCER_CONTEXT_REQUIRED"
+
+    def test_async_human_trigger_returns_409(
+        self, authed_client: APIClient, workspace: Workspace
+    ) -> None:
+        resp = authed_client.post(
+            _SUGGEST_URL.format(ws=workspace.id) + "?async=true"
+        )
+
+        assert resp.status_code == 409, resp.content
+        assert resp.json()["error"]["code"] == "PRODUCER_CONTEXT_REQUIRED"

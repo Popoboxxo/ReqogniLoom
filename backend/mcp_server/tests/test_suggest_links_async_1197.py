@@ -2,8 +2,8 @@
 
 Covers the ``async`` parameter on ``traceability.suggest_links`` and the new
 ``traceability.suggest_links_status`` poll tool, plus the registry
-classification that keeps the status tool read-only and workspace-scope
-ratchet-compliant.
+classification: the status tool stays read-only, while
+``traceability.suggest_links`` is now write-classified (ADR-019 WP5).
 """
 from __future__ import annotations
 
@@ -129,9 +129,9 @@ def test_schemas_advertise_the_async_param_and_status_tool() -> None:
     )
 
 
-def test_status_tool_is_read_only_in_the_registry() -> None:
+def test_status_tool_is_read_only_but_producer_is_write() -> None:
     from mcp_server.tool_registry import ToolRegistry
 
     registry = ToolRegistry()
     assert registry._is_write_tool("traceability.suggest_links_status") is False
-    assert registry._is_write_tool("traceability.suggest_links") is False
+    assert registry._is_write_tool("traceability.suggest_links") is True

@@ -242,6 +242,19 @@ _declare(
         ResourceScope.WORKSPACE, entity_key="artifact", id_kwargs=("artifact_id",)
     ),
 )
+# ADR-019 WP4: accept/reject name the suggestion by id and derive the target
+# workspace from the suggestion row itself, so authority follows the object —
+# a caller without a role in the suggestion's workspace is denied and a foreign
+# tenant's id resolves to nothing (404, no existence leak).
+for _name in ("SuggestionAcceptView", "SuggestionRejectView"):
+    _declare(
+        _name,
+        ResourceClassification(
+            ResourceScope.WORKSPACE,
+            entity_key="suggestion",
+            id_kwargs=("suggestion_id",),
+        ),
+    )
 
 # -- workspace-scoped: workspace named in URL/query/body ------------------------
 # These routes carry the workspace explicitly (``workspaces/<uuid:...>/...``),
@@ -388,6 +401,11 @@ _TENANT_SCOPED = {
     "WorkflowDefinitionViewSet": "tenant/workspace workflow definitions",
     # reviews queue (flat), search/metrics read-models, async status
     "ReviewsPendingView": "flat review queue; optional ?workspace_id",
+    # ADR-019 WP4: the flat suggestion inbox mirrors ReviewsPendingView — the
+    # mandatory ?workspace_id is validated by the view (400 when absent) and the
+    # auth layer scopes the caller's roles to it, so a same-tenant non-member is
+    # denied by RBAC while a foreign-tenant workspace answers an empty page.
+    "SuggestionListView": "flat suggestion inbox; mandatory ?workspace_id",
     "SearchViewSet": "tenant-wide search across accessible workspaces",
     "MetricsViewSet": "tenant-wide KPI read-model",
     "BundleCompressionStatusView": "async task status, tenant-owned",

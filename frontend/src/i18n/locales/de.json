@@ -545,6 +545,35 @@
       "credentialRequired": "Ein Passwort oder TOTP-Code ist erforderlich."
     }
   },
+  "suggestions": {
+    "mode": "Vorschläge",
+    "heading": "Offene Vorschläge",
+    "empty": "Keine offenen Vorschläge.",
+    "error": "Vorschläge konnten nicht geladen werden.",
+    "provenance": "Vorschlag von {{source}} · {{time}}",
+    "unknownSource": "unbekannter Quelle",
+    "target": "Ziel",
+    "accept": "Annehmen",
+    "reject": "Ablehnen",
+    "acceptLabel": "{{kind}} von {{source}} annehmen",
+    "rejectLabel": "{{kind}} von {{source}} ablehnen",
+    "rejectConfirmTitle": "Vorschlag ablehnen",
+    "rejectConfirmMessage": "Diesen Vorschlag ablehnen? Das Ziel-Artefakt wird dabei nicht verändert.",
+    "rejectReasonLabel": "Begründung",
+    "rejectReasonPlaceholder": "Warum wird dieser Vorschlag abgelehnt?",
+    "rejectReasonRequired": "Für die Ablehnung ist eine Begründung erforderlich.",
+    "rejectConfirm": "Ablehnen",
+    "cancel": "Abbrechen",
+    "actionError": "Aktion fehlgeschlagen.",
+    "accepted": "Vorschlag angenommen.",
+    "rejected": "Vorschlag abgelehnt.",
+    "kind": {
+      "artifact_create": "Artefakt-Vorschlag",
+      "trace_link": "Verknüpfungs-Vorschlag",
+      "interview_grounding": "Interview-Absicherung",
+      "context_edge": "Kontext-Kante"
+    }
+  },
   "baselines": {
     "placeholder": "Baselines — in Bearbeitung.",
     "empty": "Keine Baselines vorhanden.",
