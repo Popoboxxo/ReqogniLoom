@@ -60,6 +60,14 @@ export interface DialogProps {
   children: ReactNode;
   /** Optional one-liner below the title, exposed as `aria-describedby`. */
   description?: string;
+  /**
+   * Id of an externally rendered description element, exposed as
+   * `aria-describedby` when `description` is not used. Additive (review round
+   * 2, A-F9): lets a wrapper such as `<ConfirmDialog>`, which renders its own
+   * message paragraph, link that paragraph without changing any existing
+   * `description` consumer.
+   */
+  describedById?: string;
   /** Action row pinned to the bottom of the panel. */
   footer?: ReactNode;
   /** Panel width. Default `md`. */
@@ -78,6 +86,7 @@ export function Dialog({
   onClose,
   children,
   description,
+  describedById,
   footer,
   size = "md",
   initialFocusRef,
@@ -155,7 +164,7 @@ export function Dialog({
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        aria-describedby={description ? descriptionId : undefined}
+        aria-describedby={description ? descriptionId : describedById}
         className={`${styles.panel} ${styles[size]}`}
         data-testid={testId}
         tabIndex={-1}
