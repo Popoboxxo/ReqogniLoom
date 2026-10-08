@@ -878,7 +878,37 @@ services:
       postgres:
         condition: service_healthy
     restart: "no"
-    command: python manage.py migrate
+    # F1: the workspace-orphan cleanup runs BEFORE the migration graph. A
+    # cleanup *migration* cannot do this job — one depending on 0021 never runs
+    # on a database where 0021 still fails (the orphans themselves are what
+    # makes it fail), and a second leaf node depending on 0020 trips
+    # MultipleLeafNodesError. `depends_on: postgres: service_healthy` above is
+    # the wait-for-db gate and is preserved unchanged; `--no-input` keeps the
+    # one-shot container from ever blocking on a prompt.
+    #
+    # The cleanup is a documented no-op on a fresh database (the tables it looks
+    # at do not exist yet — it introspects information_schema first), so a clean
+    # deployment pays two extra SELECTs and nothing else.
+    #
+    # The availability probe is not decoration: this compose file and the image
+    # tag are released separately, so there is a real window where compose is
+    # newer than `${REQOGNILOOM_VERSION}`. Without the probe the one-shot
+    # container would die on "Unknown command" and `backend` — which waits on
+    # `migrate: service_completed_successfully` — would never start at all.
+    # With it, a clean database migrates from the older image exactly as before,
+    # and an orphan-laden one still fails loudly at workflow/0021, which is the
+    # pre-fix RED behaviour and tells the operator to upgrade the image.
+    command:
+      - sh
+      - -c
+      - |
+        if python manage.py help cleanup_workflow_orphans >/dev/null 2>&1; then
+          python manage.py cleanup_workflow_orphans --no-input
+        else
+          echo "[migrate] cleanup_workflow_orphans not in this image —" \
+               "skipping; workflow/0022 repeats the same delete in-migration" >&2
+        fi
+        exec python manage.py migrate --no-input
 
   # ─────────────────────────────────────────────────────────
   # Celery Worker — ARCH-L1-016 ResilienceOrchestrator

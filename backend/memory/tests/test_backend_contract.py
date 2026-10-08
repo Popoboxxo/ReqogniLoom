@@ -24,6 +24,14 @@ query,list,delete}`` surface ``test_honcho_backend.py`` drives, plus the
 ``session``/``message``/``representation`` surface the F6 write and digest paths
 use) plus its local mirror rows -- so the contract is pinned against the actual
 code paths on both providers, not a mock of them.
+
+ENV LIMITATION of the coverage in this module: the derivation assertions pin
+pgvector's CAPABILITY STATEMENT (``derivation_status == "unsupported"``) on the
+deterministic ``mock`` embedding provider and the offline fakes above. They do
+not prove real-provider derivation transitions (Honcho's ``ok``/``none``/
+``failed`` depend on a live engine and its queue), real-provider answer QUALITY,
+a live dialectic engine, or the end-to-end Celery queue -- the consolidation E2E
+test never runs a consuming worker (``memory/tests/test_consolidation_e2e.py``).
 """
 from __future__ import annotations
 
@@ -39,6 +47,7 @@ from memory.backends import (
     MemoryAnswer,
     MemoryDigest,
     MemoryHealth,
+    PgvectorMemoryBackend,
     get_memory_backend,
 )
 from memory.honcho_backend import HonchoMemoryBackend
@@ -492,6 +501,79 @@ class TestMemoryBackendContractCommon:
                 assert ref.backend_ref == str(ref.entry_id)
             else:
                 assert ref.backend_ref is None
+
+
+@pytest.mark.django_db
+class TestPgvectorDerivationCapability:
+    """pgvector's ``derivation_status`` is a fixed capability statement, not a
+    measurement (AP-B5.1, #1155): there is no deriver at all, so it says
+    ``unsupported`` on EVERY path -- including ``degraded=True``, because
+    ``degraded`` already carries the outage and collapsing the two would lose
+    the distinction the pair exists for.
+    """
+
+    def _pgvector(self, monkeypatch):
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        monkeypatch.setenv("MEMORY_BACKEND", "pgvector")
+        return get_memory_backend()
+
+    def test_class_level_capability_is_unsupported(self):
+        assert PgvectorMemoryBackend.derivation_status == "unsupported"
+
+    def test_digest_keeps_unsupported_on_a_healthy_scope(self, monkeypatch):
+        backend = self._pgvector(monkeypatch)
+        with active_tenant() as tenant:
+            scope_id = _scope_id(tenant, "user")
+            backend.write(tenant.id, "user", scope_id, "a fact")
+
+            digest = backend.digest(tenant.id, "user", scope_id)
+
+            assert digest.degraded is False
+            assert digest.derivation_status == "unsupported"
+            assert digest.derived_count is None
+
+    def test_digest_keeps_unsupported_when_the_scope_degrades(self, monkeypatch):
+        """The "down" read (unknown scope) must not turn the capability statement
+        into an outage -- ``degraded`` is the outage signal, ``unsupported``
+        stays the honest "no deriver here"."""
+        backend = self._pgvector(monkeypatch)
+        with active_tenant() as tenant:
+            digest = backend.digest(tenant.id, "not-a-scope", uuid4())
+
+            assert digest.degraded is True
+            assert digest.text == ""
+            assert digest.derivation_status == "unsupported"
+            assert digest.derived_count is None
+
+    def test_digest_keeps_unsupported_when_the_table_is_unreachable(self, monkeypatch):
+        """The unreachable-table branch (``except`` around the read) takes the
+        same capability statement: an outage changes ``degraded``, never what
+        the backend is able to derive."""
+        backend = self._pgvector(monkeypatch)
+
+        def _boom(_tenant_id):
+            raise RuntimeError("mem_memory_entry unreachable")
+
+        monkeypatch.setattr("memory.backends._tenant_context", _boom)
+        with active_tenant() as tenant:
+            digest = backend.digest(tenant.id, "user", uuid4())
+
+            assert digest.degraded is True
+            assert digest.derivation_status == "unsupported"
+            assert digest.derived_count is None
+
+    def test_degraded_status_stays_inside_the_shared_enum(self, monkeypatch):
+        """The degraded pair still travels through the shared enum, so a caller
+        can machine-distinguish it from Honcho's ``unknown``/``failed``."""
+        backend = self._pgvector(monkeypatch)
+        with active_tenant() as tenant:
+            degraded = backend.digest(tenant.id, "not-a-scope", uuid4())
+            scope_id = _scope_id(tenant, "user")
+            healthy = backend.digest(tenant.id, "user", scope_id)
+
+            assert degraded.derivation_status in VALID_DERIVATION_STATUSES
+            assert healthy.derivation_status in VALID_DERIVATION_STATUSES
+            assert degraded.derivation_status == healthy.derivation_status
 
 
 @pytest.mark.django_db

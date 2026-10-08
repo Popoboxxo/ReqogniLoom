@@ -1,4 +1,16 @@
-"""Tests for the ``memory.*`` MCP tool group (Task 7, extended RFC #1002 PR B)."""
+"""Tests for the ``memory.*`` MCP tool group (Task 7, extended RFC #1002 PR B).
+
+ENV LIMITATION of the coverage in this module: the tests pin the CONTRACT of
+the tool group (envelope keys, delegation, permissions) against the
+deterministic ``mock`` LLM/embedding provider that ``settings_test.py`` forces
+(ADR-02). Where a backend cannot answer at all (pgvector has no dialectic
+engine) the patched seam below supplies the answer, so the answered branch is
+CI-testable without Honcho. What this does NOT replace, and what no test here
+proves: real-provider answer QUALITY, quota-dependent derivation transitions
+(``derivation_status`` beyond pgvector's fixed ``unsupported``), a live
+dialectic engine, and the end-to-end Celery queue -- the consolidation E2E test
+never runs a consuming worker (see ``memory/tests/test_consolidation_e2e.py``).
+"""
 from datetime import datetime
 from uuid import uuid4
 
@@ -66,6 +78,49 @@ def _key_scoped_tools(monkeypatch, scope: str, roles=("editor",)) -> set:
     monkeypatch.setattr(registry, "_validate_api_key", lambda _key: (ctx, None))
     monkeypatch.setattr(registry, "_resolve_list_roles", lambda _c, _ws: tuple(roles))
     return {tool["name"] for tool in registry.list_tools("reqlo_x")}
+
+
+def _fake_dialectic(
+    monkeypatch, *, degraded=False, detail="", answer="Because X, therefore Y."
+) -> list[dict]:
+    """Patch the active pgvector backend's ``ask`` to answer like a dialectic
+    engine and record every call.
+
+    Adapted from the identical seam in ``memory/tests/test_memory_rest.py``
+    (REST mirror): pgvector cannot answer, so the ANSWERED branch of
+    ``memory.ask`` would otherwise be untestable on the deterministic CI
+    stack. Patches ``PgvectorMemoryBackend.ask`` only -- no new mock provider,
+    no LLM involvement.
+
+    Returns the call list; each entry carries the positional args the service
+    passed to the backend.
+    """
+    from django.utils import timezone
+
+    from memory.backends import MemoryAnswer, PgvectorMemoryBackend
+
+    calls: list[dict] = []
+
+    def _ask(self, tenant_id, scope, scope_id, query, *, reasoning_level=None):
+        calls.append(
+            {
+                "tenant_id": tenant_id,
+                "scope": scope,
+                "scope_id": scope_id,
+                "query": query,
+                "reasoning_level": reasoning_level,
+            }
+        )
+        return MemoryAnswer(
+            text="" if degraded else answer,
+            generated_at=timezone.now(),
+            backend="pgvector",
+            degraded=degraded,
+            detail=detail,
+        )
+
+    monkeypatch.setattr(PgvectorMemoryBackend, "ask", _ask)
+    return calls
 
 
 @pytest.mark.django_db
@@ -305,6 +360,116 @@ class TestMemoryToolGroupHandlers:
             )
             assert not result.success
             assert result.error_code == "PERMISSION_DENIED"
+
+    def test_ask_returns_answered_envelope_when_the_engine_can_answer(self, monkeypatch):
+        """ANSWERED branch of ``memory.ask`` (MCP level).
+
+        The degraded branch is covered above; this is the other half -- the
+        branch that a dialectic engine (Honcho) produces in production. Because
+        no engine runs on the deterministic CI stack, the backend's ``ask`` is
+        patched with the same recording fake the REST mirror uses
+        (``memory/tests/test_memory_rest.py``), so the tool's envelope AND its
+        delegation (query/scope/reasoning_level forwarding, one backend call)
+        are observable and pinned here too.
+
+        ENV LIMITATION: this proves the CONTRACT of a successful answer, not
+        answer QUALITY, and not the engine itself -- see the module docstring.
+        """
+        calls = _fake_dialectic(monkeypatch)
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            ctx = editor_ctx(tenant, ws)
+            group = MemoryToolGroup()
+            result = group.execute_tool(
+                "memory.ask",
+                {
+                    "query": "why do we prefer REST?",
+                    "workspace_id": str(ws.id),
+                    "reasoning_level": "medium",
+                },
+                ctx,
+                None,
+            )
+
+            assert result.success
+            assert set(result.data) == {
+                "answer",
+                "generated_at",
+                "backend",
+                "degraded",
+                "detail",
+            }
+            assert result.data["answer"] == "Because X, therefore Y."
+            assert result.data["backend"] == "pgvector"
+            assert result.data["degraded"] is False
+            # An answered envelope carries no degradation cause.
+            assert result.data["detail"] == ""
+            assert isinstance(result.data["generated_at"], str)
+            datetime.fromisoformat(result.data["generated_at"])
+
+            # Exactly one backend call, with the resolved workspace scope and
+            # the caller's reasoning level forwarded untouched.
+            assert len(calls) == 1
+            assert calls[0]["query"] == "why do we prefer REST?"
+            assert calls[0]["scope"] == "workspace"
+            assert calls[0]["scope_id"] == ws.id
+            assert calls[0]["tenant_id"] == tenant.id
+            assert calls[0]["reasoning_level"] == "medium"
+
+    def test_ask_artifact_scope_reaches_the_artifact_backend_call(self, monkeypatch):
+        """An ``artifact_id`` narrows the ask to that artifact's memory: the
+        scope that reaches the backend is ``artifact`` with the artifact's own
+        id, not the workspace scope the same call takes without one.
+        """
+        calls = _fake_dialectic(monkeypatch)
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        with active_tenant() as tenant:
+            from persistence.models import Artifact
+
+            ws = make_workspace(tenant)
+            artifact = Artifact.objects.create(
+                tenant=tenant, workspace=ws, artifact_type="Requirement"
+            )
+            ctx = editor_ctx(tenant, ws)
+            result = MemoryToolGroup().execute_tool(
+                "memory.ask",
+                {
+                    "query": "what does the requirement say?",
+                    "workspace_id": str(ws.id),
+                    "artifact_id": str(artifact.id),
+                },
+                ctx,
+                None,
+            )
+
+            assert result.success
+            assert result.data["degraded"] is False
+            assert [(c["scope"], c["scope_id"]) for c in calls] == [
+                ("artifact", artifact.id)
+            ]
+
+    def test_ask_degrades_when_the_engine_answers_with_a_failure(self, monkeypatch):
+        """The answered branch is not "always healthy": when the patched engine
+        reports a DEGRADED answer (engine outage, quota, ...), the tool must pass
+        that through verbatim instead of re-shaping it into a success."""
+        calls = _fake_dialectic(monkeypatch, degraded=True, detail="engine_error:Boom")
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            ctx = editor_ctx(tenant, ws)
+            result = MemoryToolGroup().execute_tool(
+                "memory.ask",
+                {"query": "anything?", "workspace_id": str(ws.id)},
+                ctx,
+                None,
+            )
+
+            assert result.success
+            assert result.data["answer"] == ""
+            assert result.data["degraded"] is True
+            assert result.data["detail"] == "engine_error:Boom"
+            assert len(calls) == 1
 
     def test_write_and_get_round_trip_with_provenance(self, monkeypatch):
         monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")

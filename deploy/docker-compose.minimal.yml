@@ -207,7 +207,21 @@ services:
       postgres:
         condition: service_healthy
     restart: "no"
-    command: python manage.py migrate
+    # F1: same orphan-cleanup-then-migrate order as the full stack's `migrate`
+    # service (see the long note there, including why the command availability
+    # is probed). This variant is not exempt: a minimal install hits exactly the
+    # same blocked migrate.
+    command:
+      - sh
+      - -c
+      - |
+        if python manage.py help cleanup_workflow_orphans >/dev/null 2>&1; then
+          python manage.py cleanup_workflow_orphans --no-input
+        else
+          echo "[migrate] cleanup_workflow_orphans not in this image —" \
+               "skipping; workflow/0022 repeats the same delete in-migration" >&2
+        fi
+        exec python manage.py migrate --no-input
 
   frontend:
     image: ghcr.io/popoboxxo/reqogniloom-frontend:${REQOGNILOOM_VERSION:-1.8.0-beta.19}

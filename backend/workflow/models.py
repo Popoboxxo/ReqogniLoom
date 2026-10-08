@@ -130,7 +130,23 @@ class WorkflowEngineDefinition(TenantScopedModel):
         (PRESET_EXTENDED, "Extended"),
     ]
 
-    workspace_id = models.UUIDField(db_index=True)
+    # F1 / DATA-06 successor: ``workspace_id`` used to be a bare ``UUIDField``
+    # with only a btree index, so the DB enforced nothing about the workspace a
+    # definition belongs to — 42 orphan rows (parent ``pl_workspace`` gone) were
+    # still present when the column got its referential guard. Kept as
+    # ``workspace_id`` (the FK is expressed through the ``workspace`` attribute
+    # below) so the denormalized column name — and every existing query, index
+    # and MCP/REST filter that reads ``workspace_id`` — is unchanged. The
+    # physical constraint is installed by
+    # ``workflow/0022_we_engine_definition_workspace_fk``; the orphan rows that
+    # block it were deleted by the operator-sanctioned
+    # ``cleanup_workflow_orphans`` command (decision 2026-10-08).
+    workspace = models.ForeignKey(
+        "persistence.Workspace",
+        on_delete=models.CASCADE,
+        related_name="workflow_engine_definitions",
+        db_column="workspace_id",
+    )
     item_type = models.CharField(max_length=128)
     preset = models.CharField(max_length=32, choices=PRESET_CHOICES)
     workflow_json = models.JSONField(default=dict)
@@ -163,13 +179,13 @@ class WorkflowEngineDefinition(TenantScopedModel):
         db_table = "we_engine_definition"
         constraints = [
             models.UniqueConstraint(
-                fields=["tenant", "workspace_id", "item_type"],
+                fields=["tenant", "workspace", "item_type"],
                 name="uq_wedef_tenant_ws_type",
             )
         ]
         indexes = [
             models.Index(
-                fields=["workspace_id", "item_type"],
+                fields=["workspace", "item_type"],
                 name="idx_we_def_workspace_type",
             )
         ]

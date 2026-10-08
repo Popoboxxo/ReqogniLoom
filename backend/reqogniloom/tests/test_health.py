@@ -13,7 +13,7 @@ import uuid
 import pytest
 from django.test import Client, override_settings
 
-from persistence.models import Tenant
+from persistence.models import Tenant, Workspace
 from workflow.models import GlobalWorkflowDefinition, WorkflowEngineDefinition
 
 
@@ -63,7 +63,13 @@ class TestHealthWorkflowWarning:
 
     def test_warning_when_workspace_definition_has_empty_states(self) -> None:
         tenant = _make_tenant()
-        workspace_id = uuid.uuid4()
+        # F1: ``WorkflowEngineDefinition.workspace`` is a validated FK to
+        # ``pl_workspace`` (``workflow/0022``), so the definition needs a real
+        # workspace row — a bare ``uuid4()`` now fails at COMMIT instead of
+        # merely at ``ADD CONSTRAINT`` time.
+        workspace_id = Workspace.unscoped.create(
+            tenant_id=tenant.id, name=f"health-ws-{uuid.uuid4().hex[:8]}"
+        ).id
         WorkflowEngineDefinition.unscoped.create(
             tenant_id=tenant.id,
             workspace_id=workspace_id,
