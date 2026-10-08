@@ -70,6 +70,82 @@ export interface WorkflowHistoryEntry {
  */
 export interface RequirementListOptions {
   includeDeleted?: boolean;
+  /**
+   * Workflow-status filter, mirroring the positional `status` argument of
+   * {@link requirementsApi.list}. Honored by both `list` (positional wins on
+   * conflict) and `listAll`, so the full-pagination walk is reachable through
+   * either entry point.
+   */
+  status?: string;
+}
+
+/**
+ * Fetch every page of `/requirements/` matching `params`, following the
+ * paginator's `next` link until exhaustion (B1).
+ *
+ * The backend's DRF defaults are `PAGE_SIZE=25` (settings.py) with `page_size`
+ * capped at 100 (`RestPagination.n`), so a single request silently drops every
+ * item beyond the first page. The review queue hit exactly that: a workspace
+ * with 28 `in_review` requirements only ever received the first 25, so a
+ * freshly submitted item could never be approved. Both the queue's `list()`
+ * and the dropdown-oriented `listAll()` walk the pages here.
+ *
+ * De-duplicates by id so an item that appears on two pages (e.g. a clock skew
+ * between requests) is not returned twice, and caps the walk at 100 pages to
+ * bound a pathological loop.
+ */
+async function fetchAllRequirementPages(
+  params: Record<string, string>
+): Promise<{ count: number; results: Requirement[] }> {
+  const seen = new Set<UUID>();
+  const all: Requirement[] = [];
+  const collect = (page: PaginatedResponse<Requirement>): void => {
+    for (const r of page.results) {
+      if (!seen.has(r.id)) {
+        seen.add(r.id);
+        all.push(r);
+      }
+    }
+  };
+
+  const firstPage = await getList<Requirement>("/requirements/", {
+    ...params,
+    page_size: params.page_size ?? "100",
+  });
+  const total = firstPage.count;
+  collect(firstPage);
+
+  let nextUrl: string | null = firstPage.next;
+  let pageCount = 0;
+
+  while (nextUrl && pageCount < 100) {
+    pageCount += 1;
+    // The backend may return `next` as an absolute URL, a path starting
+    // with /api/v1, or a path relative to /api/v1. apiClient.get prepends
+    // /api/v1, so we always need the path relative to that prefix.
+    const m = nextUrl.match(/^(https?:\/\/[^/]+)?(\/api\/v1)?(\/.*)$/);
+    const pathWithQuery = m ? m[3] : nextUrl;
+    const nextResp = await apiClient.get<PaginatedResponse<Requirement>>(
+      pathWithQuery.startsWith("/") ? pathWithQuery : `/${pathWithQuery}`
+    );
+    collect(nextResp);
+    nextUrl = nextResp.next;
+  }
+
+  // F3: the 100-page cap above is intentional, but exiting the loop while
+  // `nextUrl` is still non-null means more pages existed and were silently
+  // dropped. Surface that in the console (same parity as
+  // `client.ts::getAllPages`) so a truncated list is visible/debuggable
+  // instead of being mistaken for "this is the complete list".
+  if (nextUrl && pageCount >= 100) {
+    console.warn(
+      `fetchAllRequirementPages(${JSON.stringify(params)}): stopped after ` +
+        `${pageCount} pages (cap reached) — further pages exist but were not ` +
+        "fetched; the returned list is incomplete."
+    );
+  }
+
+  return { count: total, results: all };
 }
 
 /**
@@ -116,16 +192,28 @@ export const requirementsApi = {
    * REQ-144: optional `status` filters the list by the WorkflowEngine
    * lifecycle mirror (e.g. "in_review" for the review queue).
    * GH-443: `status: "outdated"` implies `includeDeleted` server-side.
+   *
+   * F2: `options.status` is honored as well (it mirrors the positional
+   * argument for parity with {@link listAll}); the positional `status` takes
+   * precedence when both are given.
+   *
+   * B1: follows the paginator to exhaustion, so the review queue sees *every*
+   * matching item, not only the backend's default first page of 25.
    */
-  list(
+  async list(
     workspaceId: UUID,
     status?: string,
     options?: RequirementListOptions,
   ): Promise<PaginatedResponse<Requirement>> {
+    const effectiveStatus = status ?? options?.status;
     const params: Record<string, string> = { workspace_id: workspaceId };
-    if (status) params.status = status;
+    if (effectiveStatus) params.status = effectiveStatus;
     if (options?.includeDeleted) params.include_deleted = "true";
-    return getList<Requirement>("/requirements/", params);
+    const { count, results } = await fetchAllRequirementPages(params);
+    // The caller (the review queue) consumes `results` only, but the envelope
+    // is kept intact so existing callers/tests see the same shape. `next` is
+    // null because every page has already been merged in.
+    return { count, next: null, previous: null, results };
   },
 
   /**
@@ -136,42 +224,11 @@ export const requirementsApi = {
     workspaceId: UUID,
     options?: RequirementListOptions,
   ): Promise<Requirement[]> {
-    const seen = new Set<UUID>();
-    const all: Requirement[] = [];
-    const firstPageParams: Record<string, string> = {
-      workspace_id: workspaceId,
-      page_size: "100",
-    };
-    if (options?.includeDeleted) firstPageParams.include_deleted = "true";
-    let resp = await getList<Requirement>("/requirements/", firstPageParams);
-    for (const r of resp.results) {
-      if (!seen.has(r.id)) {
-        seen.add(r.id);
-        all.push(r);
-      }
-    }
-    let nextUrl: string | null = resp.next;
-    let pageCount = 0;
-     
-    while (nextUrl && pageCount < 100) {
-      pageCount += 1;
-      // The backend may return `next` as an absolute URL, a path starting
-      // with /api/v1, or a path relative to /api/v1. apiClient.get prepends
-      // /api/v1, so we always need the path relative to that prefix.
-      const m = nextUrl.match(/^(https?:\/\/[^/]+)?(\/api\/v1)?(\/.*)$/);
-      const pathWithQuery = m ? m[3] : nextUrl;
-      const nextResp = await apiClient.get<PaginatedResponse<Requirement>>(
-        pathWithQuery.startsWith("/") ? pathWithQuery : `/${pathWithQuery}`
-      );
-      for (const r of nextResp.results) {
-        if (!seen.has(r.id)) {
-          seen.add(r.id);
-          all.push(r);
-        }
-      }
-      nextUrl = nextResp.next;
-    }
-    return all;
+    const params: Record<string, string> = { workspace_id: workspaceId };
+    if (options?.status) params.status = options.status;
+    if (options?.includeDeleted) params.include_deleted = "true";
+    const { results } = await fetchAllRequirementPages(params);
+    return results;
   },
 
   get(id: UUID): Promise<Requirement> {
