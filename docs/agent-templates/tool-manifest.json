@@ -1,6 +1,6 @@
 {
   "generated_from": "reqogniloom==1.8.0-beta.19",
-  "tool_count": 227,
+  "tool_count": 228,
   "tools": [
     {
       "name": "admin.backup_create",
@@ -6962,6 +6962,33 @@
         },
         "required": [
           "workspace_id"
+        ]
+      }
+    },
+    {
+      "name": "workspace.resolve_references",
+      "prefix": "workspace",
+      "is_write": false,
+      "description": "Resolve a batch of human-readable artifact references — local uids like 'REQ-L1-007', 'NEED-003', 'ARCH-001' — to their entities within one workspace (issue #17). Built for coding agents and CI gates that work with ids from commit messages, specs and prompts instead of UUIDs: loading the full context of every REQ a commit names is one call. Response: result.resolved = {reference: {id, artifact_type, title, description, status}} — one entry per reference that matched, keyed by the reference as given — and result.not_found = [reference, ...] for the rest. Unknown, malformed, foreign-workspace and foreign-tenant references are all reported as not_found (they are never a 500 and never leak existence). Matching is on the entity's local uid within the given workspace only; a same-named id in another workspace is not resolvable. At most 50 references per call. Read-only.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "UUID of the workspace to resolve in."
+          },
+          "references": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 50,
+            "description": "Local artifact ids to resolve, e.g. ['REQ-L1-007', 'NEED-003', 'ARCH-001']. At most 50 entries per call. Matching is exact (case-sensitive) against the workspace's uid column."
+          }
+        },
+        "required": [
+          "workspace_id",
+          "references"
         ]
       }
     }
