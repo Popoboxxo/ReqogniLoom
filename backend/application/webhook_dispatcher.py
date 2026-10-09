@@ -30,11 +30,12 @@ import hmac
 import json
 import logging
 import time
-import urllib.request
 import urllib.error
-from typing import Any, Dict, List, Optional
+import urllib.request
+from typing import Any, List, Optional
 from uuid import UUID
 
+from django.conf import settings
 from django.utils import timezone
 
 from application.event_bus import DomainEvent, get_event_bus
@@ -239,24 +240,43 @@ class WebhookDispatcher:
             is_final = attempt == _MAX_RETRIES
             is_dead = not success and is_final
 
-            try:
-                WebhookDeliveryLog.objects.create(
-                    subscription=subscription,
-                    event_id=event.event_id,
-                    event_type=event.event_type,
-                    attempt=attempt,
-                    status_code=status_code,
-                    success=success,
-                    error_message=error_msg,
-                    is_dead_letter=is_dead,
-                )
-            except Exception:
-                logger.exception(
-                    "WebhookDispatcher: failed to write delivery log "
-                    "subscription=%s attempt=%d",
+            # #1183 / A4: stamp the delivery log with the owning subscription's
+            # tenant anchor. The poller runs ``_dispatch_with_retry`` inside the
+            # event's armed tenant context, and the subscription was resolved by
+            # the same ``workspace_id``, so this matches ``app.current_tenant``
+            # under enforcement. A NULL anchor with the flag on cannot be logged
+            # (the policy's WITH CHECK would reject it) — skip the row and warn
+            # rather than write an invisible one. Never derive it from the
+            # untrusted event payload.
+            log_tenant_id = getattr(subscription, "tenant_id", None)
+            if log_tenant_id is None and getattr(settings, "RLS_AS_ENFORCED", False):
+                logger.warning(
+                    "WebhookDispatcher: not writing delivery log for "
+                    "subscription=%s attempt=%d — no tenant anchor and "
+                    "RLS_AS_ENFORCED is on (fail closed)",
                     subscription.id,
                     attempt,
                 )
+            else:
+                try:
+                    WebhookDeliveryLog.objects.create(
+                        subscription=subscription,
+                        event_id=event.event_id,
+                        event_type=event.event_type,
+                        attempt=attempt,
+                        status_code=status_code,
+                        success=success,
+                        error_message=error_msg,
+                        is_dead_letter=is_dead,
+                        tenant_id=log_tenant_id,
+                    )
+                except Exception:
+                    logger.exception(
+                        "WebhookDispatcher: failed to write delivery log "
+                        "subscription=%s attempt=%d",
+                        subscription.id,
+                        attempt,
+                    )
 
             if success:
                 logger.info(

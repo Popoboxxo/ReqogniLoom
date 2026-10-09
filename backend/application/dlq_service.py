@@ -41,7 +41,6 @@ from auth_tenancy.context import AuthContext
 
 from application.base import (
     NotFoundError,
-    PermissionDeniedError,
     ServiceBase,
 )
 from application.models import DomainEventDLQ, DomainEventOutbox
@@ -181,6 +180,13 @@ class DlqService:
             snapshot_retry_count = dlq_row.retry_count
 
             # Re-insert into the outbox with a fresh retry budget.
+            #
+            # #1183 / A4: stamp the tenant anchor. The caller is an admin whose
+            # ``ctx.tenant_id`` was just verified against this ``workspace_id``
+            # via the tenant-scoped ``Workspace.objects``, and DRF authentication
+            # armed ``app.current_tenant`` to the same value — so the staged
+            # ``as_*`` policy's WITH CHECK accepts the row under enforcement.
+            # Never derive the tenant from the (untrusted) DLQ payload.
             DomainEventOutbox.objects.create(
                 event_id=snapshot_event_id,
                 event_type=snapshot_event_type,
@@ -189,13 +195,20 @@ class DlqService:
                 payload=snapshot_payload,
                 published=False,
                 retry_count=0,
+                tenant_id=ctx.tenant_id,
             )
 
             dlq_row.delete()
 
             ServiceBase._audit(
                 ctx,
-                operation="replay",
+                # "events.replay" is the AuditEntry.OP_EVENTS_REPLAY choice
+                # (#626). The pre-#1183 value "replay" matched no choice, so
+                # full_clean() rejected it and a *successful* replay aborted in
+                # this audit write (the replay is only reachable directly or via
+                # tests because the MCP handoff suppresses _audit). Fixed while
+                # adding the tenant stamp below.
+                operation="events.replay",
                 entity_type="DomainEventDLQ",
                 entity_id=snapshot_event_id,
                 change_reason=(

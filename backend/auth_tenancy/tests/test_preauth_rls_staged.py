@@ -40,7 +40,7 @@ from auth_tenancy.services.authentication import (
     hash_api_key,
 )
 from persistence.checks import RLS_GUC_MISSING, check_rls_guc_flags_match_db_options
-from persistence.db_roles import APP_DB_ROLE
+from persistence.db_roles import APP_DB_ROLE, DEFINER_DB_ROLE
 from persistence.models import User
 from reqogniloom import settings as settings_module
 
@@ -366,17 +366,19 @@ def test_config_drift_check_passes_when_guc_is_wired():
     ["public.auth_api_key_lookup(text[])", "public.auth_resolve_roles(uuid)"],
 )
 def test_definer_function_security_posture(signature):
-    """AC-2/AC-20: SECURITY DEFINER, fixed search_path, no dynamic SQL, every
-    relation schema-qualified, EXECUTE revoked from PUBLIC and granted to the
-    app role."""
+    """AC-2/AC-20 + issue #1180: SECURITY DEFINER, fixed search_path, no dynamic
+    SQL, every relation schema-qualified, EXECUTE revoked from PUBLIC and
+    granted to the app role, and owned by the dedicated non-superuser definer
+    role (residual R-8 closed)."""
     with connection.cursor() as cursor:
         cursor.execute(
             "SELECT p.prosecdef, p.proconfig, p.prosrc, "
-            "       pg_get_userbyid(p.proowner) "
-            "FROM pg_proc p WHERE p.oid = %s::regprocedure",
+            "       pg_get_userbyid(p.proowner), r.rolsuper "
+            "FROM pg_proc p JOIN pg_roles r ON r.oid = p.proowner "
+            "WHERE p.oid = %s::regprocedure",
             [signature],
         )
-        prosecdef, proconfig, prosrc, owner = cursor.fetchone()
+        prosecdef, proconfig, prosrc, owner, owner_is_superuser = cursor.fetchone()
 
         cursor.execute(
             "SELECT a.grantee::regrole::text, a.privilege_type "
@@ -391,8 +393,15 @@ def test_definer_function_security_posture(signature):
         f"{signature} does not pin search_path: {proconfig}"
     )
     assert owner, f"{signature} has no owner"
-    # The owner is the table owner (bootstrap/migration role), never the app
-    # role — otherwise SECURITY DEFINER would be subject to the policy (R-8).
+    # Issue #1180 / residual R-8: the definer is owned by the dedicated,
+    # NOLOGIN/NOSUPERUSER role whose BYPASSRLS is the only RLS escape hatch.
+    assert owner.strip('"') == DEFINER_DB_ROLE, (
+        f"{signature} is owned by {owner}, not the dedicated {DEFINER_DB_ROLE}"
+    )
+    assert owner_is_superuser is False, (
+        f"{signature} is owned by a superuser ({owner}); NOT rolsuper must hold "
+        "for the definer (residual R-8)"
+    )
     assert owner.strip('"') != APP_DB_ROLE, (
         f"{signature} is owned by {owner}, which must not be the app role"
     )

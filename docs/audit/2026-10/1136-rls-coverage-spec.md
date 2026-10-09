@@ -335,9 +335,12 @@ kann `SET app.rls_as_enforced=''` ausführen → Prädikat TRUE → vollständig
 PostgreSQL bietet ohne Extension keinen rollen-fixierten Custom-GUC; `FORCE` hilft nicht.
 Das ist konsistent mit dem bestehenden `app.current_tenant`-Vertrauensmodell (RLS ist
 Defense-in-Depth gegen ORM-Fehler, nicht gegen eine kompromittierte Session) — **aber es
-darf nicht als „kein Bypass" gelesen werden.** → Residual **R-7**, getrackter Follow-up
-(dedizierte Worker-Rolle mit `BYPASSRLS` oder owner-only-writable Control-Row-Prädikat);
-**kein Blocker** für den DEFAULT-OFF-Ship, **dokumentiertes Residual** für den ON-Flip.
+darf nicht als „kein Bypass" gelesen werden.** → Residual **R-7**. Die harte Mitigation
+(owner-only-writable Control-Row-Prädikat) ist in **#1179** implementiert
+(`persistence/0109` + `application/0034`/`auth_tenancy/0022`); das verbleibende
+`app.current_tenant`-Vertrauensmodell (session-settable) bleibt ein dokumentiertes
+Residual. **Kein Blocker** für den DEFAULT-OFF-Ship, **dokumentiertes Residual** für den
+ON-Flip.
 
 Semantik pro Tabelle:
 | Zustand | GUC (as_/preauth) | Sichtbarkeit (App-Role) | Poller/Auth |
@@ -669,8 +672,8 @@ niemals gleichzeitig covered UND exempt**; `declared != enforced`.
 | R-4 | Orphan-Zeilen mit NULL-`tenant_id` | Bei ON unsichtbar (fail-closed), bis sie gestampt sind | Backfill zählt + loggt; Writer-Stamp (A4) nötig; kein Delete (O-2 entschieden). |
 | R-5 | Flag-Flip erfordert Restart, kein echter Hot-Toggle | Betriebsfenster | **O-1 entschieden: Env-Flag + Restart akzeptiert.** Runtime-Flag-Registry = eigenes Thema. Runbook-Notiz in IC-3. |
 | R-6 | FK `NOT VALID` → `VALIDATE` | Lock auf großer Tabelle | `ADD CONSTRAINT ... NOT VALID` sperrt schwach; `VALIDATE` nach Backfill; reverse-fähig. `ON DELETE RESTRICT`. |
-| **R-7** | **Staged GUC ist FAIL-OPEN und APP-ROLE-SETTABLE (security F1).** `app.rls_as_enforced`/`app.rls_preauth_enforced` sind placeholder custom GUCs; jede App-Role-Session (inkl. SQL-Injection) kann `SET app.rls_as_enforced=''` → Prädikat TRUE → vollständig permissiv. PostgreSQL hat ohne Extension keinen rollen-fixierten Custom-GUC; `FORCE` hilft nicht. | RLS ist im ON-Zustand nicht gegen eine kompromittierte Session dicht | **Kein Blocker für den DEFAULT-OFF-Ship; dokumentiertes Residual für den ON-Flip.** In `RLS_STAGED_TABLES`, hier und im Aktivierungs-Runbook benannt. Harte Mitigation als **getrackter Follow-up** (nicht hier implementieren): dedizierte Worker-Rolle mit `BYPASSRLS` **oder** owner-only-writable Control-Row-Prädikat. Konsistent mit dem `app.current_tenant`-Vertrauensmodell (Defense-in-Depth gegen ORM-Fehler, nicht gegen Session-Compromise). |
-| **R-8** | **DEFINER-Owner ist der Bootstrap-/Migrations-Superuser (security F8 / F-05).** Die Funktionen sind superuser-owned → RLS-Bypass; `NOT rolsuper` ist nicht zusicherbar. | Größere Privilegien-Eskalation als nötig | Harte Body-Constraints (kein dynamisches SQL, fester `search_path`, schema-qualifiziert), Reviewer-Obligation (AC-2/AC-20); bevorzugte Härtung als getrackter Follow-up: dedizierte NOLOGIN-Owner-Rolle / Ownership-Transfer. |
+| **R-7** | **Staged GUC ist FAIL-OPEN und APP-ROLE-SETTABLE (security F1).** `app.rls_as_enforced`/`app.rls_preauth_enforced` sind placeholder custom GUCs; jede App-Role-Session (inkl. SQL-Injection) kann `SET app.rls_as_enforced=''` → Prädikat TRUE → vollständig permissiv. PostgreSQL hat ohne Extension keinen rollen-fixierten Custom-GUC; `FORCE` hilft nicht. | RLS ist im ON-Zustand nicht gegen eine kompromittierte Session dicht | **Harte Mitigation implementiert (#1179): owner-only-writable Control-Row-Prädikat.** Owner-only Control-Tabelle `pl_rls_enforcement` (App-Rolle hat **kein** Recht, nicht einmal SELECT) + `SECURITY DEFINER`-Reader `public.rls_hard_enforced(scope)` (`persistence/0109`; Policies von `application/0034` und `auth_tenancy/0022` darauf umgestellt). Ist `hard_enforced` gesetzt, bleibt das Prädikat tenant-gefiltert, auch wenn die Session das GUC per `SET` leert; der DEFAULT-OFF-Ship bleibt unberührt (`hard_enforced=false` ist der Ship-Default). In `RLS_STAGED_TABLES`, hier und im Aktivierungs-Runbook benannt. **Verbleibendes Residual (dokumentiert):** das `app.current_tenant`-Vertrauensmodell bleibt session-settable (Defense-in-Depth gegen ORM-Fehler, nicht gegen Session-Compromise), und das Scharfschalten von `hard_enforced` ist ein privilegierter Owner-Write (kein Hot-Toggle). Kein Blocker für den DEFAULT-OFF-Ship. |
+| **R-8** | **DEFINER-Owner ist der Bootstrap-/Migrations-Superuser (security F8 / F-05).** Die Funktionen sind superuser-owned → RLS-Bypass; `NOT rolsuper` ist nicht zusicherbar. | Größere Privilegien-Eskalation als nötig | Harte Body-Constraints (kein dynamisches SQL, fester `search_path`, schema-qualifiziert), Reviewer-Obligation (AC-2/AC-20); bevorzugte Härtung als getrackter Follow-up: dedizierte NOLOGIN-Owner-Rolle / Ownership-Transfer. **Issue #1180: GESCHLOSSEN** — dedizierte `NOLOGIN`/`NOSUPERUSER`-Definer-Owner-Rolle (`persistence/0110`), siehe Addendum. |
 | **R-9** | **`auth_resolve_roles` ist ein tenant-agnostischer RLS-Bypass-Read (security F10).** Nach Pre-Auth-ON liefert die Funktion die Rollen eines Users über alle Workspaces — faithful zu `UserRole.unscoped` (`password_authentication.py:164-167`), aber bewusst breiter als „eine Zeile". | Bypass-Read-Primitive | Dokumentiertes Residual; optionales `tenant_id`-Join wäre Verhaltensänderung und ist out of scope. |
 | R-10 | Config-Drift: `settings_test.py` ersetzt `DATABASES` ohne OPTIONS (security F5) | Staged GUC fehlt unbemerkt | Zentrale GUC-Verdrahtung + `django check` (AC-25) + Flags in `settings_test.py` gepinnt. |
 | **R-11** | **Partial-Deploy-Fail-Mode (security-auditor LOW, Iteration 3).** Läuft der neue Code (P2-Code-Switch) gegen eine DB, in der `0016`/`0017` (Funktionen + `GRANT EXECUTE`) noch fehlen, wirft der Raw-SQL-Pre-Auth-Pfad `UndefinedFunction`/`InsufficientPrivilege` → **fail-closed 500** statt 401. | Auth-Outage mit lautem Fehler bei Teil-Deploy | **ACCEPTED für den DEFAULT-OFF-Ship**: Deploys führen `migrate` vor `serve` aus (Reihenfolge in §Staged Rollout bindend), und ein lauter 500 ist einer Verschleierung der Fehlkonfiguration als Credential-Fehler vorzuziehen. Owner: Follow-up-Härtung (Startup-/`pg_proc`+ACL-Check) — **kein Code-Change in diesem Ship**. |
@@ -839,8 +842,94 @@ Nicht-Ziel dieses Changes.
 
 ---
 
+## Implementierungs-Addendum (Issue #1180 — Residual R-8 geschlossen)
+
+**Status R-8: CLOSED.** Der DEFINER-Owner ist nicht mehr der Bootstrap-/
+Migrations-Superuser, sondern eine dedizierte, minimale Owner-Rolle. Damit ist
+`NOT rolsuper` für jede `SECURITY DEFINER`-Funktion zusicherbar und wird
+maschinell geprüft (AC-2/AC-20 verschärft).
+
+**Entscheidung (Rolle + Privilegienmodell).** Migration
+`persistence/0110_security_definer_owner_role.py` legt die Rolle
+`persistence.db_roles.DEFINER_DB_ROLE` (Default `reqogniloom_definer`,
+env-override `DB_DEFINER_USER`) an:
+
+```
+NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION BYPASSRLS
+```
+
+* `NOLOGIN` — keine Session kann sich als die Rolle anmelden.
+* `NOSUPERUSER` — `NOT rolsuper` wird zusicherbar.
+* `BYPASSRLS` — der **engste** RLS-Bypass, der **unabhängig von `FORCE ROW
+  LEVEL SECURITY`** wirkt (ein Table-Owner-Bypass würde still brechen, sobald
+  jemand eine der gestagten Tabellen FORCEt).
+* Die App-Rolle `APP_DB_ROLE` ist **kein** Member; ein `SET ROLE` in die Rolle
+  ist ihr verwehrt (nur Superuser könnten, die ohnehin RLS umgehen).
+
+**Privilegienfläche (explizit, pro Tabelle — kein `ALL`).** Zusätzlich zu
+`USAGE ON SCHEMA public`:
+
+| Tabelle | Grants |
+|---|---|
+| `at_api_key`, `pl_user`, `at_user_role` | `SELECT` |
+| `at_refresh_token` | `SELECT`, `INSERT`, `UPDATE`, `DELETE` |
+| `as_domain_event_outbox`, `as_domain_event_dlq`, `pl_rls_enforcement` | `SELECT` |
+
+Diese Grants decken exakt die zehn Funktionskörper (Lookup/Rollenread, Refresh
+claim/spend/revoke/insert/purge inkl. `SELECT ... FOR UPDATE`-Lock, Worker-
+Kandidaten-Backlog, Enforcement-Switch-Read). Kein `CREATE` im Schema public,
+keine Rechte auf fremden Tabellen.
+
+**Verworfene Alternative — Tabellen-Ownership (`ALTER TABLE ... OWNER TO`).**
+Würde ebenfalls RLS umgehen (kein FORCE), beinhaltet aber implizit `ALL`
+inklusive `TRUNCATE` und der gesamten DDL-Fläche (`ALTER`/`DROP`/Index-
+Ownership), koppelt den Bypass an die Abwesenheit von FORCE und würde die
+Tabellen aus der `0048_app_role`-Default-Privilegien-Logik herauslösen. Damit
+ist sie strikt breiter als das gewählte Modell.
+
+**Ownership-Transfer + Reverse.** `ALTER FUNCTION ... OWNER TO
+reqogniloom_definer` für alle zehn Funktionen (idempotent); die vorhandenen
+`REVOKE ALL ... FROM PUBLIC` / `GRANT EXECUTE ... TO APP_DB_ROLE` bleiben
+unverändert. Reverse stellt den vorherigen Owner (`CURRENT_USER` = der
+Migrations-/Bootstrap-Rolle, die die Funktionen in jedem Deployment erzeugt)
+wieder her und revoked die Grants **dieser** Datenbank — die Rolle wird niemals
+blind gedroppt (cluster-weites Objekt, vgl. `0048`-Reverse).
+
+**Verbleibende Fläche der Rolle (dokumentiertes Restrisiko, bewusst akzeptiert).**
+Die Owner-Rolle kann weiterhin (a) `BYPASSRLS` auf **jeder** Tabelle nutzen, auf
+der sie ein Recht besitzt — begrenzt durch die obigen per-Tabellen-Grants auf
+genau diese sieben Tabellen; (b) `USAGE` auf `public`; (c) die zehn Funktionen
+besitzen/ersetzen/droppen. Sie kann sich **nicht** anmelden und die App-Rolle
+kann nicht in sie wechseln. Ein künftiges Sammel-`GRANT ... ON ALL TABLES`
+(oder eine Rolle in `pg_ts_*`-artigen Default-Privilegien) an diese Rolle würde
+die Fläche erweitern — sie darf deshalb nie in breite Grants aufgenommen werden;
+`test_definer_owner_role_1180.py` assertet die Abwesenheit von Rechten auf
+fremden Tabellen.
+
+**Deploy-/Infra-Note.** (1) Die Migration muss als Superuser laufen
+(`CREATE ROLE ... BYPASSRLS` und `ALTER FUNCTION ... OWNER TO` sind
+Superuser-Operationen); der `migrate`-Service und CI verbinden als
+`DB_USER`/`POSTGRES_USER`. (2) Ein logischer Restore mit `--no-owner` (Backup-
+Service des Projekts) setzt Objekt-Ownership auf die restaurierende Rolle
+zurück, während `0110` als „applied" gilt — nach einem solchen Restore die
+Ownership erneut setzen (Forward-SQL von `0110` replayen bzw. `ALTER FUNCTION
+... OWNER TO reqogniloom_definer`). (3) Kein Backfill nötig (reine
+DDL/Ownership-Änderung, keine Datenzeile berührt).
+
+**Testabdeckung.** `persistence/tests/test_definer_owner_role_1180.py`
+(exhaustives `prosecdef`-Inventar, Owner == `DEFINER_DB_ROLE`, `NOT rolsuper`,
+`NOLOGIN`/`NOSUPERUSER`, `SET ROLE`-Verweigerung, minimale Grants, alle zehn
+Funktionspfade unter bewaffneter App-Rolle, Forward/Reverse-Round-Trip);
+verschärft außerdem die Posture-Tests in `test_preauth_rls_staged.py`,
+`test_refresh_token_rls_1182.py`, `test_poller_rls_tenant_arm_1183.py` und
+`test_rls_hard_enforcement_1179.py`.
+
+---
+
 *Erstellt durch `concept-specifier` am 2026-10-04; Revision 1 (Review-Loop). Kein Produktcode,
 keine Migration, kein Push. Nächster Schritt: Re-Review durch `concept-reviewer`
 (Loop `concept-specify-loop`), danach Planung; Implementierung erst nach Plan.*
 *Addendum Iteration 2: `senior-developer`, 2026-10-04 — Umsetzung gegen den
 APPROVED-Stand `a3c24418` plus die Review-Notes N-01/N-02/NEW-1/NEW-2/NEW-4.*
+*Addendum Issue #1180: `database-engineer`, 2026-10-09 — Residual R-8
+geschlossen (dedizierte `NOLOGIN`/`NOSUPERUSER`-Definer-Owner-Rolle).*

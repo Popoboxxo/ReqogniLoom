@@ -47,6 +47,7 @@ from .permission_cache import (
 )
 from .preference_service import PreferenceService
 from .profile_service import UserProfileService
+from .role_read import resolve_roles_for_user
 from .tenant_context import TenantContextService
 from .user_account import UserAccountService
 
@@ -83,4 +84,5 @@ __all__ = [
     "PreferenceService",
     "UserProfileService",
     "UserAccountService",
+    "resolve_roles_for_user",
 ]

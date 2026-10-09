@@ -41,22 +41,127 @@ Architecture:
 """
 from __future__ import annotations
 
+import contextlib
 import logging
 import threading
 import time
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, List, Optional
 from uuid import UUID, uuid4
 
+from django.conf import settings
 from django.core.cache import cache
-from django.db import transaction
+from django.db import connection, transaction
 from django.db.models import Q
 from django.utils import timezone
 
 from application.models import DomainEventDLQ, DomainEventOutbox
+from persistence.middleware import clear_request_tenant, set_request_tenant
+from persistence.tenancy import TenantContext
 
 logger = logging.getLogger(__name__)
+
+
+class UnresolvedTenantError(RuntimeError):
+    """A tenant could not be resolved for an ``as_*`` write under enforcement.
+
+    Raised by :meth:`DomainEventBus.publish` when ``RLS_AS_ENFORCED`` is on and
+    neither the armed request tenant nor the ``workspace_id -> pl_workspace``
+    relation yields a tenant. Failing here (rather than inserting a NULL-tenant
+    row) is deliberate: under the armed policy a NULL-tenant row is invisible to
+    the poller, i.e. the event would be silently dropped (#1183 / A4).
+    """
+
+
+class TenantMismatchError(UnresolvedTenantError):
+    """An armed request tenant disagrees with the event workspace's tenant (#1183, F2).
+
+    Subclasses :class:`UnresolvedTenantError` so existing fail-closed handlers
+    catch it too, while callers that care can distinguish a *misattribution*
+    from a *lookup miss*. Raised by :meth:`DomainEventBus.publish` only while
+    ``RLS_AS_ENFORCED`` is on: the workspace relation is the authoritative
+    tenant source, so a session armed to a different tenant must not stamp the
+    row with that (wrong) tenant.
+    """
+
+
+def _workspace_tenant_id(workspace_id: Any) -> Optional[UUID]:
+    """Return ``workspace_id -> pl_workspace.tenant_id`` or ``None``.
+
+    Best-effort: a failure here (the relation is RLS-hidden, there is no DB in
+    a unit test, or the workspace does not exist) yields ``None`` and lets the
+    caller decide. Under enforcement a hidden workspace is a *signal* — the
+    armed tenant does not own it — so the caller fails closed rather than
+    guessing.
+    """
+    try:
+        from persistence.models import Workspace
+
+        return (
+            Workspace.unscoped.filter(id=workspace_id)
+            .values_list("tenant_id", flat=True)
+            .first()
+        )
+    except Exception:  # noqa: BLE001 — best-effort; callers fail closed on ON.
+        logger.debug(
+            "DomainEventBus: tenant lookup for workspace %s failed",
+            workspace_id,
+            exc_info=True,
+        )
+        return None
+
+
+def _resolve_emission_tenant_id(workspace_id: Any) -> Optional[UUID]:
+    """Resolve the tenant to stamp on a new outbox row (#1183 / A4 + F2).
+
+    The **workspace relation is authoritative**: ``pl_workspace.tenant_id`` is
+    the tenant the event actually belongs to. The armed request tenant is only
+    an optimisation when the two agree; it is never trusted blindly.
+
+    Order of authority:
+
+    1. DEFAULT OFF (``RLS_AS_ENFORCED`` unset) — unchanged pre-#1183 behaviour:
+       the armed request tenant wins, without a DB round-trip; otherwise fall
+       back to ``workspace_id -> pl_workspace.tenant_id``.
+    2. ENFORCEMENT ON — resolve the workspace tenant. If an armed session tenant
+       disagrees with it, :class:`TenantMismatchError` is raised (fail closed):
+       stamping the armed tenant would attribute the event to the wrong tenant,
+       and stamping the workspace tenant would fail the policy's ``WITH CHECK``
+       against ``app.current_tenant``. If the workspace tenant cannot be
+       resolved at all, ``None`` is returned and :meth:`DomainEventBus.publish`
+       raises :class:`UnresolvedTenantError` (covers a foreign/hidden workspace
+       and a genuinely missing one).
+
+    Returns ``None`` only when no tenant can be attributed.
+    """
+    armed = TenantContext.get_tenant() if TenantContext.is_set() else None
+
+    # DEFAULT OFF: byte-for-byte the pre-#1183 behaviour, no DB round-trip when
+    # a request tenant is already armed.
+    if armed is not None and not _enforcement_enabled():
+        return armed
+
+    workspace_tenant = _workspace_tenant_id(workspace_id)
+
+    if workspace_tenant is None:
+        # Nothing authoritative to attribute the event to. Under enforcement
+        # this includes a workspace hidden by RLS because the armed tenant does
+        # not own it — never stamp the armed tenant in that case.
+        if _enforcement_enabled():
+            return None
+        return armed
+
+    if _enforcement_enabled() and armed is not None and armed != workspace_tenant:
+        raise TenantMismatchError(
+            f"DomainEventBus: armed request tenant {armed} does not own event "
+            f"workspace {workspace_id} (tenant {workspace_tenant}); refusing to "
+            "stamp a cross-tenant attribution while RLS_AS_ENFORCED is on."
+        )
+
+    return workspace_tenant
+
 
 # ---------------------------------------------------------------------------
 # Domain-Event dataclass (typed carrier)
@@ -206,12 +311,29 @@ class DomainEventBus:
             )
 
         # DomainEventOutbox is imported at module level to allow test mocking.
+        #
+        # #1183 / A4: stamp the tenant anchor at emission time. The staged
+        # ``as_*`` policy's WITH CHECK compares ``tenant_id`` against the armed
+        # ``app.current_tenant`` once ``RLS_AS_ENFORCED=on``; a row left NULL
+        # would be invisible to the poller and the event silently dropped. Only
+        # fail closed while enforcement is on — with the flag off (the ship
+        # default) an unresolvable tenant keeps the pre-#1183 behaviour (NULL,
+        # visible under the permissive policy).
+        tenant_id = _resolve_emission_tenant_id(event.workspace_id)
+        if tenant_id is None and getattr(settings, "RLS_AS_ENFORCED", False):
+            raise UnresolvedTenantError(
+                "DomainEventBus: cannot resolve a tenant for workspace "
+                f"{event.workspace_id} while RLS_AS_ENFORCED is on; refusing "
+                "to insert an outbox row that would be invisible under "
+                f"enforcement (event {event.event_id})."
+            )
         DomainEventOutbox.objects.create(
             event_id=event.event_id,
             event_type=event.event_type,
             workspace_id=event.workspace_id,
             entity_id=event.entity_id,
             payload=event.to_dict(),
+            tenant_id=tenant_id,
         )
 
     def register_subscriber(
@@ -479,6 +601,10 @@ def _move_to_dlq(record: DomainEventOutbox, error_message: str) -> None:
                 defaults={
                     "event_type": record.event_type,
                     "workspace_id": record.workspace_id,
+                    # #1183 / A4: carry the outbox row's tenant onto the DLQ row.
+                    # The caller runs inside an armed per-row tenant context, so
+                    # the policy's WITH CHECK accepts only this value.
+                    "tenant_id": record.tenant_id,
                     "entity_id": record.entity_id,
                     "payload": record.payload,
                     "error_message": error_message,
@@ -531,6 +657,167 @@ def _finalize_failure(pk: Any, error_message: str) -> None:
     _move_to_dlq(record, error_message)
 
 
+def _enforcement_enabled() -> bool:
+    """Return whether the staged ``as_*`` RLS enforcement flag is on.
+
+    Read at call time (not import time) so ``override_settings`` and the
+    operational env flag both take effect without a code change.
+    """
+    return bool(getattr(settings, "RLS_AS_ENFORCED", False))
+
+
+def _list_candidate_pks(batch_size: int) -> List[Any]:
+    """Candidate PKs via the ORM — the DEFAULT-OFF path (behaviour unchanged).
+
+    Under the permissive policy (``RLS_AS_ENFORCED`` unset) the app role sees
+    every tenant's rows, so the plain ORM query the poller has always used is
+    correct. Rows under an active claim are excluded here as well, so a slow
+    dispatch does not keep re-appearing at the head of every batch.
+    """
+    return list(
+        DomainEventOutbox.objects
+        .filter(published=False)
+        .filter(Q(claimed_at__isnull=True) | Q(claimed_at__lt=_reclaim_cutoff()))
+        .order_by("created_at")
+        .values_list("pk", flat=True)[:batch_size]
+    )
+
+
+def _list_candidates_enforced(batch_size: int) -> List[tuple]:
+    """Candidate ``(pk, tenant_id)`` pairs via the ``SECURITY DEFINER`` helper.
+
+    ENFORCEMENT-ON path (#1183 / A4). With ``app.rls_as_enforced=on`` the app
+    role cannot read ``as_domain_event_outbox`` without a tenant context, and
+    the poller cannot know which tenant to arm before it has read the rows. The
+    owner-privileged ``public.as_outbox_candidates`` resolves exactly that
+    chicken-and-egg (residual R-8: dedicated non-superuser DEFINER, read-only
+    body).
+
+    The helper excludes NULL-``tenant_id`` orphans (F3), so they can never
+    consume a batch slot at the head of the ``ORDER BY created_at`` window and
+    starve legitimate events behind them; ``_worker_backlog`` still counts them.
+    """
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT id, tenant_id FROM public.as_outbox_candidates(%s, %s)",
+            [batch_size, _reclaim_cutoff()],
+        )
+        return [(row[0], row[1]) for row in cursor.fetchall()]
+
+
+@contextlib.contextmanager
+def _armed_tenant(tenant_id: UUID) -> Iterator[None]:
+    """Arm ``app.current_tenant`` for the enclosed per-row work (A4).
+
+    Genuinely nesting-safe (F1): the previously armed tenant — both the
+    thread-local ``TenantContext`` and the ``app.current_tenant`` GUC — is saved
+    and restored on exit, so an outer context is never silently replaced by an
+    inner one. If no tenant was armed before, the context armed here is cleared
+    on exit (mirroring ``memory.backends._tenant_context``).
+    """
+    previous = TenantContext.get_tenant() if TenantContext.is_set() else None
+    set_request_tenant(tenant_id)
+    try:
+        yield
+    finally:
+        if previous is not None:
+            set_request_tenant(previous)
+        elif TenantContext.is_set():
+            clear_request_tenant()
+
+
+def _worker_backlog() -> tuple:
+    """Return ``(outbox_pending, dlq_total, orphan_pending)`` for monitoring.
+
+    Under enforcement a plain app-role ``count()`` would see only the currently
+    armed tenant (or nothing), so the tenant-agnostic aggregate comes from the
+    ``SECURITY DEFINER`` helper. With the flag off the ORM counts are unchanged,
+    except that ``orphan_pending`` is also computed from the ORM.
+
+    ``orphan_pending`` counts the unpublished NULL-tenant rows that
+    ``as_outbox_candidates`` excludes (F3): they are skipped fail-closed and can
+    never be claimed, so they are surfaced here instead of silently disappearing
+    from the backlog.
+    """
+    if _enforcement_enabled():
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT outbox_pending, dlq_total, orphan_pending "
+                "FROM public.as_worker_backlog()"
+            )
+            row = cursor.fetchone()
+        return int(row[0]), int(row[1]), int(row[2])
+    return (
+        DomainEventOutbox.objects.filter(published=False).count(),
+        DomainEventDLQ.objects.count(),
+        DomainEventOutbox.objects.filter(
+            published=False, tenant_id__isnull=True
+        ).count(),
+    )
+
+
+def _process_one(pk: Any, bus: DomainEventBus) -> int:
+    """Claim, dispatch and write back a single outbox row.
+
+    Extracted verbatim from the poll loop so the DEFAULT-OFF and the
+    ENFORCEMENT-ON path share exactly one implementation of the
+    claim/dispatch/write-back sequence (SA-04). The only difference between the
+    paths is the surrounding tenant context. Returns 1 if the row was marked
+    published, else 0.
+    """
+    record = _claim_event(pk)
+    if record is None:
+        return 0
+
+    if record.retry_count >= MAX_RETRIES:
+        # F5: a reclaim (see _claim_event) already pushed this row's
+        # retry_count over the limit — a prior worker died mid-dispatch
+        # without ever reaching _finalize_failure. Route straight to the
+        # DLQ instead of dispatching it into the same worker-killing path
+        # again.
+        _move_to_dlq(
+            record,
+            "max retries exceeded after repeated stale-claim reclaim",
+        )
+        return 0
+
+    domain_event = DomainEvent(
+        event_id=record.event_id,
+        event_type=record.event_type,
+        entity_id=record.entity_id,
+        workspace_id=record.workspace_id,
+        payload=record.payload,
+    )
+
+    # --- phase 2: dispatch, outside any transaction ---------------------
+    try:
+        # dispatch_to_subscribers is contractually non-raising (graceful
+        # degradation per subscriber) — it reports failures via its return
+        # value instead, so a failing subscriber still triggers retry/DLQ
+        # rather than being marked published regardless. This try/except is
+        # a backstop for the paths that sit *outside* that per-subscriber
+        # guard, i.e. the registry snapshot and the join below: without it
+        # one broken subscriber list would abort the whole poll cycle and
+        # strand every remaining row with claimed_at set.
+        errors = bus.dispatch_to_subscribers(domain_event)
+        error_message = "; ".join(errors)
+    except Exception as exc:
+        logger.exception(
+            "DomainEventBus: dispatch raised for event %s type=%s",
+            record.event_id,
+            record.event_type,
+        )
+        error_message = str(exc) or exc.__class__.__name__
+
+    # --- phase 3: write the outcome back --------------------------------
+    if error_message:
+        _finalize_failure(pk, error_message)
+        return 0
+    if _finalize_success(pk):
+        return 1
+    return 0
+
+
 def poll_and_dispatch(batch_size: int = POLL_BATCH_SIZE) -> int:
     """Fetch unpublished events from the outbox and dispatch them.
 
@@ -554,78 +841,54 @@ def poll_and_dispatch(batch_size: int = POLL_BATCH_SIZE) -> int:
     therefore still at-least-once and subscribers must still be idempotent
     (REQ-072).
 
+    Tenant arming (#1183 / A4): while ``RLS_AS_ENFORCED`` is off (the ship
+    default) this method is byte-for-byte the previous behaviour — plain ORM
+    candidate listing and no tenant context. With the flag on, candidates come
+    from ``public.as_outbox_candidates`` and each row is processed inside an
+    ``app.current_tenant`` context armed from that row's ``tenant_id``. Rows
+    with a NULL ``tenant_id`` (unresolvable workspace anchor, O-2) are excluded
+    from the candidate list by the helper (F3) so a head-of-line block of them
+    cannot starve legitimate events; they stay visible via the orphan counter in
+    ``_worker_backlog``. The in-loop NULL guard below is kept as a defensive
+    backstop should a candidate ever arrive without a tenant.
+
     Returns:
         Number of events processed in this poll cycle.
     """
     bus = get_event_bus()
     processed = 0
 
-    # Fetch candidate PKs without a row-lock; individual workers race to claim
-    # below. Rows under an active claim are excluded here as well, so a slow
-    # dispatch does not keep re-appearing at the head of every batch.
-    candidate_pks: List[Any] = list(
-        DomainEventOutbox.objects
-        .filter(published=False)
-        .filter(Q(claimed_at__isnull=True) | Q(claimed_at__lt=_reclaim_cutoff()))
-        .order_by("created_at")
-        .values_list("pk", flat=True)[:batch_size]
-    )
-
-    for pk in candidate_pks:
-        record = _claim_event(pk)
-        if record is None:
-            continue
-
-        if record.retry_count >= MAX_RETRIES:
-            # F5: a reclaim (see _claim_event) already pushed this row's
-            # retry_count over the limit — a prior worker died mid-dispatch
-            # without ever reaching _finalize_failure. Route straight to the
-            # DLQ instead of dispatching it into the same worker-killing path
-            # again.
-            _move_to_dlq(
-                record,
-                "max retries exceeded after repeated stale-claim reclaim",
-            )
-            continue
-
-        domain_event = DomainEvent(
-            event_id=record.event_id,
-            event_type=record.event_type,
-            entity_id=record.entity_id,
-            workspace_id=record.workspace_id,
-            payload=record.payload,
-        )
-
-        # --- phase 2: dispatch, outside any transaction ---------------------
-        try:
-            # dispatch_to_subscribers is contractually non-raising (graceful
-            # degradation per subscriber) — it reports failures via its return
-            # value instead, so a failing subscriber still triggers retry/DLQ
-            # rather than being marked published regardless. This try/except is
-            # a backstop for the paths that sit *outside* that per-subscriber
-            # guard, i.e. the registry snapshot and the join below: without it
-            # one broken subscriber list would abort the whole poll cycle and
-            # strand every remaining row with claimed_at set.
-            errors = bus.dispatch_to_subscribers(domain_event)
-            error_message = "; ".join(errors)
-        except Exception as exc:
-            logger.exception(
-                "DomainEventBus: dispatch raised for event %s type=%s",
-                record.event_id,
-                record.event_type,
-            )
-            error_message = str(exc) or exc.__class__.__name__
-
-        # --- phase 3: write the outcome back --------------------------------
-        if error_message:
-            _finalize_failure(pk, error_message)
-        elif _finalize_success(pk):
-            processed += 1
+    if _enforcement_enabled():
+        for pk, tenant_id in _list_candidates_enforced(batch_size):
+            if tenant_id is None:
+                # Fail closed: an orphan row cannot be processed without
+                # guessing a tenant, and arming the wrong tenant would violate
+                # the policy. Leave it for operator attention (O-2: never
+                # delete). Defensive backstop — as_outbox_candidates already
+                # excludes NULL-tenant rows (F3).
+                logger.warning(
+                    "DomainEventBus: skipping outbox event %s — tenant_id is "
+                    "NULL (unresolvable workspace); fail-closed under "
+                    "RLS_AS_ENFORCED",
+                    pk,
+                )
+                continue
+            with _armed_tenant(UUID(str(tenant_id))):
+                processed += _process_one(pk, bus)
+    else:
+        for pk in _list_candidate_pks(batch_size):
+            processed += _process_one(pk, bus)
 
     # Outbox monitoring (REQ-069): surface dispatch throughput and backlog so a
     # growing outbox or DLQ is observable without querying the DB manually.
-    backlog = DomainEventOutbox.objects.filter(published=False).count()
-    dlq_count = DomainEventDLQ.objects.count()
+    backlog, dlq_count, orphan_count = _worker_backlog()
+    if orphan_count:
+        logger.warning(
+            "DomainEventBus: %d orphaned outbox event(s) have no tenant_id and "
+            "are excluded from the candidate list (fail-closed); backfill or "
+            "inspect them (O-2: never deleted)",
+            orphan_count,
+        )
     logger.info("DomainEventBus: dispatched %d event(s) this cycle", processed)
     logger.info("DomainEventBus: outbox backlog is %d pending event(s)", backlog)
     logger.info("DomainEventBus: dead-letter queue holds %d event(s)", dlq_count)
@@ -638,6 +901,8 @@ __all__ = [
     "DomainEvent",
     "DomainEventBus",
     "SubscriberRegistry",
+    "TenantMismatchError",
+    "UnresolvedTenantError",
     "get_event_bus",
     "mark_subscriber_processed",
     "poll_and_dispatch",
