@@ -2,7 +2,7 @@
 
 | Feld | Wert |
 |---|---|
-| **Status** | Stufe 1 überwiegend umgesetzt · Stufe 2 als Draft (kein Publish) · Stand 2026-10-05 |
+| **Status** | Stufe 1 überwiegend umgesetzt (DoD 1–6: 3 erfüllt, 3 teilweise — §4.5) · Stufe 2 als Draft (kein Publish) · E1–E4/E6 entschieden, E5/E7 vertagt (2026-10-09) · Stand 2026-10-09 |
 | **Datum** | 2026-10-04 |
 | **Basis** | `v1.8.0-beta.18`, QS-Sandbox `172.20.5.120`, empirische Client-Tests |
 | **Bezug** | #1171 (konsolidiertes Issue), #1170 (`artifact_search`), #1169 (Codex headless), #1153 (Session-Header), #1085 (Doku-Drift) |
@@ -41,11 +41,17 @@ Beleg: `docs/bugfix-hub/smoke/2026-10-05-client-smoke.md`.
 
 ### Noch offen
 - **DoD Stufe 1:** CI-Gate greift erst nach Merge auf `main` (Drift-Nachweis); Claude-/Hermes-Daten-Call nur mit echter Provider-Auth belegbar; Kimi bleibt L2 (Upstream-`kimi mcp add` offen).
-- **Stufe 2:** Publikation nicht aktiv; Entscheidungen **E1, E4–E7** offen (E2/E3 vorläufig gesetzt).
+- **Stufe 2:** Publikation nicht aktiv. Entscheidungen **E1–E4 und E6 sind entschieden (2026-10-09)**, **E5/E7 vertagt** (§8). Verbleibende Voraussetzungen vor dem ersten Publish: echte Host-URL in `server.json` (Platzhalter ersetzen), npm-Org-/Scope-Konto `@popoboxxo` (E2) und MCP-Registry-Namespace `io.github.popoboxxo` (E1).
 - **Offene Einzel-Issues:** #92 (Workspace-Tokens + UI-MCP-Config), #1138 (Plugin-Versionierungs-Anker).
 - **Hermes agenten-nativ (#1201/#1202):** Die Konsolidierung des Hermes-Pakets (MCP statt
   Eigen-REST-Client) und die One-Click-Anbindung sind geordnet in
   [`2026-10-07-umsetzungsplaene-1155-1201-1202-1204.md`](2026-10-07-umsetzungsplaene-1155-1201-1202-1204.md) §2/§3.
+
+### Umsetzungsstand 2026-10-09 — Entscheidungen geschlossen
+
+- **Repo-seitig finalisiert (2026-10-09):** Die Stufe-2-Entscheidungen **E1–E4 und E6** sind entschieden, **E5/E7 vertagt** (§8). Die Store-Artefakte (`.claude-plugin/marketplace.json`, `server.json`) und die fünf Workflow-Entwürfe bleiben **inaktiv** (nur `workflow_dispatch`, Publish inert). `docs/clients/STAGE2.md` / `STAGE2.de.md` spiegeln den finalen Stand (Entwurfs-Marker in `server.json` entfernt).
+- **Offen (nicht repo-seitig lösbar):** **Publikation** ist nicht aktiv — sie startet erst in den W-Wellen (§5.4); **W-Wellen W1–W5** sind noch nicht ausgerollt. Voraussetzungen dafür: echte Host-URL in `server.json`, Konto `@popoboxxo` (E2) und Namespace `io.github.popoboxxo` (E1). E5 (Antigravity-CI) ist vor W4 zu entscheiden.
+- **Stufe-1-Rest:** siehe DoD-Reconciliation in §4.5 (DoD 1, 3, 4, 5 noch nicht vollständig belegt).
 
 ---
 
@@ -439,11 +445,25 @@ Ein **einziger** Testfall, der über alle Clients identisch formuliert ist — d
 1. `scripts/clients/install.sh --client <x>` funktioniert für **alle sechs** Clients und ist idempotent (2. Lauf ohne Änderung).
 2. `docs/clients/README.md` + `README.de.md` listen alle sechs Clients mit Transport, Auth, Verify und Fallstricken.
 3. Je Client existiert ein **belegter** Smoke-Test (Ausgabe im PR/Issue dokumentiert).
-   **Stand 2026-10-05: teilweise erfüllt** — 1× PASS (opencode), 2× ENV-LIMITED (claude-code, hermes — nur Connect), 1× FAIL (kimi-code), 2× nicht ausführbar (codex, antigravity); Server-MCP-Quergegencheck PASS (223 Tools, `workspace.list`=420, `requirement.query`=3 == REST). Beleg: [`docs/bugfix-hub/smoke/2026-10-05-client-smoke.md`](../bugfix-hub/smoke/2026-10-05-client-smoke.md).
-   **Stand 2026-10-06 (Re-Smoke nach Fix): weitgehend erfüllt, aber nicht vollständig** — vier Installer-Defekte behoben und re-verifiziert; **opencode full PASS** (echte MCP-Tool-Calls `requirement.query`=3 / `workspace.list`=420 == REST); **claude-code, hermes** install/connect PASS, Daten-Tool-Call **ENV-LIMITED** (externe LLM-/Provider-Auth); **kimi-code ENV-LIMITED/L2** (kein PASS); server-seitiger MCP PASS (223 Tools). Kein Gesamt-PASS. Beleg: Report §9.
+   **Stand 2026-10-05: teilweise erfüllt** — 1× PASS (opencode), 2× ENV-LIMITED (claude-code, hermes — nur Connect), 1× FAIL (kimi-code), 2× nicht ausführbar (codex, antigravity); Server-MCP-Quergegencheck PASS (223 Tools zum Messzeitpunkt; kanonisch heute **227** laut [`tool-manifest.json`](../agent-templates/tool-manifest.json), `workspace.list`=420, `requirement.query`=3 == REST). Beleg: [`docs/bugfix-hub/smoke/2026-10-05-client-smoke.md`](../bugfix-hub/smoke/2026-10-05-client-smoke.md).
+   **Stand 2026-10-06 (Re-Smoke nach Fix): weitgehend erfüllt, aber nicht vollständig** — vier Installer-Defekte behoben und re-verifiziert; **opencode full PASS** (echte MCP-Tool-Calls `requirement.query`=3 / `workspace.list`=420 == REST); **claude-code, hermes** install/connect PASS, Daten-Tool-Call **ENV-LIMITED** (externe LLM-/Provider-Auth); **kimi-code ENV-LIMITED/L2** (kein PASS); server-seitiger MCP PASS (223 Tools zum Messzeitpunkt; kanonisch heute **227**). Kein Gesamt-PASS. Beleg: Report §9.
 4. CI-Gate „Client-Artefakte" ist grün und würde Doku-Drift rot machen (Nachweis: absichtliche Drift im Test-PR).
 5. Kein Client-Dokument widerspricht einem anderen (Peer-Review gegen `registry.yaml`).
 6. `README.md` §9 und `docs/agent-templates/INSTALL.md` verweisen auf `docs/clients/` (keine Doppelpflege mehr).
+
+#### DoD-Reconciliation Stufe 1 (Stand 2026-10-09)
+
+| DoD | Inhalt | Status | Rest / Beleg |
+|---|---|---|---|
+| **1** | `install.sh` für **alle sechs** Clients, idempotent | **teilweise** — für alle 6 implementiert; end-to-end ausgeführt nur für **4** (codex/antigravity nicht ausgeführt) | codex/antigravity end-to-end belegen (Umgebung/CPU) |
+| **2** | `README(.de).md` listen alle sechs (Transport, Auth, Verify, Fallstricke) | **erfüllt** | — |
+| **3** | Je Client **belegter** Smoke-Test | **teilweise** — opencode full PASS; claude-code/hermes ENV-LIMITED; kimi L2 (akzeptiert, E6); codex/antigravity nicht ausführbar; Server-MCP PASS | Gesamt-PASS offen (externe Provider-Auth); Beleg Report §9 |
+| **4** | CI-Gate grün **und** macht Doku-Drift rot | **teilweise** — Gate grün; **absichtliche-Drift-Negativkontrolle nicht protokolliert** | Negativkontrolle (absichtliche Drift) nachweisen und festhalten |
+| **5** | Kein Client-Dokument widerspricht einem anderen | **erfüllt (strukturell)** — `registry.yaml` → Renderer → CI erzwungen | **kein explizites Peer-Review-Artefakt**; optional nachreichen |
+| **6** | `README.md` §9 / `INSTALL.md` verweisen auf `docs/clients/` | **erfüllt** | — |
+
+**Verdikt:** 3/6 vollständig erfüllt (2, 5-strukturell, 6), 3/6 teilweise (1, 3, 4). Stufe 1 liefert L2/L3-Belege für 4/6 Clients; codex/antigravity und der Gesamt-PASS bleiben umgebungsbedingt offen.
+
 ---
 
 ## 5. STUFE 2 — Store-/Registry-Bereitstellung
@@ -678,6 +698,26 @@ Dieser Plan führt **keine** neue Schwachstelle ein, sondern erweitert bestehend
 | E5 | Antigravity in der CI? | **Self-hosted Runner** (CPU mit `pclmulqdq`) oder dokumentierte manuelle Abnahme — vor W4 entscheiden. |
 | E6 | Kimi: L2 akzeptieren oder auf Upstream-Feature warten? | **L2 akzeptieren + FR stellen** — L2 deckt den realen Bedarf. |
 | E7 | Aggregatoren (S8) jetzt mitnehmen? | **Später** (nach W3) — Discoverability ohne Funktionsgewinn. |
+
+### Finale Entscheidungen (User, 2026-10-09)
+
+Die Empfehlungsspalte oben bleibt als Entscheidungsgrundlage erhalten; hier stehen die
+final getroffenen Entscheidungen.
+
+| # | Finale Entscheidung | Begründung / Status |
+|---|---|---|
+| E1 | **Persönlicher MCP-Namespace `io.github.popoboxxo`** | Kein Organisations-Konto verfügbar; persönlicher Namespace genügt für S1, Umzug in eine Organisation bleibt später möglich. |
+| E2 | **npm-Scope `@popoboxxo`** | Ein Scope, ein Eigentümer — weniger Verwaltung als ein neuer `@reqogniloom`-Scope. |
+| E3 | **Marketplace im Repo** (`.claude-plugin/marketplace.json`) | Ein Befehl für Nutzer, kein zweites Artefakt zu pflegen. |
+| E4 | **Keine Pre-Releases in kuratierten Stores (S3/S6); Pre-Releases nur über npm `next`** | Kuratierte Verzeichnisse erwarten stabile Versionen; `next` deckt Beta-Tester ab, `latest` bleibt stabil. |
+| E6 | **Kimi L2 akzeptieren + Upstream-Feature-Request stellen** | L2 deckt den realen Bedarf; L3 hängt an einem Fremd-Prozess (natives `kimi mcp add`). |
+
+### Vertagte Entscheidungen (2026-10-09)
+
+| # | Entscheidung | Status / Grund |
+|---|---|---|
+| E5 | Antigravity in der CI | **vertagt** — vor W4 zu entscheiden; hängt an self-hosted Runner (CPU mit `pclmulqdq`) vs. dokumentierter manueller Abnahme (GitHub-hosted Runner scheiden aus). |
+| E7 | Aggregatoren (S8) jetzt mitnehmen? | **vertagt** — nach W3; Discoverability ohne Funktionsgewinn. |
 
 ---
 

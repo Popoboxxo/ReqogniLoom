@@ -1,12 +1,22 @@
-# DRAFT — Stufe 2, Trigger erst nach Entscheidungen E1–E7 aktivieren
+# DRAFT — Stufe 2: E1–E4/E6 decided; trigger stays OFF until W-wave activation
+# (no publication active).
 #
 # Mirrors the marketplace/plugin versions from VERSION by regenerating the
 # client artifacts and committing the result (or opening a PR). See plan §5.3
-# and decisions E3 (marketplace lives in this repo) / E4 (betas in curated
-# stores). Everything is guarded by enable_publish=true, so a plain dispatch
-# changes nothing.
+# and decision E3 (marketplace lives in this repo). Everything is guarded by
+# enable_publish=true, so a plain dispatch changes nothing.
 #
-# needs: ci  # Gate: erst nach Entscheidungen als echten jobs-Bezug aktivieren
+# DECISION E4 (decided): curated stores (S3 Anthropic Plugin Directory,
+# S6 Hermes catalog) are NOT automated (they have no workflow here) and MUST
+# refuse pre-releases. This S2 marketplace-in-repo workflow may carry a
+# pre-release, but only with an explicit pre-release label — S1/S2 handle
+# pre-releases with a clear label, npm uses `next` (plan §5.2 rule 2). There is
+# deliberately no hard beta block here.
+#
+# NOTE: a cross-workflow `needs: ci` is not possible in GitHub Actions — a job
+# may only depend on jobs in the SAME file, and `ci` lives in ci.yml. This
+# workflow therefore ASSUMES CI is green (gate it via branch protection and the
+# `release` environment before activation).
 name: Sync marketplace versions (DRAFT)
 
 on:
@@ -39,6 +49,26 @@ jobs:
         with:
           fetch-depth: 0
 
+      # Decision E4: make a pre-release publish explicit, never silent. Curated
+      # stores (S3/S6) are not automated; S1/S2 only carry pre-releases with a
+      # clear label (plan §5.2 rule 2).
+      - name: Detect pre-release (E4)
+        id: prerelease
+        run: |
+          set -euo pipefail
+          VERSION_VALUE="$(tr -d '[:space:]' < VERSION)"
+          if [[ "$VERSION_VALUE" == *-* ]]; then
+            RELEASE_KIND="pre-release"
+          else
+            RELEASE_KIND="stable"
+          fi
+          echo "release_kind=$RELEASE_KIND" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION_VALUE" >> "$GITHUB_OUTPUT"
+          echo "PRE-RELEASE LABEL: ${RELEASE_KIND} (VERSION=${VERSION_VALUE})"
+          if [[ "$RELEASE_KIND" == "pre-release" ]]; then
+            echo "::notice title=Pre-release::VERSION=${VERSION_VALUE} is a pre-release; S2 must carry an explicit pre-release label and curated stores (S3/S6) are NOT published by this workflow."
+          fi
+
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: '3.12'
@@ -56,8 +86,11 @@ jobs:
       # enable_publish=true; a plain dispatch stops after the diff above.
       - name: Commit marketplace/version sync (DRAFT)
         if: inputs.enable_publish
+        env:
+          RELEASE_KIND: ${{ steps.prerelease.outputs.release_kind }}
         run: |
           set -euo pipefail
+          echo "PRE-RELEASE LABEL: ${RELEASE_KIND} (marketplace sync)"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           if git diff --quiet; then

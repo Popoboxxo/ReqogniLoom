@@ -20,15 +20,5 @@
         }
       ]
     }
-  ],
-  "_meta": {
-    "io.modelcontextprotocol.registry/publisher-provided": {
-      "x-reqogniloom": {
-        "stage": "2-draft",
-        "artifact": "server.json",
-        "decision_e1": "E1 provisional: personal namespace io.github.popoboxxo; confirm or switch to the org before the first publish",
-        "publisher_action": "confirm or replace the provisional name before first publish"
-      }
-    }
-  }
+  ]
 }
