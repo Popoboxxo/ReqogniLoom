@@ -102,9 +102,19 @@ _VALID_CONTEXT_DEPTHS = frozenset(DEFAULT_CONTEXT_TOKEN_BUDGETS)
 
 #: Upper bound for the 1-based ``page`` of ``traceability.query_links`` (#1098).
 #: Keeps ``(page - 1) * page_size`` far inside Postgres' bigint OFFSET ceiling
-#: (2**63 - 1) so an absurd page number is a clean VALIDATION_ERROR instead of an
-#: overflowing OFFSET surfacing as INTERNAL_ERROR.
+#: (2**63 - 1) so an absurd page number is a clean VALIDATION_ERROR instead of
+#: an overflowing OFFSET surfacing as INTERNAL_ERROR.
 _MAX_TRACEABILITY_LINKS_PAGE = 1_000_000
+
+#: Upper bound for ``workspace.resolve_references``' ``references`` list
+#: (issue #17). The natural consumers — a commit-message CI gate, a prompt's
+#: ``@REQ-...`` mentions, a small batch of ids — hold a handful of references,
+#: and one ``uid__in`` query per entity type is issued per call, so an
+#: unbounded list would turn a lookup into a table scan vector. Mirrors the
+#: explicit page-size/page bounds the other workspace-scoped read tools
+#: enforce (``_MAX_LIMIT = 100`` in SearchService, ``MAX_WORKSPACE_LINKS_-
+#: PAGE_SIZE`` for ``traceability.query_links``).
+_MAX_RESOLVE_REFERENCES = 50
 
 
 def _get_context_token_budget(workspace: Any, depth: str) -> Optional[int]:
@@ -209,6 +219,7 @@ class CrossCuttingToolGroup(BaseToolGroup):
         "artifact.get_tree": "_handle_artifact_get_tree",
         "workspace.get_context": "_handle_workspace_get_context",
         "workspace.list": "_handle_workspace_list",
+        "workspace.resolve_references": "_handle_workspace_resolve_references",
         "workspace.llm_system_prompt": "_handle_llm_system_prompt",
         "context.test_coverage": "_handle_test_coverage",
         # issue #410: workspace-wide V&V status in one call.
@@ -544,6 +555,49 @@ class CrossCuttingToolGroup(BaseToolGroup):
                         "description": "Include closed/inactive workspaces (default false).",
                     },
                 },
+            },
+        },
+        {
+            "name": "workspace.resolve_references",
+            "description": (
+                "Resolve a batch of human-readable artifact references — "
+                "local uids like 'REQ-L1-007', 'NEED-003', 'ARCH-001' — to "
+                "their entities within one workspace (issue #17). Built for "
+                "coding agents and CI gates that work with ids from commit "
+                "messages, specs and prompts instead of UUIDs: loading the "
+                "full context of every REQ a commit names is one call. "
+                "Response: result.resolved = {reference: {id, artifact_type, "
+                "title, description, status}} — one entry per reference that "
+                "matched, keyed by the reference as given — and "
+                "result.not_found = [reference, ...] for the rest. Unknown, "
+                "malformed, foreign-workspace and foreign-tenant references "
+                "are all reported as not_found (they are never a 500 and "
+                "never leak existence). Matching is on the entity's local "
+                "uid within the given workspace only; a same-named id in "
+                "another workspace is not resolvable. At most 50 references "
+                "per call. Read-only."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "workspace_id": {
+                        "type": "string",
+                        "description": "UUID of the workspace to resolve in.",
+                    },
+                    "references": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "maxItems": _MAX_RESOLVE_REFERENCES,
+                        "description": (
+                            "Local artifact ids to resolve, e.g. "
+                            "['REQ-L1-007', 'NEED-003', 'ARCH-001']. At most "
+                            f"{_MAX_RESOLVE_REFERENCES} entries per call. "
+                            "Matching is exact (case-sensitive) against the "
+                            "workspace's uid column."
+                        ),
+                    },
+                },
+                "required": ["workspace_id", "references"],
             },
         },
         {
@@ -1457,6 +1511,73 @@ class CrossCuttingToolGroup(BaseToolGroup):
         ]
 
         return ToolResult.ok({"workspaces": workspaces, "count": len(workspaces)})
+
+    # ------------------------------------------------------------------
+    # workspace.resolve_references (issue #17)
+    # ------------------------------------------------------------------
+
+    def _handle_workspace_resolve_references(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        """workspace.resolve_references — batch-resolve local uid references.
+
+        Issue #17: coding agents (Claude Code, Cursor) and CI gates hold
+        human-readable ids from commit messages and prompts, not UUIDs.
+        This is the one-call lookup: a list of references, the entities
+        that matched, and the ones that did not.
+
+        Resolves strictly within the given workspace: the dispatcher gate
+        has already narrowed the caller's roles to it (``workspace_id``
+        is required in the schema, same class as
+        ``traceability.query_links``), and the resolver service adds the
+        tenant fence, so an id from another workspace or tenant lands in
+        ``not_found`` instead of leaking. Unknown or malformed ids are
+        data, not protocol errors: they go to ``not_found`` too.
+
+        Validation follows the sibling workspace tools:
+        ``references`` must be a list of at most
+        ``_MAX_RESOLVE_REFERENCES`` strings.
+        """
+        workspace_id = require_uuid(params, "workspace_id")
+
+        references_raw = params.get("references")
+        if not isinstance(references_raw, list):
+            raise ParameterError(
+                "Parameter 'references' must be a list of artifact id strings."
+            )
+        if len(references_raw) > _MAX_RESOLVE_REFERENCES:
+            raise ParameterError(
+                f"Parameter 'references' accepts at most "
+                f"{_MAX_RESOLVE_REFERENCES} entries, got {len(references_raw)}."
+            )
+        if any(not isinstance(entry, str) for entry in references_raw):
+            raise ParameterError(
+                "Every entry of 'references' must be a string artifact id."
+            )
+
+        from application.reference_resolver_service import ReferenceResolverService
+
+        try:
+            payload = ReferenceResolverService().resolve_references(
+                workspace_id=workspace_id,
+                references=list(references_raw),
+                ctx=auth_context,
+            )
+        except NotFoundError as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+        except PermissionDeniedError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
+        except ValidationError as exc:
+            return ToolResult.error("VALIDATION_ERROR", str(exc))
+        except Exception:
+            logger.exception(
+                "workspace.resolve_references failed for workspace=%s", workspace_id
+            )
+            # #697 (CWE-209): the logged traceback is for the operator; the
+            # caller gets the canonical masked message.
+            return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
+
+        return ToolResult.ok(payload)
 
     # ------------------------------------------------------------------
     # workspace.llm_system_prompt

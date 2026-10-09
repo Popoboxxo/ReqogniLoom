@@ -23,7 +23,7 @@ generated OpenAPI at `GET /api/schema/` and `/api/schema/swagger-ui/`
 
 | Figure | Value |
 |--------|-------|
-| Tools | **227** |
+| Tools | **228** |
 | Tool-group prefixes | **36** |
 | Version | `v1.8.0-beta.19` (`VERSION`, `1.8.0-beta.19`) — the ADR-019 WP3 `suggestion` group (`suggestion.list`/`suggestion.accept`/`suggestion.reject`) is the newest tool-surface change, and `traceability.suggest_links` became a write tool; `interview.chat` ([#1164](https://github.com/Popoboxxo/ReqogniLoom/issues/1164)), `traceability.query_links` ([#1098](https://github.com/Popoboxxo/ReqogniLoom/issues/1098)), `main_goal.query` ([#1097](https://github.com/Popoboxxo/ReqogniLoom/issues/1097)) and `traceability.suggest_links_status` ([#1197](https://github.com/Popoboxxo/ReqogniLoom/issues/1197)) preceded them; `memory.ask` (REQ-192, [#1154](https://github.com/Popoboxxo/ReqogniLoom/issues/1154)) preceded those |
 | Measured at | ADR-019 WP3 (`suggestion` group, `traceability.suggest_links` write) on top of the `v1.8.0-beta.16` tag commit `9eb2fc58` plus [#1080](https://github.com/Popoboxxo/ReqogniLoom/issues/1080) (`65c732b4`, `test.run_list`), [#1154](https://github.com/Popoboxxo/ReqogniLoom/issues/1154) (`memory.ask`), [#1164](https://github.com/Popoboxxo/ReqogniLoom/issues/1164) (`interview.chat`), [#1098](https://github.com/Popoboxxo/ReqogniLoom/issues/1098) (`traceability.query_links`), [#1097](https://github.com/Popoboxxo/ReqogniLoom/issues/1097) (`main_goal.query`) and [#1197](https://github.com/Popoboxxo/ReqogniLoom/issues/1197) (`traceability.suggest_links_status`) |
@@ -43,7 +43,8 @@ stale copy:
 | 222 / 35 | after `interview.chat` ([#1164](https://github.com/Popoboxxo/ReqogniLoom/issues/1164)) and `traceability.query_links` ([#1098](https://github.com/Popoboxxo/ReqogniLoom/issues/1098)) | correct until `main_goal.query` |
 | 223 / 35 | after `main_goal.query` ([#1097](https://github.com/Popoboxxo/ReqogniLoom/issues/1097)) | correct until `traceability.suggest_links_status` |
 | 224 / 35 | after `traceability.suggest_links_status` ([#1197](https://github.com/Popoboxxo/ReqogniLoom/issues/1197)) | correct until the ADR-019 `suggestion` group |
-| **227 / 36** | after the ADR-019 WP3 `suggestion` group (`suggestion.list`, `suggestion.accept`, `suggestion.reject` — the 36th prefix) and `traceability.suggest_links` becoming **write** (it now persists a proposal + receipt, [#1155](https://github.com/Popoboxxo/ReqogniLoom/issues/1155)) | **current** |
+| **227 / 36** | after the ADR-019 WP3 `suggestion` group (`suggestion.list`, `suggestion.accept`, `suggestion.reject` — the 36th prefix) and `traceability.suggest_links` becoming **write** (it now persists a proposal + receipt, [#1155](https://github.com/Popoboxxo/ReqogniLoom/issues/1155)) | correct until `workspace.resolve_references` |
+| **228 / 36** | after `workspace.resolve_references` ([#17](https://github.com/Popoboxxo/ReqogniLoom/issues/17)) | **current** |
 
 ### How to re-derive the number
 
@@ -102,7 +103,7 @@ table in §1 and §2 **in the same change**, with the new version and commit.
 
 ## 2. Tool groups
 
-36 prefixes, 227 tools. Tools are called as `<prefix>.<tool_name>`.
+36 prefixes, 228 tools. Tools are called as `<prefix>.<tool_name>`.
 
 | Group | Tools | Names |
 |-------|------:|-------|
@@ -141,7 +142,7 @@ table in §1 and §2 **in the same change**, with the new version and commit.
 | `test` | 14 | `test.create`, `test.derive_from_requirement`, `test.get`, `test.link`, `test.mark_reviewed`, `test.outdate`, `test.query`, `test.reactivate`, `test.run_complete`, `test.run_create`, `test.run_get`, `test.run_list`, `test.run_report_results`, `test.update` |
 | `traceability` | 7 | `traceability.coverage`, `traceability.create_link`, `traceability.query`, `traceability.query_links`, `traceability.suggest_links`, `traceability.suggest_links_status`, `traceability.vcrm` |
 | `user` | 9 | `user.activate`, `user.assign_role`, `user.assign_tenant_admin`, `user.create`, `user.deactivate`, `user.list`, `user.reactivate_role`, `user.revoke_tenant_admin`, `user.suspend_role` |
-| `workspace` | 7 | `workspace.close`, `workspace.delete`, `workspace.get_context`, `workspace.get_preferences`, `workspace.list`, `workspace.llm_system_prompt`, `workspace.reactivate` |
+| `workspace` | 8 | `workspace.close`, `workspace.delete`, `workspace.get_context`, `workspace.get_preferences`, `workspace.list`, `workspace.llm_system_prompt`, `workspace.reactivate`, `workspace.resolve_references` |
 
 ### Prefixes that share one tool group
 

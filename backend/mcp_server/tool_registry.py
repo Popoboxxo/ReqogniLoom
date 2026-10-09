@@ -445,6 +445,10 @@ _READ_ONLY_TOOL_NAMES: frozenset[str] = frozenset(
         "workspace.get_preferences",
         "workspace.list",
         "workspace.llm_system_prompt",
+        # Issue #17: uid -> entity batch resolution. Pure lookup against the
+        # workspace the required ``workspace_id`` names (which is what scopes
+        # the dispatcher gate to that workspace); nothing is persisted.
+        "workspace.resolve_references",
         "permissions.check",
         "permissions.list",
         "audit.query",
