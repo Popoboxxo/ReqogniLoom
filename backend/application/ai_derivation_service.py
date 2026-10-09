@@ -70,6 +70,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from uuid import UUID
 
 from django.core.cache import cache
+from django.db import transaction
 
 from auth_tenancy.context import AuthContext
 from persistence.models import (
@@ -85,6 +86,7 @@ from traceability.types import LinkType
 from application.base import NotFoundError, ServiceBase, ValidationError
 from application.ai_proposal_service import (
     proposal_report,
+    require_proposal_support,
     resolve_proposal_authoring,
     verify_proposal_state,
 )
@@ -378,6 +380,56 @@ _DERIVATION_CACHE_PREFIX = "llm_derivation"
 # Namespace for the per-artifact cache-generation counter used to invalidate
 # every cached derivation of an artifact in O(1) (see _derivation_version).
 _DERIVATION_VERSION_PREFIX = "llm_derivation_ver"
+
+# Hard upper bound on how many accepted drafts ONE persist call may carry
+# (#1095). The derive preview is itself bounded by the workspace's
+# ``max_requirements_per_need`` config variable, but that variable describes
+# what the *AI* produces, not what a human may accept or hand-assemble in the
+# review panel afterwards — reusing it here would reject a legitimate batch
+# whose rows the user edited. This constant exists purely to keep the persist
+# loop bounded (no unbounded write loop, no unbounded single transaction) and
+# is deliberately generous relative to the AI's own bound.
+MAX_ACCEPTED_DERIVED_REQUIREMENTS = 50
+
+#: ``custom_fields`` markers stamped on every artefact the accepted-draft
+#: persist path creates (the #1089 remainder). A human must be able to see ON
+#: THE ARTEFACT that AI was involved in authoring it — the workflow proposal
+#: block names who proposed it, but that is per-state history, it is not
+#: readable from the row itself and it disappears the moment an approver
+#: confirms the proposal out of ``"proposed"``. Two scalar keys, because
+#: ``Artifact.custom_fields`` is a flat map of scalars
+#: (REQ-L2-AS-037).
+AI_ORIGIN_CUSTOM_FIELDS: dict[str, Any] = {
+    "ai_elicit": True,
+    "origin": "ai_generated",
+}
+
+
+def _ai_origin_custom_fields() -> dict[str, Any]:
+    """Return a fresh copy of :data:`AI_ORIGIN_CUSTOM_FIELDS`.
+
+    A copy rather than the constant itself: ``create_requirement`` validates
+    and stores whatever map it is handed, and a shared mutable module-level
+    dict handed to a write path N times in a loop is one accidental in-place
+    mutation away from leaking one draft's markers into every other draft.
+    """
+    return dict(AI_ORIGIN_CUSTOM_FIELDS)
+
+
+def _as_draft_text(value: Any, field_label: str) -> str:
+    """Return an accepted draft's optional free-text field as a string (#1095).
+
+    ``None`` and a missing key both mean "not provided" and yield ``""``, so a
+    draft without a rationale does not persist a bogus empty value. A value
+    that is *present* but not a string is rejected rather than coerced: a
+    number or a nested object is a client bug, and silently dropping it would
+    store the row without the text the human approved (#1095).
+    """
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    raise ValidationError(f"{field_label} must be a string when present.")
 
 
 def _derivation_version(artifact_id: str) -> int:
@@ -1488,6 +1540,226 @@ class AiDerivationService(ServiceBase):
             reason=reason,
             label=authoring.label,
         )
+
+    # ------------------------------------------------------------------
+    # Accepted-draft persist path (#1095) — the server-side half of the
+    # UI's "accept" step for a derivation preview. Everything above in this
+    # write-mode section persists a draft the *service itself* produced in
+    # the same call; this method persists the subset the human selected from
+    # the preview response, which is what the Draft/Accept pattern
+    # (REQ-L2-AI-001) actually asks a client to do. It is deliberately a
+    # different method rather than another flag on the derive flows: they stay
+    # draft-only.
+    # ------------------------------------------------------------------
+
+    def persist_derived_requirements(
+        self,
+        ctx: AuthContext,
+        *,
+        need_id: UUID | str,
+        drafts: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Persist the accepted drafts of one derivation as reviewable proposals.
+
+        Why this exists (#1095, with the #1089 and #269 halves)
+        ======================================================
+        ``derive_requirements_from_need`` is draft-only by design: it never
+        writes. Until #1095 the client therefore persisted whichever drafts
+        the human accepted with ``POST /requirements/`` — from a **user**
+        principal — and wrote the ``derives-from`` TraceLink by hand.
+        ``workflow.services.initial_state_for`` seeds ``"proposed"`` only when
+        ``ctx.actor_type == "agent"`` (see
+        :mod:`application.ai_proposal_service`), so a human pressing
+        "KI-Ableitung" got ``draft``: the rows existed, the derivation reported
+        success, and no human was ever shown them for approval.
+
+        This method is the server-side half of that accept step:
+
+        * the *authoring* decision goes through the single seam
+          (:meth:`proposal_authoring`), so the content author — not the
+          principal that pressed the button — decides the state. Each
+          Requirement is born ``"proposed"`` with a
+          ``from_state="" -> "proposed"`` history entry naming
+          :data:`application.ai_proposal_service.AI_DERIVATION_LABEL`, which
+          is the only provenance the pending-review queue and the
+          ``transitions/`` route have;
+        * a workspace whose graph cannot express a proposal is a hard
+          ``ValidationError`` carrying ``authoring.reason``
+          (:func:`application.ai_proposal_service.require_proposal_support`),
+          never a silent downgrade to ``draft`` — for a call whose whole
+          contract is "create a reviewable proposal", the 4xx is the honest
+          answer;
+        * every artefact is stamped with the ``ai_elicit``/``origin``
+          ``custom_fields`` markers (#1089) so the AI involvement is readable
+          from the row itself, not only from workflow history;
+        * the whole batch runs in ONE ``transaction.atomic()`` block. The
+          per-draft ``_write_derived_entity`` savepoints nest inside it, so a
+          mid-loop failure cannot leave half the accepted drafts persisted
+          (REQ-L3-PL003-002) — a partial persist is the #1095 symptom in
+          miniature.
+
+        The request payload carries no ``status`` and no ``from_ai``: the state
+        and the AI provenance are derived server-side, never requested by the
+        client (#269/#851 — a client-settable AI flag is how the unlabelled
+        draft stayed invisible in the first place). The REST view rejects such
+        keys at the transport; this method simply reads nothing it does not
+        declare.
+
+        Args:
+            ctx: The accepting human's context. Its identity, tenant, roles
+                and workspace are preserved verbatim; only the authorship
+                markers change (see above).
+            need_id: The stakeholder need the drafts were derived from.
+            drafts: Non-empty list of ``{"title": str, "description": str,
+                "rationale": str}`` maps with at most
+                :data:`MAX_ACCEPTED_DERIVED_REQUIREMENTS` entries. Unknown keys
+                inside an entry are ignored here — the REST view rejects them
+                (#851).
+
+        Returns:
+            ``{"created": [<one _write_derived_entity result per draft>],
+            "count": int, "proposal": {...}}``. Every ``created`` entry carries
+            its real ``status`` and ``proposal`` block **read back from the
+            workflow engine** (never the intended state), and the top-level
+            ``proposal`` block is the first entry's read-back — the whole batch
+            shares one authoring decision, so re-reading the other N items
+            would answer the same question N times.
+
+        Raises:
+            NotFoundError: *need_id* does not exist for this tenant.
+            ValidationError: The payload is unusable (not a non-empty list,
+                a draft without a non-empty title, too many drafts, a
+                non-string text field), or the workspace's graph has no
+                ``"proposed"`` state — the message is then
+                ``authoring.reason``, human-readable and unmodified.
+        """
+        self._set_tenant_context(ctx)
+
+        from application.requirement_service import RequirementService
+        from application.stakeholder_need_service import StakeholderNeedService
+
+        # Tenant-scoped: a need in another tenant is indistinguishable from a
+        # non-existent one and raises NotFoundError here, before anything is
+        # written.
+        need = StakeholderNeedService().get(ctx, need_id)
+        workspace_id = need.workspace_id
+
+        accepted = self._validate_accepted_drafts(drafts)
+
+        # Resolved BEFORE any write, and NOT caught: ``require_proposal_support``
+        # raises rather than handing back a context that would silently create
+        # a plain draft (the #1089 contract for this endpoint).
+        authoring = self.proposal_authoring(
+            ctx, item_type="Requirement", workspace_id=workspace_id
+        )
+        require_proposal_support(authoring, item_type="Requirement")
+
+        created: list[dict[str, Any]] = []
+        # One atomic block for the whole batch. A savepoint per draft exists
+        # only so ``_write_derived_entity``'s own rollback still works; the
+        # outer block is what makes "half the accepted drafts persisted"
+        # impossible.
+        with transaction.atomic():
+            for draft in accepted:
+                # ``d=draft`` is the default-arg binding, not a closure over the
+                # loop variable: each factory must capture ITS draft (the same
+                # ``lambda: ... d`` footgun the MCP write loop documents).
+                created.append(
+                    self._write_derived_entity(
+                        ctx=ctx,
+                        workspace_id=workspace_id,
+                        item_type="Requirement",
+                        create_fn=lambda d=draft: RequirementService().create_requirement(
+                            workspace_id=workspace_id,
+                            title=d["title"],
+                            description=d["description"],
+                            rationale=d["rationale"],
+                            # The authoring context, never the caller's: this
+                            # single argument is what makes the row a proposal.
+                            ctx=authoring.create_context,
+                            # The #1089 origin markers.
+                            custom_fields=_ai_origin_custom_fields(),
+                        ),
+                        # A need's own PK is not resolvable by
+                        # TraceLinkService._resolve_artifact_id; its backing
+                        # Artifact is. 'derives-from' points child -> parent
+                        # (#341), so the NEW requirement is the link source.
+                        source_entity_id=need.artifact_id,
+                        source_item_type="StakeholderNeed",
+                        link_type=LinkType.DERIVES_FROM.value,
+                        new_entity_is_link_source=True,
+                        policy="manual",
+                    )
+                )
+
+        return {
+            "created": created,
+            "count": len(created),
+            "proposal": created[0]["proposal"],
+        }
+
+    @staticmethod
+    def _validate_accepted_drafts(drafts: Any) -> list[dict[str, str]]:
+        """Return *drafts* normalized to ``{"title", "description", "rationale"}``.
+
+        Defensive on purpose: the REST view already rejects unknown keys and a
+        malformed body (#851), but the service is the single write entry point
+        (ADR-01) and is also reachable from MCP and from direct callers, so it
+        must not trust its own caller.
+
+        Args:
+            drafts: The raw value handed to
+                :meth:`persist_derived_requirements`.
+
+        Returns:
+            One normalized ``{"title": str, "description": str,
+            "rationale": str}`` per entry — title stripped, optional text
+            fields coerced to ``""``. No draft is dropped silently.
+
+        Raises:
+            ValidationError: *drafts* is not a non-empty list, carries more
+                than :data:`MAX_ACCEPTED_DERIVED_REQUIREMENTS` entries, or one
+                entry is not an object with a non-empty string ``title`` and
+                string-or-absent ``description``/``rationale``.
+        """
+        if not isinstance(drafts, list) or not drafts:
+            raise ValidationError(
+                "'drafts' must be a non-empty list of accepted drafts."
+            )
+        if len(drafts) > MAX_ACCEPTED_DERIVED_REQUIREMENTS:
+            raise ValidationError(
+                f"At most {MAX_ACCEPTED_DERIVED_REQUIREMENTS} drafts can be "
+                f"accepted in one request (got {len(drafts)})."
+            )
+
+        normalized: list[dict[str, str]] = []
+        for index, entry in enumerate(drafts):
+            position = index + 1
+            if not isinstance(entry, dict):
+                raise ValidationError(
+                    f"Draft #{position} must be an object with a 'title'."
+                )
+
+            title = entry.get("title")
+            if not isinstance(title, str) or not title.strip():
+                raise ValidationError(
+                    f"Draft #{position} needs a non-empty 'title'."
+                )
+
+            normalized.append(
+                {
+                    "title": title.strip(),
+                    "description": _as_draft_text(
+                        entry.get("description"),
+                        f"Draft #{position} 'description'",
+                    ),
+                    "rationale": _as_draft_text(
+                        entry.get("rationale"),
+                        f"Draft #{position} 'rationale'",
+                    ),
+                }
+            )
+        return normalized
 
     @atomic_transaction
     def _write_glossary_term_draft(

@@ -135,9 +135,9 @@
 }
 
 /*
- * `.queueModeCount` is the badge on the "AI proposals only" toggle carrying how
- * many are waiting. It is the discoverability hinge of #1089: without a number
- * the switch looks like an empty filter.
+ * The mode-toggle rows: the checkbox plus its label, and the count hint
+ * appended to it. `flex` with a gap keeps the hint visually attached to its
+ * own toggle rather than drifting into the row below.
  */
 .queueModeRow {
   display: flex;
@@ -147,12 +147,21 @@
   font-size: var(--font-size-sm);
 }
 
-.queueModeCount {
+/*
+ * `.queueModeHint` is the #1089 sentence on the "AI proposals only" toggle:
+ * "{{count}} KI-Vorschläge warten auf Prüfung". It replaced a bare number
+ * badge, which did not say *what* was waiting and so left a reviewer who never
+ * clicked the switch unaware of the queue at all. Same badge token set as
+ * `.totalBadge`, so one visual idiom spans the toolbar.
+ */
+.queueModeHint {
   padding: 0 var(--space-2);
   border-radius: var(--radius-sm);
   background: var(--color-badge-info-bg);
   color: var(--color-badge-info-text);
   font-weight: var(--weight-semibold);
+  font-size: var(--font-size-sm);
+  white-space: nowrap;
 }
 
 .paginationRow {

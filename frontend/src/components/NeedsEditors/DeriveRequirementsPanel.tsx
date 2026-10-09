@@ -8,9 +8,22 @@
  *      (POST /needs/{id}/derive-requirements/) — nothing is persisted there.
  *   2. This panel shows every draft as an editable, selectable row so the user
  *      can correct or drop proposals before anything is written.
- *   3. "Accept" persists the selected drafts via requirementsApi.create and
- *      links each one back to the source need with a 'derives-from' TraceLink
- *      (SE: Req --derives-from--> Need).
+ *   3. "Accept" hands the selected drafts to the server in ONE call
+ *      (POST /needs/{id}/derive-requirements/accept/, issue #1095). The server
+ *      creates each Requirement through the `ai_proposal_service` authoring
+ *      seam — so the artefact is born `proposed`, lands in the pending-review
+ *      queue and carries the `ai_elicit`/`origin` markers — and writes the
+ *      `derives-from` TraceLink back to this need itself (SE: Req
+ *      --derives-from--> Need).
+ *
+ * Why the client no longer persists (issue #1095 / #1089): it used to call
+ * `requirementsApi.create` from a `user` principal and then build the
+ * TraceLink by hand. `initial_state_for` seeds "proposed" only for an `agent`
+ * principal, which the auth layer decides — a human pressing the button holds
+ * a Bearer token — so every accepted draft became a plain `draft`: the row
+ * existed, the panel reported success, and nobody was ever shown it for
+ * approval. The whole batch is also atomic server-side, which removes the
+ * per-row rollback/partial-failure bookkeeping this panel used to carry.
  *
  * data-testid is set on every interactive element (E2E convention).
  */
@@ -18,15 +31,18 @@ import type { CSSProperties } from "react";
 import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import { requirementsApi } from "../../api/requirements";
-import { tracelinksApi } from "../../api/tracelinks";
 import type { DerivedRequirementDraft } from "../../api/stakeholder-need";
+import { stakeholderNeedApi } from "../../api/stakeholder-need";
 import { Spinner } from "../shared/Spinner/Spinner";
 
 export interface DeriveRequirementsPanelProps {
-  workspaceId: string;
-  /** Artifact id of the source need — the TraceLink target. */
-  needArtifactId: string;
+  /**
+   * PK of the source need. Both derivation endpoints resolve it via
+   * `StakeholderNeedService.get` — the artifact id is NOT accepted here (it
+   * is only what TraceLinkService stores as the link target, and the server
+   * writes that link itself since #1095).
+   */
+  needId: string;
   drafts: DerivedRequirementDraft[];
   /** Called with the number of persisted requirements after a successful accept. */
   onAccepted?: (count: number) => void;
@@ -96,8 +112,7 @@ const styles: Record<string, CSSProperties> = {
 };
 
 export function DeriveRequirementsPanel({
-  workspaceId,
-  needArtifactId,
+  needId,
   drafts,
   onAccepted,
   onDiscard,
@@ -107,15 +122,11 @@ export function DeriveRequirementsPanel({
   const [rows, setRows] = useState<DraftRow[]>(() =>
     drafts.map((d) => ({ ...d, selected: true }))
   );
+  // One in-flight flag for the whole batch: the server persists the selected
+  // drafts in a single transaction, so there is no per-row progress to report
+  // and no partially-persisted state to roll back (#1095).
   const [isAccepting, setIsAccepting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // UI-33 (Systemaudit 2026-08-27 AP-5): simple progress tracking for the
-  // sequential accept loop — previously the whole multi-second operation
-  // showed a single static spinner with no indication of how far it had
-  // gotten, on top of the silent-partial-failure gap fixed below.
-  const [acceptProgress, setAcceptProgress] = useState<{ done: number; total: number } | null>(
-    null,
-  );
 
   const updateRow = useCallback((index: number, patch: Partial<DraftRow>) => {
     setRows((prev) => prev.map((r, i) => (i === index ? { ...r, ...patch } : r)));
@@ -128,66 +139,35 @@ export function DeriveRequirementsPanel({
     if (selected.length === 0) return;
     setIsAccepting(true);
     setError(null);
-    setAcceptProgress({ done: 0, total: selected.length });
-    let createdCount = 0;
     try {
-      // Sequential on purpose: each requirement must exist before its
-      // 'derives-from' link is written, and the backend applies per-artifact
-      // versioning we do not want to race.
-      for (const row of selected) {
-        let created: { id: string } | null = null;
-        try {
-          created = await requirementsApi.create({
-            workspace_id: workspaceId,
-            title: row.title.trim(),
-            description: row.description,
-          });
-          await tracelinksApi.create({
-            source_id: created.id,
-            target_id: needArtifactId,
-            link_type: "derives-from",
-          });
-        } catch (rowErr) {
-          // UI-33: a mid-loop failure previously stopped silently with a
-          // generic "derive failed" message, giving no indication that some
-          // drafts were already persisted, and — if it was the TraceLink
-          // step that threw — left the in-flight draft's Requirement
-          // orphaned (created but never linked back to the Need). Report
-          // exactly how many succeeded and best-effort roll back the orphan
-          // before surfacing the error, then stop instead of silently
-          // abandoning the remaining drafts.
-          if (created) {
-            try {
-              await requirementsApi.delete(created.id);
-            } catch {
-              // Best-effort only — the partial-failure message below
-              // already tells the user to check manually.
-            }
-          }
-          const apiErr = rowErr as { error?: { message?: string } };
-          const baseMessage = apiErr?.error?.message ?? t("needs.deriveFailed");
-          setError(
-            createdCount > 0
-              ? t("deriveRequirements.partialFailure", {
-                  created: createdCount,
-                  total: selected.length,
-                  message: baseMessage,
-                  defaultValue: `${createdCount} of ${selected.length} requirements were created, then: ${baseMessage}`,
-                })
-              : baseMessage,
-          );
-          if (createdCount > 0) onAccepted?.(createdCount);
-          return;
-        }
-        createdCount += 1;
-        setAcceptProgress({ done: createdCount, total: selected.length });
+      const result = await stakeholderNeedApi.acceptDerivedRequirements(
+        needId,
+        selected.map((row) => ({
+          title: row.title.trim(),
+          description: row.description,
+          rationale: row.rationale,
+        })),
+      );
+      // The server always answers with a `proposal` block. When it reports that
+      // no reviewable proposal was created, the artefacts are (at best) plain
+      // drafts — reporting success would reproduce the #1089 gap the user just
+      // tried to close, so the server's own reason is surfaced verbatim.
+      if (!result.proposal?.is_proposal) {
+        setError(
+          t("deriveRequirements.reviewRequired", {
+            reason: result.proposal?.reason || t("needs.deriveFailed"),
+          }),
+        );
+        return;
       }
-      onAccepted?.(createdCount);
+      onAccepted?.(result.count);
+    } catch (err) {
+      const apiErr = err as { error?: { message?: string } };
+      setError(apiErr?.error?.message ?? t("needs.deriveFailed"));
     } finally {
       setIsAccepting(false);
-      setAcceptProgress(null);
     }
-  }, [rows, workspaceId, needArtifactId, onAccepted, t]);
+  }, [rows, needId, onAccepted, t]);
 
   return (
     <section style={styles.panel} data-testid="derive-requirements-panel">
@@ -200,6 +180,13 @@ export function DeriveRequirementsPanel({
           })}
         </span>
       </header>
+
+      {/* #1095: says up front what accepting does — the drafts become an AI
+          proposal in the pending-review queue, not a silently-written draft
+          that nobody is ever shown (the #1089 half of the same defect). */}
+      <span style={styles.muted} data-testid="derive-requirements-accepted-hint">
+        {t("deriveRequirements.acceptedHint")}
+      </span>
 
       {error && (
         <div style={styles.error} role="alert" data-testid="derive-requirements-error">
@@ -250,17 +237,7 @@ export function DeriveRequirementsPanel({
           data-testid="derive-requirements-accept"
         >
           {isAccepting ? (
-            <Spinner
-              label={
-                acceptProgress
-                  ? t("deriveRequirements.acceptingProgress", {
-                      done: acceptProgress.done,
-                      total: acceptProgress.total,
-                      defaultValue: `Creating ${acceptProgress.done}/${acceptProgress.total}...`,
-                    })
-                  : t("deriveRequirements.accepting")
-              }
-            />
+            <Spinner label={t("deriveRequirements.accepting")} />
           ) : (
             t("deriveRequirements.accept")
           )}

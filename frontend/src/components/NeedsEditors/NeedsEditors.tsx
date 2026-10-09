@@ -265,6 +265,9 @@ export default function NeedsEditors(): JSX.Element {
   const handleDraftsAccepted = (count: number) => {
     setDerivedDrafts(null);
     setDerivationIsError(false);
+    // #1089: the message has to name WHERE the new artefacts are reviewable.
+    // "created and linked" left the user with nothing to do next, so the
+    // accepted drafts were practically invisible.
     setDerivationStatus(t('needs.deriveCreated', { count }));
     // Task 23: NeedForm previously wired this to an `onNeedsChanged` prop
     // that no call site ever passed a value for (dead — `refresh()` never
@@ -571,8 +574,7 @@ export default function NeedsEditors(): JSX.Element {
             {need && derivedDrafts && (
               <div className={styles.deriveDraftsSection}>
                 <DeriveRequirementsPanel
-                  workspaceId={need.workspace_id}
-                  needArtifactId={need.artifact_id}
+                  needId={need.id}
                   drafts={derivedDrafts}
                   onAccepted={handleDraftsAccepted}
                   onDiscard={() => setDerivedDrafts(null)}

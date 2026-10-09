@@ -177,6 +177,7 @@ from rest_api.serializers import (
     build_error_response,
     detect_lang,
     extract_preset_tier,
+    reject_unknown_fields,
 )
 # INT-06 (findings 075/077/090): the shared error-response schema for the
 # documented error cases on the audited endpoints.
@@ -883,6 +884,106 @@ class StakeholderNeedViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             return Response(build_error_response("NOT_FOUND", lang), status=status.HTTP_404_NOT_FOUND)
         except Exception as exc:
             logger.exception("StakeholderNeedViewSet.derive_requirements: unhandled exception")
+            return _service_error_response(exc, lang)
+
+    @action(detail=True, methods=["post"], url_path="derive-requirements/accept")
+    def derive_requirements_accept(
+        self, request: Request, pk: str, **kwargs: Any
+    ) -> Response:
+        """POST /api/v1/needs/{pk}/derive-requirements/accept/ — persist accepted drafts.
+
+        Issue #1095: the server-side half of the Draft/Accept accept step. The
+        client posts the selected drafts of a ``derive-requirements`` preview and
+        gets back the created artefacts — no second ``POST /requirements/`` per
+        draft, no hand-built TraceLink, and no ``actor_type`` guessing on the
+        client. The domain work is
+        ``AiDerivationService.persist_derived_requirements`` (Layer 2, ADR-01);
+        this handler is transport only.
+
+        Request body (every key is required to be declared):
+
+        .. code-block:: json
+
+            {"drafts": [{"title": "...", "description": "...", "rationale": "..."}]}
+
+        Response 201:
+
+        .. code-block:: json
+
+            {
+              "count": 1,
+              "created": [
+                {"id": "...", "status": "proposed", "trace_link_id": "...",
+                 "proposal": {"is_proposal": true, "proposed_by": "ai-derivation", ...}}
+              ],
+              "proposal": {"is_proposal": true, "proposed_by": "ai-derivation",
+                           "supported": true, "reason": ""}
+            }
+
+        The client flags ``status`` and ``from_ai`` are **forbidden** (#269/#851):
+        the workflow state and the AI provenance are derived server-side from the
+        seam in ``application.ai_proposal_service``. A client that could set them
+        could either fake an AI stamp on hand-written content or force a state
+        the workspace's graph does not have — and both would be dropped silently
+        before this endpoint tightened the same gap for the preview path.
+
+        Errors: 400 ``VALIDATION_ERROR`` for an undeclared key, a malformed
+        ``drafts`` body, or a workspace whose workflow graph has no
+        ``"proposed"`` state (the honest answer — the downgrade to ``draft`` is
+        exactly what #1089 forbids); 404 ``NOT_FOUND`` for a need outside this
+        tenant's scope.
+        """
+        lang = detect_lang(request)
+
+        # #1095/#851: the accepted top-level keys are exactly {"drafts"}. The
+        # check runs BEFORE anything is read or written, so a rejected payload
+        # cannot create an artefact on its way to the error.
+        invalid = reject_unknown_fields(request.data, {"drafts"}, lang)
+        if invalid is not None:
+            return invalid
+
+        payload = request.data if isinstance(request.data, dict) else {}
+        raw_drafts = payload.get("drafts")
+        if not isinstance(raw_drafts, list) or not raw_drafts:
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    message="'drafts' must be a non-empty list of accepted drafts.",
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        # Same guard per entry: an unknown key inside a draft is the same silent
+        # drop one level down (#851). The service also normalizes defensively;
+        # this is what makes the rejection reach the client as a 400.
+        for entry in raw_drafts:
+            invalid = reject_unknown_fields(
+                entry, {"title", "description", "rationale"}, lang
+            )
+            if invalid is not None:
+                return invalid
+
+        try:
+            from application.ai_derivation_service import AiDerivationService
+
+            result = AiDerivationService().persist_derived_requirements(
+                get_auth_context(request), need_id=pk, drafts=raw_drafts
+            )
+            return Response(result, status=status.HTTP_201_CREATED)
+        except ValidationError as e:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message=str(e)),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except NotFoundError:
+            return Response(
+                build_error_response("NOT_FOUND", lang),
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        except Exception as exc:
+            logger.exception(
+                "StakeholderNeedViewSet.derive_requirements_accept: unhandled exception"
+            )
             return _service_error_response(exc, lang)
 
     @action(detail=True, methods=["get"], url_path="diff")
