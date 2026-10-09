@@ -186,7 +186,8 @@ _STAGED_SHARED_CLAIMS: tuple[tuple[str, str], ...] = (
     ),
     (
         "A4",
-        "the flag flip is gated on the poller tenant-arming work (A4/R-2)",
+        "A4 (poller tenant arming) has landed; the entry still states the flag "
+        "is DEFAULT OFF",
     ),
     (
         "R-7",
@@ -194,7 +195,8 @@ _STAGED_SHARED_CLAIMS: tuple[tuple[str, str], ...] = (
     ),
     (
         "R-8",
-        "the superuser-owned DEFINER residual is named",
+        "the definer-owner status (superuser owner closed by the dedicated "
+        "NOLOGIN definer-owner role, issue #1180) is named",
     ),
     (
         "CR-17 residual risk, now staged rather than open",
@@ -248,11 +250,15 @@ STAGED_ALL_CLAIMS: dict[str, tuple[tuple[str, str], ...]] = {
 #:
 #: Only two, and both are declared rather than assumed:
 #:
-#: * ``application/event_bus.py`` — the Celery poller. It has to read: the
-#:   candidate query (:490-496) is what tells it *which* tenant a row belongs to
-#:   (chicken-and-egg, see the exemption), ``_claim_event`` takes the row under
-#:   SELECT FOR UPDATE, ``_finalize_success`` / ``_finalize_failure`` write the
-#:   outcome back and the backlog count at :551 aggregates across tenants.
+#: * ``application/event_bus.py`` — the Celery poller. It has to read: with the
+#:   staged policy DEFAULT OFF the ORM candidate query is the read path, and
+#:   under enforcement (``RLS_AS_ENFORCED=on``) the owner-privileged
+#:   ``SECURITY DEFINER`` ``public.as_outbox_candidates`` function (A4,
+#:   application/0033) is what tells it *which* tenant a row belongs to before
+#:   the per-row ``app.current_tenant`` is armed (chicken-and-egg).
+#:   ``_claim_event`` takes the row under SELECT FOR UPDATE,
+#:   ``_finalize_success`` / ``_finalize_failure`` write the outcome back and
+#:   the backlog count aggregates across tenants.
 #: * ``application/admin.py`` — the Django admin (registered at
 #:   ``application/admin.py:55``). Its reads happen inside Django, not in this
 #:   repository's source, so no AST can see them; the registration itself is
@@ -1054,8 +1060,10 @@ def test_webhook_table_has_no_reader_outside_the_worker_and_the_admin(table):
     raw query, a management command, a new endpoint or a second service. The
     staged policy shipped (application/0032) but is permissive while
     ``RLS_AS_ENFORCED`` is unset, so the compensating control is still not a
-    database guarantee while the flag is OFF; it is defense-in-depth until A4 +
-    the flag flip.
+    database guarantee while the flag is OFF; it is defense-in-depth while the
+    staged policy still ships DEFAULT OFF (A4 has landed: the poller arms
+    ``app.current_tenant`` per row and the writers stamp ``tenant_id``,
+    application/0033).
     """
     referencing = _production_modules_referencing(PLAIN_CHILD_TABLES[table].split(".")[-1])
 
@@ -1124,7 +1132,9 @@ def test_outbox_table_has_no_reader_outside_the_poller_and_the_admin():
     or a new poller written against a different table. The staged policy shipped
     (application/0032) but is permissive while ``RLS_AS_ENFORCED`` is unset, so
     the compensating control is still not a database guarantee while the flag is
-    OFF; it is defense-in-depth until A4 + the flag flip.
+    OFF; it is defense-in-depth while the staged policy still ships DEFAULT OFF
+    (A4 has landed: the poller arms ``app.current_tenant`` per row and the
+    writers stamp ``tenant_id``, application/0033).
     """
     model = PLAIN_CHILD_TABLES["as_domain_event_outbox"].split(".")[-1]
     access = _production_table_access(model)
