@@ -7,7 +7,11 @@
  *
  *   1. the toggle said "AI proposals only" without saying whether anything is
  *      waiting — the same "created but never presented" gap the backend fix
- *      closes, one layer up;
+ *      closes, one layer up. A bare number was not enough: a reviewer landing
+ *      on /reviews in the DEFAULT (review) mode had nothing that told them
+ *      what the number counted, so the queue stayed undiscovered. The toggle
+ *      now carries a full sentence (`workflow.proposal.pendingCount`) while
+ *      the review queue is on screen;
  *   2. nothing in the queue or the detail pane said the content came from the
  *      AI, or who proposed it.
  *
@@ -216,8 +220,8 @@ describe("ReviewsView — AI proposals queue (#1089)", () => {
 
     await waitFor(() => {
       expect(
-        screen.getByTestId("reviews-proposal-count")
-      ).toHaveTextContent("2");
+        screen.getByTestId("reviews-proposal-count-hint")
+      ).toHaveTextContent("workflow.proposal.pendingCount:2");
     });
     // The review queue itself is unaffected.
     expect(
@@ -235,7 +239,31 @@ describe("ReviewsView — AI proposals queue (#1089)", () => {
         screen.getByTestId("review-list-item-req-rev-1")
       ).toBeInTheDocument();
     });
-    expect(screen.queryByTestId("reviews-proposal-count")).toBeNull();
+    expect(screen.queryByTestId("reviews-proposal-count-hint")).toBeNull();
+  });
+
+  it("advertises no number while the proposals count is still in flight", async () => {
+    // The proposals count is its own always-on query (#1089). While it is
+    // unresolved the toggle must not name a number: the query function has not
+    // produced data yet, so "N proposals awaiting review" would be a guess.
+    // (Note this is the only state the `proposalCountLoading` guard can ever
+    // see on its own — TanStack Query's `isLoading` means "pending AND no
+    // data", so the loading and zero-count branches are mutually exclusive by
+    // construction. The assertion below is the observable contract; the guard
+    // is its belt-and-braces.)
+    routeListByStatus(
+      IN_REVIEW_ITEMS,
+      new Promise(() => {}) as unknown as unknown[]
+    );
+
+    renderReviewsView();
+
+    await waitFor(() => {
+      expect(
+        screen.getByTestId("review-list-item-req-rev-1")
+      ).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("reviews-proposal-count-hint")).toBeNull();
   });
 
   it("marks every row of the proposals queue as AI-authored", async () => {

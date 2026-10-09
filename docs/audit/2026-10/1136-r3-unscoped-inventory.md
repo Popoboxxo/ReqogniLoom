@@ -5,8 +5,11 @@
   — risk entry **R-3** (line 668) and the addendum note at lines 830-833.
 - **Static guard:**
   [`backend/auth_tenancy/tests/test_unscoped_readers_guard_1184.py`](../../../backend/auth_tenancy/tests/test_unscoped_readers_guard_1184.py)
-- **Status:** documentation + static guard only. No policy change, no production
-  behaviour change, no flag flip.
+- **Status:** documentation + static guard. No policy change and no flag flip.
+  The single dangerous reader identified below has been **fixed** (guarded, like
+  the `inventory_api_keys` canon), so the R-3 blocker on the pre-flip checklist
+  is closed; the flag itself stays off until the remaining checklist items are
+  verified against a live database.
 
 ## Purpose
 
@@ -41,7 +44,7 @@ production readers and are out of scope.
 | `ApiKey` | `backend/auth_tenancy/services/authentication.py:790` | `AuthenticationService.revoke_api_key` | READ (`filter(id=...).first()`) | yes from REST (`DELETE /api/v1/api-keys/<pk>/`); **no** when called from the `revoke_api_key` management command | **safe** from REST; **loud-fail** on the CLI branch (unarmed read returns `None` → `AuthenticationFailed("invalid_api_key")`, and the CLI caller is already stopped by `Command._resolve_key`) |
 | `ApiKey` | `backend/auth_tenancy/management/commands/revoke_api_key.py:115,121` | `Command._resolve_key` | READ (`filter(...)`) | **no** — privileged cross-tenant CLI, no tenant context | **loud-fail** — an empty result raises `CommandError("No API key matches --key-id ...")`; it never silently reports success |
 | `ApiKey` | `backend/auth_tenancy/management/commands/inventory_api_keys.py:357` | `collect_inventory` | READ (`ApiKey.unscoped.all()`, cross-tenant) | **no**, but explicitly guarded by `SET LOCAL row_security = off` (`:362`) | **loud-fail** — on the least-privilege app role the read raises rather than reporting "0 keys", which is exactly the intent of the guard |
-| `ApiKey` | `backend/auth_tenancy/management/commands/cleanup_revoked_api_keys.py:57` | `Command.handle` | READ (`filter(revoked_at__isnull=False, revoked_at__lt=cutoff)`) then DELETE (`stale.delete()`) | **no** — cross-tenant maintenance, no tenant context and no `row_security` guard | **SILENT-EMPTY — the one dangerous reader** (see below) |
+| `ApiKey` | `backend/auth_tenancy/management/commands/cleanup_revoked_api_keys.py:91` | `Command.handle` | READ (`filter(revoked_at__isnull=False, revoked_at__lt=cutoff)`) then DELETE (`stale.delete()`) | **no** — cross-tenant maintenance, no tenant context; explicitly guarded by `SET LOCAL row_security = off` (`:104`) | **loud-fail** — on the least-privilege app role the read raises instead of reporting "0 ... would be deleted" / "Deleted 0", which is exactly the intent of the guard (see below) |
 | `UserRole` | *(none)* | — | — | — | **n/a** |
 
 ## `UserRole` — zero production readers
@@ -66,27 +69,49 @@ The guard test encodes this directly: because no `UserRole` entry exists in its
 allowlist, any newly introduced production `UserRole.unscoped` usage is reported
 as an unexpected reader and fails the test.
 
-## The dangerous path: `cleanup_revoked_api_keys.py:57`
+## The former dangerous path: `cleanup_revoked_api_keys.py:91`
 
-`Command.handle` is the single R-3 reader that would fail **silently** under
-`RLS_PREAUTH_ENFORCED=on`:
+`Command.handle` used to be the single R-3 reader that would fail **silently**
+under `RLS_PREAUTH_ENFORCED=on`:
 
 - it runs from the CLI with **no tenant context** armed, and
-- unlike `inventory_api_keys.collect_inventory`, it has **no**
+- unlike `inventory_api_keys.collect_inventory`, it had **no**
   `SET LOCAL row_security = off` guard.
 
-With the flag on, the staged policy predicate on `at_api_key` reduces the
+With the flag on, the staged policy predicate on `at_api_key` reduced the
 cross-tenant queryset to zero rows. Consequently:
 
-- `stale.count()` returns `0` (dry run prints "0 revoked API key(s) … would be
+- `stale.count()` returned `0` (dry run printed "0 revoked API key(s) … would be
   deleted"), and
-- `stale.delete()` returns `0` (with `--apply` it prints "Deleted 0 revoked API
+- `stale.delete()` returned `0` (with `--apply` it printed "Deleted 0 revoked API
   key(s)") —
 
-both without any error or warning. The command reports success while doing
-nothing. This is the concrete silent-empty consequence R-3 warns about, and it
-must be resolved (or the read reworked to escape the policy the same way
-`inventory_api_keys` does) before the flag is flipped.
+both without any error or warning: the command reported success while doing
+nothing. That concrete silent-empty consequence is what R-3 warns about.
+
+### Fix (issue #1184)
+
+The read and the delete now run inside `transaction.atomic()` with
+`SET LOCAL row_security = off` (`cleanup_revoked_api_keys.py:96-110`, the `SET`
+itself at `:104`), the same guard `inventory_api_keys.collect_inventory`
+established. The two branches of the guard match the canon, and both were proven
+live against PostgreSQL by
+`backend/auth_tenancy/tests/test_cleanup_revoked_api_keys_rls_1184.py`:
+
+- on an operator/owner (owner or superuser) connection no policy is ever applied,
+  so the guard is a no-op and the delete really happens;
+- on the least-privilege app role (`reqogniloom_app`) `SET row_security = off` is
+  accepted but the *read* is not: Postgres raises `query would be affected by
+  row-level security policy`, so the command aborts with the data untouched
+  instead of printing "Deleted 0". The same armed session reading the plain
+  unguarded `ApiKey.unscoped.filter(revoked_at__isnull=False)` queryset still
+  returns 0 rows — that unguarded read is the mechanism the guard exists to
+  break, and the test pins it so the fix cannot silently regress to a no-op.
+
+Command behaviour is otherwise unchanged: dry-run by default, `--apply` to
+delete, `--older-than-days` as the threshold, identical output strings. This is
+the single cross-tenant maintenance path in production for `at_api_key`, and it
+is now the guarded one rather than the dangerous one.
 
 ## Pre-flip checklist
 
@@ -96,10 +121,12 @@ Before setting `RLS_PREAUTH_ENFORCED=on`, confirm each item:
    (`backend/auth_tenancy/tests/test_unscoped_readers_guard_1184.py`) is green,
    i.e. the production `.unscoped` reader set still matches this reviewed
    allowlist exactly.
-2. `cleanup_revoked_api_keys.py:57` is either fixed (tenant-scoped /
-   `SET LOCAL row_security = off` guarded, like `inventory_api_keys`) or
-   explicitly reclassified with a loud-fail behaviour. **This is the remaining
-   blocker.**
+2. `cleanup_revoked_api_keys.py:91` is fixed: the cross-tenant read and delete are
+   guarded by `SET LOCAL row_security = off`, like `inventory_api_keys`, and the
+   loud-fail behaviour on the app role is proven by
+   `backend/auth_tenancy/tests/test_cleanup_revoked_api_keys_rls_1184.py`.
+   **Closed.** Still re-verify once against the live database before the flip, as
+   item 3 requires.
 3. `revoke_api_key.py:115,121` and `inventory_api_keys.py:357` are re-verified as
    loud-fail under a live `RLS_PREAUTH_ENFORCED=on` database (not just by
    inspection).
@@ -110,4 +137,7 @@ Before setting `RLS_PREAUTH_ENFORCED=on`, confirm each item:
 6. R-7, R-8 and R-9 each have a tracking issue + owner + review date (AC-26).
 
 Until items 1-5 hold and R-7/R-8/R-9 are scheduled, `RLS_PREAUTH_ENFORCED` stays
-**off** — R-3 stays a documented, tracked pre-flip task.
+**off**. R-3 itself is no longer a flip blocker: the inventory above is complete
+and the one reader that would have failed silently is guarded. What remains for
+the flip are the verification items (3-5) and the scheduling of R-7/R-8/R-9, not
+the reader inventory.

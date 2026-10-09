@@ -22,13 +22,19 @@ vi.mock("react-i18next", () => ({
         "needs.deriveStarting": "KI-Ableitung wird gestartet...",
         "needs.deriveFailed": "Ableitung fehlgeschlagen.",
         "needs.deriveEmpty": "Keine Vorschläge erhalten.",
+        // #1089: the success text must name WHERE the new artefacts are
+        // reviewable, otherwise the accepted drafts are effectively invisible.
+        "needs.deriveCreated":
+          "Angelegt zur Prüfung unter „Freigaben“ → „Nur KI-Vorschläge“: {{count}}",
         "actions.deriveAi": "KI-Ableitung",
         "actions.derivingAi": "KI-Ableitung läuft…",
         "deriveRequirements.title": "Systemanforderungen (Entwurf)",
         "deriveRequirements.accept": "Ausgewählte anlegen",
         "deriveRequirements.accepting": "Wird angelegt...",
+        "deriveRequirements.acceptedHint":
+          "KI-Vorschlag zur Prüfung unter „Freigaben“ → „Nur KI-Vorschläge“",
+        "deriveRequirements.reviewRequired": `Kein prüfbarer KI-Vorschlag: ${opts?.reason ?? ""}`,
         "deriveRequirements.discard": "Verwerfen",
-        "deriveRequirements.created": `${opts?.count ?? 0} Anforderungen angelegt.`,
         "tracelinks.panelTitle": "Trace Links",
         "actions.newLink": "Neuen Link erstellen",
         "actions.showAll": "Alle anzeigen",
@@ -128,6 +134,7 @@ vi.mock("../api/stakeholder-need", () => ({
   stakeholderNeedApi: {
     create: vi.fn(),
     deriveRequirements: vi.fn(),
+    acceptDerivedRequirements: vi.fn(),
   },
 }));
 
@@ -195,6 +202,24 @@ const DRAFTS = [
   },
 ];
 
+/** A 201 accept body as the server sends it (issue #1095). */
+const acceptResult = (overrides: Record<string, unknown> = {}) => ({
+  count: 2,
+  created: [
+    { id: "req-a", status: "proposed", trace_link_id: "tl-a", proposal: {} },
+    { id: "req-b", status: "proposed", trace_link_id: "tl-b", proposal: {} },
+  ],
+  proposal: {
+    state: "proposed",
+    is_proposal: true,
+    supported: true,
+    proposed_by: "ai-derivation",
+    label: "ai-derivation",
+    reason: "",
+  },
+  ...overrides,
+});
+
 const clickDerive = async () => {
   // Issue #927: the AI trigger is "KI-Ableitung" (the manual derive is
   // "Ableiten"), so match the AI label explicitly.
@@ -252,11 +277,16 @@ describe("NeedsEditors — AI derive Draft/Accept (REQ-L2-AI-002)", () => {
     expect(screen.getByTestId("derive-requirements-title-1")).toHaveValue("SysReq B");
   });
 
-  it("persists accepted drafts, links them back to the need and refreshes the list", async () => {
+  // Issue #1095 / #1089: the persist step moved server-side. The panel must
+  // NOT go back to `requirementsApi.create` (a `user` principal seeds `draft`,
+  // so the artefact never reaches the pending-review queue) nor build the
+  // `derives-from` TraceLink itself (the server writes it). Both are asserted
+  // as *not called* — that is the regression this change exists to pin.
+  it("persists accepted drafts through the server endpoint and never via requirementsApi.create", async () => {
     vi.mocked(stakeholderNeedApi.deriveRequirements).mockResolvedValue({ drafts: DRAFTS });
-    vi.mocked(requirementsApi.create)
-      .mockResolvedValueOnce({ id: "req-a" } as never)
-      .mockResolvedValueOnce({ id: "req-b" } as never);
+    vi.mocked(stakeholderNeedApi.acceptDerivedRequirements).mockResolvedValue(
+      acceptResult() as never
+    );
 
     render(<NeedsEditors />);
     await clickDerive();
@@ -264,30 +294,56 @@ describe("NeedsEditors — AI derive Draft/Accept (REQ-L2-AI-002)", () => {
     await screen.findByTestId("derive-requirements-panel");
     await userEvent.click(screen.getByTestId("derive-requirements-accept"));
 
-    expect(requirementsApi.create).toHaveBeenCalledTimes(2);
-    expect(requirementsApi.create).toHaveBeenCalledWith({
-      workspace_id: "ws-001",
-      title: "SysReq A",
-      description: "Beschreibung A",
-    });
-    expect(tracelinksApi.create).toHaveBeenCalledWith({
-      source_id: "req-a",
-      target_id: "art-001",
-      link_type: "derives-from",
-    });
-    expect(tracelinksApi.create).toHaveBeenCalledWith({
-      source_id: "req-b",
-      target_id: "art-001",
-      link_type: "derives-from",
-    });
+    await waitFor(() =>
+      expect(stakeholderNeedApi.acceptDerivedRequirements).toHaveBeenCalledTimes(1)
+    );
+    // The need's PK (not its artifact id) plus the selected drafts, verbatim.
+    expect(stakeholderNeedApi.acceptDerivedRequirements).toHaveBeenCalledWith("need-001", [
+      {
+        title: "SysReq A",
+        description: "Beschreibung A",
+        rationale: "weil A",
+      },
+      {
+        title: "SysReq B",
+        description: "Beschreibung B",
+        rationale: "weil B",
+      },
+    ]);
+    expect(requirementsApi.create).not.toHaveBeenCalled();
+    expect(requirementsApi.delete).not.toHaveBeenCalled();
+    expect(tracelinksApi.create).not.toHaveBeenCalled();
     // Task 23: previously wired to a `onNeedsChanged` prop no call site ever
     // passed — now a plain local `refresh()` call, so this must actually run.
     await waitFor(() => expect(refreshMock).toHaveBeenCalled());
   });
 
+  it("points the user at the review surface after a successful accept (#1089)", async () => {
+    vi.mocked(stakeholderNeedApi.deriveRequirements).mockResolvedValue({ drafts: DRAFTS });
+    vi.mocked(stakeholderNeedApi.acceptDerivedRequirements).mockResolvedValue(
+      acceptResult() as never
+    );
+
+    render(<NeedsEditors />);
+    await clickDerive();
+
+    await screen.findByTestId("derive-requirements-panel");
+    await userEvent.click(screen.getByTestId("derive-requirements-accept"));
+
+    // "created and linked" said nothing about WHERE — the reason the accepted
+    // drafts were effectively invisible.
+    await waitFor(() => {
+      const status = screen.getByTestId("need-derive-status");
+      expect(status.textContent).toContain("„Freigaben“");
+      expect(status.textContent).toContain("„Nur KI-Vorschläge“");
+    });
+  });
+
   it("skips drafts the user deselected", async () => {
     vi.mocked(stakeholderNeedApi.deriveRequirements).mockResolvedValue({ drafts: DRAFTS });
-    vi.mocked(requirementsApi.create).mockResolvedValue({ id: "req-b" } as never);
+    vi.mocked(stakeholderNeedApi.acceptDerivedRequirements).mockResolvedValue(
+      acceptResult({ count: 1 }) as never
+    );
 
     render(<NeedsEditors />);
     await clickDerive();
@@ -296,12 +352,64 @@ describe("NeedsEditors — AI derive Draft/Accept (REQ-L2-AI-002)", () => {
     await userEvent.click(screen.getByTestId("derive-requirements-select-0"));
     await userEvent.click(screen.getByTestId("derive-requirements-accept"));
 
-    expect(requirementsApi.create).toHaveBeenCalledTimes(1);
-    expect(requirementsApi.create).toHaveBeenCalledWith({
-      workspace_id: "ws-001",
-      title: "SysReq B",
-      description: "Beschreibung B",
+    await waitFor(() =>
+      expect(stakeholderNeedApi.acceptDerivedRequirements).toHaveBeenCalledWith("need-001", [
+        {
+          title: "SysReq B",
+          description: "Beschreibung B",
+          rationale: "weil B",
+        },
+      ])
+    );
+  });
+
+  it("surfaces the server's validation message verbatim (e.g. a minimal-preset workspace)", async () => {
+    vi.mocked(stakeholderNeedApi.deriveRequirements).mockResolvedValue({ drafts: DRAFTS });
+    vi.mocked(stakeholderNeedApi.acceptDerivedRequirements).mockRejectedValue({
+      error: { message: "This workspace cannot create reviewable AI proposals: no 'proposed' state." },
     });
+
+    render(<NeedsEditors />);
+    await clickDerive();
+
+    await screen.findByTestId("derive-requirements-panel");
+    await userEvent.click(screen.getByTestId("derive-requirements-accept"));
+
+    const errorBox = await screen.findByTestId("derive-requirements-error");
+    expect(errorBox).toHaveAttribute("role", "alert");
+    expect(errorBox.textContent).toContain(
+      "This workspace cannot create reviewable AI proposals: no 'proposed' state."
+    );
+    // Nothing was persisted, so no success status may replace the error.
+    expect(screen.queryByTestId("need-derive-status")).toBeNull();
+    expect(refreshMock).not.toHaveBeenCalled();
+  });
+
+  it("reports a plain draft (is_proposal=false) with the server's reason instead of claiming success", async () => {
+    vi.mocked(stakeholderNeedApi.deriveRequirements).mockResolvedValue({ drafts: DRAFTS });
+    vi.mocked(stakeholderNeedApi.acceptDerivedRequirements).mockResolvedValue(
+      acceptResult({
+        proposal: {
+          state: "draft",
+          is_proposal: false,
+          supported: false,
+          proposed_by: "",
+          label: "",
+          reason: "no 'proposed' state in the resolved graph",
+        },
+      }) as never
+    );
+
+    render(<NeedsEditors />);
+    await clickDerive();
+
+    await screen.findByTestId("derive-requirements-panel");
+    await userEvent.click(screen.getByTestId("derive-requirements-accept"));
+
+    const errorBox = await screen.findByTestId("derive-requirements-error");
+    expect(errorBox.textContent).toContain("no 'proposed' state in the resolved graph");
+    expect(screen.queryByTestId("need-derive-status")).toBeNull();
+    expect(refreshMock).not.toHaveBeenCalled();
   });
 
   it("reports an empty proposal set instead of claiming success", async () => {

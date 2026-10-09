@@ -671,7 +671,7 @@
     "deriveRolledBack": "{{message}} Das bereits angelegte Requirement wurde zurückgenommen (archiviert).",
     "derivePartialFailure": "{{message}} Achtung: Ein Requirement wurde bereits angelegt, aber die Verknüpfung zum Bedarf ist fehlgeschlagen und die automatische Rücknahme ebenfalls. Bitte manuell prüfen (Requirement-ID: {{id}}).",
     "deriveEmpty": "Die KI hat keine Systemanforderungen vorgeschlagen.",
-    "deriveCreated": "{{count}} Systemanforderung(en) angelegt und verknüpft.",
+    "deriveCreated": "{{count}} Systemanforderungen als KI-Vorschlag zur Prüfung angelegt. Prüfung unter „Freigaben“ → „Nur KI-Vorschläge“.",
     "deriveArchOptional": "Architekturelement zuweisen (optional)",
     "summary_one": "{{count}} Bedarf",
     "summary_other": "{{count}} Bedarfe",
@@ -690,8 +690,8 @@
     "rationale": "Begründung",
     "accept": "Ausgewählte anlegen",
     "accepting": "Wird angelegt...",
-    "acceptingProgress": "Wird angelegt: {{done}}/{{total}}...",
-    "partialFailure": "{{created}} von {{total}} Requirements wurden angelegt, dann: {{message}}",
+    "acceptedHint": "Angenommene Entwürfe werden als KI-Vorschlag gespeichert und warten unter „Freigaben“ → „Nur KI-Vorschläge“ auf deine Prüfung.",
+    "reviewRequired": "Der Server hat die Entwürfe nicht als prüfbaren KI-Vorschlag angelegt ({{reason}}).",
     "discard": "Verwerfen"
   },
   "adrs": {
@@ -1985,6 +1985,9 @@
       "bulkConfirmDone": "{{count}} Vorschläge bestätigt",
       "bulkConfirmFailed": "{{count}} Vorschläge konnten nicht bestätigt werden",
       "queueMode": "Nur KI-Vorschläge",
+      "pendingCount": "{{count}} KI-Vorschläge warten auf Prüfung",
+      "pendingCount_one": "{{count}} KI-Vorschlag wartet auf Prüfung",
+      "pendingCount_other": "{{count}} KI-Vorschläge warten auf Prüfung",
       "selectAll": "Alle auswählen"
     }
   },

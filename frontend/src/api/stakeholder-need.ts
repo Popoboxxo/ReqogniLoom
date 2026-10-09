@@ -13,6 +13,47 @@ export interface DerivedRequirementDraft {
   suggested_parent_id: string;
 }
 
+/**
+ * Issue #1095 — the `proposal` block the accept endpoint returns.
+ *
+ * It is always present so the client can never mistake a plain `draft` for a
+ * reviewable AI proposal. `is_proposal` is read back from the workflow engine
+ * (never the intended state), `reason` names why the graph could not express
+ * a proposal when it could not.
+ */
+export interface DerivedRequirementProposal {
+  /** The workflow state the artefact actually ended up in. */
+  state: string;
+  /** True only when `state === "proposed"` — i.e. a human will be shown it. */
+  is_proposal: boolean;
+  /** Whether the workspace graph could express a proposal at all. */
+  supported: boolean;
+  /** Who authored it (`ai-derivation` for this endpoint). */
+  proposed_by: string;
+  /** Human-facing provenance label. */
+  label: string;
+  /** Empty on success; otherwise why the proposal state was unavailable. */
+  reason: string;
+}
+
+/** One artefact the server persisted for an accepted draft. */
+export interface AcceptedDerivedRequirement {
+  id: string;
+  /** The real workflow state, read back from the engine. */
+  status: string;
+  /** The `derives-from` TraceLink back to the source need, created server-side. */
+  trace_link_id: string;
+  proposal: DerivedRequirementProposal;
+}
+
+/** The 201 body of `POST /needs/{id}/derive-requirements/accept/`. */
+export interface AcceptDerivedRequirementsResult {
+  count: number;
+  created: AcceptedDerivedRequirement[];
+  /** The batch's shared authoring decision (first entry's read-back). */
+  proposal: DerivedRequirementProposal;
+}
+
 export const stakeholderNeedApi = {
   listByWorkspace: async (workspaceId: string, params?: Record<string, string>): Promise<PaginatedResponse<StakeholderNeed>> => {
     const qs = params ? `?${new URLSearchParams(params).toString()}` : '';
@@ -70,6 +111,36 @@ export const stakeholderNeedApi = {
     return apiClient.post<{ drafts: DerivedRequirementDraft[] }>(
       `/needs/${id}/derive-requirements/`,
       { n }
+    );
+  },
+
+  /**
+   * Issue #1095 — the server-side half of the Accept step.
+   *
+   * `deriveRequirements` is draft-only by design, so persisting the drafts the
+   * human selected used to happen here: `requirementsApi.create` from a *user*
+   * principal plus a hand-built `derives-from` TraceLink. Because
+   * `workflow.services.initial_state_for` seeds "proposed" only for an `agent`
+   * principal, every accepted draft was born `draft` instead — the artefact
+   * existed, the panel reported success, and no human was ever shown it
+   * (#1089). This posts the batch once and lets the server decide the state
+   * through the single `ai_proposal_service` seam.
+   *
+   * `id` is the need's PK (the same identifier `deriveRequirements` takes),
+   * NOT its artifact id — the endpoint resolves it via
+   * `StakeholderNeedService.get`.
+   *
+   * The client sends neither `status` nor `from_ai`: the workflow state and
+   * the AI provenance are derived server-side (#269/#851). `drafts` is the
+   * only accepted top-level key; anything else is a 400 `VALIDATION_ERROR`.
+   */
+  acceptDerivedRequirements: async (
+    id: string,
+    drafts: Array<{ title: string; description?: string; rationale?: string }>
+  ): Promise<AcceptDerivedRequirementsResult> => {
+    return apiClient.post<AcceptDerivedRequirementsResult>(
+      `/needs/${id}/derive-requirements/accept/`,
+      { drafts }
     );
   },
 

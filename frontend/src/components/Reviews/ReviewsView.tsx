@@ -560,14 +560,19 @@ export default function ReviewsView({
           }
         />
         {t("workflow.proposal.queueMode")}
-        {/* #1089: "3 KI-Vorschläge warten auf Prüfung". Without the number the
-            toggle is an undiscoverable empty-looking switch — the reviewer has
-            no way to learn that the AI left something behind without first
-            clicking it. Hidden while loading or at zero, so a workspace with
-            no proposals keeps the same label it always had. */}
+        {/* #1089: "{{count}} KI-Vorschläge warten auf Prüfung". A bare number
+            left the toggle an undiscoverable empty-looking switch — the reviewer
+            had no way to learn that the AI left something behind without first
+            clicking it, which is exactly how an accepted derivation stayed
+            invisible. Hidden while loading or at zero, so a workspace with no
+            proposals keeps the same label it always had. Rendered in review
+            mode too: landing on /reviews is where the N has to be read. */}
         {proposalCountLoading ? null : pendingProposalCount > 0 ? (
-          <span className={styles.queueModeCount} data-testid="reviews-proposal-count">
-            {pendingProposalCount}
+          <span
+            className={styles.queueModeHint}
+            data-testid="reviews-proposal-count-hint"
+          >
+            {t("workflow.proposal.pendingCount", { count: pendingProposalCount })}
           </span>
         ) : null}
       </label>

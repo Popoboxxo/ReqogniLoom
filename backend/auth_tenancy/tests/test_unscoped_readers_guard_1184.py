@@ -142,9 +142,9 @@ _UNSCOPED_ALLOWLIST: dict[tuple[str, str, str], tuple[int, str]] = {
     ): (
         1,
         (
-            "DANGEROUS (silent-empty): cross-tenant maintenance with NO tenant "
-            "context and NO row_security guard; under ON count()/delete() return 0 "
-            "and the command reports success while doing nothing (R-3 blocker)."
+            "Cross-tenant maintenance without a tenant context, like the canon "
+            "collect_inventory: guarded by SET LOCAL row_security = off, so on "
+            "the app role the read raises instead of silently deleting 0."
         ),
     ),
 }

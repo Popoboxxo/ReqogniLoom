@@ -671,7 +671,7 @@
     "deriveRolledBack": "{{message}} The already-created requirement was rolled back (archived).",
     "derivePartialFailure": "{{message}} Warning: a requirement was already created, but linking it to the need failed and the automatic rollback failed too. Please check manually (requirement id: {{id}}).",
     "deriveEmpty": "The AI proposed no system requirements.",
-    "deriveCreated": "Created and linked {{count}} system requirement(s).",
+    "deriveCreated": "Created {{count}} system requirement(s) as an AI proposal. Review them under Approvals → AI proposals only.",
     "deriveArchOptional": "Assign architecture element (optional)",
     "summary_one": "{{count}} need",
     "summary_other": "{{count}} needs",
@@ -690,8 +690,8 @@
     "rationale": "Rationale",
     "accept": "Create selected",
     "accepting": "Creating...",
-    "acceptingProgress": "Creating {{done}}/{{total}}...",
-    "partialFailure": "{{created}} of {{total}} requirements were created, then: {{message}}",
+    "acceptedHint": "Accepted drafts are stored as an AI proposal and await your review under Approvals → AI proposals only.",
+    "reviewRequired": "The server did not create the drafts as a reviewable AI proposal ({{reason}}).",
     "discard": "Discard"
   },
   "adrs": {
@@ -1985,6 +1985,9 @@
       "bulkConfirmDone": "{{count}} proposals confirmed",
       "bulkConfirmFailed": "{{count}} proposals could not be confirmed",
       "queueMode": "AI proposals only",
+      "pendingCount": "{{count}} AI proposals awaiting review",
+      "pendingCount_one": "{{count}} AI proposal awaiting review",
+      "pendingCount_other": "{{count}} AI proposals awaiting review",
       "selectAll": "Select all"
     }
   },
