@@ -1,8 +1,12 @@
 # ReqogniLoom Stufe 2 — Store drafts (S1/S2)
 
-> **Drafts only — no publication.** These artifacts are generated and checked
-> into the repo, but nothing is published. The workflows below activate only
-> after decisions E1–E7 are answered (plan §8). Until then they are drafts.
+> **Drafts only — no publication.** The artifacts below are generated and
+> checked into the repo, but nothing is published. The publication workflows
+> are drafts and run only via `workflow_dispatch`; they activate in the
+> W-waves (plan §5.4), not before.
+>
+> **Decisions E1–E4 and E6 are DECIDED (2026-10-09); E5 and E7 are deferred**
+> (see §3). Publication remains inactive.
 
 ## 1. Artifact map
 
@@ -10,11 +14,11 @@
 |---|---|---|---|---|
 | `.claude-plugin/marketplace.json` | S2 | Claude Code marketplace (in this repo, E3) | `scripts/clients/render.py` | no |
 | `server.json` | S1 | Official MCP registry | `scripts/clients/render.py` | no |
-| `.github/workflows/release-client-artifacts.yml` | — | GH release | planned | no |
-| `.github/workflows/publish-npm.yml` | S5 | npm | planned | no |
-| `.github/workflows/publish-marketplace.yml` | S2 | Claude marketplace | planned | no |
-| `.github/workflows/publish-mcp-registry.yml` | S1 | MCP registry | planned | no |
-| `.github/workflows/client-smoke.yml` | — | nightly smoke test | planned | no |
+| `.github/workflows/release-client-artifacts.yml` | — | GH release | draft workflow (`workflow_dispatch` only) | no |
+| `.github/workflows/publish-npm.yml` | S5 | npm | draft workflow (inert, `workflow_dispatch`) | no |
+| `.github/workflows/publish-marketplace.yml` | S2 | Claude marketplace | draft workflow (inert, `workflow_dispatch`) | no |
+| `.github/workflows/publish-mcp-registry.yml` | S1 | MCP registry | draft workflow (inert, `workflow_dispatch`) | no |
+| `.github/workflows/client-smoke.yml` | — | nightly smoke test | draft workflow (`workflow_dispatch`) | no |
 
 `claude plugin validate .` must stay green; `python scripts/clients/render.py --check`
 is the drift gate. Details: [plan §5](../plans/2026-10-04-one-click-client-installation.md),
@@ -22,43 +26,28 @@ is the drift gate. Details: [plan §5](../plans/2026-10-04-one-click-client-inst
 
 ## 2. Still missing
 
-- npm package/scope (`@…/reqogniloom-opencode`, installer) — E2.
-- Codex marketplace integration (S4) — format not yet verified.
-- Hermes catalog entry (S6) — Nous upstream process.
-- Antigravity store (S7) — preview platform.
-- Kimi upstream feature request (`kimi mcp add`) — E6.
+- npm package(s) — scope **decided** (`@popoboxxo`, E2), package not yet published (W2).
+- Codex marketplace integration (S4) — format not yet verified (W4).
+- Hermes catalog entry (S6) — Nous upstream process (W5).
+- Antigravity store (S7) — preview platform (W4).
+- Kimi upstream feature request (`kimi mcp add`) — **L2 accepted** (E6), FR still to file.
+- Account prerequisites for publishing (E1 namespace, E2 scope) — see §4.
 
-## 3. Open decisions E1–E7
+## 3. Decisions E1–E7
 
-| # | Decision | Plan default (provisional) |
+| # | Decision | Outcome (2026-10-09) |
 |---|---|---|
-| E1 | MCP namespace | personal `io.github.popoboxxo` — provisional |
-| E2 | npm scope | `@popoboxxo` — provisional |
-| E3 | Marketplace repo | in this repo — provisional |
-| E4 | Betas in stores | no for curated stores; npm `next` |
-| E5 | Antigravity in CI | self-hosted runner or manual |
-| E6 | Kimi level | accept L2 + upstream FR |
-| E7 | Aggregators (S8) | later, after W3 |
+| E1 | MCP namespace | **DECIDED** — personal `io.github.popoboxxo` |
+| E2 | npm scope | **DECIDED** — `@popoboxxo` |
+| E3 | Marketplace repo | **DECIDED** — in this repo (`.claude-plugin/marketplace.json`) |
+| E4 | Betas in stores | **DECIDED** — no for curated stores (S3/S6); pre-releases via npm `next` |
+| E5 | Antigravity in CI | **DEFERRED** — decide before W4 |
+| E6 | Kimi level | **DECIDED** — accept L2 + file upstream feature request |
+| E7 | Aggregators (S8) | **DEFERRED** — after W3 |
 
-## 4. Draft marker in server.json
-
-The provisional E1 marker lives in `server.json` → `_meta` →
-`io.modelcontextprotocol.registry/publisher-provided` → `x-reqogniloom`
-(`stage`: `2-draft`). It must be confirmed or removed before the first publish.
-
-```json
-{
-  "_meta": {
-    "io.modelcontextprotocol.registry/publisher-provided": {
-      "x-reqogniloom": { "stage": "2-draft" }
-    }
-  }
-}
-```
-
-## 5. Pre-publish checklist
+## 4. Pre-publish checklist
 
 - [ ] Replace the `https://<host>/mcp/` placeholder in `server.json` with the
   real host before publishing.
-- [ ] Confirm or replace the provisional E1 namespace and remove the `2-draft`
-  `_meta` marker.
+- [ ] Create/claim the npm org/scope `@popoboxxo` account (E2).
+- [ ] Create/claim the MCP registry namespace `io.github.popoboxxo` (E1).
