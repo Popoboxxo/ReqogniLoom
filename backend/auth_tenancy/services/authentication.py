@@ -40,8 +40,13 @@ from ..models import (
     PRINCIPAL_TYPE_AGENT,
     PRINCIPAL_TYPE_USER,
     ApiKey,
-    RefreshToken,
     normalize_api_key_scope,
+)
+from .refresh_token_store import (
+    RefreshTokenState,
+    claim_refresh_token,
+    revoke_refresh_family,
+    spend_refresh_token,
 )
 
 logger = logging.getLogger(__name__)
@@ -425,16 +430,14 @@ class AuthenticationService:
         session_id: UUID | None = None
 
         with transaction.atomic():
-            # unscoped + select_for_update: this runs on the public
-            # /auth/refresh/ endpoint, before any tenant context exists. The row
-            # lock serialises concurrent exchanges of the same token, so the
-            # loser of a race observes ``used_at`` and trips detection rather
-            # than both sides succeeding.
-            record = (
-                RefreshToken.unscoped.select_for_update()
-                .filter(jti=jti)
-                .first()
-            )
+            # claim via the SECURITY DEFINER function: this runs on the public
+            # /auth/refresh/ endpoint, before any tenant context exists, so the
+            # read must escape the staged RLS policy on at_refresh_token (#1182).
+            # The function's SELECT ... FOR UPDATE takes the row lock in this
+            # transaction, exactly like the previous select_for_update(): the
+            # loser of a concurrent exchange observes ``used_at`` and trips
+            # detection rather than both sides succeeding.
+            record: RefreshTokenState | None = claim_refresh_token(jti)
             if record is None:
                 # Signature was valid, so we issued this token — but its row is
                 # gone (purged after expiry, or the family was hard-deleted).
@@ -467,8 +470,7 @@ class AuthenticationService:
                 )
                 reuse_detected = (record.user_id, record.session_id)
             else:
-                record.used_at = datetime.now(tz=timezone.utc)
-                record.save(update_fields=["used_at"])
+                spend_refresh_token(jti)
                 session_id = record.session_id
 
         if reuse_detected is not None:
@@ -484,7 +486,7 @@ class AuthenticationService:
         return session_id
 
     @staticmethod
-    def _within_reuse_grace(record: RefreshToken) -> bool:
+    def _within_reuse_grace(record: RefreshTokenState) -> bool:
         """Return whether *record* was spent inside the concurrency grace window.
 
         Zero (the default) disables the window entirely, which is the strict
@@ -499,10 +501,15 @@ class AuthenticationService:
 
     @staticmethod
     def _revoke_refresh_family(session_id: UUID, *, reason: str) -> int:
-        """Revoke every still-live token in *session_id*. Returns the count."""
-        return RefreshToken.unscoped.filter(
-            session_id=session_id, revoked_at__isnull=True
-        ).update(revoked_at=datetime.now(tz=timezone.utc), revoked_reason=reason)
+        """Revoke every still-live token in *session_id*. Returns the count.
+
+        Runs through the SECURITY DEFINER function
+        ``public.auth_revoke_refresh_family`` (#1182): the family burn happens
+        on the public login/refresh/logout paths, before any tenant context
+        exists, so a direct ``UPDATE`` would be silently reduced to zero rows
+        under the staged policy on ``at_refresh_token``.
+        """
+        return revoke_refresh_family(session_id, reason)
 
     def revoke_refresh_token(self, token: str) -> None:
         """Revoke the family of *token* — best effort, used on logout.

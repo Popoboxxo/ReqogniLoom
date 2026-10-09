@@ -16,6 +16,15 @@ A grace period beyond ``expires_at`` is applied so a row survives slightly
 longer than the token it describes — cheap insurance against clock skew between
 application servers and the database.
 
+Issue #1182: the cross-tenant read/delete runs through the owner-privileged
+``SECURITY DEFINER`` function ``public.auth_purge_expired_refresh_tokens`` (see
+``auth_tenancy/migrations/0021_refresh_token_functions_and_rls.py``), not via
+``RefreshToken.unscoped``. This is a tenant-context-free maintenance job; once
+the staged policy on ``at_refresh_token`` is enforced, an unscoped ORM
+read/delete would silently match zero rows and the command would report success
+while deleting nothing. The function keeps the predicate identical and always
+returns the affected row count.
+
 Usage:
     python manage.py cleanup_expired_refresh_tokens              # dry run
     python manage.py cleanup_expired_refresh_tokens --apply
@@ -30,7 +39,7 @@ from typing import Any
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 
-from auth_tenancy.models import RefreshToken
+from auth_tenancy.services.refresh_token_store import purge_expired_refresh_tokens
 
 _DEFAULT_GRACE_DAYS = 1
 
@@ -62,22 +71,26 @@ class Command(BaseCommand):
     def handle(self, *args: Any, **options: Any) -> None:
         grace_days = options["grace_days"]
         cutoff = timezone.now() - timedelta(days=grace_days)
+        apply = options["apply"]
 
-        # unscoped: cross-tenant maintenance, not a request-scoped operation.
-        stale = RefreshToken.unscoped.filter(expires_at__lt=cutoff)
-        count = stale.count()
+        # SECURITY DEFINER maintenance (issue #1182): cross-tenant and without a
+        # tenant context, so a plain unscoped read/delete would be silently
+        # reduced to zero rows once the staged policy on at_refresh_token is
+        # enforced. The owner-privileged function counts (dry run) or deletes
+        # (--apply) the same predicate and reports the affected row count, so
+        # the command can never report success while doing nothing.
+        affected = purge_expired_refresh_tokens(cutoff, apply=apply)
 
-        if not options["apply"]:
+        if not apply:
             self.stdout.write(
-                f"[dry-run] {count} expired refresh-token row(s) older than "
+                f"[dry-run] {affected} expired refresh-token row(s) older than "
                 f"{cutoff.isoformat()} would be deleted. Re-run with --apply."
             )
             return
 
-        deleted, _ = stale.delete()
         self.stdout.write(
             self.style.SUCCESS(
-                f"Deleted {deleted} expired refresh-token row(s) older than "
+                f"Deleted {affected} expired refresh-token row(s) older than "
                 f"{cutoff.isoformat()}."
             )
         )

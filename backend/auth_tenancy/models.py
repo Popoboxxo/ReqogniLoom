@@ -208,9 +208,13 @@ class RefreshToken(TenantScopedModel):
     Only opaque identifiers are stored. The JWT itself (and therefore its
     signature) is never persisted, so this table leaks no credential if read.
 
-    Inherits ``TenantScopedModel``; like :class:`ApiKey` it is looked up on the
-    public ``/auth/refresh/`` endpoint *before* a tenant context exists, so
-    callers must use the ``unscoped`` manager.
+    Inherits ``TenantScopedModel``; like :class:`ApiKey` it is read and written
+    on the public ``/auth/login/`` and ``/auth/refresh/`` endpoints *before* a
+    tenant context exists, so those paths must go through the ``SECURITY
+    DEFINER`` functions wrapped by
+    :mod:`auth_tenancy.services.refresh_token_store` (issue #1182) rather than
+    the ORM managers — under the staged RLS policy an ``unscoped`` access would
+    match zero rows.
     """
 
     user = models.ForeignKey(

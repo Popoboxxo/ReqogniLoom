@@ -28,13 +28,14 @@ from datetime import timezone as dt_timezone
 from uuid import UUID, uuid4
 
 from django.conf import settings
-from django.db import connection
 
 from persistence.models import User
 
 from ..errors import AuthenticationFailed
 from ..jwt_tokens import encode_hs256
-from ..models import RefreshToken
+from .refresh_token_store import insert_refresh_token
+from .role_read import resolve_roles_for_user
+
 
 def _dummy_password_hash() -> str:
     """Return a valid throwaway password hash for constant-time dummy checks.
@@ -151,12 +152,13 @@ class PasswordAuthenticationService:
     def resolve_roles(self, user: User) -> tuple[str, ...]:
         """Return the user's active (non-suspended) role names, lower-cased.
 
-        Served by the ``SECURITY DEFINER`` function ``public.auth_resolve_roles``
-        (issue #1136, IC-1b): token issuance happens before a tenant context is
-        active, so the read must escape the new staged RLS policy on
-        ``at_user_role``. Roles are de-duplicated across workspaces for the
-        token claim; the function returns the same rows ``UserRole.unscoped``
-        used to, and the normalisation below is unchanged (dedup/sort/lower).
+        Delegates to :func:`auth_tenancy.services.role_read.resolve_roles_for_user`,
+        the single sanctioned primitive for the pre-auth role read (issue #1181).
+        That read is served by the ``SECURITY DEFINER`` function
+        ``public.auth_resolve_roles`` (issue #1136, IC-1b): token issuance happens
+        before a tenant context is active, so the read must escape the staged RLS
+        policy on ``at_user_role``. Roles are de-duplicated, sorted and lower-cased
+        exactly as before (F4/AC-22), so the JWT ``roles`` claim is unchanged.
 
         NOT an authorisation source for workspace-bound requests (GitHub #103).
         No workspace is known at login time, so this claim can only ever be a
@@ -165,17 +167,12 @@ class PasswordAuthenticationService:
         workspace-scoped from ``UserRole``; the claim is used only for requests
         that target no specific workspace.
 
-        Residual R-9 (security F10): the function is a tenant-agnostic bypass
-        read — it returns a user's roles across every workspace, exactly as
+        Residual R-9 (security F10): the primitive is tenant-agnostic — it
+        returns a user's roles across every workspace, exactly as
         ``UserRole.unscoped`` did. That is faithful, not a hardening, and is
         documented in ``RLS_STAGED_TABLES`` and the spec's risk register.
         """
-        with connection.cursor() as cursor:
-            cursor.execute(
-                "SELECT role FROM public.auth_resolve_roles(%s)", [user.id]
-            )
-            roles = [row[0] for row in cursor.fetchall()]
-        return tuple(sorted({str(r).lower() for r in roles}))
+        return resolve_roles_for_user(user.id)
 
     def issue_token(self, user: User, roles: tuple[str, ...] | None = None) -> str:
         """Mint a signed HS256 JWT for ``user`` (REQ-L1-010).
@@ -276,9 +273,13 @@ class PasswordAuthenticationService:
         if self._jwt_audience is not None:
             claims["aud"] = self._jwt_audience
 
-        # unscoped: /auth/login/ and /auth/refresh/ are public endpoints that
-        # run before any tenant context exists (same rationale as ApiKey).
-        RefreshToken.unscoped.create(
+        # SECURITY DEFINER insert: /auth/login/ and /auth/refresh/ are public
+        # endpoints that run before any tenant context exists (same rationale as
+        # ApiKey), so the write must escape the staged RLS policy on
+        # at_refresh_token (#1182). The function relies on the same column
+        # defaults (id/created_at/modified_at/version/...) as the previous
+        # RefreshToken.unscoped.create() call.
+        insert_refresh_token(
             user_id=user.id,
             tenant_id=user.tenant_id,
             jti=jti,

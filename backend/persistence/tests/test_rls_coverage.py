@@ -57,32 +57,22 @@ _pg_only = pytest.mark.skipif(not _IS_POSTGRES, reason="PostgreSQL-only assertio
 # are debt, not design: removing an entry requires reworking that path (see the
 # Systemaudit follow-ups), not relaxing this test.
 #
-# As of issue #1136 only two entries remain, both ``TenantScopedModel``-kind:
-# ``at_refresh_token`` (STOPP-S1 — the refresh WRITE path stays out of scope)
-# and ``audit_entry`` (out of scope for this change). The four worker-owned
+# As of issue #1182 only ``audit_entry`` remains exempt. STOPP-S1's
+# ``at_refresh_token`` moved out: the refresh WRITE/READ path now runs through
+# the owner-privileged SECURITY DEFINER functions in
+# ``auth_tenancy/0021_refresh_token_functions_and_rls`` and the table carries a
+# GUC-guarded policy (see :data:`RLS_STAGED_TABLES`). The four worker-owned
 # ``application`` tables that used to live here now carry a nullable
-# ``tenant_id`` and a GUC-guarded policy and moved to :data:`RLS_STAGED_TABLES`.
+# ``tenant_id`` and a GUC-guarded policy and moved to
+# :data:`RLS_STAGED_TABLES` too.
 RLS_EXEMPT_TABLES: dict[str, str] = {
-    "at_refresh_token": (
-        "SA-32 rotation state. Written by "
-        "PasswordAuthenticationService.issue_refresh_token during /auth/login/ "
-        "and read+claimed by AuthenticationService.rotate_refresh_token on the "
-        "public /auth/refresh/ endpoint - both run with authentication_classes "
-        "= [] and therefore without app.current_tenant armed, for the same "
-        "chicken-and-egg reason as at_api_key. Under the standard policy the "
-        "INSERT would be rejected and every refresh would return zero rows, "
-        "i.e. reuse detection would fail closed on every legitimate refresh. "
-        "The rows carry no credential material (opaque jti/sid only). "
-        "STOPP-S1 (issue #1136): the refresh WRITE path "
-        "(rotate_refresh_token / issue_refresh_token / _revoke_refresh_family) "
-        "is deliberately OUT OF SCOPE for the staged RLS ship; the table stays "
-        "exempt until its own change with a dedicated auth regression suite."
-    ),
     "audit_entry": (
         "Append-only audit log with two tenant-context-free paths: "
         "AuditLogWriter.handle_event is dispatched by the Celery OutboxPoller "
-        "(application.event_bus.poll_and_dispatch never arms app.current_tenant "
-        "- see memory/projector.py's module docstring), so a WITH CHECK policy "
+        "(application.event_bus.poll_and_dispatch arms app.current_tenant only "
+        "per outbox row and only while RLS_AS_ENFORCED=on; in the DEFAULT-OFF "
+        "production state it arms nothing around the handler - see "
+        "memory/projector.py's module docstring), so a WITH CHECK policy "
         "would reject those INSERTs; and AuditLogQuery.stream_entries_before "
         "reads cross-tenant from a maintenance context for the archive export, "
         "which a USING policy would silently reduce to zero rows. A "
@@ -105,10 +95,33 @@ RLS_EXEMPT_TABLES: dict[str, str] = {
 # These are NOT exemptions (an exemption means "cannot carry a policy"); they
 # are staged coverage. The key facts each entry must state: the GUC, the
 # tenant_id source, OFF/ON behaviour, orphan behaviour, the fail-open residual
-# R-7 and the superuser-owner residual R-8. The four plain ``as_*`` entries are
+# R-7 and the definer-owner status R-8 (closed by issue #1180's dedicated
+# NOLOGIN definer-owner role). The four plain ``as_*`` entries are
 # additionally held to verbatim claims by
 # ``persistence/tests/test_rls_plain_child_models.py``.
 RLS_STAGED_TABLES: dict[str, str] = {
+    "at_refresh_token": (
+        "STAGED PRE-AUTH RLS (issue #1182, closing STOPP-S1 of #1136). GUC "
+        "app.rls_preauth_enforced (flag RLS_PREAUTH_ENFORCED) gates the policy; "
+        "while unset (the production default) the predicate is fully permissive "
+        "and every login/refresh/logout is byte-identical to the pre-#1182 "
+        "behaviour. The refresh WRITE/READ path (issue_refresh_token, "
+        "rotate_refresh_token, _revoke_refresh_family, cleanup) moved behind the "
+        "owner-privileged SECURITY DEFINER functions in "
+        "auth_tenancy/0021_refresh_token_functions_and_rls: "
+        "public.auth_refresh_token_insert / auth_refresh_token_claim / "
+        "auth_refresh_token_spend, public.auth_revoke_refresh_family and the "
+        "maintenance public.auth_purge_expired_refresh_tokens. tenant_id is the "
+        "token owner's tenant_id, stamped at issue time (user.tenant_id); the "
+        "rows carry no credential material (opaque jti/sid only). When armed, a "
+        "row whose tenant_id does not match app.current_tenant is fail-closed "
+        "(invisible); the SECURITY DEFINER functions run with owner privileges "
+        "and keep the pre-auth path working. Enforcement is still not enabled in "
+        "production default. Residual R-7 (app-role-settable, fail-open GUC) "
+        "remains; R-8 (superuser-owned DEFINER) is closed by the dedicated "
+        "NOLOGIN definer-owner role (persistence/0110, issue #1180). Dedicated "
+        "auth regression suite: auth_tenancy/tests/test_refresh_token_rls_1182.py."
+    ),
     "at_api_key": (
         "STAGED PRE-AUTH RLS (issue #1136). GUC app.rls_preauth_enforced "
         "(flag RLS_PREAUTH_ENFORCED) gates the policy on the table; while the "
@@ -122,10 +135,11 @@ RLS_STAGED_TABLES: dict[str, str] = {
         "enabled in production default. Residual R-7: the GUC is an "
         "app-role-settable, fail-open placeholder custom GUC, so RLS here is "
         "defense-in-depth against ORM mistakes, not against a compromised "
-        "session. Residual R-8: the DEFINER owner is the superuser migration "
-        "role, so the function body is constrained (no dynamic SQL, fixed "
-        "search_path, schema-qualified) and the escalation is exactly the two "
-        "read-only lookups."
+        "session. R-8 (superuser-owned DEFINER) is closed by issue #1180: the "
+        "DEFINER owner is the dedicated NOLOGIN/NOSUPERUSER role "
+        "(persistence/0110), so NOT rolsuper is assertable and the escalation is "
+        "exactly the two read-only lookups plus that role's narrow BYPASSRLS "
+        "and per-table DML grants."
     ),
     "at_user_role": (
         "STAGED PRE-AUTH RLS (issue #1136). GUC app.rls_preauth_enforced "
@@ -137,8 +151,8 @@ RLS_STAGED_TABLES: dict[str, str] = {
         "function is a tenant-agnostic bypass read - it returns a user's roles "
         "across every workspace, exactly as UserRole.unscoped did; that is "
         "faithful but broader than one row. Residual R-7 (app-role-settable, "
-        "fail-open GUC) and R-8 (superuser-owned DEFINER) apply here as on "
-        "at_api_key."
+        "fail-open GUC) remains; R-8 (superuser-owned DEFINER) is closed by the "
+        "dedicated NOLOGIN definer-owner role (issue #1180) as on at_api_key."
     ),
     "as_domain_event_outbox": (
         "STAGED WORKER RLS (issue #1136). GUC app.rls_as_enforced (flag "
@@ -148,14 +162,18 @@ RLS_STAGED_TABLES: dict[str, str] = {
         "pl_workspace.tenant_id via workspace_id (application/0031); a row "
         "whose workspace_id resolves to no tenant remains NULL by design "
         "(counted and logged, never deleted) and is fail-closed once enforced. "
-        "Enforcement is still not enforced in production default; the flag flip "
-        "is gated on A4 (poller tenant arming, residual R-2). The compensating "
+        "Enforcement is still not enforced in production default; A4 (poller "
+        "tenant arming) has landed - the poller arms app.current_tenant per row "
+        "via the SECURITY DEFINER candidate-list public.as_outbox_candidates and "
+        "the writer stamps tenant_id (application/0033), closing the residual R-2 "
+        "precondition - but RLS_AS_ENFORCED stays DEFAULT OFF. The compensating "
         "control outside the DB is service-layer and code-path only - NOT a "
         "database guarantee: the Django admin (DomainEventOutbox is registered "
         "with TenantScopedAdminMixin) is tenant-scoped by app code, but that is "
         "not a database guarantee. Residual R-7 (app-role-settable, fail-open "
-        "GUC) and R-8 (superuser-owned DEFINER functions) apply. CR-17 residual "
-        "risk, now staged rather than open."
+        "GUC) remains; R-8 (superuser-owned DEFINER functions) is closed by the "
+        "dedicated NOLOGIN definer-owner role (persistence/0110, issue #1180). "
+        "CR-17 residual risk, now staged rather than open."
     ),
     "as_domain_event_dlq": (
         "STAGED WORKER RLS (issue #1136). GUC app.rls_as_enforced (flag "
@@ -165,11 +183,15 @@ RLS_STAGED_TABLES: dict[str, str] = {
         "pl_workspace.tenant_id via workspace_id (application/0031); an "
         "unresolvable workspace leaves it NULL by design (counted and logged, "
         "never deleted), fail-closed once enforced. Enforcement is still not "
-        "enforced in production default (flag flip gated on A4). The DLQ admin "
+        "enforced in production default; A4 (poller tenant arming) has landed - "
+        "the DLQ write-back runs inside the outbox row's armed tenant context "
+        "and stamps tenant_id (application/0033) - but RLS_AS_ENFORCED stays "
+        "DEFAULT OFF. The DLQ admin "
         "(DomainEventDLQAdmin via TenantScopedAdminMixin) is tenant-scoped by "
         "app code and DlqService resolves ownership through tenant-scoped "
         "Workspace.objects, but the control is service-layer and code-path "
-        "only, NOT a database guarantee. Residual R-7/R-8 apply. CR-17 residual "
+        "only, NOT a database guarantee. Residual R-7 remains; R-8 is closed by "
+        "the dedicated NOLOGIN definer-owner role (issue #1180). CR-17 residual "
         "risk, now staged rather than open."
     ),
     "as_webhook_subscription": (
@@ -180,12 +202,17 @@ RLS_STAGED_TABLES: dict[str, str] = {
         "pl_workspace.tenant_id via workspace_id (application/0031); an "
         "unresolvable workspace leaves it NULL by design (counted and logged, "
         "never deleted), fail-closed once enforced. Enforcement is still not "
-        "enforced in production default (flag flip gated on A4). This is the "
+        "enforced in production default; A4 (poller tenant arming) has landed - "
+        "the poller reads subscriptions inside the event row's armed tenant "
+        "context, and every delivery log it writes carries the subscription's "
+        "tenant anchor (application/0033) - but RLS_AS_ENFORCED stays DEFAULT "
+        "OFF. This is the "
         "secret-bearing table: WebhookSubscriptionAdmin (TenantScopedAdminMixin) "
         "excludes the HMAC secret from the form and makes workspace_id "
         "read-only, so the admin is tenant-scoped by app code - but that is "
         "service-layer and code-path only, NOT a database guarantee. Residual "
-        "R-7/R-8 apply. CR-17 residual risk, now staged rather than open."
+        "R-7 remains; R-8 is closed by the dedicated NOLOGIN definer-owner role "
+        "(issue #1180). CR-17 residual risk, now staged rather than open."
     ),
     "as_webhook_delivery_log": (
         "STAGED WORKER RLS (issue #1136). GUC app.rls_as_enforced (flag "
@@ -196,17 +223,22 @@ RLS_STAGED_TABLES: dict[str, str] = {
         "has no workspace_id of its own, an unresolvable subscription leaves "
         "tenant_id NULL by design (counted and logged, never deleted), "
         "fail-closed once enforced. Enforcement is still not enforced in "
-        "production default (flag flip gated on A4). "
+        "production default; A4 (poller tenant arming) has landed - the "
+        "delivery-log write stamps the owning subscription's tenant anchor and "
+        "skips the row fail-closed when there is none (application/0033) - but "
+        "RLS_AS_ENFORCED stays DEFAULT OFF. "
         "WebhookDeliveryLogAdmin (TenantScopedAdminMixin via "
         "subscription__workspace_id) is tenant-scoped by app code, but that is "
         "service-layer and code-path only, NOT a database guarantee. Residual "
-        "R-7/R-8 apply. CR-17 residual risk, now staged rather than open."
+        "R-7 remains; R-8 is closed by the dedicated NOLOGIN definer-owner role "
+        "(issue #1180). CR-17 residual risk, now staged rather than open."
     ),
 }
 
 #: staged table -> the GUC its policy must reference (AC-19). The pre-auth
 #: tables share one GUC; the four worker tables share the other.
 STAGED_POLICY_GUCS: dict[str, str] = {
+    "at_refresh_token": "app.rls_preauth_enforced",
     "at_api_key": "app.rls_preauth_enforced",
     "at_user_role": "app.rls_preauth_enforced",
     "as_domain_event_outbox": "app.rls_as_enforced",
@@ -219,6 +251,7 @@ STAGED_POLICY_GUCS: dict[str, str] = {
 #: Needed because a GUC name alone cannot attribute a policy to a table (both
 #: pre-auth tables share ``app.rls_preauth_enforced``) - AC-19 (N-02).
 STAGED_POLICY_MIGRATIONS: dict[str, tuple[str, str]] = {
+    "at_refresh_token": ("auth_tenancy", "0021_refresh_token_functions_and_rls"),
     "at_api_key": ("auth_tenancy", "0017_preauth_staged_rls"),
     "at_user_role": ("auth_tenancy", "0017_preauth_staged_rls"),
     "as_domain_event_outbox": ("application", "0032_as_staged_rls"),
@@ -383,12 +416,12 @@ def test_rls_exemptions_are_still_tenant_scoped_tables():
     was renamed or dropped, the debt kind flipped, or the policy finally
     shipped.
 
-    Since issue #1136 only ``at_refresh_token`` (STOPP-S1, refresh write path
-    out of scope) and ``audit_entry`` (out of scope) remain exempt, both
-    ``TenantScopedModel``-kind. The pre-auth tables ``at_api_key`` /
-    ``at_user_role`` and the four ``as_*`` tables are no longer exempt — they
-    are staged (:data:`RLS_STAGED_TABLES`) and the invariant test below proves
-    they are covered, not exempt.
+    Since issue #1182 only ``audit_entry`` (out of scope) remains exempt, a
+    ``TenantScopedModel``. The pre-auth tables ``at_api_key`` / ``at_user_role``
+    / ``at_refresh_token`` (STOPP-S1 closed by #1182) and the four ``as_*``
+    tables are no longer exempt — they are staged
+    (:data:`RLS_STAGED_TABLES`) and the invariant test below proves they are
+    covered, not exempt.
 
     So the original wording — "a stale exemption must not silently keep hiding a
     real gap" — overclaimed: an exemption here does not hide a gap, it NAMES
