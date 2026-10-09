@@ -1,4 +1,5 @@
-# DRAFT — Stufe 2, Trigger erst nach Entscheidungen E1–E7 aktivieren
+# DRAFT — Stufe 2: E1–E4/E6 decided; trigger stays OFF until W-wave activation
+# (no publication active).
 #
 # npm Trusted Publishing via OIDC — NO long-lived NPM_TOKEN (plan §5.3 / §6).
 # Pre-releases (VERSION contains '-') go to dist-tag `next`, stable versions to
@@ -6,12 +7,24 @@
 # additionally requires the explicit `enable_publish` input, so a dispatch alone
 # never publishes.
 #
+# DECISION E2 (decided): the npm scope is `@popoboxxo`, so the published package
+# name MUST be exactly `@popoboxxo/reqogniloom-opencode`. The publish step asserts
+# this name and refuses any mismatch.
+#
+# DECISION E4 (decided): curated stores (S3 Anthropic Plugin Directory,
+# S6 Hermes catalog) are NOT automated and MUST refuse pre-releases; pre-releases
+# are allowed on npm via the `next` dist-tag and on S1/S2 with an explicit
+# pre-release label (plan §5.2 rule 2).
+#
 # IMPORTANT: a repository-root `package.json` DOES exist, but it is not the npm
 # module we want to publish. This workflow resolves the intended Stufe-2 package
-# directory explicitly and never publishes the repo root; until that package
-# exists (decisions E2/E4 pending) the step is a documented no-op.
+# directory explicitly and never publishes the repo root; until that package is
+# generated the step is a documented no-op.
 #
-# needs: ci  # Gate: erst nach Entscheidungen als echten jobs-Bezug aktivieren
+# NOTE: a cross-workflow `needs: ci` is not possible in GitHub Actions — a job
+# may only depend on jobs in the SAME file, and `ci` lives in ci.yml. This
+# workflow therefore ASSUMES CI is green (gate it via branch protection and the
+# `release` environment before activation).
 name: Publish npm package (DRAFT)
 
 on:
@@ -73,6 +86,9 @@ jobs:
         env:
           NPM_DIST_TAG: ${{ steps.disttag.outputs.tag }}
           PACKAGE_DIR: dist/npm/reqogniloom-opencode
+          # Decision E2: the npm scope is `@popoboxxo`; the published name MUST
+          # match exactly, otherwise the step refuses to publish.
+          EXPECTED_NAME: '@popoboxxo/reqogniloom-opencode'
         run: |
           set -euo pipefail
           # Hard guard: never operate on the repository root.
@@ -80,8 +96,9 @@ jobs:
             echo "ERROR: refusing to publish the repository root" >&2
             exit 1
           fi
+          # No-op while the intended package has not been generated yet.
           if [[ ! -d "${PACKAGE_DIR}" ]]; then
-            echo "DRAFT: intended npm package '${PACKAGE_DIR}' does not exist yet — npm publish inactive (E2/E4 pending)."
+            echo "DRAFT: intended npm package '${PACKAGE_DIR}' does not exist yet — npm publish inactive (E2 decided, package not generated yet)."
             exit 0
           fi
           NAME="$(npm pkg get name --prefix "${PACKAGE_DIR}" 2>/dev/null || true)"
@@ -89,7 +106,14 @@ jobs:
           NAME="${NAME//\"/}"
           PKG_VERSION="${PKG_VERSION//\"/}"
           if [[ -z "${NAME}" || "${NAME}" == "{}" || -z "${PKG_VERSION}" || "${PKG_VERSION}" == "{}" ]]; then
-            echo "DRAFT: '${PACKAGE_DIR}' has no name/version — nothing to publish (E2/E4 pending)."
+            echo "DRAFT: '${PACKAGE_DIR}' has no name/version — nothing to publish (E2 decided, package not generated yet)."
             exit 0
           fi
+          # Decision E2 assertion: refuse to publish anything other than the
+          # decided scoped package name.
+          if [[ "${NAME}" != "${EXPECTED_NAME}" ]]; then
+            echo "ERROR: package name '${NAME}' != expected '${EXPECTED_NAME}' (E2). Refusing to publish." >&2
+            exit 1
+          fi
+          echo "Publishing ${NAME}@${PKG_VERSION} with dist-tag ${NPM_DIST_TAG} (E4: pre-releases -> next)."
           ( cd "${PACKAGE_DIR}" && npm publish --provenance --tag "$NPM_DIST_TAG" --access public )

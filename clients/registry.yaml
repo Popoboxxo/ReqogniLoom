@@ -41,10 +41,14 @@ smoke:
   pass_en: "Pass when both numbers match the REST cross-check AND the MCP call is visible in the client log."
 
 store:
-  # Stufe-2 distribution metadata (plan §5.1/§5.2). E1 and E3 are provisional —
-  # see docs/clients/STAGE2.md for the open decisions. render.py generates the
-  # repo-root .claude-plugin/marketplace.json and server.json from this section;
-  # a hand edit of either artifact is a CI failure (--check).
+  # Stufe-2 distribution metadata (plan §5.1/§5.2). Confirmed decisions (user,
+  # 2026-10-09): E1 = personal MCP namespace io.github.popoboxxo; E3 = Claude
+  # marketplace lives in this repo; E4 = no pre-releases in the curated stores
+  # (S3 Anthropic Plugin Directory, S6 Hermes catalog), pre-releases only on the
+  # npm dist-tag `next`; E2 = npm scope @popoboxxo. Decision context:
+  # docs/clients/STAGE2.md. render.py generates the repo-root
+  # .claude-plugin/marketplace.json and server.json from this section; a hand
+  # edit of either artifact is a CI failure (--check).
   marketplace:
     name: reqogniloom-marketplace
     owner:
@@ -55,14 +59,30 @@ store:
     description: "ReqogniLoom Claude Code marketplace — SE agent roles plus a native MCP connection."
     plugin_description: "ReqogniLoom SE agent roles + MCP connection"
   mcp_registry:
-    # E1 vorläufig: persönlicher Namespace. Vor dem ersten echten Publish
-    # bestätigen oder auf die Organisation umziehen.
+    # E1 confirmed (user, 2026-10-09): personal namespace io.github.popoboxxo.
     name: io.github.popoboxxo/reqogniloom
     description: "ReqogniLoom MCP server: requirements, architecture and test management."
     repository_url: https://github.com/Popoboxxo/ReqogniLoom
     remote_path: /mcp/
     auth_header: X-API-Key
-    provisional: "E1 provisional: personal namespace io.github.popoboxxo; confirm or switch to the org before the first publish"
+    decision_e1: "confirmed 2026-10-09: personal namespace io.github.popoboxxo"
+
+  # E2 (npm): scope and package coordinates for the OpenCode installer package.
+  npm:
+    scope: "@popoboxxo"
+    package: "@popoboxxo/reqogniloom-opencode"
+    package_dir: dist/npm/reqogniloom-opencode
+    dist_tags:
+      prerelease: next
+      stable: latest
+
+  # E4: curated stores receive stable releases only; pre-releases go to the npm
+  # `next` dist-tag. S1 (MCP registry) and S2 (Claude marketplace) may carry a
+  # labelled pre-release.
+  publish_policy:
+    curated_stores_no_prerelease: [S3, S6]
+    prerelease_dist_tag: next
+    allow_prerelease_with_label: [S1, S2]
 
 clients:
   - id: claude-code

@@ -298,8 +298,8 @@ def render_server_json(registry: dict[str, Any], version: str) -> str:
 
     Conforms to ``server.schema.json`` (2025-12-11): a remote Streamable HTTP
     transport with an ``X-API-Key`` header whose value is an env-var template,
-    never a literal key. E1 is provisional (personal namespace); JSON has no
-    comments, so the decision note lives in the schema's ``_meta`` slot.
+    never a literal key. E1 is confirmed (user, 2026-10-09): personal namespace
+    ``io.github.popoboxxo``.
     """
     mcp = registry["store"]["mcp_registry"]
     server = {
@@ -322,21 +322,6 @@ def render_server_json(registry: dict[str, Any], version: str) -> str:
                 ],
             }
         ],
-        # DRAFT: E1 is provisional (personal namespace io.github.popoboxxo).
-        # This marker must be confirmed or removed before the first real
-        # publish — see docs/clients/STAGE2.md.
-        "_meta": {
-            "io.modelcontextprotocol.registry/publisher-provided": {
-                "x-reqogniloom": {
-                    "stage": "2-draft",
-                    "artifact": "server.json",
-                    "decision_e1": mcp["provisional"],
-                    "publisher_action": (
-                        "confirm or replace the provisional name before first publish"
-                    ),
-                }
-            }
-        },
     }
     return json.dumps(server, indent=2, ensure_ascii=False) + "\n"
 

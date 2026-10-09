@@ -1,4 +1,5 @@
-# DRAFT — Stufe 2, Trigger erst nach Entscheidungen E1–E7 aktivieren
+# DRAFT — Stufe 2: E1–E4/E6 decided; trigger stays OFF until W-wave activation
+# (no publication active).
 #
 # Builds and validates the generated client packages and attaches them to a
 # DRAFT GitHub Release. Nothing here may publish accidentally: the only trigger
@@ -7,6 +8,11 @@
 #
 # Semantics: docs/plans/2026-10-04-one-click-client-installation.md §5.3
 # (row `release-client-artifacts.yml`, Welle W1).
+#
+# Decision E4 (decided): this target is a DRAFT GitHub Release, not a curated
+# store. Curated stores (S3 Anthropic Plugin Directory, S6 Hermes catalog) are
+# NOT automated and MUST refuse pre-releases; pre-release assets attached here
+# must carry a clear pre-release label (plan §5.2 rule 2).
 #
 # HARDENING (inherited from docker-publish.yml):
 #   * trigger         — workflow_dispatch only; never push / tags / schedule.
@@ -17,7 +23,10 @@
 #                       `contents: write` (draft release + assets only).
 #   * pinning         — every action pinned to an immutable commit SHA.
 #
-# needs: ci  # Gate: erst nach Entscheidungen als echten jobs-Bezug aktivieren
+# NOTE: a cross-workflow `needs: ci` is not possible in GitHub Actions — a job
+# may only depend on jobs in the SAME file, and `ci` lives in ci.yml. This
+# workflow therefore ASSUMES CI is green (gate it via branch protection and the
+# `release` environment before activation).
 name: Release client artifacts (DRAFT)
 
 on:
