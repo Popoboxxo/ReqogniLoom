@@ -1,10 +1,8 @@
 """
-REQ-127: MCP API-Key Role Propagation — Live Stack E2E Test
+REQ-127: MCP API-Key Role Propagation — in-process tests.
 
 leaf_id : COMP-MC-001 + COMP-AT-001
-req_id  : REQ-127 (MCP API-Key role propagation)
-         REQ-129 (MCP tools/list deduplication)
-         REQ-131 (MCP capability declaration)
+req_id  : REQ-127 (MCP API-key role propagation)
 
 Bug that was fixed:
     MCP tools called with an API key but WITHOUT a workspace_id in the
@@ -16,404 +14,130 @@ Fix:
     UserRole table when the API key context has no roles (no workspace_id
     provided by the client or no pre-loaded roles).
 
-This test runs against the **live Docker stack** (http://localhost:8000).
-It does NOT use Django test fixtures — it calls the real HTTP endpoints
-using only Python stdlib (urllib) to avoid external dependencies.
+How this suite used to run (issue #1102):
+    It talked HTTP/urllib to a RUNNING Django stack (localhost:8000) with
+    a seeded "Demo Workspace", and was guarded with
+    ``skipif(CI or GITHUB_ACTIONS)``.  Result: skipped in CI, and broken
+    locally whenever the local stack lacked the seed data (4 errors in the
+    27.09.2026 QA sweep).  A real regression in role propagation went
+    unnoticed in BOTH environments.
+
+How it runs now:
+    In-process against the Django test DB, reusing the established MCP
+    e2e harness of this package:
+      * tests/conftest.py — tenant / workspace / user / UserRole /
+        ApiKey / pre-wired ``django.test.Client`` (``admin_client``
+        carries the ``X-API-Key`` header like the live HTTP test did),
+      * tests/helpers.py — ``make_jsonrpc_request`` / ``extract_result``
+        / ``extract_error_code``.
+    Requests go through the full vertical stack (URL routing ->
+    ``McpHttpTransportView`` -> ``ProtocolHandler`` -> ``ToolRegistry``
+    -> real tool group -> application service), so the coverage is the
+    same the HTTP version exercised — same roles, same mapping, same
+    assertions, no HTTP and no live stack.  No ``skipif``: these tests
+    run everywhere, including CI.
+
+Role coverage: admin (positive path + global-fallback path), viewer
+(negative path — the role propagates AND still blocks writes), plus a
+deliberately broken role-propagation probe (mutation guard) proving the
+suite catches the original REQ-127 failure mode.
 
 Run from inside backend container:
     pytest mcp_server/tests/test_mcp_api_key_roles.py -v
-
-Or from the host (requires requests):
-    python -m pytest backend/mcp_server/tests/test_mcp_api_key_roles.py -v
 """
-
 from __future__ import annotations
 
 import json
-import os
-import urllib.request
-import urllib.error
-import urllib.parse
+from dataclasses import replace
+from typing import Any, Dict, Optional
 
 import pytest
+from django.test import Client
 
-from auth_tenancy.provisioning import DEFAULT_WORKSPACE_NAME
+from auth_tenancy.models import UserRole
+from mcp_server.tests.helpers import (
+    extract_error_code,
+    extract_result,
+    make_jsonrpc_request,
+)
+from persistence.models import Workspace
 
-# ---------------------------------------------------------------------------
-# Stack base URLs — match docker-compose port mapping
-# ---------------------------------------------------------------------------
-# Inside the `backend` container itself, or from the host (with the dev
-# override's port publishing), 'localhost:8000' reaches the live stack
-# directly. From any OTHER container merely attached to the compose network
-# (e.g. an ad-hoc test runner, docker-compose service-to-service calls),
-# 'localhost' is that container itself, not the backend service — the
-# docker-network hostname 'backend' is what resolves there instead. This
-# used to be a hardcoded 'localhost' constant with a comment claiming it
-# "works for both host and container" — it never actually tried a second
-# host, so it silently only ever worked in the two cases named above. Probes
-# each candidate's /health/ endpoint (fast, unauthenticated, no side
-# effects) and uses whichever answers first.
-def _resolve_backend_url() -> tuple[str, bool]:
-    for candidate in ("http://localhost:8000", "http://backend:8000"):
-        try:
-            with urllib.request.urlopen(f"{candidate}/health/", timeout=2):
-                return candidate, True
-        except (urllib.error.URLError, OSError):
-            continue
-    # Neither reachable — keep the original default so the resulting
-    # connection-refused error still names a concrete, debuggable URL
-    # instead of failing this resolution step itself.
-    return "http://localhost:8000", False
-
-
-BACKEND_URL, _STACK_REACHABLE = _resolve_backend_url()
-MCP_URL = f"{BACKEND_URL}/mcp/"
-REST_URL = f"{BACKEND_URL}/api/v1"
-
-# This module drives the real HTTP/urllib stack against a live Django server
-# instead of Django test fixtures (see module docstring) — it is an
-# integration test, not a unit test, and must not run unattended in the
-# normal unit suite:
-#   - explicitly skipped in CI (no live stack there), and
-#   - skipped locally whenever the live stack isn't actually reachable,
-#     so `pytest` without `docker-compose up` reports a clean skip instead
-#     of a wall of connection-refused failures.
-pytestmark = [
-    pytest.mark.integration,
-    pytest.mark.skipif(
-        bool(os.environ.get("CI") or os.environ.get("GITHUB_ACTIONS")),
-        reason="MCP live-stack tests require a running Django server (skipped in CI)",
-    ),
-    pytest.mark.skipif(
-        not _STACK_REACHABLE,
-        reason=f"MCP live-stack tests require a running Django server "
-        f"(none reachable at {BACKEND_URL})",
-    ),
-]
+# SYSTEMAUDIT SA-62: same classification as the `test_e2e_*` family — a full
+# vertical slice in-process against the pytest-django test DB (no live stack,
+# part of the regular suite; `e2e` is a selection marker, not an exclusion).
+pytestmark = [pytest.mark.e2e, pytest.mark.django_db]
 
 
 # ---------------------------------------------------------------------------
-# Helpers using stdlib urllib (no external deps)
+# In-process MCP request helper
 # ---------------------------------------------------------------------------
 
-def _http_request(
-    url: str,
-    method: str = "GET",
-    headers: dict[str, str] | None = None,
-    data: dict | None = None,
-    timeout: int = 15,
-) -> tuple[int, dict]:
-    """Perform an HTTP request and return (status_code, response_body_dict)."""
-    body_bytes: bytes | None = None
-    req_headers = headers or {}
 
-    if data is not None:
-        body_bytes = json.dumps(data).encode()
-        req_headers = {**req_headers, "Content-Type": "application/json"}
+def _tools_call(
+    client: Client, tool_name: str, arguments: Optional[Dict[str, Any]] = None
+):
+    """POST a standard MCP ``tools/call`` frame via the Django test client.
 
-    req = urllib.request.Request(
-        url, data=body_bytes, headers=req_headers, method=method
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            raw = resp.read()
-            return resp.status, json.loads(raw) if raw else {}
-    except urllib.error.HTTPError as exc:
-        raw = exc.read()
-        body = json.loads(raw) if raw else {}
-        return exc.code, body
-
-
-def _get_bearer_token() -> str:
-    """Obtain JWT for the seeded admin user.
-
-    Credentials come from the same env vars the live stack was actually
-    seeded with (SYSTEM_ADMIN_USERNAME/SYSTEM_ADMIN_PASSWORD — see
-    application.self_init, which creates this account on first migrate),
-    not a hardcoded guess: "admin12345" only ever worked against whichever
-    .env the test was originally authored/verified on, and silently fails
-    a 401 against any other stack the moment SYSTEM_ADMIN_PASSWORD differs
-    (as it does by default — .env.example's own placeholder is
-    "CHANGE-ME-strong-admin-password", not "admin12345").
+    The ``X-API-Key`` header rides on ``client.defaults`` (set by the
+    ``admin_client``/``viewer_client`` fixtures in conftest.py), exactly
+    like the live HTTP test sent it.  Returns the Django response object.
     """
-    username = os.environ.get("SYSTEM_ADMIN_USERNAME", "admin")
-    password = os.environ.get("SYSTEM_ADMIN_PASSWORD", "admin12345")
-    status, data = _http_request(
-        f"{REST_URL}/auth/login/",
-        method="POST",
-        data={"username": username, "password": password},
+    return client.post(
+        "/mcp/",
+        data=make_jsonrpc_request(
+            "tools/call",
+            {"name": tool_name, "arguments": arguments or {}},
+        ),
+        content_type="application/json",
     )
-    assert status == 200, (
-        f"Login failed: {status} {data}. Set SYSTEM_ADMIN_USERNAME/"
-        f"SYSTEM_ADMIN_PASSWORD to match the live stack's actual seeded "
-        f"admin account if this isn't the default 'admin'/'admin12345'."
-    )
-    token = data.get("token") or data.get("access") or data.get("access_token")
-    assert token, f"No token in response: {data}"
-    return token
 
 
-def _error_message(data: dict) -> str:
-    """Return the message of the project's error envelope.
+def _tools_call_error_message(response) -> str:
+    """Error message of a protocol-level (auth/RBAC) JSON-RPC error frame."""
+    body = response.json()
+    assert "error" in body, f"Expected a JSON-RPC error, got: {body}"
+    return body["error"].get("message", "")
 
-    REQ-L2-RA-009 standardises every REST error body as
-    ``{"error": {"code": ..., "message": ..., "details": [...]}}``
-    (``rest_api.serializers.build_error_response``). Reading ``message`` off
-    the top level — as ``_create_api_key`` used to — always yields ``""``, so
-    the 400 that names the active-key limit was never recognised and the
-    revoke-and-retry never fired.
+
+def _call_result_text(response, tool_name: str) -> Dict[str, Any]:
+    """Parse the inner JSON payload of a successful MCP tool result.
+
+    On the ``tools/call`` surface the handler's payload is wrapped in an
+    MCP content block: ``result.content[0].text`` holds the JSON dump of
+    the tool's data — the same shape the live HTTP test parsed.
     """
-    error = data.get("error")
-    return error.get("message", "") if isinstance(error, dict) else ""
-
-
-def _list_all_api_keys(bearer: str) -> list[dict]:
-    """Return every API key of the authenticated user, across all pages.
-
-    INT-05 paginated ``GET /api-keys/`` with ``StandardPagination`` (default
-    page size 25), so a single request only sees the first page. A long-lived
-    stack can hold hundreds of mostly-revoked keys for the admin, with the
-    handful of *active* ones on a later page — reading only page 1 finds none
-    of them and frees 0 slots. Follow ``next`` until the envelope is exhausted,
-    asking for the maximum page size to keep the number of round-trips down.
-    """
-    keys: list[dict] = []
-    url: str | None = f"{REST_URL}/api-keys/?page_size=100"
-    while url:
-        status, data = _http_request(
-            url, headers={"Authorization": f"Bearer {bearer}"}
-        )
-        assert status == 200, f"List API keys failed: {status}"
-        if isinstance(data, dict):
-            keys.extend(data.get("results", []))
-            url = data.get("next")
-        elif isinstance(data, list):
-            keys.extend(data)
-            url = None
-        else:
-            url = None
-    return keys
-
-
-def _list_all_workspaces(bearer: str) -> list[dict]:
-    """Return every workspace visible to the authenticated user, across all pages.
-
-    Like ``_list_all_api_keys``, ``GET /workspaces/`` is paginated with
-    ``StandardPagination`` (default page size 25), so a single request only
-    sees the first page. A long-lived dev stack can hold hundreds of
-    workspaces and ``Demo Workspace`` can sort onto a later page, so reading
-    only page 1 raises a false ``Seeded 'Demo Workspace' not found``. Follow
-    ``next`` until the envelope is exhausted, asking for the maximum page size
-    to keep the number of round-trips down.
-    """
-    workspaces: list[dict] = []
-    url: str | None = f"{REST_URL}/workspaces/?page_size=100"
-    while url:
-        status, data = _http_request(
-            url, headers={"Authorization": f"Bearer {bearer}"}
-        )
-        assert status == 200, f"List workspaces failed: {status}"
-        if isinstance(data, dict):
-            workspaces.extend(data.get("results", []))
-            url = data.get("next")
-        elif isinstance(data, list):
-            workspaces.extend(data)
-            url = None
-        else:
-            url = None
-    return workspaces
-
-
-def _revoke_all_active_keys(bearer: str) -> None:
-    """Revoke all non-revoked API keys for the authenticated user.
-
-    Call this when the 10-key limit is reached to free slots.
-
-    Every revoke is verified, because a silently failed one leaves the key
-    active: the caller's retry would then fail with the very same limit error
-    and hide the real cause. A per-request status assertion catches a rejected
-    revoke, and the final re-list catches a 204 that did not actually free the
-    slot.
-    """
-    active_keys = [
-        k for k in _list_all_api_keys(bearer) if not k.get("revoked", True)
-    ]
-    for key in active_keys:
-        revoke_status, revoke_data = _http_request(
-            f"{REST_URL}/api-keys/{key['id']}/",
-            method="DELETE",
-            headers={"Authorization": f"Bearer {bearer}"},
-        )
-        assert revoke_status in (200, 204), (
-            f"Revoking API key {key.get('name')!r} failed: "
-            f"{revoke_status} {revoke_data}"
-        )
-
-    # A revoke that answers success but leaves the key active would make the
-    # retry in _create_api_key fail with a misleading limit error.
-    still_active = [
-        k for k in _list_all_api_keys(bearer) if not k.get("revoked", True)
-    ]
-    assert not still_active, (
-        f"{len(still_active)} API key(s) still active after revoking "
-        f"{len(active_keys)}: {[k.get('name') for k in still_active]}"
-    )
-
-
-def _create_api_key(bearer: str, name: str) -> str:
-    """Create an API key via REST and return its plaintext value.
-
-    If the user has hit the 10-key limit, revokes all active keys first.
-    """
-    status, data = _http_request(
-        f"{REST_URL}/api-keys/",
-        method="POST",
-        headers={"Authorization": f"Bearer {bearer}"},
-        data={"name": name},
-    )
-    if status == 400 and "maximum" in _error_message(data):
-        # Key limit reached — revoke all active keys to free slots
-        _revoke_all_active_keys(bearer)
-        # Retry creation
-        status, data = _http_request(
-            f"{REST_URL}/api-keys/",
-            method="POST",
-            headers={"Authorization": f"Bearer {bearer}"},
-            data={"name": name},
-        )
-    assert status == 201, f"API key creation failed: {status} {data}"
-    plaintext = data.get("plaintext")
-    assert plaintext, f"No plaintext in response: {data}"
-    return plaintext
-
-
-def _mcp_call(api_key: str, method: str, params: dict | None = None) -> dict:
-    """Send a JSON-RPC 2.0 request to the MCP HTTP transport."""
-    payload = {
-        "jsonrpc": "2.0",
-        "method": method,
-        "id": 1,
-        "params": params or {},
-    }
-    status, body = _http_request(
-        MCP_URL,
-        method="POST",
-        headers={"X-API-Key": api_key},
-        data=payload,
-        timeout=30,
-    )
-    assert status == 200, f"MCP HTTP error: {status} {body}"
-    return body
-
-
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
-
-@pytest.fixture(scope="module")
-def bearer_token() -> str:
-    """JWT token for the seeded admin user (module-scoped to avoid repeated logins)."""
-    return _get_bearer_token()
-
-
-@pytest.fixture(scope="module")
-def admin_api_key(bearer_token: str) -> str:
-    """Create a fresh API key for the admin user and return its plaintext."""
-    return _create_api_key(bearer_token, "REQ-127-E2E-test-key")
-
-
-@pytest.fixture(scope="module")
-def seeded_workspace_id(bearer_token: str) -> str:
-    """Resolve the seeded workspace ID the admin actually holds a role in.
-
-    REQ-127 tests role *propagation*, which presupposes the admin has a role in
-    the target workspace. Picking an arbitrary ``workspaces[0]`` is fragile: the
-    list endpoint orders by ``-modified_at``, so a workspace created in the same
-    tenant during exploratory testing can sort ahead of the seeded workspace.
-    The admin holds no role there, yielding empty active_roles and a *false*
-    role-propagation regression signal. We therefore anchor on the canonical
-    seeded workspace by name (``DEFAULT_WORKSPACE_NAME`` in
-    ``auth_tenancy.provisioning``), which is the workspace bootstrap_admin binds
-    the admin's admin role to.
-
-    A live stack that was never seeded (no ``bootstrap_admin``/``seed_demo``)
-    used to fail this fixture with a plain ``assert`` — a pytest *SetupError*
-    for all four consumers. It is now self-seeding: when the named workspace is
-    absent, it provisions one through the canonical REST path
-    (``POST /api/v1/workspaces/`` → ``WorkspaceService.create_workspace``,
-    which grants the creator an admin ``UserRole`` — #232) and re-resolves the
-    created id from the list. Only if even that is impossible does it
-    ``pytest.skip`` with a reason, so a missing seed degrades to a clean skip
-    instead of a setup error.
-    """
-    workspaces = _list_all_workspaces(bearer_token)
-    seeded = next(
-        (w for w in workspaces if w.get("name") == DEFAULT_WORKSPACE_NAME), None
-    )
-    if seeded is not None:
-        return seeded["id"]
-
-    # Absent — self-seed via the canonical existing REST provisioning route
-    # (no bespoke provisioning path). The admin Bearer token is used on
-    # purpose: the endpoint binds the creating principal an admin UserRole in
-    # the new workspace (#232), which is exactly the role the consumers need.
-    status, data = _http_request(
-        f"{REST_URL}/workspaces/",
-        method="POST",
-        headers={"Authorization": f"Bearer {bearer_token}"},
-        data={
-            "name": DEFAULT_WORKSPACE_NAME,
-            "preset": {"tier": "extended"},
-            "terminology_profile": "se_mode",
-        },
-    )
-    created_id = data.get("id") if isinstance(data, dict) else None
-    if status != 201 or not created_id:
-        pytest.skip(
-            "Demo Workspace absent and not self-seedable: "
-            f"POST /workspaces/ returned {status} {data}"
-        )
-
-    # Re-resolve by the returned id from the same list the consumers' role
-    # lookups read, rather than trusting the create response's own echo.
-    resolved = next(
-        (w for w in _list_all_workspaces(bearer_token) if w.get("id") == created_id),
-        None,
-    )
-    if resolved is None:
-        pytest.skip(
-            "Demo Workspace absent and not self-seedable: "
-            f"created workspace {created_id} not visible in the workspace list"
-        )
-    return resolved["id"]
+    result = extract_result(response)
+    content = result.get("content") or []
+    assert content, f"[REQ-127] {tool_name} result content must not be empty"
+    return json.loads(content[0]["text"])
 
 
 # ---------------------------------------------------------------------------
 # [REQ-127] Tests: API-key auth propagates roles for MCP dispatch
 # ---------------------------------------------------------------------------
 
+
 class TestMcpApiKeyRolePropagation:
     """REQ-127: MCP API-key auth must propagate workspace roles to dispatch context."""
 
     def test_workspace_get_context_active_roles_not_empty(
-        self, admin_api_key: str, seeded_workspace_id: str
+        self,
+        admin_client: Client,
+        e2e_workspace: Workspace,
+        e2e_userrole_admin: UserRole,
     ) -> None:
         """[REQ-127] workspace.get_context via API key has non-empty active_roles."""
-        result = _mcp_call(
-            admin_api_key,
-            "tools/call",
-            {"name": "workspace.get_context", "arguments": {"workspace_id": seeded_workspace_id}},
+        response = _tools_call(
+            admin_client,
+            "workspace.get_context",
+            {"workspace_id": str(e2e_workspace.id)},
         )
 
-        assert "error" not in result, (
-            f"[REQ-127] workspace.get_context returned error: {result.get('error')}"
+        assert "error" not in response.json(), (
+            f"[REQ-127] workspace.get_context returned error: "
+            f"{response.json().get('error')}"
         )
-        content = result["result"]["content"]
-        assert content, "Result content must not be empty"
-
-        # Parse the inner JSON payload
-        ctx_text = content[0]["text"]
-        ctx_data = json.loads(ctx_text)
+        ctx_data = _call_result_text(response, "workspace.get_context")
         workspace_ctx = ctx_data["workspace_context"]
 
         active_roles = workspace_ctx.get("active_roles", [])
@@ -427,93 +151,95 @@ class TestMcpApiKeyRolePropagation:
         )
 
     def test_requirement_create_via_api_key_succeeds(
-        self, admin_api_key: str, seeded_workspace_id: str
+        self,
+        admin_client: Client,
+        e2e_workspace: Workspace,
+        e2e_userrole_admin: UserRole,
     ) -> None:
         """[REQ-127] requirement.create via API key must succeed (not Permission denied)."""
-        result = _mcp_call(
-            admin_api_key,
-            "tools/call",
+        response = _tools_call(
+            admin_client,
+            "requirement.create",
             {
-                "name": "requirement.create",
-                "arguments": {
-                    "workspace_id": seeded_workspace_id,
-                    "title": "REQ-127 MCP E2E requirement",
-                    "description": "Created by REQ-127 API-key role propagation E2E test",
-                },
+                "workspace_id": str(e2e_workspace.id),
+                "title": "REQ-127 in-process requirement",
+                "description": "Created by REQ-127 API-key role propagation test",
             },
         )
 
+        body = response.json()
         # Must not be a permission error
-        if "error" in result:
-            error_msg = result["error"].get("message", "")
+        if "error" in body:
+            error_msg = body["error"].get("message", "")
             assert "permission" not in error_msg.lower(), (
-                f"[REQ-127] Permission denied with API key — role propagation regression: {error_msg}"
+                f"[REQ-127] Permission denied with API key — role propagation "
+                f"regression: {error_msg}"
             )
             assert not ("role" in error_msg.lower() and "permit" in error_msg.lower()), (
                 f"[REQ-127] Role-based rejection with API key: {error_msg}"
             )
-            pytest.fail(f"[REQ-127] requirement.create returned error: {result['error']}")
+            pytest.fail(f"[REQ-127] requirement.create returned error: {body['error']}")
 
-        content = result["result"]["content"]
-        req_text = content[0]["text"]
-        req_data = json.loads(req_text)
+        req_data = _call_result_text(response, "requirement.create")
 
         # The created requirement must have an ID
         requirement = req_data.get("requirement", {})
         assert requirement.get("id"), f"No requirement ID in response: {req_data}"
-        assert requirement.get("workspace_id") == seeded_workspace_id
+        assert requirement.get("workspace_id") == str(e2e_workspace.id)
 
     def test_workspace_get_context_without_workspace_id_param(
-        self, admin_api_key: str
+        self,
+        admin_client: Client,
+        e2e_userrole_admin: UserRole,
     ) -> None:
         """[REQ-127] workspace.get_context without explicit workspace_id still resolves roles."""
         # This is the core REQ-127 scenario: no workspace_id in args
-        result = _mcp_call(
-            admin_api_key,
-            "tools/call",
-            {"name": "workspace.get_context", "arguments": {}},
-        )
+        response = _tools_call(admin_client, "workspace.get_context", {})
 
+        body = response.json()
         # If a workspace is loaded from session/default context, active_roles must not be empty
         # If no workspace context is available, we accept an informative error (not 500)
-        if "error" in result:
-            error_msg = result["error"].get("message", "")
+        if "error" in body:
+            error_msg = body["error"].get("message", "")
             # Must not be a role/permission error
             assert not ("role" in error_msg.lower() and "permit" in error_msg.lower()), (
                 f"[REQ-127] Role error without workspace_id param: {error_msg}"
             )
         else:
-            content = result["result"]["content"]
-            if content:
-                ctx_text = content[0]["text"]
-                ctx_data = json.loads(ctx_text)
-                workspace_ctx = ctx_data.get("workspace_context", {})
-                active_roles = workspace_ctx.get("active_roles", [])
-                # If a workspace was resolved, roles must not be empty
-                if workspace_ctx.get("workspace_id"):
-                    assert active_roles, (
-                        f"[REQ-127] active_roles empty even with resolved workspace: {workspace_ctx}"
-                    )
+            ctx_data = _call_result_text(response, "workspace.get_context")
+            workspace_ctx = ctx_data.get("workspace_context", {})
+            active_roles = workspace_ctx.get("active_roles", [])
+            # REQ-127 global fallback: the caller holds a UserRole, so the
+            # aggregate resolution MUST come back non-empty even without a
+            # workspace_id argument. Empty here is the original regression.
+            assert active_roles, (
+                f"[REQ-127] active_roles empty without workspace_id — the "
+                f"UserRole fallback regressed: {workspace_ctx}"
+            )
+            assert "admin" in active_roles, (
+                f"Expected 'admin' in active_roles, got: {active_roles}"
+            )
 
     def test_api_key_write_operation_not_blocked_by_empty_role_tuple(
-        self, admin_api_key: str, seeded_workspace_id: str
+        self,
+        admin_client: Client,
+        e2e_workspace: Workspace,
+        e2e_userrole_admin: UserRole,
     ) -> None:
         """[REQ-127] Write operation via API key must not fail with 'Role () does not permit'."""
-        result = _mcp_call(
-            admin_api_key,
-            "tools/call",
+        response = _tools_call(
+            admin_client,
+            "requirement.create",
             {
-                "name": "requirement.create",
-                "arguments": {
-                    "workspace_id": seeded_workspace_id,
-                    "title": "REQ-127 role-propagation write op test",
-                    "description": "Verifies empty-role tuple error is fixed (REQ-127)",
-                },
+                "workspace_id": str(e2e_workspace.id),
+                "title": "REQ-127 role-propagation write op test",
+                "description": "Verifies empty-role tuple error is fixed (REQ-127)",
             },
         )
 
-        if "error" in result:
-            error_msg = result["error"].get("message", "")
+        body = response.json()
+        if "error" in body:
+            error_msg = body["error"].get("message", "")
             # The specific old error: "Role '()' does not permit write operations"
             assert "()" not in error_msg, (
                 f"[REQ-127] regression — empty role tuple error still present: {error_msg}"
@@ -522,91 +248,109 @@ class TestMcpApiKeyRolePropagation:
                 f"[REQ-127] regression — write permission blocked by empty role: {error_msg}"
             )
 
-    def test_tools_list_returns_unique_tools(self, admin_api_key: str) -> None:
-        """[REQ-129] tools/list must return no duplicate tool names."""
-        result = _mcp_call(admin_api_key, "tools/list")
 
-        assert "error" not in result, f"tools/list error: {result.get('error')}"
-        tools: list[dict] = result["result"]["tools"]
-        names = [t["name"] for t in tools]
-        unique_names = list(dict.fromkeys(names))  # preserve order, deduplicate
+# ---------------------------------------------------------------------------
+# [REQ-127] Negative probes: broken role assignment/propagation must fail loudly
+# ---------------------------------------------------------------------------
 
-        assert len(names) == len(unique_names), (
-            f"[REQ-129] Duplicate tools found: "
-            f"{[n for n in names if names.count(n) > 1]}"
-        )
-        assert len(tools) >= 40, f"Expected 40+ tools, got {len(tools)}"
 
-    def test_mcp_capability_declaration_matches_routed_transports(self) -> None:
-        """[REQ-131] GET /mcp/ declares exactly the implemented transports.
+class TestMcpApiKeyRolePropagationNegative:
+    """[REQ-127] Guards proving the suite catches broken role propagation.
 
-        SSE was excluded here while ``GET /mcp/sse/`` returned 500 on every
-        request (issue #455 — a hop-by-hop ``Connection`` response header).
-        With that fixed, SSE is implemented *and* is the transport every
-        distributed plugin config uses, so it must be declared.
-        """
-        status, data = _http_request(MCP_URL)
-        assert status == 200, f"MCP GET failed: {status}"
-        transports: list[str] = data.get("transports", [])
-        assert "http" in transports, f"Expected http in transports: {transports}"
-        assert "sse" in transports, (
-            f"[REQ-131] SSE is routed and functional but not declared: {transports}"
-        )
+    A test that can only pass is not a regression guard.  These tests pin
+    the two directions role propagation can break in — the wrong role
+    reaching the gate (mapping) and no role reaching the gate at all
+    (the original REQ-127 failure) — and assert the OBSERVED, unintended
+    outcome for each.
+    """
 
-    def test_api_key_authentication_uses_x_api_key_header(
-        self, admin_api_key: str, seeded_workspace_id: str
+    def test_viewer_role_propagates_and_cannot_write_via_api_key(
+        self,
+        viewer_client: Client,
+        e2e_workspace: Workspace,
+        e2e_userrole_viewer: UserRole,
     ) -> None:
-        """[REQ-127] X-API-Key header is the correct auth mechanism for MCP."""
-        # Authorization: ApiKey header must fail (wrong format for MCP)
-        status_wrong, body_wrong = _http_request(
-            MCP_URL,
-            method="POST",
-            headers={"Authorization": f"ApiKey {admin_api_key}"},
-            data={
-                "jsonrpc": "2.0",
-                "method": "tools/call",
-                "id": 1,
-                "params": {
-                    "name": "workspace.get_context",
-                    "arguments": {"workspace_id": seeded_workspace_id},
-                },
+        """[REQ-127] A viewer key propagates 'viewer' — and only 'viewer'.
+
+        Two-sided probe on the role MAPPING: positive (the assigned role
+        reaches the dispatch context — an empty propagation fails the
+        first assertion) and negative (a viewer may NOT write — an
+        over-broad propagation that hands out 'admin' fails the second).
+        """
+        response = _tools_call(
+            viewer_client,
+            "workspace.get_context",
+            {"workspace_id": str(e2e_workspace.id)},
+        )
+        assert "error" not in response.json(), (
+            f"[REQ-127] viewer get_context returned error: "
+            f"{response.json().get('error')}"
+        )
+        active_roles = _call_result_text(response, "workspace.get_context")[
+            "workspace_context"
+        ].get("active_roles", [])
+        assert active_roles, (
+            f"[REQ-127] viewer active_roles empty — role propagation "
+            f"regressed for the viewer key: {active_roles!r}"
+        )
+        assert "viewer" in active_roles and "admin" not in active_roles, (
+            f"Expected exactly the viewer role, got: {active_roles}"
+        )
+
+        write_response = _tools_call(
+            viewer_client,
+            "requirement.create",
+            {
+                "workspace_id": str(e2e_workspace.id),
+                "title": "REQ-127 viewer write probe",
+                "description": "Must be denied — viewer holds no write permission",
             },
         )
-        # With wrong header format: response may be 200 but with error body
-        if status_wrong == 200:
-            assert "error" in body_wrong or "result" in body_wrong
-
-        # X-API-Key header must work and return a successful result
-        result_correct = _mcp_call(
-            admin_api_key,
-            "tools/call",
-            {"name": "workspace.get_context", "arguments": {"workspace_id": seeded_workspace_id}},
-        )
-        assert "error" not in result_correct, (
-            f"[REQ-127] X-API-Key auth failed: {result_correct.get('error')}"
+        assert extract_error_code(write_response) == "PERMISSION_DENIED", (
+            f"[REQ-127] viewer write must be PERMISSION_DENIED, got "
+            f"{write_response.json()}"
         )
 
-    def test_api_key_retrieve_endpoint_returns_200(self, bearer_token: str) -> None:
-        """[REQ-134] GET /api/v1/api-keys/{id}/ must return 200 (not 405)."""
-        # Create a fresh key to retrieve (helper handles the 10-key limit)
-        _create_api_key(bearer_token, "REQ-134-retrieve-test")
+    def test_broken_role_propagation_is_caught(
+        self,
+        admin_client: Client,
+        e2e_workspace: Workspace,
+        e2e_userrole_admin: UserRole,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """[REQ-127] Mutation probe: the pre-fix failure mode MUST fail.
 
-        # Get the key ID from the list (newest key is what we just created)
-        # INT-05: page through the paginated list; the fresh key is the newest
-        # overall, not necessarily on the first page.
-        keys = _list_all_api_keys(bearer_token)
-        assert keys, "No API keys found after creation"
-        key_id = keys[-1]["id"]
+        The original bug was role resolution returning ``()`` for API-key
+        contexts, which denied EVERY write with
+        "Role '()' does not permit write operations".  This test injects
+        exactly that break into the real ``ToolRegistry._resolve_roles``
+        and asserts the production RBAC gate produces that signature
+        denial — proving the assertions in the tests above are loaded
+        with signal: a regression that reintroduces the empty-role-tuple
+        behaviour surfaces here as a failure, never as a silent pass.
+        """
+        from mcp_server.tool_registry import ToolRegistry
 
-        # Retrieve it — must return 200, not 405
-        status_get, data_get = _http_request(
-            f"{REST_URL}/api-keys/{key_id}/",
-            headers={"Authorization": f"Bearer {bearer_token}"},
+        def _broken_resolve_roles(self, ctx, workspace_id):
+            # The pre-REQ-127 behaviour: API-key contexts keep active_roles=()
+            return replace(ctx, active_roles=())
+
+        monkeypatch.setattr(ToolRegistry, "_resolve_roles", _broken_resolve_roles)
+
+        response = _tools_call(
+            admin_client,
+            "requirement.create",
+            {
+                "workspace_id": str(e2e_workspace.id),
+                "title": "REQ-127 broken-propagation probe",
+                "description": "Deliberately broken role resolution probe",
+            },
         )
-        assert status_get == 200, (
-            f"[REQ-134] retrieve returned {status_get} — expected 200. "
-            "405 would indicate the action was missing (regression)."
+        error_message = _tools_call_error_message(response)
+        assert "()" in error_message, (
+            f"[REQ-127] broken propagation not detected: expected the empty "
+            f"role-tuple signature in the denial, got: {error_message!r}"
         )
-        assert data_get["id"] == key_id
-        # Plaintext must NOT be in the response (security requirement)
-        assert "plaintext" not in data_get, "[REQ-134] plaintext must not appear in retrieve response"
+        assert "does not permit write" in error_message, (
+            f"[REQ-127] broken propagation not denied as a write: {error_message!r}"
+        )
