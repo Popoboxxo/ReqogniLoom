@@ -378,7 +378,7 @@ class WorkspaceService(ServiceBase):
         source = Workspace.objects.filter(id=source_id, tenant_id=ctx.tenant_id).first()
         if not source:
             raise NotFoundError(f"Workspace {source_id} not found")
-        
+
         target_name_clean = (target_name or "").strip()
         if not target_name_clean:
             raise ValidationError("target_name is required")
@@ -389,7 +389,59 @@ class WorkspaceService(ServiceBase):
         active_tier = source_config.active_tier if source_config else "standard"
         terminology = source_config.terminology_profile if source_config else "se_mode"
 
-        # 1. Create target Workspace
+        target = self._create_clone_shell(
+            ctx, source, target_name_clean, active_tier, terminology
+        )
+        self._grant_creator_admin_role(ctx, target)
+
+        # Provision the cloned workspace's default workflows (Requirement with
+        # the source tier + fixed-preset per-entity workflows) and the permission
+        # default — same shared path as create_workspace, so the clone starts
+        # workflow-complete and "on-default". Tenant context is active.
+        provision_workspace_defaults(
+            workspace_id=target.id,
+            tenant_id=ctx.tenant_id,
+            requirement_preset=active_tier,
+        )
+
+        old_to_new_artifact = self._clone_artifacts(ctx, source, target)
+
+        # Copy Requirements
+        reqs = list(Requirement.objects.filter(artifact__workspace=source))
+        self._reassign_cloned_artifact(reqs, old_to_new_artifact)
+
+        self._clone_architecture_elements(source, old_to_new_artifact)
+
+        # Copy TestCases
+        tests = list(TestCase.objects.filter(artifact__workspace=source))
+        self._reassign_cloned_artifact(tests, old_to_new_artifact)
+
+        self._clone_trace_links(source, old_to_new_artifact)
+
+        self._audit(
+            ctx=ctx,
+            operation="clone",
+            entity_type="Workspace",
+            entity_id=target.id,
+            details={"source_id": str(source.id)},
+        )
+
+        return target
+
+    @staticmethod
+    def _create_clone_shell(
+        ctx: AuthContext,
+        source: Workspace,
+        target_name_clean: str,
+        active_tier: str,
+        terminology: str,
+    ) -> Workspace:
+        """Create the target Workspace + its WorkspacePresetConfig companion.
+
+        The tier/terminology fallbacks are resolved by the caller (source
+        preset config when present, otherwise the same defaults the reference
+        path uses); this stage only writes the two shell rows.
+        """
         target = Workspace.objects.create(
             tenant_id=ctx.tenant_id,
             name=target_name_clean,
@@ -402,11 +454,17 @@ class WorkspaceService(ServiceBase):
             active_tier=active_tier,
             terminology_profile=terminology,
         )
+        return target
 
-        # #232: same as create_workspace() — grant the creator 'admin' in the
-        # cloned workspace so it isn't role-less from the start.
+    @staticmethod
+    def _grant_creator_admin_role(ctx: AuthContext, workspace: Workspace) -> None:
+        """Grant the cloning user the 'admin' UserRole on the new workspace.
+
+        #232: same as create_workspace() — grant the creator 'admin' in
+        the cloned workspace so it isn't role-less from the start.
+        """
         UserRole.objects.update_or_create(
-            workspace=target,
+            workspace=workspace,
             user_id=ctx.user_id,
             role=ROLE_ADMIN,
             defaults={
@@ -416,19 +474,12 @@ class WorkspaceService(ServiceBase):
             },
         )
 
-        # Provision the cloned workspace's default workflows (Requirement with
-        # the source tier + fixed-preset per-entity workflows) and the permission
-        # default — same shared path as create_workspace, so the clone starts
-        # workflow-complete and "on-default". Tenant context is active.
-        provision_workspace_defaults(
-            workspace_id=target.id,
-            tenant_id=ctx.tenant_id,
-            requirement_preset=active_tier,
-        )
-
-        # 2. Deep copy artifacts
-        old_to_new_artifact = {}
-        old_to_new_arch = {}
+    @staticmethod
+    def _clone_artifacts(
+        ctx: AuthContext, source: Workspace, target: Workspace
+    ) -> dict[UUID, Artifact]:
+        """Copy every source Artifact and fix parent FKs; return the old->new map."""
+        old_to_new_artifact: dict[UUID, Artifact] = {}
 
         # Copy Artifacts
         artifacts = list(Artifact.objects.filter(workspace=source))
@@ -451,24 +502,40 @@ class WorkspaceService(ServiceBase):
             if a.parent_id:
                 new_a = old_to_new_artifact[a.id]
                 new_a.parent_id = old_to_new_artifact[a.parent_id].id
-                new_a.save(update_fields=['parent_id'])
+                new_a.save(update_fields=["parent_id"])
+        return old_to_new_artifact
 
-        # Copy Requirements
-        reqs = list(Requirement.objects.filter(artifact__workspace=source))
-        for r in reqs:
-            r.pk = None
-            r.artifact = old_to_new_artifact[r.artifact_id]
-            r.save()
+    @staticmethod
+    def _reassign_cloned_artifact(
+        rows: list[Any], old_to_new_artifact: dict[UUID, Artifact]
+    ) -> None:
+        """Re-insert *rows* onto their CLONED artifact (pk=None + FK remap).
 
-        # Copy ArchitectureElements (self-referential parent FK).
-        # Two-pass to preserve the hierarchy across ≥2 levels:
-        #   1. create every element with parent=None and record
-        #      old_id -> new instance,
-        #   2. remap each parent reference to the CLONED parent instance.
-        # Mutating ``arch.pk`` in-place loses the old id, so the old id
-        # and old parent id are captured BEFORE the insert.
+        Identical clone step for every one-artifact entity (Requirement,
+        TestCase): each source row keeps its field values, only the PK and
+        the ``artifact`` FK are replaced before the INSERT.
+        """
+        for row in rows:
+            row.pk = None
+            row.artifact = old_to_new_artifact[row.artifact_id]
+            row.save()
+
+    @staticmethod
+    def _clone_architecture_elements(
+        source: Workspace, old_to_new_artifact: dict[UUID, Artifact]
+    ) -> None:
+        """Copy ArchitectureElements, remapping the self-referential parent FK.
+
+        Two-pass to preserve the hierarchy across ≥2 levels:
+          1. create every element with parent=None and record
+             old_id -> new instance,
+          2. remap each parent reference to the CLONED parent instance.
+        Mutating ``arch.pk`` in-place loses the old id, so the old id
+        and old parent id are captured BEFORE the insert.
+        """
         archs = list(ArchitectureElement.objects.filter(artifact__workspace=source))
         old_parent_of: dict[UUID, Optional[UUID]] = {}
+        old_to_new_arch: dict[UUID, ArchitectureElement] = {}
         for arch in archs:
             old_id = arch.id
             old_parent_of[old_id] = arch.parent_id
@@ -485,31 +552,20 @@ class WorkspaceService(ServiceBase):
                 new_arch.parent = old_to_new_arch[old_parent_id]
                 new_arch.save(update_fields=["parent"])
 
-        # Copy TestCases
-        tests = list(TestCase.objects.filter(artifact__workspace=source))
-        for t in tests:
-            t.pk = None
-            t.artifact = old_to_new_artifact[t.artifact_id]
-            t.save()
+    @staticmethod
+    def _clone_trace_links(
+        source: Workspace, old_to_new_artifact: dict[UUID, Artifact]
+    ) -> None:
+        """Copy TraceLinks onto the cloned artifacts.
 
-        # Copy TraceLinks
-        # Using TraceLink directly instead of engine to clone within same tenant easily
-        links = list(TraceLink.objects.filter(source__workspace=source))
-        for link in links:
+        Using TraceLink directly instead of engine to clone within same tenant
+        easily.
+        """
+        for link in list(TraceLink.objects.filter(source__workspace=source)):
             link.pk = None
             link.source_id = old_to_new_artifact[link.source_id].id
             link.target_id = old_to_new_artifact[link.target_id].id
             link.save()
-
-        self._audit(
-            ctx=ctx,
-            operation="clone",
-            entity_type="Workspace",
-            entity_id=target.id,
-            details={"source_id": str(source.id)},
-        )
-
-        return target
 
     # ---------- Lifecycle API (REQ-L1-042) ----------
 
