@@ -1313,112 +1313,165 @@ class CrossCuttingToolGroup(BaseToolGroup):
         include_outdated = bool(params.get("include_outdated", False))
         role = params.get("role") or ""
 
-        context_data: Dict[str, Any] = {
-            "tenant_id": str(auth_context.tenant_id),
-            "user_id": str(auth_context.user_id),
-            "active_roles": list(auth_context.active_roles),
-        }
-        if role:
-            # Label only (documentation/prompt-shaping) — never used below to
-            # filter or alter the entity counts/preset/terminology data.
-            context_data["role"] = role
+        context_data: Dict[str, Any] = self._context_caller_data(auth_context, role)
 
         if workspace_id_str:
             workspace_id = str(workspace_id_str)
-            try:
-                from presets.services import get_preset, get_terminology
-
-                preset_rules = get_preset(workspace_id)
-                context_data["preset"] = preset_rules.preset
-                context_data["preset_features"] = preset_rules.features
-                context_data["change_reason_policy"] = preset_rules.change_reason
-            except Exception:
-                logger.debug("Could not load preset for workspace=%s", workspace_id)
-                context_data["preset"] = "unknown"
-
-            try:
-                from presets.services import get_terminology
-
-                terminology = get_terminology(workspace_id)
-                context_data["terminology"] = terminology
-            except Exception:
-                logger.debug("Could not load terminology for workspace=%s", workspace_id)
-
-            # Count open requirements (status != 'approved').
-            # ADR-01 (#124): query moved to application.workspace_context_service;
-            # it applies the same REQ-006 rule that outdated requirements only
-            # count as "open" when the caller explicitly asked for them.
-            try:
-                context_data["open_requirements_count"] = (
-                    workspace_context_service.count_open_requirements(
-                        workspace_id=UUID(workspace_id),
-                        tenant_id=auth_context.tenant_id,
-                        include_outdated=include_outdated,
-                    )
+            context_data.update(
+                self._context_workspace_data(
+                    workspace_id=workspace_id,
+                    depth=depth,
+                    include_outdated=include_outdated,
+                    tenant_id=auth_context.tenant_id,
                 )
-            except Exception:
-                logger.debug("Could not count open requirements")
-
-            try:
-                context_data.update(
-                    self._entity_counts(
-                        workspace_id=UUID(workspace_id),
-                        tenant_id=auth_context.tenant_id,
-                        include_outdated=include_outdated,
-                    )
-                )
-            except Exception:
-                logger.exception(
-                    "Could not compute entity counts for workspace=%s", workspace_id
-                )
-
-            if depth in ("normal", "full"):
-                try:
-                    context_data.update(
-                        self._entity_lists(
-                            workspace_id=UUID(workspace_id),
-                            tenant_id=auth_context.tenant_id,
-                            include_outdated=include_outdated,
-                        )
-                    )
-                except Exception:
-                    logger.exception(
-                        "Could not compute entity lists for workspace=%s", workspace_id
-                    )
-
-            if depth == "full":
-                try:
-                    context_data["recent_changes"] = self._recent_changes(
-                        workspace_id=UUID(workspace_id),
-                        tenant_id=auth_context.tenant_id,
-                    )
-                except Exception:
-                    logger.exception(
-                        "Could not compute recent_changes for workspace=%s", workspace_id
-                    )
-
+            )
             # REQ-L2-MC-004 (Phase 2, Task 3): apply the per-depth token
             # budget as the final step, honouring per-workspace overrides
             # (Workspace.ai_prompts["context_token_budgets"]).
             # ADR-01 (#124): lookup moved to application.workspace_context_service.
-            try:
-                workspace_obj = workspace_context_service.get_workspace(
-                    workspace_id=UUID(workspace_id),
-                    tenant_id=auth_context.tenant_id,
-                )
-            except Exception:
-                logger.debug(
-                    "Could not load workspace for token-budget lookup workspace=%s",
-                    workspace_id,
-                )
-                workspace_obj = None
-
-            budget = _get_context_token_budget(workspace_obj, depth)
+            budget = _get_context_token_budget(
+                self._load_context_budget_workspace(
+                    workspace_id, auth_context.tenant_id
+                ),
+                depth,
+            )
             context_data = self._truncate_to_budget(context_data, budget)
 
         context_data["workspace_id"] = workspace_id_str
 
         return ToolResult.ok({"workspace_context": context_data})
+
+    def _context_caller_data(
+        self, auth_context: AuthContext, role: str
+    ) -> dict[str, Any]:
+        """Return the caller-identity section of the workspace context payload.
+
+        REQ-L2-MC-004 (Phase 2, Task 1): ``role`` is a label only
+        (documentation/prompt-shaping) — it never filters or alters the entity
+        counts/preset/terminology data.
+        """
+        context_data: dict[str, Any] = {
+            "tenant_id": str(auth_context.tenant_id),
+            "user_id": str(auth_context.user_id),
+            "active_roles": list(auth_context.active_roles),
+        }
+        if role:
+            context_data["role"] = role
+        return context_data
+
+    def _context_workspace_data(
+        self,
+        *,
+        workspace_id: str,
+        depth: str,
+        include_outdated: bool,
+        tenant_id: UUID,
+    ) -> dict[str, Any]:
+        """Collect the per-workspace sections of the context payload.
+
+        REQ-L2-MC-004 (Phase 2, Tasks 1-3): preset/terminology, open
+        requirement count, entity counts (always), item lists
+        (``depth in ("normal", "full")``) and recent changes
+        (``depth == "full"``). Every section degrades independently — one
+        failing query never removes the others from the response.
+        """
+        context_data: dict[str, Any] = {}
+
+        try:
+            from presets.services import get_preset, get_terminology
+
+            preset_rules = get_preset(workspace_id)
+            context_data["preset"] = preset_rules.preset
+            context_data["preset_features"] = preset_rules.features
+            context_data["change_reason_policy"] = preset_rules.change_reason
+        except Exception:
+            logger.debug("Could not load preset for workspace=%s", workspace_id)
+            context_data["preset"] = "unknown"
+
+        try:
+            from presets.services import get_terminology
+
+            terminology = get_terminology(workspace_id)
+            context_data["terminology"] = terminology
+        except Exception:
+            logger.debug("Could not load terminology for workspace=%s", workspace_id)
+
+        # Count open requirements (status != 'approved').
+        # ADR-01 (#124): query moved to application.workspace_context_service;
+        # it applies the same REQ-006 rule that outdated requirements only
+        # count as "open" when the caller explicitly asked for them.
+        try:
+            context_data["open_requirements_count"] = (
+                workspace_context_service.count_open_requirements(
+                    workspace_id=UUID(workspace_id),
+                    tenant_id=tenant_id,
+                    include_outdated=include_outdated,
+                )
+            )
+        except Exception:
+            logger.debug("Could not count open requirements")
+
+        try:
+            context_data.update(
+                self._entity_counts(
+                    workspace_id=UUID(workspace_id),
+                    tenant_id=tenant_id,
+                    include_outdated=include_outdated,
+                )
+            )
+        except Exception:
+            logger.exception(
+                "Could not compute entity counts for workspace=%s", workspace_id
+            )
+
+        if depth in ("normal", "full"):
+            try:
+                context_data.update(
+                    self._entity_lists(
+                        workspace_id=UUID(workspace_id),
+                        tenant_id=tenant_id,
+                        include_outdated=include_outdated,
+                    )
+                )
+            except Exception:
+                logger.exception(
+                    "Could not compute entity lists for workspace=%s", workspace_id
+                )
+
+        if depth == "full":
+            try:
+                context_data["recent_changes"] = self._recent_changes(
+                    workspace_id=UUID(workspace_id),
+                    tenant_id=tenant_id,
+                )
+            except Exception:
+                logger.exception(
+                    "Could not compute recent_changes for workspace=%s", workspace_id
+                )
+
+        return context_data
+
+    def _load_context_budget_workspace(
+        self, workspace_id: str, tenant_id: UUID
+    ) -> Any:
+        """Return the Workspace row for the token-budget lookup, or None.
+
+        ADR-01 (#124): the lookup itself moved to
+        ``application.workspace_context_service``; the tolerance for an
+        unavailable row (``None`` -> ``DEFAULT_CONTEXT_TOKEN_BUDGETS``) is part
+        of the ``workspace.get_context`` contract.
+        """
+        try:
+            return workspace_context_service.get_workspace(
+                workspace_id=UUID(workspace_id),
+                tenant_id=tenant_id,
+            )
+        except Exception:
+            logger.debug(
+                "Could not load workspace for token-budget lookup workspace=%s",
+                workspace_id,
+            )
+            return None
 
     # ------------------------------------------------------------------
     # workspace.list (Issue #362)
@@ -1726,10 +1779,55 @@ class CrossCuttingToolGroup(BaseToolGroup):
                 "NOT_FOUND", f"{entity_type} {entity_id} not found"
             )
 
-        from traceability.services import query as te_query
-        from link_types.catalog import normalize_artifact_type
+        raw_neighbors = self._gather_change_impact_neighbors(
+            entity, entity_type, tenant_id=auth_context.tenant_id
+        )
 
-        raw_neighbors: List[Dict[str, Any]] = []
+        candidates = self._resolve_change_impact_candidates(
+            raw_neighbors, tenant_id=auth_context.tenant_id
+        )
+
+        if not include_outdated:
+            candidates = [c for c in candidates if not c["outdated"]]
+
+        affected_entities = self._rank_change_impact_candidates(
+            candidates, change_description
+        )
+
+        return ToolResult.ok({
+            "affected_entities": affected_entities,
+            "change_description": change_description,
+        })
+
+    def _gather_change_impact_neighbors(
+        self, entity: Any, entity_type: str, *, tenant_id: UUID
+    ) -> list[dict[str, Any]]:
+        """Collect the raw neighbour set of an anchor entity.
+
+        REQ-L2-MC-004 (Phase 2, Task 6): upstream+downstream TraceLink
+        neighbours, plus (for an ArchitectureElement anchor) its direct
+        decomposition children — that hierarchy is a plain FK tree
+        (``ArchitectureElement.parent``/``children``), NOT expressed via
+        TraceLinks. The synthesized child below is labelled 'decomposes' so its
+        link_type names a type that still exists; this is a distinct source
+        from the real ArchitectureElement/ArchitectureElement 'decomposes'
+        TraceLinks that DO exist now — ``icd.traceability_
+        connector.TraceabilityConnector.link_to_architecture`` writes one
+        per ICD (the migrated retired-realizes key,
+        link_types.builtin.LEGACY_LINK_TYPE_MAPPING), source
+        ArchitectureElement -> target ArchitectureElement, representing the
+        ICD contract between them. Those ICD links are real TraceLinks, so
+        the upstream+downstream trace walk here already picks them up
+        alongside true decomposition hierarchy — an accepted consequence of
+        the retired-realizes -> 'decomposes' mapping (Task 17), not
+        something this handler special-cases.
+        """
+        from persistence.models import ArchitectureElement
+
+        from link_types.catalog import normalize_artifact_type
+        from traceability.services import query as te_query
+
+        raw_neighbors: list[dict[str, Any]] = []
         for direction in ("upstream", "downstream"):
             for neighbor in te_query(
                 artifact_id=entity.artifact_id, direction=direction, transitive=False
@@ -1749,7 +1847,7 @@ class CrossCuttingToolGroup(BaseToolGroup):
 
         if entity_type == "ArchitectureElement":
             for child in ArchitectureElement.objects.filter(
-                parent_id=entity.id, tenant_id=auth_context.tenant_id
+                parent_id=entity.id, tenant_id=tenant_id
             ):
                 raw_neighbors.append({
                     "artifact_id": child.artifact_id,
@@ -1758,21 +1856,7 @@ class CrossCuttingToolGroup(BaseToolGroup):
                     "relation": "child",
                 })
 
-        candidates = self._resolve_change_impact_candidates(
-            raw_neighbors, tenant_id=auth_context.tenant_id
-        )
-
-        if not include_outdated:
-            candidates = [c for c in candidates if not c["outdated"]]
-
-        affected_entities = self._rank_change_impact_candidates(
-            candidates, change_description
-        )
-
-        return ToolResult.ok({
-            "affected_entities": affected_entities,
-            "change_description": change_description,
-        })
+        return raw_neighbors
 
     def _resolve_change_impact_candidates(
         self, raw_neighbors: List[Dict[str, Any]], *, tenant_id: UUID
@@ -1797,9 +1881,7 @@ class CrossCuttingToolGroup(BaseToolGroup):
         artifact id as ``id``, ``title=None`` and ``outdated=False`` — so the
         trace graph is never silently truncated.
         """
-        from persistence.models import ArchitectureElement, Requirement, StakeholderNeed, TestCase
-        from workflow import state_reader
-        from workflow.services import outdated_item_ids
+        from persistence.models import Requirement, StakeholderNeed, TestCase
 
         by_type: Dict[str, List[Dict[str, Any]]] = {}
         for neighbor in raw_neighbors:
@@ -1816,60 +1898,19 @@ class CrossCuttingToolGroup(BaseToolGroup):
             neighbors = by_type.pop(type_name, [])
             if not neighbors:
                 continue
-            artifact_ids = [n["artifact_id"] for n in neighbors]
-            rows_by_artifact = {
-                row["artifact_id"]: row
-                for row in model.objects.filter(
-                    artifact_id__in=artifact_ids
-                ).values("id", "artifact_id", "title")
-            }
-            states = state_reader.current_states(
-                type_name, (row["id"] for row in rows_by_artifact.values())
+            resolved.extend(
+                self._resolve_mirrored_change_impact_neighbors(
+                    neighbors, type_name, model
+                )
             )
-            # Task 12: the ``status`` column is dropped from the ``.values()``
-            # projection above -- a row never wired into a WorkflowItemState
-            # falls back to *type_name*'s preset initial state instead
-            # (documented, reviewed data-loss tradeoff, see Task 12 report
-            # Finding 2).
-            type_initial_state = state_reader.initial_state(type_name)
-            for neighbor in neighbors:
-                row = rows_by_artifact.get(neighbor["artifact_id"])
-                if row is None:
-                    continue
-                resolved_status = states.get(str(row["id"])) or type_initial_state
-                resolved.append({
-                    "id": str(row["id"]),
-                    "entity_type": type_name,
-                    "title": row["title"],
-                    "link_type": neighbor["link_type"],
-                    "relation": neighbor["relation"],
-                    "outdated": resolved_status == "outdated",
-                })
 
         arch_neighbors = by_type.pop("ArchitectureElement", [])
         if arch_neighbors:
-            artifact_ids = [n["artifact_id"] for n in arch_neighbors]
-            outdated_ids = set(
-                outdated_item_ids("ArchitectureElement", tenant_id=tenant_id)
+            resolved.extend(
+                self._resolve_architecture_change_impact_neighbors(
+                    arch_neighbors, tenant_id=tenant_id
+                )
             )
-            rows_by_artifact = {
-                row["artifact_id"]: row
-                for row in ArchitectureElement.objects.filter(
-                    artifact_id__in=artifact_ids
-                ).values("id", "artifact_id", "title")
-            }
-            for neighbor in arch_neighbors:
-                row = rows_by_artifact.get(neighbor["artifact_id"])
-                if row is None:
-                    continue
-                resolved.append({
-                    "id": str(row["id"]),
-                    "entity_type": "ArchitectureElement",
-                    "title": row["title"],
-                    "link_type": neighbor["link_type"],
-                    "relation": neighbor["relation"],
-                    "outdated": row["id"] in outdated_ids,
-                })
 
         for type_name, neighbors in by_type.items():
             for neighbor in neighbors:
@@ -1882,6 +1923,90 @@ class CrossCuttingToolGroup(BaseToolGroup):
                     "outdated": False,
                 })
 
+        return resolved
+
+    def _resolve_mirrored_change_impact_neighbors(
+        self, neighbors: list[dict[str, Any]], type_name: str, model: Any
+    ) -> list[dict[str, Any]]:
+        """Resolve business id/title/outdated flag for mirrored-type neighbours.
+
+        Requirement/TestCase/StakeholderNeed rows are resolved through
+        ``WorkflowItemState`` (``workflow.state_reader.current_states``),
+        falling back to the (now write-once, frozen-at-creation) ``status``
+        column only for Requirement/TestCase/StakeholderNeed rows never wired
+        into one.
+
+        Task 12: the ``status`` column is dropped from the ``.values()``
+        projection — a row never wired into a WorkflowItemState falls back to
+        *type_name*'s preset initial state instead (documented, reviewed
+        data-loss tradeoff, see Task 12 report Finding 2).
+        """
+        from workflow import state_reader
+
+        artifact_ids = [n["artifact_id"] for n in neighbors]
+        rows_by_artifact = {
+            row["artifact_id"]: row
+            for row in model.objects.filter(
+                artifact_id__in=artifact_ids
+            ).values("id", "artifact_id", "title")
+        }
+        states = state_reader.current_states(
+            type_name, (row["id"] for row in rows_by_artifact.values())
+        )
+        type_initial_state = state_reader.initial_state(type_name)
+
+        resolved: list[dict[str, Any]] = []
+        for neighbor in neighbors:
+            row = rows_by_artifact.get(neighbor["artifact_id"])
+            if row is None:
+                continue
+            resolved_status = states.get(str(row["id"])) or type_initial_state
+            resolved.append({
+                "id": str(row["id"]),
+                "entity_type": type_name,
+                "title": row["title"],
+                "link_type": neighbor["link_type"],
+                "relation": neighbor["relation"],
+                "outdated": resolved_status == "outdated",
+            })
+        return resolved
+
+    def _resolve_architecture_change_impact_neighbors(
+        self, neighbors: list[dict[str, Any]], *, tenant_id: UUID
+    ) -> list[dict[str, Any]]:
+        """Resolve business id/title/outdated flag for ArchitectureElement neighbours.
+
+        ArchitectureElement never had a ``status`` column, so the outdated flag
+        comes solely from ``WorkflowItemState`` via
+        ``workflow.services.outdated_item_ids``.
+        """
+        from persistence.models import ArchitectureElement
+        from workflow.services import outdated_item_ids
+
+        artifact_ids = [n["artifact_id"] for n in neighbors]
+        outdated_ids = set(
+            outdated_item_ids("ArchitectureElement", tenant_id=tenant_id)
+        )
+        rows_by_artifact = {
+            row["artifact_id"]: row
+            for row in ArchitectureElement.objects.filter(
+                artifact_id__in=artifact_ids
+            ).values("id", "artifact_id", "title")
+        }
+
+        resolved: list[dict[str, Any]] = []
+        for neighbor in neighbors:
+            row = rows_by_artifact.get(neighbor["artifact_id"])
+            if row is None:
+                continue
+            resolved.append({
+                "id": str(row["id"]),
+                "entity_type": "ArchitectureElement",
+                "title": row["title"],
+                "link_type": neighbor["link_type"],
+                "relation": neighbor["relation"],
+                "outdated": row["id"] in outdated_ids,
+            })
         return resolved
 
     def _rank_change_impact_candidates(
