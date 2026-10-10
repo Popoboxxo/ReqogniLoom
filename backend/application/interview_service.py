@@ -1580,6 +1580,74 @@ class InterviewService(ServiceBase):
         )
         return {"status": session.status}
 
+    @staticmethod
+    def _summarise_transcript_overflow(
+        ctx,
+        provider,
+        provider_name: str,
+        audit_logger,
+        entity_id: str,
+        session: InterviewSession,
+        overflow: list[dict[str, Any]],
+    ) -> str | None:
+        """Write one LLM digest of *overflow* and return it, or None if empty.
+
+        Renders the ``interview.transcript_summary`` template, calls the
+        provider, and on a non-empty digest writes the success audit row and
+        records token usage. An empty digest returns None -- an empty digest
+        would silently discard the overflow turns, so the caller treats it
+        exactly like a failed call. Any exception propagates to the caller
+        (``_compress_transcript_if_needed``), whose best-effort except clause
+        handles it identically to a raising provider call.
+        """
+        from application.ai_derivation_service import AiDerivationService
+        from llm_adapter.timeouts import resolve_timeout_seconds
+        from llm_adapter.token_tracking import (
+            approximate_token_count,
+            record_token_usage,
+        )
+
+        template = AiDerivationService._get_template_content(
+            ctx, "interview.transcript_summary", session.workspace_id
+        )
+        prompt = AiDerivationService._render(
+            template,
+            previous_summary=session.transcript_summary or "",
+            overflow_json=json.dumps(overflow),
+        )
+        summary = provider.complete(
+            prompt,
+            purpose="interview.transcript_summary",
+            timeout=resolve_timeout_seconds("interview.transcript_summary"),
+        )
+
+        summary = (summary or "").strip()
+        if not summary:
+            # An empty digest would silently DISCARD the overflow turns.
+            # Treat it exactly like a failed call.
+            logger.debug(
+                "InterviewService: empty transcript summary for session=%s -- "
+                "transcript left uncompressed",
+                session.id,
+            )
+            return None
+
+        audit_logger.log_llm_call(
+            provider=provider_name,
+            capability="interview.transcript_summary",
+            artifact_id=entity_id,
+            token_usage=None,
+            success=True,
+            error=None,
+        )
+        record_token_usage(
+            provider=provider_name,
+            capability="interview.transcript_summary",
+            input_tokens=approximate_token_count(prompt),
+            output_tokens=approximate_token_count(summary),
+        )
+        return summary
+
     def _compress_transcript_if_needed(self, ctx, session: InterviewSession) -> None:
         """Fold turns older than the sliding window into ``transcript_summary``.
 
@@ -1600,14 +1668,8 @@ class InterviewService(ServiceBase):
         not need to re-save.
         """
         from application.bundle_compression_service import MOCK_PROVIDER_NAME
-        from application.ai_derivation_service import AiDerivationService
         from llm_adapter.audit_logger import LlmAuditLogger
-        from llm_adapter.timeouts import resolve_timeout_seconds
-        from llm_adapter.token_tracking import (
-            approximate_token_count,
-            is_over_daily_limit,
-            record_token_usage,
-        )
+        from llm_adapter.token_tracking import is_over_daily_limit
 
         window_entries = TRANSCRIPT_WINDOW_TURNS * 2
         if len(session.transcript) <= window_entries:
@@ -1671,45 +1733,11 @@ class InterviewService(ServiceBase):
         # successful turn into a 500. The docstring's "never raises" contract
         # covers the whole body, not just the provider call.
         try:
-            template = AiDerivationService._get_template_content(
-                ctx, "interview.transcript_summary", session.workspace_id
+            summary = self._summarise_transcript_overflow(
+                ctx, provider, provider_name, audit_logger, entity_id, session, overflow
             )
-            prompt = AiDerivationService._render(
-                template,
-                previous_summary=session.transcript_summary or "",
-                overflow_json=json.dumps(overflow),
-            )
-            summary = provider.complete(
-                prompt,
-                purpose="interview.transcript_summary",
-                timeout=resolve_timeout_seconds("interview.transcript_summary"),
-            )
-
-            summary = (summary or "").strip()
-            if not summary:
-                # An empty digest would silently DISCARD the overflow turns.
-                # Treat it exactly like a failed call.
-                logger.debug(
-                    "InterviewService: empty transcript summary for session=%s -- "
-                    "transcript left uncompressed",
-                    session.id,
-                )
+            if summary is None:
                 return
-
-            audit_logger.log_llm_call(
-                provider=provider_name,
-                capability="interview.transcript_summary",
-                artifact_id=entity_id,
-                token_usage=None,
-                success=True,
-                error=None,
-            )
-            record_token_usage(
-                provider=provider_name,
-                capability="interview.transcript_summary",
-                input_tokens=approximate_token_count(prompt),
-                output_tokens=approximate_token_count(summary),
-            )
 
             # The provider call above blocks for up to ~25s. A concurrent
             # request may have appended a turn in the meantime, and the
@@ -1765,6 +1793,150 @@ class InterviewService(ServiceBase):
             )
             return
 
+    def _chat_turn_prompt(
+        self,
+        ctx,
+        session: InterviewSession,
+        user_message: str,
+        phase,
+        missing: list,
+    ) -> str:
+        """Build the single-mode chat-turn prompt -- memory + template render.
+
+        Composes the best-effort memory context and renders the
+        ``interview.chat_turn`` template with the phase/missing-field
+        fragments the protocol still needs. Pure prompt construction: no
+        provider call, no persistence, no event.
+        """
+        from application.ai_derivation_service import AiDerivationService
+        from memory.context_builder import build_memory_context
+
+        # Best-effort retrieval-augmentation (memory plan Task 6): degrades to
+        # "" on any backend failure, never blocks the chat turn (see
+        # build_memory_context's own docstring for the Fehlerfälle contract).
+        # RFC #1002 PR C: the session's backing Artifact (single mode only)
+        # is passed so artifact-scoped memory is searched and rendered first.
+        memory_context = build_memory_context(
+            ctx.tenant_id,
+            session.workspace_id,
+            ctx.user_id,
+            user_message,
+            artifact_id=session.artifact_id,
+            entity_type=session.artifact_type or "",
+        )
+        template = AiDerivationService._get_template_content(
+            ctx, "interview.chat_turn", session.workspace_id
+        )
+        return AiDerivationService._render(
+            template,
+            artifact_type=session.artifact_type,
+            transcript_json=json.dumps(session.transcript),
+            # L2.4: the digest of turns already folded out of `transcript`.
+            # `transcript` itself is now the sliding window, not the whole
+            # history, so without this the prompt would silently lose context.
+            transcript_summary=session.transcript_summary or "",
+            current_phase_fragment=phase.prompt_fragment,
+            missing_fields_json=json.dumps([self._serialise_field(f) for f in missing]),
+            grounding_snapshot_json=json.dumps(session.grounding_snapshot),
+            user_message=user_message,
+            memory_context=memory_context,
+        )
+
+    def _complete_chat_turn(
+        self,
+        provider,
+        provider_name: str,
+        audit_logger,
+        entity_id: str,
+        prompt: str,
+    ) -> str:
+        """Run the single-mode chat-turn LLM call and return the raw response.
+
+        Deliberately NOT fail-open (spec §5): a failed provider call surfaces
+        as ValidationError after the failure audit row is written, exactly as
+        when this code still sat inline in ``generate_chat_turn``. On success
+        the success audit row and the client-side token estimate (SA-26) are
+        written here too, preserving the pre-parse ordering.
+        """
+        from llm_adapter.timeouts import resolve_timeout_seconds
+        from llm_adapter.token_tracking import (
+            approximate_token_count,
+            record_token_usage,
+        )
+
+        timeout = resolve_timeout_seconds("interview.chat_turn")
+        try:
+            raw_response = provider.complete(
+                prompt, purpose="interview.chat_turn", timeout=timeout
+            )
+        except Exception as error:  # noqa: BLE001 -- not fail-open, see docstring
+            audit_logger.log_llm_call(
+                provider=provider_name,
+                capability="interview.chat_turn",
+                artifact_id=entity_id,
+                token_usage=None,
+                success=False,
+                error=str(error),
+            )
+            raise ValidationError(f"Interview chat LLM call failed: {error}") from error
+
+        audit_logger.log_llm_call(
+            provider=provider_name,
+            capability="interview.chat_turn",
+            artifact_id=entity_id,
+            token_usage=None,
+            success=True,
+            error=None,
+        )
+        # SA-26: this used to hardcode input_tokens=0, leaving the daily
+        # budget (is_over_daily_limit above) blind to this call's real
+        # spend. Estimate both sides client-side, matching every other
+        # free-form path (see ``approximate_token_count``).
+        record_token_usage(
+            provider=provider_name,
+            capability="interview.chat_turn",
+            input_tokens=approximate_token_count(prompt),
+            output_tokens=approximate_token_count(raw_response),
+        )
+        return raw_response
+
+    @staticmethod
+    def _parse_chat_turn_reply(raw_response: str) -> tuple[dict[str, Any], str]:
+        """Split the model response into ``(extracted_fields, reply)``.
+
+        The JSON contract is lenient by design: a response-shape failure
+        (not a provider failure -- that already raised) degrades to "no
+        fields extracted, relay the raw text" instead of crashing the chat.
+        """
+        try:
+            parsed = json.loads(raw_response)
+            extracted = parsed.get("extracted_fields", {}) or {}
+            reply = parsed.get("reply", "")
+        except (ValueError, AttributeError):
+            # Model didn't follow the JSON contract -- degrade to "no fields
+            # extracted, relay the raw text" rather than crashing the chat.
+            # This is a response-shape leniency, distinct from the provider-
+            # availability contract above: the call itself succeeded.
+            extracted = {}
+            reply = raw_response
+        return extracted, reply
+
+    def _apply_extracted_interview_fields(
+        self, ctx, session: InterviewSession, extracted: dict[str, Any]
+    ) -> None:
+        """Record extracted values for protocol-declared fields only.
+
+        Only values for fields the protocol actually declares are stored
+        (mirrors answer()'s own permissive-but-typed-when-known behavior)
+        -- an unresolved field name is silently skipped rather than stored,
+        since the prompt explicitly instructs the model to only extract
+        fields from the "still needed" list.
+        """
+        protocol = get_protocol(ctx, session.artifact_type, session.workspace_id)
+        for field_name, value in extracted.items():
+            if self._find_protocol_field(protocol, field_name) is not None:
+                self.answer(ctx, session.id, field_name, value)
+
     def generate_chat_turn(self, ctx, session_id: UUID, user_message: str) -> "dict[str, Any]":
         """Server-generated conversational turn -- Web Widget spec §5.
 
@@ -1781,15 +1953,8 @@ class InterviewService(ServiceBase):
         ``session.transcript`` regardless of whether any fields were
         extracted, so a resumed session always shows the full conversation.
         """
-        from application.ai_derivation_service import AiDerivationService
         from llm_adapter.audit_logger import LlmAuditLogger
-        from llm_adapter.timeouts import resolve_timeout_seconds
-        from llm_adapter.token_tracking import (
-            approximate_token_count,
-            is_over_daily_limit,
-            record_token_usage,
-        )
-        from memory.context_builder import build_memory_context
+        from llm_adapter.token_tracking import is_over_daily_limit
 
         session = self._get_session(ctx, session_id)
         # Status guard BEFORE the kind dispatch (review-2 fix M1): it used
@@ -1834,89 +1999,12 @@ class InterviewService(ServiceBase):
             )
 
         phase, missing = self._current_phase_and_missing(ctx, session)
-        # Best-effort retrieval-augmentation (memory plan Task 6): degrades to
-        # "" on any backend failure, never blocks the chat turn (see
-        # build_memory_context's own docstring for the Fehlerfälle contract).
-        # RFC #1002 PR C: the session's backing Artifact (single mode only)
-        # is passed so artifact-scoped memory is searched and rendered first.
-        memory_context = build_memory_context(
-            ctx.tenant_id,
-            session.workspace_id,
-            ctx.user_id,
-            user_message,
-            artifact_id=session.artifact_id,
-            entity_type=session.artifact_type or "",
+        prompt = self._chat_turn_prompt(ctx, session, user_message, phase, missing)
+        raw_response = self._complete_chat_turn(
+            provider, provider_name, audit_logger, entity_id, prompt
         )
-        template = AiDerivationService._get_template_content(ctx, "interview.chat_turn", session.workspace_id)
-        prompt = AiDerivationService._render(
-            template,
-            artifact_type=session.artifact_type,
-            transcript_json=json.dumps(session.transcript),
-            # L2.4: the digest of turns already folded out of `transcript`.
-            # `transcript` itself is now the sliding window, not the whole
-            # history, so without this the prompt would silently lose context.
-            transcript_summary=session.transcript_summary or "",
-            current_phase_fragment=phase.prompt_fragment,
-            missing_fields_json=json.dumps([self._serialise_field(f) for f in missing]),
-            grounding_snapshot_json=json.dumps(session.grounding_snapshot),
-            user_message=user_message,
-            memory_context=memory_context,
-        )
-
-        timeout = resolve_timeout_seconds("interview.chat_turn")
-        try:
-            raw_response = provider.complete(prompt, purpose="interview.chat_turn", timeout=timeout)
-        except Exception as error:  # noqa: BLE001 -- not fail-open, see docstring
-            audit_logger.log_llm_call(
-                provider=provider_name,
-                capability="interview.chat_turn",
-                artifact_id=entity_id,
-                token_usage=None,
-                success=False,
-                error=str(error),
-            )
-            raise ValidationError(f"Interview chat LLM call failed: {error}") from error
-
-        audit_logger.log_llm_call(
-            provider=provider_name,
-            capability="interview.chat_turn",
-            artifact_id=entity_id,
-            token_usage=None,
-            success=True,
-            error=None,
-        )
-        # SA-26: this used to hardcode input_tokens=0, leaving the daily
-        # budget (is_over_daily_limit above) blind to this call's real
-        # spend. Estimate both sides client-side, matching every other
-        # free-form path (see ``approximate_token_count``).
-        record_token_usage(
-            provider=provider_name,
-            capability="interview.chat_turn",
-            input_tokens=approximate_token_count(prompt),
-            output_tokens=approximate_token_count(raw_response),
-        )
-
-        try:
-            parsed = json.loads(raw_response)
-            extracted = parsed.get("extracted_fields", {}) or {}
-            reply = parsed.get("reply", "")
-        except (ValueError, AttributeError):
-            # Model didn't follow the JSON contract -- degrade to "no fields
-            # extracted, relay the raw text" rather than crashing the chat.
-            # This is a response-shape leniency, distinct from the provider-
-            # availability contract above: the call itself succeeded.
-            extracted = {}
-            reply = raw_response
-
-        # Only record values for fields the protocol actually declares
-        # (mirrors answer()'s own permissive-but-typed-when-known behavior)
-        # -- an unresolved field name is silently skipped rather than
-        # stored, since the prompt explicitly instructs the model to only
-        # extract fields from the "still needed" list.
-        protocol = get_protocol(ctx, session.artifact_type, session.workspace_id)
-        for field_name, value in extracted.items():
-            if self._find_protocol_field(protocol, field_name) is not None:
-                self.answer(ctx, session_id, field_name, value)
+        extracted, reply = self._parse_chat_turn_reply(raw_response)
+        self._apply_extracted_interview_fields(ctx, session, extracted)
 
         now = timezone.now().isoformat()
         # The DB write and the event publish are grouped in their own short
