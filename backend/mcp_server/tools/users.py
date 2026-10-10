@@ -457,6 +457,150 @@ class UsersToolGroup(BaseToolGroup):
     # user.create (write, audited)
     # ------------------------------------------------------------------
 
+    def _validate_create_credentials(
+        self, params: dict[str, Any]
+    ) -> dict[str, str] | ToolResult:
+        """Validate and normalise the required ``user.create`` strings.
+
+        Enforces presence and emptiness of ``username``/``email`` (both
+        stripped) and ``password`` (kept verbatim — leading/trailing
+        whitespace is a legitimate part of the secret) plus the
+        ``_PASSWORD_MIN_LENGTH`` policy. Returns the normalised values
+        or a ``VALIDATION_ERROR`` ToolResult. Everything deeper
+        (uniqueness, hashing) stays with UserAccountService.
+        """
+        username = params.get("username")
+        if not isinstance(username, str) or not username.strip():
+            return ToolResult.error(
+                "VALIDATION_ERROR",
+                "Required parameter 'username' is missing or empty.",
+            )
+
+        email = params.get("email")
+        if not isinstance(email, str) or not email.strip():
+            return ToolResult.error(
+                "VALIDATION_ERROR",
+                "Required parameter 'email' is missing or empty.",
+            )
+
+        password = params.get("password")
+        if not isinstance(password, str) or not password:
+            return ToolResult.error(
+                "VALIDATION_ERROR",
+                "Required parameter 'password' is missing or empty.",
+            )
+        if len(password) < _PASSWORD_MIN_LENGTH:
+            return ToolResult.error(
+                "VALIDATION_ERROR",
+                f"Parameter 'password' must be at least "
+                f"{_PASSWORD_MIN_LENGTH} characters.",
+            )
+
+        return {
+            "username": username.strip(),
+            "email": email.strip(),
+            "password": password,
+        }
+
+    def _resolve_create_hints(
+        self, params: dict[str, Any]
+    ) -> dict[str, str] | ToolResult:
+        """Resolve the informational ``role``/``preset`` hints.
+
+        Both are optional: absent or blank values fall back to the role
+        default (``ROLE_VIEWER``) and the preset default ("basic").
+        Returns the normalised values or a ``VALIDATION_ERROR``
+        ToolResult. The hints are stored on the audit entry only — the
+        role is NOT auto-assigned to a workspace (the user is not a
+        member of any workspace yet at creation time).
+        """
+        role_raw = params.get("role", ROLE_VIEWER)
+        if role_raw in (None, ""):
+            role = ROLE_VIEWER
+        else:
+            try:
+                role = _normalize_role(role_raw)
+            except ParameterError as exc:
+                return ToolResult.error("VALIDATION_ERROR", str(exc))
+
+        preset = params.get("preset", "basic")
+        if preset is None or (isinstance(preset, str) and not preset.strip()):
+            preset = "basic"
+        elif not isinstance(preset, str):
+            return ToolResult.error(
+                "VALIDATION_ERROR",
+                "Parameter 'preset' must be a string.",
+            )
+        else:
+            preset = preset.strip().lower()
+
+        return {"role": role, "preset": preset}
+
+    def _resolve_create_tenant(
+        self, params: dict[str, Any], auth_context: AuthContext
+    ) -> tuple[UUID, bool] | ToolResult:
+        """Resolve the tenant ``user.create`` writes into.
+
+        A Django superuser may pass an explicit ``tenant_id`` (the whole
+        point of the override, documented in the tool's schema); every
+        other caller is forced to ``auth_context.tenant_id`` and is
+        rejected with ``PERMISSION_DENIED`` when it passes one. Returns
+        ``(tenant_id, is_superuser)`` — the superuser flag is handed
+        back for the tenant-admin gate — or a ToolResult error.
+        """
+        is_superuser = self._caller_is_superuser(auth_context.user_id)
+        tenant_id_param = optional_uuid(params, "tenant_id")
+        if tenant_id_param is not None:
+            if not is_superuser:
+                return ToolResult.error(
+                    "PERMISSION_DENIED",
+                    "Parameter 'tenant_id' is only honoured for superuser "
+                    "callers. Non-superuser admins must create users in "
+                    "their own tenant.",
+                )
+            tenant_id = tenant_id_param
+        else:
+            tenant_id = auth_context.tenant_id
+
+        return tenant_id, is_superuser
+
+    def _create_user_account(
+        self,
+        *,
+        tenant_id: UUID,
+        username: str,
+        email: str,
+        password: str,
+        actor_is_tenant_admin: bool,
+    ) -> User | ToolResult:
+        """Delegate user creation to UserAccountService and map its errors.
+
+        ``AuthTenancyPermissionDenied`` -> ``PERMISSION_DENIED``,
+        ``ValueError`` -> ``VALIDATION_ERROR``. The service documents
+        ValueError as its validation-failure contract (bad/duplicate
+        username/email, weak password, unknown tenant). Anything else
+        (DB errors, programming bugs) is NOT masked here — it propagates
+        and is caught by BaseToolGroup.execute_tool's outer catch-all
+        (INTERNAL_ERROR, logged), matching how
+        rest_api.user_management_views.UserViewSet.create only
+        narrowly catches ValueError too.
+        """
+        try:
+            return self._accounts.create(
+                actor_is_tenant_admin=actor_is_tenant_admin,
+                tenant_id=tenant_id,
+                username=username,
+                email=email,
+                password=password,
+            )
+        except AuthTenancyPermissionDenied:
+            return ToolResult.error(
+                "PERMISSION_DENIED",
+                "Permission denied: tenant-admin role required.",
+            )
+        except ValueError as exc:
+            return ToolResult.error("VALIDATION_ERROR", str(exc))
+
     def _handle_user_create(
         self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
@@ -490,73 +634,18 @@ class UsersToolGroup(BaseToolGroup):
         ``VALIDATION_ERROR`` (mirrors ``rest_api.user_management_views.
         UserViewSet.create``).
         """
-        username = params.get("username")
-        if not isinstance(username, str) or not username.strip():
-            return ToolResult.error(
-                "VALIDATION_ERROR",
-                "Required parameter 'username' is missing or empty.",
-            )
-        username = username.strip()
+        credentials = self._validate_create_credentials(params)
+        if isinstance(credentials, ToolResult):
+            return credentials
 
-        email = params.get("email")
-        if not isinstance(email, str) or not email.strip():
-            return ToolResult.error(
-                "VALIDATION_ERROR",
-                "Required parameter 'email' is missing or empty.",
-            )
-        email = email.strip()
+        hints = self._resolve_create_hints(params)
+        if isinstance(hints, ToolResult):
+            return hints
 
-        password = params.get("password")
-        if not isinstance(password, str) or not password:
-            return ToolResult.error(
-                "VALIDATION_ERROR",
-                "Required parameter 'password' is missing or empty.",
-            )
-        if len(password) < _PASSWORD_MIN_LENGTH:
-            return ToolResult.error(
-                "VALIDATION_ERROR",
-                f"Parameter 'password' must be at least "
-                f"{_PASSWORD_MIN_LENGTH} characters.",
-            )
-
-        # role is optional and informational
-        role_raw = params.get("role", ROLE_VIEWER)
-        if role_raw in (None, ""):
-            role = ROLE_VIEWER
-        else:
-            try:
-                role = _normalize_role(role_raw)
-            except ParameterError as exc:
-                return ToolResult.error("VALIDATION_ERROR", str(exc))
-
-        # preset is optional and reserved; we accept it but do not enforce
-        # it (no workspace has been chosen yet at creation time).
-        preset = params.get("preset", "basic")
-        if preset is None or (isinstance(preset, str) and not preset.strip()):
-            preset = "basic"
-        elif not isinstance(preset, str):
-            return ToolResult.error(
-                "VALIDATION_ERROR",
-                "Parameter 'preset' must be a string.",
-            )
-        else:
-            preset = preset.strip().lower()
-
-        # Tenant resolution: superuser may pass tenant_id; non-superuser
-        # is forced to the auth context's tenant.
-        is_superuser = self._caller_is_superuser(auth_context.user_id)
-        tenant_id_param = optional_uuid(params, "tenant_id")
-        if tenant_id_param is not None:
-            if not is_superuser:
-                return ToolResult.error(
-                    "PERMISSION_DENIED",
-                    "Parameter 'tenant_id' is only honoured for superuser "
-                    "callers. Non-superuser admins must create users in "
-                    "their own tenant.",
-                )
-            tenant_id = tenant_id_param
-        else:
-            tenant_id = auth_context.tenant_id
+        tenant = self._resolve_create_tenant(params, auth_context)
+        if isinstance(tenant, ToolResult):
+            return tenant
+        tenant_id, is_superuser = tenant
 
         # Fix Round 1 (I-2): a genuine Django superuser must still be able to
         # create a user in a tenant they hold no TenantRole(admin) in — this
@@ -570,29 +659,15 @@ class UsersToolGroup(BaseToolGroup):
         is_admin = is_superuser or self._authz_service.is_tenant_admin(
             user_id=auth_context.user_id, tenant_id=tenant_id
         )
-        try:
-            user = self._accounts.create(
-                actor_is_tenant_admin=is_admin,
-                tenant_id=tenant_id,
-                username=username,
-                email=email,
-                password=password,
-            )
-        except AuthTenancyPermissionDenied:
-            return ToolResult.error(
-                "PERMISSION_DENIED",
-                "Permission denied: tenant-admin role required.",
-            )
-        except ValueError as exc:
-            # UserAccountService.create documents ValueError as its
-            # validation-failure contract (bad/duplicate username/email,
-            # weak password, unknown tenant). Anything else (DB errors,
-            # programming bugs) is NOT masked here — it propagates and is
-            # caught by BaseToolGroup.execute_tool's outer catch-all
-            # (INTERNAL_ERROR, logged), matching how
-            # rest_api.user_management_views.UserViewSet.create only
-            # narrowly catches ValueError too.
-            return ToolResult.error("VALIDATION_ERROR", str(exc))
+        user = self._create_user_account(
+            tenant_id=tenant_id,
+            username=credentials["username"],
+            email=credentials["email"],
+            password=credentials["password"],
+            actor_is_tenant_admin=is_admin,
+        )
+        if isinstance(user, ToolResult):
+            return user
 
         write_mcp_audit(
             ctx=auth_context,
@@ -605,8 +680,8 @@ class UsersToolGroup(BaseToolGroup):
                 "username": user.username,
                 "email": user.email,
                 "tenant_id": str(tenant_id),
-                "role_hint": role,
-                "preset_hint": preset,
+                "role_hint": hints["role"],
+                "preset_hint": hints["preset"],
             },
         )
 
@@ -768,6 +843,98 @@ class UsersToolGroup(BaseToolGroup):
     # user.list (read)
     # ------------------------------------------------------------------
 
+    def _resolve_list_tenant(
+        self, params: dict[str, Any], auth_context: AuthContext
+    ) -> UUID | ToolResult:
+        """Resolve the tenant ``user.list`` reads.
+
+        A superuser caller may pass any tenant id; a non-superuser
+        caller may only scope to its own tenant (a foreign id is
+        rejected with ``PERMISSION_DENIED``). Returns the resolved
+        tenant id or a ToolResult error. The tenant-admin gate itself
+        runs before this in the handler — it must answer first, even
+        for an otherwise malformed request.
+        """
+        is_superuser = self._caller_is_superuser(auth_context.user_id)
+        tenant_id_param = optional_uuid(params, "tenant_id")
+        if tenant_id_param is not None:
+            if not is_superuser and tenant_id_param != auth_context.tenant_id:
+                return ToolResult.error(
+                    "PERMISSION_DENIED",
+                    "Parameter 'tenant_id' must equal the caller's tenant "
+                    "unless the caller is a superuser.",
+                )
+            return tenant_id_param
+        return auth_context.tenant_id
+
+    def _parse_is_active_filter(
+        self, params: dict[str, Any]
+    ) -> bool | None | ToolResult:
+        """Parse the optional ``is_active`` filter.
+
+        Absent or empty values mean "no filter" (``None``); a real
+        boolean is taken as-is; the string spellings
+        ``true/1/yes`` and ``false/0/no`` are accepted
+        case-insensitively. Anything else becomes a
+        ``VALIDATION_ERROR`` ToolResult.
+        """
+        is_active_raw = params.get("is_active")
+        if is_active_raw is None or is_active_raw == "":
+            return None
+        if isinstance(is_active_raw, bool):
+            return is_active_raw
+        if isinstance(is_active_raw, str):
+            lowered = is_active_raw.strip().lower()
+            if lowered in ("true", "1", "yes"):
+                return True
+            if lowered in ("false", "0", "no"):
+                return False
+        return ToolResult.error(
+            "VALIDATION_ERROR",
+            "Parameter 'is_active' must be a boolean.",
+        )
+
+    def _parse_list_limit(self, params: dict[str, Any]) -> int | ToolResult:
+        """Parse and range-check the ``limit`` page size.
+
+        Defaults to ``_LIST_DEFAULT_LIMIT`` and must stay within
+        1..``_LIST_MAX_LIMIT``; non-integer or out-of-range values
+        become a ``VALIDATION_ERROR`` ToolResult.
+        """
+        limit_raw = params.get("limit", _LIST_DEFAULT_LIMIT)
+        try:
+            limit = int(limit_raw)
+        except (TypeError, ValueError):
+            return ToolResult.error(
+                "VALIDATION_ERROR",
+                "Parameter 'limit' must be an integer.",
+            )
+        if limit < 1 or limit > _LIST_MAX_LIMIT:
+            return ToolResult.error(
+                "VALIDATION_ERROR",
+                f"Parameter 'limit' must be in 1..{_LIST_MAX_LIMIT}.",
+            )
+        return limit
+
+    def _fetch_user_rows(
+        self, *, tenant_id: UUID, is_active: bool | None, limit: int
+    ) -> list[User] | ToolResult:
+        """Load one ordered page of users for the resolved tenant.
+
+        Narrow error mapping as before: the query is wrapped so a DB
+        failure is logged and answered with ``INTERNAL_ERROR`` — the
+        exception detail never reaches the caller. Rows are ordered by
+        ``username`` and cut to the page size.
+        """
+        try:
+            qs = User.objects.filter(tenant_id=tenant_id)
+            if is_active is not None:
+                qs = qs.filter(is_active=is_active)
+            return list(qs.order_by("username")[:limit])
+        except Exception:
+            logger.exception("user.list: DB error")
+            return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
+
     def _handle_user_list(
         self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
@@ -801,66 +968,23 @@ class UsersToolGroup(BaseToolGroup):
                 "Permission denied: tenant-admin role required.",
             )
 
-        # Tenant resolution: superuser can override, non-superuser forced.
-        is_superuser = self._caller_is_superuser(auth_context.user_id)
-        tenant_id_param = optional_uuid(params, "tenant_id")
-        if tenant_id_param is not None:
-            if not is_superuser and tenant_id_param != auth_context.tenant_id:
-                return ToolResult.error(
-                    "PERMISSION_DENIED",
-                    "Parameter 'tenant_id' must equal the caller's tenant "
-                    "unless the caller is a superuser.",
-                )
-            tenant_id = tenant_id_param
-        else:
-            tenant_id = auth_context.tenant_id
+        tenant_id = self._resolve_list_tenant(params, auth_context)
+        if isinstance(tenant_id, ToolResult):
+            return tenant_id
 
-        # is_active filter
-        is_active_raw = params.get("is_active")
-        if is_active_raw is None or is_active_raw == "":
-            is_active_filter: Optional[bool] = None
-        elif isinstance(is_active_raw, bool):
-            is_active_filter = is_active_raw
-        elif isinstance(is_active_raw, str):
-            lowered = is_active_raw.strip().lower()
-            if lowered in ("true", "1", "yes"):
-                is_active_filter = True
-            elif lowered in ("false", "0", "no"):
-                is_active_filter = False
-            else:
-                return ToolResult.error(
-                    "VALIDATION_ERROR",
-                    "Parameter 'is_active' must be a boolean.",
-                )
-        else:
-            return ToolResult.error(
-                "VALIDATION_ERROR",
-                "Parameter 'is_active' must be a boolean.",
-            )
+        is_active_filter = self._parse_is_active_filter(params)
+        if isinstance(is_active_filter, ToolResult):
+            return is_active_filter
 
-        # limit
-        limit_raw = params.get("limit", _LIST_DEFAULT_LIMIT)
-        try:
-            limit = int(limit_raw)
-        except (TypeError, ValueError):
-            return ToolResult.error(
-                "VALIDATION_ERROR",
-                "Parameter 'limit' must be an integer.",
-            )
-        if limit < 1 or limit > _LIST_MAX_LIMIT:
-            return ToolResult.error(
-                "VALIDATION_ERROR",
-                f"Parameter 'limit' must be in 1..{_LIST_MAX_LIMIT}.",
-            )
+        limit = self._parse_list_limit(params)
+        if isinstance(limit, ToolResult):
+            return limit
 
-        try:
-            qs = User.objects.filter(tenant_id=tenant_id)
-            if is_active_filter is not None:
-                qs = qs.filter(is_active=is_active_filter)
-            rows = list(qs.order_by("username")[:limit])
-        except Exception as exc:
-            logger.exception("user.list: DB error")
-            return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
+        rows = self._fetch_user_rows(
+            tenant_id=tenant_id, is_active=is_active_filter, limit=limit
+        )
+        if isinstance(rows, ToolResult):
+            return rows
 
         return ToolResult.ok(
             {
