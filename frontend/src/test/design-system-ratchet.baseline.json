@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "recordedAt": "2026-10-07",
+  "recordedAt": "2026-10-10",
   "recordedBy": "DESIGN_SYSTEM_RATCHET_DUMP=1 npx vitest run src/test/design-system-ratchet.test.ts",
   "checks": {
     "button-missing-design-system-class": {
@@ -78,17 +78,17 @@
         "button-missing-design-system-class::components/DiagramView/DiagramDetailView.tsx::button[data-testid=diagram-viewmode-code-btn]",
         "button-missing-design-system-class::components/DiagramView/DiagramDetailView.tsx::button[data-testid=diagram-viewmode-visual-btn]",
         "button-missing-design-system-class::components/DiagramView/DiagramList.tsx::button[data-testid=diagram-delete-${item.id}]",
+        "button-missing-design-system-class::components/GlossaryView/GlossaryDetailPanel.tsx::button[data-testid=glossary-detail-delete-btn]",
+        "button-missing-design-system-class::components/GlossaryView/GlossaryDetailPanel.tsx::button[data-testid=glossary-detail-edit-btn]",
+        "button-missing-design-system-class::components/GlossaryView/GlossarySynonyms.tsx::button[data-testid=glossary-synonym-cancel-${term.id}-${idx}]",
+        "button-missing-design-system-class::components/GlossaryView/GlossarySynonyms.tsx::button[data-testid=glossary-synonym-link-${term.id}-${idx}]",
+        "button-missing-design-system-class::components/GlossaryView/GlossarySynonyms.tsx::button[data-testid=glossary-synonym-linkbtn-${term.id}-${idx}]",
+        "button-missing-design-system-class::components/GlossaryView/GlossarySynonyms.tsx::button[data-testid=glossary-synonym-option-${term.id}-${idx}-${candidate.id}]",
+        "button-missing-design-system-class::components/GlossaryView/GlossaryTermForm.tsx::button[data-testid=glossary-form-cancel]",
+        "button-missing-design-system-class::components/GlossaryView/GlossaryTermForm.tsx::button[data-testid=glossary-form-save]",
+        "button-missing-design-system-class::components/GlossaryView/GlossaryTermList.tsx::button[data-testid=glossary-delete-${term.id}]",
+        "button-missing-design-system-class::components/GlossaryView/GlossaryTermList.tsx::button[data-testid=glossary-edit-${term.id}]",
         "button-missing-design-system-class::components/GlossaryView/GlossaryView.tsx::button[data-testid=glossary-create-link-button]",
-        "button-missing-design-system-class::components/GlossaryView/GlossaryView.tsx::button[data-testid=glossary-delete-${term.id}]",
-        "button-missing-design-system-class::components/GlossaryView/GlossaryView.tsx::button[data-testid=glossary-detail-delete-btn]",
-        "button-missing-design-system-class::components/GlossaryView/GlossaryView.tsx::button[data-testid=glossary-detail-edit-btn]",
-        "button-missing-design-system-class::components/GlossaryView/GlossaryView.tsx::button[data-testid=glossary-edit-${term.id}]",
-        "button-missing-design-system-class::components/GlossaryView/GlossaryView.tsx::button[data-testid=glossary-form-cancel]",
-        "button-missing-design-system-class::components/GlossaryView/GlossaryView.tsx::button[data-testid=glossary-form-save]",
-        "button-missing-design-system-class::components/GlossaryView/GlossaryView.tsx::button[data-testid=glossary-synonym-cancel-${term.id}-${idx}]",
-        "button-missing-design-system-class::components/GlossaryView/GlossaryView.tsx::button[data-testid=glossary-synonym-link-${term.id}-${idx}]",
-        "button-missing-design-system-class::components/GlossaryView/GlossaryView.tsx::button[data-testid=glossary-synonym-linkbtn-${term.id}-${idx}]",
-        "button-missing-design-system-class::components/GlossaryView/GlossaryView.tsx::button[data-testid=glossary-synonym-option-${term.id}-${idx}-${candidate.id}]",
         "button-missing-design-system-class::components/IcdView/IcdDetailPane.tsx::button[data-testid=icd-new-version-btn]",
         "button-missing-design-system-class::components/IcdView/IcdDetailPane.tsx::button[data-testid=icd-new-version-cancel]",
         "button-missing-design-system-class::components/IcdView/IcdDetailPane.tsx::button[data-testid=icd-new-version-submit]",
@@ -370,7 +370,7 @@
     "button-missing-design-system-class::components/DiagramGraphEditor/GraphNode.tsx::div[data-testid=graph-node-${node.id}]": {
       "reason": "React-Flow node/edge wrapper, not a button: selection and dragging are owned by the graph library's own node/edge chrome, so a btn-* class would be wrong (#1099)."
     },
-    "button-missing-design-system-class::components/GlossaryView/GlossaryView.tsx::div[data-testid=glossary-row-${term.id}]": {
+    "button-missing-design-system-class::components/GlossaryView/GlossaryTermList.tsx::div[data-testid=glossary-row-${term.id}]": {
       "reason": "Clickable layout row/region, not a button: the whole row is the hit area and owns its own row chrome, so btn-* button chrome would fight the list/table layout (#1099)."
     },
     "button-missing-design-system-class::components/IcdView/IcdDetailPane.tsx::li[data-testid=similar-icd-${icd.id}]": {
