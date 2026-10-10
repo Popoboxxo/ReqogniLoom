@@ -77,6 +77,7 @@ from persistence.models import (
     PROMPT_TEMPLATE_DEFAULTS as _CORE_PROMPT_TEMPLATE_DEFAULTS,
     ArchitectureElement,
     Requirement,
+    ReviewPolicy,
     StakeholderNeed,
     TraceLink,
     Workspace,
@@ -2025,15 +2026,9 @@ class AiDerivationService(ServiceBase):
             is_approval_gate,
             transition,
         )
-        from application.settings_service import SettingsService
 
-        policy = SettingsService().get_effective_review_policy(
-            ctx, workspace_id=workspace_id
-        )
-        confidence = (
-            self._estimate_confidence(item_type, item_id)
-            if policy.mode == "review_high_risk"
-            else None
+        policy, confidence = self._resolve_auto_approve_policy(
+            item_type, item_id, workspace_id, ctx
         )
 
         current_state = "draft"
@@ -2066,42 +2061,16 @@ class AiDerivationService(ServiceBase):
                 if not available.transitions:
                     break
 
-                has_explicit_target = any(
-                    meta.get("auto_approve_target", False)
-                    for meta in workflow_json.get("state_meta", {}).values()
-                )
-
-                next_transition = next(
-                    (
-                        t
-                        for t in available.transitions
-                        if not get_state_meta(workflow_json, t.to_state).get(
-                            "is_outdated_equivalent", False
-                        )
-                    ),
-                    None,
+                next_transition = self._select_auto_approve_transition(
+                    workflow_json, available.transitions
                 )
                 if next_transition is None:
                     break
 
-                if is_approval_gate(next_transition):
-                    if policy.mode == "review_all":
-                        # Never cross an approval gate unsupervised.
-                        break
-                    if policy.mode == "review_high_risk" and (
-                        confidence is None or confidence < policy.min_confidence
-                    ):
-                        # No (or insufficient) confidence signal — leave the
-                        # gate for a human.
-                        break
-                    if (
-                        policy.mode in ("auto", "review_changes")
-                        and not has_explicit_target
-                    ):
-                        # No explicit destination defined for this preset —
-                        # fall back to the safe default: never cross an
-                        # approval decision unsupervised.
-                        break
+                if is_approval_gate(next_transition) and not self._auto_approve_gate_allows(
+                    workflow_json, policy, confidence
+                ):
+                    break
 
                 result = transition(
                     item_id=item_id,
@@ -2121,6 +2090,84 @@ class AiDerivationService(ServiceBase):
                 exc_info=True,
             )
         return current_state
+
+    def _resolve_auto_approve_policy(
+        self,
+        item_type: str,
+        item_id: UUID | str,
+        workspace_id: UUID | str,
+        ctx: AuthContext,
+    ) -> tuple[ReviewPolicy, float | None]:
+        """Resolve the effective ``ReviewPolicy`` plus its confidence signal.
+
+        Phase 5 (REQ-L2-RV-001) pre-flight for :meth:`_auto_approve`: the
+        confidence estimate is only needed for ``mode="review_high_risk"`` and
+        stays ``None`` ("no signal") for every other mode. A failing policy
+        lookup deliberately propagates — the best-effort tolerance of
+        :meth:`_auto_approve` covers the state walk, not its configuration
+        pre-flight.
+        """
+        from application.settings_service import SettingsService
+
+        policy = SettingsService().get_effective_review_policy(
+            ctx, workspace_id=workspace_id
+        )
+        confidence = (
+            self._estimate_confidence(item_type, item_id)
+            if policy.mode == "review_high_risk"
+            else None
+        )
+        return policy, confidence
+
+    @staticmethod
+    def _select_auto_approve_transition(
+        workflow_json: dict[str, Any], transitions: list[Any]
+    ) -> Any | None:
+        """Return the first transition that does not lead into a state flagged
+        ``is_outdated_equivalent`` (Phase 0).
+
+        The walk must never pick a dead-end target — such a state means
+        "done/superseded", not "just created". ``None`` means every remaining
+        transition leads into one and the caller stops the walk.
+        """
+        from workflow.definition_store import get_state_meta
+
+        return next(
+            (
+                t
+                for t in transitions
+                if not get_state_meta(workflow_json, t.to_state).get(
+                    "is_outdated_equivalent", False
+                )
+            ),
+            None,
+        )
+
+    @staticmethod
+    def _auto_approve_gate_allows(
+        workflow_json: dict[str, Any], policy: ReviewPolicy, confidence: float | None
+    ) -> bool:
+        """Decide whether an approval-gate transition may be crossed (Phase 5).
+
+        ``review_all`` never crosses. ``review_high_risk`` crosses only with a
+        confidence signal ``>= policy.min_confidence`` (``None`` is no signal).
+        ``auto``/``review_changes`` cross only when the workflow defines an
+        explicit ``auto_approve_target`` somewhere — without one the first
+        approval decision is left to a human, regardless of the roles the
+        actor holds.
+        """
+        has_explicit_target = any(
+            meta.get("auto_approve_target", False)
+            for meta in workflow_json.get("state_meta", {}).values()
+        )
+        return not (
+            policy.mode == "review_all"
+            or (
+                policy.mode == "review_high_risk"
+                and (confidence is None or confidence < policy.min_confidence)
+            )
+            or (policy.mode in ("auto", "review_changes") and not has_explicit_target)
+        )
 
     def _estimate_confidence(
         self, item_type: str, item_id: "UUID | str"

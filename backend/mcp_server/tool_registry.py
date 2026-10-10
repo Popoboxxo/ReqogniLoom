@@ -36,7 +36,7 @@ import hashlib
 import logging
 import time
 from collections import OrderedDict
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, NamedTuple, Optional, Tuple
 from uuid import UUID
 
 from auth_tenancy.context import AuthContext, AuthMethod
@@ -835,6 +835,22 @@ class ToolGroupRouter:
 # ---------------------------------------------------------------------------
 
 
+class _DispatchContext(NamedTuple):
+    """What :meth:`ToolRegistry.dispatch_request` resolves before the run.
+
+    Carries the role-resolved context the tool is executed with, the context
+    the access gates are evaluated on (the two may name different workspaces,
+    see :meth:`ToolRegistry._scoped_gate_context`), the routed tool group and
+    the workspace ids the preset gate needs.
+    """
+
+    auth_ctx: AuthContext
+    gate_ctx: AuthContext
+    group: Any
+    workspace_id: str | None
+    scope_workspace_id: str | None
+
+
 class ToolRegistry:
     """Central dispatch and access-control gate for MCP tools (COMP-MC-002).
 
@@ -1221,117 +1237,201 @@ class ToolRegistry:
             if auth_ctx is not None and auth_ctx.tenant_id is not None:
                 set_request_tenant(auth_ctx.tenant_id)
 
-            # --- Step 2: Resolve active roles ---
-            workspace_id: Optional[str] = params.get("workspace_id")
-            if workspace_id and not self._workspace_exists_fn(workspace_id):
-                return ToolResult.error(
-                    "NOT_FOUND", f"Workspace '{workspace_id}' does not exist."
-                )
-            # GitHub #37: instance-level tools (e.g. admin.backup_create) are
-            # not workspace-bound; an incidental workspace_id in params must
-            # not narrow the caller's roles to that single workspace.
-            role_workspace_id = (
-                None if tool_name in _INSTANCE_LEVEL_TOOLS else workspace_id
-            )
-            auth_ctx = self._resolve_roles(auth_ctx, role_workspace_id)  # type: ignore[arg-type]
+            context, error = self._resolve_dispatch_context(tool_name, params, auth_ctx)
+            if error is not None:
+                return error
 
-            # --- Step 2b: Existence check (ADR-L3-MC002-03) ---
-            # Resolved before the RBAC gate: an unrecognised tool name never
-            # reaches a handler regardless of the RBAC outcome, so gating it
-            # on WRITE first would (a) leak PERMISSION_DENIED for names that
-            # don't exist and (b) since #99's fail-closed default treats any
-            # unrecognised name as a write tool, would mask UNKNOWN_TOOL
-            # behind a 403 for callers without write roles. Route once here;
-            # the resolved group is reused by Step 5 (no double routing).
-            assert self._router is not None
-            group, route_error = self._router.route(tool_name)
-            if route_error:
-                return ToolResult.error("UNKNOWN_TOOL", f"Unknown tool: '{tool_name}'")
-
-            # --- Step 3: RBAC (REQ-L2-MC-007, Systemaudit 2026-08-29 §6.5) ---
-            # The gate is evaluated against the workspace the call actually
-            # targets. When that workspace is not named in ``workspace_id``,
-            # ``mcp_server.workspace_scope`` derives it from the object the
-            # call addresses by id; see that module for why both the read and
-            # the write path need it.
-            gate_ctx, scope_workspace_id = self._scoped_gate_context(
-                tool_name, params, auth_ctx, role_workspace_id  # type: ignore[arg-type]
-            )
-
-            # --- Step 3a: API-key workspace fence (security review B3) ---
-            # Runs before every other gate, including the RBAC exemptions: a
-            # key fenced to workspace A must not reach workspace B through any
-            # path. REST gets this for free because it builds its AuthContext
-            # via ``TenantContextService.build_auth_context``; MCP constructs
-            # the context itself (see ``_validate_api_key``/``_resolve_roles``)
-            # and therefore never inherited the fence.
-            fence_error = self._check_workspace_fence(gate_ctx, scope_workspace_id)
-            if fence_error:
-                return ToolResult.error("PERMISSION_DENIED", fence_error)
-
-            if self._is_write_tool(tool_name):
-                # Security review B2: the key-scope gate is evaluated BEFORE
-                # the two RBAC exemptions, not inside ``_check_rbac`` which
-                # they skip. Scope and RBAC-exemption are orthogonal: being
-                # exempt from the *role* matrix (bootstrap, tenant-admin) must
-                # never exempt a caller from the capability tier their key was
-                # issued with, or a read-scoped bootstrap/tenant-admin key
-                # could write freely.
-                #
-                # #865: the required tier depends on the tool — governance
-                # namespaces need the ADMIN tier, ordinary content writes only
-                # the AUTHOR tier (see ``_required_scope_operation``). Legacy
-                # ``write`` keys are the ADMIN tier and are unaffected.
-                scope_error = scope_denial_reason(
-                    gate_ctx.scope, self._required_scope_operation(tool_name)
-                )
-                if scope_error:
-                    return ToolResult.error("PERMISSION_DENIED", scope_error)
-
-                if not self._is_bootstrap_candidate(
-                    tool_name, params, auth_ctx  # type: ignore[arg-type]
-                ) and not self._is_tenant_admin_exempt(
-                    tool_name, auth_ctx  # type: ignore[arg-type]
-                ):
-                    rbac_error = self._check_rbac(gate_ctx, tool_name)
-                    if rbac_error:
-                        return ToolResult.error("PERMISSION_DENIED", rbac_error)
-            elif scope_workspace_id is not None:
-                read_error = self._check_read_rbac(gate_ctx, tool_name)
-                if read_error:
-                    return ToolResult.error("PERMISSION_DENIED", read_error)
-
-            # --- Step 4: Preset feature gate (REQ-L2-MC-008) ---
-            if workspace_id:
-                preset_error = self._check_preset(workspace_id, tool_name)
-                if preset_error:
-                    return ToolResult.error(
-                        "FEATURE_NOT_ENABLED",
-                        f"Tool '{tool_name}' is not available in the active workspace preset.",
-                    )
-
-            # --- Step 5: Route to tool group (ADR-L3-MC002-03) ---
-            # (already resolved in Step 2b above)
+            error = self._authorize_tool_call(context, tool_name, params)
+            if error is not None:
+                return error
 
             # --- Step 6: Execute tool ---
-            try:
-                result: ToolResult = group.execute_tool(  # type: ignore[union-attr]
-                    tool_name=tool_name,
-                    params=params,
-                    auth_context=auth_ctx,
-                    api_key=api_key,
-                )
-                return result
-            except Exception as exc:
-                # fix #108: outer safety net — same masking as
-                # BaseToolGroup.execute_tool's inner catch-all, in case a
-                # tool group's execute_tool override raises before reaching it.
-                logger.exception("Unexpected error in tool group for tool=%s", tool_name)
-                return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
+            return self._execute_tool_call(context, tool_name, params, api_key)
         finally:
             from persistence.middleware import clear_request_tenant
 
             clear_request_tenant()
+
+    def _resolve_dispatch_context(
+        self,
+        tool_name: str,
+        params: dict[str, Any],
+        auth_ctx: AuthContext | None,
+    ) -> tuple[_DispatchContext | None, ToolResult | None]:
+        """Resolve the call's workspace, roles and tool group (Steps 2-2b).
+
+        A named ``workspace_id`` that does not exist fails NOT_FOUND *before*
+        routing, and routing happens *before* the RBAC gate so an unrecognised
+        tool name never leaks PERMISSION_DENIED. The route is resolved once
+        here and reused when the call is executed (no double routing).
+
+        Returns:
+            ``(context, None)`` on success; ``(None, error)`` for the
+            NOT_FOUND and UNKNOWN_TOOL paths.
+        """
+        # --- Step 2: Resolve active roles ---
+        workspace_id: str | None = params.get("workspace_id")
+        if workspace_id and not self._workspace_exists_fn(workspace_id):
+            return None, ToolResult.error(
+                "NOT_FOUND", f"Workspace '{workspace_id}' does not exist."
+            )
+        # GitHub #37: instance-level tools (e.g. admin.backup_create) are
+        # not workspace-bound; an incidental workspace_id in params must
+        # not narrow the caller's roles to that single workspace.
+        role_workspace_id = None if tool_name in _INSTANCE_LEVEL_TOOLS else workspace_id
+        auth_ctx = self._resolve_roles(auth_ctx, role_workspace_id)  # type: ignore[arg-type]
+
+        # --- Step 2b: Existence check (ADR-L3-MC002-03) ---
+        # Resolved before the RBAC gate: an unrecognised tool name never
+        # reaches a handler regardless of the RBAC outcome, so gating it
+        # on WRITE first would (a) leak PERMISSION_DENIED for names that
+        # don't exist and (b) since #99's fail-closed default treats any
+        # unrecognised name as a write tool, would mask UNKNOWN_TOOL
+        # behind a 403 for callers without write roles. Route once here;
+        # the resolved group is reused when the call is executed
+        # (no double routing).
+        assert self._router is not None
+        group, route_error = self._router.route(tool_name)
+        if route_error:
+            return None, ToolResult.error("UNKNOWN_TOOL", f"Unknown tool: '{tool_name}'")
+
+        # --- Step 3: RBAC (REQ-L2-MC-007, Systemaudit 2026-08-29 §6.5) ---
+        # The gate is evaluated against the workspace the call actually
+        # targets. When that workspace is not named in ``workspace_id``,
+        # ``mcp_server.workspace_scope`` derives it from the object the
+        # call addresses by id; see that module for why both the read and
+        # the write path need it.
+        gate_ctx, scope_workspace_id = self._scoped_gate_context(
+            tool_name, params, auth_ctx, role_workspace_id  # type: ignore[arg-type]
+        )
+        return (
+            _DispatchContext(
+                auth_ctx=auth_ctx,
+                gate_ctx=gate_ctx,
+                group=group,
+                workspace_id=workspace_id,
+                scope_workspace_id=scope_workspace_id,
+            ),
+            None,
+        )
+
+    def _authorize_tool_call(
+        self,
+        context: _DispatchContext,
+        tool_name: str,
+        params: dict[str, Any],
+    ) -> ToolResult | None:
+        """Run every gate between routing and execution (Steps 3a-4).
+
+        Order matters and is fixed: the API-key workspace fence first (it
+        applies on every path, including the RBAC exemptions), then the write
+        or read RBAC branch, then the preset feature gate.
+
+        Returns:
+            The error to answer with, or ``None`` when the call may proceed.
+        """
+        # --- Step 3a: API-key workspace fence (security review B3) ---
+        # Runs before every other gate, including the RBAC exemptions: a
+        # key fenced to workspace A must not reach workspace B through any
+        # path. REST gets this for free because it builds its AuthContext
+        # via ``TenantContextService.build_auth_context``; MCP constructs
+        # the context itself (see ``_validate_api_key``/``_resolve_roles``)
+        # and therefore never inherited the fence.
+        fence_error = self._check_workspace_fence(
+            context.gate_ctx, context.scope_workspace_id
+        )
+        if fence_error:
+            return ToolResult.error("PERMISSION_DENIED", fence_error)
+
+        if self._is_write_tool(tool_name):
+            error = self._authorize_write_tool(context, tool_name, params)
+            if error is not None:
+                return error
+        elif context.scope_workspace_id is not None:
+            read_error = self._check_read_rbac(context.gate_ctx, tool_name)
+            if read_error:
+                return ToolResult.error("PERMISSION_DENIED", read_error)
+
+        # --- Step 4: Preset feature gate (REQ-L2-MC-008) ---
+        if context.workspace_id:
+            preset_error = self._check_preset(context.workspace_id, tool_name)
+            if preset_error:
+                return ToolResult.error(
+                    "FEATURE_NOT_ENABLED",
+                    f"Tool '{tool_name}' is not available in the active workspace preset.",
+                )
+        return None
+
+    def _authorize_write_tool(
+        self,
+        context: _DispatchContext,
+        tool_name: str,
+        params: dict[str, Any],
+    ) -> ToolResult | None:
+        """Gate a write tool on the key's capability tier, then on the matrix.
+
+        The two RBAC exemptions are evaluated last: an exempted caller still
+        has to hold a key whose scope covers the required tier.
+
+        Returns:
+            The error to answer with, or ``None`` when the call may proceed.
+        """
+        # Security review B2: the key-scope gate is evaluated BEFORE
+        # the two RBAC exemptions, not inside ``_check_rbac`` which
+        # they skip. Scope and RBAC-exemption are orthogonal: being
+        # exempt from the *role* matrix (bootstrap, tenant-admin) must
+        # never exempt a caller from the capability tier their key was
+        # issued with, or a read-scoped bootstrap/tenant-admin key
+        # could write freely.
+        #
+        # #865: the required tier depends on the tool — governance
+        # namespaces need the ADMIN tier, ordinary content writes only
+        # the AUTHOR tier (see ``_required_scope_operation``). Legacy
+        # ``write`` keys are the ADMIN tier and are unaffected.
+        scope_error = scope_denial_reason(
+            context.gate_ctx.scope, self._required_scope_operation(tool_name)
+        )
+        if scope_error:
+            return ToolResult.error("PERMISSION_DENIED", scope_error)
+
+        if self._is_bootstrap_candidate(
+            tool_name, params, context.auth_ctx  # type: ignore[arg-type]
+        ) or self._is_tenant_admin_exempt(
+            tool_name, context.auth_ctx  # type: ignore[arg-type]
+        ):
+            return None
+
+        rbac_error = self._check_rbac(context.gate_ctx, tool_name)
+        if rbac_error:
+            return ToolResult.error("PERMISSION_DENIED", rbac_error)
+        return None
+
+    def _execute_tool_call(
+        self,
+        context: _DispatchContext,
+        tool_name: str,
+        params: dict[str, Any],
+        api_key: str,
+    ) -> ToolResult:
+        """Hand the call to the routed tool group (Step 6).
+
+        Runs inside the TenantContext armed by :meth:`dispatch_request`, which
+        stays active until the group has produced its result.
+        """
+        try:
+            result: ToolResult = context.group.execute_tool(  # type: ignore[union-attr]
+                tool_name=tool_name,
+                params=params,
+                auth_context=context.auth_ctx,
+                api_key=api_key,
+            )
+            return result
+        except Exception as exc:
+            # fix #108: outer safety net — same masking as
+            # BaseToolGroup.execute_tool's inner catch-all, in case a
+            # tool group's execute_tool override raises before reaching it.
+            logger.exception("Unexpected error in tool group for tool=%s", tool_name)
+            return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
 
     # ------------------------------------------------------------------
     # Internal helpers

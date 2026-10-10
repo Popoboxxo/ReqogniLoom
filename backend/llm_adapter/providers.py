@@ -28,12 +28,13 @@ Note on ResilienceOrchestrator (IF-L1-050, ADR-LA-04, REQ-082):
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 import time
 import warnings
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Optional, Type
+from typing import Any, Callable, ClassVar, Dict, List, Optional, Type
 
 from llm_adapter.interface import (
     LlmCapabilityInterface,
@@ -543,6 +544,430 @@ class MockLlmProvider(LlmCapabilityInterface):
             ],
         )
 
+    # -----------------------------------------------------------------------
+    # Deterministic mock payload builders (REQ-L2-AI-002)
+    #
+    # ``complete`` dispatches on ``purpose`` via ``_MOCK_PURPOSE_PAYLOADS``
+    # below. Each builder is a pure function of the caller-provided context
+    # dict, so a purpose's output shape can be read and tested in isolation
+    # and the dispatch method itself carries no control flow. An unknown
+    # purpose falls back to an empty JSON array — the behaviour the original
+    # if-chain had for every unmatched purpose.
+    # -----------------------------------------------------------------------
+
+    @staticmethod
+    def _mock_need_to_sysreq(ctx: dict) -> str:
+        """Return N derived system requirement drafts (AiDerivationService).
+
+        Context key renamed from ``n`` to ``max_requirements_per_need``
+        when the count moved into the prompt-variable catalog (spec
+        §4) — the caller now sends the resolved cap (``None`` when
+        unset), but the mock still treats it as "how many to
+        generate" for a deterministic, testable draft count.
+        """
+        raw_count = ctx.get("max_requirements_per_need")
+        count = max(1, int(raw_count)) if raw_count is not None else 3
+        return json.dumps(
+            [
+                {
+                    "title": f"Derived system requirement {i + 1}",
+                    "description": "The system shall satisfy the stakeholder need.",
+                    "rationale": "Derived from the stakeholder need by the mock provider.",
+                }
+                for i in range(count)
+            ]
+        )
+
+    @staticmethod
+    def _mock_sysreq_to_arch_assign(ctx: dict) -> str:
+        """Return the first offered architecture element id (empty list if none).
+
+        ``arch_element_ids`` is the list of candidate element id strings the
+        caller resolved; the mock suggests only the first one.
+        """
+        arch_ids = list(ctx.get("arch_element_ids", []))
+        # Suggest the first available element (empty list if none provided).
+        return json.dumps(arch_ids[:1])
+
+    @staticmethod
+    def _mock_sysreq_decompose_next_level(ctx: dict) -> str:
+        """Return two decomposed requirement drafts for one architecture level.
+
+        The first draft attaches to the first offered architecture element,
+        the second deliberately carries ``suggested_arch_element_id: None``
+        so the "requirement without element" branch stays exercised.
+        """
+        arch_ids = list(ctx.get("arch_element_ids", []))
+        first = arch_ids[0] if arch_ids else None
+        return json.dumps(
+            [
+                {
+                    "title": "Decomposed requirement 1",
+                    "description": "The subsystem shall refine the parent requirement.",
+                    "rationale": "Refinement produced by the mock provider.",
+                    "suggested_arch_element_id": first,
+                },
+                {
+                    "title": "Decomposed requirement 2",
+                    "description": "The subsystem shall cover a second concern.",
+                    "rationale": "Refinement produced by the mock provider.",
+                    "suggested_arch_element_id": None,
+                },
+            ]
+        )
+
+    @staticmethod
+    def _mock_arch_tree_nodes(
+        prefix: str,
+        level: int,
+        breadth: int,
+        depth: int,
+        title_base: str,
+    ) -> list:
+        """Recursively build one level of the decomposition tree (breadth/depth).
+
+        Inner nodes are typed "subsystem", leaves "component" — element_type
+        is a descriptive tag only (the authoritative role is derived from tree
+        position, UMSETZUNGSPLAN_SYSENG_2.0.md §1.2).
+        """
+        nodes = []
+        for i in range(breadth):
+            label = f"{prefix}{i + 1}"
+            has_children = level < depth
+            nodes.append(
+                {
+                    "title": f"{title_base} · Element {label}",
+                    "description": (
+                        f"Decomposed element {label} of {title_base}."
+                    ),
+                    "element_type": (
+                        "subsystem" if has_children else "component"
+                    ),
+                    "requirement": {
+                        "title": f"Requirement for {title_base} · {label}",
+                        "description": (
+                            f"The element {label} shall fulfil its "
+                            f"allocated part of {title_base}."
+                        ),
+                        "rationale": (
+                            "Derived by the mock provider during "
+                            "architecture decomposition."
+                        ),
+                    },
+                    "children": (
+                        MockLlmProvider._mock_arch_tree_nodes(
+                            f"{label}.", level + 1, breadth, depth, title_base
+                        )
+                        if has_children
+                        else []
+                    ),
+                }
+            )
+        return nodes
+
+    @staticmethod
+    def _mock_arch_decompose_tree(ctx: dict) -> str:
+        """Return a deterministic, recursive decomposition tree.
+
+        SysEng 2.0 N1 (architecture.decompose): each node bundles a child
+        ArchitectureElement with a single derived Requirement so the N1
+        service can emit the full internal link set (decomposes /
+        derives-from / allocated-to). ``max_breadth`` children per level,
+        nested ``max_depth`` levels deep.
+
+        Context keys renamed from breadth/depth to max_breadth/max_depth
+        when the prompt+caps moved into the prompt-variable catalog
+        (spec §4) — the caller now sends the resolved *cap*, not a
+        target count, but the mock still treats it as "how many to
+        generate" for a deterministic, testable tree shape.
+        """
+        breadth = max(1, int(ctx.get("max_breadth", 2)))
+        depth = max(1, int(ctx.get("max_depth", 1)))
+        title_base = str(ctx.get("element_title") or "System")
+        return json.dumps(
+            MockLlmProvider._mock_arch_tree_nodes("", 1, breadth, depth, title_base)
+        )
+
+    @staticmethod
+    def _mock_test_derive_from_requirement(ctx: dict) -> str:
+        """Return a deterministic single TestCase draft (title, description, steps).
+
+        SysEng 2.0 N5 (test.derive_from_requirement): unlike the array-shaped
+        purposes, this returns a single JSON *object* —
+        AiDerivationService._parse_json_object expects that shape.
+        """
+        req_title = str(ctx.get("req_title") or "Requirement")
+        return json.dumps(
+            {
+                "title": f"Test: {req_title}",
+                "description": (
+                    f"Verifies that the system satisfies '{req_title}'."
+                ),
+                "steps": [
+                    {
+                        "step": "Set up preconditions for the requirement under test.",
+                        "expected_result": "System is in the required initial state.",
+                    },
+                    {
+                        "step": f"Exercise the behaviour described by '{req_title}'.",
+                        "expected_result": "The system behaves as specified by the requirement.",
+                    },
+                ],
+            }
+        )
+
+    @staticmethod
+    def _mock_audit_ai_review(ctx: dict) -> str:
+        """Return the handed-in findings grouped into refactoring packages.
+
+        SysEng 2.0 N8 (audit.ai_review): deterministic grouping of the
+        findings AiReviewService handed in via ``ctx["findings"]`` (each a
+        dict with index/rule_id/severity/artifact_ids/scope/
+        scope_artifact_id, see AiReviewService._finding_payload). The
+        mock never invents an index — it only re-emits the 'index'
+        values it was given, grouped by (rule_id, scope_artifact_id),
+        so AiReviewService's referential-integrity resolution always
+        finds a match (§4 Phase 4b acceptance criterion).
+        """
+        findings = ctx.get("findings")
+        findings = findings if isinstance(findings, list) else []
+        groups: Dict[tuple, List[dict]] = {}
+        order: List[tuple] = []
+        for entry in findings:
+            if not isinstance(entry, dict):
+                continue
+            key = (entry.get("rule_id"), entry.get("scope_artifact_id"))
+            if key not in groups:
+                groups[key] = []
+                order.append(key)
+            groups[key].append(entry)
+
+        packages = []
+        for key in order:
+            rule_id, scope_artifact_id = key
+            members = groups[key]
+            scope_label = f" (scope: {scope_artifact_id})" if scope_artifact_id else ""
+            packages.append(
+                {
+                    "title": f"Refactoring package: {rule_id}{scope_label}",
+                    "rationale": (
+                        f"Bundles {len(members)} finding(s) for rule "
+                        f"'{rule_id}'{scope_label} into one strategic "
+                        "correction instead of fixing each one in isolation."
+                    ),
+                    "finding_indices": [
+                        m.get("index") for m in members if "index" in m
+                    ],
+                }
+            )
+        return json.dumps(packages)
+
+    @staticmethod
+    def _mock_traceability_suggest_links(ctx: dict) -> str:
+        """Return the handed-in candidates per finding, order preserved.
+
+        SysEng 2.0 N3 (traceability.suggest_links), first stage —
+        deterministic findings-ranking, no vector search
+        (UMSETZUNGSPLAN_SYSENG_2.0.md §3.2). TraceabilitySuggestService
+        hands in ctx["findings"], each a dict with a 'finding_index'
+        and a 'candidates' array that is ALREADY keyword-overlap-
+        ranked highest-score-first (see
+        TraceabilitySuggestService._build_candidates). The mock never
+        invents a candidate_index or an artifact id — it only re-emits
+        the 'candidate_index' values it was given, preserving their
+        given order, so the service's referential-integrity
+        resolution always finds a match (§4 Phase 4b acceptance
+        criterion: "keine pgvector-Abhängigkeit im Code").
+        """
+        findings = ctx.get("findings")
+        findings = findings if isinstance(findings, list) else []
+        suggestions = []
+        for entry in findings:
+            if not isinstance(entry, dict):
+                continue
+            candidates = entry.get("candidates")
+            candidates = candidates if isinstance(candidates, list) else []
+            indices = [
+                c.get("candidate_index")
+                for c in candidates
+                if isinstance(c, dict) and "candidate_index" in c
+            ]
+            top_title = (
+                candidates[0].get("title")
+                if candidates and isinstance(candidates[0], dict)
+                else None
+            )
+            rationale = (
+                f"Highest keyword overlap with '{top_title}'."
+                if top_title
+                else "No distinguishing keyword overlap found among the candidates."
+            )
+            suggestions.append(
+                {
+                    "finding_index": entry.get("finding_index"),
+                    "ranked_candidate_indices": indices,
+                    "rationale": rationale,
+                }
+            )
+        return json.dumps(suggestions)
+
+    @staticmethod
+    def _mock_context_change_impact(ctx: dict) -> str:
+        """Return every handed-in candidate marked as likely affected.
+
+        REQ-L2-MC-004 (Phase 2, Task 6: context.change_impact) —
+        deterministic ranking mock. Like ``traceability_suggest_links``
+        above, it never invents an id: it only re-emits the 'id'
+        values handed in via ``ctx["candidates"]`` (each already a
+        real trace-linked entity resolved by the MCP tool), so the
+        caller's referential-integrity merge always finds a match.
+        """
+        candidates = ctx.get("candidates")
+        candidates = candidates if isinstance(candidates, list) else []
+        return json.dumps(
+            [
+                {
+                    "id": c.get("id"),
+                    "likely_affected": True,
+                    "rationale": (
+                        "Directly linked to the changed entity via the "
+                        "trace graph (mock provider — no semantic "
+                        "assessment performed)."
+                    ),
+                }
+                for c in candidates
+                if isinstance(c, dict) and c.get("id")
+            ]
+        )
+
+    @staticmethod
+    def _mock_derive_risks_from_architecture(ctx: dict) -> str:
+        """Return one risk draft for the given architecture element.
+
+        Phase 3 (ai_derivation.derive_risks_from_architecture):
+        mirrors the array-shaped purposes above (e.g.
+        sysreq_decompose_next_level) — always emits valid enum values
+        for probability/impact so the happy path never hits the
+        service's defensive clamp, which is instead exercised by a
+        capturing fake provider in tests.
+        """
+        ae_title = str(ctx.get("ae_title") or "Architecture element")
+        return json.dumps(
+            [
+                {
+                    "title": f"Delivery risk for {ae_title}",
+                    "description": (
+                        f"Risk that '{ae_title}' is not delivered on time "
+                        "or does not meet its quality bar."
+                    ),
+                    "probability": "medium",
+                    "impact": "medium",
+                    "category": "technical",
+                }
+            ]
+        )
+
+    @staticmethod
+    def _mock_derive_glossary_from_workspace(ctx: dict) -> str:
+        """Return one glossary-term draft for the given workspace.
+
+        Phase 3, Task 4 (ai_derivation.derive_glossary_from_workspace):
+        never invents workspace content — it just confirms a term was
+        requested for the given workspace, mirroring the shape the real
+        prompt asks for.
+        """
+        workspace_id = str(ctx.get("workspace_id") or "workspace")
+        return json.dumps(
+            [
+                {
+                    "term": f"Term for {workspace_id}",
+                    "definition": (
+                        "Placeholder definition extracted from the "
+                        "workspace's requirements and architecture "
+                        "(mock provider — no semantic extraction "
+                        "performed)."
+                    ),
+                    "synonyms": [],
+                    "abbreviation": "",
+                }
+            ]
+        )
+
+    @staticmethod
+    def _mock_goal_aggregate(ctx: dict) -> str:
+        """Return the aggregated MainGoal prose (Goal/MainGoal feature, fix #229).
+
+        Unlike every other purpose, ``goal_aggregate`` expects free-form prose
+        (2-4 sentences), not a JSON array/object — the factory prompt template
+        explicitly says "Respond with the MainGoal text only"
+        (persistence.models.PROMPT_TEMPLATE_DEFAULTS). Falling through to the
+        generic ``json.dumps([])`` fallback used to produce the literal string
+        "[]" as MainGoal.content. The mock never parses the prompt
+        (context/prompt are ignored per complete()'s docstring), so it echoes
+        the goal titles the caller already resolved into
+        ``ctx["goal_titles"]`` instead of inventing content.
+        """
+        goal_titles = ctx.get("goal_titles")
+        goal_titles = [str(t) for t in goal_titles] if isinstance(goal_titles, list) else []
+        if goal_titles:
+            joined = "; ".join(goal_titles)
+            return (
+                f"This workspace's overarching goal is to achieve: {joined}. "
+                "It unifies the individual goals listed above into one "
+                "shared direction (mock provider — no semantic synthesis "
+                "performed)."
+            )
+        return (
+            "This workspace's overarching goal aggregates its current "
+            "goals into one shared direction (mock provider placeholder "
+            "— no goals were supplied)."
+        )
+
+    @staticmethod
+    def _mock_derive_adr_from_decision(ctx: dict) -> str:
+        """Return one ADR draft structuring the given free-text decision.
+
+        Phase 3, Task 5 (ai_derivation.derive_adr_from_decision): like
+        "test_derive_from_requirement" above this returns a single JSON
+        *object* — AiDerivationService._parse_json_object expects that shape.
+        """
+        decision_description = str(
+            ctx.get("decision_description") or "the decision"
+        )
+        return json.dumps(
+            {
+                "title": f"Decision: {decision_description[:60]}",
+                "description": decision_description,
+                "context": (
+                    "Context extracted from the free-text decision "
+                    "description (mock provider — no semantic "
+                    "extraction performed)."
+                ),
+                "consequences": (
+                    "Consequences not yet assessed (mock provider "
+                    "placeholder)."
+                ),
+            }
+        )
+
+    #: ``purpose`` -> payload builder. Callers of ``complete`` declare one of
+    #: these purposes (see ``llm_adapter.timeouts`` and the prompt-variable
+    #: catalog); every other purpose falls back to ``json.dumps([])``.
+    _MOCK_PURPOSE_PAYLOADS: ClassVar[dict[str, Callable[[dict], str]]] = {
+        "need_to_sysreq": _mock_need_to_sysreq,
+        "sysreq_to_arch_assign": _mock_sysreq_to_arch_assign,
+        "sysreq_decompose_next_level": _mock_sysreq_decompose_next_level,
+        "arch_decompose_tree": _mock_arch_decompose_tree,
+        "test_derive_from_requirement": _mock_test_derive_from_requirement,
+        "audit_ai_review": _mock_audit_ai_review,
+        "traceability_suggest_links": _mock_traceability_suggest_links,
+        "context_change_impact": _mock_context_change_impact,
+        "derive_risks_from_architecture": _mock_derive_risks_from_architecture,
+        "derive_glossary_from_workspace": _mock_derive_glossary_from_workspace,
+        "goal_aggregate": _mock_goal_aggregate,
+        "derive_adr_from_decision": _mock_derive_adr_from_decision,
+    }
+
     def complete(
         self,
         prompt: str,
@@ -560,357 +985,22 @@ class MockLlmProvider(LlmCapabilityInterface):
 
         Args:
             prompt: The (already formatted) prompt text. Ignored by the mock.
-            purpose: One of ``need_to_sysreq``, ``sysreq_to_arch_assign`` or
-                ``sysreq_decompose_next_level``.
+            purpose: One of the keys of ``_MOCK_PURPOSE_PAYLOADS`` — the
+                builders there document their recognised context keys.
             context: Optional structured hints. Recognised keys:
                 ``max_requirements_per_need`` (int) and ``arch_element_ids``
-                (list of id strings).
+                (list of id strings), plus the per-purpose keys documented on
+                each builder.
 
         Returns:
-            A JSON-encoded string appropriate for the declared purpose.
+            A JSON-encoded string appropriate for the declared purpose; an
+            empty JSON array for an unknown purpose.
         """
-        import json
-
         self._simulate()
-        ctx = context or {}
-
-        if purpose == "need_to_sysreq":
-            # Context key renamed from ``n`` to ``max_requirements_per_need``
-            # when the count moved into the prompt-variable catalog (spec
-            # §4) — the caller now sends the resolved cap (``None`` when
-            # unset), but the mock still treats it as "how many to
-            # generate" for a deterministic, testable draft count.
-            raw_count = ctx.get("max_requirements_per_need")
-            count = max(1, int(raw_count)) if raw_count is not None else 3
-            return json.dumps(
-                [
-                    {
-                        "title": f"Derived system requirement {i + 1}",
-                        "description": "The system shall satisfy the stakeholder need.",
-                        "rationale": "Derived from the stakeholder need by the mock provider.",
-                    }
-                    for i in range(count)
-                ]
-            )
-
-        if purpose == "sysreq_to_arch_assign":
-            arch_ids = list(ctx.get("arch_element_ids", []))
-            # Suggest the first available element (empty list if none provided).
-            return json.dumps(arch_ids[:1])
-
-        if purpose == "sysreq_decompose_next_level":
-            arch_ids = list(ctx.get("arch_element_ids", []))
-            first = arch_ids[0] if arch_ids else None
-            return json.dumps(
-                [
-                    {
-                        "title": "Decomposed requirement 1",
-                        "description": "The subsystem shall refine the parent requirement.",
-                        "rationale": "Refinement produced by the mock provider.",
-                        "suggested_arch_element_id": first,
-                    },
-                    {
-                        "title": "Decomposed requirement 2",
-                        "description": "The subsystem shall cover a second concern.",
-                        "rationale": "Refinement produced by the mock provider.",
-                        "suggested_arch_element_id": None,
-                    },
-                ]
-            )
-
-        if purpose == "arch_decompose_tree":
-            # SysEng 2.0 N1 (architecture.decompose): deterministic, recursive
-            # decomposition tree. Each node bundles a child ArchitectureElement
-            # with a single derived Requirement so the N1 service can emit the
-            # full internal link set (decomposes / derives-from / allocated-to).
-            # ``max_breadth`` children per level, nested ``max_depth`` levels
-            # deep; element_type is a descriptive tag only ("subsystem" for
-            # inner nodes, "component" for leaves — the authoritative role is
-            # derived from tree position, UMSETZUNGSPLAN_SYSENG_2.0.md §1.2).
-            # Context keys renamed from breadth/depth to max_breadth/max_depth
-            # when the prompt+caps moved into the prompt-variable catalog
-            # (spec §4) — the caller now sends the resolved *cap*, not a
-            # target count, but the mock still treats it as "how many to
-            # generate" for a deterministic, testable tree shape.
-            breadth = max(1, int(ctx.get("max_breadth", 2)))
-            depth = max(1, int(ctx.get("max_depth", 1)))
-            title_base = str(ctx.get("element_title") or "System")
-
-            def _build(prefix: str, level: int) -> list:
-                nodes = []
-                for i in range(breadth):
-                    label = f"{prefix}{i + 1}"
-                    has_children = level < depth
-                    nodes.append(
-                        {
-                            "title": f"{title_base} · Element {label}",
-                            "description": (
-                                f"Decomposed element {label} of {title_base}."
-                            ),
-                            "element_type": (
-                                "subsystem" if has_children else "component"
-                            ),
-                            "requirement": {
-                                "title": f"Requirement for {title_base} · {label}",
-                                "description": (
-                                    f"The element {label} shall fulfil its "
-                                    f"allocated part of {title_base}."
-                                ),
-                                "rationale": (
-                                    "Derived by the mock provider during "
-                                    "architecture decomposition."
-                                ),
-                            },
-                            "children": (
-                                _build(f"{label}.", level + 1)
-                                if has_children
-                                else []
-                            ),
-                        }
-                    )
-                return nodes
-
-            return json.dumps(_build("", 1))
-
-        if purpose == "test_derive_from_requirement":
-            # SysEng 2.0 N5 (test.derive_from_requirement): deterministic
-            # single TestCase draft (title, description, steps) verifying the
-            # given requirement. Unlike the array-shaped purposes above, this
-            # returns a single JSON *object* —
-            # AiDerivationService._parse_json_object expects that shape.
-            req_title = str(ctx.get("req_title") or "Requirement")
-            return json.dumps(
-                {
-                    "title": f"Test: {req_title}",
-                    "description": (
-                        f"Verifies that the system satisfies '{req_title}'."
-                    ),
-                    "steps": [
-                        {
-                            "step": "Set up preconditions for the requirement under test.",
-                            "expected_result": "System is in the required initial state.",
-                        },
-                        {
-                            "step": f"Exercise the behaviour described by '{req_title}'.",
-                            "expected_result": "The system behaves as specified by the requirement.",
-                        },
-                    ],
-                }
-            )
-
-        if purpose == "audit_ai_review":
-            # SysEng 2.0 N8 (audit.ai_review): deterministic grouping of the
-            # findings AiReviewService handed in via ``context["findings"]``
-            # (each a dict with index/rule_id/severity/artifact_ids/scope/
-            # scope_artifact_id, see AiReviewService._finding_payload). The
-            # mock never invents an index — it only re-emits the 'index'
-            # values it was given, grouped by (rule_id, scope_artifact_id),
-            # so AiReviewService's referential-integrity resolution always
-            # finds a match (§4 Phase 4b acceptance criterion).
-            findings = ctx.get("findings")
-            findings = findings if isinstance(findings, list) else []
-            groups: Dict[tuple, List[dict]] = {}
-            order: List[tuple] = []
-            for entry in findings:
-                if not isinstance(entry, dict):
-                    continue
-                key = (entry.get("rule_id"), entry.get("scope_artifact_id"))
-                if key not in groups:
-                    groups[key] = []
-                    order.append(key)
-                groups[key].append(entry)
-
-            packages = []
-            for key in order:
-                rule_id, scope_artifact_id = key
-                members = groups[key]
-                scope_label = f" (scope: {scope_artifact_id})" if scope_artifact_id else ""
-                packages.append(
-                    {
-                        "title": f"Refactoring package: {rule_id}{scope_label}",
-                        "rationale": (
-                            f"Bundles {len(members)} finding(s) for rule "
-                            f"'{rule_id}'{scope_label} into one strategic "
-                            "correction instead of fixing each one in isolation."
-                        ),
-                        "finding_indices": [
-                            m.get("index") for m in members if "index" in m
-                        ],
-                    }
-                )
-            return json.dumps(packages)
-
-        if purpose == "traceability_suggest_links":
-            # SysEng 2.0 N3 (traceability.suggest_links), first stage —
-            # deterministic findings-ranking, no vector search
-            # (UMSETZUNGSPLAN_SYSENG_2.0.md §3.2). TraceabilitySuggestService
-            # hands in ctx["findings"], each a dict with a 'finding_index'
-            # and a 'candidates' array that is ALREADY keyword-overlap-
-            # ranked highest-score-first (see
-            # TraceabilitySuggestService._build_candidates). The mock never
-            # invents a candidate_index or an artifact id — it only re-emits
-            # the 'candidate_index' values it was given, preserving their
-            # given order, so the service's referential-integrity
-            # resolution always finds a match (§4 Phase 4b acceptance
-            # criterion: "keine pgvector-Abhängigkeit im Code").
-            findings = ctx.get("findings")
-            findings = findings if isinstance(findings, list) else []
-            suggestions = []
-            for entry in findings:
-                if not isinstance(entry, dict):
-                    continue
-                candidates = entry.get("candidates")
-                candidates = candidates if isinstance(candidates, list) else []
-                indices = [
-                    c.get("candidate_index")
-                    for c in candidates
-                    if isinstance(c, dict) and "candidate_index" in c
-                ]
-                top_title = (
-                    candidates[0].get("title")
-                    if candidates and isinstance(candidates[0], dict)
-                    else None
-                )
-                rationale = (
-                    f"Highest keyword overlap with '{top_title}'."
-                    if top_title
-                    else "No distinguishing keyword overlap found among the candidates."
-                )
-                suggestions.append(
-                    {
-                        "finding_index": entry.get("finding_index"),
-                        "ranked_candidate_indices": indices,
-                        "rationale": rationale,
-                    }
-                )
-            return json.dumps(suggestions)
-
-        if purpose == "context_change_impact":
-            # REQ-L2-MC-004 (Phase 2, Task 6: context.change_impact) —
-            # deterministic ranking mock. Like ``traceability_suggest_links``
-            # above, it never invents an id: it only re-emits the 'id'
-            # values handed in via ``ctx["candidates"]`` (each already a
-            # real trace-linked entity resolved by the MCP tool), so the
-            # caller's referential-integrity merge always finds a match.
-            candidates = ctx.get("candidates")
-            candidates = candidates if isinstance(candidates, list) else []
-            return json.dumps(
-                [
-                    {
-                        "id": c.get("id"),
-                        "likely_affected": True,
-                        "rationale": (
-                            "Directly linked to the changed entity via the "
-                            "trace graph (mock provider — no semantic "
-                            "assessment performed)."
-                        ),
-                    }
-                    for c in candidates
-                    if isinstance(c, dict) and c.get("id")
-                ]
-            )
-
-        if purpose == "derive_risks_from_architecture":
-            # Phase 3 (ai_derivation.derive_risks_from_architecture):
-            # deterministic risk drafts for the given architecture element.
-            # Mirrors the array-shaped purposes above (e.g.
-            # sysreq_decompose_next_level) — always emits valid enum values
-            # for probability/impact so the happy path never hits the
-            # service's defensive clamp, which is instead exercised by a
-            # capturing fake provider in tests.
-            ae_title = str(ctx.get("ae_title") or "Architecture element")
-            return json.dumps(
-                [
-                    {
-                        "title": f"Delivery risk for {ae_title}",
-                        "description": (
-                            f"Risk that '{ae_title}' is not delivered on time "
-                            "or does not meet its quality bar."
-                        ),
-                        "probability": "medium",
-                        "impact": "medium",
-                        "category": "technical",
-                    }
-                ]
-            )
-
-        if purpose == "derive_glossary_from_workspace":
-            # Phase 3, Task 4 (ai_derivation.derive_glossary_from_workspace):
-            # deterministic single-term draft. Never invents workspace
-            # content — it just confirms a term was requested for the given
-            # workspace, mirroring the shape the real prompt asks for.
-            workspace_id = str(ctx.get("workspace_id") or "workspace")
-            return json.dumps(
-                [
-                    {
-                        "term": f"Term for {workspace_id}",
-                        "definition": (
-                            "Placeholder definition extracted from the "
-                            "workspace's requirements and architecture "
-                            "(mock provider — no semantic extraction "
-                            "performed)."
-                        ),
-                        "synonyms": [],
-                        "abbreviation": "",
-                    }
-                ]
-            )
-
-        if purpose == "goal_aggregate":
-            # MainGoalService.generate_ai (Goal/MainGoal feature, fix #229):
-            # unlike every other purpose above, ``goal_aggregate`` expects
-            # free-form prose (2-4 sentences), not a JSON array/object — the
-            # factory prompt template explicitly says "Respond with the
-            # MainGoal text only" (persistence.models.PROMPT_TEMPLATE_DEFAULTS).
-            # Falling through to the generic ``json.dumps([])`` fallback below
-            # produced the literal string "[]" as MainGoal.content. The mock
-            # never parses the prompt (context/prompt are ignored per this
-            # method's docstring), so it echoes the goal titles the caller
-            # already resolved into ``context["goal_titles"]`` instead of
-            # inventing content.
-            goal_titles = ctx.get("goal_titles")
-            goal_titles = [str(t) for t in goal_titles] if isinstance(goal_titles, list) else []
-            if goal_titles:
-                joined = "; ".join(goal_titles)
-                return (
-                    f"This workspace's overarching goal is to achieve: {joined}. "
-                    "It unifies the individual goals listed above into one "
-                    "shared direction (mock provider — no semantic synthesis "
-                    "performed)."
-                )
-            return (
-                "This workspace's overarching goal aggregates its current "
-                "goals into one shared direction (mock provider placeholder "
-                "— no goals were supplied)."
-            )
-
-        if purpose == "derive_adr_from_decision":
-            # Phase 3, Task 5 (ai_derivation.derive_adr_from_decision):
-            # deterministic single ADR draft (title, description, context,
-            # consequences) structuring the given free-text decision. Unlike
-            # the array-shaped purposes above, this returns a single JSON
-            # *object* — AiDerivationService._parse_json_object expects that
-            # shape (mirrors "test_derive_from_requirement" above).
-            decision_description = str(
-                ctx.get("decision_description") or "the decision"
-            )
-            return json.dumps(
-                {
-                    "title": f"Decision: {decision_description[:60]}",
-                    "description": decision_description,
-                    "context": (
-                        "Context extracted from the free-text decision "
-                        "description (mock provider — no semantic "
-                        "extraction performed)."
-                    ),
-                    "consequences": (
-                        "Consequences not yet assessed (mock provider "
-                        "placeholder)."
-                    ),
-                }
-            )
-
-        return json.dumps([])
+        builder = self._MOCK_PURPOSE_PAYLOADS.get(purpose)
+        if builder is None:
+            return json.dumps([])
+        return builder(context or {})
 
 
 # ---------------------------------------------------------------------------

@@ -592,18 +592,16 @@ class TestNoPgvectorDependency:
         # stage has no vector-search code path" (§3.2).
         import llm_adapter.providers as providers_module
 
-        full_source = inspect.getsource(providers_module.MockLlmProvider.complete)
-        marker = 'if purpose == "traceability_suggest_links":'
-        assert marker in full_source, "expected branch not found in MockLlmProvider.complete"
-        start = full_source.index(marker)
-        # Isolate this purpose's branch up to the next top-level `if purpose ==`.
-        rest = full_source[start + len(marker) :]
-        next_branch = rest.find('\n        if purpose == "')
-        branch_source = rest if next_branch == -1 else rest[:next_branch]
+        # The purpose's payload builder, dispatched from
+        # MockLlmProvider.complete via ``_MOCK_PURPOSE_PAYLOADS`` (the
+        # purpose's code path lives entirely in this method).
+        branch_source = inspect.getsource(
+            providers_module.MockLlmProvider._mock_traceability_suggest_links
+        )
         code = _code_only(branch_source).lower()
         for forbidden in ("pgvector", "vectorfield", "cosinedistance", "generate_embedding", "embedding"):
             assert forbidden not in code, (
-                f"MockLlmProvider.complete()'s traceability_suggest_links branch "
+                f"MockLlmProvider's traceability_suggest_links builder "
                 f"must not contain a '{forbidden}' code path."
             )
 

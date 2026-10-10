@@ -18,58 +18,40 @@
  * for an existing entry, and C10 synonym-linking (free-text synonym ->
  * existing entry, normalized via PATCH since GlossaryTerm has no dedicated
  * synonym-link field on the backend).
+ *
+ * Structure after the code-health decomposition (pure behavior refactor):
+ * list/detail/form/synonym rendering lives in the sibling components
+ * (GlossaryTermList, GlossaryDetailPanel, GlossaryTermForm,
+ * GlossarySynonyms), the filter/sort/synonym-lookup logic in
+ * glossary-view-shared.ts — this file keeps the state wiring and composition.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { glossaryApi } from "../../api/glossary";
 import type { GlossaryTerm, LinkType } from "../../types";
-import { Edit2, Trash2, Link2 } from "lucide-react";
+import { Link2 } from "lucide-react";
 import { SplitView } from "../SplitView/SplitView";
 import { PageHeader } from "../shared/PageHeader";
 import { ListToolbar } from "../shared/ListToolbar";
 import { EmptyState } from "../shared/EmptyState";
-import { RightSidebar } from "../shared/ArtifactInspector";
-import type { VersionRef } from "../shared/ArtifactInspector";
 import { CreateTraceLinkDialog } from "../shared/CreateTraceLinkDialog/create-trace-link-dialog";
 import { Dialog } from "../shared/Dialog";
 import { WorkflowStatusEditor } from "../WorkflowStatusEditor";
 import { extractErrorMessage } from "../../api/client";
 import styles from "./GlossaryView.module.css";
-
-type FilterMode = "" | "workspace" | "global";
-
-// GESAMTTEST_BERICHT_2026-08-21.md §6 "Glossar-Toolbar-Lücke": every sibling
-// artifact list (Adr/Risk/Issue/...) offers a lifecycle-status filter and a
-// sort dropdown via ListToolbar — Glossary only had the workspace/global
-// filter. Mirrors ArchitectureEditors.tsx's ARCH_LIFECYCLE_STATUSES (same
-// status vocabulary — #831 renamed the Glossary wire key from
-// `lifecycle_status` to the artifact-consistent `status`; "deleted" is
-// excluded since deleted terms are already hidden from the loaded list — see
-// the GlossaryTerm type's own comment in types/index.ts).
-const GLOSSARY_LIFECYCLE_STATUSES = ["active", "outdated", "deprecated"] as const;
-
-type SortKey = "default" | "term" | "status" | "updated";
-
-function sortTerms(list: GlossaryTerm[], sortKey: SortKey): GlossaryTerm[] {
-  const sorted = [...list];
-  switch (sortKey) {
-    case "term":
-      sorted.sort((a, b) => a.term.localeCompare(b.term));
-      break;
-    case "status":
-      sorted.sort(
-        (a, b) =>
-          (a.status ?? "active").localeCompare(b.status ?? "active") ||
-          a.term.localeCompare(b.term),
-      );
-      break;
-    case "updated":
-      sorted.sort((a, b) => (b.updated_at || "").localeCompare(a.updated_at || ""));
-      break;
-  }
-  return sorted;
-}
+import {
+  GLOSSARY_LIFECYCLE_STATUSES,
+  buildSynonymLinkIndex,
+  filterTerms,
+  sortTerms,
+} from "./glossary-view-shared";
+import type { FilterMode, SortKey } from "./glossary-view-shared";
+import { GlossaryTermList } from "./GlossaryTermList";
+import { GlossaryDetailPanel } from "./GlossaryDetailPanel";
+import { GlossaryTermForm } from "./GlossaryTermForm";
+import type { GlossaryFormData } from "./GlossaryTermForm";
+import { GlossarySynonyms } from "./GlossarySynonyms";
 
 export default function GlossaryView(): JSX.Element {
   const { t } = useTranslation();
@@ -96,7 +78,7 @@ export default function GlossaryView(): JSX.Element {
   // initial focus itself — target the term field explicitly (the dialog's
   // first tabbable element is its close button otherwise).
   const termInputRef = useRef<HTMLInputElement | null>(null);
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<GlossaryFormData>({
     term: "",
     definition: "",
     synonyms: "",
@@ -131,20 +113,9 @@ export default function GlossaryView(): JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeWorkspace?.id]);
 
-  // C10 (REQ-006): case-insensitive lookup of term text -> GlossaryTerm, used to
-  // detect when a free-text synonym already matches an existing entry (i.e. is
-  // "linked" in the normalized-text sense — no dedicated backend link field exists
-  // for GlossaryTerm, see handleLinkSynonym below).
-  const termsByName = useMemo(() => {
-    const map = new Map<string, GlossaryTerm>();
-    terms.forEach((term) => map.set(term.term.trim().toLowerCase(), term));
-    return map;
-  }, [terms]);
-
-  const resolveSynonymLink = (synonym: string, selfId: string): GlossaryTerm | null => {
-    const match = termsByName.get(synonym.trim().toLowerCase());
-    return match && match.id !== selfId ? match : null;
-  };
+  // C10 (REQ-006): case-insensitive term-text index backing
+  // resolveSynonymLink — see glossary-view-shared.ts.
+  const termsByName = useMemo(() => buildSynonymLinkIndex(terms), [terms]);
 
   // C10 (REQ-006): "link" a synonym to an existing glossary entry. The backend
   // has no ID-based synonym-link field (GlossaryTerm.synonyms is a plain string[]
@@ -253,124 +224,43 @@ export default function GlossaryView(): JSX.Element {
     setEditingId(null);
   };
 
+  const updateFormField = (field: keyof GlossaryFormData, value: string) => {
+    setFormData((prev) => ({ ...prev, [field]: value }));
+  };
+
   const resetFilters = (): void => {
     setSearchTerm("");
     setFilterMode("workspace");
     setStatusFilter("");
   };
 
-  const filteredTerms = useMemo(() => {
-    const filtered = terms.filter((term) => {
-      const matchesSearch =
-        term.term.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        term.definition.toLowerCase().includes(searchTerm.toLowerCase());
+  // C10: open the picker for (termId, index); clicking the open picker's
+  // trigger again closes it and resets the picker query.
+  const toggleSynonymLinking = (termId: string, index: number) => {
+    const isLinking = linkingSynonym?.termId === termId && linkingSynonym?.index === index;
+    setLinkingSynonym(isLinking ? null : { termId, index });
+    setSynonymLinkQuery("");
+  };
 
-      let matchesMode = true;
-      if (filterMode === "workspace") {
-        matchesMode = term.workspace_id === activeWorkspace?.id;
-      } else if (filterMode === "global") {
-        matchesMode = term.workspace_id === null;
-      }
-
-      const matchesStatus = !statusFilter || (term.status ?? "active") === statusFilter;
-
-      return matchesSearch && matchesMode && matchesStatus;
-    });
-    return sortTerms(filtered, sortKey);
-  }, [terms, searchTerm, filterMode, statusFilter, sortKey, activeWorkspace?.id]);
+  const filteredTerms = useMemo(
+    () =>
+      sortTerms(
+        filterTerms(terms, {
+          searchTerm,
+          filterMode,
+          statusFilter,
+          workspaceId: activeWorkspace?.id,
+        }),
+        sortKey,
+      ),
+    [terms, searchTerm, filterMode, statusFilter, sortKey, activeWorkspace?.id],
+  );
 
   const hasActiveListControls = Boolean(searchTerm || filterMode !== "workspace" || statusFilter);
 
   if (!activeWorkspace) return <div className={styles.workspacePrompt}>{t("workspace.selectFirst")}</div>;
 
   const selectedTerm = selectedId ? terms.find((term) => term.id === selectedId) : null;
-
-  function renderSynonyms(term: GlossaryTerm): JSX.Element | null {
-    if (!term.synonyms || term.synonyms.length === 0) return null;
-    return (
-      <div className={styles.synonyms}>
-        <strong>{t("glossary.synonymsLabel", "Synonyms")}:</strong>
-        {term.synonyms.map((syn, idx) => {
-          const linked = resolveSynonymLink(syn, term.id);
-          const isLinking = linkingSynonym?.termId === term.id && linkingSynonym?.index === idx;
-          return (
-            <span key={`${term.id}-syn-${idx}`} className={styles.synonymWrap}>
-              {linked ? (
-                <button
-                  type="button"
-                  data-testid={`glossary-synonym-link-${term.id}-${idx}`}
-                  onClick={() => handleEdit(linked)}
-                  title={t("glossary.synonymLinkedTooltip", "Zu verlinktem Eintrag springen")}
-                  className={styles.synonymLinkedBtn}
-                >
-                  <Link2 size={12} />
-                  {syn}
-                </button>
-              ) : (
-                <>
-                  <span>{syn}</span>
-                  <button
-                    type="button"
-                    data-testid={`glossary-synonym-linkbtn-${term.id}-${idx}`}
-                    onClick={() => {
-                      setLinkingSynonym(isLinking ? null : { termId: term.id, index: idx });
-                      setSynonymLinkQuery("");
-                    }}
-                    title={t("glossary.linkSynonym", "Mit bestehendem Eintrag verlinken")}
-                    aria-label={`${t("glossary.linkSynonym", "Mit bestehendem Eintrag verlinken")}: ${syn}`}
-                    className={styles.synonymLinkBtn}
-                  >
-                    <Link2 size={12} />
-                  </button>
-                </>
-              )}
-              {isLinking && (
-                <div className={styles.synonymPicker}>
-                  <input
-                    autoFocus
-                    data-testid={`glossary-synonym-search-${term.id}-${idx}`}
-                    className={`${styles.input} ${styles.inputMarginBottom}`}
-                    placeholder={t("glossary.searchPlaceholder")}
-                    value={synonymLinkQuery}
-                    onChange={(e) => setSynonymLinkQuery(e.target.value)}
-                  />
-                  <div className={styles.synonymPickerList}>
-                    {terms
-                      .filter((candidate) => candidate.id !== term.id && candidate.term.toLowerCase().includes(synonymLinkQuery.trim().toLowerCase()))
-                      .slice(0, 20)
-                      .map((candidate) => (
-                        <button
-                          key={candidate.id}
-                          type="button"
-                          data-testid={`glossary-synonym-option-${term.id}-${idx}-${candidate.id}`}
-                          onClick={() => handleLinkSynonym(term, idx, candidate)}
-                          className={styles.synonymPickerOption}
-                        >
-                          {candidate.term}
-                        </button>
-                      ))}
-                    {terms.filter((candidate) => candidate.id !== term.id && candidate.term.toLowerCase().includes(synonymLinkQuery.trim().toLowerCase())).length === 0 && (
-                      <p className={styles.synonymPickerEmpty}>
-                        {t("glossary.noTerms")}
-                      </p>
-                    )}
-                  </div>
-                  <button
-                    type="button"
-                    data-testid={`glossary-synonym-cancel-${term.id}-${idx}`}
-                    onClick={() => setLinkingSynonym(null)}
-                    className={styles.synonymPickerCancel}
-                  >
-                    {t("actions.cancel", "Cancel")}
-                  </button>
-                </div>
-              )}
-            </span>
-          );
-        })}
-      </div>
-    );
-  }
 
   // ---------------------------------------------------------------------------
   // Left panel: flat list (no hierarchy — glossary terms have no parent/child).
@@ -445,79 +335,13 @@ export default function GlossaryView(): JSX.Element {
         // filter/search reset, never a create action.
         <EmptyState variant="no-match" testId="glossary-no-match" onResetFilters={resetFilters} />
       ) : (
-        <div data-testid="glossary-rows" className={styles.rowsList}>
-          {filteredTerms.map((term) => {
-            const isSelected = term.id === selectedId;
-            return (
-              <div
-                key={term.id}
-                data-testid={`glossary-row-${term.id}`}
-                role="button"
-                tabIndex={0}
-                aria-pressed={isSelected}
-                onClick={() => handleSelect(term)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.preventDefault();
-                    handleSelect(term);
-                  }
-                }}
-                className={`${styles.row} ${isSelected ? styles.rowSelected : styles.rowIdle}`}
-              >
-                <div className={styles.minWidth0}>
-                  <div className={styles.rowTitleLine}>
-                    <span className={styles.rowTerm}>{term.term}</span>
-                    {term.abbreviation && (
-                      <span className={styles.abbreviationBadge}>
-                        {term.abbreviation}
-                      </span>
-                    )}
-                    {term.workspace_id === null && (
-                      <span className={styles.globalBadge}>
-                        {t("glossary.global")}
-                      </span>
-                    )}
-                  </div>
-                  <p className={styles.rowDefinition}>
-                    {term.definition}
-                  </p>
-                </div>
-                <div className={styles.rowActions}>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleEdit(term);
-                    }}
-                    className={`${styles.iconBtn} ${styles.iconBtnMuted}`}
-                    // #741: icon-only row action — was an untranslated,
-                    // aria-label-less `title`, i.e. no reliable accessible
-                    // name at all. Names the term so the per-row buttons are
-                    // distinguishable in a screen reader's element list.
-                    title={t("actions.edit")}
-                    aria-label={`${t("actions.edit")}: ${term.term}`}
-                    data-testid={`glossary-edit-${term.id}`}
-                  >
-                    <Edit2 size={16} />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleDelete(term.id);
-                    }}
-                    className={`${styles.iconBtn} ${styles.iconBtnDanger}`}
-                    title={t("actions.delete")}
-                    aria-label={`${t("actions.delete")}: ${term.term}`}
-                    data-testid={`glossary-delete-${term.id}`}
-                  >
-                    <Trash2 size={16} />
-                  </button>
-                </div>
-              </div>
-            );
-          })}
-        </div>
+        <GlossaryTermList
+          terms={filteredTerms}
+          selectedId={selectedId}
+          onSelect={handleSelect}
+          onEdit={handleEdit}
+          onDelete={handleDelete}
+        />
       )}
     </div>
   );
@@ -533,56 +357,6 @@ export default function GlossaryView(): JSX.Element {
   // routes is their right-pane form too), which is why the fields below are
   // rendered from one shared markup source instead of being duplicated.
   // ---------------------------------------------------------------------------
-  const formFields = (
-    <div className={styles.formGrid}>
-      <div>
-        <label className={styles.fieldLabel} htmlFor="glossary-term-input">
-          {t("glossary.term")} *
-        </label>
-        <input id="glossary-term-input" required className={styles.input} value={formData.term} onChange={(e) => setFormData({ ...formData, term: e.target.value })} disabled={!!editingId} ref={termInputRef} />
-      </div>
-      <div>
-        <label className={styles.fieldLabel} htmlFor="glossary-abbreviation-input">
-          {t("glossary.abbreviation")}
-        </label>
-        <input id="glossary-abbreviation-input" className={styles.input} value={formData.abbreviation} onChange={(e) => setFormData({ ...formData, abbreviation: e.target.value })} />
-      </div>
-      <div className={styles.formGridFullRow}>
-        <label className={styles.fieldLabel} htmlFor="glossary-definition-input">
-          {t("glossary.definition")} *
-        </label>
-        <textarea id="glossary-definition-input" required rows={3} className={`${styles.input} ${styles.textareaResize}`} value={formData.definition} onChange={(e) => setFormData({ ...formData, definition: e.target.value })} />
-      </div>
-      <div className={styles.formGridFullRow}>
-        <label className={styles.fieldLabel} htmlFor="glossary-synonyms-input">
-          {t("glossary.synonyms")}
-        </label>
-        <input id="glossary-synonyms-input" className={styles.input} value={formData.synonyms} onChange={(e) => setFormData({ ...formData, synonyms: e.target.value })} />
-      </div>
-    </div>
-  );
-
-  const formErrorBanner = formError ? (
-    <p role="alert" data-testid="glossary-form-error" className={styles.alert}>
-      {formError}
-    </p>
-  ) : null;
-
-  const formActions = (
-    <div className={styles.formActions}>
-      <button
-        type="button"
-        data-testid="glossary-form-cancel"
-        onClick={closeForm}
-        className={`${styles.btn} ${styles.btnOutline}`}
-      >
-        {t("actions.cancel", "Cancel")}
-      </button>
-      <button type="submit" data-testid="glossary-form-save" className={styles.btn}>
-        {t("actions.save", "Save")}
-      </button>
-    </div>
-  );
 
   // #802: the create flow, rendered through the shared Dialog primitive. The
   // term field takes the initial focus explicitly — the trap's first tabbable
@@ -595,21 +369,29 @@ export default function GlossaryView(): JSX.Element {
         testId="glossary-create-dialog"
         initialFocusRef={termInputRef}
       >
-        <form onSubmit={handleSubmit} data-testid="glossary-form">
-          {formFields}
-          {formErrorBanner}
-          {formActions}
-        </form>
+        <GlossaryTermForm
+          formData={formData}
+          editingId={editingId}
+          errorMessage={formError}
+          termInputRef={termInputRef}
+          onSubmit={handleSubmit}
+          onFieldChange={updateFormField}
+          onClose={closeForm}
+        />
       </Dialog>
     ) : null;
 
   const detailPanel = isFormOpen && editingId ? (
-    <form onSubmit={handleSubmit} data-testid="glossary-form">
-      <h2 className={styles.formHeading}>
-        {t("glossary.editTerm")}
-      </h2>
-      {formFields}
-
+    <GlossaryTermForm
+      formData={formData}
+      editingId={editingId}
+      heading={t("glossary.editTerm")}
+      errorMessage={formError}
+      termInputRef={termInputRef}
+      onSubmit={handleSubmit}
+      onFieldChange={updateFormField}
+      onClose={closeForm}
+    >
       {/* REQ-173: WorkflowEngine-driven status editor. Only for existing
           entries — a term being created has no artifact ID yet. Since #831 the
           Glossary API exposes `status` like every other artifact, so the
@@ -655,78 +437,27 @@ export default function GlossaryView(): JSX.Element {
           />
         </div>
       )}
-
-      {formErrorBanner}
-
-      {formActions}
-    </form>
+    </GlossaryTermForm>
   ) : selectedTerm ? (
-    <div data-testid="glossary-detail" className={styles.detail}>
-      <div className={styles.detailHeader}>
-        <div>
-          <div className={styles.detailTitleRow}>
-            <h2 className={styles.detailTitle}>{selectedTerm.term}</h2>
-            {selectedTerm.abbreviation && (
-              <span className={styles.abbreviationBadge}>
-                {selectedTerm.abbreviation}
-              </span>
-            )}
-            {selectedTerm.workspace_id === null && (
-              <span className={styles.globalBadgeDetail}>
-                {t("glossary.global")}
-              </span>
-            )}
-          </div>
-        </div>
-        <div className={styles.detailActions}>
-          <button
-            type="button"
-            data-testid="glossary-detail-edit-btn"
-            onClick={() => handleEdit(selectedTerm)}
-            className={`${styles.btn} ${styles.btnOutline}`}
-          >
-            {t("actions.edit", "Bearbeiten")}
-          </button>
-          <button
-            type="button"
-            data-testid="glossary-detail-delete-btn"
-            onClick={() => handleDelete(selectedTerm.id)}
-            className={`${styles.btn} ${styles.btnOutlineDanger}`}
-          >
-            {t("actions.delete", "Löschen")}
-          </button>
-        </div>
-      </div>
-
-      <p className={styles.detailDefinition}>{selectedTerm.definition}</p>
-
-      {renderSynonyms(selectedTerm)}
-
-      {/* Usages + Versions/Diff (REQ-142, UI-59): trace links referencing this
-          glossary entry (C9), plus the version history + field-level diff
-          that the shared VersionPanel/DiffPanel already support for
-          kind="glossary" — only wiring `currentVersion` was missing, which
-          previously forced this panel into its undefined/degraded state. */}
-      <div className={styles.usagesSection}>
-        <h3 className={styles.usagesHeading}>
-          {t("glossary.usages", "Verwendungen")}
-        </h3>
-        <RightSidebar
-          kind="glossary"
-          artifactId={selectedTerm.id}
-          currentVersion={
-            typeof selectedTerm.version === "number"
-              ? ({
-                  version: selectedTerm.version,
-                  label: `v${selectedTerm.version}`,
-                  createdAt: selectedTerm.updated_at ?? null,
-                  baselineIds: [],
-                } satisfies VersionRef)
-              : undefined
-          }
+    <GlossaryDetailPanel
+      term={selectedTerm}
+      onEdit={handleEdit}
+      onDelete={handleDelete}
+      synonyms={
+        <GlossarySynonyms
+          term={selectedTerm}
+          terms={terms}
+          synonymLinkIndex={termsByName}
+          linkingSynonym={linkingSynonym}
+          synonymLinkQuery={synonymLinkQuery}
+          onToggleLinking={toggleSynonymLinking}
+          onSynonymLinkQueryChange={setSynonymLinkQuery}
+          onCancelLinking={() => setLinkingSynonym(null)}
+          onLinkSynonym={handleLinkSynonym}
+          onEditLinked={handleEdit}
         />
-      </div>
-    </div>
+      }
+    />
   ) : (
     <EmptyState
       variant="empty"

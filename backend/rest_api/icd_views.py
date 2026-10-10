@@ -371,6 +371,38 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             "created_at": icd.created_at.isoformat() if icd.created_at else None,
         }
 
+    def _icd_detail_to_dict(self, icd: Icd) -> dict[str, Any]:
+        """Build the ``retrieve`` (REQ-L2-ICD-001) response body of *icd*.
+
+        The detail projection is wider than the list projection
+        (:meth:`_icd_to_dict`): it carries the narrative contract fields a list
+        page omits. Both must agree on the fields they share — hence the same
+        ``artifact_id`` (#1075) and workflow-engine ``status`` sourcing.
+        """
+        return {
+            "id": str(icd.id),
+            "name": icd.name,
+            "workspace_id": str(icd.workspace_id),
+            "source_element_id": str(icd.source_element_id),
+            "target_element_id": str(icd.target_element_id),
+            # #1075: see ``_icd_to_dict``. List and detail must agree.
+            "artifact_id": str(icd.artifact_id) if icd.artifact_id else None,
+            "version": icd.current_revision or 1,
+            "direction": icd.direction,
+            "interface_type": icd.interface_type,
+            "semantic_description": icd.semantic_description,
+            "preconditions": icd.preconditions or [],
+            "postconditions": icd.postconditions or [],
+            "invariants": icd.invariants or [],
+            # Epic #934 WS1: the visible ``status`` system attribute.
+            "status": _icd_status(icd),
+            # REQ-L2-AS-037 / Epic #934 WS1: extended attributes.
+            "custom_fields": self._icd_custom_fields(icd),
+            # Attribut v3 WS2 (#936): Artifact-level system fields.
+            **artifact_system_fields(icd),
+            "created_at": icd.created_at.isoformat() if icd.created_at else None,
+        }
+
     def _parameter_to_dict(self, param: IcdParameter) -> dict[str, Any]:
         """Convert IcdParameter ORM object to serializer-compatible dict."""
         return {
@@ -449,6 +481,100 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 f"Revision {target_number} not found for ICD {icd.id}"
             )
         return match
+
+    @staticmethod
+    def _resolve_diff_range(request: Request, icd: Icd) -> tuple[int, int]:
+        """Parse ``?from_version``/``?to_version`` into the compared revisions.
+
+        REQ-L1-090 / REQ-L1-091: ``to_version`` defaults to the ICD's current
+        revision, ``from_version`` to 0 (the creation baseline). A non-integer
+        value is deliberately *not* handled here — it stays a ``ValueError``
+        that the caller's handler maps, exactly as before.
+        """
+        from_version = int(request.query_params.get("from_version", "0"))
+        current_ver = icd.current_revision or 1
+        to_version = int(request.query_params.get("to_version", str(current_ver)))
+        return from_version, to_version
+
+    def _parameter_page(
+        self, icd: Icd, revision: IcdRevision, *, tenant_id: Any
+    ) -> list[dict[str, Any]]:
+        """Serialize the parameters *revision* records for *icd*.
+
+        REQ-L2-ICD-002: the current revision is the live row set, an older one
+        its recorded ``parameters_snapshot`` (see the module docstring for the
+        full ``?version=`` contract). A revision whose parameter set was never
+        captured has no answer at all — it raises rather than render a
+        confident empty list.
+        """
+        if revision.version_number == icd.current_revision:
+            return [
+                self._parameter_to_dict(item)
+                for item in list_icd_parameters(icd_id=icd.id, tenant_id=tenant_id)
+            ]
+        if not revision.parameters_captured:
+            raise IcdRevisionNotFoundError(
+                f"Revision {revision.version_number} of ICD {icd.id} "
+                "predates parameter snapshots; its parameter set was "
+                "not recorded."
+            )
+        return [
+            self._snapshot_parameter_to_dict(icd, entry)
+            for entry in revision.parameters_snapshot
+        ]
+
+    @staticmethod
+    def _parameter_create_dto(
+        icd: Icd, data: dict[str, Any]
+    ) -> IcdParameterCreateDTO:
+        """Map validated serializer *data* onto an *icd* create payload."""
+        return IcdParameterCreateDTO(
+            icd_id=icd.id,
+            name=data["name"],
+            unit=data.get("unit", ""),
+            data_type=data.get("data_type", "other"),
+            direction=data.get("direction", "input"),
+            description=data.get("description", ""),
+            min_value=data.get("min_value"),
+            max_value=data.get("max_value"),
+            nominal_value=data.get("nominal_value", ""),
+            tolerance=data.get("tolerance", ""),
+            ordering=data.get("ordering", 0),
+        )
+
+    @staticmethod
+    def _reject_stale_parameter_version(
+        icd: Icd, requested_version: Any, lang: str
+    ) -> Response | None:
+        """Refuse a parameter write aimed at anything but the live contract.
+
+        REQ-L2-ICD-002: a parameter can only be attached to the current
+        revision; writing to a historical revision would have to mutate a
+        recorded snapshot. ``int()`` stays inside the guard, not around it: a
+        non-numeric ``version`` is a client error, not a 500.
+
+        Returns:
+            The 400 response to return, or ``None`` when the write is allowed.
+        """
+        if requested_version in (None, ""):
+            return None
+        try:
+            targets_current = int(requested_version) == icd.current_revision
+        except (TypeError, ValueError):
+            targets_current = False
+        if targets_current:
+            return None
+        return Response(
+            build_error_response(
+                "VALIDATION_ERROR",
+                lang,
+                message=(
+                    "Parameters can only be added to the current "
+                    f"revision ({icd.current_revision})."
+                ),
+            ),
+            status=status.HTTP_400_BAD_REQUEST,
+        )
 
     # -- workflow (REQ-173) --------------------------------------------------
 
@@ -601,29 +727,7 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             icd = get_icd(UUID(pk), ctx.tenant_id)
             # Task 28c-2: the current contract is the header. This used to
             # walk the whole IcdVersion history just to read its last row.
-            return Response({
-                "id": str(icd.id),
-                "name": icd.name,
-                "workspace_id": str(icd.workspace_id),
-                "source_element_id": str(icd.source_element_id),
-                "target_element_id": str(icd.target_element_id),
-                # #1075: see ``_icd_to_dict``. List and detail must agree.
-                "artifact_id": str(icd.artifact_id) if icd.artifact_id else None,
-                "version": icd.current_revision or 1,
-                "direction": icd.direction,
-                "interface_type": icd.interface_type,
-                "semantic_description": icd.semantic_description,
-                "preconditions": icd.preconditions or [],
-                "postconditions": icd.postconditions or [],
-                "invariants": icd.invariants or [],
-                # Epic #934 WS1: the visible ``status`` system attribute.
-                "status": _icd_status(icd),
-                # REQ-L2-AS-037 / Epic #934 WS1: extended attributes.
-                "custom_fields": self._icd_custom_fields(icd),
-                # Attribut v3 WS2 (#936): Artifact-level system fields.
-                **artifact_system_fields(icd),
-                "created_at": icd.created_at.isoformat() if icd.created_at else None,
-            })
+            return Response(self._icd_detail_to_dict(icd))
         except Icd.DoesNotExist:
             return Response(
                 build_error_response("NOT_FOUND", lang),
@@ -776,9 +880,7 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             ctx = get_auth_context(request)
             icd = get_icd(UUID(pk), ctx.tenant_id)
 
-            from_version = int(request.query_params.get("from_version", "0"))
-            current_ver = icd.current_revision or 1
-            to_version = int(request.query_params.get("to_version", str(current_ver)))
+            from_version, to_version = self._resolve_diff_range(request, icd)
 
             if icd.artifact_id is None:
                 return Response(
@@ -894,52 +996,43 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             return _internal_error(lang, "parameters")
 
         if request.method == "GET":
-            try:
-                revision = self._resolve_revision(
-                    icd, request.query_params.get("version")
-                )
-                if revision.version_number == icd.current_revision:
-                    serialized = [
-                        self._parameter_to_dict(item)
-                        for item in list_icd_parameters(
-                            icd_id=icd.id, tenant_id=ctx.tenant_id
-                        )
-                    ]
-                elif not revision.parameters_captured:
-                    raise IcdRevisionNotFoundError(
-                        f"Revision {revision.version_number} of ICD {icd.id} "
-                        "predates parameter snapshots; its parameter set was "
-                        "not recorded."
-                    )
-                else:
-                    serialized = [
-                        self._snapshot_parameter_to_dict(icd, entry)
-                        for entry in revision.parameters_snapshot
-                    ]
-            except IcdRevisionNotFoundError as exc:
-                return Response(
-                    build_error_response(
-                        "NOT_FOUND",
-                        lang,
-                        message=_client_message(exc, "parameters_list"),
-                    ),
-                    status=status.HTTP_404_NOT_FOUND,
-                )
-            except ValueError as exc:
-                # Non-integer ?version= — echoes only the caller's own input.
-                return Response(
-                    build_error_response(
-                        "VALIDATION_ERROR",
-                        lang,
-                        message=_client_message(exc, "parameters_list"),
-                    ),
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-            except Exception:
-                return _internal_error(lang, "parameters")
-            return self._paginate(request, serialized)
+            return self._parameters_list(request, icd, ctx, lang)
+        return self._parameters_create(request, icd, ctx, lang)
 
-        # POST — create
+    def _parameters_list(
+        self, request: Request, icd: Icd, ctx: Any, lang: str
+    ) -> Response:
+        """GET half of ``parameters``: list the resolved revision's parameters."""
+        try:
+            revision = self._resolve_revision(icd, request.query_params.get("version"))
+            serialized = self._parameter_page(icd, revision, tenant_id=ctx.tenant_id)
+        except IcdRevisionNotFoundError as exc:
+            return Response(
+                build_error_response(
+                    "NOT_FOUND",
+                    lang,
+                    message=_client_message(exc, "parameters_list"),
+                ),
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        except ValueError as exc:
+            # Non-integer ?version= — echoes only the caller's own input.
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    message=_client_message(exc, "parameters_list"),
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except Exception:
+            return _internal_error(lang, "parameters")
+        return self._paginate(request, serialized)
+
+    def _parameters_create(
+        self, request: Request, icd: Icd, ctx: Any, lang: str
+    ) -> Response:
+        """POST half of ``parameters``: add one parameter to the live contract."""
         ser = IcdParameterSerializer(data=request.data)
         if not ser.is_valid():
             return Response(
@@ -951,42 +1044,13 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         data = ser.validated_data
-        requested_version = request.data.get("version")
-        if requested_version not in (None, ""):
-            # A parameter can only be attached to the live contract; writing to
-            # a historical revision would have to mutate a recorded snapshot.
-            # ``int()`` is inside the guard, not around it: a non-numeric
-            # ``version`` is a client error, not a 500.
-            try:
-                targets_current = int(requested_version) == icd.current_revision
-            except (TypeError, ValueError):
-                targets_current = False
-            if not targets_current:
-                return Response(
-                    build_error_response(
-                        "VALIDATION_ERROR",
-                        lang,
-                        message=(
-                            "Parameters can only be added to the current "
-                            f"revision ({icd.current_revision})."
-                        ),
-                    ),
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
+        stale_version = self._reject_stale_parameter_version(
+            icd, request.data.get("version"), lang
+        )
+        if stale_version is not None:
+            return stale_version
         try:
-            payload = IcdParameterCreateDTO(
-                icd_id=icd.id,
-                name=data["name"],
-                unit=data.get("unit", ""),
-                data_type=data.get("data_type", "other"),
-                direction=data.get("direction", "input"),
-                description=data.get("description", ""),
-                min_value=data.get("min_value"),
-                max_value=data.get("max_value"),
-                nominal_value=data.get("nominal_value", ""),
-                tolerance=data.get("tolerance", ""),
-                ordering=data.get("ordering", 0),
-            )
+            payload = self._parameter_create_dto(icd, data)
             item = create_icd_parameter(payload, tenant_id=ctx.tenant_id)
         except Icd.DoesNotExist as exc:
             return Response(

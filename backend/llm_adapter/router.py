@@ -175,6 +175,30 @@ def _token_limit_response(message: str) -> Dict[str, Any]:
     }
 
 
+#: Status codes that classify a provider exception as an API error (#697)
+_API_ERROR_CLASSIFY_CODES = ["500", "502", "503", "504"]
+
+#: Status codes reported verbatim in the client-visible ``API error`` message
+_API_ERROR_REPORT_CODES = ["500", "502", "503", "504", "400", "401", "403"]
+
+
+def _provider_error_message(exc: Exception) -> str:
+    """Classify a provider exception into a client-visible error message.
+
+    #697 (CWE-209): the raw exception text can name hosts, DSNs or SDK
+    internals, so only a classified short form is returned to the caller; the
+    raw text goes to the audit row and the log.
+    """
+    msg = str(exc)
+    if "429" in msg or "Rate limit" in msg.lower() or "rate limit" in msg.lower():
+        return "Rate limit exceeded"
+    if any(f"API error: {c}" in msg or f"{c}" in msg for c in _API_ERROR_CLASSIFY_CODES):
+        for code in _API_ERROR_REPORT_CODES:
+            if code in msg:
+                return f"API error: {code}"
+    return _GENERIC_PROVIDER_ERROR
+
+
 # ---------------------------------------------------------------------------
 # CapabilityRouter
 # ---------------------------------------------------------------------------
@@ -281,6 +305,58 @@ class CapabilityRouter:
     # Sync execution
     # ------------------------------------------------------------------
 
+    def _log_capability_call(
+        self,
+        provider: str,
+        capability_name: str,
+        kwargs: dict[str, Any],
+        *,
+        token_usage: int | None,
+        success: bool,
+        error: str | None,
+    ) -> None:
+        """Write one audit row for a capability call.
+
+        The artifact is resolved from the first identifier present in the call
+        kwargs, so every routing path reports the same identity chain.
+        """
+        self._audit_logger.log_llm_call(
+            provider=provider,
+            capability=capability_name,
+            artifact_id=kwargs.get("artifact_id")
+            or kwargs.get("requirement_id")
+            or kwargs.get("workspace_id"),
+            token_usage=token_usage,
+            success=success,
+            error=error,
+        )
+
+    def _record_sync_success(
+        self,
+        capability_name: str,
+        kwargs: dict[str, Any],
+        provider_name: str,
+        result: LlmResult,
+    ) -> None:
+        """Audit a successful sync call and persist its token usage."""
+        self._log_capability_call(
+            provider_name,
+            capability_name,
+            kwargs,
+            token_usage=result.token_usage,
+            success=True,
+            error=None,
+        )
+        # REQ-106: persist token consumption for per-tenant aggregation and
+        # daily-limit enforcement. Best-effort — never breaks the result.
+        record_token_usage(
+            provider=provider_name,
+            capability=capability_name,
+            input_tokens=result.token_usage or 0,
+            output_tokens=0,
+            workspace_id=kwargs.get("workspace_id"),
+        )
+
     def _execute_sync(
         self, capability_name: str, kwargs: Dict[str, Any]
     ) -> Union[LlmResult, Dict[str, Any]]:
@@ -299,35 +375,15 @@ class CapabilityRouter:
                 provider_name, method, kwargs
             )
 
-            self._audit_logger.log_llm_call(
-                provider=provider_name,
-                capability=capability_name,
-                artifact_id=kwargs.get("artifact_id")
-                or kwargs.get("requirement_id")
-                or kwargs.get("workspace_id"),
-                token_usage=result.token_usage,
-                success=True,
-                error=None,
-            )
-            # REQ-106: persist token consumption for per-tenant aggregation and
-            # daily-limit enforcement. Best-effort — never breaks the result.
-            record_token_usage(
-                provider=provider_name,
-                capability=capability_name,
-                input_tokens=result.token_usage or 0,
-                output_tokens=0,
-                workspace_id=kwargs.get("workspace_id"),
-            )
+            self._record_sync_success(capability_name, kwargs, provider_name, result)
             return result
 
         except (LlmNotConfiguredError, LlmProviderUnknownError) as exc:
             # Not-configured errors map to LLM_NOT_CONFIGURED
-            self._audit_logger.log_llm_call(
-                provider=provider_name,
-                capability=capability_name,
-                artifact_id=kwargs.get("artifact_id")
-                or kwargs.get("requirement_id")
-                or kwargs.get("workspace_id"),
+            self._log_capability_call(
+                provider_name,
+                capability_name,
+                kwargs,
                 token_usage=None,
                 success=False,
                 error=str(exc),
@@ -336,12 +392,10 @@ class CapabilityRouter:
 
         except TimeoutError:
             # Timeout from provider HTTP layer
-            self._audit_logger.log_llm_call(
-                provider=provider_name,
-                capability=capability_name,
-                artifact_id=kwargs.get("artifact_id")
-                or kwargs.get("requirement_id")
-                or kwargs.get("workspace_id"),
+            self._log_capability_call(
+                provider_name,
+                capability_name,
+                kwargs,
                 token_usage=None,
                 success=False,
                 error="Request timed out",
@@ -349,38 +403,20 @@ class CapabilityRouter:
             return _provider_error_response("Request timed out")
 
         except Exception as exc:  # noqa: BLE001
-            # Categorise by message content (Rate limit, API error, generic).
-            #
-            # #697 (CWE-209): ``msg`` is only *classified* here. The raw text of
-            # an unmapped provider/plumbing exception can name hosts, DSNs or
-            # SDK internals, so it goes to the audit row and the log — never
-            # into the client-visible ``error.message``.
-            msg = str(exc)
-            error_msg = _GENERIC_PROVIDER_ERROR
-            if "429" in msg or "Rate limit" in msg.lower() or "rate limit" in msg.lower():
-                error_msg = "Rate limit exceeded"
-            elif any(f"API error: {c}" in msg or f"{c}" in msg for c in ["500", "502", "503", "504"]):
-                # Extract HTTP status if present
-                for code in ["500", "502", "503", "504", "400", "401", "403"]:
-                    if code in msg:
-                        error_msg = f"API error: {code}"
-                        break
+            error_msg = _provider_error_message(exc)
             logger.warning(
                 "LLM provider '%s' call for capability '%s' failed",
                 provider_name,
                 capability_name,
                 exc_info=exc,
             )
-
-            self._audit_logger.log_llm_call(
-                provider=provider_name,
-                capability=capability_name,
-                artifact_id=kwargs.get("artifact_id")
-                or kwargs.get("requirement_id")
-                or kwargs.get("workspace_id"),
+            self._log_capability_call(
+                provider_name,
+                capability_name,
+                kwargs,
                 token_usage=None,
                 success=False,
-                error=msg,
+                error=str(exc),
             )
             return _provider_error_response(error_msg)
 

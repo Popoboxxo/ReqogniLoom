@@ -35,6 +35,7 @@ import uuid
 from uuid import UUID
 
 from django.conf import settings
+from django.core.exceptions import ObjectDoesNotExist
 from django.http import Http404, HttpResponse
 from django.utils import timezone
 from drf_spectacular.utils import (
@@ -1420,14 +1421,26 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         ``?status=outdated``) to see them, and ``POST .../reactivate/`` to
         restore one. TraceLinks pointing at the record survive, and
         traceability coverage ignores outdated records.
+
+        A workspace whose Requirement type has no provisioned workflow
+        definition answers 400 ``VALIDATION_ERROR`` instead of a 500: the
+        soft-delete routes through the workflow engine's ``outdate()``, which
+        needs that definition to resolve the states.
         """
         lang = detect_lang(request)
         change_reason = request.data.get("change_reason", "") if isinstance(request.data, dict) else ""
+        from workflow.services import WorkflowDefinitionError
+
         try:
             ctx = get_auth_context(request)
             self._svc().delete_requirement(UUID(pk), ctx, change_reason=change_reason)
         except (NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
+        except WorkflowDefinitionError as exc:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         except Exception as exc:
             return _service_error_response(exc, lang)
         return Response(status=status.HTTP_204_NO_CONTENT)
@@ -4797,12 +4810,14 @@ class WorkflowDefinitionViewSet(BaseEntityViewSet):
             change_reason = request.data.get("change_reason", "")
             if not target_state:
                 return Response(build_error_response("VALIDATION_ERROR", lang, message="target_state is required"), status=status.HTTP_400_BAD_REQUEST)
+            artifact = ArtifactService().get_artifact(UUID(pk), ctx)
             self._svc().transition(
-                entity_id=UUID(pk),
-                entity_type="Artifact",
+                item_id=artifact.id,
                 target_state=target_state,
-                ctx=ctx,
                 change_reason=change_reason,
+                ctx=ctx,
+                item_type="Artifact",
+                workspace_id=artifact.workspace_id,
             )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
@@ -5754,6 +5769,7 @@ class WorkspaceViewSet(BaseEntityViewSet):
         accepts the resolved object shape ``{"tier": "minimal"}`` the GET
         response returns, not just the bare string.
         REQ-L2-RF-007 / REQ-L2-RF-012: Preset switch from Workspace Settings UI.
+        An unknown workspace answers 404 ``NOT_FOUND``.
         """
         lang = detect_lang(request)
         target_tier = extract_preset_tier(request.data.get("preset"))
@@ -5783,6 +5799,14 @@ class WorkspaceViewSet(BaseEntityViewSet):
             CrossTenantWorkspaceError,
         ) as exc:
             return _service_error_response(exc, lang)
+        except ObjectDoesNotExist:
+            # The preset gate resolves the raw id through unscoped managers,
+            # so a missing workspace arrives as Workspace.DoesNotExist instead
+            # of the NotFoundError above. Answer the same 404 retrieve gives.
+            return Response(
+                build_error_response("NOT_FOUND", lang),
+                status=status.HTTP_404_NOT_FOUND,
+            )
         except Exception as exc:
             return _service_error_response(exc, lang)
         return Response({"id": str(pk), "preset": target_tier})
