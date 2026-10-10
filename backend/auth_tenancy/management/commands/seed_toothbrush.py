@@ -44,8 +44,8 @@ from icd.services import create_icd, IcdCreateDTO
 WORKSPACE_NAME = "Zahnbürste SysEng Demo"
 
 
-def run():
-    print("Starting Zahnbürste SysEng Demo seeding...")
+def _resolve_tenant_and_user() -> tuple[Tenant, User]:
+    """Resolve the admin's tenant/user, bootstrapping both when absent."""
     # Seed into the *admin's* tenant, not Tenant.objects.first(). The E2E suite
     # logs in as this admin and finds the workspace through the tenant-scoped
     # /api/v1/workspaces/ list, so seeding into whatever tenant happens to sort
@@ -68,8 +68,12 @@ def run():
             username=DEFAULT_ADMIN_USERNAME,
             tenant=tenant,
         )
+    return tenant, user
 
-    ctx = AuthContext(
+
+def _build_auth_context(tenant: Tenant, user: User) -> AuthContext:
+    """Build the seeding auth context for the resolved tenant/user."""
+    return AuthContext(
         tenant_id=tenant.id,
         user_id=user.id,
         # REQ-L2-AT-003/ADR-L3-AT002-01: the RBAC matrix only recognises the
@@ -83,41 +87,26 @@ def run():
         auth_method=AuthMethod.BEARER_TOKEN
     )
 
-    # COMP-PL-006: activate the Postgres RLS session variable + thread-local
-    # app-layer filter for this tenant. Outside of a request, no middleware
-    # runs set_request_tenant() for us, so every direct model write below
-    # (e.g. the Artifact.objects.create() calls for StakeholderNeed) would
-    # otherwise be rejected by the "new row violates row-level security
-    # policy" Postgres policy (COMP-PL-006, migration 0003_rls_policies).
-    set_request_tenant(tenant.id)
 
-    existing = Workspace.objects.filter(
+def _find_existing_workspace(tenant: Tenant) -> Workspace | None:
+    """Return the already seeded demo workspace, if a previous run created it."""
+    return Workspace.objects.filter(
         tenant_id=tenant.id, name=WORKSPACE_NAME
     ).first()
-    if existing is not None:
-        print(f"Workspace created with ID: {existing.id}")
-        print("Seeding skipped — workspace already present.")
-        clear_request_tenant()
-        return
 
-    ws_svc = WorkspaceService()
+
+def _create_workspace(ctx: AuthContext) -> Workspace:
+    """Create the demo workspace and echo its ID."""
     print("Creating Workspace...")
-    ws = ws_svc.create_workspace(ctx=ctx, name=WORKSPACE_NAME, preset="extended", terminology_profile="se_mode")
-    ws_id = ws.id
-    print(f"Workspace created with ID: {ws_id}")
-    
-    # Initialize Services
-    req_svc = RequirementService()
-    arch_svc = ArchitectureService()
-    link_svc = TraceLinkService()
-    risk_svc = RiskService()
-    issue_svc = IssueService()
-    adr_svc = AdrService()
-    glossary_svc = GlossaryService()
-    test_svc = TestService()
-    test_run_svc = TestRunService()
-    
+    ws = WorkspaceService().create_workspace(ctx=ctx, name=WORKSPACE_NAME, preset="extended", terminology_profile="se_mode")
+    print(f"Workspace created with ID: {ws.id}")
+    return ws
+
+
+def _create_glossary(ctx: AuthContext, ws_id: Any) -> None:
+    """Seed the demo glossary terms."""
     print("Creating Glossary Terms...")
+    svc = GlossaryService()
     terms = [
         ("BLDC", "Brushless DC Motor - Ein bürstenloser Gleichstrommotor für hohe Effizienz."),
         ("IPX7", "Schutz gegen zeitweiliges Untertauchen in Wasser."),
@@ -126,9 +115,13 @@ def run():
         ("PCBA", "Printed Circuit Board Assembly - Bestückte Leiterplatte."),
     ]
     for term, definition in terms:
-        glossary_svc.create(ctx=ctx, workspace_id=ws_id, term=term, definition=definition)
-    
-    # 1. Stakeholder Needs
+        svc.create(ctx=ctx, workspace_id=ws_id, term=term, definition=definition)
+
+
+def _create_stakeholder_needs(
+    ctx: AuthContext, ws_id: Any, tenant: Tenant, user: User
+) -> list[Any]:
+    """Create the L0 stakeholder needs driving the requirement cascade."""
     needs_data = [
         ("N-01", "Gründliche Reinigung", "Entfernt Plaque besser als Handzahnbürste"),
         ("N-02", "Akkulaufzeit", "Mindestens 2 Wochen bei 2x täglicher Nutzung"),
@@ -151,7 +144,7 @@ def run():
         ("N-19", "Robustheit", "Falltest aus 1,5m Höhe ohne Funktionsverlust"),
         ("N-20", "Kinder-Modus", "Sicherheitsmodus mit reduzierter Kraft für Kinder")
     ]
-    
+
     needs = []
     print("Creating Stakeholder Needs...")
     for title, desc, details in needs_data:
@@ -170,18 +163,21 @@ def run():
             created_by_id=user.id
         )
         needs.append(n)
-        
-    # 2. Architecture Elements
-    archs = {}
-    
+    return needs
+
+
+def _create_architecture(ctx: AuthContext, ws_id: Any) -> dict[str, Any]:
+    """Create the L1-L3 architecture decomposition, keyed by internal name."""
+    archs: dict[str, Any] = {}
+
     def create_arch(key, title, el_type, parent_key=None):
         parent_id = archs[parent_key].id if parent_key else None
-        a = arch_svc.create_architecture_element(workspace_id=ws_id, title=title, ctx=ctx, element_type=el_type, parent_id=parent_id)
+        a = ArchitectureService().create_architecture_element(workspace_id=ws_id, title=title, ctx=ctx, element_type=el_type, parent_id=parent_id)
         archs[key] = a
         return a
-        
+
     print("Creating Architecture Elements...")
-    sys1 = create_arch("SYS", "Smart Toothbrush System", ElementType.SUBSYSTEM)
+    create_arch("SYS", "Smart Toothbrush System", ElementType.SUBSYSTEM)
     create_arch("SS_HANDLE", "Handstück", ElementType.SUBSYSTEM, "SYS")
     create_arch("SS_HEAD", "Bürstenkopf", ElementType.SUBSYSTEM, "SYS")
     create_arch("SS_BASE", "Ladestation", ElementType.SUBSYSTEM, "SYS")
@@ -215,11 +211,21 @@ def run():
     create_arch("P_CASE_HINGE", "Scharnier", ElementType.COMPONENT, "A_TRAVEL_CASE")
     create_arch("SW_APP_DASH", "App Dashboard", ElementType.MODULE, "SS_APP")
     create_arch("SW_APP_SYNC", "App Sync Manager", ElementType.MODULE, "SS_APP")
-    
-    # 3. Requirements (180+)
+    return archs
+
+
+def _create_requirements(
+    ctx: AuthContext,
+    ws_id: Any,
+    needs: list[Any],
+    archs: dict[str, Any],
+) -> dict[str, Any]:
+    """Create the L1-L5 requirements with derivation and allocation trace links."""
     print("Creating Requirements...")
-    reqs = {}
-    
+    req_svc = RequirementService()
+    link_svc = TraceLinkService()
+    reqs: dict[str, Any] = {}
+
     def create_req(key, title, parent_need=None, parent_req=None, allocated_arch=None):
         r = req_svc.create_requirement(workspace_id=ws_id, title=title, ctx=ctx, type=RequirementType.SYREQ)
         reqs[key] = r
@@ -228,11 +234,11 @@ def run():
             # a Requirement pointing at the Need it came from is a derivation,
             # so the migration rewrote these rows to derives-from with their
             # endpoints left alone (child -> parent).
-            link_svc.create_trace_link(source_id=r.artifact_id, target_id=parent_need.artifact_id, link_type="derives-from", ctx=ctx)
+            link_svc.create_trace_link(source_id=r.artifact_id, target_id=parent_need.artifact.id, link_type="derives-from", ctx=ctx)
         if parent_req:
-            link_svc.create_trace_link(source_id=r.artifact_id, target_id=parent_req.artifact_id, link_type="derives-from", ctx=ctx)
+            link_svc.create_trace_link(source_id=r.artifact_id, target_id=parent_req.artifact.id, link_type="derives-from", ctx=ctx)
         if allocated_arch:
-            link_svc.create_trace_link(source_id=r.artifact_id, target_id=allocated_arch.artifact_id, link_type="allocated-to", ctx=ctx)
+            link_svc.create_trace_link(source_id=r.artifact_id, target_id=allocated_arch.artifact.id, link_type="allocated-to", ctx=ctx)
         return r
 
     realistic_l1 = [
@@ -263,13 +269,13 @@ def run():
         "Das Reise-Etui muss aus kratzfestem Polycarbonat bestehen."
     ]
 
-    l1_keys = [k for k in reqs.keys() if k.startswith("L1_")]
+    l1_keys = [k for k in reqs if k.startswith("L1_")]
     for i, l1k in enumerate(l1_keys):
         for j in range(3):
             arch_key = ["SS_HANDLE", "SS_HEAD", "SS_BASE", "SS_APP"][j % 4]
             text = realistic_l2[(i * 3 + j) % len(realistic_l2)]
             create_req(f"L2_{i}_{j}", text, parent_req=reqs[l1k], allocated_arch=archs[arch_key])
-            
+
     realistic_l3 = [
         "Widerstand R1 muss 10kOhm mit 1% Toleranz betragen.",
         "Die Leiterplatte (PCBA) muss 4 Lagen Kupfer (35µm) aufweisen.",
@@ -279,10 +285,9 @@ def run():
         "Das UI-Dashboard muss in React Native implementiert werden."
     ]
 
-    l2_keys = [k for k in reqs.keys() if k.startswith("L2_")]
+    l2_keys = [k for k in reqs if k.startswith("L2_")]
     for i, l2k in enumerate(l2_keys):
         for j in range(2):
-            arch_options = list(archs.values())[5:]
             arch_key = list(archs.keys())[5 + ((i+j) % (len(archs)-5))]
             text = realistic_l3[(i * 2 + j) % len(realistic_l3)]
             create_req(f"L3_{i}_{j}", text, parent_req=reqs[l2k], allocated_arch=archs[arch_key])
@@ -295,10 +300,9 @@ def run():
         "Das Spritzguss-Werkzeug für die Gummierung muss eine Toleranz von 0.1mm aufweisen."
     ]
 
-    l3_keys = [k for k in reqs.keys() if k.startswith("L3_")]
+    l3_keys = [k for k in reqs if k.startswith("L3_")]
     for i, l3k in enumerate(l3_keys):
         for j in range(1):
-            arch_options = list(archs.values())[10:]
             arch_key = list(archs.keys())[10 + ((i+j) % (len(archs)-10))]
             text = realistic_l4[(i + j) % len(realistic_l4)]
             create_req(f"L4_{i}_{j}", text, parent_req=reqs[l3k], allocated_arch=archs[arch_key])
@@ -310,17 +314,20 @@ def run():
         "Das Magnet-Sinterverfahren muss bei 1100°C unter Vakuum erfolgen."
     ]
 
-    l4_keys = [k for k in reqs.keys() if k.startswith("L4_")]
+    l4_keys = [k for k in reqs if k.startswith("L4_")]
     for i, l4k in enumerate(l4_keys):
         for j in range(1):
-            arch_options = list(archs.values())[-5:]
             arch_key = list(archs.keys())[-5 + ((i+j) % 5)]
             text = realistic_l5[(i + j) % len(realistic_l5)]
             create_req(f"L5_{i}_{j}", text, parent_req=reqs[l4k], allocated_arch=archs[arch_key])
+    return reqs
 
-    # 4. ICDs (90+)
+
+def _create_icds(
+    ctx: AuthContext, ws_id: Any, archs: dict[str, Any], tenant: Tenant, user: User
+) -> None:
+    """Create the 95 demo interfaces between architecture elements."""
     print("Creating Interfaces (ICDs)...")
-    icds = []
     arch_keys = list(archs.keys())
     icd_names = ["SPI Data Link", "Power Line 5V", "Mechanical Mount", "I2C Sensor Bus", "BLE RF Link", "Inductive Energy Transfer", "UART Debug"]
     for i in range(95):
@@ -339,11 +346,14 @@ def run():
             semantic_description="Auto-generierte Schnittstelle zur Verifikation",
             created_by_id=user.id
         )
-        res = create_icd(payload)
-        icds.append(res)
-        
-    # 5. Risks (20+)
+        create_icd(payload)
+
+
+def _create_risks(ctx: AuthContext, ws_id: Any, reqs: dict[str, Any]) -> None:
+    """Create the 22 demo risks, each mitigating one requirement."""
     print("Creating Risks...")
+    risk_svc = RiskService()
+    link_svc = TraceLinkService()
     risk_texts = ["Wassereintritt am Schalter", "Akku-Überhitzung beim Laden", "Verlust der Bluetooth-Verbindung", "Abnutzung der Rotorwelle", "Ausfall des Drucksensors"]
     for i in range(22):
         r = risk_svc.create_risk(
@@ -361,8 +371,12 @@ def run():
         # UUID-identity hack (Artifact.objects.create(id=r.id, ...)).
         link_svc.create_trace_link(source_id=r.artifact_id, target_id=reqs[req_key].artifact_id, link_type="mitigates", ctx=ctx)
 
-    # 6. Issues (50+)
+
+def _create_issues(ctx: AuthContext, ws_id: Any, archs: dict[str, Any]) -> None:
+    """Create the 55 demo issues, each referencing an architecture element."""
     print("Creating Issues...")
+    issue_svc = IssueService()
+    link_svc = TraceLinkService()
     issue_texts = ["Spaltmaß am Gehäuse zu groß", "PWM Frequenz verursacht Pfeifen", "Firmware OTA bricht ab", "Batterieanzeige ungenau", "Etui schließt nicht bündig"]
     for i in range(55):
         iss = issue_svc.create_issue(
@@ -372,14 +386,18 @@ def run():
             ctx=ctx,
             description="Problem aufgetreten während der Integrationstests der Vorserie."
         )
-        arch_key = arch_keys[i % len(arch_keys)]
+        arch_key = list(archs.keys())[i % len(archs.keys())]
         # REQ-L2-TE-020: IssueService.create_issue now creates the backing
-        # Artifact via a proper OneToOne FK — use iss.artifact_id instead of the
-        # former UUID-identity hack (Artifact.objects.create(id=iss.id, ...)).
+        # Artifact via a proper OneToOne FK — use iss.artifact_id instead of
+        # the former UUID-identity hack (Artifact.objects.create(id=iss.id, ...)).
         link_svc.create_trace_link(source_id=iss.artifact_id, target_id=archs[arch_key].artifact_id, link_type="references", ctx=ctx)
 
-    # 7. ADRs (10+)
+
+def _create_adrs(ctx: AuthContext, ws_id: Any, archs: dict[str, Any]) -> None:
+    """Create the 12 demo ADRs, each deciding on an architecture element."""
     print("Creating ADRs...")
+    adr_svc = AdrService()
+    link_svc = TraceLinkService()
     adr_texts = ["Verwendung von BLE 5.2 statt 5.0", "Wechsel auf Cortex-M4 MCU", "Gehäuse aus rPET Material", "Implementierung von OTA via App", "Wegfall der Ladeanzeige-LED am Etui"]
     for i in range(12):
         adr = adr_svc.create_adr(
@@ -388,15 +406,21 @@ def run():
             description="Entscheidung getroffen aufgrund von Kosten vs. Nutzen Analyse sowie Lieferketten-Stabilität.",
             ctx=ctx
         )
-        arch_key = arch_keys[i % len(arch_keys)]
+        arch_key = list(archs.keys())[i % len(archs.keys())]
         # REQ-L2-TE-020: AdrService.create_adr already creates the backing
-        # Artifact via a proper OneToOne FK — use adr.artifact_id instead of the
-        # former UUID-identity hack (which created a second, orphan Artifact).
+        # Artifact via a proper OneToOne FK — use adr.artifact_id instead of
+        # the former UUID-identity hack (which created a second, orphan Artifact).
         link_svc.create_trace_link(source_id=adr.artifact_id, target_id=archs[arch_key].artifact_id, link_type="decides", ctx=ctx)
 
+
+def _create_testcases_and_runs(ctx: AuthContext, ws_id: Any, reqs: dict[str, Any]) -> None:
+    """Create test cases for the first 30 requirements and two test runs."""
     print("Creating TestCases and TestRuns...")
+    test_svc = TestService()
+    link_svc = TraceLinkService()
+    test_run_svc = TestRunService()
     test_cases = []
-    for i, req in enumerate(list(reqs.values())[:30]):
+    for req in list(reqs.values())[:30]:
         tc = test_svc.create_test_case(
             workspace_id=ws_id,
             title=f"Test für: {req.title}",
@@ -413,18 +437,49 @@ def run():
         ctx=ctx,
         test_case_ids=[tc.id for tc in test_cases[:15]]
     )
-    tr2 = test_run_svc.create_test_run(
+    test_run_svc.create_test_run(
         workspace_id=ws_id,
         name="Release Candidate 1.0",
         ctx=ctx,
         test_case_ids=[tc.id for tc in test_cases[15:30]]
     )
-    
+
     for tc in test_cases[:10]:
         test_run_svc.add_result(test_run_id=tr1.id, test_case_id=tc.id, status="passed", ctx=ctx, message="Test erfolgreich durchlaufen.")
     for tc in test_cases[10:15]:
         test_run_svc.add_result(test_run_id=tr1.id, test_case_id=tc.id, status="failed", ctx=ctx, message="Timeout nach 5 Sekunden.")
 
+
+def run():
+    print("Starting Zahnbürste SysEng Demo seeding...")
+    tenant, user = _resolve_tenant_and_user()
+    ctx = _build_auth_context(tenant, user)
+
+    # COMP-PL-006: activate the Postgres RLS session variable + thread-local
+    # app-layer filter for this tenant. Outside of a request, no middleware
+    # runs set_request_tenant() for us, so every direct model write below
+    # (e.g. the Artifact.objects.create() calls for StakeholderNeed) would
+    # otherwise be rejected by the "new row violates row-level security
+    # policy" Postgres policy (COMP-PL-006, migration 0003_rls_policies).
+    set_request_tenant(tenant.id)
+
+    existing = _find_existing_workspace(tenant)
+    if existing is not None:
+        print(f"Workspace created with ID: {existing.id}")
+        print("Seeding skipped — workspace already present.")
+        clear_request_tenant()
+        return
+
+    ws = _create_workspace(ctx)
+    _create_glossary(ctx, ws.id)
+    needs = _create_stakeholder_needs(ctx, ws.id, tenant, user)
+    archs = _create_architecture(ctx, ws.id)
+    reqs = _create_requirements(ctx, ws.id, needs, archs)
+    _create_icds(ctx, ws.id, archs, tenant, user)
+    _create_risks(ctx, ws.id, reqs)
+    _create_issues(ctx, ws.id, archs)
+    _create_adrs(ctx, ws.id, archs)
+    _create_testcases_and_runs(ctx, ws.id, reqs)
     clear_request_tenant()
     print("Seeding completed successfully!")
 
