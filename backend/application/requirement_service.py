@@ -445,6 +445,215 @@ class RequirementService(ServiceBase):
             target_architecture_elements=[architecture_element_id],
         )
 
+    def _load_requirement_for_update(
+        self,
+        requirement_id: UUID,
+        ctx: AuthContext,
+        expected_version: int | None,
+    ) -> Requirement:
+        """Load the Requirement row for :meth:`update_requirement` under the
+        optimistic-lock check, or raise.
+
+        SYSTEMAUDIT_2026-08-29 REST finding 1: ``expected_version`` carries
+        the caller's last-seen ``version``. When supplied and stale, the
+        update is refused with ``OptimisticLockError`` here (409 CONFLICT)
+        instead of silently overwriting a concurrent edit. Omitting it keeps
+        the previous last-writer-wins behaviour, so existing clients are
+        unaffected.
+
+        Tenant context and the write-permission check run first so the locked
+        read and every validation below is scoped to the caller's tenant
+        (ADR-03 row-level isolation).
+        """
+        self._set_tenant_context(ctx)
+        self._assert_write_permission(ctx)
+
+        requirement = lock_for_version_check(
+            Requirement.objects.select_related("artifact").filter(id=requirement_id),
+            expected_version,
+        ).first()
+        if requirement is None:
+            raise NotFoundError(f"Requirement {requirement_id} not found")
+        assert_expected_version(
+            requirement, expected_version, entity_type="Requirement"
+        )
+        return requirement
+
+    def _apply_requirement_content_updates(
+        self,
+        requirement: Requirement,
+        workspace_id: UUID,
+        title: str | None = None,
+        description: str | None = None,
+        acceptance_criteria: str | None = None,
+        rationale: str | None = None,
+        source: str | None = None,
+        category: str | None = None,
+        type: str | None = None,
+        complexity_fibonacci: object = _UNSET,
+        verification_method: object = _UNSET,
+        uid: object = _UNSET,
+    ) -> None:
+        """Apply the free-text and scalar field updates of
+        :meth:`update_requirement` to *requirement* (in place).
+
+        #709: same MCP-bypass defense in depth as create_requirement — only
+        applied to fields actually being changed (``is not None`` already
+        gates "was this field provided"). #871/#583: rationale/source are
+        free text too — same defense in depth as description/
+        acceptance_criteria (closes the MCP bypass). REQ-L2-RF-025 AC3: the
+        uid branch keeps the per-workspace uniqueness guard of create,
+        excluding the row itself.
+        """
+        if title is not None:
+            requirement.title = clean_free_text_field(title, "title")
+        if description is not None:
+            requirement.description = clean_free_text_field(description, "description")
+        if acceptance_criteria is not None:
+            requirement.acceptance_criteria = clean_free_text_field(
+                acceptance_criteria, "acceptance_criteria"
+            )
+        if rationale is not None:
+            requirement.rationale = clean_free_text_field(rationale, "rationale")
+        if source is not None:
+            requirement.source = clean_free_text_field(source, "source")
+        if category is not None:
+            requirement.category = category
+        if type is not None:
+            requirement.type = type
+        if complexity_fibonacci is not _UNSET:
+            requirement.complexity_fibonacci = complexity_fibonacci
+        if verification_method is not _UNSET:
+            requirement.verification_method = verification_method
+        if uid is not _UNSET:
+            self._assert_uid_unique_in_workspace(
+                workspace_id, uid, exclude_id=requirement.id
+            )
+            requirement.uid = uid
+
+    def _apply_custom_fields_update(
+        self, requirement: Requirement, custom_fields: object
+    ) -> bool:
+        """Write *custom_fields* to the backing Artifact and report whether
+        they actually changed.
+
+        REQ-L2-AS-037: custom_fields lives on the backing Artifact, so it is
+        outside the Requirement snapshot and has to be compared separately —
+        the returned flag is what gates the version bump and revision record
+        in :meth:`_persist_requirement_update`.
+        """
+        if custom_fields is _UNSET:
+            return False
+        cleaned_custom_fields = _clean_custom_fields(custom_fields)
+        custom_fields_changed = (
+            cleaned_custom_fields != (requirement.artifact.custom_fields or {})
+        )
+        requirement.artifact.custom_fields = cleaned_custom_fields
+        requirement.artifact.save(update_fields=["custom_fields", "modified_at"])
+        return custom_fields_changed
+
+    def _apply_parent_update(
+        self, requirement: Requirement, parent_id: object, workspace_id: UUID
+    ) -> bool:
+        """Apply a re-parent of the backing Artifact and report whether the
+        hierarchy actually moved.
+
+        ADR-005: apply the re-parent (see the update docstring — the value
+        used to be declared by the serializer and silently discarded by the
+        view). The FK tree and the TraceLink graph are two separate
+        hierarchies; this writes the FK half, and the derivation reads the
+        union of both, so ``level`` follows the re-parent even though no link
+        is created. Whether the reciprocal ``derives-from`` link should be
+        created here too (as ``decompose()`` does, and as the
+        ``Artifact.parent`` docstring requires of *any* writer of one half)
+        is **not** decided here — it changes link-creation semantics, which
+        ADR-005 does not authorise. Recorded as an open follow-up in the
+        ADR-005 report.
+        """
+        if parent_id is _UNSET:
+            return False
+        new_parent_id = None if parent_id is None else UUID(str(parent_id))
+        current_parent_id = requirement.artifact.parent_id
+        parent_changed = new_parent_id != current_parent_id
+        if parent_changed:
+            if new_parent_id is not None:
+                if new_parent_id == requirement.artifact_id:
+                    raise ValidationError(
+                        "parent_id cannot be the requirement itself"
+                    )
+                parent_artifact = Artifact.objects.filter(id=new_parent_id).first()
+                if parent_artifact is None:
+                    raise NotFoundError(
+                        f"Parent artifact {new_parent_id} not found"
+                    )
+                if parent_artifact.workspace_id != workspace_id:
+                    raise ValidationError(
+                        f"Parent artifact {new_parent_id} is not in "
+                        f"workspace {workspace_id}"
+                    )
+                self._validate_no_parent_cycle(
+                    artifact_id=requirement.artifact_id,
+                    new_parent_id=new_parent_id,
+                )
+            requirement.artifact.parent_id = new_parent_id
+            requirement.artifact.save(
+                update_fields=["parent_id", "modified_at"]
+            )
+        return parent_changed
+
+    def _persist_requirement_update(
+        self,
+        requirement: Requirement,
+        ctx: AuthContext,
+        change_reason: str | None,
+        before_snapshot: dict[str, Any],
+        custom_fields_changed: bool,
+        parent_changed: bool,
+    ) -> None:
+        """Persist a changed Requirement: save it, re-derive levels after a
+        re-parent, then bump version and record a revision — but only for a
+        real content change.
+
+        ADR-005: a re-parent changes the cascade position of the moved node
+        *and of everything below it*, so the whole subtree is re-derived.
+        Runs after the FK write (the derivation reads the persisted tree) and
+        inside this method's transaction, so a failure rolls the re-parent
+        back rather than leaving a moved node with its old level.
+
+        Atomic version increment (REQ-L3-PL001-002): requirement_service was
+        missing any version bump at all — the baseline diff engine compares
+        stored version numbers, so without this increment every update
+        appears as version=1 forever, producing incorrect/empty diffs.
+
+        #269 finding 5: gated on an actual value change. Bumping on every
+        call made a no-op PATCH (unknown field, or a field re-sent with its
+        current value) look like a new revision and produced diffs between
+        identical snapshots. Datenmodell-Konsolidierung Phase 5 (spec §6.1):
+        a revision is recorded under exactly the condition that makes this a
+        content write. Recording unconditionally would append an identical
+        snapshot for a no-op PATCH — the same phantom-revision noise #269
+        finding 5 removed from the version counter itself.
+
+        The level is re-read before the change detection (it is part of the
+        versioned snapshot, so a stale attribute would make the re-derived
+        level look like no change at all).
+        """
+        requirement.save()
+        if parent_changed:
+            _recompute_derived_levels([requirement.artifact_id])
+            requirement.refresh_from_db(fields=["level"])
+        if has_field_changes(requirement, before_snapshot) or custom_fields_changed:
+            Requirement.objects.filter(id=requirement.id).update(
+                version=F("version") + 1
+            )
+            requirement.refresh_from_db(fields=["version"])
+            ArtifactVersionService().record(
+                requirement.artifact_id,
+                snapshot_fields(requirement, "Requirement"),
+                ctx,
+                change_reason=change_reason or "",
+            )
+
     @atomic_transaction
     def update_requirement(
         self,
@@ -503,17 +712,8 @@ class RequirementService(ServiceBase):
         overwriting a concurrent edit. Omitting it keeps the previous
         last-writer-wins behaviour, so existing clients are unaffected.
         """
-        self._set_tenant_context(ctx)
-        self._assert_write_permission(ctx)
-
-        requirement = lock_for_version_check(
-            Requirement.objects.select_related("artifact").filter(id=requirement_id),
-            expected_version,
-        ).first()
-        if requirement is None:
-            raise NotFoundError(f"Requirement {requirement_id} not found")
-        assert_expected_version(
-            requirement, expected_version, entity_type="Requirement"
+        requirement = self._load_requirement_for_update(
+            requirement_id, ctx, expected_version
         )
 
         workspace_id = requirement.artifact.workspace_id
@@ -526,90 +726,27 @@ class RequirementService(ServiceBase):
         # #269 finding 5: snapshot BEFORE any assignment so the version bump
         # below can be gated on a real value change.
         _before = snapshot_versioned_fields(requirement)
-        _custom_fields_changed = False
 
-        # #709: same MCP-bypass defense in depth as create_requirement — only
-        # applied to fields actually being changed (``is not None`` already
-        # gates "was this field provided").
-        if title is not None:
-            requirement.title = clean_free_text_field(title, "title")
-        if description is not None:
-            requirement.description = clean_free_text_field(description, "description")
-        if acceptance_criteria is not None:
-            requirement.acceptance_criteria = clean_free_text_field(
-                acceptance_criteria, "acceptance_criteria"
-            )
-        if rationale is not None:
-            requirement.rationale = clean_free_text_field(rationale, "rationale")
-        if source is not None:
-            requirement.source = clean_free_text_field(source, "source")
-        if category is not None:
-            requirement.category = category
-        if type is not None:
-            requirement.type = type
-        if complexity_fibonacci is not _UNSET:
-            requirement.complexity_fibonacci = complexity_fibonacci
-        if verification_method is not _UNSET:
-            requirement.verification_method = verification_method
-        if uid is not _UNSET:
-            self._assert_uid_unique_in_workspace(
-                workspace_id, uid, exclude_id=requirement.id
-            )
-            requirement.uid = uid
-
-        # REQ-L2-AS-037: custom_fields lives on the backing Artifact, so it is
-        # outside the Requirement snapshot and has to be compared separately.
-        if custom_fields is not _UNSET:
-            cleaned_custom_fields = _clean_custom_fields(custom_fields)
-            _custom_fields_changed = (
-                cleaned_custom_fields != (requirement.artifact.custom_fields or {})
-            )
-            requirement.artifact.custom_fields = cleaned_custom_fields
-            requirement.artifact.save(update_fields=["custom_fields", "modified_at"])
-
-        # ADR-005: apply the re-parent (see the docstring — the value used to
-        # be declared by the serializer and silently discarded by the view).
-        # The FK tree and the TraceLink graph are two separate hierarchies; this
-        # writes the FK half, and the derivation below reads the union of both,
-        # so ``level`` follows the re-parent even though no link is created.
-        # Whether the reciprocal ``derives-from`` link should be created here
-        # too (as ``decompose()`` does, and as the ``Artifact.parent``
-        # docstring requires of *any* writer of one half) is **not** decided
-        # here — it changes link-creation semantics, which ADR-005 does not
-        # authorise. Recorded as an open follow-up in the ADR-005 report.
-        _parent_changed = False
-        if parent_id is not _UNSET:
-            new_parent_id = (
-                None if parent_id is None else UUID(str(parent_id))
-            )
-            current_parent_id = requirement.artifact.parent_id
-            _parent_changed = new_parent_id != current_parent_id
-            if _parent_changed:
-                if new_parent_id is not None:
-                    if new_parent_id == requirement.artifact_id:
-                        raise ValidationError(
-                            "parent_id cannot be the requirement itself"
-                        )
-                    parent_artifact = Artifact.objects.filter(
-                        id=new_parent_id
-                    ).first()
-                    if parent_artifact is None:
-                        raise NotFoundError(
-                            f"Parent artifact {new_parent_id} not found"
-                        )
-                    if parent_artifact.workspace_id != workspace_id:
-                        raise ValidationError(
-                            f"Parent artifact {new_parent_id} is not in "
-                            f"workspace {workspace_id}"
-                        )
-                    self._validate_no_parent_cycle(
-                        artifact_id=requirement.artifact_id,
-                        new_parent_id=new_parent_id,
-                    )
-                requirement.artifact.parent_id = new_parent_id
-                requirement.artifact.save(
-                    update_fields=["parent_id", "modified_at"]
-                )
+        self._apply_requirement_content_updates(
+            requirement,
+            workspace_id,
+            title=title,
+            description=description,
+            acceptance_criteria=acceptance_criteria,
+            rationale=rationale,
+            source=source,
+            category=category,
+            type=type,
+            complexity_fibonacci=complexity_fibonacci,
+            verification_method=verification_method,
+            uid=uid,
+        )
+        _custom_fields_changed = self._apply_custom_fields_update(
+            requirement, custom_fields
+        )
+        _parent_changed = self._apply_parent_update(
+            requirement, parent_id, workspace_id
+        )
 
         # SN-30: If title or description changed, we will propagate suspect
         # (Task 12: `status` dropped from this list -- it is no longer a
@@ -620,43 +757,14 @@ class RequirementService(ServiceBase):
             if suspect is not None:
                 requirement.suspect = suspect
 
-        requirement.save()
-        # ADR-005: a re-parent changes the cascade position of the moved node
-        # *and of everything below it*, so the whole subtree is re-derived. Runs
-        # after the FK write above (the derivation reads the persisted tree) and
-        # inside this method's transaction, so a failure rolls the re-parent
-        # back rather than leaving a moved node with its old level.
-        if _parent_changed:
-            _recompute_derived_levels([requirement.artifact_id])
-            # The level is part of the versioned snapshot, so re-read it before
-            # the change detection below decides whether this update is a real
-            # content change.
-            requirement.refresh_from_db(fields=["level"])
-        # Atomic version increment (REQ-L3-PL001-002): requirement_service was
-        # missing any version bump at all — the baseline diff engine compares
-        # stored version numbers, so without this increment every update appears
-        # as version=1 forever, producing incorrect/empty diffs.
-        #
-        # #269 finding 5: gated on an actual value change. Bumping on every call
-        # made a no-op PATCH (unknown field, or a field re-sent with its current
-        # value) look like a new revision and produced diffs between identical
-        # snapshots.
-        if has_field_changes(requirement, _before) or _custom_fields_changed:
-            Requirement.objects.filter(id=requirement.id).update(
-                version=F("version") + 1
-            )
-            requirement.refresh_from_db(fields=["version"])
-            # Datenmodell-Konsolidierung Phase 5 (spec §6.1): a revision is
-            # recorded under exactly the condition that makes this a content
-            # write. Recording unconditionally would append an identical
-            # snapshot for a no-op PATCH — the same phantom-revision noise
-            # #269 finding 5 removed from the version counter above.
-            ArtifactVersionService().record(
-                requirement.artifact_id,
-                snapshot_fields(requirement, "Requirement"),
-                ctx,
-                change_reason=change_reason or "",
-            )
+        self._persist_requirement_update(
+            requirement,
+            ctx,
+            change_reason=change_reason,
+            before_snapshot=_before,
+            custom_fields_changed=_custom_fields_changed,
+            parent_changed=_parent_changed,
+        )
 
         # REQ-L2-VS-004: refresh the embedding only when embedding-relevant text
         # (title/description) changed, to avoid needless LLM calls on metadata-
