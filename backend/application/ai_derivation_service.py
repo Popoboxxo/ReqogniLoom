@@ -697,30 +697,12 @@ class AiDerivationService(ServiceBase):
         """
         self._set_tenant_context(ctx)
 
-        req = self._get_requirement(requirement_id)
+        req = self._require_unallocated_requirement(requirement_id)
 
-        if self._allocated_target_ids(req):
-            raise ValidationError(
-                "Requirement is already assigned to an architecture element."
-            )
-
-        workspace_id = req.artifact.workspace_id
-        arch_elements = list(
-            ArchitectureElement.objects.select_related("artifact").filter(
-                artifact__workspace_id=workspace_id
-            )
-        )
-        arch_payload = [
-            {
-                "id": str(ae.id),
-                "name": ae.title,
-                "description": truncate_prompt_content(ae.description or ""),
-            }
-            for ae in arch_elements
-        ]
+        arch_payload = self._arch_element_payload(req.artifact.workspace_id)
 
         prompt = self._resolve_and_render(
-            ctx, "sysreq_to_arch_assign", workspace_id,
+            ctx, "sysreq_to_arch_assign", req.artifact.workspace_id,
             req_title=req.title,
             req_description=truncate_prompt_content(req.description or ""),
             arch_elements_json=json.dumps(arch_payload),
@@ -738,23 +720,7 @@ class AiDerivationService(ServiceBase):
             require_objects=False,
         )
 
-        # Keep only ids the LLM was actually offered (defensive against
-        # hallucinated identifiers). The match is case-insensitive because a
-        # UUID is case-insensitive by definition and providers do normalise it
-        # (issue #825), and an object entry echoing the offered element is
-        # accepted too -- see _arch_suggestion_id_candidates. Comparing the
-        # raw entry against the canonical lowercase id silently dropped every
-        # such answer, which returned HTTP 200 with an empty
-        # suggested_arch_element_ids list even though the prompt had offered
-        # the very elements the model selected.
-        offered_by_key = {entry["id"].casefold(): entry["id"] for entry in arch_payload}
-        result_ids: List[str] = []
-        for item in suggested:
-            for candidate in _arch_suggestion_id_candidates(item):
-                canonical = offered_by_key.get(candidate.strip().casefold())
-                if canonical is not None and canonical not in result_ids:
-                    result_ids.append(canonical)
-                    break
+        result_ids = self._offered_arch_suggestion_ids(suggested, arch_payload)
 
         if suggested and not result_ids:
             # Same principle as _usable_entries (issue #311): a structurally
@@ -779,6 +745,74 @@ class AiDerivationService(ServiceBase):
             "suggested_arch_element_ids": result_ids,
             "is_mock_fallback": is_mock_fallback,
         }
+
+    def _require_unallocated_requirement(
+        self, requirement_id: UUID | str
+    ) -> Requirement:
+        """Return a tenant-scoped Requirement that has no ``allocated-to`` link.
+
+        Mirrors :meth:`_get_requirement` plus the allocation guard
+        :meth:`suggest_architecture_for_requirement` applies before offering
+        architecture elements: a requirement already allocated to an element
+        takes a :class:`ValidationError` (mapped to HTTP 400) instead, and a
+        missing requirement raises :class:`NotFoundError`.
+        """
+        req = self._get_requirement(requirement_id)
+        if self._allocated_target_ids(req):
+            raise ValidationError(
+                "Requirement is already assigned to an architecture element."
+            )
+        return req
+
+    def _arch_element_payload(self, workspace_id: UUID | str) -> list[dict[str, str]]:
+        """Return the workspace's architecture elements as LLM prompt entries.
+
+        Each entry carries the element's ``id``, ``name`` and a length-bounded
+        ``description`` (``truncate_prompt_content``). The list doubles as the
+        set of ids the model was offered, so its ``id`` values are what
+        :meth:`_offered_arch_suggestion_ids` validates an answer against.
+        """
+        arch_elements = list(
+            ArchitectureElement.objects.select_related("artifact").filter(
+                artifact__workspace_id=workspace_id
+            )
+        )
+        return [
+            {
+                "id": str(ae.id),
+                "name": ae.title,
+                "description": truncate_prompt_content(ae.description or ""),
+            }
+            for ae in arch_elements
+        ]
+
+    @staticmethod
+    def _offered_arch_suggestion_ids(
+        suggested: list[Any],
+        arch_payload: list[dict[str, str]],
+    ) -> list[str]:
+        """Keep only suggested ids the LLM was actually offered.
+
+        Defensive against hallucinated identifiers: the match is
+        case-insensitive because a UUID is case-insensitive by definition and
+        providers do normalise it (issue #825), and an object entry echoing
+        the offered element is accepted too -- see
+        _arch_suggestion_id_candidates. Comparing the raw entry against the
+        canonical lowercase id silently dropped every such answer, which
+        returned HTTP 200 with an empty suggested_arch_element_ids list even
+        though the prompt had offered the very elements the model selected.
+
+        Returns the canonical (as-offered) ids in first-seen order.
+        """
+        offered_by_key = {entry["id"].casefold(): entry["id"] for entry in arch_payload}
+        result_ids: list[str] = []
+        for item in suggested:
+            for candidate in _arch_suggestion_id_candidates(item):
+                canonical = offered_by_key.get(candidate.strip().casefold())
+                if canonical is not None and canonical not in result_ids:
+                    result_ids.append(canonical)
+                    break
+        return result_ids
 
     def decompose_requirement_next_level(
         self,
@@ -1105,27 +1139,7 @@ class AiDerivationService(ServiceBase):
         self._set_tenant_context(ctx)
 
         workspace = self._get_workspace(workspace_id)
-
-        fragments: List[str] = []
-        requirements = Requirement.objects.filter(
-            artifact__workspace_id=workspace.id
-        )
-        for req in requirements:
-            fragments.append(
-                f"Requirement: {req.title}\n"
-                f"{truncate_prompt_content(req.description or '')}"
-            )
-        arch_elements = ArchitectureElement.objects.filter(
-            artifact__workspace_id=workspace.id
-        )
-        for ae in arch_elements:
-            fragments.append(
-                f"Architecture element: {ae.title}\n"
-                f"{truncate_prompt_content(ae.description or '')}"
-            )
-        workspace_text = "\n\n".join(fragments) or (
-            "(workspace has no requirements or architecture elements yet)"
-        )
+        workspace_text = self._workspace_source_text(workspace)
 
         prompt = self._resolve_and_render(
             ctx,
@@ -1142,7 +1156,54 @@ class AiDerivationService(ServiceBase):
             context={"workspace_id": str(workspace.id)},
         )
 
-        drafts = [
+        return {
+            "drafts": self._glossary_drafts(items),
+            "workspace_id": str(workspace.id),
+            "is_mock_fallback": is_mock_fallback,
+        }
+
+    def _workspace_source_text(self, workspace: Workspace) -> str:
+        """Collect every workspace artifact's text as one glossary prompt block.
+
+        The source of :meth:`derive_glossary_from_workspace` is not a single
+        artifact but every Requirement and ArchitectureElement currently in the
+        workspace: their titles and descriptions are collected into one block
+        of text and handed to the LLM to extract domain terms from. This
+        intentionally reuses only a lightweight, direct query — not the full
+        context-assembly machinery of the N1 architecture-decompose copilot,
+        which this flow does not need. An empty workspace still yields a
+        non-empty placeholder text so the prompt always has content.
+        """
+        fragments: list[str] = []
+        requirements = Requirement.objects.filter(
+            artifact__workspace_id=workspace.id
+        )
+        for req in requirements:
+            fragments.append(
+                f"Requirement: {req.title}\n"
+                f"{truncate_prompt_content(req.description or '')}"
+            )
+        arch_elements = ArchitectureElement.objects.filter(
+            artifact__workspace_id=workspace.id
+        )
+        for ae in arch_elements:
+            fragments.append(
+                f"Architecture element: {ae.title}\n"
+                f"{truncate_prompt_content(ae.description or '')}"
+            )
+        return "\n\n".join(fragments) or (
+            "(workspace has no requirements or architecture elements yet)"
+        )
+
+    @staticmethod
+    def _glossary_drafts(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Map parsed glossary entries onto the flow's draft shape.
+
+        A malformed ``synonyms`` value (present but not a list) degrades to an
+        empty list instead of failing the whole flow: one bad optional field
+        must not discard the model's usable terms.
+        """
+        return [
             {
                 "term": str(item.get("term", "")),
                 "definition": str(item.get("definition", "")),
@@ -1155,11 +1216,6 @@ class AiDerivationService(ServiceBase):
             }
             for item in items
         ]
-        return {
-            "drafts": drafts,
-            "workspace_id": str(workspace.id),
-            "is_mock_fallback": is_mock_fallback,
-        }
 
     def derive_adr_from_decision(
         self,
