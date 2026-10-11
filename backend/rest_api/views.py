@@ -1303,17 +1303,7 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
           re-parent.
         """
         lang = detect_lang(request)
-        current_level = None
-        if isinstance(request.data, dict) and "level" in request.data:
-            # Read the stored value so an unchanged echo can be told apart from
-            # a real change. Best-effort: a probe failure falls through to the
-            # reject branch, which is the safe direction.
-            try:
-                current_level = self._svc().get_requirement(
-                    UUID(pk), get_auth_context(request)
-                ).level
-            except Exception:  # noqa: BLE001 — the guard below refuses anyway
-                current_level = None
+        current_level = self._current_requirement_level(request, pk)
         invalid = self._reject_derived_level(request, lang, current=current_level)
         if invalid is not None:
             return invalid
@@ -1357,15 +1347,7 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         # and read-only, and the guard above refuses a differing value. The
         # ``parent_id`` entry is new for the same ADR: the serializer always
         # declared it, and discarding it is the AUC break this wave fixes.
-        extra_kwargs: dict[str, Any] = {}
-        if "custom_fields" in data:
-            extra_kwargs["custom_fields"] = data["custom_fields"]
-        if "complexity_fibonacci" in data:
-            extra_kwargs["complexity_fibonacci"] = data["complexity_fibonacci"]
-        if "verification_method" in data:
-            extra_kwargs["verification_method"] = data["verification_method"]
-        if "parent_id" in data:
-            extra_kwargs["parent_id"] = data["parent_id"]
+        extra_kwargs = self._build_requirement_patch_extra_kwargs(data)
         try:
             ctx = get_auth_context(request)
             # REQ-143: `status` is intentionally NOT forwarded. The serializer
@@ -1409,6 +1391,45 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         return self.with_etag(
             Response(RequirementSerializer(_dto_from_orm(item)).data), item
         )
+
+    def _current_requirement_level(self, request: Request, pk: str) -> Any | None:
+        """Resolve the stored ``level`` for the echo-vs-change probe.
+
+        Reads the stored value so an unchanged echo can be told apart from a
+        real change (ADR-005). Best-effort: a probe failure returns ``None``,
+        which falls through to the reject branch — the safe direction, so the
+        caller refuses.
+        """
+        if not (isinstance(request.data, dict) and "level" in request.data):
+            return None
+        try:
+            return self._svc().get_requirement(UUID(pk), get_auth_context(request)).level
+        except Exception:  # noqa: BLE001 — the guard refuses anyway
+            return None
+
+    @staticmethod
+    def _build_requirement_patch_extra_kwargs(data: dict[str, Any]) -> dict[str, Any]:
+        """Collect the optional PATCH fields the service must receive.
+
+        REQ-L2-AS-037: only forward custom_fields when the client actually sent
+        it, so an unrelated PATCH does not wipe existing custom_fields.
+
+        Issue #409: complexity_fibonacci/verification_method are nullable SE
+        fields whose absence from a partial PATCH payload must mean "leave
+        unchanged", not "clear to NULL". update_requirement() distinguishes
+        the two cases via the ``_UNSET`` sentinel (default), so forwarding
+        these fields only when actually present keeps the sentinel default.
+
+        ADR-005: ``level`` is deliberately absent — derived and read-only, the
+        guard already refused a differing value. ``parent_id`` is applied:
+        the serializer always declared it, and discarding it is the AUC break
+        this wave fixes.
+        """
+        extra: dict[str, Any] = {}
+        for key in ("custom_fields", "complexity_fibonacci", "verification_method", "parent_id"):
+            if key in data:
+                extra[key] = data[key]
+        return extra
 
     def destroy(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """DELETE /api/v1/requirements/{pk}/ — soft-delete a requirement. Returns 204.
@@ -4059,6 +4080,85 @@ class TraceabilityViewSet(viewsets.GenericViewSet):
 # ---------------------------------------------------------------------------
 
 
+def _resolve_baseline_diff_ids(
+    request: Request, lang: str
+) -> tuple[tuple[UUID, UUID] | None, Response | None]:
+    """Parse and validate ``?baseline_a=``/``?baseline_b=`` for the diff route.
+
+    REQ-L2-BL-003, REQ-L2-BL-012: both parameters are required, must be valid
+    UUIDs and must differ. Returns ``(None, error_response)`` with HTTP 400 on
+    any violation, ``((a_id, b_id), None)`` otherwise.
+    """
+    a_str = request.query_params.get("baseline_a")
+    b_str = request.query_params.get("baseline_b")
+    if not a_str or not b_str:
+        return None, Response(
+            build_error_response(
+                "VALIDATION_ERROR", lang, message="baseline_a and baseline_b are required"
+            ),
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    try:
+        a_id = UUID(a_str)
+        b_id = UUID(b_str)
+    except (ValueError, TypeError):
+        return None, Response(
+            build_error_response(
+                "VALIDATION_ERROR", lang, message="baseline_a and baseline_b must be valid UUIDs"
+            ),
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    if a_id == b_id:
+        return None, Response(
+            build_error_response(
+                "VALIDATION_ERROR", lang, message="baseline_a and baseline_b must differ"
+            ),
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    return (a_id, b_id), None
+
+
+def _build_baseline_diff_items(result: Any, artifact_names: dict[str, str]) -> list[dict[str, Any]]:
+    """Build the ``items`` array for the baseline diff response.
+
+    REQ-L2-BL-012: added/removed entries carry ``field_changes=None``; changed
+    entries expand ``field_changes`` to a list of ``{field_name, old_value,
+    new_value}`` records when the diff carries any.
+    """
+    items: list[dict[str, Any]] = []
+    for item_id in result.added:
+        items.append({
+            "item_id": item_id,
+            "entity_type": "item",
+            "status": "added",
+            "field_changes": None,
+            "artifact_name": artifact_names.get(item_id),
+        })
+    for item_id in result.removed:
+        items.append({
+            "item_id": item_id,
+            "entity_type": "item",
+            "status": "removed",
+            "field_changes": None,
+            "artifact_name": artifact_names.get(item_id),
+        })
+    for changed in result.changed:
+        field_changes = None
+        if changed.field_changes:
+            field_changes = [
+                {"field_name": name, "old_value": delta.get("old"), "new_value": delta.get("new")}
+                for name, delta in changed.field_changes.items()
+            ]
+        items.append({
+            "item_id": changed.id,
+            "entity_type": "item",
+            "status": "changed",
+            "field_changes": field_changes,
+            "artifact_name": artifact_names.get(changed.id),
+        })
+    return items
+
+
 class BaselineViewSet(BaseEntityViewSet):
     """ViewSet for Baseline CRUD operations (REQ-L2-RA-001, REQ-L2-RA-008).
 
@@ -4300,6 +4400,40 @@ class BaselineViewSet(BaseEntityViewSet):
             create_kwargs["document_id"] = str(artifact_id)
         return create_kwargs, None
 
+    def _load_baseline_diff_context(
+        self, request: Request, a_id: UUID, b_id: UUID, lang: str
+    ) -> tuple[tuple[Any, Any, Any] | None, Response | None]:
+        """Resolve both baselines tenant-scoped before the diff runs.
+
+        Tenant-scoping: resolving each baseline via the tenant-scoped store
+        raises NotFoundError for baselines outside the caller's tenant before
+        the diff runs (REQ-L2-TE-011). Returns ``(None, error_response)`` on
+        failure, else ``((svc, ctx, baseline_a), None)``.
+        """
+        try:
+            ctx = get_auth_context(request)
+            svc = self._svc()
+            baseline_a = svc.get_baseline(a_id, ctx)
+            svc.get_baseline(b_id, ctx)
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return None, _service_error_response(exc, lang)
+        except Exception as exc:
+            logger.exception("BaselineViewSet.diff: unhandled exception")
+            return None, _service_error_response(exc, lang)
+        return (svc, ctx, baseline_a), None
+
+    def _run_baseline_diff(
+        self, svc: Any, a_id: UUID, b_id: UUID, ctx: Any, lang: str
+    ) -> tuple[Any | None, Response | None]:
+        """Run the field-level diff, mirroring the mapped service errors."""
+        try:
+            return svc.diff_baselines(a_id, b_id, ctx), None
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return None, _service_error_response(exc, lang)
+        except Exception as exc:
+            logger.exception("BaselineViewSet.diff: unhandled exception")
+            return None, _service_error_response(exc, lang)
+
     @action(detail=False, methods=["get"], url_path="diff")
     def diff(self, request: Request, **kwargs: Any) -> Response:
         """GET /api/v1/baselines/diff/?baseline_a=<uuid>&baseline_b=<uuid>
@@ -4310,40 +4444,15 @@ class BaselineViewSet(BaseEntityViewSet):
         """
         lang = detect_lang(request)
 
-        a_str = request.query_params.get("baseline_a")
-        b_str = request.query_params.get("baseline_b")
-        if not a_str or not b_str:
-            return Response(
-                build_error_response("VALIDATION_ERROR", lang, message="baseline_a and baseline_b are required"),
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        try:
-            a_id = UUID(a_str)
-            b_id = UUID(b_str)
-        except (ValueError, TypeError):
-            return Response(
-                build_error_response("VALIDATION_ERROR", lang, message="baseline_a and baseline_b must be valid UUIDs"),
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        if a_id == b_id:
-            return Response(
-                build_error_response("VALIDATION_ERROR", lang, message="baseline_a and baseline_b must differ"),
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        ids, invalid = _resolve_baseline_diff_ids(request, lang)
+        if invalid is not None:
+            return invalid
+        a_id, b_id = ids
 
-        try:
-            ctx = get_auth_context(request)
-            svc = self._svc()
-            # Tenant-scoping: resolving each baseline via the tenant-scoped
-            # store raises NotFoundError for baselines outside the caller's
-            # tenant before the diff runs (REQ-L2-TE-011).
-            baseline_a = svc.get_baseline(a_id, ctx)
-            svc.get_baseline(b_id, ctx)
-        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
-            return _service_error_response(exc, lang)
-        except Exception as exc:
-            logger.exception("BaselineViewSet.diff: unhandled exception")
-            return _service_error_response(exc, lang)
+        context, invalid = self._load_baseline_diff_context(request, a_id, b_id, lang)
+        if invalid is not None:
+            return invalid
+        svc, ctx, baseline_a = context
 
         # Issue #398: the preset gate needs a real workspace id. This endpoint
         # carries none in its URL or query string, and the gate's tenant-id
@@ -4353,13 +4462,9 @@ class BaselineViewSet(BaseEntityViewSet):
         # preset" with Http404, which handle_exception must re-raise verbatim.
         self._check_preset(request, workspace_id=str(baseline_a.workspace_id))
 
-        try:
-            result = svc.diff_baselines(a_id, b_id, ctx)
-        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
-            return _service_error_response(exc, lang)
-        except Exception as exc:
-            logger.exception("BaselineViewSet.diff: unhandled exception")
-            return _service_error_response(exc, lang)
+        result, invalid = self._run_baseline_diff(svc, a_id, b_id, ctx, lang)
+        if invalid is not None:
+            return invalid
 
         all_item_ids = [
             *result.added,
@@ -4368,37 +4473,7 @@ class BaselineViewSet(BaseEntityViewSet):
         ]
         artifact_names = _collect_artifact_names(all_item_ids, ctx.tenant_id)
 
-        items: list[dict[str, Any]] = []
-        for item_id in result.added:
-            items.append({
-                "item_id": item_id,
-                "entity_type": "item",
-                "status": "added",
-                "field_changes": None,
-                "artifact_name": artifact_names.get(item_id),
-            })
-        for item_id in result.removed:
-            items.append({
-                "item_id": item_id,
-                "entity_type": "item",
-                "status": "removed",
-                "field_changes": None,
-                "artifact_name": artifact_names.get(item_id),
-            })
-        for changed in result.changed:
-            field_changes = None
-            if changed.field_changes:
-                field_changes = [
-                    {"field_name": name, "old_value": delta.get("old"), "new_value": delta.get("new")}
-                    for name, delta in changed.field_changes.items()
-                ]
-            items.append({
-                "item_id": changed.id,
-                "entity_type": "item",
-                "status": "changed",
-                "field_changes": field_changes,
-                "artifact_name": artifact_names.get(changed.id),
-            })
+        items = _build_baseline_diff_items(result, artifact_names)
 
         payload = {
             "baseline_a_id": str(a_id),
@@ -6728,6 +6803,82 @@ class RiskViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
 # ---------------------------------------------------------------------------
 
 
+def _apply_list_query_status(items: list, params: Any, status_field: str) -> list:
+    """Stage 1: ``?status=`` equality filter on ``status_field``."""
+    status_value = params.get("status")
+    if not status_value:
+        return items
+    return [i for i in items if getattr(i, status_field, None) == status_value]
+
+
+def _apply_list_query_source(items: list, params: Any, source_field: str | None) -> list:
+    """Stage 2: ``?source=`` equality filter, only when ``source_field`` is set."""
+    if not source_field:
+        return items
+    source_value = params.get("source")
+    if not source_value:
+        return items
+    return [i for i in items if getattr(i, source_field, None) == source_value]
+
+
+def _apply_list_query_search(items: list, params: Any, search_fields: tuple[str, ...]) -> list:
+    """Stage 3: case-insensitive substring search across ``search_fields``."""
+    search_value = params.get("search")
+    if not search_value or not search_fields:
+        return items
+    needle = search_value.lower()
+    return [
+        i
+        for i in items
+        if any(needle in (getattr(i, f, "") or "").lower() for f in search_fields)
+    ]
+
+
+def _apply_list_query_ordering(
+    items: list, params: Any, ordering_fields: tuple[str, ...], lang: str
+) -> tuple[list | None, Response | None]:
+    """Stage 4: ``?ordering=`` sort; an unknown field answers HTTP 400."""
+    ordering_value = params.get("ordering")
+    if not ordering_value:
+        return items, None
+    descending = ordering_value.startswith("-")
+    field = ordering_value[1:] if descending else ordering_value
+    if field not in ordering_fields:
+        return None, Response(
+            build_error_response(
+                "VALIDATION_ERROR",
+                lang,
+                message=f"Invalid ordering field '{field}'. "
+                f"Allowed: {sorted(ordering_fields)}",
+            ),
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    return sorted(items, key=lambda i: getattr(i, field, None) or "", reverse=descending), None
+
+
+def _apply_list_query_limit(
+    items: list, params: Any, lang: str
+) -> tuple[list | None, Response | None]:
+    """Stage 5: ``?limit=`` cap; negative or unparseable answers HTTP 400."""
+    limit_value = params.get("limit")
+    if limit_value is None:
+        return items, None
+    try:
+        limit = int(limit_value)
+    except (TypeError, ValueError):
+        limit = -1
+    if limit < 0:
+        return None, Response(
+            build_error_response(
+                "VALIDATION_ERROR",
+                lang,
+                message="'limit' must be a non-negative integer",
+            ),
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    return items[:limit], None
+
+
 def _apply_list_query_params(
     items: list,
     request: Request,
@@ -6749,64 +6900,25 @@ def _apply_list_query_params(
     consumers expect, so this centralises it for both ViewSets rather than
     duplicating the same filter loop twice.
 
+    Runs as five ordered stages — status, source, search, ordering, limit
+    (one private helper each). Every stage either narrows the in-memory list
+    or yields the 400 error, so the response bodies stay unchanged.
+
     Returns ``(filtered_items, None)`` on success or ``(None, error_response)``
     when a parameter fails validation (HTTP 400) — callers should return the
     error response unchanged.
     """
     params = request.query_params
 
-    status_value = params.get("status")
-    if status_value:
-        items = [i for i in items if getattr(i, status_field, None) == status_value]
-
-    if source_field:
-        source_value = params.get("source")
-        if source_value:
-            items = [i for i in items if getattr(i, source_field, None) == source_value]
-
-    search_value = params.get("search")
-    if search_value and search_fields:
-        needle = search_value.lower()
-        items = [
-            i
-            for i in items
-            if any(needle in (getattr(i, f, "") or "").lower() for f in search_fields)
-        ]
-
-    ordering_value = params.get("ordering")
-    if ordering_value:
-        descending = ordering_value.startswith("-")
-        field = ordering_value[1:] if descending else ordering_value
-        if field not in ordering_fields:
-            return None, Response(
-                build_error_response(
-                    "VALIDATION_ERROR",
-                    lang,
-                    message=f"Invalid ordering field '{field}'. "
-                    f"Allowed: {sorted(ordering_fields)}",
-                ),
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        items = sorted(
-            items, key=lambda i: getattr(i, field, None) or "", reverse=descending
-        )
-
-    limit_value = params.get("limit")
-    if limit_value is not None:
-        try:
-            limit = int(limit_value)
-        except (TypeError, ValueError):
-            limit = -1
-        if limit < 0:
-            return None, Response(
-                build_error_response(
-                    "VALIDATION_ERROR",
-                    lang,
-                    message="'limit' must be a non-negative integer",
-                ),
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        items = items[:limit]
+    items = _apply_list_query_status(items, params, status_field)
+    items = _apply_list_query_source(items, params, source_field)
+    items = _apply_list_query_search(items, params, search_fields)
+    items, invalid = _apply_list_query_ordering(items, params, ordering_fields, lang)
+    if invalid is not None:
+        return None, invalid
+    items, invalid = _apply_list_query_limit(items, params, lang)
+    if invalid is not None:
+        return None, invalid
 
     return items, None
 
