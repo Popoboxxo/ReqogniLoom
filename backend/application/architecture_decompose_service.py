@@ -56,7 +56,7 @@ import json
 import logging
 import socket
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, NoReturn, Optional, Tuple
 from uuid import UUID
 
 from auth_tenancy.context import AuthContext
@@ -838,11 +838,7 @@ class ArchitectureDecomposeService(ServiceBase):
             get_provider,
         )
         from llm_adapter.timeouts import resolve_timeout_seconds
-        from llm_adapter.token_tracking import (
-            approximate_token_count,
-            is_over_daily_limit,
-            record_token_usage,
-        )
+        from llm_adapter.token_tracking import is_over_daily_limit
 
         # Unconditional ceiling (see module docstring on _ABSOLUTE_MAX_BREADTH):
         # applied here too, not just in _flatten_tree, so the prompt/audit
@@ -915,51 +911,98 @@ class ArchitectureDecomposeService(ServiceBase):
                 error,
                 exc_info=True,
             )
-            audit_logger.log_llm_call(
-                provider=provider_name,
-                capability="arch_decompose_tree",
+            self._handle_provider_failure(
+                error,
+                provider_name=provider_name,
+                timeout=timeout,
+                audit_logger=audit_logger,
                 artifact_id=artifact_id,
-                token_usage=None,
-                success=False,
-                error=str(error),
             )
-            # Issue #1165: translate the transport failure into an
-            # application-level typed error so the REST layer can answer a
-            # deterministic 503/504 instead of the generic 500. The raw
-            # provider text stays in the log (CWE-209); the caller-facing
-            # wording is provided by the REST i18n registry keyed on
-            # ``error_code``.
-            if _is_timeout_failure(error):
-                raise DecompositionLlmTimeoutError(
-                    f"The LLM provider '{provider_name}' did not answer the "
-                    f"architecture.decompose request within {timeout:.0f}s. "
-                    "Please retry later."
-                ) from error
-            raise DecompositionLlmUnavailableError(
-                f"The LLM provider '{provider_name}' is temporarily "
-                "unavailable. Please retry later."
-            ) from error
 
         if not degraded:
-            audit_logger.log_llm_call(
-                provider=provider_name,
-                capability="arch_decompose_tree",
+            self._record_successful_call(
+                audit_logger,
+                provider_name=provider_name,
                 artifact_id=artifact_id,
-                token_usage=None,
-                success=True,
-                error=None,
-            )
-            # SA-26: this used to hardcode input_tokens=0, leaving the daily
-            # budget (is_over_daily_limit above) blind to this call's real
-            # spend. Estimate both sides client-side (see
-            # ``approximate_token_count``) like every other free-form path.
-            record_token_usage(
-                provider=provider_name,
-                capability="arch_decompose_tree",
-                input_tokens=approximate_token_count(prompt),
-                output_tokens=approximate_token_count(raw),
+                prompt=prompt,
+                raw=raw,
             )
         return self._parse_tree(raw), provider_name, degraded
+
+    @staticmethod
+    def _record_successful_call(
+        audit_logger: Any,
+        *,
+        provider_name: str,
+        artifact_id: str,
+        prompt: str,
+        raw: str,
+    ) -> None:
+        """Audit a successful provider call and charge the tenant's budget.
+
+        SA-26: both sides are estimated client-side (see
+        ``approximate_token_count``) like every other free-form path — an
+        input_tokens=0 hardcode left the daily budget (REQ-106) blind to
+        this call's real spend.
+        """
+        from llm_adapter.token_tracking import (
+            approximate_token_count,
+            record_token_usage,
+        )
+
+        audit_logger.log_llm_call(
+            provider=provider_name,
+            capability="arch_decompose_tree",
+            artifact_id=artifact_id,
+            token_usage=None,
+            success=True,
+            error=None,
+        )
+        record_token_usage(
+            provider=provider_name,
+            capability="arch_decompose_tree",
+            input_tokens=approximate_token_count(prompt),
+            output_tokens=approximate_token_count(raw),
+        )
+
+    @staticmethod
+    def _handle_provider_failure(
+        error: Exception,
+        *,
+        provider_name: str,
+        timeout: float,
+        audit_logger: Any,
+        artifact_id: str,
+    ) -> NoReturn:
+        """Audit a failed provider call and re-raise it as a typed error.
+
+        Issue #1165: the transport failure is translated into an
+        application-level typed error so the REST layer can answer a
+        deterministic 503/504 instead of the generic 500. The raw provider
+        text stays in the log (CWE-209); the caller-facing wording is
+        provided by the REST i18n registry keyed on ``error_code``. A reason
+        text that marks the failure as a timeout yields
+        :class:`DecompositionLlmTimeoutError`, every other failure yields
+        :class:`DecompositionLlmUnavailableError`.
+        """
+        audit_logger.log_llm_call(
+            provider=provider_name,
+            capability="arch_decompose_tree",
+            artifact_id=artifact_id,
+            token_usage=None,
+            success=False,
+            error=str(error),
+        )
+        if _is_timeout_failure(error):
+            raise DecompositionLlmTimeoutError(
+                f"The LLM provider '{provider_name}' did not answer the "
+                f"architecture.decompose request within {timeout:.0f}s. "
+                "Please retry later."
+            ) from error
+        raise DecompositionLlmUnavailableError(
+            f"The LLM provider '{provider_name}' is temporarily "
+            "unavailable. Please retry later."
+        ) from error
 
     @staticmethod
     def _parse_tree(raw: str) -> list:
