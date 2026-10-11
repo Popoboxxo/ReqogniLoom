@@ -258,6 +258,7 @@ class TestCommonErrorResponsesWired:
 
 _REQIF_IMPORT_PATH = "/api/v1/workspaces/{id}/import/reqif/"
 _REQIF_EXPORT_PATH = "/api/v1/workspaces/{id}/export/reqif/"
+_CSV_IMPORT_PATH = "/api/v1/workspaces/{id}/import/csv/"
 
 
 class TestReqifEndpointSchemas:
@@ -277,6 +278,24 @@ class TestReqifEndpointSchemas:
         props = schema.get("properties", {})
         # ``file`` is the field the view actually reads (request.FILES.get).
         assert "file" in props
+
+    def test_csv_import_declares_request_body(self, openapi_schema: dict) -> None:
+        """Finding 078 applies to the CSV import as well.
+
+        The CSV view parses the upload in a private helper, so the schema is
+        declared explicitly instead of inferred from the method body.
+        """
+        post = openapi_schema["paths"][_CSV_IMPORT_PATH]["post"]
+        assert "requestBody" in post, "CSV import has no documented requestBody"
+        content = post["requestBody"]["content"]
+        assert "multipart/form-data" in content
+        schema = content["multipart/form-data"]["schema"]
+        if "$ref" in schema:
+            name = schema["$ref"].rsplit("/", 1)[-1]
+            schema = openapi_schema["components"]["schemas"][name]
+        props = schema.get("properties", {})
+        assert "file" in props
+        assert "entity_type" in props
 
     def test_reqif_export_declares_xml_response(self, openapi_schema: dict) -> None:
         get = openapi_schema["paths"][_REQIF_EXPORT_PATH]["get"]

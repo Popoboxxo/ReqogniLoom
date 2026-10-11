@@ -8855,6 +8855,36 @@ class CsvImportView(APIView):
             else status.HTTP_422_UNPROCESSABLE_ENTITY
         )
 
+    @extend_schema(
+        # INT-06 finding 078: the import reads request.FILES/request.data. The
+        # schema used to be inferred from the method body; that parsing now
+        # lives in _parse_csv_upload, so the request body is declared here.
+        request=OpenApiRequest(
+            request=inline_serializer(
+                name="CsvImportUpload",
+                fields={
+                    "file": serializers.FileField(
+                        help_text="CSV file (RFC 4180, UTF-8, optional UTF-8 BOM)."
+                    ),
+                    "entity_type": serializers.CharField(
+                        help_text=(
+                            "Target entity type: 'Requirement', "
+                            "'ArchitectureElement' or 'TestCase'."
+                        ),
+                    ),
+                },
+            ),
+            # The view reads request.FILES, i.e. multipart/form-data only.
+        ),
+        parameters=[
+            OpenApiParameter(
+                name="id",
+                type=str,
+                location=OpenApiParameter.PATH,
+                description="Workspace UUID.",
+            ),
+        ],
+    )
     def post(self, request: Request, pk: str = None, **kwargs: Any) -> Response:
         """Handle CSV import POST request."""
         lang = detect_lang(request)
@@ -9175,90 +9205,6 @@ class ReqifImportView(APIView):
     _REQIF_ENTITY_TYPES = {"Requirement", "StakeholderNeed"}
     _IDEMPOTENCY_ENDPOINT = "workspace-reqif-import"
 
-    @extend_schema(
-        # INT-06 finding 078: the import reads request.FILES, but the generated
-        # schema declared no requestBody at all — a generated client could not
-        # know how to send the file.
-        request=OpenApiRequest(
-            request=inline_serializer(
-                name="ReqifImportUpload",
-                fields={
-                    "file": serializers.FileField(
-                        help_text="ReqIF 1.2 XML file (.reqif / .xml, UTF-8)."
-                    ),
-                    "entity_type": serializers.CharField(
-                        required=False,
-                        help_text=(
-                            "Optional; if present must be 'Requirement' or "
-                            "'StakeholderNeed'."
-                        ),
-                    ),
-                },
-            ),
-            # The view reads request.FILES, i.e. multipart/form-data only.
-        ),
-        parameters=[
-            OpenApiParameter(
-                name="id",
-                type=str,
-                location=OpenApiParameter.PATH,
-                description="Workspace UUID.",
-            ),
-            OpenApiParameter(
-                name="dry_run",
-                type=bool,
-                location=OpenApiParameter.QUERY,
-                required=False,
-                description=(
-                    "When true the whole import pipeline runs and is rolled "
-                    "back; the report reflects what a real import would do."
-                ),
-            ),
-        ],
-        responses={
-            200: OpenApiResponse(
-                response=None,
-                description=(
-                    "Import result (ADR-014 contract v2): success "
-                    "(`failed == 0`), with or without write effect. Body carries "
-                    "`success`/`counts`/`items`/`request_id`."
-                ),
-            ),
-            207: OpenApiResponse(
-                response=None,
-                description=(
-                    "Partial success (ADR-014 §2): `succeeded > 0 and "
-                    "failed > 0`. Body carries `counts`/`items`/`request_id`."
-                ),
-            ),
-            400: OpenApiResponse(
-                response=ErrorResponseSerializer,
-                description=(
-                    "Request-level error: missing/0-byte file, unknown "
-                    "`entity_type`, size limit, unreadable body, overlong "
-                    "`Idempotency-Key`."
-                ),
-            ),
-            409: OpenApiResponse(
-                response=ErrorResponseSerializer,
-                description=(
-                    "Idempotency-Key reused (`IDEMPOTENCY_KEY_REUSED`) or in "
-                    "flight (`IDEMPOTENCY_IN_FLIGHT`)."
-                ),
-            ),
-            422: OpenApiResponse(
-                response=None,
-                description=(
-                    "Total object failure (ADR-014 §2) or a file-level "
-                    "`PARSE_ERROR` (invalid .reqif XML, REQ-L2-RQ-001 AC5)."
-                ),
-            ),
-            500: OpenApiResponse(
-                response=ErrorResponseSerializer,
-                description="Internal server error.",
-            ),
-        },
-    )
     def _parse_reqif_request(
         self, request: Request, lang: str, contract_v2: bool
     ) -> tuple[str | None, bytes | None, Response | None]:
@@ -9385,6 +9331,90 @@ class ReqifImportView(APIView):
             logger.exception("ReqifImportView: unhandled exception")
             return None, _service_error_response(exc, lang)
 
+    @extend_schema(
+        # INT-06 finding 078: the import reads request.FILES, but the generated
+        # schema declared no requestBody at all — a generated client could not
+        # know how to send the file.
+        request=OpenApiRequest(
+            request=inline_serializer(
+                name="ReqifImportUpload",
+                fields={
+                    "file": serializers.FileField(
+                        help_text="ReqIF 1.2 XML file (.reqif / .xml, UTF-8)."
+                    ),
+                    "entity_type": serializers.CharField(
+                        required=False,
+                        help_text=(
+                            "Optional; if present must be 'Requirement' or "
+                            "'StakeholderNeed'."
+                        ),
+                    ),
+                },
+            ),
+            # The view reads request.FILES, i.e. multipart/form-data only.
+        ),
+        parameters=[
+            OpenApiParameter(
+                name="id",
+                type=str,
+                location=OpenApiParameter.PATH,
+                description="Workspace UUID.",
+            ),
+            OpenApiParameter(
+                name="dry_run",
+                type=bool,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "When true the whole import pipeline runs and is rolled "
+                    "back; the report reflects what a real import would do."
+                ),
+            ),
+        ],
+        responses={
+            200: OpenApiResponse(
+                response=None,
+                description=(
+                    "Import result (ADR-014 contract v2): success "
+                    "(`failed == 0`), with or without write effect. Body carries "
+                    "`success`/`counts`/`items`/`request_id`."
+                ),
+            ),
+            207: OpenApiResponse(
+                response=None,
+                description=(
+                    "Partial success (ADR-014 §2): `succeeded > 0` and "
+                    "`failed > 0`. Body carries `counts`/`items`/`request_id`."
+                ),
+            ),
+            400: OpenApiResponse(
+                response=ErrorResponseSerializer,
+                description=(
+                    "Request-level error: missing/0-byte file, unknown "
+                    "`entity_type`, size limit, unreadable body, overlong "
+                    "`Idempotency-Key`."
+                ),
+            ),
+            409: OpenApiResponse(
+                response=ErrorResponseSerializer,
+                description=(
+                    "Idempotency-Key reused (`IDEMPOTENCY_KEY_REUSED`) or in "
+                    "flight (`IDEMPOTENCY_IN_FLIGHT`)."
+                ),
+            ),
+            422: OpenApiResponse(
+                response=None,
+                description=(
+                    "Total object failure (ADR-014 §2) or a file-level "
+                    "`PARSE_ERROR` (invalid .reqif XML, REQ-L2-RQ-001 AC5)."
+                ),
+            ),
+            500: OpenApiResponse(
+                response=ErrorResponseSerializer,
+                description="Internal server error.",
+            ),
+        },
+    )
     def post(self, request: Request, pk: str = None, **kwargs: Any) -> Response:
         """Handle ReqIF import POST request.
 
