@@ -66,62 +66,78 @@ def _validate_confirmed_proposal(confirmed_proposal: "list[dict]") -> None:
     already half-applied batch.
     """
     for index, item in enumerate(confirmed_proposal):
-        if not isinstance(item, dict):
-            raise ValidationError(
-                f"proposal item #{index} must be a dict, got {type(item).__name__}"
-            )
-        item_type = item.get("type")
-        if not isinstance(item_type, str):
-            raise ValidationError(
-                f"proposal item #{index}: 'type' must be a string, got {item_type!r}"
-            )
-        if not isinstance(item.get("fields"), dict):
-            raise ValidationError(
-                f"proposal item {item_type!r} must carry a 'fields' dict"
-            )
-        # Review-2 fix m1: 'links' may be explicitly null in caller JSON.
-        # dict.get(key, default) does NOT help here -- it returns None (not
-        # the default) when the key exists with value None, so enumerate(None)
-        # used to raise a bare TypeError. Normalise None to [] IN PLACE so
-        # _formalize_multi's later item.get("links", []) loops see a real
-        # list too; anything non-list is a clean ValidationError instead.
-        raw_links = item.get("links")
-        if raw_links is None:
-            raw_links = []
-            # Normalise in place so _formalize_multi's later
-            # item.get("links", []) loops see a real list too.
-            item["links"] = []
-        elif not isinstance(raw_links, list):
-            raise ValidationError(
-                f"proposal item {item_type!r}: 'links' must be a list or null, "
-                f"got {type(raw_links).__name__}"
-            )
+        _validate_confirmed_proposal_item(index, item, len(confirmed_proposal))
+
+
+def _validate_confirmed_proposal_item(item_index: int, item: Any, item_count: int) -> None:
+    """Validate one multi-mode proposal item (pre-transaction, fail fast).
+
+    ``item_count`` is the total number of items in the proposal -- link
+    endpoints index into that list.
+    """
+    if not isinstance(item, dict):
+        raise ValidationError(
+            f"proposal item #{item_index} must be a dict, got {type(item).__name__}"
+        )
+    item_type = item.get("type")
+    if not isinstance(item_type, str):
+        raise ValidationError(
+            f"proposal item #{item_index}: 'type' must be a string, got {item_type!r}"
+        )
+    if not isinstance(item.get("fields"), dict):
+        raise ValidationError(
+            f"proposal item {item_type!r} must carry a 'fields' dict"
+        )
+    # Review-2 fix m1: 'links' may be explicitly null in caller JSON.
+    # dict.get(key, default) does NOT help here -- it returns None (not
+    # the default) when the key exists with value None, so enumerate(None)
+    # used to raise a bare TypeError. Normalise None to [] IN PLACE so
+    # _formalize_multi's later item.get("links", []) loops see a real
+    # list too; anything non-list is a clean ValidationError instead.
+    raw_links = item.get("links")
+    if raw_links is None:
+        # Normalise in place so _formalize_multi's later
+        # item.get("links", []) loops see a real list too.
+        item["links"] = []
+    elif not isinstance(raw_links, list):
+        raise ValidationError(
+            f"proposal item {item_type!r}: 'links' must be a list or null, "
+            f"got {type(raw_links).__name__}"
+        )
+    else:
         for link_index, link in enumerate(raw_links):
-            if not isinstance(link, dict):
-                raise ValidationError(
-                    f"proposal item {item_type!r}, link #{link_index} must be a dict"
-                )
-            for endpoint in ("from", "to"):
-                value = link.get(endpoint)
-                # bool is an int subclass -- True/False must not pass as
-                # link endpoints via created_refs[True] indexing.
-                if isinstance(value, bool) or not isinstance(value, int):
-                    raise ValidationError(
-                        f"proposal item {item_type!r}, link #{link_index}: "
-                        f"'{endpoint}' must be an int index into the proposal items, "
-                        f"got {value!r}"
-                    )
-                if not 0 <= value < len(confirmed_proposal):
-                    raise ValidationError(
-                        f"proposal item {item_type!r}, link #{link_index}: "
-                        f"'{endpoint}' index {value} is out of range "
-                        f"(0..{len(confirmed_proposal) - 1})"
-                    )
-            if not isinstance(link.get("type"), str):
-                raise ValidationError(
-                    f"proposal item {item_type!r}, link #{link_index}: "
-                    f"'type' must be a string, got {link.get('type')!r}"
-                )
+            _validate_confirmed_proposal_link(item_type, link_index, link, item_count)
+
+
+def _validate_confirmed_proposal_link(
+    item_type: str, link_index: int, link: Any, item_count: int
+) -> None:
+    """Validate one link of a multi-mode proposal item (pre-transaction)."""
+    if not isinstance(link, dict):
+        raise ValidationError(
+            f"proposal item {item_type!r}, link #{link_index} must be a dict"
+        )
+    for endpoint in ("from", "to"):
+        value = link.get(endpoint)
+        # bool is an int subclass -- True/False must not pass as
+        # link endpoints via created_refs[True] indexing.
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ValidationError(
+                f"proposal item {item_type!r}, link #{link_index}: "
+                f"'{endpoint}' must be an int index into the proposal items, "
+                f"got {value!r}"
+            )
+        if not 0 <= value < item_count:
+            raise ValidationError(
+                f"proposal item {item_type!r}, link #{link_index}: "
+                f"'{endpoint}' index {value} is out of range "
+                f"(0..{item_count - 1})"
+            )
+    if not isinstance(link.get("type"), str):
+        raise ValidationError(
+            f"proposal item {item_type!r}, link #{link_index}: "
+            f"'type' must be a string, got {link.get('type')!r}"
+        )
 
 
 class InterviewService(ServiceBase):
@@ -142,9 +158,25 @@ class InterviewService(ServiceBase):
         (*artifact_type* must be None) whose artifacts are proposed during
         chat and created later by ``_formalize_multi``.
         """
-        # Mode/shape gates first -- pure input validation that must run
-        # before anything below can mis-read a cross-kind combination
-        # (e.g. multi + a leftover artifact_type).
+        self._assert_known_session_kind(session_kind)
+        self._assert_session_shape(session_kind, artifact_type)
+        self._set_tenant_context(ctx)
+        # Fail fast with a clean NotFoundError (same pattern as
+        # RequirementService.create_requirement) rather than letting
+        # InterviewSession's FK constraint raise a bare IntegrityError on an
+        # unknown workspace_id, which the MCP layer's generic exception
+        # handler would otherwise surface as an opaque INTERNAL_ERROR.
+        if not Workspace.objects.filter(id=workspace_id).exists():
+            raise NotFoundError(f"Workspace {workspace_id} not found")
+        if session_kind == InterviewSession.SESSION_KIND_MULTI:
+            return self._start_multi_session(ctx, workspace_id, session_kind, seed_context)
+        return self._start_single_session(
+            ctx, artifact_type, workspace_id, session_kind, seed_context
+        )
+
+    @staticmethod
+    def _assert_known_session_kind(session_kind: str) -> None:
+        """Whitelist gate for the session kind (runs before any other gate)."""
         # Review-2 fix m2a: whitelist gate. An unknown session_kind used to
         # fall through every kind-specific gate below and be silently
         # created as a broken single-ish row (Django choices are not DB
@@ -158,17 +190,17 @@ class InterviewService(ServiceBase):
                 f"'{InterviewSession.SESSION_KIND_SINGLE}' or "
                 f"'{InterviewSession.SESSION_KIND_MULTI}'."
             )
-        if (
-            session_kind == InterviewSession.SESSION_KIND_MULTI
-            and artifact_type is not None
-        ):
+
+    @staticmethod
+    def _assert_session_shape(session_kind: str, artifact_type: str | None) -> None:
+        """Mode/shape gates -- pure input validation that must run before
+        anything below can mis-read a cross-kind combination (e.g. multi +
+        a leftover artifact_type)."""
+        if session_kind == InterviewSession.SESSION_KIND_MULTI and artifact_type is not None:
             raise ValidationError(
                 "artifact_type must not be set for a multi-mode interview"
             )
-        if (
-            session_kind == InterviewSession.SESSION_KIND_SINGLE
-            and not artifact_type
-        ):
+        if session_kind == InterviewSession.SESSION_KIND_SINGLE and not artifact_type:
             raise ValidationError(
                 "artifact_type is required for a single-mode interview"
             )
@@ -183,50 +215,66 @@ class InterviewService(ServiceBase):
                 f"Interviews are not available for artifact_type={artifact_type!r} "
                 f"(MainGoal stays read-only; other unknown types are unsupported)."
             )
-        self._set_tenant_context(ctx)
-        # Fail fast with a clean NotFoundError (same pattern as
-        # RequirementService.create_requirement) rather than letting
-        # InterviewSession's FK constraint raise a bare IntegrityError on an
-        # unknown workspace_id, which the MCP layer's generic exception
-        # handler would otherwise surface as an opaque INTERNAL_ERROR.
-        if not Workspace.objects.filter(id=workspace_id).exists():
-            raise NotFoundError(f"Workspace {workspace_id} not found")
-        if session_kind == InterviewSession.SESSION_KIND_MULTI:
-            # Multi-mode sessions are not bound to one artifact type: no
-            # per-type protocol applies (get_protocol has no answer for
-            # artifact_type=None) and there is no single backing Artifact yet
-            # -- but the "Interview" workflow item_type is the same state
-            # machine for both kinds (state_reader.current_state("Interview",
-            # session.id) does not care about session_kind), and
-            # initialize_workflow_states needs neither artifact_type nor a
-            # backing Artifact. Datenmodell-Konsolidierung Task 12: a
-            # multi-mode session used to record its completion directly on
-            # the (now-dropped) `status` column with no engine tracking at
-            # all -- that was the only record of completion, and dropping
-            # the column would have made it unrecoverable. Registering here,
-            # same best-effort try/except convention as the single-mode
-            # branch below, closes that gap instead of accepting it.
-            session = InterviewSession.objects.create(
-                workspace_id=workspace_id,
-                artifact_type=None,
-                session_kind=session_kind,
-                collected_fields=(seed_context or {}),
-            )
-            try:
-                from workflow.services import initialize_workflow_states
 
-                initialize_workflow_states(
-                    item_ids=[session.id],
-                    item_type="Interview",
-                    workspace_id=workspace_id,
-                    ctx=ctx,
-                )
-            except Exception:
-                logger.debug(
-                    "InterviewService: workflow init skipped for multi-mode "
-                    "session=%s", session.id
-                )
-            return session
+    @staticmethod
+    def _start_multi_session(
+        ctx, workspace_id: UUID, session_kind: str, seed_context: dict | None
+    ) -> InterviewSession:
+        """Create the type-less multi-mode session and return it."""
+        # Multi-mode sessions are not bound to one artifact type: no
+        # per-type protocol applies (get_protocol has no answer for
+        # artifact_type=None) and there is no single backing Artifact yet
+        # -- but the "Interview" workflow item_type is the same state
+        # machine for both kinds (state_reader.current_state("Interview",
+        # session.id) does not care about session_kind), and
+        # initialize_workflow_states needs neither artifact_type nor a
+        # backing Artifact. Datenmodell-Konsolidierung Task 12: a
+        # multi-mode session used to record its completion directly on the
+        # (now-dropped) `status` column with no engine tracking at
+        # all -- that was the only record of completion, and dropping
+        # the column would have made it unrecoverable. Registering here,
+        # same best-effort try/except convention as the single-mode
+        # branch below, closes that gap instead of accepting it.
+        session = InterviewSession.objects.create(
+            workspace_id=workspace_id,
+            artifact_type=None,
+            session_kind=session_kind,
+            collected_fields=(seed_context or {}),
+        )
+        try:
+            from workflow.services import initialize_workflow_states
+
+            initialize_workflow_states(
+                item_ids=[session.id],
+                item_type="Interview",
+                workspace_id=workspace_id,
+                ctx=ctx,
+            )
+        except Exception:
+            logger.debug(
+                "InterviewService: workflow init skipped for multi-mode "
+                "session=%s", session.id
+            )
+        return session
+
+    @staticmethod
+    def _start_single_session(
+        ctx,
+        artifact_type: str | None,
+        workspace_id: UUID,
+        session_kind: str,
+        seed_context: dict | None,
+    ) -> InterviewSession:
+        """Create the single-mode session (backing Artifact + session) and return it.
+
+        2026-08-20 UI-visibility fix: register with the workflow engine so
+        the session is discoverable/transitionable the same way every
+        other tracked entity is (workspace-defaults 'interview_default'
+        preset, see workflow/definition_store.py). Best-effort -- a
+        missing/misconfigured definition must not block session creation
+        (mirrors *_service.py's workflow-init try/except convention, e.g.
+        RequirementService.create_requirement).
+        """
         # Fail fast if the protocol config is missing/broken rather than
         # creating a session that can never progress past get_state.
         get_protocol(ctx, artifact_type, workspace_id)
@@ -246,13 +294,6 @@ class InterviewService(ServiceBase):
             session_kind=session_kind,
             collected_fields=(seed_context or {}),
         )
-        # 2026-08-20 UI-visibility fix: register with the workflow engine so
-        # the session is discoverable/transitionable the same way every
-        # other tracked entity is (workspace-defaults 'interview_default'
-        # preset, see workflow/definition_store.py). Best-effort -- a
-        # missing/misconfigured definition must not block session creation
-        # (mirrors *_service.py's workflow-init try/except convention, e.g.
-        # RequirementService.create_requirement).
         try:
             initialize_workflow_states(
                 item_ids=[session.id],
@@ -527,33 +568,50 @@ class InterviewService(ServiceBase):
         Only called for fields that resolve to a real protocol field (see
         ``_find_protocol_field``); raises ``ValidationError`` naming the
         field, its expected type, and what was actually received.
+        Dispatches to one validator per declared protocol type; an
+        unknown type validates nothing (same as before the split).
         """
         if field.type == "number":
-            if isinstance(value, bool) or not isinstance(value, (int, float, str)):
-                raise ValidationError(
-                    f"Field {field.name!r} expects a number, got "
-                    f"{type(value).__name__}."
-                )
-            if isinstance(value, str):
-                try:
-                    float(value)
-                except ValueError:
-                    raise ValidationError(
-                        f"Field {field.name!r} expects a number, got a "
-                        f"non-numeric string {value!r}."
-                    )
+            InterviewService._validate_number_value(field, value)
         elif field.type == "enum":
-            if value not in (field.choices or []):
-                raise ValidationError(
-                    f"Field {field.name!r} expects one of {field.choices!r}, "
-                    f"got {value!r}."
-                )
+            InterviewService._validate_enum_value(field, value)
         elif field.type in ("text", "textarea"):
-            if not isinstance(value, str):
+            InterviewService._validate_text_value(field, value)
+
+    @staticmethod
+    def _validate_number_value(field, value: Any) -> None:
+        """Number-typed protocol field validator (see ``_validate_field_value_type``)."""
+        if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+            raise ValidationError(
+                f"Field {field.name!r} expects a number, got "
+                f"{type(value).__name__}."
+            )
+        if isinstance(value, str):
+            try:
+                float(value)
+            except ValueError:
                 raise ValidationError(
-                    f"Field {field.name!r} expects a string ({field.type}), "
-                    f"got {type(value).__name__}."
+                    f"Field {field.name!r} expects a number, got a "
+                    f"non-numeric string {value!r}."
                 )
+
+    @staticmethod
+    def _validate_enum_value(field, value: Any) -> None:
+        """Enum-typed protocol field validator (see ``_validate_field_value_type``)."""
+        if value not in (field.choices or []):
+            raise ValidationError(
+                f"Field {field.name!r} expects one of {field.choices!r}, "
+                f"got {value!r}."
+            )
+
+    @staticmethod
+    def _validate_text_value(field, value: Any) -> None:
+        """Text/textarea protocol field validator (see ``_validate_field_value_type``)."""
+        if not isinstance(value, str):
+            raise ValidationError(
+                f"Field {field.name!r} expects a string ({field.type}), "
+                f"got {type(value).__name__}."
+            )
 
     @staticmethod
     def _structural_candidates(ctx, session: InterviewSession) -> "list[dict[str, Any]]":
@@ -775,18 +833,7 @@ class InterviewService(ServiceBase):
         response must never surface as an error to the interview (spec §6,
         fail-open). Candidates the response didn't score keep ``score=None``.
         """
-        try:
-            scored = json.loads(raw)
-            if not isinstance(scored, list):
-                return candidates
-            score_by_id = {
-                str(entry["artifact_id"]): float(entry["score"])
-                for entry in scored
-                if isinstance(entry, dict) and "artifact_id" in entry and "score" in entry
-            }
-        except Exception:  # noqa: BLE001 -- fail-open, see docstring
-            return candidates
-
+        score_by_id = InterviewService._parse_score_map(raw)
         if not score_by_id:
             return candidates
 
@@ -796,6 +843,25 @@ class InterviewService(ServiceBase):
         ]
         ranked.sort(key=lambda c: (c["score"] is None, -(c["score"] or 0.0)))
         return ranked
+
+    @staticmethod
+    def _parse_score_map(raw: str) -> dict[str, float] | None:
+        """Score map (``artifact_id`` -> float score) parsed from the provider's
+        JSON ranking response, or None on any parse/shape failure -- a
+        malformed LLM response must never surface as an error to the
+        interview (spec §6, fail-open).
+        """
+        try:
+            scored = json.loads(raw)
+            if not isinstance(scored, list):
+                return None
+            return {
+                str(entry["artifact_id"]): float(entry["score"])
+                for entry in scored
+                if isinstance(entry, dict) and "artifact_id" in entry and "score" in entry
+            }
+        except Exception:  # noqa: BLE001 -- fail-open, see docstring
+            return None
 
     def grounding_context(self, ctx, session_id: UUID) -> "dict[str, Any]":
         """Structural + AI-assisted grounding — spec §6.
@@ -1073,14 +1139,39 @@ class InterviewService(ServiceBase):
 
         Caller contract: must run inside a transaction that holds the row
         lock taken by ``_lock_in_progress_session`` (see ``_formalize_single``).
+
+        Staged into ``_assert_interview_complete`` / ``_require_formalization_title``
+        (guards), ``_write_formalization_artifacts`` (the write),
+        ``_complete_single_formalization_workflow`` (engine transition) and
+        ``_record_single_formalization`` (audit + event); the stage order and
+        every side effect below are the original inline sequence.
         """
-        # Reuse get_state()'s exact missing-fields computation: a non-empty
-        # `missing` here means the interview is not actually complete yet
-        # (see _current_phase_and_missing's docstring/semantics -- it
-        # returns the first phase still short a required field, or the
-        # last phase with an empty list once everything is answered). Do
-        # not proceed to create/update a real artifact -- e.g. an
-        # empty-string ``title`` -- off an incomplete session.
+        self._assert_interview_complete(ctx, session)
+        title = self._require_formalization_title(session)
+        resulting_ids = self._write_formalization_artifacts(ctx, session, title)
+
+        session.resulting_artifact_ids = resulting_ids
+        session.version = F("version") + 1
+        session.save(update_fields=["resulting_artifact_ids", "modified_at", "version"])
+        session.refresh_from_db(fields=["version"])
+
+        transition_applied = self._complete_single_formalization_workflow(ctx, session)
+        self._record_single_formalization(ctx, session, resulting_ids, transition_applied)
+        return {"resulting_artifact_ids": resulting_ids, "status": session.status}
+
+    def _assert_interview_complete(self, ctx, session) -> None:
+        """Guard stage: reject an incomplete interview before any artifact
+        is written.
+
+        Reuses ``get_state()``'s exact missing-fields computation: a
+        non-empty ``missing`` from ``_current_phase_and_missing`` means the
+        interview is not actually complete yet (see that method's
+        docstring/semantics -- it returns the first phase still short a
+        required field, or the last phase with an empty list once
+        everything is answered). Do not proceed to create/update a real
+        artifact -- e.g. an empty-string ``title`` -- off an incomplete
+        session.
+        """
         _, missing = self._current_phase_and_missing(ctx, session)
         if missing:
             missing_names = ", ".join(f.name for f in missing)
@@ -1089,15 +1180,21 @@ class InterviewService(ServiceBase):
                 f"required field(s): {missing_names}. Cannot formalize."
             )
 
-        # The completeness guard above only trusts the *protocol*: if a
-        # workspace's custom interview.protocol.<Type> override never
-        # declares a `title` field in required_fields, `missing` above is
-        # trivially empty even though `title` resolves to "" here. No
-        # artifact type may be created/updated with an empty title
-        # regardless of what the protocol says. str(...) coercion is
-        # defense-in-depth (issue #542): answer() now rejects non-string
-        # title values up front, but a stray non-string could still reach
-        # here via old rows or a future caller that bypasses answer().
+    @staticmethod
+    def _require_formalization_title(session) -> str:
+        """Guard stage: return the normalized collected ``title``.
+
+        The protocol-completeness guard in ``_assert_interview_complete``
+        only trusts the *protocol*: if a workspace's custom
+        interview.protocol.<Type> override never declares a ``title``
+        field in required_fields, ``missing`` there is trivially empty
+        even though ``title`` resolves to "" here. No artifact type may be
+        created/updated with an empty title regardless of what the
+        protocol says. ``str(...)`` coercion is defense-in-depth (issue
+        #542): answer() now rejects non-string title values up front, but
+        a stray non-string could still reach here via old rows or a
+        future caller that bypasses answer().
+        """
         title = str(session.collected_fields.get("title") or "").strip()
         if not title:
             raise ValidationError(
@@ -1105,13 +1202,40 @@ class InterviewService(ServiceBase):
                 f"collected_fields; cannot formalize a {session.artifact_type} "
                 "without a title."
             )
+        return title
 
+    @staticmethod
+    def _write_formalization_artifacts(ctx, session, title: str) -> list[str]:
+        """Write stage: create or update the backing artifact and return its
+        user-facing id(s).
+
+        With ``target_artifact_id`` set (grounded update, issue #540) the
+        Requirement-only update branch runs -- generalizing it needs a
+        second, update-flavoured adapter registry, which the spec does not
+        ask for (see ``set_target()``'s matching guard). The target's
+        existence is re-checked here, at write time (spec §9: grounding
+        may be stale by the time formalize() runs), so a deleted target
+        raises NotFoundError rather than silently creating a new artifact
+        (wrong outcome) or updating a row that no longer exists.
+
+        Without a target the artifact is created through
+        ``ARTIFACT_CREATION_ADAPTERS`` -- the same registry the multi-kind
+        path uses -- so all 8 in-scope artifact types work through their
+        production ``create_X()`` service method (workflow state
+        initialization included, spec L2.1), plus the provenance join row
+        ``_formalize_multi`` writes, so provenance_session_id()/the
+        InterviewProvenanceBadge work for single-kind sessions too (L2.3).
+        A missing required service field (KeyError) or a protocol field
+        name the create_X() signature does not accept (TypeError) is
+        caller/config input, not a server fault -- it must never escape as
+        an unhandled 500 (same contract as _formalize_multi).
+        """
         from application.interview_artifact_adapters import (
             ARTIFACT_CREATION_ADAPTERS,
             build_adapter_fields,
         )
 
-        resulting_ids: "list[str]" = []
+        resulting_ids: list[str] = []
 
         if session.target_artifact_id is not None:
             from application.requirement_service import RequirementService
@@ -1195,19 +1319,21 @@ class InterviewService(ServiceBase):
                 artifact_id=created_ref.artifact_id,
                 artifact_type=created_ref.artifact_type,
             )
+        return resulting_ids
 
-        session.resulting_artifact_ids = resulting_ids
-        session.version = F("version") + 1
-        session.save(update_fields=["resulting_artifact_ids", "modified_at", "version"])
-        session.refresh_from_db(fields=["version"])
+    @staticmethod
+    def _complete_single_formalization_workflow(ctx, session) -> bool:
+        """Workflow stage: best-effort transition to completed; report
+        whether the engine actually moved (CR-07).
 
+        The engine transition is best-effort by contract (see the
+        except-branch below), so "did it actually reach the engine?" must
+        not be inferred from the call having returned. Tracked explicitly
+        and recorded in the audit entry's details, so a completion that
+        only exists in memory is distinguishable from a real one.
+        """
         from workflow.services import transition as workflow_transition
 
-        # CR-07: the engine transition is best-effort by contract (see the
-        # except-branch below), so "did it actually reach the engine?" must
-        # not be inferred from the call having returned. Tracked explicitly
-        # and recorded in the audit entry's details, so a completion that
-        # only exists in memory is distinguishable from a real one.
         transition_applied = True
         try:
             workflow_transition(
@@ -1243,8 +1369,8 @@ class InterviewService(ServiceBase):
             # without a WorkflowItemState), but the swallowed error is no
             # longer DEBUG-level silence: warning + exc_info makes the
             # failure path greppable in production logs, and the
-            # transition_applied=False flag below marks the audit entry so it
-            # can never be read as a clean engine transition.
+            # transition_applied=False return value marks the audit entry so
+            # it can never be read as a clean engine transition.
             logger.warning(
                 "InterviewService: workflow transition unavailable for session=%s, "
                 "falling back to in-memory-only status", session.id, exc_info=True
@@ -1252,20 +1378,28 @@ class InterviewService(ServiceBase):
             session.status = InterviewSession.STATUS_COMPLETED
             session.version = F("version") + 1
             session.save(update_fields=["modified_at", "version"])
+        return transition_applied
 
-        # formalize() (the caller) wraps this whole method in
-        # @atomic_transaction, so this is already inside an active
-        # transaction -- the audit entry and the outbox INSERT below run
-        # inline in that same transaction (SA-02, and ServiceBase._audit /
-        # _emit_event are both synchronous writes), and a failed/partial
-        # formalization above never reaches here.
-        #
-        # CR-07: InterviewService wrote no AuditEntry at all before this --
-        # every write in this service was invisible to the audit trail, while
-        # its sibling WorkflowFacade._audit covered the same transition for
-        # every other item type. `operation="transition"` /
-        # `entity_type="Interview"` mirror WorkflowFacade.transition exactly,
-        # so one entity_id query returns the whole interview lifecycle.
+    def _record_single_formalization(
+        self, ctx, session, resulting_ids: list[str], transition_applied: bool
+    ) -> None:
+        """Record stage: write the audit entry and the
+        INTERVIEW_FORMALIZED event.
+
+        formalize() (the caller) wraps this whole method in
+        @atomic_transaction, so this is already inside an active
+        transaction -- the audit entry and the outbox INSERT below run
+        inline in that same transaction (SA-02, and ServiceBase._audit /
+        _emit_event are both synchronous writes), and a failed/partial
+        formalization above never reaches here.
+
+        CR-07: InterviewService wrote no AuditEntry at all before this --
+        every write in this service was invisible to the audit trail, while
+        its sibling WorkflowFacade._audit covered the same transition for
+        every other item type. ``operation="transition"`` /
+        ``entity_type="Interview"`` mirror WorkflowFacade.transition exactly,
+        so one entity_id query returns the whole interview lifecycle.
+        """
         self._audit(
             ctx=ctx,
             operation="transition",
@@ -1301,7 +1435,6 @@ class InterviewService(ServiceBase):
                 },
             )
         )
-        return {"resulting_artifact_ids": resulting_ids, "status": session.status}
 
     def _formalize_multi(self, ctx, session, confirmed_proposal: "list[dict]") -> "dict[str, Any]":
         """Multi-kind path: create every confirmed-proposal item atomically.
@@ -1318,23 +1451,20 @@ class InterviewService(ServiceBase):
         (diagram.traceability_connector) and would be silently deleted on
         the next node_graph save -- creating them here can only produce
         unexplained data loss later.
+
+        Staged into ``_reject_diagram_ref_links`` (pre-transaction gate),
+        ``_create_proposal_items`` / ``_create_proposal_trace_links`` (the
+        batch writes), ``_complete_multi_formalization_workflow`` (engine
+        transition) and ``_record_multi_formalization`` (audit + event);
+        the stage order and every side effect below are the original
+        inline sequence.
         """
         if not confirmed_proposal:
             raise ValidationError("confirmed_proposal is required for a multi-mode interview")
 
         # Fail fast on malformed caller input BEFORE the transaction opens.
         _validate_confirmed_proposal(confirmed_proposal)
-
-        for item in confirmed_proposal:
-            for link in item.get("links", []):
-                if link.get("type") == _DIAGRAM_REF_LINK_TYPE:
-                    raise ValidationError(
-                        "invalid link type in proposal: 'diagram-ref' is system-managed "
-                        "and cannot be created by an interview"
-                    )
-
-        from application.interview_artifact_adapters import ARTIFACT_CREATION_ADAPTERS
-        from application.trace_link_service import TraceLinkService
+        self._reject_diagram_ref_links(confirmed_proposal)
 
         with transaction.atomic():
             # Review finding M2 / M4: re-read the session under a row lock so two
@@ -1346,124 +1476,10 @@ class InterviewService(ServiceBase):
             # drift.
             session = self._lock_in_progress_session(session)
 
-            created_refs = []
-            for item in confirmed_proposal:
-                adapter = ARTIFACT_CREATION_ADAPTERS.get(item["type"])
-                if adapter is None:
-                    raise ValidationError(f"unknown artifact type in proposal: {item['type']!r}")
-                try:
-                    ref = adapter(item["fields"], ctx, session.workspace_id)
-                except (KeyError, TypeError) as exc:
-                    # Malformed caller input surfaces as a clear
-                    # ValidationError instead of KeyError/TypeError: missing
-                    # required fields (e.g. Risk without probability/impact)
-                    # raise KeyError, field names the target create_X()
-                    # signature does not accept raise TypeError -- both come
-                    # straight from client JSON via confirmed_proposal, so
-                    # neither may escape as an unhandled 500 (review finding
-                    # M1). Raised INSIDE the atomic block, so rollback
-                    # semantics are unchanged -- the whole batch reverts.
-                    raise ValidationError(
-                        f"invalid fields for {item['type']!r} in proposal item: {exc}"
-                    ) from exc
-                InterviewSessionArtifact.objects.create(
-                    session=session, artifact_id=ref.artifact_id, artifact_type=ref.artifact_type
-                )
-                created_refs.append(ref)
-
-            for item in confirmed_proposal:
-                for link in item.get("links", []):
-                    source = created_refs[link["from"]]
-                    target = created_refs[link["to"]]
-                    TraceLinkService().create_trace_link(
-                        source_id=source.artifact_id,
-                        target_id=target.artifact_id,
-                        link_type=link["type"],
-                        ctx=ctx,
-                    )
-
-            # Datenmodell-Konsolidierung Task 12: start() now registers a
-            # WorkflowItemState for multi-mode sessions too (same item_type
-            # "Interview" as single-mode), so this transitions through the
-            # engine exactly like _formalize_single -- the `status` column is
-            # dropped, so a direct column write is no longer possible, and is
-            # no longer the only record of completion. Same best-effort
-            # fallback as _lazily_abandon_if_stale/_formalize_single for a
-            # session whose init above failed (or predates this fix): the
-            # engine has nothing to transition, so completion is only
-            # reflected by the hardcoded "completed" in this method's return
-            # value below, not by a future state_reader lookup.
-            from workflow.services import transition as workflow_transition
-
-            # CR-07: same "did it reach the engine?" tracking as
-            # _write_single_artifact -- the broad except below is a
-            # deliberate legacy-session fallback and must stay, but its
-            # effect has to stay legible (log level + audit detail flag).
-            transition_applied = True
-            try:
-                workflow_transition(
-                    item_id=session.id,
-                    target_state=InterviewSession.STATUS_COMPLETED,
-                    change_reason="Multi-mode interview formalized into real artifacts",
-                    ctx=ctx,
-                    item_type="Interview",
-                    workspace_id=session.workspace_id,
-                )
-            except Exception:
-                transition_applied = False
-                logger.warning(
-                    "InterviewService: workflow transition unavailable for "
-                    "multi-mode session=%s", session.id, exc_info=True
-                )
-            # Same optimistic-concurrency bump as _write_single_artifact.
-            session.version = F("version") + 1
-            session.save(update_fields=["modified_at", "version"])
-
-            # CR-07: audit inside this same atomic() block, so a rollback
-            # anywhere above (adapter/link failure) leaves neither an audit
-            # entry nor an outbox row behind -- the two can never disagree
-            # about whether the batch committed. Mirrors
-            # WorkflowFacade.transition's seam.
-            self._audit(
-                ctx=ctx,
-                operation="transition",
-                entity_type="Interview",
-                entity_id=session.id,
-                change_reason="Multi-mode interview formalized into real artifacts",
-                details={
-                    "session_kind": InterviewSession.SESSION_KIND_MULTI,
-                    "artifact_type": None,
-                    "resulting_artifact_ids": [
-                        str(ref.artifact_id) for ref in created_refs
-                    ],
-                    "new_state": InterviewSession.STATUS_COMPLETED,
-                    "workflow_transition_applied": transition_applied,
-                },
-            )
-
-            # Emitted inside this same atomic() block (and, like the audit
-            # entry above, not merely inside _formalize_multi's caller) so
-            # the event is bound to the exact transaction that created the
-            # batch -- a rollback anywhere above (adapter/link failure) means
-            # this line never runs.
-            self._emit_event(
-                self._make_event(
-                    event_type=DomainEventOutbox.EventType.INTERVIEW_FORMALIZED,
-                    entity_id=session.id,
-                    workspace_id=session.workspace_id,
-                    payload={
-                        # m4: see the single-path payload — session_kind is the
-                        # discriminator that makes single vs. multi readable
-                        # from the event alone.
-                        "session_kind": InterviewSession.SESSION_KIND_MULTI,
-                        "artifact_type": None,
-                        "created": [
-                            {"artifact_id": str(ref.artifact_id), "artifact_type": ref.artifact_type}
-                            for ref in created_refs
-                        ],
-                    },
-                )
-            )
+            created_refs = self._create_proposal_items(ctx, session, confirmed_proposal)
+            self._create_proposal_trace_links(ctx, created_refs, confirmed_proposal)
+            transition_applied = self._complete_multi_formalization_workflow(ctx, session)
+            self._record_multi_formalization(ctx, session, created_refs, transition_applied)
 
         return {
             "created": [
@@ -1472,6 +1488,185 @@ class InterviewService(ServiceBase):
             ],
             "status": "completed",
         }
+
+    @staticmethod
+    def _reject_diagram_ref_links(confirmed_proposal: list[dict]) -> None:
+        """Reject reconciler-owned ``diagram-ref`` links in a proposal.
+
+        They are owned by the diagram reconciler
+        (diagram.traceability_connector) and would be silently deleted on
+        the next node_graph save -- creating them here can only produce
+        unexplained data loss later. Runs before the transaction opens.
+        """
+        for item in confirmed_proposal:
+            for link in item.get("links", []):
+                if link.get("type") == _DIAGRAM_REF_LINK_TYPE:
+                    raise ValidationError(
+                        "invalid link type in proposal: 'diagram-ref' is system-managed "
+                        "and cannot be created by an interview"
+                    )
+
+    @staticmethod
+    def _create_proposal_items(ctx, session, confirmed_proposal: list[dict]) -> list:
+        """Create every confirmed-proposal item via its production adapter.
+
+        Each item is created through ARTIFACT_CREATION_ADAPTERS (never a
+        shortcut insert path, so workflow state initialization etc. stays
+        correct) and its provenance row (InterviewSessionArtifact) is
+        written in the same transaction. Must run inside the caller's
+        ``transaction.atomic()`` block: a failure on any item rolls back
+        the entire batch and leaves the session in_progress.
+
+        Malformed caller input surfaces as a clear ValidationError instead
+        of KeyError/TypeError (review finding M1): missing required fields
+        (e.g. Risk without probability/impact) raise KeyError, field names
+        the target create_X() signature does not accept raise TypeError --
+        both come straight from client JSON via confirmed_proposal, so
+        neither may escape as an unhandled 500. Raised INSIDE the atomic
+        block, so rollback semantics are unchanged -- the whole batch
+        reverts.
+        """
+        from application.interview_artifact_adapters import ARTIFACT_CREATION_ADAPTERS
+
+        created_refs = []
+        for item in confirmed_proposal:
+            adapter = ARTIFACT_CREATION_ADAPTERS.get(item["type"])
+            if adapter is None:
+                raise ValidationError(f"unknown artifact type in proposal: {item['type']!r}")
+            try:
+                ref = adapter(item["fields"], ctx, session.workspace_id)
+            except (KeyError, TypeError) as exc:
+                raise ValidationError(
+                    f"invalid fields for {item['type']!r} in proposal item: {exc}"
+                ) from exc
+            InterviewSessionArtifact.objects.create(
+                session=session, artifact_id=ref.artifact_id, artifact_type=ref.artifact_type
+            )
+            created_refs.append(ref)
+        return created_refs
+
+    @staticmethod
+    def _create_proposal_trace_links(
+        ctx, created_refs: list, confirmed_proposal: list[dict]
+    ) -> None:
+        """Create the proposal's trace links between the created artifacts.
+
+        Links reference proposal items by index (``from``/``to``); the
+        indices were range-checked by ``_validate_confirmed_proposal``
+        before the transaction opened and resolve against *created_refs*.
+        """
+        from application.trace_link_service import TraceLinkService
+
+        for item in confirmed_proposal:
+            for link in item.get("links", []):
+                source = created_refs[link["from"]]
+                target = created_refs[link["to"]]
+                TraceLinkService().create_trace_link(
+                    source_id=source.artifact_id,
+                    target_id=target.artifact_id,
+                    link_type=link["type"],
+                    ctx=ctx,
+                )
+
+    @staticmethod
+    def _complete_multi_formalization_workflow(ctx, session) -> bool:
+        """Workflow stage: best-effort transition to completed; report
+        whether the engine actually moved (CR-07).
+
+        Datenmodell-Konsolidierung Task 12: start() now registers a
+        WorkflowItemState for multi-mode sessions too (same item_type
+        "Interview" as single-mode), so this transitions through the
+        engine exactly like _formalize_single -- the `status` column is
+        dropped, so a direct column write is no longer possible, and is no
+        longer the only record of completion. Same best-effort fallback as
+        _lazily_abandon_if_stale/_write_single_artifact for a session whose
+        init above failed (or predates this fix): the engine has nothing to
+        transition, so completion is only reflected by the hardcoded
+        "completed" in the caller's return value, not by a future
+        state_reader lookup.
+
+        CR-07: same "did it reach the engine?" tracking as
+        _write_single_artifact -- the broad except below is a deliberate
+        legacy-session fallback and must stay, but its effect has to stay
+        legible (log level + audit detail flag).
+        """
+        from workflow.services import transition as workflow_transition
+
+        transition_applied = True
+        try:
+            workflow_transition(
+                item_id=session.id,
+                target_state=InterviewSession.STATUS_COMPLETED,
+                change_reason="Multi-mode interview formalized into real artifacts",
+                ctx=ctx,
+                item_type="Interview",
+                workspace_id=session.workspace_id,
+            )
+        except Exception:
+            transition_applied = False
+            logger.warning(
+                "InterviewService: workflow transition unavailable for "
+                "multi-mode session=%s", session.id, exc_info=True
+            )
+        # Same optimistic-concurrency bump as _write_single_artifact.
+        session.version = F("version") + 1
+        session.save(update_fields=["modified_at", "version"])
+        return transition_applied
+
+    def _record_multi_formalization(
+        self, ctx, session, created_refs: list, transition_applied: bool
+    ) -> None:
+        """Record stage: write the audit entry and the
+        INTERVIEW_FORMALIZED event.
+
+        Both run inside the caller's ``transaction.atomic()`` block (and,
+        like the audit entry above, not merely inside _formalize_multi's
+        caller) so the event is bound to the exact transaction that created
+        the batch -- a rollback anywhere above (adapter/link failure) means
+        these writes never run, so audit entry and outbox row can never
+        disagree about whether the batch committed. Mirrors
+        WorkflowFacade.transition's seam.
+        """
+        self._audit(
+            ctx=ctx,
+            operation="transition",
+            entity_type="Interview",
+            entity_id=session.id,
+            change_reason="Multi-mode interview formalized into real artifacts",
+            details={
+                "session_kind": InterviewSession.SESSION_KIND_MULTI,
+                "artifact_type": None,
+                "resulting_artifact_ids": [
+                    str(ref.artifact_id) for ref in created_refs
+                ],
+                "new_state": InterviewSession.STATUS_COMPLETED,
+                "workflow_transition_applied": transition_applied,
+            },
+        )
+
+        # Emitted inside this same atomic() block (and, like the audit
+        # entry above, not merely inside _formalize_multi's caller) so
+        # the event is bound to the exact transaction that created the
+        # batch -- a rollback anywhere above (adapter/link failure) means
+        # this line never runs.
+        self._emit_event(
+            self._make_event(
+                event_type=DomainEventOutbox.EventType.INTERVIEW_FORMALIZED,
+                entity_id=session.id,
+                workspace_id=session.workspace_id,
+                payload={
+                    # m4: see the single-path payload — session_kind is the
+                    # discriminator that makes single vs. multi readable
+                    # from the event alone.
+                    "session_kind": InterviewSession.SESSION_KIND_MULTI,
+                    "artifact_type": None,
+                    "created": [
+                        {"artifact_id": str(ref.artifact_id), "artifact_type": ref.artifact_type}
+                        for ref in created_refs
+                    ],
+                },
+            )
+        )
 
     @atomic_transaction
     def abandon(self, ctx, session_id: UUID) -> "dict[str, Any]":
@@ -1580,6 +1775,74 @@ class InterviewService(ServiceBase):
         )
         return {"status": session.status}
 
+    @staticmethod
+    def _summarise_transcript_overflow(
+        ctx,
+        provider,
+        provider_name: str,
+        audit_logger,
+        entity_id: str,
+        session: InterviewSession,
+        overflow: list[dict[str, Any]],
+    ) -> str | None:
+        """Write one LLM digest of *overflow* and return it, or None if empty.
+
+        Renders the ``interview.transcript_summary`` template, calls the
+        provider, and on a non-empty digest writes the success audit row and
+        records token usage. An empty digest returns None -- an empty digest
+        would silently discard the overflow turns, so the caller treats it
+        exactly like a failed call. Any exception propagates to the caller
+        (``_compress_transcript_if_needed``), whose best-effort except clause
+        handles it identically to a raising provider call.
+        """
+        from application.ai_derivation_service import AiDerivationService
+        from llm_adapter.timeouts import resolve_timeout_seconds
+        from llm_adapter.token_tracking import (
+            approximate_token_count,
+            record_token_usage,
+        )
+
+        template = AiDerivationService._get_template_content(
+            ctx, "interview.transcript_summary", session.workspace_id
+        )
+        prompt = AiDerivationService._render(
+            template,
+            previous_summary=session.transcript_summary or "",
+            overflow_json=json.dumps(overflow),
+        )
+        summary = provider.complete(
+            prompt,
+            purpose="interview.transcript_summary",
+            timeout=resolve_timeout_seconds("interview.transcript_summary"),
+        )
+
+        summary = (summary or "").strip()
+        if not summary:
+            # An empty digest would silently DISCARD the overflow turns.
+            # Treat it exactly like a failed call.
+            logger.debug(
+                "InterviewService: empty transcript summary for session=%s -- "
+                "transcript left uncompressed",
+                session.id,
+            )
+            return None
+
+        audit_logger.log_llm_call(
+            provider=provider_name,
+            capability="interview.transcript_summary",
+            artifact_id=entity_id,
+            token_usage=None,
+            success=True,
+            error=None,
+        )
+        record_token_usage(
+            provider=provider_name,
+            capability="interview.transcript_summary",
+            input_tokens=approximate_token_count(prompt),
+            output_tokens=approximate_token_count(summary),
+        )
+        return summary
+
     def _compress_transcript_if_needed(self, ctx, session: InterviewSession) -> None:
         """Fold turns older than the sliding window into ``transcript_summary``.
 
@@ -1600,14 +1863,8 @@ class InterviewService(ServiceBase):
         not need to re-save.
         """
         from application.bundle_compression_service import MOCK_PROVIDER_NAME
-        from application.ai_derivation_service import AiDerivationService
         from llm_adapter.audit_logger import LlmAuditLogger
-        from llm_adapter.timeouts import resolve_timeout_seconds
-        from llm_adapter.token_tracking import (
-            approximate_token_count,
-            is_over_daily_limit,
-            record_token_usage,
-        )
+        from llm_adapter.token_tracking import is_over_daily_limit
 
         window_entries = TRANSCRIPT_WINDOW_TURNS * 2
         if len(session.transcript) <= window_entries:
@@ -1671,45 +1928,11 @@ class InterviewService(ServiceBase):
         # successful turn into a 500. The docstring's "never raises" contract
         # covers the whole body, not just the provider call.
         try:
-            template = AiDerivationService._get_template_content(
-                ctx, "interview.transcript_summary", session.workspace_id
+            summary = self._summarise_transcript_overflow(
+                ctx, provider, provider_name, audit_logger, entity_id, session, overflow
             )
-            prompt = AiDerivationService._render(
-                template,
-                previous_summary=session.transcript_summary or "",
-                overflow_json=json.dumps(overflow),
-            )
-            summary = provider.complete(
-                prompt,
-                purpose="interview.transcript_summary",
-                timeout=resolve_timeout_seconds("interview.transcript_summary"),
-            )
-
-            summary = (summary or "").strip()
-            if not summary:
-                # An empty digest would silently DISCARD the overflow turns.
-                # Treat it exactly like a failed call.
-                logger.debug(
-                    "InterviewService: empty transcript summary for session=%s -- "
-                    "transcript left uncompressed",
-                    session.id,
-                )
+            if summary is None:
                 return
-
-            audit_logger.log_llm_call(
-                provider=provider_name,
-                capability="interview.transcript_summary",
-                artifact_id=entity_id,
-                token_usage=None,
-                success=True,
-                error=None,
-            )
-            record_token_usage(
-                provider=provider_name,
-                capability="interview.transcript_summary",
-                input_tokens=approximate_token_count(prompt),
-                output_tokens=approximate_token_count(summary),
-            )
 
             # The provider call above blocks for up to ~25s. A concurrent
             # request may have appended a turn in the meantime, and the
@@ -1765,6 +1988,150 @@ class InterviewService(ServiceBase):
             )
             return
 
+    def _chat_turn_prompt(
+        self,
+        ctx,
+        session: InterviewSession,
+        user_message: str,
+        phase,
+        missing: list,
+    ) -> str:
+        """Build the single-mode chat-turn prompt -- memory + template render.
+
+        Composes the best-effort memory context and renders the
+        ``interview.chat_turn`` template with the phase/missing-field
+        fragments the protocol still needs. Pure prompt construction: no
+        provider call, no persistence, no event.
+        """
+        from application.ai_derivation_service import AiDerivationService
+        from memory.context_builder import build_memory_context
+
+        # Best-effort retrieval-augmentation (memory plan Task 6): degrades to
+        # "" on any backend failure, never blocks the chat turn (see
+        # build_memory_context's own docstring for the Fehlerfälle contract).
+        # RFC #1002 PR C: the session's backing Artifact (single mode only)
+        # is passed so artifact-scoped memory is searched and rendered first.
+        memory_context = build_memory_context(
+            ctx.tenant_id,
+            session.workspace_id,
+            ctx.user_id,
+            user_message,
+            artifact_id=session.artifact_id,
+            entity_type=session.artifact_type or "",
+        )
+        template = AiDerivationService._get_template_content(
+            ctx, "interview.chat_turn", session.workspace_id
+        )
+        return AiDerivationService._render(
+            template,
+            artifact_type=session.artifact_type,
+            transcript_json=json.dumps(session.transcript),
+            # L2.4: the digest of turns already folded out of `transcript`.
+            # `transcript` itself is now the sliding window, not the whole
+            # history, so without this the prompt would silently lose context.
+            transcript_summary=session.transcript_summary or "",
+            current_phase_fragment=phase.prompt_fragment,
+            missing_fields_json=json.dumps([self._serialise_field(f) for f in missing]),
+            grounding_snapshot_json=json.dumps(session.grounding_snapshot),
+            user_message=user_message,
+            memory_context=memory_context,
+        )
+
+    def _complete_chat_turn(
+        self,
+        provider,
+        provider_name: str,
+        audit_logger,
+        entity_id: str,
+        prompt: str,
+    ) -> str:
+        """Run the single-mode chat-turn LLM call and return the raw response.
+
+        Deliberately NOT fail-open (spec §5): a failed provider call surfaces
+        as ValidationError after the failure audit row is written, exactly as
+        when this code still sat inline in ``generate_chat_turn``. On success
+        the success audit row and the client-side token estimate (SA-26) are
+        written here too, preserving the pre-parse ordering.
+        """
+        from llm_adapter.timeouts import resolve_timeout_seconds
+        from llm_adapter.token_tracking import (
+            approximate_token_count,
+            record_token_usage,
+        )
+
+        timeout = resolve_timeout_seconds("interview.chat_turn")
+        try:
+            raw_response = provider.complete(
+                prompt, purpose="interview.chat_turn", timeout=timeout
+            )
+        except Exception as error:  # noqa: BLE001 -- not fail-open, see docstring
+            audit_logger.log_llm_call(
+                provider=provider_name,
+                capability="interview.chat_turn",
+                artifact_id=entity_id,
+                token_usage=None,
+                success=False,
+                error=str(error),
+            )
+            raise ValidationError(f"Interview chat LLM call failed: {error}") from error
+
+        audit_logger.log_llm_call(
+            provider=provider_name,
+            capability="interview.chat_turn",
+            artifact_id=entity_id,
+            token_usage=None,
+            success=True,
+            error=None,
+        )
+        # SA-26: this used to hardcode input_tokens=0, leaving the daily
+        # budget (is_over_daily_limit above) blind to this call's real
+        # spend. Estimate both sides client-side, matching every other
+        # free-form path (see ``approximate_token_count``).
+        record_token_usage(
+            provider=provider_name,
+            capability="interview.chat_turn",
+            input_tokens=approximate_token_count(prompt),
+            output_tokens=approximate_token_count(raw_response),
+        )
+        return raw_response
+
+    @staticmethod
+    def _parse_chat_turn_reply(raw_response: str) -> tuple[dict[str, Any], str]:
+        """Split the model response into ``(extracted_fields, reply)``.
+
+        The JSON contract is lenient by design: a response-shape failure
+        (not a provider failure -- that already raised) degrades to "no
+        fields extracted, relay the raw text" instead of crashing the chat.
+        """
+        try:
+            parsed = json.loads(raw_response)
+            extracted = parsed.get("extracted_fields", {}) or {}
+            reply = parsed.get("reply", "")
+        except (ValueError, AttributeError):
+            # Model didn't follow the JSON contract -- degrade to "no fields
+            # extracted, relay the raw text" rather than crashing the chat.
+            # This is a response-shape leniency, distinct from the provider-
+            # availability contract above: the call itself succeeded.
+            extracted = {}
+            reply = raw_response
+        return extracted, reply
+
+    def _apply_extracted_interview_fields(
+        self, ctx, session: InterviewSession, extracted: dict[str, Any]
+    ) -> None:
+        """Record extracted values for protocol-declared fields only.
+
+        Only values for fields the protocol actually declares are stored
+        (mirrors answer()'s own permissive-but-typed-when-known behavior)
+        -- an unresolved field name is silently skipped rather than stored,
+        since the prompt explicitly instructs the model to only extract
+        fields from the "still needed" list.
+        """
+        protocol = get_protocol(ctx, session.artifact_type, session.workspace_id)
+        for field_name, value in extracted.items():
+            if self._find_protocol_field(protocol, field_name) is not None:
+                self.answer(ctx, session.id, field_name, value)
+
     def generate_chat_turn(self, ctx, session_id: UUID, user_message: str) -> "dict[str, Any]":
         """Server-generated conversational turn -- Web Widget spec §5.
 
@@ -1781,15 +2148,8 @@ class InterviewService(ServiceBase):
         ``session.transcript`` regardless of whether any fields were
         extracted, so a resumed session always shows the full conversation.
         """
-        from application.ai_derivation_service import AiDerivationService
         from llm_adapter.audit_logger import LlmAuditLogger
-        from llm_adapter.timeouts import resolve_timeout_seconds
-        from llm_adapter.token_tracking import (
-            approximate_token_count,
-            is_over_daily_limit,
-            record_token_usage,
-        )
-        from memory.context_builder import build_memory_context
+        from llm_adapter.token_tracking import is_over_daily_limit
 
         session = self._get_session(ctx, session_id)
         # Status guard BEFORE the kind dispatch (review-2 fix M1): it used
@@ -1834,89 +2194,12 @@ class InterviewService(ServiceBase):
             )
 
         phase, missing = self._current_phase_and_missing(ctx, session)
-        # Best-effort retrieval-augmentation (memory plan Task 6): degrades to
-        # "" on any backend failure, never blocks the chat turn (see
-        # build_memory_context's own docstring for the Fehlerfälle contract).
-        # RFC #1002 PR C: the session's backing Artifact (single mode only)
-        # is passed so artifact-scoped memory is searched and rendered first.
-        memory_context = build_memory_context(
-            ctx.tenant_id,
-            session.workspace_id,
-            ctx.user_id,
-            user_message,
-            artifact_id=session.artifact_id,
-            entity_type=session.artifact_type or "",
+        prompt = self._chat_turn_prompt(ctx, session, user_message, phase, missing)
+        raw_response = self._complete_chat_turn(
+            provider, provider_name, audit_logger, entity_id, prompt
         )
-        template = AiDerivationService._get_template_content(ctx, "interview.chat_turn", session.workspace_id)
-        prompt = AiDerivationService._render(
-            template,
-            artifact_type=session.artifact_type,
-            transcript_json=json.dumps(session.transcript),
-            # L2.4: the digest of turns already folded out of `transcript`.
-            # `transcript` itself is now the sliding window, not the whole
-            # history, so without this the prompt would silently lose context.
-            transcript_summary=session.transcript_summary or "",
-            current_phase_fragment=phase.prompt_fragment,
-            missing_fields_json=json.dumps([self._serialise_field(f) for f in missing]),
-            grounding_snapshot_json=json.dumps(session.grounding_snapshot),
-            user_message=user_message,
-            memory_context=memory_context,
-        )
-
-        timeout = resolve_timeout_seconds("interview.chat_turn")
-        try:
-            raw_response = provider.complete(prompt, purpose="interview.chat_turn", timeout=timeout)
-        except Exception as error:  # noqa: BLE001 -- not fail-open, see docstring
-            audit_logger.log_llm_call(
-                provider=provider_name,
-                capability="interview.chat_turn",
-                artifact_id=entity_id,
-                token_usage=None,
-                success=False,
-                error=str(error),
-            )
-            raise ValidationError(f"Interview chat LLM call failed: {error}") from error
-
-        audit_logger.log_llm_call(
-            provider=provider_name,
-            capability="interview.chat_turn",
-            artifact_id=entity_id,
-            token_usage=None,
-            success=True,
-            error=None,
-        )
-        # SA-26: this used to hardcode input_tokens=0, leaving the daily
-        # budget (is_over_daily_limit above) blind to this call's real
-        # spend. Estimate both sides client-side, matching every other
-        # free-form path (see ``approximate_token_count``).
-        record_token_usage(
-            provider=provider_name,
-            capability="interview.chat_turn",
-            input_tokens=approximate_token_count(prompt),
-            output_tokens=approximate_token_count(raw_response),
-        )
-
-        try:
-            parsed = json.loads(raw_response)
-            extracted = parsed.get("extracted_fields", {}) or {}
-            reply = parsed.get("reply", "")
-        except (ValueError, AttributeError):
-            # Model didn't follow the JSON contract -- degrade to "no fields
-            # extracted, relay the raw text" rather than crashing the chat.
-            # This is a response-shape leniency, distinct from the provider-
-            # availability contract above: the call itself succeeded.
-            extracted = {}
-            reply = raw_response
-
-        # Only record values for fields the protocol actually declares
-        # (mirrors answer()'s own permissive-but-typed-when-known behavior)
-        # -- an unresolved field name is silently skipped rather than
-        # stored, since the prompt explicitly instructs the model to only
-        # extract fields from the "still needed" list.
-        protocol = get_protocol(ctx, session.artifact_type, session.workspace_id)
-        for field_name, value in extracted.items():
-            if self._find_protocol_field(protocol, field_name) is not None:
-                self.answer(ctx, session_id, field_name, value)
+        extracted, reply = self._parse_chat_turn_reply(raw_response)
+        self._apply_extracted_interview_fields(ctx, session, extracted)
 
         now = timezone.now().isoformat()
         # The DB write and the event publish are grouped in their own short
@@ -2198,47 +2481,8 @@ class InterviewService(ServiceBase):
         # Flip stale rows before filtering, so a "status=in_progress" list
         # doesn't include sessions that are stale-but-not-yet-read
         # individually (list_sessions has no single row to lazily patch the
-        # way _get_session does). Per-row (not a bulk .update()) since each
-        # transition needs its own WorkflowItemState mutation + history
-        # entry -- an infrequent housekeeping sweep over a handful of stale
-        # rows, not a hot path.
-        #
-        # Datenmodell-Konsolidierung Phase 1: the ``status`` column is
-        # write-once at creation and never updates for a tracked session, so
-        # a SQL-level ``status=STATUS_IN_PROGRESS`` filter can no longer
-        # narrow this query -- every single-mode session that ever
-        # engine-completed would still match it, growing with total
-        # historical session count instead of the genuinely-stale count.
-        # Filter on ``modified_at`` alone (still reliable) to get the TTL
-        # candidates, then batch-resolve engine state for exactly that set
-        # in one query (same pattern as the ``status=`` filter below) and
-        # only enqueue rows whose *engine* state is still "in_progress" --
-        # the expensive per-candidate fetch-then-check loop now runs only
-        # over the small, genuinely-stale subset, not every old session.
-        # Task 12: ``status`` is dropped from the ``.values()`` projection --
-        # a row with no WorkflowItemState falls back to the
-        # interview_default preset's initial state (documented, reviewed
-        # data-loss tradeoff, see Task 12 report Finding 2).
-        candidate_rows = list(
-            InterviewSession.objects.filter(
-                workspace_id=workspace_id,
-                modified_at__lt=timezone.now() - ABANDONED_TTL,
-            ).values("id")
-        )
-        candidate_states = state_reader.current_states(
-            "Interview", (row["id"] for row in candidate_rows)
-        )
-        interview_initial_state = state_reader.initial_state("Interview")
-        stale_ids = [
-            row["id"]
-            for row in candidate_rows
-            if (candidate_states.get(str(row["id"])) or interview_initial_state)
-            == InterviewSession.STATUS_IN_PROGRESS
-        ]
-        for stale_id in stale_ids:
-            stale_session = InterviewSession.objects.filter(id=stale_id).first()
-            if stale_session is not None:
-                self._lazily_abandon_if_stale(stale_session, ctx)
+        # way _get_session does).
+        self._abandon_stale_sessions(ctx, workspace_id)
 
         qs = InterviewSession.objects.filter(workspace_id=workspace_id)
         if status:
@@ -2248,17 +2492,56 @@ class InterviewService(ServiceBase):
             # is dropped from the ``.values()`` projection -- a session never
             # wired into a WorkflowItemState falls back to the
             # interview_default preset's initial state.
-            rows = list(qs.values("id"))
-            states = state_reader.current_states(
-                "Interview", (row["id"] for row in rows)
-            )
-            matching_ids = [
-                row["id"]
-                for row in rows
-                if (states.get(str(row["id"])) or interview_initial_state) == status
-            ]
-            qs = qs.filter(id__in=matching_ids)
+            qs = qs.filter(id__in=self._ids_in_engine_state(workspace_id, status))
         return qs.order_by("-modified_at")
+
+    def _abandon_stale_sessions(self, ctx, workspace_id: UUID) -> None:
+        """Run the stale-session housekeeping sweep for one workspace.
+
+        Per-row (not a bulk .update()) since each transition needs its own
+        WorkflowItemState mutation + history entry -- an infrequent
+        housekeeping sweep over a handful of stale rows, not a hot path.
+        """
+        for stale_id in self._ids_in_engine_state(
+            workspace_id, InterviewSession.STATUS_IN_PROGRESS, stale_only=True
+        ):
+            stale_session = InterviewSession.objects.filter(id=stale_id).first()
+            if stale_session is not None:
+                self._lazily_abandon_if_stale(stale_session, ctx)
+
+    def _ids_in_engine_state(
+        self, workspace_id: UUID, expected_state: str, *, stale_only: bool = False
+    ) -> list[UUID]:
+        """IDs of the workspace's sessions whose *engine* state is *expected_state*.
+
+        Datenmodell-Konsolidierung Phase 1: the ``status`` column is
+        write-once at creation and never updates for a tracked session, so
+        a SQL-level ``status=STATUS_IN_PROGRESS`` filter can no longer
+        narrow this query -- every single-mode session that ever
+        engine-completed would still match it, growing with total
+        historical session count instead of the genuinely-stale count.
+        With *stale_only* the query filters on ``modified_at`` alone
+        (still reliable) to get the TTL candidates, then batch-resolves
+        engine state for exactly that set in one query and only keeps rows
+        whose *engine* state is still "in_progress" -- the expensive
+        per-candidate fetch-then-check loop now runs only over the small,
+        genuinely-stale subset, not every old session.
+        Task 12: ``status`` is dropped from the ``.values()`` projection --
+        a row with no WorkflowItemState falls back to the
+        interview_default preset's initial state (documented, reviewed
+        data-loss tradeoff, see Task 12 report Finding 2).
+        """
+        base = InterviewSession.objects.filter(workspace_id=workspace_id)
+        if stale_only:
+            base = base.filter(modified_at__lt=timezone.now() - ABANDONED_TTL)
+        rows = list(base.values("id"))
+        states = state_reader.current_states("Interview", (row["id"] for row in rows))
+        initial_state = state_reader.initial_state("Interview")
+        return [
+            row["id"]
+            for row in rows
+            if (states.get(str(row["id"])) or initial_state) == expected_state
+        ]
 
     def get(self, ctx, session_id: UUID) -> InterviewSession:
         return self._get_session(ctx, session_id)

@@ -118,6 +118,620 @@ function generateIdempotencyUuid(): string {
   return `${Date.now()}-${rand}`;
 }
 
+interface EntityTypeRadioGroupProps<T extends string> {
+  name: string;
+  options: readonly T[];
+  selected: T;
+  onSelect: (type: T) => void;
+  groupClassName: string;
+  testIdPrefix: string;
+}
+
+function EntityTypeRadioGroup<T extends string>({
+  name,
+  options,
+  selected,
+  onSelect,
+  groupClassName,
+  testIdPrefix,
+}: EntityTypeRadioGroupProps<T>): JSX.Element {
+  const { t } = useTranslation();
+  return (
+    <div className={groupClassName}>
+      {options.map((type) => (
+        <label
+          key={type}
+          className={selected === type ? styles.radioLabelActive : styles.radioLabel}
+        >
+          <input
+            type="radio"
+            name={name}
+            value={type}
+            checked={selected === type}
+            onChange={() => onSelect(type)}
+            data-testid={`${testIdPrefix}${type}`}
+          />
+          {t(ENTITY_TYPE_I18N_KEYS[type] ?? type)}
+        </label>
+      ))}
+    </div>
+  );
+}
+
+interface CsvDropZoneProps {
+  fileInputRef: React.RefObject<HTMLInputElement | null>;
+  isDragOver: boolean;
+  selectedFile: File | null;
+  onFileSelect: (event: React.ChangeEvent<HTMLInputElement>) => void;
+  onDrop: (event: React.DragEvent<HTMLDivElement>) => void;
+  onDragOver: (event: React.DragEvent<HTMLDivElement>) => void;
+  onDragLeave: (event: React.DragEvent<HTMLDivElement>) => void;
+  onKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => void;
+}
+
+function CsvDropZone({
+  fileInputRef,
+  isDragOver,
+  selectedFile,
+  onFileSelect,
+  onDrop,
+  onDragOver,
+  onDragLeave,
+  onKeyDown,
+}: CsvDropZoneProps): JSX.Element {
+  const { t } = useTranslation();
+  return (
+    <section className={styles.card}>
+      {/* Drop zone / file picker */}
+      <h3 className={styles.cardTitle}>{t("import.selectFile", "Select CSV File")}</h3>
+      <div
+        data-testid="csv-drop-zone"
+        role="button"
+        tabIndex={0}
+        aria-label={t("import.dropZoneLabel")}
+        onDrop={onDrop}
+        onDragOver={onDragOver}
+        onDragLeave={onDragLeave}
+        onClick={() => fileInputRef.current?.click()}
+        onKeyDown={onKeyDown}
+        className={isDragOver ? styles.dropZoneActive : styles.dropZone}
+      >
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".csv"
+          onChange={onFileSelect}
+          onClick={(event) => event.stopPropagation()}
+          data-testid="csv-file-input"
+          className={styles.hiddenFileInput}
+        />
+        {selectedFile ? (
+          <div>
+            <p className={styles.fileName}>{selectedFile.name}</p>
+            <p className={styles.fileMeta}>{(selectedFile.size / 1024).toFixed(1)} KB</p>
+          </div>
+        ) : (
+          <p className={styles.hintText}>
+            {t("import.dropHint", "Drop CSV file here or click to browse")}
+          </p>
+        )}
+      </div>
+    </section>
+  );
+}
+
+interface CsvPreviewPanelProps {
+  preview: CsvPreview;
+}
+
+function CsvPreviewPanel({ preview }: CsvPreviewPanelProps): JSX.Element {
+  const { t } = useTranslation();
+  return (
+    <section data-testid="csv-preview" className={styles.card}>
+      <h3 className={styles.cardTitle}>{t("import.previewTitle")}</h3>
+
+      {preview.parseError ? (
+        <p data-testid="csv-preview-parse-error" role="alert" className={styles.failText}>
+          {t("import.previewUnparsable")}
+        </p>
+      ) : (
+        <>
+          <p data-testid="csv-preview-summary" className={styles.fileMeta}>
+            {t("import.previewSummary", {
+              rows: preview.totalRows,
+              columns: preview.headers.length,
+              shown: Math.min(preview.rows.length, PREVIEW_ROW_LIMIT),
+            })}
+          </p>
+
+          {previewHasBlockingIssue(preview) && (
+            <ul data-testid="csv-preview-blocking" role="alert" className={styles.blockingList}>
+              {preview.missingRequiredColumn && (
+                <li>{t("import.previewMissingTitleColumn")}</li>
+              )}
+              {preview.rowsWithEmptyTitle.length > 0 && (
+                <li>
+                  {t("import.previewEmptyTitleRows", {
+                    count: preview.rowsWithEmptyTitle.length,
+                    rows: preview.rowsWithEmptyTitle.slice(0, 5).join(", "),
+                  })}
+                </li>
+              )}
+              {preview.exceedsRowLimit && (
+                <li>{t("import.previewRowLimit", { max: MAX_CSV_ROWS })}</li>
+              )}
+            </ul>
+          )}
+
+          {preview.unknownColumns.length > 0 && (
+            <p data-testid="csv-preview-unknown-columns" className={styles.warningText}>
+              {t("import.previewUnknownColumns", {
+                columns: preview.unknownColumns.join(", "),
+              })}
+            </p>
+          )}
+
+          {preview.duplicateColumns.length > 0 && (
+            <p data-testid="csv-preview-duplicate-columns" className={styles.warningText}>
+              {t("import.previewDuplicateColumns", {
+                columns: preview.duplicateColumns.join(", "),
+              })}
+            </p>
+          )}
+
+          {preview.rows.length > 0 && (
+            <div className={styles.previewTableWrap}>
+              <table data-testid="csv-preview-table" className={styles.previewTable}>
+                <caption className={styles.srOnly}>{t("import.previewTableCaption")}</caption>
+                <thead>
+                  <tr>
+                    <th scope="col" className={styles.previewRowNumHeader}>
+                      {t("import.previewRowColumn")}
+                    </th>
+                    {preview.headers.map((header, idx) => (
+                      <th
+                        key={`${header}-${idx}`}
+                        scope="col"
+                        data-unknown={
+                          preview.unknownColumns.includes(header) ? "true" : undefined
+                        }
+                        className={
+                          preview.unknownColumns.includes(header)
+                            ? styles.previewHeaderUnknown
+                            : styles.previewHeader
+                        }
+                      >
+                        {header}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {preview.rows.map((row) => (
+                    <tr key={row.rowNumber} data-testid="csv-preview-row">
+                      <th scope="row" className={styles.previewRowNum}>
+                        {row.rowNumber}
+                      </th>
+                      {row.cells.map((cell, idx) => (
+                        <td key={idx} className={styles.previewCell}>
+                          {cell}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
+interface ImportResultPanelProps {
+  result: ImportResult;
+  showAllErrors: boolean;
+  onToggleShowAllErrors: () => void;
+}
+
+function ImportResultPanel({
+  result,
+  showAllErrors,
+  onToggleShowAllErrors,
+}: ImportResultPanelProps): JSX.Element {
+  const { t } = useTranslation();
+  return (
+    <div
+      data-testid="csv-import-result"
+      data-outcome={outcomeOf(result)}
+      className={
+        outcomeOf(result) === "imported"
+          ? styles.resultBoxSuccess
+          : outcomeOf(result) === "partial"
+          ? styles.resultBoxWarning
+          : styles.resultBoxError
+      }
+    >
+      {result.success ? (
+        <div>
+          <p
+            data-testid="csv-import-success"
+            className={
+              outcomeOf(result) === "partial" ? styles.warningText : styles.successText
+            }
+          >
+            {outcomeOf(result) === "partial"
+              ? t("import.partialSuccess", { count: result.imported_count })
+              : t("import.success", { count: result.imported_count })}
+          </p>
+          <p className={styles.fileMeta}>
+            {t("import.statusLabel")}: {t(`import.statusValue.${result.status}`)}
+          </p>
+        </div>
+      ) : (
+        <div>
+          <p data-testid="csv-import-failed" className={styles.failText}>
+            {result.status === "rollback"
+              ? t("import.failedRollback")
+              : t("import.failedValidation")}
+          </p>
+          {/* REQ-L3-IMP-002: the import is one transaction, so a rejected
+              file changed nothing at all. Saying so explicitly is the
+              difference between "retry after fixing" and "check what
+              landed". */}
+          <p data-testid="csv-import-atomicity-note" className={styles.fileMeta}>
+            {t("import.nothingWritten", { count: result.skipped_count })}
+          </p>
+
+          {result.errors.length > 0 && (
+            <>
+              <ul data-testid="csv-import-error-list" className={styles.errorList}>
+                {(showAllErrors
+                  ? result.errors
+                  : result.errors.slice(0, ERROR_PREVIEW_LIMIT)
+                ).map((err, idx) => (
+                  <li key={idx} className={styles.errorListItem}>
+                    {t("import.errorRow", {
+                      row: err.row_number,
+                      field: err.field,
+                      message: err.message,
+                    })}
+                  </li>
+                ))}
+              </ul>
+              {result.errors.length > ERROR_PREVIEW_LIMIT && (
+                <button
+                  type="button"
+                  data-testid="csv-import-toggle-errors"
+                  onClick={onToggleShowAllErrors}
+                  className={styles.linkBtn}
+                  aria-expanded={showAllErrors}
+                >
+                  {showAllErrors
+                    ? t("import.showFewerErrors")
+                    : t("import.moreErrors", {
+                        count: result.errors.length - ERROR_PREVIEW_LIMIT,
+                      })}
+                </button>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Dropped-column notice — the one signal a green "imported N rows"
+          box would otherwise swallow (fix #120). */}
+      {result.warnings.length > 0 && (
+        <ul data-testid="csv-import-warnings" className={styles.warningList}>
+          {result.warnings.map((warning, idx) => (
+            <li key={idx} className={styles.warningListItem}>
+              {warning}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+interface ReqifImportSectionProps {
+  fileInputRef: React.RefObject<HTMLInputElement | null>;
+  dropZoneKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => void;
+  selectedFile: File | null;
+  onFileSelect: (event: React.ChangeEvent<HTMLInputElement>) => void;
+  dryRun: boolean;
+  onDryRunChange: (checked: boolean) => void;
+  isImporting: boolean;
+  onImport: () => void;
+  importResult: ReqifImportResult | null;
+  importError: string | null;
+  onReset: () => void;
+}
+
+function ReqifImportSection({
+  fileInputRef,
+  dropZoneKeyDown,
+  selectedFile,
+  onFileSelect,
+  dryRun,
+  onDryRunChange,
+  isImporting,
+  onImport,
+  importResult,
+  importError,
+  onReset,
+}: ReqifImportSectionProps): JSX.Element {
+  const { t } = useTranslation();
+  return (
+    <>
+      {/* ReqIF Import (REQ-147) */}
+      <h2 className={styles.sectionHeading}>{t("import.reqifTitle")}</h2>
+
+      <section data-testid="reqif-import-page" className={styles.card}>
+        <h3 className={styles.cardTitle}>{t("import.reqifSelectFile")}</h3>
+        <div
+          data-testid="reqif-file-picker"
+          role="button"
+          tabIndex={0}
+          aria-label={t("import.reqifDropZoneLabel")}
+          onClick={() => fileInputRef.current?.click()}
+          onKeyDown={dropZoneKeyDown}
+          className={styles.filePicker}
+        >
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".reqif,.xml"
+            onChange={onFileSelect}
+            onClick={(event) => event.stopPropagation()}
+            data-testid="reqif-file-input"
+            className={styles.hiddenFileInput}
+          />
+          {selectedFile ? (
+            <div>
+              <p className={styles.fileName}>{selectedFile.name}</p>
+              <p className={styles.fileMeta}>{(selectedFile.size / 1024).toFixed(1)} KB</p>
+            </div>
+          ) : (
+            <p className={styles.hintText}>
+              {t("import.reqifDropHint")}
+            </p>
+          )}
+        </div>
+
+        <label className={styles.checkboxLabel}>
+          <input
+            type="checkbox"
+            checked={dryRun}
+            onChange={(e) => onDryRunChange(e.target.checked)}
+            data-testid="reqif-dry-run-checkbox"
+          />
+          {t("import.reqifDryRun")}
+        </label>
+
+        <div className={styles.actionsRow}>
+          <button
+            type="button"
+            data-testid="reqif-import-btn"
+            onClick={() => void onImport()}
+            disabled={!selectedFile || isImporting}
+            className={styles.primaryBtn}
+          >
+            {isImporting ? (
+              <Spinner label={t("import.uploading")} />
+            ) : dryRun ? (
+              t("import.reqifPreview")
+            ) : (
+              t("import.reqifUpload")
+            )}
+          </button>
+          {(importResult || importError) && (
+            <button
+              type="button"
+              data-testid="reqif-import-reset"
+              onClick={onReset}
+              className={styles.resetBtn}
+            >
+              {t("actions.reset")}
+            </button>
+          )}
+        </div>
+
+        {importError && (
+          <div data-testid="reqif-import-error" role="alert" className={styles.errorBox}>
+            {importError}
+          </div>
+        )}
+
+        {importResult && (
+          <div data-testid="reqif-import-result" className={styles.resultBoxPlain}>
+            {importResult.dry_run && (
+              <p data-testid="reqif-import-dry-run-badge" className={styles.dryRunBadge}>
+                {t("import.reqifDryRunBadge")}
+              </p>
+            )}
+
+            {importResult.idempotent_replay && (
+              <p data-testid="reqif-import-replay-badge" className={styles.dryRunBadge}>
+                {t("import.reqifIdempotentReplay", "Replay of an earlier import — no second write.")}
+              </p>
+            )}
+
+            {importResult.counts && (
+              <p data-testid="reqif-import-counts" className={styles.reportLine}>
+                {t("import.reqifCounts", {
+                  succeeded: importResult.counts.succeeded,
+                  skipped: importResult.counts.skipped,
+                  failed: importResult.counts.failed,
+                  defaultValue:
+                    "Succeeded: {{succeeded}}, skipped: {{skipped}}, failed: {{failed}}",
+                })}
+              </p>
+            )}
+
+            {(
+              [
+                ["needs", t("import.reqifNeeds")],
+                ["requirements", t("import.reqifRequirements")],
+                ["relations", t("import.reqifRelations")],
+              ] as const
+            ).map(([key, label]) => {
+              const report = importResult[key];
+              return (
+                <div key={key} className={styles.reportBlock}>
+                  <p className={styles.reportLine}>
+                    {label}: {t("import.reqifCreated")} {report.created},{" "}
+                    {t("import.reqifUpdated")} {report.updated},{" "}
+                    {t("import.reqifSkipped")} {report.skipped}
+                  </p>
+                  {report.errors.length > 0 && (
+                    <ul className={styles.errorList}>
+                      {report.errors.slice(0, 10).map((err, idx) => (
+                        <li key={idx} className={styles.errorListItem}>
+                          {err.identifier}: {err.message}
+                        </li>
+                      ))}
+                      {report.errors.length > 10 && (
+                        <li className={styles.errorListMore}>
+                          {t("import.reqifMoreErrors", { count: report.errors.length - 10 })}
+                        </li>
+                      )}
+                    </ul>
+                  )}
+                  {/* ADR-014 §1: failed objects are first-class in v2 — render
+                      them from the structured items (errors is failures-only
+                      but the items list is authoritative). */}
+                  {report.items.filter((item) => item.status === "failed").length > 0 && (
+                    <ul data-testid={`reqif-import-failed-${key}`} className={styles.errorList}>
+                      {report.items
+                        .filter((item) => item.status === "failed")
+                        .slice(0, 10)
+                        .map((item, idx) => (
+                          <li key={idx} className={styles.errorListItem}>
+                            {item.identifier ?? "-"}: [{item.cause.code}] {item.cause.message}
+                          </li>
+                        ))}
+                    </ul>
+                  )}
+                </div>
+              );
+            })}
+
+            {importResult.warnings.length > 0 && (
+              <div>
+                <p className={styles.reportLine}>{t("import.reqifWarnings")}</p>
+                <ul className={styles.errorList}>
+                  {importResult.warnings.slice(0, 10).map((warning, idx) => (
+                    <li key={idx} className={styles.errorListItem}>
+                      {warning}
+                    </li>
+                  ))}
+                  {importResult.warnings.length > 10 && (
+                    <li className={styles.errorListMore}>
+                      {t("import.reqifMoreWarnings", { count: importResult.warnings.length - 10 })}
+                    </li>
+                  )}
+                </ul>
+              </div>
+            )}
+          </div>
+        )}
+      </section>
+    </>
+  );
+}
+
+interface CsvExportSectionProps {
+  exportEntityType: ExportEntityType;
+  onExportEntityTypeChange: (type: ExportEntityType) => void;
+  isExporting: boolean;
+  onExport: () => void;
+  isExportingReqif: boolean;
+  onExportReqif: () => void;
+  exportError: string | null;
+  reqifExportError: string | null;
+}
+
+function CsvExportSection({
+  exportEntityType,
+  onExportEntityTypeChange,
+  isExporting,
+  onExport,
+  isExportingReqif,
+  onExportReqif,
+  exportError,
+  reqifExportError,
+}: CsvExportSectionProps): JSX.Element {
+  const { t } = useTranslation();
+  return (
+    <>
+      {/* CSV Export (C7 — frontend-feedback Cluster C, MVP) */}
+      <h2 className={styles.sectionHeading}>{t("export.title", "CSV Export")}</h2>
+
+      <section data-testid="csv-export-page" className={styles.card}>
+        <h3 className={styles.cardTitle}>{t("export.entityType", "Entity Type")}</h3>
+        <EntityTypeRadioGroup
+          name="exportEntityType"
+          options={EXPORT_ENTITY_TYPES}
+          selected={exportEntityType}
+          onSelect={onExportEntityTypeChange}
+          groupClassName={styles.radioGroupSpaced}
+          testIdPrefix="export-entity-type-"
+        />
+
+        <div className={styles.radioGroup}>
+          <button
+            type="button"
+            data-testid="csv-export-btn"
+            onClick={() => void onExport()}
+            disabled={isExporting}
+            className={styles.primaryBtn}
+          >
+            {isExporting ? (
+              <Spinner label={t("export.downloading")} />
+            ) : (
+              t("export.download")
+            )}
+          </button>
+
+          {/* REQ-146: ReqIF 1.2 export — whole-workspace (Needs + Requirements
+              + TraceLinks), independent of the entity-type radio above. */}
+          <button
+            type="button"
+            data-testid="reqif-export-btn"
+            onClick={() => void onExportReqif()}
+            disabled={isExportingReqif}
+            title={t(
+              "export.reqifHint",
+              "Exports the whole workspace (Needs, Requirements, TraceLinks) as ReqIF 1.2 for DOORS/Polarion"
+            )}
+            className={styles.secondaryBtn}
+          >
+            {isExportingReqif ? (
+              <Spinner label={t("export.downloading")} />
+            ) : (
+              t("export.downloadReqif")
+            )}
+          </button>
+        </div>
+
+        {exportError && (
+          <div data-testid="csv-export-error" role="alert" className={styles.errorBoxTopSpaced}>
+            {exportError}
+          </div>
+        )}
+
+        {reqifExportError && (
+          <div data-testid="reqif-export-error" role="alert" className={styles.errorBoxTopSpaced}>
+            {reqifExportError}
+          </div>
+        )}
+      </section>
+    </>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -318,6 +932,10 @@ export function CsvImport(): JSX.Element {
     }
   }, []);
 
+  const handleToggleShowAllErrors = useCallback((): void => {
+    setShowAllErrors((shown) => !shown);
+  }, []);
+
   // REQ-147: ReqIF 1.2 import (StakeholderNeeds, Requirements, TraceLinks).
   const handleReqifFileSelect = useCallback(
     (event: React.ChangeEvent<HTMLInputElement>): void => {
@@ -384,166 +1002,30 @@ export function CsvImport(): JSX.Element {
       {/* Entity type selector */}
       <section className={styles.card}>
         <h3 className={styles.cardTitle}>{t("import.entityType", "Entity Type")}</h3>
-        <div className={styles.radioGroup}>
-          {ENTITY_TYPES.map((type) => (
-            <label
-              key={type}
-              className={entityType === type ? styles.radioLabelActive : styles.radioLabel}
-            >
-              <input
-                type="radio"
-                name="entityType"
-                value={type}
-                checked={entityType === type}
-                onChange={() => handleEntityTypeChange(type)}
-                data-testid={`entity-type-${type}`}
-              />
-              {t(ENTITY_TYPE_I18N_KEYS[type] ?? type)}
-            </label>
-          ))}
-        </div>
+        <EntityTypeRadioGroup
+          name="entityType"
+          options={ENTITY_TYPES}
+          selected={entityType}
+          onSelect={handleEntityTypeChange}
+          groupClassName={styles.radioGroup}
+          testIdPrefix="entity-type-"
+        />
       </section>
 
-      {/* Drop zone / file picker */}
-      <section className={styles.card}>
-        <h3 className={styles.cardTitle}>{t("import.selectFile", "Select CSV File")}</h3>
-        <div
-          data-testid="csv-drop-zone"
-          role="button"
-          tabIndex={0}
-          aria-label={t("import.dropZoneLabel")}
-          onDrop={handleDrop}
-          onDragOver={handleDragOver}
-          onDragLeave={handleDragLeave}
-          onClick={() => fileInputRef.current?.click()}
-          onKeyDown={handleDropZoneKeyDown}
-          className={isDragOver ? styles.dropZoneActive : styles.dropZone}
-        >
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".csv"
-            onChange={handleFileSelect}
-            onClick={(event) => event.stopPropagation()}
-            data-testid="csv-file-input"
-            className={styles.hiddenFileInput}
-          />
-          {selectedFile ? (
-            <div>
-              <p className={styles.fileName}>{selectedFile.name}</p>
-              <p className={styles.fileMeta}>{(selectedFile.size / 1024).toFixed(1)} KB</p>
-            </div>
-          ) : (
-            <p className={styles.hintText}>
-              {t("import.dropHint", "Drop CSV file here or click to browse")}
-            </p>
-          )}
-        </div>
-      </section>
+      <CsvDropZone
+        fileInputRef={fileInputRef}
+        isDragOver={isDragOver}
+        selectedFile={selectedFile}
+        onFileSelect={handleFileSelect}
+        onDrop={handleDrop}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onKeyDown={handleDropZoneKeyDown}
+      />
 
       {/* Pre-flight preview (UI-30) — what the backend will see, before the
           upload costs a round-trip. */}
-      {preview && (
-        <section data-testid="csv-preview" className={styles.card}>
-          <h3 className={styles.cardTitle}>{t("import.previewTitle")}</h3>
-
-          {preview.parseError ? (
-            <p data-testid="csv-preview-parse-error" role="alert" className={styles.failText}>
-              {t("import.previewUnparsable")}
-            </p>
-          ) : (
-            <>
-              <p data-testid="csv-preview-summary" className={styles.fileMeta}>
-                {t("import.previewSummary", {
-                  rows: preview.totalRows,
-                  columns: preview.headers.length,
-                  shown: Math.min(preview.rows.length, PREVIEW_ROW_LIMIT),
-                })}
-              </p>
-
-              {previewHasBlockingIssue(preview) && (
-                <ul data-testid="csv-preview-blocking" role="alert" className={styles.blockingList}>
-                  {preview.missingRequiredColumn && (
-                    <li>{t("import.previewMissingTitleColumn")}</li>
-                  )}
-                  {preview.rowsWithEmptyTitle.length > 0 && (
-                    <li>
-                      {t("import.previewEmptyTitleRows", {
-                        count: preview.rowsWithEmptyTitle.length,
-                        rows: preview.rowsWithEmptyTitle.slice(0, 5).join(", "),
-                      })}
-                    </li>
-                  )}
-                  {preview.exceedsRowLimit && (
-                    <li>{t("import.previewRowLimit", { max: MAX_CSV_ROWS })}</li>
-                  )}
-                </ul>
-              )}
-
-              {preview.unknownColumns.length > 0 && (
-                <p data-testid="csv-preview-unknown-columns" className={styles.warningText}>
-                  {t("import.previewUnknownColumns", {
-                    columns: preview.unknownColumns.join(", "),
-                  })}
-                </p>
-              )}
-
-              {preview.duplicateColumns.length > 0 && (
-                <p data-testid="csv-preview-duplicate-columns" className={styles.warningText}>
-                  {t("import.previewDuplicateColumns", {
-                    columns: preview.duplicateColumns.join(", "),
-                  })}
-                </p>
-              )}
-
-              {preview.rows.length > 0 && (
-                <div className={styles.previewTableWrap}>
-                  <table data-testid="csv-preview-table" className={styles.previewTable}>
-                    <caption className={styles.srOnly}>{t("import.previewTableCaption")}</caption>
-                    <thead>
-                      <tr>
-                        <th scope="col" className={styles.previewRowNumHeader}>
-                          {t("import.previewRowColumn")}
-                        </th>
-                        {preview.headers.map((header, idx) => (
-                          <th
-                            key={`${header}-${idx}`}
-                            scope="col"
-                            data-unknown={
-                              preview.unknownColumns.includes(header) ? "true" : undefined
-                            }
-                            className={
-                              preview.unknownColumns.includes(header)
-                                ? styles.previewHeaderUnknown
-                                : styles.previewHeader
-                            }
-                          >
-                            {header}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {preview.rows.map((row) => (
-                        <tr key={row.rowNumber} data-testid="csv-preview-row">
-                          <th scope="row" className={styles.previewRowNum}>
-                            {row.rowNumber}
-                          </th>
-                          {row.cells.map((cell, idx) => (
-                            <td key={idx} className={styles.previewCell}>
-                              {cell}
-                            </td>
-                          ))}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </>
-          )}
-        </section>
-      )}
+      {preview && <CsvPreviewPanel preview={preview} />}
 
       {/* Upload button */}
       <div className={styles.actionsRow}>
@@ -588,344 +1070,37 @@ export function CsvImport(): JSX.Element {
 
       {/* Result display — three outcomes, see `outcomeOf` / module docstring. */}
       {result && (
-        <div
-          data-testid="csv-import-result"
-          data-outcome={outcomeOf(result)}
-          className={
-            outcomeOf(result) === "imported"
-              ? styles.resultBoxSuccess
-              : outcomeOf(result) === "partial"
-              ? styles.resultBoxWarning
-              : styles.resultBoxError
-          }
-        >
-          {result.success ? (
-            <div>
-              <p
-                data-testid="csv-import-success"
-                className={
-                  outcomeOf(result) === "partial" ? styles.warningText : styles.successText
-                }
-              >
-                {outcomeOf(result) === "partial"
-                  ? t("import.partialSuccess", { count: result.imported_count })
-                  : t("import.success", { count: result.imported_count })}
-              </p>
-              <p className={styles.fileMeta}>
-                {t("import.statusLabel")}: {t(`import.statusValue.${result.status}`)}
-              </p>
-            </div>
-          ) : (
-            <div>
-              <p data-testid="csv-import-failed" className={styles.failText}>
-                {result.status === "rollback"
-                  ? t("import.failedRollback")
-                  : t("import.failedValidation")}
-              </p>
-              {/* REQ-L3-IMP-002: the import is one transaction, so a rejected
-                  file changed nothing at all. Saying so explicitly is the
-                  difference between "retry after fixing" and "check what
-                  landed". */}
-              <p data-testid="csv-import-atomicity-note" className={styles.fileMeta}>
-                {t("import.nothingWritten", { count: result.skipped_count })}
-              </p>
-
-              {result.errors.length > 0 && (
-                <>
-                  <ul data-testid="csv-import-error-list" className={styles.errorList}>
-                    {(showAllErrors
-                      ? result.errors
-                      : result.errors.slice(0, ERROR_PREVIEW_LIMIT)
-                    ).map((err, idx) => (
-                      <li key={idx} className={styles.errorListItem}>
-                        {t("import.errorRow", {
-                          row: err.row_number,
-                          field: err.field,
-                          message: err.message,
-                        })}
-                      </li>
-                    ))}
-                  </ul>
-                  {result.errors.length > ERROR_PREVIEW_LIMIT && (
-                    <button
-                      type="button"
-                      data-testid="csv-import-toggle-errors"
-                      onClick={() => setShowAllErrors((shown) => !shown)}
-                      className={styles.linkBtn}
-                      aria-expanded={showAllErrors}
-                    >
-                      {showAllErrors
-                        ? t("import.showFewerErrors")
-                        : t("import.moreErrors", {
-                            count: result.errors.length - ERROR_PREVIEW_LIMIT,
-                          })}
-                    </button>
-                  )}
-                </>
-              )}
-            </div>
-          )}
-
-          {/* Dropped-column notice — the one signal a green "imported N rows"
-              box would otherwise swallow (fix #120). */}
-          {result.warnings.length > 0 && (
-            <ul data-testid="csv-import-warnings" className={styles.warningList}>
-              {result.warnings.map((warning, idx) => (
-                <li key={idx} className={styles.warningListItem}>
-                  {warning}
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
+        <ImportResultPanel
+          result={result}
+          showAllErrors={showAllErrors}
+          onToggleShowAllErrors={handleToggleShowAllErrors}
+        />
       )}
 
-      {/* ReqIF Import (REQ-147) */}
-      <h2 className={styles.sectionHeading}>{t("import.reqifTitle")}</h2>
+      <ReqifImportSection
+        fileInputRef={reqifFileInputRef}
+        dropZoneKeyDown={handleDropZoneKeyDown}
+        selectedFile={selectedReqifFile}
+        onFileSelect={handleReqifFileSelect}
+        dryRun={reqifDryRun}
+        onDryRunChange={setReqifDryRun}
+        isImporting={isImportingReqif}
+        onImport={handleReqifImport}
+        importResult={reqifImportResult}
+        importError={reqifImportError}
+        onReset={handleReqifReset}
+      />
 
-      <section data-testid="reqif-import-page" className={styles.card}>
-        <h3 className={styles.cardTitle}>{t("import.reqifSelectFile")}</h3>
-        <div
-          data-testid="reqif-file-picker"
-          role="button"
-          tabIndex={0}
-          aria-label={t("import.reqifDropZoneLabel")}
-          onClick={() => reqifFileInputRef.current?.click()}
-          onKeyDown={handleDropZoneKeyDown}
-          className={styles.filePicker}
-        >
-          <input
-            ref={reqifFileInputRef}
-            type="file"
-            accept=".reqif,.xml"
-            onChange={handleReqifFileSelect}
-            onClick={(event) => event.stopPropagation()}
-            data-testid="reqif-file-input"
-            className={styles.hiddenFileInput}
-          />
-          {selectedReqifFile ? (
-            <div>
-              <p className={styles.fileName}>{selectedReqifFile.name}</p>
-              <p className={styles.fileMeta}>{(selectedReqifFile.size / 1024).toFixed(1)} KB</p>
-            </div>
-          ) : (
-            <p className={styles.hintText}>
-              {t("import.reqifDropHint")}
-            </p>
-          )}
-        </div>
-
-        <label className={styles.checkboxLabel}>
-          <input
-            type="checkbox"
-            checked={reqifDryRun}
-            onChange={(e) => setReqifDryRun(e.target.checked)}
-            data-testid="reqif-dry-run-checkbox"
-          />
-          {t("import.reqifDryRun")}
-        </label>
-
-        <div className={styles.actionsRow}>
-          <button
-            type="button"
-            data-testid="reqif-import-btn"
-            onClick={() => void handleReqifImport()}
-            disabled={!selectedReqifFile || isImportingReqif}
-            className={styles.primaryBtn}
-          >
-            {isImportingReqif ? (
-              <Spinner label={t("import.uploading")} />
-            ) : reqifDryRun ? (
-              t("import.reqifPreview")
-            ) : (
-              t("import.reqifUpload")
-            )}
-          </button>
-          {(reqifImportResult || reqifImportError) && (
-            <button
-              type="button"
-              data-testid="reqif-import-reset"
-              onClick={handleReqifReset}
-              className={styles.resetBtn}
-            >
-              {t("actions.reset")}
-            </button>
-          )}
-        </div>
-
-        {reqifImportError && (
-          <div data-testid="reqif-import-error" role="alert" className={styles.errorBox}>
-            {reqifImportError}
-          </div>
-        )}
-
-        {reqifImportResult && (
-          <div data-testid="reqif-import-result" className={styles.resultBoxPlain}>
-            {reqifImportResult.dry_run && (
-              <p data-testid="reqif-import-dry-run-badge" className={styles.dryRunBadge}>
-                {t("import.reqifDryRunBadge")}
-              </p>
-            )}
-
-            {reqifImportResult.idempotent_replay && (
-              <p data-testid="reqif-import-replay-badge" className={styles.dryRunBadge}>
-                {t("import.reqifIdempotentReplay", "Replay of an earlier import — no second write.")}
-              </p>
-            )}
-
-            {reqifImportResult.counts && (
-              <p data-testid="reqif-import-counts" className={styles.reportLine}>
-                {t("import.reqifCounts", {
-                  succeeded: reqifImportResult.counts.succeeded,
-                  skipped: reqifImportResult.counts.skipped,
-                  failed: reqifImportResult.counts.failed,
-                  defaultValue:
-                    "Succeeded: {{succeeded}}, skipped: {{skipped}}, failed: {{failed}}",
-                })}
-              </p>
-            )}
-
-            {(
-              [
-                ["needs", t("import.reqifNeeds")],
-                ["requirements", t("import.reqifRequirements")],
-                ["relations", t("import.reqifRelations")],
-              ] as const
-            ).map(([key, label]) => {
-              const report = reqifImportResult[key];
-              return (
-                <div key={key} className={styles.reportBlock}>
-                  <p className={styles.reportLine}>
-                    {label}: {t("import.reqifCreated")} {report.created},{" "}
-                    {t("import.reqifUpdated")} {report.updated},{" "}
-                    {t("import.reqifSkipped")} {report.skipped}
-                  </p>
-                  {report.errors.length > 0 && (
-                    <ul className={styles.errorList}>
-                      {report.errors.slice(0, 10).map((err, idx) => (
-                        <li key={idx} className={styles.errorListItem}>
-                          {err.identifier}: {err.message}
-                        </li>
-                      ))}
-                      {report.errors.length > 10 && (
-                        <li className={styles.errorListMore}>
-                          {t("import.reqifMoreErrors", { count: report.errors.length - 10 })}
-                        </li>
-                      )}
-                    </ul>
-                  )}
-                  {/* ADR-014 §1: failed objects are first-class in v2 — render
-                      them from the structured items (errors is failures-only
-                      but the items list is authoritative). */}
-                  {report.items.filter((item) => item.status === "failed").length > 0 && (
-                    <ul data-testid={`reqif-import-failed-${key}`} className={styles.errorList}>
-                      {report.items
-                        .filter((item) => item.status === "failed")
-                        .slice(0, 10)
-                        .map((item, idx) => (
-                          <li key={idx} className={styles.errorListItem}>
-                            {item.identifier ?? "-"}: [{item.cause.code}] {item.cause.message}
-                          </li>
-                        ))}
-                    </ul>
-                  )}
-                </div>
-              );
-            })}
-
-            {reqifImportResult.warnings.length > 0 && (
-              <div>
-                <p className={styles.reportLine}>{t("import.reqifWarnings")}</p>
-                <ul className={styles.errorList}>
-                  {reqifImportResult.warnings.slice(0, 10).map((warning, idx) => (
-                    <li key={idx} className={styles.errorListItem}>
-                      {warning}
-                    </li>
-                  ))}
-                  {reqifImportResult.warnings.length > 10 && (
-                    <li className={styles.errorListMore}>
-                      {t("import.reqifMoreWarnings", { count: reqifImportResult.warnings.length - 10 })}
-                    </li>
-                  )}
-                </ul>
-              </div>
-            )}
-          </div>
-        )}
-      </section>
-
-      {/* CSV Export (C7 — frontend-feedback Cluster C, MVP) */}
-      <h2 className={styles.sectionHeading}>{t("export.title", "CSV Export")}</h2>
-
-      <section data-testid="csv-export-page" className={styles.card}>
-        <h3 className={styles.cardTitle}>{t("export.entityType", "Entity Type")}</h3>
-        <div className={styles.radioGroupSpaced}>
-          {EXPORT_ENTITY_TYPES.map((type) => (
-            <label
-              key={type}
-              className={exportEntityType === type ? styles.radioLabelActive : styles.radioLabel}
-            >
-              <input
-                type="radio"
-                name="exportEntityType"
-                value={type}
-                checked={exportEntityType === type}
-                onChange={() => setExportEntityType(type)}
-                data-testid={`export-entity-type-${type}`}
-              />
-              {t(ENTITY_TYPE_I18N_KEYS[type] ?? type)}
-            </label>
-          ))}
-        </div>
-
-        <div className={styles.radioGroup}>
-          <button
-            type="button"
-            data-testid="csv-export-btn"
-            onClick={() => void handleExport()}
-            disabled={isExporting}
-            className={styles.primaryBtn}
-          >
-            {isExporting ? (
-              <Spinner label={t("export.downloading")} />
-            ) : (
-              t("export.download")
-            )}
-          </button>
-
-          {/* REQ-146: ReqIF 1.2 export — whole-workspace (Needs + Requirements
-              + TraceLinks), independent of the entity-type radio above. */}
-          <button
-            type="button"
-            data-testid="reqif-export-btn"
-            onClick={() => void handleExportReqif()}
-            disabled={isExportingReqif}
-            title={t(
-              "export.reqifHint",
-              "Exports the whole workspace (Needs, Requirements, TraceLinks) as ReqIF 1.2 for DOORS/Polarion"
-            )}
-            className={styles.secondaryBtn}
-          >
-            {isExportingReqif ? (
-              <Spinner label={t("export.downloading")} />
-            ) : (
-              t("export.downloadReqif")
-            )}
-          </button>
-        </div>
-
-        {exportError && (
-          <div data-testid="csv-export-error" role="alert" className={styles.errorBoxTopSpaced}>
-            {exportError}
-          </div>
-        )}
-
-        {reqifExportError && (
-          <div data-testid="reqif-export-error" role="alert" className={styles.errorBoxTopSpaced}>
-            {reqifExportError}
-          </div>
-        )}
-      </section>
+      <CsvExportSection
+        exportEntityType={exportEntityType}
+        onExportEntityTypeChange={setExportEntityType}
+        isExporting={isExporting}
+        onExport={handleExport}
+        isExportingReqif={isExportingReqif}
+        onExportReqif={handleExportReqif}
+        exportError={exportError}
+        reqifExportError={reqifExportError}
+      />
     </div>
   );
 }

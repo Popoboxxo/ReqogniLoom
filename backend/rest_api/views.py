@@ -1303,17 +1303,7 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
           re-parent.
         """
         lang = detect_lang(request)
-        current_level = None
-        if isinstance(request.data, dict) and "level" in request.data:
-            # Read the stored value so an unchanged echo can be told apart from
-            # a real change. Best-effort: a probe failure falls through to the
-            # reject branch, which is the safe direction.
-            try:
-                current_level = self._svc().get_requirement(
-                    UUID(pk), get_auth_context(request)
-                ).level
-            except Exception:  # noqa: BLE001 — the guard below refuses anyway
-                current_level = None
+        current_level = self._current_requirement_level(request, pk)
         invalid = self._reject_derived_level(request, lang, current=current_level)
         if invalid is not None:
             return invalid
@@ -1357,15 +1347,7 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         # and read-only, and the guard above refuses a differing value. The
         # ``parent_id`` entry is new for the same ADR: the serializer always
         # declared it, and discarding it is the AUC break this wave fixes.
-        extra_kwargs: dict[str, Any] = {}
-        if "custom_fields" in data:
-            extra_kwargs["custom_fields"] = data["custom_fields"]
-        if "complexity_fibonacci" in data:
-            extra_kwargs["complexity_fibonacci"] = data["complexity_fibonacci"]
-        if "verification_method" in data:
-            extra_kwargs["verification_method"] = data["verification_method"]
-        if "parent_id" in data:
-            extra_kwargs["parent_id"] = data["parent_id"]
+        extra_kwargs = self._build_requirement_patch_extra_kwargs(data)
         try:
             ctx = get_auth_context(request)
             # REQ-143: `status` is intentionally NOT forwarded. The serializer
@@ -1409,6 +1391,45 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         return self.with_etag(
             Response(RequirementSerializer(_dto_from_orm(item)).data), item
         )
+
+    def _current_requirement_level(self, request: Request, pk: str) -> Any | None:
+        """Resolve the stored ``level`` for the echo-vs-change probe.
+
+        Reads the stored value so an unchanged echo can be told apart from a
+        real change (ADR-005). Best-effort: a probe failure returns ``None``,
+        which falls through to the reject branch — the safe direction, so the
+        caller refuses.
+        """
+        if not (isinstance(request.data, dict) and "level" in request.data):
+            return None
+        try:
+            return self._svc().get_requirement(UUID(pk), get_auth_context(request)).level
+        except Exception:  # noqa: BLE001 — the guard refuses anyway
+            return None
+
+    @staticmethod
+    def _build_requirement_patch_extra_kwargs(data: dict[str, Any]) -> dict[str, Any]:
+        """Collect the optional PATCH fields the service must receive.
+
+        REQ-L2-AS-037: only forward custom_fields when the client actually sent
+        it, so an unrelated PATCH does not wipe existing custom_fields.
+
+        Issue #409: complexity_fibonacci/verification_method are nullable SE
+        fields whose absence from a partial PATCH payload must mean "leave
+        unchanged", not "clear to NULL". update_requirement() distinguishes
+        the two cases via the ``_UNSET`` sentinel (default), so forwarding
+        these fields only when actually present keeps the sentinel default.
+
+        ADR-005: ``level`` is deliberately absent — derived and read-only, the
+        guard already refused a differing value. ``parent_id`` is applied:
+        the serializer always declared it, and discarding it is the AUC break
+        this wave fixes.
+        """
+        extra: dict[str, Any] = {}
+        for key in ("custom_fields", "complexity_fibonacci", "verification_method", "parent_id"):
+            if key in data:
+                extra[key] = data[key]
+        return extra
 
     def destroy(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """DELETE /api/v1/requirements/{pk}/ — soft-delete a requirement. Returns 204.
@@ -2611,43 +2632,17 @@ class ArchitectureElementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             element = self._svc().get_architecture_element(UUID(pk), ctx)
             workspace_id = element.artifact.workspace_id
 
-            depth_param = request.query_params.get("depth")
-            depth = int(depth_param) if depth_param is not None else None
-
-            filter_mode = request.query_params.get("filter_mode", "all")
-            fields_param = request.query_params.get("fields")
-            fields = fields_param.split(",") if fields_param else None
-
-            output_format = request.query_params.get("output_format", "json")
-            if output_format not in ("json", "markdown", "csv"):
-                return Response(
-                    build_error_response(
-                        "VALIDATION_ERROR", lang,
-                        message=(
-                            f"Invalid output_format {output_format!r}; "
-                            "expected json, markdown, or csv"
-                        ),
-                    ),
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-            mode = request.query_params.get("mode", "raw")
-            if mode not in ("raw", "compressed"):
-                return Response(
-                    build_error_response(
-                        "VALIDATION_ERROR", lang,
-                        message=f"Invalid mode {mode!r}; expected raw or compressed",
-                    ),
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
+            query, invalid = self._parse_bundle_query_params(request, lang)
+            if invalid is not None:
+                return invalid
 
             result = RequirementBundleQueryService().get_bundle(
                 ctx,
                 root_id=UUID(pk),
                 workspace_id=workspace_id,
-                depth=depth,
-                filter_mode=filter_mode,
-                fields=fields,
+                depth=query["depth"],
+                filter_mode=query["filter_mode"],
+                fields=query["fields"],
             )
         except (NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
@@ -2669,18 +2664,104 @@ class ArchitectureElementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         except Exception as exc:
             return _service_error_response(exc, lang)
 
-        if mode == "raw":
-            if output_format == "json":
-                return Response(format_bundle_json(result))
-            if output_format == "markdown":
-                return HttpResponse(
-                    format_bundle_markdown(result), content_type="text/markdown; charset=utf-8"
-                )
-            return HttpResponse(format_bundle_csv(result), content_type="text/csv; charset=utf-8")
+        if query["mode"] == "raw":
+            return self._render_raw_bundle(result, query["output_format"])
 
         # mode == "compressed" — route the same bundle through
         # BundleCompressionService (Plan 2 Task 1/2) instead of the raw
         # formatters above. ?output_format= is not applicable here.
+        return self._compress_bundle(
+            request,
+            ctx,
+            result,
+            pk,
+            query["depth"],
+            query["filter_mode"],
+            query["fields"],
+            workspace_id,
+            lang,
+        )
+
+    def _parse_bundle_query_params(
+        self, request: Request, lang: str
+    ) -> tuple[dict[str, Any], Response | None]:
+        """Resolve the query parameters shared by both bundle modes.
+
+        Returns the parsed bundle query and ``None``, or ``None`` and the
+        ``400 VALIDATION_ERROR`` response for an unknown ``output_format``
+        or ``mode`` (validated in that order). A malformed ``depth`` still
+        raises ``ValueError`` for the caller's error handler, which keeps
+        the documented 400 contract.
+        """
+        depth_param = request.query_params.get("depth")
+        depth = int(depth_param) if depth_param is not None else None
+
+        filter_mode = request.query_params.get("filter_mode", "all")
+        fields_param = request.query_params.get("fields")
+        fields = fields_param.split(",") if fields_param else None
+
+        output_format = request.query_params.get("output_format", "json")
+        if output_format not in ("json", "markdown", "csv"):
+            return None, Response(
+                build_error_response(
+                    "VALIDATION_ERROR", lang,
+                    message=(
+                        f"Invalid output_format {output_format!r}; "
+                        "expected json, markdown, or csv"
+                    ),
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        mode = request.query_params.get("mode", "raw")
+        if mode not in ("raw", "compressed"):
+            return None, Response(
+                build_error_response(
+                    "VALIDATION_ERROR", lang,
+                    message=f"Invalid mode {mode!r}; expected raw or compressed",
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return {
+            "depth": depth,
+            "filter_mode": filter_mode,
+            "fields": fields,
+            "output_format": output_format,
+            "mode": mode,
+        }, None
+
+    @staticmethod
+    def _render_raw_bundle(result: Any, output_format: str) -> Response:
+        """Render the raw bundle in the requested ``output_format``."""
+        if output_format == "json":
+            return Response(format_bundle_json(result))
+        if output_format == "markdown":
+            return HttpResponse(
+                format_bundle_markdown(result), content_type="text/markdown; charset=utf-8"
+            )
+        return HttpResponse(format_bundle_csv(result), content_type="text/csv; charset=utf-8")
+
+    def _compress_bundle(
+        self,
+        request: Request,
+        ctx: Any,
+        result: Any,
+        pk: str,
+        depth: int | None,
+        filter_mode: str,
+        fields: list[str] | None,
+        workspace_id: Any,
+        lang: str,
+    ) -> Response:
+        """Route the bundle through BundleCompressionService (Plan 2 Task 1/2).
+
+        ``?output_format=`` is not applicable here. Dispatches the
+        compression to a Celery worker and answers 202 with a ``task_id``
+        (503 if the broker is unconfigured) when ``?async=true`` is sent or
+        the bundle exceeds ``SYNC_ITEM_COUNT_THRESHOLD`` items; otherwise
+        the compression runs synchronously.
+        """
         try:
             from application.bundle_compression_service import (
                 BundleCompressionService,
@@ -2691,11 +2772,12 @@ class ArchitectureElementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             use_async = force_async or len(result.items) > SYNC_ITEM_COUNT_THRESHOLD
 
             compression_svc = BundleCompressionService()
+            root_id = UUID(pk)
             if use_async:
                 dispatch = compression_svc.compress_async(
                     ctx,
                     result,
-                    root_id=UUID(pk),
+                    root_id=root_id,
                     depth=depth,
                     filter_mode=filter_mode,
                     fields=fields,
@@ -2709,7 +2791,7 @@ class ArchitectureElementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             compression = compression_svc.compress(
                 ctx,
                 result,
-                root_id=UUID(pk),
+                root_id=root_id,
                 depth=depth,
                 filter_mode=filter_mode,
                 fields=fields,
@@ -3228,6 +3310,151 @@ class TraceLinkViewSet(BaseEntityViewSet):
     def _svc(self) -> TraceLinkService:
         return TraceLinkService()
 
+    def _list_workspace_links(
+        self, request: Request, svc: TraceLinkService, workspace_id: Any, ctx: Any
+    ) -> Response:
+        """List every TraceLink whose source lives in the workspace.
+
+        Fix #264 (Befund B): this branch used to return an unconditional
+        empty page, so the endpoint reported ``count: 0`` for every workspace
+        no matter what was stored; ``list_links_for_workspace_queryset`` now
+        backs it.
+
+        Fix #571: the branch used to fetch *every* matching TraceLink
+        (``select_related`` on both endpoints, embedding vector included) and
+        build a dict for each one, all before pagination ever got a chance to
+        slice the list. At ~2000 links in a workspace that OOM-killed the
+        worker regardless of the requested ``page_size`` (512 MB container
+        limit). Pagination now runs on the lazy queryset first
+        (``LIMIT``/``OFFSET`` pushed down to the DB), and titles/dicts are
+        only built for the current page.
+
+        INT-05 (AUD-2026-09-073): ``paginate_queryset`` raises DRF's
+        ``NotFound`` for an invalid ``page`` (0/abc/out-of-range). The caller
+        re-raises it so it reaches the framework as a **404** instead of
+        being rewritten to a 500.
+        """
+        links_qs = svc.list_links_for_workspace_queryset(
+            workspace_id=workspace_id, ctx=ctx
+        )
+        page = self.paginator.paginate_queryset(links_qs, request, view=self)
+        if page is not None:
+            titles = _resolve_artifact_titles(
+                [tl.source_id for tl in page]
+                + [tl.target_id for tl in page]
+            )
+            results = [
+                TraceLinkSerializer(_tracelink_to_dict(tl, titles)).data
+                for tl in page
+            ]
+            return self.paginator.get_paginated_response(results)
+        # Pagination disabled for this request — still avoid the
+        # eager select_related/embedding fetch, but materialize the
+        # (still filtered) queryset only here.
+        links = list(links_qs)
+        titles = _resolve_artifact_titles(
+            [tl.source_id for tl in links] + [tl.target_id for tl in links]
+        )
+        return Response(
+            [
+                TraceLinkSerializer(_tracelink_to_dict(tl, titles)).data
+                for tl in links
+            ]
+        )
+
+    def _list_artifact_links(
+        self, svc: TraceLinkService, artifact_id_str: str, ctx: Any
+    ) -> list[dict[str, Any]]:
+        """List upstream + downstream TraceLinks for one artifact.
+
+        Fix (systemaudit 2026-08-29, Bug 1): ``query_trace_links()`` returns
+        NeighborResult projections without the TraceLink's own primary key —
+        this branch used to paper over that with a helper (formerly
+        `_neighbor_to_dict`, removed) that synthesized a deterministic uuid5
+        from the endpoint pair. That synthetic id was never a real TraceLink
+        row, so DELETE /tracelinks/<id>/ against it 404'd ("TraceLink <uuid>
+        not found") in every UI that lists links via ?artifact_id=
+        (TraceLinkPanel, ReqTraceLinkPanel). ``list_links_for_entity()``
+        returns the persisted TraceLink ORM rows (real .id) instead.
+
+        The endpoint-echo contract from #512 must be kept as-is here: the
+        frontend classifies each item as upstream/downstream by comparing this
+        item's own endpoint against the *raw* artifact_id it queried with
+        (TraceLinkPanel.tsx: `l.target_id === artifactId` / `l.source_id ===
+        artifactId`) — not the resolved Artifact id `tl.source_id`/
+        `tl.target_id` actually stored on the row (which differ whenever the
+        caller queried by entity id, e.g. an ADR's own `.id`, per the #512
+        comment on resolveArtifactRef below). Returning the raw ORM
+        `tl.source_id`/`tl.target_id` unmodified here (as
+        `_tracelink_to_dict` does) broke that classification — both
+        "upstream" and "downstream" silently rendered zero links because
+        neither endpoint id matched what the frontend queried with. Only the
+        TraceLink's own `id` needed to become real; the endpoint-echo shape
+        must stay exactly like before.
+        """
+        artifact_id = UUID(artifact_id_str)
+        items: list[dict[str, Any]] = []
+        seen_ids: set = set()
+        for direction in ("upstream", "downstream"):
+            try:
+                results = svc.list_links_for_entity(
+                    entity_id=artifact_id,
+                    direction=direction,
+                    ctx=ctx,
+                )
+                for tl in results:
+                    if tl.id in seen_ids:
+                        # A self-link (source == target == artifact_id)
+                        # would otherwise be listed twice (once per
+                        # direction).
+                        continue
+                    seen_ids.add(tl.id)
+                    if direction == "upstream":
+                        item_source_id = str(tl.source_id)
+                        item_target_id = str(artifact_id)
+                    else:
+                        item_source_id = str(artifact_id)
+                        item_target_id = str(tl.target_id)
+                    items.append(
+                        {
+                            "id": str(tl.id),
+                            "source_id": item_source_id,
+                            "target_id": item_target_id,
+                            "link_type": tl.link_type,
+                            "version": tl.version,
+                            "created_at": tl.created_at,
+                            # Q1.6: same three keys as _tracelink_to_dict —
+                            # this branch builds its own dict for the
+                            # endpoint-echo contract above, so it has to
+                            # repeat them or ?artifact_id= would be the one
+                            # listing without a rationale.
+                            "rationale": getattr(tl, "rationale", "") or "",
+                            "suspect_flagged_at": getattr(
+                                tl, "suspect_flagged_at", None
+                            ),
+                            "suspect_source_change": getattr(
+                                tl, "suspect_source_change", None
+                            ),
+                            "source_title": "",
+                            "target_title": "",
+                            "source_type": "",
+                            "target_type": "",
+                            "source_is_outdated": False,
+                            "target_is_outdated": False,
+                        }
+                    )
+            except Exception:
+                # No links in this direction is the common case. An
+                # unresolvable artifact_id also lands here — log it so a
+                # bad id is not indistinguishable from "no links" (#264).
+                logger.debug(
+                    "TraceLink %s query failed for artifact=%s",
+                    direction,
+                    artifact_id,
+                    exc_info=True,
+                )
+        return items
+
     def list(self, request: Request, **kwargs: Any) -> Response:
         """GET /api/v1/tracelinks/?workspace_id=<id>[&artifact_id=<id>]
 
@@ -3262,155 +3489,14 @@ class TraceLinkViewSet(BaseEntityViewSet):
 
             artifact_id_str = request.query_params.get("artifact_id")
             svc = self._svc()
-            items: list = []
 
             if not artifact_id_str:
-                links_qs = svc.list_links_for_workspace_queryset(
-                    workspace_id=workspace_id, ctx=ctx
-                )
-                # INT-05 (AUD-2026-09-073): ``paginate_queryset`` raises DRF's
-                # ``NotFound`` for an invalid ``page`` (0/abc/out-of-range). The
-                # outer ``except NotFound: raise`` below (added ahead of the
-                # broad service handlers) lets it reach the framework as a
-                # **404** instead of being rewritten to a 500.
-                page = self.paginator.paginate_queryset(
-                    links_qs, request, view=self
-                )
-                if page is not None:
-                    titles = _resolve_artifact_titles(
-                        [tl.source_id for tl in page]
-                        + [tl.target_id for tl in page]
-                    )
-                    results = [
-                        TraceLinkSerializer(_tracelink_to_dict(tl, titles)).data
-                        for tl in page
-                    ]
-                    return self.paginator.get_paginated_response(results)
-                # Pagination disabled for this request — still avoid the
-                # eager select_related/embedding fetch, but materialize the
-                # (still filtered) queryset only here.
-                links = list(links_qs)
-                titles = _resolve_artifact_titles(
-                    [tl.source_id for tl in links] + [tl.target_id for tl in links]
-                )
-                return Response(
-                    [
-                        TraceLinkSerializer(_tracelink_to_dict(tl, titles)).data
-                        for tl in links
-                    ]
-                )
+                return self._list_workspace_links(request, svc, workspace_id, ctx)
 
-            artifact_id = UUID(artifact_id_str)
-            seen_ids: set = set()
-            for direction in ("upstream", "downstream"):
-                try:
-                    # Fix (systemaudit 2026-08-29, Bug 1): query_trace_links()
-                    # returns NeighborResult projections without the
-                    # TraceLink's own primary key — this branch used to paper
-                    # over that with a helper (formerly `_neighbor_to_dict`,
-                    # removed) that synthesized a deterministic uuid5 from the
-                    # endpoint pair. That synthetic id was never a real
-                    # TraceLink row, so DELETE /tracelinks/<id>/ against it
-                    # 404'd ("TraceLink <uuid> not found") in every UI that
-                    # lists links via ?artifact_id= (TraceLinkPanel,
-                    # ReqTraceLinkPanel). list_links_for_entity() returns the
-                    # persisted TraceLink ORM rows (real .id) instead.
-                    #
-                    # The endpoint-echo contract from #512 must be kept
-                    # as-is here: the frontend classifies each item as
-                    # upstream/downstream by comparing this item's own
-                    # endpoint against the *raw* artifact_id it queried with
-                    # (TraceLinkPanel.tsx: `l.target_id === artifactId` /
-                    # `l.source_id === artifactId`) — not the resolved
-                    # Artifact id `tl.source_id`/`tl.target_id` actually
-                    # stored on the row (which differ whenever the caller
-                    # queried by entity id, e.g. an ADR's own `.id`, per the
-                    # #512 comment on resolveArtifactRef below). Returning
-                    # the raw ORM `tl.source_id`/`tl.target_id` unmodified
-                    # here (as `_tracelink_to_dict` does) broke that
-                    # classification — both "upstream" and "downstream"
-                    # silently rendered zero links because neither endpoint
-                    # id matched what the frontend queried with. Only the
-                    # TraceLink's own `id` needed to become real; the
-                    # endpoint-echo shape must stay exactly like before.
-                    results = svc.list_links_for_entity(
-                        entity_id=artifact_id,
-                        direction=direction,
-                        ctx=ctx,
-                    )
-                    for tl in results:
-                        if tl.id in seen_ids:
-                            # A self-link (source == target == artifact_id)
-                            # would otherwise be listed twice (once per
-                            # direction).
-                            continue
-                        seen_ids.add(tl.id)
-                        if direction == "upstream":
-                            item_source_id = str(tl.source_id)
-                            item_target_id = str(artifact_id)
-                        else:
-                            item_source_id = str(artifact_id)
-                            item_target_id = str(tl.target_id)
-                        items.append(
-                            {
-                                "id": str(tl.id),
-                                "source_id": item_source_id,
-                                "target_id": item_target_id,
-                                "link_type": tl.link_type,
-                                "version": tl.version,
-                                "created_at": tl.created_at,
-                                # Q1.6: same three keys as _tracelink_to_dict —
-                                # this branch builds its own dict for the
-                                # endpoint-echo contract above, so it has to
-                                # repeat them or ?artifact_id= would be the one
-                                # listing without a rationale.
-                                "rationale": getattr(tl, "rationale", "") or "",
-                                "suspect_flagged_at": getattr(
-                                    tl, "suspect_flagged_at", None
-                                ),
-                                "suspect_source_change": getattr(
-                                    tl, "suspect_source_change", None
-                                ),
-                                "source_title": "",
-                                "target_title": "",
-                                "source_type": "",
-                                "target_type": "",
-                                "source_is_outdated": False,
-                                "target_is_outdated": False,
-                            }
-                        )
-                except Exception:
-                    # No links in this direction is the common case. An
-                    # unresolvable artifact_id also lands here — log it so a
-                    # bad id is not indistinguishable from "no links" (#264).
-                    logger.debug(
-                        "TraceLink %s query failed for artifact=%s",
-                        direction,
-                        artifact_id,
-                        exc_info=True,
-                    )
-
+            items = self._list_artifact_links(svc, artifact_id_str, ctx)
             # REQ-002: batch-resolve titles for all unique artifact IDs so the
             # frontend can display human-readable labels without extra requests.
-            all_artifact_ids = {item["source_id"] for item in items} | {
-                item["target_id"] for item in items
-            }
-            titles = _resolve_artifact_titles(list(all_artifact_ids))
-            for item in items:
-                src = titles.get(item["source_id"], {})
-                tgt = titles.get(item["target_id"], {})
-                item["source_title"] = src.get("title", "")
-                item["target_title"] = tgt.get("title", "")
-                item["source_type"] = src.get("artifact_type", "")
-                item["target_type"] = tgt.get("artifact_type", "")
-                # UI-P3: see _tracelink_to_dict — a soft-deleted endpoint keeps
-                # its link (audit trail) and must be marked, not silently
-                # dropped. The *near* endpoint is the raw id the caller queried
-                # with (possibly an entity id, per the #512 echo contract), so
-                # it never resolves here and stays False — correct, since the
-                # artifact being viewed is by definition the live one.
-                item["source_is_outdated"] = bool(src.get("is_outdated", False))
-                item["target_is_outdated"] = bool(tgt.get("is_outdated", False))
+            _enrich_tracelink_titles(items)
         except NotFound:
             # INT-05 (AUD-2026-09-073): DRF's ``NotFound`` from the paginator is
             # a legitimate 404 — re-raise it so DRF's exception handler renders
@@ -3994,6 +4080,85 @@ class TraceabilityViewSet(viewsets.GenericViewSet):
 # ---------------------------------------------------------------------------
 
 
+def _resolve_baseline_diff_ids(
+    request: Request, lang: str
+) -> tuple[tuple[UUID, UUID] | None, Response | None]:
+    """Parse and validate ``?baseline_a=``/``?baseline_b=`` for the diff route.
+
+    REQ-L2-BL-003, REQ-L2-BL-012: both parameters are required, must be valid
+    UUIDs and must differ. Returns ``(None, error_response)`` with HTTP 400 on
+    any violation, ``((a_id, b_id), None)`` otherwise.
+    """
+    a_str = request.query_params.get("baseline_a")
+    b_str = request.query_params.get("baseline_b")
+    if not a_str or not b_str:
+        return None, Response(
+            build_error_response(
+                "VALIDATION_ERROR", lang, message="baseline_a and baseline_b are required"
+            ),
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    try:
+        a_id = UUID(a_str)
+        b_id = UUID(b_str)
+    except (ValueError, TypeError):
+        return None, Response(
+            build_error_response(
+                "VALIDATION_ERROR", lang, message="baseline_a and baseline_b must be valid UUIDs"
+            ),
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    if a_id == b_id:
+        return None, Response(
+            build_error_response(
+                "VALIDATION_ERROR", lang, message="baseline_a and baseline_b must differ"
+            ),
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    return (a_id, b_id), None
+
+
+def _build_baseline_diff_items(result: Any, artifact_names: dict[str, str]) -> list[dict[str, Any]]:
+    """Build the ``items`` array for the baseline diff response.
+
+    REQ-L2-BL-012: added/removed entries carry ``field_changes=None``; changed
+    entries expand ``field_changes`` to a list of ``{field_name, old_value,
+    new_value}`` records when the diff carries any.
+    """
+    items: list[dict[str, Any]] = []
+    for item_id in result.added:
+        items.append({
+            "item_id": item_id,
+            "entity_type": "item",
+            "status": "added",
+            "field_changes": None,
+            "artifact_name": artifact_names.get(item_id),
+        })
+    for item_id in result.removed:
+        items.append({
+            "item_id": item_id,
+            "entity_type": "item",
+            "status": "removed",
+            "field_changes": None,
+            "artifact_name": artifact_names.get(item_id),
+        })
+    for changed in result.changed:
+        field_changes = None
+        if changed.field_changes:
+            field_changes = [
+                {"field_name": name, "old_value": delta.get("old"), "new_value": delta.get("new")}
+                for name, delta in changed.field_changes.items()
+            ]
+        items.append({
+            "item_id": changed.id,
+            "entity_type": "item",
+            "status": "changed",
+            "field_changes": field_changes,
+            "artifact_name": artifact_names.get(changed.id),
+        })
+    return items
+
+
 class BaselineViewSet(BaseEntityViewSet):
     """ViewSet for Baseline CRUD operations (REQ-L2-RA-001, REQ-L2-RA-008).
 
@@ -4149,59 +4314,11 @@ class BaselineViewSet(BaseEntityViewSet):
         data = ser.validated_data
         try:
             ctx = get_auth_context(request)
-            scope = data.get("scope", "document")
-            name = data.get("name", "")
-            # The UI create form does not supply a name; generate one so the
-            # unique-per-workspace constraint is satisfied.
-            if not name or not str(name).strip():
-                name = f"Baseline {timezone.now().isoformat()}"
-            create_kwargs = {
-                "scope": scope,
-                "workspace_id": str(workspace_pk or data["workspace_id"]),
-                "name": name,
-                "description": data.get("description"),
-                "ctx": ctx,
-            }
-            # GH-513: only forwarded when actually supplied — the facade treats
-            # a blank reason as "no override" anyway, but not sending the key
-            # keeps the default call shape unchanged for every other caller.
-            override_reason = data.get("override_reason")
-            if override_reason and str(override_reason).strip():
-                create_kwargs["override_reason"] = str(override_reason)
-            # GH-821: per-finding waivers. Already shape-validated by
-            # BaselineSerializer (BlockerWaiverSerializer); the facade re-checks
-            # the same shape so the MCP path cannot bypass it.
-            waived_findings = data.get("waived_findings") or []
-            if waived_findings:
-                create_kwargs["waived_findings"] = list(waived_findings)
-            # document scope requires a root artifact; artifact_id is the
-            # view-facing name, the facade/service expect document_id.
-            artifact_id = data.get("artifact_id")
-            if scope == "document" and artifact_id is None:
-                return Response(
-                    build_error_response(
-                        "VALIDATION_ERROR",
-                        lang,
-                        message="artifact_id is required for document scope",
-                    ),
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-            if artifact_id is not None:
-                # GH-724: reject a malformed (non-UUID) artifact_id here with a
-                # clean 400 instead of letting a raw ValueError from the
-                # facade's UUID(str(document_id)) conversion escape as a 500.
-                try:
-                    UUID(str(artifact_id))
-                except (ValueError, TypeError):
-                    return Response(
-                        build_error_response(
-                            "VALIDATION_ERROR",
-                            lang,
-                            message="artifact_id must be a valid UUID",
-                        ),
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
-                create_kwargs["document_id"] = str(artifact_id)
+            create_kwargs, invalid = self._baseline_create_kwargs(
+                data, workspace_pk, ctx, lang
+            )
+            if invalid is not None:
+                return invalid
             baseline_id = self._svc().create_baseline(**create_kwargs)
             # Fetch the newly created baseline detail for the response
             item = self._svc().get_baseline(baseline_id, ctx)
@@ -4217,6 +4334,106 @@ class BaselineViewSet(BaseEntityViewSet):
             item,
         )
 
+    def _baseline_create_kwargs(
+        self, data: dict[str, Any], workspace_pk: str | None, ctx: Any, lang: str
+    ) -> tuple[dict[str, Any] | None, Response | None]:
+        """Build the facade kwargs for ``create_baseline``.
+
+        Returns ``(create_kwargs, None)`` on success, or ``(None, response)``
+        with the ``400 VALIDATION_ERROR`` response when ``artifact_id`` is
+        missing for document scope or malformed (GH-724). A missing
+        workspace_id key raises ``KeyError`` for the caller's error handler
+        exactly like the inline version.
+        """
+        scope = data.get("scope", "document")
+        name = data.get("name", "")
+        # The UI create form does not supply a name; generate one so the
+        # unique-per-workspace constraint is satisfied.
+        if not name or not str(name).strip():
+            name = f"Baseline {timezone.now().isoformat()}"
+        create_kwargs: dict[str, Any] = {
+            "scope": scope,
+            "workspace_id": str(workspace_pk or data["workspace_id"]),
+            "name": name,
+            "description": data.get("description"),
+            "ctx": ctx,
+        }
+        # GH-513: only forwarded when actually supplied — the facade treats
+        # a blank reason as "no override" anyway, but not sending the key
+        # keeps the default call shape unchanged for every other caller.
+        override_reason = data.get("override_reason")
+        if override_reason and str(override_reason).strip():
+            create_kwargs["override_reason"] = str(override_reason)
+        # GH-821: per-finding waivers. Already shape-validated by
+        # BaselineSerializer (BlockerWaiverSerializer); the facade re-checks
+        # the same shape so the MCP path cannot bypass it.
+        waived_findings = data.get("waived_findings") or []
+        if waived_findings:
+            create_kwargs["waived_findings"] = list(waived_findings)
+        # document scope requires a root artifact; artifact_id is the
+        # view-facing name, the facade/service expect document_id.
+        artifact_id = data.get("artifact_id")
+        if scope == "document" and artifact_id is None:
+            return None, Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    message="artifact_id is required for document scope",
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if artifact_id is not None:
+            # GH-724: reject a malformed (non-UUID) artifact_id here with a
+            # clean 400 instead of letting a raw ValueError from the
+            # facade's UUID(str(document_id)) conversion escape as a 500.
+            try:
+                UUID(str(artifact_id))
+            except (ValueError, TypeError):
+                return None, Response(
+                    build_error_response(
+                        "VALIDATION_ERROR",
+                        lang,
+                        message="artifact_id must be a valid UUID",
+                    ),
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            create_kwargs["document_id"] = str(artifact_id)
+        return create_kwargs, None
+
+    def _load_baseline_diff_context(
+        self, request: Request, a_id: UUID, b_id: UUID, lang: str
+    ) -> tuple[tuple[Any, Any, Any] | None, Response | None]:
+        """Resolve both baselines tenant-scoped before the diff runs.
+
+        Tenant-scoping: resolving each baseline via the tenant-scoped store
+        raises NotFoundError for baselines outside the caller's tenant before
+        the diff runs (REQ-L2-TE-011). Returns ``(None, error_response)`` on
+        failure, else ``((svc, ctx, baseline_a), None)``.
+        """
+        try:
+            ctx = get_auth_context(request)
+            svc = self._svc()
+            baseline_a = svc.get_baseline(a_id, ctx)
+            svc.get_baseline(b_id, ctx)
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return None, _service_error_response(exc, lang)
+        except Exception as exc:
+            logger.exception("BaselineViewSet.diff: unhandled exception")
+            return None, _service_error_response(exc, lang)
+        return (svc, ctx, baseline_a), None
+
+    def _run_baseline_diff(
+        self, svc: Any, a_id: UUID, b_id: UUID, ctx: Any, lang: str
+    ) -> tuple[Any | None, Response | None]:
+        """Run the field-level diff, mirroring the mapped service errors."""
+        try:
+            return svc.diff_baselines(a_id, b_id, ctx), None
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return None, _service_error_response(exc, lang)
+        except Exception as exc:
+            logger.exception("BaselineViewSet.diff: unhandled exception")
+            return None, _service_error_response(exc, lang)
+
     @action(detail=False, methods=["get"], url_path="diff")
     def diff(self, request: Request, **kwargs: Any) -> Response:
         """GET /api/v1/baselines/diff/?baseline_a=<uuid>&baseline_b=<uuid>
@@ -4227,40 +4444,15 @@ class BaselineViewSet(BaseEntityViewSet):
         """
         lang = detect_lang(request)
 
-        a_str = request.query_params.get("baseline_a")
-        b_str = request.query_params.get("baseline_b")
-        if not a_str or not b_str:
-            return Response(
-                build_error_response("VALIDATION_ERROR", lang, message="baseline_a and baseline_b are required"),
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        try:
-            a_id = UUID(a_str)
-            b_id = UUID(b_str)
-        except (ValueError, TypeError):
-            return Response(
-                build_error_response("VALIDATION_ERROR", lang, message="baseline_a and baseline_b must be valid UUIDs"),
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        if a_id == b_id:
-            return Response(
-                build_error_response("VALIDATION_ERROR", lang, message="baseline_a and baseline_b must differ"),
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        ids, invalid = _resolve_baseline_diff_ids(request, lang)
+        if invalid is not None:
+            return invalid
+        a_id, b_id = ids
 
-        try:
-            ctx = get_auth_context(request)
-            svc = self._svc()
-            # Tenant-scoping: resolving each baseline via the tenant-scoped
-            # store raises NotFoundError for baselines outside the caller's
-            # tenant before the diff runs (REQ-L2-TE-011).
-            baseline_a = svc.get_baseline(a_id, ctx)
-            svc.get_baseline(b_id, ctx)
-        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
-            return _service_error_response(exc, lang)
-        except Exception as exc:
-            logger.exception("BaselineViewSet.diff: unhandled exception")
-            return _service_error_response(exc, lang)
+        context, invalid = self._load_baseline_diff_context(request, a_id, b_id, lang)
+        if invalid is not None:
+            return invalid
+        svc, ctx, baseline_a = context
 
         # Issue #398: the preset gate needs a real workspace id. This endpoint
         # carries none in its URL or query string, and the gate's tenant-id
@@ -4270,13 +4462,9 @@ class BaselineViewSet(BaseEntityViewSet):
         # preset" with Http404, which handle_exception must re-raise verbatim.
         self._check_preset(request, workspace_id=str(baseline_a.workspace_id))
 
-        try:
-            result = svc.diff_baselines(a_id, b_id, ctx)
-        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
-            return _service_error_response(exc, lang)
-        except Exception as exc:
-            logger.exception("BaselineViewSet.diff: unhandled exception")
-            return _service_error_response(exc, lang)
+        result, invalid = self._run_baseline_diff(svc, a_id, b_id, ctx, lang)
+        if invalid is not None:
+            return invalid
 
         all_item_ids = [
             *result.added,
@@ -4285,37 +4473,7 @@ class BaselineViewSet(BaseEntityViewSet):
         ]
         artifact_names = _collect_artifact_names(all_item_ids, ctx.tenant_id)
 
-        items: list[dict[str, Any]] = []
-        for item_id in result.added:
-            items.append({
-                "item_id": item_id,
-                "entity_type": "item",
-                "status": "added",
-                "field_changes": None,
-                "artifact_name": artifact_names.get(item_id),
-            })
-        for item_id in result.removed:
-            items.append({
-                "item_id": item_id,
-                "entity_type": "item",
-                "status": "removed",
-                "field_changes": None,
-                "artifact_name": artifact_names.get(item_id),
-            })
-        for changed in result.changed:
-            field_changes = None
-            if changed.field_changes:
-                field_changes = [
-                    {"field_name": name, "old_value": delta.get("old"), "new_value": delta.get("new")}
-                    for name, delta in changed.field_changes.items()
-                ]
-            items.append({
-                "item_id": changed.id,
-                "entity_type": "item",
-                "status": "changed",
-                "field_changes": field_changes,
-                "artifact_name": artifact_names.get(changed.id),
-            })
+        items = _build_baseline_diff_items(result, artifact_names)
 
         payload = {
             "baseline_a_id": str(a_id),
@@ -5213,6 +5371,33 @@ def _tracelink_to_dict(tl: Any, titles: "dict[str, dict[str, Any]] | None" = Non
         d["source_is_outdated"] = bool(src.get("is_outdated", False))
         d["target_is_outdated"] = bool(tgt.get("is_outdated", False))
     return d
+
+
+def _enrich_tracelink_titles(items: list[dict[str, Any]]) -> None:
+    """Fill title/type/outdated keys from batch-resolved artifact titles.
+
+    REQ-002: batch-resolves titles for all unique artifact IDs so the
+    frontend can display human-readable labels without extra requests.
+
+    UI-P3: see ``_tracelink_to_dict`` — a soft-deleted endpoint keeps its
+    link (audit trail) and must be marked, not silently dropped. The *near*
+    endpoint is the raw id the caller queried with (possibly an entity id, per
+    the #512 echo contract), so it never resolves here and stays False —
+    correct, since the artifact being viewed is by definition the live one.
+    """
+    all_artifact_ids = {item["source_id"] for item in items} | {
+        item["target_id"] for item in items
+    }
+    titles = _resolve_artifact_titles(list(all_artifact_ids))
+    for item in items:
+        src = titles.get(item["source_id"], {})
+        tgt = titles.get(item["target_id"], {})
+        item["source_title"] = src.get("title", "")
+        item["target_title"] = tgt.get("title", "")
+        item["source_type"] = src.get("artifact_type", "")
+        item["target_type"] = tgt.get("artifact_type", "")
+        item["source_is_outdated"] = bool(src.get("is_outdated", False))
+        item["target_is_outdated"] = bool(tgt.get("is_outdated", False))
 
 
 def _collect_artifact_names(
@@ -6618,6 +6803,82 @@ class RiskViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
 # ---------------------------------------------------------------------------
 
 
+def _apply_list_query_status(items: list, params: Any, status_field: str) -> list:
+    """Stage 1: ``?status=`` equality filter on ``status_field``."""
+    status_value = params.get("status")
+    if not status_value:
+        return items
+    return [i for i in items if getattr(i, status_field, None) == status_value]
+
+
+def _apply_list_query_source(items: list, params: Any, source_field: str | None) -> list:
+    """Stage 2: ``?source=`` equality filter, only when ``source_field`` is set."""
+    if not source_field:
+        return items
+    source_value = params.get("source")
+    if not source_value:
+        return items
+    return [i for i in items if getattr(i, source_field, None) == source_value]
+
+
+def _apply_list_query_search(items: list, params: Any, search_fields: tuple[str, ...]) -> list:
+    """Stage 3: case-insensitive substring search across ``search_fields``."""
+    search_value = params.get("search")
+    if not search_value or not search_fields:
+        return items
+    needle = search_value.lower()
+    return [
+        i
+        for i in items
+        if any(needle in (getattr(i, f, "") or "").lower() for f in search_fields)
+    ]
+
+
+def _apply_list_query_ordering(
+    items: list, params: Any, ordering_fields: tuple[str, ...], lang: str
+) -> tuple[list | None, Response | None]:
+    """Stage 4: ``?ordering=`` sort; an unknown field answers HTTP 400."""
+    ordering_value = params.get("ordering")
+    if not ordering_value:
+        return items, None
+    descending = ordering_value.startswith("-")
+    field = ordering_value[1:] if descending else ordering_value
+    if field not in ordering_fields:
+        return None, Response(
+            build_error_response(
+                "VALIDATION_ERROR",
+                lang,
+                message=f"Invalid ordering field '{field}'. "
+                f"Allowed: {sorted(ordering_fields)}",
+            ),
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    return sorted(items, key=lambda i: getattr(i, field, None) or "", reverse=descending), None
+
+
+def _apply_list_query_limit(
+    items: list, params: Any, lang: str
+) -> tuple[list | None, Response | None]:
+    """Stage 5: ``?limit=`` cap; negative or unparseable answers HTTP 400."""
+    limit_value = params.get("limit")
+    if limit_value is None:
+        return items, None
+    try:
+        limit = int(limit_value)
+    except (TypeError, ValueError):
+        limit = -1
+    if limit < 0:
+        return None, Response(
+            build_error_response(
+                "VALIDATION_ERROR",
+                lang,
+                message="'limit' must be a non-negative integer",
+            ),
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    return items[:limit], None
+
+
 def _apply_list_query_params(
     items: list,
     request: Request,
@@ -6639,64 +6900,25 @@ def _apply_list_query_params(
     consumers expect, so this centralises it for both ViewSets rather than
     duplicating the same filter loop twice.
 
+    Runs as five ordered stages — status, source, search, ordering, limit
+    (one private helper each). Every stage either narrows the in-memory list
+    or yields the 400 error, so the response bodies stay unchanged.
+
     Returns ``(filtered_items, None)`` on success or ``(None, error_response)``
     when a parameter fails validation (HTTP 400) — callers should return the
     error response unchanged.
     """
     params = request.query_params
 
-    status_value = params.get("status")
-    if status_value:
-        items = [i for i in items if getattr(i, status_field, None) == status_value]
-
-    if source_field:
-        source_value = params.get("source")
-        if source_value:
-            items = [i for i in items if getattr(i, source_field, None) == source_value]
-
-    search_value = params.get("search")
-    if search_value and search_fields:
-        needle = search_value.lower()
-        items = [
-            i
-            for i in items
-            if any(needle in (getattr(i, f, "") or "").lower() for f in search_fields)
-        ]
-
-    ordering_value = params.get("ordering")
-    if ordering_value:
-        descending = ordering_value.startswith("-")
-        field = ordering_value[1:] if descending else ordering_value
-        if field not in ordering_fields:
-            return None, Response(
-                build_error_response(
-                    "VALIDATION_ERROR",
-                    lang,
-                    message=f"Invalid ordering field '{field}'. "
-                    f"Allowed: {sorted(ordering_fields)}",
-                ),
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        items = sorted(
-            items, key=lambda i: getattr(i, field, None) or "", reverse=descending
-        )
-
-    limit_value = params.get("limit")
-    if limit_value is not None:
-        try:
-            limit = int(limit_value)
-        except (TypeError, ValueError):
-            limit = -1
-        if limit < 0:
-            return None, Response(
-                build_error_response(
-                    "VALIDATION_ERROR",
-                    lang,
-                    message="'limit' must be a non-negative integer",
-                ),
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        items = items[:limit]
+    items = _apply_list_query_status(items, params, status_field)
+    items = _apply_list_query_source(items, params, source_field)
+    items = _apply_list_query_search(items, params, search_fields)
+    items, invalid = _apply_list_query_ordering(items, params, ordering_fields, lang)
+    if invalid is not None:
+        return None, invalid
+    items, invalid = _apply_list_query_limit(items, params, lang)
+    if invalid is not None:
+        return None, invalid
 
     return items, None
 
@@ -8367,6 +8589,124 @@ def _apply_import_deprecation_headers(response: Response) -> Response:
     return response
 
 
+def _idempotency_conflict_response(
+    conflict: IdempotencyConflict, lang: str
+) -> Response:
+    """Map an :class:`IdempotencyConflict` to 409 + stable cause code."""
+    resp = Response(
+        build_error_response(conflict.code, lang, message=str(conflict)),
+        status=status.HTTP_409_CONFLICT,
+    )
+    if conflict.retry_after is not None:
+        resp["Retry-After"] = str(conflict.retry_after)
+    return resp
+
+
+def _begin_import_idempotency(
+    request: Request,
+    ctx: Any,
+    lang: str,
+    raw_body: bytes,
+    endpoint: str,
+    fingerprint_extra: str,
+) -> tuple[str | None, str | None, Response | None]:
+    """Validate the optional Idempotency-Key and open its claim (ADR-014 §3).
+
+    Returns ``(key, fingerprint, None)`` when the request may proceed, and
+    ``(None, None, response)`` with the response to return instead: 400 for a
+    malformed key, 409 ``IdempotencyConflict`` for a reused/in-flight key, or
+    the cached replay for a completed key (``idempotent_replay: true`` at the
+    stored status). Without the header no claim is opened — all three values
+    stay ``None``.
+    """
+    raw_key = request.headers.get("Idempotency-Key")
+    if raw_key is None:
+        return None, None, None
+    idem_key = raw_key
+    if not idem_key or len(idem_key) > 255:
+        return (
+            None,
+            None,
+            Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    message="Idempotency-Key must contain 1 to 255 characters.",
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            ),
+        )
+    fingerprint = compute_fingerprint(
+        method="POST",
+        path=request.path,
+        payload=raw_body,
+        extra=fingerprint_extra,
+    )
+    try:
+        cached = begin_idempotency_key(
+            tenant_id=ctx.tenant_id,
+            user_id=ctx.user_id,
+            endpoint=endpoint,
+            key=idem_key,
+            fingerprint=fingerprint,
+        )
+    except IdempotencyConflict as conflict:
+        return None, None, _idempotency_conflict_response(conflict, lang)
+    if cached is not None:
+        body = dict(cached.body or {})
+        body["idempotent_replay"] = True
+        return None, None, Response(body, status=cached.status_code)
+    return idem_key, fingerprint, None
+
+
+def _finalize_import_idempotency(
+    ctx: Any,
+    endpoint: str,
+    idem_key: str | None,
+    fingerprint: str | None,
+    success: bool,
+    http_status: int,
+    body: dict[str, Any],
+) -> None:
+    """Cache a terminal import reply or release its claim (ADR-014 §3).
+
+    Only terminal successes are replayable; every other outcome aborts the
+    claim so the client can retry with the same key.
+    """
+    if not idem_key:
+        return
+    if success:
+        finalize_idempotency_success(
+            tenant_id=ctx.tenant_id,
+            user_id=ctx.user_id,
+            endpoint=endpoint,
+            key=idem_key,
+            fingerprint=fingerprint,
+            status_code=http_status,
+            body=body,
+        )
+    else:
+        abort_idempotency_key(
+            tenant_id=ctx.tenant_id,
+            user_id=ctx.user_id,
+            endpoint=endpoint,
+            key=idem_key,
+        )
+
+
+def _abort_import_idempotency(
+    ctx: Any, endpoint: str, idem_key: str | None
+) -> None:
+    """Release a failed import's idempotency claim (ADR-014 §3)."""
+    if idem_key:
+        abort_idempotency_key(
+            tenant_id=ctx.tenant_id,
+            user_id=ctx.user_id,
+            endpoint=endpoint,
+            key=idem_key,
+        )
+
+
 class CsvImportView(APIView):
     """POST /api/v1/workspaces/{id}/import/csv/ — Bulk CSV import.
 
@@ -8397,6 +8737,154 @@ class CsvImportView(APIView):
     _VALID_ENTITY_TYPES = {"Requirement", "ArchitectureElement", "TestCase"}
     _IDEMPOTENCY_ENDPOINT = "workspace-csv-import"
 
+    def _parse_csv_upload(
+        self, request: Request, lang: str
+    ) -> tuple[str | None, str | None, bytes | None, Response | None]:
+        """Validate ``entity_type``/file and decode the CSV payload.
+
+        Returns ``(entity_type, csv_text, raw_body, None)`` on success, or
+        ``(None, None, None, response)`` with the first request-level 400
+        (ADR-014 §2). The raw bytes are returned besides the decoded text
+        because they feed the idempotency fingerprint.
+        """
+
+        def _reject(message: str) -> tuple[str | None, str | None, bytes | None, Response | None]:
+            return (
+                None,
+                None,
+                None,
+                Response(
+                    build_error_response("VALIDATION_ERROR", lang, message=message),
+                    status=status.HTTP_400_BAD_REQUEST,
+                ),
+            )
+
+        entity_type = request.data.get("entity_type")
+        if not entity_type:
+            return _reject(
+                "entity_type is required. Allowed: Requirement, ArchitectureElement, TestCase"
+            )
+        if entity_type not in self._VALID_ENTITY_TYPES:
+            return _reject(
+                f"Unsupported entity_type '{entity_type}'. Allowed: {sorted(self._VALID_ENTITY_TYPES)}"
+            )
+
+        uploaded_file = request.FILES.get("file")
+        if not uploaded_file:
+            return _reject(
+                "No CSV file uploaded. Provide a 'file' field in multipart/form-data."
+            )
+
+        # ADR-014 §2: read the raw bytes once; they also feed the idempotency
+        # fingerprint. Unreadable/0-byte bodies are request-level 400.
+        try:
+            raw_body = uploaded_file.read()
+        except Exception:
+            logger.exception("CsvImportView: failed to read uploaded file")
+            return _reject("CSV file could not be read.")
+
+        if not raw_body:
+            return _reject("CSV file is empty.")
+
+        # Finding 083: decode with ``utf-8-sig`` so an Excel-exported BOM is
+        # stripped instead of corrupting the first header cell ("\ufefftitle").
+        # ``utf-8-sig`` is identical to ``utf-8`` for a BOM-less file.
+        try:
+            csv_text = raw_body.decode("utf-8-sig")
+        except UnicodeDecodeError:
+            return _reject("CSV file must be UTF-8 encoded.")
+
+        if not csv_text.strip():
+            return _reject("CSV file is empty.")
+
+        return entity_type, csv_text, raw_body, None
+
+    def _run_csv_import(
+        self,
+        csv_text: str,
+        entity_type: str,
+        workspace_id: str,
+        ctx: Any,
+        lang: str,
+        idem_key: str | None,
+    ) -> tuple[Any, Response | None]:
+        """Run ImportService.import_csv and map failures to Responses.
+
+        Returns ``(result, None)`` on success and ``(None, response)`` for
+        ValidationError (400), NotFoundError/PermissionDeniedError (service
+        mapping) and unhandled exceptions (logged, service mapping). Every
+        failure releases the open idempotency claim (ADR-014 §3).
+        """
+        try:
+            svc = ImportService()
+            return (
+                svc.import_csv(
+                    csv_text=csv_text,
+                    entity_type=entity_type,
+                    workspace_id=workspace_id,
+                    ctx=ctx,
+                ),
+                None,
+            )
+        except ValidationError as exc:
+            _abort_import_idempotency(ctx, self._IDEMPOTENCY_ENDPOINT, idem_key)
+            return None, Response(
+                build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except (NotFoundError, PermissionDeniedError) as exc:
+            _abort_import_idempotency(ctx, self._IDEMPOTENCY_ENDPOINT, idem_key)
+            return None, _service_error_response(exc, lang)
+        except Exception as exc:
+            _abort_import_idempotency(ctx, self._IDEMPOTENCY_ENDPOINT, idem_key)
+            logger.exception("CsvImportView: unhandled exception")
+            return None, _service_error_response(exc, lang)
+
+    @staticmethod
+    def _csv_import_status(counts: dict[str, int]) -> int:
+        """Map ADR-014 §2 import counts to the contract-v2 HTTP status."""
+        if counts["failed"] == 0:
+            return (
+                status.HTTP_201_CREATED
+                if counts["succeeded"] > 0
+                else status.HTTP_200_OK
+            )
+        return (
+            status.HTTP_207_MULTI_STATUS
+            if counts["succeeded"] > 0
+            else status.HTTP_422_UNPROCESSABLE_ENTITY
+        )
+
+    @extend_schema(
+        # INT-06 finding 078: the import reads request.FILES/request.data. The
+        # schema used to be inferred from the method body; that parsing now
+        # lives in _parse_csv_upload, so the request body is declared here.
+        request=OpenApiRequest(
+            request=inline_serializer(
+                name="CsvImportUpload",
+                fields={
+                    "file": serializers.FileField(
+                        help_text="CSV file (RFC 4180, UTF-8, optional UTF-8 BOM)."
+                    ),
+                    "entity_type": serializers.CharField(
+                        help_text=(
+                            "Target entity type: 'Requirement', "
+                            "'ArchitectureElement' or 'TestCase'."
+                        ),
+                    ),
+                },
+            ),
+            # The view reads request.FILES, i.e. multipart/form-data only.
+        ),
+        parameters=[
+            OpenApiParameter(
+                name="id",
+                type=str,
+                location=OpenApiParameter.PATH,
+                description="Workspace UUID.",
+            ),
+        ],
+    )
     def post(self, request: Request, pk: str = None, **kwargs: Any) -> Response:
         """Handle CSV import POST request."""
         lang = detect_lang(request)
@@ -8415,149 +8903,33 @@ class CsvImportView(APIView):
 
         contract_v2 = bool(getattr(settings, "IMPORT_CONTRACT_V2", False))
 
-        # --- Validate entity_type ---
-        entity_type = request.data.get("entity_type")
-        if not entity_type:
-            return Response(
-                build_error_response(
-                    "VALIDATION_ERROR", lang,
-                    message="entity_type is required. Allowed: Requirement, ArchitectureElement, TestCase",
-                ),
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        if entity_type not in self._VALID_ENTITY_TYPES:
-            return Response(
-                build_error_response(
-                    "VALIDATION_ERROR", lang,
-                    message=f"Unsupported entity_type '{entity_type}'. Allowed: {sorted(self._VALID_ENTITY_TYPES)}",
-                ),
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        # --- Validate file ---
-        uploaded_file = request.FILES.get("file")
-        if not uploaded_file:
-            return Response(
-                build_error_response(
-                    "VALIDATION_ERROR", lang,
-                    message="No CSV file uploaded. Provide a 'file' field in multipart/form-data.",
-                ),
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        # ADR-014 §2: read the raw bytes once; they also feed the idempotency
-        # fingerprint. Unreadable/0-byte bodies are request-level 400.
-        try:
-            raw_body = uploaded_file.read()
-        except Exception:  # noqa: BLE001 — unreadable upload stream
-            logger.exception("CsvImportView: failed to read uploaded file")
-            return Response(
-                build_error_response(
-                    "VALIDATION_ERROR", lang, message="CSV file could not be read."
-                ),
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        if not raw_body:
-            return Response(
-                build_error_response("VALIDATION_ERROR", lang, message="CSV file is empty."),
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        # Finding 083: decode with ``utf-8-sig`` so an Excel-exported BOM is
-        # stripped instead of corrupting the first header cell ("\ufefftitle").
-        # ``utf-8-sig`` is identical to ``utf-8`` for a BOM-less file.
-        try:
-            csv_text = raw_body.decode("utf-8-sig")
-        except UnicodeDecodeError:
-            return Response(
-                build_error_response(
-                    "VALIDATION_ERROR", lang,
-                    message="CSV file must be UTF-8 encoded.",
-                ),
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        if not csv_text.strip():
-            return Response(
-                build_error_response(
-                    "VALIDATION_ERROR", lang,
-                    message="CSV file is empty.",
-                ),
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        entity_type, csv_text, raw_body, upload_error = self._parse_csv_upload(
+            request, lang
+        )
+        if upload_error is not None:
+            return upload_error
 
         # --- Optional Idempotency-Key (ADR-014 §3, contract v2) ---
         idem_key = None
         fingerprint = None
         if contract_v2:
-            raw_key = request.headers.get("Idempotency-Key")
-            if raw_key is not None:
-                idem_key = raw_key
-                if not idem_key or len(idem_key) > 255:
-                    return Response(
-                        build_error_response(
-                            "VALIDATION_ERROR",
-                            lang,
-                            message="Idempotency-Key must contain 1 to 255 characters.",
-                        ),
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
-                fingerprint = compute_fingerprint(
-                    method="POST",
-                    path=request.path,
-                    payload=raw_body,
-                    extra=f"entity_type={entity_type}",
-                )
-                try:
-                    cached = begin_idempotency_key(
-                        tenant_id=ctx.tenant_id,
-                        user_id=ctx.user_id,
-                        endpoint=self._IDEMPOTENCY_ENDPOINT,
-                        key=idem_key,
-                        fingerprint=fingerprint,
-                    )
-                except IdempotencyConflict as conflict:
-                    return self._idempotency_conflict_response(conflict, lang)
-                if cached is not None:
-                    body = dict(cached.body or {})
-                    body["idempotent_replay"] = True
-                    return Response(body, status=cached.status_code)
-
-        def _abort_claim() -> None:
-            if idem_key:
-                abort_idempotency_key(
-                    tenant_id=ctx.tenant_id,
-                    user_id=ctx.user_id,
-                    endpoint=self._IDEMPOTENCY_ENDPOINT,
-                    key=idem_key,
-                )
+            idem_key, fingerprint, idem_error = _begin_import_idempotency(
+                request,
+                ctx,
+                lang,
+                raw_body=raw_body,
+                endpoint=self._IDEMPOTENCY_ENDPOINT,
+                fingerprint_extra=f"entity_type={entity_type}",
+            )
+            if idem_error is not None:
+                return idem_error
 
         # --- Delegate to ImportService ---
-        try:
-            svc = ImportService()
-            result = svc.import_csv(
-                csv_text=csv_text,
-                entity_type=entity_type,
-                workspace_id=pk,
-                ctx=ctx,
-            )
-        except ValidationError as exc:
-            _abort_claim()
-            return Response(
-                build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        except NotFoundError as exc:
-            _abort_claim()
-            return _service_error_response(exc, lang)
-        except PermissionDeniedError as exc:
-            _abort_claim()
-            return _service_error_response(exc, lang)
-        except Exception as exc:
-            _abort_claim()
-            logger.exception("CsvImportView: unhandled exception")
-            return _service_error_response(exc, lang)
+        result, import_error = self._run_csv_import(
+            csv_text, entity_type, pk, ctx, lang, idem_key
+        )
+        if import_error is not None:
+            return import_error
 
         result.request_id = result.request_id or str(uuid.uuid4())
 
@@ -8587,49 +8959,19 @@ class CsvImportView(APIView):
 
         # --- Contract v2 response (ADR-014 §2) ---
         body = result.to_dict()
-        counts = result.counts
-        if counts["failed"] == 0:
-            http_status = (
-                status.HTTP_201_CREATED
-                if counts["succeeded"] > 0
-                else status.HTTP_200_OK
-            )
-        else:
-            http_status = (
-                status.HTTP_207_MULTI_STATUS
-                if counts["succeeded"] > 0
-                else status.HTTP_422_UNPROCESSABLE_ENTITY
-            )
+        http_status = self._csv_import_status(result.counts)
 
-        if idem_key:
-            if result.success:
-                # Only terminal successes are replayable (ADR-014 §3).
-                finalize_idempotency_success(
-                    tenant_id=ctx.tenant_id,
-                    user_id=ctx.user_id,
-                    endpoint=self._IDEMPOTENCY_ENDPOINT,
-                    key=idem_key,
-                    fingerprint=fingerprint,
-                    status_code=http_status,
-                    body=body,
-                )
-            else:
-                _abort_claim()
+        _finalize_import_idempotency(
+            ctx,
+            self._IDEMPOTENCY_ENDPOINT,
+            idem_key,
+            fingerprint,
+            result.success,
+            http_status,
+            body,
+        )
 
         return Response(body, status=http_status)
-
-    @staticmethod
-    def _idempotency_conflict_response(
-        conflict: IdempotencyConflict, lang: str
-    ) -> Response:
-        """Map an :class:`IdempotencyConflict` to 409 + stable cause code."""
-        resp = Response(
-            build_error_response(conflict.code, lang, message=str(conflict)),
-            status=status.HTTP_409_CONFLICT,
-        )
-        if conflict.retry_after is not None:
-            resp["Retry-After"] = str(conflict.retry_after)
-        return resp
 
 
 # ---------------------------------------------------------------------------
@@ -8863,6 +9205,132 @@ class ReqifImportView(APIView):
     _REQIF_ENTITY_TYPES = {"Requirement", "StakeholderNeed"}
     _IDEMPOTENCY_ENDPOINT = "workspace-reqif-import"
 
+    def _parse_reqif_request(
+        self, request: Request, lang: str, contract_v2: bool
+    ) -> tuple[str | None, bytes | None, Response | None]:
+        """Validate the ReqIF upload and decode it.
+
+        ADR-014 §2: unreadable/0-byte/non-UTF-8 bodies are request-level
+        400s. Returns ``(reqif_text, raw_body, None)`` on success, or
+        ``(None, None, response)`` with the first request-level 400; the raw
+        bytes feed the idempotency fingerprint.
+        """
+
+        def _reject(message: str) -> tuple[str | None, bytes | None, Response | None]:
+            return (
+                None,
+                None,
+                Response(
+                    _with_request_id(
+                        build_error_response("VALIDATION_ERROR", lang, message=message)
+                    ),
+                    status=status.HTTP_400_BAD_REQUEST,
+                ),
+            )
+
+        # ADR-014 §5: entity_type handling belongs to the v2 contract. Under
+        # the legacy rollback (IMPORT_CONTRACT_V2=false) the field is ignored
+        # exactly as it was before v2, so the rollback is complete.
+        if contract_v2:
+            # ADR-014 §2: a ReqIF file derives its own entity type, so the
+            # field is accepted only for compatibility. Only types the ReqIF
+            # importer can actually act on are accepted — the pre-v2 allowlist
+            # contained types with no ReqIF path, where the field was a silent
+            # no-op. An unknown *or* ineffective type is a request-level 400.
+            entity_type = request.data.get("entity_type")
+            if entity_type is not None and entity_type not in self._REQIF_ENTITY_TYPES:
+                return _reject(
+                    f"Unsupported entity_type '{entity_type}' for ReqIF "
+                    f"import. Allowed: {sorted(self._REQIF_ENTITY_TYPES)}"
+                )
+
+        uploaded_file = request.FILES.get("file")
+        if not uploaded_file:
+            return _reject(
+                "No ReqIF file uploaded. Provide a 'file' field in multipart/form-data."
+            )
+
+        # ADR-014 §2: unreadable/0-byte body is a request-level 400. Read the
+        # raw bytes once — they also feed the idempotency fingerprint.
+        try:
+            raw_body = uploaded_file.read()
+        except Exception:
+            logger.exception("ReqifImportView: failed to read uploaded file")
+            return _reject("ReqIF file could not be read.")
+        if not raw_body:
+            return _reject("ReqIF file is empty.")
+        try:
+            reqif_text = raw_body.decode("utf-8")
+        except UnicodeDecodeError:
+            return _reject("ReqIF file must be UTF-8 encoded.")
+
+        if not reqif_text.strip():
+            return _reject("ReqIF file is empty.")
+
+        return reqif_text, raw_body, None
+
+    def _run_reqif_import(
+        self,
+        reqif_text: str,
+        workspace_id: str,
+        ctx: Any,
+        lang: str,
+        dry_run: bool,
+        idem_key: str | None,
+    ) -> tuple[Any, Response | None]:
+        """Run ReqifImportService.import_reqif and map failures to Responses.
+
+        ADR-014 §2 maps a file-level ``ReqifParseError`` to 422 ``PARSE_ERROR``
+        under contract v2 and to 400 under the legacy rollback (§5). Other
+        failures follow the service mapping; every failure releases the open
+        idempotency claim (ADR-014 §3). Returns ``(result, None)`` on success
+        and ``(None, response)`` otherwise.
+        """
+        contract_v2 = bool(getattr(settings, "IMPORT_CONTRACT_V2", False))
+        try:
+            svc = ReqifImportService()
+            return (
+                svc.import_reqif(
+                    reqif_text=reqif_text,
+                    workspace_id=workspace_id,
+                    ctx=ctx,
+                    dry_run=dry_run,
+                ),
+                None,
+            )
+        except ReqifParseError as exc:
+            _abort_import_idempotency(ctx, self._IDEMPOTENCY_ENDPOINT, idem_key)
+            if contract_v2:
+                # ADR-014 §2: file-level parse error -> 422 PARSE_ERROR.
+                parse_result = ReqifImportResult.parse_failure(
+                    str(exc), dry_run=dry_run, request_id=str(uuid.uuid4())
+                )
+                return None, Response(
+                    parse_result.to_dict(),
+                    status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                )
+            return None, Response(
+                _with_request_id(
+                    build_error_response("VALIDATION_ERROR", lang, message=str(exc))
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except ValidationError as exc:
+            _abort_import_idempotency(ctx, self._IDEMPOTENCY_ENDPOINT, idem_key)
+            return None, Response(
+                _with_request_id(
+                    build_error_response("VALIDATION_ERROR", lang, message=str(exc))
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except (NotFoundError, PermissionDeniedError) as exc:
+            _abort_import_idempotency(ctx, self._IDEMPOTENCY_ENDPOINT, idem_key)
+            return None, _service_error_response(exc, lang)
+        except Exception as exc:
+            _abort_import_idempotency(ctx, self._IDEMPOTENCY_ENDPOINT, idem_key)
+            logger.exception("ReqifImportView: unhandled exception")
+            return None, _service_error_response(exc, lang)
+
     @extend_schema(
         # INT-06 finding 078: the import reads request.FILES, but the generated
         # schema declared no requestBody at all — a generated client could not
@@ -8915,8 +9383,8 @@ class ReqifImportView(APIView):
             207: OpenApiResponse(
                 response=None,
                 description=(
-                    "Partial success (ADR-014 §2): `succeeded > 0 and "
-                    "failed > 0`. Body carries `counts`/`items`/`request_id`."
+                    "Partial success (ADR-014 §2): `succeeded > 0` and "
+                    "`failed > 0`. Body carries `counts`/`items`/`request_id`."
                 ),
             ),
             400: OpenApiResponse(
@@ -8975,86 +9443,12 @@ class ReqifImportView(APIView):
         # the legacy rollback (IMPORT_CONTRACT_V2=false) the field is ignored
         # exactly as it was before v2, so the rollback is complete.
         contract_v2 = bool(getattr(settings, "IMPORT_CONTRACT_V2", False))
-        if contract_v2:
-            # ADR-014 §2: a ReqIF file derives its own entity type, so the
-            # field is accepted only for compatibility. Only types the ReqIF
-            # importer can actually act on are accepted — the pre-v2 allowlist
-            # contained types with no ReqIF path, where the field was a silent
-            # no-op. An unknown *or* ineffective type is a request-level 400.
-            entity_type = request.data.get("entity_type")
-            if entity_type is not None and entity_type not in self._REQIF_ENTITY_TYPES:
-                return Response(
-                    _with_request_id(
-                        build_error_response(
-                            "VALIDATION_ERROR",
-                            lang,
-                            message=(
-                                f"Unsupported entity_type '{entity_type}' for ReqIF "
-                                f"import. Allowed: {sorted(self._REQIF_ENTITY_TYPES)}"
-                            ),
-                        )
-                    ),
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
 
-        uploaded_file = request.FILES.get("file")
-        if not uploaded_file:
-            return Response(
-                _with_request_id(
-                    build_error_response(
-                        "VALIDATION_ERROR", lang,
-                        message="No ReqIF file uploaded. Provide a 'file' field in multipart/form-data.",
-                    )
-                ),
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        # ADR-014 §2: unreadable/0-byte body is a request-level 400. Read the
-        # raw bytes once — they also feed the idempotency fingerprint.
-        try:
-            raw_body = uploaded_file.read()
-        except Exception:  # noqa: BLE001 — unreadable upload stream
-            logger.exception("ReqifImportView: failed to read uploaded file")
-            return Response(
-                _with_request_id(
-                    build_error_response(
-                        "VALIDATION_ERROR", lang,
-                        message="ReqIF file could not be read.",
-                    )
-                ),
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        if not raw_body:
-            return Response(
-                _with_request_id(
-                    build_error_response(
-                        "VALIDATION_ERROR", lang, message="ReqIF file is empty."
-                    )
-                ),
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        try:
-            reqif_text = raw_body.decode("utf-8")
-        except UnicodeDecodeError:
-            return Response(
-                _with_request_id(
-                    build_error_response(
-                        "VALIDATION_ERROR", lang,
-                        message="ReqIF file must be UTF-8 encoded.",
-                    )
-                ),
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        if not reqif_text.strip():
-            return Response(
-                _with_request_id(
-                    build_error_response(
-                        "VALIDATION_ERROR", lang, message="ReqIF file is empty."
-                    )
-                ),
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        reqif_text, raw_body, upload_error = self._parse_reqif_request(
+            request, lang, contract_v2
+        )
+        if upload_error is not None:
+            return upload_error
 
         dry_run_raw = request.query_params.get("dry_run", "false")
         dry_run = str(dry_run_raw).strip().lower() in ("1", "true", "yes")
@@ -9063,93 +9457,22 @@ class ReqifImportView(APIView):
         idem_key = None
         fingerprint = None
         if contract_v2:
-            raw_key = request.headers.get("Idempotency-Key")
-            if raw_key is not None:
-                idem_key = raw_key
-                if not idem_key or len(idem_key) > 255:
-                    return Response(
-                        _with_request_id(
-                            build_error_response(
-                                "VALIDATION_ERROR",
-                                lang,
-                                message="Idempotency-Key must contain 1 to 255 characters.",
-                            )
-                        ),
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
-                fingerprint = compute_fingerprint(
-                    method="POST",
-                    path=request.path,
-                    payload=raw_body,
-                    extra=f"dry_run={dry_run}",
-                )
-                try:
-                    cached = begin_idempotency_key(
-                        tenant_id=ctx.tenant_id,
-                        user_id=ctx.user_id,
-                        endpoint=self._IDEMPOTENCY_ENDPOINT,
-                        key=idem_key,
-                        fingerprint=fingerprint,
-                    )
-                except IdempotencyConflict as conflict:
-                    return self._idempotency_conflict_response(conflict, lang)
-                if cached is not None:
-                    body = dict(cached.body or {})
-                    body["idempotent_replay"] = True
-                    return Response(body, status=cached.status_code)
+            idem_key, fingerprint, idem_error = _begin_import_idempotency(
+                request,
+                ctx,
+                lang,
+                raw_body=raw_body,
+                endpoint=self._IDEMPOTENCY_ENDPOINT,
+                fingerprint_extra=f"dry_run={dry_run}",
+            )
+            if idem_error is not None:
+                return idem_error
 
-        def _abort_claim() -> None:
-            if idem_key:
-                abort_idempotency_key(
-                    tenant_id=ctx.tenant_id,
-                    user_id=ctx.user_id,
-                    endpoint=self._IDEMPOTENCY_ENDPOINT,
-                    key=idem_key,
-                )
-
-        try:
-            svc = ReqifImportService()
-            result = svc.import_reqif(
-                reqif_text=reqif_text,
-                workspace_id=pk,
-                ctx=ctx,
-                dry_run=dry_run,
-            )
-        except ReqifParseError as exc:
-            _abort_claim()
-            if contract_v2:
-                # ADR-014 §2: file-level parse error -> 422 PARSE_ERROR.
-                parse_result = ReqifImportResult.parse_failure(
-                    str(exc), dry_run=dry_run, request_id=str(uuid.uuid4())
-                )
-                return Response(
-                    parse_result.to_dict(),
-                    status=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                )
-            return Response(
-                _with_request_id(
-                    build_error_response("VALIDATION_ERROR", lang, message=str(exc))
-                ),
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        except ValidationError as exc:
-            _abort_claim()
-            return Response(
-                _with_request_id(
-                    build_error_response("VALIDATION_ERROR", lang, message=str(exc))
-                ),
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        except NotFoundError as exc:
-            _abort_claim()
-            return _service_error_response(exc, lang)
-        except PermissionDeniedError as exc:
-            _abort_claim()
-            return _service_error_response(exc, lang)
-        except Exception as exc:
-            _abort_claim()
-            logger.exception("ReqifImportView: unhandled exception")
-            return _service_error_response(exc, lang)
+        result, import_error = self._run_reqif_import(
+            reqif_text, pk, ctx, lang, dry_run, idem_key
+        )
+        if import_error is not None:
+            return import_error
 
         if not contract_v2:
             # ADR-014 §5 rollback: the pre-v2 response (success hard True, 200),
@@ -9169,36 +9492,17 @@ class ReqifImportView(APIView):
         body = result.to_dict()
         http_status = result.http_status
 
-        if idem_key:
-            if result.success:
-                # ADR-014 §3: only terminal successes are replayable.
-                finalize_idempotency_success(
-                    tenant_id=ctx.tenant_id,
-                    user_id=ctx.user_id,
-                    endpoint=self._IDEMPOTENCY_ENDPOINT,
-                    key=idem_key,
-                    fingerprint=fingerprint,
-                    status_code=http_status,
-                    body=body,
-                )
-            else:
-                # Partial/total failure is retry-friendly — never cached.
-                _abort_claim()
+        _finalize_import_idempotency(
+            ctx,
+            self._IDEMPOTENCY_ENDPOINT,
+            idem_key,
+            fingerprint,
+            result.success,
+            http_status,
+            body,
+        )
 
         return Response(body, status=http_status)
-
-    @staticmethod
-    def _idempotency_conflict_response(
-        conflict: IdempotencyConflict, lang: str
-    ) -> Response:
-        """Map an :class:`IdempotencyConflict` to 409 + stable cause code."""
-        resp = Response(
-            build_error_response(conflict.code, lang, message=str(conflict)),
-            status=status.HTTP_409_CONFLICT,
-        )
-        if conflict.retry_after is not None:
-            resp["Retry-After"] = str(conflict.retry_after)
-        return resp
 
 
 class GlossaryTermViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):

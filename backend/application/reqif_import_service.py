@@ -971,140 +971,37 @@ class ReqifImportService(ServiceBase):
             with identical content (idempotent no-op, ADR-014 §3). At most one
             of the two flags is true; both false means an update.
         """
-        from persistence.models import Artifact, Requirement, StakeholderNeed
-
-        attrs = so.attribute_map
-
-        def _attr_value(key: str) -> str:
-            attribute = attrs.get(key)
-            if attribute is None:
-                return ""
-            value = attribute.value
-            if isinstance(value, str):
-                return value
-            return value[0] if value else ""
-
-        title = _attr_value(_ATTR_TITLE)
-        description = _attr_value(_ATTR_DESCRIPTION)
-        status_raw = _attr_value(_ATTR_STATUS)
-        category = _attr_value(_ATTR_CATEGORY)
-        # Issue #1003: the ReqIF ATTR-UID is the *external* source-tool UID.
-        # It is stored on the Artifact as `reqif_uid`, never in the local,
-        # auto-generated `uid`.
-        external_uid = _attr_value(_ATTR_UID) or None
-
-        if len(title) > 500:
-            raise _SoftError(
-                f"Title exceeds 500 characters ({len(title)}).",
-                code=CAUSE_INVALID_VALUE,
-            )
-        if len(category) > 64:
-            raise _SoftError(
-                f"Category exceeds 64 characters ({len(category)}).",
-                code=CAUSE_INVALID_VALUE,
-            )
-        if external_uid and len(external_uid) > 255:
-            raise _SoftError(
-                f"External ReqIF UID exceeds 255 characters ({len(external_uid)}).",
-                code=CAUSE_INVALID_VALUE,
-            )
-
-        # ---- custom_fields: ATTR-CUSTOM-FIELDS payload, then unknown attrs ----
-        custom_fields: Dict[str, Any] = {}
-        cf_attr = attrs.get(_ATTR_CUSTOM_FIELDS)
-        if cf_attr is not None and cf_attr.value:
-            try:
-                parsed = json.loads(cf_attr.value)
-                if isinstance(parsed, dict):
-                    custom_fields.update(parsed)
-            except (TypeError, ValueError):
-                warnings.append(
-                    f"{so.identifier}: ATTR-CUSTOM-FIELDS is not valid JSON — ignored."
-                )
-
-        known_attrs = _NEED_KNOWN_ATTRS if kind == "StakeholderNeed" else _REQUIREMENT_KNOWN_ATTRS
-        for attribute in so.attributes:
-            if attribute.definition_ref in known_attrs:
-                continue
-            long_name = attribute.definition_ref
-            if spec_type is not None:
-                definition = spec_type.attribute_map.get(attribute.definition_ref)
-                if definition is not None and definition.long_name:
-                    long_name = definition.long_name
-            custom_fields[long_name] = attribute.value
-
-        # This import assigns ``artifact.custom_fields`` directly and calls
-        # ``save(update_fields=...)``, which does not run model validators — so
-        # the flat-map rules (and, since the #269 follow-up, the free-text guard
-        # that keeps markup / ``javascript:`` payloads out of the map) have to
-        # be applied explicitly here. A ReqIF file is untrusted input like any
-        # request body. A violation is a per-object failure: the spec object is
-        # not imported and is reported, the rest of the file still imports.
-        try:
-            custom_fields = validate_custom_fields(custom_fields)
-        except DjangoValidationError as exc:
-            raise _SoftError(
-                exc.messages[0] if exc.messages else "Invalid custom fields.",
-                code=CAUSE_INVALID_VALUE,
-            ) from exc
-
-        verification_method = (
-            _attr_value(_ATTR_VERIFICATION_METHOD) or None if kind == "Requirement" else None
+        title, description, status_raw, category, external_uid = (
+            ReqifImportService._spec_object_text_values(so)
         )
-        moscow_priority = (
-            _attr_value(_ATTR_MOSCOW_PRIORITY) or None if kind == "StakeholderNeed" else None
+        ReqifImportService._check_spec_object_limits(title, category, external_uid)
+        custom_fields = ReqifImportService._collect_custom_fields(
+            so,
+            spec_type,
+            kind,
+            warnings,
+        )
+        verification_method, moscow_priority = ReqifImportService._kind_specific_values(
+            kind,
+            so,
         )
 
         # ---- Resolve target artifact id / existing row ----
-        target_uuid = _parse_artifact_uuid(so.identifier)
-        # Issue #1003: an identifier NOT in the internal `_<uuid>` form is a
-        # foreign tool's identity; retain it so a re-export emits the same id.
-        foreign_identifier = None if target_uuid is not None else so.identifier
-        existing_artifact = None
-        if target_uuid is not None:
-            existing_artifact = Artifact.objects.filter(
-                id=target_uuid, workspace_id=workspace.id
-            ).first()
-            if existing_artifact is None and Artifact.objects.filter(
-                id=target_uuid
-            ).exclude(workspace_id=workspace.id).exists():
-                warnings.append(
-                    f"Identifier {so.identifier} matches an artifact outside this "
-                    "workspace; imported as a new artifact with a fresh id."
-                )
-                target_uuid = None
-
-        # REQ-147: the SPEC-OBJECT identifier encodes the *source* artifact's
-        # id, so importing the same ReqIF file into a different workspace
-        # never matches there — the id-based lookup above always misses and
-        # every reimport minted a fresh artifact (doubling on each run).
-        # Issue #1003: fall back to the Artifact's stored *external* ReqIF
-        # identity (reqif_uid, then reqif_identifier) within this workspace —
-        # never the local readable ``uid``, which is auto-generated per
-        # artifact since #932 and carries no external meaning.
-        if existing_artifact is None:
-            by_workspace = Artifact.objects.filter(workspace_id=workspace.id)
-            if external_uid:
-                existing_artifact = by_workspace.filter(
-                    reqif_uid=external_uid
-                ).first()
-            if existing_artifact is None and foreign_identifier:
-                existing_artifact = by_workspace.filter(
-                    reqif_identifier=foreign_identifier
-                ).first()
+        target_uuid, foreign_identifier, existing_artifact = (
+            ReqifImportService._resolve_spec_object_target(
+                so,
+                workspace,
+                external_uid,
+                warnings,
+            )
+        )
 
         if existing_artifact is not None:
-            entity = (
-                Requirement.objects.filter(artifact_id=existing_artifact.id).first()
-                if kind == "Requirement"
-                else StakeholderNeed.objects.filter(artifact_id=existing_artifact.id).first()
+            entity = ReqifImportService._load_existing_entity(
+                existing_artifact,
+                kind,
+                so,
             )
-            if entity is None:
-                raise _SoftError(
-                    f"Identifier {so.identifier} matches an existing artifact of a "
-                    "different type — not imported.",
-                    code=CAUSE_TYPE_MISMATCH,
-                )
             # ADR-014 §3 (ReqIF upsert): a match over the identifier triad
             # (Artifact id -> reqif_uid -> reqif_identifier) with *identical*
             # content is an idempotent no-op -> skipped DUPLICATE, no second
@@ -1129,69 +1026,373 @@ class ReqifImportService(ServiceBase):
             artifact = existing_artifact
             created = False
         else:
-            new_id = target_uuid or uuid.uuid4()
-            try:
-                # AUD-2026-09-071: each attempt runs in its own nested
-                # savepoint. Without it, catching IntegrityError here left the
-                # surrounding transaction aborted, so the retry below hit
-                # "current transaction is aborted" and the defensive fresh-id
-                # fallback silently lost the object. The nested savepoint rolls
-                # the failed INSERT back before the retry runs.
-                with transaction.atomic():
-                    artifact = Artifact.objects.create(
-                        id=new_id,
-                        tenant=tenant,
-                        workspace=workspace,
-                        artifact_type=kind,
-                        custom_fields={},
-                    )
-            except IntegrityError:
-                # Defensive fallback for the (near-impossible with random
-                # UUIDv4s) case of a cross-tenant id collision invisible to
-                # the tenant-scoped query above. Runs in a fresh savepoint,
-                # because the failed one was rolled back on leaving the block.
-                new_id = uuid.uuid4()
-                warnings.append(
-                    f"Identifier {so.identifier} collided with an existing "
-                    f"artifact id; assigned a new id {new_id}."
-                )
-                with transaction.atomic():
-                    artifact = Artifact.objects.create(
-                        id=new_id,
-                        tenant=tenant,
-                        workspace=workspace,
-                        artifact_type=kind,
-                        custom_fields={},
-                    )
-            entity = (
-                # #133: workspace is denormalized onto Requirement to back the
-                # (workspace, uid) DB-level UniqueConstraint.
-                Requirement(tenant=tenant, artifact=artifact, workspace=workspace)
-                if kind == "Requirement"
-                else StakeholderNeed(tenant=tenant, artifact=artifact)
+            artifact, entity = ReqifImportService._create_spec_object(
+                so,
+                kind,
+                target_uuid,
+                workspace,
+                tenant,
+                warnings,
             )
             created = True
 
+        cls._apply_spec_object_values(
+            entity,
+            kind,
+            title,
+            description,
+            category,
+            verification_method,
+            moscow_priority,
+            status_raw,
+            workspace.id,
+            tenant,
+        )
+        ReqifImportService._apply_artifact_external_identity(
+            artifact,
+            custom_fields,
+            foreign_identifier,
+            external_uid,
+        )
+        entity.save()
+
+        return artifact, created, False
+
+    @staticmethod
+    def _attr_text(attrs: dict[str, Any], key: str) -> str:
+        """Read one ReqIF attribute as plain text (first value, or ``""``)."""
+        attribute = attrs.get(key)
+        if attribute is None:
+            return ""
+        value = attribute.value
+        if isinstance(value, str):
+            return value
+        return value[0] if value else ""
+
+    @staticmethod
+    def _spec_object_text_values(so: Any) -> tuple[str, str, str, str, str | None]:
+        """Read the well-known SPEC-OBJECT attributes as import payload.
+
+        Returns ``(title, description, status_raw, category, external_uid)``.
+        Issue #1003: the ReqIF ATTR-UID is the *external* source-tool UID. It
+        is stored on the Artifact as ``reqif_uid``, never in the local,
+        auto-generated ``uid``.
+        """
+        attrs = so.attribute_map
+        return (
+            ReqifImportService._attr_text(attrs, _ATTR_TITLE),
+            ReqifImportService._attr_text(attrs, _ATTR_DESCRIPTION),
+            ReqifImportService._attr_text(attrs, _ATTR_STATUS),
+            ReqifImportService._attr_text(attrs, _ATTR_CATEGORY),
+            ReqifImportService._attr_text(attrs, _ATTR_UID) or None,
+        )
+
+    @staticmethod
+    def _check_spec_object_limits(
+        title: str,
+        category: str,
+        external_uid: str | None,
+    ) -> None:
+        """Reject field values the model columns cannot hold (per-object)."""
+        if len(title) > 500:
+            raise _SoftError(
+                f"Title exceeds 500 characters ({len(title)}).",
+                code=CAUSE_INVALID_VALUE,
+            )
+        if len(category) > 64:
+            raise _SoftError(
+                f"Category exceeds 64 characters ({len(category)}).",
+                code=CAUSE_INVALID_VALUE,
+            )
+        if external_uid and len(external_uid) > 255:
+            raise _SoftError(
+                f"External ReqIF UID exceeds 255 characters ({len(external_uid)}).",
+                code=CAUSE_INVALID_VALUE,
+            )
+
+    @staticmethod
+    def _collect_custom_fields(
+        so: Any,
+        spec_type: Any,
+        kind: str,
+        warnings: list[str],
+    ) -> dict[str, Any]:
+        """Assemble ``Artifact.custom_fields`` for one SPEC-OBJECT.
+
+        ``ATTR-CUSTOM-FIELDS`` payload first, then every attribute the
+        document does not cover with a well-known field. The flat map is
+        validated explicitly: this import assigns
+        ``artifact.custom_fields`` directly and calls
+        ``save(update_fields=...)``, which does not run model validators — so
+        the flat-map rules (and, since the #269 follow-up, the free-text guard
+        that keeps markup / ``javascript:`` payloads out of the map) have to
+        be applied explicitly here. A ReqIF file is untrusted input like any
+        request body. A violation is a per-object failure: the spec object is
+        not imported and is reported, the rest of the file still imports.
+        """
+        attrs = so.attribute_map
+        custom_fields: dict[str, Any] = ReqifImportService._custom_fields_from_payload(
+            attrs,
+            so,
+            warnings,
+        )
+        custom_fields.update(
+            ReqifImportService._custom_fields_from_unknown_attrs(so, spec_type, kind)
+        )
+
+        try:
+            return validate_custom_fields(custom_fields)
+        except DjangoValidationError as exc:
+            raise _SoftError(
+                exc.messages[0] if exc.messages else "Invalid custom fields.",
+                code=CAUSE_INVALID_VALUE,
+            ) from exc
+
+    @staticmethod
+    def _custom_fields_from_payload(
+        attrs: dict[str, Any],
+        so: Any,
+        warnings: list[str],
+    ) -> dict[str, Any]:
+        """Parse the ``ATTR-CUSTOM-FIELDS`` JSON payload into a dict.
+
+        A missing attribute, an empty value or a non-object payload yields
+        ``{}``; invalid JSON adds a warning — never an import failure.
+        """
+        cf_attr = attrs.get(_ATTR_CUSTOM_FIELDS)
+        if cf_attr is None or not cf_attr.value:
+            return {}
+        try:
+            parsed = json.loads(cf_attr.value)
+        except (TypeError, ValueError):
+            warnings.append(
+                f"{so.identifier}: ATTR-CUSTOM-FIELDS is not valid JSON — ignored."
+            )
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+
+    @staticmethod
+    def _custom_fields_from_unknown_attrs(
+        so: Any,
+        spec_type: Any,
+        kind: str,
+    ) -> dict[str, Any]:
+        """Collect every attribute not covered by a well-known field.
+
+        The key is the attribute's long name when the document's
+        SPEC-OBJECT-TYPE defines one, else the raw ``definition_ref``.
+        """
+        known_attrs = _NEED_KNOWN_ATTRS if kind == "StakeholderNeed" else _REQUIREMENT_KNOWN_ATTRS
+        custom_fields: dict[str, Any] = {}
+        for attribute in so.attributes:
+            if attribute.definition_ref in known_attrs:
+                continue
+            long_name = attribute.definition_ref
+            if spec_type is not None:
+                definition = spec_type.attribute_map.get(attribute.definition_ref)
+                if definition is not None and definition.long_name:
+                    long_name = definition.long_name
+            custom_fields[long_name] = attribute.value
+        return custom_fields
+
+    @staticmethod
+    def _kind_specific_values(kind: str, so: Any) -> tuple[str | None, str | None]:
+        """Read the kind-specific entity fields (verification / priority).
+
+        ``verification_method`` belongs to a Requirement, ``moscow_priority``
+        to a StakeholderNeed; the other stays ``None``.
+        """
+        attrs = so.attribute_map
+        verification_method = (
+            ReqifImportService._attr_text(attrs, _ATTR_VERIFICATION_METHOD) or None
+            if kind == "Requirement"
+            else None
+        )
+        moscow_priority = (
+            ReqifImportService._attr_text(attrs, _ATTR_MOSCOW_PRIORITY) or None
+            if kind == "StakeholderNeed"
+            else None
+        )
+        return verification_method, moscow_priority
+
+    @staticmethod
+    def _resolve_spec_object_target(
+        so: Any,
+        workspace: Any,
+        external_uid: str | None,
+        warnings: list[str],
+    ) -> tuple[Any, str | None, Any]:
+        """Locate the artifact this SPEC-OBJECT maps to, if any.
+
+        REQ-147: the SPEC-OBJECT identifier encodes the *source* artifact's
+        id, so importing the same ReqIF file into a different workspace
+        never matches there — the id-based lookup always misses and every
+        reimport minted a fresh artifact (doubling on each run).
+        Issue #1003: an identifier NOT in the internal ``_<uuid>`` form is a
+        foreign tool's identity; retain it so a re-export emits the same id.
+        The fallback matches the Artifact's stored *external* ReqIF identity
+        (``reqif_uid``, then ``reqif_identifier``) within this workspace —
+        never the local readable ``uid``, which is auto-generated per
+        artifact since #932 and carries no external meaning.
+
+        Returns ``(target_uuid, foreign_identifier, existing_artifact)``.
+        ``target_uuid`` becomes ``None`` when the id matches an artifact
+        outside this workspace (the object is imported as a new artifact).
+        """
+        from persistence.models import Artifact
+
+        target_uuid = _parse_artifact_uuid(so.identifier)
+        foreign_identifier = None if target_uuid is not None else so.identifier
+        existing_artifact = None
+        if target_uuid is not None:
+            existing_artifact = Artifact.objects.filter(
+                id=target_uuid, workspace_id=workspace.id
+            ).first()
+            if existing_artifact is None and Artifact.objects.filter(
+                id=target_uuid
+            ).exclude(workspace_id=workspace.id).exists():
+                warnings.append(
+                    f"Identifier {so.identifier} matches an artifact outside this "
+                    "workspace; imported as a new artifact with a fresh id."
+                )
+                target_uuid = None
+
+        if existing_artifact is None:
+            by_workspace = Artifact.objects.filter(workspace_id=workspace.id)
+            if external_uid:
+                existing_artifact = by_workspace.filter(
+                    reqif_uid=external_uid
+                ).first()
+            if existing_artifact is None and foreign_identifier:
+                existing_artifact = by_workspace.filter(
+                    reqif_identifier=foreign_identifier
+                ).first()
+        return target_uuid, foreign_identifier, existing_artifact
+
+    @staticmethod
+    def _load_existing_entity(existing_artifact: Any, kind: str, so: Any) -> Any:
+        """Load the Need/Requirement behind a matched artifact.
+
+        Raises ``_SoftError(TYPE_MISMATCH)`` when the artifact carries an
+        entity of the other kind — a partial row that cannot be updated.
+        """
+        from persistence.models import Requirement, StakeholderNeed
+
+        entity = (
+            Requirement.objects.filter(artifact_id=existing_artifact.id).first()
+            if kind == "Requirement"
+            else StakeholderNeed.objects.filter(artifact_id=existing_artifact.id).first()
+        )
+        if entity is None:
+            raise _SoftError(
+                f"Identifier {so.identifier} matches an existing artifact of a "
+                "different type — not imported.",
+                code=CAUSE_TYPE_MISMATCH,
+            )
+        return entity
+
+    @staticmethod
+    def _create_spec_object(
+        so: Any,
+        kind: str,
+        target_uuid: Any,
+        workspace: Any,
+        tenant: Any,
+        warnings: list[str],
+    ) -> tuple[Any, Any]:
+        """Create the Artifact + entity rows for a not-yet-known SPEC-OBJECT.
+
+        The identifier's ``_<uuid>`` form is kept as the new artifact id
+        when present. Each create runs in its own nested savepoint: without
+        it, catching IntegrityError here left the surrounding transaction
+        aborted, so the retry below hit "current transaction is aborted"
+        and the defensive fresh-id fallback silently lost the object. The
+        nested savepoint rolls the failed INSERT back before the retry runs.
+        The retry itself is a defensive fallback for the (near-impossible
+        with random UUIDv4s) case of a cross-tenant id collision invisible
+        to the tenant-scoped query above (AUD-2026-09-071).
+        """
+        from persistence.models import Artifact, Requirement, StakeholderNeed
+
+        new_id = target_uuid or uuid.uuid4()
+        try:
+            with transaction.atomic():
+                artifact = Artifact.objects.create(
+                    id=new_id,
+                    tenant=tenant,
+                    workspace=workspace,
+                    artifact_type=kind,
+                    custom_fields={},
+                )
+        except IntegrityError:
+            new_id = uuid.uuid4()
+            warnings.append(
+                f"Identifier {so.identifier} collided with an existing "
+                f"artifact id; assigned a new id {new_id}."
+            )
+            with transaction.atomic():
+                artifact = Artifact.objects.create(
+                    id=new_id,
+                    tenant=tenant,
+                    workspace=workspace,
+                    artifact_type=kind,
+                    custom_fields={},
+                )
+        entity = (
+            # #133: workspace is denormalized onto Requirement to back the
+            # (workspace, uid) DB-level UniqueConstraint.
+            Requirement(tenant=tenant, artifact=artifact, workspace=workspace)
+            if kind == "Requirement"
+            else StakeholderNeed(tenant=tenant, artifact=artifact)
+        )
+        return artifact, entity
+
+    @classmethod
+    def _apply_spec_object_values(
+        cls,
+        entity: Any,
+        kind: str,
+        title: str,
+        description: str,
+        category: str,
+        verification_method: str | None,
+        moscow_priority: str | None,
+        status_raw: str,
+        workspace_id: Any,
+        tenant: Any,
+    ) -> None:
+        """Copy the parsed values onto the entity and apply workflow status.
+
+        REQ-143: status is set exactly the way the reconcile migration sets
+        it — never as a bare field assignment implying direct user control.
+        Issue #1003: the local, readable ``uid`` is NOT set from ReqIF; the
+        external identity lives on the Artifact's reqif_* fields.
+        """
         entity.title = title
         entity.description = description
         entity.category = category
-        # Issue #1003: the local, readable `uid` is NOT set from ReqIF. It is
-        # auto-generated per artifact (#932); the external identity lives on the
-        # Artifact's reqif_* fields below.
         if kind == "Requirement":
             entity.verification_method = verification_method
         else:
             entity.moscow_priority = moscow_priority
+        cls._apply_status(entity, kind, status_raw, workspace_id, tenant)
 
-        # REQ-143: status is set exactly the way the reconcile migration sets
-        # it — never as a bare field assignment implying direct user control.
-        cls._apply_status(entity, kind, status_raw, workspace.id, tenant)
+    @staticmethod
+    def _apply_artifact_external_identity(
+        artifact: Any,
+        custom_fields: dict[str, Any],
+        foreign_identifier: str | None,
+        external_uid: str | None,
+    ) -> None:
+        """Set custom_fields + external ReqIF identity and save the artifact.
 
+        Issue #1003: persist the external ReqIF identity on the Artifact.
+        ``reqif_identifier`` is only set for a *foreign* identifier (the
+        internal ``_<uuid>`` form is reproducible from the id and stays
+        NULL); ``reqif_uid``/``reqif_imported_at`` are refreshed on every
+        import.
+        """
         artifact.custom_fields = custom_fields
-        # Issue #1003: persist the external ReqIF identity on the Artifact.
-        # `reqif_identifier` is only set for a *foreign* identifier (the
-        # internal `_<uuid>` form is reproducible from the id and stays NULL);
-        # `reqif_uid`/`reqif_imported_at` are refreshed on every import.
         if foreign_identifier:
             artifact.reqif_identifier = foreign_identifier
         if external_uid:
@@ -1205,9 +1406,6 @@ class ReqifImportService(ServiceBase):
                 "reqif_imported_at",
             ]
         )
-        entity.save()
-
-        return artifact, created, False
 
     # ---------- Identical-content detection (ADR-014 §3, ReqIF upsert) -------
 
@@ -1391,84 +1589,183 @@ class ReqifImportService(ServiceBase):
         tenant: Any,
         relations_report: ReqifEntityReport,
     ) -> None:
-        # Issue #131: lazy import of the optional ``reqif`` package.
-        from reqif.models.reqif_spec_relation_type import ReqIFSpecRelationType
-
-        from persistence.models import TraceLink
-
-        relation_type_long_names: Dict[str, str] = {}
-        for spec_type in spec_types or []:
-            if isinstance(spec_type, ReqIFSpecRelationType):
-                relation_type_long_names[spec_type.identifier] = (
-                    spec_type.long_name or spec_type.identifier
-                )
+        relation_type_long_names = ReqifImportService._relation_type_long_names(spec_types)
 
         for position, relation in enumerate(spec_relations or [], start=1):
             try:
                 with transaction.atomic():
-                    source_artifact = identifier_to_artifact.get(relation.source)
-                    target_artifact = identifier_to_artifact.get(relation.target)
-                    if source_artifact is None or target_artifact is None:
-                        raise _SoftError(
-                            f"Relation {relation.identifier}: endpoint not "
-                            f"resolvable (source={relation.source!r}, "
-                            f"target={relation.target!r}).",
-                            code=CAUSE_UNRESOLVED_REFERENCE,
+                    source_artifact, target_artifact = (
+                        ReqifImportService._resolve_relation_endpoints(
+                            relation,
+                            identifier_to_artifact,
                         )
-
-                    link_type = relation_type_long_names.get(relation.relation_type_ref)
-                    if not link_type:
-                        ref = relation.relation_type_ref or ""
-                        link_type = ref[len("SRT-"):] if ref.startswith("SRT-") else ref
-                    if link_type not in VALID_LINK_TYPES:
-                        raise _SoftError(
-                            f"Relation {relation.identifier}: unknown link type "
-                            f"'{link_type}'.",
-                            code=CAUSE_UNKNOWN_TYPE,
-                        )
-
-                    _, was_created = TraceLink.objects.get_or_create(
-                        tenant=tenant,
-                        source=source_artifact,
-                        target=target_artifact,
-                        link_type=link_type,
                     )
-                    if was_created:
-                        relations_report.created += 1
-                    else:
-                        relations_report.updated += 1
+                    link_type = ReqifImportService._resolve_link_type(
+                        relation,
+                        relation_type_long_names,
+                    )
+                    ReqifImportService._ensure_relation_link(
+                        link_type,
+                        source_artifact,
+                        target_artifact,
+                        tenant,
+                        relations_report,
+                    )
             except _SoftError as exc:
-                # A relation that is intentionally not imported (endpoint
-                # absent, unknown link type) is a *skip* — relations are
-                # documented as never a hard error, and a missing endpoint is
-                # normal for partial documents.
-                relations_report.skipped += 1
-                relations_report.add_item(
-                    row=position,
-                    identifier=relation.identifier,
-                    kind="TraceLink",
-                    status=STATUS_SKIPPED,
-                    code=getattr(exc, "code", CAUSE_UNRESOLVED_REFERENCE),
-                    message=str(exc),
+                ReqifImportService._record_relation_skip(
+                    exc,
+                    relation,
+                    position,
+                    relations_report,
                 )
             except Exception:  # noqa: BLE001 — per-relation failure, do not abort
                 logger.exception(
                     "ReqifImportService: unexpected error importing relation %s",
                     relation.identifier,
                 )
-                relations_report.failed += 1
-                # #697 (CWE-209): the report is part of the HTTP body, so the
-                # raw exception text must not travel in it.
-                relations_report.add_item(
-                    row=position,
-                    identifier=relation.identifier,
-                    kind="TraceLink",
-                    status=STATUS_FAILED,
-                    code=CAUSE_PERSISTENCE_ERROR,
-                    message=(
-                        "An internal error occurred while importing this relation."
-                    ),
+                ReqifImportService._record_relation_failure(
+                    relation,
+                    position,
+                    relations_report,
                 )
+
+    @staticmethod
+    def _relation_type_long_names(spec_types: list[Any] | None) -> dict[str, str]:
+        """Collect SPEC-RELATION-TYPE long names as identifier -> link-type mapping.
+
+        A relation's ``relation_type_ref`` is resolved against this mapping
+        first (REQ-147): the document's own long name is the canonical
+        link-type name. A document that omits the long name falls back to the
+        stripped/raw ref (see ``_resolve_link_type``).
+        """
+        # Issue #131: lazy import of the optional ``reqif`` package.
+        from reqif.models.reqif_spec_relation_type import ReqIFSpecRelationType
+
+        long_names: dict[str, str] = {}
+        for spec_type in spec_types or []:
+            if isinstance(spec_type, ReqIFSpecRelationType):
+                long_names[spec_type.identifier] = spec_type.long_name or spec_type.identifier
+        return long_names
+
+    @staticmethod
+    def _resolve_relation_endpoints(
+        relation: Any,
+        identifier_to_artifact: dict[str, Any],
+    ) -> tuple[Any, Any]:
+        """Resolve a relation's source/target identifiers to imported Artifacts.
+
+        Raises ``_SoftError(UNRESOLVED_REFERENCE)`` when either endpoint is
+        absent from this document — normal for partial documents, so the
+        caller records a skip instead of aborting the import (ADR-014 §1).
+        """
+        source_artifact = identifier_to_artifact.get(relation.source)
+        target_artifact = identifier_to_artifact.get(relation.target)
+        if source_artifact is None or target_artifact is None:
+            raise _SoftError(
+                f"Relation {relation.identifier}: endpoint not "
+                f"resolvable (source={relation.source!r}, "
+                f"target={relation.target!r}).",
+                code=CAUSE_UNRESOLVED_REFERENCE,
+            )
+        return source_artifact, target_artifact
+
+    @staticmethod
+    def _resolve_link_type(
+        relation: Any,
+        relation_type_long_names: dict[str, str],
+    ) -> str:
+        """Resolve a relation's link type from its SPEC-RELATION-TYPE reference.
+
+        Prefers the document's long name, then falls back to stripping a
+        ``SRT-`` prefix, then the raw ref. Anything outside
+        ``VALID_LINK_TYPES`` raises ``_SoftError(UNKNOWN_TYPE)`` (ADR-014 §1)
+        — the relation stays skipped rather than creating an unknown link.
+        """
+        link_type = relation_type_long_names.get(relation.relation_type_ref)
+        if not link_type:
+            ref = relation.relation_type_ref or ""
+            link_type = ref[len("SRT-"):] if ref.startswith("SRT-") else ref
+        if link_type not in VALID_LINK_TYPES:
+            raise _SoftError(
+                f"Relation {relation.identifier}: unknown link type "
+                f"'{link_type}'.",
+                code=CAUSE_UNKNOWN_TYPE,
+            )
+        return link_type
+
+    @staticmethod
+    def _ensure_relation_link(
+        link_type: str,
+        source_artifact: Any,
+        target_artifact: Any,
+        tenant: Any,
+        relations_report: ReqifEntityReport,
+    ) -> None:
+        """Create the TraceLink for a relation, idempotently.
+
+        ``get_or_create`` keeps re-importing the same document a no-op (the
+        link either exists -> ``updated``, or is inserted now -> ``created``).
+        Runs inside the caller's per-relation savepoint, so a persistence
+        error rolls back exactly this relation.
+        """
+        from persistence.models import TraceLink
+
+        _, was_created = TraceLink.objects.get_or_create(
+            tenant=tenant,
+            source=source_artifact,
+            target=target_artifact,
+            link_type=link_type,
+        )
+        if was_created:
+            relations_report.created += 1
+        else:
+            relations_report.updated += 1
+
+    @staticmethod
+    def _record_relation_skip(
+        exc: _SoftError,
+        relation: Any,
+        position: int,
+        relations_report: ReqifEntityReport,
+    ) -> None:
+        """Report an intentionally not-imported relation as *skipped*.
+
+        A relation that is intentionally not imported (endpoint absent,
+        unknown link type) is a *skip* — relations are documented as never a
+        hard error, and a missing endpoint is normal for partial documents.
+        """
+        relations_report.skipped += 1
+        relations_report.add_item(
+            row=position,
+            identifier=relation.identifier,
+            kind="TraceLink",
+            status=STATUS_SKIPPED,
+            code=getattr(exc, "code", CAUSE_UNRESOLVED_REFERENCE),
+            message=str(exc),
+        )
+
+    @staticmethod
+    def _record_relation_failure(
+        relation: Any,
+        position: int,
+        relations_report: ReqifEntityReport,
+    ) -> None:
+        """Report a relation that hit an unexpected error as *failed*.
+
+        #697 (CWE-209): the report is part of the HTTP body, so the raw
+        exception text must not travel in it.
+        """
+        relations_report.failed += 1
+        relations_report.add_item(
+            row=position,
+            identifier=relation.identifier,
+            kind="TraceLink",
+            status=STATUS_FAILED,
+            code=CAUSE_PERSISTENCE_ERROR,
+            message=(
+                "An internal error occurred while importing this relation."
+            ),
+        )
 
 
 __all__ = [

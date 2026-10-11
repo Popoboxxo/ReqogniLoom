@@ -265,73 +265,19 @@ class TraceLinkService(ServiceBase):
         falls through to a clean 404 — better, but a changed error path.
         Because both places must agree, the invariant below is load-bearing.
         """
-        from persistence.models import (
-            ArchitectureElement,
-            Artifact,
-            Requirement,
-        )
+        from persistence.models import Artifact
 
         # 1. Already an Artifact ID?
         artifact = Artifact.objects.filter(id=entity_id).first()
         if artifact is not None:
             return entity_id, artifact
 
-        # 2. Requirement -> Artifact
-        req = Requirement.objects.filter(id=entity_id).first()
-        if req is not None:
-            return UUID(str(req.artifact_id)), None
-
-        # 3. ArchitectureElement -> Artifact
-        arch = ArchitectureElement.objects.filter(id=entity_id).first()
-        if arch is not None:
-            return UUID(str(arch.artifact_id)), None
-
-        # 4. ADR -> Artifact (REQ-L2-TE-020). Adr lives in the application app
-        # and is not tenant-scoped, so it is imported locally to avoid a
-        # circular import (adr_service imports TraceLinkService).
-        from application.models import Adr, Goal, MainGoal
-
-        adr = Adr.objects.filter(id=entity_id).first()
-        if adr is not None and adr.artifact_id is not None:
-            return UUID(str(adr.artifact_id)), None
-
-        # 5. Goal -> Artifact (fix #237).
-        goal = Goal.objects.filter(id=entity_id).first()
-        if goal is not None:
-            return UUID(str(goal.artifact_id)), None
-
-        # 6. MainGoal -> Artifact (fix #237).
-        main_goal = MainGoal.objects.filter(id=entity_id).first()
-        if main_goal is not None:
-            return UUID(str(main_goal.artifact_id)), None
-
-        # 7./8. TestCase / StakeholderNeed -> Artifact (fix #264). Imported
-        # locally to keep the module-level import list stable; both are
-        # tenant-scoped models, so ``objects`` already applies the tenant
-        # filter — a foreign-tenant id stays invisible and still raises below.
-        from persistence.models import StakeholderNeed, TestCase
-
-        test_case = TestCase.objects.filter(id=entity_id).first()
-        if test_case is not None:
-            return UUID(str(test_case.artifact_id)), None
-
-        need = StakeholderNeed.objects.filter(id=entity_id).first()
-        if need is not None:
-            return UUID(str(need.artifact_id)), None
-
-        # 9./10. Risk / Issue -> Artifact (fix #407). Imported locally, same
-        # rationale as Adr/Goal/MainGoal above: application.models imports
-        # trace_link_service transitively (risk_service/issue_service ->
-        # application.services), so a module-level import would cycle.
-        from application.models import Issue, Risk
-
-        risk = Risk.objects.filter(id=entity_id).first()
-        if risk is not None and risk.artifact_id is not None:
-            return UUID(str(risk.artifact_id)), None
-
-        issue = Issue.objects.filter(id=entity_id).first()
-        if issue is not None and issue.artifact_id is not None:
-            return UUID(str(issue.artifact_id)), None
+        # 2.-10. Business entities -> backing Artifact (hand-maintained probe
+        # list, see _resolve_business_entity_artifact for why it still exists
+        # next to the registry fallback below).
+        business_artifact_id = self._resolve_business_entity_artifact(entity_id)
+        if business_artifact_id is not None:
+            return business_artifact_id, None
 
         # 11. Registry fallback (#1075) — every artifact subtype the list above
         # forgot, Icd first among them. Deliberately LAST: steps 1-10 stay
@@ -355,6 +301,76 @@ class TraceLinkService(ServiceBase):
             return backing_artifact_id, None
 
         raise NotFoundError(f"Entity {entity_id} not found")
+
+    def _resolve_business_entity_artifact(self, entity_id: UUID) -> UUID | None:
+        """Resolve a Requirement/ArchitectureElement/ADR/... ID (steps 2-10).
+
+        The TraceabilityEngine stores links between Artifact IDs. Callers may
+        pass the more user-facing Requirement, ArchitectureElement, ADR, Goal,
+        MainGoal, TestCase, StakeholderNeed, Risk or Issue IDs; this helper
+        transparently maps those to their backing Artifact, or ``None`` when
+        no probe matches (the caller then tries the registry fallback).
+
+        Fix #264: TestCase and StakeholderNeed were missing from this chain
+        even though both are plain ``OneToOneField(Artifact)`` entities like
+        Requirement. Every caller that passes the user-facing id — the one
+        ``GET /testcases/{id}`` and ``GET /needs/{id}`` return — therefore got
+        NotFoundError, which surfaced as a 404 on ``traceability.create_link``
+        for ``verifies`` (Requirement -> TestCase) and ``derives-from``
+        (Requirement -> StakeholderNeed), i.e. exactly the pairs the SE
+        endpoint matrix in ``traceability.types`` advertises as legal.
+
+        Fix #407: Risk and Issue have the same ``OneToOneField(Artifact)``
+        shape (see ``application.models.Risk``/``Issue``) but were never
+        added here, so a Risk<->Requirement trace link (needed for
+        trade-study support) raised NotFoundError on the Risk/Issue side
+        even though both are already linkable *targets* once resolved (the
+        gap was purely in resolving their business-entity id to an
+        Artifact id).
+
+        Steps 4/9/10 (Adr, Risk, Issue) additionally guard
+        ``artifact_id is None`` and fall through on an empty FK, where steps
+        2-3/5-8 raise ``ValueError`` — #1075 keeps that error path intact
+        deliberately. Both shapes are tenant-scoped (``objects`` applies the
+        tenant filter), so a foreign-tenant id stays invisible.
+        """
+        # Adr/Goal/MainGoal/Issue/Risk live in the application app and are
+        # imported locally to avoid a circular import: adr_service imports
+        # TraceLinkService, and application.models imports trace_link_service
+        # transitively (risk_service/issue_service -> application.services).
+        from application.models import Adr, Goal, Issue, MainGoal, Risk
+        from persistence.models import (
+            ArchitectureElement,
+            Requirement,
+            StakeholderNeed,
+            TestCase,
+        )
+
+        # Probe table in the established order (see the docstring of
+        # :meth:`_resolve_artifact` for the full resolution order). The flag
+        # marks the models whose nullable artifact FK was historically
+        # guarded: an empty FK falls through to the next probe instead of
+        # raising.
+        probes = (
+            (Requirement, False),
+            (ArchitectureElement, False),
+            (Adr, True),
+            (Goal, False),
+            (MainGoal, False),
+            (TestCase, False),
+            (StakeholderNeed, False),
+            (Risk, True),
+            (Issue, True),
+        )
+        for model, guard_empty_fk in probes:
+            row = model.objects.filter(id=entity_id).first()
+            if row is None:
+                continue
+            if guard_empty_fk and row.artifact_id is None:
+                continue
+            return UUID(str(row.artifact_id))
+
+        return None
 
     def resolve_entity_to_artifact_id(
         self, entity_id: UUID, ctx: Optional[AuthContext] = None
@@ -485,7 +501,6 @@ class TraceLinkService(ServiceBase):
                     "deleted (outdated). Reactivate it first."
                 )
 
-    @atomic_transaction
     def create_trace_link(
         self,
         source_id: UUID,
@@ -520,20 +535,88 @@ class TraceLinkService(ServiceBase):
         """
         self._set_tenant_context(ctx)
 
-        # Resolve Requirement/ArchitectureElement IDs to Artifact IDs. The
-        # Artifact rows come back with the ids so the checks below can reuse
-        # them instead of re-SELECTing the same two rows (see #625: seeding the
-        # E2E fixture workspace issued ~13k single-row pl_artifact SELECTs,
-        # because each link creation read its two endpoints up to six times).
+        (
+            resolved_source,
+            source_artifact,
+            resolved_target,
+            target_artifact,
+        ) = self._resolve_trace_link_endpoints(source_id, target_id)
+
+        self._validate_new_trace_link(
+            resolved_source,
+            resolved_target,
+            link_type,
+            source_artifact=source_artifact,
+            target_artifact=target_artifact,
+        )
+
+        result = self._persist_trace_link(
+            resolved_source,
+            resolved_target,
+            link_type,
+            ctx,
+            rationale,
+        )
+
+        # Spec §5: a link an agent created is a proposal until a human
+        # confirms it. ``api_key_id`` is the proposing key; a bearer-token
+        # (human) request leaves both fields NULL.
+        self._stamp_proposed_trace_link(result, ctx)
+
+        # REQ-L2-VS-004: best-effort semantic embedding for similarity search.
+        self._generate_and_store_embedding(result)
+
+        self._record_trace_link_created(
+            ctx=ctx,
+            result=result,
+            fallback_entity_id=source_id,
+            resolved_source=resolved_source,
+            resolved_target=resolved_target,
+            source_artifact=source_artifact,
+        )
+        return result
+
+    def _resolve_trace_link_endpoints(
+        self,
+        source_id: UUID,
+        target_id: UUID,
+    ) -> tuple[UUID, Artifact | None, UUID, Artifact | None]:
+        """Resolve both endpoint ids to Artifact ids, keeping the rows (#625).
+
+        Resolves Requirement/ArchitectureElement IDs to Artifact IDs. The
+        Artifact rows come back with the ids so the caller's checks can reuse
+        them instead of re-SELECTing the same two rows (see #625: seeding the
+        E2E fixture workspace issued ~13k single-row pl_artifact SELECTs,
+        because each link creation read its two endpoints up to six times).
+        """
         resolved_source, source_artifact = self._resolve_artifact(source_id)
         resolved_target, target_artifact = self._resolve_artifact(target_id)
+        return resolved_source, source_artifact, resolved_target, target_artifact
 
-        # Catalog validation: link type must exist, be active, be manually
-        # creatable, and allow this endpoint pair. Applies to every workspace
-        # and every artifact type — the se_mode gate and the "non-core types
-        # pass unchecked" escape are gone (spec section 3.2). This is also
-        # what rejects a hand-authored 'diagram-ref' (system_owned, see
-        # link_types/builtin.py), which used to be a hardcoded branch here.
+    def _validate_new_trace_link(
+        self,
+        resolved_source: UUID,
+        resolved_target: UUID,
+        link_type: str,
+        *,
+        source_artifact: Artifact | None = None,
+        target_artifact: Artifact | None = None,
+    ) -> None:
+        """Validate endpoints and link type before the INSERT.
+
+        Catalog validation: link type must exist, be active, be manually
+        creatable, and allow this endpoint pair. Applies to every workspace
+        and every artifact type — the se_mode gate and the "non-core types
+        pass unchecked" escape are gone (spec section 3.2). This is also
+        what rejects a hand-authored 'diagram-ref' (system_owned, see
+        link_types/builtin.py), which used to be a hardcoded branch here.
+
+        Raises:
+            ValidationError: unknown/inactive link_type, a system-managed
+                type on the manual path, a disallowed endpoint pair or a
+                cross-workspace link.
+            NotFoundError: source or target entity does not exist.
+        """
         self._check_link_pair(
             resolved_source,
             resolved_target,
@@ -548,8 +631,23 @@ class TraceLinkService(ServiceBase):
         if link_type == LinkType.ALLOCATED_TO:
             self._check_allocation_invariant(resolved_source, resolved_target)
 
-        from django.db import IntegrityError
+    def _persist_trace_link(
+        self,
+        resolved_source: UUID,
+        resolved_target: UUID,
+        link_type: str,
+        ctx: AuthContext,
+        rationale: str,
+    ) -> TraceLink:
+        """Delegate the INSERT to the TraceabilityEngine, mapping its errors.
 
+        Raises:
+            NotFoundError:   Source or target entity does not exist.
+            ValidationError: A duplicate edge (uq_tracelink_edge, issue
+                #126), a cross-workspace link, or any rejected input the
+                engine reports as TraceLinkError (fix #264 Befund C).
+        """
+        from django.db import IntegrityError
         from traceability.services import (
             CrossTenantLinkError,
             SourceNotFoundError,
@@ -559,7 +657,7 @@ class TraceLinkService(ServiceBase):
         )
 
         try:
-            result = te_create(
+            return te_create(
                 source_id=resolved_source,
                 target_id=resolved_target,
                 link_type=link_type,
@@ -598,32 +696,48 @@ class TraceLinkService(ServiceBase):
                 ) from exc
             raise
 
-        # Spec §5: a link an agent created is a proposal until a human
-        # confirms it. ``api_key_id`` is the proposing key; a bearer-token
-        # (human) request leaves both fields NULL. Stamped as a targeted
-        # update rather than threaded through traceability.services.create_
-        # trace_link / TraceLinkManager.create, which are shared by every
-        # other caller and have no notion of "proposal".
-        if ctx.actor_type == "agent" and ctx.api_key_id is not None:
-            from django.utils import timezone
+    def _stamp_proposed_trace_link(
+        self, result: TraceLink, ctx: AuthContext
+    ) -> None:
+        """Stamp an agent-created link as a proposal (Spec §5).
 
-            from persistence.models import TraceLink
+        ``api_key_id`` is the proposing key; a bearer-token (human) request
+        leaves both fields NULL. Stamped as a targeted update rather than
+        threaded through traceability.services.create_trace_link /
+        TraceLinkManager.create, which are shared by every other caller and
+        have no notion of "proposal".
+        """
+        if ctx.actor_type != "agent" or ctx.api_key_id is None:
+            return
 
-            proposed_at = timezone.now()
-            TraceLink.objects.filter(id=result.id).update(
-                proposed_by_id=ctx.api_key_id, proposed_at=proposed_at
-            )
-            result.proposed_by_id = ctx.api_key_id
-            result.proposed_at = proposed_at
+        from django.utils import timezone
 
-        # REQ-L2-VS-004: best-effort semantic embedding for similarity search.
-        self._generate_and_store_embedding(result)
+        from persistence.models import TraceLink
 
+        proposed_at = timezone.now()
+        TraceLink.objects.filter(id=result.id).update(
+            proposed_by_id=ctx.api_key_id, proposed_at=proposed_at
+        )
+        result.proposed_by_id = ctx.api_key_id
+        result.proposed_at = proposed_at
+
+    def _record_trace_link_created(
+        self,
+        *,
+        ctx: AuthContext,
+        result: TraceLink,
+        fallback_entity_id: UUID,
+        resolved_source: UUID,
+        resolved_target: UUID,
+        source_artifact: Artifact | None,
+    ) -> None:
+        """Audit-entry and TRACE_LINK_CREATED event for the freshly created
+        link (Issue #377, context_graph Task 2)."""
         self._audit(
             ctx=ctx,
             operation="create",
             entity_type="TraceLink",
-            entity_id=result.id if hasattr(result, "id") else source_id,
+            entity_id=result.id if hasattr(result, "id") else fallback_entity_id,
         )
         self._emit_trace_link_event(
             event_type_name="TRACE_LINK_CREATED",
@@ -632,7 +746,6 @@ class TraceLinkService(ServiceBase):
             target_artifact_id=resolved_target,
             source_artifact=source_artifact,
         )
-        return result
 
     def confirm_proposed_link(self, link_id: UUID, ctx: AuthContext) -> "TraceLink":
         """Accept an agent-proposed trace link (spec §5).
@@ -1557,8 +1670,6 @@ class TraceLinkService(ServiceBase):
         except NotFoundError:
             return 0
 
-        from django.utils import timezone
-
         from link_types.catalog import resolve_catalog
         from persistence.models import (
             ArchitectureElement,
@@ -1580,9 +1691,48 @@ class TraceLinkService(ServiceBase):
             ).only("id", "source_id", "target_id", "link_type")
         )
 
+        dependent_ids, fired = self._collect_suspect_dependents(
+            resolved_id, catalog, links
+        )
+        if not dependent_ids:
+            return 0
+
+        flagged, newly_flagged_ids = self._flag_suspect_artifacts(
+            dependent_ids, (Requirement, ArchitectureElement, TestCase)
+        )
+
+        stamped_link_ids = self._stamp_suspect_provenance(
+            fired, newly_flagged_ids, audit_entry_id
+        )
+
+        self._notify_suspect_flagged(newly_flagged_ids, ctx)
+
+        logger.info(
+            "Suspect propagation from %s: %d artifact(s) flagged; "
+            "%d of %d matching link(s) stamped.",
+            resolved_id,
+            flagged,
+            len(stamped_link_ids),
+            len(fired),
+        )
+        return flagged
+
+    def _collect_suspect_dependents(
+        self,
+        resolved_id: UUID,
+        catalog,
+        links,
+    ) -> tuple[set[UUID], list[tuple[UUID, UUID]]]:
+        """Apply each link's ``suspect_rule`` (see the rule-dispatch table on
+        :meth:`propagate_suspect_status`) to collect the endpoints to flag.
+
+        Returns:
+            ``(dependent_ids, fired)`` — the artifact ids to flag and, per
+            firing link, ``(link id, the artifact id at the *other* end)``.
+            The second element is what decides whether the link may carry the
+            provenance stamp.
+        """
         dependent_ids: set[UUID] = set()
-        # (link id, the artifact id at the *other* end). The second element is
-        # what decides whether the link may carry the provenance stamp below.
         fired: list[tuple[UUID, UUID]] = []
 
         for link in links:
@@ -1616,16 +1766,27 @@ class TraceLinkService(ServiceBase):
             dependent_ids.add(other_id)
             fired.append((link.id, other_id))
 
-        if not dependent_ids:
-            return 0
+        return dependent_ids, fired
 
-        # Only these three models carry a `suspect` column today (see the
-        # Merkposten in the Task 14 ledger entry: it belongs on `Artifact`).
-        # An `Adr`/`Risk`/`StakeholderNeed`/`Goal`/`Issue` at the far end is
-        # silently skipped — and so is an artifact that was already suspect.
+    def _flag_suspect_artifacts(
+        self,
+        dependent_ids: set[UUID],
+        models,
+    ) -> tuple[int, set[UUID]]:
+        """Flag every dependent artifact that is not yet suspect.
+
+        Only the passed-in models carry a ``suspect`` column today (see the
+        Merkposten in the Task 14 ledger entry: it belongs on ``Artifact``).
+        An ``Adr``/``Risk``/``StakeholderNeed``/``Goal``/``Issue`` at the far
+        end is silently skipped — and so is an artifact that was already
+        suspect.
+
+        Returns:
+            ``(flagged count, ids actually written)``.
+        """
         flagged = 0
         newly_flagged_ids: set[UUID] = set()
-        for model in (Requirement, ArchitectureElement, TestCase):
+        for model in models:
             candidate_ids = set(
                 model.objects.filter(
                     artifact_id__in=dependent_ids, suspect=False
@@ -1640,12 +1801,23 @@ class TraceLinkService(ServiceBase):
                 flagged += written
                 newly_flagged_ids |= candidate_ids
 
-        # `suspect_flagged_at`'s own help_text says it is set "when this link
-        # caused the other endpoint to be flagged suspect", so only links that
-        # actually did may be stamped. Stamping every link whose *rule* matched
-        # wrote that provenance marker for links whose far end was a
-        # non-flaggable type, or was already suspect — a false audit trail
-        # pointing at a flag that never happened.
+        return flagged, newly_flagged_ids
+
+    def _stamp_suspect_provenance(
+        self,
+        fired: list[tuple[UUID, UUID]],
+        newly_flagged_ids: set[UUID],
+        audit_entry_id: UUID | None,
+    ) -> list[UUID]:
+        """Stamp every link that actually caused a flag.
+
+        Returns:
+            The stamped link ids (the caller logs the count).
+        """
+        from django.utils import timezone
+
+        from persistence.models import TraceLink
+
         stamped_link_ids = [
             link_id for link_id, other_id in fired if other_id in newly_flagged_ids
         ]
@@ -1654,33 +1826,31 @@ class TraceLinkService(ServiceBase):
                 suspect_flagged_at=timezone.now(),
                 suspect_source_change=audit_entry_id,
             )
+        return stamped_link_ids
 
-        # Menschen-im-System spec §5.2: freshly flagged artifacts notify their
-        # owner and reporter. `newly_flagged_ids` — not `fired` — is the ground
-        # truth for "was actually flagged"; notifying off `fired` would raise
-        # false notifications for far ends that are non-flaggable or were
-        # already suspect. Best-effort: the producer never raises, and the local
-        # import avoids a module-load cycle (notification_service imports from
-        # application, comment_service imports notification_service).
-        if newly_flagged_ids and ctx is not None:
-            from application.notification_service import notify_suspect_flagged
+    def _notify_suspect_flagged(
+        self, newly_flagged_ids: set[UUID], ctx: AuthContext
+    ) -> None:
+        """Notify owner/reporter of freshly flagged artifacts (MiS spec §5.2).
 
-            for flagged_artifact_id in newly_flagged_ids:
-                notify_suspect_flagged(
-                    artifact_id=flagged_artifact_id,
-                    tenant_id=ctx.tenant_id,
-                    actor_user_id=ctx.user_id,
-                )
+        ``newly_flagged_ids`` — not ``fired`` — is the ground truth for "was
+        actually flagged"; notifying off ``fired`` would raise false
+        notifications for far ends that are non-flaggable or were already
+        suspect. Best-effort: the producer never raises, and the local import
+        avoids a module-load cycle (notification_service imports from
+        application, comment_service imports notification_service).
+        """
+        if not newly_flagged_ids or ctx is None:
+            return
 
-        logger.info(
-            "Suspect propagation from %s: %d artifact(s) flagged; "
-            "%d of %d matching link(s) stamped.",
-            resolved_id,
-            flagged,
-            len(stamped_link_ids),
-            len(fired),
-        )
-        return flagged
+        from application.notification_service import notify_suspect_flagged
+
+        for flagged_artifact_id in newly_flagged_ids:
+            notify_suspect_flagged(
+                artifact_id=flagged_artifact_id,
+                tenant_id=ctx.tenant_id,
+                actor_user_id=ctx.user_id,
+            )
 
 
 def resolve_artifact_id_or_none(entity_id: UUID) -> Optional[UUID]:
