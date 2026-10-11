@@ -66,62 +66,78 @@ def _validate_confirmed_proposal(confirmed_proposal: "list[dict]") -> None:
     already half-applied batch.
     """
     for index, item in enumerate(confirmed_proposal):
-        if not isinstance(item, dict):
-            raise ValidationError(
-                f"proposal item #{index} must be a dict, got {type(item).__name__}"
-            )
-        item_type = item.get("type")
-        if not isinstance(item_type, str):
-            raise ValidationError(
-                f"proposal item #{index}: 'type' must be a string, got {item_type!r}"
-            )
-        if not isinstance(item.get("fields"), dict):
-            raise ValidationError(
-                f"proposal item {item_type!r} must carry a 'fields' dict"
-            )
-        # Review-2 fix m1: 'links' may be explicitly null in caller JSON.
-        # dict.get(key, default) does NOT help here -- it returns None (not
-        # the default) when the key exists with value None, so enumerate(None)
-        # used to raise a bare TypeError. Normalise None to [] IN PLACE so
-        # _formalize_multi's later item.get("links", []) loops see a real
-        # list too; anything non-list is a clean ValidationError instead.
-        raw_links = item.get("links")
-        if raw_links is None:
-            raw_links = []
-            # Normalise in place so _formalize_multi's later
-            # item.get("links", []) loops see a real list too.
-            item["links"] = []
-        elif not isinstance(raw_links, list):
-            raise ValidationError(
-                f"proposal item {item_type!r}: 'links' must be a list or null, "
-                f"got {type(raw_links).__name__}"
-            )
+        _validate_confirmed_proposal_item(index, item, len(confirmed_proposal))
+
+
+def _validate_confirmed_proposal_item(item_index: int, item: Any, item_count: int) -> None:
+    """Validate one multi-mode proposal item (pre-transaction, fail fast).
+
+    ``item_count`` is the total number of items in the proposal -- link
+    endpoints index into that list.
+    """
+    if not isinstance(item, dict):
+        raise ValidationError(
+            f"proposal item #{item_index} must be a dict, got {type(item).__name__}"
+        )
+    item_type = item.get("type")
+    if not isinstance(item_type, str):
+        raise ValidationError(
+            f"proposal item #{item_index}: 'type' must be a string, got {item_type!r}"
+        )
+    if not isinstance(item.get("fields"), dict):
+        raise ValidationError(
+            f"proposal item {item_type!r} must carry a 'fields' dict"
+        )
+    # Review-2 fix m1: 'links' may be explicitly null in caller JSON.
+    # dict.get(key, default) does NOT help here -- it returns None (not
+    # the default) when the key exists with value None, so enumerate(None)
+    # used to raise a bare TypeError. Normalise None to [] IN PLACE so
+    # _formalize_multi's later item.get("links", []) loops see a real
+    # list too; anything non-list is a clean ValidationError instead.
+    raw_links = item.get("links")
+    if raw_links is None:
+        # Normalise in place so _formalize_multi's later
+        # item.get("links", []) loops see a real list too.
+        item["links"] = []
+    elif not isinstance(raw_links, list):
+        raise ValidationError(
+            f"proposal item {item_type!r}: 'links' must be a list or null, "
+            f"got {type(raw_links).__name__}"
+        )
+    else:
         for link_index, link in enumerate(raw_links):
-            if not isinstance(link, dict):
-                raise ValidationError(
-                    f"proposal item {item_type!r}, link #{link_index} must be a dict"
-                )
-            for endpoint in ("from", "to"):
-                value = link.get(endpoint)
-                # bool is an int subclass -- True/False must not pass as
-                # link endpoints via created_refs[True] indexing.
-                if isinstance(value, bool) or not isinstance(value, int):
-                    raise ValidationError(
-                        f"proposal item {item_type!r}, link #{link_index}: "
-                        f"'{endpoint}' must be an int index into the proposal items, "
-                        f"got {value!r}"
-                    )
-                if not 0 <= value < len(confirmed_proposal):
-                    raise ValidationError(
-                        f"proposal item {item_type!r}, link #{link_index}: "
-                        f"'{endpoint}' index {value} is out of range "
-                        f"(0..{len(confirmed_proposal) - 1})"
-                    )
-            if not isinstance(link.get("type"), str):
-                raise ValidationError(
-                    f"proposal item {item_type!r}, link #{link_index}: "
-                    f"'type' must be a string, got {link.get('type')!r}"
-                )
+            _validate_confirmed_proposal_link(item_type, link_index, link, item_count)
+
+
+def _validate_confirmed_proposal_link(
+    item_type: str, link_index: int, link: Any, item_count: int
+) -> None:
+    """Validate one link of a multi-mode proposal item (pre-transaction)."""
+    if not isinstance(link, dict):
+        raise ValidationError(
+            f"proposal item {item_type!r}, link #{link_index} must be a dict"
+        )
+    for endpoint in ("from", "to"):
+        value = link.get(endpoint)
+        # bool is an int subclass -- True/False must not pass as
+        # link endpoints via created_refs[True] indexing.
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ValidationError(
+                f"proposal item {item_type!r}, link #{link_index}: "
+                f"'{endpoint}' must be an int index into the proposal items, "
+                f"got {value!r}"
+            )
+        if not 0 <= value < item_count:
+            raise ValidationError(
+                f"proposal item {item_type!r}, link #{link_index}: "
+                f"'{endpoint}' index {value} is out of range "
+                f"(0..{item_count - 1})"
+            )
+    if not isinstance(link.get("type"), str):
+        raise ValidationError(
+            f"proposal item {item_type!r}, link #{link_index}: "
+            f"'type' must be a string, got {link.get('type')!r}"
+        )
 
 
 class InterviewService(ServiceBase):
@@ -142,9 +158,25 @@ class InterviewService(ServiceBase):
         (*artifact_type* must be None) whose artifacts are proposed during
         chat and created later by ``_formalize_multi``.
         """
-        # Mode/shape gates first -- pure input validation that must run
-        # before anything below can mis-read a cross-kind combination
-        # (e.g. multi + a leftover artifact_type).
+        self._assert_known_session_kind(session_kind)
+        self._assert_session_shape(session_kind, artifact_type)
+        self._set_tenant_context(ctx)
+        # Fail fast with a clean NotFoundError (same pattern as
+        # RequirementService.create_requirement) rather than letting
+        # InterviewSession's FK constraint raise a bare IntegrityError on an
+        # unknown workspace_id, which the MCP layer's generic exception
+        # handler would otherwise surface as an opaque INTERNAL_ERROR.
+        if not Workspace.objects.filter(id=workspace_id).exists():
+            raise NotFoundError(f"Workspace {workspace_id} not found")
+        if session_kind == InterviewSession.SESSION_KIND_MULTI:
+            return self._start_multi_session(ctx, workspace_id, session_kind, seed_context)
+        return self._start_single_session(
+            ctx, artifact_type, workspace_id, session_kind, seed_context
+        )
+
+    @staticmethod
+    def _assert_known_session_kind(session_kind: str) -> None:
+        """Whitelist gate for the session kind (runs before any other gate)."""
         # Review-2 fix m2a: whitelist gate. An unknown session_kind used to
         # fall through every kind-specific gate below and be silently
         # created as a broken single-ish row (Django choices are not DB
@@ -158,17 +190,17 @@ class InterviewService(ServiceBase):
                 f"'{InterviewSession.SESSION_KIND_SINGLE}' or "
                 f"'{InterviewSession.SESSION_KIND_MULTI}'."
             )
-        if (
-            session_kind == InterviewSession.SESSION_KIND_MULTI
-            and artifact_type is not None
-        ):
+
+    @staticmethod
+    def _assert_session_shape(session_kind: str, artifact_type: str | None) -> None:
+        """Mode/shape gates -- pure input validation that must run before
+        anything below can mis-read a cross-kind combination (e.g. multi +
+        a leftover artifact_type)."""
+        if session_kind == InterviewSession.SESSION_KIND_MULTI and artifact_type is not None:
             raise ValidationError(
                 "artifact_type must not be set for a multi-mode interview"
             )
-        if (
-            session_kind == InterviewSession.SESSION_KIND_SINGLE
-            and not artifact_type
-        ):
+        if session_kind == InterviewSession.SESSION_KIND_SINGLE and not artifact_type:
             raise ValidationError(
                 "artifact_type is required for a single-mode interview"
             )
@@ -183,50 +215,66 @@ class InterviewService(ServiceBase):
                 f"Interviews are not available for artifact_type={artifact_type!r} "
                 f"(MainGoal stays read-only; other unknown types are unsupported)."
             )
-        self._set_tenant_context(ctx)
-        # Fail fast with a clean NotFoundError (same pattern as
-        # RequirementService.create_requirement) rather than letting
-        # InterviewSession's FK constraint raise a bare IntegrityError on an
-        # unknown workspace_id, which the MCP layer's generic exception
-        # handler would otherwise surface as an opaque INTERNAL_ERROR.
-        if not Workspace.objects.filter(id=workspace_id).exists():
-            raise NotFoundError(f"Workspace {workspace_id} not found")
-        if session_kind == InterviewSession.SESSION_KIND_MULTI:
-            # Multi-mode sessions are not bound to one artifact type: no
-            # per-type protocol applies (get_protocol has no answer for
-            # artifact_type=None) and there is no single backing Artifact yet
-            # -- but the "Interview" workflow item_type is the same state
-            # machine for both kinds (state_reader.current_state("Interview",
-            # session.id) does not care about session_kind), and
-            # initialize_workflow_states needs neither artifact_type nor a
-            # backing Artifact. Datenmodell-Konsolidierung Task 12: a
-            # multi-mode session used to record its completion directly on
-            # the (now-dropped) `status` column with no engine tracking at
-            # all -- that was the only record of completion, and dropping
-            # the column would have made it unrecoverable. Registering here,
-            # same best-effort try/except convention as the single-mode
-            # branch below, closes that gap instead of accepting it.
-            session = InterviewSession.objects.create(
-                workspace_id=workspace_id,
-                artifact_type=None,
-                session_kind=session_kind,
-                collected_fields=(seed_context or {}),
-            )
-            try:
-                from workflow.services import initialize_workflow_states
 
-                initialize_workflow_states(
-                    item_ids=[session.id],
-                    item_type="Interview",
-                    workspace_id=workspace_id,
-                    ctx=ctx,
-                )
-            except Exception:
-                logger.debug(
-                    "InterviewService: workflow init skipped for multi-mode "
-                    "session=%s", session.id
-                )
-            return session
+    @staticmethod
+    def _start_multi_session(
+        ctx, workspace_id: UUID, session_kind: str, seed_context: dict | None
+    ) -> InterviewSession:
+        """Create the type-less multi-mode session and return it."""
+        # Multi-mode sessions are not bound to one artifact type: no
+        # per-type protocol applies (get_protocol has no answer for
+        # artifact_type=None) and there is no single backing Artifact yet
+        # -- but the "Interview" workflow item_type is the same state
+        # machine for both kinds (state_reader.current_state("Interview",
+        # session.id) does not care about session_kind), and
+        # initialize_workflow_states needs neither artifact_type nor a
+        # backing Artifact. Datenmodell-Konsolidierung Task 12: a
+        # multi-mode session used to record its completion directly on the
+        # (now-dropped) `status` column with no engine tracking at
+        # all -- that was the only record of completion, and dropping
+        # the column would have made it unrecoverable. Registering here,
+        # same best-effort try/except convention as the single-mode
+        # branch below, closes that gap instead of accepting it.
+        session = InterviewSession.objects.create(
+            workspace_id=workspace_id,
+            artifact_type=None,
+            session_kind=session_kind,
+            collected_fields=(seed_context or {}),
+        )
+        try:
+            from workflow.services import initialize_workflow_states
+
+            initialize_workflow_states(
+                item_ids=[session.id],
+                item_type="Interview",
+                workspace_id=workspace_id,
+                ctx=ctx,
+            )
+        except Exception:
+            logger.debug(
+                "InterviewService: workflow init skipped for multi-mode "
+                "session=%s", session.id
+            )
+        return session
+
+    @staticmethod
+    def _start_single_session(
+        ctx,
+        artifact_type: str | None,
+        workspace_id: UUID,
+        session_kind: str,
+        seed_context: dict | None,
+    ) -> InterviewSession:
+        """Create the single-mode session (backing Artifact + session) and return it.
+
+        2026-08-20 UI-visibility fix: register with the workflow engine so
+        the session is discoverable/transitionable the same way every
+        other tracked entity is (workspace-defaults 'interview_default'
+        preset, see workflow/definition_store.py). Best-effort -- a
+        missing/misconfigured definition must not block session creation
+        (mirrors *_service.py's workflow-init try/except convention, e.g.
+        RequirementService.create_requirement).
+        """
         # Fail fast if the protocol config is missing/broken rather than
         # creating a session that can never progress past get_state.
         get_protocol(ctx, artifact_type, workspace_id)
@@ -246,13 +294,6 @@ class InterviewService(ServiceBase):
             session_kind=session_kind,
             collected_fields=(seed_context or {}),
         )
-        # 2026-08-20 UI-visibility fix: register with the workflow engine so
-        # the session is discoverable/transitionable the same way every
-        # other tracked entity is (workspace-defaults 'interview_default'
-        # preset, see workflow/definition_store.py). Best-effort -- a
-        # missing/misconfigured definition must not block session creation
-        # (mirrors *_service.py's workflow-init try/except convention, e.g.
-        # RequirementService.create_requirement).
         try:
             initialize_workflow_states(
                 item_ids=[session.id],
