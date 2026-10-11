@@ -20,7 +20,7 @@ Architecture:
 from __future__ import annotations
 
 import copy
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
@@ -1068,6 +1068,132 @@ def _dto_from_orm(record: WorkflowEngineDefinition) -> WorkflowDefinitionDTO:
 # ---------------------------------------------------------------------------
 
 
+class _PresetDefaultFactory:
+    """Preset-default provisioning incl. tenant-global inheritance (COMP-WE-001).
+
+    REQ-L3-WE001-001 (create), REQ-178 (source_global inheritance),
+    REQ-180 (reset to global default). Cohesive pair extracted from
+    ``WorkflowDefinitionStore``: both operations resolve the workspace row
+    against its linked ``GlobalWorkflowDefinition`` and share no state with
+    the store's validation or edit paths.
+    """
+
+    def create(
+        self,
+        workspace_id: UUID | str,
+        preset: str,
+        item_type: str = "Requirement",
+        tenant_id: UUID | str | None = None,
+    ) -> WorkflowDefinitionDTO:
+        """Create the preset-default WorkflowDefinition for a new workspace.
+
+        For Minimal preset the created record is locked (is_custom=False and
+        preset="minimal"); update attempts are rejected by
+        validate_and_persist_custom.
+
+        Args:
+            workspace_id: Target workspace UUID.
+            preset: "minimal" | "standard" | "extended".
+            item_type: Entity type (default "Requirement").
+            tenant_id: Explicit tenant UUID; used only when TenantContext is
+                not yet active (bootstrap scenarios).
+
+        Returns:
+            WorkflowDefinitionDTO for the created definition.
+
+        Raises:
+            WorkflowDefinitionError: Unknown preset.
+        """
+        if preset not in PRESET_SCHEMAS:
+            raise WorkflowDefinitionError(f"Unknown preset: {preset!r}")
+
+        schema = PRESET_SCHEMAS[preset]
+
+        # REQ-178: inherit from the tenant-wide per-preset GlobalWorkflowDefinition
+        # instead of copying PRESET_SCHEMAS straight into the workspace row. The
+        # global is get-or-seeded from the preset schema on first use, so the very
+        # first workspace on a (tenant, item_type, preset) establishes the global
+        # default and every later workspace mirrors it via ``source_global`` with
+        # ``is_customized=False`` (so a later global edit propagates in).
+        resolved_tenant = tenant_id
+        if resolved_tenant is None:
+            # Best-effort: fall back to the active thread-local tenant context so
+            # callers that rely on the manager's auto-inject still link a global.
+            try:
+                from persistence.tenancy import TenantContext
+
+                resolved_tenant = TenantContext.get_tenant()
+            except Exception:  # noqa: BLE001 — no context → degrade gracefully
+                resolved_tenant = None
+
+        global_def: GlobalWorkflowDefinition | None = None
+        workflow_json: Any = copy.deepcopy(schema)
+        if resolved_tenant is not None:
+            global_def, _ = GlobalWorkflowDefinition.unscoped.get_or_create(
+                tenant_id=str(resolved_tenant),
+                item_type=item_type,
+                preset=preset,
+                defaults={"workflow_json": copy.deepcopy(schema)},
+            )
+            workflow_json = copy.deepcopy(global_def.workflow_json)
+
+        defaults: dict[str, Any] = {
+            "preset": preset,
+            "workflow_json": workflow_json,
+            "is_custom": False,
+            "is_customized": False,
+        }
+        if global_def is not None:
+            defaults["source_global"] = global_def
+        if resolved_tenant is not None:
+            defaults["tenant_id"] = str(resolved_tenant)
+
+        record, _ = WorkflowEngineDefinition.objects.get_or_create(
+            workspace_id=str(workspace_id),
+            item_type=item_type,
+            defaults=defaults,
+        )
+        return _dto_from_orm(record)
+
+    def reset(
+        self, workspace_id: UUID | str, item_type: str
+    ) -> WorkflowDefinitionDTO:
+        """Overwrite the workspace definition with its global default (REQ-180).
+
+        Copies ``source_global.workflow_json`` back into the workspace row and
+        clears ``is_customized``. The workspace returns to "on-default".
+
+        Raises:
+            WorkflowDefinitionError: No workspace definition exists.
+            NoGlobalSourceError: ``source_global`` is null (nothing to reset to).
+        """
+        record = WorkflowEngineDefinition.objects.filter(
+            workspace_id=str(workspace_id), item_type=item_type
+        ).first()
+        if record is None:
+            raise WorkflowDefinitionError(
+                f"No WorkflowDefinition found for workspace={workspace_id}, "
+                f"item_type={item_type}"
+            )
+        if record.source_global_id is None:
+            raise NoGlobalSourceError(
+                "Workspace workflow definition has no linked global default "
+                "to reset to."
+            )
+        global_def = GlobalWorkflowDefinition.unscoped.filter(
+            id=record.source_global_id
+        ).first()
+        if global_def is None:
+            raise NoGlobalSourceError(
+                "Workspace workflow definition has no linked global default "
+                "to reset to."
+            )
+        record.workflow_json = copy.deepcopy(global_def.workflow_json)
+        record.is_customized = False
+        record.save(update_fields=["workflow_json", "is_customized", "modified_at"])
+        return _dto_from_orm(record)
+
+
 class WorkflowDefinitionStore:
     """CRUD + preset defaults + migration-safety for WorkflowEngineDefinitions.
 
@@ -1076,6 +1202,9 @@ class WorkflowDefinitionStore:
     All write operations are tenant-scoped: the caller must have set the
     tenant context (TenantContext.set_tenant) before invoking any method.
     """
+
+    def __init__(self) -> None:
+        self._preset_defaults = _PresetDefaultFactory()
 
     # -- Read (IF-WE-INT-001, IF-WE-INT-003) ---------------------------------
 
@@ -1155,56 +1284,7 @@ class WorkflowDefinitionStore:
         Raises:
             WorkflowDefinitionError: Unknown preset.
         """
-        if preset not in PRESET_SCHEMAS:
-            raise WorkflowDefinitionError(f"Unknown preset: {preset!r}")
-
-        schema = PRESET_SCHEMAS[preset]
-
-        # REQ-178: inherit from the tenant-wide per-preset GlobalWorkflowDefinition
-        # instead of copying PRESET_SCHEMAS straight into the workspace row. The
-        # global is get-or-seeded from the preset schema on first use, so the very
-        # first workspace on a (tenant, item_type, preset) establishes the global
-        # default and every later workspace mirrors it via ``source_global`` with
-        # ``is_customized=False`` (so a later global edit propagates in).
-        resolved_tenant = tenant_id
-        if resolved_tenant is None:
-            # Best-effort: fall back to the active thread-local tenant context so
-            # callers that rely on the manager's auto-inject still link a global.
-            try:
-                from persistence.tenancy import TenantContext
-
-                resolved_tenant = TenantContext.get_tenant()
-            except Exception:  # noqa: BLE001 — no context → degrade gracefully
-                resolved_tenant = None
-
-        global_def: GlobalWorkflowDefinition | None = None
-        workflow_json: Any = copy.deepcopy(schema)
-        if resolved_tenant is not None:
-            global_def, _ = GlobalWorkflowDefinition.unscoped.get_or_create(
-                tenant_id=str(resolved_tenant),
-                item_type=item_type,
-                preset=preset,
-                defaults={"workflow_json": copy.deepcopy(schema)},
-            )
-            workflow_json = copy.deepcopy(global_def.workflow_json)
-
-        defaults: dict[str, Any] = {
-            "preset": preset,
-            "workflow_json": workflow_json,
-            "is_custom": False,
-            "is_customized": False,
-        }
-        if global_def is not None:
-            defaults["source_global"] = global_def
-        if resolved_tenant is not None:
-            defaults["tenant_id"] = str(resolved_tenant)
-
-        record, _ = WorkflowEngineDefinition.objects.get_or_create(
-            workspace_id=str(workspace_id),
-            item_type=item_type,
-            defaults=defaults,
-        )
-        return _dto_from_orm(record)
+        return self._preset_defaults.create(workspace_id, preset, item_type, tenant_id)
 
     # -- Reset to global default (REQ-180) ------------------------------------
 
@@ -1220,31 +1300,7 @@ class WorkflowDefinitionStore:
             WorkflowDefinitionError: No workspace definition exists.
             NoGlobalSourceError: ``source_global`` is null (nothing to reset to).
         """
-        record = WorkflowEngineDefinition.objects.filter(
-            workspace_id=str(workspace_id), item_type=item_type
-        ).first()
-        if record is None:
-            raise WorkflowDefinitionError(
-                f"No WorkflowDefinition found for workspace={workspace_id}, "
-                f"item_type={item_type}"
-            )
-        if record.source_global_id is None:
-            raise NoGlobalSourceError(
-                "Workspace workflow definition has no linked global default "
-                "to reset to."
-            )
-        global_def = GlobalWorkflowDefinition.unscoped.filter(
-            id=record.source_global_id
-        ).first()
-        if global_def is None:
-            raise NoGlobalSourceError(
-                "Workspace workflow definition has no linked global default "
-                "to reset to."
-            )
-        record.workflow_json = copy.deepcopy(global_def.workflow_json)
-        record.is_customized = False
-        record.save(update_fields=["workflow_json", "is_customized", "modified_at"])
-        return _dto_from_orm(record)
+        return self._preset_defaults.reset(workspace_id, item_type)
 
     # -- Custom definition (REQ-L3-WE001-002) ---------------------------------
 
@@ -1278,35 +1334,9 @@ class WorkflowDefinitionStore:
             WorkflowDefinitionError: Validation failure or preset mismatch.
             OrphanedStateError: Items would be stranded by the new definition.
         """
-        configurability = get_workflow_configurability(str(workspace_id))
-        if configurability == "fixed":
-            raise WorkflowDefinitionError(
-                "Workflow not configurable in minimal preset"
-            )
-        if configurability == "partial":
-            raise WorkflowDefinitionError(
-                "Custom workflows only allowed in extended preset"
-            )
-
-        # Structural validation
-        if len(states) < 2:
-            raise WorkflowDefinitionError(
-                "Custom workflow requires at least 2 states"
-            )
-        if len(transitions) < 1:
-            raise WorkflowDefinitionError(
-                "Custom workflow requires at least 1 transition"
-            )
-        state_set = set(states)
-        for t in transitions:
-            if t.get("from_state") not in state_set:
-                raise WorkflowDefinitionError(
-                    f"Invalid transition: unknown state '{t.get('from_state')}'"
-                )
-            if t.get("to_state") not in state_set:
-                raise WorkflowDefinitionError(
-                    f"Invalid transition: unknown state '{t.get('to_state')}'"
-                )
+        self._assert_workflow_configurable(workspace_id)
+        self._validate_custom_schema(states, transitions)
+        self._validate_transition_states(states, transitions)
 
         # Orphaned-state check before update (REQ-L3-WE001-003)
         existing = WorkflowEngineDefinition.objects.filter(
@@ -1314,11 +1344,9 @@ class WorkflowDefinitionStore:
         ).first()
         if existing is not None:
             old_states = set(existing.workflow_json.get("states", []))
-            removed = old_states - state_set
-            for orphaned in removed:
-                self._check_orphaned_state(
-                    workspace_id, item_type, orphaned, str(workspace_id)
-                )
+            self._reject_orphaned_states(
+                workspace_id, item_type, old_states - set(states)
+            )
 
         workflow_json: dict[str, Any] = {
             "states": states,
@@ -1339,16 +1367,75 @@ class WorkflowDefinitionStore:
                 ]
             )
             return _dto_from_orm(existing)
-        else:
-            record = WorkflowEngineDefinition.objects.create(
-                workspace_id=str(workspace_id),
-                item_type=item_type,
-                preset="extended",
-                workflow_json=workflow_json,
-                is_custom=True,
-                is_customized=True,
+
+        record = WorkflowEngineDefinition.objects.create(
+            workspace_id=str(workspace_id),
+            item_type=item_type,
+            preset="extended",
+            workflow_json=workflow_json,
+            is_custom=True,
+            is_customized=True,
+        )
+        return _dto_from_orm(record)
+
+    def _assert_workflow_configurable(self, workspace_id: UUID | str) -> None:
+        """Raise unless the active preset tier allows a custom definition.
+
+        REQ-L3-WE001-002: "fixed" (minimal) forbids custom workflows entirely,
+        "partial" (standard) allows them only in the extended preset.
+        """
+        configurability = get_workflow_configurability(str(workspace_id))
+        if configurability == "fixed":
+            raise WorkflowDefinitionError(
+                "Workflow not configurable in minimal preset"
             )
-            return _dto_from_orm(record)
+        if configurability == "partial":
+            raise WorkflowDefinitionError(
+                "Custom workflows only allowed in extended preset"
+            )
+
+    @staticmethod
+    def _validate_custom_schema(
+        states: list[str], transitions: list[dict[str, Any]]
+    ) -> None:
+        """Fail-fast on a structurally invalid custom definition (REQ-L3-WE001-002).
+
+        At least 2 states and at least 1 transition are required.
+        """
+        if len(states) < 2:
+            raise WorkflowDefinitionError(
+                "Custom workflow requires at least 2 states"
+            )
+        if len(transitions) < 1:
+            raise WorkflowDefinitionError(
+                "Custom workflow requires at least 1 transition"
+            )
+
+    @staticmethod
+    def _validate_transition_states(
+        states: list[str], transitions: list[dict[str, Any]]
+    ) -> None:
+        """Reject transitions referencing undeclared states (REQ-L3-WE001-002)."""
+        state_set = set(states)
+        for t in transitions:
+            if t.get("from_state") not in state_set:
+                raise WorkflowDefinitionError(
+                    f"Invalid transition: unknown state '{t.get('from_state')}'"
+                )
+            if t.get("to_state") not in state_set:
+                raise WorkflowDefinitionError(
+                    f"Invalid transition: unknown state '{t.get('to_state')}'"
+                )
+
+    def _reject_orphaned_states(
+        self,
+        workspace_id: UUID | str,
+        item_type: str,
+        removed_states: set[str],
+    ) -> None:
+        """Raise while live items sit in a removed state (REQ-L2-WE-004)."""
+        for orphaned in removed_states:
+            self._check_orphaned_state(workspace_id, item_type, orphaned)
 
     # -- Orphaned-state check (REQ-L3-WE001-003) ------------------------------
 
@@ -1357,7 +1444,6 @@ class WorkflowDefinitionStore:
         workspace_id: UUID | str,
         item_type: str,
         state: str,
-        _workspace_id_str: str,
     ) -> None:
         """Raise OrphanedStateError if items exist in ``state`` (REQ-L2-WE-004)."""
         qs = WorkflowItemState.objects.filter(
@@ -1400,28 +1486,43 @@ class WorkflowDefinitionStore:
         target_states = set(PRESET_SCHEMAS[target_preset]["states"])
 
         # Find items in states NOT valid for target preset.
+        counts = self._incompatible_state_counts(
+            workspace_id, item_type, target_states
+        )
+        incompatible = [state for state, count in counts.items() if count > 0]
+
+        if incompatible:
+            raise PresetDowngradeBlockedError(
+                incompatible_states=incompatible,
+                count=sum(counts[state] for state in incompatible),
+            )
+
+    def _incompatible_state_counts(
+        self,
+        workspace_id: UUID | str,
+        item_type: str,
+        target_states: set[str],
+    ) -> dict[str, int]:
+        """Return the live item count for every state the target preset lacks.
+
+        REQ-L3-WE001-004: unknown states keep the order in which the distinct
+        values are returned by the query.
+        """
         all_item_states = WorkflowItemState.objects.filter(
             workspace_id=str(workspace_id), item_type=item_type
         ).values("current_state").distinct()
 
-        incompatible: list[str] = []
-        total_count = 0
+        counts: dict[str, int] = {}
         for row in all_item_states:
             state = row["current_state"]
-            if state not in target_states:
-                count = WorkflowItemState.objects.filter(
-                    workspace_id=str(workspace_id),
-                    item_type=item_type,
-                    current_state=state,
-                ).count()
-                if count > 0:
-                    incompatible.append(state)
-                    total_count += count
-
-        if incompatible:
-            raise PresetDowngradeBlockedError(
-                incompatible_states=incompatible, count=total_count
-            )
+            if state in target_states:
+                continue
+            counts[state] = WorkflowItemState.objects.filter(
+                workspace_id=str(workspace_id),
+                item_type=item_type,
+                current_state=state,
+            ).count()
+        return counts
 
     # -- Granular edit-mode mutations (REQ-177) -------------------------------
     #
@@ -1467,6 +1568,38 @@ class WorkflowDefinitionStore:
         ]
         return list(dto.states), transitions
 
+    @staticmethod
+    def _find_transition(
+        transitions: list[dict[str, Any]], from_state: str, to_state: str
+    ) -> dict[str, Any] | None:
+        """Return the transition dict for a (from_state, to_state) pair or None."""
+        for t in transitions:
+            if t["from_state"] == from_state and t["to_state"] == to_state:
+                return t
+        return None
+
+    @staticmethod
+    def _rewire_transitions(
+        transitions: list[dict[str, Any]], old_name: str, new_name: str
+    ) -> None:
+        """Move every edge endpoint from ``old_name`` to ``new_name`` (REQ-177)."""
+        for t in transitions:
+            if t["from_state"] == old_name:
+                t["from_state"] = new_name
+            if t["to_state"] == old_name:
+                t["to_state"] = new_name
+
+    @staticmethod
+    def _normalized_roles(roles: list[str] | None) -> list[str]:
+        """Drop blank role names and keep the admin escape hatch (convention).
+
+        admin retains transition rights across every preset.
+        """
+        cleaned = [r for r in (roles or []) if r and r.strip()]
+        if "admin" not in cleaned:
+            cleaned.append("admin")
+        return cleaned
+
     def add_state(
         self, workspace_id: UUID | str, item_type: str, name: str
     ) -> WorkflowDefinitionDTO:
@@ -1507,15 +1640,9 @@ class WorkflowDefinitionStore:
         if clean in states:
             raise WorkflowDefinitionError(f"State '{clean}' already exists")
         # Reject rename while items occupy the old state (would orphan them).
-        self._check_orphaned_state(
-            workspace_id, item_type, old_name, str(workspace_id)
-        )
+        self._check_orphaned_state(workspace_id, item_type, old_name)
         states = [clean if s == old_name else s for s in states]
-        for t in transitions:
-            if t["from_state"] == old_name:
-                t["from_state"] = clean
-            if t["to_state"] == old_name:
-                t["to_state"] = clean
+        self._rewire_transitions(transitions, old_name, clean)
         return self.validate_and_persist_custom(
             workspace_id, item_type, states, transitions
         )
@@ -1540,9 +1667,7 @@ class WorkflowDefinitionStore:
         if referencing:
             raise StateReferencedError(name, referencing)
         # Reject when items still occupy the state (would strand them).
-        self._check_orphaned_state(
-            workspace_id, item_type, name, str(workspace_id)
-        )
+        self._check_orphaned_state(workspace_id, item_type, name)
         states = [s for s in states if s != name]
         return self.validate_and_persist_custom(
             workspace_id, item_type, states, transitions
@@ -1564,20 +1689,15 @@ class WorkflowDefinitionStore:
             raise WorkflowDefinitionError(f"Unknown from_state '{from_state}'")
         if to_state not in states:
             raise WorkflowDefinitionError(f"Unknown to_state '{to_state}'")
-        for t in transitions:
-            if t["from_state"] == from_state and t["to_state"] == to_state:
-                raise WorkflowDefinitionError(
-                    f"Transition '{from_state} -> {to_state}' already exists"
-                )
-        roles = [r for r in (allowed_roles or []) if r and r.strip()]
-        if "admin" not in roles:
-            # admin retains transition rights across every preset (convention).
-            roles.append("admin")
+        if self._find_transition(transitions, from_state, to_state) is not None:
+            raise WorkflowDefinitionError(
+                f"Transition '{from_state} -> {to_state}' already exists"
+            )
         transitions.append(
             {
                 "from_state": from_state,
                 "to_state": to_state,
-                "allowed_roles": roles,
+                "allowed_roles": self._normalized_roles(allowed_roles),
                 "requires_change_reason": bool(requires_change_reason),
                 "signature_gate": bool(signature_gate),
             }
@@ -1603,23 +1723,13 @@ class WorkflowDefinitionStore:
         moving an edge is a delete + add. Only supplied fields are updated.
         """
         states, transitions = self._editable(workspace_id, item_type)
-        target = next(
-            (
-                t
-                for t in transitions
-                if t["from_state"] == from_state and t["to_state"] == to_state
-            ),
-            None,
-        )
+        target = self._find_transition(transitions, from_state, to_state)
         if target is None:
             raise WorkflowDefinitionError(
                 f"Unknown transition '{from_state} -> {to_state}'"
             )
         if allowed_roles is not None:
-            roles = [r for r in allowed_roles if r and r.strip()]
-            if "admin" not in roles:
-                roles.append("admin")
-            target["allowed_roles"] = roles
+            target["allowed_roles"] = self._normalized_roles(allowed_roles)
         if requires_change_reason is not None:
             target["requires_change_reason"] = bool(requires_change_reason)
         if signature_gate is not None:
