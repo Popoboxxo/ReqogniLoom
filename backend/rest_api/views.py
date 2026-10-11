@@ -2611,43 +2611,17 @@ class ArchitectureElementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             element = self._svc().get_architecture_element(UUID(pk), ctx)
             workspace_id = element.artifact.workspace_id
 
-            depth_param = request.query_params.get("depth")
-            depth = int(depth_param) if depth_param is not None else None
-
-            filter_mode = request.query_params.get("filter_mode", "all")
-            fields_param = request.query_params.get("fields")
-            fields = fields_param.split(",") if fields_param else None
-
-            output_format = request.query_params.get("output_format", "json")
-            if output_format not in ("json", "markdown", "csv"):
-                return Response(
-                    build_error_response(
-                        "VALIDATION_ERROR", lang,
-                        message=(
-                            f"Invalid output_format {output_format!r}; "
-                            "expected json, markdown, or csv"
-                        ),
-                    ),
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-            mode = request.query_params.get("mode", "raw")
-            if mode not in ("raw", "compressed"):
-                return Response(
-                    build_error_response(
-                        "VALIDATION_ERROR", lang,
-                        message=f"Invalid mode {mode!r}; expected raw or compressed",
-                    ),
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
+            query, invalid = self._parse_bundle_query_params(request, lang)
+            if invalid is not None:
+                return invalid
 
             result = RequirementBundleQueryService().get_bundle(
                 ctx,
                 root_id=UUID(pk),
                 workspace_id=workspace_id,
-                depth=depth,
-                filter_mode=filter_mode,
-                fields=fields,
+                depth=query["depth"],
+                filter_mode=query["filter_mode"],
+                fields=query["fields"],
             )
         except (NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
@@ -2669,18 +2643,104 @@ class ArchitectureElementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         except Exception as exc:
             return _service_error_response(exc, lang)
 
-        if mode == "raw":
-            if output_format == "json":
-                return Response(format_bundle_json(result))
-            if output_format == "markdown":
-                return HttpResponse(
-                    format_bundle_markdown(result), content_type="text/markdown; charset=utf-8"
-                )
-            return HttpResponse(format_bundle_csv(result), content_type="text/csv; charset=utf-8")
+        if query["mode"] == "raw":
+            return self._render_raw_bundle(result, query["output_format"])
 
         # mode == "compressed" — route the same bundle through
         # BundleCompressionService (Plan 2 Task 1/2) instead of the raw
         # formatters above. ?output_format= is not applicable here.
+        return self._compress_bundle(
+            request,
+            ctx,
+            result,
+            pk,
+            query["depth"],
+            query["filter_mode"],
+            query["fields"],
+            workspace_id,
+            lang,
+        )
+
+    def _parse_bundle_query_params(
+        self, request: Request, lang: str
+    ) -> tuple[dict[str, Any], Response | None]:
+        """Resolve the query parameters shared by both bundle modes.
+
+        Returns the parsed bundle query and ``None``, or ``None`` and the
+        ``400 VALIDATION_ERROR`` response for an unknown ``output_format``
+        or ``mode`` (validated in that order). A malformed ``depth`` still
+        raises ``ValueError`` for the caller's error handler, which keeps
+        the documented 400 contract.
+        """
+        depth_param = request.query_params.get("depth")
+        depth = int(depth_param) if depth_param is not None else None
+
+        filter_mode = request.query_params.get("filter_mode", "all")
+        fields_param = request.query_params.get("fields")
+        fields = fields_param.split(",") if fields_param else None
+
+        output_format = request.query_params.get("output_format", "json")
+        if output_format not in ("json", "markdown", "csv"):
+            return None, Response(
+                build_error_response(
+                    "VALIDATION_ERROR", lang,
+                    message=(
+                        f"Invalid output_format {output_format!r}; "
+                        "expected json, markdown, or csv"
+                    ),
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        mode = request.query_params.get("mode", "raw")
+        if mode not in ("raw", "compressed"):
+            return None, Response(
+                build_error_response(
+                    "VALIDATION_ERROR", lang,
+                    message=f"Invalid mode {mode!r}; expected raw or compressed",
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return {
+            "depth": depth,
+            "filter_mode": filter_mode,
+            "fields": fields,
+            "output_format": output_format,
+            "mode": mode,
+        }, None
+
+    @staticmethod
+    def _render_raw_bundle(result: Any, output_format: str) -> Response:
+        """Render the raw bundle in the requested ``output_format``."""
+        if output_format == "json":
+            return Response(format_bundle_json(result))
+        if output_format == "markdown":
+            return HttpResponse(
+                format_bundle_markdown(result), content_type="text/markdown; charset=utf-8"
+            )
+        return HttpResponse(format_bundle_csv(result), content_type="text/csv; charset=utf-8")
+
+    def _compress_bundle(
+        self,
+        request: Request,
+        ctx: Any,
+        result: Any,
+        pk: str,
+        depth: int | None,
+        filter_mode: str,
+        fields: list[str] | None,
+        workspace_id: Any,
+        lang: str,
+    ) -> Response:
+        """Route the bundle through BundleCompressionService (Plan 2 Task 1/2).
+
+        ``?output_format=`` is not applicable here. Dispatches the
+        compression to a Celery worker and answers 202 with a ``task_id``
+        (503 if the broker is unconfigured) when ``?async=true`` is sent or
+        the bundle exceeds ``SYNC_ITEM_COUNT_THRESHOLD`` items; otherwise
+        the compression runs synchronously.
+        """
         try:
             from application.bundle_compression_service import (
                 BundleCompressionService,
@@ -2691,11 +2751,12 @@ class ArchitectureElementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             use_async = force_async or len(result.items) > SYNC_ITEM_COUNT_THRESHOLD
 
             compression_svc = BundleCompressionService()
+            root_id = UUID(pk)
             if use_async:
                 dispatch = compression_svc.compress_async(
                     ctx,
                     result,
-                    root_id=UUID(pk),
+                    root_id=root_id,
                     depth=depth,
                     filter_mode=filter_mode,
                     fields=fields,
@@ -2709,7 +2770,7 @@ class ArchitectureElementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             compression = compression_svc.compress(
                 ctx,
                 result,
-                root_id=UUID(pk),
+                root_id=root_id,
                 depth=depth,
                 filter_mode=filter_mode,
                 fields=fields,
@@ -4153,59 +4214,11 @@ class BaselineViewSet(BaseEntityViewSet):
         data = ser.validated_data
         try:
             ctx = get_auth_context(request)
-            scope = data.get("scope", "document")
-            name = data.get("name", "")
-            # The UI create form does not supply a name; generate one so the
-            # unique-per-workspace constraint is satisfied.
-            if not name or not str(name).strip():
-                name = f"Baseline {timezone.now().isoformat()}"
-            create_kwargs = {
-                "scope": scope,
-                "workspace_id": str(workspace_pk or data["workspace_id"]),
-                "name": name,
-                "description": data.get("description"),
-                "ctx": ctx,
-            }
-            # GH-513: only forwarded when actually supplied — the facade treats
-            # a blank reason as "no override" anyway, but not sending the key
-            # keeps the default call shape unchanged for every other caller.
-            override_reason = data.get("override_reason")
-            if override_reason and str(override_reason).strip():
-                create_kwargs["override_reason"] = str(override_reason)
-            # GH-821: per-finding waivers. Already shape-validated by
-            # BaselineSerializer (BlockerWaiverSerializer); the facade re-checks
-            # the same shape so the MCP path cannot bypass it.
-            waived_findings = data.get("waived_findings") or []
-            if waived_findings:
-                create_kwargs["waived_findings"] = list(waived_findings)
-            # document scope requires a root artifact; artifact_id is the
-            # view-facing name, the facade/service expect document_id.
-            artifact_id = data.get("artifact_id")
-            if scope == "document" and artifact_id is None:
-                return Response(
-                    build_error_response(
-                        "VALIDATION_ERROR",
-                        lang,
-                        message="artifact_id is required for document scope",
-                    ),
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-            if artifact_id is not None:
-                # GH-724: reject a malformed (non-UUID) artifact_id here with a
-                # clean 400 instead of letting a raw ValueError from the
-                # facade's UUID(str(document_id)) conversion escape as a 500.
-                try:
-                    UUID(str(artifact_id))
-                except (ValueError, TypeError):
-                    return Response(
-                        build_error_response(
-                            "VALIDATION_ERROR",
-                            lang,
-                            message="artifact_id must be a valid UUID",
-                        ),
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
-                create_kwargs["document_id"] = str(artifact_id)
+            create_kwargs, invalid = self._baseline_create_kwargs(
+                data, workspace_pk, ctx, lang
+            )
+            if invalid is not None:
+                return invalid
             baseline_id = self._svc().create_baseline(**create_kwargs)
             # Fetch the newly created baseline detail for the response
             item = self._svc().get_baseline(baseline_id, ctx)
@@ -4220,6 +4233,72 @@ class BaselineViewSet(BaseEntityViewSet):
             ),
             item,
         )
+
+    def _baseline_create_kwargs(
+        self, data: dict[str, Any], workspace_pk: str | None, ctx: Any, lang: str
+    ) -> tuple[dict[str, Any] | None, Response | None]:
+        """Build the facade kwargs for ``create_baseline``.
+
+        Returns ``(create_kwargs, None)`` on success, or ``(None, response)``
+        with the ``400 VALIDATION_ERROR`` response when ``artifact_id`` is
+        missing for document scope or malformed (GH-724). A missing
+        workspace_id key raises ``KeyError`` for the caller's error handler
+        exactly like the inline version.
+        """
+        scope = data.get("scope", "document")
+        name = data.get("name", "")
+        # The UI create form does not supply a name; generate one so the
+        # unique-per-workspace constraint is satisfied.
+        if not name or not str(name).strip():
+            name = f"Baseline {timezone.now().isoformat()}"
+        create_kwargs: dict[str, Any] = {
+            "scope": scope,
+            "workspace_id": str(workspace_pk or data["workspace_id"]),
+            "name": name,
+            "description": data.get("description"),
+            "ctx": ctx,
+        }
+        # GH-513: only forwarded when actually supplied — the facade treats
+        # a blank reason as "no override" anyway, but not sending the key
+        # keeps the default call shape unchanged for every other caller.
+        override_reason = data.get("override_reason")
+        if override_reason and str(override_reason).strip():
+            create_kwargs["override_reason"] = str(override_reason)
+        # GH-821: per-finding waivers. Already shape-validated by
+        # BaselineSerializer (BlockerWaiverSerializer); the facade re-checks
+        # the same shape so the MCP path cannot bypass it.
+        waived_findings = data.get("waived_findings") or []
+        if waived_findings:
+            create_kwargs["waived_findings"] = list(waived_findings)
+        # document scope requires a root artifact; artifact_id is the
+        # view-facing name, the facade/service expect document_id.
+        artifact_id = data.get("artifact_id")
+        if scope == "document" and artifact_id is None:
+            return None, Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    message="artifact_id is required for document scope",
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if artifact_id is not None:
+            # GH-724: reject a malformed (non-UUID) artifact_id here with a
+            # clean 400 instead of letting a raw ValueError from the
+            # facade's UUID(str(document_id)) conversion escape as a 500.
+            try:
+                UUID(str(artifact_id))
+            except (ValueError, TypeError):
+                return None, Response(
+                    build_error_response(
+                        "VALIDATION_ERROR",
+                        lang,
+                        message="artifact_id must be a valid UUID",
+                    ),
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            create_kwargs["document_id"] = str(artifact_id)
+        return create_kwargs, None
 
     @action(detail=False, methods=["get"], url_path="diff")
     def diff(self, request: Request, **kwargs: Any) -> Response:
