@@ -568,33 +568,50 @@ class InterviewService(ServiceBase):
         Only called for fields that resolve to a real protocol field (see
         ``_find_protocol_field``); raises ``ValidationError`` naming the
         field, its expected type, and what was actually received.
+        Dispatches to one validator per declared protocol type; an
+        unknown type validates nothing (same as before the split).
         """
         if field.type == "number":
-            if isinstance(value, bool) or not isinstance(value, (int, float, str)):
-                raise ValidationError(
-                    f"Field {field.name!r} expects a number, got "
-                    f"{type(value).__name__}."
-                )
-            if isinstance(value, str):
-                try:
-                    float(value)
-                except ValueError:
-                    raise ValidationError(
-                        f"Field {field.name!r} expects a number, got a "
-                        f"non-numeric string {value!r}."
-                    )
+            InterviewService._validate_number_value(field, value)
         elif field.type == "enum":
-            if value not in (field.choices or []):
-                raise ValidationError(
-                    f"Field {field.name!r} expects one of {field.choices!r}, "
-                    f"got {value!r}."
-                )
+            InterviewService._validate_enum_value(field, value)
         elif field.type in ("text", "textarea"):
-            if not isinstance(value, str):
+            InterviewService._validate_text_value(field, value)
+
+    @staticmethod
+    def _validate_number_value(field, value: Any) -> None:
+        """Number-typed protocol field validator (see ``_validate_field_value_type``)."""
+        if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+            raise ValidationError(
+                f"Field {field.name!r} expects a number, got "
+                f"{type(value).__name__}."
+            )
+        if isinstance(value, str):
+            try:
+                float(value)
+            except ValueError:
                 raise ValidationError(
-                    f"Field {field.name!r} expects a string ({field.type}), "
-                    f"got {type(value).__name__}."
+                    f"Field {field.name!r} expects a number, got a "
+                    f"non-numeric string {value!r}."
                 )
+
+    @staticmethod
+    def _validate_enum_value(field, value: Any) -> None:
+        """Enum-typed protocol field validator (see ``_validate_field_value_type``)."""
+        if value not in (field.choices or []):
+            raise ValidationError(
+                f"Field {field.name!r} expects one of {field.choices!r}, "
+                f"got {value!r}."
+            )
+
+    @staticmethod
+    def _validate_text_value(field, value: Any) -> None:
+        """Text/textarea protocol field validator (see ``_validate_field_value_type``)."""
+        if not isinstance(value, str):
+            raise ValidationError(
+                f"Field {field.name!r} expects a string ({field.type}), "
+                f"got {type(value).__name__}."
+            )
 
     @staticmethod
     def _structural_candidates(ctx, session: InterviewSession) -> "list[dict[str, Any]]":
@@ -816,18 +833,7 @@ class InterviewService(ServiceBase):
         response must never surface as an error to the interview (spec §6,
         fail-open). Candidates the response didn't score keep ``score=None``.
         """
-        try:
-            scored = json.loads(raw)
-            if not isinstance(scored, list):
-                return candidates
-            score_by_id = {
-                str(entry["artifact_id"]): float(entry["score"])
-                for entry in scored
-                if isinstance(entry, dict) and "artifact_id" in entry and "score" in entry
-            }
-        except Exception:  # noqa: BLE001 -- fail-open, see docstring
-            return candidates
-
+        score_by_id = InterviewService._parse_score_map(raw)
         if not score_by_id:
             return candidates
 
@@ -837,6 +843,25 @@ class InterviewService(ServiceBase):
         ]
         ranked.sort(key=lambda c: (c["score"] is None, -(c["score"] or 0.0)))
         return ranked
+
+    @staticmethod
+    def _parse_score_map(raw: str) -> dict[str, float] | None:
+        """Score map (``artifact_id`` -> float score) parsed from the provider's
+        JSON ranking response, or None on any parse/shape failure -- a
+        malformed LLM response must never surface as an error to the
+        interview (spec §6, fail-open).
+        """
+        try:
+            scored = json.loads(raw)
+            if not isinstance(scored, list):
+                return None
+            return {
+                str(entry["artifact_id"]): float(entry["score"])
+                for entry in scored
+                if isinstance(entry, dict) and "artifact_id" in entry and "score" in entry
+            }
+        except Exception:  # noqa: BLE001 -- fail-open, see docstring
+            return None
 
     def grounding_context(self, ctx, session_id: UUID) -> "dict[str, Any]":
         """Structural + AI-assisted grounding — spec §6.
@@ -2456,47 +2481,8 @@ class InterviewService(ServiceBase):
         # Flip stale rows before filtering, so a "status=in_progress" list
         # doesn't include sessions that are stale-but-not-yet-read
         # individually (list_sessions has no single row to lazily patch the
-        # way _get_session does). Per-row (not a bulk .update()) since each
-        # transition needs its own WorkflowItemState mutation + history
-        # entry -- an infrequent housekeeping sweep over a handful of stale
-        # rows, not a hot path.
-        #
-        # Datenmodell-Konsolidierung Phase 1: the ``status`` column is
-        # write-once at creation and never updates for a tracked session, so
-        # a SQL-level ``status=STATUS_IN_PROGRESS`` filter can no longer
-        # narrow this query -- every single-mode session that ever
-        # engine-completed would still match it, growing with total
-        # historical session count instead of the genuinely-stale count.
-        # Filter on ``modified_at`` alone (still reliable) to get the TTL
-        # candidates, then batch-resolve engine state for exactly that set
-        # in one query (same pattern as the ``status=`` filter below) and
-        # only enqueue rows whose *engine* state is still "in_progress" --
-        # the expensive per-candidate fetch-then-check loop now runs only
-        # over the small, genuinely-stale subset, not every old session.
-        # Task 12: ``status`` is dropped from the ``.values()`` projection --
-        # a row with no WorkflowItemState falls back to the
-        # interview_default preset's initial state (documented, reviewed
-        # data-loss tradeoff, see Task 12 report Finding 2).
-        candidate_rows = list(
-            InterviewSession.objects.filter(
-                workspace_id=workspace_id,
-                modified_at__lt=timezone.now() - ABANDONED_TTL,
-            ).values("id")
-        )
-        candidate_states = state_reader.current_states(
-            "Interview", (row["id"] for row in candidate_rows)
-        )
-        interview_initial_state = state_reader.initial_state("Interview")
-        stale_ids = [
-            row["id"]
-            for row in candidate_rows
-            if (candidate_states.get(str(row["id"])) or interview_initial_state)
-            == InterviewSession.STATUS_IN_PROGRESS
-        ]
-        for stale_id in stale_ids:
-            stale_session = InterviewSession.objects.filter(id=stale_id).first()
-            if stale_session is not None:
-                self._lazily_abandon_if_stale(stale_session, ctx)
+        # way _get_session does).
+        self._abandon_stale_sessions(ctx, workspace_id)
 
         qs = InterviewSession.objects.filter(workspace_id=workspace_id)
         if status:
@@ -2506,17 +2492,56 @@ class InterviewService(ServiceBase):
             # is dropped from the ``.values()`` projection -- a session never
             # wired into a WorkflowItemState falls back to the
             # interview_default preset's initial state.
-            rows = list(qs.values("id"))
-            states = state_reader.current_states(
-                "Interview", (row["id"] for row in rows)
-            )
-            matching_ids = [
-                row["id"]
-                for row in rows
-                if (states.get(str(row["id"])) or interview_initial_state) == status
-            ]
-            qs = qs.filter(id__in=matching_ids)
+            qs = qs.filter(id__in=self._ids_in_engine_state(workspace_id, status))
         return qs.order_by("-modified_at")
+
+    def _abandon_stale_sessions(self, ctx, workspace_id: UUID) -> None:
+        """Run the stale-session housekeeping sweep for one workspace.
+
+        Per-row (not a bulk .update()) since each transition needs its own
+        WorkflowItemState mutation + history entry -- an infrequent
+        housekeeping sweep over a handful of stale rows, not a hot path.
+        """
+        for stale_id in self._ids_in_engine_state(
+            workspace_id, InterviewSession.STATUS_IN_PROGRESS, stale_only=True
+        ):
+            stale_session = InterviewSession.objects.filter(id=stale_id).first()
+            if stale_session is not None:
+                self._lazily_abandon_if_stale(stale_session, ctx)
+
+    def _ids_in_engine_state(
+        self, workspace_id: UUID, expected_state: str, *, stale_only: bool = False
+    ) -> list[UUID]:
+        """IDs of the workspace's sessions whose *engine* state is *expected_state*.
+
+        Datenmodell-Konsolidierung Phase 1: the ``status`` column is
+        write-once at creation and never updates for a tracked session, so
+        a SQL-level ``status=STATUS_IN_PROGRESS`` filter can no longer
+        narrow this query -- every single-mode session that ever
+        engine-completed would still match it, growing with total
+        historical session count instead of the genuinely-stale count.
+        With *stale_only* the query filters on ``modified_at`` alone
+        (still reliable) to get the TTL candidates, then batch-resolves
+        engine state for exactly that set in one query and only keeps rows
+        whose *engine* state is still "in_progress" -- the expensive
+        per-candidate fetch-then-check loop now runs only over the small,
+        genuinely-stale subset, not every old session.
+        Task 12: ``status`` is dropped from the ``.values()`` projection --
+        a row with no WorkflowItemState falls back to the
+        interview_default preset's initial state (documented, reviewed
+        data-loss tradeoff, see Task 12 report Finding 2).
+        """
+        base = InterviewSession.objects.filter(workspace_id=workspace_id)
+        if stale_only:
+            base = base.filter(modified_at__lt=timezone.now() - ABANDONED_TTL)
+        rows = list(base.values("id"))
+        states = state_reader.current_states("Interview", (row["id"] for row in rows))
+        initial_state = state_reader.initial_state("Interview")
+        return [
+            row["id"]
+            for row in rows
+            if (states.get(str(row["id"])) or initial_state) == expected_state
+        ]
 
     def get(self, ctx, session_id: UUID) -> InterviewSession:
         return self._get_session(ctx, session_id)
