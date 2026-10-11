@@ -34,6 +34,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import { getArtifactRoute } from "../../utils/artifactRoutes";
 import { tracelinksApi } from "../../api/tracelinks";
 import { traceabilityApi } from "../../api/traceability";
@@ -75,6 +76,7 @@ import type {
   Requirement,
   TraceLink,
   UUID,
+  Workspace,
 } from "../../types";
 
 interface TraceabilityState {
@@ -248,32 +250,17 @@ function orderedGroupKeys(grouped: Record<string, TraceLink[]>): string[] {
   return [...known, ...unknown];
 }
 
-export default function TraceabilityView(): JSX.Element {
-  const { t } = useTranslation();
-  const navigate = useNavigate();
-  // #425: trace-link endpoints were plain text — not focusable, not
-  // operable — with no way to reach the artifact they describe.
-  const handleOpenEndpoint = (artifactType: string, entityId: UUID): void => {
-    navigate(getArtifactRoute(artifactType, entityId));
-  };
-  const { activeWorkspace, isLoadingWorkspace } = useWorkspace();
+/**
+ * Loads every source TraceabilityView renders (links, requirements,
+ * artifact/title/entity indexes, cycles) and mirrors loading/error state.
+ */
+function useTraceabilityData(
+  activeWorkspace: Workspace | null,
+  isLoadingWorkspace: boolean,
+  t: TFunction,
+  reloadKey: number
+): TraceabilityState {
   const [state, setState] = useState<TraceabilityState>(INITIAL_STATE);
-  // REQ-005: unified CreateTraceLinkDialog replaces the old inline form
-  const [showCreateDialog, setShowCreateDialog] = useState<boolean>(false);
-  const [reloadKey, setReloadKey] = useState<number>(0);
-  const [isExportingPdf, setIsExportingPdf] = useState<boolean>(false);
-  // Impact-analysis artifact picker (REQ-L2-TE-019). Issue #184: the actual
-  // reachability computation/rendering used to be duplicated here and on
-  // the canonical `/impact` route — this panel now only pre-selects a
-  // workspace-scoped artifact and hands it off to `/impact` (see
-  // impact-preset.ts), instead of running its own second impact query.
-  const [impactArtifact, setImpactArtifact] = useState<string>("");
-  // REQ-005/#181: list-panel search + link-type filter (ListToolbar).
-  const [listSearch, setListSearch] = useState<string>("");
-  const [linkTypeFilter, setLinkTypeFilter] = useState<string>("");
-  // #413: "nicht abgedeckt" filter — swaps the link list for the list of
-  // requirements without a verifying test.
-  const [showUncoveredOnly, setShowUncoveredOnly] = useState<boolean>(false);
 
   useEffect(() => {
     // Issue B: activeWorkspace starts as the DEFAULT_WORKSPACE placeholder
@@ -425,23 +412,410 @@ export default function TraceabilityView(): JSX.Element {
     };
   }, [activeWorkspace, isLoadingWorkspace, t, reloadKey]);
 
-  // #181: search across resolved endpoint titles/ids + link-type filter,
-  // applied before grouping so both controls narrow the same result set the
-  // count label reports.
+  return state;
+}
+
+/**
+ * #181: search across resolved endpoint titles/ids + link-type filter,
+ * applied before grouping so both controls narrow the same result set the
+ * count label reports.
+ */
+function useTraceLinkGroups(
+  links: TraceLink[],
+  titles: Record<UUID, string>,
+  listSearch: string,
+  linkTypeFilter: string
+): {
+  filteredLinks: TraceLink[];
+  grouped: Record<string, TraceLink[]>;
+  groupKeys: string[];
+} {
   const filteredLinks = useMemo(() => {
     const q = listSearch.trim().toLowerCase();
-    return state.links.filter((link) => {
+    return links.filter((link) => {
       if (linkTypeFilter && link.link_type !== linkTypeFilter) return false;
       if (!q) return true;
-      const sourceLabel = renderEndpoint(link.source_id, state.titles).toLowerCase();
-      const targetLabel = renderEndpoint(link.target_id, state.titles).toLowerCase();
+      const sourceLabel = renderEndpoint(link.source_id, titles).toLowerCase();
+      const targetLabel = renderEndpoint(link.target_id, titles).toLowerCase();
       const typeLabel = getLinkTypeLabel(link.link_type).toLowerCase();
       return sourceLabel.includes(q) || targetLabel.includes(q) || typeLabel.includes(q);
     });
-  }, [state.links, state.titles, listSearch, linkTypeFilter]);
+  }, [links, titles, listSearch, linkTypeFilter]);
 
   const grouped = useMemo(() => groupByLinkType(filteredLinks), [filteredLinks]);
   const groupKeys = useMemo(() => orderedGroupKeys(grouped), [grouped]);
+
+  return { filteredLinks, grouped, groupKeys };
+}
+
+/**
+ * #413: verification coverage surface. Rendered whenever the workspace has
+ * requirements, because "which requirement has no test?" must be answerable
+ * even when not a single trace link exists yet.
+ */
+function CoveragePanel({
+  requirements,
+  uncoveredCount,
+  showUncoveredOnly,
+  onToggleUncovered,
+  activeWorkspace,
+  t,
+}: {
+  requirements: Requirement[];
+  uncoveredCount: number;
+  showUncoveredOnly: boolean;
+  onToggleUncovered: (value: boolean) => void;
+  activeWorkspace: Workspace | null;
+  t: TFunction;
+}): JSX.Element {
+  const coveredCount = requirements.length - uncoveredCount;
+  return (
+    <div className={styles.coveragePanel} data-testid="traceability-coverage-panel">
+      <p className={styles.coverageSummary} data-testid="traceability-coverage-summary">
+        {t(
+          "traceability.coverageSummary",
+          "{{covered}}/{{total}} Anforderungen verifiziert · {{uncovered}} ohne Test",
+          {
+            covered: coveredCount,
+            total: requirements.length,
+            uncovered: uncoveredCount,
+          }
+        )}
+      </p>
+      <label className={styles.coverageToggle}>
+        <input
+          type="checkbox"
+          data-testid="traceability-uncovered-toggle"
+          checked={showUncoveredOnly}
+          onChange={(e) => onToggleUncovered(e.target.checked)}
+        />
+        {t("traceability.showUncoveredOnly", "Nur nicht abgedeckte Anforderungen")}
+      </label>
+      {/* #424: unreviewed AI test cases do not count as coverage, but the
+          exclusion must be visible and reversible from where coverage is
+          shown. The component owns its own loading/error/empty states. */}
+      {activeWorkspace && <PendingAiReviewNote workspaceId={activeWorkspace.id} />}
+    </div>
+  );
+}
+
+/** Cycle detector alert, listed above the grouped links. */
+function CycleWarningPanel({
+  cycles,
+  titles,
+  t,
+}: {
+  cycles: UUID[][];
+  titles: Record<UUID, string>;
+  t: TFunction;
+}): JSX.Element {
+  return (
+    <div
+      role="alert"
+      data-testid="cycle-warning"
+      className={styles.cycleWarning}
+    >
+      <strong className={styles.cycleWarningTitle}>
+        ⚠ {t("traceability.cycleWarning")} ({cycles.length})
+      </strong>
+      <ul className={styles.cycleList}>
+        {cycles.map((cycle, i) => (
+          <li key={i} data-testid="cycle-item">
+            {cycle
+              .map((id) => renderEndpoint(id, titles))
+              .join(" → ")}{" "}
+            → {renderEndpoint(cycle[0], titles)}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/** One trace-link row: source -> link type -> target with coverage badges. */
+function TraceLinkItem({
+  link,
+  titles,
+  types,
+  entityIds,
+  verifiedIds,
+  coveredLabel,
+  uncoveredLabel,
+  onOpen,
+}: {
+  link: TraceLink;
+  titles: Record<UUID, string>;
+  types: Record<UUID, string>;
+  entityIds: Record<UUID, UUID>;
+  verifiedIds: ReadonlySet<UUID>;
+  coveredLabel: string;
+  uncoveredLabel: string;
+  onOpen: (artifactType: string, entityId: UUID) => void;
+}): JSX.Element {
+  return (
+    <li
+      key={link.id}
+      data-testid="tracelink-item"
+      data-link-type={link.link_type}
+      className={styles.groupItem}
+    >
+      <EndpointCell
+        endpoint={endpointOf(link, "source")}
+        titles={titles}
+        types={types}
+        entityIds={entityIds}
+        verifiedIds={verifiedIds}
+        testId="tracelink-source"
+        coveredLabel={coveredLabel}
+        uncoveredLabel={uncoveredLabel}
+        onOpen={onOpen}
+      />
+      <span aria-hidden="true" className={styles.arrow}>
+        →
+      </span>
+      <span
+        data-testid="tracelink-type"
+        className={styles.linkTypeBadge}
+      >
+        {getLinkTypeLabel(link.link_type)}
+      </span>
+      <span aria-hidden="true" className={styles.arrow}>
+        →
+      </span>
+      <EndpointCell
+        endpoint={endpointOf(link, "target")}
+        titles={titles}
+        types={types}
+        entityIds={entityIds}
+        verifiedIds={verifiedIds}
+        testId="tracelink-target"
+        coveredLabel={coveredLabel}
+        uncoveredLabel={uncoveredLabel}
+        onOpen={onOpen}
+      />
+    </li>
+  );
+}
+
+/** All links of one link type, under the canonical section header. */
+function LinkTypeGroupSection({
+  linkType,
+  links,
+  titles,
+  types,
+  entityIds,
+  verifiedIds,
+  coveredLabel,
+  uncoveredLabel,
+  onOpen,
+}: {
+  linkType: string;
+  links: TraceLink[];
+  titles: Record<UUID, string>;
+  types: Record<UUID, string>;
+  entityIds: Record<UUID, UUID>;
+  verifiedIds: ReadonlySet<UUID>;
+  coveredLabel: string;
+  uncoveredLabel: string;
+  onOpen: (artifactType: string, entityId: UUID) => void;
+}): JSX.Element {
+  return (
+    <section
+      data-testid="tracelink-group"
+      data-link-type={linkType}
+      className={styles.groupSection}
+    >
+      <header className={styles.groupHeader}>
+        <h3 className={styles.groupTitle}>
+          {getLinkTypeLabel(linkType)}
+        </h3>
+        <span className={styles.groupCount}>
+          {links.length}
+        </span>
+      </header>
+      <ul className={styles.groupList}>
+        {links.map((link) => (
+          <TraceLinkItem
+            key={link.id}
+            link={link}
+            titles={titles}
+            types={types}
+            entityIds={entityIds}
+            verifiedIds={verifiedIds}
+            coveredLabel={coveredLabel}
+            uncoveredLabel={uncoveredLabel}
+            onOpen={onOpen}
+          />
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+/** #413 uncovered-only mode: coverage surface plus the requirements list. */
+function UncoveredRequirementsPanel({
+  requirements,
+  uncoveredRequirements,
+  showUncoveredOnly,
+  onToggleUncovered,
+  activeWorkspace,
+  t,
+}: {
+  requirements: Requirement[];
+  uncoveredRequirements: Requirement[];
+  showUncoveredOnly: boolean;
+  onToggleUncovered: (value: boolean) => void;
+  activeWorkspace: Workspace | null;
+  t: TFunction;
+}): JSX.Element {
+  return (
+    <>
+      <CoveragePanel
+        requirements={requirements}
+        uncoveredCount={uncoveredRequirements.length}
+        showUncoveredOnly={showUncoveredOnly}
+        onToggleUncovered={onToggleUncovered}
+        activeWorkspace={activeWorkspace}
+        t={t}
+      />
+      {uncoveredRequirements.length === 0 ? (
+        <EmptyState
+          variant="empty"
+          testId="traceability-uncovered-empty"
+          title={t("traceability.allCoveredTitle", "Alle Anforderungen sind verifiziert")}
+          description={t(
+            "traceability.allCoveredDescription",
+            "Jede Anforderung hat mindestens einen verifizierenden Testfall."
+          )}
+        />
+      ) : (
+        <ul className={styles.uncoveredList} data-testid="traceability-uncovered-list">
+          {uncoveredRequirements.map((r) => (
+            <li key={r.id} className={styles.uncoveredItem} data-testid="uncovered-requirement-item">
+              <span className={styles.endpointType}>{REQUIREMENT_ARTIFACT_TYPE}</span>
+              <span className={styles.endpointTitle} title={r.title}>
+                {truncateTitle(r.title || t("editor.untitled"))}
+              </span>
+              <span className={styles.uncoveredUid}>{r.uid ?? formatShortId(r.id)}</span>
+              <span
+                className={`${styles.coverageBadge} ${styles.uncovered}`}
+                data-testid="uncovered-requirement-badge"
+              >
+                ⚠ {t("traceability.notVerified", "kein Test")}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </>
+  );
+}
+
+/**
+ * #184: this panel used to run its own reachability query
+ * (traceabilityApi.impact) and render a duplicate result list — that
+ * computation now lives solely on the canonical `/impact` route. This
+ * panel keeps only the workspace-scoped artifact picker (a convenience
+ * `/impact`'s free-text search doesn't have) and hands off via
+ * openImpactAnalysis(). See impact-preset.ts for the rationale.
+ */
+function ImpactDetailPanel({
+  artifacts,
+  titles,
+  impactArtifact,
+  onArtifactChange,
+  onOpen,
+  t,
+}: {
+  artifacts: Artifact[];
+  titles: Record<UUID, string>;
+  impactArtifact: string;
+  onArtifactChange: (value: string) => void;
+  onOpen: () => void;
+  t: TFunction;
+}): JSX.Element {
+  const hasArtifacts = artifacts.length > 0;
+  return (
+    <section data-testid="impact-panel" className={styles.impactPanel}>
+      <h3 className={styles.impactTitle}>
+        {t("traceability.impactTitle")}
+      </h3>
+      <p className={styles.impactHint}>
+        {t(
+          "traceability.impactHint",
+          "Wähle ein Artefakt und öffne die vollständige Impact-Analyse (interaktiver Baum, beide Richtungen)."
+        )}
+      </p>
+      <div className={styles.impactRow}>
+        <label className={styles.impactFieldLabel}>
+          <span>{t("traceability.impactArtifact")}</span>
+          <select
+            data-testid="impact-artifact-select"
+            value={impactArtifact}
+            onChange={(e) => onArtifactChange(e.target.value)}
+            disabled={!hasArtifacts}
+            className={styles.impactSelect}
+          >
+            <option value="">
+              {hasArtifacts ? "—" : t("traceability.noArtifacts")}
+            </option>
+            {artifacts.map((a) => (
+              <option key={a.id} value={a.id}>
+                {artifactLabel(a, titles)}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <button
+          type="button"
+          data-testid="impact-run-btn"
+          onClick={onOpen}
+          disabled={!impactArtifact}
+          className={`${styles.impactRunBtn} ${
+            !impactArtifact ? styles.impactRunBtnDisabled : styles.impactRunBtnEnabled
+          }`}
+        >
+          {t("traceability.impactRun", "Impact-Analyse öffnen")}
+        </button>
+      </div>
+    </section>
+  );
+}
+
+export default function TraceabilityView(): JSX.Element {
+  const { t } = useTranslation();
+  const navigate = useNavigate();
+  // #425: trace-link endpoints were plain text — not focusable, not
+  // operable — with no way to reach the artifact they describe.
+  const handleOpenEndpoint = (artifactType: string, entityId: UUID): void => {
+    navigate(getArtifactRoute(artifactType, entityId));
+  };
+  const { activeWorkspace, isLoadingWorkspace } = useWorkspace();
+  // REQ-005: unified CreateTraceLinkDialog replaces the old inline form
+  const [showCreateDialog, setShowCreateDialog] = useState<boolean>(false);
+  const [reloadKey, setReloadKey] = useState<number>(0);
+  const state = useTraceabilityData(activeWorkspace, isLoadingWorkspace, t, reloadKey);
+  const [isExportingPdf, setIsExportingPdf] = useState<boolean>(false);
+  // Impact-analysis artifact picker (REQ-L2-TE-019). Issue #184: the actual
+  // reachability computation/rendering used to be duplicated here and on
+  // the canonical `/impact` route — this panel now only pre-selects a
+  // workspace-scoped artifact and hands it off to `/impact` (see
+  // impact-preset.ts), instead of running its own second impact query.
+  const [impactArtifact, setImpactArtifact] = useState<string>("");
+  // REQ-005/#181: list-panel search + link-type filter (ListToolbar).
+  const [listSearch, setListSearch] = useState<string>("");
+  const [linkTypeFilter, setLinkTypeFilter] = useState<string>("");
+  // #413: "nicht abgedeckt" filter — swaps the link list for the list of
+  // requirements without a verifying test.
+  const [showUncoveredOnly, setShowUncoveredOnly] = useState<boolean>(false);
+
+  const { filteredLinks, grouped, groupKeys } = useTraceLinkGroups(
+    state.links,
+    state.titles,
+    listSearch,
+    linkTypeFilter
+  );
   const hasActiveListControls = Boolean(listSearch || linkTypeFilter);
 
   // #413: verification coverage. `verifiedIds` holds Artifact ids (the link
@@ -455,8 +829,9 @@ export default function TraceabilityView(): JSX.Element {
       state.requirements.filter((r) => !verifiedIds.has(r.artifact_id ?? r.id)),
     [state.requirements, verifiedIds]
   );
-  const coveredRequirementCount =
-    state.requirements.length - uncoveredRequirements.length;
+
+  const coveredLabel = t("traceability.verified", "verifiziert");
+  const uncoveredLabel = t("traceability.notVerified", "kein Test");
 
   async function handleExportPdf(): Promise<void> {
     if (!activeWorkspace) return;
@@ -531,8 +906,6 @@ export default function TraceabilityView(): JSX.Element {
     );
   }
 
-  const hasArtifacts = state.artifacts.length > 0;
-
   // REQ-L2-RF-006 / ch. 17 step 6: Trace Links is an explicit Split-View
   // candidate — list on the left (grouped links, ch. 12.3-adjacent), the
   // Impact-Analysis tool on the right as a persistent "detail" pane. Unlike
@@ -547,71 +920,26 @@ export default function TraceabilityView(): JSX.Element {
     setShowUncoveredOnly(false);
   };
 
-  // #413: the coverage surface. Rendered whenever the workspace has
-  // requirements, because "which requirement has no test?" must be answerable
-  // even when not a single trace link exists yet.
   const coveragePanel = state.requirements.length > 0 && (
-    <div className={styles.coveragePanel} data-testid="traceability-coverage-panel">
-      <p className={styles.coverageSummary} data-testid="traceability-coverage-summary">
-        {t(
-          "traceability.coverageSummary",
-          "{{covered}}/{{total}} Anforderungen verifiziert · {{uncovered}} ohne Test",
-          {
-            covered: coveredRequirementCount,
-            total: state.requirements.length,
-            uncovered: uncoveredRequirements.length,
-          }
-        )}
-      </p>
-      <label className={styles.coverageToggle}>
-        <input
-          type="checkbox"
-          data-testid="traceability-uncovered-toggle"
-          checked={showUncoveredOnly}
-          onChange={(e) => setShowUncoveredOnly(e.target.checked)}
-        />
-        {t("traceability.showUncoveredOnly", "Nur nicht abgedeckte Anforderungen")}
-      </label>
-      {/* #424: unreviewed AI test cases do not count as coverage, but the
-          exclusion must be visible and reversible from where coverage is
-          shown. The component owns its own loading/error/empty states. */}
-      {activeWorkspace && <PendingAiReviewNote workspaceId={activeWorkspace.id} />}
-    </div>
+    <CoveragePanel
+      requirements={state.requirements}
+      uncoveredCount={uncoveredRequirements.length}
+      showUncoveredOnly={showUncoveredOnly}
+      onToggleUncovered={setShowUncoveredOnly}
+      activeWorkspace={activeWorkspace}
+      t={t}
+    />
   );
 
   const uncoveredPanel = (
-    <>
-      {coveragePanel}
-      {uncoveredRequirements.length === 0 ? (
-        <EmptyState
-          variant="empty"
-          testId="traceability-uncovered-empty"
-          title={t("traceability.allCoveredTitle", "Alle Anforderungen sind verifiziert")}
-          description={t(
-            "traceability.allCoveredDescription",
-            "Jede Anforderung hat mindestens einen verifizierenden Testfall."
-          )}
-        />
-      ) : (
-        <ul className={styles.uncoveredList} data-testid="traceability-uncovered-list">
-          {uncoveredRequirements.map((r) => (
-            <li key={r.id} className={styles.uncoveredItem} data-testid="uncovered-requirement-item">
-              <span className={styles.endpointType}>{REQUIREMENT_ARTIFACT_TYPE}</span>
-              <span className={styles.endpointTitle} title={r.title}>
-                {truncateTitle(r.title || t("editor.untitled"))}
-              </span>
-              <span className={styles.uncoveredUid}>{r.uid ?? formatShortId(r.id)}</span>
-              <span
-                className={`${styles.coverageBadge} ${styles.uncovered}`}
-                data-testid="uncovered-requirement-badge"
-              >
-                ⚠ {t("traceability.notVerified", "kein Test")}
-              </span>
-            </li>
-          ))}
-        </ul>
-      )}
-    </>
+    <UncoveredRequirementsPanel
+      requirements={state.requirements}
+      uncoveredRequirements={uncoveredRequirements}
+      showUncoveredOnly={showUncoveredOnly}
+      onToggleUncovered={setShowUncoveredOnly}
+      activeWorkspace={activeWorkspace}
+      t={t}
+    />
   );
 
   const linkListPanel = (
@@ -640,25 +968,7 @@ export default function TraceabilityView(): JSX.Element {
       {coveragePanel}
 
       {state.cycles.length > 0 && (
-        <div
-          role="alert"
-          data-testid="cycle-warning"
-          className={styles.cycleWarning}
-        >
-          <strong className={styles.cycleWarningTitle}>
-            ⚠ {t("traceability.cycleWarning")} ({state.cycles.length})
-          </strong>
-          <ul className={styles.cycleList}>
-            {state.cycles.map((cycle, i) => (
-              <li key={i} data-testid="cycle-item">
-                {cycle
-                  .map((id) => renderEndpoint(id, state.titles))
-                  .join(" → ")}{" "}
-                → {renderEndpoint(cycle[0], state.titles)}
-              </li>
-            ))}
-          </ul>
-        </div>
+        <CycleWarningPanel cycles={state.cycles} titles={state.titles} t={t} />
       )}
 
       {state.links.length === 0 ? (
@@ -683,71 +993,20 @@ export default function TraceabilityView(): JSX.Element {
         <EmptyState variant="no-match" testId="traceability-no-match" onResetFilters={resetListFilters} />
       ) : (
         <div data-testid="traceability-list" className={styles.linkList}>
-          {groupKeys.map((linkType) => {
-            const groupLinks = grouped[linkType];
-            return (
-              <section
-                key={linkType}
-                data-testid="tracelink-group"
-                data-link-type={linkType}
-                className={styles.groupSection}
-              >
-                <header className={styles.groupHeader}>
-                  <h3 className={styles.groupTitle}>
-                    {getLinkTypeLabel(linkType)}
-                  </h3>
-                  <span className={styles.groupCount}>
-                    {groupLinks.length}
-                  </span>
-                </header>
-                <ul className={styles.groupList}>
-                  {groupLinks.map((link) => (
-                    <li
-                      key={link.id}
-                      data-testid="tracelink-item"
-                      data-link-type={link.link_type}
-                      className={styles.groupItem}
-                    >
-                      <EndpointCell
-                        endpoint={endpointOf(link, "source")}
-                        titles={state.titles}
-                        types={state.types}
-                        entityIds={state.entityIds}
-                        verifiedIds={verifiedIds}
-                        testId="tracelink-source"
-                        coveredLabel={t("traceability.verified", "verifiziert")}
-                        uncoveredLabel={t("traceability.notVerified", "kein Test")}
-                        onOpen={handleOpenEndpoint}
-                      />
-                      <span aria-hidden="true" className={styles.arrow}>
-                        →
-                      </span>
-                      <span
-                        data-testid="tracelink-type"
-                        className={styles.linkTypeBadge}
-                      >
-                        {getLinkTypeLabel(link.link_type)}
-                      </span>
-                      <span aria-hidden="true" className={styles.arrow}>
-                        →
-                      </span>
-                      <EndpointCell
-                        endpoint={endpointOf(link, "target")}
-                        titles={state.titles}
-                        types={state.types}
-                        entityIds={state.entityIds}
-                        verifiedIds={verifiedIds}
-                        testId="tracelink-target"
-                        coveredLabel={t("traceability.verified", "verifiziert")}
-                        uncoveredLabel={t("traceability.notVerified", "kein Test")}
-                        onOpen={handleOpenEndpoint}
-                      />
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            );
-          })}
+          {groupKeys.map((linkType) => (
+            <LinkTypeGroupSection
+              key={linkType}
+              linkType={linkType}
+              links={grouped[linkType]}
+              titles={state.titles}
+              types={state.types}
+              entityIds={state.entityIds}
+              verifiedIds={verifiedIds}
+              coveredLabel={coveredLabel}
+              uncoveredLabel={uncoveredLabel}
+              onOpen={handleOpenEndpoint}
+            />
+          ))}
         </div>
       )}
     </>
@@ -755,57 +1014,15 @@ export default function TraceabilityView(): JSX.Element {
 
   const listPanel = showUncoveredOnly ? uncoveredPanel : linkListPanel;
 
-  // #184: this panel used to run its own reachability query
-  // (traceabilityApi.impact) and render a duplicate result list — that
-  // computation now lives solely on the canonical `/impact` route. This
-  // panel keeps only the workspace-scoped artifact picker (a convenience
-  // `/impact`'s free-text search doesn't have) and hands off via
-  // openImpactAnalysis(). See impact-preset.ts for the rationale.
   const detailPanel = (
-    <section data-testid="impact-panel" className={styles.impactPanel}>
-      <h3 className={styles.impactTitle}>
-        {t("traceability.impactTitle")}
-      </h3>
-      <p className={styles.impactHint}>
-        {t(
-          "traceability.impactHint",
-          "Wähle ein Artefakt und öffne die vollständige Impact-Analyse (interaktiver Baum, beide Richtungen)."
-        )}
-      </p>
-      <div className={styles.impactRow}>
-        <label className={styles.impactFieldLabel}>
-          <span>{t("traceability.impactArtifact")}</span>
-          <select
-            data-testid="impact-artifact-select"
-            value={impactArtifact}
-            onChange={(e) => setImpactArtifact(e.target.value)}
-            disabled={!hasArtifacts}
-            className={styles.impactSelect}
-          >
-            <option value="">
-              {hasArtifacts ? "—" : t("traceability.noArtifacts")}
-            </option>
-            {state.artifacts.map((a) => (
-              <option key={a.id} value={a.id}>
-                {artifactLabel(a, state.titles)}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <button
-          type="button"
-          data-testid="impact-run-btn"
-          onClick={openImpactAnalysis}
-          disabled={!impactArtifact}
-          className={`${styles.impactRunBtn} ${
-            !impactArtifact ? styles.impactRunBtnDisabled : styles.impactRunBtnEnabled
-          }`}
-        >
-          {t("traceability.impactRun", "Impact-Analyse öffnen")}
-        </button>
-      </div>
-    </section>
+    <ImpactDetailPanel
+      artifacts={state.artifacts}
+      titles={state.titles}
+      impactArtifact={impactArtifact}
+      onArtifactChange={setImpactArtifact}
+      onOpen={openImpactAnalysis}
+      t={t}
+    />
   );
 
   return (
