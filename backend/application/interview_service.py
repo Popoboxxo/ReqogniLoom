@@ -1073,14 +1073,39 @@ class InterviewService(ServiceBase):
 
         Caller contract: must run inside a transaction that holds the row
         lock taken by ``_lock_in_progress_session`` (see ``_formalize_single``).
+
+        Staged into ``_assert_interview_complete`` / ``_require_formalization_title``
+        (guards), ``_write_formalization_artifacts`` (the write),
+        ``_complete_single_formalization_workflow`` (engine transition) and
+        ``_record_single_formalization`` (audit + event); the stage order and
+        every side effect below are the original inline sequence.
         """
-        # Reuse get_state()'s exact missing-fields computation: a non-empty
-        # `missing` here means the interview is not actually complete yet
-        # (see _current_phase_and_missing's docstring/semantics -- it
-        # returns the first phase still short a required field, or the
-        # last phase with an empty list once everything is answered). Do
-        # not proceed to create/update a real artifact -- e.g. an
-        # empty-string ``title`` -- off an incomplete session.
+        self._assert_interview_complete(ctx, session)
+        title = self._require_formalization_title(session)
+        resulting_ids = self._write_formalization_artifacts(ctx, session, title)
+
+        session.resulting_artifact_ids = resulting_ids
+        session.version = F("version") + 1
+        session.save(update_fields=["resulting_artifact_ids", "modified_at", "version"])
+        session.refresh_from_db(fields=["version"])
+
+        transition_applied = self._complete_single_formalization_workflow(ctx, session)
+        self._record_single_formalization(ctx, session, resulting_ids, transition_applied)
+        return {"resulting_artifact_ids": resulting_ids, "status": session.status}
+
+    def _assert_interview_complete(self, ctx, session) -> None:
+        """Guard stage: reject an incomplete interview before any artifact
+        is written.
+
+        Reuses ``get_state()``'s exact missing-fields computation: a
+        non-empty ``missing`` from ``_current_phase_and_missing`` means the
+        interview is not actually complete yet (see that method's
+        docstring/semantics -- it returns the first phase still short a
+        required field, or the last phase with an empty list once
+        everything is answered). Do not proceed to create/update a real
+        artifact -- e.g. an empty-string ``title`` -- off an incomplete
+        session.
+        """
         _, missing = self._current_phase_and_missing(ctx, session)
         if missing:
             missing_names = ", ".join(f.name for f in missing)
@@ -1089,15 +1114,21 @@ class InterviewService(ServiceBase):
                 f"required field(s): {missing_names}. Cannot formalize."
             )
 
-        # The completeness guard above only trusts the *protocol*: if a
-        # workspace's custom interview.protocol.<Type> override never
-        # declares a `title` field in required_fields, `missing` above is
-        # trivially empty even though `title` resolves to "" here. No
-        # artifact type may be created/updated with an empty title
-        # regardless of what the protocol says. str(...) coercion is
-        # defense-in-depth (issue #542): answer() now rejects non-string
-        # title values up front, but a stray non-string could still reach
-        # here via old rows or a future caller that bypasses answer().
+    @staticmethod
+    def _require_formalization_title(session) -> str:
+        """Guard stage: return the normalized collected ``title``.
+
+        The protocol-completeness guard in ``_assert_interview_complete``
+        only trusts the *protocol*: if a workspace's custom
+        interview.protocol.<Type> override never declares a ``title``
+        field in required_fields, ``missing`` there is trivially empty
+        even though ``title`` resolves to "" here. No artifact type may be
+        created/updated with an empty title regardless of what the
+        protocol says. ``str(...)`` coercion is defense-in-depth (issue
+        #542): answer() now rejects non-string title values up front, but
+        a stray non-string could still reach here via old rows or a
+        future caller that bypasses answer().
+        """
         title = str(session.collected_fields.get("title") or "").strip()
         if not title:
             raise ValidationError(
@@ -1105,13 +1136,40 @@ class InterviewService(ServiceBase):
                 f"collected_fields; cannot formalize a {session.artifact_type} "
                 "without a title."
             )
+        return title
 
+    @staticmethod
+    def _write_formalization_artifacts(ctx, session, title: str) -> list[str]:
+        """Write stage: create or update the backing artifact and return its
+        user-facing id(s).
+
+        With ``target_artifact_id`` set (grounded update, issue #540) the
+        Requirement-only update branch runs -- generalizing it needs a
+        second, update-flavoured adapter registry, which the spec does not
+        ask for (see ``set_target()``'s matching guard). The target's
+        existence is re-checked here, at write time (spec §9: grounding
+        may be stale by the time formalize() runs), so a deleted target
+        raises NotFoundError rather than silently creating a new artifact
+        (wrong outcome) or updating a row that no longer exists.
+
+        Without a target the artifact is created through
+        ``ARTIFACT_CREATION_ADAPTERS`` -- the same registry the multi-kind
+        path uses -- so all 8 in-scope artifact types work through their
+        production ``create_X()`` service method (workflow state
+        initialization included, spec L2.1), plus the provenance join row
+        ``_formalize_multi`` writes, so provenance_session_id()/the
+        InterviewProvenanceBadge work for single-kind sessions too (L2.3).
+        A missing required service field (KeyError) or a protocol field
+        name the create_X() signature does not accept (TypeError) is
+        caller/config input, not a server fault -- it must never escape as
+        an unhandled 500 (same contract as _formalize_multi).
+        """
         from application.interview_artifact_adapters import (
             ARTIFACT_CREATION_ADAPTERS,
             build_adapter_fields,
         )
 
-        resulting_ids: "list[str]" = []
+        resulting_ids: list[str] = []
 
         if session.target_artifact_id is not None:
             from application.requirement_service import RequirementService
@@ -1195,19 +1253,21 @@ class InterviewService(ServiceBase):
                 artifact_id=created_ref.artifact_id,
                 artifact_type=created_ref.artifact_type,
             )
+        return resulting_ids
 
-        session.resulting_artifact_ids = resulting_ids
-        session.version = F("version") + 1
-        session.save(update_fields=["resulting_artifact_ids", "modified_at", "version"])
-        session.refresh_from_db(fields=["version"])
+    @staticmethod
+    def _complete_single_formalization_workflow(ctx, session) -> bool:
+        """Workflow stage: best-effort transition to completed; report
+        whether the engine actually moved (CR-07).
 
+        The engine transition is best-effort by contract (see the
+        except-branch below), so "did it actually reach the engine?" must
+        not be inferred from the call having returned. Tracked explicitly
+        and recorded in the audit entry's details, so a completion that
+        only exists in memory is distinguishable from a real one.
+        """
         from workflow.services import transition as workflow_transition
 
-        # CR-07: the engine transition is best-effort by contract (see the
-        # except-branch below), so "did it actually reach the engine?" must
-        # not be inferred from the call having returned. Tracked explicitly
-        # and recorded in the audit entry's details, so a completion that
-        # only exists in memory is distinguishable from a real one.
         transition_applied = True
         try:
             workflow_transition(
@@ -1243,8 +1303,8 @@ class InterviewService(ServiceBase):
             # without a WorkflowItemState), but the swallowed error is no
             # longer DEBUG-level silence: warning + exc_info makes the
             # failure path greppable in production logs, and the
-            # transition_applied=False flag below marks the audit entry so it
-            # can never be read as a clean engine transition.
+            # transition_applied=False return value marks the audit entry so
+            # it can never be read as a clean engine transition.
             logger.warning(
                 "InterviewService: workflow transition unavailable for session=%s, "
                 "falling back to in-memory-only status", session.id, exc_info=True
@@ -1252,20 +1312,28 @@ class InterviewService(ServiceBase):
             session.status = InterviewSession.STATUS_COMPLETED
             session.version = F("version") + 1
             session.save(update_fields=["modified_at", "version"])
+        return transition_applied
 
-        # formalize() (the caller) wraps this whole method in
-        # @atomic_transaction, so this is already inside an active
-        # transaction -- the audit entry and the outbox INSERT below run
-        # inline in that same transaction (SA-02, and ServiceBase._audit /
-        # _emit_event are both synchronous writes), and a failed/partial
-        # formalization above never reaches here.
-        #
-        # CR-07: InterviewService wrote no AuditEntry at all before this --
-        # every write in this service was invisible to the audit trail, while
-        # its sibling WorkflowFacade._audit covered the same transition for
-        # every other item type. `operation="transition"` /
-        # `entity_type="Interview"` mirror WorkflowFacade.transition exactly,
-        # so one entity_id query returns the whole interview lifecycle.
+    def _record_single_formalization(
+        self, ctx, session, resulting_ids: list[str], transition_applied: bool
+    ) -> None:
+        """Record stage: write the audit entry and the
+        INTERVIEW_FORMALIZED event.
+
+        formalize() (the caller) wraps this whole method in
+        @atomic_transaction, so this is already inside an active
+        transaction -- the audit entry and the outbox INSERT below run
+        inline in that same transaction (SA-02, and ServiceBase._audit /
+        _emit_event are both synchronous writes), and a failed/partial
+        formalization above never reaches here.
+
+        CR-07: InterviewService wrote no AuditEntry at all before this --
+        every write in this service was invisible to the audit trail, while
+        its sibling WorkflowFacade._audit covered the same transition for
+        every other item type. ``operation="transition"`` /
+        ``entity_type="Interview"`` mirror WorkflowFacade.transition exactly,
+        so one entity_id query returns the whole interview lifecycle.
+        """
         self._audit(
             ctx=ctx,
             operation="transition",
@@ -1301,7 +1369,6 @@ class InterviewService(ServiceBase):
                 },
             )
         )
-        return {"resulting_artifact_ids": resulting_ids, "status": session.status}
 
     def _formalize_multi(self, ctx, session, confirmed_proposal: "list[dict]") -> "dict[str, Any]":
         """Multi-kind path: create every confirmed-proposal item atomically.
@@ -1318,23 +1385,20 @@ class InterviewService(ServiceBase):
         (diagram.traceability_connector) and would be silently deleted on
         the next node_graph save -- creating them here can only produce
         unexplained data loss later.
+
+        Staged into ``_reject_diagram_ref_links`` (pre-transaction gate),
+        ``_create_proposal_items`` / ``_create_proposal_trace_links`` (the
+        batch writes), ``_complete_multi_formalization_workflow`` (engine
+        transition) and ``_record_multi_formalization`` (audit + event);
+        the stage order and every side effect below are the original
+        inline sequence.
         """
         if not confirmed_proposal:
             raise ValidationError("confirmed_proposal is required for a multi-mode interview")
 
         # Fail fast on malformed caller input BEFORE the transaction opens.
         _validate_confirmed_proposal(confirmed_proposal)
-
-        for item in confirmed_proposal:
-            for link in item.get("links", []):
-                if link.get("type") == _DIAGRAM_REF_LINK_TYPE:
-                    raise ValidationError(
-                        "invalid link type in proposal: 'diagram-ref' is system-managed "
-                        "and cannot be created by an interview"
-                    )
-
-        from application.interview_artifact_adapters import ARTIFACT_CREATION_ADAPTERS
-        from application.trace_link_service import TraceLinkService
+        self._reject_diagram_ref_links(confirmed_proposal)
 
         with transaction.atomic():
             # Review finding M2 / M4: re-read the session under a row lock so two
@@ -1346,124 +1410,10 @@ class InterviewService(ServiceBase):
             # drift.
             session = self._lock_in_progress_session(session)
 
-            created_refs = []
-            for item in confirmed_proposal:
-                adapter = ARTIFACT_CREATION_ADAPTERS.get(item["type"])
-                if adapter is None:
-                    raise ValidationError(f"unknown artifact type in proposal: {item['type']!r}")
-                try:
-                    ref = adapter(item["fields"], ctx, session.workspace_id)
-                except (KeyError, TypeError) as exc:
-                    # Malformed caller input surfaces as a clear
-                    # ValidationError instead of KeyError/TypeError: missing
-                    # required fields (e.g. Risk without probability/impact)
-                    # raise KeyError, field names the target create_X()
-                    # signature does not accept raise TypeError -- both come
-                    # straight from client JSON via confirmed_proposal, so
-                    # neither may escape as an unhandled 500 (review finding
-                    # M1). Raised INSIDE the atomic block, so rollback
-                    # semantics are unchanged -- the whole batch reverts.
-                    raise ValidationError(
-                        f"invalid fields for {item['type']!r} in proposal item: {exc}"
-                    ) from exc
-                InterviewSessionArtifact.objects.create(
-                    session=session, artifact_id=ref.artifact_id, artifact_type=ref.artifact_type
-                )
-                created_refs.append(ref)
-
-            for item in confirmed_proposal:
-                for link in item.get("links", []):
-                    source = created_refs[link["from"]]
-                    target = created_refs[link["to"]]
-                    TraceLinkService().create_trace_link(
-                        source_id=source.artifact_id,
-                        target_id=target.artifact_id,
-                        link_type=link["type"],
-                        ctx=ctx,
-                    )
-
-            # Datenmodell-Konsolidierung Task 12: start() now registers a
-            # WorkflowItemState for multi-mode sessions too (same item_type
-            # "Interview" as single-mode), so this transitions through the
-            # engine exactly like _formalize_single -- the `status` column is
-            # dropped, so a direct column write is no longer possible, and is
-            # no longer the only record of completion. Same best-effort
-            # fallback as _lazily_abandon_if_stale/_formalize_single for a
-            # session whose init above failed (or predates this fix): the
-            # engine has nothing to transition, so completion is only
-            # reflected by the hardcoded "completed" in this method's return
-            # value below, not by a future state_reader lookup.
-            from workflow.services import transition as workflow_transition
-
-            # CR-07: same "did it reach the engine?" tracking as
-            # _write_single_artifact -- the broad except below is a
-            # deliberate legacy-session fallback and must stay, but its
-            # effect has to stay legible (log level + audit detail flag).
-            transition_applied = True
-            try:
-                workflow_transition(
-                    item_id=session.id,
-                    target_state=InterviewSession.STATUS_COMPLETED,
-                    change_reason="Multi-mode interview formalized into real artifacts",
-                    ctx=ctx,
-                    item_type="Interview",
-                    workspace_id=session.workspace_id,
-                )
-            except Exception:
-                transition_applied = False
-                logger.warning(
-                    "InterviewService: workflow transition unavailable for "
-                    "multi-mode session=%s", session.id, exc_info=True
-                )
-            # Same optimistic-concurrency bump as _write_single_artifact.
-            session.version = F("version") + 1
-            session.save(update_fields=["modified_at", "version"])
-
-            # CR-07: audit inside this same atomic() block, so a rollback
-            # anywhere above (adapter/link failure) leaves neither an audit
-            # entry nor an outbox row behind -- the two can never disagree
-            # about whether the batch committed. Mirrors
-            # WorkflowFacade.transition's seam.
-            self._audit(
-                ctx=ctx,
-                operation="transition",
-                entity_type="Interview",
-                entity_id=session.id,
-                change_reason="Multi-mode interview formalized into real artifacts",
-                details={
-                    "session_kind": InterviewSession.SESSION_KIND_MULTI,
-                    "artifact_type": None,
-                    "resulting_artifact_ids": [
-                        str(ref.artifact_id) for ref in created_refs
-                    ],
-                    "new_state": InterviewSession.STATUS_COMPLETED,
-                    "workflow_transition_applied": transition_applied,
-                },
-            )
-
-            # Emitted inside this same atomic() block (and, like the audit
-            # entry above, not merely inside _formalize_multi's caller) so
-            # the event is bound to the exact transaction that created the
-            # batch -- a rollback anywhere above (adapter/link failure) means
-            # this line never runs.
-            self._emit_event(
-                self._make_event(
-                    event_type=DomainEventOutbox.EventType.INTERVIEW_FORMALIZED,
-                    entity_id=session.id,
-                    workspace_id=session.workspace_id,
-                    payload={
-                        # m4: see the single-path payload — session_kind is the
-                        # discriminator that makes single vs. multi readable
-                        # from the event alone.
-                        "session_kind": InterviewSession.SESSION_KIND_MULTI,
-                        "artifact_type": None,
-                        "created": [
-                            {"artifact_id": str(ref.artifact_id), "artifact_type": ref.artifact_type}
-                            for ref in created_refs
-                        ],
-                    },
-                )
-            )
+            created_refs = self._create_proposal_items(ctx, session, confirmed_proposal)
+            self._create_proposal_trace_links(ctx, created_refs, confirmed_proposal)
+            transition_applied = self._complete_multi_formalization_workflow(ctx, session)
+            self._record_multi_formalization(ctx, session, created_refs, transition_applied)
 
         return {
             "created": [
@@ -1472,6 +1422,185 @@ class InterviewService(ServiceBase):
             ],
             "status": "completed",
         }
+
+    @staticmethod
+    def _reject_diagram_ref_links(confirmed_proposal: list[dict]) -> None:
+        """Reject reconciler-owned ``diagram-ref`` links in a proposal.
+
+        They are owned by the diagram reconciler
+        (diagram.traceability_connector) and would be silently deleted on
+        the next node_graph save -- creating them here can only produce
+        unexplained data loss later. Runs before the transaction opens.
+        """
+        for item in confirmed_proposal:
+            for link in item.get("links", []):
+                if link.get("type") == _DIAGRAM_REF_LINK_TYPE:
+                    raise ValidationError(
+                        "invalid link type in proposal: 'diagram-ref' is system-managed "
+                        "and cannot be created by an interview"
+                    )
+
+    @staticmethod
+    def _create_proposal_items(ctx, session, confirmed_proposal: list[dict]) -> list:
+        """Create every confirmed-proposal item via its production adapter.
+
+        Each item is created through ARTIFACT_CREATION_ADAPTERS (never a
+        shortcut insert path, so workflow state initialization etc. stays
+        correct) and its provenance row (InterviewSessionArtifact) is
+        written in the same transaction. Must run inside the caller's
+        ``transaction.atomic()`` block: a failure on any item rolls back
+        the entire batch and leaves the session in_progress.
+
+        Malformed caller input surfaces as a clear ValidationError instead
+        of KeyError/TypeError (review finding M1): missing required fields
+        (e.g. Risk without probability/impact) raise KeyError, field names
+        the target create_X() signature does not accept raise TypeError --
+        both come straight from client JSON via confirmed_proposal, so
+        neither may escape as an unhandled 500. Raised INSIDE the atomic
+        block, so rollback semantics are unchanged -- the whole batch
+        reverts.
+        """
+        from application.interview_artifact_adapters import ARTIFACT_CREATION_ADAPTERS
+
+        created_refs = []
+        for item in confirmed_proposal:
+            adapter = ARTIFACT_CREATION_ADAPTERS.get(item["type"])
+            if adapter is None:
+                raise ValidationError(f"unknown artifact type in proposal: {item['type']!r}")
+            try:
+                ref = adapter(item["fields"], ctx, session.workspace_id)
+            except (KeyError, TypeError) as exc:
+                raise ValidationError(
+                    f"invalid fields for {item['type']!r} in proposal item: {exc}"
+                ) from exc
+            InterviewSessionArtifact.objects.create(
+                session=session, artifact_id=ref.artifact_id, artifact_type=ref.artifact_type
+            )
+            created_refs.append(ref)
+        return created_refs
+
+    @staticmethod
+    def _create_proposal_trace_links(
+        ctx, created_refs: list, confirmed_proposal: list[dict]
+    ) -> None:
+        """Create the proposal's trace links between the created artifacts.
+
+        Links reference proposal items by index (``from``/``to``); the
+        indices were range-checked by ``_validate_confirmed_proposal``
+        before the transaction opened and resolve against *created_refs*.
+        """
+        from application.trace_link_service import TraceLinkService
+
+        for item in confirmed_proposal:
+            for link in item.get("links", []):
+                source = created_refs[link["from"]]
+                target = created_refs[link["to"]]
+                TraceLinkService().create_trace_link(
+                    source_id=source.artifact_id,
+                    target_id=target.artifact_id,
+                    link_type=link["type"],
+                    ctx=ctx,
+                )
+
+    @staticmethod
+    def _complete_multi_formalization_workflow(ctx, session) -> bool:
+        """Workflow stage: best-effort transition to completed; report
+        whether the engine actually moved (CR-07).
+
+        Datenmodell-Konsolidierung Task 12: start() now registers a
+        WorkflowItemState for multi-mode sessions too (same item_type
+        "Interview" as single-mode), so this transitions through the
+        engine exactly like _formalize_single -- the `status` column is
+        dropped, so a direct column write is no longer possible, and is no
+        longer the only record of completion. Same best-effort fallback as
+        _lazily_abandon_if_stale/_write_single_artifact for a session whose
+        init above failed (or predates this fix): the engine has nothing to
+        transition, so completion is only reflected by the hardcoded
+        "completed" in the caller's return value, not by a future
+        state_reader lookup.
+
+        CR-07: same "did it reach the engine?" tracking as
+        _write_single_artifact -- the broad except below is a deliberate
+        legacy-session fallback and must stay, but its effect has to stay
+        legible (log level + audit detail flag).
+        """
+        from workflow.services import transition as workflow_transition
+
+        transition_applied = True
+        try:
+            workflow_transition(
+                item_id=session.id,
+                target_state=InterviewSession.STATUS_COMPLETED,
+                change_reason="Multi-mode interview formalized into real artifacts",
+                ctx=ctx,
+                item_type="Interview",
+                workspace_id=session.workspace_id,
+            )
+        except Exception:
+            transition_applied = False
+            logger.warning(
+                "InterviewService: workflow transition unavailable for "
+                "multi-mode session=%s", session.id, exc_info=True
+            )
+        # Same optimistic-concurrency bump as _write_single_artifact.
+        session.version = F("version") + 1
+        session.save(update_fields=["modified_at", "version"])
+        return transition_applied
+
+    def _record_multi_formalization(
+        self, ctx, session, created_refs: list, transition_applied: bool
+    ) -> None:
+        """Record stage: write the audit entry and the
+        INTERVIEW_FORMALIZED event.
+
+        Both run inside the caller's ``transaction.atomic()`` block (and,
+        like the audit entry above, not merely inside _formalize_multi's
+        caller) so the event is bound to the exact transaction that created
+        the batch -- a rollback anywhere above (adapter/link failure) means
+        these writes never run, so audit entry and outbox row can never
+        disagree about whether the batch committed. Mirrors
+        WorkflowFacade.transition's seam.
+        """
+        self._audit(
+            ctx=ctx,
+            operation="transition",
+            entity_type="Interview",
+            entity_id=session.id,
+            change_reason="Multi-mode interview formalized into real artifacts",
+            details={
+                "session_kind": InterviewSession.SESSION_KIND_MULTI,
+                "artifact_type": None,
+                "resulting_artifact_ids": [
+                    str(ref.artifact_id) for ref in created_refs
+                ],
+                "new_state": InterviewSession.STATUS_COMPLETED,
+                "workflow_transition_applied": transition_applied,
+            },
+        )
+
+        # Emitted inside this same atomic() block (and, like the audit
+        # entry above, not merely inside _formalize_multi's caller) so
+        # the event is bound to the exact transaction that created the
+        # batch -- a rollback anywhere above (adapter/link failure) means
+        # this line never runs.
+        self._emit_event(
+            self._make_event(
+                event_type=DomainEventOutbox.EventType.INTERVIEW_FORMALIZED,
+                entity_id=session.id,
+                workspace_id=session.workspace_id,
+                payload={
+                    # m4: see the single-path payload — session_kind is the
+                    # discriminator that makes single vs. multi readable
+                    # from the event alone.
+                    "session_kind": InterviewSession.SESSION_KIND_MULTI,
+                    "artifact_type": None,
+                    "created": [
+                        {"artifact_id": str(ref.artifact_id), "artifact_type": ref.artifact_type}
+                        for ref in created_refs
+                    ],
+                },
+            )
+        )
 
     @atomic_transaction
     def abandon(self, ctx, session_id: UUID) -> "dict[str, Any]":
