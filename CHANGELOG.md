@@ -7,7 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.0-beta.20] — 2026-10-11
+
+> **This beta is explicitly NOT an external production or QA release.** It is an
+> internal pre-release cut on `fix/repowise-code-health`, whose head is
+> `eeb0978c`, merged into `origin/main` as `acf7cf41` (PR #1237). It bundles the
+> merged code-health round (PRs #1236 and #1237 — refactoring, REST defect
+> repair and test backfill) plus the bugfix-hub REST contract consistency
+> (#1177). The remaining merges since `1.8.0-beta.19` are summarised under
+> *Also merged since `1.8.0-beta.19`*. **This cut performs no fresh suite run of
+> its own** — the verification figures in this section are the ones recorded by
+> the individual merges (e.g. `rest_api` 2844 passed and `openapi` 14 passed on
+> `eeb0978c`); the cut itself only advances the version carriers and adds this
+> section. Nothing here constitutes a production, staging or QA deployment
+> approval.
+
 ### Added
+- **Code-health round — 5 new MCP tool-group dispatch suites (#1237):** dedicated
+  dispatch coverage for the `requirements`, `architecture`, `needs`, `test case`
+  and `ai derivation` tool groups (`a21512ce`, `eaca17de`, `790b8ca6`,
+  `675c0009`, `b5edb8af`), on top of the cross-cutting dispatch suite added in
+  #1236 (`77289b81`)
+- **Code-health round — REST error-path and coverage backfill (#1236/#1237):**
+  architecture element and trace link error paths (`fc0b08d4`), ai action,
+  baseline and import error paths (`c345ec55`), core view-set coverage
+  (`7924dd04`) and trace-graph/requirement view hot spots (`6ef634ed`)
 - **REST contract consistency (#1177, bugfix-hub bundle B4):**
   - `GET /api/v1/reviews/` — the collection root for the pending-review queue,
     previously a `404`; it delegates to the same `ReviewQueueService` and returns
@@ -17,7 +41,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     the no-slash `GET /api/schema` is now routed explicitly (APPEND_SLASH is
     disabled project-wide, CR-03).
 
+### Fixed
+- **3 REST HTTP 500 defects repaired (#1236, `f6e9c0d7`; each fix ships a
+  regression test):**
+  - `PATCH /api/v1/workflows/<uuid>/` called `WorkflowFacade.transition` with
+    nonexistent parameter names (`entity_id`/`entity_type`); the artifact is now
+    resolved via `ArtifactService` (like `WorkflowTransitionsMixin`) and the
+    facade is called with its real signature.
+  - `DELETE /api/v1/requirements/<id>/` raised `WorkflowDefinitionError` into
+    the generic handler; it is now mapped to `400 VALIDATION_ERROR` like the
+    neighbouring error paths.
+  - `PATCH /api/v1/workspaces/<uuid>/preset/` leaked `Workspace.DoesNotExist` as
+    a `500`; it now returns `404 NOT_FOUND` via the retrieve-style pattern.
+- **Documented import request bodies restored (#1237, `eeb0978c`):** the import
+  view split had moved the `@extend_schema` block onto the extracted
+  `_parse_reqif_request`, so drf-spectacular no longer attached the requestBody
+  to `POST /workspaces/{id}/import/reqif/` (INT-06 finding 078). The ReqIF
+  `@extend_schema` block is back on the view and the CSV multipart schema is
+  declared explicitly on `post`. Verified against the generated schema: both
+  paths document `multipart/form-data` with `file` and `entity_type`.
+
 ### Changed
+- **Code-health round — 13 files refactored (#1236/#1237):** hotspot, god-class
+  and cyclomatic-complexity reduction across `rest_api`, `application`,
+  `workflow`, `mcp_server`, `llm_adapter`, `auth_tenancy` and `frontend`
+  (requirement patch/baseline diff/list, bundle query/baseline create, csv/reqif
+  import and tracelink list views, icd view retrieve/diff, interview proposal/
+  formalization/chat-turn paths, glossary and traceability views, settings
+  service, definition store, dispatch registry, mock provider). Behaviour-
+  preserving; no API contract change intended.
+- **Code-health round — views coverage raised from ~69% to ~85%:** as recorded
+  by the individual merges of the round.
 - **Multi-word REST paths unified on canonical kebab-case (#1177):**
   backward-compatible aliases were added so both spellings resolve to the same
   `ViewSet` — `/api/v1/test-cases/` + `/testcases/`, `/trace-links/` +
@@ -30,6 +84,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`frontend/src/api/users.ts` requests `?page_size=100`, and
   `e2e/tests/user-management.spec.ts` accepts the envelope) and is now documented
   as a completed breaking transition in `docs/api/REST-CONVENTIONS.md` §6.
+
+### Also merged since `1.8.0-beta.19`
+Summary only — see the individual PR records for detail:
+- **#1203** Hermes plugin listen mode (opt-in dashboard gate, per-workspace tab)
+- **#1205/#1206/#1207** beta.19 bugfix bundles (goals version-diff endpoint,
+  review counts/required-field gates, import counts and per-row error dedupe,
+  baseline admin/global-scope handling, tenant-scoped LLM settings, bounded DB
+  connections returning `503` JSON, re-import identity columns, clearer Hermes
+  unset-base-URL error, deploy doc correction)
+- **#1208/#1209/#1210** implementation plans, adjacent bugs, and ADR-020 for the
+  Qdrant vector backend
+- **#1211** Hermes MCP consolidation (plugin and skill driven through the MCP
+  stack, dead TS plugin and build carriers removed); **#1212** optional Qdrant
+  vector backend for memory; **#1213** generic suggestion lifecycle (ADR-019)
+  with accept/reject binding and the suggestion inbox on the reviews page
+- **#1214–#1224** Dependabot batch (`openai`, `anthropic`, `cryptography`,
+  `@codemirror/{state,commands}`, `mermaid`, `jsdom`,
+  `@tanstack/react-query`; `actions/attest-build-provenance`,
+  `anchore/sbom-action`, `sigstore/cosign-installer`)
+- **#1225** full-system-integration test merge (CI contract)
+- **#1226** integrations stability (`memory.ask`/#1156 capture coverage gaps,
+  scoped iterative ANN memory queries, review-workflow spec hardening, workflow
+  cascade plus workspace FK)
+- **#1227** close-out (Hermes stale line reference, degraded memory search when
+  every scope errors, DB-level cascade for `we_item_state`)
+- **#1228** RLS hardening (enforcement and SECURITY DEFINER owners, pre-auth
+  gaps, hardened token writes); **#1231** API-key cleanup fails loudly under RLS
+  (#1095/#1089)
+- **#1229** stage-2 store artifacts and workflows publish-ready (#1171)
+- **#1232** static `data-testid` check; **#1233** in-process API-key roles
+  (#1102); **#1234** MCP `resolve-references` (#17); **#1235** admin-login
+  lockout decision (#1135)
+- **#1236/#1237** the code-health round detailed above
+
+### Release plumbing
+- All distribution version carriers advanced to `1.8.0-beta.20` (`VERSION`,
+  `frontend/package.json`, `frontend/package-lock.json`, both `dist` plugin
+  manifests, `.claude-plugin/marketplace.json`, `server.json`, `.env.example`
+  (`REQOGNILOOM_VERSION`), both compose files' image tags, the site
+  badge/footer, `systemagents/reqogniloom-operator.md`, the tool-surface doc
+  snapshots, and the generated `docs/agent-templates/tool-manifest.json`
+  `generated_from`). `integrations/hermes-agent-plugin/plugin.yaml` is
+  intentionally **unchanged**: per ADR-017 the POC plugin keeps its own SemVer
+  (`0.2.0`), and its `minServerVersion` is bumped only when the plugin adopts
+  newer server features — never synced to the repo `VERSION` in a release cut.
 
 ## [1.8.0-beta.19] — 2026-10-05
 

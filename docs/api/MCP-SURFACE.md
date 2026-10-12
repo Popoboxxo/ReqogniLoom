@@ -1,4 +1,4 @@
-# MCP Surface Reference
+﻿# MCP Surface Reference
 
 The agent-facing catalogue of the native ReqogniLoom MCP server (`POST /mcp/`,
 JSON-RPC 2.0). This document exists because the tool surface changed faster
@@ -25,7 +25,7 @@ generated OpenAPI at `GET /api/schema/` and `/api/schema/swagger-ui/`
 |--------|-------|
 | Tools | **228** |
 | Tool-group prefixes | **36** |
-| Version | `v1.8.0-beta.19` (`VERSION`, `1.8.0-beta.19`) — the ADR-019 WP3 `suggestion` group (`suggestion.list`/`suggestion.accept`/`suggestion.reject`) is the newest tool-surface change, and `traceability.suggest_links` became a write tool; `interview.chat` ([#1164](https://github.com/Popoboxxo/ReqogniLoom/issues/1164)), `traceability.query_links` ([#1098](https://github.com/Popoboxxo/ReqogniLoom/issues/1098)), `main_goal.query` ([#1097](https://github.com/Popoboxxo/ReqogniLoom/issues/1097)) and `traceability.suggest_links_status` ([#1197](https://github.com/Popoboxxo/ReqogniLoom/issues/1197)) preceded them; `memory.ask` (REQ-192, [#1154](https://github.com/Popoboxxo/ReqogniLoom/issues/1154)) preceded those |
+| Version | `v1.8.0-beta.20` (`VERSION`, `1.8.0-beta.20`) — the ADR-019 WP3 `suggestion` group (`suggestion.list`/`suggestion.accept`/`suggestion.reject`) is the newest tool-surface change, and `traceability.suggest_links` became a write tool; `interview.chat` ([#1164](https://github.com/Popoboxxo/ReqogniLoom/issues/1164)), `traceability.query_links` ([#1098](https://github.com/Popoboxxo/ReqogniLoom/issues/1098)), `main_goal.query` ([#1097](https://github.com/Popoboxxo/ReqogniLoom/issues/1097)) and `traceability.suggest_links_status` ([#1197](https://github.com/Popoboxxo/ReqogniLoom/issues/1197)) preceded them; `memory.ask` (REQ-192, [#1154](https://github.com/Popoboxxo/ReqogniLoom/issues/1154)) preceded those |
 | Measured at | ADR-019 WP3 (`suggestion` group, `traceability.suggest_links` write) on top of the `v1.8.0-beta.16` tag commit `9eb2fc58` plus [#1080](https://github.com/Popoboxxo/ReqogniLoom/issues/1080) (`65c732b4`, `test.run_list`), [#1154](https://github.com/Popoboxxo/ReqogniLoom/issues/1154) (`memory.ask`), [#1164](https://github.com/Popoboxxo/ReqogniLoom/issues/1164) (`interview.chat`), [#1098](https://github.com/Popoboxxo/ReqogniLoom/issues/1098) (`traceability.query_links`), [#1097](https://github.com/Popoboxxo/ReqogniLoom/issues/1097) (`main_goal.query`) and [#1197](https://github.com/Popoboxxo/ReqogniLoom/issues/1197) (`traceability.suggest_links_status`) |
 | Source of truth | `docs/agent-templates/tool-manifest.json`, `tool_count` field |
 
@@ -43,7 +43,7 @@ stale copy:
 | 222 / 35 | after `interview.chat` ([#1164](https://github.com/Popoboxxo/ReqogniLoom/issues/1164)) and `traceability.query_links` ([#1098](https://github.com/Popoboxxo/ReqogniLoom/issues/1098)) | correct until `main_goal.query` |
 | 223 / 35 | after `main_goal.query` ([#1097](https://github.com/Popoboxxo/ReqogniLoom/issues/1097)) | correct until `traceability.suggest_links_status` |
 | 224 / 35 | after `traceability.suggest_links_status` ([#1197](https://github.com/Popoboxxo/ReqogniLoom/issues/1197)) | correct until the ADR-019 `suggestion` group |
-| **227 / 36** | after the ADR-019 WP3 `suggestion` group (`suggestion.list`, `suggestion.accept`, `suggestion.reject` — the 36th prefix) and `traceability.suggest_links` becoming **write** (it now persists a proposal + receipt, [#1155](https://github.com/Popoboxxo/ReqogniLoom/issues/1155)) | correct until `workspace.resolve_references` |
+| **228 / 36** | after the ADR-019 WP3 `suggestion` group (`suggestion.list`, `suggestion.accept`, `suggestion.reject` — the 36th prefix) and `traceability.suggest_links` becoming **write** (it now persists a proposal + receipt, [#1155](https://github.com/Popoboxxo/ReqogniLoom/issues/1155)) | correct until `workspace.resolve_references` |
 | **228 / 36** | after `workspace.resolve_references` ([#17](https://github.com/Popoboxxo/ReqogniLoom/issues/17)) | **current** |
 
 ### How to re-derive the number
@@ -93,7 +93,7 @@ document cannot silently rot:
 | Guard | What it pins |
 |-------|--------------|
 | `backend/mcp_server/tests/test_tool_manifest_drift.py` | committed manifest ↔ live registry, field by field (`is_write`, `prefix`, `description`, `inputSchema`, `tool_count`) |
-| `backend/mcp_server/tests/test_entity_surface_parity.py` | the 227/36 figure, and that every REST-exposed entity is readable over MCP |
+| `backend/mcp_server/tests/test_entity_surface_parity.py` | the documented tool-count figure (committed `tool_count` == live registry count), and that every REST-exposed entity is readable over MCP |
 | `backend/mcp_server/tests/test_export_tool_manifest.py` | the manifest's own shape invariants |
 
 If you add or remove a tool, run all three; if the count moves, update the
