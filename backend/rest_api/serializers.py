@@ -1015,7 +1015,10 @@ class RequirementSerializer(
     # the wire key and its vocabulary identical (Decision D-1).
     workflow_item_type = "Requirement"
 
-    id = serializers.UUIDField(read_only=True)
+    id = serializers.UUIDField(
+        read_only=True,
+        help_text="Entity PK (the Requirement row). Use it for Requirement API paths.",
+    )
     workspace_id = serializers.UUIDField(required=True)
     # Issue #413/#416: id of the owning Artifact. TraceLink endpoints are
     # Artifact ids, never Requirement ids, so without this field the UI cannot
@@ -1442,8 +1445,15 @@ class TraceLinkSerializer(UnknownFieldRejectionMixin, PresetAwareSerializerMixin
     """
 
     id = serializers.UUIDField(read_only=True)
-    source_id = serializers.UUIDField()
-    target_id = serializers.UUIDField()
+    source_id = serializers.UUIDField(
+        help_text="Canonical Artifact id of the source endpoint (not the entity PK).",
+    )
+    target_id = serializers.UUIDField(
+        help_text="Canonical Artifact id of the target endpoint (not the entity PK).",
+    )
+    # #1270: unambiguous aliases of source_id/target_id (read-only), same values.
+    source_artifact_id = serializers.UUIDField(read_only=True)
+    target_artifact_id = serializers.UUIDField(read_only=True)
     link_type = serializers.CharField(max_length=64)
     # Q1.6: why these two artifacts are connected. Free text on a trust
     # boundary, so sanitized and capped like change_reason (B006/#104) — an
