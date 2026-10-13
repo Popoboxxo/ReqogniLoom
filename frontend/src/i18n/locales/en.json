@@ -62,6 +62,8 @@
     "settings": "Workspace Settings",
     "systemSettings": "System Settings",
     "userManagement": "User Management",
+    "linkTypes": "Link Types",
+    "attributeCatalog": "Attribute Catalog",
     "profile": "Profile",
     "glossary": "Glossary",
     "workflows": "Workflows",

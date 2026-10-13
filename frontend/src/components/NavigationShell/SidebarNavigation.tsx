@@ -124,6 +124,11 @@ const NAV_ITEMS: NavItem[] = [
   // blocks non-admins; gate the nav link the same way (was previously
   // "always visible" per its own comment, which predates the T1 audit fix).
   { path: "/system-settings", labelKey: "nav.systemSettings", feature: "dashboard", group: "admin", requires: "admin" },
+  // #1259 / #1253: the attribute catalog and the link-type catalogs existed
+  // only as reachable routes with no in-app entry point — a user could not
+  // find them. Both are workspace-scoped config, admin-gated like /settings.
+  { path: "/attributes", labelKey: "nav.attributeCatalog", feature: "dashboard", group: "admin", requires: "admin" },
+  { path: "/settings/link-types", labelKey: "nav.linkTypes", feature: "dashboard", group: "admin", requires: "admin" },
   // Multi-user management design spec (Task 12): tenant-admin is a NEW,
   // tenant-wide concept distinct from the workspace `admin` role that gates
   // /settings and /system-settings — a tenant-admin need not be a workspace
