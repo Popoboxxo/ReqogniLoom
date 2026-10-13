@@ -14,6 +14,8 @@
  *   - onAddChild button per node
  */
 
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import {
   act,
@@ -1118,6 +1120,28 @@ describe('WorkspaceTree — connector lines', () => {
     });
     const grandchildRow = screen.getByTestId('workspace-tree-node-grandchild');
     expect(grandchildRow.className).toMatch(/treeLine/);
+  });
+});
+
+describe('WorkspaceTree — horizontal overflow containment (#1252)', () => {
+  const css = readFileSync(
+    resolve(__dirname, 'workspace-tree.module.css'),
+    'utf-8',
+  );
+
+  it('caps the depth indent so deep trees cannot widen their rows', () => {
+    const rule = css.match(/\.treeRow\s*\{[^}]*padding-left:\s*([^;]+);/);
+    expect(rule?.[1]).toContain('min(var(--tree-depth, 0), 6)');
+  });
+
+  it('keeps the connector lines aligned with the capped indent', () => {
+    const rule = css.match(/\.treeLine::before\s*\{[^}]*left:\s*([^;]+);/);
+    expect(rule?.[1]).toContain('min(var(--tree-depth, 0), 6)');
+  });
+
+  it('contains the virtualized scroll host on the X axis', () => {
+    const rule = css.match(/\.scrollHost\s*\{([^}]*)\}/);
+    expect(rule?.[1]).toContain('overflow-x: hidden');
   });
 });
 

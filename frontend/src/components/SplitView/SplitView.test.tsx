@@ -151,12 +151,7 @@ describe("SplitView — concept contract", () => {
     }
   });
 
-  it("regression: legacy panels keep both-axis overflow: auto (no horizontal clipping)", () => {
-    // Guards against an earlier regression where spreading
-    // SCROLL_SURFACE_STYLE and then overriding with `overflowX: 'hidden'`
-    // silently clipped horizontal scroll on both legacy panels for all
-    // pre-existing call sites — never requested by AC3, which only covers
-    // overscroll-behavior/scrollbar-gutter.
+  it("#1252: the artifact-list panel scrolls on Y only, so a wide row cannot add a horizontal scrollbar", () => {
     render(
       <SplitView
         leftPanel={<div>Left</div>}
@@ -167,14 +162,45 @@ describe("SplitView — concept contract", () => {
 
     const divider = screen.getByTestId("splitview-divider");
     const left = divider.previousElementSibling as HTMLElement;
+
+    const computed = window.getComputedStyle(left);
+    expect(computed.overflowX).toBe("hidden");
+    expect(computed.overflowY).toBe("auto");
+    expect(computed.overscrollBehavior).toBe("contain");
+    expect(computed.scrollbarGutter).toBe("stable");
+  });
+
+  it("#1252: the detail panel keeps both-axis scrolling and can shrink (min-width: 0)", () => {
+    render(
+      <SplitView
+        leftPanel={<div>Left</div>}
+        rightPanel={<div>Right</div>}
+        responsiveMode={false}
+      />
+    );
+
+    const divider = screen.getByTestId("splitview-divider");
     const right = divider.nextElementSibling as HTMLElement;
 
-    for (const surface of [left, right]) {
-      const computed = window.getComputedStyle(surface);
-      expect(computed.overflow).toBe("auto");
-      expect(computed.overflowX).not.toBe("hidden");
-      expect(computed.overflowY).not.toBe("hidden");
-    }
+    const computed = window.getComputedStyle(right);
+    expect(computed.overflow).toBe("auto");
+    expect(computed.overflowX).not.toBe("hidden");
+    expect(computed.overflowY).not.toBe("hidden");
+    expect(right.style.minWidth).toBe("0px");
+  });
+
+  it("#1252: the concept-contract list panel also scrolls on Y only", () => {
+    render(
+      <SplitView
+        list={<div>List</div>}
+        detail={<div>Detail</div>}
+      />
+    );
+
+    const list = screen.getByTestId("splitview-list");
+    const computed = window.getComputedStyle(list);
+    expect(computed.overflowX).toBe("hidden");
+    expect(computed.overflowY).toBe("auto");
   });
 
   it("applies the configured ratio and minWidths to list/detail when both are present", () => {

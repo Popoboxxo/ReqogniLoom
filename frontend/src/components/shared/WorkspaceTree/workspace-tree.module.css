@@ -41,7 +41,7 @@
   /* Depth indent — the per-row `--tree-depth` custom property is still set
      inline (see the file header below), because depth is an unbounded,
      per-instance value that cannot be expressed as a fixed class. */
-  padding-left: calc(8px + var(--tree-depth, 0) * 16px);
+  padding-left: calc(8px + min(var(--tree-depth, 0), 6) * 16px);
   border-left: 3px solid transparent;
   border-radius: var(--radius-sm);
   cursor: pointer;
@@ -121,7 +121,7 @@
 .treeLine::before {
   content: "";
   position: absolute;
-  left: calc(var(--tree-depth, 0) * 16px - 8px);
+  left: calc(min(var(--tree-depth, 0), 6) * 16px - 8px);
   top: 0;
   bottom: 50%;
   width: 1px;
@@ -131,7 +131,7 @@
 .treeLine::after {
   content: "";
   position: absolute;
-  left: calc(var(--tree-depth, 0) * 16px - 8px);
+  left: calc(min(var(--tree-depth, 0), 6) * 16px - 8px);
   top: 50%;
   width: 16px;
   height: 1px;
@@ -195,6 +195,7 @@
 }
 
 .scrollHost {
+  overflow-x: hidden;
   overflow-y: auto;
   max-height: 70vh;
 }
