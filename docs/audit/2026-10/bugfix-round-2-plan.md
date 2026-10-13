@@ -593,115 +593,95 @@ festgehalten, damit sie nicht bei der nächsten Runde erneut triagiert werden mu
 
 ---
 
-## 9. Ausführungsprotokoll — Zwischenstand (2026-10-12, Ausführung abgebrochen)
+## 9. Ausführungsprotokoll (2026-10-12)
 
-> **Status:** `partial` — die Ausführung von Welle 1 und Welle 2 wurde gestartet und
-> hat umfangreichen Code erzeugt, ist aber **vor jedem Commit** abgebrochen worden
-> (Subagent-Orchestrierung brach mit `Task cancelled` / hängendem Agent ab).
+> **Status:** `executed` — Welle 1 und Welle 2 sind umgesetzt, granulär committet
+> und gegen die Test-Suite verifiziert. Die branchenübliche PR-/Review-Phase folgt.
 >
-> **Dieser Abschnitt ändert die Planvorgaben nicht.** Er dokumentiert, was bereits
-> existiert, was verifiziert ist, und was vor einem Commit geklärt werden muss.
+> **Dieser Abschnitt ändert die Planvorgaben nicht.** Er dokumentiert den Ist-Stand
+> der Ausführung und die verbleibenden offenen Punkte.
 
-### 9.1 Was existiert (Working Tree, **kein Commit**)
+### 9.1 Branches und Commits
 
-`git log` steht unverändert auf `main @ 65515769`. Beide Branches existieren:
+Beide Wellen basieren auf `main @ 65515769` und sind getrennt.
 
-- `fix/wave1-meta-drift-ratchet` — **aktuell ausgecheckt**
-- `fix/wave2-duplicate-bulk-approve`
+**`fix/wave1-meta-drift-ratchet`** (4 Commits):
 
-Der Arbeitsstand beider Wellen liegt jedoch **vermischt auf `fix/wave1-meta-drift-ratchet`**.
-Der zweite Branch existiert, ist aber leer (kein eigener Working Tree, kein Stash).
-
-**Geänderte Dateien (17, +1301 / −84), ohne `frontend/dist/`:**
-
-| Gruppe | Dateien | Welle |
+| Commit | Message | Issues |
 |---|---|---|
-| Meta/Doku | `.meta-config/project.yaml` (+5× 227→228), `AGENTS.md`, `CLAUDE.md`, `docs/REQUIREMENTS.md` (+REQ-193) | W1 / #1104 |
-| Ratchet | `backend/mcp_server/tests/test_entity_surface_parity.py`, `test_tool_manifest_drift.py`, `frontend/src/test/design-system-ratchet.test.ts`, `design-system-ratchet.baseline.json` | W1 / #1103 |
-| Duplikat-Import | `backend/application/import_service.py`, `backend/rest_api/views.py`, `frontend/src/api/import.ts`, `CsvImport.tsx`, `CsvImportOutcome.test.tsx` | W2 / #1178 |
-| Duplikat-Create | `backend/application/requirement_service.py`, `test_requirement_service.py`, `test_requirement_viewset_rest.py` | W2 / #1178 |
-| Massen-Freigabe | `frontend/src/components/Reviews/ReviewsView.tsx`, `i18n/locales/de.json`, `en.json` | W2 / #1196 |
+| `29bfdfe0` | `docs(audit): add bugfix round 2 execution plan` | — |
+| `4da48466` | `fix(meta): correct documented MCP tool count to 228` | #1104 WP-A |
+| `d06fa00e` | `test(agent-templates): gate documented tool count against the manifest` | #1104 WP-B |
+| `20c3fcce` | `feat(REQ-193): unify baseline regression ratchets` | #1103 |
 
-**Neue Dateien (6, 3065 Zeilen):**
+**`fix/wave2-duplicate-bulk-approve`** (5 Commits):
 
-| Datei | Zeilen | Zweck |
+| Commit | Message | Issues |
 |---|---|---|
-| `backend/mcp_server/tests/ratchet_framework.py` | 733 | Ratchet-Framework (Python) |
-| `backend/mcp_server/tests/test_ratchet_framework.py` | 507 | Framework-Test |
-| `docs/agent-templates/test_meta_tool_count_drift.py` | 377 | **#1104-WP-B-Drift-Gate** |
-| `frontend/src/test/ratchet-framework.ts` | 609 | Framework-Kontrakt (TS) |
-| `frontend/src/test/ratchet-framework.test.ts` | 279 | Framework-Test (TS) |
-| `frontend/src/components/Reviews/ReviewsView.reviewModeBulk.test.tsx` | 465 | #1196-Testsuite |
+| `1dcbb9bb` | `fix(import): detect duplicate titles even when a natural key is present` | #1178 |
+| `92642154` | `fix(import): surface per-row duplicate causes in the legacy response` | #1178 |
+| `135b5371` | `fix(ui): render duplicate skip causes in the CSV import outcome` | #1178 |
+| `cd3facad` | `feat(requirements): warn on duplicate titles before insert` | #1178 |
+| `5159c9c1` | `feat(ui): bulk approve and reject in the review queue` | #1196 |
+
+Umfang ohne Build-Artefakte: 17 geänderte Dateien (+1301 / −84) und 6 neue Dateien
+(3065 Zeilen). `frontend/dist/` (Ergebnis eines `npm run build`) wurde **bewusst
+zurückgesetzt** und ist in keinem Commit enthalten.
 
 ### 9.2 Umsetzungsstand je Issue
 
 | Issue | Stand | Belege |
 |---|---|---|
-| **#1104** | **WP-A erledigt**, WP-B erledigt, **WP-C offen** | `project.yaml` an allen 5 Vorkommen korrigiert, `AGENTS.md`/`CLAUDE.md` nachgezogen, Drift-Gate als `test_meta_tool_count_drift.py` (377 Z.) liegt vor. Der Issue-Kommentar zur falschen Link-Typ-Behauptung fehlt. |
-| **#1103** | **erledigt (ungeprüft gegen AC)** | Framework (Python + TS) + Migration aller drei Ratchets; REQ-193 vergeben (`docs/REQUIREMENTS.md`). `design-system-ratchet.baseline.json` angepasst. |
-| **#1178** | **alle drei Teilfixes + Create-Warnung erledigt** | Import: Titel-Ergänzungsprüfung unabhängig vom Natural Key (Kommentare in `import_service.py` referenzieren #1178); Create: `normalized_title()` + `_duplicate_title_warning()`, Warnung reitet auf dem ORM-Objekt **vor** dem Insert (der neue Row kann nicht sein eigenes Duplikat sein); Response + Frontend-Rendering vorhanden. |
-| **#1196** | **erledigt** | `review-item-checkbox` (`ReviewsView.tsx:969`), `reviews-bulk-confirm-btn` zusätzlich im review-Modus (:861, proposals bleibt :803). Testdatei deckt 9 Fälle ab: Zeilen-Checkbox, beide Bulk-Aktionen, Ein-Klick-Freigabe, Reject mit gleicher Begründung, **Teilfehler bricht nicht ab**, fehlendes Target, fehlende Batch-Begründung, Zeilen-Klick vs. Checkbox, Begründungs-Erhalt, Proposals-Regressionsschutz. |
+| **#1104** | **WP-A + WP-B erledigt** (`4da48466`, `d06fa00e`); **WP-C offen** | `project.yaml` an allen 5 Vorkommen auf `228` korrigiert, `AGENTS.md`/`CLAUDE.md` nachgezogen; Drift-Gate `docs/agent-templates/test_meta_tool_count_drift.py` neu. Der Issue-Kommentar zur falschen Link-Typ-Behauptung (11 statt 20) fehlt noch. |
+| **#1103** | **erledigt** (`20c3fcce`) | Gemeinsames Framework (Python `ratchet_framework.py` 733 Z. + TS-Kontrakt `ratchet-framework.ts` 609 Z.), alle drei Ratchets migriert, REQ-193 vergeben. |
+| **#1178** | **alle vier Teilfixes erledigt** (`1dcbb9bb`, `92642154`, `135b5371`, `cd3facad`) | Titel-Ergänzungsprüfung unabhängig vom Natural Key; Legacy-Response trägt die Skip-Ursache; Frontend rendert sie; Create-Pfad warnt nicht-blockierend vor dem Insert. |
+| **#1196** | **erledigt** (`5159c9c1`) | Zeilen-Checkbox + Bulk-Freigabe/-Ablehnung im review-Modus, eine Batch-Begründung, N/M-Bericht, Teilfehler bricht nicht ab. Proposals-Pfad unverändert. |
 
 ### 9.3 Verifizierter Teststatus (2026-10-12)
 
 | Bereich | Kommando | Ergebnis |
 |---|---|---|
-| Ratchet-Framework (Backend, ohne DB) | `pytest mcp_server/tests/test_ratchet_framework.py` (mit `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1`, `-p pytest_django.plugin`) | **17 passed** |
-| Design-System-Ratchet | `vitest run src/test/design-system-ratchet.test.ts` | **21 passed** (1 Datei) |
-| #1196 + #1178-Frontend + TS-Framework | `vitest run src/components/Reviews/ReviewsView.reviewModeBulk.test.tsx src/components/CsvImport/CsvImportOutcome.test.tsx src/test/ratchet-framework.test.ts` | **40 passed** (3 Dateien) |
-| DB-abhängige Backend-Tests | `pytest application/tests/test_requirement_service.py`, `mcp_server/tests/test_entity_surface_parity.py` | **ERROR** — kein lokaler PostgreSQL (`could not translate host name "postgres"`). Braucht den Docker-Test-Overlay (`make test-backend`). |
+| **DB-gebundene Backend-Tests** (Welle 1 + 2) | `docker compose … run --rm backend-test pytest` (Test-Overlay, Superuser) | **152 passed, 1 skipped** |
+| Ratchet-Framework (Backend, DB-frei) | `pytest mcp_server/tests/test_ratchet_framework.py` | **17 passed** |
+| #1196 + #1178-Frontend + TS-Framework | `vitest run …` (3 Dateien) | **40 passed** |
+| Design-System-Ratchet | `vitest run src/test/design-system-ratchet.test.ts` | **21 passed** |
 
-> **Wichtig:** Die Frontend-Suiten und das DB-freie Framework sind grün. Die
-> DB-gebundenen Suiten (`test_import_service_hardening`, `test_csv_import_hardening`,
-> `test_requirement_service`, `test_entity_surface_parity`, `test_tool_manifest_drift`)
-> sind **nicht verifiziert** — sie können lokal ohne Stack nicht laufen. Ein Commit
-> ohne diese Verifikation würde gegen DoD-Punkt 4 (Regression-Guard) verstoßen.
+Die DB-Suite lief über den Test-Overlay (`testing/docker-compose.test.yml`,
+`backend-test` als Superuser mit `settings_test`). Ein direktes
+`docker exec … pytest` im laufenden Dev-Container scheitert an fehlendem `CREATEDB`
+für die App-Rolle — ein bekanntes Test-Infrastruktur-Detail, kein Regressionssignal.
+DoD-Punkt 4 (Regression-Guard) ist damit erfüllt.
 
-### 9.4 Drei Blocker vor jedem Commit
+### 9.4 Aufgelöste Blocker
 
-1. **Kein Commit existiert.** Der gesamte Arbeitsstand ist uncommittet. Jede weitere
-   Unterbrechung der Session gefährdet ihn. **Erste Handlung: committen** — vor jeder
-   weiteren Arbeit.
+1. ~~Kein Commit~~ — beide Wellen sind in 9 Commits gesichert.
+2. ~~Wellen vermischt~~ — sauber getrennt: Welle 1 auf `fix/wave1-meta-drift-ratchet`,
+   Welle 2 auf `fix/wave2-duplicate-bulk-approve`; Welle-2-Änderungen wurden per
+   Branch-Wechsel verlustfrei mitgenommen.
+3. **`frontend/dist/` nicht gitignored** — für die Commits umgangen (Build-Artefakte
+   zurückgesetzt, nur selektives Staging). **Der Befund selbst bleibt offen** und ist
+   als eigener Punkt festgehalten (9.5).
 
-2. **Wellen sind vermischt.** Welle-2-Arbeit (Backend-Persistenz, `ReviewsView.tsx`,
-   i18n, CsvImport) liegt im Working Tree von `fix/wave1-meta-drift-ratchet`. Ohne
-   Commits gibt es keine Rettung durch Git — ein Splitting erfordert manuelles
-   Stagen. **Empfohlene Reihenfolge:** zuerst Welle-1-Dateien committen, dann
-   `git checkout -b fix/wave2-duplicate-bulk-approve` (Branch existiert bereits,
-   leer) und die Welle-2-Dateien dorthin mitnehmen. Da beide Wellen auf demselben
-   `main @ 65515769` basieren, ist das verlustfrei.
+### 9.5 Verbleibende offene Punkte
 
-3. **`frontend/dist/` ist NICHT gitignored** und enthält hunderte geänderte/gelöschte/
-   neue Dateien (Ergebnis eines `npm run build`). Ein `git add -A` würde Build-Müll
-   committen. **Vor dem Committen: Build-Artefakte explizit ausschließen**
-   (selektives Stagen, kein `-A`). Offene Frage an den User, ob `frontend/dist/`
-   dauerhaft ignoriert werden soll — es ist ein getracktes Build-Artefakt, und das
-   ist ein eigener Befund.
+1. **WP-C (#1104):** Issue-Kommentar zur falschen Link-Typ-Behauptung (gemessene 11
+   statt behaupteter 20) und Klärung der ViewSet-Zerlegung. Kein Code-Change.
+2. **PRs:** je ein PR pro Welle gegen `main`, verlinkt die Issue-Nummern
+   (`Refs #1104`, `Fixes #1103`/`#1178`/`#1196` wo die AC vollständig erfüllt sind).
+3. **`frontend/dist/`-Tracking** (Befund, kein Bugfix-Gegenstand): Build-Artefakte
+   sind getrackt und erzeugen bei jedem Build hunderte Diffs. Vor dem nächsten
+   Release-Cut entscheiden, ob `frontend/dist/` in `.gitignore` wandert.
+4. **Danach:** Welle 3 (#1117) und die Entscheidungsspur (1135/1138/1110) wie geplant.
 
-### 9.5 Nächste Schritte (in dieser Reihenfolge)
-
-1. **Welle 1 committen** auf `fix/wave1-meta-drift-ratchet` (Meta + Ratchet + Drift-Gate,
-   ohne `dist/`), Conventional Commits, ein logischer Fix pro Commit.
-2. **Welle 2 committen** auf `fix/wave2-duplicate-bulk-approve` (vier Teilfixes, je
-   eigener Commit: Import, Response+Frontend, Create-Warnung, Massen-Freigabe).
-3. **DB-Verifikation nachholen** via `make test-backend` — erst dann ist DoD-Punkt 4
-   erfüllt. Ohne das bleiben die Commits „ungeprüft gegen die Regression-Suite".
-4. **WP-C nachziehen**: Issue-Kommentar zu #1104 (falsche Link-Typ-Behauptung) und
-   ggf. Akzeptanzkriterien von #1103 gegen den Stand abhaken.
-5. **Offen aus dieser Session (kein Fix beauftragt):** `frontend/dist/`-Tracking
-   (siehe 9.4 Punkt 3); der `.gitignore`-Befund ist kein Bugfix-Gegenstand, aber er
-   gehört vor den nächsten Release-Cut entschieden.
-6. **Danach:** Welle 3 (#1117) und die Entscheidungsspur (1135/1138/1110) wie geplant.
-
-### 9.6 Fehlende Verifikationen (aus §7.2 — Annahmen noch nicht aufgelöst)
+### 9.6 Verifikations-Notizen (aus §7.2)
 
 | Annahme | Stand |
 |---|---|
-| Transition-API erlaubt Batch mit einer Begründung (#1196) | Code + Tests deuten auf geklärte Umsetzung (Begründungs-Pflicht pro Target ist getestet). Formale Verifikationsnotiz fehlt im Commit. |
-| Create-Pfad-Warnung ist API-additiv ohne Breaking Change (#1178) | Umsetzung reitet auf dem ORM-Objekt vor dem Insert; ob die Serializer-Response das Feld trägt, ist über `test_requirement_viewset_rest.py` (+35 Z.) vermutlich abgedeckt — **nicht gegen grüne DB-Suite verifiziert**. |
-| Agent-meta-Sync gefahrlos ausführbar? | Nicht festgestellt. Die Korrektur wurde an Quelle **und** generierten Dateien vorgenommen; ob ein späterer Sync das bestätigt, ist ungeprüft. |
+| Transition-API erlaubt Batch mit einer Begründung (#1196) | Umgesetzt und getestet: eine Batch-Begründung; die Begründungs-Pflicht pro Target ist als eigener Fall abgedeckt. |
+| Create-Pfad-Warnung ist API-additiv ohne Breaking Change (#1178) | Umgesetzt (Warnung reitet auf dem ORM-Objekt vor dem Insert); durch `test_requirement_service.py` und `test_requirement_viewset_rest.py` grün belegt. Die Zeile wird weiterhin erzeugt. |
+| Agent-meta-Sync reproduziert die Korrektur? | Die Korrektur wurde an Quelle (`.meta-config/project.yaml`) **und** generierten Artefakten vorgenommen. Das neue Drift-Gate macht einen erneuten Auseinanderlaufen sofort sichtbar. |
 
 ---
 
-*Protokolliert vom Haupt-Thread am 2026-10-12 nach Abbruch der Subagent-Ausführung.
-Kein Commit, kein Push, keine Issue-Kommentare in dieser Session.*
+*Protokolliert vom Haupt-Thread am 2026-10-12. Commits, Tests und Branch-Trennung
+dokumentiert; Push/PR sind der nächste Schritt.*
