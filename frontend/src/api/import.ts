@@ -41,6 +41,14 @@ export interface ImportResult {
    * whole truth, so the UI must render this.
    */
   warnings: string[];
+  /**
+   * Rows the natural-key dedupe skipped, each with its per-row cause
+   * (ADR-014 §5 / issue #1178): `skipped_count` counted the outcome but
+   * named no cause, so a skipped duplicate was indistinguishable from a
+   * silently dropped row. Purely additive — a backend that predates the key
+   * omits it entirely, and a clean import reports `[]`.
+   */
+  skipped?: SkippedImportItem[];
 }
 
 /**
@@ -86,6 +94,18 @@ export interface ReqifItem {
   status: "succeeded" | "skipped" | "failed";
   cause: { code: string; message: string };
 }
+
+/**
+ * One row the natural-key dedupe skipped in a **legacy** CSV import.
+ *
+ * `CsvImportView`'s legacy body reuses the very item structure contract v2
+ * reports, so this is `ReqifItem` with `cause` made optional: a response that
+ * carries the list without a cause must degrade to a neutral message instead
+ * of crashing the render.
+ */
+export type SkippedImportItem = Omit<ReqifItem, "cause"> & {
+  cause?: ReqifItem["cause"];
+};
 
 export interface ReqifCounts {
   succeeded: number;

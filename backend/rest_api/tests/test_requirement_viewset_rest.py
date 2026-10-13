@@ -195,6 +195,41 @@ def test_list_with_invalid_workspace_id_returns_400() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Issue #1178: non-blocking duplicate-title warning on the create path
+# ---------------------------------------------------------------------------
+
+
+def test_create_with_a_unique_title_carries_no_warnings() -> None:
+    """A clean create keeps its exact pre-existing body — the warning key is
+    only added when there is something to report."""
+    _, user, workspace = _scenario()
+
+    created = _create_requirement(_client(user), workspace, title="Fresh title")
+
+    assert "warnings" not in created, created
+
+
+def test_create_with_an_existing_title_warns_but_still_creates() -> None:
+    """Issue #1178: a normalized-equal title in the same workspace is reported
+    as a warning, never a rejection — blocking here would be a breaking change
+    for every create client. The row is created and the 201 body names the
+    pre-existing row so the user can find it."""
+    _, user, workspace = _scenario()
+    first = _create_requirement(_client(user), workspace, title="Shared Title")
+
+    # Only outer whitespace and case differ — the documented normalisation rule
+    # (str -> strip -> casefold; inner whitespace stays significant).
+    second = _create_requirement(_client(user), workspace, title="  SHARED title  ")
+
+    # ... and the row really exists: the warning is not a silent rejection.
+    assert second["id"] != first["id"]
+    warnings = second["warnings"]
+    assert isinstance(warnings, list) and len(warnings) == 1
+    assert "normalized-equal title" in warnings[0]
+    assert first["uid"] in warnings[0]
+
+
+# ---------------------------------------------------------------------------
 # Happy path: create -> retrieve -> list -> patch -> soft delete
 # ---------------------------------------------------------------------------
 

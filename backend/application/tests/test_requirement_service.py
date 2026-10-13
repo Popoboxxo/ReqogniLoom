@@ -198,6 +198,12 @@ class TestCreateRequirement:
                 "application.requirement_service.Requirement.objects.create",
                 return_value=mock_req,
             ),
+            # Issue #1178: create_requirement runs a tenant-scoped title lookup
+            # for the non-blocking duplicate warning. This unit test mocks
+            # ``_set_tenant_context`` away (so no tenant manager is active) and
+            # asserts the return value / audit entry, not the warning — stub the
+            # lookup out instead of provisioning a real tenant context.
+            patch.object(svc, "_duplicate_title_warning", return_value=None),
             patch.object(svc, "_audit"),
             patch.object(svc, "_emit_event"),
         ):
@@ -233,6 +239,10 @@ class TestCreateRequirement:
                 "application.requirement_service.Requirement.objects.create",
                 return_value=mock_req,
             ),
+            # Issue #1178: see ``test_create_success_returns_requirement`` above
+            # — the duplicate-title lookup is stubbed because this unit test has
+            # no tenant context active.
+            patch.object(svc, "_duplicate_title_warning", return_value=None),
             patch.object(svc, "_audit") as mock_audit,
             patch.object(svc, "_emit_event"),
         ):

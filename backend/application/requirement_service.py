@@ -102,6 +102,29 @@ def detect_non_atomic_terms(title: str) -> List[str]:
     return sorted({m.group(1).lower() for m in _NON_ATOMIC_TERM_PATTERN.finditer(title or "")})
 
 
+def normalized_title(title: str) -> str:
+    """Return *title* in the one form duplicate detection compares (issue #1178).
+
+    NORMALISATION RULE (defined here once, reused by every caller):
+
+        ``str(title).strip().casefold()``
+
+    * ``str()`` first, so a non-string cell cannot raise on the way in;
+    * ``strip()`` drops the surrounding whitespace a CSV cell or a paste
+      carries (``"  Foo Bar "``);
+    * ``casefold()`` makes the comparison case-insensitive (``"Foo Bar"`` ==
+      ``"foo bar"``).
+
+    Whitespace *inside* the title stays significant, on purpose: the CSV
+    importer applies exactly this rule too (``ImportService._natural_key`` /
+    ``_dedupe_rows``), so both entry paths agree on what "the same title"
+    means. Collapsing inner runs of whitespace would make the two rules
+    disagree — a row the importer calls a duplicate the create path would
+    accept, and vice versa.
+    """
+    return str(title or "").strip().casefold()
+
+
 class PgVectorUnavailableError(RuntimeError):
     """Raised when pgvector (package or ``vector`` extension) is unavailable.
 
@@ -231,6 +254,43 @@ class RequirementService(ServiceBase):
             path_str = "→".join(str(node) for node in cycle_path)
             raise ValidationError(f"Cycle detected: {path_str}→{artifact_id}")
 
+    def _duplicate_title_warning(
+        self, workspace_id: UUID, title: str
+    ) -> Optional[str]:
+        """Issue #1178: NON-BLOCKING warning for a normalized-equal title.
+
+        Returns a human-readable warning when the workspace already stores a
+        requirement with the same title under :func:`normalized_title`, else
+        ``None``. The caller still creates its row — a hard rejection would be
+        a breaking change for every create client (REST and MCP), which the
+        issue explicitly rules out. Titles carry no uniqueness constraint, so
+        this reports a likely-unintended duplicate instead of enforcing one.
+
+        Workspace-scoped (not tenant): ReqIF/CSV import legitimately copies the
+        same titles into a different workspace of the same tenant, exactly like
+        ``_dedupe_rows`` scopes its own title lookup (issue #1194).
+
+        The message names the existing row's ``uid`` so the user can find it,
+        and echoes no user-controlled text of its own.
+        """
+        normalized = normalized_title(title)
+        if not normalized:
+            return None
+        existing = (
+            Requirement.objects.filter(
+                artifact__workspace_id=workspace_id, title__iexact=normalized
+            )
+            .values("uid")
+            .first()
+        )
+        if existing is None:
+            return None
+        return (
+            "A requirement with a normalized-equal title already exists in "
+            f"this workspace (uid '{existing['uid'] or 'unset'}'); this "
+            "requirement was created anyway."
+        )
+
     def _assert_uid_unique_in_workspace(
         self,
         workspace_id: UUID,
@@ -291,6 +351,12 @@ class RequirementService(ServiceBase):
         written above). A client that used to pass a level here would silently
         store something the hierarchy does not say — the exact defect ADR-005
         removes.
+
+        Issue #1178: when the workspace already holds a requirement with a
+        normalized-equal title, the returned ORM object carries a transient
+        ``duplicate_title_warning`` attribute (never persisted) that the create
+        transports mirror into an additive ``warnings`` list. The row is still
+        created — a rejection here would break every create client.
         """
         self._set_tenant_context(ctx)
         self._assert_write_permission(ctx)
@@ -320,6 +386,10 @@ class RequirementService(ServiceBase):
         # as description/acceptance_criteria (closes the MCP bypass).
         rationale = clean_free_text_field(rationale, "rationale")
         source = clean_free_text_field(source, "source")
+
+        # Issue #1178: BEFORE the row exists, so the new row cannot be its own
+        # duplicate. Non-blocking (see the docstring).
+        duplicate_title_warning = self._duplicate_title_warning(workspace_id, title)
 
         # Create the backing Artifact first
         artifact = Artifact.objects.create(
@@ -406,6 +476,15 @@ class RequirementService(ServiceBase):
                 payload={"title": title, "artifact_id": str(requirement.artifact_id)},
             )
         )
+
+        # Issue #1178: the duplicate-title warning rides on the returned ORM
+        # object as a transient, non-persisted attribute. The create transports
+        # read it back and mirror it into an additive ``warnings`` list (REST:
+        # ``_service_warnings`` in rest_api/views.py). Every other caller
+        # ignores it, so no call site changes. Set last so the audit event, the
+        # embedding and the level refresh above cannot drop it.
+        if duplicate_title_warning:
+            requirement.duplicate_title_warning = duplicate_title_warning
         return requirement
 
     def derive_requirement(

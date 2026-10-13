@@ -79,6 +79,15 @@ type ReviewTab = "details" | "history";
  */
 type ReviewsListMode = ReviewQueueMode | "suggestions";
 
+/**
+ * #1196: which decision a bulk run executes over the review queue.
+ *
+ * The two review-mode bulk buttons are the batch counterpart of the detail
+ * pane's Approve/Reject pair; the target each one resolves to is read from the
+ * item itself (see `confirmReviewItem`), never from a second table.
+ */
+type ReviewBulkAction = "approve" | "reject";
+
 // REQ-168: per-type approve/reject targets. The review queue keeps the queue
 // scoped to the `in_review` state, so these are the only transitions the
 // Approve/Reject buttons ever attempt to resolve — but the concrete target
@@ -226,12 +235,25 @@ export default function ReviewsView({
   const queueMode: ReviewQueueMode =
     listMode === "proposals" ? "proposals" : "review";
   const [selectedIds, setSelectedIds] = useState<readonly string[]>([]);
-  const [bulkResult, setBulkResult] = useState<{ ok: number; failed: number } | null>(
-    null,
-  );
+  const [bulkResult, setBulkResult] = useState<{
+    ok: number;
+    failed: number;
+    /**
+     * #1196: which decision produced the report, so the sentence can name the
+     * right verb ("freigegeben" vs "abgelehnt"). Optional and absent on the
+     * proposals path, whose wording stays untouched — a purely additive field
+     * on the existing `{ ok, failed }` shape.
+     */
+    action?: ReviewBulkAction;
+  } | null>(null);
   // #1193: the first failure reason of the last bulk confirm, surfaced inline
   // instead of being swallowed behind a bare "N failed" count.
   const [bulkError, setBulkError] = useState<string | null>(null);
+  // #1196: the ONE reason typed for a review-queue bulk run. Deliberately not
+  // `changeReason`: that field belongs to the item open in the detail pane and
+  // `handleSelect` resets it, so sharing it would wipe a typed batch reason the
+  // moment the reviewer clicks a row to inspect it mid-selection.
+  const [bulkReason, setBulkReason] = useState("");
 
   const {
     items,
@@ -334,6 +356,9 @@ export default function ReviewsView({
   useEffect(() => {
     setPage(1);
     setSelectedIds([]);
+    // #1196: the batch reason describes the selection that is being cleared
+    // here, so it must not survive into the next queue.
+    setBulkReason("");
     // Security review minor: without this the "N proposals confirmed" toast
     // survived a switch to a different artifact type or back to review mode,
     // where it describes a run against a queue that is no longer on screen.
@@ -400,6 +425,137 @@ export default function ReviewsView({
     [selectedArtifactType, t],
   );
 
+  /**
+   * Resolve and execute ONE review-queue move for a bulk run (#1196).
+   *
+   * Same per-item shape as `confirmProposal` above — GET the item's own
+   * transitions, pick the move the decision targets, POST it — because the
+   * allowed set is per item AND per workspace, so no table can supply a target
+   * state that holds for every row.
+   *
+   * The targets themselves are the file's existing `REVIEW_ACTION_CONFIG`
+   * pair, the one the detail pane's Approve/Reject resolve through
+   * `findTransition`. Resolving them against the item (one GET) rather than
+   * against `transitions` — which belongs to whatever is open in the detail
+   * pane and is undefined during a normal bulk run — is exactly the M4 bug
+   * `confirmProposal`'s comment documents.
+   *
+   * `REVIEW_ACTION_CONFIG` rather than "the transition without
+   * `requires_change_reason`": that rule is what the *proposal* graph encodes
+   * (confirm needs no reason, discard does). The review queue is the opposite
+   * shape — `in_review -> approved` is reason-gated (see the fixture in
+   * ReviewsView.test.tsx, where BOTH moves require one) — so a reason-free
+   * pick resolves nothing for a requirement and every bulk approve would fail.
+   * Here `requires_change_reason` is read for what it really is: a gate on the
+   * batch reason, checked per item.
+   */
+  const confirmReviewItem = useCallback(
+    async (id: string, action: ReviewBulkAction): Promise<void> => {
+      const detail = await workflowTransitionsApi.getTransitions(
+        selectedArtifactType,
+        id,
+      );
+      const { approve, reject } = REVIEW_ACTION_CONFIG[selectedArtifactType];
+      const target = findTransition(
+        detail?.allowed_transitions,
+        action === "approve" ? approve : reject,
+      );
+      if (!target) {
+        // Not offered for THIS item: missing approver role, unmet precondition,
+        // or a graph without that move. The item fails on its own; the run
+        // continues (`bulkConfirm` never aborts).
+        throw new Error(t("reviews.transitionUnavailable"));
+      }
+      // One reason for the whole batch: there is no batch transition endpoint
+      // (transitions are per-item POSTs) and
+      // backend/workflow/transition_validator.py validates `change_reason`
+      // per item, so the same string travels with every call. A target that
+      // requires one and got none fails THIS item only — a rejected reason
+      // must not cost the reviewer the rest of the selection.
+      if (target.requires_change_reason && !bulkReason.trim()) {
+        throw new Error(t("reviews.changeReasonRequired"));
+      }
+      if (bulkReason.trim()) {
+        await workflowTransitionsApi.transition(
+          selectedArtifactType,
+          id,
+          target.target_state,
+          bulkReason,
+        );
+        return;
+      }
+      // Keep the no-reason call shape identical to `confirmProposal`'s so the
+      // two paths wire the same request either way.
+      await workflowTransitionsApi.transition(
+        selectedArtifactType,
+        id,
+        target.target_state,
+      );
+    },
+    [selectedArtifactType, bulkReason, t],
+  );
+
+  /**
+   * #1196: run one bulk decision over the review-queue selection.
+   *
+   * A sibling of the proposals handler rather than a shared helper: that one
+   * is pinned by the #1193 suites and has to keep its DOM byte-identical, so
+   * the two runs stay independent. Both drive the same `bulkConfirm`, which
+   * remains the only such loop in this file.
+   */
+  const runReviewBulk = useCallback(
+    async (action: ReviewBulkAction): Promise<void> => {
+      setIsActing(true);
+      setBulkError(null);
+      try {
+        // #1193: collect the cause of every failed item so the reviewer learns
+        // *why* instead of only that something failed.
+        const failures: string[] = [];
+        const { confirmed, failed } = await bulkConfirm(
+          selectedIds,
+          (id) => confirmReviewItem(id, action),
+          (_id, error) => failures.push(extractErrorMessage(error)),
+        );
+        setSelectedIds([]);
+        setBulkReason("");
+        setBulkResult({ ok: confirmed.length, failed: failed.length, action });
+        setBulkError(failures.length > 0 ? failures[0] : null);
+        await refreshList();
+      } finally {
+        setIsActing(false);
+      }
+    },
+    [confirmReviewItem, selectedIds, refreshList],
+  );
+
+  /**
+   * #1196: the sentence inside the existing result element.
+   *
+   * The review queue reports its own decisions — "2 freigegeben, 1
+   * fehlgeschlagen" (or "… abgelehnt, …" for a reject run). The proposals
+   * queue keeps the exact wording it always had; branching here instead of
+   * inline in the JSX keeps that `<p>` a single expression, and a partial
+   * failure never drops the count of what did go through.
+   */
+  const bulkReportText = (result: {
+    ok: number;
+    failed: number;
+    action?: ReviewBulkAction;
+  }): string => {
+    const done =
+      queueMode === "proposals"
+        ? t("workflow.proposal.bulkConfirmDone", { count: result.ok })
+        : result.action === "reject"
+          ? t("reviews.bulkRejectDone", { count: result.ok })
+          : t("reviews.bulkApproveDone", { count: result.ok });
+    if (result.failed === 0) return done;
+    const failed =
+      queueMode === "proposals"
+        ? t("workflow.proposal.bulkConfirmFailed", { count: result.failed })
+        : t("reviews.bulkFailed", { count: result.failed });
+    return `${done}${queueMode === "proposals" ? " — " : ", "}${failed}`;
+  };
+
   const selected = useMemo(
     () => items.find((r) => r.id === selectedId) ?? null,
     [items, selectedId]
@@ -412,6 +568,14 @@ export default function ReviewsView({
     setChangeReason("");
     setActionError(null);
     setPendingTransition(null);
+  }, []);
+
+  // #1196: add/remove one row id from the bulk selection. Shared by both
+  // queues so a selection behaves identically in either mode.
+  const toggleSelectedId = useCallback((id: string, checked: boolean): void => {
+    setSelectedIds((prev) =>
+      checked ? [...prev, id] : prev.filter((existing) => existing !== id),
+    );
   }, []);
 
   // REQ-168: switching the entity type reloads a different review queue, so
@@ -666,12 +830,55 @@ export default function ReviewsView({
           {t("workflow.proposal.bulkConfirm")} ({selectedIds.length})
         </button>
       )}
+
+      {/* #1196: bulk approve/reject in the regular review queue. The
+          proposals block above keeps its historical single-button DOM; this
+          one is the review-mode counterpart and shares nothing with it except
+          the `selectedIds` state and the `bulkConfirm` loop.
+
+          One reason for the whole batch on purpose: there is no batch
+          transition endpoint, so the same string is sent as every per-item
+          `change_reason` (see `confirmReviewItem`). Style-wise it reuses the
+          toolbar row/field classes of the type filter above — the CSS module
+          is shared, no new classes were introduced for it. */}
+      {queueMode !== "proposals" && selectedIds.length > 0 && (
+        <div className={styles.typeRow}>
+          <label htmlFor="reviews-bulk-reason" className={styles.typeLabel}>
+            {t("reviews.changeReasonLabel")}
+          </label>
+          <input
+            id="reviews-bulk-reason"
+            type="text"
+            data-testid="reviews-bulk-reason-input"
+            className={styles.typeSelect}
+            value={bulkReason}
+            onChange={(e) => setBulkReason(e.target.value)}
+            placeholder={t("reviews.changeReasonPlaceholder")}
+            disabled={isActing}
+          />
+          <button
+            type="button"
+            data-testid="reviews-bulk-confirm-btn"
+            className="btn-primary"
+            disabled={isActing}
+            onClick={() => void runReviewBulk("approve")}
+          >
+            {t("reviews.approve")} ({selectedIds.length})
+          </button>
+          <button
+            type="button"
+            data-testid="reviews-bulk-reject-btn"
+            className="btn-danger"
+            disabled={isActing}
+            onClick={() => void runReviewBulk("reject")}
+          >
+            {t("reviews.reject")} ({selectedIds.length})
+          </button>
+        </div>
+      )}
       {bulkResult && (
         <p role="status" data-testid="reviews-bulk-confirm-result">
-          {t("workflow.proposal.bulkConfirmDone", { count: bulkResult.ok })}
-          {bulkResult.failed > 0
-            ? ` — ${t("workflow.proposal.bulkConfirmFailed", { count: bulkResult.failed })}`
-            : ""}
+          {bulkReportText(bulkResult)}
         </p>
       )}
       {/* #1193: the cause behind the "N failed" count — previously the
@@ -728,6 +935,16 @@ export default function ReviewsView({
       <ul className={styles.reviewList}>
         {paged.map((r) => (
           <li key={r.id} className={styles.reviewRow}>
+            {/* #1196: the review queue now carries the same per-row selection
+                the proposals queue has, over the same `selectedIds` state, so
+                a reviewer can bulk approve/reject without switching modes.
+                Each mode keeps its own element: the proposals one is pinned by
+                the #1193 suites (test id `review-select-<id>`, plus its own
+                click guard), this one is the review-mode affordance.
+
+                Both stay siblings of the row button rather than children of it,
+                so a tick can never reach the row's detail-pane click; that is
+                why no separate propagation guard is repeated here. */}
             {queueMode === "proposals" && (
               <input
                 type="checkbox"
@@ -741,6 +958,17 @@ export default function ReviewsView({
                   )
                 }
                 onClick={(e) => e.stopPropagation()}
+              />
+            )}
+            {queueMode !== "proposals" && (
+              <input
+                type="checkbox"
+                // The row title is this checkbox's accessible name; without it
+                // a screen reader announces N identical unlabelled checkboxes.
+                aria-label={r.title}
+                data-testid="review-item-checkbox"
+                checked={selectedIds.includes(r.id)}
+                onChange={(e) => toggleSelectedId(r.id, e.target.checked)}
               />
             )}
             <button
