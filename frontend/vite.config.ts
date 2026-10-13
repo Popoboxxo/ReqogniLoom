@@ -42,6 +42,15 @@ export default defineConfig({
     setupFiles: ["./src/test/setup.ts"],
     // Include test files (see TESTING_CONVENTIONS.md for layout rules)
     include: ["src/**/*.{test,spec}.{ts,tsx}"],
+    // #1117: writes a per-failure JSON artifact so a flaky failure can be named
+    // and compared next run instead of just counted. Imported as an absolute
+    // path because Vitest resolves a string reporter spec relative to the
+    // config file's project root, which differs between local and container
+    // runs. The default reporter stays; this only adds a parallel sink.
+    reporters: [
+      "default",
+      resolve(__dirname, "./src/test/flaky-artifact-reporter.ts"),
+    ],
     // Resolve stubs for packages that are installed in Docker but not locally
     alias: {
       // fabric@6 is installed via Docker/npm install — stub it for local unit tests
