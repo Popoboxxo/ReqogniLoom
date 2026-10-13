@@ -314,3 +314,41 @@ describe("IssueEditors Task 2.3 concept remodel (PageHeader / ArtifactRow / Dial
     void i18n.changeLanguage(previousLanguage);
   });
 });
+
+describe("IssueEditors — include_deleted reveals outdated issues (D6)", () => {
+  const OUTDATED_ISSUE = { ...ISSUE, id: "issue-outdated-1", title: "Retired issue", status: "Wontfix" };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(tracelinksApi.listForArtifact).mockResolvedValue({
+      count: 0,
+      next: null,
+      previous: null,
+      results: [],
+    } as any);
+    vi.mocked(issuesApi.get).mockResolvedValue(ISSUE);
+    vi.mocked(issuesApi.listAll).mockImplementation(async (_ws: string, includeDeleted?: boolean) =>
+      (includeDeleted ? [ISSUE, OUTDATED_ISSUE] : [ISSUE]) as never,
+    );
+  });
+
+  it("reveals and badges the outdated issue only after the toggle is on", async () => {
+    renderEditor("/issues");
+
+    await waitFor(() => {
+      expect(screen.getByTestId(`issue-row-${ISSUE.id}`)).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("issue-row-issue-outdated-1")).not.toBeInTheDocument();
+
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("issue-list-include-deleted"));
+
+    await waitFor(() => {
+      expect(issuesApi.listAll).toHaveBeenCalledWith("ws-001", true);
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId("issue-row-issue-outdated-1")).toBeInTheDocument();
+    });
+    expect(screen.getByTestId("issue-row-issue-outdated-1-outdated")).toBeInTheDocument();
+  });
+});

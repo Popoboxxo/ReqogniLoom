@@ -22,8 +22,11 @@ export const issuesApi = {
    * exhaustion (issue C — list() only returned the first page, capped at
    * PAGE_SIZE=25).
    */
-  async listAll(workspaceId: UUID): Promise<Issue[]> {
-    return getAllPages<Issue>("/issues/", { workspace_id: workspaceId });
+  async listAll(workspaceId: UUID, includeDeleted = false): Promise<Issue[]> {
+    return getAllPages<Issue>("/issues/", {
+      workspace_id: workspaceId,
+      ...(includeDeleted ? { include_deleted: "true" } : {}),
+    });
   },
 
   get(id: UUID): Promise<Issue> {

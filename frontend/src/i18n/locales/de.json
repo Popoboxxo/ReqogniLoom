@@ -323,6 +323,8 @@
     "allCategories": "Alle Kategorien",
     "allStatuses": "Alle Status",
     "showDeleted": "Gelöschte anzeigen",
+    "showOutdated": "Veraltete anzeigen",
+    "outdatedBadge": "Veraltet",
     "sortLabel": "Sortieren nach",
     "sortDefault": "Standardreihenfolge",
     "sortTitleAsc": "Titel (A–Z)",

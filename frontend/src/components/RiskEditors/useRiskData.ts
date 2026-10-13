@@ -27,16 +27,16 @@ export interface RiskData {
   refresh: () => void;
 }
 
-export function useRiskData(selectedId?: string): RiskData {
+export function useRiskData(selectedId?: string, includeDeleted = false): RiskData {
   const { activeWorkspace, isLoadingWorkspace } = useWorkspace();
   const workspaceId = activeWorkspace?.id;
   const queryClient = useQueryClient();
 
   const listQuery = useQuery({
-    queryKey: riskKeys.list(workspaceId ?? ""),
+    queryKey: [...riskKeys.list(workspaceId ?? ""), includeDeleted],
     // Issue C: list() only returned page 1 (PAGE_SIZE=25) — listAll()
     // follows pagination until exhaustion.
-    queryFn: async () => risksApi.listAll(workspaceId as string),
+    queryFn: async () => risksApi.listAll(workspaceId as string, includeDeleted),
     // Issue B: activeWorkspace starts as the DEFAULT_WORKSPACE placeholder
     // (truthy fake UUID), so !!workspaceId alone fires this query before the
     // real workspace has loaded, hitting the backend with a bogus id (401).

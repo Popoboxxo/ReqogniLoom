@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { SplitView } from '../SplitView/SplitView';
 import { PageHeader } from '../shared/PageHeader';
 import { useInterviewStartCta } from '../shared/useInterviewStartCta';
+import { IncludeDeletedToggle } from '../shared/IncludeDeletedToggle/IncludeDeletedToggle';
 import { Dialog } from '../shared/Dialog';
 import { SAVE_SHORTCUT_ARIA, useSaveShortcut } from '../../hooks/useSaveShortcut';
 import { IssueList } from './IssueList';
@@ -31,7 +32,8 @@ export default function IssueEditors(): JSX.Element {
   const { activeWorkspace } = useWorkspace();
   // Shared with the other artifact routes so the CTA cannot drift.
   const interviewCta = useInterviewStartCta('Issue');
-  const { items, item, isLoading, error, refresh } = useIssueData(selectedId);
+  const [includeDeleted, setIncludeDeleted] = useState(false);
+  const { items, item, isLoading, error, refresh } = useIssueData(selectedId, includeDeleted);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   // BUG-11 (Systemaudit 2026-08-18, §4): description/category are ordinary
@@ -174,12 +176,19 @@ export default function IssueEditors(): JSX.Element {
       <div className={styles.splitWrapper}>
         <SplitView
           leftPanel={
-            <IssueList
-              items={items}
-              selectedId={selectedId}
-              onSelect={(id) => navigate(`/issues/${id}`)}
-              onCreateNew={openCreateDialog}
-            />
+            <div>
+              <IncludeDeletedToggle
+                checked={includeDeleted}
+                onChange={setIncludeDeleted}
+                testIdPrefix="issue-list"
+              />
+              <IssueList
+                items={items}
+                selectedId={selectedId}
+                onSelect={(id) => navigate(`/issues/${id}`)}
+                onCreateNew={openCreateDialog}
+              />
+            </div>
           }
           rightPanel={
             <div className={styles.rightPane}>

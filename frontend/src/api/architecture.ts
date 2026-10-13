@@ -24,12 +24,13 @@ export const architectureApi = {
    * the paginator's `next` URL until exhaustion and returns the full
    * de-duplicated list of elements for the workspace.
    */
-  async listAll(workspaceId: UUID): Promise<ArchitectureElement[]> {
+  async listAll(workspaceId: UUID, includeDeleted = false): Promise<ArchitectureElement[]> {
     const seen = new Set<UUID>();
     const all: ArchitectureElement[] = [];
     let resp = await getList<ArchitectureElement>("/architecture/", {
       workspace_id: workspaceId,
       page_size: "100",
+      ...(includeDeleted ? { include_deleted: "true" } : {}),
     });
     for (const el of resp.results) {
       if (!seen.has(el.id)) {

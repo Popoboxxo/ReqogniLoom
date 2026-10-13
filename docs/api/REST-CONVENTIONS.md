@@ -431,3 +431,31 @@ transports inherit it.
 `ask` never raises and never answers `500` for a backend-side failure; a failing
 backend degrades into the flag, exactly like `digest`. On `pgvector`, which has
 no generative engine, this degradation is the normal shape, not an error.
+
+---
+
+## 10. Hard `DELETE` stays — the detail UI offers an outdated transition instead
+
+`DELETE /api/v1/{resource}/{id}/` remains on every workflow-backed artifact type
+(requirements, needs, adrs, risks, issues, testcases, architecture) and on the
+MCP surface. It is a **soft** delete: the row survives and moves to the
+workflow's outdated-equivalent state (`state_meta: {…: {is_outdated_equivalent:
+true}}`, e.g. `deprecated`, `Superseded`, `Wontfix`, `Closed`), and the list
+endpoints hide it unless the caller opts in with `?include_deleted=true`.
+
+The endpoints exist for **admin / data-hygiene / automation** callers (scripts,
+migrations, MCP agents) that decide server-side to retire an artifact. They are
+deliberately **no longer offered from the artifact detail UI** (decision D6):
+the detail form's destructive button is gone and has been replaced by a
+"Veralten" action that runs the artifact's own workflow transition to the
+outdated-equivalent target. Consequences:
+
+* Retiring an artifact from the UI now goes through `POST
+  /api/v1/{resource}/{id}/transitions/` (role / `change_reason` / signature
+  gates enforced by the WorkflowEngine), not through `DELETE`.
+* A `DELETE` is still a valid API/MCP call and behaves exactly as before — the
+  visibility change is purely client-side.
+* List visibility is uniform across artifact types: `?include_deleted=true`
+  reveals outdated rows, and every artifact list offers the same opt-in toggle
+  plus an "outdated" row badge.
+

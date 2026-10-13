@@ -28,6 +28,7 @@ import {
   compareWorkflowStatus,
   getWorkflowStatusLabel,
 } from '../../utils/workflowStatus';
+import { isOutdatedState } from '../../utils/outdatedStates';
 import styles from './TestCaseEditors.module.css';
 
 interface TestCaseListProps {
@@ -175,6 +176,7 @@ export function TestCaseList({ items, selectedId, onSelect, onCreateNew }: TestC
                   status={tc.status}
                   statusLabel={getWorkflowStatusLabel(tc.status)}
                   version={tc.version}
+                  outdated={isOutdatedState(tc.status)}
                   selected={isSelected}
                   testId={`tc-row-${tc.id}`}
                 />

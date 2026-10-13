@@ -27,6 +27,7 @@ import {
   compareWorkflowStatus,
   getWorkflowStatusLabel,
 } from '../../utils/workflowStatus';
+import { isOutdatedState } from '../../utils/outdatedStates';
 
 interface IssueListProps {
   items: Issue[];
@@ -173,6 +174,7 @@ export function IssueList({ items, selectedId, onSelect, onCreateNew }: IssueLis
                 status={issue.status}
                 statusLabel={getWorkflowStatusLabel(issue.status)}
                 version={issue.version}
+                outdated={isOutdatedState(issue.status)}
                 selected={isSelected}
                 testId={`issue-row-${issue.id}`}
               />

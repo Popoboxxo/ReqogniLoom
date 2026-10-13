@@ -146,6 +146,11 @@ export interface WorkspaceTreeNode {
   identifier?: string | null;
   /** Architecture level string, e.g. "L0", "L1". Required for showLevelBadge. */
   level?: string;
+  /**
+   * Marks the node as outdated/deprecated — the row renders a warning badge so
+   * an artifact the default list would hide is recognizable when shown.
+   */
+  outdated?: boolean;
   /** Optional badge shown right of the name (status, type, …). */
   badge?: {
     text: string;
@@ -391,6 +396,7 @@ export function WorkspaceTree({
       collapse: t('editor.collapseNode'),
       addChild: t('editor.addChild'),
       containsSelection: t('editor.treeContainsSelection'),
+      outdated: t('editor.outdatedBadge'),
     }),
     [t],
   );
@@ -1042,6 +1048,8 @@ interface TreeRowLabels {
   addChild: string;
   /** Issue #668: tooltip on a collapsed row that hides the current selection. */
   containsSelection: string;
+  /** Label of the outdated/deprecated marker badge (outdated visibility). */
+  outdated: string;
 }
 
 /** Drag & drop wiring handed down from WorkspaceTree to each row. */
@@ -1233,6 +1241,17 @@ function TreeRow({
               style={typeBadgeStyle(node.badge.bg, node.badge.color)}
             >
               {node.badge.text}
+            </Badge>
+          )}
+
+          {node.outdated && (
+            <Badge
+              variant="warning"
+              testId={`${testIdPrefix}-outdated-${node.id}`}
+              title={labels.outdated}
+              ariaLabel={labels.outdated}
+            >
+              {labels.outdated}
             </Badge>
           )}
 

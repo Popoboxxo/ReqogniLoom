@@ -833,3 +833,50 @@ describe("ArchitectureEditors — create dialog a11y (issue #955)", () => {
     expect(screen.getByLabelText(i18n.t("editor.title"))).toBe(input);
   });
 });
+
+describe("ArchitectureEditors — include_deleted reveals outdated elements (D6)", () => {
+  const OUTDATED_ELEMENT = {
+    ...MOCK_ELEMENT,
+    id: "arch-outdated-1",
+    title: "Retired element",
+    lifecycle_status: "outdated",
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(architectureApi.listAll).mockImplementation(
+      async (_ws: string, includeDeleted?: boolean) =>
+        (includeDeleted ? [MOCK_ELEMENT, OUTDATED_ELEMENT] : [MOCK_ELEMENT]) as any,
+    );
+    vi.mocked(architectureApi.get).mockResolvedValue(MOCK_ELEMENT as any);
+    vi.mocked(requirementsApi.list).mockResolvedValue({ results: [], count: 0 } as any);
+    vi.mocked(requirementsApi.listAll).mockResolvedValue([]);
+    vi.mocked(tracelinksApi.listForArtifact).mockResolvedValue({
+      count: 0,
+      next: null,
+      previous: null,
+      results: [],
+    } as any);
+    vi.mocked(attributeDefinitionsApi.getWorkspace).mockResolvedValue(ARCH_DEFINITION as any);
+  });
+
+  it("reveals and badges the outdated element only after the toggle is on", async () => {
+    renderEditor();
+
+    await waitFor(() => {
+      expect(screen.getByTestId(`arch-tree-node-${MOCK_ELEMENT.id}`)).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("arch-tree-node-arch-outdated-1")).not.toBeInTheDocument();
+
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("arch-list-include-deleted"));
+
+    await waitFor(() => {
+      expect(architectureApi.listAll).toHaveBeenCalledWith(expect.any(String), true);
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId("arch-tree-node-arch-outdated-1")).toBeInTheDocument();
+    });
+    expect(screen.getByTestId("arch-tree-outdated-arch-outdated-1")).toBeInTheDocument();
+  });
+});

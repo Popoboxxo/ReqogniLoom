@@ -160,3 +160,35 @@ describe("NeedsEditors — create form sends description/category to the API (BU
     );
   });
 });
+
+describe("NeedsEditors — include_deleted reveals outdated needs (D6)", () => {
+  const OUTDATED_NEED = { ...NEED, id: "need-outdated-1", title: "Retired need", status: "deprecated" };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(stakeholderNeedApi.get).mockResolvedValue(NEED as never);
+    vi.mocked(stakeholderNeedApi.listAll).mockImplementation(async (_ws: string, includeDeleted?: boolean) =>
+      (includeDeleted ? [NEED, OUTDATED_NEED] : [NEED]) as never,
+    );
+  });
+
+  it("reveals and badges the outdated need only after the toggle is on", async () => {
+    renderEditor();
+
+    await waitFor(() => {
+      expect(screen.getByTestId(`need-list-tree-node-${NEED.id}`)).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("need-list-tree-node-need-outdated-1")).not.toBeInTheDocument();
+
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("need-list-include-deleted"));
+
+    await waitFor(() => {
+      expect(stakeholderNeedApi.listAll).toHaveBeenCalledWith("ws-001", true);
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId("need-list-tree-node-need-outdated-1")).toBeInTheDocument();
+    });
+    expect(screen.getByTestId("need-list-tree-outdated-need-outdated-1")).toBeInTheDocument();
+  });
+});

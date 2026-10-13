@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { testcasesApi, type TestCase } from '../../api/testcases';
 import { useWorkspace } from '../../context/WorkspaceContext';
 
-export function useTestCaseData(selectedId?: string) {
+export function useTestCaseData(selectedId?: string, includeDeleted = false) {
   const { activeWorkspace, isLoadingWorkspace } = useWorkspace();
   const [items, setItems] = useState<TestCase[]>([]);
   const [item, setItem] = useState<TestCase | null>(null);
@@ -18,14 +18,14 @@ export function useTestCaseData(selectedId?: string) {
     try {
       // Issue C: list() only returned page 1 (PAGE_SIZE=25) — listAll()
       // follows pagination until exhaustion.
-      const results = await testcasesApi.listAll(activeWorkspace.id);
+      const results = await testcasesApi.listAll(activeWorkspace.id, includeDeleted);
       setItems(results);
     } catch (err) {
       setError(err instanceof Error ? err : new Error(String(err)));
     } finally {
       setIsLoading(false);
     }
-  }, [activeWorkspace, isLoadingWorkspace]);
+  }, [activeWorkspace, isLoadingWorkspace, includeDeleted]);
 
   const loadDetail = useCallback(async () => {
     if (!selectedId) { setItem(null); return; }

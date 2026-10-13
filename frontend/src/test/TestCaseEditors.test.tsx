@@ -488,3 +488,35 @@ describe("TestCaseEditors Task 2.4 concept remodel (PageHeader / ArtifactRow / D
     );
   });
 });
+
+describe("TestCaseEditors — include_deleted reveals outdated test cases (D6)", () => {
+  const OUTDATED_TC = { ...TEST_CASE, id: "tc-outdated-1", title: "Retired test case", status: "Deprecated" };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(testcasesApi.get).mockResolvedValue(TEST_CASE as never);
+    vi.mocked(testcasesApi.listAll).mockImplementation(async (_ws: string, includeDeleted?: boolean) =>
+      (includeDeleted ? [TEST_CASE, OUTDATED_TC] : [TEST_CASE]) as never,
+    );
+  });
+
+  it("reveals and badges the outdated test case only after the toggle is on", async () => {
+    renderEditor("/testcases");
+
+    await waitFor(() => {
+      expect(screen.getByTestId(`tc-row-${TEST_CASE.id}`)).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("tc-row-tc-outdated-1")).not.toBeInTheDocument();
+
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("tc-list-include-deleted"));
+
+    await waitFor(() => {
+      expect(testcasesApi.listAll).toHaveBeenCalledWith("ws-001", true);
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId("tc-row-tc-outdated-1")).toBeInTheDocument();
+    });
+    expect(screen.getByTestId("tc-row-tc-outdated-1-outdated")).toBeInTheDocument();
+  });
+});

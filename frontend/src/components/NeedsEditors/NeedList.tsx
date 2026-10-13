@@ -23,6 +23,7 @@ import {
   compareWorkflowStatus,
   getWorkflowStatusLabel,
 } from '../../utils/workflowStatus';
+import { isOutdatedState } from '../../utils/outdatedStates';
 // F-04 (code review, 2026-08-19): shared create-form field styles (see
 // frontend/src/components/shared/FieldHints.module.css header comment) —
 // keeping them in one shared place instead of duplicating them per component.
@@ -103,6 +104,7 @@ function needToNode(need: StakeholderNeed): WorkspaceTreeNode {
     // Issue #932: the readable local uid is searchable — show it in the row too.
     identifier: need.uid,
     parentId: null,
+    outdated: isOutdatedState(need.status),
     badge: {
       text: getWorkflowStatusLabel(need.status),
       bg: style.background as string,

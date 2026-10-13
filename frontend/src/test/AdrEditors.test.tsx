@@ -563,3 +563,41 @@ describe("AdrEditors Supersede leaves no stale status (F-2 regression, code revi
     });
   });
 });
+
+describe("AdrEditors — include_deleted reveals outdated ADRs (D6)", () => {
+  const OUTDATED_ADR: Adr = { ...ADR, id: "adr-outdated-1", title: "Retired ADR", status: "Superseded" };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(tracelinksApi.listForArtifact).mockResolvedValue({
+      count: 0,
+      next: null,
+      previous: null,
+      results: [],
+    } as any);
+    vi.mocked(adrsApi.get).mockResolvedValue(ADR);
+    vi.mocked(adrsApi.listAll).mockImplementation(async (_ws: string, includeDeleted?: boolean) =>
+      includeDeleted ? [ADR, OUTDATED_ADR] : [ADR],
+    );
+  });
+
+  it("reveals and badges the outdated ADR only after the toggle is on", async () => {
+    renderEditor("/adrs");
+
+    await waitFor(() => {
+      expect(screen.getByTestId(`adr-row-${ADR.id}`)).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("adr-row-adr-outdated-1")).not.toBeInTheDocument();
+
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("adr-list-include-deleted"));
+
+    await waitFor(() => {
+      expect(adrsApi.listAll).toHaveBeenCalledWith("ws-001", true);
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId("adr-row-adr-outdated-1")).toBeInTheDocument();
+    });
+    expect(screen.getByTestId("adr-row-adr-outdated-1-outdated")).toBeInTheDocument();
+  });
+});
