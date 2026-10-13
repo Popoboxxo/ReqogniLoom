@@ -27,16 +27,16 @@ export interface IssueData {
   refresh: () => void;
 }
 
-export function useIssueData(selectedId?: string): IssueData {
+export function useIssueData(selectedId?: string, includeDeleted = false): IssueData {
   const { activeWorkspace, isLoadingWorkspace } = useWorkspace();
   const workspaceId = activeWorkspace?.id;
   const queryClient = useQueryClient();
 
   const listQuery = useQuery({
-    queryKey: issueKeys.list(workspaceId ?? ""),
+    queryKey: [...issueKeys.list(workspaceId ?? ""), includeDeleted],
     // Issue C: list() only returned page 1 (PAGE_SIZE=25) — listAll()
     // follows pagination until exhaustion.
-    queryFn: async () => issuesApi.listAll(workspaceId as string),
+    queryFn: async () => issuesApi.listAll(workspaceId as string, includeDeleted),
     // Issue B: activeWorkspace starts as the DEFAULT_WORKSPACE placeholder
     // (truthy fake UUID), so !!workspaceId alone fires this query before the
     // real workspace has loaded, hitting the backend with a bogus id (401).

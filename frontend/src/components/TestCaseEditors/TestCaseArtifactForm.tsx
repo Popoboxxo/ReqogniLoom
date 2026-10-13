@@ -54,6 +54,7 @@ import { useTranslation } from "react-i18next";
 
 import { extractErrorMessage } from "../../api/client";
 import { testcasesApi } from "../../api/testcases";
+import { workflowTransitionsApi } from "../../api/workflow-transitions";
 import type { ScenarioKind } from "../../api/testcases";
 import type { TestCase } from "../../types";
 import { useEntityReset } from "../../hooks/use-entity-reset";
@@ -254,11 +255,17 @@ export function TestCaseArtifactForm({
           // #402: the scenario select is this adapter's own control, not an
           // ArtifactForm value — carry its current value into the same PATCH.
           patch.scenario_kind = scenarioKind;
-          await testcasesApi.update(testCase.id, patch);
+          const saved = await testcasesApi.update(testCase.id, patch);
           onSaved();
+          return testCaseToFormValues(saved);
         }}
-        onDelete={async () => {
-          await testcasesApi.delete(testCase.id);
+        onDeprecate={async (targetState, changeReason) => {
+          await workflowTransitionsApi.transition(
+            "test-case",
+            testCase.id,
+            targetState,
+            changeReason
+          );
           onDeleted();
         }}
       />

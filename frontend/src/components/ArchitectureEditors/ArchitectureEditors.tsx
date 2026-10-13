@@ -24,6 +24,7 @@ import type { WorkspaceTreeNode } from "../shared/WorkspaceTree";
 import { EmptyState } from "../shared/EmptyState";
 import { PageHeader } from "../shared/PageHeader";
 import { useInterviewStartCta } from "../shared/useInterviewStartCta";
+import { IncludeDeletedToggle } from "../shared/IncludeDeletedToggle/IncludeDeletedToggle";
 import { ListToolbar } from "../shared/ListToolbar";
 import { TraceSpine, useDerivationChain } from "../shared/TraceSpine";
 import type { ChainArtifact } from "../shared/TraceSpine";
@@ -81,8 +82,9 @@ export default function ArchitectureEditors(): JSX.Element {
   const { activeWorkspace } = useWorkspace();
   // Shared with the other artifact routes so the CTA cannot drift.
   const interviewCta = useInterviewStartCta("ArchitectureElement");
+  const [includeDeleted, setIncludeDeleted] = useState(false);
   const { elements, element, isLoading, error, refresh } =
-    useArchitectureData(selectedId);
+    useArchitectureData(selectedId, includeDeleted);
 
   // Feed the ArtifactInspector with the current version
   // (REQ-L2-RF-035). The full /versions/ list is fetched inside
@@ -386,6 +388,8 @@ export default function ArchitectureEditors(): JSX.Element {
       identifier: el.uid,
       parentId: el.parent_id ?? null,
       level: el.level != null ? `L${el.level}` : 'L0',
+      outdated:
+        el.lifecycle_status === 'outdated' || el.lifecycle_status === 'deprecated',
     })),
   [filteredElements, t]);
 
@@ -604,6 +608,11 @@ export default function ArchitectureEditors(): JSX.Element {
           the root dropzone to detach it to L0. Reinstated on 2026-08-15,
           reversing the 2026-07-13 "won't do" note that stood here before. */}
       <div className={styles.treeSlot}>
+        <IncludeDeletedToggle
+          checked={includeDeleted}
+          onChange={setIncludeDeleted}
+          testIdPrefix="arch-list"
+        />
         {/* GESAMTTEST_BERICHT_2026-08-21.md §6 "Architecture empty-state":
             this route used to fall through to WorkspaceTree's built-in plain
             muted-text emptyLabel/noMatchesLabel instead of the shared

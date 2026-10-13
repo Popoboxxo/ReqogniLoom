@@ -26,6 +26,7 @@ import { useTranslation } from 'react-i18next';
 import { SplitView } from '../SplitView/SplitView';
 import { PageHeader } from '../shared/PageHeader';
 import { useInterviewStartCta } from '../shared/useInterviewStartCta';
+import { IncludeDeletedToggle } from '../shared/IncludeDeletedToggle/IncludeDeletedToggle';
 import { ConfirmDialog } from '../shared/ConfirmDialog';
 import { NeedList } from './NeedList';
 import { NeedArtifactForm } from './NeedArtifactForm';
@@ -59,7 +60,8 @@ export default function NeedsEditors(): JSX.Element {
   const { activeWorkspace, workspaces } = useWorkspace();
   // Shared with the other artifact routes so the CTA cannot drift.
   const interviewCta = useInterviewStartCta('StakeholderNeed');
-  const { needs, need, isLoading, error, refresh } = useNeedData(selectedId);
+  const [includeDeleted, setIncludeDeleted] = useState(false);
+  const { needs, need, isLoading, error, refresh } = useNeedData(selectedId, includeDeleted);
   const [showCreate, setShowCreate] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   // BUG-11 (Systemaudit 2026-08-18, §4): description/category are ordinary
@@ -485,24 +487,31 @@ export default function NeedsEditors(): JSX.Element {
       />
       <SplitView
       leftPanel={
-        <NeedList
-          needs={needs}
-          selectedId={selectedId}
-          showCreateForm={showCreate}
-          setShowCreateForm={(show: boolean) => { if (!show) setCreateError(null); setShowCreate(show); }}
-          newTitle={newTitle}
-          setNewTitle={setNewTitle}
-          newDescription={newDescription}
-          setNewDescription={setNewDescription}
-          newCategory={newCategory}
-          setNewCategory={setNewCategory}
-          onSubmitCreate={handleCreateNew}
-          createError={createError}
-          isCreating={isCreating}
-          onCreateClick={handleCreateNewClick}
-          createFormRef={createFormRef}
-          onSelect={selectNeed}
-        />
+        <div>
+          <IncludeDeletedToggle
+            checked={includeDeleted}
+            onChange={setIncludeDeleted}
+            testIdPrefix="need-list"
+          />
+          <NeedList
+            needs={needs}
+            selectedId={selectedId}
+            showCreateForm={showCreate}
+            setShowCreateForm={(show: boolean) => { if (!show) setCreateError(null); setShowCreate(show); }}
+            newTitle={newTitle}
+            setNewTitle={setNewTitle}
+            newDescription={newDescription}
+            setNewDescription={setNewDescription}
+            newCategory={newCategory}
+            setNewCategory={setNewCategory}
+            onSubmitCreate={handleCreateNew}
+            createError={createError}
+            isCreating={isCreating}
+            onCreateClick={handleCreateNewClick}
+            createFormRef={createFormRef}
+            onSelect={selectNeed}
+          />
+        </div>
       }
       rightPanel={
         <div className={styles.rightPane}>

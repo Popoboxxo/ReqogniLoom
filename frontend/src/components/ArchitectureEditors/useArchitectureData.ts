@@ -40,14 +40,14 @@ interface ArchitectureDetail {
   linkedTraceLinks: TraceLink[];
 }
 
-export function useArchitectureData(selectedId?: string): ArchitectureData {
+export function useArchitectureData(selectedId?: string, includeDeleted = false): ArchitectureData {
   const { activeWorkspace } = useWorkspace();
   const workspaceId = activeWorkspace?.id;
   const queryClient = useQueryClient();
 
   const listQuery = useQuery({
-    queryKey: architectureKeys.list(workspaceId ?? ""),
-    queryFn: () => architectureApi.listAll(workspaceId as string),
+    queryKey: [...architectureKeys.list(workspaceId ?? ""), includeDeleted],
+    queryFn: () => architectureApi.listAll(workspaceId as string, includeDeleted),
     enabled: !!workspaceId,
   });
 

@@ -27,16 +27,16 @@ export interface NeedData {
   refresh: () => void;
 }
 
-export function useNeedData(selectedId?: string): NeedData {
+export function useNeedData(selectedId?: string, includeDeleted = false): NeedData {
   const { activeWorkspace, isLoadingWorkspace } = useWorkspace();
   const workspaceId = activeWorkspace?.id;
   const queryClient = useQueryClient();
 
   const listQuery = useQuery({
-    queryKey: needKeys.list(workspaceId ?? ""),
+    queryKey: [...needKeys.list(workspaceId ?? ""), includeDeleted],
     // Issue C: listByWorkspace() only returned page 1 (PAGE_SIZE=25) —
     // listAll() follows pagination until exhaustion.
-    queryFn: async () => stakeholderNeedApi.listAll(workspaceId as string),
+    queryFn: async () => stakeholderNeedApi.listAll(workspaceId as string, includeDeleted),
     // Issue B: activeWorkspace starts as the DEFAULT_WORKSPACE placeholder
     // (truthy fake UUID), so !!workspaceId alone fires this query before the
     // real workspace has loaded, hitting /workspaces/<fake-id>/needs/ (401).

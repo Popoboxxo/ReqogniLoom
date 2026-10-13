@@ -18,6 +18,7 @@
 import { useMemo } from "react";
 
 import { architectureApi } from "../../api/architecture";
+import { workflowTransitionsApi } from "../../api/workflow-transitions";
 import type { ArchitectureElement } from "../../types";
 import { ArtifactForm, type ArtifactFormValues } from "../shared/ArtifactForm";
 
@@ -107,14 +108,20 @@ export function ArchitectureArtifactForm({
       workflowArtifactType="architecture"
       onDirtyChange={onDirtyChange}
       onSave={async (values) => {
-        await architectureApi.update(
+        const saved = await architectureApi.update(
           element.id,
           formValuesToArchitecturePatch(values)
         );
         onSaved();
+        return architectureToFormValues(saved);
       }}
-      onDelete={async () => {
-        await architectureApi.delete(element.id);
+      onDeprecate={async (targetState, changeReason) => {
+        await workflowTransitionsApi.transition(
+          "architecture",
+          element.id,
+          targetState,
+          changeReason
+        );
         onDeleted();
       }}
     />

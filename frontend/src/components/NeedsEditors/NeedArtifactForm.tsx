@@ -55,6 +55,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { stakeholderNeedApi } from "../../api/stakeholder-need";
+import { workflowTransitionsApi } from "../../api/workflow-transitions";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { useEntityReset } from "../../hooks/use-entity-reset";
 import type { StakeholderNeed } from "../../types";
@@ -179,19 +180,18 @@ export function NeedArtifactForm({
           if (isExtendedPreset) {
             patch.change_reason = changeReason.trim();
           }
-          await stakeholderNeedApi.update(need.id, patch);
+          const saved = await stakeholderNeedApi.update(need.id, patch);
           setChangeReason("");
           onSaved();
+          return needToFormValues(saved);
         }}
-        onDelete={async () => {
-          // S-1: the backend gates DELETE identically to PATCH (same
-          // `is_change_reason_required` check) — reuse the same textarea
-          // value rather than adding a second prompt/modal for it.
-          if (isExtendedPreset) {
-            await stakeholderNeedApi.delete(need.id, changeReason.trim());
-          } else {
-            await stakeholderNeedApi.delete(need.id);
-          }
+        onDeprecate={async (targetState, changeReason) => {
+          await workflowTransitionsApi.transition(
+            "need",
+            need.id,
+            targetState,
+            changeReason
+          );
           onDeleted();
         }}
       />

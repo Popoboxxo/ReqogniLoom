@@ -39,6 +39,7 @@ import {
   compareWorkflowStatus,
   getWorkflowStatusLabel,
 } from '../../utils/workflowStatus';
+import { isOutdatedState } from '../../utils/outdatedStates';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -527,6 +528,7 @@ export const RequirementList: React.FC<RequirementListProps> = ({
                     status={req.status}
                     statusLabel={getWorkflowStatusLabel(req.status)}
                     version={req.version}
+                    outdated={isOutdatedState(req.status)}
                     attributes={attributes}
                     selected={isSelected}
                     testId={`req-row-${req.id}`}

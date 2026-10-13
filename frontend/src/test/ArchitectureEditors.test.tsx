@@ -125,12 +125,17 @@ vi.mock("../api/attribute-definitions", () => ({
   attributeDefinitionsApi: { getWorkspace: vi.fn() },
 }));
 
+vi.mock("../api/workflow-transitions", () => ({
+  workflowTransitionsApi: { getTransitions: vi.fn(), transition: vi.fn() },
+}));
+
 // Must import AFTER vi.mock
 import ArchitectureEditors from "../components/ArchitectureEditors/ArchitectureEditors";
 import { architectureApi } from "../api/architecture";
 import { tracelinksApi } from "../api/tracelinks";
 import { requirementsApi } from "../api/requirements";
 import { attributeDefinitionsApi } from "../api/attribute-definitions";
+import { workflowTransitionsApi } from "../api/workflow-transitions";
 import { AuthProvider } from "../context/AuthContext";
 import { WorkspaceProvider } from "../context/WorkspaceContext";
 import { ThemeProvider } from "../context/ThemeContext";
@@ -152,6 +157,17 @@ function installLocalStorageStub(): void {
   });
 }
 installLocalStorageStub();
+
+beforeEach(() => {
+  vi.mocked(workflowTransitionsApi.getTransitions).mockResolvedValue({
+    current_state: "approved",
+    states: ["approved", "deprecated"],
+    allowed_transitions: [
+      { target_state: "deprecated", requires_change_reason: false, signature_gate: false },
+    ],
+    proposed_by: null,
+  });
+});
 
 // ---------------------------------------------------------------------------
 // Mock data
@@ -280,8 +296,8 @@ describe("ArchitectureEditors (COMP-RF-004 / REQ-L2-RF-004)", () => {
       expect(screen.getByTestId("artifact-field-element_type")).toBeInTheDocument();
       // Save button
       expect(screen.getByTestId("artifact-form-save")).toBeInTheDocument();
-      // Delete button
-      expect(screen.getByTestId("artifact-form-delete")).toBeInTheDocument();
+      // Deprecate button
+      expect(screen.getByTestId("artifact-form-deprecate")).toBeInTheDocument();
     });
 
     // Title field should display mock element title
@@ -350,19 +366,19 @@ describe("ArchitectureEditors (COMP-RF-004 / REQ-L2-RF-004)", () => {
     });
   });
 
-  it("shows delete confirmation dialog before delete (ADR-L3-RF-008)", async () => {
+  it("shows the deprecate confirmation dialog before marking outdated (ADR-L3-RF-008)", async () => {
     const user = userEvent.setup();
     renderEditor(MOCK_ELEMENT.id);
 
     await waitFor(() => {
-      expect(screen.getByTestId("artifact-form-delete")).toBeInTheDocument();
+      expect(screen.getByTestId("artifact-form-deprecate")).toBeInTheDocument();
     });
 
-    await user.click(screen.getByTestId("artifact-form-delete"));
+    await user.click(screen.getByTestId("artifact-form-deprecate"));
 
     // Dialog should appear
     expect(screen.getByRole("dialog")).toBeInTheDocument();
-    expect(screen.getByTestId("artifact-form-delete-confirm")).toBeInTheDocument();
+    expect(screen.getByTestId("artifact-form-deprecate-confirm")).toBeInTheDocument();
   });
 
   it("renders split-pane divider for resizing (REQ-L3-RF-***: enable split-pane resizing)", async () => {
@@ -815,5 +831,52 @@ describe("ArchitectureEditors — create dialog a11y (issue #955)", () => {
     const input = screen.getByTestId("arch-new-title-input");
     expect(input).toHaveAttribute("id", "arch-new-title");
     expect(screen.getByLabelText(i18n.t("editor.title"))).toBe(input);
+  });
+});
+
+describe("ArchitectureEditors — include_deleted reveals outdated elements (D6)", () => {
+  const OUTDATED_ELEMENT = {
+    ...MOCK_ELEMENT,
+    id: "arch-outdated-1",
+    title: "Retired element",
+    lifecycle_status: "outdated",
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(architectureApi.listAll).mockImplementation(
+      async (_ws: string, includeDeleted?: boolean) =>
+        (includeDeleted ? [MOCK_ELEMENT, OUTDATED_ELEMENT] : [MOCK_ELEMENT]) as any,
+    );
+    vi.mocked(architectureApi.get).mockResolvedValue(MOCK_ELEMENT as any);
+    vi.mocked(requirementsApi.list).mockResolvedValue({ results: [], count: 0 } as any);
+    vi.mocked(requirementsApi.listAll).mockResolvedValue([]);
+    vi.mocked(tracelinksApi.listForArtifact).mockResolvedValue({
+      count: 0,
+      next: null,
+      previous: null,
+      results: [],
+    } as any);
+    vi.mocked(attributeDefinitionsApi.getWorkspace).mockResolvedValue(ARCH_DEFINITION as any);
+  });
+
+  it("reveals and badges the outdated element only after the toggle is on", async () => {
+    renderEditor();
+
+    await waitFor(() => {
+      expect(screen.getByTestId(`arch-tree-node-${MOCK_ELEMENT.id}`)).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("arch-tree-node-arch-outdated-1")).not.toBeInTheDocument();
+
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("arch-list-include-deleted"));
+
+    await waitFor(() => {
+      expect(architectureApi.listAll).toHaveBeenCalledWith(expect.any(String), true);
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId("arch-tree-node-arch-outdated-1")).toBeInTheDocument();
+    });
+    expect(screen.getByTestId("arch-tree-outdated-arch-outdated-1")).toBeInTheDocument();
   });
 });

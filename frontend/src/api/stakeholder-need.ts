@@ -64,8 +64,10 @@ export const stakeholderNeedApi = {
    * Fetch all Stakeholder Needs for a workspace, following pagination links
    * until exhaustion (issue C — listByWorkspace() only returned page 1).
    */
-  listAll: async (workspaceId: string): Promise<StakeholderNeed[]> => {
-    return getAllPages<StakeholderNeed>(`/workspaces/${workspaceId}/needs/`);
+  listAll: async (workspaceId: string, includeDeleted = false): Promise<StakeholderNeed[]> => {
+    return getAllPages<StakeholderNeed>(`/workspaces/${workspaceId}/needs/`, {
+      ...(includeDeleted ? { include_deleted: "true" } : {}),
+    });
   },
 
   get: async (id: string): Promise<StakeholderNeed> => {

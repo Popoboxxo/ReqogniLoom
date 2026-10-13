@@ -149,6 +149,12 @@ const SCROLL_SURFACE_STYLE: React.CSSProperties = {
   scrollbarGutter: 'stable',
 };
 
+const LIST_SCROLL_SURFACE_STYLE: React.CSSProperties = {
+  ...SCROLL_SURFACE_STYLE,
+  overflowX: 'hidden',
+  overflowY: 'auto',
+};
+
 // ---------------------------------------------------------------------------
 // Issue #876 (Etappe 7, batch 3): the nine inline style-object literals of
 // the legacy contract are hoisted to named `React.CSSProperties` identifiers
@@ -258,6 +264,7 @@ const dividerStyle = (dragging: boolean): React.CSSProperties => ({
 const RIGHT_PANEL_STYLE: React.CSSProperties = {
   ...SCROLL_SURFACE_STYLE,
   flex: '1 1 auto',
+  minWidth: 0,
   background: 'var(--color-surface)',
   padding: 'var(--space-4)',
 };
@@ -578,7 +585,7 @@ const LegacySplitView = React.forwardRef<HTMLDivElement, LegacySplitViewProps>(
     // identifier; the rest of the surface is the shared scroll model. See the
     // hoisted-style note above.
     const leftPanelStyle: React.CSSProperties = {
-      ...SCROLL_SURFACE_STYLE,
+      ...LIST_SCROLL_SURFACE_STYLE,
       flex: `0 0 ${leftPanelWidth}px`,
       minWidth: `${leftMinWidth}px`,
       maxWidth: `${leftMaxWidthPercent}%`,
@@ -719,7 +726,7 @@ const ConceptSplitView = React.forwardRef<HTMLDivElement, ConceptSplitViewProps>
 
     const listStyle: React.CSSProperties = hasDetail
       ? {
-          ...SCROLL_SURFACE_STYLE,
+          ...LIST_SCROLL_SURFACE_STYLE,
           display: isMobileReplace ? 'none' : 'block',
           flex: zone === 'mobile' ? '1 1 100%' : `0 0 ${effectiveRatio[0]}%`,
           minWidth: zone === 'mobile' ? undefined : `${minWidths[0]}px`,
@@ -730,7 +737,7 @@ const ConceptSplitView = React.forwardRef<HTMLDivElement, ConceptSplitViewProps>
       : {
           // Ch. 6.2: without a selected detail, the list runs full width —
           // no leftover panel, no width constraint.
-          ...SCROLL_SURFACE_STYLE,
+          ...LIST_SCROLL_SURFACE_STYLE,
           flex: '1 1 100%',
           maxWidth: '100%',
           background: 'var(--color-surface)',

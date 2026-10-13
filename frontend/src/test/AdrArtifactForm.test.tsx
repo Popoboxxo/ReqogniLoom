@@ -30,6 +30,7 @@ vi.mock("react-i18next", () => ({
 }));
 
 import { adrsApi } from "../api/adrs";
+import { workflowTransitionsApi } from "../api/workflow-transitions";
 import {
   AdrArtifactForm,
   adrToFormValues,
@@ -39,6 +40,9 @@ import { attributeDefinitionsApi } from "../api/attribute-definitions";
 
 vi.mock("../api/adrs", () => ({
   adrsApi: { update: vi.fn(), delete: vi.fn(), supersede: vi.fn() },
+}));
+vi.mock("../api/workflow-transitions", () => ({
+  workflowTransitionsApi: { getTransitions: vi.fn(), transition: vi.fn() },
 }));
 vi.mock("../api/attribute-definitions", () => ({
   attributeDefinitionsApi: { getWorkspace: vi.fn() },
@@ -147,6 +151,14 @@ describe("AdrArtifactForm", () => {
     });
     vi.mocked(adrsApi.update).mockReset();
     vi.mocked(adrsApi.delete).mockReset();
+    vi.mocked(workflowTransitionsApi.getTransitions).mockResolvedValue({
+      current_state: "Approved",
+      states: ["Approved", "Superseded"],
+      allowed_transitions: [
+        { target_state: "Superseded", requires_change_reason: false, signature_gate: false },
+      ],
+      proposed_by: null,
+    });
   });
 
   it("maps an Adr onto form values", () => {
@@ -206,13 +218,20 @@ describe("AdrArtifactForm", () => {
     expect(onSaved).toHaveBeenCalled();
   });
 
-  it("deletes through the shared confirm dialog", async () => {
-    vi.mocked(adrsApi.delete).mockResolvedValue(undefined as never);
+  it("marks the ADR outdated through the shared confirm dialog", async () => {
+    vi.mocked(workflowTransitionsApi.transition).mockResolvedValue({} as never);
     const onDeleted = vi.fn();
     render(<AdrArtifactForm adr={ADR} onSaved={vi.fn()} onDeleted={onDeleted} />);
-    await userEvent.click(await screen.findByTestId("artifact-form-delete"));
-    await userEvent.click(screen.getByTestId("artifact-form-delete-confirm"));
-    await waitFor(() => expect(adrsApi.delete).toHaveBeenCalledWith("a-1"));
+    await userEvent.click(await screen.findByTestId("artifact-form-deprecate"));
+    await userEvent.click(screen.getByTestId("artifact-form-deprecate-confirm"));
+    await waitFor(() =>
+      expect(workflowTransitionsApi.transition).toHaveBeenCalledWith(
+        "adr",
+        "a-1",
+        "Superseded",
+        ""
+      )
+    );
     expect(onDeleted).toHaveBeenCalled();
   });
 });

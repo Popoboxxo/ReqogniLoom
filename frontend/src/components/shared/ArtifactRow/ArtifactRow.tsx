@@ -44,6 +44,7 @@ import { IdChip } from "../IdChip";
 import { LevelBadge } from "../LevelBadge";
 import { StatusBadge } from "../StatusBadge";
 import { VersionBadge } from "../VersionBadge";
+import { Badge } from "../Badge";
 import { useReadableIdsVisible } from "../../../hooks/useReadableIdsVisible";
 import type { BadgeVariant } from "../../../utils/statusBadge";
 import styles from "./ArtifactRow.module.css";
@@ -108,6 +109,8 @@ export interface ArtifactRowProps {
   /** Rendered as `v{version}`; hidden below v2 (ch. 12.4). */
   version?: number | string | null;
   versionIsCurrent?: boolean;
+  /** Marks the artifact as outdated/deprecated (hidden from the active list). */
+  outdated?: boolean;
   /**
    * Compact SE attributes (issue #804). Rendered as a labelled chip line
    * below the identifier; empty values are skipped.
@@ -132,6 +135,7 @@ export function ArtifactRow({
   badgeVariant,
   version,
   versionIsCurrent = true,
+  outdated = false,
   attributes,
   selected = false,
   onClick,
@@ -179,6 +183,11 @@ export function ArtifactRow({
           {title}
         </div>
         <div className={styles.meta}>
+          {outdated && (
+            <Badge variant="warning" testId={`${testId}-outdated`}>
+              {t("editor.outdatedBadge", "Veraltet")}
+            </Badge>
+          )}
           {status != null && (
             <StatusBadge
               status={status}

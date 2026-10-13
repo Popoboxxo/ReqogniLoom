@@ -136,6 +136,7 @@ vi.mock("../context/LinkTypeContext", () => ({
 import RiskEditors from "../components/RiskEditors/RiskEditors";
 import { tracelinksApi } from "../api/tracelinks";
 import { risksApi } from "../api/risks";
+import type { Risk } from "../types";
 
 function renderEditor(initialPath = `/risks/${RISK.id}`): ReturnType<typeof render> {
   const queryClient = new QueryClient({
@@ -316,5 +317,43 @@ describe("RiskEditors Task 2.2 concept remodel (PageHeader / ArtifactRow / Dialo
     expect(screen.queryByText("Erstellen")).not.toBeInTheDocument();
 
     void i18n.changeLanguage(previousLanguage);
+  });
+});
+
+describe("RiskEditors — include_deleted reveals outdated risks (D6)", () => {
+  const OUTDATED_RISK = { ...RISK, id: "risk-outdated-1", title: "Retired risk", status: "Closed" } as unknown as Risk;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(tracelinksApi.listForArtifact).mockResolvedValue({
+      count: 0,
+      next: null,
+      previous: null,
+      results: [],
+    } as any);
+    vi.mocked(risksApi.get).mockResolvedValue(RISK as unknown as Risk);
+    vi.mocked(risksApi.listAll).mockImplementation(async (_ws: string, includeDeleted?: boolean) =>
+      (includeDeleted ? [RISK, OUTDATED_RISK] : [RISK]) as never,
+    );
+  });
+
+  it("reveals and badges the outdated risk only after the toggle is on", async () => {
+    renderEditor("/risks");
+
+    await waitFor(() => {
+      expect(screen.getByTestId(`risk-row-${RISK.id}`)).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("risk-row-risk-outdated-1")).not.toBeInTheDocument();
+
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("risk-list-include-deleted"));
+
+    await waitFor(() => {
+      expect(risksApi.listAll).toHaveBeenCalledWith("ws-001", true);
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId("risk-row-risk-outdated-1")).toBeInTheDocument();
+    });
+    expect(screen.getByTestId("risk-row-risk-outdated-1-outdated")).toBeInTheDocument();
   });
 });

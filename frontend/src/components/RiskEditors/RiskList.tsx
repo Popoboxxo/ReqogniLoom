@@ -27,6 +27,7 @@ import {
   compareWorkflowStatus,
   getWorkflowStatusLabel,
 } from '../../utils/workflowStatus';
+import { isOutdatedState } from '../../utils/outdatedStates';
 
 interface RiskListProps {
   items: Risk[];
@@ -173,6 +174,7 @@ export function RiskList({ items, selectedId, onSelect, onCreateNew }: RiskListP
                 status={risk.status}
                 statusLabel={getWorkflowStatusLabel(risk.status)}
                 version={risk.version}
+                outdated={isOutdatedState(risk.status)}
                 selected={isSelected}
                 testId={`risk-row-${risk.id}`}
               />

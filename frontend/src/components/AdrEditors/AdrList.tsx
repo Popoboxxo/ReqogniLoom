@@ -28,6 +28,7 @@ import {
   compareWorkflowStatus,
   getWorkflowStatusLabel,
 } from '../../utils/workflowStatus';
+import { isOutdatedState } from '../../utils/outdatedStates';
 
 interface AdrListProps {
   items: Adr[];
@@ -175,6 +176,7 @@ export function AdrList({ items, selectedId, onSelect, onCreateNew }: AdrListPro
                 status={adr.status}
                 statusLabel={getWorkflowStatusLabel(adr.status)}
                 version={adr.version}
+                outdated={isOutdatedState(adr.status)}
                 selected={isSelected}
                 testId={`adr-row-${adr.id}`}
               />

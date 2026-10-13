@@ -119,8 +119,11 @@ export const testcasesApi = {
    * exhaustion (issue C — list() only returned the first page, capped at
    * PAGE_SIZE=25).
    */
-  async listAll(workspaceId: UUID): Promise<TestCase[]> {
-    return getAllPages<TestCase>("/testcases/", { workspace_id: workspaceId });
+  async listAll(workspaceId: UUID, includeDeleted = false): Promise<TestCase[]> {
+    return getAllPages<TestCase>("/testcases/", {
+      workspace_id: workspaceId,
+      ...(includeDeleted ? { include_deleted: "true" } : {}),
+    });
   },
 
   get(id: UUID): Promise<TestCase> {

@@ -22,8 +22,11 @@ export const risksApi = {
    * exhaustion (issue C — list() only returned the first page, capped at
    * PAGE_SIZE=25).
    */
-  async listAll(workspaceId: UUID): Promise<Risk[]> {
-    return getAllPages<Risk>("/risks/", { workspace_id: workspaceId });
+  async listAll(workspaceId: UUID, includeDeleted = false): Promise<Risk[]> {
+    return getAllPages<Risk>("/risks/", {
+      workspace_id: workspaceId,
+      ...(includeDeleted ? { include_deleted: "true" } : {}),
+    });
   },
 
   get(id: UUID): Promise<Risk> {

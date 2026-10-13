@@ -52,9 +52,14 @@ vi.mock("../components/WorkflowStatusEditor", () => ({
   WorkflowStatusEditor: () => <div data-testid="workflow-status-editor" />,
 }));
 
+vi.mock("../api/workflow-transitions", () => ({
+  workflowTransitionsApi: { getTransitions: vi.fn(), transition: vi.fn() },
+}));
+
 import { attributeDefinitionsApi } from "../api/attribute-definitions";
 import { usersApi } from "../api/users";
 import { actorsApi } from "../api/actors";
+import { workflowTransitionsApi } from "../api/workflow-transitions";
 import {
   ArtifactForm,
   fieldErrorsFromException,
@@ -654,32 +659,44 @@ describe("ArtifactForm", () => {
     expect(banner).toHaveAttribute("aria-live", "assertive");
   });
 
-  it("offers delete behind ConfirmDialog only when onDelete is supplied", async () => {
+  it("offers the deprecate action behind ConfirmDialog only when an outdated transition is allowed", async () => {
     mockDefinition([spec({ name: "title" })]);
-    const onDelete = vi.fn().mockResolvedValue(undefined);
-    const { rerender } = render(
+    vi.mocked(workflowTransitionsApi.getTransitions).mockResolvedValue({
+      current_state: "draft",
+      states: ["draft", "deprecated"],
+      allowed_transitions: [
+        { target_state: "deprecated", requires_change_reason: false, signature_gate: false },
+      ],
+      proposed_by: null,
+    });
+    const onDeprecate = vi.fn().mockResolvedValue(undefined);
+    const { unmount } = render(
       <ArtifactForm
         itemType="Risk"
         artifactId="r-1"
         initialValues={{ title: "T" }}
         onSave={vi.fn()}
+        workflowArtifactType="risk"
       />
     );
     await screen.findByTestId("artifact-field-title");
+    expect(screen.queryByTestId("artifact-form-deprecate")).not.toBeInTheDocument();
     expect(screen.queryByTestId("artifact-form-delete")).not.toBeInTheDocument();
+    unmount();
 
-    rerender(
+    render(
       <ArtifactForm
         itemType="Risk"
         artifactId="r-1"
         initialValues={{ title: "T" }}
         onSave={vi.fn()}
-        onDelete={onDelete}
+        onDeprecate={onDeprecate}
+        workflowArtifactType="risk"
       />
     );
-    await userEvent.click(screen.getByTestId("artifact-form-delete"));
-    await userEvent.click(screen.getByTestId("artifact-form-delete-confirm"));
-    await waitFor(() => expect(onDelete).toHaveBeenCalled());
+    await userEvent.click(await screen.findByTestId("artifact-form-deprecate"));
+    await userEvent.click(screen.getByTestId("artifact-form-deprecate-confirm"));
+    await waitFor(() => expect(onDeprecate).toHaveBeenCalledWith("deprecated", ""));
   });
 
   it("disables every control in read mode", async () => {

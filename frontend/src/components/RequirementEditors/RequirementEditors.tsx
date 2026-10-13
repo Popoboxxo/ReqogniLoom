@@ -39,6 +39,7 @@ import { useWorkspace } from '../../context/WorkspaceContext';
 import { SplitView } from '../SplitView/SplitView';
 import { PageHeader } from '../shared/PageHeader';
 import { useInterviewStartCta } from '../shared/useInterviewStartCta';
+import { IncludeDeletedToggle } from '../shared/IncludeDeletedToggle/IncludeDeletedToggle';
 import { RequirementList } from './RequirementList';
 import { RequirementArtifactForm, REQUIREMENT_ATTRIBUTE_OVERRIDES } from './RequirementArtifactForm';
 import { ArtifactForm, type ArtifactFormValues } from '../shared/ArtifactForm';
@@ -586,18 +587,11 @@ export default function RequirementEditors(): JSX.Element {
         the list's status filter could never offer "outdated" at all, since its
         options are derived from the loaded items.
       */}
-      <label
-        data-testid="req-list-include-deleted-label"
-        className={styles.includeDeletedToggle}
-      >
-        <input
-          type="checkbox"
-          data-testid="req-list-include-deleted"
-          checked={includeDeleted}
-          onChange={(e) => setIncludeDeleted(e.target.checked)}
-        />
-        {t('editor.showDeleted', 'Show deleted')}
-      </label>
+      <IncludeDeletedToggle
+        checked={includeDeleted}
+        onChange={setIncludeDeleted}
+        testIdPrefix="req-list"
+      />
 
       {/* Requirement list */}
       <RequirementList

@@ -168,9 +168,11 @@ export function VersionPanel({
     }
   }, [kind, artifactId]);
 
+  const currentVersionNumber = currentVersion?.version ?? null;
+
   useEffect(() => {
     void load();
-  }, [load]);
+  }, [load, currentVersionNumber]);
 
   // -------------------------------------------------------------------------
   // Overflow menu — close on outside click
