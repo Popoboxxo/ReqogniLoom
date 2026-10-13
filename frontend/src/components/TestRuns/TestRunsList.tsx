@@ -255,7 +255,6 @@ export function TestRunsList(): JSX.Element {
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
               placeholder="Test run name"
-              autoFocus
               required
               disabled={isCreating}
               className={styles.nameInput}

@@ -551,7 +551,7 @@ export default function ArchitectureEditors(): JSX.Element {
             id="arch-new-title"
             data-testid="arch-new-title-input"
             ref={newTitleInputRef}
-            type="text" value={newTitle} onChange={(e) => setNewTitle(e.target.value)} autoFocus
+            type="text" value={newTitle} onChange={(e) => setNewTitle(e.target.value)}
             placeholder={t('arch.newElementTitle')}
             className={styles.createTitleInput}
           />
