@@ -418,7 +418,7 @@ export default function GlossaryView(): JSX.Element {
             type="button"
             data-testid="glossary-create-link-button"
             onClick={() => setShowLinkDialog(true)}
-            className={`${styles.btn} ${styles.btnOutlinePrimary}`}
+            className="btn-secondary"
           >
             <Link2 size={16} />
             <span>{t("traceability.create", "Neue Verknüpfung")}</span>

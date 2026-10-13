@@ -116,6 +116,17 @@ input, select, textarea {
   gap: var(--space-1);
 }
 
+/* Detail-page action zone (#1254). Auxiliary actions that used to sit in bare
+ * default flow after the data fields (e.g. the "Ableiten"/derive trigger on
+ * /architecture) get one shared, bordered strip so they are visually grouped
+ * and separated from the form content — the same treatment on every detail
+ * route (Requirement, Architecture, StakeholderNeed). */
+.detail-action-zone {
+  margin-top: var(--space-4);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--color-border);
+}
+
 /* Icon-only control (issue #1099). This closes the gap #1093 opened: its "Soll"
  * text asked for `btn-icon`, which did not exist, and a component following
  * that text rendered an unstyled UA button. It is a real variant now.

@@ -91,7 +91,7 @@ export function GlossaryTermForm({
         >
           {t("actions.cancel", "Cancel")}
         </button>
-        <button type="submit" data-testid="glossary-form-save" className={styles.btn}>
+        <button type="submit" data-testid="glossary-form-save" className="btn-primary">
           {t("actions.save", "Save")}
         </button>
       </div>
