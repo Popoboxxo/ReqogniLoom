@@ -736,7 +736,7 @@ export default function ArchitectureEditors(): JSX.Element {
             )}
 
             {/* Derive requirement allocated to this element */}
-            <div className={styles.deriveSlot}>
+            <div className="detail-action-zone">
               <DeriveRequirementForm
                 isOpen={showDeriveForm}
                 onOpen={() => setShowDeriveForm(true)}
