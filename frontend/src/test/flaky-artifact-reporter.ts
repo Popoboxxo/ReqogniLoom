@@ -29,9 +29,8 @@
 
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, resolve } from "node:path";
-import type { Reporter, TestCase, TestModule, TestResultFailed } from "vitest/node";
+import type { Reporter, TestCase, TestCollection, TestModule, TestResultFailed } from "vitest/node";
 import { buildArtifact, serialiseArtifact, type FlakyTestInput } from "./flaky-artifact";
-
 /**
  * Where artifacts land. `test-results/` is already git-ignored, so a local run
  * never dirties the tree; `FRONTEND_FLAKY_ARTIFACT_DIR` overrides it for CI, so
@@ -66,12 +65,24 @@ function toRecord(module: TestModule, testCase: TestCase): FlakyTestInput {
   };
 }
 
-/** Map every module's failed tests into the record layer's input shape. */
+/**
+ * Map every module's failed tests into the record layer's input shape.
+ *
+ * `allTests("failed")` is the API's own filter, so nested suites and their
+ * tests are covered without reimplementing a walk. The state literal is passed
+ * as the API's own type so a typo fails at compile time rather than silently
+ * yielding an empty artifact - which is exactly what an earlier draft did.
+ *
+ * The capability check is defensive rather than load-bearing: `children` is a
+ * `TestCollection` with a guaranteed `allTests`, but a reporter must not be the
+ * thing that turns a green suite into a crash, so a module whose shape is
+ * unexpectedly different contributes nothing rather than throwing.
+ */
 function collect(testModules: readonly TestModule[] | undefined): FlakyTestInput[] {
   const records: FlakyTestInput[] = [];
   for (const module of testModules ?? []) {
-    const collection: { allTests?: (state?: unknown) => Iterable<TestCase> } = module.children ?? {};
-    if (typeof collection.allTests !== "function") continue;
+    const collection: TestCollection | undefined = module.children;
+    if (!collection || typeof collection.allTests !== "function") continue;
     for (const testCase of collection.allTests("failed")) {
       records.push(toRecord(module, testCase));
     }
