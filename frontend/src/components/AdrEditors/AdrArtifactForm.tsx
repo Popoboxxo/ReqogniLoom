@@ -16,6 +16,7 @@
 import { useMemo } from "react";
 
 import { adrsApi } from "../../api/adrs";
+import { workflowTransitionsApi } from "../../api/workflow-transitions";
 import type { Adr } from "../../types";
 import { ArtifactForm, type ArtifactFormValues } from "../shared/ArtifactForm";
 
@@ -84,8 +85,8 @@ export function AdrArtifactForm({
         onSaved();
         return adrToFormValues(saved);
       }}
-      onDelete={async () => {
-        await adrsApi.delete(adr.id);
+      onDeprecate={async (targetState, changeReason) => {
+        await workflowTransitionsApi.transition("adr", adr.id, targetState, changeReason);
         onDeleted();
       }}
     />

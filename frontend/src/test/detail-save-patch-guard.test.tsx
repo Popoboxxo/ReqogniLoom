@@ -254,12 +254,13 @@ describe("Detail save guard (#1239)", () => {
 
     await screen.findByTestId("artifact-field-title");
     await waitFor(() =>
-      expect(workflowTransitionsApi.getTransitions).toHaveBeenCalledTimes(1)
+      expect(workflowTransitionsApi.getTransitions).toHaveBeenCalled()
     );
+    const mountCalls = vi.mocked(workflowTransitionsApi.getTransitions).mock.calls.length;
 
     await userEvent.click(screen.getByTestId("artifact-form-save"));
     await waitFor(() => expect(requirementsApi.update).toHaveBeenCalledTimes(1));
 
-    expect(workflowTransitionsApi.getTransitions).toHaveBeenCalledTimes(1);
+    expect(workflowTransitionsApi.getTransitions).toHaveBeenCalledTimes(mountCalls);
   });
 });

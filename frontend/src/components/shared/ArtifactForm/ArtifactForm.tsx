@@ -26,7 +26,9 @@ import type {
 } from "../../../api/attribute-definitions";
 import { extractErrorMessage } from "../../../api/client";
 import type { WorkflowArtifactType } from "../../../api/workflow-transitions";
+import { useAllowedTransitions } from "../../../hooks/use-allowed-transitions";
 import { useEntityReset } from "../../../hooks/use-entity-reset";
+import { findOutdatedTransition } from "../../../utils/outdatedStates";
 import { useFormDirty } from "../../../hooks/use-form-dirty";
 import { SAVE_SHORTCUT_ARIA, useSaveShortcut } from "../../../hooks/useSaveShortcut";
 import { ConfirmDialog } from "../ConfirmDialog";
@@ -76,12 +78,12 @@ export interface ArtifactFormProps {
   initialValues: ArtifactFormValues;
   onSave: (values: ArtifactFormValues) => Promise<ArtifactFormValues | void>;
   /**
-   * `changeReason` is the trimmed value of the shared change-reason field
-   * (F-1, Task 25 fix round 1) — passed only when `requiresChangeReason` is
-   * active and in edit mode, `undefined` otherwise. Callers that never opt
-   * into `requiresChangeReason` can ignore the argument.
+   * Runs the workflow transition that marks the artifact outdated/deprecated.
+   * `targetState` is the outdated-equivalent target the transitions API
+   * currently allows; `changeReason` is mandatory when the transition (or the
+   * workspace preset) demands one, the empty string otherwise.
    */
-  onDelete?: (changeReason?: string) => Promise<void>;
+  onDeprecate?: (targetState: string, changeReason?: string) => Promise<void>;
   onDirtyChange?: (isDirty: boolean) => void;
   /** `"read"` disables every control (Rollenbasierte-Sichten spec). */
   mode?: "edit" | "read";
@@ -270,7 +272,7 @@ export function ArtifactForm({
   artifactId,
   initialValues,
   onSave,
-  onDelete,
+  onDeprecate,
   onDirtyChange,
   mode = "edit",
   workflowArtifactType,
@@ -327,7 +329,8 @@ export function ArtifactForm({
   const [fieldErrors, setFieldErrors] = useState<Record<string, string[]>>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirmDeprecate, setConfirmDeprecate] = useState(false);
+  const [deprecateReason, setDeprecateReason] = useState("");
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [changeReason, setChangeReason] = useState<string>("");
 
@@ -336,6 +339,12 @@ export function ArtifactForm({
   const isCreateMode = artifactId === null;
   const changeReasonNeeded = requiresChangeReason && artifactId !== null && !isReadOnly;
   const changeReasonMissing = changeReasonNeeded && !changeReason.trim();
+  const allowedTransitions = useAllowedTransitions(workflowArtifactType, artifactId);
+  const deprecateTransition = isReadOnly
+    ? undefined
+    : findOutdatedTransition(allowedTransitions);
+  const deprecateReasonNeeded = deprecateTransition?.requires_change_reason === true;
+  const deprecateReasonMissing = deprecateReasonNeeded && !deprecateReason.trim();
   // Issue #977 (proof-journey finding): track "the save was refused for a
   // missing change reason" separately from the shared form banner, so the
   // message can also render at the field the user has to fill.
@@ -395,6 +404,8 @@ export function ArtifactForm({
     // reused-mounted-form bug class NeedArtifactForm's R-2 fix already
     // addressed for its own bespoke change-reason field, Task 23).
     setChangeReason("");
+    setConfirmDeprecate(false);
+    setDeprecateReason("");
   });
 
   // `changeReason` lives outside `values` (it is a save-time annotation, not
@@ -692,27 +703,27 @@ export function ArtifactForm({
     values,
   ]);
 
-  const handleDelete = useCallback(async (): Promise<void> => {
-    if (!onDelete) return;
-    // F-1 (Task 25 fix round 1): the same change-reason guard `handleSave`
-    // applies before a PATCH also applies before a DELETE — the Extended
-    // preset's `is_change_reason_required` check gates both server-side
-    // (`RequirementService.delete_requirement`), so a delete with a missing
-    // reason must fail the same way a save does, not 400 after the confirm
-    // dialog already closed.
-    if (changeReasonMissing) {
-      setConfirmDelete(false);
-      setFormError(t("artifactForm.changeReasonRequired"));
-      return;
-    }
+  const handleDeprecate = useCallback(async (): Promise<void> => {
+    if (!onDeprecate || !deprecateTransition) return;
+    if (deprecateReasonMissing) return;
     try {
-      await onDelete(changeReasonNeeded ? changeReason.trim() : undefined);
-      setConfirmDelete(false);
+      await onDeprecate(
+        deprecateTransition.target_state,
+        deprecateReasonNeeded ? deprecateReason.trim() : ""
+      );
+      setConfirmDeprecate(false);
+      setDeprecateReason("");
     } catch (exc: unknown) {
-      setConfirmDelete(false);
+      setConfirmDeprecate(false);
       setFormError(extractErrorMessage(exc));
     }
-  }, [changeReason, changeReasonMissing, changeReasonNeeded, onDelete, t]);
+  }, [
+    deprecateReason,
+    deprecateReasonMissing,
+    deprecateReasonNeeded,
+    deprecateTransition,
+    onDeprecate,
+  ]);
 
   /**
    * Issue #1087: `Ctrl`/`Cmd`+`S` saves, exactly like the Save button.
@@ -1028,14 +1039,15 @@ export function ArtifactForm({
 
       {!isReadOnly ? (
         <div className={styles.actions}>
-          {onDelete ? (
+          {onDeprecate && deprecateTransition ? (
             <button
               type="button"
-              data-testid="artifact-form-delete"
+              className="btn-secondary"
+              data-testid="artifact-form-deprecate"
               disabled={saving}
-              onClick={() => setConfirmDelete(true)}
+              onClick={() => setConfirmDeprecate(true)}
             >
-              {t("actions.delete")}
+              {t("artifactForm.deprecate")}
             </button>
           ) : null}
           {onCancel ? (
@@ -1063,18 +1075,40 @@ export function ArtifactForm({
         </div>
       ) : null}
 
-      {confirmDelete ? (
+      {confirmDeprecate && deprecateTransition ? (
         <ConfirmDialog
-          title={t("artifactForm.deleteTitle")}
-          message={t("artifactForm.deleteConfirm")}
-          confirmLabel={t("actions.delete")}
+          title={t("artifactForm.deprecateTitle")}
+          message={t("artifactForm.deprecateConfirm", {
+            target: deprecateTransition.target_state,
+          })}
+          confirmLabel={t("artifactForm.deprecate")}
           cancelLabel={t("actions.cancel")}
-          testId="artifact-form-delete-dialog"
-          confirmTestId="artifact-form-delete-confirm"
-          cancelTestId="artifact-form-delete-cancel"
-          onConfirm={() => void handleDelete()}
-          onCancel={() => setConfirmDelete(false)}
-        />
+          testId="artifact-form-deprecate-dialog"
+          confirmTestId="artifact-form-deprecate-confirm"
+          cancelTestId="artifact-form-deprecate-cancel"
+          isSubmitting={saving}
+          confirmDisabled={deprecateReasonMissing}
+          onConfirm={() => void handleDeprecate()}
+          onCancel={() => {
+            setConfirmDeprecate(false);
+            setDeprecateReason("");
+          }}
+        >
+          {deprecateReasonNeeded ? (
+            <label className={styles.field}>
+              <span className={`${styles.label} ${styles.required}`}>
+                {t("artifactForm.deprecateReason")}
+              </span>
+              <textarea
+                className={styles.control}
+                data-testid="artifact-form-deprecate-reason"
+                value={deprecateReason}
+                aria-required="true"
+                onChange={(event) => setDeprecateReason(event.target.value)}
+              />
+            </label>
+          ) : null}
+        </ConfirmDialog>
       ) : null}
     </form>
   );

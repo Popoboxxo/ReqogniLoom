@@ -36,6 +36,12 @@ export interface ConfirmDialogProps {
    */
   isSubmitting?: boolean;
   /**
+   * Disables only the confirm button (cancel stays usable) — for a confirm
+   * that additionally requires input (e.g. a mandatory change reason) before
+   * it may run.
+   */
+  confirmDisabled?: boolean;
+  /**
    * Issue #670: the artifact forms (architecture / test case / ADR / risk /
    * need / issue / requirement) each already ship a stable, E2E-referenced
    * `data-testid` on their confirm and cancel buttons (e.g.
@@ -64,6 +70,7 @@ export function ConfirmDialog({
   onCancel,
   testId = 'confirm-dialog',
   isSubmitting = false,
+  confirmDisabled = false,
   confirmTestId,
   cancelTestId,
   children,
@@ -102,7 +109,7 @@ export function ConfirmDialog({
             className="btn-danger"
             data-testid={confirmTestId ?? `${testId}-confirm`}
             onClick={onConfirm}
-            disabled={isSubmitting}
+            disabled={isSubmitting || confirmDisabled}
           >
             {confirmLabel}
           </button>

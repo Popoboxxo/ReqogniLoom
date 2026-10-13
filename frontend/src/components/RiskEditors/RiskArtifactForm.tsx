@@ -10,6 +10,7 @@
 import { useMemo } from "react";
 
 import { risksApi } from "../../api/risks";
+import { workflowTransitionsApi } from "../../api/workflow-transitions";
 import type { Risk } from "../../types";
 import { ArtifactForm, type ArtifactFormValues } from "../shared/ArtifactForm";
 
@@ -111,8 +112,8 @@ export function RiskArtifactForm({
         onSaved();
         return riskToFormValues(saved);
       }}
-      onDelete={async () => {
-        await risksApi.delete(risk.id);
+      onDeprecate={async (targetState, changeReason) => {
+        await workflowTransitionsApi.transition("risk", risk.id, targetState, changeReason);
         onDeleted();
       }}
     />

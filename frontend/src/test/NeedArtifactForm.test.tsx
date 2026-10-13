@@ -29,6 +29,7 @@ vi.mock("react-i18next", () => ({
 }));
 
 import { stakeholderNeedApi } from "../api/stakeholder-need";
+import { workflowTransitionsApi } from "../api/workflow-transitions";
 import {
   NeedArtifactForm,
   formValuesToNeedPatch,
@@ -38,6 +39,9 @@ import { attributeDefinitionsApi } from "../api/attribute-definitions";
 
 vi.mock("../api/stakeholder-need", () => ({
   stakeholderNeedApi: { update: vi.fn(), delete: vi.fn() },
+}));
+vi.mock("../api/workflow-transitions", () => ({
+  workflowTransitionsApi: { getTransitions: vi.fn(), transition: vi.fn() },
 }));
 vi.mock("../api/attribute-definitions", () => ({
   attributeDefinitionsApi: { getWorkspace: vi.fn() },
@@ -110,6 +114,14 @@ describe("NeedArtifactForm", () => {
     });
     vi.mocked(stakeholderNeedApi.update).mockReset();
     vi.mocked(stakeholderNeedApi.delete).mockReset();
+    vi.mocked(workflowTransitionsApi.getTransitions).mockResolvedValue({
+      current_state: "draft",
+      states: ["draft", "deprecated"],
+      allowed_transitions: [
+        { target_state: "deprecated", requires_change_reason: false, signature_gate: false },
+      ],
+      proposed_by: null,
+    });
   });
 
   it("maps a StakeholderNeed onto form values", () => {
@@ -170,13 +182,20 @@ describe("NeedArtifactForm", () => {
     expect(onSaved).toHaveBeenCalled();
   });
 
-  it("deletes through the shared confirm dialog", async () => {
+  it("marks the need outdated through the shared confirm dialog", async () => {
     vi.mocked(stakeholderNeedApi.delete).mockResolvedValue(undefined as never);
     const onDeleted = vi.fn();
     render(<NeedArtifactForm need={NEED} onSaved={vi.fn()} onDeleted={onDeleted} />);
-    await userEvent.click(await screen.findByTestId("artifact-form-delete"));
-    await userEvent.click(screen.getByTestId("artifact-form-delete-confirm"));
-    await waitFor(() => expect(stakeholderNeedApi.delete).toHaveBeenCalledWith("n-1"));
+    await userEvent.click(await screen.findByTestId("artifact-form-deprecate"));
+    await userEvent.click(screen.getByTestId("artifact-form-deprecate-confirm"));
+    await waitFor(() =>
+      expect(workflowTransitionsApi.transition).toHaveBeenCalledWith(
+        "need",
+        "n-1",
+        "deprecated",
+        ""
+      )
+    );
     expect(onDeleted).toHaveBeenCalled();
   });
 
@@ -254,19 +273,33 @@ describe("NeedArtifactForm", () => {
 
     // S-1: DELETE is gated by the same is_change_reason_required check as
     // PATCH — reuse the same textarea value rather than a second prompt.
-    it("sends change_reason on delete when the workspace preset is Extended (S-1)", async () => {
+    it("requires a change_reason before deprecating when the preset demands one (S-1)", async () => {
       useWorkspaceMock.mockReturnValue({ activeWorkspace: { id: "ws-1", preset: "extended" } });
-      vi.mocked(stakeholderNeedApi.delete).mockResolvedValue(undefined as never);
+      vi.mocked(workflowTransitionsApi.getTransitions).mockResolvedValue({
+        current_state: "draft",
+        states: ["draft", "deprecated"],
+        allowed_transitions: [
+          { target_state: "deprecated", requires_change_reason: true, signature_gate: false },
+        ],
+        proposed_by: null,
+      });
+      vi.mocked(workflowTransitionsApi.transition).mockResolvedValue({} as never);
       const onDeleted = vi.fn();
       render(<NeedArtifactForm need={NEED} onSaved={vi.fn()} onDeleted={onDeleted} />);
+      await userEvent.click(await screen.findByTestId("artifact-form-deprecate"));
+      expect(screen.getByTestId("artifact-form-deprecate-confirm")).toBeDisabled();
       await userEvent.type(
-        await screen.findByTestId("need-change-reason-input"),
+        screen.getByTestId("artifact-form-deprecate-reason"),
         "Superseded by REQ-200"
       );
-      await userEvent.click(screen.getByTestId("artifact-form-delete"));
-      await userEvent.click(screen.getByTestId("artifact-form-delete-confirm"));
+      await userEvent.click(screen.getByTestId("artifact-form-deprecate-confirm"));
       await waitFor(() =>
-        expect(stakeholderNeedApi.delete).toHaveBeenCalledWith("n-1", "Superseded by REQ-200")
+        expect(workflowTransitionsApi.transition).toHaveBeenCalledWith(
+          "need",
+          "n-1",
+          "deprecated",
+          "Superseded by REQ-200"
+        )
       );
       expect(onDeleted).toHaveBeenCalled();
     });

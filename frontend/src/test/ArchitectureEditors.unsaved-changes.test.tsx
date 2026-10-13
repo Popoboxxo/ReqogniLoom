@@ -95,6 +95,20 @@ vi.mock("../api/architecture", () => ({
   },
 }));
 
+vi.mock("../api/workflow-transitions", () => ({
+  workflowTransitionsApi: {
+    getTransitions: vi.fn().mockResolvedValue({
+      current_state: "approved",
+      states: ["approved", "deprecated"],
+      allowed_transitions: [
+        { target_state: "deprecated", requires_change_reason: false, signature_gate: false },
+      ],
+      proposed_by: null,
+    }),
+    transition: vi.fn().mockResolvedValue({}),
+  },
+}));
+
 vi.mock("../api/tracelinks", () => ({
   tracelinksApi: {
     list: vi.fn(),
@@ -273,10 +287,10 @@ describe("ArchitectureEditors — unsaved-changes confirmation before tree navig
     await user.type(screen.getByTestId("artifact-field-title"), "Unsaved edit");
     expect(screen.getByTestId("artifact-field-title")).toHaveValue("Unsaved edit");
 
-    // Delete navigates to `/architecture` (no id), unmounting the dirty
-    // ArchitectureForm without ever going through the confirm dialog.
-    await user.click(screen.getByTestId("artifact-form-delete"));
-    await user.click(screen.getByTestId("artifact-form-delete-confirm"));
+    // Deprecating navigates to `/architecture` (no id), unmounting the dirty
+    // ArchitectureForm without ever going through the confirm dialog's cancel.
+    await user.click(screen.getByTestId("artifact-form-deprecate"));
+    await user.click(screen.getByTestId("artifact-form-deprecate-confirm"));
     await waitFor(() => expect(screen.queryByTestId("artifact-field-title")).not.toBeInTheDocument());
 
     // A stale `isFormDirty=true` would now wrongly gate this click behind

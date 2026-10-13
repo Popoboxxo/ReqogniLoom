@@ -14,6 +14,7 @@
 import { useMemo } from "react";
 
 import { issuesApi } from "../../api/issues";
+import { workflowTransitionsApi } from "../../api/workflow-transitions";
 import type { Issue } from "../../types";
 import { ArtifactForm, type ArtifactFormValues } from "../shared/ArtifactForm";
 
@@ -105,8 +106,8 @@ export function IssueArtifactForm({
         onSaved();
         return issueToFormValues(saved);
       }}
-      onDelete={async () => {
-        await issuesApi.delete(issue.id);
+      onDeprecate={async (targetState, changeReason) => {
+        await workflowTransitionsApi.transition("issue", issue.id, targetState, changeReason);
         onDeleted();
       }}
     />

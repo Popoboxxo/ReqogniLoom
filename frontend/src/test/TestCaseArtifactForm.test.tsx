@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { resolveLocaleKey } from "./i18n-test-helpers";
 import { testcasesApi } from "../api/testcases";
+import { workflowTransitionsApi } from "../api/workflow-transitions";
 import { attributeDefinitionsApi } from "../api/attribute-definitions";
 import {
   TestCaseArtifactForm,
@@ -34,6 +35,9 @@ vi.mock("react-i18next", () => ({
 
 vi.mock("../api/testcases", () => ({
   testcasesApi: { update: vi.fn(), delete: vi.fn(), review: vi.fn() },
+}));
+vi.mock("../api/workflow-transitions", () => ({
+  workflowTransitionsApi: { getTransitions: vi.fn(), transition: vi.fn() },
 }));
 vi.mock("../api/attribute-definitions", () => ({
   attributeDefinitionsApi: { getWorkspace: vi.fn() },
@@ -81,6 +85,14 @@ describe("TestCaseArtifactForm", () => {
     vi.mocked(testcasesApi.update).mockReset();
     vi.mocked(testcasesApi.delete).mockReset();
     vi.mocked(testcasesApi.review).mockReset();
+    vi.mocked(workflowTransitionsApi.getTransitions).mockResolvedValue({
+      current_state: "draft",
+      states: ["draft", "Deprecated"],
+      allowed_transitions: [
+        { target_state: "Deprecated", requires_change_reason: false, signature_gate: false },
+      ],
+      proposed_by: null,
+    });
   });
 
   it("aliases the wire field steps onto the form field steps_data", () => {

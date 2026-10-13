@@ -2444,6 +2444,10 @@
     "systemValueUnavailable": "No value",
     "changeReason": "Change reason",
     "changeReasonRequired": "Please provide a change reason.",
+    "deprecate": "Mark outdated",
+    "deprecateTitle": "Mark artifact outdated",
+    "deprecateConfirm": "Mark this artifact outdated? It will no longer appear in the active list.",
+    "deprecateReason": "Reason",
     "saveShortcutHint": "Save (Ctrl/Cmd+S)"
   },
   "sections": {

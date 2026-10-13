@@ -30,6 +30,7 @@ vi.mock("react-i18next", () => ({
 }));
 
 import { issuesApi } from "../api/issues";
+import { workflowTransitionsApi } from "../api/workflow-transitions";
 import {
   IssueArtifactForm,
   formValuesToIssuePatch,
@@ -39,6 +40,9 @@ import { attributeDefinitionsApi } from "../api/attribute-definitions";
 
 vi.mock("../api/issues", () => ({
   issuesApi: { update: vi.fn(), delete: vi.fn() },
+}));
+vi.mock("../api/workflow-transitions", () => ({
+  workflowTransitionsApi: { getTransitions: vi.fn(), transition: vi.fn() },
 }));
 vi.mock("../api/attribute-definitions", () => ({
   attributeDefinitionsApi: { getWorkspace: vi.fn() },
@@ -140,6 +144,14 @@ describe("IssueArtifactForm", () => {
     });
     vi.mocked(issuesApi.update).mockReset();
     vi.mocked(issuesApi.delete).mockReset();
+    vi.mocked(workflowTransitionsApi.getTransitions).mockResolvedValue({
+      current_state: "Open",
+      states: ["Open", "Wontfix"],
+      allowed_transitions: [
+        { target_state: "Wontfix", requires_change_reason: false, signature_gate: false },
+      ],
+      proposed_by: null,
+    });
   });
 
   it("maps an Issue onto form values", () => {
@@ -194,15 +206,22 @@ describe("IssueArtifactForm", () => {
     expect(onSaved).toHaveBeenCalled();
   });
 
-  it("deletes through the shared confirm dialog", async () => {
-    vi.mocked(issuesApi.delete).mockResolvedValue(undefined as never);
+  it("marks the issue outdated through the shared confirm dialog", async () => {
+    vi.mocked(workflowTransitionsApi.transition).mockResolvedValue({} as never);
     const onDeleted = vi.fn();
     render(
       <IssueArtifactForm issue={ISSUE} onSaved={vi.fn()} onDeleted={onDeleted} />
     );
-    await userEvent.click(await screen.findByTestId("artifact-form-delete"));
-    await userEvent.click(screen.getByTestId("artifact-form-delete-confirm"));
-    await waitFor(() => expect(issuesApi.delete).toHaveBeenCalledWith("i-1"));
+    await userEvent.click(await screen.findByTestId("artifact-form-deprecate"));
+    await userEvent.click(screen.getByTestId("artifact-form-deprecate-confirm"));
+    await waitFor(() =>
+      expect(workflowTransitionsApi.transition).toHaveBeenCalledWith(
+        "issue",
+        "i-1",
+        "Wontfix",
+        ""
+      )
+    );
     expect(onDeleted).toHaveBeenCalled();
   });
 

@@ -28,6 +28,7 @@ vi.mock("react-i18next", () => ({
 }));
 
 import { requirementsApi } from "../api/requirements";
+import { workflowTransitionsApi } from "../api/workflow-transitions";
 import { attributeDefinitionsApi } from "../api/attribute-definitions";
 import {
   RequirementArtifactForm,
@@ -40,6 +41,9 @@ const workspace = { current: { id: "ws-1", preset: "standard" } };
 
 vi.mock("../api/requirements", () => ({
   requirementsApi: { update: vi.fn(), delete: vi.fn() },
+}));
+vi.mock("../api/workflow-transitions", () => ({
+  workflowTransitionsApi: { getTransitions: vi.fn(), transition: vi.fn() },
 }));
 vi.mock("../api/attribute-definitions", () => ({
   attributeDefinitionsApi: { getWorkspace: vi.fn() },
@@ -129,6 +133,14 @@ describe("RequirementArtifactForm", () => {
     } as never);
     vi.mocked(requirementsApi.update).mockReset();
     vi.mocked(requirementsApi.delete).mockReset();
+    vi.mocked(workflowTransitionsApi.getTransitions).mockResolvedValue({
+      current_state: "draft",
+      states: ["draft", "deprecated"],
+      allowed_transitions: [
+        { target_state: "deprecated", requires_change_reason: false, signature_gate: false },
+      ],
+      proposed_by: null,
+    });
   });
 
   it("maps a Requirement onto form values", () => {
@@ -423,8 +435,8 @@ describe("RequirementArtifactForm", () => {
     await waitFor(() => expect(onDirtyChange).toHaveBeenLastCalledWith(false));
   });
 
-  it("deletes through the shared confirm dialog", async () => {
-    vi.mocked(requirementsApi.delete).mockResolvedValue(undefined as never);
+  it("marks the requirement outdated through the shared confirm dialog", async () => {
+    vi.mocked(workflowTransitionsApi.transition).mockResolvedValue({} as never);
     const onDeleted = vi.fn();
     render(
       <RequirementArtifactForm
@@ -433,24 +445,30 @@ describe("RequirementArtifactForm", () => {
         onDeleted={onDeleted}
       />
     );
-    await userEvent.click(await screen.findByTestId("artifact-form-delete"));
-    await userEvent.click(screen.getByTestId("artifact-form-delete-confirm"));
+    await userEvent.click(await screen.findByTestId("artifact-form-deprecate"));
+    await userEvent.click(screen.getByTestId("artifact-form-deprecate-confirm"));
     await waitFor(() =>
-      expect(requirementsApi.delete).toHaveBeenCalledWith("req-1", undefined)
+      expect(workflowTransitionsApi.transition).toHaveBeenCalledWith(
+        "requirement",
+        "req-1",
+        "deprecated",
+        ""
+      )
     );
     expect(onDeleted).toHaveBeenCalled();
   });
 
-  // F-1 (Task 25 fix round 1): a delete in the Extended preset without a
-  // change_reason previously called `requirementsApi.delete(id)` with no
-  // reason, which the backend 400s (`RequirementService.delete_requirement`
-  // enforces the same `is_change_reason_required` check PATCH gets) — the
-  // delete button was effectively dead in the Seed-/E2E-workspace's Extended
-  // preset. This regression-tests the actual reported bug: an Extended-preset
-  // delete now must carry the reason typed into the shared field.
-  it("sends the typed change reason with a delete under the extended preset", async () => {
+  it("sends the typed change reason with a deprecate under the extended preset", async () => {
     workspace.current = { id: "ws-1", preset: "extended" };
-    vi.mocked(requirementsApi.delete).mockResolvedValue(undefined as never);
+    vi.mocked(workflowTransitionsApi.getTransitions).mockResolvedValue({
+      current_state: "draft",
+      states: ["draft", "deprecated"],
+      allowed_transitions: [
+        { target_state: "deprecated", requires_change_reason: true, signature_gate: false },
+      ],
+      proposed_by: null,
+    });
+    vi.mocked(workflowTransitionsApi.transition).mockResolvedValue({} as never);
     const onDeleted = vi.fn();
     render(
       <RequirementArtifactForm
@@ -459,23 +477,33 @@ describe("RequirementArtifactForm", () => {
         onDeleted={onDeleted}
       />
     );
+    await userEvent.click(await screen.findByTestId("artifact-form-deprecate"));
     await userEvent.type(
-      await screen.findByTestId("artifact-form-change-reason"),
+      screen.getByTestId("artifact-form-deprecate-reason"),
       "no longer needed"
     );
-    await userEvent.click(screen.getByTestId("artifact-form-delete"));
-    await userEvent.click(screen.getByTestId("artifact-form-delete-confirm"));
+    await userEvent.click(screen.getByTestId("artifact-form-deprecate-confirm"));
     await waitFor(() =>
-      expect(requirementsApi.delete).toHaveBeenCalledWith(
+      expect(workflowTransitionsApi.transition).toHaveBeenCalledWith(
+        "requirement",
         "req-1",
+        "deprecated",
         "no longer needed"
       )
     );
     expect(onDeleted).toHaveBeenCalled();
   });
 
-  it("blocks a delete under the extended preset when no change reason was typed", async () => {
+  it("blocks a deprecate under the extended preset when no change reason was typed", async () => {
     workspace.current = { id: "ws-1", preset: "extended" };
+    vi.mocked(workflowTransitionsApi.getTransitions).mockResolvedValue({
+      current_state: "draft",
+      states: ["draft", "deprecated"],
+      allowed_transitions: [
+        { target_state: "deprecated", requires_change_reason: true, signature_gate: false },
+      ],
+      proposed_by: null,
+    });
     render(
       <RequirementArtifactForm
         requirement={REQUIREMENT}
@@ -483,10 +511,10 @@ describe("RequirementArtifactForm", () => {
         onDeleted={vi.fn()}
       />
     );
-    await userEvent.click(await screen.findByTestId("artifact-form-delete"));
-    await userEvent.click(screen.getByTestId("artifact-form-delete-confirm"));
-    expect(await screen.findByTestId("artifact-form-error")).toBeInTheDocument();
-    expect(requirementsApi.delete).not.toHaveBeenCalled();
+    await userEvent.click(await screen.findByTestId("artifact-form-deprecate"));
+    expect(screen.getByTestId("artifact-form-deprecate-confirm")).toBeDisabled();
+    await userEvent.click(screen.getByTestId("artifact-form-deprecate-confirm"));
+    expect(workflowTransitionsApi.transition).not.toHaveBeenCalled();
   });
 
   // GitHub #677 (the Requirement side of the reported a11y gap): a rejected

@@ -2444,6 +2444,10 @@
     "systemValueUnavailable": "Kein Wert",
     "changeReason": "Änderungsgrund",
     "changeReasonRequired": "Bitte einen Änderungsgrund angeben.",
+    "deprecate": "Veralten",
+    "deprecateTitle": "Artefakt veralten lassen",
+    "deprecateConfirm": "Dieses Artefakt veralten lassen? Es erscheint dann nicht mehr in der aktiven Liste.",
+    "deprecateReason": "Begründung",
     "saveShortcutHint": "Speichern (Strg/Cmd+S)"
   },
   "sections": {

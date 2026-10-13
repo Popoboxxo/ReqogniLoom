@@ -29,6 +29,7 @@ import { useMemo } from "react";
 
 import type { AttributeSpec } from "../../api/attribute-definitions";
 import { requirementsApi } from "../../api/requirements";
+import { workflowTransitionsApi } from "../../api/workflow-transitions";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { REQ_CATEGORY_OPTIONS, type Requirement } from "../../types";
 import { ArtifactForm, type ArtifactFormValues } from "../shared/ArtifactForm";
@@ -175,13 +176,13 @@ export function RequirementArtifactForm({
         onSaved();
         return requirementToFormValues(saved);
       }}
-      onDelete={async (changeReason) => {
-        // F-1 (Task 25 fix round 1): forward the shared change-reason field's
-        // value — the Extended preset gates DELETE with the same
-        // `is_change_reason_required` check PATCH gets
-        // (`RequirementService.delete_requirement`), so an omitted reason
-        // 400s exactly like an omitted-reason save would.
-        await requirementsApi.delete(requirement.id, changeReason);
+      onDeprecate={async (targetState, changeReason) => {
+        await workflowTransitionsApi.transition(
+          "requirement",
+          requirement.id,
+          targetState,
+          changeReason
+        );
         onDeleted();
       }}
     />
