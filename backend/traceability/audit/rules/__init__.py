@@ -43,6 +43,7 @@ from __future__ import annotations
 
 from . import coverage_consistency  # noqa: F401  (registration side effect)
 from . import decomposition_consistency  # noqa: F401  (registration side effect)
+from . import interface_coverage  # noqa: F401  (registration side effect)
 from . import trace_derivation_allocation  # noqa: F401  (registration side effect)
 from . import trace_p7  # noqa: F401  (registration side effect)
 from . import validation_goals  # noqa: F401  (registration side effect)
@@ -50,6 +51,7 @@ from . import validation_goals  # noqa: F401  (registration side effect)
 __all__ = [
     "coverage_consistency",
     "decomposition_consistency",
+    "interface_coverage",
     "trace_derivation_allocation",
     "trace_p7",
     "validation_goals",

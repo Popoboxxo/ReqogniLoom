@@ -516,6 +516,30 @@ def test_run_list_filters_by_status_with_string_limit(caller):
     assert filtered.data["count"] == 1
 
 
+def test_run_create_persists_tested_artifact_version_1269(caller):
+    """#1269: the run's tested artifact revision round-trips over MCP."""
+    _tenant, workspace, ctx = caller
+    group = McpTestToolGroup()
+
+    created = _exec(
+        group,
+        "test.run_create",
+        {
+            "workspace_id": str(workspace.id),
+            "name": "Pinned Run",
+            "tested_artifact_version": "v1.2.3",
+        },
+        ctx,
+    )
+    assert created.success is True, created.message
+    run = created.data["test_run"]
+    assert run["tested_artifact_version"] == "v1.2.3"
+
+    fetched = _exec(group, "test.run_get", {"run_id": run["id"]}, ctx)
+    assert fetched.success is True
+    assert fetched.data["test_run"]["tested_artifact_version"] == "v1.2.3"
+
+
 # ---------------------------------------------------------------------------
 # Parameter validation (every required UUID / array / boolean param)
 # ---------------------------------------------------------------------------

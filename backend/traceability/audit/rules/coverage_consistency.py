@@ -291,6 +291,18 @@ class TestCaseVerifiesExistingArtifactRule(Rule):
 
     rule_id = TRACE_P6
 
+    title = "Test case verifies an existing artifact"
+    description = (
+        "Every TestCase must carry a 'verifies' link to an existing, "
+        "non-deleted Requirement or ArchitectureElement. A TestCase pointing at "
+        "nothing cannot contribute verification evidence."
+    )
+    standard_ref = "UMSETZUNGSPLAN_SYSENG_2.0.md §2.2 (TRACE-P6)"
+    remediation_hint = (
+        "Add a 'verifies' link from the TestCase to the Requirement or "
+        "ArchitectureElement it tests."
+    )
+
     def check(self, context: AuditContext) -> List[Finding]:
         test_cases = _active_test_cases(context)
         if not test_cases:
@@ -338,6 +350,17 @@ class LeafRequirementHasTestCaseRule(Rule):
     """
 
     rule_id = VERIF_P8
+
+    title = "Leaf requirement has a verifying test case"
+    description = (
+        "Every non-L4 leaf Requirement must be covered by at least one "
+        "'verifies' link from an active, verification-eligible TestCase. An "
+        "uncovered leaf Requirement has no verification evidence."
+    )
+    standard_ref = "UMSETZUNGSPLAN_SYSENG_2.0.md §2.2 (VERIF-P8)"
+    remediation_hint = (
+        "Create a TestCase and link it to the leaf Requirement via 'verifies'."
+    )
 
     def check(self, context: AuditContext) -> List[Finding]:
         requirements = _active_requirements(context)
@@ -402,6 +425,17 @@ class OpenConflictBlocksApprovalRule(Rule):
     """
 
     rule_id = CONS_P9
+    title = "Open conflict does not block approval"
+    description = (
+        "An artifact carrying an open CONFLICTS_WITH link must not be approved. "
+        "Deferred: the CONFLICTS_WITH link type does not exist yet, so this rule "
+        "is registered and visible but never produces findings."
+    )
+    standard_ref = "UMSETZUNGSPLAN_SYSENG_2.0.md §2.2 (CONS-P9)"
+    remediation_hint = (
+        "Resolve the conflicting link before approving the artifact. "
+        "(Rule deferred until the link type exists.)"
+    )
     deferred_reason = (
         "LinkType.CONFLICTS_WITH is not a member of traceability.types.LinkType "
         "(15 members as of 2026-08-08, 14 when first verified 2026-07-19; see "
@@ -435,6 +469,18 @@ class NoDanglingSupersededReferenceRule(Rule):
     """
 
     rule_id = CONS_P10
+    title = "No reference to a superseded artifact"
+    description = (
+        "No active, non-SUPERCEDES link may reference an artifact already "
+        "replaced via SUPERCEDES. Deferred: the SUPERCEDES link type does not "
+        "exist yet, so this rule is registered and visible but never produces "
+        "findings."
+    )
+    standard_ref = "UMSETZUNGSPLAN_SYSENG_2.0.md §2.2 (CONS-P10)"
+    remediation_hint = (
+        "Re-point the link at the superseding artifact. "
+        "(Rule deferred until the link type exists.)"
+    )
     deferred_reason = (
         "LinkType.SUPERCEDES is not a member of traceability.types.LinkType "
         "(15 members as of 2026-08-08, 14 when first verified 2026-07-19; see "

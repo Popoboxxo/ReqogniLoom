@@ -22,6 +22,7 @@ from traceability.audit.registry import (
     Rule,
     active_rule_ids_for_tier,
     get_registered_rules,
+    get_rule_catalogue,
     register_rule,
 )
 from traceability.audit.rule_engine import RuleEngine
@@ -50,6 +51,7 @@ __all__ = [
     "Rule",
     "register_rule",
     "get_registered_rules",
+    "get_rule_catalogue",
     "active_rule_ids_for_tier",
     "AuditContext",
     "AuditResult",

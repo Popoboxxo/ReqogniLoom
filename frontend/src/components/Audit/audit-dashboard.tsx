@@ -76,6 +76,7 @@ import { useWorkspace } from "../../context/WorkspaceContext";
 import { auditApi } from "../../api/audit";
 import type {
   AuditFinding,
+  AuditRuleInfo,
   AuditScopeKind,
   SuppressionView,
   WaiveRequest,
@@ -105,6 +106,20 @@ const SCOPES: AuditScopeKind[] = ["project", "document", "global"];
  * run produced. The backend caps the value at AuditService.MAX_REPORT_FINDINGS.
  */
 const FINDINGS_PAGE_SIZE = 100;
+
+/**
+ * #1262: artifact types offered by the server-side `artifact_type` filter. The
+ * backend resolves the type to the workspace's Artifact ids, so only types that
+ * can carry SE-Auditor findings are listed.
+ */
+const ARTIFACT_TYPE_OPTIONS = [
+  "Requirement",
+  "ArchitectureElement",
+  "Icd",
+  "TestCase",
+  "StakeholderNeed",
+  "Goal",
+] as const;
 
 type ActionStatus = "idle" | "pending" | "error";
 
@@ -205,6 +220,12 @@ export function AuditDashboard(): JSX.Element {
     useState<number>(0);
 
   const [severityFilter, setSeverityFilter] = useState<"all" | "blocker" | "warning">("all");
+  // #1262: rule filter (client-side, with per-rule counters) and the
+  // server-side artifact-type filter, plus the rule catalogue backing the
+  // rule-id popover.
+  const [ruleFilter, setRuleFilter] = useState<string>("all");
+  const [artifactTypeFilter, setArtifactTypeFilter] = useState<string>("all");
+  const [ruleInfo, setRuleInfo] = useState<Record<string, AuditRuleInfo>>({});
   // #569: "show suppressed" is on by default — nothing is hidden by default
   // (O3). Unchecking filters `suppressed === true` client-side; the report
   // itself always keeps suppressed findings (include_suppressed default true).
@@ -282,6 +303,7 @@ export function AuditDashboard(): JSX.Element {
       const report = await auditApi.run(activeWorkspace.id, {
         scope,
         scopeArtifactId: scope === "document" ? scopeArtifactId : undefined,
+        artifactType: artifactTypeFilter !== "all" ? artifactTypeFilter : undefined,
         limit: FINDINGS_PAGE_SIZE,
         offset: 0,
       });
@@ -302,7 +324,7 @@ export function AuditDashboard(): JSX.Element {
     } finally {
       setIsLoading(false);
     }
-  }, [activeWorkspace, scope, scopeArtifactId, t]);
+  }, [activeWorkspace, scope, scopeArtifactId, artifactTypeFilter, t]);
 
   /**
    * #569: load every suppression (both lifecycles). Non-critical to the audit
@@ -334,7 +356,28 @@ export function AuditDashboard(): JSX.Element {
     void load();
     void loadWaivers();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeWorkspace?.id, scope, scopeArtifactId]);
+  }, [activeWorkspace?.id, scope, scopeArtifactId, artifactTypeFilter]);
+
+  /**
+   * #1262: load the rule catalogue once. Non-critical — a failure only means
+   * the rule-id popover degrades to the bare rule id.
+   */
+  useEffect(() => {
+    let cancelled = false;
+    void Promise.resolve(auditApi.rules?.())
+      .then((resp) => {
+        if (cancelled) return;
+        const map: Record<string, AuditRuleInfo> = {};
+        for (const rule of resp?.rules ?? []) map[rule.rule_id] = rule;
+        setRuleInfo(map);
+      })
+      .catch(() => {
+        // Non-critical: popover falls back to the rule id.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   /**
    * #596: append the next window of findings. The backend's `index` is a
@@ -351,6 +394,7 @@ export function AuditDashboard(): JSX.Element {
       const report = await auditApi.run(activeWorkspace.id, {
         scope,
         scopeArtifactId: scope === "document" ? scopeArtifactId : undefined,
+        artifactType: artifactTypeFilter !== "all" ? artifactTypeFilter : undefined,
         limit: FINDINGS_PAGE_SIZE,
         offset: nextOffset,
       });
@@ -374,6 +418,7 @@ export function AuditDashboard(): JSX.Element {
     activeWorkspace,
     scope,
     scopeArtifactId,
+    artifactTypeFilter,
     isLoadingMore,
     hasMore,
     nextOffset,
@@ -604,11 +649,21 @@ export function AuditDashboard(): JSX.Element {
       severityFilter === "all"
         ? findings
         : findings.filter((f) => f.severity === severityFilter);
+    // #1262: rule filter (client-side) — the rule-id select shows per-rule
+    // counters derived from the currently loaded findings.
+    if (ruleFilter !== "all") list = list.filter((f) => f.rule_id === ruleFilter);
     // #569: the "show suppressed" filter (default on) hides suppressed rows
     // client-side only — the report keeps them marked, never silently.
     if (!showSuppressed) list = list.filter((f) => !f.suppressed);
     return list;
-  }, [findings, severityFilter, showSuppressed]);
+  }, [findings, severityFilter, ruleFilter, showSuppressed]);
+
+  /** #1262: per-rule counters for the rule filter, ordered by rule id. */
+  const ruleOptions = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const f of findings) counts.set(f.rule_id, (counts.get(f.rule_id) ?? 0) + 1);
+    return Array.from(counts.entries()).sort(([a], [b]) => a.localeCompare(b));
+  }, [findings]);
 
   // Counts are recomputed from the live findings list (not the initial
   // report.counts) so the badges stay accurate after a finding is resolved —
@@ -738,6 +793,43 @@ export function AuditDashboard(): JSX.Element {
             <option value="all">{t("audit.severityFilter.all", "All")}</option>
             <option value="blocker">{t("audit.severityFilter.blocker", "Blockers")}</option>
             <option value="warning">{t("audit.severityFilter.warning", "Warnings")}</option>
+          </select>
+        </label>
+
+        {/* #1262: rule filter with per-rule counters (client-side). */}
+        <label className={styles.toolbarLabel}>
+          {t("audit.ruleFilter.label")}
+          <select
+            data-testid="audit-rule-filter"
+            value={ruleFilter}
+            onChange={(e) => setRuleFilter(e.target.value)}
+            className={styles.select}
+          >
+            <option value="all">{t("audit.ruleFilter.all")}</option>
+            {ruleOptions.map(([id, count]) => (
+              <option key={id} value={id}>
+                {id} ({count})
+              </option>
+            ))}
+          </select>
+        </label>
+
+        {/* #1262: artifact-type filter — server-side (a finding's artifact
+            types cannot be derived client-side from its ids alone). */}
+        <label className={styles.toolbarLabel}>
+          {t("audit.artifactTypeFilter.label")}
+          <select
+            data-testid="audit-artifact-type-filter"
+            value={artifactTypeFilter}
+            onChange={(e) => setArtifactTypeFilter(e.target.value)}
+            className={styles.select}
+          >
+            <option value="all">{t("audit.artifactTypeFilter.all")}</option>
+            {ARTIFACT_TYPE_OPTIONS.map((type) => (
+              <option key={type} value={type}>
+                {t(`audit.artifactTypeFilter.${type}`)}
+              </option>
+            ))}
           </select>
         </label>
 
@@ -916,6 +1008,7 @@ export function AuditDashboard(): JSX.Element {
               findings={groupFindings}
               actionState={actionState}
               targets={targets}
+              ruleInfo={ruleInfo[ruleId]}
               onAdopt={requestAdopt}
               onModify={handleModify}
               onWaive={requestWaive}
@@ -1044,6 +1137,72 @@ export function AuditDashboard(): JSX.Element {
 }
 
 // ---------------------------------------------------------------------------
+// Rule info popover (#1262)
+// ---------------------------------------------------------------------------
+
+interface RuleInfoPopoverProps {
+  ruleId: string;
+  info?: AuditRuleInfo;
+}
+
+/**
+ * #1262: the rule id is a button that toggles a popover with the rule's
+ * catalogue metadata (title, description, severity, standard reference and the
+ * "how to fix" hint). Falls back to the bare rule id while the catalogue is
+ * still loading or unavailable.
+ */
+function RuleInfoPopover({ ruleId, info }: RuleInfoPopoverProps): JSX.Element {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+
+  return (
+    <span className={styles.ruleInfoWrap}>
+      <button
+        type="button"
+        data-testid={`audit-rule-info-${ruleId}`}
+        className={styles.groupRuleId}
+        aria-expanded={open}
+        title={info?.title ?? ruleId}
+        onClick={() => setOpen((v) => !v)}
+      >
+        {ruleId}
+      </button>
+      {open && (
+        <div
+          role="dialog"
+          data-testid={`audit-rule-popover-${ruleId}`}
+          className={styles.rulePopover}
+        >
+          <p className={styles.rulePopoverTitle}>{info?.title ?? ruleId}</p>
+          {info ? (
+            <>
+              <p>{info.description}</p>
+              <p>
+                {t("audit.rulePopover.severity")}: {info.severity}
+              </p>
+              {info.standard_ref && (
+                <p>
+                  {t("audit.rulePopover.standard")}:{" "}
+                  {info.standard_ref}
+                </p>
+              )}
+              {info.remediation_hint && (
+                <p>
+                  {t("audit.rulePopover.remediation")}:{" "}
+                  {info.remediation_hint}
+                </p>
+              )}
+            </>
+          ) : (
+            <p>{t("audit.rulePopover.loading")}</p>
+          )}
+        </div>
+      )}
+    </span>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Finding group (one rule id)
 // ---------------------------------------------------------------------------
 
@@ -1052,6 +1211,8 @@ interface FindingGroupProps {
   findings: AuditFinding[];
   actionState: Record<number, ActionState>;
   targets: FindingTargetMap;
+  /** #1262: catalogue metadata for the rule-id popover (may be undefined). */
+  ruleInfo?: AuditRuleInfo;
   onAdopt: (finding: AuditFinding) => void;
   onModify: (target: FindingTarget) => void;
   onWaive: (finding: AuditFinding) => void;
@@ -1062,6 +1223,7 @@ function FindingGroup({
   findings,
   actionState,
   targets,
+  ruleInfo,
   onAdopt,
   onModify,
   onWaive,
@@ -1076,7 +1238,7 @@ function FindingGroup({
       className={styles.groupSection}
     >
       <header className={styles.groupHeader}>
-        <span className={styles.groupRuleId}>{ruleId}</span>
+        <RuleInfoPopover ruleId={ruleId} info={ruleInfo} />
         <div className={styles.groupBadges}>
           {blockers > 0 && (
             <Badge variant="danger">

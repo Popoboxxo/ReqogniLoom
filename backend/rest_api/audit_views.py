@@ -76,7 +76,13 @@ from application.base import (
 )
 from baseline.exceptions import GovernanceAuthorityError
 from baseline.waivers import assert_gate_waiver_authority
-from traceability.audit import AuditScope
+from traceability.audit import AuditScope, get_rule_catalogue
+from traceability.audit.finding_filters import (
+    apply_report_filters,
+    normalize_rule_ids,
+    normalize_severities,
+    resolve_artifact_ids_for_type,
+)
 from rest_api.auth_enforcer import get_auth_context
 from rest_api.serializers import (
     SanitizedCharField,
@@ -194,6 +200,32 @@ def _parse_waiver_state(request: Request) -> str:
             f"{sorted(_VALID_WAIVER_STATES)}."
         )
     return state
+
+
+def _parse_finding_filters(request: Request) -> dict[str, Any]:
+    """#1262: parse the optional ``rule_id`` / ``severity`` / ``artifact_type``
+    server-side finding filters off the audit-run query params.
+
+    ``rule_id`` and ``severity`` accept a repeated query parameter or a
+    comma-separated list. ``artifact_type`` is a single ``Artifact`` type
+    discriminator. Returns a dict with the normalised sets plus ``active``
+    (whether any filter was named) and the raw ``artifact_type``; an unknown
+    severity raises ValueError (400), mapped by the caller.
+    """
+    rule_ids = normalize_rule_ids(
+        request.query_params.getlist("rule_id") or request.query_params.get("rule_id")
+    )
+    severities = normalize_severities(
+        request.query_params.getlist("severity") or request.query_params.get("severity")
+    )
+    raw_type = request.query_params.get("artifact_type") or ""
+    artifact_type = raw_type.strip()
+    return {
+        "rule_ids": rule_ids,
+        "severities": severities,
+        "artifact_type": artifact_type,
+        "active": bool(rule_ids or severities or artifact_type),
+    }
 
 
 def _assert_workspace_in_tenant(workspace_id: Any, ctx: Any) -> None:
@@ -334,6 +366,7 @@ class WorkspaceAuditView(APIView):
             scopes = _parse_scopes(request)
             limit, offset = _parse_pagination(request)
             include_suppressed = _parse_include_suppressed(request)
+            filters = _parse_finding_filters(request)
         except ValueError as exc:
             return Response(
                 build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
@@ -342,14 +375,42 @@ class WorkspaceAuditView(APIView):
         try:
             ctx = get_auth_context(request)
             _assert_workspace_in_tenant(workspace_id, ctx)
-            report = AuditService().run_audit(
-                workspace_id,
-                ctx,
-                scopes=scopes,
-                limit=limit,
-                offset=offset,
-                include_suppressed=include_suppressed,
-            )
+            if filters["active"]:
+                # #1262: filter the *complete* run (no window), then window the
+                # filtered set — a filter combined with limit/offset must page
+                # over the matches, not over an unfiltered window that may
+                # contain none.
+                report = AuditService().run_audit(
+                    workspace_id,
+                    ctx,
+                    scopes=scopes,
+                    include_suppressed=include_suppressed,
+                )
+                artifact_type_ids = None
+                if filters["artifact_type"]:
+                    artifact_type_ids = resolve_artifact_ids_for_type(
+                        artifact_type=filters["artifact_type"],
+                        tenant_id=ctx.tenant_id,
+                        workspace_id=workspace_id,
+                    )
+                apply_report_filters(
+                    report,
+                    rule_ids=filters["rule_ids"],
+                    severities=filters["severities"],
+                    artifact_type_ids=artifact_type_ids,
+                    limit=limit,
+                    offset=offset,
+                    max_findings=AuditService.MAX_REPORT_FINDINGS,
+                )
+            else:
+                report = AuditService().run_audit(
+                    workspace_id,
+                    ctx,
+                    scopes=scopes,
+                    limit=limit,
+                    offset=offset,
+                    include_suppressed=include_suppressed,
+                )
             return Response(report.to_dict())
         except NotFoundError as exc:
             return Response(
@@ -644,7 +705,34 @@ class WorkspaceAuditAiReviewView(APIView):
             )
 
 
+class AuditRuleCatalogView(APIView):
+    """GET /api/v1/audit/rules/ — the SE-Auditor rule catalogue (#1262).
+
+    Read-only metadata for every registered audit rule (title, description,
+    severity, standard reference, remediation hint, active tiers). Bearer-
+    authenticated and not workspace-scoped: the rule vocabulary is global, so a
+    client can render rule help before selecting a workspace. The catalogue is
+    metadata only — no rule is executed here.
+    """
+
+    def get(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        lang = detect_lang(request)
+        try:
+            # Authentication only — an unauthenticated caller is rejected by
+            # BearerTokenAuthentication before this runs; this is the defensive
+            # parity call every audit view makes.
+            get_auth_context(request)
+        except Exception:
+            logger.exception("SE-Auditor rule catalogue failed")
+            return Response(
+                build_error_response("INTERNAL_SERVER_ERROR", lang),
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+        return Response({"rules": get_rule_catalogue()})
+
+
 __all__ = [
+    "AuditRuleCatalogView",
     "WorkspaceAuditView",
     "WorkspaceAuditWaiverView",
     "WorkspaceAuditRemediateView",

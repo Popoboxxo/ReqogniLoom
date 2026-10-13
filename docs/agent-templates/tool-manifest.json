@@ -1760,6 +1760,18 @@
           "include_suppressed": {
             "type": "boolean",
             "description": "#569: keep suppressed findings in the report (default true — nothing is hidden; suppressed findings are marked with suppressed/reason/expiry). Set false to filter them out."
+          },
+          "rule_id": {
+            "type": "string",
+            "description": "#1262: filter findings by rule id (a single id or a comma-separated list, e.g. 'TRACE-P1,TRACE-P2')."
+          },
+          "severity": {
+            "type": "string",
+            "description": "#1262: filter findings by severity (blocker|warning, comma-separated allowed)."
+          },
+          "artifact_type": {
+            "type": "string",
+            "description": "#1262: only findings that concern an artifact of this type (e.g. 'Requirement', 'ArchitectureElement')."
           }
         },
         "required": [

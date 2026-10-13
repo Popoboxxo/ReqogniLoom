@@ -94,6 +94,18 @@ class ValidationGoalsRule(Rule):
     rule_id = VAL_P1
     is_scope_aware = False
 
+    title = "Stakeholder need contributes to a goal"
+    description = (
+        "Every active StakeholderNeed should satisfy at least one active Goal "
+        "('satisfies' link). A need that contributes to no goal is a "
+        "requirement nobody asked for. Advisory at every tier."
+    )
+    standard_ref = "UMSETZUNGSPLAN_SYSENG_2.0.md §5.3 (#402, VAL-P1)"
+    remediation_hint = (
+        "Add a 'satisfies' link from the StakeholderNeed to the Goal it "
+        "contributes to."
+    )
+
     def severity_for_tier(self, tier: str) -> Severity:
         """Always WARNING — VAL-P1 is advisory and must not gate a baseline.
 

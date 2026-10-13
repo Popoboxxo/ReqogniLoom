@@ -1212,6 +1212,13 @@
   },
   "icds": {
     "title": "Schnittstellen-Kontrolldokumente (ICDs)",
+    "linkedElements": {
+      "title": "Verknüpfte Elemente",
+      "incoming": "Eingehend",
+      "outgoing": "Ausgehend",
+      "none": "Keine.",
+      "error": "Verknüpfte Elemente konnten nicht geladen werden."
+    },
     "summary_one": "{{count}} ICD",
     "summary_other": "{{count}} ICDs",
     "emptyTitle": "Noch keine ICDs",
@@ -1718,6 +1725,26 @@
       "all": "Alle",
       "blocker": "Blocker",
       "warning": "Warnungen"
+    },
+    "ruleFilter": {
+      "label": "Regel",
+      "all": "Alle Regeln"
+    },
+    "artifactTypeFilter": {
+      "label": "Artefakttyp",
+      "all": "Alle Typen",
+      "Requirement": "Anforderung",
+      "ArchitectureElement": "Architekturelement",
+      "Icd": "ICD",
+      "TestCase": "Testfall",
+      "StakeholderNeed": "Stakeholder-Bedarf",
+      "Goal": "Ziel"
+    },
+    "rulePopover": {
+      "severity": "Schweregrad",
+      "standard": "Standardbezug",
+      "remediation": "So beheben",
+      "loading": "Regeldetails werden geladen…"
     },
     "counts": {
       "total": "Findings",

@@ -115,6 +115,14 @@ CONS_P10 = "CONS-P10"
 #: missing. Advisory (WARNING) at every tier it runs in; see
 #: rules/validation_goals.py.
 VAL_P1 = "VAL-P1"
+#: #1268 — Interface coverage. Every Icd (Interface Control Document) must carry
+#: a ``references`` link to at least one ArchitectureElement, which is what the
+#: ICD/anchor connector writes on creation (icd/traceability_connector.py). Not
+#: part of the original §2.2 Pflichtmatrix — it is the interface-coverage rule
+#: the ICD feature was missing. Advisory (WARNING) at every tier it runs in, so
+#: enabling it never retroactively blocks an existing workspace's baseline gate
+#: (the #581 calibration lesson); see rules/interface_coverage.py.
+IFC_001 = "IFC-001"
 
 # ---------------------------------------------------------------------------
 # Preset → active rule ids (single source of truth, §2.2)
@@ -130,6 +138,8 @@ _STANDARD_RULES: FrozenSet[str] = frozenset(
         TRACE_P6,
         CONS_P9,
         CONS_P10,
+        # #1268: interface coverage — advisory at every tier it runs in.
+        IFC_001,
     }
 )
 
@@ -268,6 +278,23 @@ class Rule(ABC):
     #: guarantees zero findings and skips ``check`` entirely for every tier.
     #: See the "Deferred rules" section above.
     deferred_reason: str | None = None
+    # ------------------------------------------------------------------
+    # Catalogue metadata (#1262): every rule carries a human-readable title,
+    # a one-paragraph description, the standard it derives from ("Standard-
+    # bezug") and a short "how to fix this" text. ``get_rule_catalogue()``
+    # below renders them for the ``GET /api/v1/audit/rules/`` endpoint and the
+    # Auditor UI's rule-id popover. Defaults are empty so a forgotten override
+    # degrades to a blank field rather than raising at registration time.
+    # ------------------------------------------------------------------
+    #: Short human-readable rule title, e.g. "Leaf requirement has a test case".
+    title: str = ""
+    #: One-to-few-sentence explanation of what the rule asserts.
+    description: str = ""
+    #: Standard/traceability reference the rule derives from, e.g.
+    #: "UMSETZUNGSPLAN_SYSENG_2.0.md §2.2" or "ISO/IEC/IEEE 15288".
+    standard_ref: str = ""
+    #: Short "so beheben" hint — the concrete correction the user should apply.
+    remediation_hint: str = ""
 
     def applies_to_preset(self, tier: str) -> bool:
         """Return True if this rule is active for rigor *tier*.
@@ -329,6 +356,49 @@ def get_registered_rules() -> list[Rule]:
     return list(_REGISTRY.values())
 
 
+#: Tiers a rule can be active in, in increasing rigor order. Used by
+#: :func:`get_rule_catalogue` to render ``active_tiers``.
+_CATALOGUE_TIERS: tuple[str, ...] = ("minimal", "standard", "extended")
+
+
+def get_rule_catalogue() -> list[dict]:
+    """Return the rule catalogue as JSON-serialisable dicts (#1262).
+
+    One entry per registered rule, carrying its catalogue metadata (title,
+    description, ``standard_ref``, ``remediation_hint``), the gate-effective
+    severity (resolved at the strictest tier, ``extended`` — a rule whose
+    severity varies per tier still reports its strongest form here), the tiers
+    it is active in, and whether it is deferred. This is the single source of
+    truth behind ``GET /api/v1/audit/rules/`` and the Auditor UI's rule
+    information popover. Rules never run here; the catalogue is metadata only.
+    """
+    catalogue: list[dict] = []
+    # Importing the rules package self-registers every rule (the same
+    # registration side effect RuleEngine.__init__ relies on). Deferred to call
+    # time so this module stays import-light and there is no import cycle.
+    import traceability.audit.rules  # noqa: F401  (registration side effect)
+
+    for rule in get_registered_rules():
+        catalogue.append(
+            {
+                "rule_id": rule.rule_id,
+                "title": rule.title,
+                "description": rule.description,
+                "severity": rule.severity_for_tier("extended").value,
+                "standard_ref": rule.standard_ref,
+                "remediation_hint": rule.remediation_hint,
+                "active_tiers": [
+                    tier
+                    for tier in _CATALOGUE_TIERS
+                    if rule.rule_id in active_rule_ids_for_tier(tier)
+                ],
+                "is_scope_aware": rule.is_scope_aware,
+                "deferred": rule.deferred_reason is not None,
+            }
+        )
+    return catalogue
+
+
 def clear_registry() -> None:  # pragma: no cover — test/tooling helper
     """Empty the registry (used by tests that register throwaway rules)."""
     _REGISTRY.clear()
@@ -338,6 +408,7 @@ __all__ = [
     "Rule",
     "register_rule",
     "get_registered_rules",
+    "get_rule_catalogue",
     "clear_registry",
     "active_rule_ids_for_tier",
     "full_se_rule_ids",
@@ -357,4 +428,5 @@ __all__ = [
     "CONS_P9",
     "CONS_P10",
     "VAL_P1",
+    "IFC_001",
 ]

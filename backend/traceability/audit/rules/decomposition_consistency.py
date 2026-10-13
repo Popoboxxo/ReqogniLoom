@@ -207,6 +207,18 @@ class ArchitectureDecompositionOrphanRule(Rule):
     rule_id = TRACE_P4
     is_scope_aware = False
 
+    title = "Architecture element has no dangling parent"
+    description = (
+        "No subsystem/component may reference a 'decomposes' parent that does "
+        "not resolve to an existing, non-deleted ArchitectureElement. A dangling "
+        "parent reference makes the element an architectural orphan."
+    )
+    standard_ref = "UMSETZUNGSPLAN_SYSENG_2.0.md §2.2 (TRACE-P4)"
+    remediation_hint = (
+        "Re-point the element's parent at an existing ArchitectureElement, or "
+        "restore the deleted parent."
+    )
+
     def check(self, context: AuditContext) -> List[Finding]:
         """Flag ArchitectureElements whose ``parent_id`` does not resolve.
 
@@ -263,6 +275,19 @@ class RequirementDecompositionDerivationRule(Rule):
     rule_id = TRACE_P5
     is_scope_aware = False
 
+    title = "Requirement decomposition has a matching derivation"
+    description = (
+        "For every 'decomposes' TraceLink between two Requirements "
+        "(parent -> child) the child must carry a 'derives-from' link back to "
+        "the same parent. A missing link means the Requirement tree is "
+        "graph-inconsistent with its decomposition."
+    )
+    standard_ref = "UMSETZUNGSPLAN_SYSENG_2.0.md §2.2 (TRACE-P5)"
+    remediation_hint = (
+        "Add the missing 'derives-from' link from the child Requirement back to "
+        "the parent it was decomposed from."
+    )
+
     def check(self, context: AuditContext) -> List[Finding]:
         levels = _fetch_requirement_levels(context)
         derives_from = _derives_from_pairs(context)
@@ -317,6 +342,19 @@ class ArchitectureDecompositionRequirementDerivationRule(Rule):
 
     rule_id = ARCH_003
     is_scope_aware = False
+
+    title = "Architecture decomposition carries requirement derivation"
+    description = (
+        "For every ArchitectureElement parent/child pair, a Requirement "
+        "allocated to the child must 'derive-from' a Requirement allocated to "
+        "the parent. Without it the decomposition has no matching Requirement "
+        "derivation on the new level."
+    )
+    standard_ref = "UMSETZUNGSPLAN_SYSENG_2.0.md §2.2 (ARCH-003)"
+    remediation_hint = (
+        "Derive the child Requirement from a Requirement allocated to the "
+        "parent element, or allocate it to the correct element."
+    )
 
     def check(self, context: AuditContext) -> List[Finding]:
         elements = _fetch_architecture_elements(context)

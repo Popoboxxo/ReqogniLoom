@@ -41,6 +41,19 @@ class BaselineScopeConsistencyRule(Rule):
     rule_id = TRACE_P7
     is_scope_aware = True
 
+    title = "Trace link stays inside the baseline scope"
+    description = (
+        "No trace link may straddle the audited baseline scope: a link with "
+        "exactly one endpoint inside the scope would be captured as a dangling "
+        "reference. Baseline the wider (superordinate) scope, or remove the "
+        "cross-scope link."
+    )
+    standard_ref = "UMSETZUNGSPLAN_SYSENG_2.0.md §2.2 (TRACE-P7)"
+    remediation_hint = (
+        "Baseline the wider scope that contains both endpoints, or remove the "
+        "link that crosses the scope boundary."
+    )
+
     def check(self, context: AuditContext) -> List[Finding]:
         """Return one finding per trace link that straddles the scope boundary.
 
