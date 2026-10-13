@@ -593,29 +593,40 @@ festgehalten, damit sie nicht bei der nächsten Runde erneut triagiert werden mu
 
 ---
 
-## 9. Ausführungsprotokoll (2026-10-13, final)
+## 9. Ausführungsprotokoll (2026-10-13, final, gemerged)
 
-> **Status:** `executed` — alle drei geplanten Wellen plus die Entscheidungsspur sind
-> umgesetzt, committet, verifiziert und als PRs offen.
+> **Status:** `merged` — alle vier PRs sind nach grüner CI gegen `main` gemerged.
+> `main` steht auf `612c76e9`.
 >
-> **Dieser Abschnitt ändert die Planvorgaben nicht.** Er dokumentiert den Ist-Stand der
-> Ausführung und die verbleibenden offenen Punkte.
+> **Dieser Abschnitt ändert die Planvorgaben nicht.** Er dokumentiert den Ist-Stand
+> der Ausführung und die verbleibenden offenen Punkte.
 
-### 9.1 Branches, Commits und PRs
+### 9.1 Branches, Commits, PRs
 
-Alle vier Branches basieren auf `main @ 65515769` und sind getrennt.
+Alle vier Branches basierten auf `main @ 65515769` und sind in dieser Reihenfolge
+gemerged (Welle 1 zuletzt, weil sie das Protokoll der gesamten Runde trägt).
 
-**`fix/wave1-meta-drift-ratchet` → PR #1271** (5 Commits)
+| Phase | Branch | PR | Merge-Commit | Issues |
+|---|---|---|---|---|
+| 2 | `fix/wave2-duplicate-bulk-approve` | #1272 | `58215f1` | #1178, #1196 |
+| 3 | `fix/wave3-flaky-test-harness` | #1273 | `24f3e93` | #1117 |
+| 4 | `fix/decision-track` | #1274 | `99f6391` | #1135, #1138, #1110 |
+| 1 | `fix/wave1-meta-drift-ratchet` | #1271 | `612c76e` | #1103 |
+
+**`fix/wave1-meta-drift-ratchet`** (7 Commits, davon 2 aus dem Abschluss)
 
 | Commit | Message | Issues |
 |---|---|---|
+| `7250ca7c` | `chore(agent-meta): drop REQ traceability from the DoD checklist` | Meta |
+| `98974c67` | Merge `origin/main` inkl. Auflösung des REQ-193-Konflikts | — |
+| `324c0518` | `docs(audit): finalize round 2 execution log` | — |
 | `0eeb97a6` | `docs(audit): record wave 1/2 execution status` | — |
 | `20c3fcce` | `feat(REQ-193): unify baseline regression ratchets` | #1103 |
 | `d06fa00e` | `test(agent-templates): gate documented tool count against the manifest` | #1104 WP-B |
 | `4da48466` | `fix(meta): correct documented MCP tool count to 228` | #1104 WP-A |
 | `29bfdfe0` | `docs(audit): add bugfix round 2 execution plan` | — |
 
-**`fix/wave2-duplicate-bulk-approve` → PR #1272** (5 Commits)
+**`fix/wave2-duplicate-bulk-approve`** (5 Commits)
 
 | Commit | Message | Issues |
 |---|---|---|
@@ -625,41 +636,39 @@ Alle vier Branches basieren auf `main @ 65515769` und sind getrennt.
 | `92642154` | `fix(import): surface per-row duplicate causes in the legacy response` | #1178 |
 | `1dcbb9bb` | `fix(import): detect duplicate titles even when a natural key is present` | #1178 |
 
-**`fix/wave3-flaky-test-harness` → PR #1273** (5 Commits)
+**`fix/wave3-flaky-test-harness`** (6 Commits)
 
 | Commit | Message | Issues |
 |---|---|---|
+| `f2d0324e` | `chore(frontend): add @types/node for the vitest reporter` | #1117 |
 | `4220d0cd` | `fix(frontend): use TestCollection for the vitest task tree` | #1117 |
 | `5dfd8193` | `fix(frontend): typecheck the flaky artifact reporter` | #1117 |
 | `1f53f67f` | `chore(frontend): register the flaky artifact reporter` | #1117 |
 | `7015ea21` | `test(frontend): write a flaky failure artifact from the vitest run` | #1117 |
 | `863a91d3` | `test(frontend): add failure classifier for flaky artifacts` | #1117 |
 
-**`fix/decision-track` → PR #1274** (3 Commits)
+**`fix/decision-track`** (4 Commits)
 
 | Commit | Message | Issues |
 |---|---|---|
+| `8a10025a` | `docs(requirements): renumber #1135 requirement to REQ-194` | #1135 |
 | `88da246a` | `docs(adr): accept ADR-021 after concept review closes the major finding` | #1135 |
 | `cc11ca2c` | `docs(requirements): add REQ-193 for admin login brute-force` | #1135 |
 | `010496cf` | `docs(se): decide plugin versioning traceability as non-product` | #1138 |
 
-Umfang ohne Build-Artefakte: 17 geänderte Dateien (+1301 / −84) in den Wellen 1–2, 6 neue
-Dateien dort; Welle 3 ergänzt 3 Dateien (1003 Zeilen); die Entscheidungsspur 2 Doku-Dateien.
-`frontend/dist/` (Ergebnis eines `npm run build`) wurde **bewusst zurückgesetzt** und ist in
-keinem Commit enthalten.
-
 ### 9.2 Umsetzungsstand je Issue
 
-| Issue | Stand | Belege |
+| Issue | Stand | Schicksal |
 |---|---|---|
-| **#1104** | WP-A + WP-B erledigt (`4da48466`, `d06fa00e`); **WP-C als Issue-Arbeit erledigt** (Kommentar gesetzt), der dort markierte Restposten `+ 74 APIViews` bleibt User-Entscheidung | `project.yaml` 5× `227→228`; Drift-Gate `test_meta_tool_count_drift.py`; Issue-Kommentar mit Falsifikation der Link-Typ-Behauptung (11, nicht 20) |
-| **#1103** | **erledigt** (`20c3fcce`) | Gemeinsames Framework (Python `ratchet_framework.py` 733 Z. + TS-Kontrakt `ratchet-framework.ts` 609 Z.), alle drei Ratchets migriert, REQ-193 (Welle 1) |
-| **#1178** | **alle vier Teilfixes erledigt** (`1dcbb9bb`, `92642154`, `135b5371`, `cd3facad`) | Titel-Ergänzungsprüfung unabhängig vom Natural Key; Legacy-Response trägt die Skip-Ursache; Frontend rendert sie; Create-Pfad warnt nicht-blockierend vor dem Insert. |
-| **#1196** | **erledigt** (`5159c9c1`) | Zeilen-Checkbox + Bulk-Freigabe/-Ablehnung im review-Modus, eine Batch-Begründung, N/M-Bericht, Teilfehler bricht nicht ab. Proposals-Pfad unverändert. |
-| **#1117** | **erledigt** (`863a91d3`, `7015ea21`, `1f53f67f`, `5dfd8193`, `4220d0cd`) | Klassifizierung (19 Tests) + Reporter + Registrierung + zwei API-Korrekturen, die nur der echte Lauf fand; E2E mit absichtlichem Fehlschlag bewiesen |
-| **#1138** | **entschieden: Option B** — Non-Product-Statement unter `plan/PLUGINS.md`, weil ADR-017 (`accepted`) es bereits im Titel trägt | `010496cf` |
-| **#1135** | **HARD STOP aufgelöst.** Nachgeholt: `concept-reviewer`-Review (READY-MIT-VORBEHALT), major F1 durch REQ-193 geschlossen, ADR-021 auf `accepted` | `cc11ca2c`, `88da246a` |
-| **#1110** | Aggregator-Kommentar mit Wellenstand + fünf verbliebenen Entscheidungspunkten gesetzt | GitHub-Kommentar |
+| **#1104** | WP-A + WP-B (`4da48466`, `d06fa00e`), WP-C als Issue-Arbeit (Kommentar mit Falsifikation der Link-Typ-Behauptung 11≠20); Restposten `+ 74 APIViews` ist User-Entscheidung | **offen** — letzter Tracker für diesen Rest |
+| **#1103** | erledigt (`20c3fcce`) | **geschlossen** (via #1271) |
+| **#1178** | alle vier Teilfixes | **geschlossen** (via #1272) |
+| **#1196** | erledigt | **geschlossen** (via #1272) |
+| **#1117** | erledigt (5 Commits + 1 Typ-Fix) | **geschlossen** (via #1273) |
+| **#1138** | **entschieden: Option B** — Non-Product-Statement (`010496cf`), weil ADR-017 es bereits im Titel trägt | **geschlossen** (via #1274) |
+| **#1135** | **HARD STOP aufgelöst:** concept-review nachgeholt (READY-MIT-VORBEHALT), F1 durch REQ-194 geschlossen, ADR-021 `accepted` | **geschlossen** (via #1274) |
+| **#1110** | Aggregator mit Wellenstand + Abschlusskommentar | **geschlossen** (letzter Merge) |
+| **#1275** (neu) | Admin-Gate + 2FA-Residuum (ADR-021 O5), vor dem Schließen von #1135 angelegt | **offen** |
 
 ### 9.3 Verifizierter Teststatus (2026-10-13)
 
@@ -669,63 +678,56 @@ keinem Commit enthalten.
 | **Admin-Lockout** (#1135) | Test-Overlay `backend-test` | **25 passed** |
 | Ratchet-Framework (Backend, DB-frei) | `pytest mcp_server/tests/test_ratchet_framework.py` | **17 passed** |
 | **Welle 3 Kern + Ratchet + i18n** | `vitest` (3 Dateien) | **43 passed** |
-| **Welle 3 im Fehlerfall** | temporärer fehlschlagender Test → Artefakt | Assertion **und** Timeout korrekt kategorisiert, mit Code-Location und Dauer |
+| **Welle 3 im Fehlerfall** | temporärer fehlschlagender Test → Artefakt | Assertion **und** Timeout korrekt kategorisiert |
+| **CI je PR vor dem Merge** | `gh pr checks` | **16/16 pass** auf allen vier PRs |
 
-Backend-Suiten mit DB laufen über den Test-Overlay (`settings_test`, Superuser); ein direktes
-`docker exec` im laufenden Dev-Container scheitert an fehlendem `CREATEDB` für die App-Rolle
-— ein bekanntes Test-Infrastruktur-Detail, kein Regressionssignal. DoD-Punkt 4
-(Regression-Guard) ist für alle umgesetzten Wellen erfüllt.
+Kein Merge auf rot.
 
 ### 9.4 Entscheidungen, die der Lauf erzwungen hat
 
-1. **`concept-reviewer`-Subagent funktioniert** — die vorherigen Orchestrator-Dispatches
-   taten das nicht (Upstream-Fehler). Das ermöglichte den regelkonformen Abschluss von
-   #1135 über ein echtes Review statt einer Eigenbeurteilung.
-2. **REQ-ID-Kollision vorhergesehen und dokumentiert:** Welle 1 vergibt REQ-193 für #1103,
-   die Entscheidungsspur unabhängig REQ-193 für #1135. Die Entscheidungsspur trägt einen
-   Hinweis in `docs/REQUIREMENTS.md`, statt eine dritte Nummer zu vergeben, die frühestens
-   beim ersten Merge umnummeriert wird. **Wer zweit merged, nummeriert um.**
-3. **#1136 und #1135 waren beide „decision pending" und bereits erledigt.** Beide Issue-Bodys
-   beschreiben Stände vom September. Ohne Verifikation wären hier zwei Arbeitspakete geplant
-   worden, die existieren — die teuerste Fehlentscheidung, vor der diese Runde gefehlt ist.
-4. **Die Vitest-Reporter-API war geschätzt, nicht gewusst.** `onFinished` ist die
-   Websocket-Hook, nicht eine Reporter-Methode; der erste Entwurf lud den Reporter und
-   feuerte nie. Danach matchte der Zustandsvergleich `"fail"` statt `"failed"` und sammelte
-   null Records, während jeder Test im Lauf fehlschlug. Beide Fehler haben nur ein echter
-   Lauf gefunden — Unit-Tests einer geratenen API-Form hätten sie nicht gezeigt.
+1. **Der Node-Typ-Fehler war real, nicht Vorbelastung.** Ich hatte die TS-Fehler des
+   Reporters als Vorbelastung eingeordnet, weil *„kein Workflow `tsc` ausführt"*. Falsch:
+   der Playwright-Workflow hat den Step **„Verify prod Docker build"**, und der läuft
+   `npm run build` = `tsc -p tsconfig.build.json`. Folge: der Production-Image-Build
+   brach ab und alle vier E2E-Shards schlugen fehl. Behoben mit `@types/node@22`
+   (`f2d0324e`) — was dieselbe Lücke in `bluepencil-vendor.test.ts` mit schließt.
+   Die zwei Lehren stehen in 9.5 als Prozess-Notiz.
+2. **`exclude` war der falsche Hebel.** Es filtert den `include`-Match, nicht einen
+   Import, der schon im Graphen ist — die Datei landete trotzdem in `files`.
+3. **`concept-reviewer`-Subagent funktioniert**, der Orchestrator-Dispatch tat es nicht
+   (Upstream-Fehler). Das ermöglichte den regelkonformen Abschluss von #1135 über ein
+   echtes Review statt einer Eigenbeurteilung.
+4. **#1136 und #1135 waren beide „decision pending" und bereits erledigt.** Beide
+   Issue-Bodys beschreiben Stände vom September. Ohne Verifikation wären hier zwei
+   Arbeitspakete geplant worden, die existieren.
+5. **REQ-193-Doppelvergabe** aus zwei unabhängigen Vergaben ohne zweigübergreifende
+   Dublettenprüfung. Aufgelöst per Folge-Commit (`8a10025a`) auf REQ-194, **vor** den
+   Merges; der Merge-Konflikt in `docs/REQUIREMENTS.md` wurde auf Welle 1 mit `98974c67`
+   behoben. Kein History-Rewrite, weil die Commits in offenen PRs standen.
+6. **Meta-Quelle bereinigt** (`7250ca7c`): `AGENTS.md`-ENTRY sagte `REQ-Trace: false`,
+   die on-merge-DoD in `.meta-config/project.yaml:482` verlangte trotzdem noch
+   REQ-Traceability. Nebenbefund: die committete `generated-file-hashes.json` war
+   **bereits vorher** stale — das Drift-Gate hat das offenbar nie gemergt gesehen.
+7. **Folge-Issue vor Schließen:** #1275 für Admin-Gate + 2FA-Residuum, damit es nicht im
+   geschlossenen #1135 verstaubt.
 
 ### 9.5 Verbleibende offene Punkte
 
-| # | Punkt | Wer |
-|---|---|---|
-| 1 | `frontend/dist/`-Tracking (getrackte Build-Artefakte, nicht gitignored) | User-Entscheidung |
-| 2 | ADR-Kandidat **ii** (Workspace vs. Tenant) — blockiert Admin-Gate (#1135-Rest) und RLS-Achse | User + `se-architect` |
-| 3 | **2FA-Residuum** (O5 aus ADR-021) | eigene Planung |
-| 4 | `@types/node` als devDependency — schließt die Node-Typ-Fehler in `bluepencil-vendor.test.ts` u. a. | Dependency-Entscheidung |
-| 5 | `+ 74 APIViews`-Zusatz in `.meta-config/project.yaml` (#1104-WP-C-Rest) | User-Entscheidung |
-| 6 | Merge-Reihenfolge + REQ-193-Umnummerierung der Wellen-Branches | `git`-Agent |
-| 7 | `frontend/test-results/` ist gitignored, aber **vorhanden** — für CI-Upload wäre ein Ablageort je Job nötig | DevOps |
+| # | Punkt | Owner | Blocker? |
+|---|---|---|---|
+| 1 | `frontend/dist/`-Tracking (getrackte Build-Artefakte, nicht gitignored) | User | nein |
+| 2 | ADR-Kandidat **ii** (Workspace vs. Tenant) — jetzt in #1275 | User + `se-architect` | blockiert Admin-Gate und RLS-Achse |
+| 3 | 2FA-Residuum (ADR-021 O5) — jetzt in #1275 | eigene Planung | nein |
+| 4 | `+ 74 APIViews`-Zusatz in `.meta-config/project.yaml` — letzter Tracker ist #1104 | User | nein |
+| 5 | `frontend/test-results/` ist gitignored, aber **vorhanden**; für CI-Upload wäre ein Ablageort je Job nötig | DevOps | nein |
+| 6 | `@types/node`-Version künftig mitziehen (Pflege, kein Blocker) | `dependency-auditor` | nein |
 
-### 9.6 Aufgelöste Verifikationen (§7.2)
-
-| Annahme | Auflösung |
-|---|---|
-| Transition-API erlaubt Batch mit einer Begründung (#1196) | Umgesetzt und getestet; Begründungs-Pflicht pro Target als eigener Fall abgedeckt |
-| Create-Pfad-Warnung ist API-additiv (#1178) | Ja — Warnung vor dem Insert, Zeile wird weiterhin erzeugt; Testbelege liegen vor |
-| Agent-meta-Sync reproduziert die Korrektur? | Meta-Quelle **und** Artefakte korrigiert; das neue Drift-Gate macht ein erneutes Auseinanderlaufen sofort sichtbar |
-| Vitest-Reporter-Hook verfügbar? | Ja, aber `onFinished` ist die **Websocket**-Hook, nicht eine Reporter-Methode. Die echte Hook in Vitest 5.0.3 ist `onTestRunEnd(modules, unhandledErrors, reason)` |
-| Vitest-Zustände (`failed` vs. `fail`) | `failed` — der erste Entwurf matchte `"fail"` und sammelte null Records |
-
-### 9.7 Aufgelöste Blocker der Vorgänger-Fassung
-
-1. ~~Kein Commit~~ — 18 Commits auf vier Branches.
-2. ~~Wellen vermischt~~ — sauber getrennt; Welle-2-Änderungen wurden per Branch-Wechsel
-   verlustfrei mitgenommen.
-3. **`frontend/dist/` nicht gitignored** — für die Commits umgangen (Build-Artefakte
-   zurückgesetzt, nur selektives Staging). **Der Befund selbst bleibt offen** und ist
-   Punkt 1 in 9.5.
+**Prozess-Notiz (aus 9.4 Punkt 1):** für künftige Änderungen an Dateien, die Node-APIs
+nutzen, gilt: erst `npm run build` (nicht nur `tsc -p tsconfig.json`) prüfen, denn der
+Production-Docker-Build ist ein Gate. Und „kein Workflow macht tsc" stimmt nur, wenn der
+Docker-Build mitgezählt wird.
 
 ---
 
-*Protokolliert vom Haupt-Thread am 2026-10-13. Vier Branches, 18 Commits, 4 PRs, sechs
-Issue-Kommentare. Kein Commit auf `main`.*
+*Protokolliert vom Haupt-Thread am 2026-10-13. Vier Branches, 22 Commits, 4 PRs
+gemerged, sieben Issues geschlossen, ein Folge-Issue angelegt. Kein Merge auf rot.*
