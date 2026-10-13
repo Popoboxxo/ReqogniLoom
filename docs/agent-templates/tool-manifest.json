@@ -6184,6 +6184,10 @@
             "type": "string",
             "description": "Optional CI job identifier."
           },
+          "tested_artifact_version": {
+            "type": "string",
+            "description": "#1269: optional version identifier (commit SHA, release tag, build number) of the artifact under test this run executed against."
+          },
           "test_case_ids": {
             "type": "array",
             "items": {

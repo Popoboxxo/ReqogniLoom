@@ -2288,6 +2288,18 @@ class TestRun(TenantScopedModel):
         default="in_progress",
     )
     ci_job_id = models.CharField(max_length=255, blank=True, default="")
+    tested_artifact_version = models.CharField(
+        max_length=255,
+        null=True,
+        blank=True,
+        default=None,
+        help_text=(
+            "#1269: version identifier of the artifact under test (commit SHA, "
+            "release tag, build number) this run executed against. Nullable: "
+            "pre-existing runs carry no version, and not every run is pinned to "
+            "one."
+        ),
+    )
 
     class Meta:
         db_table = "pl_test_run"

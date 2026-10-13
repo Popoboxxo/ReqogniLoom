@@ -153,6 +153,31 @@ class RiskResult:
 
 
 # ---------------------------------------------------------------------------
+# Verification coverage types (#1267)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class VerificationCoverageResult:
+    """Share of active Requirements carrying verification evidence (#1267).
+
+    leaf_id: COMP-SM-004 (companion)
+    req_id: REQ-L1-031
+
+    ``covered`` counts active Requirements that either carry an incoming
+    ``verifies`` trace link or declare a non-test ``verification_method`` —
+    the exact evidence predicate the Extended approval gate enforces in
+    ``workflow.precondition_rules.check_requirement_verification_evidence``.
+    ``uncovered_ids`` holds the ids of the Requirements with neither.
+    """
+
+    total: int = 0
+    covered: int = 0
+    coverage_percent: float = 0.0
+    uncovered_ids: List[str] = field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
 # Threshold warning types (COMP-SM-007, IF-SM-INT-006)
 # REQ-L2-SM-007
 # ---------------------------------------------------------------------------
@@ -224,6 +249,11 @@ class MetricsResult:
     traceability_coverage: CoverageResult
     workflow_gaps: WorkflowGapResult
     open_risks: RiskResult
+    # #1267: additive metric; defaults to an empty result so existing
+    # constructors/deserializers keep working unchanged.
+    verification_coverage: VerificationCoverageResult = field(
+        default_factory=VerificationCoverageResult
+    )
     warnings: List[ThresholdWarning] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
@@ -269,6 +299,14 @@ class MetricsResult:
                 "total": self.open_risks.total,
                 "by_severity": self.open_risks.by_severity,
             },
+            "verification_coverage": {
+                "total": self.verification_coverage.total,
+                "covered": self.verification_coverage.covered,
+                "coverage_percent": (
+                    self.verification_coverage.coverage_percent
+                ),
+                "uncovered_ids": self.verification_coverage.uncovered_ids,
+            },
             "warnings": [
                 {
                     "metric": w.metric,
@@ -292,4 +330,5 @@ __all__ = [
     "ThresholdWarning",
     "ThresholdConfig",
     "MetricsResult",
+    "VerificationCoverageResult",
 ]

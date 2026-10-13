@@ -20,6 +20,13 @@ Rule 7 — TestCase verifies-link coverage (GitHub #584)
     to a live Requirement or ArchitectureElement, enforced by
     ``workflow.precondition_rules.check_verifies_link``.
 
+Rule 8 — Extended approval preconditions (#1267 / #1269)
+    Switched on by the Extended tier's ``require_verification_on_approval``
+    feature flag: a Requirement must carry a ``verifies`` link or declare a
+    non-test ``verification_method``
+    (``check_requirement_verification_evidence``), and a step-based TestCase
+    must have non-empty ``steps`` (``check_testcase_steps``).
+
 All gates are exercised through the real :class:`TransitionValidator` against
 real workflow definitions and real preset configs — no mocks, because the whole
 point of these levers is that a *declared* policy is actually consumed.
@@ -45,6 +52,8 @@ from persistence.tenancy import TenantContext
 from workflow.definition_store import PRESET_SCHEMAS
 from workflow.precondition_rules import (
     EC_MANDATORY_FIELDS_MISSING,
+    EC_REQUIREMENT_VERIFICATION_MISSING,
+    EC_TEST_STEPS_MISSING,
     EC_VERIFICATION_EVIDENCE_MISSING,
     EC_VERIFIES_LINK_MISSING,
 )
@@ -348,8 +357,10 @@ class TestMandatoryFieldGate:
             description="A description",
             acceptance_criteria="Given/When/Then",
             # #272 (spec §7.2): the Extended approval gate also requires the
-            # verification method, so a "complete" Requirement must carry it.
-            verification_method="Test",
+            # verification method. #1267: a non-test method ("Analysis") is
+            # itself sufficient verification evidence, so no verifies link is
+            # needed here.
+            verification_method="Analysis",
         )
 
         result = _validate(
@@ -834,7 +845,9 @@ def _approvable_testcase(
 
     ``description`` is a ``mandatory_fields`` entry from Standard upwards, so a
     bare ``_testcase()`` is rejected by rule 5 before rule 7 is ever reached.
-    Filling it in keeps these tests about the verifies link only.
+    Filling it in keeps these tests about the verifies link only. ``steps`` is
+    set because #1269's Extended steps gate would otherwise reject the case
+    before (or right after) the verifies link is evaluated.
     """
     TenantContext.set_tenant(tenant.id)
     try:
@@ -846,6 +859,7 @@ def _approvable_testcase(
             artifact=artifact,
             title=title,
             description="Steps are documented elsewhere.",
+            steps=[{"action": "exercise the requirement"}],
         )
         return artifact, tc
     finally:
@@ -1029,8 +1043,12 @@ class TestVerifiesLinkGate:
 
         assert result.valid is True, result.error_message
 
-    def test_requirement_approval_is_untouched_by_rule_7(self, tenant):
-        """Control: rule 7 is TestCase-only; Requirements keep rule 5's verdict."""
+    def test_requirement_approval_is_gated_by_the_new_rule(self, tenant):
+        """#1267: the Requirement gate is rule 8, not rule 7 (TestCase-only).
+
+        A Requirement that satisfies rule 5 (method filled in) but declares the
+        *test* method without a ``verifies`` link is now refused.
+        """
         ws = _workspace(tenant, "extended")
         _make_workflow(tenant, ws, "extended", "Requirement")
         req = _requirement(
@@ -1039,8 +1057,6 @@ class TestVerifiesLinkGate:
             title="R1",
             description="d",
             acceptance_criteria="ac",
-            # #272 (spec §7.2): required by the Extended approval gate; the
-            # subject here is that rule 7 (TestCase-only) adds nothing.
             verification_method="Test",
         )
 
@@ -1052,5 +1068,261 @@ class TestVerifiesLinkGate:
             current_state="in_review",
             target_state="approved",
         )
+
+        assert result.valid is False
+        assert result.error_code == EC_REQUIREMENT_VERIFICATION_MISSING
+
+
+# ---------------------------------------------------------------------------
+# Rule 8 — Extended approval preconditions (#1267 Requirement verification,
+#          #1269 TestCase steps)
+# ---------------------------------------------------------------------------
+
+
+class TestRequirementVerificationGate:
+    """#1267: Extended Approval eines Requirements verlangt Verifikationsbeleg."""
+
+    @pytest.fixture
+    def extended_ws(self, tenant):
+        ws = _workspace(tenant, "extended")
+        _make_workflow(tenant, ws, "extended", "Requirement")
+        return ws
+
+    def _approve(self, tenant, ws, req):
+        return _validate(
+            tenant=tenant,
+            workspace=ws,
+            item_id=req.id,
+            item_type="Requirement",
+            current_state="in_review",
+            target_state="approved",
+        )
+
+    def test_blocks_test_method_without_a_verifies_link(self, tenant, extended_ws):
+        req = _requirement(
+            tenant,
+            extended_ws,
+            title="R1",
+            description="d",
+            acceptance_criteria="ac",
+            verification_method="Test",
+        )
+
+        result = self._approve(tenant, extended_ws, req)
+
+        assert result.valid is False
+        assert result.error_code == EC_REQUIREMENT_VERIFICATION_MISSING
+        assert "verifies" in result.error_message
+
+    def test_allows_test_method_with_a_verifies_link(self, tenant, extended_ws):
+        req = _requirement(
+            tenant,
+            extended_ws,
+            title="R1",
+            description="d",
+            acceptance_criteria="ac",
+            verification_method="Test",
+        )
+        tc_art, _tc = _testcase(tenant, extended_ws, "TC-1")
+        _verifies(tenant, tc_art, req.artifact)
+
+        result = self._approve(tenant, extended_ws, req)
+
+        assert result.valid is True, result.error_message
+
+    @pytest.mark.parametrize(
+        "method", ["Analysis", "Inspection", "Demonstration"]
+    )
+    def test_allows_a_non_test_method_without_a_link(
+        self, tenant, extended_ws, method
+    ):
+        req = _requirement(
+            tenant,
+            extended_ws,
+            title="R1",
+            description="d",
+            acceptance_criteria="ac",
+            verification_method=method,
+        )
+
+        result = self._approve(tenant, extended_ws, req)
+
+        assert result.valid is True, result.error_message
+
+    def test_review_method_also_requires_a_link(self, tenant, extended_ws):
+        """Only analysis/inspection/demonstration are exempt (#1267)."""
+        req = _requirement(
+            tenant,
+            extended_ws,
+            title="R1",
+            description="d",
+            acceptance_criteria="ac",
+            verification_method="Review",
+        )
+
+        result = self._approve(tenant, extended_ws, req)
+
+        assert result.valid is False
+        assert result.error_code == EC_REQUIREMENT_VERIFICATION_MISSING
+
+    def test_flag_off_keeps_the_old_behaviour(self, tenant):
+        """Minimal/Standard do not enable the flag: no verifies link required.
+
+        A Standard Requirement that satisfies rule 5 but declares no
+        verification method and carries no link stays approvable.
+        """
+        ws = _workspace(tenant, "standard")
+        _make_workflow(tenant, ws, "standard", "Requirement")
+        req = _requirement(
+            tenant,
+            ws,
+            title="R1",
+            description="d",
+            acceptance_criteria="ac",
+        )
+
+        result = _validate(
+            tenant=tenant,
+            workspace=ws,
+            item_id=req.id,
+            item_type="Requirement",
+            current_state="draft",
+            target_state="approved",
+        )
+
+        assert result.valid is True, result.error_message
+
+    def test_flag_off_in_extended_is_not_possible_but_registry_is_pinned(self):
+        """Guard the tier wiring the gate depends on (#1267)."""
+        from presets.registry import TIER_EXTENDED, TIER_MINIMAL, TIER_STANDARD
+        from presets.registry import get_registry
+
+        registry = get_registry()
+        assert (
+            registry.get_preset_config(TIER_EXTENDED).features[
+                "require_verification_on_approval"
+            ]
+            is True
+        )
+        assert (
+            registry.get_preset_config(TIER_STANDARD).features[
+                "require_verification_on_approval"
+            ]
+            is False
+        )
+        assert (
+            registry.get_preset_config(TIER_MINIMAL).features[
+                "require_verification_on_approval"
+            ]
+            is False
+        )
+
+
+class TestTestcaseStepsGate:
+    """#1269: Extended TestCase approval verlangt nicht-leere Schritte."""
+
+    @pytest.fixture
+    def extended_ws(self, tenant):
+        ws = _workspace(tenant, "extended")
+        _make_workflow(tenant, ws, "testcase_default", "TestCase")
+        return ws
+
+    def _approve(self, tenant, ws, tc):
+        return _validate(
+            tenant=tenant,
+            workspace=ws,
+            item_id=tc.id,
+            item_type="TestCase",
+            current_state="ready",
+            target_state="approved",
+        )
+
+    def _linked_testcase(
+        self, tenant, ws, title, *, steps, test_type=None
+    ) -> TestCase:
+        """A TestCase that satisfies rule 5 and rule 7, optionally with steps.
+
+        The ``verifies`` link targets a real ``Requirement`` entity (rule 7's
+        live-target pool), so these tests exercise the steps gate in isolation.
+        """
+        req = _requirement(
+            tenant, ws, title="Linked R", description="d", acceptance_criteria="ac"
+        )
+        TenantContext.set_tenant(tenant.id)
+        try:
+            tc_artifact = Artifact.objects.create(
+                tenant=tenant, workspace=ws, artifact_type="testcase"
+            )
+            tc = TestCase.objects.create(
+                tenant=tenant,
+                artifact=tc_artifact,
+                title=title,
+                description="d",
+                steps=steps,
+                test_type=test_type,
+            )
+            TraceLink.objects.create(
+                tenant=tenant,
+                source=tc_artifact,
+                target=req.artifact,
+                link_type="verifies",
+            )
+            return tc
+        finally:
+            TenantContext.clear_tenant()
+
+    def test_blocks_a_step_based_testcase_without_steps(self, tenant, extended_ws):
+        tc = self._linked_testcase(
+            tenant, extended_ws, "No steps", steps=[], test_type="system"
+        )
+
+        result = self._approve(tenant, extended_ws, tc)
+
+        assert result.valid is False
+        assert result.error_code == EC_TEST_STEPS_MISSING
+
+    def test_allows_a_step_based_testcase_with_steps(self, tenant, extended_ws):
+        tc = self._linked_testcase(
+            tenant,
+            extended_ws,
+            "With steps",
+            steps=[{"action": "run it"}],
+            test_type="system",
+        )
+
+        result = self._approve(tenant, extended_ws, tc)
+
+        assert result.valid is True, result.error_message
+
+    @pytest.mark.parametrize("test_type", ["inspection", "analysis", "demonstration"])
+    def test_exempts_step_less_test_types(self, tenant, extended_ws, test_type):
+        tc = self._linked_testcase(
+            tenant, extended_ws, f"{test_type} TC", steps=[], test_type=test_type
+        )
+
+        result = self._approve(tenant, extended_ws, tc)
+
+        assert result.valid is True, result.error_message
+
+    def test_standard_tier_does_not_gate_steps(self, tenant):
+        ws = _workspace(tenant, "standard")
+        _make_workflow(tenant, ws, "testcase_default", "TestCase")
+        TenantContext.set_tenant(tenant.id)
+        try:
+            tc_artifact = Artifact.objects.create(
+                tenant=tenant, workspace=ws, artifact_type="testcase"
+            )
+            tc = TestCase.objects.create(
+                tenant=tenant,
+                artifact=tc_artifact,
+                title="No steps",
+                description="d",
+                steps=[],
+                test_type="system",
+            )
+        finally:
+            TenantContext.clear_tenant()
+
+        result = self._approve(tenant, ws, tc)
 
         assert result.valid is True, result.error_message

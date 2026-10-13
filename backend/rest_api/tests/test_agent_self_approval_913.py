@@ -213,7 +213,9 @@ def test_human_can_still_approve_an_agent_proposal(approval_env):
             # #272 (spec §7.2): the Extended approval gate now also requires
             # verification_method — without it the human transition below is
             # refused with MANDATORY_FIELDS_MISSING instead of 200.
-            "verification_method": "Test",
+            # #1267: the test method additionally requires a verifies link; use
+            # a non-test method so this test stays about the agent guard.
+            "verification_method": "Analysis",
             "change_reason": "fill the approval prerequisites",
         },
         format="json",
@@ -223,3 +225,41 @@ def test_human_can_still_approve_an_agent_proposal(approval_env):
     resp = _transition(human, req_id, "approved", str(approval_env["workspace"].id))
     assert resp.status_code == 200, resp.content
     assert resp.json()["new_state"] == "approved"
+
+
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
+def test_human_approval_requires_verification_evidence_1267(approval_env):
+    """#1267: the Extended Requirement gate surfaces as 400 VALIDATION_ERROR.
+
+    Reuses the GH-913 fixture (Extended workspace + Requirement workflow) to
+    drive the real HTTP edge: a Requirement whose ``verification_method`` is
+    ``Test`` but which carries no ``verifies`` link is refused on
+    ``-> approved`` with the house-style 400, not a 500.
+    """
+    agent = _agent_client(approval_env)
+    human = _human_client(approval_env)
+    req_id = _propose(agent, approval_env, "GH1267 verification gate")["id"]
+    _confirm_and_review(human, req_id, str(approval_env["workspace"].id))
+
+    # Satisfy rule 5 (mandatory fields) but leave verification evidence open.
+    resp = agent.patch(
+        f"/api/v1/requirements/{req_id}/?workspace_id={approval_env['workspace'].id}",
+        {
+            "description": "d",
+            "acceptance_criteria": "ac",
+            "verification_method": "Test",
+            "change_reason": "fill the approval prerequisites",
+        },
+        format="json",
+    )
+    assert resp.status_code == 200, resp.content
+
+    resp = _transition(human, req_id, "approved", str(approval_env["workspace"].id))
+
+    assert resp.status_code == 400, resp.content
+    body = resp.json()["error"]
+    assert body["code"] == "VALIDATION_ERROR"
+    assert "verification evidence" in body["message"]
+    # The artifact is untouched by the refused attempt.
+    assert _state(human, req_id) == "in_review"

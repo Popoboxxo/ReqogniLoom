@@ -32,6 +32,15 @@ Rule 6 — Verification evidence (SE-conformance lever 3)
     ``traceability.coverage_calculator.CoverageCalculator._latest_testrun_status``
     (the single existing implementation of "latest run status per TestCase").
 
+Rule 8 — Requirement verification evidence + TestCase steps (#1267/#1269)
+    Two additional approval gates, both switched on only by the Extended tier's
+    ``require_verification_on_approval`` feature flag
+    (``presets.registry``): a Requirement must carry a ``verifies`` link or
+    declare a non-test ``verification_method`` before it is approved
+    (:func:`check_requirement_verification_evidence`), and a TestCase that is
+    not an inspection/analysis/demonstration must have a non-empty step list
+    (:func:`check_testcase_steps`).
+
 Tier awareness (verified against ``presets/registry.py`` and
 ``workflow/definition_store.PRESET_SCHEMAS``, not assumed):
 
@@ -80,6 +89,8 @@ logger = logging.getLogger(__name__)
 EC_MANDATORY_FIELDS_MISSING = "MANDATORY_FIELDS_MISSING"
 EC_VERIFICATION_EVIDENCE_MISSING = "VERIFICATION_EVIDENCE_MISSING"
 EC_VERIFIES_LINK_MISSING = "VERIFIES_LINK_MISSING"
+EC_REQUIREMENT_VERIFICATION_MISSING = "REQUIREMENT_VERIFICATION_MISSING"
+EC_TEST_STEPS_MISSING = "TEST_STEPS_MISSING"
 
 # ---------------------------------------------------------------------------
 # State recognition
@@ -622,6 +633,196 @@ def check_verifies_link(
     )
 
 
+# ---------------------------------------------------------------------------
+# Rule 8 — a Requirement must declare verification evidence before approval
+# ---------------------------------------------------------------------------
+
+#: Feature flag (``presets.registry``) that switches the two #1267/#1269
+#: approval preconditions on. Extended is the only default tier that enables
+#: it; Minimal/Standard keep their lightweight approval semantics.
+_FEATURE_REQUIRE_VERIFICATION = "require_verification_on_approval"
+
+#: ``Requirement.verification_method`` values that are *not* a test execution
+#: and therefore count on their own as verification evidence at approval time
+#: (#1267). ``Test`` and ``Review`` require a ``verifies`` link instead.
+#: Compared case-insensitively against the canonical ``VerificationMethod``
+#: values ("Analysis"/"Inspection"/"Demonstration").
+_NON_TEST_VERIFICATION_METHODS = frozenset(
+    {"analysis", "inspection", "demonstration"}
+)
+
+#: Entity types the requirement-verification gate applies to. Only a
+#: Requirement carries ``verification_method``; the TestCase half of the
+#: verification chain stays rule 7 (``check_verifies_link``).
+_REQUIREMENT_VERIFICATION_ENFORCED_TYPES = frozenset({"Requirement"})
+
+#: ``TestCase.test_type`` values for which a step list is not meaningful — an
+#: inspection, analysis or demonstration is an activity, not a reproducible
+#: procedure with steps (#1269). Canonical lowercase ``TestCaseType`` values.
+_STEPLESS_TEST_TYPES = frozenset({"inspection", "analysis", "demonstration"})
+
+#: Entity types the TestCase-steps gate applies to.
+_TEST_STEPS_ENFORCED_TYPES = frozenset({"TestCase"})
+
+
+def _require_verification_flag(workspace_id: str) -> Optional[bool]:
+    """Return the ``require_verification_on_approval`` feature flag value.
+
+    ``None`` means the flag could not be resolved; callers treat that as
+    "gate off" (fail-open, see the module docstring).
+    """
+    try:
+        from presets.services import get_preset
+
+        return bool(
+            get_preset(str(workspace_id)).features.get(
+                _FEATURE_REQUIRE_VERIFICATION, False
+            )
+        )
+    except Exception:  # noqa: BLE001 — fail-open (see module docstring)
+        logger.exception(
+            "precondition_rules: preset lookup failed for ws=%s", workspace_id
+        )
+        return None
+
+
+def check_requirement_verification_evidence(
+    *,
+    workspace_id: str,
+    item_type: str,
+    item_id: UUID,
+    target_state: str,
+) -> Optional[tuple[str, str]]:
+    """Require verification evidence before a Requirement may be approved (#1267).
+
+    Active only when the workspace's preset sets the
+    ``require_verification_on_approval`` feature flag (Extended). Evidence is
+    either
+
+      * a ``verifies`` trace link pointing *at* the Requirement (TestCase =
+        source, Requirement = target — the convention in
+        ``traceability.types.SE_LINK_SEMANTICS``), or
+      * a declared ``verification_method`` that is a non-test method
+        (``Analysis``/``Inspection``/``Demonstration``) — a method that does
+        not rely on a separate executed TestCase.
+
+    A Requirement whose method is ``Test``/``Review`` (or unset) has to carry a
+    ``verifies`` link; the stricter "the linked TestCase actually passed"
+    judgement stays rule 6 (:func:`check_verification_evidence`) on the
+    ``-> verified`` transition.
+
+    Returns:
+        ``None`` when the precondition holds — including every non-approval
+        transition, every entity type other than ``Requirement``, every tier
+        without the flag, the non-test method values above, and every case that
+        cannot be evaluated (fail-open). Otherwise an
+        ``(error_code, error_message)`` tuple.
+    """
+    if not is_approval_transition(target_state):
+        return None
+    if item_type not in _REQUIREMENT_VERIFICATION_ENFORCED_TYPES:
+        return None
+    if not _require_verification_flag(workspace_id):
+        return None
+
+    try:
+        from persistence.models import Requirement, TraceLink
+        from traceability.types import LinkType
+
+        requirement = Requirement.objects.filter(pk=item_id).first()
+        if requirement is None:
+            return None
+
+        method = (
+            (getattr(requirement, "verification_method", "") or "").strip().lower()
+        )
+        if method in _NON_TEST_VERIFICATION_METHODS:
+            return None
+
+        has_link = TraceLink.objects.filter(
+            link_type=LinkType.VERIFIES.value,
+            target_id=requirement.artifact_id,
+        ).exists()
+        if has_link:
+            return None
+    except Exception:  # noqa: BLE001 — fail-open (see module docstring)
+        logger.exception(
+            "precondition_rules: requirement verification check failed for %s",
+            item_id,
+        )
+        return None
+
+    return (
+        EC_REQUIREMENT_VERIFICATION_MISSING,
+        (
+            "Cannot approve this Requirement: the workspace requires "
+            "verification evidence. Either link a TestCase with a 'verifies' "
+            "trace link, or set verification_method to one of "
+            "'Analysis', 'Inspection' or 'Demonstration'."
+        ),
+    )
+
+
+def check_testcase_steps(
+    *,
+    workspace_id: str,
+    item_type: str,
+    item_id: UUID,
+    target_state: str,
+) -> Optional[tuple[str, str]]:
+    """Require a non-empty step list before a TestCase may be approved (#1269).
+
+    Active only when the workspace's preset sets the
+    ``require_verification_on_approval`` feature flag (Extended). A TestCase
+    whose ``test_type`` is ``inspection``/``analysis``/``demonstration`` is
+    exempt: those are activities whose outcome is described, not a reproducible
+    procedure with numbered steps.
+
+    Returns:
+        ``None`` when the precondition holds — including every non-approval
+        transition, every entity type other than ``TestCase``, every tier
+        without the flag, the step-less test types, and every case that cannot
+        be evaluated (fail-open). Otherwise an ``(error_code, error_message)``
+        tuple.
+    """
+    if not is_approval_transition(target_state):
+        return None
+    if item_type not in _TEST_STEPS_ENFORCED_TYPES:
+        return None
+    if not _require_verification_flag(workspace_id):
+        return None
+
+    test_type = ""
+    try:
+        from persistence.models import TestCase
+
+        test_case = TestCase.objects.filter(pk=item_id).first()
+        if test_case is None:
+            return None
+
+        test_type = (
+            (getattr(test_case, "test_type", "") or "").strip().lower()
+        )
+        if test_type in _STEPLESS_TEST_TYPES:
+            return None
+        if not _is_blank(getattr(test_case, "steps", None)):
+            return None
+    except Exception:  # noqa: BLE001 — fail-open (see module docstring)
+        logger.exception(
+            "precondition_rules: testcase-steps check failed for %s", item_id
+        )
+        return None
+
+    return (
+        EC_TEST_STEPS_MISSING,
+        (
+            "Cannot approve this TestCase: it has no test steps. Record at "
+            "least one step, or set test_type to 'Inspection', 'Analysis' or "
+            "'Demonstration' if the test is not a step-based procedure."
+        ),
+    )
+
+
 def policy_fields_without_consumer(
     policy_fields: Iterable[str],
     *,
@@ -691,7 +892,11 @@ __all__ = [
     "EC_MANDATORY_FIELDS_MISSING",
     "EC_VERIFICATION_EVIDENCE_MISSING",
     "EC_VERIFIES_LINK_MISSING",
+    "EC_REQUIREMENT_VERIFICATION_MISSING",
+    "EC_TEST_STEPS_MISSING",
     "check_mandatory_fields",
+    "check_requirement_verification_evidence",
+    "check_testcase_steps",
     "check_verification_evidence",
     "check_verifies_link",
     "is_approval_transition",

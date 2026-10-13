@@ -254,6 +254,8 @@ def _test_run_to_dict(tr: Any) -> Dict[str, Any]:
         "uid": getattr(tr, "uid", None),
         "status": tr.status,
         "ci_job_id": getattr(tr, "ci_job_id", ""),
+        # #1269: version of the artifact under test this run executed against.
+        "tested_artifact_version": getattr(tr, "tested_artifact_version", None),
         "started_at": tr.started_at.isoformat() if tr.started_at else None,
         "finished_at": tr.finished_at.isoformat() if tr.finished_at else None,
         # The lifecycle's observable evidence: a run is "in_progress" while
@@ -545,6 +547,14 @@ class McpTestToolGroup(BaseToolGroup):
                     "workspace_id": {"type": "string", "description": "UUID of the target workspace."},
                     "name": {"type": "string", "description": "Test run name."},
                     "ci_job_id": {"type": "string", "description": "Optional CI job identifier."},
+                    "tested_artifact_version": {
+                        "type": "string",
+                        "description": (
+                            "#1269: optional version identifier (commit SHA, "
+                            "release tag, build number) of the artifact under "
+                            "test this run executed against."
+                        ),
+                    },
                     "test_case_ids": {
                         "type": "array",
                         "items": {"type": "string"},
@@ -1152,6 +1162,8 @@ class McpTestToolGroup(BaseToolGroup):
         workspace_id = require_uuid(params, "workspace_id")
         name = require_param(params, "name")
         ci_job_id: str = params.get("ci_job_id", "")
+        # #1269: optional artifact revision the run is pinned to.
+        tested_artifact_version = params.get("tested_artifact_version")
         test_case_ids_raw = params.get("test_case_ids", [])
 
         try:
@@ -1173,6 +1185,7 @@ class McpTestToolGroup(BaseToolGroup):
                     ctx=auth_context,
                     ci_job_id=str(ci_job_id),
                     test_case_ids=test_case_ids,
+                    tested_artifact_version=tested_artifact_version,
                 )
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))

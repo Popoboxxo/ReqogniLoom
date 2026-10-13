@@ -2105,6 +2105,18 @@ class TestRunSerializer(
     status = serializers.CharField(read_only=True)
     # #104: matches TestRun.ci_job_id model field (CharField(max_length=255)).
     ci_job_id = serializers.CharField(allow_blank=True, default="", max_length=255)
+    # #1269: version identifier of the artifact under test this run executed
+    # against. Read/write; nullable/blank to match the model column.
+    tested_artifact_version = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        max_length=255,
+        help_text=(
+            "Version identifier (commit SHA, release tag, build number) of the "
+            "artifact under test. Optional."
+        ),
+    )
     # #851: TestRunViewSet.create reads this key directly to seed the run's
     # per-testcase results. Declared write-only (UUID list) so the unknown-field
     # guard accepts it and validates it here instead of the view coercing raw

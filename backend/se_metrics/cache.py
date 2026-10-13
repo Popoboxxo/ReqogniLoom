@@ -403,6 +403,7 @@ class MetricsCacheManager:
             from se_metrics.types import (
                 CoverageResult,
                 RiskResult,
+                VerificationCoverageResult,
                 VolatileRequirement,
                 VolatilityResult,
                 WorkflowGap,
@@ -472,6 +473,16 @@ class MetricsCacheManager:
                 for w in result_json.get("warnings", [])
             ]
 
+            # #1267: additive metric. Cache entries written before this field
+            # existed must still load — .get() falls back to an empty result.
+            vc_raw = result_json.get("verification_coverage", {})
+            verification_coverage = VerificationCoverageResult(
+                total=vc_raw.get("total", 0),
+                covered=vc_raw.get("covered", 0),
+                coverage_percent=vc_raw.get("coverage_percent", 0.0),
+                uncovered_ids=vc_raw.get("uncovered_ids", []),
+            )
+
             return MetricsResult(
                 workspace_id=result_json["workspace_id"],
                 computed_at=computed_at,
@@ -480,6 +491,7 @@ class MetricsCacheManager:
                 traceability_coverage=coverage,
                 workflow_gaps=gaps,
                 open_risks=risks,
+                verification_coverage=verification_coverage,
                 warnings=warnings,
             )
         except Exception:

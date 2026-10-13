@@ -56,10 +56,15 @@ class TestRunService(ServiceBase):
         ci_job_id: str = "",
         test_case_ids: Optional[List[UUID]] = None,
         uid: Optional[str] = None,
+        tested_artifact_version: Optional[str] = None,
     ) -> TestRun:
         """Create a TestRun with optional initial TestCase results.
 
         REQ-L2-AS-030: creates TestRun with initial status 'in_progress'.
+
+        #1269: ``tested_artifact_version`` records which revision of the
+        artifact under test this run executed against (commit SHA, release tag,
+        build number). Optional/nullable.
         """
         self._set_tenant_context(ctx)
         self._assert_write_permission(ctx)
@@ -78,6 +83,7 @@ class TestRunService(ServiceBase):
             workspace=workspace,
             started_at=datetime.now(timezone.utc),
             ci_job_id=ci_job_id,
+            tested_artifact_version=tested_artifact_version,
             # Issue #932: allocate the local readable uid when not supplied.
             uid=uid or generate_local_uid("TestRun", workspace_id),
         )
@@ -109,8 +115,13 @@ class TestRunService(ServiceBase):
         ctx: AuthContext,
         name: Optional[str] = None,
         ci_job_id: Optional[str] = None,
+        tested_artifact_version: Optional[str] = None,
     ) -> TestRun:
-        """Update TestRun metadata."""
+        """Update TestRun metadata.
+
+        #1269: ``tested_artifact_version`` uses the same ``None = leave
+        unchanged`` sentinel as ``name``/``ci_job_id``.
+        """
         self._set_tenant_context(ctx)
         self._assert_write_permission(ctx)
 
@@ -122,6 +133,8 @@ class TestRunService(ServiceBase):
             test_run.name = name
         if ci_job_id is not None:
             test_run.ci_job_id = ci_job_id
+        if tested_artifact_version is not None:
+            test_run.tested_artifact_version = tested_artifact_version
 
         test_run.save()
 
