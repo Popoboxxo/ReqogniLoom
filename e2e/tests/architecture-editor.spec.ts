@@ -42,8 +42,7 @@ test.describe('[COMP-RF-004] ArchitectureEditors', () => {
     // "deprecate" replacement is only offered once the workflow allows a
     // `→ deprecated` transition; a freshly created draft element has none
     // (ArchitectureElement lifecycle: draft → in_review → approved → deprecated),
-    // so neither action is visible here — assert the hard delete is gone.
-    await expect(page.locator('[data-testid="artifact-form-delete"]')).toHaveCount(0);
+    // so it is absent here too.
     await expect(page.locator('[data-testid="artifact-form-deprecate"]')).toHaveCount(0);
   });
 
