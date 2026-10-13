@@ -479,7 +479,7 @@ lifecycle-triggers:
   - agent: code-reviewer
     task: 'Post-Merge Blast-Radius-Analyse: Prüfe betroffene Code-Pfade auf Clean-Code-Verletzungen.'
   - agent: validator
-    task: 'DoD-Checkliste nach Merge: REQ-Traceability, Tests, Commit-Konventionen.'
+    task: 'DoD-Checkliste nach Merge: Tests, Commit-Konventionen.'
   on-release:
   - agent: documenter
     task: Update CODEBASE_OVERVIEW.md and ARCHITECTURE.md for this release.
