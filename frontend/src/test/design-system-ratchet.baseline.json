@@ -1,7 +1,7 @@
 {
   "version": 1,
-  "recordedAt": "2026-10-10",
-  "recordedBy": "DESIGN_SYSTEM_RATCHET_DUMP=1 npx vitest run src/test/design-system-ratchet.test.ts",
+  "recordedAt": "2026-10-13",
+  "recordedBy": "DESIGN_SYSTEM_REBASELINE=1 npx vitest run src/test/design-system-ratchet.test.ts",
   "checks": {
     "button-missing-design-system-class": {
       "maxViolations": 285,

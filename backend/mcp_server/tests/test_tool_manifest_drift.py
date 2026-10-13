@@ -10,6 +10,19 @@ calls that no longer satisfy the live registry — exactly what happened when
 ``events.dlq_list``, ``events.dlq_replay`` and ``permissions.revoke`` gained a
 required ``workspace_id`` parameter without the manifest being regenerated
 (issue #434).
+
+Re-baselining is a named entry point, not a side effect of a run
+(#1103 / REQ-193)::
+
+    TOOL_MANIFEST_REBASELINE=/tmp/manifest-candidate.json \\
+        pytest mcp_server/tests/test_tool_manifest_drift.py -q
+
+regenerates the manifest from the live registry. It refuses to do so while a
+tool would silently DISAPPEAR from the manifest without a reason and an issue
+(``$RATCHET_JUSTIFY``), because every agent template is generated from it. In
+Docker ``docs/`` is read-only, so the ``<path>`` (candidate) form is the
+portable one there; ``=1`` targets the committed file and needs a writable
+``docs/``.
 """
 from __future__ import annotations
 
@@ -23,6 +36,12 @@ import pytest
 from mcp_server.management.commands.export_tool_manifest import (
     _MANIFEST_SUFFIX,
     build_manifest,
+)
+from mcp_server.tests.ratchet_framework import (
+    assert_dump_justified,
+    entry_point,
+    resolve_rebaseline_target,
+    split_baseline,
 )
 
 #: Explicit escape hatch for environments that place the repo somewhere this
@@ -65,6 +84,42 @@ def _find_manifest_path() -> Optional[Path]:
 MANIFEST_PATH = _find_manifest_path()
 
 
+def _rebaseline(
+    live: Dict[str, Any],
+    live_tools: Dict[str, Dict[str, Any]],
+    committed_tools: Dict[str, Dict[str, Any]],
+) -> Optional[Path]:
+    """Regenerate the manifest — but only when the named env var asks for it.
+
+    Re-baselining *this* ratchet is regenerating the committed manifest from the
+    live registry, so that is what ``TOOL_MANIFEST_REBASELINE=<path|1>`` does
+    (#1103 / REQ-193); a plain run resolves no target and writes nothing.
+
+    The widening direction is :data:`JUSTIFY_ROTATED`, not ``JUSTIFY_NEW``:
+    the danger is not "the manifest documents a tool the registry has" but the
+    opposite — a tool the manifest stops documenting. Every agent template is
+    generated from that manifest, so a tool that silently disappears from it is
+    a contract break (#434), and "re-baseline it away" is exactly the escape
+    hatch a ratchet must not offer. The dump therefore goes through
+    :func:`assert_dump_justified` and refuses unless every disappearing tool
+    carries a reason plus an issue (inline JSON or ``$RATCHET_JUSTIFY``).
+
+    Manifest JSON is written directly rather than through
+    :func:`ratchet_framework.write_baseline`: this baseline is a derived mirror
+    of the registry, not a ``{"violations": [...]}`` gap list.
+    """
+    point = entry_point("tool-manifest-drift")
+    target = resolve_rebaseline_target(point, default_path=MANIFEST_PATH)
+    if target is None:
+        return None
+    diff = split_baseline(live_tools, committed_tools)
+    assert_dump_justified(diff, point)
+    target.write_text(
+        json.dumps(live, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
+    return target
+
+
 def _by_name(manifest: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
     """Index a manifest's ``tools`` list by tool name."""
     return {tool["name"]: tool for tool in manifest["tools"]}
@@ -104,6 +159,14 @@ def test_committed_manifest_matches_live_registry() -> None:
 
     committed_tools = _by_name(committed)
     live_tools = _by_name(live)
+
+    # The named re-baseline entry point (#1103 / REQ-193). It runs before the
+    # assertions below so a dump is self-verifying: the comparison that follows
+    # then reads the file the dump just wrote (for `=1`; a <path> candidate is
+    # compared against on the next normal run). Note that in Docker `docs/` is
+    # bind-mounted read-only, so `<path>` (a candidate) is the portable form
+    # there — `=1` only works where the manifest is writable.
+    _rebaseline(live, live_tools, committed_tools)
 
     missing = live_tools.keys() - committed_tools.keys()
     stale = committed_tools.keys() - live_tools.keys()
