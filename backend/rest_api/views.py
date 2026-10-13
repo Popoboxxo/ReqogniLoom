@@ -1270,11 +1270,15 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             return _service_error_response(exc, lang)
         except Exception as exc:
             return _service_error_response(exc, lang)
+        payload = RequirementSerializer(_dto_from_orm(item)).data
+        # Issue #1178: the duplicate-title warning is additive, so it is added
+        # after serialisation (the serializer stays Contract-shaped, exactly
+        # like ``baseline_drift`` on the detail GET).
+        title_warnings = _service_warnings(item)
+        if title_warnings:
+            payload["warnings"] = title_warnings
         return self.with_etag(
-            Response(
-                RequirementSerializer(_dto_from_orm(item)).data,
-                status=status.HTTP_201_CREATED,
-            ),
+            Response(payload, status=status.HTTP_201_CREATED),
             item,
         )
 
@@ -5124,6 +5128,26 @@ def _dto_from_orm(req: Any) -> dict[str, Any]:
     }
 
 
+def _service_warnings(entity: Any) -> list[str]:
+    """Return the non-blocking warnings a service attached to *entity*.
+
+    Issue #1178: ``RequirementService.create_requirement`` reports a
+    normalized-equal title as a transient ``duplicate_title_warning`` attribute
+    on the returned ORM object instead of raising (a rejection would break
+    every create client — the issue says "warning, not rejection"). The create
+    route mirrors it into the response body as an additive ``warnings`` list;
+    the list is omitted entirely when there is nothing to report, so a clean
+    create keeps its exact pre-existing body.
+
+    The ``str`` type check is deliberate: a mocked/stubbed service (used by
+    several view tests) hands back a mock whose arbitrary attributes are truthy
+    non-strings — mirroring one of those into a JSON body would answer a 201
+    with an unserialisable value.
+    """
+    warning = getattr(entity, "duplicate_title_warning", None)
+    return [warning] if isinstance(warning, str) and warning else []
+
+
 #: Attribute-level system field names (Attribut v3 WS2, #936; ADR-006), shared
 #: by every REST write/read hook so the wire keys cannot drift.
 #:
@@ -8732,6 +8756,10 @@ class CsvImportView(APIView):
         Legacy (``IMPORT_CONTRACT_V2=false``): 201 on success, 400 on
         validation failure — the pre-ADR response shape, plus ``Deprecation``
         and ``Sunset`` headers marking that path as deprecated (ADR-014 §5).
+        ADR-014 §5 / issue #1178: the legacy body additionally carries a
+        ``skipped`` list (row, identifier, kind, status, cause) for the rows the
+        natural-key dedupe skipped. The key is additive — no pre-existing key
+        was renamed or removed.
     """
 
     _VALID_ENTITY_TYPES = {"Requirement", "ArchitectureElement", "TestCase"}
@@ -8935,11 +8963,28 @@ class CsvImportView(APIView):
 
         # --- Legacy response (ADR-014 §5 Phase 1 rollback, default) ---
         if not contract_v2:
+            # Issue #1178: ``skipped_count`` counted the outcome but named no
+            # cause, so a client on the legacy contract could not tell a
+            # skipped duplicate from a dropped row. The skipped rows are added
+            # as a NEW key (``skipped``) that reuses the very same item dicts
+            # ``result.to_dict()`` hands to contract v2 — one representation,
+            # ordered by row number. Purely additive: every pre-existing key
+            # keeps its name and meaning, and the HTTP status mapping is
+            # untouched.
+            skipped_rows = sorted(
+                (
+                    item
+                    for item in result.items
+                    if item.get("status") == "skipped"
+                ),
+                key=lambda item: item.get("row", 0),
+            )
             legacy_body = {
                 "success": result.success,
                 "imported_count": result.imported_count,
                 "skipped_count": result.skipped_count,
                 "status": result.status,
+                "skipped": [dict(item) for item in skipped_rows],
                 "errors": [
                     {
                         "row_number": e.row_number,
