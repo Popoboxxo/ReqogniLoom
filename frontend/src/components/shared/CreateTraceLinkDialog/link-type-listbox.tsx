@@ -96,6 +96,12 @@ export interface LinkTypeListboxProps {
    * (WCAG 3.3.2) instead of only being visible next to the control.
    */
   describedBy?: string;
+  /**
+   * Message rendered inside the opened popup when there are no options
+   * (#1253). A silently non-opening trigger reads as a defect; instead the
+   * popup opens and states why there is nothing to pick.
+   */
+  emptyMessage?: string;
   disabled?: boolean;
 }
 
@@ -172,6 +178,15 @@ const optionCheckStyle: React.CSSProperties = {
   fontWeight: 700,
 };
 
+// Empty-state row (#1253): the popup opens even with zero options and states
+// why, so activating the trigger is never a silent no-op.
+const emptyStyle: React.CSSProperties = {
+  padding: 'var(--space-2) var(--space-3)',
+  fontSize: 'var(--font-size-sm)',
+  color: 'var(--color-text-muted)',
+  cursor: 'default',
+};
+
 /** How long a typeahead buffer survives without another keystroke. */
 const TYPEAHEAD_TIMEOUT_MS = 500;
 
@@ -185,6 +200,7 @@ export function LinkTypeListbox({
   testId,
   optionTestIdPrefix,
   describedBy,
+  emptyMessage,
   disabled = false,
 }: LinkTypeListboxProps): JSX.Element {
   const listboxId = useId();
@@ -221,9 +237,11 @@ export function LinkTypeListbox({
   };
 
   const optionCount = options.length;
-  // Finding #4: never announce an empty listbox — the trigger stays
-  // focusable (and described by the hint), it just cannot be opened.
-  const canOpen = !disabled && optionCount > 0;
+  const hasOptions = optionCount > 0;
+  // #1253: the trigger must never be a dead control. It stays openable even
+  // with zero options, so activating it explains *why* there is nothing to
+  // pick (the empty-state row below) instead of silently doing nothing.
+  const canOpen = !disabled;
 
   // Keep the active row in range when the option list shrinks under it.
   useEffect(() => {
@@ -286,8 +304,9 @@ export function LinkTypeListbox({
   }, []);
 
   const runTypeahead = (char: string): void => {
-    // Finding #4: an empty option list must not be opened either.
-    if (!canOpen) return;
+    // #1253: typing must not open an optionless popup; there is nothing to
+    // match, and text input is not an "explain the empty list" gesture.
+    if (!hasOptions) return;
 
     const charKey = char.toLowerCase();
     const buffer = `${typeaheadRef.current}${charKey}`;
@@ -408,7 +427,7 @@ export function LinkTypeListbox({
         aria-controls={listboxId}
         aria-labelledby={`${labelledBy} ${valueId}`}
         aria-describedby={describedBy}
-        aria-activedescendant={isOpen && options.length > 0 ? optionId(activeIndex) : undefined}
+        aria-activedescendant={isOpen && hasOptions ? optionId(activeIndex) : undefined}
         disabled={disabled}
         onClick={() => {
           if (!canOpen) return;
@@ -437,39 +456,53 @@ export function LinkTypeListbox({
         data-testid={`${optionTestIdPrefix}-listbox`}
         style={listboxStyle}
       >
-        {options.map((option, index) => {
-          const isSelected = option.key === value;
-          return (
-            // eslint-disable-next-line jsx-a11y/click-events-have-key-events
-            <li
-              key={option.key}
-              id={optionId(index)}
-              role="option"
-              aria-selected={isSelected}
-              data-testid={`${optionTestIdPrefix}-option-${option.key}`}
-              data-value={option.key}
-              tabIndex={-1}
-              // Keep focus on the trigger: without this the browser would
-              // move focus to <body> on mousedown, and the Dialog focus
-              // trap's `focusin` safety net would yank it back to the
-              // dialog's first control mid-interaction.
-              onMouseDown={(event) => event.preventDefault()}
-              onMouseEnter={() => setActiveIndex(index)}
-              onClick={() => commit(index)}
-              style={index === activeIndex ? optionActiveStyle : optionStyle}
-            >
-              <span style={optionLabelStyle}>{option.label}</span>
-              {/* Finding #5: selection is visible, not only conveyed by the
-                  active-row highlight. Decorative for AT — `aria-selected`
-                  already carries the semantics. */}
-              {isSelected && (
-                <span aria-hidden="true" style={optionCheckStyle}>
-                  ✓
-                </span>
-              )}
-            </li>
-          );
-        })}
+        {hasOptions ? (
+          options.map((option, index) => {
+            const isSelected = option.key === value;
+            return (
+              // eslint-disable-next-line jsx-a11y/click-events-have-key-events
+              <li
+                key={option.key}
+                id={optionId(index)}
+                role="option"
+                aria-selected={isSelected}
+                data-testid={`${optionTestIdPrefix}-option-${option.key}`}
+                data-value={option.key}
+                tabIndex={-1}
+                // Keep focus on the trigger: without this the browser would
+                // move focus to <body> on mousedown, and the Dialog focus
+                // trap's `focusin` safety net would yank it back to the
+                // dialog's first control mid-interaction.
+                onMouseDown={(event) => event.preventDefault()}
+                onMouseEnter={() => setActiveIndex(index)}
+                onClick={() => commit(index)}
+                style={index === activeIndex ? optionActiveStyle : optionStyle}
+              >
+                <span style={optionLabelStyle}>{option.label}</span>
+                {/* Finding #5: selection is visible, not only conveyed by the
+                    active-row highlight. Decorative for AT — `aria-selected`
+                    already carries the semantics. */}
+                {isSelected && (
+                  <span aria-hidden="true" style={optionCheckStyle}>
+                    ✓
+                  </span>
+                )}
+              </li>
+            );
+          })
+        ) : (
+          // #1253: explain the empty list inside the popup it belongs to.
+          // `role="presentation"` keeps it out of the listbox option set, so
+          // assistive tech still announces zero options while the reason is
+          // visible to everyone.
+          <li
+            role="presentation"
+            data-testid={`${optionTestIdPrefix}-empty`}
+            style={emptyStyle}
+          >
+            {emptyMessage}
+          </li>
+        )}
       </ul>
     </div>
   );

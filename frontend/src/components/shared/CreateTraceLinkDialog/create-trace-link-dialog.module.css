@@ -60,6 +60,12 @@
   font-size: var(--font-size-sm);
 }
 
+.noTypesLink {
+  color: var(--color-primary);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
 .fieldset {
   border: none;
   margin: 0;

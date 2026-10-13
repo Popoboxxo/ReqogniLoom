@@ -1025,7 +1025,7 @@ describe('CreateTraceLinkDialog accessible link-type dropdown (#318)', () => {
     });
   });
 
-  it('with no fitting type the trigger is described by the hint and cannot open (finding #4)', async () => {
+  it('with no fitting type the trigger opens and explains the empty list (#1253)', async () => {
     useLinkTypesMock.current = () =>
       buildCatalog([
         makeCatalogRow('verifies', [['TestCase', 'Requirement']], 'Verifikation'),
@@ -1039,10 +1039,15 @@ describe('CreateTraceLinkDialog accessible link-type dropdown (#318)', () => {
     const trigger = await screen.findByTestId('create-trace-link-type-select');
     const hint = await screen.findByTestId('create-trace-link-no-types');
     expect(trigger).toHaveAttribute('aria-describedby', hint.id);
+    // #1253: the hint is actionable (a link to the catalog), not a dead end.
+    expect(screen.getByTestId('create-trace-link-manage-types')).toBeInTheDocument();
 
     await user.click(trigger);
-    // No empty listbox is announced; the trigger stays collapsed.
-    expect(trigger).toHaveAttribute('aria-expanded', 'false');
-    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    // #1253: a non-reacting control reads as a defect. The trigger opens and
+    // states why there is nothing to pick, instead of silently doing nothing.
+    expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByTestId('create-trace-link-type-empty')).toBeInTheDocument();
+    // Still zero options are announced.
+    expect(screen.queryAllByRole('option')).toHaveLength(0);
   });
 });
