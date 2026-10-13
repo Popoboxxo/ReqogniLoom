@@ -46,6 +46,7 @@ from uuid import UUID
 
 from auth_tenancy.context import AuthContext
 from django.db import transaction
+from django.db.models import Q
 from django.utils.dateparse import parse_datetime
 
 # Backward-compat alias used by tests that patch 'application.import_service.TenantContext'
@@ -759,6 +760,20 @@ class ImportService(ServiceBase):
         this file **or** already exists in the target workspace. Duplicates are
         ``skipped`` with ``cause.code = DUPLICATE`` (ADR-014 §1/§3); the first
         occurrence wins and is returned for insertion.
+
+        Issue #1178 — the natural key alone is not a duplicate verdict. An
+        exported CSV carries a **unique** ``id`` (or ``uid``) per row, so for
+        such a file the natural key never looked at the title column at all:
+        re-importing an export of 880 rows with 32 distinct titles created 880
+        rows again, because every row's own identity made it "new". The row's
+        ``title`` is therefore checked as an *additional* key — against the
+        titles already accepted from this file and against the titles already
+        stored in the target workspace. Consequences: a row whose ``id``/``uid``
+        is unique but whose title already exists in the workspace is now
+        skipped, and two rows of the same file with case-fold-equal titles are
+        duplicates of each other (first occurrence wins). A title that exists
+        only in a *different* workspace stays a new row, exactly like the ``id``
+        match below (issue #1194).
         """
         model = cls._entity_model(entity_type)
         scope = cls._workspace_filter(entity_type, workspace_id)
@@ -777,11 +792,14 @@ class ImportService(ServiceBase):
             for col, value in [cls._natural_key(row) or ("", "")]
             if col == "id" and value
         }
+        # Issue #1178: collect the title of *every* row, not only of the rows
+        # whose natural key is the title — an ``id``-keyed row must be compared
+        # by title too. An empty title is not a matchable key.
         titles = {
             value
             for _num, row in rows
-            for col, value in [cls._natural_key(row) or ("", "")]
-            if col == "title" and value
+            for value in [(row.get("title") or "").strip()]
+            if value
         }
 
         existing_uids = set()
@@ -822,11 +840,24 @@ class ImportService(ServiceBase):
 
         existing_titles = set()
         if titles:
+            # Issue #1178: the title lookup is case-insensitive by design.
+            # ``title__IN`` compares byte-exact in PostgreSQL, so "Foo Bar" and
+            # "foo bar" were two different titles there and only the
+            # ``casefold()`` applied to the *result* left an illusion of a
+            # case-insensitive check. The OR-ed ``title__iexact`` terms fold the
+            # case inside the database — the same rule the in-file comparison
+            # below applies with ``casefold()``.
+            #
+            # Still workspace-scoped via ``scope`` (issue #1194): a title that
+            # exists in another workspace is not a duplicate here.
+            title_query = Q()
+            for value in titles:
+                title_query |= Q(title__iexact=value)
             existing_titles = {
                 (title or "").casefold()
-                for title in model.objects.filter(
-                    **scope, title__in=list(titles)
-                ).values_list("title", flat=True)
+                for title in model.objects.filter(title_query, **scope).values_list(
+                    "title", flat=True
+                )
             }
 
         existing_by_col = {
@@ -838,6 +869,12 @@ class ImportService(ServiceBase):
         kept: List[Tuple[int, Dict[str, str]]] = []
         duplicates: List[Dict[str, Any]] = []
         seen: Dict[Tuple[str, str], int] = {}
+        # Issue #1178: title bookkeeping independent of the natural key, so a
+        # row carrying a unique ``uid``/``id`` cannot smuggle in a title this
+        # file already accepted. Kept rows register their title; skipped rows
+        # do not, so the "Duplicate of row N" message names the first
+        # occurrence that was actually written.
+        seen_titles: Dict[str, int] = {}
         for row_num, row in rows:
             key = cls._natural_key(row)
             if key is None:
@@ -847,6 +884,10 @@ class ImportService(ServiceBase):
                 continue
             col, value = key
             norm_key = (col, value.casefold())
+            title = (row.get("title") or "").strip()
+            # An empty title is never a title match (#1178): dropping a row over
+            # an unidentifiable value would lose data the importer cannot name.
+            norm_title = title.casefold() if title else ""
             if norm_key in seen:
                 duplicates.append(
                     cls._duplicate_item(entity_type, row_num, row, seen[norm_key])
@@ -855,7 +896,20 @@ class ImportService(ServiceBase):
             if value.casefold() in existing_by_col.get(col, set()):
                 duplicates.append(cls._duplicate_item(entity_type, row_num, row, None))
                 continue
+            if norm_title:
+                if norm_title in seen_titles:
+                    duplicates.append(
+                        cls._duplicate_item(
+                            entity_type, row_num, row, seen_titles[norm_title]
+                        )
+                    )
+                    continue
+                if norm_title in existing_titles:
+                    duplicates.append(cls._duplicate_item(entity_type, row_num, row, None))
+                    continue
             seen[norm_key] = row_num
+            if norm_title:
+                seen_titles[norm_title] = row_num
             kept.append((row_num, row))
 
         return kept, duplicates
