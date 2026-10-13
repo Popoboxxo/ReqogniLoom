@@ -51,6 +51,16 @@ _MIXED_VALID_INVALID_CSV = (
     b"title,description\nGood Row,valid\n,missing title\n"
 )
 
+# Issue #1178: an exported CSV carries a unique ``id`` per row, so the title
+# column used to be the only thing that *could* have caught a replay. The seed
+# (no identity column) establishes the title in the workspace; the replay adds
+# a fresh ``id`` and must still be reported as a duplicate.
+_DUPLICATE_TITLE_SEED_CSV = b"title,description\nINT04 Dup Title,seed row\n"
+_DUPLICATE_TITLE_ID = str(uuid.uuid4())
+_DUPLICATE_TITLE_CSV = (
+    f"id,title\n{_DUPLICATE_TITLE_ID},INT04 Dup Title\n".encode()
+)
+
 
 @pytest.fixture
 def import_admin_user(db):
@@ -300,4 +310,94 @@ def test_v2_idempotency_key_replay_has_no_second_write(import_admin_user):
     assert replay_body["counts"] == first_body["counts"]
 
     # The replay must not have written a second time.
+    assert _requirement_count(tenant.id, workspace.id) == 2
+
+
+# ---------- Issue #1178: title duplicate on an identity-carrying CSV ----------
+
+
+@override_settings(**_V2_OVERRIDES)
+@pytest.mark.django_db
+def test_v2_unique_id_column_with_duplicate_title_is_skipped_with_cause(
+    import_admin_user,
+):
+    """End-to-end proof for issue #1178 under contract v2.
+
+    The seed upload (no identity column) establishes the title; the replay
+    carries a fresh, unique ``id`` per row — exactly the shape
+    ``ExportService`` produces. Before the fix its identity made every row
+    "new", so the upload silently re-created the same titles.
+    """
+    _user, tenant, workspace = import_admin_user
+    client = APIClient()
+    _login(client)
+
+    seed = _upload(client, workspace.id, _DUPLICATE_TITLE_SEED_CSV)
+    assert seed.status_code == 201
+    assert seed.json()["counts"]["succeeded"] == 1
+
+    replay = _upload(client, workspace.id, _DUPLICATE_TITLE_CSV)
+    assert replay.status_code == 200, replay.content
+    body = replay.json()
+    assert body["success"] is True
+    assert body["counts"]["succeeded"] == 0
+    assert body["counts"]["skipped"] == 1
+    assert body["counts"]["failed"] == 0
+    assert [i["cause"]["code"] for i in body["items"]] == ["DUPLICATE"]
+    assert body["items"][0]["status"] == "skipped"
+    assert body["items"][0]["kind"] == "Requirement"
+    # The identifier is the exported ``id`` of the offending row, not the title.
+    assert body["items"][0]["identifier"] == _DUPLICATE_TITLE_ID
+
+    assert _requirement_count(tenant.id, workspace.id) == 1
+
+
+@override_settings(**_LEGACY_OVERRIDES)
+@pytest.mark.django_db
+def test_legacy_response_carries_skipped_rows_with_cause(import_admin_user):
+    """The legacy body must not stay silent about *why* rows were skipped.
+
+    ADR-014 §5 / issue #1178: ``skipped`` is a NEW additive key carrying the
+    same item structure ``result.to_dict()`` hands to contract v2. Every
+    pre-existing key keeps its name and meaning, and a clean import reports an
+    empty list instead of omitting the key.
+    """
+    _user, tenant, workspace = import_admin_user
+    client = APIClient()
+    _login(client)
+
+    first = _upload(client, workspace.id, _VALID_CSV)
+    assert first.status_code == 201
+    first_body = first.json()
+    assert first_body["imported_count"] == 2
+    assert first_body["skipped"] == []
+
+    second = _upload(client, workspace.id, _VALID_CSV)
+    assert second.status_code == 201  # legacy: ``success`` is True
+    body = second.json()
+
+    # Pre-existing keys — unchanged names, unchanged meaning.
+    assert body["success"] is True
+    assert body["imported_count"] == 0
+    assert body["skipped_count"] == 2
+    assert body["status"] == "ok"
+    assert body["errors"] == []
+    assert body["warnings"] == []
+
+    # New additive key: ordered by row number, with identifier and cause.
+    assert [row["row"] for row in body["skipped"]] == [2, 3]
+    assert [row["identifier"] for row in body["skipped"]] == [
+        "INT04 Req One",
+        "INT04 Req Two",
+    ]
+    assert [row["kind"] for row in body["skipped"]] == ["Requirement", "Requirement"]
+    assert {row["status"] for row in body["skipped"]} == {"skipped"}
+    assert [row["cause"]["code"] for row in body["skipped"]] == [
+        "DUPLICATE",
+        "DUPLICATE",
+    ]
+    assert all(row["cause"]["message"] for row in body["skipped"])
+
+    # ``skipped_count`` still counts exactly the rows listed above.
+    assert len(body["skipped"]) == body["skipped_count"]
     assert _requirement_count(tenant.id, workspace.id) == 2

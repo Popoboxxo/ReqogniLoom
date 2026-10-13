@@ -17,7 +17,7 @@ import pytest
 from application.import_service import ImportService
 from attribute_definitions.global_definition_store import GlobalAttributeDefinitionStore
 from persistence.middleware import clear_request_tenant, set_request_tenant
-from persistence.models import Requirement, Tenant, Workspace
+from persistence.models import Artifact, Requirement, Tenant, Workspace
 
 pytestmark = pytest.mark.django_db
 
@@ -49,6 +49,29 @@ _CSV = "title,description\nAlpha,first\nBeta,second\n"
 _BOM_CSV = "\ufefftitle,description\nBOM Req,has a BOM\n"
 
 _MALFORMED_QUOTING = 'title,description\n"unclosed quote,desc\n'
+
+
+def _requirement(workspace, title: str, uid: str | None = None) -> Requirement:
+    """Create one Requirement (+ backing Artifact) directly in *workspace*.
+
+    Written through the ORM (not ``ImportService``) so the test controls
+    exactly what the target workspace already stores before the import runs.
+    """
+    tenant = workspace.tenant
+    set_request_tenant(tenant.id)
+    try:
+        artifact = Artifact.objects.create(
+            tenant=tenant, workspace=workspace, artifact_type="Requirement"
+        )
+        return Requirement.objects.create(
+            tenant=tenant,
+            artifact=artifact,
+            workspace=workspace,
+            title=title,
+            uid=uid,
+        )
+    finally:
+        clear_request_tenant()
 
 
 # ---------- BOM handling (Finding 083) ----------
@@ -172,6 +195,179 @@ class TestNaturalKeyDedupe:
             assert Requirement.objects.filter(artifact__workspace=workspace).count() == 1
         finally:
             clear_request_tenant()
+
+
+# ---------- Issue #1178: title existence next to the identity columns ----------
+
+
+class TestTitleExistenceCheck1178:
+    """The natural key alone is not a duplicate verdict (issue #1178).
+
+    A CSV produced by ExportService carries a unique ``id``/``uid`` per row, so
+    before this fix the title column was never compared for such a file: a
+    re-import of 880 rows with 32 titles created 880 rows again. The title is
+    now checked as an additional key — against the workspace and against the
+    titles already accepted from the same file.
+    """
+
+    def test_id_column_with_title_already_in_workspace_is_skipped(self):
+        """Headline case: unique ``id`` + title that already exists -> skipped."""
+        _tenant, workspace = _workspace()
+        _requirement(workspace, "Existing Title")
+
+        result = ImportService().import_csv(
+            f"id,title\n{uuid.uuid4()},Existing Title\n",
+            "Requirement",
+            workspace.id,
+            _ctx(workspace.tenant_id),
+        )
+
+        assert result.imported_count == 0
+        assert result.duplicate_count == 1
+        assert result.skipped_count == 1
+        assert [i["cause"]["code"] for i in result.items] == ["DUPLICATE"]
+        assert result.items[0]["status"] == "skipped"
+
+        set_request_tenant(workspace.tenant_id)
+        try:
+            assert Requirement.objects.filter(artifact__workspace=workspace).count() == 1
+        finally:
+            clear_request_tenant()
+
+    def test_unique_id_with_unseen_title_is_created(self):
+        """The new check must not over-block: unique id + fresh title imports."""
+        _tenant, workspace = _workspace()
+        _requirement(workspace, "Existing Title")
+
+        result = ImportService().import_csv(
+            f"id,title\n{uuid.uuid4()},Brand New Title\n",
+            "Requirement",
+            workspace.id,
+            _ctx(workspace.tenant_id),
+        )
+
+        assert result.success is True
+        assert result.errors == []
+        assert result.imported_count == 1
+        assert result.duplicate_count == 0
+        assert result.items == []
+
+    def test_uid_column_with_title_already_in_workspace_is_skipped(self):
+        """Same verdict for the higher-priority ``uid`` natural key."""
+        _tenant, workspace = _workspace()
+        _requirement(workspace, "Existing Title")
+
+        result = ImportService().import_csv(
+            "uid,title\nUID-1178-1,Existing Title\n",
+            "Requirement",
+            workspace.id,
+            _ctx(workspace.tenant_id),
+        )
+
+        assert result.imported_count == 0
+        assert result.duplicate_count == 1
+        assert result.items[0]["cause"]["code"] == "DUPLICATE"
+
+    def test_title_existing_in_another_workspace_is_not_a_duplicate(self):
+        """Regression guard for issue #1194: the title lookup stays workspace-
+        scoped, or an export->import migration into another workspace would
+        silently drop every row."""
+        tenant, workspace = _workspace()
+        set_request_tenant(tenant.id)
+        try:
+            other = Workspace.objects.create(
+                tenant=tenant, name="INT04 WS Other", preset={"name": "standard"}
+            )
+        finally:
+            clear_request_tenant()
+        _requirement(other, "Migrated Title")
+
+        result = ImportService().import_csv(
+            f"id,title\n{uuid.uuid4()},Migrated Title\n",
+            "Requirement",
+            workspace.id,
+            _ctx(tenant.id),
+        )
+
+        assert result.success is True
+        assert result.imported_count == 1
+        assert result.duplicate_count == 0
+
+    def test_same_title_twice_in_one_file_with_different_ids(self):
+        """Two rows, two unique ids, one title: the first occurrence wins."""
+        _tenant, workspace = _workspace()
+
+        result = ImportService().import_csv(
+            f"id,title\n{uuid.uuid4()},Shared Title\n{uuid.uuid4()},Shared Title\n",
+            "Requirement",
+            workspace.id,
+            _ctx(workspace.tenant_id),
+        )
+
+        assert result.imported_count == 1
+        assert result.duplicate_count == 1
+        item = result.items[0]
+        assert item["row"] == 3
+        assert item["cause"]["code"] == "DUPLICATE"
+        assert "row 2" in item["cause"]["message"]
+
+        set_request_tenant(workspace.tenant_id)
+        try:
+            assert Requirement.objects.filter(artifact__workspace=workspace).count() == 1
+        finally:
+            clear_request_tenant()
+
+    def test_title_match_is_case_insensitive_against_the_workspace(self):
+        """``  Foo Bar `` and ``foo bar`` are the same title — also across the
+        case difference between the stored row and the uploaded cell."""
+        _tenant, workspace = _workspace()
+        _requirement(workspace, "foo bar")
+
+        result = ImportService().import_csv(
+            f"id,title\n{uuid.uuid4()},  Foo Bar \n",
+            "Requirement",
+            workspace.id,
+            _ctx(workspace.tenant_id),
+        )
+
+        assert result.imported_count == 0
+        assert result.duplicate_count == 1
+        assert result.items[0]["cause"]["code"] == "DUPLICATE"
+
+    def test_title_match_is_case_insensitive_within_one_file(self):
+        """In-file case-fold equality, again on id-carrying rows."""
+        _tenant, workspace = _workspace()
+
+        result = ImportService().import_csv(
+            f"id,title\n{uuid.uuid4()},Alpha One\n{uuid.uuid4()},ALPHA ONE\n",
+            "Requirement",
+            workspace.id,
+            _ctx(workspace.tenant_id),
+        )
+
+        assert result.imported_count == 1
+        assert result.duplicate_count == 1
+        assert result.items[0]["row"] == 3
+        assert result.items[0]["cause"]["code"] == "DUPLICATE"
+
+    def test_a_distinct_title_after_a_duplicate_is_still_imported(self):
+        """The title key must not over-block the file: only the row that
+        repeats an already-seen title is skipped, the next distinct one is
+        written. (An empty title never reaches the check at all — it fails the
+        required-field validation before the dedupe runs.)"""
+        _tenant, workspace = _workspace()
+
+        result = ImportService().import_csv(
+            f"id,title\n{uuid.uuid4()},First\n{uuid.uuid4()},First\n{uuid.uuid4()},Second\n",
+            "Requirement",
+            workspace.id,
+            _ctx(workspace.tenant_id),
+        )
+
+        # Row 3 is the duplicate of row 2 (title); row 4 is untouched by it.
+        assert result.imported_count == 2
+        assert result.duplicate_count == 1
+        assert result.items[0]["row"] == 3
 
 
 # ---------- Honest error reporting (Findings 079/080) ----------

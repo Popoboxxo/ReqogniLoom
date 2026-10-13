@@ -69,6 +69,40 @@ parent: IMPLEMENTATION_PLAN.md
 - **Test:** pytest (Version-Parität) + Build-Test. · **Aufwand:** M · **Risiko/Rollback:**
   Client-Kompatibilität → ADR-gesteuert. · **Deps:** ADR vii · **ADR:** vii
 
+### Versionierungs-Traceability — entschieden (2026-10-13, Issue #1138 / Finding 002-02)
+
+**Entscheidung: Option B — Plugin-Versionierung ist Nicht-Produkt-Zusage, kein REQ.**
+
+Begründung:
+
+- ADR-017 (`docs/se/ADR/ADR-017_plugin_server_versions_ssot.md`, Status `accepted`,
+  2026-10-03) trägt die Entscheidung bereits im Titel: *„`VERSION` ist SSOT der
+  Server-Version; Plugin-Versionierung ist Nicht-Produkt-Zusage (Dritt-/POC-Plugins
+  führen eigene SemVer mit `minServerVersion`)"*. Ein REQ hätte genau diesen Satz
+  konterkariert — die Anforderung wäre das Gegenteil dessen, was das akzeptierte ADR
+  festschreibt.
+- Der Server-Teil ist durch `affected_reqs` von ADR-017 ohnehin abgedeckt
+  (`REQ-L1-005`, `REQ-L1-006`, `REQ-L1-082`, `REQ-L2-MC-016`, `REQ-L2-MC-019`). Die
+  Lücke war ausschließlich die **Plugin**-Seite, und die hat das ADR bewusst als
+  Nicht-Produkt deklariert.
+- Option A (REQ anlegen) hätte einen Widerspruch zwischen Anforderung und akzeptierter
+  Architektur-Entscheidung erzeugt — genau die Inkonsistenz, die eine
+  Traceability-Matrix *aufdecken* soll, nicht eine, die sie festschreiben soll.
+
+Geltungsbereich dieses Statements: die **SemVer-Versionierung der ausgelieferten
+Plugin-Bundles** (`dist/plugins/**`, TS-Hermes-Plugin) einschließlich des
+`minServerVersion`-Kompatibilitätsfelds. Es ist **keine** Produktaussage: es gibt
+keinen Kompatibilitätsvertrag an Dritte, keinen Support-Horizont und keine
+Verpflichtung, dass ein Plugin-Version-Bump ein bestimmtes Server-Verhalten bedingt.
+
+Nicht von diesem Statement erfasst (bleiben Anforderungen):
+
+- `serverInfo.version` == `VERSION` — Server-SSOT, bereits REQ-abgedeckt.
+- `/api/v1/version/` liefert reale Werte — Anforderung an den Server.
+
+Verbleibender Teil von PLUG-04 (unberührt davon): `contributes.commands` registrieren
+oder entfernen, Hermes-Installationsdoku ergänzen.
+
 ## PLUG-05 — Plugin-Timeout-/Fehlersemantik (P2, W3)
 
 - **Findings:** 116 · **Ort:** `api.ts:113` (15 s), `state.ts:140`, `mcpClient.ts:60`
