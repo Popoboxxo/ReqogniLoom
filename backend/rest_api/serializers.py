@@ -1015,7 +1015,10 @@ class RequirementSerializer(
     # the wire key and its vocabulary identical (Decision D-1).
     workflow_item_type = "Requirement"
 
-    id = serializers.UUIDField(read_only=True)
+    id = serializers.UUIDField(
+        read_only=True,
+        help_text="Entity PK (the Requirement row). Use it for Requirement API paths.",
+    )
     workspace_id = serializers.UUIDField(required=True)
     # Issue #413/#416: id of the owning Artifact. TraceLink endpoints are
     # Artifact ids, never Requirement ids, so without this field the UI cannot
@@ -1025,7 +1028,24 @@ class RequirementSerializer(
     # ``_dto_from_orm`` has always supplied the value; the serializer just
     # never declared the field, so DRF dropped it. Read-only, nullable,
     # matching StakeholderNeedSerializer / ArchitectureElementSerializer.
-    artifact_id = serializers.UUIDField(read_only=True, allow_null=True)
+    artifact_id = serializers.UUIDField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Canonical Artifact id. TraceLink endpoints use this id, not `id`; "
+            "join trace links against `artifact_id` (#1270)."
+        ),
+    )
+    # #1261: the stable global UUID, exposed as a read-only attribute. Same value
+    # as artifact_id under a name that reads as identity — a workspace-local
+    # `uid` is reassigned on ReqIF import, this UUID is not. Never settable.
+    global_uuid = serializers.SerializerMethodField()
+
+    def get_global_uuid(self, obj: Any) -> Any:
+        if isinstance(obj, dict):
+            return obj.get("artifact_id")
+        return getattr(obj, "artifact_id", None)
+
     parent_id = serializers.UUIDField(required=False, allow_null=True)
     title = SanitizedCharField(max_length=500)
     description = SanitizedCharField(allow_blank=True, default="", max_length=20000)
@@ -1442,8 +1462,15 @@ class TraceLinkSerializer(UnknownFieldRejectionMixin, PresetAwareSerializerMixin
     """
 
     id = serializers.UUIDField(read_only=True)
-    source_id = serializers.UUIDField()
-    target_id = serializers.UUIDField()
+    source_id = serializers.UUIDField(
+        help_text="Canonical Artifact id of the source endpoint (not the entity PK).",
+    )
+    target_id = serializers.UUIDField(
+        help_text="Canonical Artifact id of the target endpoint (not the entity PK).",
+    )
+    # #1270: unambiguous aliases of source_id/target_id (read-only), same values.
+    source_artifact_id = serializers.UUIDField(read_only=True)
+    target_artifact_id = serializers.UUIDField(read_only=True)
     link_type = serializers.CharField(max_length=64)
     # Q1.6: why these two artifacts are connected. Free text on a trust
     # boundary, so sanitized and capped like change_reason (B006/#104) — an
