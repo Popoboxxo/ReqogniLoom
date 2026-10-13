@@ -72,7 +72,15 @@
  *
  * Re-baselining (single command, no extra tooling):
  *
- *   DESIGN_SYSTEM_RATCHET_DUMP=1 npx vitest run src/test/design-system-ratchet.test.ts
+ *   DESIGN_SYSTEM_REBASELINE=1 npx vitest run src/test/design-system-ratchet.test.ts
+ *
+ * That is the canonical form registered in the shared ratchet contract
+ * (#1103 / REQ-193, `backend/mcp_server/tests/ratchet_framework.py`, mirrored by
+ * `src/test/ratchet-framework.ts`); the legacy `DESIGN_SYSTEM_RATCHET_DUMP=1`
+ * alias still resolves, and any other value writes a candidate elsewhere
+ * instead of the committed file:
+ *
+ *   DESIGN_SYSTEM_REBASELINE=/tmp/design-system-candidate.json npx vitest run src/test/design-system-ratchet.test.ts
  *
  * In the project's Docker test stack that is:
  *
@@ -84,7 +92,9 @@
  * exemptions that no longer match a real violation. It never invents an
  * exemption and never raises the ceiling: a fresh violation is either fixed or
  * explicitly exempted, so the deliberate "look at this and decide" step stays
- * in the diff. A dump that would raise a ceiling aborts before writing.
+ * in the diff. A dump that would raise a ceiling aborts before writing, and a
+ * carried-over exemption that no longer satisfies the shared gap schema fails
+ * it too.
  */
 import {
   existsSync,
@@ -96,12 +106,32 @@ import {
 import { join, relative, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import de from "../i18n/locales/de.json";
+import {
+  GAP_MIN_REASON_LENGTH,
+  assertCeilingNotRaised,
+  rebaselineCommand,
+  resolveRebaselineTarget,
+  splitBaseline,
+  validateGapEntry,
+} from "./ratchet-framework";
 
 const SRC_DIR = resolve(__dirname, "..");
 const COMPONENTS_DIR = join(SRC_DIR, "components");
 const BASELINE_PATH = join(__dirname, "design-system-ratchet.baseline.json");
-const DUMP_ENV_VAR = "DESIGN_SYSTEM_RATCHET_DUMP";
 const REPORT_ENV_VAR = "DESIGN_SYSTEM_RATCHET_REPORT";
+
+/**
+ * Where a re-baseline writes, or `null` for a normal run.
+ *
+ * Resolved once by the shared ratchet contract (#1103 / REQ-193, mirrored from
+ * `backend/mcp_server/tests/ratchet_framework.py` into
+ * `./ratchet-framework`): the canonical var is `DESIGN_SYSTEM_REBASELINE`, its
+ * documented legacy alias `DESIGN_SYSTEM_RATCHET_DUMP` still resolves, `1`
+ * means "the committed file this ratchet guards" (→ BASELINE_PATH) and any
+ * other value writes a candidate elsewhere. A plain run resolves no target, so
+ * the dump path can never fire as a side effect.
+ */
+const REBASELINE_TARGET = resolveRebaselineTarget("design-system", BASELINE_PATH);
 
 /**
  * The `btn-*` classes that carry *chrome* (fill, border, colour, geometry
@@ -830,15 +860,21 @@ function measure(check: CheckId, baseline: BaselineFile): Measured {
   const known = new Set(baseline.checks[check]?.known ?? []);
   const live = new Set(all.map((v) => v.key));
 
+  // Both halves are the shared stale detector (#1103 / REQ-193): a key that
+  // appears is the new violation, a key that disappears is one somebody fixed.
+  const recorded = splitBaseline(live, known);
+  const freshKeys = new Set(recorded.new);
+
   return {
     unexempted,
-    fresh: unexempted.filter((v) => !known.has(v.key)),
-    fixed: [...known].filter((key) => !live.has(key)).sort(),
+    fresh: unexempted.filter((v) => freshKeys.has(v.key)),
+    fixed: [...recorded.rotated],
     // An exemption that no longer matches a real violation is rot: it silently
     // widens the gate for the day someone re-introduces the same element.
-    staleExemptions: [...exempted]
-      .filter((key) => key.startsWith(`${check}::`) && !live.has(key))
-      .sort(),
+    staleExemptions: splitBaseline(
+      live,
+      [...exempted].filter((key) => key.startsWith(`${check}::`)),
+    ).rotated,
   };
 }
 
@@ -848,7 +884,23 @@ function formatViolations(violations: Violation[]): string {
     .join("\n");
 }
 
-const REBASELINE_HINT = `Re-baseline deliberately with:\n    ${DUMP_ENV_VAR}=1 npx vitest run src/test/design-system-ratchet.test.ts`;
+/**
+ * Whether one exemption entry satisfies the shared gap schema.
+ *
+ * The map key carries the gap identity, so it is passed as `options.key`; the
+ * value only has to say why the gap is acceptable and point at a tracker item.
+ * Used by both the normal run's assertion and the re-baseline path.
+ */
+function isJustifiedExemption(key: string, value: { reason?: string } | undefined): boolean {
+  try {
+    validateGapEntry(value ?? {}, { key });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const REBASELINE_HINT = `Re-baseline deliberately with:\n    ${rebaselineCommand("design-system")}`;
 
 /**
  * Monotonicity guard for re-baselining (issue #1099).
@@ -862,8 +914,14 @@ const REBASELINE_HINT = `Re-baseline deliberately with:\n    ${DUMP_ENV_VAR}=1 n
  * decisions in the diff. The only allowed increase is the bootstrap run that
  * creates a missing baseline file, otherwise the gate could never be installed.
  *
- * Extracted as a pure function so the policy is unit-testable in-process
- * without spawning a re-baseline that would rewrite the real baseline.
+ * That policy is now the shared contract (#1103 / REQ-193): the guard below is
+ * `assertCeilingNotRaised` from `./ratchet-framework`, mirrored from
+ * `backend/mcp_server/tests/ratchet_framework.py`, so the backend and the
+ * frontend ratchets refuse a widened ceiling in the same words. This wrapper
+ * adds only the design-system half of the message: *where* an exemption is
+ * recorded. Extracted as a pure function so the policy is unit-testable
+ * in-process without spawning a re-baseline that would rewrite the real
+ * baseline.
  */
 function assertBaselineNotRaised(
   check: CheckId,
@@ -871,27 +929,31 @@ function assertBaselineNotRaised(
   measuredUnexempted: number,
   baselineExists: boolean,
 ): void {
-  if (!baselineExists) return;
-  if (measuredUnexempted > previousMax) {
-    throw new Error(
-      `refusing to raise the "${check}" baseline from ${previousMax} to ` +
-        `${measuredUnexempted}: the design-system ratchet is monotonically ` +
-        "non-increasing (#1099).\n" +
-        "Fix the new violation(s), or — if they are legitimate exceptions — " +
-        "add one entry per violation to the `exemptions` map in " +
-        "design-system-ratchet.baseline.json with a substantive one-line " +
-        "reason. Never raise `maxViolations`.",
-    );
+  try {
+    assertCeilingNotRaised(check, previousMax, measuredUnexempted, baselineExists);
+  } catch (error) {
+    // Keep the shared refusal (and its identity) and append where an exemption
+    // goes, rather than replacing the policy with a second copy of it.
+    (error as Error).message +=
+      "\n" +
+      "Fix the new violation(s), or — if they are legitimate exceptions — " +
+      "add one entry per violation to the `exemptions` map in " +
+      "design-system-ratchet.baseline.json with a substantive one-line " +
+      "reason. Never raise `maxViolations`.";
+    throw error;
   }
 }
 
 // One measurement per check, shared by the ratchet and drift tests.
 const measured = new Map<CheckId, Measured>();
 
-// In dump mode the baseline is rewritten from the measurement and the
+// In re-baseline mode the baseline is rewritten from the measurement and the
 // assertions that would object to the drift are skipped, so the command both
-// re-baselines and confirms the file it just wrote is green.
-if (process.env[DUMP_ENV_VAR] === "1") {
+// re-baselines and confirms the file it just wrote is green. The target is the
+// shared contract's resolution: the committed file for `=1`, a candidate for a
+// `<path>` value. Everything below writes ONLY here — a normal run never
+// reaches it.
+if (REBASELINE_TARGET !== null) {
   const current = loadBaseline();
   const checks = {} as BaselineFile["checks"];
   const exemptions: BaselineFile["exemptions"] = {};
@@ -910,10 +972,17 @@ if (process.env[DUMP_ENV_VAR] === "1") {
       issue: current.checks[check]?.issue ?? CHECK_ISSUES[check],
       note: current.checks[check]?.note ?? CHECK_NOTES[check],
     };
-    // Keep an exemption only while it still describes a real violation.
+    // Keep an exemption only while it still describes a real violation — and
+    // only while it still satisfies the shared gap schema, so a dump cannot
+    // carry an unjustified exemption over (the Python dump validates the
+    // previous baseline for the same reason).
     const live = new Set(SCANNERS[check]().map((v) => v.key));
     for (const key of Object.keys(current.exemptions)) {
       if (key.startsWith(`${check}::`) && live.has(key)) {
+        validateGapEntry(current.exemptions[key], {
+          key,
+          source: "design-system-ratchet.baseline.json",
+        });
         exemptions[key] = current.exemptions[key];
       }
     }
@@ -921,11 +990,11 @@ if (process.env[DUMP_ENV_VAR] === "1") {
   const dumped: BaselineFile = {
     version: 1,
     recordedAt: new Date().toISOString().slice(0, 10),
-    recordedBy: `${DUMP_ENV_VAR}=1 npx vitest run src/test/design-system-ratchet.test.ts`,
+    recordedBy: rebaselineCommand("design-system"),
     checks,
     exemptions,
   };
-  writeFileSync(BASELINE_PATH, `${JSON.stringify(dumped, null, 2)}\n`, "utf-8");
+  writeFileSync(REBASELINE_TARGET, `${JSON.stringify(dumped, null, 2)}\n`, "utf-8");
 
   // The measurements above were taken against the *previous* baseline, so they
   // are stale by construction. Dropping them makes the assertions re-measure
@@ -936,7 +1005,7 @@ if (process.env[DUMP_ENV_VAR] === "1") {
 }
 
 const baseline = loadBaseline();
-const DUMPING = process.env[DUMP_ENV_VAR] === "1";
+const DUMPING = REBASELINE_TARGET !== null;
 
 /**
  * Report mode: print every violation of every check, grouped, without failing.
@@ -1082,11 +1151,15 @@ describe("design-system ratchet (#954, #797, #1091, #1092, #1093, #1099)", () =>
   it("justifies every exemption with a real one-line reason", () => {
     const entries = Object.entries(baseline.exemptions);
     // A bare allow-list is the failure mode this whole file exists to prevent,
-    // so the reasons are checked, not trusted. 40 characters is long enough to
-    // say *why this element is different* rather than restating the rule.
-    const MIN_REASON_LENGTH = 40;
+    // so the reasons are checked, not trusted: every entry goes through the
+    // shared gap schema of the ratchet contract (#1103 / REQ-193, mirrored from
+    // `backend/mcp_server/tests/ratchet_framework.py`) — a reason of at least
+    // GAP_MIN_REASON_LENGTH characters that says why THIS element is
+    // legitimately different, plus an '#NNN' tracker reference (in the entry's
+    // `issue` field, or in the reason text for the shape this baseline has
+    // always used).
     const unjustified = entries
-      .filter(([, value]) => (value?.reason ?? "").trim().length < MIN_REASON_LENGTH)
+      .filter(([key, value]) => !isJustifiedExemption(key, value))
       .map(([key, value]) => `  ${key}  reason=${JSON.stringify(value?.reason)}`);
     expect(
       unjustified,
@@ -1095,7 +1168,7 @@ describe("design-system ratchet (#954, #797, #1091, #1092, #1093, #1099)", () =>
         ...unjustified,
         "",
         `An exemption must explain why THIS element is legitimately different,`,
-        `in at least ${MIN_REASON_LENGTH} characters. If a blanket exemption is`,
+        `in at least ${GAP_MIN_REASON_LENGTH} characters. If a blanket exemption is`,
         "really what is needed, say so explicitly in the reason and reference the",
         "issue that accepts it.",
       ].join("\n"),

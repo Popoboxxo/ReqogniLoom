@@ -26,15 +26,16 @@ it drives the real ``ToolRegistry`` and the real HTTP endpoint and asserts that
 a run created through one transport is *discoverable* through the other, and
 that workspace scoping holds.
 
-``ENTITY_SURFACE_DUMP=<path>`` writes the raw findings before the assertions
-run, which is how a baseline is (re)produced.
+``ENTITY_SURFACE_REBASELINE=<path>`` writes a candidate baseline before the
+assertions run, which is how a baseline is (re)produced. That is the one
+command the shared ratchet framework registers for this suite (#1103 /
+REQ-193); a plain run resolves no target and writes nothing.
 """
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
-from typing import Any, Dict, Set
+from typing import Any, Dict, Iterable, Optional, Set
 from uuid import uuid4
 
 import pytest
@@ -46,9 +47,22 @@ from mcp_server.tests.entity_surface_matrix import (
     MCP_ONLY_BY_DESIGN,
     REST_ONLY_BY_DESIGN,
 )
+from mcp_server.tests.ratchet_framework import (
+    BaselineDiff,
+    assert_no_stale_entries,
+    assert_no_undocumented_gaps,
+    entry_point,
+    gap_keys,
+    maybe_rebaseline,
+    split_baseline,
+)
 
 BASELINE_PATH = Path(__file__).with_name("entity_surface_baseline.json")
-DUMP_ENV_VAR = "ENTITY_SURFACE_DUMP"
+
+#: This ratchet's row in the shared re-baseline table (#1103 / REQ-193). Every
+#: guard below goes through it, so the failure messages name the same command
+#: the framework documents.
+RATCHET = entry_point("entity-surface-parity")
 
 #: Importing ``build_manifest`` pulls the tool groups, which import the model
 #: layer; ``django.setup`` alone is enough for that, but the URLconf resolution
@@ -83,6 +97,44 @@ def _route_exists(collection: str) -> bool:
     except Resolver404:
         return False
     return True
+
+
+def _baseline_document() -> Dict[str, Any]:
+    """The committed baseline document, or a fresh one when it is absent.
+
+    Handed to the framework as ``document=`` so a re-baseline preserves
+    ``_comment`` (the recipe a human reads) and ``measured_at`` — dropping them
+    is how a candidate file stops being a drop-in for the committed one.
+    """
+    if BASELINE_PATH.is_file():
+        return json.loads(BASELINE_PATH.read_text(encoding="utf-8"))
+    return {
+        "_comment": [
+            "Known REST/MCP entity-surface gaps for "
+            "backend/mcp_server/tests/test_entity_surface_parity.py.",
+            f"Regenerate with: {RATCHET.command}",
+        ],
+        "violations": [],
+    }
+
+
+def _candidate_baseline(measured: Iterable[str]) -> Optional[BaselineDiff]:
+    """Write the named re-baseline candidate — and only when it is named.
+
+    A re-baseline is a command a human types, never a side effect of a run:
+    without ``$ENTITY_SURFACE_REBASELINE`` (or its documented
+    ``$ENTITY_SURFACE_DUMP`` alias) this resolves no target and writes no file.
+    When it is set, the framework refuses a widening that carries no reason and
+    issue, so a genuine regression cannot be re-baselined away (#1103).
+    """
+    document = _baseline_document()
+    return maybe_rebaseline(
+        RATCHET,
+        measured=measured,
+        previous=document,
+        document=document,
+        default_path=None,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -121,7 +173,7 @@ def test_every_rest_exposed_entity_is_readable_over_mcp() -> None:
                 )
 
     if problems:
-        _dump({"violations": problems})
+        _candidate_baseline(problems)
     assert not problems, (
         "REST/MCP entity surface is asymmetric:\n  "
         + "\n  ".join(problems)
@@ -232,7 +284,9 @@ def test_ratchet_is_a_subset_and_strictly_shrinking() -> None:
     Mirrors ``test_transport_contract_matrix``: a *new* violation whose key is
     absent from the baseline fails (so a newly added entity has to pass), and
     the strict-shrink assertion fails when a baselined violation no longer
-    reproduces (so a closed gap is deleted rather than left behind).
+    reproduces (so a closed gap is deleted rather than left behind). Both
+    halves are :func:`split_baseline` plus the framework's assertions, so the
+    messages name the entry and the re-baseline command.
     """
     if not BASELINE_PATH.is_file():
         pytest.fail(
@@ -242,8 +296,12 @@ def test_ratchet_is_a_subset_and_strictly_shrinking() -> None:
             '{"violations": [], "generated_from": "..."} — an empty list is '
             "the correct content when every entity is reachable."
         )
+    # Accepted gaps are validated on LOAD, so a baseline entry without a reason
+    # or an issue fails here rather than quietly widening the gate.
     baseline = json.loads(BASELINE_PATH.read_text(encoding="utf-8"))
-    baselined: Set[str] = set(baseline.get("violations", []))
+    baselined: Set[str] = gap_keys(
+        baseline.get("violations", []), source=BASELINE_PATH.name
+    )
     live_tools = _live_tools()
 
     actual: Set[str] = set()
@@ -267,28 +325,15 @@ def test_ratchet_is_a_subset_and_strictly_shrinking() -> None:
                     "no read path is exactly the #1080 gap"
                 )
 
-    if actual - baselined:
-        _dump({"violations": sorted(actual - baselined)})
-    new = sorted(actual - baselined)
-    assert not new, (
-        f"{len(new)} new REST/MCP surface gap(s) not in "
-        f"{BASELINE_PATH.name}: {new}"
-    )
-    rotated = sorted(baselined - actual)
-    assert not rotated, (
-        f"{len(rotated)} baselined gap(s) no longer reproduce: {rotated}. "
-        f"Delete them from {BASELINE_PATH.name} — a baseline entry that can "
-        "no longer happen is a claim nobody is checking."
-    )
-
-
-def _dump(payload: Dict[str, Any]) -> None:
-    target = os.environ.get(DUMP_ENV_VAR)
-    if not target:
-        return
-    Path(target).write_text(
-        json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
-    )
+    diff = split_baseline(actual, baselined)
+    # A re-baseline is gated behind the named env var, so this writes nothing
+    # on a normal run. The old private dump wrote the *delta*; the framework
+    # writes the whole measured set (stale entries dropped, new ones carrying
+    # the justification that accepted them), which is what makes the candidate
+    # a drop-in replacement for the committed file.
+    _candidate_baseline(actual)
+    assert_no_undocumented_gaps(diff, RATCHET)
+    assert_no_stale_entries(diff, RATCHET)
 
 
 # ---------------------------------------------------------------------------
