@@ -74,7 +74,7 @@ export interface ArtifactFormProps {
   /** `null` = create mode: no delete affordance, no workflow status editor. */
   artifactId: string | null;
   initialValues: ArtifactFormValues;
-  onSave: (values: ArtifactFormValues) => Promise<void>;
+  onSave: (values: ArtifactFormValues) => Promise<ArtifactFormValues | void>;
   /**
    * `changeReason` is the trimmed value of the shared change-reason field
    * (F-1, Task 25 fix round 1) — passed only when `requiresChangeReason` is
@@ -656,8 +656,10 @@ export function ArtifactForm({
       ? { ...editableValues, change_reason: changeReason.trim() }
       : editableValues;
     try {
-      await onSave(payload);
-      markClean(values);
+      const response = await onSave(payload);
+      const reconciled = response ?? values;
+      setValues(reconciled);
+      markClean(reconciled);
       setChangeReason("");
     } catch (exc: unknown) {
       const message = extractErrorMessage(exc);
@@ -823,6 +825,7 @@ export function ArtifactForm({
       ref={formRef}
       className={styles.form}
       data-testid="artifact-form"
+      data-version={values.version == null ? undefined : String(values.version)}
       onSubmit={(event) => {
         event.preventDefault();
         void handleSave();

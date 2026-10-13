@@ -165,12 +165,15 @@ export function RequirementArtifactForm({
         // `version` is the tag the server issued for this exact state; a
         // concurrent edit now surfaces as a 412 the caller can report instead
         // of a silent lost update.
-        await requirementsApi.update(
+        const expectedVersion =
+          typeof values.version === "number" ? values.version : requirement.version;
+        const saved = await requirementsApi.update(
           requirement.id,
           patch,
-          requirement.version
+          expectedVersion
         );
         onSaved();
+        return requirementToFormValues(saved);
       }}
       onDelete={async (changeReason) => {
         // F-1 (Task 25 fix round 1): forward the shared change-reason field's

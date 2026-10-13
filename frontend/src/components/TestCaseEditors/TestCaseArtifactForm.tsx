@@ -254,8 +254,9 @@ export function TestCaseArtifactForm({
           // #402: the scenario select is this adapter's own control, not an
           // ArtifactForm value — carry its current value into the same PATCH.
           patch.scenario_kind = scenarioKind;
-          await testcasesApi.update(testCase.id, patch);
+          const saved = await testcasesApi.update(testCase.id, patch);
           onSaved();
+          return testCaseToFormValues(saved);
         }}
         onDelete={async () => {
           await testcasesApi.delete(testCase.id);

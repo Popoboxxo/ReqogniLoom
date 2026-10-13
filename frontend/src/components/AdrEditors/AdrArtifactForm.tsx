@@ -80,8 +80,9 @@ export function AdrArtifactForm({
       workflowArtifactType="adr"
       onDirtyChange={onDirtyChange}
       onSave={async (values) => {
-        await adrsApi.update(adr.id, formValuesToAdrPatch(values));
+        const saved = await adrsApi.update(adr.id, formValuesToAdrPatch(values));
         onSaved();
+        return adrToFormValues(saved);
       }}
       onDelete={async () => {
         await adrsApi.delete(adr.id);

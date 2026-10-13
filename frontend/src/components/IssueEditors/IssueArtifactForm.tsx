@@ -101,8 +101,9 @@ export function IssueArtifactForm({
       workflowArtifactType="issue"
       onDirtyChange={onDirtyChange}
       onSave={async (values) => {
-        await issuesApi.update(issue.id, formValuesToIssuePatch(values));
+        const saved = await issuesApi.update(issue.id, formValuesToIssuePatch(values));
         onSaved();
+        return issueToFormValues(saved);
       }}
       onDelete={async () => {
         await issuesApi.delete(issue.id);

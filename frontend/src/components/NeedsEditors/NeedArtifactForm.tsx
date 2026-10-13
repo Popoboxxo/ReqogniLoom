@@ -179,9 +179,10 @@ export function NeedArtifactForm({
           if (isExtendedPreset) {
             patch.change_reason = changeReason.trim();
           }
-          await stakeholderNeedApi.update(need.id, patch);
+          const saved = await stakeholderNeedApi.update(need.id, patch);
           setChangeReason("");
           onSaved();
+          return needToFormValues(saved);
         }}
         onDelete={async () => {
           // S-1: the backend gates DELETE identically to PATCH (same

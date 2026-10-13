@@ -107,11 +107,12 @@ export function ArchitectureArtifactForm({
       workflowArtifactType="architecture"
       onDirtyChange={onDirtyChange}
       onSave={async (values) => {
-        await architectureApi.update(
+        const saved = await architectureApi.update(
           element.id,
           formValuesToArchitecturePatch(values)
         );
         onSaved();
+        return architectureToFormValues(saved);
       }}
       onDelete={async () => {
         await architectureApi.delete(element.id);

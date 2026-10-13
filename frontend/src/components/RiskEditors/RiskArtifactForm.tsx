@@ -107,8 +107,9 @@ export function RiskArtifactForm({
       workflowArtifactType="risk"
       onDirtyChange={onDirtyChange}
       onSave={async (values) => {
-        await risksApi.update(risk.id, formValuesToRiskPatch(values));
+        const saved = await risksApi.update(risk.id, formValuesToRiskPatch(values));
         onSaved();
+        return riskToFormValues(saved);
       }}
       onDelete={async () => {
         await risksApi.delete(risk.id);
