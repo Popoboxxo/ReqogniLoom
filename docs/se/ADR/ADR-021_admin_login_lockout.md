@@ -1,16 +1,28 @@
 ---
 adr_id: ADR-021
 title: "Login-Lockout für den Django-Admin (Brute-Force-Schutz) — DB-gestützte Fehlversuchs-Sperre statt django-axes"
-status: proposed
+status: accepted
 date: "2026-10-09"
 deciders: [user, senior-developer]
-affected_reqs: [SEC-04, AUD-2026-09-223, AUD-2026-09-N1]
+affected_reqs: [REQ-193, SEC-04, AUD-2026-09-223, AUD-2026-09-N1]
 superseded_by: null
 ---
 
 # ADR-021: Login-Lockout für den Django-Admin (Brute-Force-Schutz) — DB-gestützte Fehlversuchs-Sperre statt django-axes
 
-**Status:** proposed (2026-10-09) — Dokumentation einer **bereits getroffenen** (D3) und
+**Status:** accepted (2026-10-13) — Statuswechsel durch `se-architect`, veranlasst durch
+das `concept-reviewer`-Review desselben Tages (Verdict „READY-MIT-VORBEHALT": 0 critical,
+1 major, 4 minor, 2 info).
+
+**Statuswechsel:**
+
+| Datum | Status | Grund |
+|---|---|---|
+| 2026-10-09 | `proposed` | Dokumentation der bereits getroffenen (D3) und ausgelieferten Entscheidung; ausstehend: `concept-reviewer`-Review. |
+| 2026-10-13 | `accepted` | Review abgeschlossen und die major-Finding (F1) geschlossen: die 2026-09-Auditwelle arbeitet durchgängig mit Finding-IDs, weshalb `affected_reqs` zunächst nur `SEC-04`/`AUD-2026-09-223`/`AUD-2026-09-N1` trug. Für die Traceability wurde die Anforderung als REQ-193 in `docs/REQUIREMENTS.md` angelegt; die Finding-IDs bleiben als Kontext erhalten. |
+
+**Ursprünglicher Eintrag (2026-10-09):**
+**Statusvermerk:** proposed (2026-10-09) — Dokumentation einer **bereits getroffenen** (D3) und
 **bereits ausgelieferten** Entscheidung. Nicht angenommen: es hat noch kein
 `concept-reviewer`-Review stattgefunden (s. §Review-Round-Trail).
 **Datum:** 2026-10-09
@@ -25,7 +37,7 @@ superseded_by: null
 **Bezug:** Issue #1135 (Leit-Issue; Entscheidung D3 im Kommentar 2026-10-04 — *pre-verified by
 orchestrator research, nicht selbst gelesen*), PR #1172 (Merge-Commit `ee98e592`), Commit
 `a70e88a9` (feat(auth): add DB-backed brute-force lockout for admin login),
-`CHANGELOG.md:82-83` (Eintrag „D3"). HARD STOP:
+`CHANGELOG.md:181-183` (Eintrag „D3"). HARD STOP:
 `docs/audit/2026-09/SEC-04_privileged_key_revocation.md` §7 („Brute-Force-Schutz für
 /admin/login/ … nicht umgesetzt"). Dependency-Sign-off-Gate:
 `docs/audit/2026-10/bugfix-round-plan.md:81`. Separater Folge-Slot:
@@ -133,7 +145,7 @@ research*). Ein zweiter Faktor steht als Ausgleich nicht zur Verfügung — dies
 §7 (`:175-184`) stoppt den Brute-Force-Schutz ausdrücklich: „nicht umgesetzt. Grund:
 `django-axes` o. ä. erfordert eine **neue Abhängigkeit plus Migrationen** und ist eine
 Entscheidung über die *Authentifizierungs*-Drosselung — nicht über die *Autorisierungsachse*
-von ADR-011/13." Issue #1135 hielt die Entscheidung offen (`CHANGELOG.md:137`: „OPEN, decision
+von ADR-011/13." Issue #1135 hielt die Entscheidung offen (`CHANGELOG.md:236`: „OPEN, decision
 pending"). Entscheidung D3 (Kommentar 2026-10-04, *pre-verified*) und Auslieferung via PR #1172
 folgten danach. Dieses ADR ist die nachgelagerte Dokumentation.
 
@@ -320,9 +332,11 @@ folgten danach. Dieses ADR ist die nachgelagerte Dokumentation.
    verweist auf ADR-011 Punkt 6 → eigene Ownership-/Governance-ADR). Ausdrücklich **nicht**
    dieses ADR.
 5. **O5 — 2FA-Residuum:** bleibt offen; dieses ADR erhebt keinen Kompensations-Anspruch.
-6. **O6 — Issue #1135 und `CHANGELOG.md:137`:** das Issue ist **nicht** geschlossen und der
-   CHANGELOG-Vermerk „OPEN, decision pending" (`:137`) ist **nicht** aktualisiert — beides ist
+6. **O6 — Issue #1135 und `CHANGELOG.md:236`:** das Issue ist **nicht** geschlossen und der
+   CHANGELOG-Vermerk „OPEN, decision pending" (`:236`) ist **nicht** aktualisiert — beides ist
    Folgeaufgabe nach `accepted`, nicht Teil dieses Dokuments.
+   *(2026-10-13: Zeilenbezug korrigiert, war `:137`. Die Folgeaufgabe selbst ist danach auf dem
+   Branch `fix/decision-track` abgearbeitet worden.)*
 
 ---
 

@@ -233,7 +233,6 @@ Summary only — see the individual PR records for detail:
 - **Import/ReqIF idempotency and workspace fence (ADR-011/014):** a cross-tenant request is a proper `403` in the shared JSON envelope, and import success semantics are pinned to an idempotent contract
 
 ### Known open points
-- **#1135 — brute-force protection / lockout for Django admin login (SEC-04-Rest): OPEN, decision pending.** Needs a scope/policy decision, not a code fix
 - **#1136 — extend RLS coverage (pre-auth plus webhook/outbox tables) with a staged rollout (DATA-07-Rest): OPEN, decision pending.** Needs a scope/policy decision
 - **#1138 — decide the traceability anchor for plugin versioning (ADR-017 gap / 002-02): OPEN.** A `requirements` decision
 - **Further open audit issues #1128–#1133:** import-idempotency hardening (#1128), `expected_version` parity for MCP goal transitions and `main_goal.approve` (#1129), Redis TLS (`rediss://`) / frozen-server read stalls (#1130), the intra-tenant 403-vs-404 existence oracle (#1131), Celery beat preloading the embedding model (~407 MiB RSS; #1132) and self-seeding MCP live-stack API-key role tests (#1133)
