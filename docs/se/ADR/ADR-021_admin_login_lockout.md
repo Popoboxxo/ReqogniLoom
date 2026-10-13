@@ -4,7 +4,7 @@ title: "Login-Lockout für den Django-Admin (Brute-Force-Schutz) — DB-gestütz
 status: accepted
 date: "2026-10-09"
 deciders: [user, senior-developer]
-affected_reqs: [REQ-193, SEC-04, AUD-2026-09-223, AUD-2026-09-N1]
+affected_reqs: [REQ-194, SEC-04, AUD-2026-09-223, AUD-2026-09-N1]
 superseded_by: null
 ---
 
@@ -20,6 +20,7 @@ das `concept-reviewer`-Review desselben Tages (Verdict „READY-MIT-VORBEHALT": 
 |---|---|---|
 | 2026-10-09 | `proposed` | Dokumentation der bereits getroffenen (D3) und ausgelieferten Entscheidung; ausstehend: `concept-reviewer`-Review. |
 | 2026-10-13 | `accepted` | Review abgeschlossen und die major-Finding (F1) geschlossen: die 2026-09-Auditwelle arbeitet durchgängig mit Finding-IDs, weshalb `affected_reqs` zunächst nur `SEC-04`/`AUD-2026-09-223`/`AUD-2026-09-N1` trug. Für die Traceability wurde die Anforderung als REQ-193 in `docs/REQUIREMENTS.md` angelegt; die Finding-IDs bleiben als Kontext erhalten. |
+| 2026-10-13 | (IDs nachgetragen) | Die Anforderung auf **REQ-194** umnummeriert: `fix/wave1-meta-drift-ratchet` hatte unabhängig ebenfalls REQ-193 vergeben (~10 Minuten später). Diese Spur weicht aus, Welle 1 behält 193 als erste Vergabe. History wurde **nicht** rewritten — die Commits stehen in offenen PRs. Inhaltlich keine Änderung. |
 
 **Ursprünglicher Eintrag (2026-10-09):**
 **Statusvermerk:** proposed (2026-10-09) — Dokumentation einer **bereits getroffenen** (D3) und
