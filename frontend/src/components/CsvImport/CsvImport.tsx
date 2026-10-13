@@ -341,6 +341,14 @@ function ImportResultPanel({
   onToggleShowAllErrors,
 }: ImportResultPanelProps): JSX.Element {
   const { t } = useTranslation();
+  // ADR-014 §5 / issue #1178: the skipped rows are read defensively — a
+  // backend that predates the additive `skipped` key omits it entirely.
+  const skipped = result.skipped ?? [];
+  // The skip list uses the same preview cap and toggle as the error list: a
+  // re-imported export skips one row per already-present title, which for a
+  // large export is hundreds of entries. Local state is safe because the
+  // panel unmounts on every new upload (`result` is reset to `null` first).
+  const [showAllSkipped, setShowAllSkipped] = useState(false);
   return (
     <div
       data-testid="csv-import-result"
@@ -430,6 +438,53 @@ function ImportResultPanel({
             </li>
           ))}
         </ul>
+      )}
+
+      {/* Skip causes (ADR-014 §5 / issue #1178) — rendered on success *and*
+          on failure: the rows that did not make it are exactly as much part
+          of the outcome as the ones that did, and a duplicate skip is not an
+          error (it changes neither `success` nor the HTTP status). */}
+      {skipped.length > 0 && (
+        <>
+          <p data-testid="csv-import-skipped-summary" className={styles.warningText}>
+            {t("import.skippedSummary", { count: skipped.length })}
+          </p>
+          <ul data-testid="csv-import-skipped-list" className={styles.errorList}>
+            {(showAllSkipped ? skipped : skipped.slice(0, ERROR_PREVIEW_LIMIT)).map(
+              (item, idx) => (
+                <li key={idx} className={styles.errorListItem}>
+                  {t("import.skippedRow", {
+                    row: item.row ?? "-",
+                    identifier: item.identifier ?? "-",
+                    cause: item.cause
+                      ? `[${item.cause.code}] ${item.cause.message}`
+                      : t("import.skippedCauseUnknown"),
+                  })}
+                </li>
+              ),
+            )}
+          </ul>
+          {skipped.length > ERROR_PREVIEW_LIMIT && (
+            <button
+              type="button"
+              data-testid="csv-import-toggle-skipped"
+              onClick={() => setShowAllSkipped((shown) => !shown)}
+              // Design-system chrome (design-system ratchet #954): a new
+              // interactive element must carry a `btn-*` variant, so this uses
+              // `btn-ghost` rather than the ad-hoc `.linkBtn` fill the error
+              // toggle above still carries as a baseline-frozen legacy
+              // violation.
+              className="btn-ghost"
+              aria-expanded={showAllSkipped}
+            >
+              {showAllSkipped
+                ? t("import.showFewerErrors")
+                : t("import.moreSkipped", {
+                    count: skipped.length - ERROR_PREVIEW_LIMIT,
+                  })}
+            </button>
+          )}
+        </>
       )}
     </div>
   );

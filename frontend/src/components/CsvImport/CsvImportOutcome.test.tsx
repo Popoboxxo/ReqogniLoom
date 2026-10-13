@@ -15,7 +15,7 @@
  */
 
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
-import { render, screen, cleanup, waitFor } from "@testing-library/react";
+import { render, screen, cleanup, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { CsvImport } from "./CsvImport";
@@ -150,6 +150,198 @@ describe("CsvImport outcomes (UI-30)", () => {
     await user.click(toggle);
 
     expect(screen.getAllByRole("listitem").length).toBe(14);
+  });
+});
+
+describe("CsvImport skipped-row causes (ADR-014 §5 / #1178)", () => {
+  /**
+   * The legacy CSV-import body as `CsvImportView.post` answers it on the
+   * default contract (ADR-014 §5): the counts plus the ADDITIVE `skipped`
+   * key — one shallow copy per skipped `result.items` entry, ordered by row
+   * number, reusing the contract-v2 item structure
+   * (`row`/`identifier`/`kind`/`status`/`cause`).
+   *
+   * Mirrors the backend fixture of
+   * `backend/rest_api/tests/test_csv_import_hardening.py::
+   * test_legacy_response_carries_skipped_rows_with_cause`: a re-upload of an
+   * already-imported file, where one row is reported as an in-file duplicate
+   * and the other by title match against the workspace — the exact message
+   * wording the backend's `ImportService._duplicate_item` emits.
+   */
+  const LEGACY_IMPORT_WITH_SKIPPED: ImportResult = {
+    success: true,
+    imported_count: 0,
+    skipped_count: 2,
+    status: "ok",
+    errors: [],
+    warnings: [],
+    skipped: [
+      {
+        row: 2,
+        identifier: "INT04 Req One",
+        kind: "Requirement",
+        status: "skipped",
+        cause: {
+          code: "DUPLICATE",
+          message:
+            "A row with this uid/id/title already exists in the workspace; skipped.",
+        },
+      },
+      {
+        row: 3,
+        identifier: "INT04 Req Two",
+        kind: "Requirement",
+        status: "skipped",
+        cause: {
+          code: "DUPLICATE",
+          message: "Duplicate of row 2 in the same file; skipped.",
+        },
+      },
+    ],
+  };
+
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+    importCsvMock.mockReset();
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  it("renders row, identifier and cause for every skipped row", async () => {
+    const user = userEvent.setup();
+    importCsvMock.mockResolvedValue(LEGACY_IMPORT_WITH_SKIPPED);
+
+    render(<CsvImport />);
+    await pickCsv(user, "title\nINT04 Req One\nINT04 Req Two\n");
+    await user.click(screen.getByTestId("csv-import-btn"));
+
+    // The skip causes are additive: the success outcome itself is unchanged.
+    const box = await screen.findByTestId("csv-import-result");
+    expect(box).toHaveAttribute("data-outcome", "imported");
+    expect(screen.getByTestId("csv-import-success")).toBeInTheDocument();
+
+    expect(screen.getByTestId("csv-import-skipped-summary")).toHaveTextContent("2");
+
+    const list = screen.getByTestId("csv-import-skipped-list");
+    const items = within(list).getAllByRole("listitem");
+    expect(items).toHaveLength(2);
+    expect(items[0]).toHaveTextContent("Row 2");
+    expect(items[0]).toHaveTextContent("INT04 Req One");
+    expect(items[0]).toHaveTextContent("DUPLICATE");
+    expect(items[0]).toHaveTextContent("already exists in the workspace");
+    expect(items[1]).toHaveTextContent("Row 3");
+    expect(items[1]).toHaveTextContent("INT04 Req Two");
+    expect(items[1]).toHaveTextContent("Duplicate of row 2");
+  });
+
+  it("renders no skip list for a clean import", async () => {
+    const user = userEvent.setup();
+    // A clean import answers with an empty `skipped` list, not a missing key.
+    importCsvMock.mockResolvedValue(result({ imported_count: 3, skipped: [] }));
+
+    render(<CsvImport />);
+    await pickCsv(user, "title\nA\nB\nC\n");
+    await user.click(screen.getByTestId("csv-import-btn"));
+
+    const box = await screen.findByTestId("csv-import-result");
+    expect(box).toHaveAttribute("data-outcome", "imported");
+    expect(screen.getByTestId("csv-import-success")).toBeInTheDocument();
+    expect(screen.queryByTestId("csv-import-skipped-list")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("csv-import-skipped-summary")).not.toBeInTheDocument();
+  });
+
+  it("tolerates a body without the skipped key (backend predating the key)", async () => {
+    const user = userEvent.setup();
+    // The `result()` factory builds a body with no `skipped` field at all.
+    importCsvMock.mockResolvedValue(result({ imported_count: 1 }));
+
+    render(<CsvImport />);
+    await pickCsv(user, "title\nA\n");
+    await user.click(screen.getByTestId("csv-import-btn"));
+
+    const box = await screen.findByTestId("csv-import-result");
+    expect(box).toHaveAttribute("data-outcome", "imported");
+    expect(screen.queryByTestId("csv-import-skipped-list")).not.toBeInTheDocument();
+  });
+
+  it("degrades gracefully when a skipped entry carries no cause", async () => {
+    const user = userEvent.setup();
+    importCsvMock.mockResolvedValue(
+      result({
+        imported_count: 1,
+        skipped_count: 1,
+        skipped: [
+          {
+            row: 4,
+            identifier: "Orphan Row",
+            kind: "Requirement",
+            status: "skipped",
+          },
+        ],
+      }),
+    );
+
+    render(<CsvImport />);
+    await pickCsv(user, "title\nA\n");
+    await user.click(screen.getByTestId("csv-import-btn"));
+
+    const list = await screen.findByTestId("csv-import-skipped-list");
+    expect(list).toHaveTextContent("Row 4");
+    expect(list).toHaveTextContent("Orphan Row");
+    // A neutral fallback instead of "[undefined] undefined" or a crash.
+    expect(list).toHaveTextContent("no cause reported");
+    expect(list).not.toHaveTextContent("undefined");
+  });
+
+  it("offers the remaining skipped rows instead of capping the list at 10", async () => {
+    const user = userEvent.setup();
+    const skipped = Array.from({ length: 12 }, (_, i) => ({
+      row: i + 2,
+      identifier: `Row ${i + 2}`,
+      kind: "Requirement",
+      status: "skipped" as const,
+      cause: { code: "DUPLICATE", message: "already exists in the workspace" },
+    }));
+    importCsvMock.mockResolvedValue(result({ skipped }));
+
+    render(<CsvImport />);
+    await pickCsv(user, "title\nA\n");
+    await user.click(screen.getByTestId("csv-import-btn"));
+
+    const list = await screen.findByTestId("csv-import-skipped-list");
+    expect(within(list).getAllByRole("listitem")).toHaveLength(10);
+
+    const toggle = screen.getByTestId("csv-import-toggle-skipped");
+    expect(toggle).toHaveTextContent("2");
+    await user.click(toggle);
+
+    expect(within(list).getAllByRole("listitem")).toHaveLength(12);
+    expect(screen.getByTestId("csv-import-toggle-skipped")).toHaveTextContent(
+      "Show fewer",
+    );
+  });
+
+  it("renders skip causes and dropped-column warnings independently", async () => {
+    const user = userEvent.setup();
+    importCsvMock.mockResolvedValue({
+      ...LEGACY_IMPORT_WITH_SKIPPED,
+      warnings: ["Unrecognized column(s) ignored, their data was NOT imported: note."],
+    });
+
+    render(<CsvImport />);
+    await pickCsv(user, "title,note\nINT04 Req One,x\n");
+    await user.click(screen.getByTestId("csv-import-btn"));
+
+    const box = await screen.findByTestId("csv-import-result");
+    // A dropped column still marks the outcome as partial, not as a clean
+    // success — the skip list must not swallow that signal.
+    expect(box).toHaveAttribute("data-outcome", "partial");
+    expect(screen.getByTestId("csv-import-warnings")).toHaveTextContent("note");
+    const list = screen.getByTestId("csv-import-skipped-list");
+    expect(within(list).getAllByRole("listitem")).toHaveLength(2);
+    expect(list).toHaveTextContent("INT04 Req One");
   });
 });
 
