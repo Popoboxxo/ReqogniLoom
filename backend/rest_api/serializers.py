@@ -1028,7 +1028,24 @@ class RequirementSerializer(
     # ``_dto_from_orm`` has always supplied the value; the serializer just
     # never declared the field, so DRF dropped it. Read-only, nullable,
     # matching StakeholderNeedSerializer / ArchitectureElementSerializer.
-    artifact_id = serializers.UUIDField(read_only=True, allow_null=True)
+    artifact_id = serializers.UUIDField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Canonical Artifact id. TraceLink endpoints use this id, not `id`; "
+            "join trace links against `artifact_id` (#1270)."
+        ),
+    )
+    # #1261: the stable global UUID, exposed as a read-only attribute. Same value
+    # as artifact_id under a name that reads as identity — a workspace-local
+    # `uid` is reassigned on ReqIF import, this UUID is not. Never settable.
+    global_uuid = serializers.SerializerMethodField()
+
+    def get_global_uuid(self, obj: Any) -> Any:
+        if isinstance(obj, dict):
+            return obj.get("artifact_id")
+        return getattr(obj, "artifact_id", None)
+
     parent_id = serializers.UUIDField(required=False, allow_null=True)
     title = SanitizedCharField(max_length=500)
     description = SanitizedCharField(allow_blank=True, default="", max_length=20000)

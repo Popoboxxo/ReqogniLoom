@@ -40,6 +40,8 @@ def test_requirement_read_exposes_both_ids_and_they_differ(authed_client, worksp
     assert req["id"] != req["artifact_id"], (
         "the two id spaces must be distinct, otherwise this guard is meaningless"
     )
+    # #1261: the stable global UUID is exposed read-only and equals artifact_id.
+    assert req["global_uuid"] == req["artifact_id"]
 
 
 def test_trace_link_read_publishes_artifact_id_aliases(authed_client, workspace) -> None:
