@@ -408,6 +408,9 @@ _TENANT_SCOPED = {
     "SuggestionListView": "flat suggestion inbox; mandatory ?workspace_id",
     "SearchViewSet": "tenant-wide search across accessible workspaces",
     "MetricsViewSet": "tenant-wide KPI read-model",
+    # #1262: read-only SE-Auditor rule catalogue (global rule vocabulary, no
+    # workspace or tenant-owned object behind it).
+    "AuditRuleCatalogView": "tenant-wide SE-Auditor rule catalogue (read-only metadata)",
     "BundleCompressionStatusView": "async task status, tenant-owned",
     "ConsistencyStatusView": "async task status, tenant-owned",
     "TraceabilitySuggestLinksStatusView": "async task status, tenant-owned",

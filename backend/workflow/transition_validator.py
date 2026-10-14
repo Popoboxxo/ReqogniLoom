@@ -30,9 +30,13 @@ from uuid import UUID
 from .definition_store import WorkflowDefinitionDTO, WorkflowDefinitionError, WorkflowDefinitionStore
 from .precondition_rules import (
     EC_MANDATORY_FIELDS_MISSING,
+    EC_REQUIREMENT_VERIFICATION_MISSING,
+    EC_TEST_STEPS_MISSING,
     EC_VERIFICATION_EVIDENCE_MISSING,
     EC_VERIFIES_LINK_MISSING,
     check_mandatory_fields,
+    check_requirement_verification_evidence,
+    check_testcase_steps,
     check_verification_evidence,
     check_verifies_link,
     is_approval_transition,
@@ -190,6 +194,10 @@ class TransitionValidator:
       2. Requesting user has an allowed role.
       3. change_reason is present when required.
       5. Mandatory-field completeness on approval transitions (tier-driven).
+      7. TestCase verifies-link coverage on approval (Extended).
+      8. Extended approval preconditions (#1267/#1269): Requirement verification
+         evidence, and non-empty TestCase steps unless it is an inspection/
+         analysis/demonstration.
       6. Verification evidence on "-> verified" transitions (V&V §3 "Passed").
       4. SignatureGate: credential present and valid.
 
@@ -410,6 +418,29 @@ class TransitionValidator:
                 valid=False, error_code=violation[0], error_message=violation[1]
             )
 
+        # ---- Rule 8: verification evidence on approval (#1267/#1269) ---------
+        # Extended-only approval preconditions, driven by the
+        # ``require_verification_on_approval`` feature flag: a Requirement
+        # needs a verifies link or a non-test verification method, a TestCase
+        # needs non-empty steps (unless it is an inspection/analysis/
+        # demonstration).
+        for _rule in (
+            check_requirement_verification_evidence,
+            check_testcase_steps,
+        ):
+            violation = _rule(
+                workspace_id=ws_str,
+                item_type=request.item_type,
+                item_id=request.item_id,
+                target_state=request.target_state,
+            )
+            if violation is not None:
+                return ValidationResult(
+                    valid=False,
+                    error_code=violation[0],
+                    error_message=violation[1],
+                )
+
         # ---- Rule 6: verification evidence (SE lever 3) ----------------------
         # Only fires on "-> verified"; derives the V&V strategy §3 "Passed"
         # state from the actual trace links + latest test-run results.
@@ -472,4 +503,6 @@ __all__ = [
     "EC_MANDATORY_FIELDS_MISSING",
     "EC_VERIFICATION_EVIDENCE_MISSING",
     "EC_VERIFIES_LINK_MISSING",
+    "EC_REQUIREMENT_VERIFICATION_MISSING",
+    "EC_TEST_STEPS_MISSING",
 ]

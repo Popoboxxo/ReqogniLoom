@@ -35,6 +35,7 @@ from se_metrics.types import (
     ThresholdWarning,
     VolatileRequirement,
     VolatilityResult,
+    VerificationCoverageResult,
     WorkflowGap,
     WorkflowGapResult,
 )
@@ -182,11 +183,60 @@ class CoverageCalculator:
 
 
 # ---------------------------------------------------------------------------
+# COMP-SM-004 (companion): VerificationCoverageCalculator (#1267)
+# ---------------------------------------------------------------------------
+
+
+class VerificationCoverageCalculator:
+    """COMP-SM-004 (companion) — Requirement verification coverage.
+
+    Computes the share of active Requirements that carry verification
+    evidence (an incoming ``verifies`` link or a declared non-test
+    ``verification_method``). The evidence predicate mirrors the Extended
+    approval gate in
+    ``workflow.precondition_rules.check_requirement_verification_evidence``;
+    the DB traversal lives in MetricsAggregator (COMP-SM-002) so this
+    component stays stateless and unit-testable like every other calculator.
+
+    leaf_id: COMP-SM-004
+    """
+
+    def calculate(
+        self,
+        *,
+        total: int,
+        covered: int,
+        uncovered_ids: List[str],
+    ) -> "VerificationCoverageResult":
+        """Compute the verification-coverage percentage.
+
+        Args:
+            total: Number of active Requirements in scope.
+            covered: Requirements that carry verification evidence.
+            uncovered_ids: Ids of the Requirements without evidence.
+
+        Returns:
+            VerificationCoverageResult with the rounded percentage.
+        """
+        total = int(total)
+        covered = int(covered)
+        if total == 0:
+            pct = 0.0
+        else:
+            pct = round((covered / total) * 100.0, 1)
+        return VerificationCoverageResult(
+            total=total,
+            covered=covered,
+            coverage_percent=pct,
+            uncovered_ids=[str(uid) for uid in uncovered_ids],
+        )
+
+
+# ---------------------------------------------------------------------------
 # COMP-SM-005: WorkflowGapDetector
 # IF-SM-INT-004: detect(incomplete_states) -> WorkflowGapResult
 # REQ-L2-SM-005
 # ---------------------------------------------------------------------------
-
 
 class WorkflowGapDetector:
     """COMP-SM-005 — Workflow Gap Detector.
@@ -442,6 +492,7 @@ class ThresholdEvaluator:
 __all__ = [
     "VolatilityCalculator",
     "CoverageCalculator",
+    "VerificationCoverageCalculator",
     "WorkflowGapDetector",
     "RiskClassifier",
     "ThresholdEvaluator",

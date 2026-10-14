@@ -78,6 +78,7 @@ from memory.memory_rest import (
     WorkspaceMemorySettingsView,
 )
 from rest_api.audit_views import (
+    AuditRuleCatalogView,
     WorkspaceAuditAiReviewView,
     WorkspaceAuditRemediateView,
     WorkspaceAuditView,
@@ -875,6 +876,14 @@ urlpatterns = [
         "workspaces/<uuid:workspace_id>/link-type-definitions/<str:key>/",
         WorkspaceLinkTypeDetailView.as_view(),
         name="workspace-link-types-detail",
+    ),
+    # SE-Auditor rule catalogue (#1262) — top-level, read-only metadata for
+    # every registered audit rule. Not workspace-scoped: the rule vocabulary is
+    # global, and the Auditor UI renders it before any workspace run.
+    path(
+        "audit/rules/",
+        AuditRuleCatalogView.as_view(),
+        name="audit-rules",
     ),
     # SE-Auditor (SysEng 2.0 Phase 3) — workspace-scoped audit dashboard.
     # remediate/ and ai-review/ must precede the audit/ run route so neither

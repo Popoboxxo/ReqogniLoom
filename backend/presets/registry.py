@@ -55,6 +55,12 @@ FEATURE_KEYS: FrozenSet[str] = frozenset(
         "approval_workflows",
         "custom_workflows",
         "change_reason_mandatory",
+        # #1267: Extended-only approval gate requiring verification evidence on
+        # a Requirement (a ``verifies`` link or a non-test verification method)
+        # and non-empty TestCase steps. Consumed by
+        # ``workflow.precondition_rules``; OFF in Minimal/Standard so those
+        # tiers keep their lightweight approval semantics.
+        "require_verification_on_approval",
     }
 )
 
@@ -167,6 +173,7 @@ _MINIMAL = PresetConfig(
         "approval_workflows": False,
         "custom_workflows": False,
         "change_reason_mandatory": False,
+        "require_verification_on_approval": False,
     },
     baseline_scopes=(),
     workflow_configurability="fixed",
@@ -183,6 +190,7 @@ _STANDARD = PresetConfig(
         "approval_workflows": False,
         "custom_workflows": False,
         "change_reason_mandatory": False,
+        "require_verification_on_approval": False,
     },
     baseline_scopes=("document", "project"),
     workflow_configurability="partial",
@@ -215,6 +223,9 @@ _EXTENDED = PresetConfig(
         "approval_workflows": True,
         "custom_workflows": True,
         "change_reason_mandatory": True,
+        # #1267: the Extended tier is the only one that demands verification
+        # evidence before an artifact may be approved.
+        "require_verification_on_approval": True,
     },
     baseline_scopes=("document", "project", "global"),
     workflow_configurability="full",

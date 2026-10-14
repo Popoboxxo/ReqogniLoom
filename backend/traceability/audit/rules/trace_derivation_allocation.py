@@ -286,6 +286,18 @@ class SystemRequirementDerivesFromNeedRule(Rule):
 
     rule_id = TRACE_P1
 
+    title = "Root requirement derives from a stakeholder need"
+    description = (
+        "Every root (L1/SystemRequirement) Requirement must carry an outgoing "
+        "'derives-from' link to a StakeholderNeed (L0). A root Requirement with "
+        "no such link is not justified by any stakeholder need."
+    )
+    standard_ref = "UMSETZUNGSPLAN_SYSENG_2.0.md §2.2 (TRACE-P1)"
+    remediation_hint = (
+        "Add a 'derives-from' link from the root Requirement to the "
+        "StakeholderNeed it addresses."
+    )
+
     def check(self, context: AuditContext) -> List[Finding]:
         requirements = _active_requirements(context)
         if not requirements:
@@ -363,6 +375,18 @@ class RequirementOrphanCheckRule(Rule):
 
     rule_id = TRACE_P1B
 
+    title = "Requirement has an upstream derivation"
+    description = (
+        "Every Requirement must have at least one outgoing 'derives-from' link "
+        "to an upstream Requirement or StakeholderNeed. A Requirement with no "
+        "upstream link is an orphan."
+    )
+    standard_ref = "UMSETZUNGSPLAN_SYSENG_2.0.md §2.2 (TRACE-P1b)"
+    remediation_hint = (
+        "Link the orphan Requirement to the Requirement or StakeholderNeed it "
+        "derives from."
+    )
+
     def check(self, context: AuditContext) -> List[Finding]:
         requirements = _active_requirements(context)
         if not requirements:
@@ -410,6 +434,17 @@ class RequirementAllocatedToArchitectureRule(Rule):
     """TRACE-P2: every Requirement is allocated to an ArchitectureElement."""
 
     rule_id = TRACE_P2
+
+    title = "Requirement is allocated to an architecture element"
+    description = (
+        "Every Requirement should be allocated ('allocated-to') to at least one "
+        "ArchitectureElement. An unallocated Requirement has no owner in the "
+        "architecture. Advisory at every tier (#581 calibration)."
+    )
+    standard_ref = "UMSETZUNGSPLAN_SYSENG_2.0.md §2.2 (TRACE-P2)"
+    remediation_hint = (
+        "Allocate the Requirement to the ArchitectureElement that realises it."
+    )
 
     def severity_for_tier(self, tier: str) -> Severity:
         """Always WARNING, at every tier that runs this rule (issue #581).
@@ -516,6 +551,18 @@ class ArchitectureElementSatisfiesRequirementRule(Rule):
     """
 
     rule_id = TRACE_P3
+
+    title = "Architecture element is justified by a requirement"
+    description = (
+        "Every ArchitectureElement must have at least one Requirement allocated "
+        "to it ('allocated-to'). An element with no allocated Requirement is "
+        "untraced architecture."
+    )
+    standard_ref = "UMSETZUNGSPLAN_SYSENG_2.0.md §2.2 (TRACE-P3)"
+    remediation_hint = (
+        "Allocate a Requirement to the ArchitectureElement, or remove the "
+        "element if it is not needed."
+    )
 
     def check(self, context: AuditContext) -> List[Finding]:
         elements = _active_architecture_elements(context)

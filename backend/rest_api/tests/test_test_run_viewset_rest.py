@@ -376,3 +376,62 @@ def test_bulk_results_with_unknown_key_returns_400() -> None:
     )
 
     assert resp.status_code == 400, resp.content
+
+
+# ---------------------------------------------------------------------------
+# #1269: TestRun.tested_artifact_version on the serializer
+# ---------------------------------------------------------------------------
+
+
+def _make_run(workspace: Workspace, **fields) -> "object":
+    from persistence.models import TestRun
+
+    return TestRun.objects.create(
+        tenant=workspace.tenant,
+        workspace=workspace,
+        name=fields.pop("name", "serializer run"),
+        **fields,
+    )
+
+
+def test_serializer_reads_tested_artifact_version() -> None:
+    from rest_api.serializers import TestRunSerializer
+
+    _tenant, _user, workspace = _scenario()
+    set_request_tenant(workspace.tenant_id)
+    try:
+        run = _make_run(workspace, tested_artifact_version="v9.9.9")
+        data = TestRunSerializer(instance=run).data
+    finally:
+        clear_request_tenant()
+
+    assert data["tested_artifact_version"] == "v9.9.9"
+
+
+def test_serializer_accepts_tested_artifact_version_on_write() -> None:
+    """Read/write: the declared field validates the input and keeps it."""
+    from rest_api.serializers import TestRunSerializer
+
+    _tenant, _user, workspace = _scenario()
+    ser = TestRunSerializer(
+        data={
+            "workspace_id": str(workspace.id),
+            "name": "run",
+            "tested_artifact_version": "commit-deadbeef",
+        }
+    )
+
+    assert ser.is_valid(), ser.errors
+    assert ser.validated_data["tested_artifact_version"] == "commit-deadbeef"
+
+
+def test_serializer_allows_an_absent_tested_artifact_version() -> None:
+    from rest_api.serializers import TestRunSerializer
+
+    _tenant, _user, workspace = _scenario()
+    ser = TestRunSerializer(
+        data={"workspace_id": str(workspace.id), "name": "run"}
+    )
+
+    assert ser.is_valid(), ser.errors
+    assert "tested_artifact_version" not in ser.validated_data

@@ -133,6 +133,12 @@ from audit.services import query as audit_query
 from persistence.tenancy import TenantContext
 from persistence.transactions import TransactionContextManager
 from traceability.audit import AuditScope
+from traceability.audit.finding_filters import (
+    apply_report_filters,
+    normalize_rule_ids,
+    normalize_severities,
+    resolve_artifact_ids_for_type,
+)
 
 from mcp_server.protocol_handler import ToolResult
 from mcp_server.tools.base import (
@@ -407,6 +413,27 @@ class AuditToolGroup(BaseToolGroup):
                             "(default true — nothing is hidden; suppressed "
                             "findings are marked with suppressed/reason/expiry). "
                             "Set false to filter them out."
+                        ),
+                    },
+                    "rule_id": {
+                        "type": "string",
+                        "description": (
+                            "#1262: filter findings by rule id (a single id or a "
+                            "comma-separated list, e.g. 'TRACE-P1,TRACE-P2')."
+                        ),
+                    },
+                    "severity": {
+                        "type": "string",
+                        "description": (
+                            "#1262: filter findings by severity "
+                            "(blocker|warning, comma-separated allowed)."
+                        ),
+                    },
+                    "artifact_type": {
+                        "type": "string",
+                        "description": (
+                            "#1262: only findings that concern an artifact of "
+                            "this type (e.g. 'Requirement', 'ArchitectureElement')."
                         ),
                     },
                 },
@@ -844,10 +871,25 @@ class AuditToolGroup(BaseToolGroup):
 
         from application.audit_service import AuditService
 
+        # #1262: optional server-side finding filters. Parsing is strict — an
+        # unknown severity is a VALIDATION_ERROR, not a silent no-op.
+        try:
+            rule_ids = normalize_rule_ids(params.get("rule_id"))
+            severities = normalize_severities(params.get("severity"))
+        except ValueError as exc:
+            return ToolResult.error("VALIDATION_ERROR", str(exc))
+        raw_artifact_type = params.get("artifact_type")
+        artifact_type = (
+            str(raw_artifact_type).strip() if raw_artifact_type is not None else ""
+        )
+        has_filters = bool(rule_ids or severities or artifact_type)
+
         run_kwargs: Dict[str, Any] = {
             "tier": tier,
-            "limit": limit,
-            "offset": offset,
+            # A filtered run is taken unfiltered (no window) and narrowed below,
+            # so limit/offset page over the *filtered* set (#1262).
+            "limit": None if has_filters else limit,
+            "offset": 0 if has_filters else offset,
         }
         if include_suppressed is not None:
             run_kwargs["include_suppressed"] = include_suppressed
@@ -856,6 +898,23 @@ class AuditToolGroup(BaseToolGroup):
             report = AuditService().run_audit(
                 workspace_id, auth_context, **run_kwargs
             )
+            if has_filters:
+                artifact_type_ids = None
+                if artifact_type:
+                    artifact_type_ids = resolve_artifact_ids_for_type(
+                        artifact_type=artifact_type,
+                        tenant_id=auth_context.tenant_id,
+                        workspace_id=workspace_id,
+                    )
+                apply_report_filters(
+                    report,
+                    rule_ids=rule_ids,
+                    severities=severities,
+                    artifact_type_ids=artifact_type_ids,
+                    limit=limit,
+                    offset=offset,
+                    max_findings=AuditService.MAX_REPORT_FINDINGS,
+                )
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
         except PermissionDeniedError as exc:

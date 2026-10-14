@@ -42,6 +42,7 @@ from se_metrics.calculators import (
     CoverageCalculator,
     RiskClassifier,
     ThresholdEvaluator,
+    VerificationCoverageCalculator,
     VolatilityCalculator,
     WorkflowGapDetector,
 )
@@ -51,6 +52,7 @@ from se_metrics.types import (
     MetricsResult,
     RiskResult,
     ThresholdConfig,
+    VerificationCoverageResult,
     VolatileRequirement,
     VolatilityResult,
     WorkflowGapResult,
@@ -62,6 +64,14 @@ logger = logging.getLogger(__name__)
 
 # Default timeframe if none provided (REQ-L2-SM-002)
 DEFAULT_TIMEFRAME = "P30D"
+
+#: ``Requirement.verification_method`` values that count as verification
+#: evidence without an explicit ``verifies`` link (#1267). Mirrors the set used
+#: by the Extended approval gate in
+#: ``workflow.precondition_rules.check_requirement_verification_evidence``.
+_NON_TEST_VERIFICATION_METHODS = frozenset(
+    {"analysis", "inspection", "demonstration"}
+)
 
 # Worker thread pool for parallel source queries (REQ-L2-SM-011)
 _MAX_WORKERS = 4
@@ -410,6 +420,80 @@ def _resolve_requirement_titles(
         vr.title = title if title else vr.requirement_id[:8]
 
 
+def _compute_verification_coverage(
+    *, total: int, covered: int, uncovered_ids: List[str]
+) -> VerificationCoverageResult:
+    """Percent + rounding for the verification-coverage metric (#1267)."""
+    return VerificationCoverageCalculator().calculate(
+        total=total, covered=covered, uncovered_ids=uncovered_ids
+    )
+
+
+def _fetch_verification_coverage(
+    workspace_id: str, tenant_id: UUID
+) -> VerificationCoverageResult:
+    """#1267: share of active Requirements with verification evidence.
+
+    A Requirement counts as covered when it carries an incoming ``verifies``
+    trace link (TestCase = source, Requirement = target) or declares a
+    non-test ``verification_method``. Soft-deleted (``outdated``) Requirements
+    are excluded from both numerator and denominator — they are not active.
+
+    Runs on the calling thread (unlike the four ``_fetch_*`` source adapters):
+    it reuses the request thread's already-armed tenant context/RLS session
+    variable, so no extra thread-local hand-off is needed. Never raises — a
+    lookup failure degrades to an empty metric (REQ-L2-SM-008).
+    """
+    try:
+        from persistence.models import Requirement, TraceLink
+        from traceability.types import LinkType
+        from workflow.state_reader import OUTDATED_STATUS
+
+        # Same defensive arm as _resolve_requirement_titles: compute() normally
+        # runs with the request thread's tenant already active, but a direct
+        # call must not read across tenants.
+        TenantContext.set_tenant(tenant_id)
+
+        ws_uuid = UUID(str(workspace_id))
+        rows = list(
+            Requirement.objects.filter(workspace_id=ws_uuid)
+            .exclude(artifact__lifecycle_status=OUTDATED_STATUS)
+            .values_list("id", "artifact_id", "verification_method")
+        )
+        if not rows:
+            return VerificationCoverageResult()
+
+        linked_target_ids = set(
+            TraceLink.objects.filter(
+                link_type=LinkType.VERIFIES.value,
+                target_id__in=[artifact_id for _id, artifact_id, _m in rows],
+            ).values_list("target_id", flat=True)
+        )
+
+        covered = 0
+        uncovered_ids: List[str] = []
+        for requirement_id, artifact_id, method in rows:
+            normalized = (method or "").strip().lower()
+            if (
+                artifact_id in linked_target_ids
+                or normalized in _NON_TEST_VERIFICATION_METHODS
+            ):
+                covered += 1
+            else:
+                uncovered_ids.append(str(requirement_id))
+
+        return _compute_verification_coverage(
+            total=len(rows), covered=covered, uncovered_ids=uncovered_ids
+        )
+    except Exception:
+        logger.warning(
+            "MetricsAggregator: verification-coverage query failed for ws=%s",
+            workspace_id,
+            exc_info=True,
+        )
+        return VerificationCoverageResult()
+
+
 # ---------------------------------------------------------------------------
 # MetricsAggregator — COMP-SM-002
 # ---------------------------------------------------------------------------
@@ -508,6 +592,12 @@ class MetricsAggregator:
             risk_artifacts=risk_artifacts,
         )
 
+        # #1267: verification coverage is derived from the Requirement rows on
+        # the calling thread (see _fetch_verification_coverage).
+        verification_coverage: VerificationCoverageResult = (
+            _fetch_verification_coverage(workspace_id, tenant_id)
+        )
+
         # Assemble partial result for threshold evaluation
         result = MetricsResult(
             workspace_id=workspace_id,
@@ -517,6 +607,7 @@ class MetricsAggregator:
             traceability_coverage=coverage,
             workflow_gaps=gaps,
             open_risks=risks,
+            verification_coverage=verification_coverage,
             warnings=[],
         )
 

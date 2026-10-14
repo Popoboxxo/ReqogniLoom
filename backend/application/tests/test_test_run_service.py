@@ -798,3 +798,92 @@ class TestAddResultUpsertRealDb:
         assert closed.results.count() == 1
         assert closed.status == "passed"
         assert closed.finished_at is not None
+
+
+# ---------------------------------------------------------------------------
+# #1269: tested_artifact_version
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestTestedArtifactVersion:
+    """#1269: a TestRun can be pinned to the artifact revision it tested."""
+
+    @pytest.fixture()
+    def fx(self):
+        from persistence.models import Tenant, Workspace
+        from persistence.tenancy import TenantContext
+
+        tenant = Tenant.objects.create(
+            id=uuid.uuid4(),
+            name="issue1269-tenant",
+            slug=f"issue1269-{uuid.uuid4().hex[:8]}",
+        )
+        TenantContext.set_tenant(tenant.id)
+        try:
+            workspace = Workspace.objects.create(
+                id=uuid.uuid4(),
+                tenant=tenant,
+                name=f"issue1269-ws-{uuid.uuid4().hex[:6]}",
+                preset={"name": "standard"},
+            )
+            ctx = _make_ctx(tenant_id=tenant.id)
+            yield {"ctx": ctx, "workspace": workspace}
+        finally:
+            TenantContext.clear_tenant()
+
+    def test_create_persists_the_tested_artifact_version(self, fx):
+        svc = TestRunService()
+
+        run = svc.create_test_run(
+            workspace_id=fx["workspace"].id,
+            name="Release run",
+            ctx=fx["ctx"],
+            tested_artifact_version="v1.2.3-rc4",
+        )
+
+        run.refresh_from_db()
+        assert run.tested_artifact_version == "v1.2.3-rc4"
+
+    def test_create_without_the_version_leaves_it_null(self, fx):
+        svc = TestRunService()
+
+        run = svc.create_test_run(
+            workspace_id=fx["workspace"].id,
+            name="Unpinned run",
+            ctx=fx["ctx"],
+        )
+
+        run.refresh_from_db()
+        assert run.tested_artifact_version is None
+
+    def test_update_sets_the_tested_artifact_version(self, fx):
+        svc = TestRunService()
+        run = svc.create_test_run(
+            workspace_id=fx["workspace"].id, name="Run", ctx=fx["ctx"]
+        )
+
+        svc.update_test_run(
+            test_run_id=run.id,
+            ctx=fx["ctx"],
+            tested_artifact_version="commit-abc123",
+        )
+
+        run.refresh_from_db()
+        assert run.tested_artifact_version == "commit-abc123"
+
+    def test_update_omitting_the_version_leaves_it_unchanged(self, fx):
+        """``None`` is the "leave unchanged" sentinel, like name/ci_job_id."""
+        svc = TestRunService()
+        run = svc.create_test_run(
+            workspace_id=fx["workspace"].id,
+            name="Run",
+            ctx=fx["ctx"],
+            tested_artifact_version="keep-me",
+        )
+
+        svc.update_test_run(test_run_id=run.id, ctx=fx["ctx"], name="Renamed")
+
+        run.refresh_from_db()
+        assert run.tested_artifact_version == "keep-me"
+        assert run.name == "Renamed"

@@ -125,6 +125,32 @@ export interface AuditReport {
   findings: AuditFinding[];
 }
 
+// ---------------------------------------------------------------------------
+// #1262 — SE-Auditor rule catalogue (GET /api/v1/audit/rules/)
+// ---------------------------------------------------------------------------
+
+/**
+ * Catalogue metadata for one registered audit rule. Mirrors
+ * ``traceability.audit.registry.get_rule_catalogue()`` (backend). ``severity``
+ * is the rule's gate-effective severity at the strictest tier; ``active_tiers``
+ * lists the rigor tiers the rule runs in.
+ */
+export interface AuditRuleInfo {
+  rule_id: string;
+  title: string;
+  description: string;
+  severity: AuditSeverity;
+  standard_ref: string;
+  remediation_hint: string;
+  active_tiers: string[];
+  is_scope_aware: boolean;
+  deferred: boolean;
+}
+
+export interface AuditRuleCatalogResponse {
+  rules: AuditRuleInfo[];
+}
+
 export interface RemediateRequest {
   rule_id: string;
   artifact_ids: string[];
@@ -211,6 +237,14 @@ export interface RunAuditOptions {
    * rejected with 400.
    */
   includeSuppressed?: boolean;
+  /**
+   * #1262: server-side finding filters (``rule_id`` / ``severity`` /
+   * ``artifact_type``). When set, the backend narrows the run before taking the
+   * window, so `limit`/`offset` page over the filtered result.
+   */
+  ruleId?: string;
+  severity?: AuditSeverity;
+  artifactType?: string;
 }
 
 export const auditApi = {
@@ -227,10 +261,23 @@ export const auditApi = {
       // #569/m2: the backend accepts only the literals `true`/`false`.
       params.set("include_suppressed", options.includeSuppressed ? "true" : "false");
     }
+    // #1262: server-side filters.
+    if (options.ruleId) params.set("rule_id", options.ruleId);
+    if (options.severity) params.set("severity", options.severity);
+    if (options.artifactType) params.set("artifact_type", options.artifactType);
     const qs = params.toString();
     return apiClient.get<AuditReport>(
       `/workspaces/${workspaceId}/audit/${qs ? `?${qs}` : ""}`
     );
+  },
+
+  /**
+   * #1262: fetch the SE-Auditor rule catalogue — human-readable metadata
+   * (title, description, severity, standard reference, remediation hint) for
+   * every registered rule. Not workspace-scoped.
+   */
+  rules(): Promise<AuditRuleCatalogResponse> {
+    return apiClient.get<AuditRuleCatalogResponse>("/audit/rules/");
   },
 
   /** Apply the automatic remediation for one finding (Adopt-Workflow). */

@@ -178,11 +178,15 @@ async function createRequirement(
       // #272 (spec section 7.2): `verification_method` joined the Extended
       // approval gate's mandatory fields. Same failure mode as
       // acceptance_criteria above — omit it and the approve POST 400s, the
-      // signature dialog stays open and the item stays in the queue. The
-      // requirement defaults to `type: 'SyReq'`, so the value is accepted and
-      // persisted; 'Test' mirrors the backend policy fixture
-      // (test_se_validation_remainder_272.py).
-      verification_method: 'Test',
+      // signature dialog stays open and the item stays in the queue.
+      //
+      // #1267: the Extended approval gate now also demands verification
+      // evidence — either a `verifies` link on the requirement OR a non-Test
+      // verification method (`analysis`/`inspection`/`demonstration`). A bare
+      // `Test` with no `verifies` link is refused, which kept the item in the
+      // queue. `Inspection` satisfies the gate without a link and keeps this
+      // spec focused on the approval UI.
+      verification_method: 'Inspection',
     },
   });
   expect(response.ok()).toBeTruthy();

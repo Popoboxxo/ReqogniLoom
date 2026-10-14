@@ -28,6 +28,7 @@ from se_metrics.calculators import (
     CoverageCalculator,
     RiskClassifier,
     ThresholdEvaluator,
+    VerificationCoverageCalculator,
     VolatilityCalculator,
     WorkflowGapDetector,
 )
@@ -37,6 +38,7 @@ from se_metrics.types import (
     MetricsResult,
     RiskResult,
     ThresholdConfig,
+    VerificationCoverageResult,
     VolatilityResult,
     WorkflowGapResult,
 )
@@ -472,3 +474,55 @@ class TestThresholdEvaluator:
         result = _make_metrics_result()
         warnings = self.evaluator.evaluate(result, "ws-1", threshold_config=config)
         assert warnings == []
+
+
+# ---------------------------------------------------------------------------
+# COMP-SM-004 (companion) VerificationCoverageCalculator tests
+# #1267
+# ---------------------------------------------------------------------------
+
+
+class TestVerificationCoverageCalculator:
+    """#1267: share of active Requirements carrying verification evidence."""
+
+    def setup_method(self):
+        self.calc = VerificationCoverageCalculator()
+
+    def test_percentage_is_computed_and_rounded(self):
+        result = self.calc.calculate(
+            total=3, covered=2, uncovered_ids=["r3"]
+        )
+
+        assert isinstance(result, VerificationCoverageResult)
+        assert result.total == 3
+        assert result.covered == 2
+        assert result.coverage_percent == 66.7
+        assert result.uncovered_ids == ["r3"]
+
+    def test_zero_requirements_is_zero_percent(self):
+        result = self.calc.calculate(total=0, covered=0, uncovered_ids=[])
+
+        assert result.total == 0
+        assert result.coverage_percent == 0.0
+        assert result.uncovered_ids == []
+
+    def test_uncovered_ids_are_stringified(self):
+        uid = uuid.uuid4()
+        result = self.calc.calculate(total=1, covered=0, uncovered_ids=[uid])
+
+        assert result.uncovered_ids == [str(uid)]
+
+    def test_metrics_result_to_dict_exposes_verification_coverage(self):
+        metrics = _make_metrics_result()
+        metrics.verification_coverage = self.calc.calculate(
+            total=4, covered=1, uncovered_ids=["a", "b", "c"]
+        )
+
+        payload = metrics.to_dict()
+
+        assert payload["verification_coverage"] == {
+            "total": 4,
+            "covered": 1,
+            "coverage_percent": 25.0,
+            "uncovered_ids": ["a", "b", "c"],
+        }

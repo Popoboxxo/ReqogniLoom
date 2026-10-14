@@ -410,6 +410,9 @@
     },
     "button-missing-design-system-class::components/shared/tag-input.tsx::div[data-testid=${testId}-input]": {
       "reason": "Tag-input container, not a button: it is a text field hosting removable chips; the interactive controls inside are the chip remove buttons (#1099)."
+    },
+    "button-missing-design-system-class::components/Audit/audit-dashboard.tsx::button[data-testid=audit-rule-info-${ruleId}]": {
+      "reason": "Inline rule-id text trigger, not a button: it opens the rule-detail popover and must read as inline monospace text within the finding row, so btn-* chrome would break that (#1262)."
     }
   }
 }

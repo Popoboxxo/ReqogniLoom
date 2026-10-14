@@ -1217,6 +1217,13 @@
   },
   "icds": {
     "title": "Interface Control Documents",
+    "linkedElements": {
+      "title": "Linked elements",
+      "incoming": "Incoming",
+      "outgoing": "Outgoing",
+      "none": "None.",
+      "error": "Could not load linked elements."
+    },
     "summary_one": "{{count}} ICD",
     "summary_other": "{{count}} ICDs",
     "emptyTitle": "No ICDs yet",
@@ -1723,6 +1730,26 @@
       "all": "All",
       "blocker": "Blockers",
       "warning": "Warnings"
+    },
+    "ruleFilter": {
+      "label": "Rule",
+      "all": "All rules"
+    },
+    "artifactTypeFilter": {
+      "label": "Artifact type",
+      "all": "All types",
+      "Requirement": "Requirement",
+      "ArchitectureElement": "Architecture element",
+      "Icd": "ICD",
+      "TestCase": "Test case",
+      "StakeholderNeed": "Stakeholder need",
+      "Goal": "Goal"
+    },
+    "rulePopover": {
+      "severity": "Severity",
+      "standard": "Standard reference",
+      "remediation": "How to fix",
+      "loading": "Loading rule details…"
     },
     "counts": {
       "total": "Findings",

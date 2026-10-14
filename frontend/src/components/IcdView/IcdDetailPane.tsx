@@ -19,6 +19,7 @@ import { RightSidebar } from "../shared/ArtifactInspector";
 import type { VersionRef } from "../shared/ArtifactInspector";
 import { WorkflowStatusEditor } from "../WorkflowStatusEditor";
 import { findSimilarICDs, inputStyle, labelStyle } from "./icd-view-shared";
+import { IcdLinkedElements } from "./IcdLinkedElements";
 import styles from "./IcdDetailPane.module.css";
 
 export interface IcdDetailPaneProps {
@@ -228,6 +229,10 @@ export function IcdDetailPane({
               values={detail.invariants}
             />
           </div>
+
+          {/* #1268: linked elements in both directions (the ICD's anchored
+              architecture elements / requirements and any outgoing links). */}
+          <IcdLinkedElements icdId={detail.id} workspaceId={detail.workspace_id} />
 
           {/* REQ-006: Show similar interfaces based on name token similarity. */}
           <SimilarIcdsPanel
