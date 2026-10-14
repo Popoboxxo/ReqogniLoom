@@ -432,7 +432,10 @@ test.describe('[WK-SCENARIO] Wasserkocher SE-Durchstich', () => {
 
     // UI-Form für Baseline-Erstellung öffnen. Task 5.2: die Aktion liegt im
     // Overflow-Menü des PageHeaders, nicht als primärer Button.
-    await expect(page.locator('[role="status"]')).not.toBeVisible({ timeout: 10000 });
+    // Only the *visible* loading status matters; the hidden interview-widget
+    // live region also carries `role="status"` (ADR-009), so a bare
+    // `not.toBeVisible()` would hit a strict-mode violation.
+    await expect(page.locator('[role="status"]:visible')).toHaveCount(0, { timeout: 10000 });
     await page.locator('[data-testid="page-header-overflow-trigger"]').click();
     await page.locator('[data-testid="create-baseline-btn"]').click();
     await expect(page.locator('[data-testid="create-baseline-form"]')).toBeVisible({ timeout: 6000 });

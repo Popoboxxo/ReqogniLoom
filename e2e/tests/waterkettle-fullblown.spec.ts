@@ -739,7 +739,10 @@ test.describe('[WK-FULL-BLOWN] Wasserkocher SE über 4 Ebenen (UI-driven, Bug-Fi
     await page.goto(`${FRONTEND_URL}/baselines`);
     // Task 5.2: creation lives in the PageHeader overflow menu (same as
     // createBaselineViaUI in wk-helpers.ts).
-    await expect(page.locator('[role="status"]')).not.toBeVisible({ timeout: 10000 });
+    // Only the *visible* loading status matters; the hidden interview-widget
+    // live region also carries `role="status"` (ADR-009), so a bare
+    // `not.toBeVisible()` would hit a strict-mode violation.
+    await expect(page.locator('[role="status"]:visible')).toHaveCount(0, { timeout: 10000 });
     await page.locator('[data-testid="page-header-overflow-trigger"]').click();
     await page.locator('[data-testid="create-baseline-btn"]').click();
     await page.locator('[data-testid="create-baseline-form"]').waitFor({ timeout: 6000 });

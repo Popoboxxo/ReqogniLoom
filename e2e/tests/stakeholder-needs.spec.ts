@@ -175,7 +175,11 @@ test.describe('[REQ-L0-004] Baselines — create via UI', () => {
     // Task 5.2: baseline creation is an overflow action, not a primary header
     // button. The loading branch of BaselinesView renders baselines-view
     // without a PageHeader, so wait for the spinner to clear first.
-    await expect(page.locator('[role="status"]')).not.toBeVisible({ timeout: 10000 });
+    // The loading indicator is the only *visible* `[role="status"]`: the shell
+    // also mounts a permanently hidden interview-widget live region carrying
+    // that role (ADR-009), so a bare `not.toBeVisible()` hits a strict-mode
+    // violation as soon as both exist. Same pattern as baselines-view.spec.ts.
+    await expect(page.locator('[role="status"]:visible')).toHaveCount(0, { timeout: 10000 });
     await page.locator('[data-testid="page-header-overflow-trigger"]').click();
     const createBtn = page.locator('[data-testid="create-baseline-btn"]');
     await expect(createBtn).toBeVisible({ timeout: 10000 });
@@ -187,7 +191,9 @@ test.describe('[REQ-L0-004] Baselines — create via UI', () => {
   test('[REQ-L0-004] baseline creation form has artifact select and scope input', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/baselines`);
     await expect(page.locator('[data-testid="baselines-view"]')).toBeVisible({ timeout: 10000 });
-    await expect(page.locator('[role="status"]')).not.toBeVisible({ timeout: 10000 });
+    // Only the *visible* loading status matters; the hidden interview-widget
+    // live region also carries `role="status"` (see the sibling test above).
+    await expect(page.locator('[role="status"]:visible')).toHaveCount(0, { timeout: 10000 });
     await page.locator('[data-testid="page-header-overflow-trigger"]').click();
     await page.locator('[data-testid="create-baseline-btn"]').click();
     await expect(page.locator('[data-testid="create-baseline-form"]')).toBeVisible({ timeout: 6000 });
