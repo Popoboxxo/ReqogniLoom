@@ -1309,6 +1309,15 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             )
             # Attribut v3 WS2 (#936): owner/reporter/priority live on Artifact.
             self._apply_artifact_system_fields(request, "Requirement", item, ctx)
+            # #1289: an explicit manual level override, applied after create so
+            # the derivation has already run and the override wins.
+            if data.get("level_override") is not None:
+                item = self._svc().set_manual_level(
+                    item.id,
+                    ctx,
+                    int(data["level_override"]),
+                    change_reason=data.get("change_reason"),
+                )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
         except Exception as exc:
@@ -1431,6 +1440,16 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             )
             # Attribut v3 WS2 (#936): owner/reporter/priority live on Artifact.
             self._apply_artifact_system_fields(request, "Requirement", item, ctx)
+            # #1289: a manual level override rides along with the update. A
+            # `null` clears it (restores the derived value); a 1..4 forces it.
+            if "level_override" in data:
+                override = data.get("level_override")
+                item = self._svc().set_manual_level(
+                    item.id,
+                    ctx,
+                    None if override is None else int(override),
+                    change_reason=data.get("change_reason"),
+                )
         except OptimisticLockError as exc:
             # GH-868: a failed If-Match is a precondition failure (412); the
             # body field keeps its existing 409 CONFLICT contract.
@@ -5188,6 +5207,7 @@ def _dto_from_orm(req: Any) -> dict[str, Any]:
         "complexity_fibonacci": getattr(req, "complexity_fibonacci", None),
         "verification_method": getattr(req, "verification_method", None) or None,
         "level": getattr(req, "level", None),
+        "level_source": getattr(req, "level_source", "derived"),
         "suspect": getattr(req, "suspect", False),
         "custom_fields": _artifact_custom_fields(req),
         # Attribut v3 WS2 (#936): Artifact-level system fields, actor wire form.

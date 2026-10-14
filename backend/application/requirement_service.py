@@ -36,6 +36,7 @@ from django.db.models import F, Q, QuerySet
 from persistence.models import (
     Artifact,
     Requirement,
+    RequirementLevelSource,
     Tenant,
     Workspace,
 )
@@ -877,6 +878,65 @@ class RequirementService(ServiceBase):
             except Exception as e:
                 logger.error(f"Error propagating suspect status: {e}", exc_info=True)
 
+        return requirement
+
+    @atomic_transaction
+    def set_manual_level(
+        self,
+        requirement_id: UUID,
+        ctx: AuthContext,
+        level: int | None,
+        *,
+        change_reason: str | None = None,
+    ) -> Requirement:
+        """Set or clear an explicit manual override of the V-model level (#1289).
+
+        ADR-005 makes ``level`` derived and read-only; #1289 adds an explicit
+        escape hatch. ``level`` is validated against the cascade (1..4), stored
+        together with ``level_source = manual``, and thereafter **never
+        overwritten** by :func:`traceability.audit.hierarchy.recompute_requirement_levels`.
+
+        Passing ``level=None`` clears the override: the row is reset to
+        ``level_source = derived`` and the hierarchy-derived value is recomputed
+        immediately, so clearing is symmetric with setting.
+
+        Args:
+            requirement_id: The Requirement row id (not the Artifact id).
+            ctx: Authenticated, tenant-scoped, write-permitted context.
+            level: The cascade level (1..4) to force, or ``None`` to clear.
+            change_reason: Optional audit reason.
+
+        Raises:
+            ValidationError: *level* is not ``None`` and not in 1..4.
+            NotFoundError: no such Requirement in the active tenant.
+        """
+        if level is not None and int(level) not in (1, 2, 3, 4):
+            raise ValidationError("level must be one of 1, 2, 3, 4 or null")
+
+        requirement = self._load_requirement_for_update(requirement_id, ctx, None)
+
+        if level is None:
+            requirement.level_source = RequirementLevelSource.DERIVED
+            requirement.save(update_fields=["level_source", "modified_at"])
+            _recompute_derived_levels([requirement.artifact_id])
+            requirement.refresh_from_db(fields=["level", "level_source"])
+        else:
+            requirement.level = int(level)
+            requirement.level_source = RequirementLevelSource.MANUAL
+            requirement.save(update_fields=["level", "level_source", "modified_at"])
+
+        self._audit(
+            ctx=ctx,
+            operation="update",
+            entity_type="Requirement",
+            entity_id=requirement_id,
+            change_reason=change_reason,
+            details={
+                "field": "level",
+                "level": requirement.level,
+                "level_source": requirement.level_source,
+            },
+        )
         return requirement
 
     @atomic_transaction

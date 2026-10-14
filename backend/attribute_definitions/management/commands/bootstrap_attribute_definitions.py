@@ -439,7 +439,17 @@ def section_order_index(section: str) -> int:
 #: renderer omits it from the editable surface, closing the silent-discard
 #: class this set exists to close.
 READ_ONLY_MODEL_FIELDS: frozenset[str] = frozenset(
-    {"uid", "requestor_id", "reviewed", "origin", "level"}
+    {
+        "uid",
+        "requestor_id",
+        "reviewed",
+        "origin",
+        "level",
+        # #1289: the provenance marker of the derived `level`. Read-only on the
+        # serializer; a manual override rides the separate `level_override`
+        # write field, never this one.
+        "level_source",
+    }
 )
 
 #: Curated widget attributes (spec section 6.3). ``fields[]`` names the core

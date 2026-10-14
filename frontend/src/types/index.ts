@@ -180,6 +180,9 @@ export interface Requirement extends SystemFieldValues {
   // Issue #394: V-model cascade level (1=System ... 4=Presentation). NULL
   // until assigned explicitly. See `RequirementLevel` above.
   level?: RequirementLevel | null;
+  // #1289: provenance of `level` — 'derived' (recomputed from the hierarchy)
+  // or 'manual' (an explicit override). Lets the UI mark the level as derived.
+  level_source?: "derived" | "manual";
   suspect?: boolean;
   change_reason?: string;
   /** #399: additive baseline-drift summary on the detail retrieve. */

@@ -163,7 +163,7 @@ from collections import defaultdict
 from typing import Any, Dict, FrozenSet, Iterable, List, Mapping, Optional, Set, Tuple, TypeVar
 from uuid import UUID
 
-from persistence.models import RequirementLevel
+from persistence.models import RequirementLevel, RequirementLevelSource
 from traceability.audit.types import AuditContext
 from traceability.types import LinkType
 
@@ -206,6 +206,33 @@ ROOT_REQUIREMENT_LEVEL: int = int(RequirementLevel.L1_SYSTEM)
 #: clamping it to 4 — a clamped child would sit at the *same* level as its
 #: parent, which is the data-integrity defect CONS-P11 used to report.
 CASCADE_TOP_LEVEL: int = int(RequirementLevel.L4_PRESENTATION)
+
+#: #1289: ``ArchitectureElement`` tree depth (0 = root, see
+#: ``ArchitectureElement.annotate_levels``) -> the V-model cascade level a
+#: Requirement allocated to that element inherits. The root of the architecture
+#: tree is the top of the system (L1 System); each further decomposition step
+#: adds one cascade level, exactly like the Requirement hierarchy itself. A
+#: depth beyond ``L4_PRESENTATION`` (``>= 4``) has no legal level and maps to
+#: ``None`` rather than being clamped.
+ARCHITECTURE_DEPTH_TO_LEVEL: Mapping[int, int] = {
+    0: int(RequirementLevel.L1_SYSTEM),
+    1: int(RequirementLevel.L2_SUBSYSTEM),
+    2: int(RequirementLevel.L3_COMPONENT),
+    3: int(RequirementLevel.L4_PRESENTATION),
+}
+
+
+def architecture_depth_to_level(depth: Optional[int]) -> Optional[int]:
+    """Map an ``ArchitectureElement`` tree depth to a V-model cascade level.
+
+    The explicit depth -> level mapping #1289 asks for. ``None`` (or a depth
+    below 0 / at or beyond the deepest expressible tier) is "not derivable" —
+    the caller stores/reports SQL ``NULL`` instead of guessing, exactly as
+    :func:`derive_requirement_levels` does for the Requirement hierarchy.
+    """
+    if depth is None or depth < 0:
+        return None
+    return ARCHITECTURE_DEPTH_TO_LEVEL.get(depth)
 
 
 def normalise_hierarchy_edge(
@@ -565,6 +592,75 @@ def _close_under(
     return reached
 
 
+def architecture_allocated_levels(
+    tenant_id: UUID,
+) -> Dict[UUID, Optional[int]]:
+    """Return ``{requirement_artifact_id: architecture_level_or_None}`` (#1289).
+
+    The architecture axis of the V-model level derivation: for every Requirement
+    that is the source of an ``allocated-to`` link (direction
+    Requirement -> ArchitectureElement, ``traceability.types.LinkType``), map the
+    depth of the target element through :func:`architecture_depth_to_level`.
+
+    A Requirement allocated to elements at *disagreeing* depths — or to an
+    element deeper than the cascade can express — is ``None`` ("not derivable"),
+    never a guess, mirroring the converging-DAG rule of
+    :func:`derive_requirement_levels`.
+
+    Requirements with no ``allocated-to`` link are simply absent from the result
+    (the caller reports those as "no allocation" rather than as NULL). Tenant and
+    workspace are supplied explicitly by the caller, so the thread-local manager
+    is bypassed on purpose (audit-infrastructure convention; RLS remains the
+    DB-level backstop).
+    """
+    from persistence.models import ArchitectureElement, Requirement, TraceLink
+
+    requirement_ids = set(
+        Requirement.unscoped.filter(tenant_id=tenant_id).values_list(
+            "artifact_id", flat=True
+        )
+    )
+    if not requirement_ids:
+        return {}
+
+    requirement_elements: Dict[UUID, Set[UUID]] = defaultdict(set)
+    element_ids: Set[UUID] = set()
+    for source_id, target_id in TraceLink.unscoped.filter(
+        tenant_id=tenant_id, link_type=LinkType.ALLOCATED_TO.value
+    ).values_list("source_id", "target_id"):
+        if source_id in requirement_ids:
+            requirement_elements[source_id].add(target_id)
+            element_ids.add(target_id)
+
+    if not requirement_elements:
+        return {}
+
+    # TraceLink endpoints are *Artifact* ids, not ArchitectureElement row ids,
+    # so the element lookup goes through ``artifact_id`` and the depth map is
+    # keyed by the artifact id the link actually carries.
+    elements = list(
+        ArchitectureElement.unscoped.filter(tenant_id=tenant_id, artifact_id__in=element_ids)
+    )
+    if not elements:
+        return {}
+    depths = ArchitectureElement.annotate_levels(elements)
+    level_by_artifact = {
+        element.artifact_id: architecture_depth_to_level(depths.get(element.id))
+        for element in elements
+    }
+
+    levels: Dict[UUID, Optional[int]] = {}
+    for requirement_id, allocated_element_ids in requirement_elements.items():
+        mapped = {
+            level_by_artifact[element_id]
+            for element_id in allocated_element_ids
+            if element_id in level_by_artifact
+        }
+        levels[requirement_id] = next(iter(mapped)) if len(mapped) == 1 else None
+    return levels
+
+
+
 def recompute_requirement_levels(
     changed_artifact_ids: Iterable[UUID | str],
     *,
@@ -644,6 +740,17 @@ def recompute_requirement_levels(
         children[parent_id].add(child_id)
         parents[child_id].add(parent_id)
 
+    # #1289: a manual override is never overwritten by the derivation. A
+    # ``level_source == MANUAL`` row is treated exactly like a pre-set value
+    # under ``fill_only``: the graph may have moved, but the human's explicit
+    # choice wins until they clear it (set_manual_level(level=None)).
+    manual_ids: Set[UUID] = set(
+        Requirement.unscoped.filter(
+            tenant_id=tenant_id,
+            level_source=RequirementLevelSource.MANUAL,
+        ).values_list("artifact_id", flat=True)
+    )
+
     # Ancestors up, descendants down — the smallest subgraph in which the
     # topmost node is a true root and every shifted level is covered.
     scope = _close_under(seeds, parents) | _close_under(seeds, children)
@@ -656,6 +763,8 @@ def recompute_requirement_levels(
             continue
         if fill_only and current.get(artifact_id) is not None:
             continue
+        if artifact_id in manual_ids:
+            continue
         grouped[level].append(artifact_id)
 
     changed: Dict[UUID, Optional[int]] = {}
@@ -665,7 +774,9 @@ def recompute_requirement_levels(
         # counter of every node in the moved subtree. The cost of that choice
         # is recorded in the ADR-005 report — the baseline diff engine sees a
         # level change at the next content write, not at the hierarchy write.
-        Requirement.unscoped.filter(artifact_id__in=artifact_ids).update(level=level)
+        Requirement.unscoped.filter(artifact_id__in=artifact_ids).update(
+            level=level, level_source=RequirementLevelSource.DERIVED
+        )
         changed.update({artifact_id: level for artifact_id in artifact_ids})
     return changed
 
@@ -736,11 +847,14 @@ def classify_requirements(workspace_id: str | UUID) -> Dict[str, Set[str]]:
 
 
 __all__ = [
+    "ARCHITECTURE_DEPTH_TO_LEVEL",
     "CASCADE_TOP_LEVEL",
     "CHILD_TO_PARENT_LINK_TYPES",
     "HIERARCHY_LINK_TYPES",
     "PARENT_TO_CHILD_LINK_TYPES",
     "ROOT_REQUIREMENT_LEVEL",
+    "architecture_allocated_levels",
+    "architecture_depth_to_level",
     "classify_requirements",
     "cyclic_hierarchy_nodes",
     "derive_requirement_levels",

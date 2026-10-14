@@ -23,6 +23,7 @@ from persistence.models import ArchitectureElement
 from traceability.audit import RuleEngine
 from traceability.audit.registry import (
     ARCH_003,
+    CONS_P12,
     TRACE_P1,
     TRACE_P1B,
     TRACE_P2,
@@ -107,8 +108,11 @@ class TestTraceP2SeverityCalibration:
         warning_rules = {f.rule_id for f in result.warnings()}
         # Genuine blockers are untouched by the calibration ...
         assert {TRACE_P1, TRACE_P1B, VERIF_P8} <= blocker_rules
-        # ... and the advisory classification produces actual warnings.
-        assert warning_rules == {TRACE_P2}
+        # ... and the advisory classification produces actual warnings. #1289
+        # adds CONS-P12 (a NULL V-model level) as a second advisory finding for
+        # this exact fixture (the unallocated requirement has no level either);
+        # it is WARNING, so the "not 100% blockers" calibration still holds.
+        assert warning_rules == {TRACE_P2, CONS_P12}
 
     def test_aggregated_arch003_findings_stay_blockers(self, tenant_a, workspace_a):
         """Only TRACE-P2 was re-calibrated — ARCH-003 keeps its teeth."""
