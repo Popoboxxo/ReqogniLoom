@@ -394,6 +394,14 @@
      measures 6.29:1. */
   --color-primary: var(--palette-indigo-600);
   --color-primary-dark: var(--palette-indigo-700);
+  /* #1280: readable PRIMARY-AS-TEXT variant. --color-primary is tuned for
+     use as a *fill* (white text on it), so painting it as text on the dark
+     surface measures only 2.76:1 (dashboard KPI numbers, /audit's "Modify"
+     action) — below both the 4.5:1 normal-text and the 3:1 large-text bar.
+     This token is the same brand accent one ramp step lighter in dark mode
+     (indigo-400 = 5.98:1 on --color-surface). Enforced by
+     src/test/theme-contrast.test.ts. */
+  --color-primary-text: var(--palette-indigo-400);
   /* Comma-separated R,G,B triplet (not a #hex/rgb() string) for call sites
      that build rgba(var(--color-primary-rgb), alpha) themselves — always
      kept in sync with --color-primary above. */
@@ -898,6 +906,9 @@
 :root[data-theme="light"] {
   --color-primary: var(--palette-indigo-600); /* darker for AA contrast on white */
   --color-primary-dark: var(--palette-indigo-700);
+  /* #1280: indigo-600 already clears AA as text on the light surface
+     (6.01:1), so the readable variant matches --color-primary here. */
+  --color-primary-text: var(--palette-indigo-600);
   --color-primary-rgb: var(--palette-indigo-600-rgb);
   --color-on-primary-rgb: var(--palette-white-rgb);
   --color-surface: var(--palette-slate-50);
@@ -1080,6 +1091,9 @@
 :root[data-theme="bauhaus"] {
   --color-primary: var(--palette-bauhaus-mustard-500);
   --color-primary-dark: var(--palette-bauhaus-mustard-600);
+  /* #1280: mustard-500 measures only 1.69:1 as text on the alabaster
+     surface; the brand's own deep navy clears AA at 12.75:1. */
+  --color-primary-text: var(--palette-bauhaus-navy);
   --color-primary-rgb: 235, 181, 74;
   --color-on-primary-rgb: var(--palette-bauhaus-navy-rgb);
   --color-surface: var(--palette-bauhaus-alabaster);
@@ -1254,6 +1268,9 @@
 :root[data-theme="nordic"] {
   --color-primary: var(--palette-nordic-frost-600);
   --color-primary-dark: var(--palette-nordic-frost-700);
+  /* #1280: frost-600 measures 3.01:1 as text on the night surface — under
+     AA. The lighter frost-300 clears it at 8.64:1 and stays on-palette. */
+  --color-primary-text: var(--palette-nordic-frost-300);
   --color-primary-rgb: var(--palette-nordic-frost-600-rgb);
   --color-on-primary-rgb: var(--palette-white-rgb);
   --color-surface: var(--palette-nordic-night);
@@ -1415,6 +1432,9 @@
 :root[data-theme="sepia"] {
   --color-primary: var(--palette-sepia-orange-700);
   --color-primary-dark: var(--palette-sepia-orange-800);
+  /* #1280: orange-700 already clears AA as text on the cream surface
+     (5.06:1), so the readable variant matches --color-primary. */
+  --color-primary-text: var(--palette-sepia-orange-700);
   --color-primary-rgb: var(--palette-sepia-orange-700-rgb);
   --color-on-primary-rgb: var(--palette-white-rgb);
   --color-surface: var(--palette-sepia-cream);

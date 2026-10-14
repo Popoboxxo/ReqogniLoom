@@ -503,7 +503,7 @@ export default function WorkspaceSettings(): JSX.Element {
                     aria-pressed={p.key === paletteKey}
                     onClick={() => setPreference(p.key, mode)}
                   >
-                    {p.label}
+                    {t(`nav.${p.key}Theme`, p.label)}
                   </button>
                 ))}
               </div>

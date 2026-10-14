@@ -154,4 +154,28 @@ describe("AttributeEditorPage catalog entry (WS5 #942)", () => {
       "risk_score"
     );
   });
+
+  // #1281: /attributes is a routed page of its own and had no page heading at
+  // all — no <h1>, no summary. It must now carry exactly one.
+  it("renders exactly one <h1> when mounted as the /attributes route (#1281)", async () => {
+    renderPage();
+    await screen.findByTestId("attribute-row-title");
+
+    const headings = screen.getAllByRole("heading", { level: 1 });
+    expect(headings).toHaveLength(1);
+    expect(headings[0]).toHaveTextContent("Attribute Catalog");
+  });
+
+  // ...and none when embedded, where the host page (WorkspaceSettings /
+  // SystemSettings) already owns the route's single <h1>.
+  it("renders no <h1> when embedded outside /attributes (#1281)", async () => {
+    render(
+      <MemoryRouter initialEntries={["/settings"]}>
+        <AttributeEditorPage scope="workspace" />
+      </MemoryRouter>
+    );
+    await screen.findByTestId("attribute-row-title");
+
+    expect(screen.queryByRole("heading", { level: 1 })).not.toBeInTheDocument();
+  });
 });

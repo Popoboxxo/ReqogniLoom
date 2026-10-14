@@ -104,6 +104,12 @@ const CONTRAST_PAIRS: ReadonlyArray<readonly [fg: string, bg: string, backdrop: 
   // royal-blue chip — 2.06:1 in 4 of 5 themes) now uses the dedicated,
   // frozen --color-nav-badge-* pair sized for the sidebar chrome.
   ["--color-nav-badge-text", "--color-nav-badge-bg", "--color-nav-bg"],
+  // #1280 (WCAG 1.4.3): primary-as-TEXT. --color-primary is a *fill* colour
+  // (white text sits on it), so as text on the page surface it measures only
+  // 2.76:1 in dark (dashboard KPI numbers, /audit's "Modify" action). The
+  // dedicated --color-primary-text token is the readable variant per theme and
+  // must clear AA everywhere it is painted as text.
+  ["--color-primary-text", "--color-surface", "--color-surface"],
 ];
 
 /* ==========================================================================
@@ -446,6 +452,63 @@ describe("WCAG AA contrast per theme (theming phase 3, Task 3, #568)", () => {
     );
     console.table(rows);
     expect(rows).toHaveLength(THEME_IDS.length * CONTRAST_PAIRS.length);
+  });
+});
+
+/* ==========================================================================
+ * #1280 — primary-as-text readability ratchet
+ *
+ * The token half of the fix lives in `CONTRAST_PAIRS` above; this suite is
+ * the *regression* half: it pins the two call sites the issue named
+ * (dashboard KPI numbers, /audit's "Modify" action) to the readable token, so
+ * a later edit cannot silently put `--color-primary` back as text and
+ * reintroduce the 2.76:1 / 2.82:1 shortfall.
+ * ========================================================================== */
+describe("primary-as-text readability ratchet (#1280)", () => {
+  it("keeps --color-primary-text at or above the AA floor in every theme", () => {
+    for (const themeId of THEME_IDS) {
+      const ratio = measure(themeId, "--color-primary-text", "--color-surface");
+      expect(
+        ratio,
+        `theme '${themeId}': --color-primary-text on --color-surface measures ${ratio}:1`,
+      ).toBeGreaterThanOrEqual(AA_MIN_RATIO);
+    }
+  });
+
+  it("every theme declares a resolvable --color-primary-text", () => {
+    for (const themeId of THEME_IDS) {
+      expect(
+        () => parseColor(resolveRawValue(themeMaps[themeId], "--color-primary-text")),
+        `theme '${themeId}' declares no resolvable --color-primary-text`,
+      ).not.toThrow();
+    }
+  });
+
+  /** First declaration block of the given selector in a CSS-module source. */
+  function rulesFor(css: string, selector: string): string {
+    const match = new RegExp(`${selector.replace(/\./g, "\\.")}\\s*\\{([^}]*)\\}`).exec(css);
+    if (match === null) throw new Error(`no rule for ${selector}`);
+    return match[1];
+  }
+
+  it("paints the dashboard KPI numbers with the readable primary token", () => {
+    const css = readFileSync(
+      join(resolve(__dirname, ".."), "components", "DashboardViews", "WorkspaceCard.module.css"),
+      "utf-8",
+    );
+    const rule = rulesFor(css, ".statValue");
+    expect(rule).toMatch(/color:\s*var\(--color-primary-text\)/);
+    expect(rule).not.toMatch(/color:\s*var\(--color-primary\)\s*;/);
+  });
+
+  it("paints the /audit Modify action with the readable primary token", () => {
+    const css = readFileSync(
+      join(resolve(__dirname, ".."), "components", "Audit", "audit-dashboard.module.css"),
+      "utf-8",
+    );
+    const rule = rulesFor(css, ".modifyButton");
+    expect(rule).toMatch(/color:\s*var\(--color-primary-text\)/);
+    expect(rule).not.toMatch(/color:\s*var\(--color-primary\)\s*;/);
   });
 });
 

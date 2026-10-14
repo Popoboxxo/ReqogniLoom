@@ -125,6 +125,10 @@ export function TestRunsList(): JSX.Element {
   // defaults to the first focusable element in the panel (its own × close
   // button) unless told otherwise.
   const nameInputRef = useRef<HTMLInputElement | null>(null);
+  // #1278: `testrun-create-btn` is disabled while the create dialog is open,
+  // so the browser blurs it before the dialog's focus trap can snapshot it —
+  // an explicit trigger ref restores focus to the button on close.
+  const createTriggerRef = useRef<HTMLButtonElement | null>(null);
 
   const toggleTestCaseSelection = (id: string): void => {
     setSelectedTestCaseIds((prev) =>
@@ -189,6 +193,7 @@ export function TestRunsList(): JSX.Element {
           onClick: () => setShowCreateForm(true),
           disabled: showCreateForm,
           testId: "testrun-create-btn",
+          triggerRef: createTriggerRef,
         }}
       />
 
@@ -234,6 +239,7 @@ export function TestRunsList(): JSX.Element {
             title={t("testRuns.create", "Create Run")}
             onClose={handleCancelCreate}
             initialFocusRef={nameInputRef}
+            triggerRef={createTriggerRef}
             testId="testrun-create-dialog"
           >
           <form

@@ -74,10 +74,71 @@ function DialogHost({
   );
 }
 
+/**
+ * #1278 harness: the declared trigger is NOT the element that opens the dialog.
+ *
+ * Mirrors the real routes' failure mode in a deterministic way: there, the
+ * browser blurs the trigger the instant React marks it `disabled`, before the
+ * trap can snapshot `document.activeElement`. Here the opener is simply a
+ * different button, so the "active element at open" and the "declared trigger"
+ * are unambiguously not the same element — which is exactly the state the trap
+ * has to resolve correctly.
+ */
+function ExplicitTriggerDialogHost(): JSX.Element {
+  const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  return (
+    <div>
+      <button type="button" data-testid="declared-trigger" ref={triggerRef}>
+        Öffnen
+      </button>
+      <button type="button" data-testid="opener" onClick={() => setOpen(true)}>
+        Anders öffnen
+      </button>
+      {open && (
+        <Dialog title="Legende" onClose={() => setOpen(false)} triggerRef={triggerRef}>
+          <button type="button" data-testid="inner-first">
+            Erster
+          </button>
+        </Dialog>
+      )}
+    </div>
+  );
+}
+
+/**
+ * #1278 harness: the create-button shape used by /needs, /architecture and
+ * /test-runs — the trigger carries `disabled={open}` and the dialog is given
+ * the trigger ref explicitly.
+ */
+function DisabledTriggerDialogHost(): JSX.Element {
+  const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  return (
+    <div>
+      <button
+        type="button"
+        data-testid="trigger"
+        ref={triggerRef}
+        disabled={open}
+        onClick={() => setOpen(true)}
+      >
+        Neu
+      </button>
+      {open && (
+        <Dialog title="Neu" onClose={() => setOpen(false)} triggerRef={triggerRef}>
+          <button type="button" data-testid="inner-first">
+            Erster
+          </button>
+        </Dialog>
+      )}
+    </div>
+  );
+}
+
 beforeEach(() => {
   document.body.style.overflow = "";
 });
-
 describe("<Dialog> — UI concept ch. 12.8", () => {
   it("carries role, aria-modal and aria-labelledby together", async () => {
     const user = userEvent.setup();
@@ -192,6 +253,38 @@ describe("<Dialog> — UI concept ch. 12.8", () => {
     await user.click(trigger);
     await user.keyboard("{Escape}");
 
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  // #1278: the three failing routes (/needs, /architecture, /test-runs) disable
+  // their create button while the dialog is open, so `document.activeElement`
+  // at mount is `<body>`, not the trigger. An explicit `triggerRef` must win
+  // over that snapshot.
+  it("returns focus to an explicit triggerRef even when it was not the active element at open (#1278)", async () => {
+    const user = userEvent.setup();
+    render(<ExplicitTriggerDialogHost />);
+    const declaredTrigger = screen.getByTestId("declared-trigger");
+
+    await user.click(screen.getByTestId("opener"));
+    // Focus moved into the dialog, so the opener is no longer it.
+    expect(document.activeElement).toBe(screen.getByTestId("inner-first"));
+
+    await user.keyboard("{Escape}");
+
+    expect(document.activeElement).toBe(declaredTrigger);
+  });
+
+  it("returns focus to a trigger that is disabled while the dialog is open (#1278)", async () => {
+    const user = userEvent.setup();
+    render(<DisabledTriggerDialogHost />);
+    const trigger = screen.getByTestId("trigger");
+
+    await user.click(trigger);
+    expect(trigger).toBeDisabled();
+
+    await user.keyboard("{Escape}");
+
+    expect(trigger).not.toBeDisabled();
     expect(document.activeElement).toBe(trigger);
   });
 

@@ -504,7 +504,7 @@ export function PromptVariablesSection({
                   disabled={isBusy}
                   style={primaryButtonStyle}
                 >
-                  {t("save", "Save")}
+                  {t("actions.save")}
                 </button>
                 <button
                   type="button"

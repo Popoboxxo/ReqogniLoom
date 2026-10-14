@@ -314,6 +314,12 @@ export default function NeedsEditors(): JSX.Element {
   // #1100 follow-up: the create form (in NeedList) is the shortcut's container,
   // so a covering modal suspends it rather than saving behind the overlay.
   const createFormRef = React.useRef<HTMLFormElement | null>(null);
+  // #1278: `create-need-btn` is disabled while the create dialog is open, so
+  // the dialog cannot snapshot it via `document.activeElement` — the browser
+  // blurs the now-unfocusable trigger in the same commit that mounts the
+  // dialog. Threading this ref into the dialog's `triggerRef` restores focus
+  // to the button on close regardless of that timing.
+  const createTriggerRef = React.useRef<HTMLButtonElement | null>(null);
   useSaveShortcut({
     onSave: handleCreateNew,
     enabled: showCreate,
@@ -476,6 +482,7 @@ export default function NeedsEditors(): JSX.Element {
           onClick: handleCreateNewClick,
           disabled: showCreate,
           testId: 'create-need-btn',
+          triggerRef: createTriggerRef,
         }}
         // #797: the guided-interview start is a second *create path*, not a
         // variant of the primary one — as a visible secondary button it made
@@ -509,6 +516,7 @@ export default function NeedsEditors(): JSX.Element {
             isCreating={isCreating}
             onCreateClick={handleCreateNewClick}
             createFormRef={createFormRef}
+            createTriggerRef={createTriggerRef}
             onSelect={selectNeed}
           />
         </div>

@@ -98,8 +98,17 @@
      scrollHeight already equals its clientHeight by construction, `auto`
      produces zero visual/behavioral change (no scrollbar can appear) while
      removing the literal `hidden` value that automation keeps flagging as
-     "sidebar not scrollable" on the wrong element. overflow-x stays hidden
-     since horizontal scrolling was never desired here. */
+      "sidebar not scrollable" on the wrong element. overflow-x stays hidden
+      since horizontal scrolling was never desired here.
+
+      #1279 re-verification (1366x768): the reported `nav { overflow-y: hidden }`
+      does not exist here — the value is `auto` (this rule), and the real scroll
+      region is `.scrollContent` below (`overflow-y: auto` + persistent styled
+      scrollbar). The height chain that makes it scroll is intact:
+      AppShell `.shell` (height: 100vh) -> `.contentRow` (flex: 1; min-height: 0)
+      -> `.navRoot` (flex column) -> `.scrollWrapper` (flex: 1 1 auto;
+      min-height: 0) -> `.scrollContent` (height: 100%; overflow-y: auto). All
+      nav links are reachable, so no change was needed for #1279. */
   overflow-x: hidden;
   overflow-y: auto;
 }

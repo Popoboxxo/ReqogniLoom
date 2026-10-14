@@ -186,7 +186,7 @@ export function WorkspaceAdminSection(): JSX.Element {
           <div className={styles.cloneRow}>
             <input
               type="text"
-              placeholder="Sandbox Name"
+              placeholder={t("settings.cloneNamePlaceholder")}
               value={cloneName}
               onChange={(e) => setCloneName(e.target.value)}
               className={styles.cloneInput}
@@ -198,7 +198,9 @@ export function WorkspaceAdminSection(): JSX.Element {
               onClick={() => void handleCloneWorkspace()}
               disabled={isCloning || !cloneName.trim()}
             >
-              {isCloning ? "Cloning…" : "Create Sandbox"}
+              {isCloning
+                ? t("settings.cloningSandbox")
+                : t("settings.createSandbox")}
             </button>
           </div>
         )}

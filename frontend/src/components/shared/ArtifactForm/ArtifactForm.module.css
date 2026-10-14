@@ -151,6 +151,20 @@
   color: var(--color-danger);
 }
 
+/* #1282: live character counter for a bounded text field. Rendered only once
+   the value reaches 80% of its definition `validation.length`; muted until the
+   limit is hit so it reads as a warning rather than a second error. */
+.lengthFeedback {
+  align-self: flex-end;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.lengthFeedbackAtLimit {
+  color: var(--color-danger);
+}
+
 .checkboxRow {
   display: flex;
   align-items: center;

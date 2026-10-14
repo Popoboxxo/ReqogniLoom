@@ -248,6 +248,39 @@ describe("BaselinesView container (REQ-053 smoke tests)", () => {
     });
   });
 
+  // #1282: /baselines was the one create flow in the app that rendered inline
+  // (a right-hand SplitView panel) instead of in the shared modal <Dialog>,
+  // so it had no role=dialog, no focus trap and no Escape handling.
+  it("opens the create flow as a modal dialog (#1282)", async () => {
+    vi.mocked(baselinesModule.baselinesApi.list).mockResolvedValue({ results: [] } as never);
+    vi.mocked(baselinesModule.baselinesApi.previewScope).mockResolvedValue({
+      count: 0,
+      artifact_ids: [],
+    } as never);
+    const user = userEvent.setup();
+    renderBaselinesView();
+    await waitFor(() => {
+      expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    });
+
+    const overflowTrigger = screen.getByTestId("page-header-overflow-trigger");
+    await user.click(overflowTrigger);
+    await user.click(screen.getByTestId("create-baseline-btn"));
+
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveAttribute("aria-modal", "true");
+    expect(screen.getByTestId("create-baseline-form")).toBeInTheDocument();
+
+    await user.keyboard("{Escape}");
+
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+    // Focus returns to the overflow trigger that opened the menu (the create
+    // action's visible trigger), not to <body>.
+    expect(document.activeElement).toBe(overflowTrigger);
+  });
+
   it("[REQ-053] renders error alert when API returns an error", async () => {
     vi.mocked(baselinesModule.baselinesApi.list).mockRejectedValue(
       { error: { message: "baseline service unavailable" } }

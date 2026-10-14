@@ -19,7 +19,7 @@
  *   IF-RF-EXT-OUT-001 → GET /api/v1/artifacts/ (artifact picker for create form)
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   isSeAuditorBlocked,
@@ -32,6 +32,7 @@ import { PageHeader } from "../shared/PageHeader";
 import { EmptyState } from "../shared/EmptyState/EmptyState";
 import { ListToolbar } from "../shared/ListToolbar";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
+import { Dialog } from "../shared/Dialog";
 import type { Artifact } from "../../types";
 import {
   BaselineComparePanel,
@@ -97,6 +98,9 @@ export default function BaselinesView(): JSX.Element {
   const [listSearch, setListSearch] = useState<string>("");
   const [scopeFilter, setScopeFilter] = useState<BaselineScope | "">("");
   const [showForm, setShowForm] = useState(false);
+  // #1282: the create flow is a modal <Dialog> now — the name field is its
+  // initial focus target (matching the other create dialogs).
+  const createNameInputRef = useRef<HTMLInputElement | null>(null);
   // Issue #48: the create form had no name field at all, so every baseline
   // landed on the backend's `Baseline <ISO timestamp>` fallback and the list
   // became a wall of indistinguishable timestamps — with no way to say what a
@@ -253,16 +257,24 @@ export default function BaselinesView(): JSX.Element {
     setDiffError(null);
   }, []);
 
-  const toggleCreateForm = useCallback((): void => {
+  // #1282: creation runs in the shared modal <Dialog>, like every other
+  // entity route — open and close are now distinct actions, and closing
+  // discards the draft (mirrors the old Cancel button verbatim).
+  const openCreateForm = useCallback((): void => {
     setShowCompare(false);
-    setShowForm((v) => {
-      // Cancelling discards the draft; the same button re-opens a clean form.
-      if (v) {
-        setFormName("");
-        setCreateError(null);
-      }
-      return !v;
-    });
+    setSelectedId(null);
+    setFormName("");
+    setCreateError(null);
+    setGateBlocked(false);
+    setOverrideReason("");
+    setShowForm(true);
+  }, []);
+
+  const closeCreateForm = useCallback((): void => {
+    setShowForm(false);
+    setCreateError(null);
+    setGateBlocked(false);
+    setOverrideReason("");
   }, []);
 
   // #181: search (by name) + scope filter. Computed unconditionally (rules
@@ -340,8 +352,8 @@ export default function BaselinesView(): JSX.Element {
         ]}
         overflowActions={[
           {
-            label: showForm ? t("actions.cancel") : t("baselines.create"),
-            onClick: toggleCreateForm,
+            label: t("baselines.create"),
+            onClick: openCreateForm,
             testId: "create-baseline-btn",
           },
         ]}
@@ -444,12 +456,73 @@ export default function BaselinesView(): JSX.Element {
               loading={diffLoading}
               error={diffError}
             />
-          ) : showForm ? (
-          <div data-testid="create-baseline-form" className={styles.createPanel}>
-            <h3 className={styles.createHeading}>
-              + {t("baselines.create")}
-            </h3>
+          ) : selectedBaseline ? (
+          <div data-testid="baseline-detail" className={styles.detailPanel}>
+            <h2 className={styles.detailTitle} title={selectedBaseline.id}>
+              {selectedBaseline.name || `${selectedBaseline.id.slice(0, 8)}…`}
+            </h2>
 
+            <dl className={styles.detailGrid}>
+              <dt className={styles.detailTerm}>{t("baselines.id")}</dt>
+              <dd className={styles.detailValue}>
+                <code className={styles.mono}>{selectedBaseline.id}</code>
+              </dd>
+
+              <dt className={styles.detailTerm}>{t("baselines.scope")}</dt>
+              <dd className={styles.detailValue}>{selectedBaseline.scope}</dd>
+
+              <dt className={styles.detailTerm}>{t("baselines.artifact")}</dt>
+              <dd className={styles.detailValue}>
+                {selectedBaseline.artifact_id ? (
+                  <code className={styles.mono}>{selectedBaseline.artifact_id}</code>
+                ) : (
+                  "—"
+                )}
+              </dd>
+
+              <dt className={styles.detailTerm}>{t("baselines.created")}</dt>
+              <dd className={styles.detailValue}>
+                {formatDate(selectedBaseline.created_at)}
+              </dd>
+            </dl>
+
+            {/* REQ-L2-BL-012: captured items with their full-state snapshot. */}
+            <BaselineEntriesSection
+              entries={detail?.entries ?? null}
+              loading={detailLoading}
+              error={detailError}
+            />
+
+            <button
+              type="button"
+              data-testid="baseline-delete-btn"
+              onClick={() => setPendingDeleteId(selectedBaseline.id)}
+              className={styles.deleteBtn}
+            >
+              {t("actions.delete")}
+            </button>
+          </div>
+        ) : (
+          <p className={styles.selectPrompt}>
+            {t("baselines.selectBaseline")}
+          </p>
+          )
+        }
+      />
+      </div>
+
+      {/* #1282: baseline creation runs in the shared modal <Dialog> (role=dialog,
+          focus trap, Escape, focus return) like every other entity route —
+          previously it rendered an inline panel in the right-hand SplitView
+          pane, the one create flow in the app that was not a modal. */}
+      {showForm && (
+        <Dialog
+          title={t("baselines.create")}
+          onClose={closeCreateForm}
+          testId="baseline-create-dialog"
+          initialFocusRef={createNameInputRef}
+        >
+          <div data-testid="create-baseline-form" className={styles.createPanel}>
             {/* Issue #48: name the baseline. Optional — an empty value keeps
                 the backend's generated `Baseline <timestamp>` name. */}
             <label htmlFor="baseline-name" className={styles.formLabel}>
@@ -457,6 +530,7 @@ export default function BaselinesView(): JSX.Element {
             </label>
             <input
               id="baseline-name"
+              ref={createNameInputRef}
               data-testid="baseline-name-input"
               type="text"
               value={formName}
@@ -603,14 +677,11 @@ export default function BaselinesView(): JSX.Element {
                   className={styles.overrideReasonInput}
                 />
                 <button
+                  type="button"
                   data-testid="baseline-override-submit-btn"
                   onClick={() => void handleCreate(true)}
                   disabled={overrideSubmitDisabled}
-                  className={`${styles.overrideSubmitBtn} ${
-                    overrideSubmitDisabled
-                      ? styles.overrideSubmitBtnDisabled
-                      : styles.overrideSubmitBtnEnabled
-                  }`}
+                  className="btn-danger"
                 >
                   {t("baselines.overrideSubmit")}
                 </button>
@@ -619,84 +690,26 @@ export default function BaselinesView(): JSX.Element {
 
             <div className={styles.formActions}>
               <button
+                type="button"
                 data-testid="baseline-submit-btn"
                 onClick={() => void handleCreate()}
                 disabled={createSubmitDisabled}
-                className={`${styles.submitBtn} ${
-                  createSubmitDisabled
-                    ? styles.submitBtnDisabled
-                    : styles.submitBtnEnabled
-                }`}
+                className="btn-primary"
               >
                 {isSaving ? t("actions.saving") : t("actions.save")}
               </button>
               <button
-                onClick={() => {
-                  setShowForm(false);
-                  setCreateError(null);
-                  setGateBlocked(false);
-                  setOverrideReason("");
-                }}
-                className={styles.cancelBtn}
+                type="button"
+                data-testid="baseline-create-cancel-btn"
+                onClick={closeCreateForm}
+                className="btn-secondary"
               >
                 {t("actions.cancel")}
               </button>
             </div>
           </div>
-        ) : selectedBaseline ? (
-          <div data-testid="baseline-detail" className={styles.detailPanel}>
-            <h2 className={styles.detailTitle} title={selectedBaseline.id}>
-              {selectedBaseline.name || `${selectedBaseline.id.slice(0, 8)}…`}
-            </h2>
-
-            <dl className={styles.detailGrid}>
-              <dt className={styles.detailTerm}>{t("baselines.id")}</dt>
-              <dd className={styles.detailValue}>
-                <code className={styles.mono}>{selectedBaseline.id}</code>
-              </dd>
-
-              <dt className={styles.detailTerm}>{t("baselines.scope")}</dt>
-              <dd className={styles.detailValue}>{selectedBaseline.scope}</dd>
-
-              <dt className={styles.detailTerm}>{t("baselines.artifact")}</dt>
-              <dd className={styles.detailValue}>
-                {selectedBaseline.artifact_id ? (
-                  <code className={styles.mono}>{selectedBaseline.artifact_id}</code>
-                ) : (
-                  "—"
-                )}
-              </dd>
-
-              <dt className={styles.detailTerm}>{t("baselines.created")}</dt>
-              <dd className={styles.detailValue}>
-                {formatDate(selectedBaseline.created_at)}
-              </dd>
-            </dl>
-
-            {/* REQ-L2-BL-012: captured items with their full-state snapshot. */}
-            <BaselineEntriesSection
-              entries={detail?.entries ?? null}
-              loading={detailLoading}
-              error={detailError}
-            />
-
-            <button
-              type="button"
-              data-testid="baseline-delete-btn"
-              onClick={() => setPendingDeleteId(selectedBaseline.id)}
-              className={styles.deleteBtn}
-            >
-              {t("actions.delete")}
-            </button>
-          </div>
-        ) : (
-          <p className={styles.selectPrompt}>
-            {t("baselines.selectBaseline")}
-          </p>
-          )
-        }
-      />
-      </div>
+        </Dialog>
+      )}
 
       {pendingDeleteId && (
         <ConfirmDialog

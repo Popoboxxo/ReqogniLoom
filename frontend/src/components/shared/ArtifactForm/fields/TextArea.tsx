@@ -2,6 +2,7 @@ import { useTranslation } from "react-i18next";
 
 import styles from "../ArtifactForm.module.css";
 import { FieldShell, ariaProps, type FieldProps } from "./FieldShell";
+import { LengthFeedback } from "./LengthFeedback";
 
 export function TextArea({
   attribute,
@@ -28,9 +29,15 @@ export function TextArea({
         rows={6}
         value={value ?? ""}
         disabled={disabled}
-        maxLength={attribute.validation.length}
+        maxLength={attribute.validation?.length}
         onChange={(event) => onChange(event.target.value)}
         {...ariaProps(attribute, testId, errors)}
+      />
+      {/* #1282: show proximity to the definition's length limit (80%+). */}
+      <LengthFeedback
+        value={value}
+        maxLength={attribute.validation?.length}
+        testId={testId}
       />
     </FieldShell>
   );

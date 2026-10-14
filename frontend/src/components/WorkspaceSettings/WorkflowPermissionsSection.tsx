@@ -279,7 +279,9 @@ export function WorkflowPermissionsSection({
                       onReset={() => setPendingWorkflowReset(e.type)}
                       disabled={!row.isCustomized || !row.hasSource}
                       busy={row.resetting}
-                      ariaLabel={`Reset ${entityTypeLabel(e.type)} workflow to default`}
+                      ariaLabel={t("settings.resetWorkflowAria", {
+                        entity: entityTypeLabel(e.type),
+                      })}
                       title={
                         !row.hasSource
                           ? t(
@@ -334,7 +336,7 @@ export function WorkflowPermissionsSection({
                     !permDef?.is_customized || permDef?.source_global_id == null
                   }
                   busy={permResetting}
-                  ariaLabel="Reset workspace permission matrix to default"
+                  ariaLabel={t("settings.resetPermissionMatrixAria")}
                   testId="permission-config-reset"
                 />
                 <button
@@ -411,6 +413,7 @@ export function WorkflowPermissionsSection({
 
 /** Compact read-only ✓/— view of the effective matrix (SCR-202 Card 2). */
 function ReadOnlyMatrix({ matrix }: { matrix: PermissionMatrix }): JSX.Element {
+  const { t } = useTranslation();
   return (
     <div className={styles.scrollX}>
       <table
@@ -420,11 +423,11 @@ function ReadOnlyMatrix({ matrix }: { matrix: PermissionMatrix }): JSX.Element {
         <thead>
           <tr>
             <th className={`${styles.th} ${styles.thLeft}`} scope="col">
-              Role
+              {t("permissionMatrix.roleColumn")}
             </th>
             {CAPABILITY_KEYS.map((cap) => (
-              <th key={cap} className={styles.th} scope="col">
-                {cap}
+              <th key={cap} className={styles.th} scope="col" title={cap}>
+                {t("permissionMatrix.capability." + cap, cap)}
               </th>
             ))}
           </tr>
@@ -442,7 +445,10 @@ function ReadOnlyMatrix({ matrix }: { matrix: PermissionMatrix }): JSX.Element {
                 <td
                   key={cap}
                   className={styles.td}
-                  aria-label={`${role} ${cap} ${matrix[role][cap] ? "allowed" : "denied"}`}
+                  aria-label={`${role} ${t(
+                    "permissionMatrix.capability." + cap,
+                    cap
+                  )} ${matrix[role][cap] ? t("permissionMatrix.allowed") : t("permissionMatrix.denied")}`}
                 >
                   {matrix[role][cap] ? "✓" : "—"}
                 </td>

@@ -325,7 +325,7 @@ export function AiPromptsSection({ workspaceId }: Props): JSX.Element {
                 disabled={isBusy}
                 className="btn-primary"
               >
-                {isBusy ? t("saving", "Saving...") : t("save", "Save")}
+                {isBusy ? t("actions.saving") : t("actions.save")}
               </button>
               <button
                 type="button"

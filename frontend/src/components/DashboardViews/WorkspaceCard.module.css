@@ -160,7 +160,10 @@
 .statValue {
   font-size: var(--font-size-2xl);
   font-weight: 700;
-  color: var(--color-primary);
+  /* #1280 (WCAG 1.4.3): --color-primary as TEXT on the dark surface measures
+     2.76:1 — below AA for large text. --color-primary-text is the readable
+     primary variant (indigo-400 in dark, indigo-600 in light). */
+  color: var(--color-primary-text);
   line-height: 1.1;
 }
 
