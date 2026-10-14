@@ -530,6 +530,13 @@ class UserDisplayPreference(TenantScopedModel):
     ``frontend/src/hooks/useReadableIdsVisible.ts`` — readable ids are visible
     unless the user hides them — so a missing row leaves the rendered behaviour
     unchanged and the server default never has to be re-derived by the client.
+
+    ``visible_metrics`` (Issue #1265) is the per-user selection/order of the
+    SE-statistics widgets: a JSON list of metric keys (see
+    ``se_metrics.registry``). ``NULL`` means "no explicit selection" — the
+    client then renders the registry's ``default_visible`` set. It is stored on
+    the same row because it shares the exact same lifecycle (self-service,
+    account-scoped, no admin gate) as ``show_readable_ids``.
     """
 
     user = models.OneToOneField(
@@ -538,6 +545,9 @@ class UserDisplayPreference(TenantScopedModel):
         related_name="display_preference",
     )
     show_readable_ids = models.BooleanField(default=True)
+    visible_metrics = models.JSONField(
+        null=True, blank=True, default=None
+    )
 
     class Meta:
         db_table = "at_user_display_preference"
@@ -545,7 +555,8 @@ class UserDisplayPreference(TenantScopedModel):
     def __str__(self) -> str:  # pragma: no cover - debug helper
         return (
             f"UserDisplayPreference(user={self.user_id}, "
-            f"show_readable_ids={self.show_readable_ids})"
+            f"show_readable_ids={self.show_readable_ids}, "
+            f"visible_metrics={self.visible_metrics})"
         )
 
 

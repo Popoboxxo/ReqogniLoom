@@ -38,10 +38,18 @@ Architecture:
 from __future__ import annotations
 
 import logging
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from se_metrics.aggregator import MetricsAggregator, DEFAULT_TIMEFRAME
 from se_metrics.cache import MetricsCacheManager
+from se_metrics.registry import (
+    ALL_METRIC_KEYS,
+    DEFAULT_METRIC_KEYS,
+    catalog_payload,
+    get_metric_spec,
+    normalize_keys,
+    select_values,
+)
 from se_metrics.types import MetricsResult, ThresholdConfig
 
 logger = logging.getLogger(__name__)
@@ -218,6 +226,97 @@ def invalidate_cache(workspace_id: str, timeframe: Optional[str] = None) -> None
 
 
 # ---------------------------------------------------------------------------
+# Central statistics registry facade (Issue #1265) — IF-L1-042 companion
+# ---------------------------------------------------------------------------
+
+
+def get_metric_catalog() -> Dict[str, Any]:
+    """Return the available statistics catalogue (Issue #1265).
+
+    One payload for the UI, ``GET /api/v1/metrics/catalog/`` and MCP
+    ``metrics.catalog``. It is pure registry metadata — no computation, no DB,
+    no tenant context required.
+
+    Returns:
+        ``{"metrics": [<entry>, ...], "default_keys": [...],
+        "all_keys": [...]}``. ``default_keys`` is the set a caller with no
+        explicit per-user selection sees.
+    """
+    return {
+        "metrics": catalog_payload(),
+        "default_keys": list(DEFAULT_METRIC_KEYS),
+        "all_keys": list(ALL_METRIC_KEYS),
+    }
+
+
+def get_metric_values(
+    workspace_id: str,
+    keys: Optional[List[str]] = None,
+    timeframe: Optional[str] = None,
+    refresh: bool = False,
+) -> Dict[str, Any]:
+    """Return the selected statistics with their values (Issue #1265).
+
+    Backs ``GET /api/v1/metrics/?workspace_id=…&keys=…`` and MCP
+    ``metrics.get``. It reuses :func:`compute_metrics` (so the existing
+    cache/TTL and thundering-herd protection apply unchanged) and then
+    extracts only the requested scalars.
+
+    Cost contract (Issue #1265 §5): a read is cache-first. ``refresh=True``
+    invalidates the workspace's cached entry first, so an expensive coverage
+    metric over 1000+ Requirements is recomputed *on demand* and never on every
+    read. The responding ``computed_at`` (top level and per metric) tells the
+    caller how fresh the value is.
+
+    Args:
+        workspace_id: Workspace UUID string.
+        keys: Metric keys to return. ``None``/empty means every registered
+            metric. Unknown keys are reported in ``unknown_keys``.
+        timeframe: ISO-8601 period string for the volatility window.
+        refresh: Invalidate the cache before computing.
+
+    Returns:
+        ``{"workspace_id", "computed_at", "timeframe",
+        "metrics": {key: {...}}, "unknown_keys": [...]}``.
+    """
+    if refresh:
+        # Invalidating before the read is what makes the read a real recompute
+        # rather than a cache hit; a timeframe-scoped invalidate leaves the
+        # other windows warm.
+        invalidate_cache(workspace_id, timeframe)
+
+    result = compute_metrics(workspace_id=workspace_id, timeframe=timeframe)
+
+    known_keys, unknown_keys = normalize_keys(keys)
+    values = select_values(result, known_keys)
+    computed_at = result.computed_at.isoformat()
+
+    metrics: Dict[str, Any] = {}
+    for key in known_keys:
+        spec = get_metric_spec(key)
+        if spec is None:  # defensive: normalize_keys already filtered
+            continue
+        metrics[key] = {
+            "key": key,
+            "title": spec.title,
+            "title_key": spec.title_key,
+            "unit": spec.unit,
+            "scope": spec.scope,
+            "expensive": spec.expensive,
+            "value": values.get(key),
+            "computed_at": computed_at,
+        }
+
+    return {
+        "workspace_id": str(result.workspace_id),
+        "computed_at": computed_at,
+        "timeframe": result.timeframe,
+        "metrics": metrics,
+        "unknown_keys": unknown_keys,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Public surface
 # ---------------------------------------------------------------------------
 
@@ -226,6 +325,9 @@ __all__ = [
     "get_threshold_config",
     "save_threshold_config",
     "invalidate_cache",
+    # Issue #1265 central statistics registry
+    "get_metric_catalog",
+    "get_metric_values",
     # Re-exports for caller convenience
     "MetricsResult",
     "ThresholdConfig",

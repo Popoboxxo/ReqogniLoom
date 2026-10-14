@@ -1,9 +1,10 @@
 """Self-service REST for the caller's own display preference (Issue #1096).
 
 ``GET``/``PATCH`` ``/api/v1/users/me/display-preferences/`` let any
-authenticated user read and change their OWN UI display preference — currently
-the single flag ``show_readable_ids`` that decides whether the readable,
-per-workspace artifact id (e.g. ``REQ-001``) is rendered. The copy operation is
+authenticated user read and change their OWN UI display preference:
+``show_readable_ids`` decides whether the readable, per-workspace artifact id
+(e.g. ``REQ-001``) is rendered, and ``visible_metrics`` (Issue #1265) is the
+user's own selection/order of the statistics widgets. The copy operation is
 unaffected: ``<IdChip>`` always copies the system id (UUID); only its visibility
 is controlled here.
 
@@ -20,10 +21,13 @@ Layer 3 only: every read and write goes through ``DisplayPreferenceService``
 (ADR-01); this module contains no ORM access — the ``rest_api/*_views.py``
 ratchet in ``rest_api/tests/test_architecture.py`` enforces that.
 
-Contract (Issue #1096):
-  GET   -> 200 ``{"show_readable_ids": <bool>}``  (server default when no row)
-  PATCH <- ``{"show_readable_ids": <bool>}``  -> 200 same shape
-        unknown key / non-bool -> 400 ``VALIDATION_ERROR`` (#851)
+Contract (Issues #1096, #1265):
+  GET   -> 200 ``{"show_readable_ids": <bool>, "visible_metrics": [...] | null}``
+         (server defaults when no row)
+  PATCH <- ``{"show_readable_ids": <bool>, "visible_metrics": [...] | null}``
+         -> 200 same shape
+        unknown key / wrong type / unknown metric key -> 400 ``VALIDATION_ERROR``
+        (#851)
 """
 from __future__ import annotations
 
@@ -48,15 +52,22 @@ from rest_api.serializers import (
 class DisplayPreferenceUpdateSerializer(
     UnknownFieldRejectionMixin, serializers.Serializer
 ):
-    """``{"show_readable_ids": <bool>}`` — a partial display update.
+    """``{"show_readable_ids": <bool>, "visible_metrics": [<key>, …] | null}``.
 
     The declared fields *are* the closed vocabulary: ``UnknownFieldRejectionMixin``
     (#851) turns any other key into a 400 instead of the DRF default of silently
-    dropping it, so a typo can never look like a successful save. The field is
+    dropping it, so a typo can never look like a successful save. Every field is
     optional so an empty PATCH body is a read-only no-op, not a validation error.
+
+    ``visible_metrics`` (Issue #1265) is the per-user statistics widget
+    selection/order; ``null`` clears it back to the registry default set. The
+    service validates the keys against ``se_metrics.registry``.
     """
 
     show_readable_ids = serializers.BooleanField(required=False)
+    visible_metrics = serializers.ListField(
+        child=serializers.CharField(), required=False, allow_null=True
+    )
 
 
 class DisplayPreferenceView(APIView):
