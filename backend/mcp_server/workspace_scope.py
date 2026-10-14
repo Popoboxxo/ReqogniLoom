@@ -135,6 +135,9 @@ _TOOL_TARGETS: Dict[str, Tuple[Tuple[str, str], ...]] = {
     "needs.get_traces": (("id", "need"),),
     "needs.read": (("id", "need"),),
     "requirement.get": (("id", "requirement"),),
+    # #1288: reads the acceptance criteria of a requirement — scope resolves
+    # from the requirement's own workspace, same as requirement.get.
+    "requirement.acceptance_criteria.get": (("id", "requirement"),),
     "risk.read": (("id", "risk"),),
     "test.get": (("id", "testcase"),),
     "test.run_get": (("run_id", "test_run"),),
