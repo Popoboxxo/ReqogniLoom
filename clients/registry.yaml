@@ -523,7 +523,7 @@ clients:
           # `hermes config set` (Env-Referenz statt Key):
           scripts/clients/install.sh --client hermes \
             --url "https://<host>" --key-env REQOGNILOOM_API_KEY
-          hermes mcp test reqogniloom         # -> ✓ Connected, 227 Tools
+          hermes mcp test reqogniloom         # -> ✓ Connected, 239 Tools
     install_en:
       - lang: bash
         text: |
@@ -532,7 +532,35 @@ clients:
           # `hermes config set` (env reference instead of a key):
           scripts/clients/install.sh --client hermes \
             --url "https://<host>" --key-env REQOGNILOOM_API_KEY
-          hermes mcp test reqogniloom         # -> ✓ Connected, 227 tools
+          hermes mcp test reqogniloom         # -> ✓ Connected, 239 tools
+    desktop_plugin_de:
+      intro: "Neben dem MCP-Server (Abschnitt 2) kann die Hermes-Desktop-App das ReqogniLoom-**Desktop-Plugin** laden — ein eigenes Panel plus ein Statusbar-Eintrag. Quelle im Repo: `integrations/hermes-plugin/reqogniloom/`, Manifest `hermes-plugin.json`."
+      install:
+        - lang: bash
+          text: |
+            cd integrations/hermes-plugin/reqogniloom
+            npm ci
+            npm run build     # -> dist/plugin.js; der postbuild-Schritt führt scripts/verify-build.mjs aus
+            # Ordner integrations/hermes-plugin/reqogniloom/ als Desktop-Plugin in Hermes laden
+      items:
+        - "Panel `reqogniloom-panel` (`area: panes`, links) — öffnet die ReqogniLoom-Panel-UI."
+        - "Statusbar-Eintrag `reqogniloom.status` (`area: statusBar.right`, Priorität 20)."
+        - "Kommando `reqogniloom.open` (im Manifest `contributes.commands` deklariert) — öffnet das Panel."
+      version_note: "Drift zwischen installiertem und ausgeliefertem Plugin erkennt `scripts/check_plugin_packages.py` beim Release."
+    desktop_plugin_en:
+      intro: "Besides the MCP server (section 2), the Hermes desktop app can load the ReqogniLoom **desktop plugin** — a dedicated panel plus a status-bar entry. Source in the repo: `integrations/hermes-plugin/reqogniloom/`, manifest `hermes-plugin.json`."
+      install:
+        - lang: bash
+          text: |
+            cd integrations/hermes-plugin/reqogniloom
+            npm ci
+            npm run build     # -> dist/plugin.js; the postbuild step runs scripts/verify-build.mjs
+            # load the folder integrations/hermes-plugin/reqogniloom/ as a desktop plugin in Hermes
+      items:
+        - "Panel `reqogniloom-panel` (`area: panes`, left) — opens the ReqogniLoom panel UI."
+        - "Status-bar item `reqogniloom.status` (`area: statusBar.right`, priority 20)."
+        - "Command `reqogniloom.open` (declared in the manifest's `contributes.commands`) — opens the panel."
+      version_note: "Drift between the installed and shipped plugin is caught by `scripts/check_plugin_packages.py` at release time."
     fallback_de:
       - lang: yaml
         text: |
@@ -553,9 +581,9 @@ clients:
                 Authorization: "Bearer ${REQOGNILOOM_API_KEY}"
     verify:
       command: "hermes mcp test reqogniloom"
-      expected_de: "`✓ Connected` (QA: 2232 ms, 227 Tools); echte Calls: `requirement_query` → 49, `architecture_query` → 1."
-      expected_en: "`✓ Connected` (QA: 2232 ms, 227 tools); real calls: `requirement_query` → 49, `architecture_query` → 1."
-      tool_result: "227 tools; requirement_query = 49"
+      expected_de: "`✓ Connected` (QA: 2232 ms, 239 Tools); echte Calls: `requirement_query` → 49, `architecture_query` → 1."
+      expected_en: "`✓ Connected` (QA: 2232 ms, 239 tools); real calls: `requirement_query` → 49, `architecture_query` → 1."
+      tool_result: "239 tools; requirement_query = 49"
     prereq_de:
       - "Hermes-Installation (aktueller Stack)."
       - "Key in `~/.hermes/.env` — `${REQOGNILOOM_API_KEY}` wird beim Server-Start interpoliert."
@@ -572,12 +600,14 @@ clients:
       - "Der Bearer-Token steht nur als `${REQOGNILOOM_API_KEY}`-Referenz in der Config; der Wert liegt in `~/.hermes/.env`."
       - "Ein konsolidierter MCP-First-Pfad: Agent-Plugin `integrations/hermes-agent-plugin/` und Skill `integrations/hermes-skill/reqogniloom/` sprechen denselben `POST /mcp/`-Vertrag; das Agent-Plugin authentifiziert sich mit `X-API-Key` (Bearer-JWT wird serverseitig abgelehnt)."
       - "`Cancel` im Plugin ruft seit #1152 `interview.abandon` auf, damit Sessions nicht als `in_progress` liegen bleiben."
+      - "Das Desktop-Plugin wird aus dem **Quellbaum** `integrations/hermes-plugin/reqogniloom/` gebaut; ein Verzeichnis mit nur `dist/` und `node_modules/` ist ein Rumpf und lässt `npm run build` mit `ENOENT package.json` scheitern."
     pitfalls_en:
       - "`hermes mcp add` is discovery-first (prompts for the key on a TTY, probes the server) — the installer uses `hermes config set` instead (non-interactive, idempotent)."
       - "`hermes config set` rewrites `config.yaml` via PyYAML → **comment lines are lost**; the installer takes a backup first."
       - "The bearer token lives only as a `${REQOGNILOOM_API_KEY}` reference in the config; the value stays in `~/.hermes/.env`."
       - "One consolidated MCP-first path: the agent plugin `integrations/hermes-agent-plugin/` and the skill `integrations/hermes-skill/reqogniloom/` speak the same `POST /mcp/` contract; the agent plugin authenticates with `X-API-Key` (a Bearer JWT is rejected server-side)."
       - "The plugin's `Cancel` calls `interview.abandon` as of #1152 so sessions do not linger as `in_progress`."
+      - "The desktop plugin is built from the **source tree** `integrations/hermes-plugin/reqogniloom/`; a directory holding only `dist/` and `node_modules/` is a rump and makes `npm run build` fail with `ENOENT package.json`."
     roles_de:
       - "Key-Scope steuert die Rechte; read-only für reine Lesezwecke."
     roles_en:

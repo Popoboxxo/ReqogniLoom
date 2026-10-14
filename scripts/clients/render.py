@@ -141,6 +141,26 @@ def render_client(client: dict[str, Any], *, lang: str) -> str:
         "",
     ]
 
+    desktop = client.get("desktop_plugin_de" if de else "desktop_plugin_en")
+    if desktop:
+        # Optional desktop-app plugin (e.g. Hermes): rendered as a subsection of
+        # "Installation" so the numbered sections 1..8 stay stable for every
+        # client and only clients that declare desktop-plugin data get it.
+        parts += [
+            "### " + ("Desktop-Plugin" if de else "Desktop plugin"),
+            "",
+            desktop["intro"],
+            "",
+            _code_blocks(desktop["install"]),
+            "",
+            _bullets(desktop["items"]),
+            "",
+            f"- **Version:** `{load_version()}` "
+            + ("(aus dem Repo-`VERSION`) — " if de else "(from the repo `VERSION`) — ")
+            + desktop["version_note"],
+            "",
+        ]
+
     parts += [
         "## 3. " + ("Konfiguration" if de else "Configuration"),
         "",

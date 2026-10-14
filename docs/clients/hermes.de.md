@@ -24,8 +24,25 @@
 # `hermes config set` (Env-Referenz statt Key):
 scripts/clients/install.sh --client hermes \
   --url "https://<host>" --key-env REQOGNILOOM_API_KEY
-hermes mcp test reqogniloom         # -> ✓ Connected, 227 Tools
+hermes mcp test reqogniloom         # -> ✓ Connected, 239 Tools
 ```
+
+### Desktop-Plugin
+
+Neben dem MCP-Server (Abschnitt 2) kann die Hermes-Desktop-App das ReqogniLoom-**Desktop-Plugin** laden — ein eigenes Panel plus ein Statusbar-Eintrag. Quelle im Repo: `integrations/hermes-plugin/reqogniloom/`, Manifest `hermes-plugin.json`.
+
+```bash
+cd integrations/hermes-plugin/reqogniloom
+npm ci
+npm run build     # -> dist/plugin.js; der postbuild-Schritt führt scripts/verify-build.mjs aus
+# Ordner integrations/hermes-plugin/reqogniloom/ als Desktop-Plugin in Hermes laden
+```
+
+- Panel `reqogniloom-panel` (`area: panes`, links) — öffnet die ReqogniLoom-Panel-UI.
+- Statusbar-Eintrag `reqogniloom.status` (`area: statusBar.right`, Priorität 20).
+- Kommando `reqogniloom.open` (im Manifest `contributes.commands` deklariert) — öffnet das Panel.
+
+- **Version:** `1.8.0-beta.20` (aus dem Repo-`VERSION`) — Drift zwischen installiertem und ausgeliefertem Plugin erkennt `scripts/check_plugin_packages.py` beim Release.
 
 ## 3. Konfiguration
 
@@ -47,8 +64,8 @@ mcp_servers:
 ## 5. Verifikation
 
 - **Befehl:** `hermes mcp test reqogniloom`
-- **Erwartet:** `✓ Connected` (QA: 2232 ms, 227 Tools); echte Calls: `requirement_query` → 49, `architecture_query` → 1.
-- **Tool-Call-Ergebnis:** 227 tools; requirement_query = 49
+- **Erwartet:** `✓ Connected` (QA: 2232 ms, 239 Tools); echte Calls: `requirement_query` → 49, `architecture_query` → 1.
+- **Tool-Call-Ergebnis:** 239 tools; requirement_query = 49
 
 ## 6. Fallstricke
 
@@ -57,6 +74,7 @@ mcp_servers:
 - Der Bearer-Token steht nur als `${REQOGNILOOM_API_KEY}`-Referenz in der Config; der Wert liegt in `~/.hermes/.env`.
 - Ein konsolidierter MCP-First-Pfad: Agent-Plugin `integrations/hermes-agent-plugin/` und Skill `integrations/hermes-skill/reqogniloom/` sprechen denselben `POST /mcp/`-Vertrag; das Agent-Plugin authentifiziert sich mit `X-API-Key` (Bearer-JWT wird serverseitig abgelehnt).
 - `Cancel` im Plugin ruft seit #1152 `interview.abandon` auf, damit Sessions nicht als `in_progress` liegen bleiben.
+- Das Desktop-Plugin wird aus dem **Quellbaum** `integrations/hermes-plugin/reqogniloom/` gebaut; ein Verzeichnis mit nur `dist/` und `node_modules/` ist ein Rumpf und lässt `npm run build` mit `ENOENT package.json` scheitern.
 
 ## 7. Rechte & Key-Scope
 
