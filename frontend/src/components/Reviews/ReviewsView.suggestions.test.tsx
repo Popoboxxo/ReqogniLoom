@@ -116,6 +116,12 @@ describe("ReviewsView — suggestions mode (O6)", () => {
     // Historical queue is the default surface.
     await screen.findByTestId("reviews-type-select");
 
+    // #1245: the mode toggle carries a hint that the inbox is agent-populated,
+    // so it is discoverable without prior knowledge of the fail-closed rule.
+    expect(
+      screen.getByTestId("reviews-suggestions-mode-hint"),
+    ).toBeInTheDocument();
+
     await user.click(screen.getByTestId("reviews-suggestions-mode-checkbox"));
 
     const inbox = await screen.findByTestId("suggestions-inbox");

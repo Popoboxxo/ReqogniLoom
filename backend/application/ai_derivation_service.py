@@ -66,6 +66,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
 from typing import Any, Callable, Dict, List, Optional, Tuple
 from uuid import UUID
 
@@ -466,6 +467,76 @@ def _derivation_cache_key(
     return f"{_DERIVATION_CACHE_PREFIX}:{digest}"
 
 
+#: Matches a fenced Markdown code block (a ```json ... ``` fence or a bare
+#: ``` ... ``` fence) and captures its body, so an LLM that wraps its JSON in
+#: prose is still parsed (issue #1240).
+_JSON_FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.DOTALL | re.IGNORECASE)
+
+#: Reused for :meth:`json.JSONDecoder.raw_decode`. Unlike :func:`json.loads` it
+#: stops at the end of the *first* complete JSON value, tolerating trailing
+#: prose ("Here is the JSON: [...] — let me know if that helps") instead of
+#: rejecting the whole completion as "Extra data" (issue #1240).
+_JSON_DECODER = json.JSONDecoder()
+
+
+def extract_json_payload(raw: str) -> Any:
+    """Extract the first JSON value embedded in an LLM completion (issue #1240).
+
+    The single robust extractor shared by every JSON-shaped LLM flow in the
+    application layer: :meth:`AiDerivationService._parse_json_list` /
+    :meth:`AiDerivationService._parse_json_object`,
+    ``ArchitectureDecomposeService._parse_tree``,
+    ``AiReviewService._parse_packages`` and
+    ``TraceabilitySuggestService._parse_suggestions``. It tolerates the
+    malformations providers actually emit while still failing loudly on a
+    genuinely unusable answer:
+
+    * a leading :data:`MOCK_FALLBACK_MARKER` prefix (REQ-078 / degraded mock),
+    * a Markdown ```json fence, optionally surrounded by prose,
+    * trailing prose after a bare JSON value, via
+      :meth:`json.JSONDecoder.raw_decode` — replacing the previous brittle
+      ``str.replace("```", "")`` cleanup that only handled a prefix fence and
+      rejected any answer with a trailing remark.
+
+    Args:
+        raw: The raw completion text; may be ``None`` or empty.
+
+    Returns:
+        The first decoded JSON value (dict, list, str, number, bool or None).
+
+    Raises:
+        LlmResponseError: The completion was empty, or carried no decodable
+            JSON value.
+    """
+    text = (raw or "").strip()
+    if text.startswith(MOCK_FALLBACK_MARKER):
+        # Strip the marker (REQ-078) before parsing; it is a user-facing signal,
+        # not part of the JSON payload.
+        text = text[len(MOCK_FALLBACK_MARKER):].strip()
+    fence = _JSON_FENCE_RE.search(text)
+    if fence is not None and fence.group(1).strip():
+        text = fence.group(1).strip()
+    if not text:
+        raise LlmResponseError(
+            "The LLM response was empty completion (cold-start or truncation)."
+        )
+    try:
+        return json.loads(text)
+    except (json.JSONDecodeError, TypeError):
+        pass
+    # Tolerate leading/trailing prose: jump to the first opening bracket/brace
+    # and let raw_decode consume exactly the first JSON value from there.
+    for index, char in enumerate(text):
+        if char not in "{[":
+            continue
+        try:
+            value, _end = _JSON_DECODER.raw_decode(text, index)
+        except (json.JSONDecodeError, TypeError):
+            continue
+        return value
+    raise LlmResponseError("The LLM response was not valid JSON.")
+
+
 def _is_empty_completion(text: str) -> bool:
     """Return True when a completion carries no usable content (issue #311).
 
@@ -488,13 +559,11 @@ def _is_empty_completion(text: str) -> bool:
     stripped = text.strip()
     if stripped.startswith(MOCK_FALLBACK_MARKER):
         stripped = stripped[len(MOCK_FALLBACK_MARKER):].strip()
-    if stripped.startswith("```"):
-        stripped = stripped.replace("```json", "").replace("```", "").strip()
     if not stripped:
         return True
     try:
-        parsed = json.loads(stripped)
-    except (json.JSONDecodeError, TypeError):
+        parsed = extract_json_payload(stripped)
+    except LlmResponseError:
         return False
     return parsed in ([], {})
 
@@ -564,7 +633,20 @@ class LlmResponseError(RuntimeError):
 
     Maps to HTTP 500 in the REST layer and to an INTERNAL_ERROR ToolResult in
     the MCP layer — the request itself was valid, but the provider misbehaved.
+
+    ``is_mock_fallback`` (issue #1240) carries the degraded-provider signal
+    across the error path. :meth:`AiDerivationService._complete_retrying`
+    computes it from the raw completion *before* parsing (see there); without
+    this attribute the signal was lost the moment parsing failed and the
+    caller only saw a bare "not parseable" error. A consumer that maps this
+    error (the REST view mapping, Stream F) can now answer a graceful fallback
+    instead of a hard failure when the unusable answer came from an *unplanned*
+    mock fallback rather than a real provider.
     """
+
+    def __init__(self, *args: Any, is_mock_fallback: bool = False) -> None:
+        super().__init__(*args)
+        self.is_mock_fallback = is_mock_fallback
 
 
 class AiDerivationService(ServiceBase):
@@ -2672,6 +2754,11 @@ class AiDerivationService(ServiceBase):
                 )
                 if attempt < max_retries:
                     continue
+                # issue #1240: carry the degraded-provider signal across the
+                # error path so a caller's error mapping can offer a graceful
+                # fallback instead of a hard failure when the unusable answer
+                # came from an unplanned mock fallback.
+                exc.is_mock_fallback = is_mock_fallback
                 raise
         raise last_error  # pragma: no cover - unreachable, satisfies static analysis
 
@@ -2824,29 +2911,16 @@ class AiDerivationService(ServiceBase):
 
     @staticmethod
     def _parse_json_list(raw: str) -> List[Any]:
-        """Parse *raw* into a JSON list, tolerating Markdown code fences.
+        """Parse *raw* into a JSON list via :func:`extract_json_payload`.
+
+        Tolerates the mock-fallback marker, Markdown fences (bare or
+        json-tagged) and trailing prose around the array (issue #1240).
 
         Raises:
-            LlmResponseError: When *raw* is empty, not valid JSON, or not a list.
+            LlmResponseError: When *raw* is empty, carries no decodable JSON,
+                or its first JSON value is not a list.
         """
-        text = raw.strip() if raw else ""
-        if not text:
-            raise LlmResponseError(
-                "The LLM response was empty completion (cold-start or truncation)."
-            )
-        # Strip the mock-fallback marker (REQ-078) so a degraded response still
-        # parses; the marker is only a user-facing signal, not part of the JSON.
-        if text.startswith(MOCK_FALLBACK_MARKER):
-            text = text[len(MOCK_FALLBACK_MARKER):].strip()
-        if text.startswith("```"):
-            # Strip a leading ```json / ``` fence and the trailing ```.
-            text = text.replace("```json", "").replace("```", "").strip()
-        try:
-            parsed = json.loads(text)
-        except (json.JSONDecodeError, TypeError) as exc:
-            raise LlmResponseError(
-                "The LLM response was not valid JSON."
-            ) from exc
+        parsed = extract_json_payload(raw)
         if not isinstance(parsed, list):
             raise LlmResponseError(
                 "The LLM response was not a JSON array as expected."
@@ -2909,29 +2983,17 @@ class AiDerivationService(ServiceBase):
 
     @staticmethod
     def _parse_json_object(raw: str) -> Dict[str, Any]:
-        """Parse *raw* into a JSON object, tolerating Markdown code fences.
+        """Parse *raw* into a JSON object via :func:`extract_json_payload`.
 
         Sibling of :meth:`_parse_json_list` for flows whose LLM response is a
-        single JSON object rather than an array (SysEng 2.0 N5).
+        single JSON object rather than an array (SysEng 2.0 N5). Tolerates the
+        mock-fallback marker, Markdown fences and trailing prose (issue #1240).
 
         Raises:
-            LlmResponseError: When *raw* is empty, not valid JSON, or not an object.
+            LlmResponseError: When *raw* is empty, carries no decodable JSON,
+                or its first JSON value is not an object.
         """
-        text = raw.strip() if raw else ""
-        if not text:
-            raise LlmResponseError(
-                "The LLM response was empty completion (cold-start or truncation)."
-            )
-        if text.startswith(MOCK_FALLBACK_MARKER):
-            text = text[len(MOCK_FALLBACK_MARKER):].strip()
-        if text.startswith("```"):
-            text = text.replace("```json", "").replace("```", "").strip()
-        try:
-            parsed = json.loads(text)
-        except (json.JSONDecodeError, TypeError) as exc:
-            raise LlmResponseError(
-                "The LLM response was not valid JSON."
-            ) from exc
+        parsed = extract_json_payload(raw)
         if not isinstance(parsed, dict):
             raise LlmResponseError(
                 "The LLM response was not a JSON object as expected."
@@ -2943,6 +3005,7 @@ __all__ = [
     "AiDerivationService",
     "LlmResponseError",
     "MOCK_FALLBACK_MARKER",
+    "extract_json_payload",
     "DERIVATION_CACHE_TTL_SECONDS",
     "TESTCASE_DERIVE_PROMPT_TEMPLATE",
     "WORKSPACE_TO_GLOSSARY_PROMPT_TEMPLATE",

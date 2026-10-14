@@ -52,7 +52,6 @@ level, so the service refuses up front with a clear :class:`ValidationError`.
 """
 from __future__ import annotations
 
-import json
 import logging
 import socket
 from dataclasses import dataclass, field
@@ -1006,17 +1005,26 @@ class ArchitectureDecomposeService(ServiceBase):
 
     @staticmethod
     def _parse_tree(raw: str) -> list:
-        """Parse the provider completion into a JSON list, tolerating fences."""
-        from application.ai_derivation_service import MOCK_FALLBACK_MARKER
+        """Parse the provider completion into a JSON list (issue #1240).
 
-        text = (raw or "").strip()
-        if text.startswith(MOCK_FALLBACK_MARKER):
-            text = text[len(MOCK_FALLBACK_MARKER):].strip()
-        if text.startswith("```"):
-            text = text.replace("```json", "").replace("```", "").strip()
+        Delegates to the shared
+        :func:`~application.ai_derivation_service.extract_json_payload`
+        extractor, which tolerates the mock-fallback marker, Markdown fences
+        (bare or json-tagged) and leading/trailing prose around the JSON
+        array. A genuinely unusable answer is re-raised as
+        :class:`ValidationError` (this flow's typed "not usable" error).
+
+        Raises:
+            ValidationError: The completion carried no valid JSON array.
+        """
+        from application.ai_derivation_service import (
+            LlmResponseError,
+            extract_json_payload,
+        )
+
         try:
-            parsed = json.loads(text)
-        except (json.JSONDecodeError, TypeError) as exc:
+            parsed = extract_json_payload(raw)
+        except LlmResponseError as exc:
             raise ValidationError(
                 "The LLM decomposition response was not valid JSON."
             ) from exc

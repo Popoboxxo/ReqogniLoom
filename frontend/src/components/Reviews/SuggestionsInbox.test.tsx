@@ -227,6 +227,17 @@ describe("SuggestionsInbox (ADR-019 / WP6)", () => {
     expect(await screen.findByTestId("suggestions-empty")).toBeInTheDocument();
   });
 
+  it("explains in the empty state that suggestions are agent-generated (#1245)", async () => {
+    vi.mocked(listSuggestions).mockResolvedValue(LIST_EMPTY as never);
+
+    renderInbox();
+
+    // The empty state names the agent-API-key path instead of leaving the
+    // reviewer to read "nothing here" as "the feature does not work".
+    const hint = await screen.findByTestId("suggestions-empty-hint");
+    expect(hint).toHaveTextContent("suggestions.emptyHint");
+  });
+
   it("is a labelled region and links the reject reason to its error (review round 2)", async () => {
     const user = userEvent.setup();
     renderInbox();

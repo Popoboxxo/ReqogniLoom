@@ -753,6 +753,16 @@ export default function ReviewsView({
         />
         {t("suggestions.mode")}
       </label>
+      {/* #1245: the inbox is agent-populated, so the bare label "Suggestions"
+          reads as an empty, undiscoverable mode. This hint keeps the human
+          reviewer from concluding the feature is broken when nothing was
+          proposed yet. */}
+      <span
+        className={styles.queueModeHint}
+        data-testid="reviews-suggestions-mode-hint"
+      >
+        {t("suggestions.modeHint")}
+      </span>
     </>
   );
 

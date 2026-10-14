@@ -155,6 +155,62 @@ def test_post_delete_of_a_realistic_workspace_succeeds() -> None:
     assert not UserRole.unscoped.filter(workspace_id=workspace.id).exists()
 
 
+def test_post_delete_with_workflow_item_state_returns_204() -> None:
+    """#1241: a workspace whose content includes a WorkflowItemState must delete.
+
+    ``WorkflowItemState.definition`` is an ``on_delete=PROTECT`` FK to the
+    per-workspace ``WorkflowEngineDefinition``. The workspace cascade reaches
+    that definition (CASCADE through ``Workspace``), and Django's PROTECT fires
+    whenever a referencing row still exists — even one that is part of the same
+    delete collection. So a non-empty workspace answered 500 while an empty one
+    (no item state) deleted cleanly. The cascade order now removes the item
+    state first.
+    """
+    from workflow.models import WorkflowEngineDefinition, WorkflowItemState
+
+    tenant, user, workspace = _tenant_user_workspace("Delete Me Workflow")
+    set_request_tenant(tenant.id)
+    try:
+        artifact = Artifact.objects.create(
+            tenant=tenant, workspace=workspace, artifact_type="Requirement"
+        )
+        definition = WorkflowEngineDefinition.objects.create(
+            tenant=tenant,
+            workspace=workspace,
+            item_type="Requirement",
+            preset="minimal",
+            workflow_json={"states": ["draft"], "transitions": []},
+        )
+        WorkflowItemState.objects.create(
+            tenant=tenant,
+            item_id=artifact.id,
+            item_type="Requirement",
+            workspace=workspace,
+            definition=definition,
+            current_state="draft",
+        )
+    finally:
+        clear_request_tenant()
+    client = _client(user)
+
+    resp = client.post(
+        f"/api/v1/workspaces/{workspace.id}/delete/",
+        {"confirmation": "Delete Me Workflow"},
+        format="json",
+    )
+
+    assert resp.status_code == 204, (
+        f"expected 204 but got {resp.status_code}: {resp.content!r}"
+    )
+    assert not _exists(workspace)
+    assert not WorkflowEngineDefinition.unscoped.filter(
+        workspace_id=workspace.id
+    ).exists()
+    assert not WorkflowItemState.unscoped.filter(
+        workspace_id=workspace.id
+    ).exists()
+
+
 def test_post_delete_with_wrong_confirmation_returns_409() -> None:
     """Regression guard: the working half of the endpoint must stay working."""
     _, user, workspace = _tenant_user_workspace("Keep Me")

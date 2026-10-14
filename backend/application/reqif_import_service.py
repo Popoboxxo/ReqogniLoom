@@ -414,6 +414,22 @@ def _parse_artifact_uuid(identifier: str) -> Optional[UUID]:
         return None
 
 
+def _parse_relation_uuid(identifier: Optional[str]) -> Optional[UUID]:
+    """Recover the TraceLink UUID from a ``_r-<uuid>`` SPEC-RELATION identifier.
+
+    The relation-scheme counterpart of :func:`_parse_artifact_uuid`, matching
+    ``reqif_export_service._relation_id`` (issue #1242). Returns None for any
+    other identifier (foreign/hand-authored relation ids), which then relies
+    solely on the endpoint-pair idempotency key.
+    """
+    if not identifier or not identifier.startswith("_r-"):
+        return None
+    try:
+        return UUID(identifier[3:])
+    except (ValueError, AttributeError, TypeError):
+        return None
+
+
 # ---------------------------------------------------------------------------
 # Report DTOs
 # ---------------------------------------------------------------------------
@@ -1235,6 +1251,12 @@ class ReqifImportService(ServiceBase):
         never the local readable ``uid``, which is auto-generated per
         artifact since #932 and carries no external meaning.
 
+        Issue #1242: a ``_<uuid>`` that matches an artifact in *another*
+        workspace is foreign too — it cannot be reproduced locally, so it is
+        returned as ``foreign_identifier`` and persisted (see the derivation
+        below), which is what keeps a re-import idempotent when the document
+        carries no external ATTR-UID.
+
         Returns ``(target_uuid, foreign_identifier, existing_artifact)``.
         ``target_uuid`` becomes ``None`` when the id matches an artifact
         outside this workspace (the object is imported as a new artifact).
@@ -1242,7 +1264,6 @@ class ReqifImportService(ServiceBase):
         from persistence.models import Artifact
 
         target_uuid = _parse_artifact_uuid(so.identifier)
-        foreign_identifier = None if target_uuid is not None else so.identifier
         existing_artifact = None
         if target_uuid is not None:
             existing_artifact = Artifact.objects.filter(
@@ -1256,6 +1277,15 @@ class ReqifImportService(ServiceBase):
                     "workspace; imported as a new artifact with a fresh id."
                 )
                 target_uuid = None
+
+        # Issue #1242: the identifier is "foreign" exactly when it does NOT
+        # resolve to a local artifact id. Deriving it *after* the cross-workspace
+        # reset above is what makes a re-import idempotent: a `_<uuid>` from
+        # another workspace must be persisted as the Artifact's
+        # ``reqif_identifier`` (the old code fixed it as ``None`` before the
+        # reset, so with an empty ATTR-UID the second import found no match and
+        # minted a duplicate artifact, dragging every relation along).
+        foreign_identifier = None if target_uuid is not None else so.identifier
 
         if existing_artifact is None:
             by_workspace = Artifact.objects.filter(workspace_id=workspace.id)
@@ -1387,10 +1417,13 @@ class ReqifImportService(ServiceBase):
         """Set custom_fields + external ReqIF identity and save the artifact.
 
         Issue #1003: persist the external ReqIF identity on the Artifact.
-        ``reqif_identifier`` is only set for a *foreign* identifier (the
-        internal ``_<uuid>`` form is reproducible from the id and stays
-        NULL); ``reqif_uid``/``reqif_imported_at`` are refreshed on every
-        import.
+        ``reqif_identifier`` is set for a *foreign* identifier. Issue #1242: the
+        internal ``_<uuid>`` form is only reproducible from the id when the
+        artifact actually carries that id, so a ``_<uuid>`` that resolved to an
+        artifact in *another* workspace (and therefore got a fresh local id) is
+        persisted here too — otherwise the next import of the same file has no
+        identity to match on. ``reqif_uid``/``reqif_imported_at`` are refreshed
+        on every import.
         """
         artifact.custom_fields = custom_fields
         if foreign_identifier:
@@ -1605,6 +1638,7 @@ class ReqifImportService(ServiceBase):
                         relation_type_long_names,
                     )
                     ReqifImportService._ensure_relation_link(
+                        relation.identifier,
                         link_type,
                         source_artifact,
                         target_artifact,
@@ -1695,6 +1729,7 @@ class ReqifImportService(ServiceBase):
 
     @staticmethod
     def _ensure_relation_link(
+        relation_identifier: Optional[str],
         link_type: str,
         source_artifact: Any,
         target_artifact: Any,
@@ -1703,6 +1738,16 @@ class ReqifImportService(ServiceBase):
     ) -> None:
         """Create the TraceLink for a relation, idempotently.
 
+        Two idempotency keys, in order (issue #1242):
+
+        1. The external relation identity ``_r-<uuid>`` (the id the exporter
+           derives from the TraceLink row) — honoured when a link carrying that
+           id already exists *in the same workspace*. Previously this identity
+           was parsed away and discarded, so a relation whose endpoints had been
+           re-created produced a second edge.
+        2. The canonical ``(tenant, source, target, link_type)`` edge, backed by
+           the ``uq_tracelink_edge`` constraint.
+
         ``get_or_create`` keeps re-importing the same document a no-op (the
         link either exists -> ``updated``, or is inserted now -> ``created``).
         Runs inside the caller's per-relation savepoint, so a persistence
@@ -1710,11 +1755,38 @@ class ReqifImportService(ServiceBase):
         """
         from persistence.models import TraceLink
 
+        external_id = _parse_relation_uuid(relation_identifier)
+        if external_id is not None:
+            # Tenant-scoped AND workspace-checked: a UUID that happens to belong
+            # to a different workspace (e.g. the source workspace's own link, or
+            # another workspace that imported the same file) must never be
+            # mistaken for this relation — that would silently drop the edge.
+            existing = TraceLink.unscoped.filter(
+                id=external_id, tenant=tenant
+            ).first()
+            if (
+                existing is not None
+                and existing.source.workspace_id == source_artifact.workspace_id
+            ):
+                relations_report.updated += 1
+                return
+
+        defaults: dict[str, Any] = {}
+        # Persist the external relation identity on create when the id is free
+        # anywhere in the table. A globally taken id (the source workspace's own
+        # link) must not collide with the primary key, so it is left to a fresh
+        # UUID in that case — the endpoint-pair key still deduplicates.
+        if external_id is not None and not TraceLink.unscoped.filter(
+            id=external_id
+        ).exists():
+            defaults["id"] = external_id
+
         _, was_created = TraceLink.objects.get_or_create(
             tenant=tenant,
             source=source_artifact,
             target=target_artifact,
             link_type=link_type,
+            defaults=defaults,
         )
         if was_created:
             relations_report.created += 1

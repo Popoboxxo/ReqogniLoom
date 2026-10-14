@@ -61,6 +61,15 @@
   color: var(--color-text-muted);
 }
 
+/* #1245: the empty-state explanation. Slightly quieter than the headline and
+   capped to a readable measure so it does not stretch across a wide panel. */
+.emptyHint {
+  margin: var(--space-1) 0 0;
+  max-width: 60ch;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
 .heading {
   margin: 0 0 var(--space-3);
   font-size: var(--font-size-md);
