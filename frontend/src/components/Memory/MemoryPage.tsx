@@ -2,19 +2,27 @@
  * ARCH-L1-001 ReactFrontend -- MemoryPage ("Gedächtnis", RFC #1002, PR D).
  *
  * Workspace-visible hub over the three memory tiers:
- *   - Team     (`scope="workspace"`) -- workspace-scoped facts.
- *   - Meins    (`scope="user"`)      -- the caller's own user-scoped facts.
- *   - Artefakt (`scope="artifact"`)  -- facts of a chosen artifact.
+ *   - Workspace (`scope="workspace"`) -- workspace-scoped facts.
+ *   - Meins     (`scope="user"`)      -- the caller's own user-scoped facts.
+ *   - Artefakt  (`scope="artifact"`)  -- facts of a chosen artifact.
  *
  * Supports semantic search (`/memory/search/`) alongside a plain substring
  * filter (the list endpoint's `q`), a contributor filter, an add-fact dialog
  * and per-row promote (own user facts, Editor+) / forget (owner or
  * Workspace-Admin -- mirrors `memory/policy.py`'s delete matrix).
+ *
+ * #1295: the scope formerly labelled "Team" is named "Workspace" throughout
+ * (the API calls it `workspace`), and the active workspace's name is shown in
+ * the page header.
+ *
+ * #1296: every one of the four failure states (load/search/action/digest)
+ * renders a `data-testid`-tagged alert enriched with the HTTP status / error
+ * code and offers a retry control.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { getAllPages, extractApiErrorMessage } from "../../api/client";
+import { getAllPages } from "../../api/client";
 import { memoryApi, type MemoryDigest, type MemoryEntry, type MemoryScope } from "../../api/memory";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { useHasRole } from "../../hooks/useHasRole";
@@ -23,7 +31,11 @@ import { ConfirmDialog } from "../shared/ConfirmDialog";
 import { PageHeader } from "../shared/PageHeader";
 import { AddMemoryFactDialog } from "./AddMemoryFactDialog";
 import { MemoryAskPanel } from "./MemoryAskPanel";
-import { contributorLabel, formatMemoryDate } from "./memory-format";
+import {
+  contributorLabel,
+  formatMemoryDate,
+  formatMemoryErrorMessage,
+} from "./memory-format";
 import styles from "./MemoryPage.module.css";
 
 type MemoryTab = Extract<MemoryScope, "workspace" | "user" | "artifact">;
@@ -82,6 +94,10 @@ export function MemoryPage(): JSX.Element {
   const [pendingForget, setPendingForget] = useState<MemoryEntry | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  /** Last failed row action, so its retry control can re-run exactly that action. */
+  const [retryableAction, setRetryableAction] = useState<
+    { kind: "promote" | "forget"; entry: MemoryEntry } | null
+  >(null);
 
   // --- digest (RFC #1002 F6 / Phase 3) ----------------------------------
   const [digest, setDigest] = useState<MemoryDigest | null>(null);
@@ -171,8 +187,10 @@ export function MemoryPage(): JSX.Element {
         .catch((err: unknown) => {
           if (requestId !== requestIdRef.current) return;
           setLoadError(
-            extractApiErrorMessage(err) ??
+            formatMemoryErrorMessage(
+              err,
               t("memory.loadError", "Gedächtnis konnte nicht geladen werden.")
+            )
           );
           setEntries([]);
           setIsDegraded(false);
@@ -231,8 +249,7 @@ export function MemoryPage(): JSX.Element {
       .catch((err: unknown) => {
         setSearchResults([]);
         setSearchError(
-          extractApiErrorMessage(err) ??
-            t("memory.searchError", "Suche fehlgeschlagen.")
+          formatMemoryErrorMessage(err, t("memory.searchError", "Suche fehlgeschlagen."))
         );
       })
       .finally(() => setIsSearching(false));
@@ -248,36 +265,54 @@ export function MemoryPage(): JSX.Element {
     if (!workspaceId) return;
     setBusyId(entry.entry_id);
     setActionError(null);
+    setRetryableAction(null);
     try {
       await memoryApi.promoteEntry(entry.entry_id, { workspace_id: workspaceId });
       loadEntries(page);
     } catch (err: unknown) {
       setActionError(
-        extractApiErrorMessage(err) ??
+        formatMemoryErrorMessage(
+          err,
           t("memory.action.promoteError", "Befördern fehlgeschlagen.")
+        )
       );
+      setRetryableAction({ kind: "promote", entry });
     } finally {
       setBusyId(null);
     }
   };
 
-  const handleForget = async (): Promise<void> => {
-    if (!pendingForget) return;
-    const entryId = pendingForget.entry_id;
-    setPendingForget(null);
-    setBusyId(entryId);
+  const handleForget = async (entry: MemoryEntry): Promise<void> => {
+    setBusyId(entry.entry_id);
     setActionError(null);
+    setRetryableAction(null);
     try {
-      await memoryApi.forgetEntry(entryId);
+      await memoryApi.forgetEntry(entry.entry_id);
       loadEntries(page);
     } catch (err: unknown) {
       setActionError(
-        extractApiErrorMessage(err) ??
+        formatMemoryErrorMessage(
+          err,
           t("memory.action.forgetError", "Vergessen fehlgeschlagen.")
+        )
       );
+      setRetryableAction({ kind: "forget", entry });
     } finally {
       setBusyId(null);
     }
+  };
+
+  /** Re-run the operation whose row action failed (#1296). */
+  const retryFailedAction = (): void => {
+    const action = retryableAction;
+    setActionError(null);
+    setRetryableAction(null);
+    if (!action) {
+      loadEntries(page);
+      return;
+    }
+    if (action.kind === "promote") void handlePromote(action.entry);
+    else void handleForget(action.entry);
   };
 
   const handleCreated = (): void => {
@@ -304,8 +339,10 @@ export function MemoryPage(): JSX.Element {
       .catch((err: unknown) => {
         setDigest(null);
         setDigestError(
-          extractApiErrorMessage(err) ??
+          formatMemoryErrorMessage(
+            err,
             t("memory.digest.error", "Digest konnte nicht geladen werden.")
+          )
         );
       })
       .finally(() => setIsDigestLoading(false));
@@ -353,7 +390,7 @@ export function MemoryPage(): JSX.Element {
               disabled={isBusy}
               onClick={() => void handlePromote(entry)}
             >
-              {t("memory.action.promote", "Als Team-Fakt befördern")}
+              {t("memory.action.promote", "Als Workspace-Fakt befördern")}
             </button>
           )}
           {canForget && (
@@ -364,6 +401,7 @@ export function MemoryPage(): JSX.Element {
               disabled={isBusy}
               onClick={() => {
                 setActionError(null);
+                setRetryableAction(null);
                 setPendingForget(entry);
               }}
             >
@@ -402,10 +440,21 @@ export function MemoryPage(): JSX.Element {
     <div data-testid="memory-page" className={styles.page}>
       <PageHeader title={t("memory.title", "Gedächtnis")} summary={summary} />
 
+      {/* #1295: make the workspace the memory is scoped to visible — the model
+          calls the tier `workspace`, so the UI names it and shows which one. */}
+      <p className={styles.workspaceLine}>
+        <span data-testid="memory-active-workspace" className={styles.badge}>
+          {t("memory.activeWorkspace", {
+            name: activeWorkspace.name,
+            defaultValue: "Workspace: {{name}}",
+          })}
+        </span>
+      </p>
+
       <p className={styles.hint}>
         {t(
           "memory.pageHint",
-          "Fakten, die die KI sich über Team, dich oder einzelne Artefakte gemerkt hat. Du kannst suchen, filtern, Fakten hinzufügen, ins Team befördern oder vergessen."
+          "Fakten, die die KI sich über den Workspace, dich oder einzelne Artefakte gemerkt hat. Du kannst suchen, filtern, Fakten hinzufügen, in den Workspace befördern oder vergessen."
         )}
       </p>
 
@@ -469,9 +518,19 @@ export function MemoryPage(): JSX.Element {
         </div>
 
         {digestError && (
-          <p role="alert" data-testid="memory-digest-error" className={styles.error}>
-            {digestError}
-          </p>
+          <div className={styles.errorBlock}>
+            <p role="alert" data-testid="memory-digest-error" className={styles.error}>
+              {digestError}
+            </p>
+            <button
+              type="button"
+              className="btn-secondary"
+              data-testid="memory-digest-retry"
+              onClick={loadDigest}
+            >
+              {t("actions.retry")}
+            </button>
+          </div>
         )}
 
         {isDigestLoading && (
@@ -626,19 +685,49 @@ export function MemoryPage(): JSX.Element {
       </div>
 
       {searchError && (
-        <p role="alert" data-testid="memory-search-error" className={styles.error}>
-          {searchError}
-        </p>
+        <div className={styles.errorBlock}>
+          <p role="alert" data-testid="memory-search-error" className={styles.error}>
+            {searchError}
+          </p>
+          <button
+            type="button"
+            className="btn-secondary"
+            data-testid="memory-search-retry"
+            onClick={handleSearch}
+          >
+            {t("actions.retry")}
+          </button>
+        </div>
       )}
       {loadError && (
-        <p role="alert" data-testid="memory-load-error" className={styles.error}>
-          {loadError}
-        </p>
+        <div className={styles.errorBlock}>
+          <p role="alert" data-testid="memory-load-error" className={styles.error}>
+            {loadError}
+          </p>
+          <button
+            type="button"
+            className="btn-secondary"
+            data-testid="memory-load-retry"
+            onClick={() => loadEntries(page)}
+          >
+            {t("actions.retry")}
+          </button>
+        </div>
       )}
       {actionError && (
-        <p role="alert" data-testid="memory-action-error" className={styles.error}>
-          {actionError}
-        </p>
+        <div className={styles.errorBlock}>
+          <p role="alert" data-testid="memory-action-error" className={styles.error}>
+            {actionError}
+          </p>
+          <button
+            type="button"
+            className="btn-secondary"
+            data-testid="memory-action-retry"
+            onClick={retryFailedAction}
+          >
+            {t("actions.retry")}
+          </button>
+        </div>
       )}
 
       {isLoading && !isShowingSearch && (
@@ -729,7 +818,9 @@ export function MemoryPage(): JSX.Element {
             "Diesen Fakt endgültig vergessen? Das kann nicht rückgängig gemacht werden."
           )}
           confirmLabel={t("memory.action.forget", "Vergessen")}
-          onConfirm={() => void handleForget()}
+          onConfirm={() => {
+            if (pendingForget) void handleForget(pendingForget);
+          }}
           onCancel={() => setPendingForget(null)}
           testId="memory-forget-confirm"
         />

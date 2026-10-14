@@ -8,13 +8,20 @@ import { systemMemorySettingsApi } from "../../api/system-memory-settings";
 // the locale bundles rather than echoing the key back.
 import "../../i18n/index";
 
-vi.mock("../../api/system-memory-settings", () => ({
-  systemMemorySettingsApi: {
-    get: vi.fn(),
-    update: vi.fn(),
-    reset: vi.fn(),
-  },
-}));
+vi.mock("../../api/system-memory-settings", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../../api/system-memory-settings")>();
+  return {
+    // Keep the real vocabulary/guard (`HONCHO_DIALECTIC_LEVELS`,
+    // `isHonchoDialecticLevel`) — the component validates against them.
+    ...actual,
+    systemMemorySettingsApi: {
+      get: vi.fn(),
+      update: vi.fn(),
+      reset: vi.fn(),
+    },
+  };
+});
 
 const SETTINGS = {
   embedding_provider: "sentence-transformers" as const,
@@ -30,6 +37,17 @@ const SETTINGS = {
   honcho_base_url: null,
   honcho_base_url_is_override: false,
   honcho_api_key_is_set: false,
+  honcho_dialectic_level: null,
+  honcho_dialectic_level_is_override: false,
+  honcho_peer_name: null,
+  honcho_peer_name_is_override: false,
+  honcho_workspace_id: null,
+  honcho_workspace_id_is_override: false,
+  honcho_app_id: null,
+  honcho_app_id_is_override: false,
+  honcho_session_ttl: null,
+  honcho_session_ttl_is_override: false,
+  honcho_version: null,
   memory_write_rate_limit_per_hour: 60,
   memory_write_rate_limit_per_hour_is_override: false,
   warning: null,
@@ -331,5 +349,114 @@ describe("MemorySystemSettingsSection", () => {
     await user.click(await screen.findByTestId("memory-settings-reset-confirm-cancel"));
 
     expect(systemMemorySettingsApi.reset).not.toHaveBeenCalled();
+  });
+
+  // --- #1286: expanded Honcho fields ------------------------------------
+
+  it("renders the five additional Honcho fields with their loaded effective values", async () => {
+    vi.mocked(systemMemorySettingsApi.get).mockResolvedValue({
+      ...SETTINGS,
+      honcho_dialectic_level: "high",
+      honcho_peer_name: "reqlo-admin",
+      honcho_workspace_id: "ws-honcho-1",
+      honcho_app_id: "app-42",
+      honcho_session_ttl: 3600,
+      honcho_version: "2.5.1",
+    });
+
+    render(<MemorySystemSettingsSection />);
+
+    await screen.findByTestId("memory-system-settings-section");
+    expect(screen.getByTestId("memory-settings-honcho-dialectic-level")).toHaveValue("high");
+    expect(screen.getByTestId("memory-settings-honcho-peer-name")).toHaveValue("reqlo-admin");
+    expect(screen.getByTestId("memory-settings-honcho-workspace-id")).toHaveValue("ws-honcho-1");
+    expect(screen.getByTestId("memory-settings-honcho-app-id")).toHaveValue("app-42");
+    expect(screen.getByTestId("memory-settings-honcho-session-ttl")).toHaveValue(3600);
+    expect(screen.getByTestId("memory-settings-honcho-version")).toHaveValue("2.5.1");
+  });
+
+  it("offers exactly the five dialectic levels plus an explicit default option", async () => {
+    render(<MemorySystemSettingsSection />);
+
+    await screen.findByTestId("memory-system-settings-section");
+    const options = Array.from(
+      screen.getByTestId("memory-settings-honcho-dialectic-level").querySelectorAll("option")
+    ).map((o) => o.value);
+    expect(options).toEqual(["", "minimal", "low", "medium", "high", "max"]);
+  });
+
+  it("stages the additional Honcho fields and saves them", async () => {
+    const user = userEvent.setup();
+    render(<MemorySystemSettingsSection />);
+
+    await screen.findByTestId("memory-system-settings-section");
+    await user.selectOptions(screen.getByTestId("memory-settings-honcho-dialectic-level"), "medium");
+    await user.type(screen.getByTestId("memory-settings-honcho-peer-name"), "reqlo-admin");
+    await user.type(screen.getByTestId("memory-settings-honcho-workspace-id"), "ws-honcho-1");
+    await user.type(screen.getByTestId("memory-settings-honcho-app-id"), "app-42");
+    fireEvent.change(screen.getByTestId("memory-settings-honcho-session-ttl"), {
+      target: { value: "1800" },
+    });
+    await user.click(screen.getByTestId("memory-settings-save-btn"));
+
+    await waitFor(() => {
+      expect(systemMemorySettingsApi.update).toHaveBeenCalledWith({
+        honcho_dialectic_level: "medium",
+        honcho_peer_name: "reqlo-admin",
+        honcho_workspace_id: "ws-honcho-1",
+        honcho_app_id: "app-42",
+        honcho_session_ttl: 1800,
+      });
+    });
+  });
+
+  it("rejects an unknown dialectic level from the server (renders the default, never the raw value)", async () => {
+    vi.mocked(systemMemorySettingsApi.get).mockResolvedValue({
+      ...SETTINGS,
+      honcho_dialectic_level: "ultra" as never,
+      honcho_dialectic_level_is_override: true,
+    });
+
+    render(<MemorySystemSettingsSection />);
+
+    await screen.findByTestId("memory-system-settings-section");
+    const select = screen.getByTestId("memory-settings-honcho-dialectic-level");
+    expect(select).toHaveValue("");
+    // The unknown value never leaks into the option list either.
+    const options = Array.from(select.querySelectorAll("option")).map((o) => o.value);
+    expect(options).not.toContain("ultra");
+  });
+
+  it("shows the Honcho version read-only and falls back to a placeholder when unknown", async () => {
+    vi.mocked(systemMemorySettingsApi.get).mockResolvedValue({
+      ...SETTINGS,
+      honcho_version: null,
+    });
+
+    render(<MemorySystemSettingsSection />);
+
+    await screen.findByTestId("memory-system-settings-section");
+    const version = screen.getByTestId("memory-settings-honcho-version");
+    expect(version).toHaveAttribute("readonly");
+    expect(version).toHaveValue("");
+  });
+
+  it("renders override badges for the additional Honcho fields when overridden", async () => {
+    vi.mocked(systemMemorySettingsApi.get).mockResolvedValue({
+      ...SETTINGS,
+      honcho_dialectic_level_is_override: true,
+      honcho_peer_name_is_override: true,
+      honcho_workspace_id_is_override: true,
+      honcho_app_id_is_override: true,
+      honcho_session_ttl_is_override: true,
+    });
+
+    render(<MemorySystemSettingsSection />);
+
+    expect(await screen.findByTestId("honcho-dialectic-level-override-badge")).toBeInTheDocument();
+    expect(screen.getByTestId("honcho-peer-name-override-badge")).toBeInTheDocument();
+    expect(screen.getByTestId("honcho-workspace-id-override-badge")).toBeInTheDocument();
+    expect(screen.getByTestId("honcho-app-id-override-badge")).toBeInTheDocument();
+    expect(screen.getByTestId("honcho-session-ttl-override-badge")).toBeInTheDocument();
   });
 });

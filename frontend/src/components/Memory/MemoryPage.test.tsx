@@ -399,4 +399,110 @@ describe("MemoryPage", () => {
       );
     });
   });
+
+  // --- #1295: active workspace name in the header -----------------------
+
+  it("shows the active workspace name in the page header", async () => {
+    render(<MemoryPage />);
+
+    await screen.findByTestId("memory-row-w1");
+    expect(screen.getByTestId("memory-active-workspace")).toHaveTextContent("Acme");
+  });
+
+  // --- #1296: error states + retry --------------------------------------
+
+  it("renders a retry control for the load error and re-invokes the list endpoint", async () => {
+    vi.mocked(memoryApi.listWorkspaceEntries).mockRejectedValue({
+      error: { code: "MEMORY_UNAVAILABLE", message: "down" },
+    });
+    const user = userEvent.setup();
+    render(<MemoryPage />);
+
+    expect(await screen.findByTestId("memory-load-error")).toHaveTextContent("down");
+    // #1296: the message is enriched with the backend error code.
+    expect(screen.getByTestId("memory-load-error")).toHaveTextContent("(MEMORY_UNAVAILABLE)");
+
+    await user.click(screen.getByTestId("memory-load-retry"));
+    await waitFor(() => {
+      expect(memoryApi.listWorkspaceEntries).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it("enriches the error message with the HTTP status of a typed error", async () => {
+    const { ForbiddenError } = await import("../../api/errors");
+    vi.mocked(memoryApi.listWorkspaceEntries).mockRejectedValue(
+      new ForbiddenError("Memory is admin-only")
+    );
+
+    render(<MemoryPage />);
+
+    const alert = await screen.findByTestId("memory-load-error");
+    expect(alert).toHaveTextContent("Memory is admin-only");
+    expect(alert).toHaveTextContent("HTTP 403");
+  });
+
+  it("falls back to the localised message when the thrown value carries nothing", async () => {
+    vi.mocked(memoryApi.listWorkspaceEntries).mockRejectedValue({});
+
+    render(<MemoryPage />);
+
+    expect(await screen.findByTestId("memory-load-error")).toHaveTextContent(
+      "Gedächtnis konnte nicht geladen werden."
+    );
+    expect(screen.getByTestId("memory-load-retry")).toBeInTheDocument();
+  });
+
+  it("renders a retry control for the search error and re-invokes the search", async () => {
+    vi.mocked(memoryApi.searchWorkspaceMemory).mockRejectedValue({
+      error: { message: "search boom" },
+    });
+    const user = userEvent.setup();
+    render(<MemoryPage />);
+    await screen.findByTestId("memory-row-w1");
+
+    await user.type(screen.getByTestId("memory-search-input"), "dark");
+    await user.click(screen.getByTestId("memory-search-submit"));
+
+    expect(await screen.findByTestId("memory-search-error")).toHaveTextContent("search boom");
+    await user.click(screen.getByTestId("memory-search-retry"));
+    await waitFor(() => {
+      expect(memoryApi.searchWorkspaceMemory).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it("renders a retry control for a failed row action and re-runs it", async () => {
+    vi.mocked(memoryApi.promoteEntry).mockRejectedValue({
+      error: { message: "promote boom" },
+    });
+    const user = userEvent.setup();
+    render(<MemoryPage />);
+    await screen.findByTestId("memory-row-w1");
+    await user.click(screen.getByTestId("memory-tab-user"));
+    await screen.findByTestId("memory-row-u1");
+
+    await user.click(screen.getByTestId("memory-promote-u1"));
+
+    expect(await screen.findByTestId("memory-action-error")).toHaveTextContent("promote boom");
+    await user.click(screen.getByTestId("memory-action-retry"));
+    await waitFor(() => {
+      expect(memoryApi.promoteEntry).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it("renders a retry control for the digest error and re-invokes the digest", async () => {
+    vi.mocked(memoryApi.getWorkspaceDigest).mockRejectedValue({
+      error: { message: "digest boom" },
+    });
+    const user = userEvent.setup();
+    render(<MemoryPage />);
+    await screen.findByTestId("memory-row-w1");
+
+    await user.click(screen.getByTestId("memory-digest-btn"));
+
+    expect(await screen.findByTestId("memory-digest-error")).toHaveTextContent("digest boom");
+    await user.click(screen.getByTestId("memory-digest-retry"));
+    await waitFor(() => {
+      expect(memoryApi.getWorkspaceDigest).toHaveBeenCalledTimes(2);
+    });
+  });
 });

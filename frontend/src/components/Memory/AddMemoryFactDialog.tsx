@@ -4,7 +4,7 @@
  * The "Fakt hinzufügen" write dialog. Offers a scope choice and — for the
  * artifact scope — an artifact selector, mirroring the two REST write paths
  * that actually exist:
- *   - Team        → POST /workspaces/{ws}/memory/entries/
+ *   - Workspace   → POST /workspaces/{ws}/memory/entries/
  *   - Artefakt    → POST /artifacts/{artifact_id}/memory/
  *
  * There is deliberately no "Meins" (user) scope here: the REST surface has no
@@ -26,7 +26,7 @@ import { Dialog } from "../shared/Dialog";
 import styles from "./MemoryPage.module.css";
 
 export interface AddMemoryFactDialogProps {
-  /** Required for the "Team" (workspace) scope; unused when `fixedArtifactId` is set. */
+  /** Required for the "Workspace" (`workspace`) scope; unused when `fixedArtifactId` is set. */
   workspaceId?: UUID;
   /** Selectable artifacts for the "Artefakt" scope. */
   artifacts: Artifact[];
@@ -158,7 +158,7 @@ export function AddMemoryFactDialog({
               value={scope}
               onChange={(e) => setScope(e.target.value as "workspace" | "artifact")}
             >
-              <option value="workspace">{t("memory.scope.workspace", "Team")}</option>
+              <option value="workspace">{t("memory.scope.workspace", "Workspace")}</option>
               <option value="artifact">{t("memory.scope.artifact", "Artefakt")}</option>
             </select>
           </label>

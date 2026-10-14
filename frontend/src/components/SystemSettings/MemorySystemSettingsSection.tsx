@@ -2,13 +2,30 @@
  * Memory Admin UI Phase 3 (spec 2026-08-26) — System-Admin override form for
  * the memory feature's embedding provider / memory backend configuration.
  * Mounted in the "memory" tab of SystemSettings, above MemoryManagementSection.
+ *
+ * #1286: beyond `honcho_api_key` + `honcho_base_url` the form now exposes the
+ * remaining Honcho knobs (`honcho_dialectic_level`, `honcho_peer_name`,
+ * `honcho_workspace_id`, `honcho_app_id`, `honcho_session_ttl`) plus a
+ * read-only `honcho_version`.
+ *
+ * FOLLOW-UP (stream boundary, no backend change here): the backend's
+ * `SystemMemorySettingsWriteSerializer` (backend/memory/memory_rest.py) does
+ * not yet declare these keys, so a PUT carrying them is silently dropped and
+ * the GET response omits them. The frontend contract in
+ * `api/system-memory-settings.ts` already models them; the backend serializer
+ * + `_with_env_fallback` still need to add the matching fields (and expose
+ * `honcho_version` from Honcho's `/health`). Until then the fields render
+ * their loaded/default value and a save is a server-side no-op.
  */
 
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
+  HONCHO_DIALECTIC_LEVELS,
+  isHonchoDialecticLevel,
   systemMemorySettingsApi,
   type EmbeddingProviderName,
+  type HonchoDialecticLevel,
   type MemoryBackendName,
   type SystemMemorySettings,
   type SystemMemorySettingsUpdate,
@@ -42,6 +59,20 @@ function textFieldValue(staged: string | null | undefined, loaded: string | null
 /** Same staged-vs-loaded distinction as {@link textFieldValue}, for the one numeric field. */
 function numberFieldValue(staged: number | null | undefined, loaded: number | null): number | string {
   return staged !== undefined ? (staged ?? "") : (loaded ?? "");
+}
+
+/**
+ * Display value for the dialectic-level select (#1286). An unknown value —
+ * staged or loaded — is treated as "unset" so the select can never render a
+ * value outside {@link HONCHO_DIALECTIC_LEVELS} (unknown backend/env values
+ * are rejected, not silently shown as a raw string).
+ */
+function dialecticLevelValue(
+  staged: HonchoDialecticLevel | null | undefined,
+  loaded: HonchoDialecticLevel | null
+): string {
+  const raw = staged !== undefined ? staged : loaded;
+  return isHonchoDialecticLevel(raw) ? raw : "";
 }
 
 export function MemorySystemSettingsSection(): JSX.Element {
@@ -266,6 +297,117 @@ export function MemorySystemSettingsSection(): JSX.Element {
               return e.target.value ? { ...rest, honcho_api_key: e.target.value } : rest;
             })
           }
+        />
+      </label>
+
+      {/* #1286 — remaining Honcho knobs. */}
+      <label className={styles.field}>
+        {t("systemSettings.memorySettings.honchoDialecticLevel")}
+        <select
+          data-testid="memory-settings-honcho-dialectic-level"
+          value={dialecticLevelValue(form.honcho_dialectic_level, settings.honcho_dialectic_level)}
+          onChange={(e) => {
+            const value = e.target.value;
+            if (value === "") {
+              // Empty option = "let the backend decide" → clear the override.
+              setForm((f) => ({ ...f, honcho_dialectic_level: null }));
+              return;
+            }
+            // Reject any unknown value: the select stays inside the known set.
+            if (!isHonchoDialecticLevel(value)) return;
+            setForm((f) => ({ ...f, honcho_dialectic_level: value }));
+          }}
+        >
+          <option value="">
+            {t("systemSettings.memorySettings.honchoDialecticLevelDefault")}
+          </option>
+          {HONCHO_DIALECTIC_LEVELS.map((level) => (
+            <option key={level} value={level}>
+              {level}
+            </option>
+          ))}
+        </select>
+        {settings.honcho_dialectic_level_is_override && (
+          <span data-testid="honcho-dialectic-level-override-badge" className={styles.overrideBadge}>
+            {t("systemSettings.memorySettings.overrideBadge")}
+          </span>
+        )}
+      </label>
+
+      <label className={styles.field}>
+        {t("systemSettings.memorySettings.honchoPeerName")}
+        <input
+          type="text"
+          data-testid="memory-settings-honcho-peer-name"
+          value={textFieldValue(form.honcho_peer_name, settings.honcho_peer_name)}
+          onChange={(e) => setForm((f) => ({ ...f, honcho_peer_name: e.target.value || null }))}
+        />
+        {settings.honcho_peer_name_is_override && (
+          <span data-testid="honcho-peer-name-override-badge" className={styles.overrideBadge}>
+            {t("systemSettings.memorySettings.overrideBadge")}
+          </span>
+        )}
+      </label>
+
+      <label className={styles.field}>
+        {t("systemSettings.memorySettings.honchoWorkspaceId")}
+        <input
+          type="text"
+          data-testid="memory-settings-honcho-workspace-id"
+          value={textFieldValue(form.honcho_workspace_id, settings.honcho_workspace_id)}
+          onChange={(e) => setForm((f) => ({ ...f, honcho_workspace_id: e.target.value || null }))}
+        />
+        {settings.honcho_workspace_id_is_override && (
+          <span data-testid="honcho-workspace-id-override-badge" className={styles.overrideBadge}>
+            {t("systemSettings.memorySettings.overrideBadge")}
+          </span>
+        )}
+      </label>
+
+      <label className={styles.field}>
+        {t("systemSettings.memorySettings.honchoAppId")}
+        <input
+          type="text"
+          data-testid="memory-settings-honcho-app-id"
+          value={textFieldValue(form.honcho_app_id, settings.honcho_app_id)}
+          onChange={(e) => setForm((f) => ({ ...f, honcho_app_id: e.target.value || null }))}
+        />
+        {settings.honcho_app_id_is_override && (
+          <span data-testid="honcho-app-id-override-badge" className={styles.overrideBadge}>
+            {t("systemSettings.memorySettings.overrideBadge")}
+          </span>
+        )}
+      </label>
+
+      <label className={styles.field}>
+        {t("systemSettings.memorySettings.honchoSessionTtl")}
+        <input
+          type="number"
+          min={0}
+          data-testid="memory-settings-honcho-session-ttl"
+          value={numberFieldValue(form.honcho_session_ttl, settings.honcho_session_ttl)}
+          onChange={(e) =>
+            setForm((f) => ({
+              ...f,
+              honcho_session_ttl: e.target.value === "" ? null : Number(e.target.value),
+            }))
+          }
+        />
+        {settings.honcho_session_ttl_is_override && (
+          <span data-testid="honcho-session-ttl-override-badge" className={styles.overrideBadge}>
+            {t("systemSettings.memorySettings.overrideBadge")}
+          </span>
+        )}
+      </label>
+
+      <label className={styles.field}>
+        {t("systemSettings.memorySettings.honchoVersion")}
+        <input
+          type="text"
+          readOnly
+          data-testid="memory-settings-honcho-version"
+          value={settings.honcho_version ?? ""}
+          placeholder={t("systemSettings.memorySettings.honchoVersionUnavailable")}
         />
       </label>
 
