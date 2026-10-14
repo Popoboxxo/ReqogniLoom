@@ -144,7 +144,7 @@ variables:
     mit MBSE-Unterstützung. Tech-Stack: Django 6.1+ (Backend) + React 19 + TypeScript
     5.5+ (Frontend) + PostgreSQL 16 (pgvector/pgvector:pg16) + Redis 7 + Celery 5.6+
     + Docker Compose (8 Default-Services, Host-Port Backend 8001). Schnittstellen:
-    REST API unter /api/v1/ (DRF, 28 ViewSets + 74 APIViews, JWT-Auth mit vierstufiger
+    REST API unter /api/v1/ (DRF, 28 ViewSets, JWT-Auth mit vierstufiger
     RBAC-Matrix + Item-Level-Permissions, OpenAPI via drf-spectacular) und nativer
     MCP Server unter /mcp/ (JSON-RPC 2.0, auch /api/v1/mcp/; Transports: HTTP, SSE,
     stdio; 36 Tool-Gruppen-Präfixe mit 228 Tools laut docs/agent-templates/tool-manifest.json;
@@ -232,8 +232,8 @@ variables:
     (Provider, Router) frontend/src/api/client.ts      — Axios-Client (auto-Bearer-Token-Injection)
     e2e/playwright.config.ts        — Playwright-Konfiguration (Chromium, 4 Shards)
     scripts/build.sh              — Release-Build mit APP_VERSION/GIT_COMMIT_SHA/BUILD_TIME '
-  KEY_PATTERNS: '- Django REST Framework (DRF) für REST-API-Endpoints (28 ViewSets
-    + 74 APIViews) - MCP-Server (JSON-RPC 2.0) mit 36 Tool-Gruppen-Präfixen und 228
+  KEY_PATTERNS: '- Django REST Framework (DRF) für REST-API-Endpoints (28 ViewSets)
+    - MCP-Server (JSON-RPC 2.0) mit 36 Tool-Gruppen-Präfixen und 228
     Tools für AI-Integration (kanonisches Manifest: docs/agent-templates/tool-manifest.json,
     Drift-Gate: backend/mcp_server/tests/test_tool_manifest_drift.py) - drf-spectacular
     für OpenAPI 3.0 Schema-Generierung (Swagger-UI, ReDoc) - Single-Entry-Point Pattern
