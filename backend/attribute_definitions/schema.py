@@ -80,6 +80,13 @@ ATTRIBUTE_TYPES: frozenset[str] = frozenset(
     {
         "text", "textarea", "number", "boolean", "enum", "multi-enum",
         "date", "reference", "user", "actor", "widget",
+        # #1288: an ordered list of individually verifiable criteria,
+        # ``[{"text": str, "fulfilled": bool, "evidence_ref": uuid|null}, ...]``.
+        # The structured home of "acceptance criteria". Like ``multi-enum`` it is
+        # a multi-valued type: a *definition* needs no model column, but the
+        # carrier must hold an array — a core, column-backed field (the
+        # Requirement ``acceptance_criteria_items`` JSON column is the first).
+        "criteria-list",
     }
 )
 

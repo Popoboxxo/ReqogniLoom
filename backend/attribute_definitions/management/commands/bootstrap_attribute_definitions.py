@@ -449,6 +449,10 @@ READ_ONLY_MODEL_FIELDS: frozenset[str] = frozenset(
         # serializer; a manual override rides the separate `level_override`
         # write field, never this one.
         "level_source",
+        # #1288: the structured acceptance criteria are written through the
+        # dedicated single-criterion endpoint / MCP tools, not the generic
+        # ArtifactForm payload, so the introspected attribute is read-only.
+        "acceptance_criteria_items",
     }
 )
 

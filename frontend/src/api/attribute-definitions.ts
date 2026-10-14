@@ -47,6 +47,9 @@ export type AttributeType =
   | "reference"
   | "user"
   | "actor"
+  // #1288: an ordered list of individually verifiable criteria
+  // (`{text, fulfilled, evidence_ref?}`).
+  | "criteria-list"
   | "widget";
 
 /**

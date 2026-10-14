@@ -8,6 +8,7 @@
 import {
   AlignLeft,
   Calendar,
+  CheckSquare,
   Hash,
   Link as LinkIcon,
   List,
@@ -36,5 +37,7 @@ export const ATTRIBUTE_TYPE_ICONS: Record<AttributeType, LucideIcon> = {
   // reads as "one or more people" and keeps it distinct from the legacy `user`
   // glyph at a glance.
   actor: Users,
+  // #1288: individually check-off-able criteria list.
+  "criteria-list": CheckSquare,
   widget: Puzzle,
 };

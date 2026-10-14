@@ -1140,6 +1140,15 @@ class RequirementSerializer(
             "the override and restores the derived value. #1289."
         ),
     )
+    # #1288: the structured acceptance criteria list, read-only on the main
+    # Requirement payload. Individual items are written through the dedicated
+    # ``.../acceptance-criteria/{index}/`` endpoint.
+    acceptance_criteria_items = serializers.JSONField(
+        read_only=True,
+        help_text=(
+            "Ordered acceptance criteria {text, fulfilled, evidence_ref} (#1288)."
+        ),
+    )
     # Issue [U2, systemaudit 2026-09-02]: the model field and its propagation
     # logic (TraceLinkService.propagate_suspect_status) already existed;
     # only the serializer never declared it, so DRF silently dropped it from

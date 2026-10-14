@@ -67,6 +67,11 @@ EXTENDED_PAYLOAD_KEY = "custom_fields"
 
 _ENUM_TYPES = frozenset({"enum", "multi-enum"})
 
+#: The only keys a ``criteria-list`` entry may carry (#1288). ``text`` and
+#: ``fulfilled`` are required; ``evidence_ref`` is an optional uuid of the
+#: verifying artifact/test-run (external verification tools may set it).
+_CRITERIA_ENTRY_KEYS = frozenset({"text", "fulfilled", "evidence_ref"})
+
 #: The two actor kinds of the ``actor`` attribute type (spec section 4).
 _ACTOR_KINDS = frozenset({"user", "external"})
 
@@ -134,6 +139,39 @@ def _check_type(attribute: dict[str, Any], value: Any, out: list[str]) -> None:
             out.append(f"contains unknown option(s): {', '.join(unknown)}")
     elif kind == "actor":
         _check_actor(attribute, value, out)
+    elif kind == "criteria-list":
+        _check_criteria_list(value, out)
+
+
+def _check_criteria_list(value: Any, out: list[str]) -> None:
+    """Validate a ``criteria-list`` value (#1288). DB-free.
+
+    The value is an ordered list of ``{"text": str, "fulfilled": bool,
+    "evidence_ref": uuid|None}``. Only *structure* is checked here: whether the
+    referenced evidence artifact exists is a DB question and belongs to the
+    service, exactly like ``actor`` existence.
+    """
+    if not isinstance(value, list):
+        out.append("must be a list of criteria")
+        return
+    for index, entry in enumerate(value):
+        prefix = f"criteria[{index}]: "
+        if not isinstance(entry, dict):
+            out.append(prefix + "must be an object with 'text' and 'fulfilled'")
+            continue
+        unknown = sorted(set(entry) - _CRITERIA_ENTRY_KEYS)
+        if unknown:
+            out.append(prefix + f"has unknown key(s): {', '.join(unknown)}")
+        text = entry.get("text")
+        if not isinstance(text, str) or not text.strip():
+            out.append(prefix + "'text' must be a non-empty string")
+        if not isinstance(entry.get("fulfilled"), bool):
+            out.append(prefix + "'fulfilled' must be a boolean")
+        evidence = entry.get("evidence_ref")
+        if evidence is not None and (
+            not isinstance(evidence, str) or not evidence.strip()
+        ):
+            out.append(prefix + "'evidence_ref' must be a uuid string or null")
 
 
 def _check_actor_entry(
@@ -227,6 +265,28 @@ def _check_rules(attribute: dict[str, Any], value: Any, out: list[str]) -> None:
             out.append("must be a number to satisfy the 'max' rule")
         elif number > float(rules["max"]):
             out.append(f"must be <= {rules['max']}")
+
+
+def normalize_criteria_list(value: Any) -> list[dict[str, Any]]:
+    """Validate a ``criteria-list`` value and return it normalized (#1288).
+
+    Strips ``text``, coerces ``fulfilled`` to a real bool and turns a missing
+    ``evidence_ref`` into ``None``. Raises :class:`FieldValidationError` (the
+    same envelope every other field type uses) when the structure is invalid, so
+    REST/MCP/service callers share one validator.
+    """
+    messages: list[str] = []
+    _check_criteria_list(value, messages)
+    if messages:
+        raise FieldValidationError({"criteria-list": messages})
+    return [
+        {
+            "text": entry["text"].strip(),
+            "fulfilled": bool(entry["fulfilled"]),
+            "evidence_ref": entry.get("evidence_ref") or None,
+        }
+        for entry in value
+    ]
 
 
 def validate_values(
@@ -389,4 +449,9 @@ def validate_values(
         raise FieldValidationError(errors)
 
 
-__all__ = ["EXTENDED_PAYLOAD_KEY", "FieldValidationError", "validate_values"]
+__all__ = [
+    "EXTENDED_PAYLOAD_KEY",
+    "FieldValidationError",
+    "normalize_criteria_list",
+    "validate_values",
+]

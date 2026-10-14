@@ -426,6 +426,9 @@ _READ_ONLY_TOOL_NAMES: frozenset[str] = frozenset(
         "requirement.get",
         "requirement.query",
         "requirement.check_consistency",
+        # #1288: reading the structured acceptance criteria is a pure read (it
+        # does not end on ".read"/".query", so it is listed explicitly).
+        "requirement.acceptance_criteria.get",
         "needs.read",
         "needs.query",
         "needs.get_traces",

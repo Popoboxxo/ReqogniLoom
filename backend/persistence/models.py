@@ -1576,6 +1576,21 @@ class Requirement(TenantScopedModel):
         default="",
         help_text="#43: Acceptance criteria describing when the requirement is fulfilled.",
     )
+    # #1288: structured acceptance criteria. The legacy free-text
+    # ``acceptance_criteria`` column is kept (backward compatible; every existing
+    # consumer reads it) and a data migration imports each non-empty free text
+    # as exactly one criterion, so nothing is lost. The structured list is the
+    # canonical, individually-check-off-able representation:
+    # ``[{"text": str, "fulfilled": bool, "evidence_ref": uuid|null}, ...]``.
+    acceptance_criteria_items = models.JSONField(
+        default=list,
+        blank=True,
+        help_text=(
+            "#1288: ordered criteria list of "
+            "{text, fulfilled, evidence_ref}. Empty until the free text is "
+            "imported / the criteria are authored."
+        ),
+    )
     category = models.CharField(max_length=64, blank=True)
     type = models.CharField(
         max_length=64,
