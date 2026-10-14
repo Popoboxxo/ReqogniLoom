@@ -52,7 +52,7 @@ export function GlossaryDetailPanel({
             type="button"
             data-testid="glossary-detail-edit-btn"
             onClick={() => onEdit(term)}
-            className={`${styles.btn} ${styles.btnOutline}`}
+            className="btn-secondary"
           >
             {t("actions.edit", "Bearbeiten")}
           </button>
@@ -60,7 +60,7 @@ export function GlossaryDetailPanel({
             type="button"
             data-testid="glossary-detail-delete-btn"
             onClick={() => onDelete(term.id)}
-            className={`${styles.btn} ${styles.btnOutlineDanger}`}
+            className="btn-danger"
           >
             {t("actions.delete", "Löschen")}
           </button>

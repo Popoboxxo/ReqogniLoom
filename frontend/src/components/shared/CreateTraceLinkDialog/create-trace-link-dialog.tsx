@@ -617,6 +617,7 @@ export function CreateTraceLinkDialog({
             onOpenChange={setIsTypeMenuOpen}
             labelledBy={linkTypeLabelId}
             describedBy={availableLinkTypes.length === 0 ? linkTypeHintId : undefined}
+            emptyMessage={t('traceability.noLinkTypeForPair')}
             testId="create-trace-link-type-select"
             optionTestIdPrefix="create-trace-link-type"
             disabled={isSubmitting}
@@ -626,7 +627,18 @@ export function CreateTraceLinkDialog({
               {t(
                 'traceability.noLinkTypeForPair',
                 'No link type in this workspace connects these two artifact types.',
-              )}
+              )}{' '}
+              {/* #1253: an actionable next step, not just a statement. A
+                  plain anchor keeps the hint usable wherever the dialog is
+                  mounted (the app navigates on the route; unit tests need no
+                  Router). */}
+              <a
+                href="/settings/link-types"
+                data-testid="create-trace-link-manage-types"
+                className={styles.noTypesLink}
+              >
+                {t('traceability.manageLinkTypes')}
+              </a>
             </p>
           )}
         </div>

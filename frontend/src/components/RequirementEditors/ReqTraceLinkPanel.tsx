@@ -733,7 +733,7 @@ export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
 
       {/* Derive a new Requirement from this one, allocated to an architecture
           element — same trigger/form shell as Needs and Architecture. */}
-      <div className={styles.deriveHost}>
+      <div className="detail-action-zone">
         {canEdit && (
         <DeriveRequirementForm
           isOpen={showDeriveForm}

@@ -318,13 +318,14 @@ export function MemorySystemSettingsSection(): JSX.Element {
       <div className={styles.actions}>
         <button
           type="button"
+          className="btn-primary"
           data-testid="memory-settings-save-btn"
           disabled={isSaving || Object.keys(form).length === 0}
           onClick={handleSaveClick}
         >
           {isSaving ? "…" : t("actions.save", "Save")}
         </button>
-        <button type="button" data-testid="memory-settings-reset-btn" disabled={isSaving} onClick={() => setPendingResetConfirm(true)}>
+        <button type="button" className="btn-secondary" data-testid="memory-settings-reset-btn" disabled={isSaving} onClick={() => setPendingResetConfirm(true)}>
           {t("systemSettings.memorySettings.resetButton")}
         </button>
       </div>
@@ -351,10 +352,10 @@ export function MemorySystemSettingsSection(): JSX.Element {
           testId="memory-settings-confirm-dialog"
           footer={
             <div className={styles.dialogFooter}>
-              <button type="button" onClick={() => setPendingWarningConfirm(false)}>
+              <button type="button" className="btn-secondary" onClick={() => setPendingWarningConfirm(false)}>
                 {t("actions.cancel", "Cancel")}
               </button>
-              <button type="button" data-testid="memory-settings-confirm-btn" disabled={isSaving} onClick={() => void doSave()}>
+              <button type="button" className="btn-primary" data-testid="memory-settings-confirm-btn" disabled={isSaving} onClick={() => void doSave()}>
                 {isSaving ? "…" : t("systemSettings.memorySettings.confirmButton")}
               </button>
             </div>

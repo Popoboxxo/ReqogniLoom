@@ -595,7 +595,7 @@ export default function NeedsEditors(): JSX.Element {
                 architecture allocation — same flow as in the requirements
                 mask. */}
             {need && (
-              <div className={styles.deriveFormSection}>
+              <div className="detail-action-zone">
                 <DeriveRequirementForm
                   isOpen={showDeriveForm}
                   onOpen={() => setShowDeriveForm(true)}
