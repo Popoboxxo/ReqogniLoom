@@ -76,6 +76,15 @@ logger = logging.getLogger(__name__)
 
 _VALID_SCOPES = ("workspace", "user", "artifact")
 
+#: Scope an extracted fact is filed under when the LLM extractor omits the
+#: ``scope`` field (or returns an unrecognised value). Issue #1248: the write
+#: scope comes from the LLM while the read scope comes from the caller, so a
+#: missing scope used to DROP the fact silently -- making a fact extracted from
+#: an ``interview.chat`` turn unfindable through ``memory.list``/``memory.query``
+#: with the same ``workspace_id``. Defaulting to the interaction's owning
+#: (workspace) scope keeps every extracted fact reachable via a workspace read.
+_DEFAULT_FACT_SCOPE = "workspace"
+
 #: Cosine-distance threshold below which an existing entry with DIFFERENT
 #: content than a newly-extracted fact is treated as a genuine contradiction
 #: (superseded) rather than an unrelated fact (spec 2026-08-24
@@ -231,9 +240,25 @@ def consolidate_interaction(
             if not isinstance(fact, dict):
                 continue
             content = str(fact.get("content") or "").strip()
-            scope = fact.get("scope")
-            if not content or scope not in _VALID_SCOPES:
+            if not content:
                 continue
+            raw_scope = fact.get("scope")
+            scope = str(raw_scope).strip().lower() if raw_scope else ""
+            if scope not in _VALID_SCOPES:
+                # Issue #1248: the extractor owns the write scope, but an
+                # omitted/unrecognised scope must NOT silently drop the fact --
+                # that made facts extracted from ``interview.chat`` unfindable
+                # via a workspace read. Default to the interaction's owning
+                # (workspace) scope so the fact stays reachable; a non-empty but
+                # unknown value is logged so the prompt drift stays visible.
+                if scope:
+                    logger.warning(
+                        "memory consolidation: unknown fact scope %r, "
+                        "defaulting to %r",
+                        raw_scope,
+                        _DEFAULT_FACT_SCOPE,
+                    )
+                scope = _DEFAULT_FACT_SCOPE
             # An artifact-scoped fact without a resolvable artifact is
             # unrepresentable in the unified store (the owner FK would be
             # NULL) -- drop it rather than mis-file it under another scope.
@@ -322,4 +347,43 @@ def consolidate_interaction_task(
     )
 
 
-__all__ = ["consolidate_interaction", "consolidate_interaction_task"]
+@shared_task(name="memory.reconcile_guard")
+def memory_reconcile_guard() -> Dict[str, Any]:
+    """Periodic fail-loud guard over ``manage.py memory_reconcile`` (#1250).
+
+    Runs the READ-ONLY reconciliation report (it never deletes or repairs
+    anything) and logs a WARNING when it is not clean, so a silent
+    "collections present, 0 points" / "local row without backend_ref"
+    regression becomes operator-visible without anyone running the command by
+    hand. Returns the parsed report so a caller/test can assert on it.
+
+    Scheduling (documented provision, issue #1250): beat is configured in
+    ``reqogniloom/settings.py``'s ``CELERY_BEAT_SCHEDULE``. Add::
+
+        "memory-reconcile-guard": {
+            "task": "memory.reconcile_guard",
+            "schedule": crontab(minute=0),   # hourly
+        },
+
+    The cadence is deliberately coarse: the scan walks every tenant and
+    (for ``qdrant``) every collection, so it is a guard, not a hot path. On
+    any failure to run the report the exception propagates (the guard must not
+    pretend it succeeded).
+    """
+    from io import StringIO
+
+    from django.core.management import call_command
+
+    out = StringIO()
+    call_command("memory_reconcile", "--json", stdout=out)
+    report: Dict[str, Any] = json.loads(out.getvalue())
+    if not report.get("ok"):
+        logger.warning(
+            "memory reconcile guard found inconsistencies (backend=%s): %s",
+            report.get("backend"),
+            report.get("counts"),
+        )
+    return report
+
+
+__all__ = ["consolidate_interaction", "consolidate_interaction_task", "memory_reconcile_guard"]

@@ -20,11 +20,16 @@ from django.core.management import call_command
 
 from memory.backends import MEMORY_BACKEND_REGISTRY
 from memory.management.commands.memory_reconcile import Command
+from memory.models import MemoryEntry
 from memory.qdrant_backend import (
+    INDEX_REASON_EMBEDDING_UNAVAILABLE,
+    INDEX_REASON_UPSERT_FAILED,
+    MemoryIndexError,
     QdrantMemoryBackend,
     assert_collection_dimension,
     resolve_effective_qdrant_config,
 )
+from memory.tasks import memory_reconcile_guard
 from memory.tests.qdrant_fakes import FakeQdrantClient, FakeQdrantModels
 from persistence.embedding_dimensions import EMBEDDING_VECTOR_DIMENSIONS
 from persistence.models import Tenant
@@ -298,16 +303,136 @@ class TestQdrantDegradation:
             assert answer.detail == "no dialectic engine"
 
     @pytest.mark.django_db
-    def test_write_still_persists_canonically_when_qdrant_is_down(self, monkeypatch):
+    def test_write_fails_loud_when_qdrant_is_down(self, monkeypatch):
+        """#1250: a failed upsert must raise, not silently leave backend_ref NULL.
+
+        The canonical row is still persisted (it stays the source of truth) so
+        ``memory_reconcile`` can flag it -- but the caller receives a loud
+        ``MemoryIndexError`` instead of a normal ref that hides the outage.
+        """
         backend = _backend_with_fake_client(monkeypatch)
         backend._client.fail_with = RuntimeError("qdrant down")
         with active_tenant() as tenant:
             user = make_user(tenant)
-            ref = backend.write(tenant.id, "user", user.id, "still canonical")
 
+            with pytest.raises(MemoryIndexError) as excinfo:
+                backend.write(tenant.id, "user", user.id, "still canonical")
+
+            assert excinfo.value.reason == INDEX_REASON_UPSERT_FAILED
+            assert excinfo.value.entry_id is not None
+            # The canonical row survived the loud failure, unmirrored.
             assert backend.count(tenant.id, "user", user.id) == 1
-            assert ref.backend_ref is None
+            row = MemoryEntry.objects.get(scope="user", user_id=user.id)
+            assert row.backend_ref is None
             assert backend.health().degraded is True
+
+    @pytest.mark.django_db
+    def test_write_fails_loud_without_an_embedding(self, monkeypatch):
+        """#1250 branch (1): no embedding -> loud error, canonical row kept."""
+        backend = _backend_with_fake_client(monkeypatch)
+        monkeypatch.setattr(
+            "memory.qdrant_backend._safe_generate_embedding", lambda _text: None
+        )
+        with active_tenant() as tenant:
+            user = make_user(tenant)
+
+            with pytest.raises(MemoryIndexError) as excinfo:
+                backend.write(tenant.id, "user", user.id, "cannot embed me")
+
+            assert excinfo.value.reason == INDEX_REASON_EMBEDDING_UNAVAILABLE
+            # No point was written, but the canonical row (with NULL embedding)
+            # is present and unmirrored for reconciliation.
+            assert backend.count(tenant.id, "user", user.id) == 1
+            row = MemoryEntry.objects.get(scope="user", user_id=user.id)
+            assert row.embedding is None
+            assert row.backend_ref is None
+            assert backend._client.collections == {}
+
+
+class TestQdrantHealthPointExpectation:
+    """#1250: ``health()`` must notice "collections present, 0 points"."""
+
+    @pytest.mark.django_db
+    def test_health_is_degraded_when_collections_hold_zero_points(self, monkeypatch):
+        backend = _backend_with_fake_client(monkeypatch)
+        with active_tenant() as tenant:
+            collection = build_collection_name("reqlo", tenant.id, scope="user")
+            backend._client.create_collection(
+                collection_name=collection,
+                vectors_config=FakeQdrantModels.VectorParams(size=2),
+            )
+
+            ok, detail = backend.health_check()
+
+            assert ok is False
+            assert "0 points" in detail
+            assert backend.health().degraded is True
+
+    @pytest.mark.django_db
+    def test_health_is_ok_and_reports_points_after_a_write(self, monkeypatch):
+        backend = _backend_with_fake_client(monkeypatch)
+        with active_tenant() as tenant:
+            user = make_user(tenant)
+            backend.write(tenant.id, "user", user.id, "indexed fact")
+
+            ok, detail = backend.health_check()
+
+            assert ok is True
+            assert "1 points" in detail
+            assert backend.health().degraded is False
+
+
+class TestQdrantFakeStrictness:
+    """#1250: the fake must be signature-strict so a real client TypeError is
+    reproducible in a test (the old ``**kwargs`` doubles hid one)."""
+
+    def test_fake_rejects_an_unknown_kwarg(self, monkeypatch):
+        backend = _backend_with_fake_client(monkeypatch)
+        with pytest.raises(TypeError):
+            backend._client.upsert(
+                collection_name="reqlo_x", points=[], unexpected_kwarg=True
+            )
+
+    def test_fake_count_matches_upserted_points(self, monkeypatch):
+        backend = _backend_with_fake_client(monkeypatch)
+        backend._client.upsert(
+            collection_name="reqlo_x",
+            points=[FakeQdrantModels.PointStruct(id="a", vector=[1.0])],
+        )
+        assert backend._client.count(collection_name="reqlo_x").count == 1
+
+
+class TestQdrantReconcileGuard:
+    """#1250: the periodic guard surfaces an unclean report loudly."""
+
+    @pytest.mark.django_db
+    def test_guard_reports_findings_and_logs_a_warning(self, monkeypatch, caplog):
+        backend = _backend_with_fake_client(monkeypatch)
+        with active_tenant() as tenant:
+            user = make_user(tenant)
+            _queue_orphan_points(backend, tenant.id, scope="user", scope_id=user.id, count=1)
+            _patch_qdrant_backend(monkeypatch, backend)
+
+            with caplog.at_level("WARNING"):
+                report = memory_reconcile_guard.run()
+
+            assert report["ok"] is False
+            assert report["counts"]["backend_objects_without_local_row"] == 1
+            assert any("memory reconcile guard found inconsistencies" in r.message for r in caplog.records)
+
+    @pytest.mark.django_db
+    def test_guard_is_silent_when_consistent(self, monkeypatch, caplog):
+        backend = _backend_with_fake_client(monkeypatch)
+        with active_tenant():
+            _patch_qdrant_backend(monkeypatch, backend)
+            with caplog.at_level("WARNING"):
+                report = memory_reconcile_guard.run()
+
+            assert report["ok"] is True
+            assert not any(
+                "memory reconcile guard found inconsistencies" in r.message
+                for r in caplog.records
+            )
 
 
 class TestQdrantDimensionGuard:

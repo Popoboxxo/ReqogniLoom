@@ -3,8 +3,9 @@
 **Run this after every `docker compose … up -d`. A deploy is not done until this gate is green.**
 
 Everything here exists because a deployment could report success while being broken
-(#1074, #1050, #1051, #1052, #1053, #1054). Each check below has a failure mode that
-is invisible from the UI, from `docker ps`, and from the container health status.
+(#1074, #1050, #1051, #1052, #1053, #1054, #1247, #1249). Each check below has a
+failure mode that is invisible from the UI, from `docker ps`, and from the container
+health status.
 
 Run from the **repository root**. The canonical command shape is always:
 
@@ -146,12 +147,80 @@ env name — the original "Docker drops it" note was false, #1187 — but the sh
 kept deliberately: harmless, and portable to older Docker versions. See the note
 in `deploy/docker-compose.yml`.)
 
+The shim writes the nine names and `os.execv`s the engine **in the same process**,
+so they live in **PID 1's** environment — *not* in the environment of a
+`docker exec` shell, which receives the container's *creation* environment. A
+fresh `exec … env` therefore shows `0` even when the shim worked; that is why this
+gate reads PID 1 directly instead:
+
 ```bash
-$DC --profile honcho exec honcho sh -c 'env | grep -c x-opencode-session'  # 0 at rest is expected
+# 3d. The nine derived names are actually set in the engine process (PID 1).
+#     Stronger than the log line below: the compose comments warn that the log
+#     line can lie (a shim that writes into a dead sub-process still prints
+#     "derived 9 module(s)").
+$DC --profile honcho exec honcho sh -c \
+  'tr "\0" "\n" < /proc/1/environ | grep -c "EXTRA_HEADERS__x-opencode-session"'
+#     9                                                                    PASS
+#     0                                                                    FAIL
+
 $DC --profile honcho logs honcho | grep 'derived x-opencode-session'
 #     "[honcho] derived x-opencode-session for 9 engine module(s)"         PASS
 #     "[honcho] LLM_OPENCODE_SESSION is empty"                             FAIL
 ```
+
+### 3.1 Upstream boundary: the Honcho dialectic header is not provable in-repo (#1153, #1247)
+
+`memory.ask` on `MEMORY_BACKEND=honcho` goes through Honcho's **server-side**
+dialectic engine, and the header that engine must send to Zen-Go
+(`x-opencode-session`) is resolved **inside the pinned `honcho` image** — code
+outside this repository. In-repo we can prove (a) the session value is present
+(3a), (b) it reaches the backend/celery containers (3b), (c) the OpenCode Go
+provider attaches the header **on the wire** (#1186,
+`backend/llm_adapter/tests/test_opencode_session_check_1050.py`), and (d) the nine
+Honcho module names are set in the engine process (3d). We **cannot** observe the
+Honcho engine's *outbound* provider request from pytest: that seam is inside the
+vendor image, and the in-repo live spike is `integration`/skip
+(`backend/memory/tests/test_honcho_deploy_contract.py`).
+
+**Escalation — run when `memory.ask` or the dialectic endpoint answers HTTP 500 /
+`400 MissingSessionID` while 3a–3d are green:**
+
+```bash
+# Step 1 — prove the pinned image resolves the nine names into the SDK kwarg
+# (config resolution: one seam short of the wire). Same command as the docstring
+# of test_pinned_image_resolves_opencode_session_sdk_param.
+LLM_OPENCODE_SESSION=spike \
+docker compose -f deploy/docker-compose.yml --project-directory . \
+  --profile honcho run --rm --entrypoint /app/.venv/bin/python honcho -c \
+  'import os
+   SUFFIX="MODEL_CONFIG__OVERRIDES__PROVIDER_PARAMS__EXTRA_HEADERS__x-opencode-session"
+   for m in ["DERIVER_","SUMMARY_","DREAM_INDUCTION_","DREAM_DEDUCTION_"] + [
+       "DIALECTIC_LEVELS__{}__".format(l)
+       for l in ("minimal","low","medium","high","max")]:
+       os.environ[m+SUFFIX] = os.environ["LLM_OPENCODE_SESSION"]
+   from src.config import settings
+   p = settings.DERIVER_MODEL_CONFIG.overrides.provider_params
+   assert p["extra_headers"]["x-opencode-session"] == "spike"
+   print("OK", p["extra_headers"])'
+```
+
+- Step 1 **fails** → the shim/env wiring is wrong on this image; pin/rebuild it.
+- Step 1 **passes** but `memory.ask` still 400s/500s → the remaining gap is
+  **inside the vendor image** (the engine's HTTP client not attaching
+  `extra_headers`). Escalate upstream; not fixable in-repo. The degradation stays
+  loud (`memory.ask` returns `degraded: true` with a non-empty `detail`), never a
+  silent empty answer.
+
+**#1153 must be reopened.** It was closed as fixed, but the #1247 measurement
+(`memory.ask` still degraded; the header unobservable at the Honcho wire)
+contradicts the closed state. Track the vendor-side resolution there.
+
+**Related SDK drift (open, not fixed here).** `backend/requirements.txt` pins
+`honcho-ai==2.5.1` while `backend/requirements.lock` pins `honcho-ai==2.3.0`, and
+the compose pin rationale references the 2.3.0 client. The client SDK version
+decides which server API routes `memory/honcho_backend.py` can call, so confirm
+which version the running backend actually imports before diagnosing a
+`memory.ask` failure. Aligning the two is a follow-up.
 
 ---
 
@@ -318,9 +387,10 @@ deploy/verify-restore.sh
 | ADR-012 | `deploy/verify-restore.sh` / §6 atomic isolated restore | ALL CASES PASSED (15/15, 0 errors, rollback) |
 | #1053 | `/health` `status: ok`, `embedding_dimensions` not `mismatch` | both |
 | #1050 | `llm-preflight` OK, session reaches the container, one real LLM call succeeds | no `MissingSessionID` |
-| #1051 | Honcho logs `derived x-opencode-session for 9 engine module(s)` | present |
+| #1051 | Honcho engine PID 1 carries the 9 `…EXTRA_HEADERS__x-opencode-session` names (3d) **and** logs `derived x-opencode-session for 9 engine module(s)` | 9, and the log line |
 | #1054 | login through the frontend proxy after a backend recreate, no frontend restart | 401, never 502 |
 | #1052 | `honcho-deriver` running and logging `Running main loop` | both lines |
+| #1153/#1247 | 3a–3d green; Honcho dialectic wire is **not** observable in-repo → escalate per §3.1 | documented escalation + #1153 reopened |
 
 ## Related issues
 
@@ -329,4 +399,7 @@ deploy/verify-restore.sh
 authenticate), #1052 (no Honcho deriver/queue worker), #1053
 (`align_embedding_dimensions` fails against the app role),
 ADR-012 (sidecar is the single backup source; the dead `scripts/backup.sh` /
-`scripts/restore.sh` were removed; §6 is the atomic restore contract).
+`scripts/restore.sh` were removed; §6 is the atomic restore contract),
+#1153 (**must be reopened** — the Honcho header seam is vendor-internal; §3.1),
+#1247 (memory.ask regression: the wire proof stops at the vendor boundary),
+#1249 (Honcho restart policies — all runtime services keep-alive).

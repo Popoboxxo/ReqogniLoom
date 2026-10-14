@@ -222,6 +222,13 @@ docker compose -f deploy/docker-compose.yml --project-directory . --profile honc
 Then set `MEMORY_BACKEND=honcho` and `HONCHO_BASE_URL=http://honcho:8000` in `.env` and restart
 `backend`/`celery`.
 
+All three Honcho **runtime** services (`honcho`, `honcho-postgres`, `honcho-redis`) carry
+`restart: unless-stopped` (#1249), so a crash or host reboot no longer leaves the memory
+backend silently down while the stack still reports as started. The one-shot services
+(`migrate`, `llm-preflight`, `honcho-migrate`) stay at Compose's default `no` on purpose — an
+auto-restart would re-run migrations/preflight in a loop. The contract is regression-guarded by
+`backend/memory/tests/test_honcho_deploy_contract.py`.
+
 Honcho needs a reachable OpenAI-compatible embedding endpoint before it can write memories. The
 compose services read these four vars from `.env` (defaults shown). `honcho-migrate` and `honcho`
 both use them for the embedding config, and `backend`/`celery` read the first two for the `/health`
@@ -340,6 +347,74 @@ any output reads `none` — neither reads `failed`. `failed` fires only on the p
 
 Both cases are the documented blind spot of a client-side view, not a backend bug.
 
+### Upstream boundary: the Honcho dialectic header is vendor-internal (#1153, #1247)
+
+`memory.ask` on `MEMORY_BACKEND=honcho` is answered by Honcho's **server-side** dialectic engine,
+and the `x-opencode-session` header that engine must attach to its Zen-Go calls is resolved
+**inside the pinned `honcho` image** — code outside this repository. In-repo we can prove the
+session value is present, reaches the containers, is attached by the **OpenCode Go provider on the
+wire** (#1186), and that the nine Honcho module names are set in the engine process. We **cannot**
+observe the Honcho engine's outbound provider request from pytest; the in-repo live spike is
+`integration`/skip.
+
+If `memory.ask` (or the dialectic endpoint) returns HTTP 500 / `400 MissingSessionID` while the
+deploy gates are green, this is the documented escalation:
+
+1. Run the pinned-image config-resolution spike (the command in
+   `backend/memory/tests/test_honcho_deploy_contract.py::test_pinned_image_resolves_opencode_session_sdk_param`).
+   It proves the nine names become `extra_headers`.
+2. If step 1 fails, the shim/env wiring is wrong on this image — pin/rebuild it.
+3. If step 1 passes but `memory.ask` still fails, the remaining gap is **inside the vendor image**
+   (its HTTP client not attaching `extra_headers`). Escalate upstream — it is not fixable in-repo.
+   `memory.ask` keeps returning a **loud** `degraded: true` with a non-empty `detail`, never a
+   silent empty answer.
+
+The deploy-runbook escalation and the PID 1 proof are in
+[`docs/DEPLOY_RUNBOOK.md`](../docs/DEPLOY_RUNBOOK.md) §3.1.
+
+**#1153 must be reopened:** it was closed as fixed, but #1247 shows `memory.ask` is still degraded
+and the header is unobservable at the Honcho wire. Related open drift: `backend/requirements.txt`
+pins `honcho-ai==2.5.1` while `backend/requirements.lock` pins `2.3.0`; confirm which the running
+backend imports before diagnosing `memory.ask`.
+
+
+## Memory backend capability matrix (#1251)
+
+`MEMORY_BACKEND` picks the AI-memory store; the three implementations answer
+different questions. This matrix is the single place that names what each backend
+can and cannot do, so an `ask`/`digest` that "does nothing" can be read as intended
+degradation rather than a bug:
+
+| Backend (`MEMORY_BACKEND`) | Per-scope `derivation_status` | `memory.ask` | `memory.digest` | External dependency |
+|---|---|---|---|---|
+| `pgvector` (**default**) | `unsupported` — no deriver at all | **`ask_available = false`**: a defined degradation (`degraded: true`, empty `answer`), never an error | facts-based digest; `derivation_status: "unsupported"`, `derived_count: null` | none beyond Postgres/pgvector |
+| `honcho` (optional `honcho` profile) | `ok` / `none` / `failed` / `unknown` — the Deriver probe | **`ask_available = true`**: answered by the server-side dialectic engine (`peer.chat`, scoped to the session); `degraded: false` on success, `degraded: true` on engine/transport failure | deriver-backed digest with `derivation_status` + `derived_count` | Honcho server (`HONCHO_BASE_URL`) **plus** an external LLM (Zen-Go) and an embedding endpoint |
+| `qdrant` (optional `qdrant` profile) | `unsupported` — no deriver | **`ask_available = false`**: **always** `degraded: true` with `detail: "no dialectic engine"` | facts-based digest; `derivation_status: "unsupported"` | Qdrant service (`QDRANT_BASE_URL`); **no auto-fallback** to pgvector (ADR-020 §4) |
+
+The scope-less capability that rides the memory response envelope
+(`memory.list`/`memory.query`/`memory.forget`, the admin health row) has no scope
+to probe, so it reports only the capability: `unsupported` for `pgvector` and
+`qdrant`, `unknown` for `honcho` ("can derive, not probed here").
+
+### LLM capability IDs are not MCP tool names (#1251)
+
+The four names in `LLM_CAPABILITIES` (`.env.example`) are **LLM capability IDs**,
+gating the AI-provider router — they are **not** MCP tool names, even where they
+look like one. This distinction is the source of the "`check_consistency` tool is
+missing" confusion:
+
+| LLM capability ID (`LLM_CAPABILITIES`) | Dispatch | MCP tool(s) that drive it |
+|---|---|---|
+| `validate_artifact` | sync | `requirement.validate` |
+| `decompose_requirement` | async (Celery) | `requirement.decompose` |
+| `check_consistency` | async (Celery) | `requirement.check_consistency` (+ `requirement.check_consistency_status`) |
+| `derive_requirements` | async (Celery) | *(legacy)* — no active tool: today's derivation tools (`needs.derive_requirements`, `ai_derivation.derive_requirements_from_need`) go through the `ai_derivation` service, which routes **outside** `CapabilityRouter` and is therefore **not** gated by `LLM_CAPABILITIES` |
+
+A capability that is gated off answers the distinct error code
+`LLM_CAPABILITY_DISABLED` with "Set `LLM_CAPABILITIES` to include it" — it is
+**not** an unknown tool (`UNKNOWN_TOOL`). The canonical MCP tool list is
+`docs/agent-templates/tool-manifest.json`; the full reference is
+[`docs/api/MCP-SURFACE.md`](../docs/api/MCP-SURFACE.md) §4 and §8.
 
 ## Optional: Qdrant vector backend (ADR-020)
 

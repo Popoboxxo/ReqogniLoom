@@ -29,12 +29,19 @@ collection, and each query additionally filters by ``scope`` + ``scope_id`` +
 ``tenant_id`` payload fields, so even the shared ``_artifacts`` collection can
 never leak across artifacts.
 
-No auto-fallback (ADR-020 §4)
------------------------------
+No auto-fallback, fail-loud writes (ADR-020 §4, #1250)
+------------------------------------------------------
 A configured-but-unreachable Qdrant is reported as ``degraded`` by
 :meth:`health`; it is never silently replaced by pgvector. Reads fail open
-(return ``[]``) and writes still land in the canonical mirror, but the health
-signal stays honest so the outage is visible.
+(return ``[]``), but a WRITE whose vector could not be produced (embedding
+provider down) or whose upsert failed is fail-LOUD: the canonical mirror row is
+still persisted (it stays the source of truth), and then a
+:class:`MemoryIndexError` is raised so the failure can never masquerade as a
+successful write that merely left ``backend_ref`` NULL. :meth:`health` also
+reports ``degraded`` when collections exist but hold zero points -- the exact
+"collections present, 0 points" symptom of #1250 -- and ``manage.py
+memory_reconcile`` (or the scheduled ``memory.reconcile_guard`` task) is the
+read-only guard that reports every row still missing its point.
 """
 from __future__ import annotations
 
@@ -94,6 +101,48 @@ _PAYLOAD_TENANT_ID = "tenant_id"
 #: reconciliation scan). Bounded so the report cannot enumerate an unbounded
 #: collection into memory.
 _ORPHAN_SCAN_PAGE_SIZE = 1000
+
+#: Stable machine-readable ``MemoryIndexError.reason`` values. Kept as module
+#: constants so a caller/alert can branch on the cause without parsing prose.
+INDEX_REASON_EMBEDDING_UNAVAILABLE = "embedding_unavailable"
+INDEX_REASON_UPSERT_FAILED = "upsert_failed"
+
+
+class MemoryIndexError(RuntimeError):
+    """A canonical memory row could not be vector-indexed in Qdrant (#1250).
+
+    Raised by :meth:`QdrantMemoryBackend.write` AFTER the canonical
+    ``mem_memory_entry`` row has been persisted -- so the row survives and
+    remains the source of truth (discoverable by ``manage.py memory_reconcile``
+    as ``backend_ref IS NULL``), while the failure can no longer hide behind a
+    normal return value and a silently NULL ``backend_ref``.
+
+    ``reason`` is a stable machine token: :data:`INDEX_REASON_EMBEDDING_UNAVAILABLE`
+    (no vector could be produced) or :data:`INDEX_REASON_UPSERT_FAILED` (the
+    client rejected/failed the upsert). ``cause`` carries the underlying client
+    exception when there was one.
+    """
+
+    def __init__(
+        self,
+        *,
+        reason: str,
+        entry_id: UUID,
+        tenant_id: UUID,
+        scope: str,
+        scope_id: UUID,
+        cause: Optional[BaseException] = None,
+    ) -> None:
+        self.reason = reason
+        self.entry_id = entry_id
+        self.tenant_id = tenant_id
+        self.scope = scope
+        self.scope_id = scope_id
+        self.cause = cause
+        super().__init__(
+            f"qdrant memory index failed ({reason}) for entry={entry_id} "
+            f"scope={scope} -- the canonical row was persisted but has no point"
+        )
 
 
 def _qdrant_client_available() -> bool:
@@ -361,6 +410,50 @@ class QdrantMemoryBackend(MemoryBackend):
             _collection_dimension(client.get_collection(name)), self._config.vector_dimensions
         )
 
+    def _collection_names(self, client: Any) -> list[str]:
+        """Names of every Qdrant collection under the configured prefix.
+
+        A single source for both :meth:`list_collection_names` (the READ-ONLY
+        reconciliation scan) and :meth:`_collection_point_expectation` (the
+        health probe). Deliberately non-fail-open: the caller decides whether a
+        client error is a finding (reconcile) or a health detail (health).
+        """
+        response = client.get_collections()
+        prefix = f"{self._config.collection_prefix}_"
+        candidates = [
+            getattr(collection, "name", None)
+            for collection in (getattr(response, "collections", None) or [])
+        ]
+        return sorted(
+            name for name in candidates if isinstance(name, str) and name.startswith(prefix)
+        )
+
+    def _collection_point_expectation(self, client: Any) -> tuple[bool, str]:
+        """Health probe catching "collections present, 0 points" (#1250).
+
+        A reachable Qdrant whose collections hold no point at all means every
+        write silently failed to index -- exactly the reported symptom. A fresh
+        deployment with no collection yet is NOT degraded, and a client that
+        cannot answer ``count`` is likewise not evidence of a broken write, so
+        it is reported as reachable rather than failing the health check.
+        """
+        names = self._collection_names(client)
+        if not names:
+            return True, "qdrant reachable"
+        total = 0
+        for name in names:
+            try:
+                result = client.count(collection_name=name, exact=True)
+            except Exception:  # noqa: BLE001 - cannot count != broken write
+                return True, f"qdrant reachable ({len(names)} collection(s))"
+            total += int(getattr(result, "count", 0) or 0)
+        if total == 0:
+            return False, (
+                f"qdrant reachable but {len(names)} collection(s) hold 0 points "
+                "-- memory writes are not being indexed"
+            )
+        return True, f"qdrant reachable ({total} points in {len(names)} collection(s))"
+
     # -- canonical-store API (RFC #1002) --------------------------------
 
     def write(
@@ -381,10 +474,12 @@ class QdrantMemoryBackend(MemoryBackend):
         """Persist *content* canonically and index its vector in Qdrant.
 
         The canonical ``mem_memory_entry`` row is written first and is what
-        ``entry_id`` returns; the Qdrant point is an ADDITIVE index. If the
-        embedding provider is unavailable or Qdrant is unreachable, the row is
-        still written and ``backend_ref`` stays NULL so reconciliation can flag
-        it -- the outage is surfaced by :meth:`health`, never hidden.
+        ``entry_id`` returns; the Qdrant point is an ADDITIVE index. The write
+        is fail-LOUD (issue #1250): if no embedding can be produced, or the
+        upsert fails, the canonical row is still persisted (it stays the source
+        of truth and is discoverable by ``memory_reconcile`` via
+        ``backend_ref IS NULL``) and a :class:`MemoryIndexError` is raised -- a
+        silently missing point must never look like a successful write.
         """
         embedding = _safe_generate_embedding(content)
         with _tenant_context(tenant_id):
@@ -403,44 +498,75 @@ class QdrantMemoryBackend(MemoryBackend):
             )
             entry_id = entry.id
 
-        if embedding is not None and self._index_point(
-            tenant_id, scope, scope_id, entry_id, embedding
-        ):
-            with _tenant_context(tenant_id):
-                MemoryEntry.objects.filter(id=entry_id).update(backend_ref=str(entry_id))
-                entry.refresh_from_db()
-        return _ref_from_entry(entry)
-
-    def _index_point(
-        self, tenant_id: UUID, scope: str, scope_id: UUID, entry_id: UUID, vector: List[float]
-    ) -> bool:
-        """Upsert one point; fail-open (returns whether the point was written)."""
-        try:
-            name = self._collection_name(tenant_id, scope, scope_id)
-            client = self._ensure_client()
-            self._ensure_collection(client, name)
-            models = self._models()
-            point = models.PointStruct(
-                id=str(entry_id),
-                vector=[float(component) for component in vector],
-                payload={
-                    _PAYLOAD_ENTRY_ID: str(entry_id),
-                    _PAYLOAD_SCOPE: scope,
-                    _PAYLOAD_SCOPE_ID: str(scope_id),
-                    _PAYLOAD_TENANT_ID: str(tenant_id),
-                },
+        if embedding is None:
+            # Fail loud (#1250): the row exists but can never be indexed until an
+            # embedding provider is available. Previously this branch silently
+            # skipped the point and left backend_ref NULL with no error at all.
+            logger.error(
+                "qdrant memory write could not produce an embedding for "
+                "tenant=%s scope=%s entry=%s -- point not written",
+                tenant_id,
+                scope,
+                entry_id,
             )
-            client.upsert(collection_name=name, points=[point], wait=True)
-            return True
-        except Exception as exc:  # noqa: BLE001 - fail-open: the canonical row is safe
-            logger.warning(
-                "qdrant memory index failed for tenant=%s scope=%s entry=%s (error type %s)",
+            raise MemoryIndexError(
+                reason=INDEX_REASON_EMBEDDING_UNAVAILABLE,
+                entry_id=entry_id,
+                tenant_id=tenant_id,
+                scope=scope,
+                scope_id=scope_id,
+            )
+
+        try:
+            self._index_point(tenant_id, scope, scope_id, entry_id, embedding)
+        except Exception as exc:  # noqa: BLE001 - re-raised as a typed, loud error
+            logger.error(
+                "qdrant memory index failed for tenant=%s scope=%s entry=%s "
+                "(error type %s)",
                 tenant_id,
                 scope,
                 entry_id,
                 type(exc).__name__,
             )
-            return False
+            raise MemoryIndexError(
+                reason=INDEX_REASON_UPSERT_FAILED,
+                entry_id=entry_id,
+                tenant_id=tenant_id,
+                scope=scope,
+                scope_id=scope_id,
+                cause=exc,
+            ) from exc
+
+        with _tenant_context(tenant_id):
+            MemoryEntry.objects.filter(id=entry_id).update(backend_ref=str(entry_id))
+            entry.refresh_from_db()
+        return _ref_from_entry(entry)
+
+    def _index_point(
+        self, tenant_id: UUID, scope: str, scope_id: UUID, entry_id: UUID, vector: List[float]
+    ) -> None:
+        """Upsert one point; raises on any client/collection failure.
+
+        Deliberately NOT a bool-returning fail-open helper anymore (issue
+        #1250): a swallowed failure is exactly what made "collections present,
+        0 points" invisible. The caller (:meth:`write`) wraps the exception in a
+        :class:`MemoryIndexError` once the canonical row is safe.
+        """
+        name = self._collection_name(tenant_id, scope, scope_id)
+        client = self._ensure_client()
+        self._ensure_collection(client, name)
+        models = self._models()
+        point = models.PointStruct(
+            id=str(entry_id),
+            vector=[float(component) for component in vector],
+            payload={
+                _PAYLOAD_ENTRY_ID: str(entry_id),
+                _PAYLOAD_SCOPE: scope,
+                _PAYLOAD_SCOPE_ID: str(scope_id),
+                _PAYLOAD_TENANT_ID: str(tenant_id),
+            },
+        )
+        client.upsert(collection_name=name, points=[point], wait=True)
 
     def list_entries(
         self,
@@ -551,8 +677,7 @@ class QdrantMemoryBackend(MemoryBackend):
                     f"{config.vector_dimensions} != {EMBEDDING_VECTOR_DIMENSIONS}"
                 )
             if self._client is not None:
-                self._client.get_collections()
-                return True, "qdrant reachable"
+                return self._collection_point_expectation(self._client)
             if not _qdrant_client_available():
                 return False, "qdrant_client package is not installed"
             return self._http_health_probe(config)
@@ -751,16 +876,7 @@ class QdrantMemoryBackend(MemoryBackend):
         collections is a blind spot the caller must surface as a finding, so it
         propagates.
         """
-        client = self._ensure_client()
-        response = client.get_collections()
-        prefix = f"{self._config.collection_prefix}_"
-        candidates = [
-            getattr(collection, "name", None)
-            for collection in (getattr(response, "collections", None) or [])
-        ]
-        return sorted(
-            name for name in candidates if isinstance(name, str) and name.startswith(prefix)
-        )
+        return self._collection_names(self._ensure_client())
 
     def iter_collection_points(self, collection_name: str) -> Iterator[dict]:
         """Stream every point payload of *collection_name*, paginating ``scroll``.
@@ -830,6 +946,9 @@ class QdrantMemoryBackend(MemoryBackend):
 
 __all__ = [
     "QdrantMemoryBackend",
+    "MemoryIndexError",
+    "INDEX_REASON_EMBEDDING_UNAVAILABLE",
+    "INDEX_REASON_UPSERT_FAILED",
     "assert_collection_dimension",
     "resolve_effective_qdrant_config",
 ]

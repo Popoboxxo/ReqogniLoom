@@ -1190,6 +1190,7 @@ services:
   honcho-postgres:
     image: pgvector/pgvector:pg16
     profiles: ["honcho"]
+    restart: unless-stopped
     environment:
       POSTGRES_USER: honcho
       POSTGRES_PASSWORD: ${HONCHO_DB_PASSWORD:-honcho-dev-password}
@@ -1205,6 +1206,7 @@ services:
   honcho-redis:
     image: redis:7-alpine
     profiles: ["honcho"]
+    restart: unless-stopped
     volumes:
       - honcho_redis_data:/data
     healthcheck:
@@ -1283,6 +1285,7 @@ services:
   honcho:
     image: ghcr.io/plastic-labs/honcho:latest@sha256:350b778af29b8b5b0b9a5b5436a00ea912acc7490908a9cb4fb7d80fa963e5c2
     profiles: ["honcho"]
+    restart: unless-stopped
     depends_on:
       honcho-postgres:
         condition: service_healthy

@@ -41,10 +41,13 @@ Artifact context (may be empty):
 {artifact_context}
 
 Respond with a JSON object: {"facts": [{"content": "<fact text>", "scope": "artifact"|"workspace"|"user", "language": "<ISO 639-1 code>"}]}
-"scope"="workspace" for project-specific facts, "scope"="user" for facts
-about the person's general preferences/working style, and "scope"="artifact"
-for facts that concern ONLY the artifact named in the artifact context above
-(use "workspace" instead when no artifact context is given).
+Always include the "scope" field on every fact. Use
+"scope"="workspace" for project-specific facts (the team-visible default),
+"scope"="user" for facts about the person's general preferences/working style,
+and "scope"="artifact" for facts that concern ONLY the artifact named in the
+artifact context above (use "workspace" instead when no artifact context is
+given). If you are unsure whether a fact is project-specific or personal,
+prefer "workspace".
 
 Interaction:
 {interaction_text}

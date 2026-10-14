@@ -190,6 +190,52 @@ class TestList:
 
 
 @pytest.mark.django_db
+class TestDefaultReadScope:
+    """#1248: the read default is ``workspace`` whenever a ``workspace_id`` is
+    in scope, so an interview-extracted workspace fact is readable there."""
+
+    def test_list_defaults_to_workspace_when_workspace_id_given(self):
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            user = make_user(tenant)
+            ctx = ctx_for_user(tenant, user, workspace=ws, roles=("editor",))
+            service = _service()
+            service.write(ctx, content="ws fact", scope="workspace", workspace_id=ws.id)
+            service.write(ctx, content="user fact", scope="user")
+
+            page = service.list(ctx, workspace_id=ws.id)
+
+            assert page["total"] == 1
+            assert page["items"][0]["content"] == "ws fact"
+
+    def test_list_defaults_to_user_without_a_workspace_id(self):
+        with active_tenant() as tenant:
+            user = make_user(tenant)
+            ctx = ctx_for_user(tenant, user)
+            service = _service()
+            service.write(ctx, content="user fact", scope="user")
+
+            page = service.list(ctx)
+
+            assert page["total"] == 1
+            assert page["items"][0]["content"] == "user fact"
+
+    def test_search_defaults_to_workspace_when_workspace_id_given(self):
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            user = make_user(tenant)
+            ctx = ctx_for_user(tenant, user, workspace=ws, roles=("editor",))
+            service = _service()
+            service.write(ctx, content="ws semantic fact", scope="workspace", workspace_id=ws.id)
+            service.write(ctx, content="user semantic fact", scope="user")
+
+            result = service.search(ctx, query="semantic fact", workspace_id=ws.id)
+
+            assert result["scopes"] == ["workspace"]
+            assert [item["content"] for item in result["items"]] == ["ws semantic fact"]
+
+
+@pytest.mark.django_db
 class TestSearch:
     def test_searches_a_workspace(self):
         with active_tenant() as tenant:
