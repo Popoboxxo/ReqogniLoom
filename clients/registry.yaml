@@ -19,6 +19,31 @@ conventions:
   transport_paths:
     streamable_http: /mcp/
     sse: /mcp/sse/
+  # Canonical vs deprecated path (#1292): /mcp/ is THE transport path; the
+  # REST-prefixed /api/v1/mcp/ is a deprecated alias whose responses carry
+  # Deprecation/Sunset/Link headers. Never point a new config at the alias.
+  canonical_path: /mcp/
+  deprecated_alias_path: /api/v1/mcp/
+  # Auth forms accepted by the MCP transport (#1292). The credential is always a
+  # reqlo_ API key, never a JWT; X-API-Key is preferred (a dedicated header is
+  # less likely to be written verbatim into proxy logs than Authorization).
+  auth_forms:
+    - header: X-API-Key
+      form: "`X-API-Key: reqlo_…`"
+      result_de: "✓ akzeptiert — **bevorzugt**"
+      result_en: "✓ accepted — **preferred**"
+    - header: Authorization
+      form: "`Authorization: Bearer reqlo_…`"
+      result_de: "✓ akzeptiert"
+      result_en: "✓ accepted"
+    - header: Authorization
+      form: "`Authorization: Bearer <JWT>`"
+      result_de: "✗ `401 bearer_not_supported` — MCP ist API-Key-only (REQ-L2-MC-006)"
+      result_en: "✗ `401 bearer_not_supported` — MCP is API-key-only (REQ-L2-MC-006)"
+    - header: query string
+      form: "`?api_key=reqlo_…`"
+      result_de: "✗ nie akzeptiert (Leak in Logs/History)"
+      result_en: "✗ never accepted (leaks into logs/history)"
   # Rule (plan §3.3): prefer Streamable HTTP when the client speaks it natively;
   # use SSE for plugin/store paths; stdio bridge when the client is stdio-only.
   transport_rule_de:

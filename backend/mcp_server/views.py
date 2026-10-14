@@ -47,6 +47,7 @@ from mcp_server.throttling import (
     rate_limited_plain_response,
 )
 from mcp_server.tool_registry import ToolRegistry
+from reqogniloom.health import sunset_header_value
 from reqogniloom.version import get_app_version
 
 logger = logging.getLogger(__name__)
@@ -55,6 +56,46 @@ logger = logging.getLogger(__name__)
 # string "error_code" (REQ-047). Reverse the map to recover the string name
 # for HTTP-status mapping below.
 _NUMERIC_TO_ERROR_CODE: dict[int, str] = {v: k for k, v in ERROR_CODE_MAP.items()}
+
+# ---------------------------------------------------------------------------
+# Canonical MCP path vs deprecated alias (issue #1292)
+# ---------------------------------------------------------------------------
+#
+# ``/mcp/`` is the canonical transport path (ARCH-L1-003; it is what every
+# shipped client config points at). ``/api/v1/mcp/`` is a historical mounting
+# under the REST prefix that answers the exact same requests — nothing defaults
+# to it. It is kept as a working alias so existing configs do not break, but it
+# is *deprecated*: every response served from it carries RFC 9745 ``Deprecation``
+# plus RFC 8594 ``Sunset`` and a ``Link`` to the canonical path, so a client (or
+# a reverse proxy) can migrate without reading the documentation.
+_LEGACY_MCP_PATH_PREFIX = "/api/v1/mcp"
+
+#: Default removal date for the deprecated alias (ISO-8601). Overridable via the
+#: ``MCP_LEGACY_PATH_SUNSET`` Django setting for an operator who needs a
+#: different deadline; never hard-coded into a response.
+_LEGACY_MCP_PATH_SUNSET = "2027-04-01"
+
+
+def _apply_legacy_path_deprecation(
+    request: HttpRequest, response: HttpResponse
+) -> HttpResponse:
+    """Mark a response from the deprecated ``/api/v1/mcp/`` alias (issue #1292).
+
+    Returns *response* unchanged (no headers) when the request was served from
+    the canonical ``/mcp/`` path, so the canonical path's responses stay clean.
+    """
+    path = request.path or ""
+    if not (
+        path == _LEGACY_MCP_PATH_PREFIX
+        or path.startswith(_LEGACY_MCP_PATH_PREFIX + "/")
+    ):
+        return response
+    response["Deprecation"] = "true"
+    response["Sunset"] = sunset_header_value(
+        getattr(settings, "MCP_LEGACY_PATH_SUNSET", _LEGACY_MCP_PATH_SUNSET)
+    )
+    response["Link"] = '</mcp/>; rel="alternate"'
+    return response
 
 
 # ---------------------------------------------------------------------------
@@ -261,7 +302,10 @@ def _apply_cors_headers(request, response, *, methods: str = "POST, GET, OPTIONS
     # be misleading metadata for an origin that was never actually allowed.
     response["Access-Control-Allow-Methods"] = methods
     response["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-API-Key"
-    return response
+    # Every MCP transport response funnels through here, so this is the single
+    # place that can mark the deprecated /api/v1/mcp/ alias (issue #1292)
+    # without each view having to remember it.
+    return _apply_legacy_path_deprecation(request, response)
 
 
 class CorsMixin:
