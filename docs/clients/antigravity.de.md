@@ -20,7 +20,7 @@
 ## 2. Installation (ein Befehl)
 
 ```bash
-# Ein Befehl: MCP-Config + Skills (-> .agents/skills, DOMAIN_MODEL.md)
+# Ein Befehl: MCP-Config + Skills (-> ~/.gemini/skills, DOMAIN_MODEL.md)
 scripts/clients/install.sh --client antigravity \
   --url "$REQOGNILOOM_MCP_URL" --key-env REQOGNILOOM_API_KEY
 ```
@@ -49,8 +49,8 @@ Vollständige, generierte Konfiguration (Env-Var-Referenzen, nie ein literaler K
 ## 5. Verifikation
 
 - **Befehl:** `SSE-Handshake gegen /mcp/sse/ mit X-API-Key`
-- **Erwartet:** `initialize` (202 + Event) → `tools/list` liefert **227 Tools**; das Antigravity-Panel zeigt `reqogniloom` verbunden.
-- **Tool-Call-Ergebnis:** 227 tools
+- **Erwartet:** `initialize` (202 + Event) → `tools/list` liefert **239 Tools**; das Antigravity-Panel zeigt `reqogniloom` verbunden.
+- **Tool-Call-Ergebnis:** 239 tools
 
 ## 6. Fallstricke
 

@@ -141,6 +141,26 @@ def render_client(client: dict[str, Any], *, lang: str) -> str:
         "",
     ]
 
+    desktop = client.get("desktop_plugin_de" if de else "desktop_plugin_en")
+    if desktop:
+        # Optional desktop-app plugin (e.g. Hermes): rendered as a subsection of
+        # "Installation" so the numbered sections 1..8 stay stable for every
+        # client and only clients that declare desktop-plugin data get it.
+        parts += [
+            "### " + ("Desktop-Plugin" if de else "Desktop plugin"),
+            "",
+            desktop["intro"],
+            "",
+            _code_blocks(desktop["install"]),
+            "",
+            _bullets(desktop["items"]),
+            "",
+            f"- **Version:** `{load_version()}` "
+            + ("(aus dem Repo-`VERSION`) — " if de else "(from the repo `VERSION`) — ")
+            + desktop["version_note"],
+            "",
+        ]
+
     parts += [
         "## 3. " + ("Konfiguration" if de else "Configuration"),
         "",
@@ -248,6 +268,41 @@ def render_matrix(registry: dict[str, Any], *, lang: str) -> str:
         f"- Auth-Header (Standard): `{conv['default_auth_header']}` — "
         + ("**Ausnahme Codex: Bearer**." if de else "**exception Codex: Bearer**."),
         "",
+        "### " + ("Pfad & Authentifizierung" if de else "Path & authentication"),
+        "",
+    ]
+
+    canonical = conv.get("canonical_path", "/mcp/")
+    alias = conv.get("deprecated_alias_path", "/api/v1/mcp/")
+    parts.append(
+        f"- **{'Kanonischer Pfad' if de else 'Canonical path'}:** `{canonical}` — "
+        + (
+            "der einzige Pfad, auf den eine neue Client-Config zeigen darf."
+            if de
+            else "the only path a new client config may point at."
+        )
+    )
+    parts.append(
+        f"- **{'Deprecated' if de else 'Deprecated'}:** `{alias}` — "
+        + (
+            "Alias; Antworten tragen `Deprecation`/`Sunset`/`Link`-Header."
+            if de
+            else "alias; responses carry `Deprecation`/`Sunset`/`Link` headers."
+        )
+    )
+    parts.append("")
+    parts.append(
+        "| Header | Form | "
+        + ("Ergebnis" if de else "Result")
+        + " |"
+    )
+    parts.append("|---|---|---|")
+    for form in conv.get("auth_forms", []):
+        result = form["result_de" if de else "result_en"]
+        parts.append(f"| `{form['header']}` | {form['form']} | {result} |")
+    parts.append("")
+
+    parts += [
         "### " + ("Transport-Entscheidung" if de else "Transport decision"),
         "",
         _bullets(conv["transport_rule_de" if de else "transport_rule_en"]),

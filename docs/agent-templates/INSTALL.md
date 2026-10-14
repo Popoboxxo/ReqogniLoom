@@ -42,8 +42,13 @@ OpenCode already looks for them:
 
 1. Prefer the one command (canonical, `remote`/SSE):
    ```bash
-   opencode mcp add reqogniloom --url "$REQOGNILOOM_MCP_URL/mcp/sse/"
+   opencode mcp add reqogniloom --url "$REQOGNILOOM_MCP_URL/mcp/sse/" \
+     --header "X-API-Key={env:REQOGNILOOM_API_KEY}"
    ```
+   The `--header` is **mandatory**: without it OpenCode registers the server
+   with no credential and reports `needs authentication` when it connects.
+   `{env:REQOGNILOOM_API_KEY}` is an OpenCode env placeholder — the literal key
+   never lands in argv, shell history or the config file.
    Or merge `dist/opencode/opencode.json.snippet`'s `mcp.reqogniloom` block
    into your project's `opencode.json` (or `~/.config/opencode/opencode.json`
    for a user-wide install). This is the **canonical** shape — earlier
@@ -121,13 +126,20 @@ edit to a `docs/agent-templates/skills/<name>/SKILL.md` process skill, run
 in order (each depends on the previous step's output):
 
 ```bash
-docker-compose exec backend python manage.py export_tool_manifest
-python -m pytest docs/agent-templates/test_role_tools_exist_in_manifest.py \
-                  docs/agent-templates/test_process_skills_reference_real_tools.py -v
-python docs/agent-templates/package_skills.py
-python dist/plugins/claude-code/build_claude_plugin.py
-python dist/plugins/antigravity/build_antigravity_plugin.py
-python dist/opencode/build_opencode_package.py
+# 1. Regenerate the canonical manifest. `export_tool_manifest` defaults to
+#    writing inside the container's /app/docs, which the dev/test stacks mount
+#    READ-ONLY — a bare `exec … export_tool_manifest` fails with
+#    `PermissionError: '/docs'`. Write to a writable path and copy it out:
+docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.override.yml --project-directory . \
+  exec backend python3 manage.py export_tool_manifest --out /tmp/tool-manifest.json
+docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.override.yml --project-directory . \
+  cp backend:/tmp/tool-manifest.json docs/agent-templates/tool-manifest.json
+python3 -m pytest docs/agent-templates/test_role_tools_exist_in_manifest.py \
+                   docs/agent-templates/test_process_skills_reference_real_tools.py -v
+python3 docs/agent-templates/package_skills.py
+python3 dist/plugins/claude-code/build_claude_plugin.py
+python3 dist/plugins/antigravity/build_antigravity_plugin.py
+python3 dist/opencode/build_opencode_package.py
 ```
 
 The `test_tool_manifest_drift` test (`backend/mcp_server/tests/test_tool_manifest_drift.py`)
@@ -136,6 +148,11 @@ treat a CI failure there as "you forgot to regenerate," not a code bug. The
 `test_role_tools_exist_in_manifest.py` run in step 2 catches the same class
 of drift one level up: a role file referencing a tool that got renamed or
 removed since the role was last updated.
+
+The documented tool count is also guarded against the **prose** copies in
+`README.md`, `docs/api/MCP-SURFACE.md` and `docs/clients/*.md` by
+`docs/agent-templates/test_doc_surface_consistency.py` (run in the same CI job):
+a stale "N Tools" sentence is a failure there, not a silent drift.
 
 ## One convention, and one place it disagrees
 

@@ -19,7 +19,7 @@
 ## 2. Installation (one command)
 
 ```bash
-# One command: MCP server (remote/SSE) + skills (-> .opencode/skills, DOMAIN_MODEL.md):
+# One command: MCP server (remote/SSE) + skills (-> ~/.config/opencode/skills, DOMAIN_MODEL.md):
 scripts/clients/install.sh --client opencode \
   --url "$REQOGNILOOM_MCP_URL" --key-env REQOGNILOOM_API_KEY
 # (internally: opencode mcp add reqogniloom --url "$REQOGNILOOM_MCP_URL/mcp/sse/" \

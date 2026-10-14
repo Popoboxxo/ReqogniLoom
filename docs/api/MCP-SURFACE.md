@@ -10,7 +10,7 @@ than the prose describing it, and every drift cost a QA run
 [`docs/agent-templates/tool-manifest.json`](../agent-templates/tool-manifest.json)
 carries the full contract of every tool (name, prefix, read/write
 classification, description, `inputSchema`). Regenerate it with
-`python backend/manage.py export_tool_manifest`. The table below is the
+`python3 backend/manage.py export_tool_manifest`. The table below is the
 human-readable summary of the same data, plus the facts the JSON cannot state
 (which tools are deliberately absent, and which capabilities exist only here).
 
@@ -23,10 +23,10 @@ generated OpenAPI at `GET /api/schema/` and `/api/schema/swagger-ui/`
 
 | Figure | Value |
 |--------|-------|
-| Tools | **228** |
+| Tools | **239** |
 | Tool-group prefixes | **36** |
-| Version | `v1.8.0-beta.20` (`VERSION`, `1.8.0-beta.20`) — the ADR-019 WP3 `suggestion` group (`suggestion.list`/`suggestion.accept`/`suggestion.reject`) is the newest tool-surface change, and `traceability.suggest_links` became a write tool; `interview.chat` ([#1164](https://github.com/Popoboxxo/ReqogniLoom/issues/1164)), `traceability.query_links` ([#1098](https://github.com/Popoboxxo/ReqogniLoom/issues/1098)), `main_goal.query` ([#1097](https://github.com/Popoboxxo/ReqogniLoom/issues/1097)) and `traceability.suggest_links_status` ([#1197](https://github.com/Popoboxxo/ReqogniLoom/issues/1197)) preceded them; `memory.ask` (REQ-192, [#1154](https://github.com/Popoboxxo/ReqogniLoom/issues/1154)) preceded those |
-| Measured at | ADR-019 WP3 (`suggestion` group, `traceability.suggest_links` write) on top of the `v1.8.0-beta.16` tag commit `9eb2fc58` plus [#1080](https://github.com/Popoboxxo/ReqogniLoom/issues/1080) (`65c732b4`, `test.run_list`), [#1154](https://github.com/Popoboxxo/ReqogniLoom/issues/1154) (`memory.ask`), [#1164](https://github.com/Popoboxxo/ReqogniLoom/issues/1164) (`interview.chat`), [#1098](https://github.com/Popoboxxo/ReqogniLoom/issues/1098) (`traceability.query_links`), [#1097](https://github.com/Popoboxxo/ReqogniLoom/issues/1097) (`main_goal.query`) and [#1197](https://github.com/Popoboxxo/ReqogniLoom/issues/1197) (`traceability.suggest_links_status`) |
+| Version | `v1.8.0-beta.20` (`VERSION`, `1.8.0-beta.20`) — the ADR-019 WP3 `suggestion` group (`suggestion.list`/`suggestion.accept`/`suggestion.reject`) is the newest tool-surface change, and `traceability.suggest_links` became a write tool; `interview.chat` ([#1164](https://github.com/Popoboxxo/ReqogniLoom/issues/1164)), `traceability.query_links` ([#1098](https://github.com/Popoboxxo/ReqogniLoom/issues/1098)), `main_goal.query` ([#1097](https://github.com/Popoboxxo/ReqogniLoom/issues/1097)) and `traceability.suggest_links_status` ([#1197](https://github.com/Popoboxxo/ReqogniLoom/issues/1197)) preceded them; `memory.ask` (REQ-192, [#1154](https://github.com/Popoboxxo/ReqogniLoom/issues/1154)) preceded those. The **239** figure on top of all of that adds the structured acceptance-criteria tools (`requirement.acceptance_criteria.get`/`set`/`check`, `requirement.suggest_level`, [#1288](https://github.com/Popoboxxo/ReqogniLoom/issues/1288)) and the memory administration surface (`memory.admin`, [#1290](https://github.com/Popoboxxo/ReqogniLoom/issues/1290)/[#1301](https://github.com/Popoboxxo/ReqogniLoom/issues/1301)/[#1302](https://github.com/Popoboxxo/ReqogniLoom/issues/1302)) |
+| Measured at | the `v1.8.0-beta.20` tool surface: ADR-019 WP3 (`suggestion` group, `traceability.suggest_links` write), the structured acceptance-criteria field type (#1288) and the memory administration surface (#1290/#1301/#1302) |
 | Source of truth | `docs/agent-templates/tool-manifest.json`, `tool_count` field |
 
 History of the number, so a future reader can tell an intentional change from a
@@ -43,8 +43,8 @@ stale copy:
 | 222 / 35 | after `interview.chat` ([#1164](https://github.com/Popoboxxo/ReqogniLoom/issues/1164)) and `traceability.query_links` ([#1098](https://github.com/Popoboxxo/ReqogniLoom/issues/1098)) | correct until `main_goal.query` |
 | 223 / 35 | after `main_goal.query` ([#1097](https://github.com/Popoboxxo/ReqogniLoom/issues/1097)) | correct until `traceability.suggest_links_status` |
 | 224 / 35 | after `traceability.suggest_links_status` ([#1197](https://github.com/Popoboxxo/ReqogniLoom/issues/1197)) | correct until the ADR-019 `suggestion` group |
-| **228 / 36** | after the ADR-019 WP3 `suggestion` group (`suggestion.list`, `suggestion.accept`, `suggestion.reject` — the 36th prefix) and `traceability.suggest_links` becoming **write** (it now persists a proposal + receipt, [#1155](https://github.com/Popoboxxo/ReqogniLoom/issues/1155)) | correct until `workspace.resolve_references` |
-| **228 / 36** | after `workspace.resolve_references` ([#17](https://github.com/Popoboxxo/ReqogniLoom/issues/17)) | **current** |
+| 228 / 36 | after the ADR-019 WP3 `suggestion` group (`suggestion.list`, `suggestion.accept`, `suggestion.reject` — the 36th prefix) and `traceability.suggest_links` becoming **write** (it now persists a proposal + receipt, [#1155](https://github.com/Popoboxxo/ReqogniLoom/issues/1155)), and `workspace.resolve_references` ([#17](https://github.com/Popoboxxo/ReqogniLoom/issues/17)) | correct until the acceptance-criteria + memory-administration tools |
+| **239 / 36** | after the structured acceptance-criteria field type (#1288: `requirement.acceptance_criteria.get`/`set`/`check`, `requirement.suggest_level`) and the memory administration surface (#1290/#1301/#1302: `memory.admin`) | **current** |
 
 ### How to re-derive the number
 
@@ -76,7 +76,7 @@ for g in sorted(groups):
 form the CI guard uses:
 
 ```bash
-cd backend && python manage.py export_tool_manifest --out /tmp/tool-manifest.json
+cd backend && python3 manage.py export_tool_manifest --out /tmp/tool-manifest.json
 python3 -c '
 import json
 m = json.load(open("/tmp/tool-manifest.json"))
@@ -103,7 +103,7 @@ table in §1 and §2 **in the same change**, with the new version and commit.
 
 ## 2. Tool groups
 
-36 prefixes, 228 tools. Tools are called as `<prefix>.<tool_name>`.
+36 prefixes, 239 tools. Tools are called as `<prefix>.<tool_name>`.
 
 | Group | Tools | Names |
 |-------|------:|-------|
@@ -129,12 +129,12 @@ table in §1 and §2 **in the same change**, with the new version and commit.
 | `issue` | 7 | `issue.create`, `issue.delete`, `issue.outdate`, `issue.query`, `issue.read`, `issue.reactivate`, `issue.update` |
 | `link_type` | 5 | `link_type.create`, `link_type.get`, `link_type.list`, `link_type.reset`, `link_type.update` |
 | `main_goal` | 6 | `main_goal.approve`, `main_goal.create_manual`, `main_goal.generate`, `main_goal.list_versions`, `main_goal.query`, `main_goal.read` |
-| `memory` | 7 | `memory.ask`, `memory.digest`, `memory.forget`, `memory.get`, `memory.list`, `memory.query`, `memory.write` |
+| `memory` | 14 | `memory.ask`, `memory.delete_workspace`, `memory.digest`, `memory.export`, `memory.forget`, `memory.get`, `memory.list`, `memory.overview`, `memory.projection`, `memory.promote`, `memory.query`, `memory.remember_interaction`, `memory.settings`, `memory.write` |
 | `needs` | 8 | `needs.create`, `needs.derive_requirements`, `needs.get_traces`, `needs.outdate`, `needs.query`, `needs.read`, `needs.reactivate`, `needs.update` |
 | `permissions` | 4 | `permissions.check`, `permissions.list`, `permissions.revoke`, `permissions.set_rule` |
 | `prompt_template` | 4 | `prompt_template.create`, `prompt_template.get`, `prompt_template.list`, `prompt_template.update` |
 | `prompt_variable` | 4 | `prompt_variable.clear`, `prompt_variable.get`, `prompt_variable.list`, `prompt_variable.set` |
-| `requirement` | 11 | `requirement.check_consistency`, `requirement.check_consistency_status`, `requirement.create`, `requirement.decompose`, `requirement.derive`, `requirement.get`, `requirement.outdate`, `requirement.query`, `requirement.reactivate`, `requirement.update`, `requirement.validate` |
+| `requirement` | 15 | `requirement.acceptance_criteria.check`, `requirement.acceptance_criteria.get`, `requirement.acceptance_criteria.set`, `requirement.check_consistency`, `requirement.check_consistency_status`, `requirement.create`, `requirement.decompose`, `requirement.derive`, `requirement.get`, `requirement.outdate`, `requirement.query`, `requirement.reactivate`, `requirement.suggest_level`, `requirement.update`, `requirement.validate` |
 | `requirement_bundle` | 3 | `requirement_bundle.attribute_schema`, `requirement_bundle.compression_status`, `requirement_bundle.export` |
 | `review` | 4 | `review.approve`, `review.list_pending`, `review.reject`, `review.request_changes` |
 | `risk` | 7 | `risk.create`, `risk.delete`, `risk.outdate`, `risk.query`, `risk.read`, `risk.reactivate`, `risk.update` |
@@ -193,11 +193,18 @@ it.
 | Tool | Class | Purpose |
 |------|-------|---------|
 | `memory.ask` | write (LLM) | Natural-language question answered from one scope's memory |
+| `memory.delete_workspace` | write (System-Admin) | DSGVO delete of every memory tier a workspace owns, through the active backend |
 | `memory.digest` | read | Consolidated digest of one scope |
+| `memory.export` | write (System-Admin) | DSGVO export of the tenant's live memory entries across both team-owned tiers (JSON; the REST twin also offers CSV) |
 | `memory.forget` | write | Delete a memory entry (ownership/admin-gated) |
 | `memory.get` | read | One entry by id |
 | `memory.list` | read | Recent entries for a workspace / user-tenant scope |
+| `memory.overview` | write (System-Admin) | Per-workspace memory overview in the active tenant: enabled flag, per-tier counts, contributors, last consolidation |
+| `memory.projection` | write (System-Admin) | 2-D PCA projection + similarity clustering of the scoped memory embeddings |
+| `memory.promote` | write | Promote the caller's own user-scoped memory into a workspace (Editor+); the original is kept and marked `superseded_by` the new entry |
 | `memory.query` | read | Semantic search over a workspace or user-tenant memory |
+| `memory.remember_interaction` | write | Enqueue the consolidation pipeline (LLM fact extraction + de-duplication) for one interaction text |
+| `memory.settings` | write (System-Admin) | View the deployment-global effective memory configuration, with a `<field>_is_override` flag per field |
 | `memory.write` | write | **Create an entry explicitly**, with `scope` = `workspace` \| `user` \| `artifact` |
 
 `memory.write` parameters: `content` (required), `scope` (required; one of
@@ -451,3 +458,39 @@ A capability that is gated off answers the distinct error code
 the capability is simply disabled. The authoritative MCP tool names are always in
 [`tool-manifest.json`](../agent-templates/tool-manifest.json), never in
 `LLM_CAPABILITIES`.
+
+---
+
+## 9. Canonical path and authentication (#1292)
+
+Two URL prefixes answer the MCP transport. Only one is canonical:
+
+| Path | Status | Notes |
+|------|--------|-------|
+| `/mcp/` | **canonical** | What every shipped client config points at (ARCH-L1-003). |
+| `/api/v1/mcp/` | **deprecated alias** | Historical mounting under the REST prefix. Kept working for existing configs; every response carries `Deprecation: true`, `Sunset` (removal date) and `Link: </mcp/>; rel="alternate"` so a client or proxy can migrate without reading this page. |
+
+**Do not point a new integration at `/api/v1/mcp/`.** The alias is deprecated and
+scheduled for removal after its `Sunset` date (**2027-04-01** by default;
+overridable via the `MCP_LEGACY_PATH_SUNSET` Django setting). It is not a second,
+supported transport.
+
+### Authentication matrix
+
+The MCP transport takes an **API key** (`reqlo_…`) — never a JWT. The credential
+may be sent in either of two headers:
+
+| Header | Form | Result |
+|--------|------|--------|
+| `X-API-Key` | `X-API-Key: reqlo_…` | ✓ accepted — **preferred**: a dedicated header is the least likely to be logged verbatim by a proxy, and it cannot be confused with the REST `Authorization` scheme |
+| `Authorization` | `Authorization: Bearer reqlo_…` | ✓ accepted (the form Codex CLI and Kimi Code use, because their transports only carry a bearer token) |
+| `Authorization` | `Authorization: Bearer <JWT>` | ✗ `401` with `bearer_not_supported` — intentional: the MCP server is API-key-only (REQ-L2-MC-006, REQ-052); a REST JWT is a different credential type, not a bad key |
+| query string | `?api_key=reqlo_…` | ✗ never accepted — a query string leaks the long-lived key into proxy/access logs, browser history and `Referer` (REQ-018) |
+| body (`params.api_key`) | on HTTP/SSE | ✗ never accepted — body keys are the same logging/proxy exposure as query keys. **stdio** is the one transport with no header mechanism, so `params.api_key` is honoured there only |
+
+An invalid or absent key answers `AUTH_FAILED` (`401`); the `bearer_not_supported`
+message is the specific sub-case where the presented credential is a JWT.
+
+The same rule is enforced at the SSE handshake (`GET /mcp/sse/`): the key is
+resolved from the header, bound server-side to the session, and never carried in
+the `/mcp/messages/?session_id=…` URL.

@@ -78,6 +78,11 @@ urlpatterns = [
     path("api/v1/", include("rest_api.urls")),
     # MCP transport — ARCH-L1-003
     # TODO(ARCH-L1-003): include("mcp_server.urls") once implemented
+    # Canonical path (#1292): /mcp/ is what every client config points at.
+    # /api/v1/mcp/ is a DEPRECATED alias kept for backward compatibility only;
+    # its responses carry Deprecation/Sunset/Link headers
+    # (mcp_server.views._apply_legacy_path_deprecation). New integrations MUST
+    # use /mcp/.
     path("api/v1/mcp/", include("mcp_server.urls")),
     path("mcp/", include("mcp_server.urls")),
     # JSON 404 for every unclaimed /api/v1/ path (issue #460, finding 1).

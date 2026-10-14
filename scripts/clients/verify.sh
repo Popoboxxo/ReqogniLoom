@@ -53,7 +53,7 @@ case "$CLIENT" in
     require_bin opencode
     out="$(opencode mcp list 2>&1 || true)"
     expect_marker "$out" "reqogniloom"
-    echo "info: skills expected at .opencode/skills (DOMAIN_MODEL.md at .opencode/)"
+    echo "info: skills expected at ${HOME}/.config/opencode/skills (DOMAIN_MODEL.md at ${HOME}/.config/opencode/; pass --skills-dir for a per-project install)"
     ;;
   hermes)
     require_bin hermes
@@ -70,7 +70,7 @@ case "$CLIENT" in
     if [ "$CLIENT" = "kimi-code" ]; then
       echo "info: skills expected at ${HOME}/.kimi-code/skills"
     else
-      echo "info: skills expected at .agents/skills (DOMAIN_MODEL.md at .agents/)"
+      echo "info: skills expected at ${HOME}/.gemini/skills (DOMAIN_MODEL.md at ${HOME}/.gemini/; pass --skills-dir for a per-project install)"
     fi
     ;;
   *)

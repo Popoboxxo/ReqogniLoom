@@ -80,3 +80,21 @@ def test_store_artifacts_are_planned_and_valid() -> None:
 
 def test_stage2_docs_are_parity_equal() -> None:
     assert render.check_stage2_parity() == []
+
+
+def test_hermes_documents_the_desktop_plugin() -> None:
+    """The Hermes page must describe the desktop plugin (#1285): its build,
+    the registered items and the release version."""
+    version = render.load_version()
+    for lang, needle_items, needle_head in (
+        ("en", "`reqogniloom-panel`", "Desktop plugin"),
+        ("de", "`reqogniloom-panel`", "Desktop-Plugin"),
+    ):
+        page = (render.DOCS_DIR / ("hermes.md" if lang == "en" else "hermes.de.md")).read_text(
+            encoding="utf-8"
+        )
+        assert needle_head in page
+        assert needle_items in page
+        assert "`reqogniloom.status`" in page
+        assert "statusBar.right" in page
+        assert f"`{version}`" in page
