@@ -566,6 +566,36 @@ class MemoryEntryService(ServiceBase):
     def _default_scope(
         scope: Optional[str], workspace_id: Any, artifact_id: Any
     ) -> str:
+        """Resolve the default read scope when the caller names none.
+
+        Scope matrix (issue #1248) -- the WRITE scope and the READ default come
+        from different places, so this is the single place the read side is
+        pinned:
+
+        ===============================  ==============================
+        write source                     stored scope
+        ===============================  ==============================
+        ``memory.write`` (REST/MCP)      caller-supplied ``scope``
+        ``memory.extract`` (interview)   LLM-tagged scope; a missing/unknown
+                                         scope defaults to ``workspace``
+                                         (``memory.tasks._DEFAULT_FACT_SCOPE``)
+        ===============================  ==============================
+
+        ===============================  ==============================
+        read source                      default scope
+        ===============================  ==============================
+        ``list``/``search`` + artifact   ``artifact``
+        ``list``/``search`` + workspace  ``workspace``
+        ``list``/``search`` + neither    ``user``
+        workspace panel (``memory_rest``) ``workspace`` (URL carries the id)
+        ``/memory/me/`` (self-service)   ``user`` (explicitly passed)
+        ===============================  ==============================
+
+        The invariant ``interview.chat`` relies on: a fact extracted from a chat
+        turn is filed under the interaction's workspace (or the caller's user
+        scope), so reading that same workspace (``memory.list``/``memory.query``
+        with the same ``workspace_id``) finds it.
+        """
         if scope:
             return scope
         if artifact_id is not None:

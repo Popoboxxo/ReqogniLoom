@@ -4,7 +4,7 @@ from unittest.mock import patch
 import pytest
 
 from memory.tasks import consolidate_interaction
-from persistence.tests.factories import active_tenant, make_user, make_workspace
+from persistence.tests.factories import active_tenant, ctx_for_user, make_user, make_workspace
 
 
 @pytest.mark.django_db
@@ -140,6 +140,74 @@ class TestConsolidateInteraction:
             assert result["workspace_facts_stored"] == 1
             refreshed = MemoryEntry.objects.get(id=existing_ref.entry_id)
             assert refreshed.superseded_by_id is None
+
+
+@pytest.mark.django_db
+class TestWriteReadScopeContract:
+    """#1248: a fact extracted from a chat turn is findable via the same
+    ``workspace_id`` through ``memory.list``/``memory.query``.
+
+    The write scope comes from the LLM extractor, the read scope from the
+    caller -- a fact the extractor leaves untagged must therefore land in the
+    interaction's workspace scope, not be dropped.
+    """
+
+    def test_untagged_fact_defaults_to_workspace_and_is_readable(self, monkeypatch):
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        from application.memory_entry_service import MemoryEntryService
+
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            user = make_user(tenant)
+            ctx = ctx_for_user(tenant, user, workspace=ws, roles=("editor",))
+            fake_llm_response = (
+                '{"facts": [{"content": "The project uses hexagonal architecture."}]}'
+            )
+            with patch("memory.tasks._call_llm", return_value=fake_llm_response):
+                result = consolidate_interaction(tenant.id, ws.id, user.id, "text")
+
+            assert result["workspace_facts_stored"] == 1
+
+            page = MemoryEntryService().list(ctx, workspace_id=ws.id)
+            assert page["total"] == 1
+            assert page["items"][0]["content"] == "The project uses hexagonal architecture."
+
+    def test_untagged_fact_is_findable_via_search(self, monkeypatch):
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        from application.memory_entry_service import MemoryEntryService
+
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            user = make_user(tenant)
+            ctx = ctx_for_user(tenant, user, workspace=ws, roles=("editor",))
+            fake_llm_response = (
+                '{"facts": [{"content": "The project uses hexagonal architecture."}]}'
+            )
+            with patch("memory.tasks._call_llm", return_value=fake_llm_response):
+                consolidate_interaction(tenant.id, ws.id, user.id, "text")
+
+            result = MemoryEntryService().search(
+                ctx, query="hexagonal architecture", workspace_id=ws.id
+            )
+            assert len(result["items"]) == 1
+
+    def test_unknown_scope_falls_back_to_workspace(self, monkeypatch):
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        from memory.models import MemoryEntry
+
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            user = make_user(tenant)
+            fake_llm_response = (
+                '{"facts": [{"content": "Fact with a bogus scope.", "scope": "person"}]}'
+            )
+            with patch("memory.tasks._call_llm", return_value=fake_llm_response):
+                result = consolidate_interaction(tenant.id, ws.id, user.id, "text")
+
+            assert result["workspace_facts_stored"] == 1
+            assert MemoryEntry.objects.filter(
+                scope=MemoryEntry.SCOPE_WORKSPACE, workspace_id=ws.id
+            ).count() == 1
 
 
 @pytest.mark.django_db

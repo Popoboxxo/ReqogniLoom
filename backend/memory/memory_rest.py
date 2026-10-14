@@ -707,6 +707,11 @@ class WorkspaceMemoryEntriesView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         scope = request.query_params.get("scope") or None
+        # #1248: no explicit scope -> the service defaults to "workspace"
+        # because this URL always carries a workspace_id (see
+        # MemoryEntryService._default_scope's scope matrix). An
+        # interview.chat-extracted workspace fact is therefore reachable here
+        # with the same workspace_id, mirroring the MCP ``memory.list`` read.
         q = (request.query_params.get("q") or "").strip() or None
         try:
             result = MemoryEntryService().list(
