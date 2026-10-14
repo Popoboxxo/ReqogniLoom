@@ -5,8 +5,16 @@ The optional ``qdrant_client`` package is deliberately NOT a test dependency
 backend's real code paths run against a duck-typed client without the package
 ever being installed. They mirror the ``qdrant-client`` 1.x shapes the backend
 uses: ``collection_exists`` / ``create_collection`` / ``get_collection`` /
-``upsert`` / ``query_points`` / ``delete`` / ``scroll`` / ``get_collections``,
-plus the small ``models`` namespace the backend builds requests with.
+``upsert`` / ``query_points`` / ``delete`` / ``scroll`` / ``count`` /
+``get_collections``, plus the small ``models`` namespace the backend builds
+requests with.
+
+The doubles are SIGNATURE-STRICT on purpose (issue #1250): earlier they
+accepted ``**kwargs`` and silently swallowed a misspelled/mis-passed argument,
+so a real client-side ``TypeError`` could never be reproduced in a test. Each
+method now declares exactly the keyword arguments the backend (and the vector
+port) actually passes -- an extra kwarg raises ``TypeError`` like the real
+client would.
 
 Kept in its own module (rather than inside a ``test_*.py`` file) so both
 ``test_qdrant_backend.py`` and ``test_backend_contract.py`` drive the exact
@@ -135,7 +143,7 @@ class FakeQdrantClient:
         return name in self.collections
 
     def create_collection(
-        self, *, collection_name: str, vectors_config: Any, **kwargs: Any
+        self, *, collection_name: str, vectors_config: Any
     ) -> None:
         self._guard()
         self.collections.setdefault(collection_name, [])
@@ -148,12 +156,17 @@ class FakeQdrantClient:
         vectors = SimpleNamespace(size=self.vector_sizes[name])
         return SimpleNamespace(config=SimpleNamespace(params=SimpleNamespace(vectors=vectors)))
 
-    def upsert(self, *, collection_name: str, points: list, **kwargs: Any) -> None:
+    def upsert(self, *, collection_name: str, points: list, wait: bool = False) -> None:
         self._guard()
         store = self.collections.setdefault(collection_name, [])
         for point in points:
             store[:] = [existing for existing in store if str(existing.id) != str(point.id)]
             store.append(point)
+
+    def count(self, *, collection_name: str, exact: bool = True) -> Any:
+        """Number of points in *collection_name* (mirrors ``client.count``)."""
+        self._guard()
+        return SimpleNamespace(count=len(self.collections.get(collection_name, [])))
 
     def query_points(
         self,
@@ -163,7 +176,6 @@ class FakeQdrantClient:
         query_filter: Any = None,
         limit: int = 5,
         with_payload: bool = True,
-        **kwargs: Any,
     ) -> Any:
         self._guard()
         store = self.collections.get(collection_name, [])
@@ -179,7 +191,7 @@ class FakeQdrantClient:
         scored.sort(key=lambda item: item.score, reverse=True)
         return SimpleNamespace(points=scored[:limit])
 
-    def delete(self, *, collection_name: str, points_selector: Any, **kwargs: Any) -> None:
+    def delete(self, *, collection_name: str, points_selector: Any, wait: bool = False) -> None:
         self._guard()
         store = self.collections.get(collection_name, [])
         if isinstance(points_selector, _FakePointIdsList):
@@ -201,7 +213,6 @@ class FakeQdrantClient:
         offset: Any = None,
         with_payload: bool = True,
         with_vectors: bool = False,
-        **kwargs: Any,
     ) -> Any:
         """Page like the real client: ``offset`` is an exclusive start point id
         and the second return value is the next page offset (``None`` at the
