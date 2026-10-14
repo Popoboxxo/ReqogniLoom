@@ -35,8 +35,11 @@ test.describe('Workspace Settings', () => {
     // Admin features should not be visible
     await expect(page.locator('[data-testid="preset-selector"]')).not.toBeVisible();
     
-    // Access denied warning should be visible
-    await expect(page.getByText(/You must be an admin to view or edit Workspace Settings/)).toBeVisible({ timeout: 10000 });
+    // Access denied warning should be visible. The message is i18n'd (#1277),
+    // so match either language instead of pinning the English literal.
+    await expect(
+      page.getByText(/You must be an admin|Du musst Admin sein/)
+    ).toBeVisible({ timeout: 10000 });
   });
 
   test('[REQ-L2-RF-012] can create new workspace', async ({ page }) => {
