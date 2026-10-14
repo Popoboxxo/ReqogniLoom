@@ -17,6 +17,32 @@ write), ``artifact`` (role in the artifact's workspace). The service resolves
 the artifact's workspace and applies the matrix; these handlers only translate
 parameters and errors.
 
+Surface added by the Wave-7 memory-MCP stream (#1301/#1302/#1300), each mapped
+1:1 onto an existing REST service so no domain logic is duplicated here:
+
+* ``memory.promote`` (#1301) — the MCP twin of
+  ``POST /api/v1/memory/entries/<id>/promote/``; delegates to
+  ``MemoryEntryService.promote`` (own user memory -> workspace, Editor+ in the
+  target workspace).
+* ``memory.overview`` / ``memory.projection`` / ``memory.export`` /
+  ``memory.delete_workspace`` / ``memory.settings`` (#1302) — the MCP twins of
+  the System-Admin REST memory surface. The four ``MemoryAdminService``
+  operations re-assert ``System-Admin`` inside the service;
+  ``memory.settings`` (whose service deliberately has no ctx check — see
+  ``MemorySettingsService``'s docstring) applies the same ``MemoryPolicy``
+  System-Admin gate the REST view uses.
+* ``memory.remember_interaction`` (#1300, MCP part only) — explicitly triggers
+  the consolidation pipeline (``memory.tasks.consolidate_interaction_task``)
+  for one interaction, so the LLM extraction + duplicate/contradiction
+  three-way logic runs instead of a raw ``memory.write``. The event/projector
+  wiring for the automatic path is a separate stream.
+
+These five admin tools and the two remaining writes are fail-closed
+write-classified (see ``tool_registry``): a read_only/AUTHOR key must not reach
+the tenant-wide admin surface or drive an LLM/embedding call. The admin five
+additionally require the ADMIN capability tier (``_GOVERNANCE_TOOL_NAMES``),
+mirroring the System-Admin bar REST enforces.
+
 Every response carries ``backend`` and ``degraded`` (F9): a read that returns no
 rows while the backend is unhealthy answers ``degraded=true``, so an agent can
 tell "nothing remembered" apart from "backend down".
@@ -29,6 +55,9 @@ writes own" is enforced by ``MemoryPolicy`` there.
 """
 from __future__ import annotations
 
+import uuid
+from datetime import date, datetime
+from decimal import Decimal
 from typing import Any, Callable, Dict
 
 from auth_tenancy.context import AuthContext
@@ -38,12 +67,39 @@ from mcp_server.tools.base import (
     ParameterError,
     optional_uuid,
     require_param,
+    require_uuid,
 )
 from application.base import NotFoundError, PermissionDeniedError, ValidationError
+from application.memory_admin_service import MemoryAdminService
 from application.memory_entry_service import MemoryEntryService
+from application.memory_settings_service import MemorySettingsService
 from memory.backends import VALID_REASONING_LEVELS
 from memory.health import envelope
+from memory.policy import MemoryPolicy
 from memory.ratelimit import MemoryWriteRateLimitExceeded
+
+
+def _jsonable(value: Any) -> Any:
+    """Recursively coerce UUID/datetime/date/Decimal into JSON-safe values.
+
+    The admin memory services (``MemoryAdminService``) return ORM-typed fields
+    — ``workspace_id`` UUIDs, ``created_at``/``last_consolidated_at``
+    datetimes — that the MCP response encoder (``json.dumps``) cannot
+    serialise. Mirrors ``GenericCrudToolGroup._jsonify``; kept local because
+    that one is a private staticmethod of an unrelated group.
+    """
+    if isinstance(value, uuid.UUID):
+        return str(value)
+    # datetime is a subclass of date -- check it first for full ISO precision.
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    if isinstance(value, Decimal):
+        return str(value)
+    if isinstance(value, dict):
+        return {key: _jsonable(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_jsonable(item) for item in value]
+    return value
 
 
 class MemoryToolGroup(BaseToolGroup):
@@ -57,6 +113,14 @@ class MemoryToolGroup(BaseToolGroup):
         "memory.forget": "_handle_forget",
         "memory.digest": "_handle_digest",
         "memory.ask": "_handle_ask",
+        # Wave-7 memory-MCP stream (#1301/#1302/#1300).
+        "memory.promote": "_handle_promote",
+        "memory.remember_interaction": "_handle_remember_interaction",
+        "memory.overview": "_handle_overview",
+        "memory.projection": "_handle_projection",
+        "memory.export": "_handle_export",
+        "memory.settings": "_handle_settings",
+        "memory.delete_workspace": "_handle_delete_workspace",
     }
     _TOOL_SCHEMAS = [
         {
@@ -178,6 +242,99 @@ class MemoryToolGroup(BaseToolGroup):
                     "change_reason": {"type": "string"},
                 },
                 "required": ["entry_id"],
+            },
+        },
+        {
+            "name": "memory.promote",
+            "description": (
+                "Promote the caller's own user-scoped memory into a workspace "
+                "(write). Editor+ in the target workspace; the original entry is "
+                "kept and marked superseded_by the new one."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "entry_id": {"type": "string"},
+                    "workspace_id": {"type": "string", "format": "uuid"},
+                    "change_reason": {"type": "string"},
+                },
+                "required": ["entry_id", "workspace_id"],
+            },
+        },
+        {
+            "name": "memory.remember_interaction",
+            "description": (
+                "Enqueue the memory consolidation pipeline for one interaction "
+                "text (write): an active worker runs LLM fact extraction + "
+                "duplicate/contradiction handling, so this is NOT a raw write."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "workspace_id": {"type": "string", "format": "uuid"},
+                    "interaction_text": {"type": "string"},
+                    "artifact_id": {"type": "string", "format": "uuid"},
+                    "entity_type": {"type": "string"},
+                },
+                "required": ["workspace_id", "interaction_text"],
+            },
+        },
+        {
+            "name": "memory.overview",
+            "description": (
+                "System-Admin overview of every workspace's memory in the "
+                "active tenant: enabled flag, per-tier entry counts, contributor "
+                "count and last consolidation timestamp."
+            ),
+            "inputSchema": {"type": "object", "properties": {}, "required": []},
+        },
+        {
+            "name": "memory.projection",
+            "description": (
+                "System-Admin 2D PCA projection + similarity clustering of the "
+                "scoped memory embeddings. scope='workspace' needs workspace_id; "
+                "scope='global' spans the tenant."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "scope": {"type": "string", "enum": ["workspace", "global"]},
+                    "workspace_id": {"type": "string", "format": "uuid"},
+                },
+                "required": ["scope"],
+            },
+        },
+        {
+            "name": "memory.export",
+            "description": (
+                "System-Admin DSGVO export of the tenant's live memory entries "
+                "across both team-owned tiers (JSON shape; the REST twin also "
+                "offers CSV)."
+            ),
+            "inputSchema": {"type": "object", "properties": {}, "required": []},
+        },
+        {
+            "name": "memory.settings",
+            "description": (
+                "System-Admin view of the deployment-global effective memory "
+                "configuration (DB override falling back to env vars per field), "
+                "with a <field>_is_override flag per field."
+            ),
+            "inputSchema": {"type": "object", "properties": {}, "required": []},
+        },
+        {
+            "name": "memory.delete_workspace",
+            "description": (
+                "System-Admin DSGVO delete of every memory tier a workspace "
+                "owns (workspace, its artifacts and its current members' user "
+                "memory) through the active backend."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "workspace_id": {"type": "string", "format": "uuid"},
+                },
+                "required": ["workspace_id"],
             },
         },
     ]
@@ -357,6 +514,181 @@ class MemoryToolGroup(BaseToolGroup):
                 auth_context, entry_id=entry_id, change_reason=params.get("change_reason")
             ),
             success={"deleted": True, **envelope()},
+        )
+
+    def _handle_promote(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        """Promote own user memory into workspace scope (write, #1301).
+
+        The MCP twin of ``POST /api/v1/memory/entries/<id>/promote/``.
+        ``workspace_id`` is required (the schema says so; a caller that omits it
+        gets a clear ``VALIDATION_ERROR``) even though the service would fall
+        back to ``ctx.workspace_id`` — the MCP surface keeps the target explicit.
+        Ownership + Editor+ in the target workspace are enforced by
+        ``MemoryEntryService.promote`` / ``MemoryPolicy``; the response is the
+        promoted entry's view (same shape as ``memory.write``).
+        """
+        entry_id = require_param(params, "entry_id")
+        workspace_id = require_uuid(params, "workspace_id")
+        return self._service_call(
+            lambda: MemoryEntryService().promote(
+                auth_context,
+                entry_id=entry_id,
+                target_scope="workspace",
+                workspace_id=workspace_id,
+                change_reason=params.get("change_reason"),
+            )
+        )
+
+    def _handle_remember_interaction(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        """Enqueue the consolidation pipeline for one interaction (write, #1300).
+
+        Unlike ``memory.write`` (a raw single fact), this dispatches
+        ``memory.tasks.consolidate_interaction_task`` — the same Celery entry
+        point the interview-outbox projector uses — so the LLM extraction plus
+        the duplicate/contradiction three-way logic run instead of a blind
+        write. The event/projector wiring for the *automatic* path is a separate
+        stream; this tool is the explicit trigger.
+
+        The call returns as soon as the task is enqueued (``scheduled`` /
+        ``task_id``); the consolidation result is produced worker-side. The
+        workspace memory-enabled toggle the projector honours is deliberately
+        not re-checked here — same as every other ``memory.write`` surface, the
+        toggle gates the automatic projector path, not an explicit call.
+        """
+        workspace_id = require_uuid(params, "workspace_id")
+        interaction_text = require_param(params, "interaction_text")
+        artifact_id = optional_uuid(params, "artifact_id")
+        entity_type = str(params.get("entity_type") or "")
+
+        def _call() -> Dict[str, Any]:
+            from memory.tasks import consolidate_interaction_task
+
+            result = consolidate_interaction_task.delay(
+                tenant_id=str(auth_context.tenant_id),
+                workspace_id=str(workspace_id),
+                user_id=str(auth_context.user_id),
+                interaction_text=interaction_text,
+                artifact_id=str(artifact_id) if artifact_id else None,
+                entity_type=entity_type,
+            )
+            return {"scheduled": True, "task_id": str(result.id)}
+
+        return self._service_call(_call)
+
+    def _handle_overview(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        """System-Admin per-workspace memory overview (read, #1302).
+
+        MCP twin of ``GET /api/v1/system/memory/workspaces/``.
+        ``MemoryAdminService.list_workspace_overview`` asserts System-Admin
+        itself; the handler only JSON-serialises the ORM-typed row fields.
+        """
+        return self._service_call(
+            lambda: {
+                "results": _jsonable(
+                    MemoryAdminService().list_workspace_overview(auth_context)
+                ),
+                **envelope(),
+            }
+        )
+
+    def _handle_projection(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        """System-Admin PCA/cluster projection of scoped memory (read, #1302).
+
+        MCP twin of ``GET /api/v1/system/memory/projection/``. Scope vocabulary
+        and the ``workspace_id`` requirement for ``scope='workspace'`` are owned
+        by ``MemoryAdminService.get_projection`` (System-Admin asserted there),
+        so a bad scope is a clear ``VALIDATION_ERROR`` rather than a raw 500.
+        """
+        scope = require_param(params, "scope")
+        workspace_id = optional_uuid(params, "workspace_id")
+        return self._service_call(
+            lambda: {
+                **_jsonable(
+                    MemoryAdminService().get_projection(
+                        auth_context, scope=scope, workspace_id=workspace_id
+                    )
+                ),
+                **envelope(),
+            }
+        )
+
+    def _handle_export(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        """System-Admin DSGVO export of the tenant's memory entries (#1302).
+
+        MCP twin of ``GET /api/v1/system/memory/entries/export/`` (JSON shape;
+        the REST view additionally offers CSV). Delegates to the same
+        ``MemoryAdminService.list_entries`` (System-Admin asserted there), capped
+        at the shared ``EXPORT_MAX_ROWS`` bound, and reports ``truncated`` when
+        the cap bit.
+        """
+        def _call() -> Dict[str, Any]:
+            from memory.memory_rest import EXPORT_MAX_ROWS
+
+            result = MemoryAdminService().list_entries(
+                auth_context, scope="global", page=1, page_size=EXPORT_MAX_ROWS
+            )
+            rows = result["results"]
+            return {
+                "entries": _jsonable(rows),
+                "count": result["count"],
+                "truncated": result["count"] > len(rows),
+                **envelope(),
+            }
+
+        return self._service_call(_call)
+
+    def _handle_settings(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        """System-Admin view of the effective memory configuration (#1302).
+
+        MCP twin of ``GET /api/v1/system/memory-settings/``. Unlike the other
+        admin tools, ``MemorySettingsService`` has no ctx-based check by design
+        (the REST view gates it), so the same ``MemoryPolicy`` System-Admin gate
+        the REST twin applies is enforced here. The env-var overlay is reused
+        from the REST view so both transports report the identical effective
+        configuration instead of drifting.
+        """
+        def _call() -> Dict[str, Any]:
+            MemoryPolicy.assert_can_purge(auth_context)
+            from memory.memory_rest import _with_env_fallback
+
+            return _with_env_fallback(
+                MemorySettingsService().get_effective_settings()
+            )
+
+        return self._service_call(_call)
+
+    def _handle_delete_workspace(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        """System-Admin DSGVO delete of a workspace's memory (#1302).
+
+        MCP twin of ``DELETE /api/v1/system/memory/workspaces/<id>/``.
+        ``MemoryAdminService.delete_workspace_memory`` asserts System-Admin and
+        answers ``NotFoundError`` for an unknown workspace; the handler only
+        JSON-serialises the UUID in the result.
+        """
+        workspace_id = require_uuid(params, "workspace_id")
+        return self._service_call(
+            lambda: {
+                **_jsonable(
+                    MemoryAdminService().delete_workspace_memory(
+                        auth_context, workspace_id
+                    )
+                ),
+                **envelope(),
+            }
         )
 
     # ------------------------------------------------------------------
