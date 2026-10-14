@@ -135,7 +135,17 @@ class AiReviewResponseError(RuntimeError):
     ``LlmTransportError`` and reached the MCP/REST boundary as an unhandled
     exception; now every caller gets the same catchable error type with an
     actionable message.
+
+    ``is_mock_fallback`` (issue #1240): mirrors
+    ``LlmResponseError.is_mock_fallback`` — the degraded-provider signal is
+    stamped onto the error when the unparseable answer came from an unplanned
+    mock fallback, so a caller's error mapping can offer a graceful fallback
+    instead of a hard failure.
     """
+
+    def __init__(self, *args: Any, is_mock_fallback: bool = False) -> None:
+        super().__init__(*args)
+        self.is_mock_fallback = is_mock_fallback
 
 
 # ---------------------------------------------------------------------------
@@ -256,7 +266,7 @@ class AiReviewService(ServiceBase):
         raw, provider_name, degraded = self._complete(
             findings_payload, workspace_id=str(workspace_id), memory_context=memory_context
         )
-        proposed = self._parse_packages(raw)
+        proposed = self._parse_packages(raw, is_mock_fallback=degraded)
 
         by_index: Dict[int, AuditFindingView] = {fv.index: fv for fv in findings}
         packages = self._build_packages(proposed, by_index)
@@ -535,24 +545,37 @@ class AiReviewService(ServiceBase):
         return raw, provider_name, degraded
 
     @staticmethod
-    def _parse_packages(raw: str) -> list:
-        """Parse *raw* into a JSON list, tolerating Markdown fences / mock-fallback marker."""
-        from application.ai_derivation_service import MOCK_FALLBACK_MARKER
+    def _parse_packages(raw: str, *, is_mock_fallback: bool = False) -> list:
+        """Parse *raw* into a JSON list (issue #1240).
 
-        text = (raw or "").strip()
-        if text.startswith(MOCK_FALLBACK_MARKER):
-            text = text[len(MOCK_FALLBACK_MARKER):].strip()
-        if text.startswith("```"):
-            text = text.replace("```json", "").replace("```", "").strip()
+        Uses the shared
+        :func:`~application.ai_derivation_service.extract_json_payload`
+        extractor, which tolerates the mock-fallback marker, Markdown fences
+        and leading/trailing prose around the array. *is_mock_fallback* is the
+        ``degraded`` flag ``_complete`` resolved; it is stamped onto the raised
+        :class:`AiReviewResponseError` so a caller's error mapping can offer a
+        graceful fallback when the unusable answer came from an unplanned mock
+        fallback.
+
+        Raises:
+            AiReviewResponseError: The completion carried no valid JSON array.
+        """
+        from application.ai_derivation_service import (
+            LlmResponseError,
+            extract_json_payload,
+        )
+
         try:
-            parsed = json.loads(text)
-        except (json.JSONDecodeError, TypeError) as exc:
+            parsed = extract_json_payload(raw)
+        except LlmResponseError as exc:
             raise AiReviewResponseError(
-                "The LLM ai_review response was not valid JSON."
+                "The LLM ai_review response was not valid JSON.",
+                is_mock_fallback=is_mock_fallback,
             ) from exc
         if not isinstance(parsed, list):
             raise AiReviewResponseError(
-                "The LLM ai_review response was not a JSON array as expected."
+                "The LLM ai_review response was not a JSON array as expected.",
+                is_mock_fallback=is_mock_fallback,
             )
         return parsed
 

@@ -1097,6 +1097,52 @@ class _BaseHttpProvider(LlmCapabilityInterface):
             return chat(prompt)
         return chat(prompt, timeout=timeout)
 
+    def _extract_choice_text(self, response: Any) -> str:
+        """Return the completion text of the first choice (issue #1243).
+
+        The OpenAI-compatible SDKs (OpenAI, AzureOpenAI and the OpenCode Go
+        gateway) type ``response.choices`` as a non-empty list, but a malformed
+        or truncated payload — an empty/``None`` ``choices``, a ``None``
+        choice, a choice without a ``message``, or a non-text payload — made
+        the previous bare ``response.choices[0].message.content`` raise
+        ``TypeError`` / ``IndexError`` / ``AttributeError`` *after* the
+        resilience policy had already reported success. That surfaced as an
+        unhandled 500 instead of the provider error the CapabilityRouter maps.
+
+        A ``None``/empty ``content`` is intentionally *not* an error: a
+        legitimately empty completion is a valid — if useless — answer that the
+        downstream JSON parsers reject with a distinct "empty completion"
+        message, so it is returned as ``""`` (preserving the old ``or ""``).
+        Every structurally malformed response raises instead.
+
+        Raises:
+            LlmTransportError: The response carried no usable text choice.
+        """
+        # Lazy import to avoid import-time coupling to the resilience app.
+        from llm_adapter.resilient_transport import LlmTransportError  # noqa: PLC0415
+
+        choices = getattr(response, "choices", None)
+        if not choices:
+            raise LlmTransportError(
+                f"LLM provider '{self.PROVIDER_NAME}' returned no completion "
+                "choices (malformed or truncated response)."
+            )
+        message = getattr(choices[0], "message", None)
+        if message is None:
+            raise LlmTransportError(
+                f"LLM provider '{self.PROVIDER_NAME}' returned a choice "
+                "without a message (malformed or truncated response)."
+            )
+        content = getattr(message, "content", None)
+        if content is None:
+            return ""
+        if not isinstance(content, str):
+            raise LlmTransportError(
+                f"LLM provider '{self.PROVIDER_NAME}' returned a non-text "
+                "completion payload (malformed response)."
+            )
+        return content
+
     def complete(
         self,
         prompt: str,
@@ -1578,7 +1624,7 @@ class OpenAiProvider(_BaseHttpProvider):
             ),
             timeout_seconds=effective_timeout,
         )
-        text = response.choices[0].message.content or ""
+        text = self._extract_choice_text(response)
         token_usage = (
             response.usage.total_tokens if response.usage else None
         )
@@ -1940,7 +1986,7 @@ class AzureOpenAiProvider(_BaseHttpProvider):
             ),
             timeout_seconds=effective_timeout,
         )
-        text = response.choices[0].message.content or ""
+        text = self._extract_choice_text(response)
         token_usage = response.usage.total_tokens if response.usage else None
         return text, token_usage
 
@@ -2134,7 +2180,7 @@ class OpencodeGoProvider(_BaseHttpProvider):
             ),
             timeout_seconds=effective_timeout,
         )
-        text = response.choices[0].message.content or ""
+        text = self._extract_choice_text(response)
         token_usage = response.usage.total_tokens if response.usage else None
         return text, token_usage
 

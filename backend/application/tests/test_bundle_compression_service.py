@@ -647,6 +647,40 @@ class TestCompressAsync:
         assert isinstance(response, dict)
         assert response["error"]["code"] == "BROKER_NOT_CONFIGURED"
 
+    def test_compress_async_dispatches_with_long_running_timeout(
+        self, auth_ctx, workspace, requirement, architecture_element, monkeypatch,
+    ):
+        """Issue #1243: the async branch must pass the long-running timeout.
+
+        The synchronous branch (``_call_provider``) resolves its timeout via
+        ``resolve_timeout_seconds("bundle_compression")`` (180s by default); the
+        async dispatcher used to omit the ``timeout`` kwarg entirely, so the
+        worker ran under the provider's ~30s config default and a full bundle
+        timed out where the sync path succeeded.
+        """
+        monkeypatch.setenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
+        result = _sample_bundle_result(requirement.id, architecture_element.artifact_id)
+        svc = BundleCompressionService()
+
+        from llm_adapter import tasks
+        from llm_adapter.timeouts import resolve_timeout_seconds
+
+        mock_async_result = MagicMock()
+        mock_async_result.id = "timeout-task-id"
+        with patch.object(
+            tasks.run_capability, "apply_async", return_value=mock_async_result
+        ) as apply_async:
+            svc.compress_async(
+                auth_ctx, result,
+                root_id=architecture_element.id, depth=0, filter_mode="all",
+                fields=None, format="markdown", workspace_id=workspace.id,
+            )
+
+        forwarded = apply_async.call_args.kwargs["args"][1]
+        assert forwarded["timeout"] == resolve_timeout_seconds("bundle_compression")
+        assert forwarded["timeout"] > 30
+        assert forwarded["purpose"] == "bundle_compression"
+
 
 class TestAsyncResultSharesTheSyncCache:
     """Issue #445: the synchronous and asynchronous branches must not run on

@@ -368,6 +368,7 @@ class BundleCompressionService(ServiceBase):
         from application.ai_derivation_service import AiDerivationService, LlmResponseError
         from llm_adapter.audit_logger import LlmAuditLogger
         from llm_adapter.dispatcher import AsyncTaskDispatcher
+        from llm_adapter.timeouts import resolve_timeout_seconds
         from llm_adapter.token_tracking import is_over_daily_limit
 
         # Effective provider, resolved exactly as compress() resolves it, so
@@ -407,7 +408,17 @@ class BundleCompressionService(ServiceBase):
 
         dispatch = AsyncTaskDispatcher().dispatch_async(
             "complete",
-            {"prompt": prompt, "purpose": PROMPT_TEMPLATE_NAME},
+            {
+                "prompt": prompt,
+                "purpose": PROMPT_TEMPLATE_NAME,
+                # issue #1243: the worker must run under the same generous
+                # long-running budget as the synchronous path
+                # (see _call_provider), not the provider's ~30s config default.
+                # A workspace-wide requirement bundle routinely needs more, and
+                # without this the async branch timed out where the sync branch
+                # (180s) succeeded.
+                "timeout": resolve_timeout_seconds(PROMPT_TEMPLATE_NAME),
+            },
         )
 
         # ADR-03 (row-level tenant isolation): Celery's result backend

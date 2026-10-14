@@ -130,10 +130,13 @@ class WorkspaceTraceabilitySuggestLinksView(APIView):
                 ),
                 status=status.HTTP_409_CONFLICT,
             )
-        except SuggestLinksResponseError as exc:
+        except SuggestLinksResponseError:
+            # #1240: an unparseable LLM answer is an expected, structured
+            # failure — answer 502 LLM_OUTPUT_INVALID like the other AI routes
+            # (never a bare 500), and do not leak the provider text.
             return Response(
-                build_error_response("INTERNAL_SERVER_ERROR", lang, message=str(exc)),
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                build_error_response("LLM_OUTPUT_INVALID", lang),
+                status=status.HTTP_502_BAD_GATEWAY,
             )
         except ValidationError as exc:
             return Response(
