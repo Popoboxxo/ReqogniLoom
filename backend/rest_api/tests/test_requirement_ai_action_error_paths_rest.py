@@ -271,6 +271,39 @@ def test_ai_actions_unexpected_error_returns_500(action: str) -> None:
     assert resp.json()["error"]["code"] == "INTERNAL_SERVER_ERROR"
 
 
+@pytest.mark.parametrize(
+    "action",
+    ["suggest-architecture", "decompose-next-level", "derive-testcase"],
+)
+def test_ai_actions_llm_response_error_returns_502(action: str) -> None:
+    """#1240: an unparseable LLM response is a described 502, never a 500.
+
+    ``LlmResponseError`` is raised for non-JSON / empty / wrong-shaped provider
+    output. Before the mapping it fell into the generic ``except Exception``
+    branch and surfaced as an opaque 500.
+    """
+    from application.ai_derivation_service import LlmResponseError
+
+    _, user, workspace = _scenario()
+    client = _client(user)
+    req = _requirement(client, workspace)
+
+    patcher, _ = _ai_mock(LlmResponseError("The LLM response was not valid JSON."))
+    try:
+        resp = client.post(
+            f"/api/v1/requirements/{req['id']}/{action}/", format="json"
+        )
+    finally:
+        patcher.stop()
+    assert resp.status_code == 502, resp.content
+    assert resp.json()["error"]["code"] == "LLM_OUTPUT_INVALID"
+    # The provider-derived message is not surfaced verbatim (#1240 security).
+    assert (
+        resp.json()["error"]["message"]
+        != "The LLM response was not valid JSON."
+    )
+
+
 def test_ai_actions_return_draft_payload() -> None:
     """Happy path through the mocked service — the 200 draft envelope."""
     _, user, workspace = _scenario()

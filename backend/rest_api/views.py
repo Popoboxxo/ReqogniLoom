@@ -36,6 +36,7 @@ from uuid import UUID
 
 from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
+from django.db.models import ProtectedError
 from django.http import Http404, HttpResponse
 from django.utils import timezone
 from drf_spectacular.utils import (
@@ -87,6 +88,11 @@ from application.services import (
 )
 from application.goal_service import GoalService
 from application.main_goal_service import MainGoalService
+# #1240: the AI-derivation flows signal an unparseable provider response with
+# this dedicated exception. It is registered in the exact-type maps below so the
+# generic ``except Exception`` branch on those routes answers a described 502
+# instead of an opaque 500.
+from application.ai_derivation_service import LlmResponseError
 from application.import_idempotency import (
     IdempotencyConflict,
     abort as abort_idempotency_key,
@@ -192,6 +198,18 @@ from rest_api.openapi import ErrorResponseSerializer
 # entity genuinely deviates (ArchitectureElement's 404, the TraceLink cascade on
 # TestCase/Issue/Risk) the deviation is spelled out in that entity's docstring.
 
+# GH-868/GH-923/#1244: the standard body for a stale ``If-Match``. Declared per
+# ETag-enabled PATCH operation (not injected globally) because only those routes
+# can answer it — a global 412 on every operation would advertise a precondition
+# two thirds of the surface does not enforce.
+_PRECONDITION_FAILED_RESPONSE = OpenApiResponse(
+    response=ErrorResponseSerializer,
+    description=(
+        "Precondition failed: the ``If-Match`` entity-tag no longer matches the "
+        "current version of the resource. Re-read it and retry."
+    ),
+)
+
 # ---------------------------------------------------------------------------
 # Exception → HTTP status mapper (REQ-L3-RA001-002)
 # No business logic — purely HTTP-concern translation.
@@ -241,6 +259,11 @@ _EXC_TO_HTTP: dict[type, int] = {
     BaselineImmutabilityError: status.HTTP_409_CONFLICT,
     NotFoundError: status.HTTP_404_NOT_FOUND,
     OptimisticLockError: status.HTTP_409_CONFLICT,
+    # #1240: the LLM answered, but its content could not be parsed (non-JSON,
+    # empty completion, wrong shape) — an upstream/response fault, not a server
+    # defect. 502 (Bad Gateway), alongside LLM_TIMEOUT (504) and LLM_UNAVAILABLE
+    # (503); before this entry it fell through to the generic 500 branch.
+    LlmResponseError: status.HTTP_502_BAD_GATEWAY,
 }
 
 _EXC_TO_CODE: dict[type, str] = {
@@ -264,7 +287,16 @@ _EXC_TO_CODE: dict[type, str] = {
     BaselineImmutabilityError: "CONFLICT",
     NotFoundError: "NOT_FOUND",
     OptimisticLockError: "CONFLICT",
+    LlmResponseError: "LLM_OUTPUT_INVALID",
 }
+
+
+#: Registered exception types whose *message* must NOT be forwarded to the
+#: client even though their code/status is (issue #1240). ``LlmResponseError``
+#: wraps raw provider/SDK failures, so its text can embed upstream detail (e.g.
+#: an authentication error echoing a key fragment). The client gets the static,
+#: localised ``LLM_OUTPUT_INVALID`` sentence instead; the detail goes to the log.
+_MESSAGE_NOT_SURFACEABLE: frozenset[type] = frozenset({LlmResponseError})
 
 
 def _with_request_id(body: dict[str, Any]) -> dict[str, Any]:
@@ -293,14 +325,25 @@ def _service_error_response(exc: Exception, lang: str = "en") -> Response:
     fix #108: for unmapped exception types (IntegrityError, ProgrammingError,
     KeyError, etc.), ``str(exc)`` can contain SQL fragments, table/column
     names, and constraint names — leaking internals regardless of DEBUG.
-    Only the three explicitly mapped, safe-to-surface exception types get
+    Only the explicitly mapped, safe-to-surface exception types get
     their message forwarded to the client; everything else gets a static
     message, with the real detail going to the log only.
+
+    #1240: a type can be mapped for its code/status yet excluded from message
+    forwarding (``_MESSAGE_NOT_SURFACEABLE``) — ``LlmResponseError`` wraps raw
+    provider text and reports the static ``LLM_OUTPUT_INVALID`` sentence while
+    the detail is logged.
     """
     exc_type = type(exc)
     http_status = _EXC_TO_HTTP.get(exc_type, status.HTTP_500_INTERNAL_SERVER_ERROR)
     code = _EXC_TO_CODE.get(exc_type, "INTERNAL_SERVER_ERROR")
-    if exc_type in _EXC_TO_CODE:
+    if exc_type in _MESSAGE_NOT_SURFACEABLE:
+        logger.warning(
+            "Service error not surfaced to the client (%s)", exc_type.__name__,
+            exc_info=exc,
+        )
+        message = None
+    elif exc_type in _EXC_TO_CODE:
         message = str(exc) or None
     else:
         logger.exception("Unhandled exception in service layer", exc_info=exc)
@@ -1282,6 +1325,12 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             item,
         )
 
+    @extend_schema(
+        responses={
+            200: RequirementSerializer,
+            412: _PRECONDITION_FAILED_RESPONSE,
+        }
+    )
     def partial_update(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """PATCH /api/v1/requirements/{pk}/ — update a requirement. Returns 200.
 
@@ -3058,6 +3107,12 @@ class TestCaseViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             item,
         )
 
+    @extend_schema(
+        responses={
+            200: TestCaseSerializer,
+            412: _PRECONDITION_FAILED_RESPONSE,
+        }
+    )
     def partial_update(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """PATCH /api/v1/testcases/{pk}/ — update a test case. Returns 200.
 
@@ -4494,6 +4549,18 @@ class BaselineViewSet(BaseEntityViewSet):
         }
         return Response(BaselineDiffSerializer(payload).data)
 
+    @extend_schema(
+        responses={
+            405: OpenApiResponse(
+                response=ErrorResponseSerializer,
+                description=(
+                    "Baselines are immutable; PATCH is not supported. Create a "
+                    "new baseline instead."
+                ),
+            ),
+            412: _PRECONDITION_FAILED_RESPONSE,
+        }
+    )
     def partial_update(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """PATCH /api/v1/baselines/{pk}/ — always 405: baselines are immutable.
 
@@ -5774,7 +5841,12 @@ class WorkspaceViewSet(BaseEntityViewSet):
         )
 
     def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:
-        """GET /api/v1/workspaces/{pk}/ — fetch a single workspace by id."""
+        """GET /api/v1/workspaces/{pk}/ — fetch a single workspace by id.
+
+        #1244: the response carries ``ETag: "<version>"``; send that value back
+        as ``If-Match`` on a PATCH to make the write conditional (412 when
+        stale). Additive header only — the body is unchanged.
+        """
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
@@ -5786,7 +5858,9 @@ class WorkspaceViewSet(BaseEntityViewSet):
                 build_error_response("NOT_FOUND", lang),
                 status=status.HTTP_404_NOT_FOUND,
             )
-        return Response(WorkspaceSerializer(_workspace_to_dict(item)).data)
+        return self.with_etag(
+            Response(WorkspaceSerializer(_workspace_to_dict(item)).data), item
+        )
 
     def create(self, request: Request, **kwargs: Any) -> Response:
         """POST /api/v1/workspaces/ — create a new workspace + preset config.
@@ -5882,11 +5956,24 @@ class WorkspaceViewSet(BaseEntityViewSet):
             status=status.HTTP_201_CREATED,
         )
 
+    @extend_schema(
+        responses={
+            200: WorkspaceSerializer,
+            412: _PRECONDITION_FAILED_RESPONSE,
+        }
+    )
     def partial_update(self, request: Request, pk: str = None, **kwargs: Any) -> Response:
         """PATCH /api/v1/workspaces/{pk}/ — update workspace metadata.
 
-        Body: {name?, language?, terminology_profile?}
+        Body: {name?, language?, terminology_profile?, expected_version?}
         REQ-L2-RF-012: Workspace-Konfigurations-UI write path.
+
+        #1244: the same optimistic-locking contract as the artifact endpoints.
+        An ``If-Match`` header (or an ``expected_version`` body field) must match
+        the stored ``version``; a stale ``If-Match`` answers 412
+        ``PRECONDITION_FAILED``, a stale body field 409 ``CONFLICT``. Omitting
+        both stays last-writer-wins, so existing callers are unaffected. The
+        response carries the new ``ETag``.
         """
         lang = detect_lang(request)
         try:
@@ -5953,15 +6040,34 @@ class WorkspaceViewSet(BaseEntityViewSet):
                 if key in _patchable
             }
             if fields:
-                ws = self._svc().update_metadata(ctx, UUID(pk), **fields)
+                # #1244: an If-Match header wins over the expected_version body
+                # field; the resolved value is compared inside the service's
+                # row-locked transaction, so the check is race-free.
+                ws = self._svc().update_metadata(
+                    ctx,
+                    UUID(pk),
+                    expected_version=self.resolve_expected_version(
+                        request, patch_ser.validated_data
+                    ),
+                    **fields,
+                )
             elif ws is None:
                 # No recognized field supplied — return current state unchanged.
                 ws = self._svc().get_workspace(UUID(pk), ctx)
+        except OptimisticLockError as exc:
+            # #1244: a failed If-Match is a precondition failure (412); the body
+            # field keeps the existing 409 CONFLICT contract (same split as the
+            # artifact endpoints).
+            if self.uses_if_match(request):
+                return self.precondition_failed(request)
+            return _service_error_response(exc, lang)
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
         except Exception as exc:
             return _service_error_response(exc, lang)
-        return Response(WorkspaceSerializer(_workspace_to_dict(ws)).data)
+        return self.with_etag(
+            Response(WorkspaceSerializer(_workspace_to_dict(ws)).data), ws
+        )
 
     def destroy(self, request: Request, pk: str = None, **kwargs: Any) -> Response:
         """DELETE /api/v1/workspaces/{pk}/ — captcha-confirmed hard-delete.
@@ -6241,6 +6347,26 @@ class WorkspaceViewSet(BaseEntityViewSet):
             )
         except (NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
+        except ProtectedError as exc:
+            # #1241 safety net: the cascade order in WorkspaceService now removes
+            # the PROTECT-referencing rows explicitly, so this should be
+            # unreachable. If a future PROTECT FK is added without a matching
+            # cascade step, the delete must still be a described 409 rather than
+            # an opaque 500. The referencing model/columns are deliberately NOT
+            # echoed (ProtectedError's message names internals); the detail code
+            # is what a client branches on.
+            logger.warning(
+                "Workspace %s hard-delete blocked by a protected foreign key",
+                workspace_id,
+                exc_info=exc,
+            )
+            return Response(
+                build_error_response(
+                    "CONFLICT", lang,
+                    details=[{"code": "protected_relations"}],
+                ),
+                status=status.HTTP_409_CONFLICT,
+            )
         except Exception as exc:
             return _service_error_response(exc, lang)
         return Response(status=status.HTTP_204_NO_CONTENT)

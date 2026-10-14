@@ -25,7 +25,7 @@ from uuid import UUID
 
 from auth_tenancy.context import AuthContext
 from django.db import InternalError
-from django.db.models import QuerySet
+from django.db.models import F, QuerySet
 from django.utils import timezone
 from auth_tenancy.models import ROLE_ADMIN, UserRole
 from persistence.free_text import find_free_text_violation
@@ -52,7 +52,11 @@ from link_types.defaults import (
 )
 
 from application.base import NotFoundError, ServiceBase, ValidationError
+from application.optimistic_lock import assert_expected_version, lock_for_version_check
 from application.workspace_provisioning import provision_workspace_defaults
+# #1241: the workflow item state holds a PROTECT FK to the engine definition, so
+# it must be removed before the workspace cascade reaches that definition.
+from workflow.models import WorkflowItemState
 
 logger = logging.getLogger(__name__)
 
@@ -651,6 +655,7 @@ class WorkspaceService(ServiceBase):
         (case-sensitive). If valid, performs a full cascade delete in this order:
           0. Baseline rows — refused up front if any exist (#1084)
           1. AuditLogEntry rows for this workspace
+          1b. WorkflowItemState rows (PROTECT FK to the engine definition, #1241)
           2. TraceLink rows
           3. TestCase rows
           4. ArchitectureElement rows
@@ -759,6 +764,18 @@ class WorkspaceService(ServiceBase):
             object_type="Workspace", object_id=workspace_pk
         ).delete()
 
+        # 1b. Workflow item states (and, by CASCADE, their history). #1241: the
+        # workspace cascade below reaches ``we_engine_definition`` through the
+        # ``Workspace`` FK (on_delete=CASCADE), but ``WorkflowItemState.definition``
+        # is ``on_delete=PROTECT`` — so as long as any item state still points at
+        # a definition, deleting the workspace raised ProtectedError *before*
+        # Django could cascade the state itself. Django's PROTECT fires whenever
+        # a referencing row exists, even if that row is part of the same delete
+        # collection, so the referencing states have to go first. An empty
+        # workspace has no item state and was already deleting cleanly, which is
+        # why this only ever reproduced with content.
+        WorkflowItemState.unscoped.filter(workspace_id=workspace_pk).delete()
+
         # 2-7. Delete through artifacts (TraceLink, TestCase,
         # ArchitectureElement, Requirement, Artifact)
         artifact_ids = list(
@@ -806,6 +823,7 @@ class WorkspaceService(ServiceBase):
         terminology_profile: object = _UNSET,
         goals_enabled: object = _UNSET,
         goals_ai_enabled: object = _UNSET,
+        expected_version: int | None = None,
     ) -> Workspace:
         """Update workspace metadata + optional terminology-profile switch (REQ-066).
 
@@ -814,14 +832,24 @@ class WorkspaceService(ServiceBase):
         ``terminology_profile`` are stored on the ``preset`` JSON blob; switching
         the terminology profile also runs the ``presets`` orchestration.
 
+        #1244: ``expected_version`` carries the client's last-seen ``version``
+        (from ``If-Match`` or the ``expected_version`` body field). When it is
+        stale the update is refused with :class:`OptimisticLockError`; the row
+        is locked for the compare so the check is authoritative for the rest of
+        the transaction.
+
         Raises:
             NotFoundError: workspace does not exist in the active tenant.
             ValidationError: empty name or invalid terminology_profile.
+            OptimisticLockError: ``expected_version`` no longer matches.
         """
         self._set_tenant_context(ctx)
-        ws = Workspace.objects.filter(id=workspace_id).first()
+        ws = lock_for_version_check(
+            Workspace.objects.filter(id=workspace_id), expected_version
+        ).first()
         if ws is None:
             raise NotFoundError(f"Workspace {workspace_id} not found")
+        assert_expected_version(ws, expected_version, entity_type="Workspace")
 
         update_fields: list[str] = []
         preset_blob = dict(ws.preset or {})
@@ -900,7 +928,14 @@ class WorkspaceService(ServiceBase):
             update_fields.append("goals_ai_enabled")
 
         if update_fields:
+            # #1244: bump the optimistic-concurrency counter on a real write so
+            # the ``ETag``/``version`` a client just read actually changes —
+            # otherwise a second PATCH carrying the same (now stale) ``If-Match``
+            # would still be accepted, which is no guarantee at all.
+            ws.version = F("version") + 1
+            update_fields.append("version")
             ws.save(update_fields=update_fields)
+            ws.refresh_from_db(fields=["version"])
         return ws
 
     @atomic_transaction

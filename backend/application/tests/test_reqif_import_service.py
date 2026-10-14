@@ -1004,3 +1004,165 @@ class TestReqifImportContractV2:
             artifact__workspace=target_workspace, artifact__reqif_uid="REQ-003"
         )
         assert imported.title == "Req Three Updated"
+
+
+# ---------- #1242: re-import identity with an EMPTY external UID ----------
+
+
+@pytest.fixture
+def empty_uid_source_workspace():
+    """Source workspace whose entities carry NO external ReqIF UID (issue #1242).
+
+    The existing ``source_workspace`` fixture sets ``uid="NEED-001"`` etc., so
+    the export carries a non-empty ATTR-UID and the identifier-based identity is
+    never exercised — exactly the blind spot #1242 describes.
+    """
+    tenant = Tenant.objects.create(
+        name="Reqif-1242-Src-T", slug="reqif-1242-src-t", is_active=True
+    )
+    set_request_tenant(tenant.id)
+    try:
+        workspace = Workspace.objects.create(
+            tenant=tenant, name="Reqif 1242 Src WS", preset={"name": "standard"}
+        )
+        need_art = Artifact.objects.create(
+            tenant=tenant, workspace=workspace, artifact_type="StakeholderNeed"
+        )
+        need = StakeholderNeed.objects.create(
+            tenant=tenant,
+            artifact=need_art,
+            title="Needs No UID",
+            description="empty external uid",
+            category="functional",
+            uid=None,
+        )
+        req_art = Artifact.objects.create(
+            tenant=tenant,
+            workspace=workspace,
+            artifact_type="Requirement",
+            parent=need_art,
+        )
+        req = Requirement.objects.create(
+            tenant=tenant,
+            artifact=req_art,
+            title="Requires No UID",
+            description="empty external uid",
+            category="functional",
+            uid=None,
+        )
+        link = TraceLink.objects.create(
+            tenant=tenant, source=req_art, target=need_art, link_type="derives-from"
+        )
+        yield {
+            "tenant": tenant,
+            "workspace": workspace,
+            "need": need,
+            "req": req,
+            "link": link,
+        }
+    finally:
+        clear_request_tenant()
+
+
+@pytest.fixture
+def empty_uid_target_workspace(empty_uid_source_workspace):
+    """A second, empty workspace in the SAME tenant as the empty-uid source."""
+    tenant = empty_uid_source_workspace["tenant"]
+    set_request_tenant(tenant.id)
+    try:
+        workspace = Workspace.objects.create(
+            tenant=tenant, name="Reqif 1242 Target WS", preset={"name": "standard"}
+        )
+        yield workspace
+    finally:
+        clear_request_tenant()
+
+
+class TestReqifReimportIdentity1242:
+    def test_reimport_with_empty_external_uid_is_idempotent(
+        self, empty_uid_source_workspace, empty_uid_target_workspace
+    ):
+        """Issue #1242: cross-workspace ``_<uuid>`` + EMPTY ATTR-UID must dedupe.
+
+        Without re-deriving ``foreign_identifier`` after the cross-workspace
+        reset, the second import matched nothing and minted a second Need,
+        Requirement *and* TraceLink.
+        """
+        tenant = empty_uid_source_workspace["tenant"]
+        target = empty_uid_target_workspace
+        reqif_text = _export(empty_uid_source_workspace["workspace"].id, tenant.id)
+
+        # Blind-spot precondition: the document carries no external UID value.
+        assert "ATTR-UID" in reqif_text
+        assert 'THE-VALUE="Needs No UID"' in reqif_text
+        internal_identifier = f"_{empty_uid_source_workspace['need'].artifact.id}"
+        assert f'IDENTIFIER="{internal_identifier}"' in reqif_text
+
+        first = _import(reqif_text, target.id, tenant.id)
+        assert first.success is True
+        assert first.needs.created == 1
+        assert first.requirements.created == 1
+        assert first.relations.created == 1
+
+        second = _import(reqif_text, target.id, tenant.id)
+        assert second.success is True
+        assert second.needs.created == 0
+        assert second.requirements.created == 0
+        assert second.relations.created == 0
+        # The relation is recognised as the same edge, not a fresh one.
+        assert second.relations.updated == 1
+
+        assert StakeholderNeed.objects.filter(artifact__workspace=target).count() == 1
+        assert Requirement.objects.filter(artifact__workspace=target).count() == 1
+        assert TraceLink.objects.filter(source__workspace=target).count() == 1
+
+    def test_cross_workspace_identifier_is_persisted_as_reqif_identifier(
+        self, empty_uid_source_workspace, empty_uid_target_workspace
+    ):
+        """#1242: the un-resolvable ``_<uuid>`` is persisted so it can be matched.
+
+        The import into another workspace gets a fresh artifact id, but the
+        source identifier has to survive on ``reqif_identifier`` — otherwise the
+        next import has no identity to fall back on (empty ATTR-UID).
+        """
+        tenant = empty_uid_source_workspace["tenant"]
+        target = empty_uid_target_workspace
+        reqif_text = _export(empty_uid_source_workspace["workspace"].id, tenant.id)
+
+        _import(reqif_text, target.id, tenant.id)
+
+        imported_needs = list(
+            StakeholderNeed.objects.filter(artifact__workspace=target)
+        )
+        assert len(imported_needs) == 1
+        artifact = imported_needs[0].artifact
+        expected = f"_{empty_uid_source_workspace['need'].artifact.id}"
+        assert artifact.reqif_identifier == expected
+        assert artifact.reqif_uid in (None, "")
+
+    def test_external_relation_identity_is_persisted(
+        self, empty_uid_source_workspace, empty_uid_target_workspace
+    ):
+        """#1242: the relation's ``_r-<uuid>`` is honoured, not discarded.
+
+        A file whose source TraceLink no longer exists (the cross-database case)
+        must create its edge *under the external relation id* the exporter
+        derived from it — that is the identity a subsequent import matches on.
+        """
+        tenant = empty_uid_source_workspace["tenant"]
+        target = empty_uid_target_workspace
+        external_link_id = empty_uid_source_workspace["link"].id
+        reqif_text = _export(empty_uid_source_workspace["workspace"].id, tenant.id)
+        assert f'IDENTIFIER="_r-{external_link_id}"' in reqif_text
+
+        # Simulate the file originating from another database: the source link
+        # (and only it) is gone, so the external id is free to be reused.
+        TraceLink.objects.filter(
+            source__workspace=empty_uid_source_workspace["workspace"]
+        ).delete()
+
+        result = _import(reqif_text, target.id, tenant.id)
+
+        assert result.relations.created == 1
+        imported_link = TraceLink.objects.get(source__workspace=target)
+        assert str(imported_link.id) == str(external_link_id)

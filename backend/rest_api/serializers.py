@@ -245,6 +245,20 @@ _ERROR_MESSAGES: dict[str, dict[str, str]] = {
             "Bitte versuchen Sie es später erneut."
         ),
     },
+    # #1240: the provider answered, but its content could not be parsed into the
+    # structured shape the flow expects. An upstream/response fault — a valid
+    # request met an invalid LLM output — so 502, alongside the LLM_TIMEOUT (504)
+    # and LLM_UNAVAILABLE (503) upstream conditions, never a 500.
+    "LLM_OUTPUT_INVALID": {
+        "en": (
+            "The AI service returned a response that could not be processed. "
+            "Please retry later."
+        ),
+        "de": (
+            "Der KI-Dienst hat eine nicht verarbeitbare Antwort geliefert. "
+            "Bitte versuchen Sie es später erneut."
+        ),
+    },
     # RFC #1002 PR B: the configurable write ratelimit for memory.write. Kept
     # distinct from the DRF transport throttles (which answer a plain 429 body):
     # REST maps this to HTTP 429 with a Retry-After header and MCP to the
@@ -1848,7 +1862,10 @@ class WorkflowDefinitionSerializer(
 
 
 class WorkspaceSerializer(
-    UnknownFieldRejectionMixin, PresetAwareSerializerMixin, serializers.Serializer
+    ExpectedVersionSerializerMixin,
+    UnknownFieldRejectionMixin,
+    PresetAwareSerializerMixin,
+    serializers.Serializer,
 ):
     """Serializer for Workspace entity (REQ-L1-017, REQ-L1-042).
 
@@ -1864,6 +1881,13 @@ class WorkspaceSerializer(
     input key from this serializer's schema (``preset`` through
     ``goals_ai_enabled``) plus the declared read-only lifecycle flag
     ``is_active``, so a typo now answers 400 instead of a hollow 201/200.
+
+    #1244: ``ExpectedVersionSerializerMixin`` declares the write-only
+    ``expected_version`` field so ``PATCH /api/v1/workspaces/{id}/`` can be made
+    conditional like every artifact endpoint — the version is then compared in
+    ``WorkspaceService.update_metadata``'s row-locked transaction, and an
+    ``If-Match`` header takes precedence (``ETagMixin.resolve_expected_version``),
+    answering 412 when stale.
     """
 
     id = serializers.UUIDField(read_only=True)
