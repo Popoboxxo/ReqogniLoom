@@ -135,6 +135,14 @@ export type VerificationMethod = 'Test' | 'Review' | 'Analysis' | 'Inspection';
  */
 export type RequirementLevel = 1 | 2 | 3 | 4;
 
+// #1288: one structured acceptance criterion. `evidence_ref` is the optional
+// uuid of the verifying artifact/test-run set by an external verification tool.
+export interface CriteriaItem {
+  text: string;
+  fulfilled: boolean;
+  evidence_ref?: string | null;
+}
+
 /** Ordered L1-L4 levels for select inputs; mirrors the backend enum order. */
 export const REQUIREMENT_LEVELS: RequirementLevel[] = [1, 2, 3, 4];
 
@@ -180,6 +188,11 @@ export interface Requirement extends SystemFieldValues {
   // Issue #394: V-model cascade level (1=System ... 4=Presentation). NULL
   // until assigned explicitly. See `RequirementLevel` above.
   level?: RequirementLevel | null;
+  // #1289: provenance of `level` — 'derived' (recomputed from the hierarchy)
+  // or 'manual' (an explicit override). Lets the UI mark the level as derived.
+  level_source?: "derived" | "manual";
+  // #1288: structured acceptance criteria (ordered, individually check-off-able).
+  acceptance_criteria_items?: CriteriaItem[];
   suspect?: boolean;
   change_reason?: string;
   /** #399: additive baseline-drift summary on the detail retrieve. */

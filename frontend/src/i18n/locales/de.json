@@ -1101,7 +1101,9 @@
     "L1": "L1 System",
     "L2": "L2 Subsystem",
     "L3": "L3 Komponente",
-    "L4": "L4 Präsentation"
+    "L4": "L4 Präsentation",
+    "derived": "abgeleitet",
+    "manual": "manuell"
   },
   "verificationMethod": {
     "Test": "Test",
@@ -2521,6 +2523,12 @@
       "description": "Beschreibung",
       "context": "Kontext",
       "consequences": "Konsequenzen"
+    },
+    "criteria": {
+      "add": "Kriterium hinzufügen",
+      "remove": "Entfernen",
+      "text": "Kriterium",
+      "fulfilled": "Erfüllt"
     },
     "definitionUnavailable": "Feldkonfiguration konnte nicht geladen werden.",
     "deleteTitle": "Artefakt löschen",

@@ -1,6 +1,6 @@
 {
   "generated_from": "reqogniloom==1.8.0-beta.20",
-  "tool_count": 235,
+  "tool_count": 239,
   "tools": [
     {
       "name": "admin.backup_create",
@@ -5109,6 +5109,113 @@
       }
     },
     {
+      "name": "requirement.acceptance_criteria.check",
+      "prefix": "requirement",
+      "is_write": true,
+      "description": "Check off (or update) a single acceptance criterion by index (#1288) — sets `fulfilled` and/or `text` only.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUID of the requirement."
+          },
+          "index": {
+            "type": "integer",
+            "description": "0-based criterion index."
+          },
+          "fulfilled": {
+            "type": "boolean"
+          },
+          "text": {
+            "type": "string"
+          },
+          "evidence_ref": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "change_reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "index"
+        ]
+      }
+    },
+    {
+      "name": "requirement.acceptance_criteria.get",
+      "prefix": "requirement",
+      "is_write": false,
+      "description": "Read the structured acceptance criteria of a requirement (#1288). Optionally fetch a single criterion by 0-based index.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUID of the requirement."
+          },
+          "index": {
+            "type": "integer",
+            "description": "Optional 0-based index of a single criterion."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "requirement.acceptance_criteria.set",
+      "prefix": "requirement",
+      "is_write": true,
+      "description": "Replace the whole structured acceptance criteria list (#1288). Each item is {text, fulfilled, evidence_ref?}.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUID of the requirement."
+          },
+          "criteria": {
+            "type": "array",
+            "description": "Ordered criteria list.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "text": {
+                  "type": "string"
+                },
+                "fulfilled": {
+                  "type": "boolean"
+                },
+                "evidence_ref": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "text",
+                "fulfilled"
+              ]
+            }
+          },
+          "change_reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "criteria"
+        ]
+      }
+    },
+    {
       "name": "requirement.check_consistency",
       "prefix": "requirement",
       "is_write": false,
@@ -5354,6 +5461,24 @@
       "prefix": "requirement",
       "is_write": true,
       "description": "Restore an outdated requirement to its previous state (write).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUID of the requirement."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "requirement.suggest_level",
+      "prefix": "requirement",
+      "is_write": true,
+      "description": "Propose a V-model cascade level (#1289) from the architecture allocation, the requirement type and the trace-link direction, persisted as an open suggestion (never silently set).",
       "inputSchema": {
         "type": "object",
         "properties": {

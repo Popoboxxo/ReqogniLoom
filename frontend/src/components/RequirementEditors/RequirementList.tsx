@@ -487,7 +487,16 @@ export const RequirementList: React.FC<RequirementListProps> = ({
               },
               {
                 label: t('editor.level'),
-                value: req.level != null ? t(`reqLevel.L${req.level}`) : null,
+                // #1289: `level` is derived (ADR-005); mark its provenance so
+                // a manual override is distinguishable from the derived value.
+                value:
+                  req.level != null
+                    ? `${t(`reqLevel.L${req.level}`)} · ${
+                        req.level_source === 'manual'
+                          ? t('reqLevel.manual')
+                          : t('reqLevel.derived')
+                      }`
+                    : null,
               },
               {
                 label: t('editor.verificationMethod'),

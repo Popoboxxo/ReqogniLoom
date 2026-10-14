@@ -1309,6 +1309,15 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             )
             # Attribut v3 WS2 (#936): owner/reporter/priority live on Artifact.
             self._apply_artifact_system_fields(request, "Requirement", item, ctx)
+            # #1289: an explicit manual level override, applied after create so
+            # the derivation has already run and the override wins.
+            if data.get("level_override") is not None:
+                item = self._svc().set_manual_level(
+                    item.id,
+                    ctx,
+                    int(data["level_override"]),
+                    change_reason=data.get("change_reason"),
+                )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
         except Exception as exc:
@@ -1431,6 +1440,16 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             )
             # Attribut v3 WS2 (#936): owner/reporter/priority live on Artifact.
             self._apply_artifact_system_fields(request, "Requirement", item, ctx)
+            # #1289: a manual level override rides along with the update. A
+            # `null` clears it (restores the derived value); a 1..4 forces it.
+            if "level_override" in data:
+                override = data.get("level_override")
+                item = self._svc().set_manual_level(
+                    item.id,
+                    ctx,
+                    None if override is None else int(override),
+                    change_reason=data.get("change_reason"),
+                )
         except OptimisticLockError as exc:
             # GH-868: a failed If-Match is a precondition failure (412); the
             # body field keeps its existing 409 CONFLICT contract.
@@ -1483,6 +1502,87 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             if key in data:
                 extra[key] = data[key]
         return extra
+
+    @action(detail=True, methods=["get"], url_path="acceptance-criteria")
+    def acceptance_criteria(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """GET /api/v1/requirements/{pk}/acceptance-criteria/ (#1288).
+
+        Returns the ordered structured criteria list as
+        ``{"criteria": [...], "total": N}``. Individual items are addressable by
+        0-based index at ``.../acceptance-criteria/{index}/``.
+        """
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            criteria = self._svc().list_acceptance_criteria(UUID(pk), ctx)
+        except NotFoundError as exc:
+            return _service_error_response(exc, lang)
+        except PermissionDeniedError as exc:
+            return _service_error_response(exc, lang)
+        except (ValidationError, ValueError) as exc:
+            return _service_error_response(
+                exc if isinstance(exc, ValidationError) else ValidationError(str(exc)),
+                lang,
+            )
+        return Response({"criteria": criteria, "total": len(criteria)})
+
+    @action(
+        detail=True,
+        methods=["get", "patch"],
+        url_path=r"acceptance-criteria/(?P<index>\d+)",
+    )
+    def acceptance_criteria_item(
+        self, request: Request, pk: str, index: str, **kwargs: Any
+    ) -> Response:
+        """GET/PATCH a single acceptance criterion by index (#1288).
+
+        PATCH accepts only ``text`` and ``fulfilled`` (plus optional
+        ``evidence_ref`` / ``change_reason``) so an external verification tool
+        can check a criterion off without resending the whole list.
+        """
+        lang = detect_lang(request)
+        criterion_index = int(index)
+        try:
+            ctx = get_auth_context(request)
+            if request.method == "GET":
+                return Response(self._svc().get_acceptance_criterion(UUID(pk), ctx, criterion_index))
+
+            data = request.data if isinstance(request.data, dict) else {}
+            unknown = sorted(
+                set(data)
+                - {"text", "fulfilled", "evidence_ref", "change_reason", "expected_version"}
+            )
+            if unknown:
+                message = f"unknown field(s) for an acceptance criterion: {', '.join(unknown)}"
+                return Response(
+                    build_error_response(
+                        "VALIDATION_ERROR",
+                        lang,
+                        details=[{"field": k, "errors": [message]} for k in unknown],
+                        message=message,
+                    ),
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            return Response(
+                self._svc().update_acceptance_criterion(
+                    UUID(pk),
+                    ctx,
+                    criterion_index,
+                    text=data.get("text"),
+                    fulfilled=data.get("fulfilled"),
+                    evidence_ref=data.get("evidence_ref"),
+                    change_reason=data.get("change_reason"),
+                )
+            )
+        except NotFoundError as exc:
+            return _service_error_response(exc, lang)
+        except PermissionDeniedError as exc:
+            return _service_error_response(exc, lang)
+        except (ValidationError, ValueError) as exc:
+            return _service_error_response(
+                exc if isinstance(exc, ValidationError) else ValidationError(str(exc)),
+                lang,
+            )
 
     def destroy(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """DELETE /api/v1/requirements/{pk}/ — soft-delete a requirement. Returns 204.
@@ -5181,6 +5281,8 @@ def _dto_from_orm(req: Any) -> dict[str, Any]:
         "rationale": getattr(req, "rationale", ""),
         "source": getattr(req, "source", ""),
         "acceptance_criteria": getattr(req, "acceptance_criteria", ""),
+        # #1288: structured criteria list, additively exposed read-only.
+        "acceptance_criteria_items": getattr(req, "acceptance_criteria_items", None) or [],
         "uid": getattr(req, "uid", None),
         "category": getattr(req, "category", ""),
         "status": getattr(req, "status", "draft"),
@@ -5188,6 +5290,7 @@ def _dto_from_orm(req: Any) -> dict[str, Any]:
         "complexity_fibonacci": getattr(req, "complexity_fibonacci", None),
         "verification_method": getattr(req, "verification_method", None) or None,
         "level": getattr(req, "level", None),
+        "level_source": getattr(req, "level_source", "derived"),
         "suspect": getattr(req, "suspect", False),
         "custom_fields": _artifact_custom_fields(req),
         # Attribut v3 WS2 (#936): Artifact-level system fields, actor wire form.

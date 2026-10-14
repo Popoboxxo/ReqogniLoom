@@ -371,12 +371,15 @@ def test_repeated_producer_run_dedupes_on_the_edge(env):
 # ---------------------------------------------------------------------------
 
 
-def test_registry_covers_all_four_adr_019_kinds():
+def test_registry_covers_all_adr_019_kinds():
+    # ADR-019's four mechanisms, plus #1289's ``requirement_level`` (which
+    # rides the same generic lifecycle).
     assert set(build_adapter_registry()) == {
         "artifact_create",
         "trace_link",
         "interview_grounding",
         "context_edge",
+        "requirement_level",
     }
 
 

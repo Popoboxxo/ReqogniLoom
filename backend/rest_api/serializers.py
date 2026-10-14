@@ -1117,6 +1117,38 @@ class RequirementSerializer(
             "hierarchy does not determine a level."
         ),
     )
+    # #1289: provenance of `level`. Read-only, additive to the wire contract.
+    level_source = serializers.CharField(
+        read_only=True,
+        help_text=(
+            "'derived' (recomputed from the hierarchy) or 'manual' (an explicit "
+            "override set via `level_override`)."
+        ),
+    )
+    # #1289: the explicit manual override. Distinct from `level` so the
+    # ADR-005 contract ("`level` is derived, a differing value is refused")
+    # stays intact — a client that wants to force a level sends this field
+    # instead of `level`. Write-only: `level_source` is the read projection.
+    level_override = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=1,
+        max_value=4,
+        write_only=True,
+        help_text=(
+            "Manual override of the derived V-model level (1..4); null clears "
+            "the override and restores the derived value. #1289."
+        ),
+    )
+    # #1288: the structured acceptance criteria list, read-only on the main
+    # Requirement payload. Individual items are written through the dedicated
+    # ``.../acceptance-criteria/{index}/`` endpoint.
+    acceptance_criteria_items = serializers.JSONField(
+        read_only=True,
+        help_text=(
+            "Ordered acceptance criteria {text, fulfilled, evidence_ref} (#1288)."
+        ),
+    )
     # Issue [U2, systemaudit 2026-09-02]: the model field and its propagation
     # logic (TraceLinkService.propagate_suspect_status) already existed;
     # only the serializer never declared it, so DRF silently dropped it from

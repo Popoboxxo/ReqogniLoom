@@ -31,11 +31,16 @@ from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 from auth_tenancy.context import AuthContext
+from attribute_definitions.field_validation import (
+    FieldValidationError,
+    normalize_criteria_list,
+)
 from django.core.cache import cache
 from django.db.models import F, Q, QuerySet
 from persistence.models import (
     Artifact,
     Requirement,
+    RequirementLevelSource,
     Tenant,
     Workspace,
 )
@@ -878,6 +883,192 @@ class RequirementService(ServiceBase):
                 logger.error(f"Error propagating suspect status: {e}", exc_info=True)
 
         return requirement
+
+    @atomic_transaction
+    def set_manual_level(
+        self,
+        requirement_id: UUID,
+        ctx: AuthContext,
+        level: int | None,
+        *,
+        change_reason: str | None = None,
+    ) -> Requirement:
+        """Set or clear an explicit manual override of the V-model level (#1289).
+
+        ADR-005 makes ``level`` derived and read-only; #1289 adds an explicit
+        escape hatch. ``level`` is validated against the cascade (1..4), stored
+        together with ``level_source = manual``, and thereafter **never
+        overwritten** by :func:`traceability.audit.hierarchy.recompute_requirement_levels`.
+
+        Passing ``level=None`` clears the override: the row is reset to
+        ``level_source = derived`` and the hierarchy-derived value is recomputed
+        immediately, so clearing is symmetric with setting.
+
+        Args:
+            requirement_id: The Requirement row id (not the Artifact id).
+            ctx: Authenticated, tenant-scoped, write-permitted context.
+            level: The cascade level (1..4) to force, or ``None`` to clear.
+            change_reason: Optional audit reason.
+
+        Raises:
+            ValidationError: *level* is not ``None`` and not in 1..4.
+            NotFoundError: no such Requirement in the active tenant.
+        """
+        if level is not None and int(level) not in (1, 2, 3, 4):
+            raise ValidationError("level must be one of 1, 2, 3, 4 or null")
+
+        requirement = self._load_requirement_for_update(requirement_id, ctx, None)
+
+        if level is None:
+            requirement.level_source = RequirementLevelSource.DERIVED
+            requirement.save(update_fields=["level_source", "modified_at"])
+            _recompute_derived_levels([requirement.artifact_id])
+            requirement.refresh_from_db(fields=["level", "level_source"])
+        else:
+            requirement.level = int(level)
+            requirement.level_source = RequirementLevelSource.MANUAL
+            requirement.save(update_fields=["level", "level_source", "modified_at"])
+
+        self._audit(
+            ctx=ctx,
+            operation="update",
+            entity_type="Requirement",
+            entity_id=requirement_id,
+            change_reason=change_reason,
+            details={
+                "field": "level",
+                "level": requirement.level,
+                "level_source": requirement.level_source,
+            },
+        )
+        return requirement
+
+    def list_acceptance_criteria(
+        self, requirement_id: UUID, ctx: AuthContext
+    ) -> list[dict]:
+        """Return the structured acceptance criteria of a Requirement (#1288).
+
+        Tenant-scoped read (delegates to :meth:`get_requirement`). Returns the
+        stored ordered list — empty until the legacy free text is imported or
+        criteria are authored.
+
+        Follow-up hook (deliberately **not** implemented here): an LLM-backed
+        ``requirement.refine_acceptance_criteria`` that *proposes* improved
+        criteria. When it lands it must go through the ADR-019 suggestion
+        lifecycle (a ``Suggestion`` row a human accepts), never write the list
+        directly — the same "no silent set" rule #1289 uses for the level.
+        """
+        requirement = self.get_requirement(requirement_id, ctx)
+        return list(requirement.acceptance_criteria_items or [])
+
+    def get_acceptance_criterion(
+        self, requirement_id: UUID, ctx: AuthContext, index: int
+    ) -> dict:
+        """Return one criterion by 0-based *index* (#1288).
+
+        Raises:
+            NotFoundError: the index is out of range for this requirement.
+        """
+        items = self.list_acceptance_criteria(requirement_id, ctx)
+        if index < 0 or index >= len(items):
+            raise NotFoundError(
+                f"Acceptance criterion index {index} is out of range "
+                f"(requirement has {len(items)})."
+            )
+        return {"index": index, "criterion": items[index], "total": len(items)}
+
+    @atomic_transaction
+    def update_acceptance_criterion(
+        self,
+        requirement_id: UUID,
+        ctx: AuthContext,
+        index: int,
+        *,
+        text: str | None = None,
+        fulfilled: bool | None = None,
+        evidence_ref: str | None = None,
+        change_reason: str | None = None,
+    ) -> dict:
+        """Update only ``text`` / ``fulfilled`` / ``evidence_ref`` of one criterion.
+
+        The single-criterion write an external verification tool needs to
+        "check off" item *index* without resending the full list (#1288).
+
+        Raises:
+            NotFoundError: the index is out of range.
+            ValidationError: *text* is not a non-empty string, or *fulfilled* is
+                not a boolean.
+        """
+        requirement = self._load_requirement_for_update(requirement_id, ctx, None)
+        items = list(requirement.acceptance_criteria_items or [])
+        if index < 0 or index >= len(items):
+            raise NotFoundError(
+                f"Acceptance criterion index {index} is out of range "
+                f"(requirement has {len(items)})."
+            )
+
+        criterion = dict(items[index])
+        if text is not None:
+            if not isinstance(text, str) or not text.strip():
+                raise ValidationError("criterion 'text' must be a non-empty string")
+            criterion["text"] = text.strip()
+        if fulfilled is not None:
+            if not isinstance(fulfilled, bool):
+                raise ValidationError("criterion 'fulfilled' must be a boolean")
+            criterion["fulfilled"] = fulfilled
+        if evidence_ref is not None:
+            criterion["evidence_ref"] = evidence_ref or None
+
+        items[index] = criterion
+        try:
+            requirement.acceptance_criteria_items = normalize_criteria_list(items)
+        except FieldValidationError as exc:
+            raise ValidationError(str(exc)) from exc
+        requirement.save(update_fields=["acceptance_criteria_items", "modified_at"])
+        self._audit(
+            ctx=ctx,
+            operation="update",
+            entity_type="Requirement",
+            entity_id=requirement_id,
+            change_reason=change_reason,
+            details={"field": "acceptance_criteria_items", "index": index, "criterion": criterion},
+        )
+        return {
+            "index": index,
+            "criterion": requirement.acceptance_criteria_items[index],
+            "total": len(requirement.acceptance_criteria_items),
+        }
+
+    @atomic_transaction
+    def set_acceptance_criteria(
+        self,
+        requirement_id: UUID,
+        ctx: AuthContext,
+        criteria: list[dict],
+        *,
+        change_reason: str | None = None,
+    ) -> dict:
+        """Replace the whole structured criteria list (MCP ``..._set``, #1288).
+
+        Validated through the same ``criteria-list`` contract REST uses
+        (:func:`attribute_definitions.field_validation.normalize_criteria_list`).
+        """
+        try:
+            normalized = normalize_criteria_list(criteria)
+        except FieldValidationError as exc:
+            raise ValidationError(str(exc)) from exc
+        requirement = self._load_requirement_for_update(requirement_id, ctx, None)
+        requirement.acceptance_criteria_items = normalized
+        requirement.save(update_fields=["acceptance_criteria_items", "modified_at"])
+        self._audit(
+            ctx=ctx,
+            operation="update",
+            entity_type="Requirement",
+            entity_id=requirement_id,
+            change_reason=change_reason,
+            details={"field": "acceptance_criteria_items", "total": len(normalized)},
+        )
+        return {"criteria": normalized, "total": len(normalized)}
 
     @atomic_transaction
     def delete_requirement(

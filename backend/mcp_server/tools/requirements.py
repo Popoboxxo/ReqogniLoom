@@ -38,6 +38,7 @@ from auth_tenancy.context import AuthContext
 from application.services import (
     LlmNotConfiguredError,
     NotFoundError,
+    ProducerContextRequiredError,
     RequirementService,
     ValidationError,
     PermissionDeniedError,
@@ -124,6 +125,13 @@ def _requirement_to_dict(
         "complexity_fibonacci": getattr(req, "complexity_fibonacci", None),
         "verification_method": getattr(req, "verification_method", None) or None,
         "level": getattr(req, "level", None),
+        # #1289: provenance of ``level`` ('derived'|'manual'), mirrored from
+        # rest_api/views.py::_dto_from_orm. The definition exposes
+        # ``level_source`` as a visible read-only attribute and the REST read
+        # already returns it; without it here the MCP read projection omitted a
+        # visible attribute — a REST/MCP parity gap the attribute contract
+        # matrix ratchets (#935).
+        "level_source": getattr(req, "level_source", "derived"),
         "suspect": getattr(req, "suspect", False),
         "version": req.version,
         # REQ-L2-AS-037 / Epic #934 WS1: the extended attributes live on the
@@ -162,6 +170,10 @@ class RequirementsToolGroup(BaseToolGroup):
         "requirement.check_consistency_status": "_handle_check_consistency_status",
         "requirement.outdate": "_handle_outdate",
         "requirement.reactivate": "_handle_reactivate",
+        "requirement.acceptance_criteria.get": "_handle_acceptance_criteria_get",
+        "requirement.acceptance_criteria.set": "_handle_acceptance_criteria_set",
+        "requirement.acceptance_criteria.check": "_handle_acceptance_criteria_check",
+        "requirement.suggest_level": "_handle_suggest_level",
     }
     
     _TOOL_SCHEMAS = [
@@ -430,6 +442,86 @@ class RequirementsToolGroup(BaseToolGroup):
         {
             "name": "requirement.reactivate",
             "description": "Restore an outdated requirement to its previous state (write).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "UUID of the requirement."},
+                },
+                "required": ["id"],
+            },
+        },
+        {
+            "name": "requirement.acceptance_criteria.get",
+            "description": (
+                "Read the structured acceptance criteria of a requirement (#1288). "
+                "Optionally fetch a single criterion by 0-based index."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "UUID of the requirement."},
+                    "index": {
+                        "type": "integer",
+                        "description": "Optional 0-based index of a single criterion.",
+                    },
+                },
+                "required": ["id"],
+            },
+        },
+        {
+            "name": "requirement.acceptance_criteria.set",
+            "description": (
+                "Replace the whole structured acceptance criteria list (#1288). "
+                "Each item is {text, fulfilled, evidence_ref?}."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "UUID of the requirement."},
+                    "criteria": {
+                        "type": "array",
+                        "description": "Ordered criteria list.",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "text": {"type": "string"},
+                                "fulfilled": {"type": "boolean"},
+                                "evidence_ref": {"type": ["string", "null"]},
+                            },
+                            "required": ["text", "fulfilled"],
+                        },
+                    },
+                    "change_reason": {"type": "string"},
+                },
+                "required": ["id", "criteria"],
+            },
+        },
+        {
+            "name": "requirement.acceptance_criteria.check",
+            "description": (
+                "Check off (or update) a single acceptance criterion by index "
+                "(#1288) — sets `fulfilled` and/or `text` only."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "UUID of the requirement."},
+                    "index": {"type": "integer", "description": "0-based criterion index."},
+                    "fulfilled": {"type": "boolean"},
+                    "text": {"type": "string"},
+                    "evidence_ref": {"type": ["string", "null"]},
+                    "change_reason": {"type": "string"},
+                },
+                "required": ["id", "index"],
+            },
+        },
+        {
+            "name": "requirement.suggest_level",
+            "description": (
+                "Propose a V-model cascade level (#1289) from the architecture "
+                "allocation, the requirement type and the trace-link direction, "
+                "persisted as an open suggestion (never silently set)."
+            ),
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -1048,6 +1140,121 @@ class RequirementsToolGroup(BaseToolGroup):
             "requirement_id": str(req_id),
             "validation_result": validation_result,
         })
+
+    # ------------------------------------------------------------------
+    # requirement.acceptance_criteria.get / set / check (#1288)
+    # ------------------------------------------------------------------
+
+    def _handle_acceptance_criteria_get(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        """requirement.acceptance_criteria.get — read all criteria, or one by index."""
+        req_id = require_uuid(params, "id")
+        index = params.get("index")
+        try:
+            if index is None:
+                criteria = self._service.list_acceptance_criteria(req_id, auth_context)
+                return ToolResult.ok({"criteria": criteria, "total": len(criteria)})
+            return ToolResult.ok(
+                self._service.get_acceptance_criterion(req_id, auth_context, int(index))
+            )
+        except NotFoundError as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+        except PermissionDeniedError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
+        except (ValidationError, ValueError) as exc:
+            return ToolResult.error("VALIDATION_ERROR", str(exc))
+
+    def _handle_acceptance_criteria_set(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        """requirement.acceptance_criteria.set — replace the whole criteria list."""
+        req_id = require_uuid(params, "id")
+        criteria = params.get("criteria")
+        if not isinstance(criteria, list):
+            return ToolResult.error(
+                "VALIDATION_ERROR", "Parameter 'criteria' must be a list."
+            )
+        try:
+            result = self._service.set_acceptance_criteria(
+                req_id,
+                auth_context,
+                criteria,
+                change_reason=params.get("change_reason"),
+            )
+        except NotFoundError as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+        except ValidationError as exc:
+            return ToolResult.error("VALIDATION_ERROR", str(exc))
+        except PermissionDeniedError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
+        write_mcp_audit(
+            ctx=auth_context,
+            operation="update",
+            entity_type="Requirement",
+            entity_id=req_id,
+            tool_name="requirement.acceptance_criteria.set",
+            api_key=api_key,
+        )
+        return ToolResult.ok(result)
+
+    def _handle_acceptance_criteria_check(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        """requirement.acceptance_criteria.check — check off one criterion by index."""
+        req_id = require_uuid(params, "id")
+        if "index" not in params:
+            return ToolResult.error(
+                "VALIDATION_ERROR", "Parameter 'index' is required for a check."
+            )
+        try:
+            result = self._service.update_acceptance_criterion(
+                req_id,
+                auth_context,
+                int(params["index"]),
+                text=params.get("text"),
+                fulfilled=params.get("fulfilled"),
+                evidence_ref=params.get("evidence_ref"),
+                change_reason=params.get("change_reason"),
+            )
+        except NotFoundError as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+        except ValidationError as exc:
+            return ToolResult.error("VALIDATION_ERROR", str(exc))
+        except PermissionDeniedError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
+        write_mcp_audit(
+            ctx=auth_context,
+            operation="update",
+            entity_type="Requirement",
+            entity_id=req_id,
+            tool_name="requirement.acceptance_criteria.check",
+            api_key=api_key,
+        )
+        return ToolResult.ok(result)
+
+    # ------------------------------------------------------------------
+    # requirement.suggest_level (#1289)
+    # ------------------------------------------------------------------
+
+    def _handle_suggest_level(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        """requirement.suggest_level — persist a level suggestion (never silent)."""
+        from application.requirement_level_service import RequirementLevelService
+
+        req_id = require_uuid(params, "id")
+        try:
+            suggestion = RequirementLevelService().propose_level(req_id, auth_context)
+        except NotFoundError as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+        except ProducerContextRequiredError as exc:
+            return ToolResult.error("CONFLICT", str(exc))
+        except ValidationError as exc:
+            return ToolResult.error("VALIDATION_ERROR", str(exc))
+        except PermissionDeniedError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
+        return ToolResult.ok({"suggestion": suggestion})
 
 
 __all__ = ["RequirementsToolGroup"]

@@ -49,8 +49,27 @@ from persistence.models import (
 )
 from persistence.tenancy import TenantContext
 from traceability.audit import Finding, RemediationProposal, Severity
+from traceability.audit.registry import TRACE_P1, TRACE_P1B, TRACE_P2
 
 pytestmark = pytest.mark.django_db
+
+#: The rule ids ``TraceabilitySuggestService`` ranks candidates for (its
+#: ``_SUPPORTED_RULE_IDS``). Only such a finding can ever yield a suggestion, so
+#: a test that needs a *rankable* finding must select it by rule id, never by
+#: position: the standard-tier audit also emits advisory findings (e.g.
+#: ``CONS-P12`` "level is NULL", #1289) that sort ahead of the trace findings and
+#: would otherwise be picked as ``findings[0]``.
+_RANKABLE_RULE_IDS = frozenset({TRACE_P1, TRACE_P1B, TRACE_P2})
+
+
+def _first_rankable_finding(report: AuditReport) -> AuditFindingView:
+    """Return the first finding the suggest service can rank a candidate for."""
+    for view in report.findings:
+        if view.finding.rule_id in _RANKABLE_RULE_IDS and view.finding.artifact_ids:
+            return view
+    raise AssertionError(
+        "fixture must yield at least one rankable (TRACE-P1/-P1b/-P2) finding"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -455,8 +474,8 @@ class TestSuggestLinksDropsHallucinatedIndices:
             ground_truth = AuditService().run_audit(workspace.id, ctx, tier="standard")
 
         assert ground_truth.findings
-        valid_finding_index = ground_truth.findings[0].index
-        real = ground_truth.findings[0]
+        real = _first_rankable_finding(ground_truth)
+        valid_finding_index = real.index
 
         class _StubProvider:
             def complete(self, prompt, *, purpose="", context=None, timeout=None):
@@ -508,7 +527,7 @@ class TestSuggestLinksDropsHallucinatedIndices:
             ground_truth = AuditService().run_audit(workspace.id, ctx, tier="standard")
 
         assert ground_truth.findings
-        valid_finding_index = ground_truth.findings[0].index
+        valid_finding_index = _first_rankable_finding(ground_truth).index
 
         class _StubProvider:
             def complete(self, prompt, *, purpose="", context=None, timeout=None):

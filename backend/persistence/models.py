@@ -257,6 +257,27 @@ class RequirementLevel(models.IntegerChoices):
     L4_PRESENTATION = 4, "L4 Presentation"
 
 
+class RequirementLevelSource(models.TextChoices):
+    """Provenance of ``Requirement.level`` (#1289).
+
+    ADR-005 made ``level`` a *derived* field with a single writer
+    (``traceability.audit.hierarchy.recompute_requirement_levels``). #1289 adds
+    the missing provenance marker so a consumer can tell a graph-derived value
+    apart from a deliberate human override:
+
+    * ``derived`` — written by the level derivation (the default for every row,
+      including every pre-existing row, so the backfill is behaviour-neutral);
+    * ``manual`` — an explicit override set through
+      ``RequirementService.set_manual_level`` (the ``level_override`` REST/MCP
+      field). The recompute path never overwrites a ``manual`` row, so a human
+      override survives a later hierarchy edit — the same "derived can never be
+      wrong" guarantee ADR-005 established, now with an honest escape hatch.
+    """
+
+    DERIVED = "derived", "Derived from hierarchy"
+    MANUAL = "manual", "Manually overridden"
+
+
 class MoSCoWPriority(models.TextChoices):
     """MoSCoW prioritization framework.
 
@@ -1555,6 +1576,21 @@ class Requirement(TenantScopedModel):
         default="",
         help_text="#43: Acceptance criteria describing when the requirement is fulfilled.",
     )
+    # #1288: structured acceptance criteria. The legacy free-text
+    # ``acceptance_criteria`` column is kept (backward compatible; every existing
+    # consumer reads it) and a data migration imports each non-empty free text
+    # as exactly one criterion, so nothing is lost. The structured list is the
+    # canonical, individually-check-off-able representation:
+    # ``[{"text": str, "fulfilled": bool, "evidence_ref": uuid|null}, ...]``.
+    acceptance_criteria_items = models.JSONField(
+        default=list,
+        blank=True,
+        help_text=(
+            "#1288: ordered criteria list of "
+            "{text, fulfilled, evidence_ref}. Empty until the free text is "
+            "imported / the criteria are authored."
+        ),
+    )
     category = models.CharField(max_length=64, blank=True)
     type = models.CharField(
         max_length=64,
@@ -1571,6 +1607,16 @@ class Requirement(TenantScopedModel):
             "4=Presentation). The integer is the cascade level itself. L0 "
             "(Stakeholder Need) is a separate model and never a Requirement. "
             "NULL until assigned explicitly."
+        ),
+    )
+    level_source = models.CharField(
+        max_length=16,
+        choices=RequirementLevelSource.choices,
+        default=RequirementLevelSource.DERIVED,
+        help_text=(
+            "#1289: provenance of `level` — 'derived' (written by the level "
+            "derivation; the default) or 'manual' (an explicit human override "
+            "that the derivation never overwrites)."
         ),
     )
     complexity_fibonacci = models.IntegerField(
@@ -3903,6 +3949,10 @@ class Suggestion(TenantScopedModel):
         TRACE_LINK = "trace_link", "Trace link"
         INTERVIEW_GROUNDING = "interview_grounding", "Interview grounding"
         CONTEXT_EDGE = "context_edge", "Context edge"
+        #: #1289 — a suggested V-model cascade level for a Requirement, derived
+        #: from its architecture allocation / requirement type / trace-link
+        #: direction. Accepting it sets ``Requirement.level_source = manual``.
+        REQUIREMENT_LEVEL = "requirement_level", "Requirement level"
 
     class Status(models.TextChoices):
         """Proposal lifecycle. Hoheit remains with the delegated mechanism."""
@@ -4024,6 +4074,7 @@ __all__ = [
     "Requirement",
     "RequirementType",
     "RequirementLevel",
+    "RequirementLevelSource",
     "MoSCoWPriority",
     "ComplexityFibonacci",
     "VerificationMethod",

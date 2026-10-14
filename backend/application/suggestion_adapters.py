@@ -308,6 +308,88 @@ class TraceLinkSuggestionAdapter(SuggestionAdapter):
         )
 
 
+class RequirementLevelSuggestionAdapter(SuggestionAdapter):
+    """#1289: a suggested V-model cascade level for a Requirement.
+
+    Produce: the level is already computed by
+    :class:`application.requirement_level_service.RequirementLevelService` and
+    handed in via ``payload`` — this adapter only persists the ADR-019 receipt,
+    so no separate domain write happens at produce time (unlike ``trace_link``).
+    Accept: sets the level through ``RequirementService.set_manual_level`` (which
+    stamps ``level_source = manual``), guarded against an agent accepting its own
+    proposal. Reject: no target artifact to destroy — the receipt alone changes.
+    """
+
+    kind = "requirement_level"
+
+    def produce(
+        self,
+        service: SuggestionService,
+        ctx: AuthContext,
+        *,
+        workspace_id: Any,
+        payload: dict,
+        producer: str = "",
+        target_item_type: str = "",
+        target_item_id: Any = None,
+        **kwargs: Any,
+    ) -> Suggestion:
+        level = payload.get("level")
+        requirement_id = kwargs.get("requirement_id") or payload.get("requirement_id")
+        if level is None or requirement_id is None:
+            raise ValidationError(
+                "A requirement_level suggestion requires a non-null 'level' and "
+                "a 'requirement_id' (no source determined a level, or the "
+                "requirement was not identified)."
+            )
+        if not 1 <= int(level) <= 4:
+            raise ValidationError("A suggested level must be in 1..4.")
+        return service.create(
+            kind=self.kind,
+            ctx=ctx,
+            workspace_id=workspace_id,
+            payload=payload,
+            producer=producer,
+            target_item_type=target_item_type or "Requirement",
+            target_item_id=target_item_id or payload.get("requirement_id"),
+        )
+
+    def accept(
+        self, service: SuggestionService, ctx: AuthContext, suggestion: Suggestion
+    ) -> None:
+        from application.requirement_service import RequirementService
+        from application.trace_link_service import AgentSelfConfirmError
+
+        # An agent may not accept its own proposal — the human-in-the-loop rule
+        # of ADR-019, applied per adapter (Rule 0 does not cover this path).
+        if ctx.actor_type == "agent" or ctx.api_key_id is not None:
+            raise AgentSelfConfirmError(
+                "An agent may not accept its own requirement_level suggestion."
+            )
+
+        requirement_id = suggestion.target_item_id or suggestion.payload.get(
+            "requirement_id"
+        )
+        level = suggestion.payload.get("level")
+        if requirement_id is None or level is None:
+            raise ValidationError(
+                "This requirement_level suggestion has no requirement/level to apply."
+            )
+        RequirementService().set_manual_level(
+            requirement_id, ctx, int(level), change_reason="accepted level suggestion"
+        )
+
+    def reject(
+        self,
+        service: SuggestionService,
+        ctx: AuthContext,
+        suggestion: Suggestion,
+        reason: str = "",
+    ) -> None:
+        """No-op: a level suggestion owns no target artifact (Zusage 7(e))."""
+        return None
+
+
 # Dormant kinds — registered so the lifecycle is generic; invoked => clear error.
 class ArtifactCreateSuggestionAdapter(SuggestionAdapter):
     """M1 ``proposed`` path — registered, dormant (ADR-019 Decision 3/4)."""
@@ -331,6 +413,7 @@ def build_adapter_registry() -> dict[str, SuggestionAdapter]:
     """Return the ``kind`` -> adapter map covering all four ADR-019 kinds."""
     adapters: list[SuggestionAdapter] = [
         TraceLinkSuggestionAdapter(),
+        RequirementLevelSuggestionAdapter(),
         ArtifactCreateSuggestionAdapter(),
         InterviewGroundingSuggestionAdapter(),
         ContextEdgeSuggestionAdapter(),
@@ -342,6 +425,7 @@ __all__ = [
     "ArtifactCreateSuggestionAdapter",
     "ContextEdgeSuggestionAdapter",
     "InterviewGroundingSuggestionAdapter",
+    "RequirementLevelSuggestionAdapter",
     "SuggestionAdapter",
     "SuggestionKindNotEnabledError",
     "TraceLinkSuggestionAdapter",

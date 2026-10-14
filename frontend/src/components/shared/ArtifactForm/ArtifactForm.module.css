@@ -202,6 +202,34 @@
   justify-content: flex-end;
 }
 
+/* #1288: the criteria-list widget — one row per ordered criterion. */
+.criteriaList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.criteriaRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.criteriaText {
+  flex: 1;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-1) var(--space-2);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+}
+
+.criteriaDone .criteriaText {
+  text-decoration: line-through;
+  opacity: 0.7;
+}
+
 /* Adapter-owned top-of-form action row (#424). Layout only — the adapter
    supplies the controls (e.g. the TestCase "mark reviewed" button). */
 .headerActions {

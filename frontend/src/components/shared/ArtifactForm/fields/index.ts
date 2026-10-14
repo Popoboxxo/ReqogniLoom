@@ -1,4 +1,6 @@
 export { BooleanToggle } from "./BooleanToggle";
+export { CriteriaList } from "./CriteriaList";
+export type { CriteriaItem } from "./CriteriaList";
 export { DateField } from "./DateField";
 export { DisplayField } from "./DisplayField";
 export type { DisplayFieldProps } from "./DisplayField";

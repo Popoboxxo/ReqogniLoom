@@ -104,6 +104,14 @@ ARCH_003 = "ARCH-003"
 VERIF_P8 = "VERIF-P8"
 CONS_P9 = "CONS-P9"
 CONS_P10 = "CONS-P10"
+#: #1289 — V-model level of a Requirement is NULL (not derivable from the
+#: requirement hierarchy nor from an ``allocated-to`` architecture allocation).
+#: Advisory at every tier it runs in; see rules/level_consistency.py.
+CONS_P12 = "CONS-P12"
+#: #1289 — the stored ``Requirement.level`` disagrees with the V-model level
+#: implied by the architecture allocation depth. Advisory; see
+#: rules/level_consistency.py.
+CONS_P13 = "CONS-P13"
 #: ADR-005 removed CONS-P11 (V-model level progression). It asserted that
 #: ``Requirement.level`` agrees with the decomposition graph, and the same ADR
 #: made ``level`` **derived from** that graph — the rule could never fire. Its
@@ -138,6 +146,9 @@ _STANDARD_RULES: FrozenSet[str] = frozenset(
         TRACE_P6,
         CONS_P9,
         CONS_P10,
+        # #1289: level-NULL visibility is advisory at standard too — a corpus
+        # that predates the derivation must not be blocked by it.
+        CONS_P12,
         # #1268: interface coverage — advisory at every tier it runs in.
         IFC_001,
     }
@@ -152,6 +163,8 @@ _EXTENDED_ONLY_RULES: FrozenSet[str] = frozenset(
         ARCH_003,
         VERIF_P8,
         VAL_P1,
+        # #1289: the architecture-depth mismatch is the stricter SE-only check.
+        CONS_P13,
     }
 )
 
@@ -427,6 +440,8 @@ __all__ = [
     "VERIF_P8",
     "CONS_P9",
     "CONS_P10",
+    "CONS_P12",
+    "CONS_P13",
     "VAL_P1",
     "IFC_001",
 ]

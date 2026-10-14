@@ -45,6 +45,7 @@ import {
 } from "./layout-flow";
 import {
   BooleanToggle,
+  CriteriaList,
   DateField,
   DisplayField,
   EnumSelect,
@@ -59,6 +60,7 @@ import {
   hasConfiguredDisplay,
   resolveDisplayProps,
   type ActorFieldValue,
+  type CriteriaItem,
 } from "./fields";
 import { stripNonEditableValues } from "./payload";
 import { useArtifactDefinition } from "./useArtifactDefinition";
@@ -1290,6 +1292,16 @@ function renderAttribute({
       return <EnumSelect key={attribute.name} {...shared} value={value as string | null} onChange={onChange} />;
     case "multi-enum":
       return <MultiEnum key={attribute.name} {...shared} value={value as string[] | null} onChange={onChange} />;
+    case "criteria-list":
+      // #1288: ordered, individually check-off-able criteria.
+      return (
+        <CriteriaList
+          key={attribute.name}
+          {...shared}
+          value={value as CriteriaItem[] | null}
+          onChange={onChange}
+        />
+      );
     case "date":
       return <DateField key={attribute.name} {...shared} value={value as string | null} onChange={onChange} />;
     case "reference":
