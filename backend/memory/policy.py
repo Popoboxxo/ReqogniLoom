@@ -244,6 +244,27 @@ class MemoryPolicy:
             )
         return False
 
+    # -- update ---------------------------------------------------------
+
+    @staticmethod
+    def can_update(ctx: Any, entry: Any) -> bool:
+        """Whether *ctx* may replace the content of the memory entry *entry*.
+
+        The update matrix mirrors the write matrix, tightened by ownership for
+        the personal scope: ``user`` memory may only be rewritten by its owner
+        (`can_write` alone would let any authenticated caller rewrite someone
+        else's user entry -- the same gap `can_delete` closes), while
+        ``workspace``/``artifact`` memory needs Editor+ in the owning workspace
+        (for ``artifact`` derived from the artifact), identical to
+        :meth:`can_write`.
+        """
+        scope, user_id, workspace_id, artifact_id = _owner_of(entry)
+        if scope == MemoryEntry.SCOPE_USER:
+            return user_id is not None and user_id == ctx.user_id
+        return MemoryPolicy.can_write(
+            ctx, scope=scope, workspace_id=workspace_id, artifact_id=artifact_id
+        )
+
     # -- purge / export (admin surface) ---------------------------------
 
     @staticmethod
@@ -282,6 +303,13 @@ class MemoryPolicy:
         if not MemoryPolicy.can_delete(ctx, entry):
             raise MemoryPermissionDenied(
                 f"Permission denied: cannot delete {_owner_of(entry)[0]!r}-scoped memory"
+            )
+
+    @staticmethod
+    def assert_can_update(ctx: Any, entry: Any) -> None:
+        if not MemoryPolicy.can_update(ctx, entry):
+            raise MemoryPermissionDenied(
+                f"Permission denied: cannot update {_owner_of(entry)[0]!r}-scoped memory"
             )
 
     @staticmethod

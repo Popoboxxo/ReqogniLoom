@@ -575,6 +575,14 @@ class MemoryToolGroup(BaseToolGroup):
                 artifact_id=str(artifact_id) if artifact_id else None,
                 entity_type=entity_type,
             )
+            # #1300: count the trigger source (fail-open) so "is the pipeline
+            # running?" is answerable per source, not only via log-grep.
+            try:
+                from memory.metrics import increment_consolidation
+
+                increment_consolidation("mcp_remember_interaction")
+            except Exception:  # noqa: BLE001 - metrics must never break the write
+                pass
             return {"scheduled": True, "task_id": str(result.id)}
 
         return self._service_call(_call)

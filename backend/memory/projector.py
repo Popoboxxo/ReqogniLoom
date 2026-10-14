@@ -5,11 +5,11 @@ Outbox) at process startup via ``MemoryConfig.ready()``, mirroring
 ``context_graph.projector.register_projector_on_event_bus`` (the first
 projector wired on this bus). Unlike ``ContextGraphProjector`` (which
 registers for every declared ``EventType`` and no-ops on irrelevant ones)
-this projector only subscribes to the two event types it actually cares
-about (Task 4: ``InterviewChatTurn``/``InterviewFormalized``) -- both
-approaches are correct given ``SubscriberRegistry.register`` is keyed by
-event type; this one is simply narrower since there is nothing to do for
-any other event.
+this projector only subscribes to the event types it actually cares
+about (the two interview events plus, since issue #1300, the generic
+``InteractionCompleted``) -- both approaches are correct given
+``SubscriberRegistry.register`` is keyed by event type; this one is simply
+narrower since there is nothing to do for any other event.
 
 The handler itself does no heavy DB work and holds no tenant context open
 beyond a lightweight settings lookup -- the actual consolidation work (LLM
@@ -113,6 +113,7 @@ from application.event_bus import (
 )
 from application.models import DomainEventOutbox
 from memory.backends import _tenant_context
+from memory.metrics import increment_consolidation
 from memory.tasks import consolidate_interaction_task
 
 logger = logging.getLogger(__name__)
@@ -120,6 +121,11 @@ logger = logging.getLogger(__name__)
 _RELEVANT_EVENT_TYPES = {
     DomainEventOutbox.EventType.INTERVIEW_CHAT_TURN,
     DomainEventOutbox.EventType.INTERVIEW_FORMALIZED,
+    # Issue #1300: the generic "a generating step was completed and confirmed"
+    # event any generative service may emit (payload: ``user_id``,
+    # ``tenant_id``, ``interaction_text``). Widening the loop beyond interviews
+    # without a second projector.
+    DomainEventOutbox.EventType.INTERACTION_COMPLETED,
 }
 
 #: Namespace for this subscriber's ``event_id`` dedup window (ADR-014 §4,
@@ -213,6 +219,12 @@ class MemoryProjector:
             artifact_id=self._resolve_artifact_id(payload),
             entity_type=self._resolve_entity_type(payload),
         )
+        # Issue #1300: observable signal per trigger source, so "is the learning
+        # loop running, and from what?" is answerable without a log grep.
+        # Counted here (not in the async task) so it tracks *dispatched*
+        # consolidations even when no worker is consuming the queue. Best-effort:
+        # the counter must never break the pipeline (see memory/metrics.py).
+        increment_consolidation(event.event_type)
         # Record the receipt only after the enqueue succeeded (ADR-014 §4:
         # exactly one effect per event_id, while a crash before this line
         # still allows the redelivery to run).
@@ -251,16 +263,25 @@ class MemoryProjector:
 
     @staticmethod
     def _build_interaction_text(payload: dict) -> str:
-        """Build the text fed to ``memory.extract`` from a chat-turn payload.
+        """Build the text fed to ``memory.extract`` from an event payload.
 
-        ``INTERVIEW_CHAT_TURN`` payloads (see both emission sites in
-        ``interview_service.py``) carry ``user_message``/``reply`` -- never a
-        ``"message"`` key. Both are combined so the extraction prompt sees
-        the full exchange (a fact stated by the user AND confirmed/restated
-        by the assistant is stronger evidence than the user's utterance
-        alone). ``INTERVIEW_FORMALIZED`` payloads carry neither key, so this
-        correctly degrades to "".
+        Two producer shapes are supported:
+
+        * ``INTERVIEW_CHAT_TURN`` payloads (see both emission sites in
+          ``interview_service.py``) carry ``user_message``/``reply`` -- never a
+          ``"message"`` key. Both are combined so the extraction prompt sees
+          the full exchange (a fact stated by the user AND confirmed/restated
+          by the assistant is stronger evidence than the user's utterance
+          alone). ``INTERVIEW_FORMALIZED`` payloads carry neither key, so this
+          correctly degrades to "".
+        * ``INTERACTION_COMPLETED`` payloads (issue #1300) carry an explicit
+          pre-rendered ``interaction_text`` describing the confirmed step; it
+          wins when present, so a producer does not have to fake a
+          user/assistant exchange.
         """
+        explicit = str(payload.get("interaction_text") or "").strip()
+        if explicit:
+            return explicit
         user_message = str(payload.get("user_message") or "").strip()
         reply = str(payload.get("reply") or "").strip()
         if user_message and reply:

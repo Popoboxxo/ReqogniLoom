@@ -247,6 +247,46 @@ def test_accept_is_idempotent(env):
     assert second["status"] == "accepted"
 
 
+@pytest.mark.django_db
+def test_accept_emits_interaction_completed_for_the_memory_loop(env):
+    """Issue #1300: an accepted suggestion is a *confirmed generating step*, so
+    it feeds the memory learning loop via an ``INTERACTION_COMPLETED`` event
+    carrying exactly the payload ``memory.projector`` needs."""
+    from application.models import DomainEventOutbox
+
+    produced = _propose(env)
+    SuggestionService().accept(produced["id"], env["human_ctx"])
+
+    events = DomainEventOutbox.objects.filter(
+        event_type=DomainEventOutbox.EventType.INTERACTION_COMPLETED
+    )
+    assert events.count() == 1
+    event = events.first()
+    assert event.workspace_id == env["workspace"].id
+    assert event.payload["user_id"] == str(env["owner"].id)
+    assert event.payload["tenant_id"] == str(env["tenant"].id)
+    assert "accepted" in event.payload["interaction_text"].lower()
+    assert event.payload["source"] == "suggestion_accept"
+
+
+@pytest.mark.django_db
+def test_idempotent_accept_does_not_emit_a_second_event(env):
+    """The loop must not be charged for a repeated, already-decided accept."""
+    from application.models import DomainEventOutbox
+
+    produced = _propose(env)
+    service = SuggestionService()
+    service.accept(produced["id"], env["human_ctx"])
+    service.accept(produced["id"], env["human_ctx"])
+
+    assert (
+        DomainEventOutbox.objects.filter(
+            event_type=DomainEventOutbox.EventType.INTERACTION_COMPLETED
+        ).count()
+        == 1
+    )
+
+
 # ---------------------------------------------------------------------------
 # 7(c) agent self-accept fails loudly
 # ---------------------------------------------------------------------------

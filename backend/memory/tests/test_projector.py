@@ -339,3 +339,89 @@ class TestMemoryProjectorRealPayloadShapes:
         assert kwargs["tenant_id"] == str(tenant_id)
         assert kwargs["workspace_id"] == str(ws_id)
         assert kwargs["user_id"] == str(user_id)
+
+
+@pytest.mark.django_db
+class TestMemoryProjectorInteractionCompleted:
+    """Issue #1300: the generic ``InteractionCompleted`` event widens the loop
+    beyond interviews, and every dispatch is counted per trigger source."""
+
+    @staticmethod
+    def _event(tenant, ws, user, **payload_extra):
+        payload = {
+            "user_id": str(user.id),
+            "tenant_id": str(tenant.id),
+            "interaction_text": "Suggestion accepted (kind=artifact_create).",
+            "source": "suggestion_accept",
+        }
+        payload.update(payload_extra)
+        return DomainEvent(
+            event_type="InteractionCompleted",
+            entity_id=ws.id,
+            workspace_id=ws.id,
+            payload=payload,
+        )
+
+    def test_enqueues_task_from_interaction_completed_payload(self):
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            user = make_user(tenant)
+            event = self._event(tenant, ws, user)
+            with patch("memory.projector.consolidate_interaction_task") as mock_task:
+                MemoryProjector().handle_event(event)
+
+        mock_task.delay.assert_called_once()
+        kwargs = mock_task.delay.call_args.kwargs
+        assert kwargs["tenant_id"] == str(tenant.id)
+        assert kwargs["workspace_id"] == str(ws.id)
+        assert kwargs["user_id"] == str(user.id)
+        assert kwargs["interaction_text"] == "Suggestion accepted (kind=artifact_create)."
+
+    def test_without_interaction_text_is_a_silent_noop(self):
+        import uuid
+
+        event = DomainEvent(
+            event_type="InteractionCompleted",
+            entity_id=uuid.uuid4(),
+            workspace_id=uuid.uuid4(),
+            payload={
+                "user_id": str(uuid.uuid4()),
+                "tenant_id": str(uuid.uuid4()),
+            },
+        )
+        with patch("memory.projector.consolidate_interaction_task") as mock_task:
+            MemoryProjector().handle_event(event)  # must not raise, no DB needed
+        mock_task.delay.assert_not_called()
+
+    def test_counter_increments_per_trigger_source(self):
+        from django.core.cache import cache
+
+        from memory.metrics import consolidation_counts, reset_consolidation_counters
+
+        reset_consolidation_counters()
+        cache.clear()
+
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            user = make_user(tenant)
+
+            interview_event = DomainEvent(
+                event_type="InterviewChatTurn",
+                entity_id=ws.id,
+                workspace_id=ws.id,
+                payload={
+                    "session_kind": "single",
+                    "user_message": "hello",
+                    "reply": "hi",
+                    "user_id": str(user.id),
+                    "tenant_id": str(tenant.id),
+                },
+            )
+            completed_event = self._event(tenant, ws, user)
+            with patch("memory.projector.consolidate_interaction_task"):
+                MemoryProjector().handle_event(interview_event)
+                MemoryProjector().handle_event(completed_event)
+
+        counts = consolidation_counts()
+        assert counts["InterviewChatTurn"] == 1
+        assert counts["InteractionCompleted"] == 1

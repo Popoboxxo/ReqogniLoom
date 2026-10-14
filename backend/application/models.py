@@ -110,6 +110,15 @@ class DomainEventOutbox(models.Model):
         # above because it is the third face of the same session lifecycle.
         # Purely additive: no existing emitter changed.
         INTERVIEW_ABANDONED = "InterviewAbandoned"
+        # Issue #1300 (Welle 7, Strom H1): the memory learning loop was fed by
+        # interview events only. This is the generic "a generating step was
+        # completed and CONFIRMED by a human" signal any generative service
+        # emits after an accepted/committed step (e.g. an accepted AI
+        # derivation), carrying the payload memory.projector needs
+        # (``user_id``, ``tenant_id``, ``interaction_text``). Emitted only for
+        # confirmed outcomes, never for intermediate drafts (cost). Purely
+        # additive: no existing emitter changed.
+        INTERACTION_COMPLETED = "InteractionCompleted"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     event_id = models.UUIDField(unique=True, default=uuid.uuid4, editable=False)
