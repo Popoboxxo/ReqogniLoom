@@ -103,7 +103,7 @@ C = Trace-Identität · D = SE-Gates & Auditor · E = Gedächtnis · F = API-Rob
 | # | Punkt | Entscheidung (2026-10-13) | Owner |
 |---|---|---|---|
 | D1 | `frontend/dist/`-Tracking (254 Dateien, 5,9 MB) | **Untracken + gitignoren** | `git` |
-| D2 | ADR-Kandidat **ii** (Workspace vs. Tenant) → #1275 | **Option B: Tenant führend, Workspace als Policy** | `se-architect` |
+| D2 | ADR-Kandidat **ii** (Workspace vs. Tenant) → #1275 | **Option B** ⚠️ *korrigiert 2026-10-14: ADR-011 (`accepted`) entscheidet bereits Option C — s. §8.1* | — |
 | D3 | 2FA-Residuum (ADR-021 O5) → #1275 | **Risiko-Akzeptanz dokumentieren + Roadmap-Tracking** | `se-architect` + `requirements` |
 | D4 | `+ 74 APIViews` in `.meta-config/project.yaml` (Tracker #1104) | **Zusatz entfernen; nur ViewSet-Zahl (28) führen** | `git` (Meta) |
 | D5 | #1267-Gate-Statuscode | **400 `VALIDATION_ERROR`** | `developer` (W4) |
@@ -900,7 +900,7 @@ Entscheidungsspur ─► fix/decision-track (D1–D4, kein Produktcode)
 | # | Entscheidung | Gewählt | Owner / Folge |
 |---|---|---|---|
 | D1 | `frontend/dist/`-Tracking | **Untracken + gitignoren** (`git rm -r --cached frontend/dist`) | `git` |
-| D2 | ADR-ii: führende Autorisierungsachse | **B — Tenant führt, Workspace ist Policy** | `se-architect` legt ADR an; entblockt SEC-02/03/04 + Admin-Gate |
+| D2 | ADR-ii: führende Autorisierungsachse | **B — Tenant führt, Workspace ist Policy** ⚠️ *korrigiert (s. u.)* | — |
 | D3 | 2FA-Residuum | **Risiko-Akzeptanz dokumentieren + Roadmap-Tracking** | `se-architect` (ADR-021-Nachtrag) + `requirements` (eigenes Vorhaben) |
 | D4 | `+ 74 APIViews` | **Zusatz entfernen; nur ViewSet-Zahl (28) führen** | `git` (Meta-Edit an `.meta-config/project.yaml`) |
 | D5 | #1267-Gate-Statuscode | **400 `VALIDATION_ERROR`** | `developer` (W4) |
@@ -911,6 +911,15 @@ Entscheidungsspur ─► fix/decision-track (D1–D4, kein Produktcode)
 > nicht implementiert — kleiner `devops-engineer`-Task außerhalb der Bugwellen.
 
 ### 8.2 Umsetzung der Entscheidungen (konkrete Folgeaufgaben)
+
+> **Korrektur D2 (2026-10-14, verifiziert):** Die Autorisierungsachse war **bereits entschieden**.
+> `docs/se/ADR/ADR-011_autorisierungsachse_workspace_tenant.md` ist **`accepted`** und wählt
+> **Option C** — *„Tenant bleibt Isolationshülle, Workspace wird objektabgeleitete Achse mit
+> explizitem Ressourcen-Scope"*. Option B („Tenant führend, Workspace als Policy") ist dort
+> ausdrücklich **VERWORFEN** (`ADR-011` §Alternativen). Die hier unter D2 notierte Wahl „B" war
+> eine **Fehlzuordnung** (der Kandidat war vor ADR-011 offen, danach nicht mehr). Es wird **kein**
+> neues ADR angelegt; **ADR-011 gilt**. #1275 (Admin-Gate) richtet sich nach ADR-011; 2FA bleibt
+> dokumentierte Risiko-Akzeptanz (ADR-021 O5-Nachtrag).
 
 1. **D1 (dist):** `git rm -r --cached frontend/dist`, `frontend/dist/` in `.gitignore`;
    prüfen, dass die Docker-Build-Stufe das Frontend aus der Quelle baut (kein Checkout von
