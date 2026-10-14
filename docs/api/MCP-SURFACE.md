@@ -258,6 +258,23 @@ Writes are rate-limited per `(tenant, user)` via
 backend is selected by `MEMORY_BACKEND` (`pgvector` default, `honcho`
 optional).
 
+### 4.1 Backend capability matrix (#1251)
+
+The three memory backends answer different questions. This matrix is the single
+place that names what each can and cannot do, so an `ask`/`digest` that "does
+nothing" reads as intended degradation, not a bug:
+
+| Backend (`MEMORY_BACKEND`) | Per-scope `derivation_status` | `memory.ask` | `memory.digest` (scope) | External dependency |
+|---|---|---|---|---|
+| `pgvector` (**default**) | `unsupported` — no deriver at all | `ask_available = false`: defined degradation (`degraded: true`, empty `answer`), never an error | facts-based digest; `derivation_status: "unsupported"`, `derived_count: null` | none beyond Postgres/pgvector |
+| `honcho` (optional profile) | `ok` / `none` / `failed` / `unknown` — the Deriver probe | `ask_available = true`: the server-side dialectic engine (`peer.chat`, scoped to the session); `degraded: false` on success, `true` on engine/transport failure | deriver-backed digest with `derivation_status` + `derived_count` | Honcho server (`HONCHO_BASE_URL`) **plus** an external LLM (Zen-Go) and an embedding endpoint |
+| `qdrant` (optional profile) | `unsupported` — no deriver | `ask_available = false`: **always** `degraded: true` with `detail: "no dialectic engine"` | facts-based digest; `derivation_status: "unsupported"` | Qdrant service (`QDRANT_BASE_URL`); **no auto-fallback** to pgvector (ADR-020 §4) |
+
+The scope-less envelope capability has no scope to probe and reports only the
+capability: `unsupported` for `pgvector` and `qdrant`, `unknown` for `honcho`.
+The same matrix, with the deploy-side settings, is in
+[`deploy/README.md`](../../deploy/README.md).
+
 ---
 
 ## 5. The `test` group and the TestRun lifecycle
@@ -411,3 +428,26 @@ Two error shapes worth distinguishing when diagnosing a `tools/call`:
   `PERMISSION_DENIED` with a message naming the role or the capability tier —
   not `-32601`. A `-32601` therefore always means "no such tool", never "not
   allowed".
+
+---
+
+## 8. LLM capability IDs are not MCP tool names (#1251)
+
+The four names in `LLM_CAPABILITIES` (`.env.example`) look like MCP tools but are
+**LLM capability IDs** that gate the AI-provider router
+(`backend/llm_adapter/router.py`). They are not callable over MCP. This distinction
+ends the recurring "`check_consistency` is missing as a tool" confusion:
+
+| LLM capability ID (`LLM_CAPABILITIES`) | Dispatch | MCP tool(s) that drive it |
+|---|---|---|
+| `validate_artifact` | sync | `requirement.validate` |
+| `decompose_requirement` | async (Celery) | `requirement.decompose` |
+| `check_consistency` | async (Celery) | `requirement.check_consistency` (+ `requirement.check_consistency_status`) |
+| `derive_requirements` | async (Celery) | *(legacy)* — no active tool: the current derivation tools (`needs.derive_requirements`, `ai_derivation.derive_requirements_from_need`) go through the `ai_derivation` service, which routes **outside** `CapabilityRouter` and is therefore **not** gated by `LLM_CAPABILITIES` |
+
+A capability that is gated off answers the distinct error code
+`LLM_CAPABILITY_DISABLED` ("Set `LLM_CAPABILITIES` to include it") — deliberately
+**not** `UNKNOWN_TOOL`, because the tool exists and the provider may be configured;
+the capability is simply disabled. The authoritative MCP tool names are always in
+[`tool-manifest.json`](../agent-templates/tool-manifest.json), never in
+`LLM_CAPABILITIES`.
