@@ -136,7 +136,7 @@ eingeführten `global_uuid`-Anker.
 
 | # | Punkt | Schritt |
 |---|---|---|
-| #1275 | ADR-ii (Workspace vs. Tenant) + 2FA | Entscheidungen D2/D3 aus Runde 3 **umsetzen**: `se-architect` legt den ADR an (Option B), 2FA-Roadmap-Issue + ADR-021-Nachtrag. |
+| #1275 | Admin-Gate + 2FA | Achse bereits entschieden durch **ADR-011 (`accepted`, Option C)** — kein neues ADR; Runde-3-D2 war eine Fehlzuordnung. Admin-Gate folgt ADR-011; 2FA = dokumentierte Risiko-Akzeptanz (ADR-021 O5) + eigenes Roadmap-Issue. |
 | D4 | `+ 74 APIViews` in `.meta-config/project.yaml` | **noch nicht ausgeführt** — Klausel entfernen (Zeilen 147, 236), Meta-Sync. |
 | #1104 | Tool-/Link-Zahlen in Doku/Meta | Teil-Rest; mit W10/#1293 zusammenführen. |
 | Metric | `interface_coverage` (#1268) | In Runde 3 bewusst zurückgestellt (se_metrics-Konflikt) — jetzt sauber nachziehen. |
