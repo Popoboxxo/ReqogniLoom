@@ -333,6 +333,10 @@ folgten danach. Dieses ADR ist die nachgelagerte Dokumentation.
    verweist auf ADR-011 Punkt 6 → eigene Ownership-/Governance-ADR). Ausdrücklich **nicht**
    dieses ADR.
 5. **O5 — 2FA-Residuum:** bleibt offen; dieses ADR erhebt keinen Kompensations-Anspruch.
+   **Nachtrag (2026-10-14, #1275):** entschieden als **dokumentierte Risiko-Akzeptanz**
+   (Self-hosted On-Prem-LAN, Lockout vorhanden, kein 2FA-Paket) — 2FA wird als eigenständiges
+   Roadmap-Vorhaben geführt (eigenes Issue, nicht Teil dieses ADR). Kein Statuswechsel, keine
+   Kompensation.
 6. **O6 — Issue #1135 und `CHANGELOG.md:236`:** das Issue ist **nicht** geschlossen und der
    CHANGELOG-Vermerk „OPEN, decision pending" (`:236`) ist **nicht** aktualisiert — beides ist
    Folgeaufgabe nach `accepted`, nicht Teil dieses Dokuments.
