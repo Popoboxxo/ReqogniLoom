@@ -20,15 +20,15 @@
  *   - the selected list row and the scope-count error colour use a base class
  *     plus a conditional modifier (`styles.x` + `styles.xSelected` /
  *     `styles.xError`), exactly like TestRunsList.module.css's
- *     `.item`/`.itemSelected`;
- *   - the submit button's disabled cursor/opacity use the mutually-exclusive
- *     `...Enabled`/`...Disabled` pair, mirroring `overrideSubmitBtn*` above.
+ *     `.item`/`.itemSelected`.
  *
- * The two `--color-primary` fills use the `background-color` long-hand rather
- * than the `background` shorthand: identical rendering (no other background-*
- * property is set) and it keeps the `(f)` primary-fill ratchet
- * (`ui-ratchet.test.ts`, `PRIMARY_FILL_PATTERN` matches the shorthand only)
- * from moving — same precedent as the migrated TestRuns modules.
+ * #1282: the create dialog's Submit / Cancel / override-submit buttons no
+ * longer re-implement `.btn-primary` / `.btn-secondary` / `.btn-danger` as
+ * page-local `background`/`border`/`padding` blocks with an `...Enabled`/
+ * `...Disabled` cursor pair — they USE the shared `btn-*` classes from
+ * `styles/global.css` (which already own the disabled styling), as the
+ * design-system ratchet requires. The dead `.submitBtn*`, `.cancelBtn` and
+ * `.overrideSubmitBtn*` rules were removed with them.
  */
 
 .overridePanel {
@@ -63,25 +63,6 @@
   background: var(--color-surface);
   color: var(--color-text);
   margin-bottom: var(--space-2);
-}
-
-.overrideSubmitBtn {
-  background: var(--color-danger);
-  color: white;
-  border: none;
-  border-radius: var(--radius-md);
-  padding: var(--space-2) var(--space-4);
-  font-size: var(--font-size-sm);
-}
-
-.overrideSubmitBtnEnabled {
-  cursor: pointer;
-  opacity: 1;
-}
-
-.overrideSubmitBtnDisabled {
-  cursor: not-allowed;
-  opacity: 0.7;
 }
 
 /* --- Issue #876 (Etappe 2): page shell + loading/error states ----------- */
@@ -169,14 +150,6 @@
   max-width: 560px;
 }
 
-.createHeading {
-  font-size: var(--font-size-lg);
-  font-weight: 700;
-  margin-top: 0;
-  margin-bottom: var(--space-4);
-  color: var(--color-text);
-}
-
 .formLabel {
   display: block;
   font-weight: var(--weight-medium);
@@ -247,35 +220,6 @@
 .formActions {
   display: flex;
   gap: var(--space-3);
-}
-
-.submitBtn {
-  background-color: var(--color-primary);
-  color: var(--color-on-primary);
-  border: none;
-  border-radius: var(--radius-md);
-  padding: var(--space-2) var(--space-6);
-  font-size: var(--font-size-sm);
-}
-
-.submitBtnEnabled {
-  cursor: pointer;
-  opacity: 1;
-}
-
-.submitBtnDisabled {
-  cursor: not-allowed;
-  opacity: 0.7;
-}
-
-.cancelBtn {
-  background: transparent;
-  color: var(--color-text);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  padding: var(--space-2) var(--space-6);
-  font-size: var(--font-size-sm);
-  cursor: pointer;
 }
 
 /* --- Baseline detail --------------------------------------------------- */
