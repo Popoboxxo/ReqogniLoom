@@ -46,6 +46,7 @@ import type { WorkspacePreset } from "../../types";
 import { useAuth } from "../../context/AuthContext";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
+import { PageHeader } from "../shared/PageHeader";
 import { useToast } from "../shared/Toast/useToast";
 import { PresetSegmentedControl } from "../WorkflowEditor/PresetSegmentedControl";
 import { WORKFLOW_PRESETS } from "../WorkflowEditor/constants";
@@ -662,6 +663,19 @@ export function AttributeEditorPage({
 
   return (
     <div className={styles.page} data-testid="attribute-editor">
+      {/* #1281: /attributes is a routed page of its own and had no page
+          heading at all — no h1, no summary, just the toolbar. It is also
+          embedded (unchanged) in WorkspaceSettings' "Attributes" tab and
+          SystemSettings' "Attribute Defaults" tab, where the host page already
+          renders its own h1 under a PageHeader; rendering a second one there
+          would break the "exactly one <h1> per route" rule (UI concept ch.
+          12.1). So the heading is gated on the routed mount. */}
+      {isRouted && (
+        <PageHeader
+          title={t("nav.attributeCatalog")}
+          summary={t("attributes.pageSummary")}
+        />
+      )}
       <div className={styles.toolbar}>
         <label className={styles.toolbarField}>
           <span>{t("attributes.entityType")}</span>
