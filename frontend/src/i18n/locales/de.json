@@ -1486,6 +1486,21 @@
     "workflowGap": "Workflow-Lücken",
     "openRisks": "Offene Risiken",
     "openRisksCritical": "Kritische Risiken",
+    "verificationCoverage": "Verifikations-Coverage",
+    "widgetConfigTitle": "Kennzahlen anzeigen",
+    "widgetConfigHint": "Auswahl und Reihenfolge gelten nur für dein Konto.",
+    "widgetConfigLoading": "Kennzahlen werden geladen …",
+    "widgetConfigError": "Die Auswahl konnte nicht gespeichert werden.",
+    "widgetConfigExpensive": "Rechenintensive Kennzahl",
+    "widgetConfigEmpty": "Keine Kennzahl ausgewählt. Aktiviere oben mindestens eine.",
+    "catalog": {
+      "traceability_coverage": { "title": "Traceability-Coverage" },
+      "verification_coverage": { "title": "Verifikations-Coverage" },
+      "volatility": { "title": "Anforderungs-Volatilität" },
+      "workflow_gaps": { "title": "Workflow-Lücken" },
+      "open_risks": { "title": "Offene Risiken" },
+      "open_risks_critical": { "title": "Kritische Risiken" }
+    },
     "traceDensity": "Trace-Dichte",
     "refresh": "Aktualisieren",
     "refreshing": "Aktualisiere...",
@@ -1513,7 +1528,8 @@
       "volatility": "Durchschnittliche Anzahl von Änderungen pro Anforderung über die Projektlaufzeit. Höhere Werte zeigen unstabile Anforderungen an.",
       "workflowGap": "Anzahl unvollständiger Workflow-Schritte. Zeigt die Lücken zwischen geplanten und abgeschlossenen Aktivitäten.",
       "openRisks": "Gesamtzahl der identifizierten offenen Risiken im Workspace, unabhängig vom Schweregrad.",
-      "openRisksCritical": "Anzahl der kritischen Risiken mit höchstem Schweregrad, die sofortige Aufmerksamkeit erfordern."
+      "openRisksCritical": "Anzahl der kritischen Risiken mit höchstem Schweregrad, die sofortige Aufmerksamkeit erfordern.",
+      "verificationCoverage": "Prozentsatz der aktiven Anforderungen mit Verifikationsnachweis (verifies-Verbindung oder deklarierte Verifikationsmethode)."
     }
   },
   "apiKeys": {

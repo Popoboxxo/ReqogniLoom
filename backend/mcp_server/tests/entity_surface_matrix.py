@@ -218,9 +218,10 @@ REST_ONLY_BY_DESIGN: tuple[_Exclusion, ...] = (
     ),
     _Exclusion(
         "/api/v1/metrics/",
-        "KPI aggregation for dashboards; the agent-facing equivalents are "
-        "traceability.coverage, context.test_coverage and "
-        "workspace.coverage (all read-only MCP tools).",
+        "KPI aggregation for dashboards. Since #1265 the same central "
+        "statistics registry is served on MCP too, by the dedicated read-only "
+        "metrics.catalog / metrics.get tools (plus the per-domain read tools "
+        "traceability.coverage, context.test_coverage and workspace.coverage).",
         issue="",
     ),
     _Exclusion(

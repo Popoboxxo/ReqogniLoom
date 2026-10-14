@@ -27,21 +27,52 @@ from persistence.errors import ValidationError
 
 from application.base import ServiceBase
 
-#: The closed display-preference vocabulary (Issue #1096). A new flag is added
-#: here and in ``DisplayPreferenceUpdateSerializer`` together — the serializer's
-#: declared fields *are* the request vocabulary, this tuple is the service-side
-#: guard.
-ALL_DISPLAY_PREFERENCES: tuple[str, ...] = ("show_readable_ids",)
+#: The closed display-preference vocabulary. A new flag is added here and in
+#: ``DisplayPreferenceUpdateSerializer`` together — the serializer's declared
+#: fields *are* the request vocabulary, this tuple is the service-side guard.
+#:
+#: * ``show_readable_ids`` (Issue #1096) — bool.
+#: * ``visible_metrics`` (Issue #1265) — list of metric keys, or ``None`` for
+#:   "no explicit selection" (render the registry default set).
+ALL_DISPLAY_PREFERENCES: tuple[str, ...] = ("show_readable_ids", "visible_metrics")
 
 #: Server-side default. Mirrors the frontend fallback (readable ids visible) so
 #: an absent row never changes the rendered behaviour.
 SHOW_READABLE_IDS_DEFAULT = True
 
+#: Sentinel returned for ``visible_metrics`` when the caller has no explicit
+#: selection. The client resolves it against
+#: ``se_metrics.registry.DEFAULT_METRIC_KEYS``.
+VISIBLE_METRICS_DEFAULT: None = None
+
+
+def _validate_visible_metrics(value: Any) -> None:
+    """Reject anything that is neither ``None`` nor a list of known keys.
+
+    Issue #1265: the stored list is the widget selection *and* its order, so it
+    must stay a plain list of registry keys. Validating against the registry
+    (not just "is a list of strings") means a typo can never be persisted and
+    silently render an empty dashboard.
+    """
+    if value is None:
+        return
+    if not isinstance(value, list):
+        raise ValidationError("Display preference 'visible_metrics' must be a list or null.")
+    # Imported lazily: keeps this module importable without Django app loading
+    # and documents the registry as the owning authority for metric keys.
+    from se_metrics.registry import is_known_metric
+
+    unknown = [str(k) for k in value if not (isinstance(k, str) and is_known_metric(k))]
+    if unknown:
+        raise ValidationError(
+            f"Unknown metric key(s) in 'visible_metrics': {sorted(unknown)}"
+        )
+
 
 class DisplayPreferenceService(ServiceBase):
     """Read/write the caller's own display preferences (Issue #1096)."""
 
-    def get_display_preferences(self, ctx: AuthContext) -> dict[str, bool]:
+    def get_display_preferences(self, ctx: AuthContext) -> dict[str, Any]:
         """Return the caller's effective display flags.
 
         A missing row is *not* an error: every flag falls back to its server
@@ -55,17 +86,22 @@ class DisplayPreferenceService(ServiceBase):
                 row.show_readable_ids
                 if row is not None
                 else SHOW_READABLE_IDS_DEFAULT
-            )
+            ),
+            "visible_metrics": (
+                row.visible_metrics if row is not None else VISIBLE_METRICS_DEFAULT
+            ),
         }
 
     def update_display_preferences(
         self, ctx: AuthContext, changes: dict[str, Any]
-    ) -> dict[str, bool]:
+    ) -> dict[str, Any]:
         """Apply a partial display update and return the fresh effective flags.
 
         Only keys in :data:`ALL_DISPLAY_PREFERENCES` are accepted; anything else
-        (or a non-``bool`` value) is caller input, not a server fault, and is
-        rejected with :class:`ValidationError` — the view maps it to 400.
+        — an unknown key, a non-``bool`` ``show_readable_ids``, or a
+        ``visible_metrics`` value that is not a known-key list — is caller
+        input, not a server fault, and is rejected with
+        :class:`ValidationError` (the view maps it to 400).
 
         An empty *changes* map is a read-only no-op so a PATCH with an empty body
         still answers with the caller's current flags instead of creating a row.
@@ -73,11 +109,13 @@ class DisplayPreferenceService(ServiceBase):
         for key, value in changes.items():
             if key not in ALL_DISPLAY_PREFERENCES:
                 raise ValidationError(f"Unknown display preference: {key!r}")
-            if not isinstance(value, bool):
+            if key == "show_readable_ids" and not isinstance(value, bool):
                 raise ValidationError(
                     f"Display preference {key!r} must be a boolean, "
                     f"got {type(value).__name__}"
                 )
+            if key == "visible_metrics":
+                _validate_visible_metrics(value)
 
         if not changes:
             return self.get_display_preferences(ctx)
@@ -91,7 +129,10 @@ class DisplayPreferenceService(ServiceBase):
         row, _created = UserDisplayPreference.objects.get_or_create(
             user_id=ctx.user_id,
             tenant_id=ctx.tenant_id,
-            defaults={"show_readable_ids": SHOW_READABLE_IDS_DEFAULT},
+            defaults={
+                "show_readable_ids": SHOW_READABLE_IDS_DEFAULT,
+                "visible_metrics": VISIBLE_METRICS_DEFAULT,
+            },
         )
         for key, value in changes.items():
             setattr(row, key, value)
@@ -102,5 +143,6 @@ class DisplayPreferenceService(ServiceBase):
 __all__ = [
     "ALL_DISPLAY_PREFERENCES",
     "SHOW_READABLE_IDS_DEFAULT",
+    "VISIBLE_METRICS_DEFAULT",
     "DisplayPreferenceService",
 ]

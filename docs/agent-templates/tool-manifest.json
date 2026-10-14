@@ -1,6 +1,6 @@
 {
-  "generated_from": "reqogniloom==1.8.0-beta.20",
-  "tool_count": 239,
+  "generated_from": "reqogniloom==unknown",
+  "tool_count": 241,
   "tools": [
     {
       "name": "admin.backup_create",
@@ -4532,6 +4532,49 @@
         "required": [
           "content",
           "scope"
+        ]
+      }
+    },
+    {
+      "name": "metrics.catalog",
+      "prefix": "metrics",
+      "is_write": false,
+      "description": "List the available SE statistics (Issue #1265): for each metric the key, title, unit, calculation scope (workspace|tenant|artifact_type), query contract (source + accepted parameters), cost flag and default visibility. Pure metadata — no workspace and no computation required. Identical to GET /api/v1/metrics/catalog/.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "metrics.get",
+      "prefix": "metrics",
+      "is_write": false,
+      "description": "Read the values of the requested SE statistics for one workspace (Issue #1265). Reuses the cached computation; pass ``refresh=true`` to force an on-demand recompute of expensive coverage metrics. Response: {workspace_id, computed_at, timeframe, metrics: {<key>: {value, unit, scope, expensive, computed_at}}, unknown_keys: [...]}. Omit ``keys`` for every registered metric. Identical to GET /api/v1/metrics/?workspace_id=…&keys=….",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "UUID of the workspace to compute for."
+          },
+          "keys": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Metric keys to return (see metrics.catalog). Omitted or empty means every registered metric."
+          },
+          "timeframe": {
+            "type": "string",
+            "description": "Optional ISO-8601 period for the volatility window, e.g. \"P30D\" (default)."
+          },
+          "refresh": {
+            "type": "boolean",
+            "description": "Invalidate the cached computation before reading, forcing an on-demand recompute."
+          }
+        },
+        "required": [
+          "workspace_id"
         ]
       }
     },

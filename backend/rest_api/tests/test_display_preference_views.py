@@ -13,8 +13,8 @@ the round-trip and tenant-isolation cases assert the stored row, so a mocked
 service would test nothing.
 
 NOTE: the table ships in ``auth_tenancy/migrations/0019_userdisplaypreference.py``
-(authored, pending human approval — see the hand-off report). Run these with the
-migration applied once approved.
+and ``visible_metrics`` (Issue #1265) is added by
+``0023_userdisplaypreference_visible_metrics.py``.
 """
 from __future__ import annotations
 
@@ -103,7 +103,7 @@ def test_get_with_no_row_returns_server_default(factory, ctx) -> None:
     response = _call(_authed_ctx(factory.get(_URL), ctx))
 
     assert response.status_code == 200
-    assert response.data == {"show_readable_ids": True}
+    assert response.data == {"show_readable_ids": True, "visible_metrics": None}
     assert not UserDisplayPreference.objects.exists()
 
 
@@ -117,7 +117,7 @@ def test_patch_false_persists_and_creates_a_row(factory, ctx, user) -> None:
     response = _call(request)
 
     assert response.status_code == 200
-    assert response.data == {"show_readable_ids": False}
+    assert response.data == {"show_readable_ids": False, "visible_metrics": None}
 
     row = UserDisplayPreference.unscoped.get(user_id=user.pk)
     assert row.show_readable_ids is False
@@ -138,7 +138,7 @@ def test_patch_true_re_enables_without_a_duplicate_row(factory, ctx, user) -> No
     )
 
     assert response.status_code == 200
-    assert response.data == {"show_readable_ids": True}
+    assert response.data == {"show_readable_ids": True, "visible_metrics": None}
     assert UserDisplayPreference.unscoped.filter(user_id=user.pk).count() == 1
     assert UserDisplayPreference.unscoped.get(user_id=user.pk).show_readable_ids is True
 
@@ -162,7 +162,7 @@ def test_toggle_survives_a_new_session(factory, ctx, user, tenant) -> None:
     response = _call(_authed_ctx(factory.get(_URL), fresh_ctx))
 
     assert response.status_code == 200
-    assert response.data == {"show_readable_ids": False}
+    assert response.data == {"show_readable_ids": False, "visible_metrics": None}
 
 
 # (e) an unknown key is rejected by the serializer, not silently stored
@@ -200,7 +200,7 @@ def test_patch_with_empty_body_is_a_noop(factory, ctx) -> None:
     response = _call(request)
 
     assert response.status_code == 200
-    assert response.data == {"show_readable_ids": True}
+    assert response.data == {"show_readable_ids": True, "visible_metrics": None}
     assert not UserDisplayPreference.objects.exists()
 
 
@@ -243,7 +243,7 @@ def test_no_row_is_content_independent_for_another_account(factory, ctx) -> None
     response = _call(_authed_ctx(factory.get(_URL), other_ctx))
 
     assert response.status_code == 200
-    assert response.data == {"show_readable_ids": True}
+    assert response.data == {"show_readable_ids": True, "visible_metrics": None}
     TenantContext.clear_tenant()
 
 
@@ -263,3 +263,73 @@ def test_service_validation_error_maps_to_400(factory, ctx) -> None:
     assert response.status_code == 400
     assert response.data["error"]["code"] == "VALIDATION_ERROR"
     assert response.data["error"]["message"] == str(exc)
+
+
+# ---------------------------------------------------------------------------
+# Issue #1265 — per-user statistics widget selection (`visible_metrics`)
+# ---------------------------------------------------------------------------
+
+# (k) PATCH a valid metric-key list -> stored, returned (selection AND order)
+def test_patch_visible_metrics_persists_the_selection(factory, ctx, user) -> None:
+    """(k) The widget selection reaches the DB in the caller's order."""
+    selection = ["open_risks", "traceability_coverage", "volatility"]
+    request = _authed_ctx(
+        factory.patch(_URL, {"visible_metrics": selection}, format="json"), ctx
+    )
+
+    response = _call(request)
+
+    assert response.status_code == 200
+    assert response.data == {
+        "show_readable_ids": True,
+        "visible_metrics": selection,
+    }
+    row = UserDisplayPreference.unscoped.get(user_id=user.pk)
+    assert row.visible_metrics == selection
+
+
+# (l) PATCH null -> clears back to the default set
+def test_patch_visible_metrics_null_resets_to_default(factory, ctx, user) -> None:
+    """(l) ``null`` is "no explicit selection", not a validation error."""
+    _call(
+        _authed_ctx(
+            factory.patch(_URL, {"visible_metrics": ["open_risks"]}, format="json"), ctx
+        )
+    )
+    response = _call(
+        _authed_ctx(
+            factory.patch(_URL, {"visible_metrics": None}, format="json"), ctx
+        )
+    )
+
+    assert response.status_code == 200
+    assert response.data == {"show_readable_ids": True, "visible_metrics": None}
+    assert UserDisplayPreference.unscoped.get(user_id=user.pk).visible_metrics is None
+
+
+# (m) an unknown metric key is rejected, never silently stored
+def test_patch_visible_metrics_rejects_an_unknown_metric_key(factory, ctx) -> None:
+    """(m) The registry is the authority for the key vocabulary."""
+    request = _authed_ctx(
+        factory.patch(_URL, {"visible_metrics": ["not_a_metric"]}, format="json"), ctx
+    )
+
+    response = _call(request)
+
+    assert response.status_code == 400
+    assert response.data["error"]["code"] == "VALIDATION_ERROR"
+    assert "not_a_metric" in response.data["error"]["message"]
+    assert not UserDisplayPreference.objects.exists()
+
+
+# (n) a non-list value is rejected
+def test_patch_visible_metrics_rejects_a_non_list_value(factory, ctx) -> None:
+    """(n) A scalar is a shape error, mapped to 400 by the serializer."""
+    request = _authed_ctx(
+        factory.patch(_URL, {"visible_metrics": "coverage"}, format="json"), ctx
+    )
+
+    response = _call(request)
+
+    assert response.status_code == 400
+    assert response.data["error"]["code"] == "VALIDATION_ERROR"

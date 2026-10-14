@@ -28,18 +28,30 @@ vi.mock("../../context/WorkspaceContext", () => ({
   }),
 }));
 
-vi.mock("../../api/metrics", () => ({
-  metricsApi: {
-    list: vi.fn().mockResolvedValue({
-      computed_at: new Date().toISOString(),
-      timeframe: "Last 7 days",
-      workspace_id: "test-workspace-id",
-      traceability_coverage: { coverage_percent: 85.5 },
-      volatility: { avg_changes_per_req: 1.2 },
-      workflow_gaps: { total_incomplete: 3 },
-      open_risks: { total: 4, by_severity: { critical: 1 } },
-      warnings: [],
-    }),
+vi.mock("../../api/metrics", async () => {
+  const { buildMetricCatalog } = await import("./metric-catalog.fixture");
+  return {
+    metricsApi: {
+      list: vi.fn().mockResolvedValue({
+        computed_at: new Date().toISOString(),
+        timeframe: "Last 7 days",
+        workspace_id: "test-workspace-id",
+        traceability_coverage: { coverage_percent: 85.5 },
+        volatility: { avg_changes_per_req: 1.2 },
+        workflow_gaps: { total_incomplete: 3 },
+        open_risks: { total: 4, by_severity: { critical: 1 } },
+        warnings: [],
+      }),
+      catalog: vi.fn().mockResolvedValue(buildMetricCatalog()),
+      values: vi.fn(),
+    },
+  };
+});
+
+vi.mock("../../api/display-preferences", () => ({
+  displayPreferencesApi: {
+    get: vi.fn().mockResolvedValue({ show_readable_ids: true, visible_metrics: null }),
+    update: vi.fn(),
   },
 }));
 

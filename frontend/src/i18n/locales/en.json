@@ -1486,6 +1486,21 @@
     "workflowGap": "Workflow Gaps",
     "openRisks": "Open Risks",
     "openRisksCritical": "Critical Risks",
+    "verificationCoverage": "Verification Coverage",
+    "widgetConfigTitle": "Statistics to display",
+    "widgetConfigHint": "Your selection and order apply to your account only.",
+    "widgetConfigLoading": "Loading metrics …",
+    "widgetConfigError": "The selection could not be saved.",
+    "widgetConfigExpensive": "Computation-intensive metric",
+    "widgetConfigEmpty": "No statistics selected. Enable at least one above.",
+    "catalog": {
+      "traceability_coverage": { "title": "Traceability Coverage" },
+      "verification_coverage": { "title": "Verification Coverage" },
+      "volatility": { "title": "Requirements Volatility" },
+      "workflow_gaps": { "title": "Workflow Gaps" },
+      "open_risks": { "title": "Open Risks" },
+      "open_risks_critical": { "title": "Critical Open Risks" }
+    },
     "traceDensity": "Trace Density",
     "refresh": "Refresh",
     "refreshing": "Refreshing...",
@@ -1513,7 +1528,8 @@
       "volatility": "Average number of changes per requirement over the project lifetime. Higher values indicate unstable requirements.",
       "workflowGap": "Number of incomplete workflow steps. Shows the gap between planned and completed activities.",
       "openRisks": "Total number of identified open risks in the workspace, regardless of severity.",
-      "openRisksCritical": "Number of critical-severity risks that require immediate attention."
+      "openRisksCritical": "Number of critical-severity risks that require immediate attention.",
+      "verificationCoverage": "Percentage of active requirements carrying verification evidence (a verifies link or a declared verification method)."
     }
   },
   "apiKeys": {

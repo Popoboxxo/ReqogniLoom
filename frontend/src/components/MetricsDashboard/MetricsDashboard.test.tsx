@@ -1,13 +1,17 @@
 /**
  * MetricsDashboard Tests
  *
- * Covers: Help mode toggle, help text visibility, component rendering.
+ * Covers: Help mode toggle, help text visibility, component rendering,
+ * and the configurable statistics widgets (#1265).
  */
 
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { vi } from "vitest";
 import { ReactNode } from "react";
 import MetricsDashboard from "./MetricsDashboard";
+import { metricsApi } from "../../api/metrics";
+import { displayPreferencesApi } from "../../api/display-preferences";
+import { buildMetricCatalog } from "./metric-catalog.fixture";
 
 // Mock dependencies
 vi.mock("react-i18next", () => ({
@@ -25,20 +29,36 @@ vi.mock("../../context/WorkspaceContext", () => ({
   }),
 }));
 
-vi.mock("../../api/metrics", () => ({
-  metricsApi: {
-    list: vi.fn().mockResolvedValue({
-      computed_at: new Date().toISOString(),
-      timeframe: "Last 7 days",
-      workspace_id: "test-workspace-id",
-      traceability_coverage: { coverage_percent: 85.5 },
-      volatility: { avg_changes_per_req: 1.2 },
-      workflow_gaps: { total_incomplete: 3 },
-      open_risks: { total: 4, by_severity: { critical: 1 } },
-      warnings: [],
-    }),
+vi.mock("../../api/metrics", async () => {
+  // #1265: catalogue mirrors `se_metrics.registry`; loaded inside the factory
+  // because `vi.mock` is hoisted above the fixture import.
+  const { buildMetricCatalog: build } = await import("./metric-catalog.fixture");
+  return {
+    metricsApi: {
+      list: vi.fn().mockResolvedValue({
+        computed_at: new Date().toISOString(),
+        timeframe: "Last 7 days",
+        workspace_id: "test-workspace-id",
+        traceability_coverage: { coverage_percent: 85.5 },
+        volatility: { avg_changes_per_req: 1.2 },
+        workflow_gaps: { total_incomplete: 3 },
+        open_risks: { total: 4, by_severity: { critical: 1 } },
+        warnings: [],
+      }),
+      catalog: vi.fn().mockResolvedValue(build()),
+      values: vi.fn(),
+    },
+  };
+});
+
+vi.mock("../../api/display-preferences", () => ({
+  displayPreferencesApi: {
+    get: vi.fn(),
+    update: vi.fn(),
   },
 }));
+
+const CATALOG = buildMetricCatalog();
 
 // Mock i18n provider wrapper (minimal)
 const MockWrapper = ({ children }: { children: ReactNode }) => (
@@ -48,6 +68,15 @@ const MockWrapper = ({ children }: { children: ReactNode }) => (
 describe("MetricsDashboard", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(metricsApi.catalog).mockResolvedValue(CATALOG);
+    vi.mocked(displayPreferencesApi.get).mockResolvedValue({
+      show_readable_ids: true,
+      visible_metrics: null,
+    });
+    vi.mocked(displayPreferencesApi.update).mockImplementation(async (changes) => ({
+      show_readable_ids: true,
+      visible_metrics: changes.visible_metrics ?? null,
+    }));
   });
 
   describe("Help Mode Toggle", () => {
@@ -279,6 +308,86 @@ describe("MetricsDashboard", () => {
       // container must carry that class and no inline grid template.
       expect(grid!.className).not.toBe("");
       expect(grid!.getAttribute("style")).toBeNull();
+    });
+  });
+
+  // ---------------------------------------------------------------------
+  // Issue #1265: the statistics widgets are catalog-driven and toggled
+  // per user; the selection is persisted on the display preference.
+  // ---------------------------------------------------------------------
+  describe("Configurable statistics widgets (#1265)", () => {
+    it("renders one toggle per catalogue entry, including opt-in metrics", async () => {
+      render(<MetricsDashboard />, { wrapper: MockWrapper });
+
+      await screen.findByTestId("metrics-widget-config");
+
+      for (const entry of CATALOG.metrics) {
+        expect(
+          screen.getByTestId(`metrics-widget-toggle-${entry.key}`),
+        ).toBeInTheDocument();
+      }
+    });
+
+    it("renders only the default-visible tiles when no explicit selection exists", async () => {
+      render(<MetricsDashboard />, { wrapper: MockWrapper });
+
+      await screen.findByTestId("metric-tile-coverage");
+
+      // verification_coverage is registered but opted out of the default set.
+      expect(
+        screen.queryByTestId("metric-tile-verificationCoverage"),
+      ).not.toBeInTheDocument();
+      expect(screen.getAllByTestId(/^metric-tile-/)).toHaveLength(5);
+    });
+
+    it("renders a tile the user has explicitly enabled", async () => {
+      vi.mocked(displayPreferencesApi.get).mockResolvedValue({
+        show_readable_ids: true,
+        visible_metrics: ["traceability_coverage", "verification_coverage"],
+      });
+
+      render(<MetricsDashboard />, { wrapper: MockWrapper });
+
+      await screen.findByTestId("metric-tile-verificationCoverage");
+      expect(screen.getAllByTestId(/^metric-tile-/)).toHaveLength(2);
+    });
+
+    it("persists a toggle and removes the tile from the grid", async () => {
+      render(<MetricsDashboard />, { wrapper: MockWrapper });
+
+      await screen.findByTestId("metric-tile-volatility");
+
+      fireEvent.click(screen.getByTestId("metrics-widget-toggle-volatility"));
+
+      await waitFor(() =>
+        expect(displayPreferencesApi.update).toHaveBeenCalledWith({
+          visible_metrics: [
+            "traceability_coverage",
+            "workflow_gaps",
+            "open_risks",
+            "open_risks_critical",
+          ],
+        }),
+      );
+      await waitFor(() =>
+        expect(screen.queryByTestId("metric-tile-volatility")).not.toBeInTheDocument(),
+      );
+    });
+
+    it("rolls back and surfaces an error when the save is rejected", async () => {
+      vi.mocked(displayPreferencesApi.update).mockRejectedValue(
+        new Error("save failed"),
+      );
+
+      render(<MetricsDashboard />, { wrapper: MockWrapper });
+
+      await screen.findByTestId("metric-tile-volatility");
+      fireEvent.click(screen.getByTestId("metrics-widget-toggle-volatility"));
+
+      // The tile comes back — the UI never keeps a change the server rejected.
+      await waitFor(() =>
+        expect(screen.getByTestId("metric-tile-volatility")).toBeInTheDocument(),
+      );
     });
   });
 });
