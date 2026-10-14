@@ -232,6 +232,37 @@ type resolves without anyone remembering to add it to a list. If you are reading
 this on a build older than #1075, treat "Icd resolves" as not yet true and pass
 `artifact_id` instead.
 
+### Reading links: `source_id` is an Artifact id, not an entity `id` (#1270)
+
+A link's `source_id` / `target_id` are **Artifact** UUIDs — the same space as an
+entity's `artifact_id`, **not** its `id`. Joining a Requirement's `id` against a
+link's `source_id` matches nothing and silently yields wrong coverage (a QA run
+read "100 % orphans" instead of ~0.7 %). Link reads therefore also expose the
+unambiguous, read-only aliases `source_artifact_id` / `target_artifact_id`; the
+original keys keep their values.
+
+| Field | Value |
+|-------|-------|
+| `source_id` / `target_id` | the stored Artifact UUIDs (backward compatible) |
+| `source_artifact_id` / `target_artifact_id` | the same values, unambiguous names |
+
+Join trace links against `artifact_id` (or `source_artifact_id`), never against
+an entity's `id`.
+
+### The three identifiers, and when each is stable (#1261)
+
+| Identifier | Scope | Use it for | Survives ReqIF re-import? |
+|------------|-------|------------|----------------------------|
+| `uid` (e.g. `REQ-001`) | workspace-local, human-readable | display, prose, traceability docs | **no** — reassigned on import into another workspace |
+| `id` | the entity row's primary key | the entity's own API paths (`/requirements/{id}/`) | no |
+| `artifact_id` | the canonical Artifact UUID | TraceLink endpoints, cross-workspace references, exports | **yes** |
+| `global_uuid` | read-only alias of `artifact_id` (#1261) | display the stable UUID as an attribute | **yes** |
+
+`global_uuid` can be displayed but never set. The workspace-local `uid` is the
+human-readable label; the global UUID is the durable reference. See
+[#1270](https://github.com/Popoboxxo/ReqogniLoom/issues/1270) and
+[#1094](https://github.com/Popoboxxo/ReqogniLoom/issues/1094).
+
 ---
 
 ## 5. VCRM is MCP-only

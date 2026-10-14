@@ -25,7 +25,7 @@ test.describe('[COMP-RF-004] ArchitectureEditors', () => {
     await loginAsAdmin(page);
   });
 
-  test('[REQ-L3-RF004-001] element-type dropdown and delete confirmation dialog work', async ({ page }) => {
+  test('[REQ-L3-RF004-001] element-type dropdown works and no hard-delete action is offered', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/architecture`);
     await createArchElementViaQuickForm(page);
 
@@ -38,18 +38,12 @@ test.describe('[COMP-RF-004] ArchitectureEditors', () => {
     await typeInput.fill('Interface');
     await expect(typeInput).toHaveValue('Interface');
 
-    // Delete button is visible
-    const deleteBtn = page.locator('[data-testid="artifact-form-delete"]');
-    await expect(deleteBtn).toBeVisible();
-
-    // Clicking delete must show the confirmation dialog
-    await deleteBtn.click();
-    await expect(page.locator('[role="dialog"]')).toBeVisible({ timeout: 4000 });
-    await expect(page.locator('[data-testid="artifact-form-delete-confirm"]')).toBeVisible();
-
-    // Cancel the dialog so we don't leave dangling state
-    await page.locator('[role="dialog"] button', { hasText: /cancel|abbrechen/i }).click();
-    await expect(page.locator('[role="dialog"]')).toBeHidden({ timeout: 4000 });
+    // D6 (#1255): the artifact detail form no longer offers a hard delete. The
+    // "deprecate" replacement is only offered once the workflow allows a
+    // `→ deprecated` transition; a freshly created draft element has none
+    // (ArchitectureElement lifecycle: draft → in_review → approved → deprecated),
+    // so it is absent here too.
+    await expect(page.locator('[data-testid="artifact-form-deprecate"]')).toHaveCount(0);
   });
 
   test('[REQ-L3-RF004-002] description field with markdown preview toggle is present', async ({ page }) => {

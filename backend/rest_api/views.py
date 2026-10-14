@@ -3424,6 +3424,9 @@ class TraceLinkViewSet(BaseEntityViewSet):
                             "id": str(tl.id),
                             "source_id": item_source_id,
                             "target_id": item_target_id,
+                            # #1270: same unambiguous aliases as _tracelink_to_dict.
+                            "source_artifact_id": item_source_id,
+                            "target_artifact_id": item_target_id,
                             "link_type": tl.link_type,
                             "version": tl.version,
                             "created_at": tl.created_at,
@@ -5371,6 +5374,14 @@ def _tracelink_to_dict(tl: Any, titles: "dict[str, dict[str, Any]] | None" = Non
         "id": str(tl.id),
         "source_id": source_id,
         "target_id": target_id,
+        # #1270: explicit, unambiguous aliases. TraceLink endpoints are canonical
+        # *Artifact* ids (never the Requirement/TestCase entity PK), and
+        # ``source_id``/``target_id`` were easy to mistake for a Requirement
+        # ``id`` — a join on the wrong field produced plausible-but-wrong
+        # coverage. Same values under a name that says what it is; the original
+        # keys stay for backward compatibility.
+        "source_artifact_id": source_id,
+        "target_artifact_id": target_id,
         "link_type": tl.link_type,
         "version": tl.version,
         "created_at": tl.created_at,
