@@ -113,6 +113,34 @@ copy_skills() {
   done
 }
 
+# resolve_skills_dir <default_dir> — echo the skills directory to install into.
+#
+# An explicit --skills-dir is honoured verbatim. A per-client *default* is
+# expanded to an absolute path and refused when it lands inside this checkout:
+# a CWD-relative default (`.opencode/skills`, `.agents/skills`) writes into
+# whatever directory the installer happens to run from — including this
+# ReqogniLoom repo — which the 2026-10-05 client smoke test flagged as an
+# installer defect (docs/bugfix-hub/smoke/2026-10-05-client-smoke.md §5).
+resolve_skills_dir() {
+  local candidate="$1"
+  if [ -n "$SKILLS_DIR" ]; then
+    printf '%s' "$SKILLS_DIR"
+    return 0
+  fi
+  case "$candidate" in
+    /*|[A-Za-z]:[\\/]*) ;;                 # already absolute
+    *) candidate="${PWD}/${candidate}" ;;
+  esac
+  case "$candidate" in
+    "${REPO_ROOT}"|"${REPO_ROOT}"/*)
+      echo "error: default skills dir '$1' resolves inside this checkout" >&2
+      echo "       ($candidate); pass an absolute --skills-dir instead." >&2
+      exit 4
+      ;;
+  esac
+  printf '%s' "$candidate"
+}
+
 install_claude_code() {
   require_bin claude
   local marketplace="${SCRIPT_DIR}/../../dist/plugins/claude-code"
@@ -137,8 +165,15 @@ install_claude_code() {
 
 install_codex() {
   require_bin codex
-  run codex mcp add reqogniloom --url "$URL/mcp/"
-  local skills_dir="${SKILLS_DIR:-$HOME/.codex/skills}"
+  # `--bearer-token-env-var` names the env var Codex reads and expands into
+  # `Authorization: Bearer <key>`; Codex's Streamable-HTTP transport has no
+  # custom-header option, so this is its ONLY way to carry the API key. Without
+  # it the server is registered unauthenticated and every call 401s. The value
+  # is an env-var *name*, never the key itself.
+  run codex mcp add reqogniloom --url "$URL/mcp/" \
+    --bearer-token-env-var "$KEY_ENV"
+  local skills_dir
+  skills_dir="$(resolve_skills_dir "$HOME/.codex/skills")"
   copy_skills "${REPO_ROOT}/dist/codex/skills" "$skills_dir"
   # SKILL.md links resolve '../../DOMAIN_MODEL.md' from skills/<name>/:
   copy_if_absent "${REPO_ROOT}/docs/agent-templates/DOMAIN_MODEL.md" \
@@ -148,10 +183,17 @@ install_codex() {
 install_opencode() {
   require_bin opencode
   # The key header is passed as an opencode env placeholder (env indirection);
-  # `--header` keeps the value literal, so no secret ever lands in argv.
+  # `--header` keeps the value literal, so no secret ever lands in argv. Without
+  # `--header` opencode registers the server with no credential and reports
+  # "needs authentication" on connect.
   run opencode mcp add reqogniloom --url "$URL/mcp/sse/" \
     --header "X-API-Key={env:${KEY_ENV}}"
-  local skills_dir="${SKILLS_DIR:-.opencode/skills}"
+  # Default to OpenCode's USER-level skills dir (never the CWD): a default of
+  # `.opencode/skills` writes into whatever directory the installer happens to
+  # run from — including this ReqogniLoom checkout — which the client smoke test
+  # flagged as an installer defect. Pass --skills-dir for a per-project install.
+  local skills_dir
+  skills_dir="$(resolve_skills_dir "$HOME/.config/opencode/skills")"
   copy_skills "${REPO_ROOT}/dist/opencode/skills" "$skills_dir"
   # SKILL.md links resolve '../../DOMAIN_MODEL.md' from skills/<name>/:
   copy_if_absent "${REPO_ROOT}/docs/agent-templates/DOMAIN_MODEL.md" \
@@ -186,10 +228,12 @@ JSON
     printf '%s\n' "$payload" > "$file"
     echo "wrote $file"
   fi
-  copy_skills "${REPO_ROOT}/dist/agent-skills" "${SKILLS_DIR:-$HOME/.kimi-code/skills}"
+  local skills_dir
+  skills_dir="$(resolve_skills_dir "$HOME/.kimi-code/skills")"
+  copy_skills "${REPO_ROOT}/dist/agent-skills" "$skills_dir"
   # SKILL.md links resolve '../../DOMAIN_MODEL.md' from skills/<name>/:
   copy_if_absent "${REPO_ROOT}/docs/agent-templates/DOMAIN_MODEL.md" \
-    "$(dirname "${SKILLS_DIR:-$HOME/.kimi-code/skills}")/DOMAIN_MODEL.md"
+    "$(dirname "$skills_dir")/DOMAIN_MODEL.md"
 }
 
 install_antigravity() {
@@ -217,7 +261,12 @@ JSON
     echo "wrote $file"
   fi
   # Copy the packaged skills offline (not `npx skills add`, which needs network).
-  local skills_dir="${SKILLS_DIR:-.agents/skills}"
+  # Default to Antigravity's USER-level skills dir, sibling of the
+  # `~/.gemini/config/mcp_config.json` written above — a CWD-relative default
+  # (`.agents/skills`) would write into whatever directory the installer runs
+  # from, including this checkout. Pass --skills-dir for a per-project install.
+  local skills_dir
+  skills_dir="$(resolve_skills_dir "$HOME/.gemini/skills")"
   copy_skills "${REPO_ROOT}/dist/plugins/antigravity/reqogniloom/skills" "$skills_dir"
   copy_if_absent "${REPO_ROOT}/dist/plugins/antigravity/reqogniloom/DOMAIN_MODEL.md" \
     "$(dirname "$skills_dir")/DOMAIN_MODEL.md"

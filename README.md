@@ -74,7 +74,7 @@ Facts, not narrative:
 - **Workflow Automation** — Configurable requirement states and transitions
 
 ### AI Integration
-- **MCP Server** — native Model Context Protocol server; 36 tool-group prefixes (admin, adr, ai_derivation, architecture, artifact, attribute_catalog, attribute_definition, attribute_migration, audit, baseline, change_request, comment, context, diagram, events, glossary, goal, icd, interview, issue, link_type, main_goal, memory, needs, permissions, prompt_template, prompt_variable, requirement, requirement_bundle, review, risk, suggestion, test, traceability, user, workspace), 227 individual tools — measured from `tools/list`; see `docs/api/MCP-SURFACE.md` for the count and how to re-derive it, and `docs/agent-templates/tool-manifest.json` for the machine-readable manifest. For Claude Desktop, Cursor, and other MCP-capable LLM platforms
+- **MCP Server** — native Model Context Protocol server; 36 tool-group prefixes (admin, adr, ai_derivation, architecture, artifact, attribute_catalog, attribute_definition, attribute_migration, audit, baseline, change_request, comment, context, diagram, events, glossary, goal, icd, interview, issue, link_type, main_goal, memory, needs, permissions, prompt_template, prompt_variable, requirement, requirement_bundle, review, risk, suggestion, test, traceability, user, workspace), 239 individual tools — measured from `tools/list`; see `docs/api/MCP-SURFACE.md` for the count and how to re-derive it, and `docs/agent-templates/tool-manifest.json` for the machine-readable manifest. For Claude Desktop, Cursor, and other MCP-capable LLM platforms
 - **LLM Adapter** — Pluggable providers: Anthropic, OpenAI, Ollama (local), Azure OpenAI, opencode_go, or mock mode (default, no external calls)
 - **AI Derivation** — Configurable prompts to intelligently decompose Stakeholder Needs into System Requirements
 - **Semantic Glossary & Linking** — Intelligent requirement matching and terminology suggestions
@@ -111,7 +111,7 @@ graph TD
 
     subgraph L3["Layer 3 — Integration (transport only)"]
         REST["REST API<br/>DRF, 20+ ViewSets/APIViews<br/>JWT Auth + OpenAPI"]
-        MCP["MCP Server<br/>JSON-RPC 2.0<br/>36 tool-group prefixes, 227 tools"]
+        MCP["MCP Server<br/>JSON-RPC 2.0<br/>36 tool-group prefixes, 239 tools"]
     end
 
     subgraph L2["Layer 2 — Application (Single Entry Point, ADR-01)"]
@@ -282,12 +282,12 @@ To populate your workspace with example requirements, architecture elements, and
 
 ```bash
 # Creates demo artifacts (requirements, architecture, tests)
-docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.override.yml --project-directory . exec backend python manage.py seed_demo
+docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.override.yml --project-directory . exec backend python3 manage.py seed_demo
 ```
 
 **Override demo admin password** (for development only):
 ```bash
-docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.override.yml --project-directory . exec -e SYSTEM_ADMIN_PASSWORD="new-password" backend python manage.py seed_demo --reset-password
+docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.override.yml --project-directory . exec -e SYSTEM_ADMIN_PASSWORD="new-password" backend python3 manage.py seed_demo --reset-password
 ```
 
 Re-running `seed_demo` is safe (idempotent); it skips artifacts that already exist.
@@ -336,6 +336,38 @@ LLM_PROVIDER=anthropic LLM_API_KEY=sk-ant-... make up
 
 See `.env.example` for all available configuration options and per-provider examples.
 
+#### `opencode_go` — the required `x-opencode-session` header
+
+The **Zen-Go / `opencode_go`** endpoint is not a plain OpenAI-compatible API: it
+rejects every server-side request that does not carry the mandatory
+`x-opencode-session` header, answering
+
+```
+400 {"type":"error","error":{"type":"MissingSessionID","message":"Request is missing x-opencode-session …"}}
+```
+
+The header value comes from the `LLM_OPENCODE_SESSION` environment variable
+(read in `backend/llm_adapter/providers.py`). **If that variable is unset, the
+provider sends no header and every LLM call fails** — decomposition, validation,
+the consistency check and the memory dialectic all return a permanent 4xx with
+nothing retried, while `/health`, the UI and deterministic memory reads stay
+green. This is exactly the "healthy deployment, dead AI" trap: the failure is
+invisible except at the provider boundary.
+
+```bash
+# .env — required for LLM_PROVIDER=opencode_go; use a STABLE per-deployment id
+LLM_PROVIDER=opencode_go
+LLM_OPENCODE_SESSION=reqogniloom-<instance>   # never leave empty / the .env.example placeholder
+# Follow with `up -d`, NOT `restart`: .env is read at container creation.
+```
+
+`manage.py check` reports the missing variable as `llm_adapter.W003`, and the
+unauthenticated readiness envelope surfaces it as `advisory.llm_provider_env =
+"missing"` (HTTP 200 — one feature is dead, the service is not). The
+container-level runbook, including the Honcho engine-module derivation of the
+same header (#1050/#1051), is in
+[`docs/DEPLOY_RUNBOOK.md § 3`](docs/DEPLOY_RUNBOOK.md#3-llm-provider-including-x-opencode-session-1050-1051).
+
 ### 8a. (Optional) Configure AI Memory & Embeddings
 
 By default, ReqogniLoom runs fully self-hosted: `sentence-transformers` computes embeddings in-process inside the `backend`/`celery` containers (no extra service, no external API call), and memory entries are stored in this project's own Postgres via `pgvector`. No configuration is required to use the memory feature at its default settings.
@@ -360,14 +392,14 @@ To switch provider and width together (issue #826):
 EMBEDDING_PROVIDER=ollama
 EMBEDDING_VECTOR_DIMENSIONS=768      # sentence-transformers=384, ollama=768, openai=1536
 
-python manage.py makemigrations      # emits AlterField for all five embedding columns
-python manage.py migrate
-python manage.py backfill_embeddings # pgvector cannot cast between widths
+python3 manage.py makemigrations      # emits AlterField for all five embedding columns
+python3 manage.py migrate
+python3 manage.py backfill_embeddings # pgvector cannot cast between widths
 ```
 
 `manage.py verify_embedding_dimensions` compares the live DB columns against the configured provider and exits non-zero on a mismatch — a useful pre-deploy gate. Because pgvector cannot cast between widths, resizing discards existing vectors; the backfill regenerates them.
 
-⚠️ `EMBEDDING_PROVIDER` is fixed per deployment for v1 — switching it later does not re-embed existing data. Use `python manage.py backfill_embeddings` (optionally `--force`) to (re)generate `Requirement`/`TraceLink`/`Icd` embeddings for rows that already exist; they are otherwise only written on create/update.
+⚠️ `EMBEDDING_PROVIDER` is fixed per deployment for v1 — switching it later does not re-embed existing data. Use `python3 manage.py backfill_embeddings` (optionally `--force`) to (re)generate `Requirement`/`TraceLink`/`Icd` embeddings for rows that already exist; they are otherwise only written on create/update.
 
 See `.env.example` for all variables and `deploy/docker-compose.override.example.yml` for the matching optional-service Compose stubs.
 
@@ -434,7 +466,7 @@ ReqogniLoom ships a ready-made config snippet plus the six SE-domain agent skill
    `REQOGNILOOM_API_KEY=reqlo_...`.
 3. Optionally copy `dist/opencode/skills/*` into your project's `.opencode/skills/`.
 
-Regenerate with `python dist/opencode/build_opencode_package.py`.
+Regenerate with `python3 dist/opencode/build_opencode_package.py`.
 
 #### Example: Codex CLI
 
@@ -450,7 +482,7 @@ Codex CLI reads MCP servers from TOML, so it gets its own snippet:
 3. Optionally copy `dist/codex/skills/*` into your project's skills directory.
 
 Codex uses the Streamable HTTP endpoint `/mcp/` rather than the SSE stream.
-Regenerate with `python dist/codex/build_codex_package.py`.
+Regenerate with `python3 dist/codex/build_codex_package.py`.
 
 ## Manual MCP Test (curl)
 
@@ -483,7 +515,8 @@ curl -X POST http://localhost:8000/mcp/ \
 
 # 5. Server health check (no auth)
 curl http://localhost:8000/mcp/
-# → {"server":"ReqFlow MCP Server","protocol":"JSON-RPC 2.0","transports":["http","sse","stdio"],"version":"1.0.0"}
+# → {"server":"ReqogniLoom MCP Server","protocol":"JSON-RPC 2.0","transports":["http","sse"],"version":"<VERSION>"}
+# (HTTP status / liveness: `curl -sf http://localhost:8001/health/` — trailing slash required)
 ```
 
 ## Running Tests
@@ -559,7 +592,7 @@ pytest -k "test_login_success" -v
 pytest --keepdb
 
 # With Django check
-python manage.py check && pytest -q
+python3 manage.py check && pytest -q
 ```
 
 > **Warning:** It is highly discouraged to run `pytest` against the actual development database, as tests will truncate tables and delete your data. `pytest` automatically creates a separate `test_reqogniloom` database. Use `--keepdb` to persist this test database between runs.
@@ -594,7 +627,7 @@ architecture tree, ICDs, test cases, ...) used to exercise the UI at realistic s
 that spec fails fast with a clear "workspace not found" error naming the exact command to run:
 
 ```bash
-docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.override.yml --project-directory . exec backend python manage.py seed_toothbrush   # idempotent, safe to re-run
+docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.override.yml --project-directory . exec backend python3 manage.py seed_toothbrush   # idempotent, safe to re-run
 ```
 
 CI (`.github/workflows/playwright.yml`) already runs this alongside `seed_demo` before every E2E
@@ -622,7 +655,7 @@ It is also the recovery path for a database that predates the attribute-definiti
 restored stale dump):
 
 ```bash
-docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.override.yml --project-directory . exec backend python manage.py bootstrap_attribute_definitions   # idempotent
+docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.override.yml --project-directory . exec backend python3 manage.py bootstrap_attribute_definitions   # idempotent
 ```
 
 All three prerequisites in one go: `make test-e2e-reseed`.
@@ -660,9 +693,9 @@ make test-e2e
 spec, so a broken seed surfaces there instead of mid-suite. The individual commands behind it:
 
 ```bash
-docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.override.yml --project-directory . exec backend python manage.py seed_demo                    # idempotent
-docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.override.yml --project-directory . exec backend python manage.py seed_toothbrush              # idempotent
-docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.override.yml --project-directory . exec backend python manage.py bootstrap_attribute_definitions   # idempotent
+docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.override.yml --project-directory . exec backend python3 manage.py seed_demo                    # idempotent
+docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.override.yml --project-directory . exec backend python3 manage.py seed_toothbrush              # idempotent
+docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.override.yml --project-directory . exec backend python3 manage.py bootstrap_attribute_definitions   # idempotent
 ```
 
 CI (`.github/workflows/playwright.yml`) runs the same three commands before every E2E job. It calls
@@ -680,7 +713,7 @@ outcome observable (see the third prerequisite above).
 >    login fails with a plain 401 *before* the test's actual assertion ever runs — the symptom
 >    (whatever the test was checking) looks unrelated to auth. Fix: either re-seed with the E2E
 >    default (`docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.override.yml
->    --project-directory . exec -e SYSTEM_ADMIN_PASSWORD=admin12345 backend python manage.py
+>    --project-directory . exec -e SYSTEM_ADMIN_PASSWORD=admin12345 backend python3 manage.py
 >    seed_demo --reset-password`), or set `E2E_ADMIN_PASSWORD=<your .env password>` when running
 >    Playwright so `auth.ts` uses it instead.
 > 2. **Backend port mismatch (fixed).** `deploy/docker-compose.yml` publishes the backend on host port
@@ -769,7 +802,7 @@ ReqogniLoom is designed for self-hosted deployment on Linux/Unix servers using D
    The one-shot `migrate` service runs migrations and self-initializes the base tenant, workspace, admin user, and default workflows (`application/self_init.py`) before `backend`/`celery`/`celery-beat` start — no manual step needed. Optionally seed demo data afterwards:
 
    ```bash
-   docker compose -f deploy/docker-compose.yml --project-directory . exec backend python manage.py seed_demo
+   docker compose -f deploy/docker-compose.yml --project-directory . exec backend python3 manage.py seed_demo
    ```
 
 5. **Verify all services:**
@@ -810,7 +843,7 @@ graph LR
 - **postgres** — `pgvector/pgvector:pg16` (PostgreSQL 16 with the pgvector extension, created by the app's own `migrate` step on first start — see [PostgreSQL with pgvector](#postgresql-with-pgvector) below)
 - **postgres-backup** — `pgvector/pgvector:pg16` sidecar; dump/prune logic inlined into its `command:` (no bind-mounted script), runs every `BACKUP_INTERVAL` seconds (default 24h), retains `BACKUP_RETENTION` (default 7) gzip dumps
 - **redis** — `redis:7-alpine` (Celery broker + cache, `appendonly` persistence, 256mb `maxmemory`)
-- **migrate** — one-shot; runs the `cleanup_workflow_orphans` preamble (a documented no-op on a clean database), then `python manage.py migrate` and the `post_migrate` self-init signal; `backend`/`celery`/`celery-beat` wait for it via `service_completed_successfully`
+- **migrate** — one-shot; runs the `cleanup_workflow_orphans` preamble (a documented no-op on a clean database), then `python3 manage.py migrate` and the `post_migrate` self-init signal; `backend`/`celery`/`celery-beat` wait for it via `service_completed_successfully`
 - **backend** — Django REST API + MCP server (`:8000`), connects as the least-privilege `DB_APP_USER` role (RLS-enforced)
 - **celery** — async worker consuming the `default`, `llm`, `events` queues
 - **celery-beat** — periodic task scheduler (`django_celery_beat.schedulers:DatabaseScheduler`)
@@ -1024,7 +1057,7 @@ docker compose -f deploy/docker-compose.yml --project-directory . up -d
 docker compose -f deploy/docker-compose.yml --project-directory . down
 docker volume rm reqogniloom_postgres_data
 docker compose -f deploy/docker-compose.yml --project-directory . up -d
-docker compose -f deploy/docker-compose.yml --project-directory . exec backend python manage.py migrate
+docker compose -f deploy/docker-compose.yml --project-directory . exec backend python3 manage.py migrate
 ```
 
 ### Test Coverage & Known Gaps
@@ -1051,7 +1084,7 @@ docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.override.ym
 # → Known Django+psycopg2 issue; pinned in test setup
 
 # Migrations needed
-docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.override.yml --project-directory . exec backend python manage.py migrate
+docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.override.yml --project-directory . exec backend python3 manage.py migrate
 
 # Stale __pycache__
 find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null
@@ -1059,17 +1092,33 @@ find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null
 
 ## MCP Server
 
-ReqogniLoom ships a native MCP (Model Context Protocol) server alongside the REST API. The server exposes **36 tool-group prefixes** (227 individual tools — see `docs/agent-templates/tool-manifest.json` for the current count) for requirements engineering, stakeholder needs, architecture, test management, traceability, ADRs, risks, issues, glossary, change requests, goals, diagrams, AI derivation, workspace administration, permissions, backups, audit, and user management. Several prefixes share one underlying tool-group implementation (e.g. `traceability`/`artifact`/`context` all route to `CrossCuttingToolGroup`, `audit`/`events` to `AuditToolGroup`) — see `backend/mcp_server/tool_registry.py` for the full prefix → implementation map.
+ReqogniLoom ships a native MCP (Model Context Protocol) server alongside the REST API. The server exposes **36 tool-group prefixes** (239 individual tools — see `docs/agent-templates/tool-manifest.json` for the current count) for requirements engineering, stakeholder needs, architecture, test management, traceability, ADRs, risks, issues, glossary, change requests, goals, diagrams, AI derivation, workspace administration, permissions, backups, audit, and user management. Several prefixes share one underlying tool-group implementation (e.g. `traceability`/`artifact`/`context` all route to `CrossCuttingToolGroup`, `audit`/`events` to `AuditToolGroup`) — see `backend/mcp_server/tool_registry.py` for the full prefix → implementation map.
 
 ### Transport Endpoints
 
+`/mcp/` is the **canonical** transport path — every shipped client config points
+at it. `/api/v1/mcp/` is a deprecated alias that still answers the same requests
+(its responses carry `Deprecation`/`Sunset`/`Link` headers, removal scheduled for
+`2027-04-01`); do not use it for new integrations.
+
 | Endpoint | Method | Transport | Authentication |
 |----------|--------|-----------|----------------|
-| `/mcp/` | POST | HTTP/JSON-RPC 2.0 | `X-API-Key: reqlo_<key>` header OR `params.api_key` in body |
-| `/mcp/sse/` | GET | SSE — opens the event stream | `X-API-Key: reqlo_<key>` header |
+| `/mcp/` | POST | HTTP/JSON-RPC 2.0 | `X-API-Key: reqlo_<key>` header, or `Authorization: Bearer reqlo_<key>` |
+| `/mcp/sse/` | GET | SSE — opens the event stream | `X-API-Key: reqlo_<key>` header, or `Authorization: Bearer reqlo_<key>` |
 | `/mcp/messages/?session_id=<id>` | POST | SSE — sends JSON-RPC into an open stream | Session-bound; the key is **not** accepted in this URL |
 | `/mcp/` | GET | — | Server info / health check (no auth required) |
 | (stdio) | — | stdio (local pipe) | `params.api_key` argument |
+
+**Authentication matrix.** Full detail (and the canonical-path notice) lives in
+[`docs/api/MCP-SURFACE.md`](docs/api/MCP-SURFACE.md#9-canonical-path-and-authentication-1292).
+In short — the credential is always an API key, never a JWT:
+
+| Header | Form | Result |
+|--------|------|--------|
+| `X-API-Key` | `X-API-Key: reqlo_…` | ✓ accepted — **preferred** (a proxy/access log redacts a dedicated header more reliably than `Authorization`) |
+| `Authorization` | `Authorization: Bearer reqlo_…` | ✓ accepted |
+| `Authorization` | `Authorization: Bearer <JWT>` | ✗ `401` `bearer_not_supported` (intentional — MCP is API-key-only, REQ-L2-MC-006) |
+| query string | `?api_key=reqlo_…` | ✗ never accepted (leaks into logs/history) |
 
 **Choosing a transport.** HTTP and SSE are two independent, equally supported
 transports — not two stages of one handshake. `POST /mcp/` is a complete
@@ -1081,7 +1130,7 @@ to call a tool (the [Manual MCP Test](#manual-mcp-test-curl) above is plain
 long-lived event stream — most desktop MCP clients (Claude Desktop, Cursor) do,
 which is why the shipped client configs point at it. The server advertises what
 it actually implements: `GET /mcp/` (no auth) returns
-`{"transports": ["http", "sse", "stdio"], ...}`, so a client can discover the
+`{"transports": ["http", "sse"], ...}`, so a client can discover the
 available transports instead of assuming one.
 
 **SSE requires an ASGI server.** The SSE view streams asynchronously; a WSGI

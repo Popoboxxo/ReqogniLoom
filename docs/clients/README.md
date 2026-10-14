@@ -21,6 +21,18 @@ One client, one page, **German and English**. Every page is generated from `clie
 - API key: `${REQOGNILOOM_API_KEY}` (prefix `reqlo_`)
 - Auth-Header (Standard): `X-API-Key` — **exception Codex: Bearer**.
 
+### Path & authentication
+
+- **Canonical path:** `/mcp/` — the only path a new client config may point at.
+- **Deprecated:** `/api/v1/mcp/` — alias; responses carry `Deprecation`/`Sunset`/`Link` headers.
+
+| Header | Form | Result |
+|---|---|---|
+| `X-API-Key` | `X-API-Key: reqlo_…` | ✓ accepted — **preferred** |
+| `Authorization` | `Authorization: Bearer reqlo_…` | ✓ accepted |
+| `Authorization` | `Authorization: Bearer <JWT>` | ✗ `401 bearer_not_supported` — MCP is API-key-only (REQ-L2-MC-006) |
+| `query string` | `?api_key=reqlo_…` | ✗ never accepted (leaks into logs/history) |
+
 ### Transport decision
 
 - **Streamable HTTP** (`/mcp/`): client speaks it natively — preferred.

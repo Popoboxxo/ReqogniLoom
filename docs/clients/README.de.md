@@ -21,6 +21,18 @@ Ein Client, eine Seite, **Deutsch und Englisch**. Alle Seiten sind aus `clients/
 - API-Key: `${REQOGNILOOM_API_KEY}` (Präfix `reqlo_`)
 - Auth-Header (Standard): `X-API-Key` — **Ausnahme Codex: Bearer**.
 
+### Pfad & Authentifizierung
+
+- **Kanonischer Pfad:** `/mcp/` — der einzige Pfad, auf den eine neue Client-Config zeigen darf.
+- **Deprecated:** `/api/v1/mcp/` — Alias; Antworten tragen `Deprecation`/`Sunset`/`Link`-Header.
+
+| Header | Form | Ergebnis |
+|---|---|---|
+| `X-API-Key` | `X-API-Key: reqlo_…` | ✓ akzeptiert — **bevorzugt** |
+| `Authorization` | `Authorization: Bearer reqlo_…` | ✓ akzeptiert |
+| `Authorization` | `Authorization: Bearer <JWT>` | ✗ `401 bearer_not_supported` — MCP ist API-Key-only (REQ-L2-MC-006) |
+| `query string` | `?api_key=reqlo_…` | ✗ nie akzeptiert (Leak in Logs/History) |
+
 ### Transport-Entscheidung
 
 - **Streamable HTTP** (`/mcp/`): Client spricht es nativ — bevorzugt.
