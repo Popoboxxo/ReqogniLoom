@@ -84,6 +84,21 @@ export interface FocusTrapOptions {
    * callers that navigate away as part of closing.
    */
   restoreFocus?: boolean;
+  /**
+   * Explicit element to return focus to on deactivation (issue #1278).
+   *
+   * Preferred over the `document.activeElement` snapshot below. A dialog whose
+   * trigger is *disabled* while it is open — e.g. the create buttons on
+   * /needs, /architecture and /test-runs pass `disabled: showCreateForm` —
+   * loses the snapshot: React commits the `disabled` attribute in the same
+   * update that mounts the dialog, the browser blurs the now-unfocusable
+   * trigger, and by the time this trap's effect runs `document.activeElement`
+   * is `<body>`. Restoring to `<body>` drops a keyboard user at the top of the
+   * document. Passing the trigger's ref here makes the restore independent of
+   * that timing, and by the time the dialog unmounts the trigger has been
+   * re-enabled, so `.focus()` takes effect again.
+   */
+  triggerRef?: RefObject<HTMLElement | null>;
 }
 
 /**
@@ -99,6 +114,7 @@ export function useFocusTrap({
   onEscape,
   initialFocusRef,
   restoreFocus = true,
+  triggerRef,
 }: FocusTrapOptions): void {
   // `onEscape` is very commonly an inline arrow function at the call site
   // (`onClose={() => setOpen(false)}`), which gets a fresh identity on
@@ -122,9 +138,10 @@ export function useFocusTrap({
     if (!container) return;
 
     const previouslyFocused =
-      document.activeElement instanceof HTMLElement
+      triggerRef?.current ??
+      (document.activeElement instanceof HTMLElement
         ? document.activeElement
-        : null;
+        : null);
 
     const focusInitial = (): void => {
       const explicit = initialFocusRef?.current;
@@ -243,5 +260,5 @@ export function useFocusTrap({
         });
       }
     };
-  }, [containerRef, enabled, initialFocusRef, restoreFocus]);
+  }, [containerRef, enabled, initialFocusRef, restoreFocus, triggerRef]);
 }

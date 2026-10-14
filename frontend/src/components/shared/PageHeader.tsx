@@ -23,7 +23,7 @@
  * untouched. New call sites use `summary` and `overflowActions`.
  */
 
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
 import styles from "./PageHeader.module.css";
 
@@ -47,6 +47,14 @@ export interface PageHeaderAction {
    * itself stays result-named; only `primaryAction` honors this.
    */
   prefixWithPlus?: boolean;
+  /**
+   * Optional ref to the rendered button (issue #1278). Give a route this ref
+   * and hand the same object to the dialog it opens (`<Dialog triggerRef=…>`)
+   * whenever the action is disabled while its dialog is open: the disabled
+   * trigger cannot hold focus, so the dialog's focus-return would otherwise
+   * land on `<body>`.
+   */
+  triggerRef?: RefObject<HTMLButtonElement | null>;
 }
 
 interface PageHeaderCount {
@@ -183,6 +191,7 @@ export function PageHeader({
         {secondaryActions.map((action) => (
           <button
             key={action.label}
+            ref={action.triggerRef}
             type="button"
             className="btn-secondary"
             data-testid={action.testId}
@@ -196,6 +205,7 @@ export function PageHeader({
 
         {primaryAction && (
           <button
+            ref={primaryAction.triggerRef}
             type="button"
             className="btn-primary"
             data-testid={primaryAction.testId ?? "page-header-primary-action"}

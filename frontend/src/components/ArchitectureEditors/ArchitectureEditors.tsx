@@ -283,6 +283,10 @@ export default function ArchitectureEditors(): JSX.Element {
   // F-08: preserve the previous `autoFocus` UX — Dialog's focus trap
   // defaults to the first focusable element (its own × close button).
   const newTitleInputRef = useRef<HTMLInputElement | null>(null);
+  // #1278: `create-arch-btn` is disabled while the create dialog is open — the
+  // browser blurs it in the commit that mounts the dialog, so the dialog needs
+  // this explicit trigger ref to return focus on close (see useFocusTrap).
+  const createTriggerRef = useRef<HTMLButtonElement | null>(null);
 
   /**
    * Drag & drop reparenting from the tree (user decision 2026-08-15).
@@ -530,6 +534,7 @@ export default function ArchitectureEditors(): JSX.Element {
           title={t('arch.newElementTitle')}
           onClose={handleCancelCreate}
           initialFocusRef={newTitleInputRef}
+          triggerRef={createTriggerRef}
           testId="arch-new-dialog"
         >
         <form
@@ -877,6 +882,7 @@ export default function ArchitectureEditors(): JSX.Element {
           onClick: () => setShowCreateForm(true),
           disabled: showCreateForm,
           testId: "create-arch-btn",
+          triggerRef: createTriggerRef,
         }}
         // #797: the guided-interview start is a second *create path*, not a
         // variant of the primary one — as a visible secondary button it made

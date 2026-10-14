@@ -74,6 +74,14 @@ export interface DialogProps {
   size?: "sm" | "md" | "lg";
   /** Focus target on open. Defaults to the first focusable element. */
   initialFocusRef?: RefObject<HTMLElement | null>;
+  /**
+   * Element to return focus to on close (issue #1278). Pass the ref of the
+   * button that opened this dialog when that button is *disabled* while the
+   * dialog is open — otherwise the browser blurs it before the focus trap can
+   * snapshot `document.activeElement`, and focus falls back to `<body>`. See
+   * `useFocusTrap`'s `triggerRef` for the full account.
+   */
+  triggerRef?: RefObject<HTMLElement | null>;
   /** Default `true`. Set to false for dialogs that must not be dismissed accidentally. */
   closeOnBackdropClick?: boolean;
   /** Default `true`. */
@@ -90,6 +98,7 @@ export function Dialog({
   footer,
   size = "md",
   initialFocusRef,
+  triggerRef,
   closeOnBackdropClick = true,
   showCloseButton = true,
   testId = "dialog",
@@ -104,6 +113,7 @@ export function Dialog({
     containerRef: panelRef,
     onEscape: onClose,
     initialFocusRef,
+    triggerRef,
   });
 
   // Issue #874: the bottom sheet's two JS half-parts. The viewport mirror is

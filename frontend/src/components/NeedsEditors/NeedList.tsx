@@ -56,6 +56,12 @@ interface NeedListProps {
    */
   createFormRef?: RefObject<HTMLFormElement | null>;
   /**
+   * #1278: ref to the PageHeader create button, forwarded to the dialog's
+   * `triggerRef` — see NeedsEditors for why the disabled trigger cannot be
+   * snapshotted via `document.activeElement`.
+   */
+  createTriggerRef?: RefObject<HTMLElement | null>;
+  /**
    * UI-06 (Systemaudit 2026-08-27): optional select gate. When provided,
    * called instead of navigating directly — the parent (NeedsEditors) uses
    * it to intercept a row click while the open NeedForm has unsaved edits
@@ -129,6 +135,7 @@ export function NeedList({
   isCreating,
   onCreateClick,
   createFormRef,
+  createTriggerRef,
   onSelect,
 }: NeedListProps): JSX.Element {
   const { t } = useTranslation();
@@ -225,6 +232,7 @@ export function NeedList({
           onClose={() => setShowCreateForm(false)}
           testId="need-new-dialog"
           initialFocusRef={newTitleInputRef}
+          triggerRef={createTriggerRef}
         >
           <form
             data-testid="need-create-form"

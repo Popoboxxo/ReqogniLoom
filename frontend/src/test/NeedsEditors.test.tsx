@@ -159,6 +159,28 @@ describe("NeedsEditors — create form sends description/category to the API (BU
       )
     );
   });
+
+  // #1278: the create button is disabled while its dialog is open, so the
+  // dialog cannot snapshot `document.activeElement` (the browser blurs a
+  // trigger the moment it becomes unfocusable). Escape must return focus to
+  // the button, not to `<body>`.
+  it("returns focus to the create button after Escape closes the dialog (#1278)", async () => {
+    const user = userEvent.setup();
+    renderEditor();
+
+    const trigger = await screen.findByTestId("create-need-btn");
+    await user.click(trigger);
+    expect(trigger).toBeDisabled();
+    await screen.findByTestId("need-new-dialog");
+
+    await user.keyboard("{Escape}");
+
+    await waitFor(() =>
+      expect(screen.queryByTestId("need-new-dialog")).not.toBeInTheDocument()
+    );
+    expect(trigger).not.toBeDisabled();
+    expect(document.activeElement).toBe(trigger);
+  });
 });
 
 describe("NeedsEditors — include_deleted reveals outdated needs (D6)", () => {
