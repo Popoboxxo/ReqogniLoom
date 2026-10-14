@@ -8,7 +8,7 @@ host could silently pull a different (stale/updated) image than the one the
 stack was verified against — the engine then failed to send the required
 ``x-opencode-session`` header even though every compose line was correct.
 
-The guard therefore pins three invariants of ``deploy/docker-compose.yml``:
+The guard therefore pins four invariants of ``deploy/docker-compose.yml``:
 
 1. the shared ``x-honcho-env`` anchor still defines ``LLM_OPENCODE_SESSION``
    (the single deployment-wide session value);
@@ -22,7 +22,13 @@ The guard therefore pins three invariants of ``deploy/docker-compose.yml``:
 3. all THREE services that run the Honcho image (``honcho``, ``honcho-deriver``,
    ``honcho-migrate``) reference the SAME ``:latest@sha256:…`` immutable image,
    so they cannot drift apart and the "verified against this image" claim in the
-   compose comments stays reproducible.
+   compose comments stays reproducible;
+4. every long-running service declares a keep-alive ``restart`` policy, while
+   the one-shot services (``migrate``, ``llm-preflight``, ``honcho-migrate``)
+   stay at Compose's default ``no`` (#1249). Before this guard the three Honcho
+   runtime services — ``honcho``, ``honcho-postgres``, ``honcho-redis`` — had
+   NO policy at all, so a crash or host reboot left the optional memory backend
+   silently down while ``up`` still reported the stack as started.
 
 It is deliberately Docker-free and Django-free so it runs on the host with::
 
@@ -73,6 +79,17 @@ _HONCHO_IMAGE_SERVICES = ("honcho", "honcho-deriver", "honcho-migrate")
 
 #: The two long-running engine processes that must both run the session shim.
 _HONCHO_SHIM_SERVICES = ("honcho", "honcho-deriver")
+
+#: Services that run to completion and MUST stay at Compose's default
+#: ``restart: "no"``. Auto-restarting one of these would re-run schema
+#: migrations / the preflight probe in a loop, so they are excluded from the
+#: keep-alive contract below (#1249).
+_ONE_SHOT_SERVICES = frozenset({"migrate", "llm-preflight", "honcho-migrate"})
+
+#: Policies that keep a long-running service alive across a crash / host reboot.
+#: ``unless-stopped`` is the project-wide default; the others are accepted so a
+#: deliberate, stronger choice is not blocked.
+_RUNTIME_RESTART_POLICIES = frozenset({"unless-stopped", "always", "on-failure"})
 
 #: The per-module env-var suffix the shim appends to every engine module prefix.
 _SESSION_HEADER_SUFFIX = (
@@ -220,6 +237,49 @@ def test_all_honcho_services_share_one_pinned_image() -> None:
     )
 
 
+def test_all_runtime_services_have_a_keep_alive_restart_policy() -> None:
+    """Every long-running service must declare a keep-alive restart policy (#1249).
+
+    A runtime service with no ``restart`` policy stays down after a crash or a
+    host reboot, yet ``docker compose up`` still reports the stack as started —
+    the user sees a green deploy with a dead service. Before #1249 the optional
+    Honcho memory backend had exactly this gap (``honcho``, ``honcho-postgres``
+    and ``honcho-redis`` carried no policy while only ``honcho-deriver`` did).
+    One-shot services are deliberately excluded: restarting them would re-run
+    migrations or the preflight probe in a loop.
+    """
+    compose = _load_compose()
+    offenders = [
+        f"{name}={service.get('restart')!r}"
+        for name, service in compose["services"].items()
+        if name not in _ONE_SHOT_SERVICES
+        and service.get("restart") not in _RUNTIME_RESTART_POLICIES
+    ]
+    assert offenders == [], (
+        "runtime service(s) without a keep-alive restart policy: "
+        f"{offenders!r} — a crash or host reboot leaves them silently down "
+        "while `up` still reports the stack as started (#1249)"
+    )
+
+
+@pytest.mark.parametrize("service_name", sorted(_ONE_SHOT_SERVICES))
+def test_one_shot_services_are_not_auto_restarted(service_name: str) -> None:
+    """One-shot services must NOT be auto-restarted (#1249).
+
+    ``migrate``, ``llm-preflight`` and ``honcho-migrate`` run to completion and
+    exit; any policy other than ``no`` would re-run the migration / the preflight
+    probe in a loop. Absent is equivalent to Compose's ``no`` default.
+    """
+    service = _load_compose()["services"].get(service_name)
+    if service is None:
+        pytest.skip(f"{service_name} not present in this compose file")
+    policy = service.get("restart", "no")
+    assert policy == "no", (
+        f"{service_name}: one-shot service has restart={policy!r}; it must stay "
+        "'no' so it never re-runs migrations/preflight on exit (#1249)"
+    )
+
+
 @pytest.mark.integration
 def test_pinned_image_resolves_opencode_session_sdk_param() -> None:
     """Live (opt-in) check that the pinned image yields the ``extra_headers`` kwarg.
@@ -250,6 +310,12 @@ def test_pinned_image_resolves_opencode_session_sdk_param() -> None:
 
     The import above resolves against the DIGEST-pinned image, so once the digest
     is fixed the spike is reproducible across hosts.
+
+    ESCALATION (#1247): this spike proves the *config resolution* only — one seam
+    short of the wire. If it passes but ``memory.ask`` still returns HTTP 500 /
+    ``400 MissingSessionID``, the remaining gap is inside the vendor image and
+    cannot be observed in-repo; follow the escalation in
+    ``docs/DEPLOY_RUNBOOK.md`` §3.1 and **reopen #1153**.
     """
     if shutil.which("docker") is None:
         pytest.skip(

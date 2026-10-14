@@ -222,6 +222,13 @@ docker compose -f deploy/docker-compose.yml --project-directory . --profile honc
 Then set `MEMORY_BACKEND=honcho` and `HONCHO_BASE_URL=http://honcho:8000` in `.env` and restart
 `backend`/`celery`.
 
+All three Honcho **runtime** services (`honcho`, `honcho-postgres`, `honcho-redis`) carry
+`restart: unless-stopped` (#1249), so a crash or host reboot no longer leaves the memory
+backend silently down while the stack still reports as started. The one-shot services
+(`migrate`, `llm-preflight`, `honcho-migrate`) stay at Compose's default `no` on purpose — an
+auto-restart would re-run migrations/preflight in a loop. The contract is regression-guarded by
+`backend/memory/tests/test_honcho_deploy_contract.py`.
+
 Honcho needs a reachable OpenAI-compatible embedding endpoint before it can write memories. The
 compose services read these four vars from `.env` (defaults shown). `honcho-migrate` and `honcho`
 both use them for the embedding config, and `backend`/`celery` read the first two for the `/health`
