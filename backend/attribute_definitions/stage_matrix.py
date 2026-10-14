@@ -152,6 +152,12 @@ CORE_ATTRIBUTE_LABELS_DE: Mapping[str, str] = {
     # Decomposition/hierarchy level. ``TestCase.test_level`` uses "Testebene",
     # so the bare hierarchy level stays "Ebene".
     "level": "Ebene",
+    # #1289: provenance marker of the derived ``level`` — 'derived' (recomputed
+    # from the hierarchy) or 'manual' (an explicit override via
+    # ``level_override``). Read-only on every transport; "Ebenen-Herkunft" is
+    # the composition of the ``level`` term above ("Ebene") and the existing
+    # ``origin`` term ("Herkunft").
+    "level_source": "Ebenen-Herkunft",
     "complexity_fibonacci": "Komplexität (Fibonacci)",
     "criticality": "Kritikalität",
     "difficulty": "Schwierigkeit",

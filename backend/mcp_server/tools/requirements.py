@@ -125,6 +125,13 @@ def _requirement_to_dict(
         "complexity_fibonacci": getattr(req, "complexity_fibonacci", None),
         "verification_method": getattr(req, "verification_method", None) or None,
         "level": getattr(req, "level", None),
+        # #1289: provenance of ``level`` ('derived'|'manual'), mirrored from
+        # rest_api/views.py::_dto_from_orm. The definition exposes
+        # ``level_source`` as a visible read-only attribute and the REST read
+        # already returns it; without it here the MCP read projection omitted a
+        # visible attribute — a REST/MCP parity gap the attribute contract
+        # matrix ratchets (#935).
+        "level_source": getattr(req, "level_source", "derived"),
         "suspect": getattr(req, "suspect", False),
         "version": req.version,
         # REQ-L2-AS-037 / Epic #934 WS1: the extended attributes live on the
