@@ -1,6 +1,6 @@
 {
   "generated_from": "reqogniloom==1.8.0-beta.20",
-  "tool_count": 228,
+  "tool_count": 235,
   "tools": [
     {
       "name": "admin.backup_create",
@@ -4214,6 +4214,24 @@
       }
     },
     {
+      "name": "memory.delete_workspace",
+      "prefix": "memory",
+      "is_write": true,
+      "description": "System-Admin DSGVO delete of every memory tier a workspace owns (workspace, its artifacts and its current members' user memory) through the active backend.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "workspace_id"
+        ]
+      }
+    },
+    {
       "name": "memory.digest",
       "prefix": "memory",
       "is_write": false,
@@ -4233,6 +4251,17 @@
         "required": [
           "workspace_id"
         ]
+      }
+    },
+    {
+      "name": "memory.export",
+      "prefix": "memory",
+      "is_write": true,
+      "description": "System-Admin DSGVO export of the tenant's live memory entries across both team-owned tiers (JSON shape; the REST twin also offers CSV).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
       }
     },
     {
@@ -4317,6 +4346,67 @@
       }
     },
     {
+      "name": "memory.overview",
+      "prefix": "memory",
+      "is_write": true,
+      "description": "System-Admin overview of every workspace's memory in the active tenant: enabled flag, per-tier entry counts, contributor count and last consolidation timestamp.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
+    },
+    {
+      "name": "memory.projection",
+      "prefix": "memory",
+      "is_write": true,
+      "description": "System-Admin 2D PCA projection + similarity clustering of the scoped memory embeddings. scope='workspace' needs workspace_id; scope='global' spans the tenant.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "enum": [
+              "workspace",
+              "global"
+            ]
+          },
+          "workspace_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "scope"
+        ]
+      }
+    },
+    {
+      "name": "memory.promote",
+      "prefix": "memory",
+      "is_write": true,
+      "description": "Promote the caller's own user-scoped memory into a workspace (write). Editor+ in the target workspace; the original entry is kept and marked superseded_by the new one.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "entry_id": {
+            "type": "string"
+          },
+          "workspace_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "change_reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "entry_id",
+          "workspace_id"
+        ]
+      }
+    },
+    {
       "name": "memory.query",
       "prefix": "memory",
       "is_write": false,
@@ -4362,6 +4452,46 @@
         "required": [
           "query"
         ]
+      }
+    },
+    {
+      "name": "memory.remember_interaction",
+      "prefix": "memory",
+      "is_write": true,
+      "description": "Enqueue the memory consolidation pipeline for one interaction text (write): an active worker runs LLM fact extraction + duplicate/contradiction handling, so this is NOT a raw write.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "interaction_text": {
+            "type": "string"
+          },
+          "artifact_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "entity_type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "workspace_id",
+          "interaction_text"
+        ]
+      }
+    },
+    {
+      "name": "memory.settings",
+      "prefix": "memory",
+      "is_write": true,
+      "description": "System-Admin view of the deployment-global effective memory configuration (DB override falling back to env vars per field), with a <field>_is_override flag per field.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
       }
     },
     {

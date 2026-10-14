@@ -361,6 +361,20 @@ _WRITE_TOOL_PREFIXES: Tuple[str, ...] = (
     # fail-closed write-gated.
     "memory.forget",
     "memory.write",
+    # Wave-7 memory-MCP stream (#1301/#1302/#1300): the remaining mutating
+    # memory tools. memory.promote writes a workspace copy and
+    # memory.remember_interaction drives an LLM (consolidation) -- both are
+    # AUTHOR-tier content writes. The five System-Admin tools
+    # (overview/projection/export/settings/delete_workspace) are also
+    # write-classified (a read_only/AUTHOR key must not reach the tenant-wide
+    # admin surface) AND lifted to the ADMIN tier via _GOVERNANCE_TOOL_NAMES.
+    "memory.promote",
+    "memory.remember_interaction",
+    "memory.overview",
+    "memory.projection",
+    "memory.export",
+    "memory.settings",
+    "memory.delete_workspace",
     # Attribut v3 WS5 (#942): central attribute catalog. create/update/
     # deprecate/add_to_definition/import are writes; list/search/export are
     # read-only via _READ_ONLY_TOOL_NAMES below. Listed here as the documented
@@ -654,6 +668,19 @@ _GOVERNANCE_TOOL_NAMES: frozenset[str] = frozenset(
         # ordinary content write. The facade re-checks the same SSOT choke
         # point; this tier gate can only ever narrow further.
         "audit.waive_finding",
+        # Wave-7 memory-MCP stream (#1302): the System-Admin memory surface.
+        # The "memory" namespace must stay mixed -- memory.write / forget /
+        # promote / ask / remember_interaction are ordinary AUTHOR-tier content
+        # operations -- so the five tenant-wide admin tools are named
+        # individually, exactly like audit.waive_finding above. They mirror the
+        # REST System-Admin bar (MemoryAdminService._assert_system_admin,
+        # memory_rest._is_system_admin); the service-level re-check stays, and
+        # this tier gate can only ever narrow further.
+        "memory.overview",
+        "memory.projection",
+        "memory.export",
+        "memory.settings",
+        "memory.delete_workspace",
     }
 )
 

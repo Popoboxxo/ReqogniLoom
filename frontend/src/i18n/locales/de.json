@@ -1512,7 +1512,8 @@
   },
   "memory": {
     "title": "Gedächtnis",
-    "pageHint": "Fakten, die die KI sich über Team, dich oder einzelne Artefakte gemerkt hat. Du kannst suchen, filtern, Fakten hinzufügen, ins Team befördern oder vergessen.",
+    "activeWorkspace": "Workspace: {{name}}",
+    "pageHint": "Fakten, die die KI sich über den Workspace, dich oder einzelne Artefakte gemerkt hat. Du kannst suchen, filtern, Fakten hinzufügen, in den Workspace befördern oder vergessen.",
     "noWorkspace": "Kein Workspace ausgewählt.",
     "summary": "{{count}} Fakten",
     "summary_one": "{{count}} Fakt",
@@ -1534,12 +1535,12 @@
     "artifactSelect": "Artefakt auswählen",
     "artifactSelectPlaceholder": "Artefakt auswählen …",
     "tab": {
-      "workspace": "Team",
+      "workspace": "Workspace",
       "user": "Meins",
       "artifact": "Artefakt"
     },
     "scope": {
-      "workspace": "Team",
+      "workspace": "Workspace",
       "user": "Meins",
       "artifact": "Artefakt"
     },
@@ -1557,7 +1558,7 @@
       "error": "Fakt konnte nicht gespeichert werden."
     },
     "action": {
-      "promote": "Als Team-Fakt befördern",
+      "promote": "Als Workspace-Fakt befördern",
       "promoteError": "Befördern fehlgeschlagen.",
       "forget": "Vergessen",
       "forgetConfirm": "Diesen Fakt endgültig vergessen? Das kann nicht rückgängig gemacht werden.",
@@ -1582,7 +1583,7 @@
       "heading": "Frag das Gedächtnis",
       "hint": "Eine Frage in freiem Text, und das Gedächtnis dieses Bereichs antwortet darauf. Eine eingeschränkte Antwort wird als solche gekennzeichnet.",
       "queryLabel": "Frage",
-      "queryPlaceholder": "Was hat das Team bei der Authentifizierung entschieden? …",
+      "queryPlaceholder": "Was wurde im Workspace bei der Authentifizierung entschieden? …",
       "queryRequired": "Bitte eine Frage eingeben.",
       "reasoningLabel": "Tiefgang",
       "reasoningDefault": "Standard (Backend entscheidet)",
@@ -2271,6 +2272,14 @@
     "memorySettings.usingDefault": "Standardwert aktiv",
     "memorySettings.honchoBaseUrl": "Honcho Base-URL",
     "memorySettings.honchoApiKey": "Honcho API-Key",
+    "memorySettings.honchoDialecticLevel": "Honcho-Dialektik-Stufe",
+    "memorySettings.honchoDialecticLevelDefault": "Standard (Backend entscheidet)",
+    "memorySettings.honchoPeerName": "Honcho-Peer-Name",
+    "memorySettings.honchoWorkspaceId": "Honcho-Workspace-ID",
+    "memorySettings.honchoAppId": "Honcho-App-ID",
+    "memorySettings.honchoSessionTtl": "Honcho-Session-TTL (Sekunden)",
+    "memorySettings.honchoVersion": "Honcho-Version",
+    "memorySettings.honchoVersionUnavailable": "Nicht verfügbar",
     "memorySettings.secretSetPlaceholder": "•••••••• (gesetzt, zum Ändern überschreiben)",
     "memorySettings.secretUnsetPlaceholder": "Nicht gesetzt",
     "memorySettings.overrideBadge": "Überschrieben",

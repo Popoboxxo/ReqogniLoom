@@ -326,6 +326,74 @@ class MemoryEntryService(ServiceBase):
                 change_reason=change_reason,
             )
 
+    def update(
+        self,
+        ctx: Any,
+        *,
+        entry_id: MemoryEntryId,
+        content: str,
+        confidence: Optional[float] = None,
+        change_reason: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Replace one entry's content, preserving history (PATCH semantics).
+
+        An edit must not mutate a remembered fact in place: the old row stays
+        (audit/history) and the corrected content becomes a NEW entry in the
+        SAME scope, with the old row's ``superseded_by`` pointing at it -- the
+        exact forward-supersede convention :meth:`promote` and the
+        consolidation contradiction path already use. The caller therefore gets
+        a *new* ``entry_id`` back.
+
+        Authorisation is :meth:`MemoryPolicy.can_update` (owner for
+        ``scope="user"``, Editor+ in the owning workspace for
+        ``workspace``/``artifact``) and the ``memory.write`` rate limiter is
+        charged, because the write re-embeds the content and spends the same
+        budget as a create.
+        """
+        content = (content or "").strip()
+        if not content:
+            raise ValidationError("content must not be empty")
+
+        with _tenant_context(ctx.tenant_id):
+            entry = self._resolve_entry(entry_id)
+            if entry is None:
+                raise NotFoundError(f"Memory entry {entry_id} not found")
+            MemoryPolicy.assert_can_update(ctx, entry)
+            check_write_rate_limit(ctx)
+            scope = entry.scope
+            self._validate_scope(scope)
+            scope_id = self._entry_scope_id(entry)
+            backend = get_memory_backend()
+            ref = backend.write(
+                ctx.tenant_id,
+                scope,
+                scope_id,
+                content,
+                contributor_user_id=ctx.user_id,
+                source_event_id=entry.source_event_id,
+                language=entry.language,
+                confidence=(
+                    confidence if confidence is not None else entry.confidence
+                ),
+                entity_type=entry.entity_type,
+            )
+            new_entry = self._fetch_entry(ref.entry_id)
+            new_uuid = _as_uuid(ref.entry_id)
+            if new_uuid is not None:
+                MemoryEntry.objects.filter(id=entry.id).update(superseded_by_id=new_uuid)
+            view = self._view(ref=ref, row=new_entry, scope=scope, scope_id=scope_id)
+            self._audit(
+                ctx,
+                operation="update",
+                entity_type="MemoryEntry",
+                entity_id=entry.id,
+                change_reason=(
+                    f"{change_reason + ' ' if change_reason else ''}"
+                    f"content_replaced superseded_by={view['entry_id']}"
+                ),
+            )
+        return view
+
     def delete_scope(
         self,
         ctx: Any,
@@ -638,6 +706,28 @@ class MemoryEntryService(ServiceBase):
         if resolved is None:
             raise ValidationError(f"Invalid id for scope={scope!r}")
         return resolved
+
+    @staticmethod
+    def _entry_scope_id(entry: MemoryEntry) -> UUID:
+        """Return the backend ``scope_id`` an existing *entry* lives under.
+
+        The inverse of :meth:`_scope_id`: it reads the owner off the row instead
+        of resolving it from caller-supplied arguments, so an update rewrites
+        the entry in exactly the slice it was stored in.
+        """
+        if entry.scope == MemoryEntry.SCOPE_USER:
+            scope_id = entry.user_id
+        elif entry.scope == MemoryEntry.SCOPE_WORKSPACE:
+            scope_id = entry.workspace_id
+        elif entry.scope == MemoryEntry.SCOPE_ARTIFACT:
+            scope_id = entry.artifact_id
+        else:
+            raise ValidationError(f"Unknown memory scope: {entry.scope!r}")
+        if scope_id is None:
+            raise ValidationError(
+                f"Memory entry has no owner id for scope={entry.scope!r}"
+            )
+        return scope_id
 
     @staticmethod
     def _resolve_read_scope(

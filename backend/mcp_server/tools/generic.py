@@ -583,6 +583,17 @@ class GenericCrudToolGroup(BaseToolGroup):
             except NotFoundError as exc:
                 return ToolResult.error("NOT_FOUND", str(exc))
             return ToolResult.ok({"data": self._to_dict(obj)})
+        except NotFoundError as exc:
+            # #1290: an unknown id answered the masked INTERNAL_ERROR because
+            # it fell through to the bare ``except Exception`` below -- the
+            # five entities served by this generic group (adr, risk, issue,
+            # glossary, change_request) were the only update/delete tools that
+            # did, while the entity-specific groups (goal/icd/diagram/needs/
+            # requirement/architecture) all report NOT_FOUND. The id may be
+            # unknown on the workspace-resolution read
+            # (``_resolve_workspace_id``) OR on the update call itself; both
+            # raise ``NotFoundError`` with a "<Type> <id> not found" message.
+            return ToolResult.error("NOT_FOUND", str(exc))
         except OptimisticLockError as exc:
             # SYSTEMAUDIT_2026-08-29 (REST finding 1): the wrapped services now
             # accept ``expected_version``, and these schemas are derived from
@@ -610,6 +621,11 @@ class GenericCrudToolGroup(BaseToolGroup):
         try:
             self._delete_method(ctx=auth_context, **{self._delete_id_param: obj_id})
             return ToolResult.ok({"status": "deleted"})
+        except NotFoundError as exc:
+            # #1290: mirror the update path -- an unknown id is NOT_FOUND, not
+            # the masked INTERNAL_ERROR the bare catch-all below would emit.
+            # See ``_handle_update``'s NotFoundError branch for the full note.
+            return ToolResult.error("NOT_FOUND", str(exc))
         except Exception:
             # #697 (CWE-209): mask the unmapped cause, log it server-side.
             logger.exception("%s.delete failed", self.prefix)

@@ -45,6 +45,34 @@ Endpoints:
         spec 2026-08-26). Self-service over the caller's OWN
         own ``scope="user"`` ``MemoryEntry`` rows only — never workspace-scoped
         memory. See :class:`MemorySelfServiceView`.
+    POST /api/v1/memory/me/   (issue #1291)
+        Any authenticated user writes a ``scope="user"`` fact for themselves —
+        the REST write path for the personal scope, which previously existed
+        only over MCP ``memory.write``. Same ``MemoryPolicy`` write matrix and
+        same ``memory.write`` rate limiter as MCP. See
+        :meth:`MemorySelfServiceView.post`.
+    POST /api/v1/workspaces/<uuid:workspace_id>/memory/entries/   (existing)
+        Editor+ creates a ``scope="workspace"`` fact (issue #1291 adds a
+        fail-closed guard: a body naming another scope is rejected, since the
+        URL pins it). See :meth:`WorkspaceMemoryEntriesView.post`.
+    PATCH /api/v1/memory/entries/<str:entry_id>/   (issue #1291)
+        Rewrite one entry's content history-preservingly (a new entry
+        supersedes the old). Owner for ``user`` memory, Editor+ for
+        ``workspace``/``artifact``; charged to the ``memory.write`` limiter.
+        See :meth:`MemoryEntryDetailView.patch`.
+    DELETE /api/v1/workspaces/<uuid:workspace_id>/memory/entries/   (issue #1291)
+        Purge the whole workspace scope; Workspace-Admin only. See
+        :meth:`WorkspaceMemoryEntriesView.delete`.
+    POST /api/v1/system/memory/entries/   (issue #1291)
+        System-Admin write on the entries collection, same body contract and
+        same per-scope ``MemoryPolicy`` as the other write surfaces (the admin
+        gate can only narrow). See :meth:`SystemMemoryEntriesListView.post`.
+    GET /api/v1/system/memory/workspaces/   (issue #1300)
+        The System-Admin overview additionally carries
+        ``memory_consolidations_total`` (per-trigger-source counter of enqueued
+        memory consolidations) + ``consolidation_total``, so the learning
+        loop's health is readable without a log grep. See
+        :meth:`SystemMemoryWorkspaceOverviewView.get` and :mod:`memory.metrics`.
 
 Both views rely on the tenant context already activated by
 ``AuthTenancyAuthentication`` during DRF authentication (COMP-AT-003
@@ -68,6 +96,7 @@ from uuid import UUID
 
 from django.db.models import Count, Max
 from django.http import HttpResponse
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, status
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -108,6 +137,48 @@ def _parse_uuid_param(raw: Any, name: str) -> Any:
         return UUID(str(raw))
     except (ValueError, TypeError, AttributeError) as exc:
         raise ValidationError(f"Invalid {name}: {raw!r}") from exc
+
+
+class MemoryEntryWriteSerializer(serializers.Serializer):
+    """Body for the canonical memory write surfaces (issue #1291).
+
+    Mirrors the MCP ``memory.write`` tool's input schema 1:1 -- ``content``,
+    ``scope`` (``user``|``workspace``|``artifact``), an optional
+    ``workspace_id``/``artifact_id`` for the scope's target and an optional
+    ``confidence``/``change_reason`` -- so the REST and MCP transports cannot
+    drift in the scopes they accept. Only the *shape* is validated here; the
+    per-scope owner contract (``scope="workspace"`` requires ``workspace_id``,
+    ``scope="artifact"`` requires ``artifact_id``, ``scope="user"`` forbids
+    both) and the ``MemoryPolicy`` permission matrix are enforced by
+    :class:`application.memory_entry_service.MemoryEntryService.write`, exactly
+    as they are for the MCP tool.
+    """
+
+    content = serializers.CharField()
+    scope = serializers.ChoiceField(choices=["user", "workspace", "artifact"])
+    workspace_id = serializers.UUIDField(required=False, allow_null=True)
+    artifact_id = serializers.UUIDField(required=False, allow_null=True)
+    confidence = serializers.FloatField(required=False, default=1.0)
+    change_reason = serializers.CharField(
+        required=False, allow_blank=True, allow_null=True
+    )
+
+
+class MemoryEntryContentSerializer(serializers.Serializer):
+    """Body for the content-bearing write surfaces (issue #1291).
+
+    Shared by ``PATCH /api/v1/memory/entries/<entry_id>/`` and
+    ``POST /api/v1/memory/me/``. ``content`` is required (a write that changes
+    nothing is pointless); ``confidence``/``change_reason`` are optional. The
+    entry's scope/owner are never taken from the body -- an edit cannot move a
+    fact into another scope.
+    """
+
+    content = serializers.CharField()
+    confidence = serializers.FloatField(required=False, allow_null=True)
+    change_reason = serializers.CharField(
+        required=False, allow_blank=True, allow_null=True
+    )
 
 
 def _memory_error_response(exc: Exception, lang: str) -> Response:
@@ -232,6 +303,15 @@ class SystemMemorySettingsWriteSerializer(serializers.Serializer):
     )
     honcho_base_url = serializers.CharField(required=False, allow_null=True, allow_blank=True, max_length=255)
     honcho_api_key = serializers.CharField(write_only=True, required=False, allow_blank=True, max_length=512)
+    # #1286: the dialectic/peer/scope surface was configurable only via env.
+    # Expose it (override-or-env, same pattern as the fields above).
+    honcho_dialectic_level = serializers.ChoiceField(
+        choices=["minimal", "low", "medium", "high", "max"], required=False, allow_null=True
+    )
+    honcho_peer_name = serializers.CharField(required=False, allow_null=True, allow_blank=True, max_length=255)
+    honcho_workspace_id = serializers.CharField(required=False, allow_null=True, allow_blank=True, max_length=255)
+    honcho_app_id = serializers.CharField(required=False, allow_null=True, allow_blank=True, max_length=255)
+    honcho_session_ttl = serializers.IntegerField(required=False, allow_null=True, min_value=0)
     # ADR-020 V1: Qdrant is an optional vector backend. It requires
     # QDRANT_BASE_URL (or the qdrant_base_url override below); a missing value
     # is surfaced as a health-check failure, not a save-time error, so an admin
@@ -281,6 +361,17 @@ def _with_env_fallback(effective: dict) -> dict:
         "embedding_timeout": int(os.environ.get("EMBEDDING_TIMEOUT", "10")),
         "memory_backend": os.environ.get("MEMORY_BACKEND", "pgvector"),
         "honcho_base_url": os.environ.get("HONCHO_BASE_URL"),
+        # #1286: honcho dialectic/peer/scope overrides (override-or-env).
+        "honcho_dialectic_level": os.environ.get("HONCHO_DIALECTIC_LEVEL"),
+        "honcho_peer_name": os.environ.get("HONCHO_PEER_NAME"),
+        "honcho_workspace_id": os.environ.get("HONCHO_WORKSPACE_ID"),
+        "honcho_app_id": os.environ.get("HONCHO_APP_ID"),
+        "honcho_session_ttl": (
+            int(os.environ["HONCHO_SESSION_TTL"]) if os.environ.get("HONCHO_SESSION_TTL") else None
+        ),
+        # Read-only: the targeted Honcho service version (best-effort from env;
+        # the UI shows a placeholder when unknown).
+        "honcho_version": os.environ.get("HONCHO_VERSION"),
         "qdrant_base_url": os.environ.get("QDRANT_BASE_URL"),
         "qdrant_collection_prefix": os.environ.get(
             "QDRANT_COLLECTION_PREFIX", DEFAULT_QDRANT_COLLECTION_PREFIX
@@ -472,6 +563,14 @@ class SystemMemoryWorkspaceOverviewView(APIView):
     Memory Admin UI Phase 1 (spec 2026-08-26). Lists one row per workspace
     in the active tenant: memory enabled/disabled, entry counts per tier,
     last consolidation timestamp. Delegates to :class:`MemoryAdminService`.
+
+    Since issue #1300 the response also carries ``memory_consolidations_total``
+    (a per-trigger-source counter of enqueued memory consolidations) and its
+    ``consolidation_total`` sum, so an operator can answer "is the memory
+    learning loop running, and from which trigger?" on this admin surface
+    instead of grepping worker logs. The counter is best-effort
+    (:mod:`memory.metrics`); a cache outage yields ``{}``/``0`` rather than an
+    error, exactly like the ``degraded`` envelope it rides next to.
     """
 
     permission_classes = [HasOperationPermission]
@@ -503,7 +602,18 @@ class SystemMemoryWorkspaceOverviewView(APIView):
         # for API consumers/tests inspecting it directly).
         for row in overview:
             row["workspace_id"] = str(row["workspace_id"])
-        return Response({"results": overview, **envelope()})
+        from memory.metrics import consolidation_counts
+
+        counts = consolidation_counts()
+        return Response(
+            {
+                "results": overview,
+                # Issue #1300: per-trigger-source consolidation counter.
+                "memory_consolidations_total": counts,
+                "consolidation_total": sum(counts.values()),
+                **envelope(),
+            }
+        )
 
 
 class SystemMemoryWorkspaceDeleteView(APIView):
@@ -636,6 +746,70 @@ class SystemMemoryEntriesListView(_SystemMemoryVisualizationView):
             )
         return Response({**result, **envelope()})
 
+    @extend_schema(
+        tags=["memory"],
+        summary="Create one memory entry (System-Admin, any scope)",
+        request=MemoryEntryWriteSerializer,
+        responses={
+            201: OpenApiResponse(description="The created memory entry view."),
+            400: OpenApiResponse(description="Invalid scope or target."),
+            403: OpenApiResponse(description="System-Admin role required."),
+            429: OpenApiResponse(description="memory.write rate limit exceeded."),
+        },
+    )
+    def post(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """System-Admin write on the entries collection (issue #1291).
+
+        Same body contract, same service, same ``MemoryPolicy`` and same rate
+        limiter as ``POST /api/v1/memory/entries/``; this URL simply adds the
+        System-Admin gate its sibling read uses. The admin gate can only
+        NARROW, never widen: for ``scope="workspace"``/``"artifact"`` the
+        service still requires Editor+ in the owning workspace, so a
+        tenant-admin who is not a member of that workspace is denied -- exactly
+        the "same permission check as ``memory.write``" rule.
+        """
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+        except Exception:
+            return Response(
+                build_error_response("AUTHENTICATION_REQUIRED", lang),
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+        if not _is_system_admin(ctx):
+            return Response(
+                build_error_response("PERMISSION_DENIED", lang),
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        ser = MemoryEntryWriteSerializer(data=request.data)
+        if not ser.is_valid():
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    details=[{"field": k, "errors": v} for k, v in ser.errors.items()],
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            view = MemoryEntryService().write(
+                ctx,
+                content=ser.validated_data["content"],
+                scope=ser.validated_data["scope"],
+                workspace_id=ser.validated_data.get("workspace_id"),
+                artifact_id=ser.validated_data.get("artifact_id"),
+                confidence=ser.validated_data.get("confidence", 1.0),
+                change_reason=ser.validated_data.get("change_reason"),
+            )
+        except (
+            PermissionDeniedError,
+            NotFoundError,
+            ValidationError,
+            MemoryWriteRateLimitExceeded,
+        ) as exc:
+            return _memory_error_response(exc, lang)
+        return Response(view, status=status.HTTP_201_CREATED)
+
 
 class SystemMemoryProjectionView(_SystemMemoryVisualizationView):
     """``GET /api/v1/system/memory/projection/`` — System-Admin only.
@@ -684,7 +858,8 @@ class WorkspaceMemoryEntriesView(APIView):
 
     GET: any workspace member lists the workspace's live entries (default
     ``scope=workspace``; ``scope=artifact`` needs ``artifact_id``). POST: Editor+
-    creates a workspace-scoped fact. Both delegate to
+    creates a workspace-scoped fact. DELETE (issue #1291): Workspace-Admin purges
+    the whole workspace scope. All delegate to
     :class:`application.memory_entry_service.MemoryEntryService`, so the
     response always carries ``backend`` + ``degraded`` (F9).
     """
@@ -733,6 +908,24 @@ class WorkspaceMemoryEntriesView(APIView):
         ctx = _auth_or_401(request, lang)
         if isinstance(ctx, Response):
             return ctx
+        # Issue #1291: the URL pins the scope. A body that names a different
+        # one would otherwise be silently ignored -- a caller could believe
+        # they wrote personal/artifact memory here. Fail closed instead; the
+        # scope-parameterised write lives on ``/api/v1/memory/entries/``.
+        requested_scope = request.data.get("scope")
+        if requested_scope not in (None, "", MemoryEntry.SCOPE_WORKSPACE):
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    message=(
+                        "This endpoint always writes workspace scope; omit "
+                        "'scope' or use POST /api/v1/memory/entries/ for "
+                        "'user'/'artifact'."
+                    ),
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         content = request.data.get("content")
         try:
             view = MemoryEntryService().write(
@@ -746,6 +939,40 @@ class WorkspaceMemoryEntriesView(APIView):
         except (PermissionDeniedError, NotFoundError, ValidationError, MemoryWriteRateLimitExceeded) as exc:
             return _memory_error_response(exc, lang)
         return Response(view, status=status.HTTP_201_CREATED)
+
+    @extend_schema(
+        tags=["memory"],
+        summary="Purge every workspace-scoped memory entry",
+        responses={
+            200: OpenApiResponse(description="Number of entries removed."),
+            403: OpenApiResponse(description="Workspace-Admin role required."),
+        },
+    )
+    def delete(self, request: Request, workspace_id: UUID, *args: Any, **kwargs: Any) -> Response:
+        """Delete the whole ``scope="workspace"`` slice (issue #1291).
+
+        Requires Workspace-Admin (``MemoryPolicy.can_delete_scope``); a
+        Viewer/Editor is denied. Deletes are not charged to the ``memory.write``
+        limiter (that quota guards the embedding budget, and a delete embeds
+        nothing) -- the same rule MCP ``memory.forget`` follows.
+        """
+        lang = detect_lang(request)
+        ctx = _auth_or_401(request, lang)
+        if isinstance(ctx, Response):
+            return ctx
+        change_reason = request.query_params.get("change_reason") or request.data.get(
+            "change_reason"
+        )
+        try:
+            removed = MemoryEntryService().delete_scope(
+                ctx,
+                scope=MemoryEntry.SCOPE_WORKSPACE,
+                workspace_id=workspace_id,
+                change_reason=change_reason,
+            )
+        except (PermissionDeniedError, NotFoundError, ValidationError) as exc:
+            return _memory_error_response(exc, lang)
+        return Response({"deleted": removed, **envelope()})
 
 
 class WorkspaceMemoryDigestView(APIView):
@@ -904,12 +1131,15 @@ class WorkspaceMemoryAskView(APIView):
 
 
 class MemoryEntryDetailView(APIView):
-    """``/api/v1/memory/entries/<str:entry_id>/`` — GET / DELETE.
+    """``/api/v1/memory/entries/<str:entry_id>/`` — GET / PATCH / DELETE.
 
     No workspace in the URL, so the coarse RbacPermission is deliberately
     replaced by :class:`HasOperationPermission` (any authenticated caller) and
     the real gate is ``MemoryPolicy`` on the resolved entry — a self-service
-    user with no workspace role can still read/delete their OWN memory.
+    user with no workspace role can still read/edit/delete their OWN memory.
+
+    PATCH (issue #1291) rewrites the content history-preservingly; see
+    :meth:`patch`.
     """
 
     permission_classes = [HasOperationPermission]
@@ -938,6 +1168,57 @@ class MemoryEntryDetailView(APIView):
         except (PermissionDeniedError, NotFoundError, ValidationError) as exc:
             return _memory_error_response(exc, lang)
         return Response({"deleted": True, **envelope()})
+
+    @extend_schema(
+        tags=["memory"],
+        summary="Replace one memory entry's content (history-preserving)",
+        request=MemoryEntryContentSerializer,
+        responses={
+            200: OpenApiResponse(description="The new (superseding) entry view."),
+            400: OpenApiResponse(description="Empty content or invalid body."),
+            403: OpenApiResponse(description="Permission denied for the entry."),
+            404: OpenApiResponse(description="Entry not found."),
+            429: OpenApiResponse(description="memory.write rate limit exceeded."),
+        },
+    )
+    def patch(self, request: Request, entry_id: str, *args: Any, **kwargs: Any) -> Response:
+        """Rewrite one entry's content without losing the old row.
+
+        Delegates to :meth:`MemoryEntryService.update`, which writes the
+        corrected content as a NEW entry and marks the edited row
+        ``superseded_by`` it. The scope/owner come from the stored row, never
+        the body, so a PATCH can never move a fact between scopes.
+        """
+        lang = detect_lang(request)
+        ctx = _auth_or_401(request, lang)
+        if isinstance(ctx, Response):
+            return ctx
+        ser = MemoryEntryContentSerializer(data=request.data)
+        if not ser.is_valid():
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    details=[{"field": k, "errors": v} for k, v in ser.errors.items()],
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            view = MemoryEntryService().update(
+                ctx,
+                entry_id=entry_id,
+                content=ser.validated_data["content"],
+                confidence=ser.validated_data.get("confidence"),
+                change_reason=ser.validated_data.get("change_reason"),
+            )
+        except (
+            PermissionDeniedError,
+            NotFoundError,
+            ValidationError,
+            MemoryWriteRateLimitExceeded,
+        ) as exc:
+            return _memory_error_response(exc, lang)
+        return Response(view)
 
 
 class MemoryEntryPromoteView(APIView):
@@ -1011,6 +1292,22 @@ class ArtifactMemoryView(APIView):
         ctx = _auth_or_401(request, lang)
         if isinstance(ctx, Response):
             return ctx
+        # Issue #1291: the URL pins scope="artifact"; a conflicting body scope
+        # is rejected rather than silently ignored (see the workspace sibling).
+        requested_scope = request.data.get("scope")
+        if requested_scope not in (None, "", MemoryEntry.SCOPE_ARTIFACT):
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    message=(
+                        "This endpoint always writes artifact scope; omit "
+                        "'scope' or use POST /api/v1/memory/entries/ for "
+                        "'user'/'workspace'."
+                    ),
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         try:
             view = MemoryEntryService().write(
                 ctx,
@@ -1133,6 +1430,15 @@ class MemorySelfServiceView(APIView):
     GET: ``{"entry_count": int, "last_updated_at": str | None}``.
     DELETE: deletes all of the caller's user-scoped ``MemoryEntry`` rows, returns
     ``{"deleted": int}`` — 200 even when nothing existed to delete.
+    POST (issue #1291): create a ``scope="user"`` fact for the caller. This is
+    the REST write path for the personal scope — before it, a user fact could
+    only be created over MCP ``memory.write``. The write goes through
+    :meth:`MemoryEntryService.write` exactly like the MCP tool, so the
+    ``MemoryPolicy`` write matrix (any authenticated caller writes own) and the
+    ``memory.write`` rate limiter apply unchanged. ``scope`` is deliberately
+    NOT read from the body: this endpoint is the personal scope by definition,
+    and the scope-parameterised writes live on the workspace/artifact entry
+    endpoints and (for admins) ``/api/v1/system/memory/entries/``.
     """
 
     permission_classes = [HasOperationPermission]
@@ -1193,6 +1499,61 @@ class MemorySelfServiceView(APIView):
             scope=MemoryEntry.SCOPE_USER, user_id=ctx.user_id
         ).delete()
         return Response({"deleted": deleted, **envelope()})
+
+    @extend_schema(
+        tags=["memory"],
+        summary="Create a personal (scope=user) memory entry for the caller",
+        request=MemoryEntryContentSerializer,
+        responses={
+            201: OpenApiResponse(description="The created user-scoped entry view."),
+            400: OpenApiResponse(description="Empty content or invalid body."),
+            429: OpenApiResponse(description="memory.write rate limit exceeded."),
+        },
+    )
+    def post(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Write a personal fact for the caller (issue #1291).
+
+        The REST write path for ``scope="user"`` memory: delegates to
+        :meth:`MemoryEntryService.write` with ``scope="user"``, so the
+        ``MemoryPolicy`` write matrix (any authenticated caller writes their
+        own) and the ``memory.write`` rate limiter apply exactly as they do for
+        the MCP ``memory.write`` tool.
+        """
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+        except Exception:
+            return Response(
+                build_error_response("AUTHENTICATION_REQUIRED", lang),
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+        ser = MemoryEntryContentSerializer(data=request.data)
+        if not ser.is_valid():
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    details=[{"field": k, "errors": v} for k, v in ser.errors.items()],
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        confidence = ser.validated_data.get("confidence")
+        try:
+            view = MemoryEntryService().write(
+                ctx,
+                content=ser.validated_data["content"],
+                scope=MemoryEntry.SCOPE_USER,
+                confidence=1.0 if confidence is None else confidence,
+                change_reason=ser.validated_data.get("change_reason"),
+            )
+        except (
+            PermissionDeniedError,
+            NotFoundError,
+            ValidationError,
+            MemoryWriteRateLimitExceeded,
+        ) as exc:
+            return _memory_error_response(exc, lang)
+        return Response(view, status=status.HTTP_201_CREATED)
 
 
 __all__ = [

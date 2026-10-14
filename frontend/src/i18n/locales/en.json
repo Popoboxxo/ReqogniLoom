@@ -1512,7 +1512,8 @@
   },
   "memory": {
     "title": "Memory",
-    "pageHint": "Facts the AI has remembered about the team, you or individual artifacts. You can search, filter, add facts, promote them to the team or forget them.",
+    "activeWorkspace": "Workspace: {{name}}",
+    "pageHint": "Facts the AI has remembered about the workspace, you or individual artifacts. You can search, filter, add facts, promote them to the workspace or forget them.",
     "noWorkspace": "No workspace selected.",
     "summary": "{{count}} facts",
     "summary_one": "{{count}} fact",
@@ -1534,12 +1535,12 @@
     "artifactSelect": "Select artifact",
     "artifactSelectPlaceholder": "Select artifact …",
     "tab": {
-      "workspace": "Team",
+      "workspace": "Workspace",
       "user": "Mine",
       "artifact": "Artifact"
     },
     "scope": {
-      "workspace": "Team",
+      "workspace": "Workspace",
       "user": "Mine",
       "artifact": "Artifact"
     },
@@ -1557,7 +1558,7 @@
       "error": "Fact could not be saved."
     },
     "action": {
-      "promote": "Promote to team fact",
+      "promote": "Promote to workspace fact",
       "promoteError": "Promotion failed.",
       "forget": "Forget",
       "forgetConfirm": "Forget this fact permanently? This cannot be undone.",
@@ -1582,7 +1583,7 @@
       "heading": "Ask the memory",
       "hint": "One free-text question, and this scope's memory answers it. A limited answer is labelled as such.",
       "queryLabel": "Question",
-      "queryPlaceholder": "What did the team decide about authentication? …",
+      "queryPlaceholder": "What did the workspace decide about authentication? …",
       "queryRequired": "Please enter a question.",
       "reasoningLabel": "Depth",
       "reasoningDefault": "Default (backend decides)",
@@ -2271,6 +2272,14 @@
     "memorySettings.usingDefault": "Using default",
     "memorySettings.honchoBaseUrl": "Honcho Base URL",
     "memorySettings.honchoApiKey": "Honcho API Key",
+    "memorySettings.honchoDialecticLevel": "Honcho Dialectic Level",
+    "memorySettings.honchoDialecticLevelDefault": "Default (backend decides)",
+    "memorySettings.honchoPeerName": "Honcho Peer Name",
+    "memorySettings.honchoWorkspaceId": "Honcho Workspace ID",
+    "memorySettings.honchoAppId": "Honcho App ID",
+    "memorySettings.honchoSessionTtl": "Honcho Session TTL (seconds)",
+    "memorySettings.honchoVersion": "Honcho Version",
+    "memorySettings.honchoVersionUnavailable": "Not available",
     "memorySettings.secretSetPlaceholder": "•••••••• (set, overwrite to change)",
     "memorySettings.secretUnsetPlaceholder": "Not set",
     "memorySettings.overrideBadge": "Overridden",

@@ -10,6 +10,26 @@
   color: var(--color-text-muted);
 }
 
+/* #1295: active-workspace line sits directly under the PageHeader, above the
+   explanatory hint, so "which workspace is this about?" is answered first. */
+.workspaceLine {
+  margin: var(--space-2) 0 0;
+}
+
+/* #1296: an error alert plus its retry control, kept visually together. */
+.errorBlock {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-3);
+}
+
+/* The alert's own bottom margin would double up inside `.errorBlock`. */
+.errorBlock .error {
+  margin-bottom: 0;
+}
+
 .tabRow {
   display: flex;
   align-items: center;

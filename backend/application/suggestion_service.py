@@ -77,6 +77,7 @@ from application.base import (
     ValidationError,
     require_producer_context,
 )
+from application.models import DomainEventOutbox
 from application.suggestion_adapters import SuggestionAdapter, build_adapter_registry
 from application.trace_link_service import TraceLinkService
 from auth_tenancy.context import AuthContext
@@ -168,6 +169,7 @@ class SuggestionService(ServiceBase):
         # a workflow/RBAC denial), the receipt must stay 'open'.
         adapter.accept(self, ctx, suggestion)
         self._decide(suggestion, ctx, Suggestion.Status.ACCEPTED)
+        self._emit_interaction_completed(suggestion, ctx)
         return self._serialize(suggestion)
 
     @atomic_transaction
@@ -347,6 +349,44 @@ class SuggestionService(ServiceBase):
                     else None
                 ),
             },
+        )
+
+    def _emit_interaction_completed(
+        self, suggestion: Suggestion, ctx: AuthContext
+    ) -> None:
+        """Emit ``INTERACTION_COMPLETED`` for this confirmed accept (issue #1300).
+
+        The memory learning loop used to be fed by interview events only; this
+        is the first non-interview, *confirmed* generating step wired into it.
+        Only a decided (accepted) suggestion emits -- drafts/proposals do not,
+        so the pipeline is not charged for intermediate states. The payload
+        carries exactly what ``memory.projector`` needs (``user_id``,
+        ``tenant_id``, a pre-rendered ``interaction_text``) plus the workspace
+        through the event's ``workspace_id``.
+
+        Further confirmed generating paths follow the same shape: emit an
+        ``INTERACTION_COMPLETED`` carrying those three payload keys -- no
+        projector change is needed for a new source.
+        """
+        target = ""
+        if suggestion.target_item_type and suggestion.target_item_id:
+            target = (
+                f" target={suggestion.target_item_type}:{suggestion.target_item_id}"
+            )
+        self._emit_event(
+            self._make_event(
+                event_type=DomainEventOutbox.EventType.INTERACTION_COMPLETED,
+                entity_id=suggestion.id,
+                workspace_id=suggestion.workspace_id,
+                payload={
+                    "user_id": str(ctx.user_id),
+                    "tenant_id": str(ctx.tenant_id),
+                    "interaction_text": (
+                        f"Suggestion accepted (kind={suggestion.kind}){target}."
+                    ),
+                    "source": "suggestion_accept",
+                },
+            )
         )
 
     @staticmethod

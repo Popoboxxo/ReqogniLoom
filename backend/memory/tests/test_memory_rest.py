@@ -1754,3 +1754,309 @@ class TestMemoryAskRest:
             )
             assert denied.status_code == 403
             assert denied.data["error"]["code"] == "PERMISSION_DENIED"
+
+
+# ---------------------------------------------------------------------------
+# Issue #1291 — REST write path at parity with MCP ``memory.write``
+# ---------------------------------------------------------------------------
+
+_MY_MEMORY = "/api/v1/memory/me/"
+
+
+@pytest.fixture
+def _clear_memory_cache():
+    """Clear the cache so the write ratelimit + consolidation counters are fresh."""
+    from django.core.cache import cache
+
+    cache.clear()
+    yield
+    cache.clear()
+
+
+@pytest.mark.django_db
+class TestMemoryPersonalScopeWriteRest:
+    """``POST /api/v1/memory/me/`` — the personal-scope REST write path (#1291).
+
+    Before this endpoint a ``scope="user"`` fact could only be created over MCP
+    ``memory.write`` (the frontend's AddMemoryFactDialog said as much). The
+    write delegates to the same service, so the MemoryPolicy write matrix and
+    the ``memory.write`` rate limiter apply unchanged.
+    """
+
+    def test_write_then_get_and_list(self, monkeypatch, _clear_memory_cache):
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        with active_tenant() as tenant:
+            _user, token = editor_user_and_token(tenant, workspace=None)
+            client = _client_for(token)
+
+            created = client.post(
+                _MY_MEMORY, {"content": "I prefer dark mode"}, format="json"
+            )
+            assert created.status_code == 201
+            assert created.data["scope"] == "user"
+            assert created.data["backend"] == "pgvector"
+            assert created.data["degraded"] is False
+
+            fetched = client.get(f"/api/v1/memory/entries/{created.data['entry_id']}/")
+            assert fetched.status_code == 200
+            assert fetched.data["content"] == "I prefer dark mode"
+
+            listed = client.get(f"{_MY_MEMORY}?include_entries=true")
+            assert listed.status_code == 200
+            assert listed.data["entry_count"] == 1
+            assert listed.data["entries"][0]["content"] == "I prefer dark mode"
+
+    def test_unauthenticated_returns_401(self):
+        response = APIClient().post(_MY_MEMORY, {"content": "x"}, format="json")
+        assert response.status_code == 401
+
+    def test_missing_content_is_400(self, _clear_memory_cache):
+        with active_tenant() as tenant:
+            _user, token = editor_user_and_token(tenant, workspace=None)
+            response = _client_for(token).post(_MY_MEMORY, {}, format="json")
+            assert response.status_code == 400
+
+
+@pytest.mark.django_db
+class TestWorkspaceMemoryEntryWriteRest:
+    """``POST``/``DELETE /api/v1/workspaces/<ws>/memory/entries/`` (issue #1291)."""
+
+    def test_write_then_list_search_and_get(self, monkeypatch, _clear_memory_cache):
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            _user, token = editor_user_and_token(tenant, ws)
+            client = _client_for(token)
+
+            created = client.post(
+                _WS_ENTRIES.format(ws=ws.id), {"content": "dark mode"}, format="json"
+            )
+            assert created.status_code == 201
+            assert created.data["scope"] == "workspace"
+
+            listed = client.get(_WS_ENTRIES.format(ws=ws.id))
+            assert listed.status_code == 200
+            assert listed.data["total"] == 1
+            assert listed.data["items"][0]["content"] == "dark mode"
+
+            found = client.get(f"{_WS_SEARCH.format(ws=ws.id)}?q=dark&scope=workspace")
+            assert found.status_code == 200
+            assert found.data["items"][0]["content"] == "dark mode"
+
+            fetched = client.get(f"/api/v1/memory/entries/{created.data['entry_id']}/")
+            assert fetched.status_code == 200
+            assert fetched.data["content"] == "dark mode"
+
+    def test_conflicting_body_scope_is_400(self, monkeypatch, _clear_memory_cache):
+        """The URL pins scope=workspace; a conflicting body scope is rejected."""
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            _user, token = editor_user_and_token(tenant, ws)
+            response = _client_for(token).post(
+                _WS_ENTRIES.format(ws=ws.id),
+                {"content": "x", "scope": "user"},
+                format="json",
+            )
+            assert response.status_code == 400
+
+    def test_workspace_admin_purges_workspace_scope(self, monkeypatch, _clear_memory_cache):
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            from memory.backends import get_memory_backend
+
+            get_memory_backend().upsert(tenant.id, "workspace", ws.id, "ws fact")
+            _user, token = _workspace_admin_user_and_token(tenant, ws)
+            response = _client_for(token).delete(_WS_ENTRIES.format(ws=ws.id))
+            assert response.status_code == 200
+            assert response.data["deleted"] == 1
+            assert MemoryEntry.objects.filter(
+                scope=MemoryEntry.SCOPE_WORKSPACE, workspace_id=ws.id
+            ).count() == 0
+
+    def test_editor_cannot_purge(self, monkeypatch, _clear_memory_cache):
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            _user, token = editor_user_and_token(tenant, ws)
+            response = _client_for(token).delete(_WS_ENTRIES.format(ws=ws.id))
+            assert response.status_code == 403
+
+
+@pytest.mark.django_db
+class TestArtifactMemoryScopeValidationRest:
+    def test_conflicting_body_scope_is_400(self, monkeypatch, _clear_memory_cache):
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            artifact = _make_artifact(tenant, ws)
+            _user, token = editor_user_and_token(tenant, ws)
+            response = _client_for(token).post(
+                _ARTIFACT_MEMORY.format(artifact=artifact.id),
+                {"content": "x", "scope": "workspace"},
+                format="json",
+            )
+            assert response.status_code == 400
+
+
+@pytest.mark.django_db
+class TestMemoryWriteRateLimitRest:
+    """The REST write path must charge the SAME limiter as MCP memory.write."""
+
+    def test_second_personal_write_over_the_limit_is_429_with_retry_after(
+        self, monkeypatch, _clear_memory_cache
+    ):
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        monkeypatch.setenv("MEMORY_WRITE_RATE_LIMIT_PER_HOUR", "1")
+        with active_tenant() as tenant:
+            _user, token = editor_user_and_token(tenant, workspace=None)
+            client = _client_for(token)
+
+            first = client.post(_MY_MEMORY, {"content": "one"}, format="json")
+            assert first.status_code == 201
+
+            second = client.post(_MY_MEMORY, {"content": "two"}, format="json")
+            assert second.status_code == 429
+            assert second.data["error"]["code"] == "RATE_LIMITED"
+            assert int(second["Retry-After"]) > 0
+
+
+@pytest.mark.django_db
+class TestMemoryEntryPatchRest:
+    """``PATCH /api/v1/memory/entries/<entry_id>/`` — history-preserving edit."""
+
+    def test_owner_patch_supersedes_the_old_row(self, monkeypatch, _clear_memory_cache):
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        with active_tenant() as tenant:
+            user, token = editor_user_and_token(tenant, workspace=None)
+            entry = MemoryEntry.objects.create(
+                tenant=tenant, scope=MemoryEntry.SCOPE_USER, user=user, content="old"
+            )
+            response = _client_for(token).patch(
+                f"/api/v1/memory/entries/{entry.id}/",
+                {"content": "new"},
+                format="json",
+            )
+            assert response.status_code == 200
+            assert response.data["content"] == "new"
+            entry.refresh_from_db()
+            assert str(entry.superseded_by_id) == response.data["entry_id"]
+
+    def test_non_owner_patch_is_403(self, monkeypatch, _clear_memory_cache):
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        with active_tenant() as tenant:
+            owner, _owner_token = editor_user_and_token(tenant, workspace=None)
+            _other, other_token = editor_user_and_token(tenant, workspace=None)
+            entry = MemoryEntry.objects.create(
+                tenant=tenant, scope=MemoryEntry.SCOPE_USER, user=owner, content="private"
+            )
+            response = _client_for(other_token).patch(
+                f"/api/v1/memory/entries/{entry.id}/", {"content": "hacked"}, format="json"
+            )
+            assert response.status_code == 403
+
+    def test_empty_content_is_400(self, monkeypatch, _clear_memory_cache):
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        with active_tenant() as tenant:
+            user, token = editor_user_and_token(tenant, workspace=None)
+            entry = MemoryEntry.objects.create(
+                tenant=tenant, scope=MemoryEntry.SCOPE_USER, user=user, content="old"
+            )
+            response = _client_for(token).patch(
+                f"/api/v1/memory/entries/{entry.id}/", {"content": "   "}, format="json"
+            )
+            assert response.status_code == 400
+
+
+@pytest.mark.django_db
+class TestSystemMemoryEntriesWriteRest:
+    """``POST /api/v1/system/memory/entries/`` — System-Admin write (#1291)."""
+
+    def test_system_admin_can_write_user_scope(self, monkeypatch, _clear_memory_cache):
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        with active_tenant() as tenant:
+            response = _admin_client(tenant).post(
+                _ENTRIES_URL, {"content": "admin fact", "scope": "user"}, format="json"
+            )
+            assert response.status_code == 201
+            assert response.data["scope"] == "user"
+
+    def test_unknown_scope_is_400(self, monkeypatch, _clear_memory_cache):
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        with active_tenant() as tenant:
+            response = _admin_client(tenant).post(
+                _ENTRIES_URL, {"content": "x", "scope": "galaxy"}, format="json"
+            )
+            assert response.status_code == 400
+
+    def test_workspace_scope_without_workspace_id_is_400(
+        self, monkeypatch, _clear_memory_cache
+    ):
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        with active_tenant() as tenant:
+            response = _admin_client(tenant).post(
+                _ENTRIES_URL, {"content": "x", "scope": "workspace"}, format="json"
+            )
+            assert response.status_code == 400
+
+    def test_user_scope_with_workspace_id_is_400(self, monkeypatch, _clear_memory_cache):
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            response = _admin_client(tenant).post(
+                _ENTRIES_URL,
+                {"content": "x", "scope": "user", "workspace_id": str(ws.id)},
+                format="json",
+            )
+            assert response.status_code == 400
+
+    def test_non_admin_is_denied(self, monkeypatch, _clear_memory_cache):
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            _user, token = editor_user_and_token(tenant, ws)
+            response = _client_for(token).post(
+                _ENTRIES_URL, {"content": "x", "scope": "user"}, format="json"
+            )
+            assert response.status_code == 403
+
+    def test_unauthenticated_returns_401(self):
+        response = APIClient().post(
+            _ENTRIES_URL, {"content": "x", "scope": "user"}, format="json"
+        )
+        assert response.status_code == 401
+
+
+@pytest.mark.django_db
+class TestMemoryConsolidationCountersRest:
+    """Issue #1300: the System-Admin overview carries the per-source counter."""
+
+    _OVERVIEW_URL = "/api/v1/system/memory/workspaces/"
+
+    def test_overview_carries_per_source_counts(self, monkeypatch, _clear_memory_cache):
+        from memory.metrics import increment_consolidation
+
+        increment_consolidation("InterviewChatTurn")
+        increment_consolidation("InterviewChatTurn")
+        increment_consolidation("InteractionCompleted")
+        with active_tenant() as tenant:
+            response = _admin_client(tenant).get(self._OVERVIEW_URL)
+            assert response.status_code == 200
+            counts = response.data["memory_consolidations_total"]
+            assert counts["InterviewChatTurn"] == 2
+            assert counts["InteractionCompleted"] == 1
+            assert response.data["consolidation_total"] == 3
+
+    def test_overview_counts_empty(self, monkeypatch, _clear_memory_cache):
+        with active_tenant() as tenant:
+            response = _admin_client(tenant).get(self._OVERVIEW_URL)
+            assert response.status_code == 200
+            assert response.data["memory_consolidations_total"] == {}
+            assert response.data["consolidation_total"] == 0
+
+    def test_overview_denies_non_admin(self, _clear_memory_cache):
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            _user, token = editor_user_and_token(tenant, ws)
+            assert _client_for(token).get(self._OVERVIEW_URL).status_code == 403
