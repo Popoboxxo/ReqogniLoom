@@ -64,6 +64,7 @@ not an oversight: it is the behaviour for callers that do not track versions.
 | `/api/v1/issues/{id}/` | — | — | yes |
 | `/api/v1/change-requests/{id}/` | — | — | yes |
 | `/api/v1/glossary/{id}/` | — | — | yes |
+| `/api/v1/workspaces/{id}/` | yes | yes | yes |
 | `/api/v1/baselines/{id}/` | yes | yes (`412`) | n/a — baselines are immutable, PATCH answers `405` |
 | `POST .../transitions/` | workflow revision in the response | yes, but means the **workflow** revision | yes, but means the **entity** version |
 | `goal`, `main-goal` | — | — | not enforced (lineage-versioned; updates append a version) |
@@ -73,6 +74,14 @@ The `ETag` value is the entity's `version` counter, quoted (`"7"`) — the very
 counter `expected_version` compares against, so the two can never disagree
 about which revision is current. Entities without a `version` counter fall back
 to a timestamp tag; that is the `Baseline` case.
+
+The generated OpenAPI document declares the `412` response on every
+ETag-enabled `PATCH` operation (workspace, requirement, test case, baseline), so
+a generated client can build the retry-on-precondition-failed path from the
+contract instead of discovering it at runtime (`#1244`). A `PATCH` on a workspace
+that changes nothing the user recognises still advances the counter: `version`
+is a concurrency token, not a content revision number (see the note on
+`AuditableModel.version`).
 
 ### `transitions/` is a different lock
 
@@ -489,4 +498,31 @@ outdated-equivalent target. Consequences:
 * List visibility is uniform across artifact types: `?include_deleted=true`
   reveals outdated rows, and every artifact list offers the same opt-in toggle
   plus an "outdated" row badge.
+
+---
+
+## 11. Suggestion inbox — agent-keyed writes, `409 PRODUCER_CONTEXT_REQUIRED`
+
+The suggestion inbox (`GET /api/v1/suggestions/`, accepted/rejected via
+`POST /api/v1/suggestions/{id}/accept/` / `.../reject/`) is the human-readable
+side of the ADR-019 loop. In the UI it is the **"Suggestions" mode of
+`ReviewsView`** — there is no second page or route. Two facts a client (and a
+human reviewer) has to know:
+
+* **Suggestions are produced by an agent, never by the human UI.** Producing a
+  proposal requires an **agent-typed API key** (an `reqlo_*` key with an agent
+  principal); a human bearer token or session is refused **fail-closed** with
+  `409 PRODUCER_CONTEXT_REQUIRED`. That is by design (Zusage 7(f)): an
+  unstamped, unreviewed proposal must never be attributed to a person. The MCP
+  side raises the same error (`suggestion` tool group), so the guarantee is
+  transport-independent.
+* **The inbox is already reachable** — it is the mode toggle on the review
+  surface (`reviews-suggestions-mode-toggle`), with an accompanying hint that
+  names the agent path. An **empty inbox is expected** on a workspace that no
+  agent has proposed into; it is not a broken feature.
+
+An agent may not accept or reject **its own** proposal: that answers
+`403 PERMISSION_DENIED` (`AgentSelfConfirmError`). Accept/reject require the
+`WRITE` operation (editor/approver/admin); reading the inbox is `READ`
+(viewer included).
 

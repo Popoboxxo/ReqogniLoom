@@ -555,8 +555,10 @@
   },
   "suggestions": {
     "mode": "Vorschläge",
+    "modeHint": "KI-Agenten-Vorschläge — nur über einen Agent-API-Key befüllbar",
     "heading": "Offene Vorschläge",
     "empty": "Keine offenen Vorschläge.",
+    "emptyHint": "Vorschläge werden von KI-Agenten erzeugt und erscheinen hier erst als prüfbare Vorschläge. Befüllt werden sie über einen Agent-typisierten API-Key (z. B. die MCP-Tools des Agenten) — ein menschlicher Login erzeugt bewusst keine Vorschläge.",
     "error": "Vorschläge konnten nicht geladen werden.",
     "provenance": "Vorschlag von {{source}} · {{time}}",
     "unknownSource": "unbekannter Quelle",

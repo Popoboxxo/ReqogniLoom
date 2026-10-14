@@ -182,9 +182,20 @@ export function SuggestionsInbox(): JSX.Element {
       </p>
 
       {suggestions.length === 0 ? (
-        <p data-testid="suggestions-empty" className={styles.mutedText}>
-          {t("suggestions.empty")}
-        </p>
+        <div data-testid="suggestions-empty">
+          <p className={styles.mutedText}>{t("suggestions.empty")}</p>
+          {/* #1245: an empty inbox is not a broken inbox. The suggestions only
+              arrive from an agent-typed API key (the write path is
+              fail-closed, 409 PRODUCER_CONTEXT_REQUIRED), so the empty state
+              has to name that path — otherwise a reviewer reads "nothing here"
+              as the feature being unavailable. */}
+          <p
+            data-testid="suggestions-empty-hint"
+            className={styles.emptyHint}
+          >
+            {t("suggestions.emptyHint")}
+          </p>
+        </div>
       ) : (
         <ul className={styles.list} data-testid="suggestions-list">
           {suggestions.map((suggestion) => {
