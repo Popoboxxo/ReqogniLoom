@@ -91,6 +91,13 @@ export type {
   RiskMetric,
   RiskSeverity,
   ThresholdWarning,
+  // Issue #1265 — central statistics registry + values-by-keys
+  MetricCatalog,
+  MetricCatalogEntry,
+  MetricValues,
+  MetricValueEntry,
+  MetricScope,
+  MetricValuesQueryOptions,
 } from "./metrics";
 
 export { attributeDefinitionsApi } from "./attribute-definitions";

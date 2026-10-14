@@ -10,6 +10,12 @@
  * The endpoint proxies to backend.se_metrics.services.compute_metrics
  * and returns a stable MetricsResult (REQ-L2-SM-012).
  *
+ * Issue #1265 adds two sibling reads over the same route:
+ *   - `catalog()` -> GET /api/v1/metrics/catalog/ (the central statistics
+ *     registry: key, title, unit, scope, query contract, default visibility),
+ *   - `values()`  -> GET /api/v1/metrics/?...&keys=... (only the selected
+ *     statistics' scalars, reusing the cached computation).
+ *
  * Single workspace model: dashboard picks the active workspace from
  * WorkspaceContext; the optional `type` filter is forwarded to the backend
  * which currently treats it as an accepted but not-applied parameter
@@ -90,7 +96,62 @@ export interface MetricsResult {
   traceability_coverage: TraceabilityCoverageMetric;
   workflow_gaps: WorkflowGapMetric;
   open_risks: RiskMetric;
+  /**
+   * #1267 — additive metric. Optional here because it is absent from older
+   * cached payloads and from test fixtures; the backend `to_dict()` always
+   * emits it.
+   */
+  verification_coverage?: TraceabilityCoverageMetric;
   warnings: ThresholdWarning[];
+}
+
+// ---------------------------------------------------------------------------
+// Central statistics registry (Issue #1265) — mirrors
+// `se_metrics.registry.MetricSpec.to_catalog_entry()` / `get_metric_values()`.
+// ---------------------------------------------------------------------------
+
+/** Calculation scope vocabulary (Issue #1265). */
+export type MetricScope = "workspace" | "tenant" | "artifact_type";
+
+export interface MetricCatalogEntry {
+  key: string;
+  title: string;
+  /** i18n key resolved before falling back to `title`. */
+  title_key: string;
+  unit: string;
+  scope: MetricScope | string;
+  description: string;
+  /** True for metrics whose computation scales with the artifact count. */
+  expensive: boolean;
+  /** Part of the default widget set when the user has no explicit selection. */
+  default_visible: boolean;
+  source: string;
+  params: string[];
+}
+
+export interface MetricCatalog {
+  metrics: MetricCatalogEntry[];
+  default_keys: string[];
+  all_keys: string[];
+}
+
+export interface MetricValueEntry {
+  key: string;
+  title: string;
+  title_key: string;
+  unit: string;
+  scope: string;
+  expensive: boolean;
+  value: number | null;
+  computed_at: ISODateTime;
+}
+
+export interface MetricValues {
+  workspace_id: UUID;
+  computed_at: ISODateTime;
+  timeframe: string;
+  metrics: Record<string, MetricValueEntry>;
+  unknown_keys: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -102,6 +163,15 @@ export interface MetricsQueryOptions {
   timeframe?: string;
   /** Optional type filter. Backend currently accepts but does not apply it. */
   type?: string;
+}
+
+export interface MetricValuesQueryOptions {
+  /** Metric keys to return. Omitted/empty means every registered metric. */
+  keys?: string[];
+  /** ISO-8601 duration like "P30D". Backend default if omitted. */
+  timeframe?: string;
+  /** Invalidate the cached computation before reading (on-demand recompute). */
+  refresh?: boolean;
 }
 
 export const metricsApi = {
@@ -118,6 +188,32 @@ export const metricsApi = {
     if (options.type) params.set("type", options.type);
     if (options.timeframe) params.set("timeframe", options.timeframe);
     return apiClient.get<MetricsResult>(`/metrics/?${params.toString()}`);
+  },
+
+  /**
+   * GET /api/v1/metrics/catalog/ (Issue #1265) — the available statistics.
+   * Pure registry metadata; no workspace required.
+   */
+  catalog(): Promise<MetricCatalog> {
+    return apiClient.get<MetricCatalog>("/metrics/catalog/");
+  },
+
+  /**
+   * GET /api/v1/metrics/?workspace_id=...&keys=... (Issue #1265) — the
+   * *values* of the selected statistics, reusing the cached computation.
+   */
+  values(
+    workspaceId: UUID,
+    options: MetricValuesQueryOptions = {},
+  ): Promise<MetricValues> {
+    const params = new URLSearchParams();
+    params.set("workspace_id", workspaceId);
+    if (options.keys && options.keys.length > 0) {
+      params.set("keys", options.keys.join(","));
+    }
+    if (options.timeframe) params.set("timeframe", options.timeframe);
+    if (options.refresh) params.set("refresh", "true");
+    return apiClient.get<MetricValues>(`/metrics/?${params.toString()}`);
   },
 };
 

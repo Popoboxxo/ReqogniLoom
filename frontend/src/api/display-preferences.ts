@@ -28,6 +28,12 @@ import { apiClient } from "./client";
 /** Wire shape for both GET and PATCH on this path. */
 export interface DisplayPreferences {
   show_readable_ids: boolean;
+  /**
+   * Issue #1265 — the caller's own statistics widget selection and order
+   * (metric keys from `GET /api/v1/metrics/catalog/`). `null` means "no
+   * explicit selection": render the registry's `default_keys`.
+   */
+  visible_metrics: string[] | null;
 }
 
 const PATH = "/users/me/display-preferences/";

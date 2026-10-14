@@ -17,8 +17,14 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useWorkspace } from "../../context/WorkspaceContext";
-import { metricsApi, type MetricsResult } from "../../api/metrics";
+import {
+  metricsApi,
+  type MetricCatalogEntry,
+  type MetricsResult,
+} from "../../api/metrics";
 import { PageHeader } from "../shared/PageHeader";
+import { MetricsWidgetConfig } from "./MetricsWidgetConfig";
+import { useMetricWidgets } from "./useMetricWidgets";
 import styles from "./MetricsDashboard.module.css";
 
 // ---------------------------------------------------------------------------
@@ -31,13 +37,20 @@ interface MetricTileSpec {
   /** stable identifier used for data-testid suffixes */
   name:
     | "coverage"
+    | "verificationCoverage"
     | "volatility"
     | "workflowGap"
     | "openRisks"
     | "openRisksCritical";
-  /** i18n key for the title */
+  /**
+   * Issue #1265: the key this tile renders, as registered in the backend
+   * statistics registry (`se_metrics.registry`). The per-user widget selection
+   * and the catalogue-driven title/unit are keyed by this, not by `name`.
+   */
+  metricKey: string;
+  /** i18n key for the title (fallback when the catalogue is unavailable) */
   titleKey: string;
-  /** unit suffix shown next to the value */
+  /** unit suffix shown next to the value (fallback for the catalogue unit) */
   unit: string;
   /** formatter for the numeric value */
   format: (n: number) => string;
@@ -59,6 +72,7 @@ interface MetricTileSpec {
 const TILES: MetricTileSpec[] = [
   {
     name: "coverage",
+    metricKey: "traceability_coverage",
     titleKey: "metrics.coverage",
     unit: "%",
     format: (n) => n.toFixed(1),
@@ -68,7 +82,22 @@ const TILES: MetricTileSpec[] = [
     notComputed: (m) => m.traceability_coverage.total === 0,
   },
   {
+    // #1265: registered in the catalogue but opt-in (registry
+    // `default_visible: false`), so the historical 5-tile default layout
+    // (#806/#809) is unchanged.
+    name: "verificationCoverage",
+    metricKey: "verification_coverage",
+    titleKey: "metrics.verificationCoverage",
+    unit: "%",
+    format: (n) => n.toFixed(1),
+    value: (m) => m.verification_coverage?.coverage_percent ?? 0,
+    direction: "lower-bad",
+    thresholds: { warning: 80, critical: 50 },
+    notComputed: (m) => (m.verification_coverage?.total ?? 0) === 0,
+  },
+  {
     name: "volatility",
+    metricKey: "volatility",
     titleKey: "metrics.volatility",
     unit: "/req",
     format: (n) => n.toFixed(2),
@@ -79,6 +108,7 @@ const TILES: MetricTileSpec[] = [
   },
   {
     name: "workflowGap",
+    metricKey: "workflow_gaps",
     titleKey: "metrics.workflowGap",
     unit: "",
     format: (n) => String(Math.round(n)),
@@ -88,6 +118,7 @@ const TILES: MetricTileSpec[] = [
   },
   {
     name: "openRisks",
+    metricKey: "open_risks",
     titleKey: "metrics.openRisks",
     unit: "",
     format: (n) => String(Math.round(n)),
@@ -97,6 +128,7 @@ const TILES: MetricTileSpec[] = [
   },
   {
     name: "openRisksCritical",
+    metricKey: "open_risks_critical",
     titleKey: "metrics.openRisksCritical",
     unit: "",
     format: (n) => String(Math.round(n)),
@@ -104,6 +136,19 @@ const TILES: MetricTileSpec[] = [
     direction: "higher-bad",
     thresholds: { warning: 1, critical: 3 },
   },
+];
+
+/**
+ * Issue #1265: the tile set rendered when the catalogue is unavailable (e.g.
+ * the request failed) — mirrors the registry's `default_visible` metrics so a
+ * broken `/metrics/catalog/` never blanks the dashboard.
+ */
+const FALLBACK_VISIBLE_METRIC_KEYS: readonly string[] = [
+  "traceability_coverage",
+  "volatility",
+  "workflow_gaps",
+  "open_risks",
+  "open_risks_critical",
 ];
 
 const MAX_HISTORY = 30;
@@ -122,6 +167,8 @@ const MAX_HISTORY = 30;
 const METRIC_HELP: Record<MetricTileSpec["name"], string> = {
   coverage:
     "Prozentsatz der Anforderungen mit mindestens einer Trace-Verbindung zu Testfällen oder Architektur-Elementen.",
+  verificationCoverage:
+    "Prozentsatz der aktiven Anforderungen mit Verifikationsnachweis (verifies-Verbindung oder deklarierte Verifikationsmethode).",
   volatility:
     "Durchschnittliche Anzahl von Änderungen pro Anforderung über die Projektlaufzeit. Höhere Werte zeigen unstabile Anforderungen an.",
   workflowGap:
@@ -253,6 +300,12 @@ interface MetricTileProps {
   helpText?: string;
   /** UI-35: true when the current metric has no basis to compute a value from. */
   notComputed?: boolean;
+  /**
+   * Issue #1265: the registry catalogue entry for this tile, when the
+   * catalogue loaded. The registry is authoritative for the display title and
+   * unit; the local spec is the fallback for an unavailable catalogue.
+   */
+  catalogEntry?: MetricCatalogEntry;
 }
 
 function MetricTile({
@@ -263,12 +316,16 @@ function MetricTile({
   helpMode = false,
   helpText,
   notComputed = false,
+  catalogEntry,
 }: MetricTileProps): JSX.Element {
   const { t } = useTranslation();
   const current = history.length > 0 ? history[history.length - 1] : 0;
   const status = notComputed ? "neutral" : classify(spec, current);
   const palette = STATUS_COLORS[status];
-  const tileTitle = t(spec.titleKey, spec.name);
+  const tileTitle = catalogEntry
+    ? t(catalogEntry.title_key, catalogEntry.title)
+    : t(spec.titleKey, spec.name);
+  const unit = catalogEntry?.unit ?? spec.unit;
 
   return (
     <div
@@ -310,9 +367,9 @@ function MetricTile({
             >
               {spec.format(current)}
             </span>
-            {spec.unit && (
+            {unit && (
               <span className={styles.unit}>
-                {spec.unit}
+                {unit}
               </span>
             )}
           </>
@@ -328,12 +385,12 @@ function MetricTile({
             ? t("metrics.thresholdLowerBad", "Warning < {{warning}}{{unit}} · Critical < {{critical}}{{unit}}", {
                 warning: spec.thresholds.warning,
                 critical: spec.thresholds.critical,
-                unit: spec.unit,
+                unit,
               })
             : t("metrics.thresholdHigherBad", "Warning ≥ {{warning}}{{unit}} · Critical ≥ {{critical}}{{unit}}", {
                 warning: spec.thresholds.warning,
                 critical: spec.thresholds.critical,
-                unit: spec.unit,
+                unit,
               })}
         </span>
       )}
@@ -391,6 +448,30 @@ export default function MetricsDashboard(): JSX.Element {
   const [, setLastSuccessAt] = useState<number | null>(null);
   // Help mode toggle
   const [helpMode, setHelpMode] = useState<boolean>(false);
+
+  // Issue #1265: registry catalogue + the caller's own widget selection/order.
+  const {
+    catalog,
+    visibleKeys,
+    isLoading: widgetsLoading,
+    isSaving: widgetsSaving,
+    error: widgetError,
+    toggle: toggleWidget,
+  } = useMetricWidgets(FALLBACK_VISIBLE_METRIC_KEYS);
+
+  const catalogByKey = useMemo(() => {
+    const map = new Map<string, MetricCatalogEntry>();
+    for (const entry of catalog) map.set(entry.key, entry);
+    return map;
+  }, [catalog]);
+
+  // Rendered tiles: the user's selection, in the user's order.
+  const visibleTiles = useMemo(() => {
+    const order = new Map(visibleKeys.map((key, index) => [key, index]));
+    return TILES.filter((spec) => order.has(spec.metricKey)).sort(
+      (a, b) => (order.get(a.metricKey) ?? 0) - (order.get(b.metricKey) ?? 0),
+    );
+  }, [visibleKeys]);
 
   const load = useCallback(async (): Promise<void> => {
     if (!activeWorkspace) return;
@@ -528,6 +609,16 @@ export default function MetricsDashboard(): JSX.Element {
         </div>
       )}
 
+      {/* Issue #1265: the configurable, per-user statistics header bar. */}
+      <MetricsWidgetConfig
+        catalog={catalog}
+        visibleKeys={visibleKeys}
+        isLoading={widgetsLoading}
+        isSaving={widgetsSaving}
+        error={widgetError}
+        onToggle={toggleWidget}
+      />
+
       {warningCount > 0 && metrics && (
         <ul
           data-testid="metrics-warnings"
@@ -547,6 +638,10 @@ export default function MetricsDashboard(): JSX.Element {
         </p>
       ) : isLoading && !metrics ? (
         <p data-testid="metrics-loading">{t("loading", "Loading...")}</p>
+      ) : visibleTiles.length === 0 ? (
+        <p data-testid="metrics-no-widgets" className={styles.mutedText}>
+          {t("metrics.widgetConfigEmpty")}
+        </p>
       ) : (
         /* #809/#806: the tile grid's responsive column contract (1/3/5
            columns — never a lone tile on a short row, always a full-width
@@ -555,10 +650,11 @@ export default function MetricsDashboard(): JSX.Element {
            tile alone on a second row at the viewport widths that fit exactly
            four tracks. */
         <div className={styles.tileGrid} data-testid="metrics-tile-grid">
-          {TILES.map((spec) => (
+          {visibleTiles.map((spec) => (
             <MetricTile
               key={spec.name}
               spec={spec}
+              catalogEntry={catalogByKey.get(spec.metricKey)}
               history={history[spec.name] ?? []}
               computedAt={computedAt}
               isStale={isStale}
