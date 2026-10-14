@@ -579,6 +579,12 @@ _READ_ONLY_TOOL_NAMES: frozenset[str] = frozenset(
         # ADMIN capability tier is required to reach the handler"; it is NOT a
         # weaker door than REST.
         "audit.waivers",
+        # #1265: the central statistics surface. ``metrics.catalog`` is pure
+        # registry metadata (no DB access, no workspace) and ``metrics.get``
+        # reads the cached computation for its required ``workspace_id``.
+        # Neither ends on ".read"/".query", so both are listed explicitly.
+        "metrics.catalog",
+        "metrics.get",
     }
 )
 
@@ -970,6 +976,7 @@ class ToolRegistry:
         from mcp_server.tools.attribute_migration import AttributeMigrationToolGroup
         from mcp_server.tools.icd import IcdToolGroup
         from mcp_server.tools.comment import CommentToolGroup
+        from mcp_server.tools.metrics import MetricsToolGroup
         from application.adr_service import AdrService
         from application.risk_service import RiskService
         from application.issue_service import IssueService
@@ -1059,6 +1066,11 @@ class ToolRegistry:
             # comment.list is read-exempt below; create/resolve stay
             # write-gated (the service re-asserts write permission too).
             "comment": CommentToolGroup(),
+            # Issue #1265: central, user-configurable statistics surface.
+            # metrics.catalog (registry metadata) + metrics.get (cached values
+            # per workspace) — both read-exempt below; identical to the REST
+            # /api/v1/metrics/catalog/ and /api/v1/metrics/?keys=… endpoints.
+            "metrics": MetricsToolGroup(),
         })
 
     def list_tools(

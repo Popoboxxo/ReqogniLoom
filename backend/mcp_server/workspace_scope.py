@@ -336,6 +336,12 @@ TOOL_ENFORCED_WORKSPACE_SCOPE: frozenset[str] = frozenset(
 #:   several workspaces) rather than by one workspace. All three are admin-gated
 #:   in ``AttributeMigrationService``; ``dry_run``/``apply``/``rollback`` are
 #:   fail-closed write-gated in the tool registry.
+#: * ``metrics.catalog`` (#1265) — the statistics catalogue is pure registry
+#:   metadata (keys, titles, units, scopes, query contracts) with no workspace
+#:   data and no DB access; it accepts no ``workspace_id``, so there is nothing
+#:   to scope to. Its sibling ``metrics.get`` declares ``workspace_id`` as
+#:   *required* and is therefore gated by the dispatcher like any other
+#:   workspace-scoped read.
 TENANT_SCOPED_READ_TOOLS: frozenset[str] = frozenset(
     {
         "admin.backup_list",
@@ -358,6 +364,7 @@ TENANT_SCOPED_READ_TOOLS: frozenset[str] = frozenset(
         "attribute_migration.plan",
         "attribute_migration.list_runs",
         "attribute_migration.get_run",
+        "metrics.catalog",
     }
 )
 

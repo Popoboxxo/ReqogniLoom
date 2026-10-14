@@ -23,10 +23,10 @@ generated OpenAPI at `GET /api/schema/` and `/api/schema/swagger-ui/`
 
 | Figure | Value |
 |--------|-------|
-| Tools | **239** |
-| Tool-group prefixes | **36** |
-| Version | `v1.8.0-beta.20` (`VERSION`, `1.8.0-beta.20`) — the ADR-019 WP3 `suggestion` group (`suggestion.list`/`suggestion.accept`/`suggestion.reject`) is the newest tool-surface change, and `traceability.suggest_links` became a write tool; `interview.chat` ([#1164](https://github.com/Popoboxxo/ReqogniLoom/issues/1164)), `traceability.query_links` ([#1098](https://github.com/Popoboxxo/ReqogniLoom/issues/1098)), `main_goal.query` ([#1097](https://github.com/Popoboxxo/ReqogniLoom/issues/1097)) and `traceability.suggest_links_status` ([#1197](https://github.com/Popoboxxo/ReqogniLoom/issues/1197)) preceded them; `memory.ask` (REQ-192, [#1154](https://github.com/Popoboxxo/ReqogniLoom/issues/1154)) preceded those. The **239** figure on top of all of that adds the structured acceptance-criteria tools (`requirement.acceptance_criteria.get`/`set`/`check`, `requirement.suggest_level`, [#1288](https://github.com/Popoboxxo/ReqogniLoom/issues/1288)) and the memory administration surface (`memory.admin`, [#1290](https://github.com/Popoboxxo/ReqogniLoom/issues/1290)/[#1301](https://github.com/Popoboxxo/ReqogniLoom/issues/1301)/[#1302](https://github.com/Popoboxxo/ReqogniLoom/issues/1302)) |
-| Measured at | the `v1.8.0-beta.20` tool surface: ADR-019 WP3 (`suggestion` group, `traceability.suggest_links` write), the structured acceptance-criteria field type (#1288) and the memory administration surface (#1290/#1301/#1302) |
+| Tools | **241** |
+| Tool-group prefixes | **37** |
+| Version | `v1.8.0-beta.20` (`VERSION`, `1.8.0-beta.20`) — the central statistics group `metrics` (`metrics.catalog`/`metrics.get`, [#1265](https://github.com/Popoboxxo/ReqogniLoom/issues/1265)) is the newest tool-surface change; the ADR-019 WP3 `suggestion` group (`suggestion.list`/`suggestion.accept`/`suggestion.reject`) and `traceability.suggest_links` becoming a write tool preceded it; `interview.chat` ([#1164](https://github.com/Popoboxxo/ReqogniLoom/issues/1164)), `traceability.query_links` ([#1098](https://github.com/Popoboxxo/ReqogniLoom/issues/1098)), `main_goal.query` ([#1097](https://github.com/Popoboxxo/ReqogniLoom/issues/1097)) and `traceability.suggest_links_status` ([#1197](https://github.com/Popoboxxo/ReqogniLoom/issues/1197)) preceded them; `memory.ask` (REQ-192, [#1154](https://github.com/Popoboxxo/ReqogniLoom/issues/1154)) preceded those. The **241** figure on top of all of that adds the central statistics tools (`metrics.catalog`, `metrics.get`, [#1265](https://github.com/Popoboxxo/ReqogniLoom/issues/1265)), the structured acceptance-criteria tools (`requirement.acceptance_criteria.get`/`set`/`check`, `requirement.suggest_level`, [#1288](https://github.com/Popoboxxo/ReqogniLoom/issues/1288)) and the memory administration surface (`memory.admin`, [#1290](https://github.com/Popoboxxo/ReqogniLoom/issues/1290)/[#1301](https://github.com/Popoboxxo/ReqogniLoom/issues/1301)/[#1302](https://github.com/Popoboxxo/ReqogniLoom/issues/1302)) |
+| Measured at | the `v1.8.0-beta.20` tool surface plus the central statistics group (`metrics.catalog`/`metrics.get`, [#1265](https://github.com/Popoboxxo/ReqogniLoom/issues/1265)): ADR-019 WP3 (`suggestion` group, `traceability.suggest_links` write), the structured acceptance-criteria field type (#1288) and the memory administration surface (#1290/#1301/#1302) |
 | Source of truth | `docs/agent-templates/tool-manifest.json`, `tool_count` field |
 
 History of the number, so a future reader can tell an intentional change from a
@@ -44,7 +44,8 @@ stale copy:
 | 223 / 35 | after `main_goal.query` ([#1097](https://github.com/Popoboxxo/ReqogniLoom/issues/1097)) | correct until `traceability.suggest_links_status` |
 | 224 / 35 | after `traceability.suggest_links_status` ([#1197](https://github.com/Popoboxxo/ReqogniLoom/issues/1197)) | correct until the ADR-019 `suggestion` group |
 | 228 / 36 | after the ADR-019 WP3 `suggestion` group (`suggestion.list`, `suggestion.accept`, `suggestion.reject` — the 36th prefix) and `traceability.suggest_links` becoming **write** (it now persists a proposal + receipt, [#1155](https://github.com/Popoboxxo/ReqogniLoom/issues/1155)), and `workspace.resolve_references` ([#17](https://github.com/Popoboxxo/ReqogniLoom/issues/17)) | correct until the acceptance-criteria + memory-administration tools |
-| **239 / 36** | after the structured acceptance-criteria field type (#1288: `requirement.acceptance_criteria.get`/`set`/`check`, `requirement.suggest_level`) and the memory administration surface (#1290/#1301/#1302: `memory.admin`) | **current** |
+| **239 / 36** | after the structured acceptance-criteria field type (#1288: `requirement.acceptance_criteria.get`/`set`/`check`, `requirement.suggest_level`) and the memory administration surface (#1290/#1301/#1302: `memory.admin`) | superseded by the `metrics` group |
+| **241 / 37** | after the central statistics group (`metrics.catalog`, `metrics.get` — the 37th prefix, [#1265](https://github.com/Popoboxxo/ReqogniLoom/issues/1265)) | **current** |
 
 ### How to re-derive the number
 
@@ -103,7 +104,7 @@ table in §1 and §2 **in the same change**, with the new version and commit.
 
 ## 2. Tool groups
 
-36 prefixes, 239 tools. Tools are called as `<prefix>.<tool_name>`.
+37 prefixes, 241 tools. Tools are called as `<prefix>.<tool_name>`.
 
 | Group | Tools | Names |
 |-------|------:|-------|
@@ -130,6 +131,7 @@ table in §1 and §2 **in the same change**, with the new version and commit.
 | `link_type` | 5 | `link_type.create`, `link_type.get`, `link_type.list`, `link_type.reset`, `link_type.update` |
 | `main_goal` | 6 | `main_goal.approve`, `main_goal.create_manual`, `main_goal.generate`, `main_goal.list_versions`, `main_goal.query`, `main_goal.read` |
 | `memory` | 14 | `memory.ask`, `memory.delete_workspace`, `memory.digest`, `memory.export`, `memory.forget`, `memory.get`, `memory.list`, `memory.overview`, `memory.projection`, `memory.promote`, `memory.query`, `memory.remember_interaction`, `memory.settings`, `memory.write` |
+| `metrics` | 2 | `metrics.catalog`, `metrics.get` |
 | `needs` | 8 | `needs.create`, `needs.derive_requirements`, `needs.get_traces`, `needs.outdate`, `needs.query`, `needs.read`, `needs.reactivate`, `needs.update` |
 | `permissions` | 4 | `permissions.check`, `permissions.list`, `permissions.revoke`, `permissions.set_rule` |
 | `prompt_template` | 4 | `prompt_template.create`, `prompt_template.get`, `prompt_template.list`, `prompt_template.update` |
