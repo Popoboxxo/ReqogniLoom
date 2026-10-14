@@ -77,6 +77,7 @@
     "bauhausTheme": "Bauhaus",
     "nordicTheme": "Nordic",
     "sepiaTheme": "Sepia",
+    "defaultTheme": "Default",
     "buildVersion": "Build {{sha}}",
     "appVersion": "v{{version}}",
     "openMenu": "Open navigation menu",
@@ -855,6 +856,24 @@
     "theme": "Theme",
     "devMode": "Dev Mode",
     "seMode": "SE Mode",
+    "devModeHint": "Feature / Story / Task",
+    "seModeHint": "System / Subsystem / Component",
+    "adminOnly": "You must be an admin to view or edit Workspace Settings. Please visit the Profile dialog for personal preferences.",
+    "workspaceName": "Workspace Name",
+    "csvImport": "CSV Import",
+    "traceability": "Traceability",
+    "decompositionLinkType": "Decomposition Link Type",
+    "defaultLinkType": "Default Link Type",
+    "workflowConfig": "Workflow Configuration",
+    "workflowConfigHint": "Whether each entity type's workflow matches the tenant-wide global default of this workspace's preset. Edit the structure in the Workflow Editor, or reset a customized workflow back to the global default.",
+    "openInEditor": "Open in Workflow Editor",
+    "noGlobalSourceHint": "This workspace has no linked global default — initialize one in System Settings first.",
+    "permissionConfig": "Permission Configuration",
+    "permissionConfigHint": "The workspace's role→capability permission matrix and whether it mirrors the global default or has been overridden.",
+    "overrideMatrix": "Override matrix…",
+    "cloneNamePlaceholder": "Sandbox Name",
+    "createSandbox": "Create Sandbox",
+    "cloningSandbox": "Cloning…",
     "saved": "Saved.",
     "traceabilityHint": "Configure which trace link type is used by default when decomposing (deriving) requirements.",
     "attributeVisibilityHint": "Configure which attributes are visible for each element type in this workspace.",
@@ -872,6 +891,13 @@
     },
     "attributeVisibility": "Attribute Visibility",
     "llm": {
+      "title": "LLM Provider",
+      "description": "Configure the LLM provider used for AI-assisted derivation. Credentials are stored per tenant and never returned by the API.",
+      "provider": "Provider",
+      "baseUrl": "Base URL",
+      "apiKey": "API Key",
+      "apiKeyNotSet": "Not set",
+      "modelName": "Model Name",
       "providerUnsupportedOption": "{{provider}} (not supported by this UI version)",
       "providerUnsupportedHint": "Provider \"{{provider}}\" is not supported by this UI version. It stays unchanged on save unless you pick a different provider."
     },
@@ -926,9 +952,12 @@
     "workflowResetConfirm": "Reset this workflow to the current global default? Workspace-specific changes will be discarded.",
     "permissionReset": "Reset permission matrix",
     "permissionResetConfirm": "Reset this workspace's permission matrix to the current global default?",
+    "resetWorkflowAria": "Reset {{entity}} workflow to default",
+    "resetPermissionMatrixAria": "Reset workspace permission matrix to default",
     "promptTemplates": {
       "title": "AI Prompt Templates",
       "description": "Customise the prompts used for AI-assisted derivation. Available placeholders: {n} (number of drafts requested), {need_title} and {need_description} (stakeholder need), {req_title} and {req_description} (requirement), and {arch_elements_json} (candidate architecture elements). Unknown or omitted placeholders are left as-is, so existing templates keep working.",
+      "interviewDescription": "Interview prompt placeholders differ by slot. interview.protocol.<Type> (phase prompt_fragment): {artifact_type}, {phase_name}, {collected_fields_json}, {missing_fields_json}, {grounding_snapshot_json}. interview.chat_turn: {transcript_json}, {transcript_summary}, {user_message}, {current_phase_fragment}, {missing_fields_json}, {grounding_snapshot_json}, {memory_context}. interview.transcript_summary: {previous_summary}, {overflow_json}.",
       "scope": "Scope",
       "scopeWorkspace": "This workspace only",
       "scopeGlobal": "Global (all workspaces)",
@@ -1213,6 +1242,10 @@
     }
   },
   "export": {
+    "title": "CSV Export",
+    "entityType": "Entity Type",
+    "errorGeneric": "Export failed.",
+    "reqifHint": "Exports this workspace's artifacts as a ReqIF 1.2 file.",
     "download": "Export",
     "downloadReqif": "Export ReqIF",
     "downloading": "Exporting..."
@@ -2338,6 +2371,20 @@
     "saveShortcutHint": "Save (Ctrl/Cmd+S)"
   },
   "permissions": {
+    "title": "Item Permissions",
+    "hint": "Per-user access rules for this workspace. A rule without an artifact applies workspace-wide; level 'none' is an explicit deny.",
+    "userRequired": "User ID is required.",
+    "noMembers": "No workspace members",
+    "selectUser": "Select a member…",
+    "workspaceWide": "Workspace-wide (all artifacts)",
+    "workspaceWideShort": "workspace-wide",
+    "grant": "Grant",
+    "filterSelect": "Show rules for member…",
+    "load": "Load rules",
+    "empty": "No permission rules for this user.",
+    "user": "User",
+    "artifact": "Artifact",
+    "level": "Level",
     "revoke": "Revoke",
     "revokeConfirm": "Revoke this permission rule?",
     "members": {
@@ -2354,6 +2401,8 @@
   },
   "permissionMatrix": {
     "roleColumn": "Role",
+    "allowed": "allowed",
+    "denied": "denied",
     "capability": {
       "read": "Read",
       "write": "Write",
@@ -2506,6 +2555,7 @@
     "custom": "Custom fields"
   },
   "attributes": {
+    "pageSummary": "Defines each element type's attributes: visibility, required state, sections and layout.",
     "entityType": "Entity type",
     "entityTypes": {
       "Requirement": "Requirement",

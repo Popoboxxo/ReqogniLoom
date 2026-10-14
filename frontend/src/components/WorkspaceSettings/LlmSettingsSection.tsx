@@ -245,7 +245,7 @@ export function LlmSettingsSection(): JSX.Element {
         disabled={isSaving}
         className="btn-primary"
       >
-        {isSaving ? t("saving", "Saving...") : t("save", "Save")}
+        {isSaving ? t("actions.saving") : t("actions.save")}
       </button>
     </section>
   );

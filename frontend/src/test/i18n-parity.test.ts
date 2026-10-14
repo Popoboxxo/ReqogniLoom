@@ -215,7 +215,18 @@ function collectInlineDefaultCount(dir: string): number {
 // cluster-5 key (`testcases.*`, `deriveTestcase.aiNotice`, `baseline.*`,
 // `traceability.pendingAiReview`/`includeUnreviewedAi`) is present in both
 // files, so none of them contributes to this count. Re-measured: 117 - 1 = 116.
-const MISSING_KEY_BASELINE = 116;
+// Lowered to 73 (#1277): the "LLM & Prompts" and "Workflows & Permissions"
+// settings tabs rendered entirely in English in a `de` workspace — their
+// sections called `t(key, "English default")` for keys absent from BOTH
+// locale files, so i18next always fell back to the inline English default
+// regardless of the active language. Added the missing `settings.llm.*`,
+// `settings.workflow*`/`settings.openInEditor`/`settings.noGlobalSourceHint`/
+// `settings.permission*`/`settings.overrideMatrix`, the `permissions.*` core
+// keys, the `settings.*` general/traceability/appearance keys and the export
+// "Entity Type" micro-rest to both files — plus `permissionMatrix.allowed`/
+// `denied` and the `settings.cloneName*`/`createSandbox`/`cloningSandbox`
+// micro-rest for the System-Settings sandbox button. Re-measured: 116 - 43 = 73.
+const MISSING_KEY_BASELINE = 73;
 
 // ---------------------------------------------------------------------------
 // DOC-02 / ADR-018 — deadline budgets (decision 2) and the second, inline-
@@ -240,10 +251,14 @@ const MISSING_KEY_BASELINE = 116;
 // INLINE_DEFAULT_BASELINE is the *real measured* number of inline-default
 // call sites on this branch, not the stale ~112 estimate the ADR carries.
 // Measured with INLINE_DEFAULT_PATTERN (string second argument only) over
-// `frontend/src/**/*.ts{,x}` excluding tests: 1289. With the looser
-// `t(<literal>,` shape (including options-object second args) it would be
-// higher, but those are not defaults. Target 0 encodes ADR-018 option A as
-// the binding end state at the same deadline.
+// `frontend/src/**/*.ts{,x}` excluding tests: 1283 (after #1277 lowered it
+// from 1289 by stripping the redundant literal defaults from the settings-tab
+// `save`/`saving` call sites — no new inline literal default was introduced;
+// the dynamic-key fallbacks used there carry a variable, not a string, second
+// argument and are therefore invisible to this scanner by construction).
+// With the looser `t(<literal>,` shape (including options-object second args)
+// it would be higher, but those are not defaults. Target 0 encodes ADR-018
+// option A as the binding end state at the same deadline.
 //
 // Residual (NOT done in DOC-02, deliberately out of scope): the 536 dead
 // locale keys (ADR-018 decision 5 / finding -303) are not removed here, and
@@ -256,7 +271,7 @@ const MISSING_KEY_TARGET = 0;
 const MISSING_KEY_DEADLINE = "2027-06-30";
 
 /** Inline `t(key, default)` call sites permitted by the non-increase ratchet. */
-const INLINE_DEFAULT_BASELINE = 1289;
+const INLINE_DEFAULT_BASELINE = 1283;
 /** Inline `t(key, default)` call sites permitted once the deadline is reached. */
 const INLINE_DEFAULT_TARGET = 0;
 /** UTC date from which INLINE_DEFAULT_TARGET is enforced. */
