@@ -1101,7 +1101,9 @@
     "L1": "L1 System",
     "L2": "L2 Subsystem",
     "L3": "L3 Component",
-    "L4": "L4 Presentation"
+    "L4": "L4 Presentation",
+    "derived": "derived",
+    "manual": "manual"
   },
   "verificationMethod": {
     "Test": "Test",
@@ -2521,6 +2523,12 @@
       "description": "Description",
       "context": "Context",
       "consequences": "Consequences"
+    },
+    "criteria": {
+      "add": "Add criterion",
+      "remove": "Remove",
+      "text": "Criterion",
+      "fulfilled": "Fulfilled"
     },
     "definitionUnavailable": "The field configuration could not be loaded.",
     "deleteTitle": "Delete artifact",

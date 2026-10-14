@@ -493,8 +493,8 @@ export const RequirementList: React.FC<RequirementListProps> = ({
                   req.level != null
                     ? `${t(`reqLevel.L${req.level}`)} · ${
                         req.level_source === 'manual'
-                          ? t('reqLevel.manual', 'manual')
-                          : t('reqLevel.derived', 'derived')
+                          ? t('reqLevel.manual')
+                          : t('reqLevel.derived')
                       }`
                     : null,
               },

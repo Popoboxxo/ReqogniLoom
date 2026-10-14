@@ -64,7 +64,7 @@ export function CriteriaList({
               type="checkbox"
               checked={item.fulfilled}
               disabled={disabled}
-              aria-label={t("artifactForm.criteria.fulfilled", "Fulfilled")}
+              aria-label={t("artifactForm.criteria.fulfilled")}
               data-testid={`${testId}-fulfilled-${index}`}
               onChange={(event) => replace(index, { fulfilled: event.target.checked })}
             />
@@ -73,29 +73,29 @@ export function CriteriaList({
               className={styles.criteriaText}
               value={item.text}
               disabled={disabled}
-              aria-label={t("artifactForm.criteria.text", "Criterion")}
+              aria-label={t("artifactForm.criteria.text")}
               data-testid={`${testId}-text-${index}`}
               onChange={(event) => replace(index, { text: event.target.value })}
             />
             <button
               type="button"
-              className={styles.optionChip}
+              className="btn-ghost"
               disabled={disabled}
               data-testid={`${testId}-remove-${index}`}
               onClick={() => remove(index)}
             >
-              {t("artifactForm.criteria.remove", "Remove")}
+              {t("artifactForm.criteria.remove")}
             </button>
           </div>
         ))}
         <button
           type="button"
-          className={styles.optionChip}
+          className="btn-secondary"
           disabled={disabled}
           data-testid={`${testId}-add`}
           onClick={add}
         >
-          {t("artifactForm.criteria.add", "Add criterion")}
+          {t("artifactForm.criteria.add")}
         </button>
       </div>
     </FieldShell>
