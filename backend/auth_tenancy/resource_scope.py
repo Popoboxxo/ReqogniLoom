@@ -300,6 +300,9 @@ _WORKSPACE_VIA_REQUEST = (
     # Issue #1257: the per-workspace tree-display configuration; the workspace
     # is carried in the URL, so the request-resolution supplies the target.
     "TreeDisplayConfigWorkspaceView",
+    # Issue #1263: the per-workspace create-dialog form definition — same URL
+    # shape and therefore the same request-resolution.
+    "CreateFormConfigWorkspaceView",
 )
 for _name in _WORKSPACE_VIA_REQUEST:
     _declare(
@@ -371,6 +374,11 @@ _TENANT_SCOPED = {
     # service and by AdminScopeRequiredMixin.
     "TreeDisplayConfigUserView": "caller's own tree display configuration",
     "TreeDisplayConfigGlobalView": "tenant-wide tree display default",
+    # Issue #1263: the personal level of the create-dialog form definition
+    # (self-service, ``ctx.user_id`` is the boundary) and the tenant-wide
+    # (global) level — the latter a tenant singleton, admin-gated on write.
+    "CreateFormConfigUserView": "caller's own create-form configuration",
+    "CreateFormConfigGlobalView": "tenant-wide create-form default",
     "NotificationViewSet": "caller's own notification feed",
     "MemorySelfServiceView": "caller's own user-scoped memory",
     # tenant-wide configuration / catalogs

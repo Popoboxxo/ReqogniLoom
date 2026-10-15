@@ -596,6 +596,11 @@ _READ_ONLY_TOOL_NAMES: frozenset[str] = frozenset(
         # (it does not end on ".read"/".query"); ``.set`` stays fail-closed
         # WRITE-gated by default.
         "tree_display_config.get",
+        # #1263: the create dialog's configurable form definition — same shape,
+        # same read/write split; ``.set`` and ``.import`` stay fail-closed
+        # WRITE-gated, ``.export`` is a read of the same level ``.get`` reads.
+        "create_form_definition.get",
+        "create_form_definition.export",
     }
 )
 
@@ -989,6 +994,7 @@ class ToolRegistry:
         from mcp_server.tools.comment import CommentToolGroup
         from mcp_server.tools.metrics import MetricsToolGroup
         from mcp_server.tools.tree_display_config import TreeDisplayConfigToolGroup
+        from mcp_server.tools.create_form_config import CreateFormConfigToolGroup
         from application.adr_service import AdrService
         from application.risk_service import RiskService
         from application.issue_service import IssueService
@@ -1090,6 +1096,13 @@ class ToolRegistry:
             # service re-asserts the role boundary per level (write authority
             # for a workspace override, admin for the tenant-wide default).
             "tree_display_config": TreeDisplayConfigToolGroup(),
+            # Issue #1263: the create dialog's configurable form definition
+            # (which fields are visible, order, required, default), three-level
+            # with precedence user > workspace > global. create_form_definition.get
+            # is read-exempt below (it does not end on ".read"/".query"); set is
+            # fail-closed write-gated, and the service re-asserts the role
+            # boundary per level.
+            "create_form_definition": CreateFormConfigToolGroup(),
         })
 
     def list_tools(

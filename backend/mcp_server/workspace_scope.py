@@ -350,6 +350,11 @@ TOOL_ENFORCED_WORKSPACE_SCOPE: frozenset[str] = frozenset(
 #:   (``_TOOL_TARGETS`` deliberately has no entry — the parameter *is* the
 #:   target workspace, so a resolution table would add nothing), and the
 #:   workspace override is only ever reached that way.
+#: * ``create_form_definition.get`` (#1263) — the same shape as
+#:   ``tree_display_config.get`` directly above: without a ``workspace_id`` it
+#:   reads only the caller's own definition and the tenant-wide default, and a
+#:   supplied ``workspace_id`` makes the dispatcher narrow the roles to it and
+#:   run the read gate.
 TENANT_SCOPED_READ_TOOLS: frozenset[str] = frozenset(
     {
         "admin.backup_list",
@@ -374,6 +379,8 @@ TENANT_SCOPED_READ_TOOLS: frozenset[str] = frozenset(
         "attribute_migration.get_run",
         "metrics.catalog",
         "tree_display_config.get",
+        "create_form_definition.get",
+        "create_form_definition.export",
     }
 )
 
