@@ -318,7 +318,6 @@ export function MarkdownPreview({
                 disabled={disabled}
                 value=""
                 onFocus={() => void loadTermsForInsert(true)}
-                onClick={() => void loadTermsForInsert(true)}
                 onChange={(event) => {
                   if (event.target.value) void handleInsertTerm(event.target.value);
                 }}
