@@ -790,6 +790,24 @@ class Workspace(TenantScopedModel):
     )
     goals_enabled = models.BooleanField(default=True)
     goals_ai_enabled = models.BooleanField(default=False)
+    # #1266: how a version-bound glossary reference token
+    # (``[[glossary:<uuid>@<revision>]]``) resolves in a rendered text field.
+    # ``pinned`` keeps the revision stored at insertion time; ``always_head``
+    # ignores the stored revision and serves the term's current head.
+    glossary_reference_mode = models.CharField(
+        max_length=16,
+        choices=[
+            ("pinned", "Pinned (version at insertion time)"),
+            ("always_head", "Always current head"),
+        ],
+        default="pinned",
+        help_text=(
+            "#1266: resolution mode for glossary reference tokens in markdown "
+            "fields. 'pinned' = the revision stored in the token wins (drift "
+            "is reported when the head moved on); 'always_head' = resolve "
+            "against the term's current head."
+        ),
+    )
     parent_workspace = models.ForeignKey(
         "self",
         on_delete=models.SET_NULL,

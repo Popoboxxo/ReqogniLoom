@@ -31,6 +31,12 @@ export interface WidgetProps {
   errors?: Record<string, string[]>;
   /** `artifact-widget-<attribute.name>`. */
   testId: string;
+  /**
+   * Backing Artifact id of the form's entity, or `null` in create mode. Used
+   * by widgets that need to write trace links for the entity they edit
+   * (glossary references, #1266).
+   */
+  artifactId?: string | null;
 }
 
 export type WidgetComponent = (props: WidgetProps) => JSX.Element;

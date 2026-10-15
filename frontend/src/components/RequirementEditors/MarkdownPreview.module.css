@@ -33,3 +33,39 @@
   background: var(--color-surface-raised);
   color: var(--color-text);
 }
+
+/* #1266: "insert glossary reference" affordance above the edit textarea. */
+.editToolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: var(--space-2);
+}
+
+.insertLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 0.85rem;
+  color: var(--color-text-muted, var(--color-text));
+}
+
+/* #1266: version-drift banner in the preview (pinned term moved on). */
+.driftHint {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+  padding: var(--space-2);
+  border: 1px solid var(--color-warning, var(--color-border));
+  border-radius: var(--radius-md);
+  color: var(--color-warning, var(--color-text));
+  font-size: 0.85rem;
+}
+
+/* #1266: a reference token whose term can no longer be resolved. */
+.unresolved {
+  border-bottom: 1px dashed var(--color-danger, var(--color-border));
+  color: var(--color-danger, var(--color-text));
+  cursor: help;
+}

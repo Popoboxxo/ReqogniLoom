@@ -11,6 +11,7 @@
 
 import { apiClient, getAllPages, getList } from "./client";
 import type {
+  GlossaryReferenceMode,
   PaginatedResponse,
   TerminologyProfile,
   UUID,
@@ -61,6 +62,7 @@ export const workspacesApi = {
       ai_prompts: Record<string, string>;
       goals_enabled: boolean;
       goals_ai_enabled: boolean;
+      glossary_reference_mode: GlossaryReferenceMode;
     }>
   ): Promise<Workspace> {
     return apiClient.patch<Workspace>(`/workspaces/${id}/`, data);

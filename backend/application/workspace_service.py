@@ -104,6 +104,8 @@ class BaselineImmutabilityError(ValidationError):
 
 _VALID_PRESETS = {key for key, _ in PRESET_CHOICES}
 _VALID_TERMINOLOGY_PROFILES = {key for key, _ in TERMINOLOGY_CHOICES}
+# #1266: mirrors persistence.models.Workspace.glossary_reference_mode choices.
+_VALID_GLOSSARY_REFERENCE_MODES = {"pinned", "always_head"}
 
 # Sentinel distinguishing "field omitted" from an explicit ``None`` in PATCH.
 _UNSET: object = object()
@@ -213,6 +215,7 @@ class WorkspaceService(ServiceBase):
         default_link_type: Optional[str] = None,
         goals_enabled: Optional[bool] = None,
         goals_ai_enabled: Optional[bool] = None,
+        glossary_reference_mode: Optional[str] = None,
     ) -> Workspace:
         """Create a Workspace + its WorkspacePresetConfig companion.
 
@@ -303,6 +306,13 @@ class WorkspaceService(ServiceBase):
             extra_columns["goals_enabled"] = bool(goals_enabled)
         if goals_ai_enabled is not None:
             extra_columns["goals_ai_enabled"] = bool(goals_ai_enabled)
+        if glossary_reference_mode is not None:
+            mode = str(glossary_reference_mode)
+            if mode not in _VALID_GLOSSARY_REFERENCE_MODES:
+                raise ValidationError(
+                    "glossary_reference_mode must be pinned or always_head"
+                )
+            extra_columns["glossary_reference_mode"] = mode
 
         workspace = Workspace.objects.create(
             tenant=tenant,
@@ -823,6 +833,7 @@ class WorkspaceService(ServiceBase):
         terminology_profile: object = _UNSET,
         goals_enabled: object = _UNSET,
         goals_ai_enabled: object = _UNSET,
+        glossary_reference_mode: object = _UNSET,
         expected_version: int | None = None,
     ) -> Workspace:
         """Update workspace metadata + optional terminology-profile switch (REQ-066).
@@ -926,6 +937,15 @@ class WorkspaceService(ServiceBase):
         if goals_ai_enabled is not _UNSET:
             ws.goals_ai_enabled = bool(goals_ai_enabled)
             update_fields.append("goals_ai_enabled")
+
+        if glossary_reference_mode is not _UNSET:
+            mode = str(glossary_reference_mode)
+            if mode not in _VALID_GLOSSARY_REFERENCE_MODES:
+                raise ValidationError(
+                    "glossary_reference_mode must be pinned or always_head"
+                )
+            ws.glossary_reference_mode = mode
+            update_fields.append("glossary_reference_mode")
 
         if update_fields:
             # #1244: bump the optimistic-concurrency counter on a real write so

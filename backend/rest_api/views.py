@@ -149,6 +149,7 @@ logger = logging.getLogger(__name__)
 from rest_api.preset_guard import PresetError, PresetGateMixin
 from rest_api.query_params import (
     parse_include_deleted,
+    parse_uuid_param,
     parse_workspace_id,
     require_non_empty_param,
 )
@@ -5705,6 +5706,9 @@ def _workspace_to_dict(ws: Any) -> dict[str, Any]:
         ),
         "goals_enabled": getattr(ws, "goals_enabled", False),
         "goals_ai_enabled": getattr(ws, "goals_ai_enabled", False),
+        # #1266: version-binding mode for glossary reference tokens.
+        "glossary_reference_mode": getattr(ws, "glossary_reference_mode", "pinned")
+        or "pinned",
         "terminology_profile": terminology_profile,
         "language": (ws.preset or {}).get("language", "de"),  # REQ-013: language stored in preset blob
         "theme": (ws.preset or {}).get("theme", "dark"),  # #568: theme stored in preset blob, mirrors language
@@ -6033,6 +6037,7 @@ class WorkspaceViewSet(BaseEntityViewSet):
             "default_link_type",
             "goals_enabled",
             "goals_ai_enabled",
+            "glossary_reference_mode",
         )
         supplied = request.data if isinstance(request.data, dict) else {}
         config_kwargs = {
@@ -6136,6 +6141,7 @@ class WorkspaceViewSet(BaseEntityViewSet):
                 "terminology_profile",
                 "goals_enabled",
                 "goals_ai_enabled",
+                "glossary_reference_mode",
             )
             fields = {
                 key: value
@@ -9992,6 +9998,88 @@ class GlossaryTermViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             return Response(status=status.HTTP_204_NO_CONTENT)
         except Exception as e:
             return _service_error_response(e, lang)
+
+    @action(detail=False, methods=["post"], url_path="references/resolve")
+    def resolve_references(self, request: Request, **kwargs: Any) -> Response:
+        """POST /api/v1/glossary/references/resolve/ — resolve tokens (#1266).
+
+        Body: ``{workspace_id, text}``. Returns the workspace's reference mode
+        plus one resolved entry per distinct ``(global_uuid, revision)`` token:
+        term, definition at the resolved revision, head revision and drift flag.
+        The renderer keeps the original text and swaps each token for a
+        highlighted mark using this payload.
+        """
+        from application.glossary_reference_service import GlossaryReferenceService
+
+        lang = detect_lang(request)
+        ctx = get_auth_context(request)
+        workspace_id, error = parse_workspace_id(request.data.get("workspace_id"), lang)
+        if error is not None:
+            return error
+        text = request.data.get("text") or ""
+        try:
+            payload = GlossaryReferenceService().resolve_text(ctx, workspace_id, text)
+        except Exception as exc:  # noqa: BLE001 — taxonomy handled below
+            return _service_error_response(exc, lang)
+        return Response(payload)
+
+    @action(detail=False, methods=["post"], url_path="references/insert")
+    def insert_reference(self, request: Request, **kwargs: Any) -> Response:
+        """POST /api/v1/glossary/references/insert/ — insert a reference (#1266).
+
+        Body: ``{workspace_id, source_artifact_id, global_uuid}``. Creates the
+        usage trace link (``uses-term`` when the workspace catalog still carries
+        it, else ``references``) and returns the token to insert, pinned to the
+        term's current revision unless the workspace is in ``always_head`` mode.
+        """
+        from application.glossary_reference_service import GlossaryReferenceService
+
+        lang = detect_lang(request)
+        ctx = get_auth_context(request)
+        workspace_id, error = parse_workspace_id(request.data.get("workspace_id"), lang)
+        if error is not None:
+            return error
+        source_artifact_id, error = parse_uuid_param(
+            request.data.get("source_artifact_id"), lang, name="source_artifact_id"
+        )
+        if error is not None:
+            return error
+        global_uuid, error = parse_uuid_param(
+            request.data.get("global_uuid"), lang, name="global_uuid"
+        )
+        if error is not None:
+            return error
+        try:
+            payload = GlossaryReferenceService().insert_reference(
+                ctx, workspace_id, source_artifact_id, global_uuid
+            )
+        except Exception as exc:  # noqa: BLE001 — taxonomy handled below
+            return _service_error_response(exc, lang)
+        return Response(payload, status=status.HTTP_201_CREATED)
+
+    @action(detail=False, methods=["post"], url_path="references/upgrade-to-head")
+    def upgrade_references_to_head(self, request: Request, **kwargs: Any) -> Response:
+        """POST /api/v1/glossary/references/upgrade-to-head/ — bulk re-pin (#1266).
+
+        Body: ``{workspace_id, text}``. Rewrites every version-pinned token in
+        *text* to its term's current head and returns ``{text, upgraded}`` — the
+        "raise the version" bulk action for drifted references.
+        """
+        from application.glossary_reference_service import GlossaryReferenceService
+
+        lang = detect_lang(request)
+        ctx = get_auth_context(request)
+        workspace_id, error = parse_workspace_id(request.data.get("workspace_id"), lang)
+        if error is not None:
+            return error
+        text = request.data.get("text") or ""
+        try:
+            new_text, upgraded = GlossaryReferenceService().upgrade_text_to_head(
+                ctx, workspace_id, text
+            )
+        except Exception as exc:  # noqa: BLE001 — taxonomy handled below
+            return _service_error_response(exc, lang)
+        return Response({"text": new_text, "upgraded": upgraded})
 
     @action(detail=True, methods=["get"], url_path="versions")
     def versions(self, request: Request, pk: str, **kwargs: Any) -> Response:

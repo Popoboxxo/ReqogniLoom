@@ -1950,6 +1950,18 @@ class WorkspaceSerializer(
     )
     goals_enabled = serializers.BooleanField(required=False, default=True)
     goals_ai_enabled = serializers.BooleanField(required=False, default=False)
+    # #1266: resolution mode for version-bound glossary reference tokens
+    # (``[[glossary:<uuid>@<revision>]]``) rendered in markdown fields.
+    glossary_reference_mode = serializers.ChoiceField(
+        choices=["pinned", "always_head"],
+        required=False,
+        default="pinned",
+        help_text=(
+            "'pinned' (default): a reference keeps the term version stored in "
+            "the token; 'always_head': references always resolve against the "
+            "term's current head."
+        ),
+    )
     terminology_profile = serializers.CharField(
         required=False, default="se_mode", max_length=32
     )
@@ -2584,6 +2596,16 @@ class GlossaryTermSerializer(
     # ``POST .../transitions/``. GlossaryTermViewSet overrides
     # ``_current_status`` so that comparison can still read the current value.
     status = serializers.CharField(read_only=True)
+    # #1266: the stable global UUID of the term (== backing Artifact id), the
+    # identity a ``[[glossary:<uuid>@<revision>]]`` reference token pins. Same
+    # value and semantics as RequirementSerializer.global_uuid (#1261/#1270).
+    global_uuid = serializers.SerializerMethodField()
+
+    def get_global_uuid(self, obj: Any) -> Any:
+        if isinstance(obj, dict):
+            return obj.get("artifact_id")
+        return getattr(obj, "artifact_id", None)
+
     created_at = serializers.DateTimeField(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True, source="modified_at")
     created_by_id = serializers.UUIDField(read_only=True, allow_null=True)

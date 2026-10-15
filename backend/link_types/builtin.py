@@ -73,6 +73,15 @@ LEGACY_LINK_TYPE_MAPPING: dict[str, str | None] = {
 #: (Requirement -> ArchitectureElement), so the endpoints move with the rename.
 SWAPPED_LEGACY_KEYS: frozenset[str] = frozenset({"satisfies", "implements"})
 
+#: The retired key a glossary term usage link (``Artifact --uses-term-->
+#: GlossaryTerm``) carried before the consolidation folded it into
+#: ``references`` (see :data:`LEGACY_LINK_TYPE_MAPPING`). Exposed as a named
+#: handle because this module is the one sanctioned home for retired keys: a
+#: consumer that must honour a tenant still carrying the historical key (e.g.
+#: ``application.glossary_reference_service``, #1266) references it through
+#: this constant instead of hardcoding the literal.
+GLOSSARY_TERM_LEGACY_LINK_TYPE = "uses-term"
+
 
 def _pairs(*pairs: tuple[str, str]) -> list[dict[str, str]]:
     return [{"source_type": s, "target_type": t} for s, t in pairs]
