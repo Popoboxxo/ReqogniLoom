@@ -276,6 +276,9 @@ _WORKSPACE_VIA_REQUEST = (
     "WorkspaceAttributeDefinitionExportView",
     "WorkspaceAttributeDefinitionImportView",
     "WorkspaceAttributeDefinitionResetView",
+    # Feature #1260: atomic section+position move of one attribute; the target
+    # workspace is carried in the URL like its four siblings above.
+    "WorkspaceAttributeDefinitionReorderView",
     "WorkspaceAuditView",
     "WorkspaceAuditRemediateView",
     "WorkspaceAuditAiReviewView",
@@ -389,6 +392,9 @@ _TENANT_SCOPED = {
     "AttributeDefaultsExportView": "tenant-wide attribute defaults",
     "AttributeDefaultsImportView": "tenant-wide attribute defaults",
     "AttributeDefaultsDetailView": "tenant-wide attribute defaults",
+    # Feature #1260: the global-scope reorder names an (item_type, preset) pair,
+    # not a workspace — same tenant-wide resource as the four above.
+    "AttributeDefaultsReorderView": "tenant-wide attribute defaults",
     "AttributeSchemaView": "tenant-wide attribute schema discovery",
     "AttributeMigrationPlanView": "tenant-wide attribute migration tooling",
     "AttributeMigrationApplyView": "tenant-wide attribute migration tooling",

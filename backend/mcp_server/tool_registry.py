@@ -384,6 +384,12 @@ _WRITE_TOOL_PREFIXES: Tuple[str, ...] = (
     "attribute_catalog.deprecate",
     "attribute_catalog.add_to_definition",
     "attribute_catalog.import",
+    # Feature #1260: atomic section+position move of one attribute in a global
+    # or workspace definition. A write (it persists the definition row), so it
+    # is listed here and stays fail-closed WRITE-gated; the ADMIN tier follows
+    # from the ``attribute_catalog`` namespace in
+    # _GOVERNANCE_TOOL_NAMESPACES above.
+    "attribute_catalog.reorder",
     # Attribut v3 WS7 (#940): AWMS value migrations. apply/rollback mutate
     # artifacts; dry_run writes the run row but no artifact/definition
     # (still fail-closed write so a Viewer key cannot drive a migration).

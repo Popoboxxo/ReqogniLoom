@@ -539,6 +539,49 @@ class AttributeCatalogService(ServiceBase):
             "on_collision": on_collision,
         }
 
+    # ---- Reorder a definition's attribute ---------------------------------
+
+    def reorder_definition(
+        self,
+        ctx: AuthContext,
+        item_type: str,
+        *,
+        name: str,
+        section: str,
+        after: str | None = None,
+        preset: str | None = None,
+        workspace_id: UUID | None = None,
+        expected_version: int | None = None,
+    ) -> dict[str, Any]:
+        """Move one attribute inside/into a section of a definition (#1260).
+
+        Deliberately a thin delegation to
+        :meth:`AttributeDefinitionService.reorder_attribute`, mirroring
+        :meth:`add_to_definition`: the catalog tool group is the agentic entry
+        point for shaping an item type's attribute set (feature #1260 names
+        ``attribute_catalog.reorder`` as its MCP surface), but the ordering
+        model, the optimistic lock and every write path stay in the definition
+        service — this class must not grow a second one.
+
+        Raises:
+            PermissionDeniedError: caller is not an admin (asserted downstream).
+            AttributeDefinitionNotFound: no row for the scope, or no attribute
+                called *name*.
+            AttributeDefinitionVersionConflict: *expected_version* is stale.
+            AttributeSchemaError: malformed parameters, an unknown item type, or
+                *after* names no attribute of the target section.
+        """
+        return self._definitions.reorder_attribute(
+            ctx,
+            item_type,
+            name=name,
+            section=section,
+            after=after,
+            preset=preset,
+            workspace_id=workspace_id,
+            expected_version=expected_version,
+        )
+
     # ---- Export / Import --------------------------------------------------
 
     def export_catalog(

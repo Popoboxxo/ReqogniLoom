@@ -51,6 +51,8 @@ WRITE_TOOLS = {
     "attribute_catalog.update",
     "attribute_catalog.deprecate",
     "attribute_catalog.add_to_definition",
+    # Feature #1260.
+    "attribute_catalog.reorder",
     "attribute_catalog.import",
 }
 
@@ -77,7 +79,7 @@ def _call(group, ctx, tool_name, params=None):
 
 
 class TestSurface:
-    def test_tool_map_exposes_exactly_eight_tools(self, group) -> None:
+    def test_tool_map_exposes_exactly_nine_tools(self, group) -> None:
         assert set(group._TOOL_MAP) == READ_TOOLS | WRITE_TOOLS
 
     def test_every_tool_has_a_schema(self, group) -> None:
@@ -368,7 +370,7 @@ class TestLengthValidation:
 
 
 class TestFailClosedWriteGate:
-    """The registry's RBAC gate must treat the five mutating tools as writes."""
+    """The registry's RBAC gate must treat the six mutating tools as writes."""
 
     def test_read_tools_are_exempt_and_writes_are_not(self) -> None:
         from mcp_server.tool_registry import ToolRegistry
@@ -393,7 +395,7 @@ class TestFailClosedWriteGate:
         assert names & READ_TOOLS
 
     @pytest.mark.django_db
-    def test_admin_tools_list_advertises_all_eight(
+    def test_admin_tools_list_advertises_all_nine(
         self, admin_client, e2e_userrole_admin
     ) -> None:
         from mcp_server.views import _get_handler

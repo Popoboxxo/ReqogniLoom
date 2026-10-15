@@ -35,14 +35,21 @@ from attribute_definitions.global_definition_store import (
     AttributeDefinitionNotFound,
     GlobalAttributeDefinitionStore,
 )
+from attribute_definitions.ordering import (
+    ReorderError,
+    UnknownAttributeError,
+    reorder_definition,
+)
 from attribute_definitions.schema import (
     AttributeDefinitionConflictError,
+    AttributeDefinitionVersionConflict,
     AttributeSchemaError,
     prune_attribute_flows,
     prune_section_flow,
     stored_attributes,
     stored_section_flow,
     stored_sections,
+    validate_definition_key,
     validate_new_attribute_name,
 )
 from attribute_definitions.workspace_definition_store import (
@@ -541,6 +548,114 @@ class AttributeDefinitionService(ServiceBase):
             )
         return self.update_workspace(ctx, item_type, workspace_id, remaining)
 
+    def reorder_attribute(
+        self,
+        ctx: AuthContext,
+        item_type: str,
+        *,
+        name: str,
+        section: str,
+        after: str | None = None,
+        preset: str | None = None,
+        workspace_id: UUID | None = None,
+        expected_version: int | None = None,
+    ) -> dict[str, Any]:
+        """Move one attribute inside/into a section atomically (feature #1260).
+
+        The section change and the position change are ONE write: the entry's
+        ``section`` and its sparse ``order`` key are recomputed together and
+        persisted through the ordinary ``update_workspace``/``update_global``
+        path, so audit logging, propagation to on-default workspaces and cache
+        invalidation all apply exactly as for any other definition edit
+        (ADR-01: no second write path).
+
+        Ordering semantics live in ``attribute_definitions.ordering``: the
+        moved attribute lands directly behind *after* (or at the front of
+        *section* when *after* is ``None``) and only ITS ``order`` changes, as
+        long as the two neighbours still have a free integer slot between them
+        — otherwise the section is re-spaced to multiples of ``ORDER_STEP``.
+        A section's explicit ``attribute_flow`` moves its token along with the
+        attribute, so the renderer does not lose it.
+
+        *expected_version* is the optimistic-lock precondition: the client's
+        last-read ``version``. A mismatch raises
+        :class:`AttributeDefinitionVersionConflict` (a 409) carrying the current
+        server payload in ``.current``, so a concurrent editor's change is never
+        silently overwritten.
+
+        Exactly one of *preset* (global scope) / *workspace_id* (workspace
+        scope) must be given — the same contract as
+        ``export_definition``/``import_definition``.
+
+        Raises:
+            PermissionDeniedError: caller is not an admin.
+            AttributeDefinitionNotFound: no definition row for the given scope,
+                or the definition has no attribute called *name*.
+            AttributeDefinitionVersionConflict: *expected_version* is stale.
+            AttributeSchemaError: malformed parameters, or *after* names no
+                attribute of the target section.
+        """
+        ServiceBase._assert_permission(ctx, "admin")
+        self._set_tenant_context(ctx)
+        if (preset is None) == (workspace_id is None):
+            raise AttributeSchemaError(
+                ["reorder_attribute requires exactly one of preset or workspace_id"]
+            )
+
+        if workspace_id is not None:
+            row = self._workspace.resolve(
+                ctx.tenant_id,
+                workspace_id,
+                item_type,
+                self._workspace_preset(workspace_id),
+            )
+        else:
+            global_preset = str(preset)
+            validate_definition_key(item_type, global_preset)
+            row = self._global.get(ctx.tenant_id, item_type, global_preset)
+            if row is None:
+                raise AttributeDefinitionNotFound(
+                    f"No global attribute definition for '{item_type}/{global_preset}'"
+                )
+            self._global.ensure_sections(row)
+
+        if expected_version is not None and int(row.version) != int(expected_version):
+            current = (
+                self._workspace_payload(row)
+                if workspace_id is not None
+                else self._global_payload(item_type, str(preset), row)
+            )
+            raise AttributeDefinitionVersionConflict(
+                f"Attribute definition '{item_type}' was changed by someone else "
+                f"(expected version {expected_version}, current version {row.version})",
+                current=current,
+            )
+
+        current_sections = stored_sections(row.definition_json)
+        try:
+            attributes, sections = reorder_definition(
+                stored_attributes(row.definition_json),
+                current_sections,
+                name=name,
+                section=section,
+                after=after,
+            )
+        except UnknownAttributeError as exc:
+            raise AttributeDefinitionNotFound(str(exc)) from exc
+        except ReorderError as exc:
+            raise AttributeSchemaError([str(exc)]) from exc
+
+        # ``None`` keeps the row's stored sections untouched; only a section
+        # whose ``attribute_flow`` actually had to follow the move is written.
+        sections_arg = sections if sections != current_sections else None
+        if workspace_id is not None:
+            return self.update_workspace(
+                ctx, item_type, workspace_id, attributes, sections_arg
+            )
+        return self.update_global(
+            ctx, item_type, str(preset), attributes, sections_arg
+        )
+
     def count_usages(
         self,
         ctx: AuthContext,
@@ -1006,6 +1121,7 @@ __all__ = [
     "AttributeDefinitionConflictError",
     "AttributeDefinitionNotFound",
     "AttributeDefinitionService",
+    "AttributeDefinitionVersionConflict",
     "AttributeSchemaError",
     "FieldValidationError",
 ]

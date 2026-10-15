@@ -327,7 +327,11 @@ _FLOW_TOKEN_KEYS: dict[str, frozenset[str]] = {
 #: Default ``span`` of an attribute token that omits one: full width, i.e. the
 #: pre-WS4 renderer's per-attribute stacking (spec section 7's "missing flow =
 #: old behaviour" rule).
-_DEFAULT_ATTRIBUTE_SPAN = "full"
+DEFAULT_ATTRIBUTE_SPAN = "full"
+
+#: Legacy private spelling, kept because ``normalize_flow_token`` and
+#: ``materialize_attribute_flow`` below already reference it.
+_DEFAULT_ATTRIBUTE_SPAN = DEFAULT_ATTRIBUTE_SPAN
 
 _SECTION_DEFAULTS: dict[str, Any] = {"order": 0, "visible": True, "layout": "full"}
 _SECTION_ALLOWED_KEYS: frozenset[str] = (
@@ -352,6 +356,25 @@ class AttributeDefinitionConflictError(AttributeSchemaError):
     message ("... is already initialized"), which is what the shape of this
     condition used to force.
     """
+
+
+class AttributeDefinitionVersionConflict(AttributeDefinitionConflictError):
+    """The caller's ``version`` no longer matches the stored row — a 409.
+
+    The optimistic-locking half of feature #1260: a reorder is computed from a
+    definition snapshot the client read earlier, so writing it against a row
+    someone else has since edited would silently discard their change. The
+    caller is told 409 and handed the *current* server payload (``current``) so
+    the UI can rebase instead of guessing what changed.
+
+    Subclasses :class:`AttributeDefinitionConflictError` so every existing
+    ``except AttributeDefinitionConflictError`` handler (the reset/export views,
+    the MCP reset/export handlers) keeps mapping it to 409 without a new branch.
+    """
+
+    def __init__(self, message: str, *, current: dict[str, Any] | None = None) -> None:
+        super().__init__([message])
+        self.current: dict[str, Any] = current or {}
 
 
 def validate_definition_key(item_type: str, preset: str) -> None:
@@ -1255,8 +1278,10 @@ __all__ = [
     "ATTRIBUTE_TYPES",
     "AUDIENCE_VALUES",
     "AttributeDefinitionConflictError",
+    "AttributeDefinitionVersionConflict",
     "AttributeSchemaError",
     "CORE_EDITABLE_META_PROPERTIES",
+    "DEFAULT_ATTRIBUTE_SPAN",
     "DISPLAY_FORMAT_VALUES",
     "EDITABLE_VALUES",
     "ENTITY_LEVEL_CARRIER_FIELDS",

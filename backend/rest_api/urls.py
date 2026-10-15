@@ -147,9 +147,11 @@ from rest_api.attribute_definition_views import (
     AttributeDefaultsExportView,
     AttributeDefaultsImportView,
     AttributeDefaultsListView,
+    AttributeDefaultsReorderView,
     AttributeUsageView,
     WorkspaceAttributeDefinitionExportView,
     WorkspaceAttributeDefinitionImportView,
+    WorkspaceAttributeDefinitionReorderView,
     WorkspaceAttributeDefinitionResetView,
     WorkspaceAttributeDefinitionView,
 )
@@ -776,6 +778,13 @@ urlpatterns = [
         AttributeDefaultsImportView.as_view(),
         name="attribute-defaults-import",
     ),
+    # Feature #1260: atomic section+position move of one attribute. Precedes the
+    # {item_type}/{preset}/ detail route, like export/ and import/ above.
+    path(
+        "attribute-defaults/<str:item_type>/<str:preset>/reorder/",
+        AttributeDefaultsReorderView.as_view(),
+        name="attribute-defaults-reorder",
+    ),
     path(
         "attribute-defaults/<str:item_type>/<str:preset>/",
         AttributeDefaultsDetailView.as_view(),
@@ -800,6 +809,12 @@ urlpatterns = [
         "workspaces/<uuid:workspace_id>/attribute-definitions/<str:item_type>/import/",
         WorkspaceAttributeDefinitionImportView.as_view(),
         name="workspace-attribute-definition-import",
+    ),
+    # Feature #1260: workspace-scoped sibling of attribute-defaults-reorder.
+    path(
+        "workspaces/<uuid:workspace_id>/attribute-definitions/<str:item_type>/reorder/",
+        WorkspaceAttributeDefinitionReorderView.as_view(),
+        name="workspace-attribute-definition-reorder",
     ),
     path(
         "workspaces/<uuid:workspace_id>/attribute-definitions/<str:item_type>/",
