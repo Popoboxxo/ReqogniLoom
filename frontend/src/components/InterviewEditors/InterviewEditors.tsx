@@ -122,7 +122,14 @@ export default function InterviewEditors(): JSX.Element {
 
       <div className={styles.splitWrapper}>
         <SplitView
-          leftPanel={<InterviewList items={items} selectedId={selectedId} onSelect={(id) => navigate(`/interviews/${id}`)} />}
+          leftPanel={
+            <InterviewList
+              items={items}
+              selectedId={selectedId}
+              onSelect={(id) => navigate(`/interviews/${id}`)}
+              workspaceId={activeWorkspace?.id ?? null}
+            />
+          }
           rightPanel={<InterviewDetail interview={item} artifactType={selectedSummary?.artifact_type} onChanged={refresh} />}
           initialLeftWidth={350}
           moduleType="interviews"

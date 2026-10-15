@@ -26,6 +26,9 @@ interface InterviewListProps {
   items: InterviewSummary[];
   selectedId?: string;
   onSelect: (id: string) => void;
+  /** Issue #1257: the active workspace, so the tree can resolve the
+   * configured display fields (`user > workspace > global`). */
+  workspaceId?: string | null;
 }
 
 type SortKey = "default" | "type" | "status";
@@ -49,7 +52,12 @@ function interviewToNode(session: InterviewSummary, typeLabel: string): Workspac
   return { id: session.id, name: typeLabel, parentId: null };
 }
 
-export function InterviewList({ items, selectedId, onSelect }: InterviewListProps): JSX.Element {
+export function InterviewList({
+  items,
+  selectedId,
+  onSelect,
+  workspaceId,
+}: InterviewListProps): JSX.Element {
   const { t } = useTranslation();
   const [listSearch, setListSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
@@ -137,6 +145,10 @@ export function InterviewList({ items, selectedId, onSelect }: InterviewListProp
           selectedId={selectedId}
           onSelect={onSelect}
           showSearch={false}
+          // Issue #1257: resolve the configured tree-display fields for
+          // interview sessions.
+          itemType="InterviewSession"
+          workspaceId={workspaceId ?? null}
           virtualize
           virtualRowHeight={64}
           emptyLabel={t("editor.empty", "No items.")}

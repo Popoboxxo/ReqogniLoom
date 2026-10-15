@@ -2347,7 +2347,8 @@
       "workflowDefaults": "Workflow-Standards",
       "attributeDefaults": "Attribut-Standards",
       "permissionDefaults": "Berechtigungs-Standards",
-      "memory": "Memory"
+      "memory": "Memory",
+      "display": "Darstellung"
     },
     "permissionDefaults": {
       "globalMatrixTitle": "Globale Berechtigungsmatrix",
@@ -2741,5 +2742,52 @@
     "crCreated": "Change Request wurde angelegt und dieses Artefakt als betroffenes Element eingetragen.",
     "crFailed": "Change Request konnte nicht angelegt werden.",
     "crTitle": "Änderung an \"{{title}}\""
+  },
+  "treeDisplay": {
+    "items": {
+      "title": "Baumfelder",
+      "hint": "Welche Felder die Navigationsbäume je Artefakttyp anzeigen und in welcher Reihenfolge. Nicht konfigurierte Typen erben von der nächsten Ebene (persönlich > Workspace > global)."
+    },
+    "loading": "Darstellung wird geladen …",
+    "saveFailed": "Die Darstellung konnte nicht gespeichert werden.",
+    "reset": "Auf Standard zurücksetzen",
+    "inherited": "Geerbt – keine eigene Konfiguration auf dieser Ebene.",
+    "addField": "Feld hinzufügen",
+    "moveUp": "Nach oben",
+    "moveDown": "Nach unten",
+    "remove": "Feld entfernen",
+    "user": {
+      "title": "Darstellung",
+      "hint": "Persönliche Auswahl der Baumfelder. Überschreibt die Workspace- und die systemweite Vorgabe."
+    },
+    "workspace": {
+      "title": "Darstellung",
+      "hint": "Vorgabe für alle Mitglieder dieses Workspace. Persönliche Einstellungen überschreiben sie."
+    },
+    "global": {
+      "title": "Darstellung",
+      "hint": "Systemweite Vorgabe für alle Workspaces. Workspace- und persönliche Einstellungen überschreiben sie."
+    },
+    "itemType": {
+      "Requirement": "Anforderungen",
+      "ArchitectureElement": "Architekturelemente",
+      "TestCase": "Testfälle",
+      "StakeholderNeed": "Bedarfe",
+      "Adr": "ADRs",
+      "Risk": "Risiken",
+      "Issue": "Probleme"
+    },
+    "field": {
+      "uid": "ID",
+      "level": "V-Modell-Ebene",
+      "status": "Status",
+      "updated_at": "Zuletzt geändert",
+      "category": "Kategorie",
+      "owner": "Verantwortlich",
+      "priority": "Priorität",
+      "version": "Version",
+      "verification_method": "Verifikationsmethode",
+      "complexity_fibonacci": "Komplexität (Fibonacci)"
+    }
   }
 }

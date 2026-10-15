@@ -28,6 +28,7 @@ import { PermissionDefaultsTab } from "./PermissionDefaultsTab";
 import { MemoryManagementSection } from "./MemoryManagementSection";
 import { MemorySystemSettingsSection } from "./MemorySystemSettingsSection";
 import { MemoryVisualizationSection } from "./MemoryVisualizationSection";
+import { TreeDisplaySection } from "./TreeDisplaySection";
 import { PageHeader } from "../shared/PageHeader";
 import { handleTablistKeyDown, tabRovingTabIndex } from "../shared/tablistKeyboardNav";
 import styles from "./SystemSettings.module.css";
@@ -37,6 +38,7 @@ type SystemTabId =
   | "workflow-defaults"
   | "attribute-defaults"
   | "permission-defaults"
+  | "display"
   | "memory";
 
 const TAB_IDS: SystemTabId[] = [
@@ -44,6 +46,7 @@ const TAB_IDS: SystemTabId[] = [
   "workflow-defaults",
   "attribute-defaults",
   "permission-defaults",
+  "display",
   "memory",
 ];
 
@@ -85,6 +88,7 @@ export default function SystemSettings(): JSX.Element {
     { id: "workflow-defaults", label: t("systemSettings.tabs.workflowDefaults", "Workflow Defaults") },
     { id: "attribute-defaults", label: t("systemSettings.tabs.attributeDefaults", "Attribute Defaults") },
     { id: "permission-defaults", label: t("systemSettings.tabs.permissionDefaults", "Permission Defaults") },
+    { id: "display", label: t("systemSettings.tabs.display") },
     { id: "memory", label: t("systemSettings.tabs.memory", "Memory") },
   ];
 
@@ -163,6 +167,13 @@ export default function SystemSettings(): JSX.Element {
           </div>
         )}
         {activeTab === "permission-defaults" && <PermissionDefaultsTab />}
+        {activeTab === "display" && (
+          <div data-testid="system-tree-display">
+            {/* Issue #1257: the tenant-wide default for the navigation tree's
+                fields; every workspace inherits it unless it overrides it. */}
+            <TreeDisplaySection />
+          </div>
+        )}
         {activeTab === "memory" && (
           <>
             <MemorySystemSettingsSection />

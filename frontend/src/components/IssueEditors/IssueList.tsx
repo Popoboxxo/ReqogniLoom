@@ -34,6 +34,9 @@ interface IssueListProps {
   selectedId?: string;
   onSelect: (id: string) => void;
   onCreateNew: () => void;
+  /** Issue #1257: the active workspace, so the tree can resolve the
+   * configured display fields (`user > workspace > global`). */
+  workspaceId?: string | null;
 }
 
 type SortKey = 'default' | 'title' | 'status' | 'updated';
@@ -58,7 +61,13 @@ function issueToNode(issue: Issue): WorkspaceTreeNode {
   return { id: issue.id, name: issue.title || 'Untitled', parentId: null };
 }
 
-export function IssueList({ items, selectedId, onSelect, onCreateNew }: IssueListProps): JSX.Element {
+export function IssueList({
+  items,
+  selectedId,
+  onSelect,
+  onCreateNew,
+  workspaceId,
+}: IssueListProps): JSX.Element {
   const { t } = useTranslation();
   const [listSearch, setListSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
@@ -157,6 +166,9 @@ export function IssueList({ items, selectedId, onSelect, onCreateNew }: IssueLis
           selectedId={selectedId}
           onSelect={onSelect}
           showSearch={false}
+          // Issue #1257: resolve the configured tree-display fields for issues.
+          itemType="Issue"
+          workspaceId={workspaceId ?? null}
           virtualize
           // <ArtifactRow>'s two-line id/title layout is taller than
           // WorkspaceTree's default single-line row estimate (34px).

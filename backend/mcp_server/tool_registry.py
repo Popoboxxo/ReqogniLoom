@@ -585,6 +585,11 @@ _READ_ONLY_TOOL_NAMES: frozenset[str] = frozenset(
         # Neither ends on ".read"/".query", so both are listed explicitly.
         "metrics.catalog",
         "metrics.get",
+        # #1257: the navigation tree's configurable field selection. ``.get``
+        # is a read of the caller's own / tenant-wide / workspace configuration
+        # (it does not end on ".read"/".query"); ``.set`` stays fail-closed
+        # WRITE-gated by default.
+        "tree_display_config.get",
     }
 )
 
@@ -977,6 +982,7 @@ class ToolRegistry:
         from mcp_server.tools.icd import IcdToolGroup
         from mcp_server.tools.comment import CommentToolGroup
         from mcp_server.tools.metrics import MetricsToolGroup
+        from mcp_server.tools.tree_display_config import TreeDisplayConfigToolGroup
         from application.adr_service import AdrService
         from application.risk_service import RiskService
         from application.issue_service import IssueService
@@ -1071,6 +1077,13 @@ class ToolRegistry:
             # per workspace) — both read-exempt below; identical to the REST
             # /api/v1/metrics/catalog/ and /api/v1/metrics/?keys=… endpoints.
             "metrics": MetricsToolGroup(),
+            # Issue #1257: the navigation tree's configurable field selection
+            # (Baumfelder), three-level with precedence user > workspace >
+            # global. tree_display_config.get is read-exempt below (it does not
+            # end on ".read"/".query"); set is fail-closed write-gated, and the
+            # service re-asserts the role boundary per level (write authority
+            # for a workspace override, admin for the tenant-wide default).
+            "tree_display_config": TreeDisplayConfigToolGroup(),
         })
 
     def list_tools(

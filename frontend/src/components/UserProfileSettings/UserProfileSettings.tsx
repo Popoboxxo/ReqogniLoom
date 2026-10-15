@@ -17,6 +17,7 @@ import { IdentifiersSection } from "./IdentifiersSection";
 import { MemorySection } from "./MemorySection";
 import { NotificationsSection } from "./NotificationsSection";
 import { ProfileSection } from "./ProfileSection";
+import { TreeDisplaySection } from "./TreeDisplaySection";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { OPTIONAL_FEATURES, type OptionalArtifactFeature } from "../../api/preferences";
 import { useState, useCallback } from "react";
@@ -100,6 +101,11 @@ export default function UserProfileSettings(): JSX.Element {
           user-global blocks and BEFORE the workspace-scoped visibility section
           — it applies in every workspace. */}
       <IdentifiersSection />
+
+      {/* Issue #1257: the personal level of the navigation tree's field
+          configuration. User-global like the two blocks above — it applies in
+          every workspace, on top of the workspace and tenant-wide defaults. */}
+      <TreeDisplaySection />
 
       {activeWorkspace && (
         <section className={styles.visibilitySection} data-testid="visibility-section">

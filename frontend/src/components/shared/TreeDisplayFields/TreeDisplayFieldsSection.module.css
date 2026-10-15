@@ -1,0 +1,126 @@
+/*
+ * TreeDisplayFieldsSection (issue #1257) — one level of the navigation tree's
+ * field configuration. All colours/spacing come from `styles/tokens.css`
+ * custom properties; no hardcoded literals.
+ */
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+
+.heading {
+  margin: 0;
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.hint {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.error {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-danger);
+}
+
+.itemTypes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.itemType {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.itemTypeHeader {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.itemTypeName {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+/*
+ * `btn-ghost` / `btn-icon` (styles/global.css) own the button chrome — the
+ * design-system ratchet requires an interactive element to carry one of those
+ * classes, and duplicating the fill/radius here would be the "ad-hoc fill" that
+ * check exists to prevent. What stays local is only what the shared class does
+ * not express: the compact type scale of a row-level action.
+ */
+.linkButton {
+  font-size: var(--font-size-xs);
+  color: var(--color-primary);
+}
+
+.iconButton {
+  font-size: var(--font-size-xs);
+  line-height: 1;
+}
+
+.inherited {
+  margin: 0;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+.fieldList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.fieldRow {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 2px var(--space-1);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-raised);
+}
+
+.fieldName {
+  font-size: var(--font-size-xs);
+  color: var(--color-text);
+}
+
+.iconButton {
+  font-size: var(--font-size-xs);
+  line-height: 1;
+}
+
+.addSelect {
+  align-self: flex-start;
+  max-width: 100%;
+  font-size: var(--font-size-xs);
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 2px var(--space-1);
+}

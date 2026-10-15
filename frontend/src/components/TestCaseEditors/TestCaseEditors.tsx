@@ -313,6 +313,7 @@ export default function TestCaseEditors(): JSX.Element {
                 selectedId={selectedId}
                 onSelect={selectTestCase}
                 onCreateNew={openCreateDialog}
+                workspaceId={activeWorkspace?.id ?? null}
               />
             </div>
           }

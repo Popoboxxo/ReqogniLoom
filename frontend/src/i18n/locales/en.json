@@ -2347,7 +2347,8 @@
       "workflowDefaults": "Workflow Defaults",
       "attributeDefaults": "Attribute Defaults",
       "permissionDefaults": "Permission Defaults",
-      "memory": "Memory"
+      "memory": "Memory",
+      "display": "Display"
     },
     "permissionDefaults": {
       "globalMatrixTitle": "Global Permission Matrix",
@@ -2741,5 +2742,52 @@
     "crCreated": "Change request created and this artifact registered as an affected item.",
     "crFailed": "The change request could not be created.",
     "crTitle": "Change to \"{{title}}\""
+  },
+  "treeDisplay": {
+    "items": {
+      "title": "Tree fields",
+      "hint": "Which fields the navigation trees show per artifact type, and in what order. Types without their own configuration inherit from the next level (personal > workspace > global)."
+    },
+    "loading": "Loading display settings …",
+    "saveFailed": "The display setting could not be saved.",
+    "reset": "Reset to default",
+    "inherited": "Inherited – no configuration on this level.",
+    "addField": "Add field",
+    "moveUp": "Move up",
+    "moveDown": "Move down",
+    "remove": "Remove field",
+    "user": {
+      "title": "Display",
+      "hint": "Your personal tree-field selection. Overrides the workspace and tenant-wide defaults."
+    },
+    "workspace": {
+      "title": "Display",
+      "hint": "The default for every member of this workspace. Personal settings override it."
+    },
+    "global": {
+      "title": "Display",
+      "hint": "The tenant-wide default for every workspace. Workspace and personal settings override it."
+    },
+    "itemType": {
+      "Requirement": "Requirements",
+      "ArchitectureElement": "Architecture elements",
+      "TestCase": "Test cases",
+      "StakeholderNeed": "Needs",
+      "Adr": "ADRs",
+      "Risk": "Risks",
+      "Issue": "Issues"
+    },
+    "field": {
+      "uid": "ID",
+      "level": "V-model level",
+      "status": "Status",
+      "updated_at": "Last changed",
+      "category": "Category",
+      "owner": "Owner",
+      "priority": "Priority",
+      "version": "Version",
+      "verification_method": "Verification method",
+      "complexity_fibonacci": "Complexity (Fibonacci)"
+    }
   }
 }

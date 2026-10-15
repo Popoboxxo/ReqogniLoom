@@ -38,6 +38,11 @@ import { useTranslation } from 'react-i18next';
 import { Badge } from '../Badge';
 import { LevelBadge } from '../LevelBadge';
 import { useWorkspaceTreeState } from '../../../context/WorkspaceTreeStateContext';
+import {
+  useTreeDisplayFields,
+  useTreeDisplayFieldsLoader,
+} from '../../../hooks/useTreeDisplayFields';
+import { TreeDisplayFieldsProvider } from './tree-display-fields-context';
 import { collectAncestorIds, collectSelfAndDescendantIds } from './tree-hierarchy';
 import styles from './workspace-tree.module.css';
 
@@ -151,6 +156,12 @@ export interface WorkspaceTreeNode {
    * an artifact the default list would hide is recognizable when shown.
    */
   outdated?: boolean;
+  /**
+   * Issue #1257: the node's last-change timestamp, already formatted for
+   * display. Rendered only when the configured selection includes
+   * `updated_at`; omit it (every pre-#1257 caller does) to render nothing.
+   */
+  updatedAt?: string | null;
   /** Optional badge shown right of the name (status, type, …). */
   badge?: {
     text: string;
@@ -221,7 +232,25 @@ export interface WorkspaceTreeProps {
    */
   renderRow?: (node: WorkspaceTreeNode, ctx: { isSelected: boolean }) => ReactNode;
   /**
-   * Task 3.1: overrides the virtualizer's fixed row-height estimate
+   * Issue #1257: the artifact type these nodes are. When set *together with*
+   * `workspaceId`, the tree loads the configured field selection for the pair
+   * (three-level, `user > workspace > global`) and renders only those fields
+   * instead of the pre-#1257 fixed combination. Omit it (the default) to keep
+   * rendering exactly as before, which is also what an unconfigured artifact
+   * type resolves to.
+   */
+  itemType?: string;
+  /**
+   * Issue #1257: the workspace whose override participates in the resolution,
+   * and the workspace the server checks membership against. Required for a
+   * configuration to be loaded at all: without it the tree renders the built-in
+   * default rather than guessing a workspace (see
+   * `hooks/useTreeDisplayFields` for why the personal level is not a
+   * substitute).
+   */
+  workspaceId?: string | null;
+  /**
+   * Task 4.1: overrides the virtualizer's fixed row-height estimate
    * (`VIRTUAL_ROW_HEIGHT`, tuned for the default single-line label). A
    * `renderRow` override that is visually taller — e.g. `<ArtifactRow>`'s
    * two-line id/title layout — MUST pass a matching estimate here, or
@@ -374,6 +403,8 @@ export function WorkspaceTree({
   noMatchesLabel,
   virtualize = false,
   renderRow,
+  itemType,
+  workspaceId,
   virtualRowHeight,
   onReparent,
   rootDropzoneLabel,
@@ -385,6 +416,24 @@ export function WorkspaceTree({
   // they can come from i18n instead of hardcoded English literals. A caller
   // that passes a label still wins — `??` only fills in the omitted ones.
   const { t } = useTranslation();
+
+  // Issue #1257: the configured field selection for this artifact type. The
+  // loader performs at most one request per (itemType, workspace) and degrades
+  // to the pre-#1257 combination when nothing is configured or the load fails;
+  // the selector is synchronous, so no row ever waits on it.
+  //
+  // Both `itemType` and `workspaceId` are required for a load: the workspace is
+  // what enters the resolution at all (the request goes to the workspace route,
+  // which checks membership), so a tree that does not know its workspace must
+  // not invent one — it falls back to the personal + tenant-wide levels via the
+  // store default rather than showing another workspace's configuration.
+  useTreeDisplayFieldsLoader(itemType, workspaceId ?? null);
+  const displayFields = useTreeDisplayFields(itemType);
+  const displayFieldSet = useMemo(() => new Set(displayFields), [displayFields]);
+  const showsField = useCallback(
+    (key: string): boolean => displayFieldSet.has(key),
+    [displayFieldSet]
+  );
   const searchPlaceholderLabel =
     searchPlaceholder ?? t('editor.searchPlaceholder');
   const emptyStateLabel = emptyLabel ?? t('editor.empty');
@@ -847,10 +896,11 @@ export function WorkspaceTree({
   } as CSSProperties;
 
   return (
-    <div
-      data-testid={testId}
-      className={styles.treeRoot}
-    >
+    <TreeDisplayFieldsProvider fields={displayFields}>
+      <div
+        data-testid={testId}
+        className={styles.treeRoot}
+      >
       {showSearch && (
         <input
           type="search"
@@ -933,6 +983,7 @@ export function WorkspaceTree({
                     !isExpanded && selectedAncestorIds.has(internal.node.id)
                   }
                   showLevelBadge={showLevelBadge}
+                  showsField={showsField}
                   onAddChild={onAddChild}
                   renderRow={renderRow}
                   testIdPrefix={testId}
@@ -974,6 +1025,7 @@ export function WorkspaceTree({
                 !isExpanded && selectedAncestorIds.has(internal.node.id)
               }
               showLevelBadge={showLevelBadge}
+              showsField={showsField}
               onAddChild={onAddChild}
               renderRow={renderRow}
               testIdPrefix={testId}
@@ -987,7 +1039,8 @@ export function WorkspaceTree({
           ))}
         </ul>
       )}
-    </div>
+      </div>
+    </TreeDisplayFieldsProvider>
   );
 }
 
@@ -1010,6 +1063,13 @@ interface TreeRowProps {
    */
   containsSelection: boolean;
   showLevelBadge: boolean;
+  /**
+   * Issue #1257: whether the enclosing tree's configured selection contains
+   * `key`. Resolved once in `WorkspaceTree` (a `Set` lookup per field per row)
+   * and handed down rather than re-reading the store in every row — the same
+   * reasoning as `labels` below.
+   */
+  showsField: (key: string) => boolean;
   onAddChild?: (id: string) => void;
   /** Task 3.1: custom row content override — see `WorkspaceTreeProps.renderRow`. */
   renderRow?: (node: WorkspaceTreeNode, ctx: { isSelected: boolean }) => ReactNode;
@@ -1072,6 +1132,7 @@ function TreeRow({
   isExpanded,
   containsSelection,
   showLevelBadge,
+  showsField,
   onAddChild,
   renderRow,
   testIdPrefix,
@@ -1205,8 +1266,9 @@ function TreeRow({
       ) : (
         <>
           {/* Readable identifier (issue #932). Muted mono prefix so rows align
-              and the uid — not the opaque UUID — is the scannable handle. */}
-          {node.identifier && (
+              and the uid — not the opaque UUID — is the scannable handle.
+              Issue #1257: only when the configured selection includes `uid`. */}
+          {node.identifier && showsField('uid') && (
             <span
               data-testid={`${testIdPrefix}-identifier-${node.id}`}
               className={styles.nodeIdentifier}
@@ -1231,8 +1293,9 @@ function TreeRow({
           {/* Status / type badge (node.badge). Issue #675: rendered through the
               shared <Badge>, so a tree row's badge is the same physical badge an
               <ArtifactRow> renders for the same artifact. Only the colour — the
-              caller's type ramp — stays local, via `typeBadgeStyle`. */}
-          {node.badge && (
+              caller's type ramp — stays local, via `typeBadgeStyle`.
+              Issue #1257: gated on the configured `status` field. */}
+          {node.badge && showsField('status') && (
             <Badge
               variant="neutral"
               testId={`${testIdPrefix}-badge-${node.id}`}
@@ -1255,11 +1318,27 @@ function TreeRow({
             </Badge>
           )}
 
+          {/* Last change (issue #1257). The node model carried no timestamp
+              before #1257 because no tree rendered one; a caller that supplies
+              it gets it under the same `updated_at` key the artifact lists use,
+              and it can be switched off like any other field. */}
+          {node.updatedAt && showsField('updated_at') && (
+            <span
+              data-testid={`${testIdPrefix}-updated-${node.id}`}
+              className={styles.nodeUpdatedAt}
+              title={node.updatedAt}
+            >
+              {node.updatedAt}
+            </span>
+          )}
+
           {/* Level badge — the shared, neutral <LevelBadge> (issue #674).
               `node.level` is already a display string ("L0", "L1", ...), so it
               goes in as `label`; the numeric `level` prop would re-prefix it
-              to "LL0". */}
-          {showLevelBadge && node.level && (
+              to "LL0".
+              Issue #1257: gated on the configured `level` field, on top of the
+              caller's `showLevelBadge` opt-in. */}
+          {showLevelBadge && node.level && showsField('level') && (
             <LevelBadge
               label={node.level}
               testId={`${testIdPrefix}-level-${node.id}`}

@@ -548,6 +548,14 @@ class UserDisplayPreference(TenantScopedModel):
     visible_metrics = models.JSONField(
         null=True, blank=True, default=None
     )
+    #: Issue #1257 — the personal level of the tree-display configuration: a
+    #: JSON map ``{item_type: [{"key": …, "width": …}, …]}``. ``NULL`` means "no
+    #: personal selection" — resolution then falls through to the workspace level,
+    #: then the global level, then the built-in default. Stored on the same row
+    #: as ``show_readable_ids``/``visible_metrics`` because it shares their exact
+    #: lifecycle (self-service, account-scoped, no admin gate) and their RLS
+    #: coverage (REQ-L2-PL-010).
+    tree_display_fields = models.JSONField(null=True, blank=True, default=None)
 
     class Meta:
         db_table = "at_user_display_preference"
@@ -557,6 +565,95 @@ class UserDisplayPreference(TenantScopedModel):
             f"UserDisplayPreference(user={self.user_id}, "
             f"show_readable_ids={self.show_readable_ids}, "
             f"visible_metrics={self.visible_metrics})"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Tree display configuration — global + workspace levels (Issue #1257)
+# ---------------------------------------------------------------------------
+
+TREE_DISPLAY_SCOPE_GLOBAL = "global"
+TREE_DISPLAY_SCOPE_WORKSPACE = "workspace"
+TREE_DISPLAY_SCOPE_CHOICES = (
+    (TREE_DISPLAY_SCOPE_GLOBAL, "Global"),
+    (TREE_DISPLAY_SCOPE_WORKSPACE, "Workspace"),
+)
+
+
+class TreeDisplayConfig(TenantScopedModel):
+    """Tenant-wide / per-workspace tree-display configuration (Issue #1257).
+
+    The navigation tree's visible field combination is configurable on three
+    levels with precedence ``user > workspace > global``. The personal level
+    lives on ``UserDisplayPreference.tree_display_fields`` (self-service, RLS
+    covered); this row holds the two administrative levels:
+
+    * ``scope="global"`` — exactly one row per tenant (the System-Settings
+      default every workspace inherits),
+    * ``scope="workspace"`` — exactly one row per (tenant, workspace).
+
+    ``fields_json`` is the same shape the personal level stores: a map
+    ``{item_type: [{"key": …, "width": …}, …]}``. Keying by item_type (rather
+    than a column) keeps the row count flat — one global row and one row per
+    workspace regardless of how many artifact types are configured — and lets a
+    later item type be configured without a schema change.
+
+    Follows the materialized-copy spirit of ``GlobalAttributeDefinition`` →
+    ``WorkspaceAttributeDefinition``: a workspace row is an override, not a
+    derivation, so it is only written when an admin edits it. An absent row
+    means "inherit" (issue #1257's "missing row = defaults apply" rule), never
+    "empty", so a reader must not create one as a side effect.
+    """
+
+    scope = models.CharField(
+        max_length=16, choices=TREE_DISPLAY_SCOPE_CHOICES
+    )
+    workspace = models.ForeignKey(
+        "persistence.Workspace",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="tree_display_config",
+    )
+    fields_json = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        db_table = "at_tree_display_config"
+        constraints = [
+            # One global row per tenant.
+            models.UniqueConstraint(
+                fields=["tenant"],
+                condition=models.Q(scope=TREE_DISPLAY_SCOPE_GLOBAL),
+                name="uq_tree_display_config_global",
+            ),
+            # One row per (tenant, workspace); the tenant column is in the
+            # constraint so the uniqueness claim is expressible without a join.
+            models.UniqueConstraint(
+                fields=["tenant", "workspace"],
+                condition=models.Q(scope=TREE_DISPLAY_SCOPE_WORKSPACE),
+                name="uq_tree_display_config_workspace",
+            ),
+            # ``condition=`` (Django 5.1+ rename of the old ``check=``): the
+            # scope and the presence of a workspace must agree, so a "global"
+            # row can never silently shadow a workspace override.
+            models.CheckConstraint(
+                condition=(
+                    models.Q(
+                        scope=TREE_DISPLAY_SCOPE_GLOBAL, workspace__isnull=True
+                    )
+                    | models.Q(
+                        scope=TREE_DISPLAY_SCOPE_WORKSPACE,
+                        workspace__isnull=False,
+                    )
+                ),
+                name="ck_tree_display_config_workspace_matches_scope",
+            ),
+        ]
+
+    def __str__(self) -> str:  # pragma: no cover - debug helper
+        return (
+            f"TreeDisplayConfig({self.scope}, "
+            f"workspace={self.workspace_id}, tenant={self.tenant_id})"
         )
 
 
@@ -892,6 +989,10 @@ __all__ = [
     "PermissionDecisionMismatch",
     "UserWorkspacePreference",
     "UserDisplayPreference",
+    "TREE_DISPLAY_SCOPE_CHOICES",
+    "TREE_DISPLAY_SCOPE_GLOBAL",
+    "TREE_DISPLAY_SCOPE_WORKSPACE",
+    "TreeDisplayConfig",
     "ROLE_ADMIN",
     "ROLE_EDITOR",
     "ROLE_VIEWER",

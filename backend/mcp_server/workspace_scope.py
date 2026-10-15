@@ -342,6 +342,14 @@ TOOL_ENFORCED_WORKSPACE_SCOPE: frozenset[str] = frozenset(
 #:   to scope to. Its sibling ``metrics.get`` declares ``workspace_id`` as
 #:   *required* and is therefore gated by the dispatcher like any other
 #:   workspace-scoped read.
+#: * ``tree_display_config.get`` (#1257) — without a ``workspace_id`` it reads
+#:   only the caller's own selection (keyed by ``ctx.user_id``) and the
+#:   tenant-wide default, neither of which is workspace data. Its
+#:   ``workspace_id`` parameter is optional-but-enforced: when it *is* supplied
+#:   the dispatcher narrows the roles to that workspace and runs the read gate
+#:   (``_TOOL_TARGETS`` deliberately has no entry — the parameter *is* the
+#:   target workspace, so a resolution table would add nothing), and the
+#:   workspace override is only ever reached that way.
 TENANT_SCOPED_READ_TOOLS: frozenset[str] = frozenset(
     {
         "admin.backup_list",
@@ -365,6 +373,7 @@ TENANT_SCOPED_READ_TOOLS: frozenset[str] = frozenset(
         "attribute_migration.list_runs",
         "attribute_migration.get_run",
         "metrics.catalog",
+        "tree_display_config.get",
     }
 )
 

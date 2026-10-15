@@ -498,9 +498,9 @@ clients:
           }
     verify:
       command: "SSE-Handshake gegen /mcp/sse/ mit X-API-Key"
-      expected_de: "`initialize` (202 + Event) → `tools/list` liefert **241 Tools**; das Antigravity-Panel zeigt `reqogniloom` verbunden."
-      expected_en: "`initialize` (202 + event) → `tools/list` returns **241 tools**; the Antigravity panel shows `reqogniloom` connected."
-      tool_result: "241 tools"
+      expected_de: "`initialize` (202 + Event) → `tools/list` liefert **243 Tools**; das Antigravity-Panel zeigt `reqogniloom` verbunden."
+      expected_en: "`initialize` (202 + event) → `tools/list` returns **243 tools**; the Antigravity panel shows `reqogniloom` connected."
+      tool_result: "243 tools"
     prereq_de:
       - "Antigravity-Installation."
       - "**Host-CPU mit `pclmulqdq`** — sonst bricht das Binary mit exit 132 ab („compiled with pclmul enabled\", nicht software-lösbar)."
@@ -548,7 +548,7 @@ clients:
           # `hermes config set` (Env-Referenz statt Key):
           scripts/clients/install.sh --client hermes \
             --url "https://<host>" --key-env REQOGNILOOM_API_KEY
-          hermes mcp test reqogniloom         # -> ✓ Connected, 241 Tools
+          hermes mcp test reqogniloom         # -> ✓ Connected, 243 Tools
     install_en:
       - lang: bash
         text: |
@@ -557,7 +557,7 @@ clients:
           # `hermes config set` (env reference instead of a key):
           scripts/clients/install.sh --client hermes \
             --url "https://<host>" --key-env REQOGNILOOM_API_KEY
-          hermes mcp test reqogniloom         # -> ✓ Connected, 241 tools
+          hermes mcp test reqogniloom         # -> ✓ Connected, 243 tools
     desktop_plugin_de:
       intro: "Neben dem MCP-Server (Abschnitt 2) kann die Hermes-Desktop-App das ReqogniLoom-**Desktop-Plugin** laden — ein eigenes Panel plus ein Statusbar-Eintrag. Quelle im Repo: `integrations/hermes-plugin/reqogniloom/`, Manifest `hermes-plugin.json`."
       install:
@@ -606,9 +606,9 @@ clients:
                 Authorization: "Bearer ${REQOGNILOOM_API_KEY}"
     verify:
       command: "hermes mcp test reqogniloom"
-      expected_de: "`✓ Connected` (QA: 2232 ms, 241 Tools); echte Calls: `requirement_query` → 49, `architecture_query` → 1."
-      expected_en: "`✓ Connected` (QA: 2232 ms, 241 tools); real calls: `requirement_query` → 49, `architecture_query` → 1."
-      tool_result: "241 tools; requirement_query = 49"
+      expected_de: "`✓ Connected` (QA: 2232 ms, 243 Tools); echte Calls: `requirement_query` → 49, `architecture_query` → 1."
+      expected_en: "`✓ Connected` (QA: 2232 ms, 243 tools); real calls: `requirement_query` → 49, `architecture_query` → 1."
+      tool_result: "243 tools; requirement_query = 49"
     prereq_de:
       - "Hermes-Installation (aktueller Stack)."
       - "Key in `~/.hermes/.env` — `${REQOGNILOOM_API_KEY}` wird beim Server-Start interpoliert."

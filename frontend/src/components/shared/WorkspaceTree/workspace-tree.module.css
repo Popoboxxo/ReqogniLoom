@@ -24,6 +24,18 @@
 }
 
 /*
+ * Last-change marker (issue #1257) — a muted, non-shrinking trailer. Same
+ * visual weight as `.nodeIdentifier` so a configured `updated_at` reads as
+ * row metadata rather than as a second label.
+ */
+.nodeUpdatedAt {
+  flex-shrink: 0;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+/*
  * Row chrome — selection and the issue #668 collapsed-ancestor marker.
  *
  * These moved out of the row's inline `style={{...}}` on purpose: an inline

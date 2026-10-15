@@ -507,6 +507,7 @@ export default function NeedsEditors(): JSX.Element {
             setShowCreateForm={(show: boolean) => { if (!show) setCreateError(null); setShowCreate(show); }}
             newTitle={newTitle}
             setNewTitle={setNewTitle}
+            workspaceId={activeWorkspace?.id ?? null}
             newDescription={newDescription}
             setNewDescription={setNewDescription}
             newCategory={newCategory}

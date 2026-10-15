@@ -187,6 +187,7 @@ export default function RiskEditors(): JSX.Element {
                 selectedId={selectedId}
                 onSelect={(id) => navigate(`/risks/${id}`)}
                 onCreateNew={openCreateDialog}
+                workspaceId={activeWorkspace?.id ?? null}
               />
             </div>
           }

@@ -48,6 +48,7 @@ import { McpConnectionSection } from "./McpConnectionSection";
 import { ContextGraphSettingsSection } from "./ContextGraphSettingsSection";
 import { WorkspaceBannerSection } from "./WorkspaceBannerSection";
 import { MemorySettingsSection } from "./MemorySettingsSection";
+import { TreeDisplaySection } from "./TreeDisplaySection";
 import { useLinkTypes } from "../../context/LinkTypeContext";
 import { PageHeader } from "../shared/PageHeader";
 import { handleTablistKeyDown, tabRovingTabIndex } from "../shared/tablistKeyboardNav";
@@ -528,6 +529,11 @@ export default function WorkspaceSettings(): JSX.Element {
                 </button>
               </div>
             </section>
+
+            {/* Issue #1257: the workspace default for the navigation tree's
+                fields. Personal (UserProfileSettings) and tenant-wide
+                (SystemSettings) levels are the other two. */}
+            <TreeDisplaySection workspaceId={activeWorkspace.id} />
           </>
         )}
 

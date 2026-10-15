@@ -456,6 +456,10 @@ export const RequirementList: React.FC<RequirementListProps> = ({
           selectedId={selectedId}
           onSelect={onSelect}
           showSearch={false}
+          // Issue #1257: resolve the configured field selection for this
+          // artifact type in this workspace (user > workspace > global).
+          itemType="Requirement"
+          workspaceId={activeWorkspace?.id ?? null}
           // Issue #665: remember which branches were open so a sidebar section
           // switch (which unmounts this tree) does not reset it.
           stateKey="requirements"

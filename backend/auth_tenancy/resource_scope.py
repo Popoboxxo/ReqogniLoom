@@ -294,6 +294,9 @@ _WORKSPACE_VIA_REQUEST = (
     "WorkspaceReviewsPendingView",
     "WorkspaceTraceabilitySuggestLinksView",
     "AttributeUsageView",
+    # Issue #1257: the per-workspace tree-display configuration; the workspace
+    # is carried in the URL, so the request-resolution supplies the target.
+    "TreeDisplayConfigWorkspaceView",
 )
 for _name in _WORKSPACE_VIA_REQUEST:
     _declare(
@@ -358,6 +361,13 @@ _TENANT_SCOPED = {
     "UserThemePreferenceView": "caller's own theme preference",
     "NotificationPreferenceView": "caller's own notification preferences",
     "DisplayPreferenceView": "caller's own display preferences",
+    # Issue #1257: the personal level of the tree-display configuration
+    # (self-service, ``ctx.user_id`` is the boundary) and the tenant-wide
+    # (global) level — a tenant singleton a workspace UI reads to resolve the
+    # inherited value. The write side of the global level is admin-gated in the
+    # service and by AdminScopeRequiredMixin.
+    "TreeDisplayConfigUserView": "caller's own tree display configuration",
+    "TreeDisplayConfigGlobalView": "tenant-wide tree display default",
     "NotificationViewSet": "caller's own notification feed",
     "MemorySelfServiceView": "caller's own user-scoped memory",
     # tenant-wide configuration / catalogs

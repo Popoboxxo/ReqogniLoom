@@ -1,6 +1,6 @@
 {
   "generated_from": "reqogniloom==unknown",
-  "tool_count": 241,
+  "tool_count": 243,
   "tools": [
     {
       "name": "admin.backup_create",
@@ -6884,6 +6884,77 @@
         },
         "required": [
           "workspace_id"
+        ]
+      }
+    },
+    {
+      "name": "tree_display_config.get",
+      "prefix": "tree_display_config",
+      "is_write": false,
+      "description": "Read the navigation tree's field selection (Issue #1257). ``scope=\"effective\"`` (default) resolves user > workspace > global > built-in default and reports which level supplied the value; any other scope returns that level's stored value. ``item_type`` is required for the effective scope and optional otherwise (omitted = the whole {item_type: [...]} map). The response carries the selectable-field catalogue so a caller can render a picker. Identical to the REST GET .../tree-display-config/ endpoints.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "enum": [
+              "effective",
+              "user",
+              "workspace",
+              "global",
+              "default"
+            ],
+            "description": "effective | user | workspace | global | default. Default: effective."
+          },
+          "item_type": {
+            "type": "string",
+            "description": "Artifact type, e.g. \"Requirement\" or \"Adr\". Required when scope is \"effective\"."
+          },
+          "workspace_id": {
+            "type": "string",
+            "description": "UUID of the workspace whose override participates (workspace scope and the workspace level of the effective resolution)."
+          }
+        }
+      }
+    },
+    {
+      "name": "tree_display_config.set",
+      "prefix": "tree_display_config",
+      "is_write": true,
+      "description": "Store (or reset) the navigation tree's field selection for one artifact type on one level (Issue #1257). ``fields`` is an ordered array of field keys (see the catalogue from ``tree_display_config.get``) or {\"key\", \"width\"} objects; ``null`` resets the level so resolution falls back to the next one. Scope \"user\" is self-service; \"workspace\" requires write authority in the workspace (workspace_id required); \"global\" requires the admin role. Identical to the REST PATCH endpoints.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "enum": [
+              "user",
+              "workspace",
+              "global"
+            ],
+            "description": "user | workspace | global."
+          },
+          "item_type": {
+            "type": "string",
+            "description": "Artifact type to configure."
+          },
+          "fields": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {},
+            "description": "Ordered field keys or {\"key\",\"width\"} objects; null resets the level for this item type."
+          },
+          "workspace_id": {
+            "type": "string",
+            "description": "UUID of the workspace; required for scope \"workspace\"."
+          }
+        },
+        "required": [
+          "scope",
+          "item_type",
+          "fields"
         ]
       }
     },
