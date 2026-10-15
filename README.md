@@ -74,7 +74,7 @@ Facts, not narrative:
 - **Workflow Automation** — Configurable requirement states and transitions
 
 ### AI Integration
-- **MCP Server** — native Model Context Protocol server; 38 tool-group prefixes (admin, adr, ai_derivation, architecture, artifact, attribute_catalog, attribute_definition, attribute_migration, audit, baseline, change_request, comment, context, diagram, events, glossary, goal, icd, interview, issue, link_type, main_goal, memory, metrics, needs, permissions, prompt_template, prompt_variable, requirement, requirement_bundle, review, risk, suggestion, test, traceability, tree_display_config, user, workspace), 244 individual tools — measured from `tools/list`; see `docs/api/MCP-SURFACE.md` for the count and how to re-derive it, and `docs/agent-templates/tool-manifest.json` for the machine-readable manifest. For Claude Desktop, Cursor, and other MCP-capable LLM platforms
+- **MCP Server** — native Model Context Protocol server; 39 tool-group prefixes (admin, adr, ai_derivation, architecture, artifact, attribute_catalog, attribute_definition, attribute_migration, audit, baseline, change_request, comment, context, create_form_definition, diagram, events, glossary, goal, icd, interview, issue, link_type, main_goal, memory, metrics, needs, permissions, prompt_template, prompt_variable, requirement, requirement_bundle, review, risk, suggestion, test, traceability, tree_display_config, user, workspace), 248 individual tools — measured from `tools/list`; see `docs/api/MCP-SURFACE.md` for the count and how to re-derive it, and `docs/agent-templates/tool-manifest.json` for the machine-readable manifest. For Claude Desktop, Cursor, and other MCP-capable LLM platforms
 - **LLM Adapter** — Pluggable providers: Anthropic, OpenAI, Ollama (local), Azure OpenAI, opencode_go, or mock mode (default, no external calls)
 - **AI Derivation** — Configurable prompts to intelligently decompose Stakeholder Needs into System Requirements
 - **Semantic Glossary & Linking** — Intelligent requirement matching and terminology suggestions
@@ -111,7 +111,7 @@ graph TD
 
     subgraph L3["Layer 3 — Integration (transport only)"]
         REST["REST API<br/>DRF, 20+ ViewSets/APIViews<br/>JWT Auth + OpenAPI"]
-        MCP["MCP Server<br/>JSON-RPC 2.0<br/>38 tool-group prefixes, 244 tools"]
+        MCP["MCP Server<br/>JSON-RPC 2.0<br/>39 tool-group prefixes, 248 tools"]
     end
 
     subgraph L2["Layer 2 — Application (Single Entry Point, ADR-01)"]
@@ -1092,7 +1092,7 @@ find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null
 
 ## MCP Server
 
-ReqogniLoom ships a native MCP (Model Context Protocol) server alongside the REST API. The server exposes **38 tool-group prefixes** (244 individual tools — see `docs/agent-templates/tool-manifest.json` for the current count) for requirements engineering, stakeholder needs, architecture, test management, traceability, ADRs, risks, issues, glossary, change requests, goals, diagrams, AI derivation, workspace administration, permissions, backups, audit, and user management. Several prefixes share one underlying tool-group implementation (e.g. `traceability`/`artifact`/`context` all route to `CrossCuttingToolGroup`, `audit`/`events` to `AuditToolGroup`) — see `backend/mcp_server/tool_registry.py` for the full prefix → implementation map.
+ReqogniLoom ships a native MCP (Model Context Protocol) server alongside the REST API. The server exposes **39 tool-group prefixes** (248 individual tools — see `docs/agent-templates/tool-manifest.json` for the current count) for requirements engineering, stakeholder needs, architecture, test management, traceability, ADRs, risks, issues, glossary, change requests, goals, diagrams, AI derivation, workspace administration, permissions, backups, audit, and user management. Several prefixes share one underlying tool-group implementation (e.g. `traceability`/`artifact`/`context` all route to `CrossCuttingToolGroup`, `audit`/`events` to `AuditToolGroup`) — see `backend/mcp_server/tool_registry.py` for the full prefix → implementation map.
 
 ### Transport Endpoints
 
@@ -1249,7 +1249,7 @@ curl -X POST http://localhost:8000/mcp/ \
 }
 ```
 
-### Tool Groups (38 prefixes)
+### Tool Groups (39 prefixes)
 
 | Prefix | Purpose | Example tools | Role required |
 |--------|---------|---------------|---------------|
@@ -1261,6 +1261,7 @@ curl -X POST http://localhost:8000/mcp/ \
 | `adr` / `risk` / `issue` / `glossary` / `change_request` | Generic CRUD for ADRs, risks, issues, glossary terms, change requests | `read`, `create`, `update`, `delete` | Member |
 | `goal` / `main_goal` | Goal and MainGoal CRUD (workflow-backed) | `get`, `query`, `create`, `update` | Member |
 | `diagram` | Diagram generation and CRUD | `get`, `create`, `update` | Member |
+| `create_form_definition` | Create-dialog form definition per artifact type (visible fields, order, requiredness, defaults; 3 levels: user/workspace/global) | `get`, `set`, `export`, `import` | Member (user/workspace), Admin (global) |
 | `custom_field` | Custom field definitions | `get`, `list` | Member |
 | `review` | Review workflow tools | `get`, `create` | Member |
 | `suggestion` | ADR-019 durable proposal inbox (accept delegates to the existing domain path) | `list`, `accept`, `reject` | Member |
