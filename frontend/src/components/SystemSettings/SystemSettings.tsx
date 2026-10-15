@@ -29,6 +29,7 @@ import { MemoryManagementSection } from "./MemoryManagementSection";
 import { MemorySystemSettingsSection } from "./MemorySystemSettingsSection";
 import { MemoryVisualizationSection } from "./MemoryVisualizationSection";
 import { TreeDisplaySection } from "./TreeDisplaySection";
+import { CreateFormSection } from "./CreateFormSection";
 import { PageHeader } from "../shared/PageHeader";
 import { handleTablistKeyDown, tabRovingTabIndex } from "../shared/tablistKeyboardNav";
 import styles from "./SystemSettings.module.css";
@@ -172,6 +173,9 @@ export default function SystemSettings(): JSX.Element {
             {/* Issue #1257: the tenant-wide default for the navigation tree's
                 fields; every workspace inherits it unless it overrides it. */}
             <TreeDisplaySection />
+            {/* Issue #1263: the tenant-wide default for the "new artifact"
+                dialog's fields (visible / order / required / default). */}
+            <CreateFormSection />
           </div>
         )}
         {activeTab === "memory" && (

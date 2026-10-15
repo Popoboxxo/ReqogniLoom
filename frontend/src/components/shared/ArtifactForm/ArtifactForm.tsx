@@ -64,6 +64,7 @@ import {
 } from "./fields";
 import { stripNonEditableValues } from "./payload";
 import { useArtifactDefinition } from "./useArtifactDefinition";
+import { useCreateFormFields } from "../../../hooks/useCreateFormFields";
 import { useGateRequiredFields } from "./useGateRequiredFields";
 import { resolveWidget } from "./widget-registry";
 
@@ -294,6 +295,12 @@ export function ArtifactForm({
   // an empty set when the discovery request fails.
   const gateRequired = useGateRequiredFields(itemType);
 
+  // Issue #1263: the create dialog's configurable form definition. Only the
+  // CREATE path consults it (the edit dialog is the artifact's own state, not a
+  // "which fields do we ask for" question). Best-effort: `entries === null`
+  // leaves the attribute definition in charge — the pre-#1263 behaviour.
+  const createForm = useCreateFormFields(itemType, artifactId === null);
+
   // Issue #889: apply the adapter's per-attribute overrides once, so rendering
   // and payload building see the same definition. Kept out of the hook itself
   // because the fetched definition is the server's contract and the override is
@@ -317,16 +324,40 @@ export function ArtifactForm({
             ),
           }
         : resolvedDefinition;
-    if (!gateRequired.size) return overridden;
+    const gated = !gateRequired.size
+      ? overridden
+      : {
+          ...overridden,
+          attributes: overridden.attributes.map((attribute) =>
+            gateRequired.has(attribute.name)
+              ? { ...attribute, is_required: true }
+              : attribute
+          ),
+        };
+    // Issue #1263: overlay the create-form definition (visible / order /
+    // required / default) on the attribute definition. One render path: the
+    // dialog reads ONLY the form definition, never a second hardcoded list. The
+    // overlay is per-attribute, so it composes with the section/flow layout the
+    // renderer already applies; a field the entry list does not name (a
+    // non-editable one) keeps the definition's own flags.
+    const entries = createForm.entries;
+    if (!entries || entries.length === 0) return gated;
+    const entryByKey = new Map(entries.map((entry) => [entry.field_key, entry]));
     return {
-      ...overridden,
-      attributes: overridden.attributes.map((attribute) =>
-        gateRequired.has(attribute.name)
-          ? { ...attribute, is_required: true }
-          : attribute
-      ),
+      ...gated,
+      attributes: gated.attributes.map((attribute) => {
+        const entry = entryByKey.get(attribute.name);
+        if (!entry) return attribute;
+        return {
+          ...attribute,
+          visible: entry.visible,
+          required: entry.required,
+          default: entry.default,
+          order: entry.order,
+        };
+      }),
     };
-  }, [resolvedDefinition, attributeOverrides, gateRequired]);
+  }, [resolvedDefinition, attributeOverrides, gateRequired, createForm.entries]);
   const [values, setValues] = useState<ArtifactFormValues>(initialValues);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string[]>>({});
   const [formError, setFormError] = useState<string | null>(null);
