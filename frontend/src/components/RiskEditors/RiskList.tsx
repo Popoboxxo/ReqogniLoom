@@ -34,6 +34,9 @@ interface RiskListProps {
   selectedId?: string;
   onSelect: (id: string) => void;
   onCreateNew: () => void;
+  /** Issue #1257: the active workspace, so the tree can resolve the
+   * configured display fields (`user > workspace > global`). */
+  workspaceId?: string | null;
 }
 
 type SortKey = 'default' | 'title' | 'status' | 'updated';
@@ -58,7 +61,13 @@ function riskToNode(risk: Risk): WorkspaceTreeNode {
   return { id: risk.id, name: risk.title || 'Untitled', parentId: null };
 }
 
-export function RiskList({ items, selectedId, onSelect, onCreateNew }: RiskListProps): JSX.Element {
+export function RiskList({
+  items,
+  selectedId,
+  onSelect,
+  onCreateNew,
+  workspaceId,
+}: RiskListProps): JSX.Element {
   const { t } = useTranslation();
   const [listSearch, setListSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
@@ -157,6 +166,9 @@ export function RiskList({ items, selectedId, onSelect, onCreateNew }: RiskListP
           selectedId={selectedId}
           onSelect={onSelect}
           showSearch={false}
+          // Issue #1257: resolve the configured tree-display fields for risks.
+          itemType="Risk"
+          workspaceId={workspaceId ?? null}
           virtualize
           // <ArtifactRow>'s two-line id/title layout is taller than
           // WorkspaceTree's default single-line row estimate (34px).

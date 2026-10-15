@@ -223,6 +223,9 @@ export function GoalsTree({
         selectedId={selectedId}
         onSelect={onSelect}
         showSearch={false}
+        // Issue #1257: resolve the configured tree-display fields for goals.
+        itemType="Goal"
+        workspaceId={workspaceId ?? null}
         virtualize
         virtualRowHeight={VIRTUAL_ROW_HEIGHT_PX}
         emptyLabel={t("goals.empty", "Noch keine Ziele.")}

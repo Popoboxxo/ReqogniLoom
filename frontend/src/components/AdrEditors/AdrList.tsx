@@ -35,6 +35,9 @@ interface AdrListProps {
   selectedId?: string;
   onSelect: (id: string) => void;
   onCreateNew: () => void;
+  /** Issue #1257: the active workspace, so the tree can resolve the
+   * configured display fields (`user > workspace > global`). */
+  workspaceId?: string | null;
 }
 
 type SortKey = 'default' | 'title' | 'status' | 'updated';
@@ -59,7 +62,13 @@ function adrToNode(adr: Adr): WorkspaceTreeNode {
   return { id: adr.id, name: adr.title || 'Untitled', parentId: null };
 }
 
-export function AdrList({ items, selectedId, onSelect, onCreateNew }: AdrListProps): JSX.Element {
+export function AdrList({
+  items,
+  selectedId,
+  onSelect,
+  onCreateNew,
+  workspaceId,
+}: AdrListProps): JSX.Element {
   const { t } = useTranslation();
   const [listSearch, setListSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
@@ -159,6 +168,9 @@ export function AdrList({ items, selectedId, onSelect, onCreateNew }: AdrListPro
           selectedId={selectedId}
           onSelect={onSelect}
           showSearch={false}
+          // Issue #1257: resolve the configured tree-display fields for ADRs.
+          itemType="Adr"
+          workspaceId={workspaceId ?? null}
           virtualize
           // <ArtifactRow>'s two-line id/title layout is taller than
           // WorkspaceTree's default single-line row estimate (34px).

@@ -216,6 +216,7 @@ export default function AdrEditors(): JSX.Element {
                 selectedId={selectedId}
                 onSelect={(id) => navigate(`/adrs/${id}`)}
                 onCreateNew={openCreateDialog}
+                workspaceId={activeWorkspace?.id ?? null}
               />
             </div>
           }

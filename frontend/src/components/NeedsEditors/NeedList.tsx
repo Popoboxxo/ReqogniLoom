@@ -70,6 +70,9 @@ interface NeedListProps {
    * pass it keep working unchanged.
    */
   onSelect?: (id: string) => void;
+  /** Issue #1257: the active workspace, so the tree can resolve the
+   * configured display fields (`user > workspace > global`). */
+  workspaceId?: string | null;
 }
 
 type NeedSortKey = 'default' | 'title' | 'status' | 'updated';
@@ -137,6 +140,7 @@ export function NeedList({
   createFormRef,
   createTriggerRef,
   onSelect,
+  workspaceId,
 }: NeedListProps): JSX.Element {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -387,6 +391,9 @@ export function NeedList({
           selectedId={selectedId}
           onSelect={onSelect ?? ((id) => navigate(`/needs/${id}`))}
           showSearch={false}
+          // Issue #1257: resolve the configured tree-display fields for needs.
+          itemType="StakeholderNeed"
+          workspaceId={workspaceId ?? null}
           virtualize
         />
       )}

@@ -46,6 +46,7 @@ import { StatusBadge } from "../StatusBadge";
 import { VersionBadge } from "../VersionBadge";
 import { Badge } from "../Badge";
 import { useReadableIdsVisible } from "../../../hooks/useReadableIdsVisible";
+import { useTreeFieldVisibility } from "../WorkspaceTree/tree-display-fields-context";
 import type { BadgeVariant } from "../../../utils/statusBadge";
 import styles from "./ArtifactRow.module.css";
 
@@ -147,6 +148,11 @@ export function ArtifactRow({
   // `hooks/useReadableIdsVisible`) serves every mounted row, so a virtualized
   // list does not attach one `storage` listener per line.
   const [readableIdsVisible] = useReadableIdsVisible();
+  // Issue #1257: the enclosing <WorkspaceTree> publishes the tree's configured
+  // field selection here, so a row rendered through its `renderRow` slot hides
+  // exactly what the tree's own default row hides. Outside a tree (a flat list,
+  // a unit test) every field stays visible — the pre-#1257 rendering.
+  const isFieldVisible = useTreeFieldVisibility();
   // `undefined` keeps the translated default; `null` explicitly opts out.
   const resolvedIdLabel =
     idLabel === undefined ? t("artifactId.shortLabel", "ID") : idLabel;
@@ -156,6 +162,13 @@ export function ArtifactRow({
   // With the readable id hidden there is nothing left for the "ID" label to
   // label, so it goes with it rather than floating over a bare copy button.
   const showIdLabel = readableIdsVisible && resolvedIdLabel != null && resolvedIdLabel !== "";
+  // Issue #1257: the field keys mirror the artifact list payload's own field
+  // names (`uid`, `level`, `status`, `version`), so a configuration written for
+  // one transport reads the same in the other.
+  const showId = isFieldVisible("uid");
+  const showLevel = isFieldVisible("level") && (level != null || levelLabel != null);
+  const showStatus = isFieldVisible("status") && status != null;
+  const showVersion = isFieldVisible("version") && version != null;
 
   return (
     <div
@@ -188,7 +201,7 @@ export function ArtifactRow({
               {t("editor.outdatedBadge", "Veraltet")}
             </Badge>
           )}
-          {status != null && (
+          {showStatus && (
             <StatusBadge
               status={status}
               label={statusLabel}
@@ -196,38 +209,44 @@ export function ArtifactRow({
               testId={`${testId}-status`}
             />
           )}
-          {version != null && (
+          {showVersion && (
             <VersionBadge version={version} isCurrent={versionIsCurrent} hideWhenFirst />
           )}
         </div>
       </div>
       <div className={styles.identity}>
         {/* Copy-to-clipboard is a standalone interaction (ch. 12.4) that
-            must not also trigger row selection. */}
-        <span className={styles.idGroup} onClick={(e) => e.stopPropagation()}>
-          {showIdLabel ? <span className={styles.idLabel}>{resolvedIdLabel}</span> : null}
-          {/*
-            Issue #1094: `<IdChip>` replaced `<ArtifactId>` here. The row
-            previously copied whatever it displayed — the readable `REQ-001` —
-            while every API, MCP tool and ReqIF round-trip speaks the system id
-            (see #1003 on why both must stay in the payload). The chip shows
-            `uid` (ch. 12.4: a labelled secondary reference, the title still
-            leads) and copies the UUID.
-          */}
-          <IdChip
-            uid={id}
-            systemId={systemId}
-            fallback={idFallback}
-            hideReadable={!readableIdsVisible}
-            testId={`${testId}-id`}
+            must not also trigger row selection. Issue #1257: the whole
+            identity group follows the configured `uid`, so a tree that hides
+            the readable id does not leave a dangling copy control behind. */}
+        {showId && (
+          <span className={styles.idGroup} onClick={(e) => e.stopPropagation()}>
+            {showIdLabel ? <span className={styles.idLabel}>{resolvedIdLabel}</span> : null}
+            {/*
+              Issue #1094: `<IdChip>` replaced `<ArtifactId>` here. The row
+              previously copied whatever it displayed — the readable `REQ-001` —
+              while every API, MCP tool and ReqIF round-trip speaks the system id
+              (see #1003 on why both must stay in the payload). The chip shows
+              `uid` (ch. 12.4: a labelled secondary reference, the title still
+              leads) and copies the UUID.
+            */}
+            <IdChip
+              uid={id}
+              systemId={systemId}
+              fallback={idFallback}
+              hideReadable={!readableIdsVisible}
+              testId={`${testId}-id`}
+            />
+          </span>
+        )}
+        {showLevel && (
+          <LevelBadge
+            level={level}
+            label={levelLabel}
+            title={levelTitle}
+            testId={`${testId}-level`}
           />
-        </span>
-        <LevelBadge
-          level={level}
-          label={levelLabel}
-          title={levelTitle}
-          testId={`${testId}-level`}
-        />
+        )}
       </div>
       {visibleAttributes.length > 0 && (
         <ul className={styles.attributes} data-testid={`${testId}-attributes`}>

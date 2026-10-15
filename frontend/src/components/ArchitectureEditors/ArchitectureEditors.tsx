@@ -659,6 +659,10 @@ export default function ArchitectureEditors(): JSX.Element {
             rootDropzoneLabel={t('arch.tree.dropRoot', 'Drop here to make root (L0)')}
             showLevelBadge={true}
             showSearch={false}
+            // Issue #1257: resolve the configured field selection for this
+            // artifact type in this workspace (user > workspace > global).
+            itemType="ArchitectureElement"
+            workspaceId={activeWorkspace?.id ?? null}
             // Issue #665: remember which branches were open so a sidebar
             // section switch (which unmounts this tree) does not reset it.
             stateKey="architecture"

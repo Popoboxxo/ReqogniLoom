@@ -187,6 +187,7 @@ export default function IssueEditors(): JSX.Element {
                 selectedId={selectedId}
                 onSelect={(id) => navigate(`/issues/${id}`)}
                 onCreateNew={openCreateDialog}
+                workspaceId={activeWorkspace?.id ?? null}
               />
             </div>
           }

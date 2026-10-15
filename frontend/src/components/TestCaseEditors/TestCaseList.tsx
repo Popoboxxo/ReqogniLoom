@@ -36,6 +36,9 @@ interface TestCaseListProps {
   selectedId?: string;
   onSelect: (id: string) => void;
   onCreateNew: () => void;
+  /** Issue #1257: the active workspace, so the tree can resolve the
+   * configured display fields (`user > workspace > global`). */
+  workspaceId?: string | null;
 }
 
 type SortKey = 'default' | 'title' | 'status' | 'updated';
@@ -60,7 +63,13 @@ function testCaseToNode(tc: TestCase): WorkspaceTreeNode {
   return { id: tc.id, name: tc.title || 'Untitled', parentId: null };
 }
 
-export function TestCaseList({ items, selectedId, onSelect, onCreateNew }: TestCaseListProps): JSX.Element {
+export function TestCaseList({
+  items,
+  selectedId,
+  onSelect,
+  onCreateNew,
+  workspaceId,
+}: TestCaseListProps): JSX.Element {
   const { t } = useTranslation();
   const [listSearch, setListSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
@@ -150,6 +159,9 @@ export function TestCaseList({ items, selectedId, onSelect, onCreateNew }: TestC
           selectedId={selectedId}
           onSelect={onSelect}
           showSearch={false}
+          // Issue #1257: resolve the configured tree-display fields for test cases.
+          itemType="TestCase"
+          workspaceId={workspaceId ?? null}
           virtualize
           // <ArtifactRow>'s two-line id/title layout is taller than
           // WorkspaceTree's default single-line row estimate (34px). #424/#402
