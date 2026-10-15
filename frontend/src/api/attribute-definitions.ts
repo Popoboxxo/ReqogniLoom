@@ -10,7 +10,7 @@
  */
 
 import { apiClient } from "./client";
-import type { UUID, WorkspacePreset } from "../types";
+import type { ApiError, UUID, WorkspacePreset } from "../types";
 
 /**
  * The 11 bootstrapped item types (verified against
@@ -307,6 +307,32 @@ export interface AttributeDefinitionDocument {
 
 export type OnCollision = "skip" | "overwrite" | "rename";
 
+/**
+ * One atomic section+position move (feature #1260).
+ *
+ * `after` names the attribute of `section` the moved one must follow; `null` (or
+ * omitted) moves it to the front. `version` is the optimistic-lock precondition:
+ * the definition `version` the caller last read, so a concurrent editor's change
+ * answers 409 instead of being overwritten.
+ */
+export interface AttributeReorderRequest {
+  name: string;
+  section: string;
+  after?: string | null;
+  version?: number;
+}
+
+/**
+ * The 409 body of a reorder (feature #1260): the standard error envelope plus
+ * the server's *current* definition, so the editor can rebase without a second
+ * GET. `apiClient` throws the parsed body for a 409, so callers read
+ * `error.current`.
+ */
+export interface AttributeReorderConflict {
+  error?: ApiError["error"];
+  current?: ResolvedAttributeDefinition | GlobalAttributeDefinition;
+}
+
 export interface GlobalAttributeDefinition {
   item_type: AttributeItemType;
   preset: WorkspacePreset;
@@ -341,6 +367,18 @@ function createPayload(input: NewAttributeInput): Record<string, unknown> {
     required: input.required,
     section: input.section,
     ...(input.options ? { options: input.options } : {}),
+  };
+}
+
+function reorderBody(request: AttributeReorderRequest): Record<string, unknown> {
+  return {
+    name: request.name,
+    section: request.section,
+    // `null` is meaningful ("to the front"), so it is sent explicitly rather
+    // than omitted — omission means the same thing server-side, but sending it
+    // keeps the request self-describing in logs/tests.
+    after: request.after ?? null,
+    ...(request.version !== undefined ? { version: request.version } : {}),
   };
 }
 
@@ -438,6 +476,37 @@ export const attributeDefinitionsApi = {
     return apiClient.post<ResolvedAttributeDefinition>(
       `${workspacePath(workspaceId, itemType)}reset/`,
       {}
+    );
+  },
+
+  /**
+   * `POST .../reorder/` on the global default (feature #1260) — moves one
+   * attribute inside/into a section, writing `section` and its sparse position
+   * key atomically.
+   *
+   * Rejects with the raw 409 body (see {@link AttributeReorderConflict}) when
+   * `version` is stale.
+   */
+  reorderGlobal(
+    itemType: AttributeItemType,
+    preset: WorkspacePreset,
+    request: AttributeReorderRequest
+  ): Promise<GlobalAttributeDefinition> {
+    return apiClient.post<GlobalAttributeDefinition>(
+      `${globalPath(itemType, preset)}reorder/`,
+      reorderBody(request)
+    );
+  },
+
+  /** Workspace-scoped sibling of {@link reorderGlobal} (feature #1260). */
+  reorderWorkspace(
+    workspaceId: UUID,
+    itemType: AttributeItemType,
+    request: AttributeReorderRequest
+  ): Promise<ResolvedAttributeDefinition> {
+    return apiClient.post<ResolvedAttributeDefinition>(
+      `${workspacePath(workspaceId, itemType)}reorder/`,
+      reorderBody(request)
     );
   },
 

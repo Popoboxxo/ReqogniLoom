@@ -293,6 +293,29 @@ export function AttributeList({
                   >
                     <ChevronDown aria-hidden="true" size={14} />
                   </button>
+                  {/* Feature #1260: the keyboard path for a CROSS-section move.
+                      Up/down only walk within a section, so without this a
+                      keyboard-only user could never reach another section —
+                      drag & drop alone is not accessible (WCAG 2.1). Moving to
+                      another section appends at its end; up/down then refine
+                      the position. No onClick handler on purpose: it would make
+                      the ratchet see a second "button" and the row's own click
+                      (selecting the row) is harmless here. */}
+                  <select
+                    data-testid={`attribute-row-${attribute.name}-section`}
+                    value={attribute.section}
+                    disabled={readOnly}
+                    aria-label={t("attributes.moveToSection")}
+                    onChange={(event) =>
+                      onMove(attribute.name, event.target.value, Number.MAX_SAFE_INTEGER)
+                    }
+                  >
+                    {allSections.map((candidate) => (
+                      <option key={candidate} value={candidate}>
+                        {t(`sections.${candidate}`, { defaultValue: candidate })}
+                      </option>
+                    ))}
+                  </select>
                   {attribute.kind === "extended" ? (
                     <button
                       type="button"

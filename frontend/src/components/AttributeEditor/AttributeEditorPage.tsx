@@ -30,6 +30,7 @@ import {
   type AttributeDefinitionDocument,
   type AttributeItemType,
   type AttributeOrigin,
+  type AttributeReorderConflict,
   type AttributeSpec,
   type LayoutToken,
   type NewAttributeInput,
@@ -67,6 +68,9 @@ import { LayoutFlowEditor } from "./LayoutFlowEditor";
 import {
   deleteSection,
   deleteSectionSpec,
+  anchorBefore,
+  indexAfterAnchor,
+  moveAnchor,
   moveAttribute,
   moveSection,
   patchAttribute,
@@ -93,6 +97,14 @@ const ATTRIBUTE_ITEM_TYPES: readonly AttributeItemType[] = [
   "GlossaryTerm",
   "ChangeRequest",
 ];
+
+/** Where one attribute must land, as the atomic reorder call describes it
+ * (feature #1260): the section plus the neighbour it follows (`null` = front). */
+interface ReorderTarget {
+  name: string;
+  section: string;
+  after: string | null;
+}
 
 const DEFAULT_ITEM_TYPE: AttributeItemType = "Requirement";
 
@@ -160,6 +172,12 @@ export function AttributeEditorPage({
   );
   const [showLayout, setShowLayout] = useState(false);
   const [isCustomized, setIsCustomized] = useState(false);
+  /** Feature #1260: the definition `version` this editor last read — the
+   * optimistic-lock precondition every reorder call sends. */
+  const [version, setVersion] = useState<number | undefined>(undefined);
+  /** The move that reverses the last drop, or `null` (feature #1260). Rendered
+   * as the toast's "Undo" action; cleared once the toast is dismissed. */
+  const [pendingUndo, setPendingUndo] = useState<ReorderTarget | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [emptySections, setEmptySections] = useState<string[]>([]);
   const [newSection, setNewSection] = useState<string | null>(null);
@@ -231,6 +249,7 @@ export function AttributeEditorPage({
 
   const load = useCallback(async (): Promise<void> => {
     setError(null);
+    setPendingUndo(null);
     try {
       if (isGlobal) {
         const definition = await attributeDefinitionsApi.getGlobal(itemType, preset);
@@ -241,6 +260,7 @@ export function AttributeEditorPage({
         );
         setIsCustomized(false);
         setOrigins({});
+        setVersion(definition.version);
       } else {
         if (!activeWorkspace?.id) return;
         const definition = await attributeDefinitionsApi.getWorkspace(
@@ -254,6 +274,7 @@ export function AttributeEditorPage({
         );
         setIsCustomized(definition.is_customized);
         setOrigins(definition.origins);
+        setVersion(definition.version);
       }
     } catch (exc: unknown) {
       setError(extractErrorMessage(exc));
@@ -357,6 +378,7 @@ export function AttributeEditorPage({
     setEmptySections([]);
     setNewSection(null);
     setShowCatalog(false);
+    setPendingUndo(null);
   }, [itemType, preset, isGlobal]);
 
   const isDirty = useMemo(
@@ -369,7 +391,15 @@ export function AttributeEditorPage({
 
   const selectedAttribute = attributes.find((a) => a.name === selected) ?? null;
 
-  const handleSave = useCallback(async (): Promise<void> => {
+  /**
+   * Persist the buffered definition and adopt the server's response as the new
+   * clean baseline.
+   *
+   * Returns the definition `version` the write produced (the reorder path needs
+   * it as its optimistic-lock precondition when it has to flush first), or
+   * `null` when the save failed.
+   */
+  const handleSave = useCallback(async (): Promise<number | null> => {
     setSaving(true);
     setError(null);
     toast.clear();
@@ -395,33 +425,38 @@ export function AttributeEditorPage({
                 sections
               );
         applyDefinition(result.attributes, result.sections, result.section_flow);
+        setVersion(result.version);
         if (typeof result.propagated_workspace_count === "number") {
           toast.show(
             t("attributes.propagated", { count: result.propagated_workspace_count })
           );
         }
-      } else if (activeWorkspace?.id) {
-        const result =
-          sectionFlow !== undefined
-            ? await attributeDefinitionsApi.putWorkspace(
-                activeWorkspace.id,
-                itemType,
-                attributes,
-                sections,
-                sectionFlow
-              )
-            : await attributeDefinitionsApi.putWorkspace(
-                activeWorkspace.id,
-                itemType,
-                attributes,
-                sections
-              );
-        applyDefinition(result.attributes, result.sections, result.section_flow);
-        setIsCustomized(result.is_customized);
-        setOrigins(result.origins);
+        return result.version;
       }
+      if (!activeWorkspace?.id) return null;
+      const result =
+        sectionFlow !== undefined
+          ? await attributeDefinitionsApi.putWorkspace(
+              activeWorkspace.id,
+              itemType,
+              attributes,
+              sections,
+              sectionFlow
+            )
+          : await attributeDefinitionsApi.putWorkspace(
+              activeWorkspace.id,
+              itemType,
+              attributes,
+              sections
+            );
+      applyDefinition(result.attributes, result.sections, result.section_flow);
+      setIsCustomized(result.is_customized);
+      setOrigins(result.origins);
+      setVersion(result.version);
+      return result.version;
     } catch (exc: unknown) {
       setError(extractErrorMessage(exc));
+      return null;
     } finally {
       setSaving(false);
     }
@@ -435,6 +470,7 @@ export function AttributeEditorPage({
     sectionFlow,
     sections,
     t,
+    toast,
   ]);
 
   const handleReset = useCallback(async (): Promise<void> => {
@@ -448,6 +484,7 @@ export function AttributeEditorPage({
       applyDefinition(result.attributes, result.sections, result.section_flow);
       setIsCustomized(result.is_customized);
       setOrigins(result.origins);
+      setVersion(result.version);
     } catch (exc: unknown) {
       setError(extractErrorMessage(exc));
     }
@@ -507,6 +544,120 @@ export function AttributeEditorPage({
   const handleMoveSection = useCallback((name: string, toIndex: number): void => {
     setAttributes((current) => moveSection(current, name, toIndex));
   }, []);
+
+  /**
+   * Persist one move through the atomic reorder endpoint (feature #1260) and
+   * adopt the server's re-normalized definition as the new clean baseline.
+   *
+   * `undoMove` is the move that reverses this one; it is offered as the toast's
+   * "Undo" action (`null` when this call IS the undo).
+   *
+   * Buffered edits are flushed first: a move hits the server immediately, and
+   * adopting the response afterwards would otherwise discard unsaved inspector
+   * edits.
+   */
+  const persistReorder = useCallback(
+    async (
+      move: ReorderTarget,
+      undoMove: ReorderTarget | null,
+      toIndex: number
+    ): Promise<void> => {
+      const snapshot = attributes;
+      const optimistic = !isDirty;
+      let currentVersion = version;
+      if (optimistic) {
+        // Instant feedback; the server response below replaces it with the
+        // canonical (re-normalized) list.
+        setAttributes(moveAttribute(snapshot, move.name, move.section, toIndex));
+      } else {
+        const flushedVersion = await handleSave();
+        if (flushedVersion === null) return;
+        currentVersion = flushedVersion;
+      }
+
+      setError(null);
+      toast.clear();
+      try {
+        if (isGlobal) {
+          const result = await attributeDefinitionsApi.reorderGlobal(itemType, preset, {
+            ...move,
+            version: currentVersion,
+          });
+          applyDefinition(result.attributes, result.sections, result.section_flow);
+          setVersion(result.version);
+        } else if (activeWorkspace?.id) {
+          const result = await attributeDefinitionsApi.reorderWorkspace(
+            activeWorkspace.id,
+            itemType,
+            { ...move, version: currentVersion }
+          );
+          applyDefinition(result.attributes, result.sections, result.section_flow);
+          setVersion(result.version);
+          setIsCustomized(result.is_customized);
+          setOrigins(result.origins);
+        } else {
+          return;
+        }
+        setPendingUndo(undoMove);
+        toast.show(t("attributes.reorderMoved", { name: move.name }));
+      } catch (exc: unknown) {
+        if (optimistic) setAttributes(snapshot);
+        // 409 with the server state (`current`): someone else moved something
+        // in the meantime. Reload that state and say so, instead of pretending
+        // the drop landed.
+        if ((exc as AttributeReorderConflict | null)?.current) {
+          await load();
+          setError(t("attributes.reorderConflict"));
+        } else {
+          setError(extractErrorMessage(exc));
+        }
+      }
+    },
+    [
+      activeWorkspace?.id,
+      applyDefinition,
+      attributes,
+      handleSave,
+      isDirty,
+      isGlobal,
+      itemType,
+      load,
+      preset,
+      t,
+      toast,
+      version,
+    ]
+  );
+
+  // A drag/drop or an up/down/other-section button on one row (feature #1260).
+  // The position travels as the NAME of the neighbour it follows, not as an
+  // index: that is what lets the server resolve a sparse key from its own
+  // current state (two editors in one section cannot overwrite each other).
+  const handleMoveAttribute = useCallback(
+    (name: string, toSection: string, toIndex: number): void => {
+      const original = attributes.find((a) => a.name === name);
+      if (!original) return;
+      const undoMove: ReorderTarget = {
+        name,
+        section: original.section,
+        after: anchorBefore(attributes, name),
+      };
+      const after = moveAnchor(attributes, name, toSection, toIndex);
+      void persistReorder({ name, section: toSection, after }, undoMove, toIndex);
+    },
+    [attributes, persistReorder]
+  );
+
+  const handleUndoMove = useCallback((): void => {
+    const undoMove = pendingUndo;
+    if (!undoMove) return;
+    setPendingUndo(null);
+    void persistReorder(
+      undoMove,
+      null,
+      indexAfterAnchor(attributes, undoMove.name, undoMove.section, undoMove.after)
+    );
+  }, [attributes, pendingUndo, persistReorder]);
 
   const handleToggleSectionVisible = useCallback((name: string): void => {
     setSections((current) => toggleSectionVisible(current, name));
@@ -821,8 +972,21 @@ export function AttributeEditorPage({
         </div>
       ) : null}
       {toast.message ? (
-        <div className={styles.toast} role="status" data-testid="attribute-editor-toast">
-          {toast.message}
+        <div className={styles.toast} data-testid="attribute-editor-toast">
+          {/* role="status" sits on the text, not the box: the box also holds the
+              undo button below, and a live region containing a focusable
+              control is announced badly by most screen readers. */}
+          <span role="status">{toast.message}</span>
+          {pendingUndo ? (
+            <button
+              type="button"
+              className="btn-ghost btn-sm"
+              data-testid="attribute-editor-undo"
+              onClick={handleUndoMove}
+            >
+              {t("attributes.reorderUndo")}
+            </button>
+          ) : null}
         </div>
       ) : null}
 
@@ -848,9 +1012,7 @@ export function AttributeEditorPage({
             selected={selected}
             readOnly={!isAdmin}
             onSelect={setSelected}
-            onMove={(name, toSection, toIndex) =>
-              setAttributes((current) => moveAttribute(current, name, toSection, toIndex))
-            }
+            onMove={handleMoveAttribute}
             onRenameSection={handleRenameSection}
             onDeleteSection={handleDeleteSection}
             onMoveSection={handleMoveSection}

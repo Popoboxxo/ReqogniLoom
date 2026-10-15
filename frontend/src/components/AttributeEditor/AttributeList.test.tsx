@@ -123,6 +123,68 @@ describe("AttributeList section visibility + layout", () => {
   });
 });
 
+describe("AttributeList cross-section keyboard move (feature #1260)", () => {
+  it("offers a section picker per row, defaulted to the current section", () => {
+    render(
+      <AttributeList
+        {...defaultProps}
+        attributes={[
+          attr({ name: "title" }),
+          attr({ name: "note", section: "extra" }),
+        ]}
+        onToggleSectionVisible={vi.fn()}
+        onSetSectionLayout={vi.fn()}
+      />
+    );
+
+    const picker = screen.getByTestId("attribute-row-title-section") as HTMLSelectElement;
+    expect(picker).toHaveValue("general");
+    // Every rendered section is offered as a target (the mocked `t` echoes the
+    // key, so the option's *value* is what identifies it here).
+    expect(Array.from(picker.options).map((option) => option.value)).toEqual([
+      "general",
+      "extra",
+    ]);
+  });
+
+  it("moves the row to the END of the chosen section via onMove", () => {
+    const onMove = vi.fn();
+    render(
+      <AttributeList
+        {...defaultProps}
+        attributes={[
+          attr({ name: "title" }),
+          attr({ name: "note", section: "extra" }),
+        ]}
+        onMove={onMove}
+        onToggleSectionVisible={vi.fn()}
+        onSetSectionLayout={vi.fn()}
+      />
+    );
+
+    fireEvent.change(screen.getByTestId("attribute-row-title-section"), {
+      target: { value: "extra" },
+    });
+
+    // `Number.MAX_SAFE_INTEGER` is the "append at the end" index; up/down then
+    // refine the position from there.
+    expect(onMove).toHaveBeenCalledWith("title", "extra", Number.MAX_SAFE_INTEGER);
+  });
+
+  it("disables the picker in readOnly mode", () => {
+    render(
+      <AttributeList
+        {...defaultProps}
+        readOnly
+        onToggleSectionVisible={vi.fn()}
+        onSetSectionLayout={vi.fn()}
+      />
+    );
+
+    expect(screen.getByTestId("attribute-row-title-section")).toBeDisabled();
+  });
+});
+
 describe("AttributeList type icon + origin badge (Task 12)", () => {
   it("renders a type icon for every row", () => {
     render(
