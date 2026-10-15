@@ -105,6 +105,15 @@ TOOL_COUNT_MARKERS_RE = re.compile(r"Tool-Gruppen-Präfix|Tool-Registry|MCP-Kata
 #: 228 Tools") without reaching into a neighbouring statement.
 TOOL_COUNT_CONTEXT_WINDOW = 80
 
+#: A documented *prefix* (tool-group) count is a number immediately followed by
+#: "Tool-Gruppen-Präfix…" ("39 Tool-Gruppen-Präfixe", "39 Tool-Gruppen-Präfixen")
+#: or by "Gruppen" ("248 Tools in 39 Gruppen", "248 Tools, 39 Gruppen"). The
+#: tool-count rule above is disjoint from this one: "39 Tool-" is not "39 Tools".
+#: Guarding the prefix count closes the exact #1104 observation — a bare number
+#: drifted 31→35→39 unnoticed while the manifest moved on, because a number
+#: reveals nothing; the list (and its count) is what stays honest.
+PREFIX_COUNT_RE = re.compile(r"(\d+)\s+(?:Tool-Gruppen-Präfix\w*|Gruppen)\b")
+
 
 def _statement_counts(statement: str) -> Set[int]:
     """Return the MCP tool counts documented in a single statement.
@@ -155,6 +164,47 @@ def documented_tool_counts_in_yaml(text: str) -> Set[int]:
     return counts
 
 
+def _statement_prefix_counts(statement: str) -> Set[int]:
+    """Return the MCP prefix (tool-group) counts documented in a statement."""
+    return {int(match.group(1)) for match in PREFIX_COUNT_RE.finditer(statement)}
+
+
+def documented_prefix_counts(text: str) -> Set[int]:
+    """Return all MCP prefix counts documented in a plain-text document."""
+    counts: Set[int] = set()
+    for line in text.splitlines():
+        counts |= _statement_prefix_counts(line)
+    return counts
+
+
+def documented_prefix_counts_in_yaml(text: str) -> Set[int]:
+    """Return all MCP prefix counts documented anywhere inside a YAML document."""
+    data = yaml.safe_load(text)
+    counts: Set[int] = set()
+    for value in _iter_string_values(data):
+        for line in str(value).splitlines():
+            counts |= _statement_prefix_counts(line)
+    return counts
+
+
+def manifest_prefix_count(manifest: Mapping[str, object]) -> Optional[int]:
+    """Return the manifest's distinct tool-group prefix count.
+
+    Prefixes are the ``<prefix>`` half of each ``<prefix>.<tool>`` name; the
+    manifest lists every tool, so the distinct count is authoritative. Returns
+    ``None`` when the manifest carries no usable ``tools`` list.
+    """
+    tools = manifest.get("tools")
+    if not isinstance(tools, list):
+        return None
+    prefixes = set()
+    for tool in tools:
+        name = tool.get("name") if isinstance(tool, dict) else None
+        if isinstance(name, str) and "." in name:
+            prefixes.add(name.split(".", 1)[0])
+    return len(prefixes) if prefixes else None
+
+
 def check_documented(manifest_count: int, files: Mapping[str, str]) -> List[str]:
     """Compare a manifest tool count against explicit file contents.
 
@@ -193,6 +243,45 @@ def check_documented(manifest_count: int, files: Mapping[str, str]) -> List[str]
                 f"says tool_count = {manifest_count} — update the number(s) in "
                 f"{rel_path} to {manifest_count}; if the manifest is the stale "
                 "side instead, regenerate it with "
+                "`python backend/manage.py export_tool_manifest` and commit both."
+            )
+    return problems
+
+
+def check_documented_prefixes(
+    manifest_prefixes: int, files: Mapping[str, str]
+) -> List[str]:
+    """Compare a manifest prefix count against explicit file contents.
+
+    Same contract as :func:`check_documented` for the tool-group prefix count.
+    A file that is missing from ``files`` is skipped (already reported by
+    :func:`check_documented`). Returns one full-sentence problem per offending
+    file; an empty list means green.
+    """
+    problems: List[str] = []
+    for rel_path in DOCUMENTED_FILES:
+        if rel_path not in files:
+            continue
+        text = files[rel_path]
+        if rel_path.endswith((".yaml", ".yml")):
+            found = documented_prefix_counts_in_yaml(text)
+        else:
+            found = documented_prefix_counts(text)
+        if not found:
+            problems.append(
+                f"{rel_path} documents no MCP tool-group prefix count (no "
+                f"\"<int> Tool-Gruppen-Präfix…\" / \"<int> Gruppen\" phrase) — add "
+                f"the current count ({manifest_prefixes}) to {rel_path}, or drop it "
+                "from DOCUMENTED_FILES if it no longer documents the MCP surface."
+            )
+            continue
+        wrong = sorted(found - {manifest_prefixes})
+        if wrong:
+            problems.append(
+                f"{rel_path} documents {wrong} tool-group prefixe(s), but "
+                f"{MANIFEST_REL} has {manifest_prefixes} distinct prefixes — update "
+                f"the number(s) in {rel_path} to {manifest_prefixes}; if the "
+                "manifest is the stale side instead, regenerate it with "
                 "`python backend/manage.py export_tool_manifest` and commit both."
             )
     return problems
@@ -267,6 +356,10 @@ def find_drift(root: Optional[Path] = None) -> List[str]:
             continue
         files[rel_path] = path.read_text(encoding="utf-8")
     problems.extend(check_documented(manifest_count, files))
+
+    manifest_prefixes = manifest_prefix_count(manifest)
+    if manifest_prefixes is not None:
+        problems.extend(check_documented_prefixes(manifest_prefixes, files))
     return problems
 
 
@@ -374,4 +467,63 @@ def test_unusable_manifest_fails(tmp_path: Path) -> None:
     assert drift and "tool_count" in drift[0], (
         "A manifest without tool_count must produce a drift problem, got: "
         f"{drift}"
+    )
+
+
+def test_repo_documents_the_manifest_prefix_count() -> None:
+    """The real repository's tool-group prefix count must match the manifest."""
+    root = _find_repo_root()
+    assert root is not None, (
+        f"repo root not reachable — no ancestor contains {MANIFEST_REL}"
+    )
+    manifest = json.loads((root / MANIFEST_REL).read_text(encoding="utf-8"))
+    manifest_prefixes = manifest_prefix_count(manifest)
+    assert manifest_prefixes is not None, (
+        f"{MANIFEST_REL} has no usable tools list — cannot derive the prefix count"
+    )
+    files = {
+        rel_path: (root / rel_path).read_text(encoding="utf-8")
+        for rel_path in DOCUMENTED_FILES
+    }
+    drift = check_documented_prefixes(manifest_prefixes, files)
+    assert not drift, (
+        "The documented MCP tool-group prefix count drifted from "
+        f"{MANIFEST_REL}: {drift} — correct the number at the source "
+        f"({PROJECT_YAML_REL}) and regenerate AGENTS.md/CLAUDE.md with "
+        "`python .agent-meta/scripts/sync.py`."
+    )
+
+
+def test_stale_documented_prefix_count_goes_red() -> None:
+    """NEGATIVE proof: a stale prefix count must make the prefix gate RED.
+
+    Mirrors the #1104 shape (documented 35 vs. manifest 39) with a synthetic
+    pair; the files are supplied directly, never read from the repository.
+    """
+    drift = check_documented_prefixes(
+        39,
+        {
+            PROJECT_YAML_REL: (
+                "variables:\n"
+                "  PROJECT_DESCRIPTION: AI-natives Tool mit nativem MCP Server "
+                "(35 Tool-Gruppen-Präfixe, 219 Tools), LLM-Adapter.\n"
+            ),
+            AGENTS_MD_REL: (
+                "- MCP-Server (JSON-RPC 2.0) mit 35 Tool-Gruppen-Präfixen und "
+                "219 Tools für AI-Integration.\n"
+            ),
+            CLAUDE_MD_REL: (
+                "**Beschreibung:** … nativem MCP Server (35 Tool-Gruppen-Präfixe, "
+                "219 Tools) …\n"
+            ),
+        },
+    )
+    assert drift, (
+        "The prefix gate stayed GREEN although the files say 35 while the "
+        "manifest has 39 prefixes — investigate documented_prefix_counts()/"
+        "check_documented_prefixes()."
+    )
+    assert all("39" in problem for problem in drift), (
+        f"The prefix gate went RED, but without the expected 35-vs-39 "
+        f"comparison: {drift}"
     )
