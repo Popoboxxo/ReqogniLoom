@@ -18,6 +18,7 @@ export function MarkdownTabGroup({
   disabled,
   errors,
   testId,
+  artifactId,
 }: WidgetProps): JSX.Element {
   const { t } = useTranslation();
   const [active, setActive] = useState<string>(attribute.fields[0] ?? "");
@@ -61,6 +62,7 @@ export function MarkdownTabGroup({
               value={String(values[field] ?? "")}
               onChange={(next: string) => onChange(field, next)}
               disabled={disabled}
+              artifactId={artifactId ?? null}
             />
             {(errors?.[field] ?? []).map((message) => (
               <span key={message} className={styles.errors} role="alert">

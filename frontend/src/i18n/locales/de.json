@@ -652,10 +652,21 @@
     "selectTitle": "Kein Begriff ausgewählt",
     "selectTerm": "Begriff aus der Liste auswählen, um Details anzuzeigen.",
     "usages": "Verwendungen",
+    "referenceHintPinned": "Verweise in Textfeldern sind an die Version beim Einfügen gebunden; im Editor lassen sich veraltete Verweise auf den aktuellen Stand anheben.",
+    "referenceHintAlwaysHead": "Verweise in Textfeldern nutzen immer die aktuelle Begriffsversion.",
     "lifecycleStatus": {
       "active": "Aktiv",
       "outdated": "Veraltet",
       "deprecated": "Abgekündigt"
+    }
+  },
+  "markdown": {
+    "reference": {
+      "insert": "Glossarbegriff einfügen",
+      "pick": "Begriff wählen…",
+      "driftHint": "Ein Glossarbegriff wurde aktualisiert — Version anheben?",
+      "upgradeToHead": "Alle auf Head aktualisieren",
+      "unresolved": "Glossarbegriff nicht gefunden"
     }
   },
   "adr": {
@@ -890,6 +901,14 @@
       "attributes": "Attribute"
     },
     "attributeVisibility": "Attribut-Sichtbarkeit",
+    "glossaryReference": {
+      "title": "Glossar-Verweise",
+      "description": "Steuert, wie versionsgebundene Glossar-Verweise in Textfeldern aufgelöst werden. Ein Verweis sieht aus wie [[glossary:<uuid>@<version>]].",
+      "pinned": "Version binden (Standard)",
+      "alwaysHead": "Immer aktuelle Version",
+      "pinnedHint": "Der beim Einfügen gespeicherte Stand bleibt gebunden. Ist der Begriff inzwischen aktualisiert, zeigt der Editor einen Hinweis zum Anheben.",
+      "alwaysHeadHint": "Verweise werden immer gegen den aktuellen Stand aufgelöst; gespeicherte Versionsangaben bleiben erhalten, werden aber ignoriert."
+    },
     "llm": {
       "title": "LLM-Provider",
       "description": "Konfiguriere den LLM-Provider für die KI-gestützte Ableitung. Zugangsdaten werden pro Mandant gespeichert und nie von der API zurückgegeben.",

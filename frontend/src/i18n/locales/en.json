@@ -652,10 +652,21 @@
     "selectTitle": "No term selected",
     "selectTerm": "Select a term from the list to view details.",
     "usages": "Usages",
+    "referenceHintPinned": "References in text fields are bound to the term version at insertion time; the editor can raise outdated references to the current head.",
+    "referenceHintAlwaysHead": "References in text fields always use the term's current version.",
     "lifecycleStatus": {
       "active": "Active",
       "outdated": "Outdated",
       "deprecated": "Deprecated"
+    }
+  },
+  "markdown": {
+    "reference": {
+      "insert": "Insert glossary term",
+      "pick": "Choose a term…",
+      "driftHint": "A glossary term was updated — raise the version?",
+      "upgradeToHead": "Update all to head",
+      "unresolved": "Glossary term not found"
     }
   },
   "adr": {
@@ -890,6 +901,14 @@
       "attributes": "Attributes"
     },
     "attributeVisibility": "Attribute Visibility",
+    "glossaryReference": {
+      "title": "Glossary references",
+      "description": "Controls how version-bound glossary references in text fields resolve. A reference looks like [[glossary:<uuid>@<version>]].",
+      "pinned": "Bind version (default)",
+      "alwaysHead": "Always current version",
+      "pinnedHint": "The state stored at insertion time stays bound. If the term has since been updated, the editor shows a hint to raise the version.",
+      "alwaysHeadHint": "References always resolve against the current state; stored version markers are kept but ignored."
+    },
     "llm": {
       "title": "LLM Provider",
       "description": "Configure the LLM provider used for AI-assisted derivation. Credentials are stored per tenant and never returned by the API.",

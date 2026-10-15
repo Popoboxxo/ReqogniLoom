@@ -33,6 +33,14 @@ export interface User {
 export type WorkspacePreset = "minimal" | "standard" | "extended";
 export type TerminologyProfile = "dev_mode" | "se_mode";
 
+/**
+ * #1266: how a version-bound glossary reference token
+ * (`[[glossary:<uuid>@<revision>]]`) resolves in a rendered text field.
+ * `pinned` = the revision stored in the token wins (drift is reported when the
+ * term's head moved on); `always_head` = resolve against the current head.
+ */
+export type GlossaryReferenceMode = "pinned" | "always_head";
+
 export interface Workspace {
   id: UUID;
   name: string;
@@ -62,6 +70,8 @@ export interface Workspace {
   goals_enabled?: boolean;
   /** KI-gestützte MainGoal-Generierung aktiviert (erfordert goals_enabled). */
   goals_ai_enabled?: boolean;
+  /** #1266: Auflösung von Glossar-Referenz-Tokens (Default `pinned`). */
+  glossary_reference_mode?: GlossaryReferenceMode;
 }
 
 export interface WorkspaceWithMetrics extends Workspace {
@@ -1100,6 +1110,53 @@ export interface GlossaryTerm extends SystemFieldValues {
    * built for every other artifact kind including "glossary".
    */
   version?: number;
+  /**
+   * #1266: stable global UUID of the term (== backing Artifact id), the
+   * identity a `[[glossary:<uuid>@<revision>]]` reference token pins. Exposed
+   * read-only by the backend (`GlossaryTermSerializer.global_uuid`).
+   */
+  global_uuid?: string;
   created_at?: string;
   updated_at?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Glossary references (#1266) — version-bound `[[glossary:<uuid>@<rev>]]`
+// tokens embedded in markdown/text fields, resolved by the backend against the
+// pinned revision (or the current head in `always_head` mode).
+// ---------------------------------------------------------------------------
+
+/** One distinct `(global_uuid, revision)` token resolved against the history. */
+export interface GlossaryReferenceResolution {
+  global_uuid: string;
+  requested_revision: number | null;
+  resolved_revision: number;
+  head_revision: number;
+  term: string;
+  definition: string;
+  /** False when no term with that global UUID exists (foreign/stale token). */
+  resolved: boolean;
+  /** True when a pinned revision is behind the term's current head. */
+  drift: boolean;
+}
+
+export interface GlossaryReferenceResolutionPayload {
+  mode: GlossaryReferenceMode;
+  has_drift: boolean;
+  references: GlossaryReferenceResolution[];
+}
+
+export interface GlossaryReferenceInsertResult {
+  token: string;
+  global_uuid: string;
+  term: string;
+  definition: string;
+  version: number;
+  link_type: string;
+  mode: GlossaryReferenceMode;
+}
+
+export interface GlossaryReferenceUpgradeResult {
+  text: string;
+  upgraded: number;
 }

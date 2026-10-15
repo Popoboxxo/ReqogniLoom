@@ -46,6 +46,7 @@ import { AiPromptsSection } from "./AiPromptsSection";
 import { PromptVariablesSection } from "./PromptVariablesSection";
 import { McpConnectionSection } from "./McpConnectionSection";
 import { ContextGraphSettingsSection } from "./ContextGraphSettingsSection";
+import { GlossaryReferenceSection } from "./GlossaryReferenceSection";
 import { WorkspaceBannerSection } from "./WorkspaceBannerSection";
 import { MemorySettingsSection } from "./MemorySettingsSection";
 import { TreeDisplaySection } from "./TreeDisplaySection";
@@ -612,6 +613,13 @@ export default function WorkspaceSettings(): JSX.Element {
         )}
         {activeTab === "traceability" && (
           <ContextGraphSettingsSection workspaceId={activeWorkspace.id} />
+        )}
+        {activeTab === "traceability" && (
+          <GlossaryReferenceSection
+            workspaceId={activeWorkspace.id}
+            mode={activeWorkspace.glossary_reference_mode ?? "pinned"}
+            onSaved={() => reloadWorkspaces(activeWorkspace.id)}
+          />
         )}
 
         {/* ---------------- LLM & Prompts ---------------- */}

@@ -1280,6 +1280,7 @@ function renderAttribute({
         disabled={disabled}
         errors={boundErrors}
         testId={`artifact-widget-${attribute.name}`}
+        artifactId={artifactId}
       />
     );
   }

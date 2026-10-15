@@ -267,6 +267,15 @@ export default function GlossaryView(): JSX.Element {
   // ---------------------------------------------------------------------------
   const listPanel = (
     <div data-testid="glossary-list">
+      {/* #1266: how version-bound references to these terms resolve. The
+          per-field "raise to head" bulk action lives in the markdown editor
+          (MarkdownPreview), where the write still goes through the artifact's
+          own update path (audit/version snapshots intact). */}
+      <p className={styles.referenceHint} data-testid="glossary-reference-hint">
+        {activeWorkspace.glossary_reference_mode === "always_head"
+          ? t("glossary.referenceHintAlwaysHead")
+          : t("glossary.referenceHintPinned")}
+      </p>
       <ListToolbar
         testIdPrefix="glossary-list"
         searchValue={searchTerm}

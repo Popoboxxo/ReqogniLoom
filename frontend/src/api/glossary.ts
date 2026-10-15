@@ -2,6 +2,9 @@ import { apiClient, getAllPages } from './client';
 import type {
   ArtifactDiffResult,
   ArtifactVersion,
+  GlossaryReferenceInsertResult,
+  GlossaryReferenceResolutionPayload,
+  GlossaryReferenceUpgradeResult,
   GlossaryTerm,
 } from '../types';
 
@@ -60,5 +63,59 @@ export const glossaryApi = {
    */
   versions: async (id: string): Promise<ArtifactVersion[]> => {
     return apiClient.get<ArtifactVersion[]>(`/glossary/${id}/versions/`);
+  },
+
+  // -----------------------------------------------------------------------
+  // Version-bound references (#1266)
+  // -----------------------------------------------------------------------
+
+  /**
+   * Resolve every `[[glossary:<uuid>@<rev>]]` token in `text` against the
+   * pinned revision (or the current head in `always_head` mode). Returns the
+   * workspace mode, a drift summary and one entry per distinct token.
+   */
+  resolveReferences: async (
+    workspaceId: string,
+    text: string
+  ): Promise<GlossaryReferenceResolutionPayload> => {
+    return apiClient.post<GlossaryReferenceResolutionPayload>(
+      '/glossary/references/resolve/',
+      { workspace_id: workspaceId, text }
+    );
+  },
+
+  /**
+   * Insert a glossary reference for `sourceArtifactId`: creates the usage
+   * trace link (`uses-term`/`references`) and returns the token text to embed,
+   * pinned to the term's current revision unless the workspace is in
+   * `always_head` mode.
+   */
+  insertReference: async (
+    workspaceId: string,
+    sourceArtifactId: string,
+    globalUuid: string
+  ): Promise<GlossaryReferenceInsertResult> => {
+    return apiClient.post<GlossaryReferenceInsertResult>(
+      '/glossary/references/insert/',
+      {
+        workspace_id: workspaceId,
+        source_artifact_id: sourceArtifactId,
+        global_uuid: globalUuid,
+      }
+    );
+  },
+
+  /**
+   * Rewrite every drifted version pin in `text` to the term's current head —
+   * the "raise the version" bulk action for a single field.
+   */
+  upgradeReferencesToHead: async (
+    workspaceId: string,
+    text: string
+  ): Promise<GlossaryReferenceUpgradeResult> => {
+    return apiClient.post<GlossaryReferenceUpgradeResult>(
+      '/glossary/references/upgrade-to-head/',
+      { workspace_id: workspaceId, text }
+    );
   },
 };

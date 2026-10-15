@@ -14,3 +14,20 @@
   padding: 0 2px;
   border-radius: 2px;
 }
+
+/*
+ * #1266: a reference whose pinned revision is behind the term's current head.
+ * Uses the warning colour token (never a literal) so the drift marker is
+ * theme-consistent.
+ */
+.drift {
+  border-bottom-color: var(--color-warning, var(--color-primary));
+  color: var(--color-warning, var(--color-primary));
+}
+
+.version {
+  margin-left: 2px;
+  font-size: 0.7em;
+  font-weight: normal;
+  opacity: 0.8;
+}
