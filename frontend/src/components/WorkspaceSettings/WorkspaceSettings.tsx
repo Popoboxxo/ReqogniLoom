@@ -49,6 +49,7 @@ import { ContextGraphSettingsSection } from "./ContextGraphSettingsSection";
 import { WorkspaceBannerSection } from "./WorkspaceBannerSection";
 import { MemorySettingsSection } from "./MemorySettingsSection";
 import { TreeDisplaySection } from "./TreeDisplaySection";
+import { CreateFormSection } from "./CreateFormSection";
 import { useLinkTypes } from "../../context/LinkTypeContext";
 import { PageHeader } from "../shared/PageHeader";
 import { handleTablistKeyDown, tabRovingTabIndex } from "../shared/tablistKeyboardNav";
@@ -534,6 +535,11 @@ export default function WorkspaceSettings(): JSX.Element {
                 fields. Personal (UserProfileSettings) and tenant-wide
                 (SystemSettings) levels are the other two. */}
             <TreeDisplaySection workspaceId={activeWorkspace.id} />
+
+            {/* Issue #1263: the workspace default for the "new artifact"
+                dialog's fields. Tenant-wide (SystemSettings) is the other level;
+                the create dialog reads the resolved value. */}
+            <CreateFormSection workspaceId={activeWorkspace.id} />
           </>
         )}
 

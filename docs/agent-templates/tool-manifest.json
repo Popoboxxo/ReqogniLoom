@@ -1,6 +1,6 @@
 {
   "generated_from": "reqogniloom==unknown",
-  "tool_count": 244,
+  "tool_count": 248,
   "tools": [
     {
       "name": "admin.backup_create",
@@ -2467,6 +2467,143 @@
         },
         "required": [
           "requirement_id"
+        ]
+      }
+    },
+    {
+      "name": "create_form_definition.export",
+      "prefix": "create_form_definition",
+      "is_write": false,
+      "description": "Serialize one level's create-dialog form definition as a portable, versioned document (Issue #1263). Round-trips through ``create_form_definition.import``. ``fields`` is the level's stored entries, or null when it inherits.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "enum": [
+              "user",
+              "workspace",
+              "global"
+            ],
+            "description": "user | workspace | global."
+          },
+          "item_type": {
+            "type": "string",
+            "description": "Artifact type to export."
+          },
+          "workspace_id": {
+            "type": "string",
+            "description": "UUID of the workspace; required for scope \"workspace\"."
+          }
+        },
+        "required": [
+          "scope",
+          "item_type"
+        ]
+      }
+    },
+    {
+      "name": "create_form_definition.get",
+      "prefix": "create_form_definition",
+      "is_write": false,
+      "description": "Read the create dialog's form definition (Issue #1263): which fields are visible, their order, requiredness and default. ``scope=\"effective\"`` (default) resolves user > workspace > global > definition default and reports which level supplied the value; any other scope returns that level's stored value. ``item_type`` is required for the effective scope and optional otherwise (omitted = the whole {item_type: [...]} map). The response carries the definition-derived catalogue so a caller can render a picker. Identical to the REST GET .../create-form-config/ endpoints.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "enum": [
+              "effective",
+              "user",
+              "workspace",
+              "global",
+              "default"
+            ],
+            "description": "effective | user | workspace | global | default. Default: effective."
+          },
+          "item_type": {
+            "type": "string",
+            "description": "Artifact type, e.g. \"Requirement\" or \"Adr\". Required when scope is \"effective\"."
+          },
+          "workspace_id": {
+            "type": "string",
+            "description": "UUID of the workspace whose attribute definition supplies the base fields and whose override participates in the effective resolution."
+          }
+        }
+      }
+    },
+    {
+      "name": "create_form_definition.import",
+      "prefix": "create_form_definition",
+      "is_write": true,
+      "description": "Import a document produced by ``create_form_definition.export`` into one level (Issue #1263). Validated exactly like an edited definition. ``fields: null`` resets the level. Scope \"user\" is self-service; \"workspace\" requires write authority; \"global\" requires the admin role.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "enum": [
+              "user",
+              "workspace",
+              "global"
+            ]
+          },
+          "item_type": {
+            "type": "string"
+          },
+          "document": {
+            "type": "object",
+            "description": "The exported document ({schema_version, item_type, scope, fields})."
+          },
+          "workspace_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "item_type",
+          "document"
+        ]
+      }
+    },
+    {
+      "name": "create_form_definition.set",
+      "prefix": "create_form_definition",
+      "is_write": true,
+      "description": "Store (or reset) the create dialog's form definition for one artifact type on one level (Issue #1263). ``fields`` is an ordered array of {\"field_key\", \"visible\", \"required\", \"order\", \"default\"} entries over the catalogue from ``create_form_definition.get``; ``null`` resets the level so resolution falls back to the next one. Scope \"user\" is self-service; \"workspace\" requires write authority in the workspace (workspace_id required); \"global\" requires the admin role. Identical to the REST PATCH endpoints.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "enum": [
+              "user",
+              "workspace",
+              "global"
+            ],
+            "description": "user | workspace | global."
+          },
+          "item_type": {
+            "type": "string",
+            "description": "Artifact type to configure."
+          },
+          "fields": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {},
+            "description": "Ordered field entries; null resets the level for this item type."
+          },
+          "workspace_id": {
+            "type": "string",
+            "description": "UUID of the workspace; required for scope \"workspace\"."
+          }
+        },
+        "required": [
+          "scope",
+          "item_type",
+          "fields"
         ]
       }
     },

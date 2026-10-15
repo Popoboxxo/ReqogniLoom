@@ -556,6 +556,14 @@ class UserDisplayPreference(TenantScopedModel):
     #: lifecycle (self-service, account-scoped, no admin gate) and their RLS
     #: coverage (REQ-L2-PL-010).
     tree_display_fields = models.JSONField(null=True, blank=True, default=None)
+    #: Issue #1263 — the personal level of the create-dialog form definition: a
+    #: JSON map ``{item_type: [{"field_key": …, "visible": …, "required": …,
+    #: "order": …, "default": …}, …]}``. ``NULL`` means "no personal selection" —
+    #: resolution then falls through to the workspace level, the global level and
+    #: finally to the definition-derived default (today's behaviour). Stored on
+    #: the same row as ``tree_display_fields`` because it shares its lifecycle
+    #: (self-service, account-scoped) and its RLS coverage (REQ-L2-PL-010).
+    create_form_fields = models.JSONField(null=True, blank=True, default=None)
 
     class Meta:
         db_table = "at_user_display_preference"
@@ -616,6 +624,17 @@ class TreeDisplayConfig(TenantScopedModel):
         related_name="tree_display_config",
     )
     fields_json = models.JSONField(default=dict, blank=True)
+    #: Issue #1263 — the create-dialog form definition at the two administrative
+    #: levels. Deliberately a SECOND JSON document on the SAME row rather than a
+    #: second table: it shares the exact scope semantics (one global row per
+    #: tenant, one per workspace), the same ``user > workspace > global``
+    #: precedence and the same RLS policy, so a separate entity would duplicate
+    #: the constraints without buying anything (issue #1263 point 1: reuse the
+    #: #1257 pattern instead of building a second one). Shape: a map
+    #: ``{item_type: [{"field_key", "visible", "required", "order", "default"},
+    #: …]}``. A missing entry means "inherit"; an empty list means "configured to
+    #: render no fields".
+    create_form_json = models.JSONField(default=dict, blank=True)
 
     class Meta:
         db_table = "at_tree_display_config"

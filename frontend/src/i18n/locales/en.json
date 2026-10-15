@@ -2793,5 +2793,27 @@
       "verification_method": "Verification method",
       "complexity_fibonacci": "Complexity (Fibonacci)"
     }
+  },
+  "createForm": {
+    "itemType": "Artifact type",
+    "fieldsTitle": "Fields in the create dialog",
+    "previewTitle": "Live preview",
+    "previewEmpty": "No visible fields – the dialog shows no input control.",
+    "visible": "Visible",
+    "required": "Required",
+    "moveUp": "Move up",
+    "moveDown": "Move down",
+    "reset": "Reset to default",
+    "inherited": "Inherited – no configuration at this level.",
+    "loading": "Loading form definition …",
+    "saveFailed": "The form definition could not be saved.",
+    "workspace": {
+      "title": "Create dialog",
+      "hint": "Which fields the create dialog shows per artifact type, in what order and which are required. Applies to every member of this workspace; personal settings override it."
+    },
+    "global": {
+      "title": "Create dialog",
+      "hint": "Tenant-wide default for the create dialog. Workspace and personal settings override it."
+    }
   }
 }

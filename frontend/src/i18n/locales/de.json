@@ -2793,5 +2793,27 @@
       "verification_method": "Verifikationsmethode",
       "complexity_fibonacci": "Komplexität (Fibonacci)"
     }
+  },
+  "createForm": {
+    "itemType": "Artefakttyp",
+    "fieldsTitle": "Felder im Anlage-Dialog",
+    "previewTitle": "Live-Vorschau",
+    "previewEmpty": "Keine sichtbaren Felder – der Dialog zeigt kein Eingabefeld.",
+    "visible": "Sichtbar",
+    "required": "Pflicht",
+    "moveUp": "Nach oben",
+    "moveDown": "Nach unten",
+    "reset": "Auf Standard zurücksetzen",
+    "inherited": "Geerbt – keine eigene Konfiguration auf dieser Ebene.",
+    "loading": "Formular-Definition wird geladen …",
+    "saveFailed": "Die Formular-Definition konnte nicht gespeichert werden.",
+    "workspace": {
+      "title": "Anlage-Dialog",
+      "hint": "Welche Felder der Anlage-Dialog je Artefakttyp zeigt, in welcher Reihenfolge und als Pflichtfeld. Gilt für alle Mitglieder dieses Workspace; persönliche Einstellungen überschreiben sie."
+    },
+    "global": {
+      "title": "Anlage-Dialog",
+      "hint": "Systemweite Vorgabe für den Anlage-Dialog. Workspace- und persönliche Einstellungen überschreiben sie."
+    }
   }
 }

@@ -122,6 +122,11 @@ from rest_api.tree_display_config_views import (
     TreeDisplayConfigUserView,
     TreeDisplayConfigWorkspaceView,
 )
+from rest_api.create_form_config_views import (
+    CreateFormConfigGlobalView,
+    CreateFormConfigUserView,
+    CreateFormConfigWorkspaceView,
+)
 from rest_api.icd_views import IcdViewSet
 from rest_api.interview_views import InterviewViewSet
 from rest_api.metrics_views import MetricsViewSet
@@ -510,6 +515,31 @@ urlpatterns = [
         "workspaces/<uuid:workspace_id>/tree-display-config/",
         TreeDisplayConfigWorkspaceView.as_view(),
         name="workspace-tree-display-config",
+    ),
+    # Create-dialog form definition (Issue #1263) — the personal level of the
+    # "new artifact" dialog's configurable field selection (which fields are
+    # visible, order, required, default). Same self-service shape as the
+    # tree-display routes directly above.
+    path(
+        "users/me/create-form-config/",
+        CreateFormConfigUserView.as_view(),
+        name="user-create-form-config",
+    ),
+    # Create-dialog form definition (Issue #1263) — the tenant-wide default
+    # (global) level. Read: any member; write: admin (service-enforced) plus the
+    # ADMIN-tier API-key capability (AdminScopeRequiredMixin).
+    path(
+        "system/create-form-config/",
+        CreateFormConfigGlobalView.as_view(),
+        name="system-create-form-config",
+    ),
+    # Create-dialog form definition (Issue #1263) — the per-workspace level. The
+    # URL carries workspace_id, so the auth layer scopes active_roles to it and
+    # the service re-asserts write permission.
+    path(
+        "workspaces/<uuid:workspace_id>/create-form-config/",
+        CreateFormConfigWorkspaceView.as_view(),
+        name="workspace-create-form-config",
     ),
     # Theme Presets — the caller's own theme choice (GET/PUT).
     # NOTE: must precede any other users/me/ pattern that could shadow it.

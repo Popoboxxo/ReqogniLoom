@@ -786,6 +786,71 @@ class AttributeDefinitionService(ServiceBase):
             existing,
             definition["sections"],
         )
+        # Issue #1263 point 4: the create-form definition can mark a field
+        # required that the attribute itself does not. Enforced only on create
+        # (``existing is None``) and only after ``validate_values`` passed, so a
+        # field the definition already demands is never reported twice.
+        if existing is None:
+            self._validate_create_form_required(
+                ctx, item_type, workspace_id, changed_fields, definition["attributes"]
+            )
+
+    @staticmethod
+    def _validate_create_form_required(
+        ctx: AuthContext,
+        item_type: str,
+        workspace_id: UUID,
+        changed_fields: dict[str, Any],
+        attributes: list[dict[str, Any]],
+    ) -> None:
+        """Demand the fields the effective create-form definition marks required.
+
+        Reads the *same* resolved definition the dialog renders (issue #1263
+        point 4), so a REST or MCP create that omits such a field is refused —
+        not only the UI. Best-effort on the form-definition read: if it cannot be
+        resolved (e.g. the attribute engine is not ready) the check is skipped
+        rather than turning a create into a 500.
+
+        Raises:
+            FieldValidationError: one message per missing required field.
+        """
+        from attribute_definitions.field_validation import (
+            EXTENDED_PAYLOAD_KEY,
+            _is_empty,
+        )
+
+        from application.create_form_config_service import CreateFormConfigService
+
+        try:
+            required = CreateFormConfigService().required_field_keys(
+                ctx, item_type, workspace_id
+            )
+        except Exception:  # noqa: BLE001 — a config read must not break a create
+            return
+        if not required:
+            return
+
+        extended = {
+            name
+            for name, attribute in (
+                (a["name"], a) for a in attributes if isinstance(a, dict)
+            )
+            if attribute.get("kind") == "extended"
+        }
+        supplied_extended = changed_fields.get(EXTENDED_PAYLOAD_KEY) or {}
+        if not isinstance(supplied_extended, dict):
+            supplied_extended = {}
+
+        errors: dict[str, list[str]] = {}
+        for name in required:
+            if name in extended:
+                value = supplied_extended.get(name)
+            else:
+                value = changed_fields.get(name)
+            if _is_empty(value):
+                errors.setdefault(name, []).append("is required")
+        if errors:
+            raise FieldValidationError(errors)
 
     def downgrade_warnings(
         self, ctx: AuthContext, workspace_id: UUID, target_preset: str
