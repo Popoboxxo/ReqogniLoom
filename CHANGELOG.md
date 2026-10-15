@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.0-beta.21] — 2026-10-15
+
+### Added
+- feat: configurable create-form definitions (#1263)
+- feat: versioned glossary references in text fields (#1266)
+- feat: accessible attribute drag-and-drop (#1260)
+- feat: configurable navigation tree fields (#1257)
+- feat: central statistics registry (#1265)
+- feat: SE data model improvements (round 4 W9, #1311)
+- feat: memory and MCP wave (round 4 W7, #1309)
+
+### Fixed
+- fix: ui and a11y consistency (round 4 W8, #1310)
+- fix: api robustness (round 3 W6, #1305)
+- fix: memory reliability, deploy restarts and capability docs (round 3 W5, #1304)
+- fix: SE gates, auditor catalog and ICD anchoring (round 3 W4, #1303)
+- fix: disambiguate artifact identity (round 3 W3, #1299)
+- fix: design-system standards (round 3 W2, #1297)
+- fix: detail form chrome (round 3 W1, #1294)
+- fix: duplicate detection and bulk review approval (#1272)
+- fix: meta tool-count drift and unified ratchet framework (#1271)
+
+### Changed
+- chore: round 4 housekeeping (#1307)
+- chore: repo, plugin and docs wave (round 4 W10, #1312)
+- chore: stop tracking frontend/dist build output (#1298)
+- chore: dependency bumps across backend/frontend/deploy (#1318-1330)
+
 ## [1.8.0-beta.20] — 2026-10-11
 
 > **This beta is explicitly NOT an external production or QA release.** It is an
