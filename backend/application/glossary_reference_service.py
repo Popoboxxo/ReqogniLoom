@@ -52,6 +52,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from uuid import UUID
 
 from auth_tenancy.context import AuthContext
+from link_types.builtin import GLOSSARY_TERM_LEGACY_LINK_TYPE
 from persistence.models import ArtifactVersion, GlossaryTerm
 from persistence.transactions import atomic_transaction
 
@@ -78,7 +79,9 @@ REFERENCE_LINK_TYPE = "references"
 #: Historical key ``uses-term`` was absorbed into ``references`` by the
 #: link-type consolidation (``link_types.builtin.LEGACY_LINK_TYPE_MAPPING``).
 #: The catalog is tenant-extensible, so a workspace that re-added it keeps it.
-PREFERRED_REFERENCE_LINK_TYPE = "uses-term"
+#: The literal lives only in its sanctioned home (``link_types.builtin``); the
+#: key is taken from that module's exported constant, never typed here.
+PREFERRED_REFERENCE_LINK_TYPE = GLOSSARY_TERM_LEGACY_LINK_TYPE
 
 
 @dataclass(frozen=True)
