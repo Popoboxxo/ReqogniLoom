@@ -23,10 +23,10 @@ generated OpenAPI at `GET /api/schema/` and `/api/schema/swagger-ui/`
 
 | Figure | Value |
 |--------|-------|
-| Tools | **241** |
-| Tool-group prefixes | **37** |
-| Version | `v1.8.0-beta.20` (`VERSION`, `1.8.0-beta.20`) — the central statistics group `metrics` (`metrics.catalog`/`metrics.get`, [#1265](https://github.com/Popoboxxo/ReqogniLoom/issues/1265)) is the newest tool-surface change; the ADR-019 WP3 `suggestion` group (`suggestion.list`/`suggestion.accept`/`suggestion.reject`) and `traceability.suggest_links` becoming a write tool preceded it; `interview.chat` ([#1164](https://github.com/Popoboxxo/ReqogniLoom/issues/1164)), `traceability.query_links` ([#1098](https://github.com/Popoboxxo/ReqogniLoom/issues/1098)), `main_goal.query` ([#1097](https://github.com/Popoboxxo/ReqogniLoom/issues/1097)) and `traceability.suggest_links_status` ([#1197](https://github.com/Popoboxxo/ReqogniLoom/issues/1197)) preceded them; `memory.ask` (REQ-192, [#1154](https://github.com/Popoboxxo/ReqogniLoom/issues/1154)) preceded those. The **241** figure on top of all of that adds the central statistics tools (`metrics.catalog`, `metrics.get`, [#1265](https://github.com/Popoboxxo/ReqogniLoom/issues/1265)), the structured acceptance-criteria tools (`requirement.acceptance_criteria.get`/`set`/`check`, `requirement.suggest_level`, [#1288](https://github.com/Popoboxxo/ReqogniLoom/issues/1288)) and the memory administration surface (`memory.admin`, [#1290](https://github.com/Popoboxxo/ReqogniLoom/issues/1290)/[#1301](https://github.com/Popoboxxo/ReqogniLoom/issues/1301)/[#1302](https://github.com/Popoboxxo/ReqogniLoom/issues/1302)) |
-| Measured at | the `v1.8.0-beta.20` tool surface plus the central statistics group (`metrics.catalog`/`metrics.get`, [#1265](https://github.com/Popoboxxo/ReqogniLoom/issues/1265)): ADR-019 WP3 (`suggestion` group, `traceability.suggest_links` write), the structured acceptance-criteria field type (#1288) and the memory administration surface (#1290/#1301/#1302) |
+| Tools | **243** |
+| Tool-group prefixes | **38** |
+| Version | `v1.8.0-beta.20` (`VERSION`, `1.8.0-beta.20`) — the navigation-tree configuration group `tree_display_config` (`tree_display_config.get`/`tree_display_config.set`, [#1257](https://github.com/Popoboxxo/ReqogniLoom/issues/1257)) is the newest tool-surface change; before it the central statistics group `metrics` (`metrics.catalog`/`metrics.get`, [#1265](https://github.com/Popoboxxo/ReqogniLoom/issues/1265)); the ADR-019 WP3 `suggestion` group (`suggestion.list`/`suggestion.accept`/`suggestion.reject`) and `traceability.suggest_links` becoming a write tool preceded it; `interview.chat` ([#1164](https://github.com/Popoboxxo/ReqogniLoom/issues/1164)), `traceability.query_links` ([#1098](https://github.com/Popoboxxo/ReqogniLoom/issues/1098)), `main_goal.query` ([#1097](https://github.com/Popoboxxo/ReqogniLoom/issues/1097)) and `traceability.suggest_links_status` ([#1197](https://github.com/Popoboxxo/ReqogniLoom/issues/1197)) preceded them; `memory.ask` (REQ-192, [#1154](https://github.com/Popoboxxo/ReqogniLoom/issues/1154)) preceded those. The **243** figure on top of all of that adds the navigation-tree display configuration (`tree_display_config.get`, `tree_display_config.set`, [#1257](https://github.com/Popoboxxo/ReqogniLoom/issues/1257)), the central statistics tools (`metrics.catalog`, `metrics.get`, [#1265](https://github.com/Popoboxxo/ReqogniLoom/issues/1265)), the structured acceptance-criteria tools (`requirement.acceptance_criteria.get`/`set`/`check`, `requirement.suggest_level`, [#1288](https://github.com/Popoboxxo/ReqogniLoom/issues/1288)) and the memory administration surface (`memory.admin`, [#1290](https://github.com/Popoboxxo/ReqogniLoom/issues/1290)/[#1301](https://github.com/Popoboxxo/ReqogniLoom/issues/1301)/[#1302](https://github.com/Popoboxxo/ReqogniLoom/issues/1302)) |
+| Measured at | the `v1.8.0-beta.20` tool surface plus the navigation-tree configuration group (`tree_display_config.get`/`tree_display_config.set`, [#1257](https://github.com/Popoboxxo/ReqogniLoom/issues/1257)), the central statistics group (`metrics.catalog`/`metrics.get`, [#1265](https://github.com/Popoboxxo/ReqogniLoom/issues/1265)): ADR-019 WP3 (`suggestion` group, `traceability.suggest_links` write), the structured acceptance-criteria field type (#1288) and the memory administration surface (#1290/#1301/#1302) |
 | Source of truth | `docs/agent-templates/tool-manifest.json`, `tool_count` field |
 
 History of the number, so a future reader can tell an intentional change from a
@@ -45,7 +45,8 @@ stale copy:
 | 224 / 35 | after `traceability.suggest_links_status` ([#1197](https://github.com/Popoboxxo/ReqogniLoom/issues/1197)) | correct until the ADR-019 `suggestion` group |
 | 228 / 36 | after the ADR-019 WP3 `suggestion` group (`suggestion.list`, `suggestion.accept`, `suggestion.reject` — the 36th prefix) and `traceability.suggest_links` becoming **write** (it now persists a proposal + receipt, [#1155](https://github.com/Popoboxxo/ReqogniLoom/issues/1155)), and `workspace.resolve_references` ([#17](https://github.com/Popoboxxo/ReqogniLoom/issues/17)) | correct until the acceptance-criteria + memory-administration tools |
 | **239 / 36** | after the structured acceptance-criteria field type (#1288: `requirement.acceptance_criteria.get`/`set`/`check`, `requirement.suggest_level`) and the memory administration surface (#1290/#1301/#1302: `memory.admin`) | superseded by the `metrics` group |
-| **241 / 37** | after the central statistics group (`metrics.catalog`, `metrics.get` — the 37th prefix, [#1265](https://github.com/Popoboxxo/ReqogniLoom/issues/1265)) | **current** |
+| **241 / 37** | after the central statistics group (`metrics.catalog`, `metrics.get` — the 37th prefix, [#1265](https://github.com/Popoboxxo/ReqogniLoom/issues/1265)) | correct until the navigation-tree configuration group |
+| **243 / 38** | after the navigation-tree display configuration group (`tree_display_config.get`, `tree_display_config.set` — the 38th prefix, [#1257](https://github.com/Popoboxxo/ReqogniLoom/issues/1257)) | **current** |
 
 ### How to re-derive the number
 
@@ -104,7 +105,7 @@ table in §1 and §2 **in the same change**, with the new version and commit.
 
 ## 2. Tool groups
 
-37 prefixes, 241 tools. Tools are called as `<prefix>.<tool_name>`.
+38 prefixes, 243 tools. Tools are called as `<prefix>.<tool_name>`.
 
 | Group | Tools | Names |
 |-------|------:|-------|
@@ -143,6 +144,7 @@ table in §1 and §2 **in the same change**, with the new version and commit.
 | `suggestion` | 3 | `suggestion.accept`, `suggestion.list`, `suggestion.reject` |
 | `test` | 14 | `test.create`, `test.derive_from_requirement`, `test.get`, `test.link`, `test.mark_reviewed`, `test.outdate`, `test.query`, `test.reactivate`, `test.run_complete`, `test.run_create`, `test.run_get`, `test.run_list`, `test.run_report_results`, `test.update` |
 | `traceability` | 7 | `traceability.coverage`, `traceability.create_link`, `traceability.query`, `traceability.query_links`, `traceability.suggest_links`, `traceability.suggest_links_status`, `traceability.vcrm` |
+| `tree_display_config` | 2 | `tree_display_config.get`, `tree_display_config.set` |
 | `user` | 9 | `user.activate`, `user.assign_role`, `user.assign_tenant_admin`, `user.create`, `user.deactivate`, `user.list`, `user.reactivate_role`, `user.revoke_tenant_admin`, `user.suspend_role` |
 | `workspace` | 8 | `workspace.close`, `workspace.delete`, `workspace.get_context`, `workspace.get_preferences`, `workspace.list`, `workspace.llm_system_prompt`, `workspace.reactivate`, `workspace.resolve_references` |
 

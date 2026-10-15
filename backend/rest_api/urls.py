@@ -117,6 +117,11 @@ from rest_api.diagram_canvas_views import (
 )
 from rest_api.diagram_views import DiagramViewSet
 from rest_api.display_preference_views import DisplayPreferenceView
+from rest_api.tree_display_config_views import (
+    TreeDisplayConfigGlobalView,
+    TreeDisplayConfigUserView,
+    TreeDisplayConfigWorkspaceView,
+)
 from rest_api.icd_views import IcdViewSet
 from rest_api.interview_views import InterviewViewSet
 from rest_api.metrics_views import MetricsViewSet
@@ -479,6 +484,30 @@ urlpatterns = [
         "users/me/display-preferences/",
         DisplayPreferenceView.as_view(),
         name="user-display-preferences",
+    ),
+    # Tree-display configuration (Issue #1257) — the personal level of the
+    # navigation tree's configurable field selection. Same self-service shape as
+    # the display-preferences route directly above.
+    path(
+        "users/me/tree-display-config/",
+        TreeDisplayConfigUserView.as_view(),
+        name="user-tree-display-config",
+    ),
+    # Tree-display configuration (Issue #1257) — the tenant-wide default
+    # (global) level. Read: any member; write: admin (service-enforced) plus the
+    # ADMIN-tier API-key capability (AdminScopeRequiredMixin).
+    path(
+        "system/tree-display-config/",
+        TreeDisplayConfigGlobalView.as_view(),
+        name="system-tree-display-config",
+    ),
+    # Tree-display configuration (Issue #1257) — the per-workspace level. The
+    # URL carries workspace_id, so the auth layer scopes active_roles to it and
+    # the service re-asserts write permission.
+    path(
+        "workspaces/<uuid:workspace_id>/tree-display-config/",
+        TreeDisplayConfigWorkspaceView.as_view(),
+        name="workspace-tree-display-config",
     ),
     # Theme Presets — the caller's own theme choice (GET/PUT).
     # NOTE: must precede any other users/me/ pattern that could shadow it.
