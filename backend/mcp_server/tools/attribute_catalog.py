@@ -14,6 +14,18 @@ Eight tools:
   attribute_catalog.export           — download a catalog document (read, admin)
   attribute_catalog.import           — merge a catalog document (write, admin)
 
+Plus, since feature #1260:
+
+  attribute_catalog.reorder          — move one attribute inside/into a section
+                                       of a global or workspace definition
+                                       (write, admin)
+
+The reorder tool lives here rather than in ``attribute_definition`` because the
+issue names exactly this surface for agentic use, and because this group already
+owns the one other definition-shaping tool (``add_to_definition``). It delegates
+to ``AttributeDefinitionService.reorder_attribute`` — one ordering model, one
+write path.
+
 Fail-closed writes: the registry's RBAC gate treats every unrecognised tool as a
 write (``tool_registry._is_write_tool``), and ``list``/``search``/``export``
 are explicitly registered as read-only there. The service additionally asserts
@@ -25,6 +37,7 @@ No ORM in this module (ADR-01, enforced by
 """
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any, Dict, List, Optional
 
@@ -39,7 +52,17 @@ from application.attribute_definition_service import (
     AttributeSchemaError,
 )
 from application.base import PermissionDeniedError
+from attribute_definitions.schema import (
+    AttributeDefinitionConflictError,
+    AttributeDefinitionVersionConflict,
+)
 from mcp_server.protocol_handler import ToolResult
+# Cross-group reuse on purpose: ``attribute_catalog.reorder`` returns the same
+# transport-safe definition payload ``attribute_definition.*`` already emits, so
+# an agent reads one shape for "the definition after my edit" regardless of
+# which of the two groups served the call (the same private-helper reuse
+# ``AttributeCatalogService.add_to_definition`` already relies on).
+from mcp_server.tools.attribute_definition import _definition_payload
 from mcp_server.tools.base import BaseToolGroup, require_param, require_uuid
 from presets.exceptions import CrossTenantWorkspaceError
 
@@ -65,6 +88,7 @@ class AttributeCatalogToolGroup(BaseToolGroup):
         "attribute_catalog.update": "_handle_update",
         "attribute_catalog.deprecate": "_handle_deprecate",
         "attribute_catalog.add_to_definition": "_handle_add_to_definition",
+        "attribute_catalog.reorder": "_handle_reorder",
         "attribute_catalog.export": "_handle_export",
         "attribute_catalog.import": "_handle_import",
     }
@@ -178,6 +202,57 @@ class AttributeCatalogToolGroup(BaseToolGroup):
                         },
                     },
                     "required": ["entry_id", "item_type"],
+                },
+            },
+            {
+                "name": "attribute_catalog.reorder",
+                "description": (
+                    "Move one attribute inside or between the sections of a "
+                    "global (preset) or workspace attribute definition "
+                    "(admin-only). The section change and the new position are "
+                    "written atomically; pass 'after' to place the attribute "
+                    "directly behind a named neighbour, or omit it to move it "
+                    "to the front of the section. Pass 'version' to make the "
+                    "call fail with CONFLICT (and the current server "
+                    "definition) instead of overwriting someone else's edit."
+                ),
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "item_type": {"type": "string"},
+                        "name": {
+                            "type": "string",
+                            "description": "Attribute to move.",
+                        },
+                        "section": {
+                            "type": "string",
+                            "description": "Target section name.",
+                        },
+                        "after": {
+                            "type": "string",
+                            "description": (
+                                "Attribute of 'section' the moved one must "
+                                "follow. Omit to move it to the front."
+                            ),
+                        },
+                        "preset": {
+                            "type": "string",
+                            "enum": ["minimal", "standard", "extended"],
+                            "description": "Global scope. Exactly one of preset/workspace_id.",
+                        },
+                        "workspace_id": {
+                            "type": "string",
+                            "description": "Workspace scope. Exactly one of preset/workspace_id.",
+                        },
+                        "version": {
+                            "type": "integer",
+                            "description": (
+                                "Optimistic-lock precondition: the definition "
+                                "version the caller last read."
+                            ),
+                        },
+                    },
+                    "required": ["item_type", "name", "section"],
                 },
             },
             {
@@ -345,6 +420,62 @@ class AttributeCatalogToolGroup(BaseToolGroup):
         except CrossTenantWorkspaceError as exc:
             return ToolResult.error("PERMISSION_DENIED", str(exc))
         return ToolResult.ok(result)
+
+    def _handle_reorder(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        item_type = require_param(params, "item_type")
+        name = require_param(params, "name")
+        section = require_param(params, "section")
+        workspace_id = (
+            require_uuid(params, "workspace_id")
+            if params.get("workspace_id")
+            else None
+        )
+        preset = params.get("preset") or None
+        after = params.get("after") or None
+        version = params.get("version")
+        if version is not None and (isinstance(version, bool) or not isinstance(version, int)):
+            return ToolResult.error(
+                "VALIDATION_ERROR", "Parameter 'version', if present, must be an integer."
+            )
+        if (preset is None) == (workspace_id is None):
+            return ToolResult.error(
+                "VALIDATION_ERROR",
+                "Provide exactly one of 'preset' (global) or 'workspace_id'.",
+            )
+        try:
+            definition = self._get_service().reorder_definition(
+                auth_context,
+                item_type,
+                name=name,
+                section=section,
+                after=after,
+                preset=preset,
+                workspace_id=workspace_id,
+                expected_version=version,
+            )
+        except PermissionDeniedError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
+        except AttributeDefinitionNotFound as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+        # Order matters: AttributeDefinitionVersionConflict is a subclass of
+        # AttributeDefinitionConflictError, which is itself a subclass of
+        # AttributeSchemaError — the most specific handler must come first or a
+        # stale-version rejection would be reported as a plain 400/VALIDATION_ERROR
+        # instead of the CONFLICT the REST sibling answers.
+        except AttributeDefinitionVersionConflict as exc:
+            return ToolResult.error(
+                "CONFLICT",
+                f"{exc} Current definition: {json.dumps(exc.current, sort_keys=True)}",
+            )
+        except AttributeDefinitionConflictError as exc:
+            return ToolResult.error("CONFLICT", str(exc))
+        except AttributeSchemaError as exc:
+            return ToolResult.error("VALIDATION_ERROR", "; ".join(exc.errors))
+        except CrossTenantWorkspaceError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
+        return ToolResult.ok({"definition": _definition_payload(definition)})
 
     def _handle_export(
         self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str

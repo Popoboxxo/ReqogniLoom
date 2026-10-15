@@ -153,6 +153,12 @@
 }
 
 .toast {
+  /* Feature #1260: the toast now also carries the "Undo" action for a just
+     persisted move, so message and button share one row. */
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
   padding: var(--space-3);
   border-radius: var(--radius-md);
   background: var(--color-surface-muted);

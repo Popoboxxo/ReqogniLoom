@@ -24,7 +24,10 @@ from application.attribute_definition_service import (
     AttributeDefinitionService,
     AttributeSchemaError,
 )
-from attribute_definitions.schema import AttributeDefinitionConflictError
+from attribute_definitions.schema import (
+    AttributeDefinitionConflictError,
+    AttributeDefinitionVersionConflict,
+)
 from auth_tenancy.models import ROLE_ADMIN
 from presets.exceptions import CrossTenantWorkspaceError
 from rest_api.auth_enforcer import AdminScopeRequiredMixin, get_auth_context
@@ -69,6 +72,22 @@ def _forbidden(lang: str, message: str) -> Response:
     )
 
 
+def _conflict(lang: str, message: str, current: dict[str, Any] | None = None) -> Response:
+    """409 envelope for an optimistic-lock/definition conflict (REQ-L2-RA-009).
+
+    ``current`` is the server's payload at the moment the write was refused
+    (feature #1260, requirement 2: "409 mit Server-Stand"), so a client can
+    rebase instead of re-fetching blindly. It is a top-level sibling of
+    ``error`` rather than a ``details`` entry: ``details`` is a list of
+    field-level validation messages and would misdescribe a whole-document
+    precondition failure.
+    """
+    body = build_error_response("CONFLICT", lang, message=message)
+    if current is not None:
+        body["current"] = current
+    return Response(body, status=status.HTTP_409_CONFLICT)
+
+
 def _read_attributes(request: Request, lang: str) -> tuple[list[dict[str, Any]] | None, Response | None]:
     """Extract and shape-check the ``attributes`` list of a PUT body."""
     payload = request.data if isinstance(request.data, dict) else {}
@@ -111,6 +130,40 @@ def _read_section_flow(
     if not isinstance(section_flow, list):
         return None, _validation(lang, "'section_flow', if present, must be a list.")
     return section_flow, None
+
+
+def _read_reorder_body(
+    request: Request, lang: str
+) -> tuple[dict[str, Any] | None, Response | None]:
+    """Extract ``{name, section, after?, version?}`` from a reorder body.
+
+    ``after`` (the attribute the moved one must follow) and ``version`` (the
+    optimistic-lock precondition) are both optional: omitting ``after`` moves
+    the attribute to the front of the target section, omitting ``version``
+    skips the optimistic-lock check. A present-but-mistyped value is a 400 —
+    ``require_param``-style coercion would turn a client bug into a 500.
+    """
+    payload = request.data if isinstance(request.data, dict) else {}
+    name = payload.get("name")
+    section = payload.get("section")
+    if not isinstance(name, str) or not name.strip():
+        return None, _validation(lang, "Body must carry a non-empty 'name'.")
+    if not isinstance(section, str) or not section.strip():
+        return None, _validation(lang, "Body must carry a non-empty 'section'.")
+    parsed: dict[str, Any] = {"name": name.strip(), "section": section.strip()}
+
+    after = payload.get("after")
+    if after is not None:
+        if not isinstance(after, str) or not after.strip():
+            return None, _validation(lang, "'after', if present, must be a non-empty string.")
+        parsed["after"] = after.strip()
+
+    version = payload.get("version")
+    if version is not None:
+        if isinstance(version, bool) or not isinstance(version, int):
+            return None, _validation(lang, "'version', if present, must be an integer.")
+        parsed["expected_version"] = version
+    return parsed, None
 
 
 class AttributeDefaultsListView(APIView):
@@ -359,6 +412,40 @@ def _read_on_collision(request: Request, payload: dict[str, Any]) -> str:
     return request.query_params.get("on_collision") or payload.get("on_collision") or "skip"
 
 
+class AttributeDefaultsReorderView(AdminScopeRequiredMixin, APIView):
+    """POST /attribute-defaults/{item_type}/{preset}/reorder/ (feature #1260).
+
+    Body: ``{"name": <attribute>, "section": <target section>,
+    "after": <attribute it must follow, optional>,
+    "version": <optimistic-lock precondition, optional>}``.
+
+    Answers 200 with the reordered global default, or 409 with the current
+    server payload in ``current`` when ``version`` is stale.
+    """
+
+    def post(self, request: Request, item_type: str, preset: str) -> Response:
+        gate = _require_admin(request)
+        if isinstance(gate, Response):
+            return gate
+        ctx, lang = gate
+        body, error = _read_reorder_body(request, lang)
+        if error is not None:
+            return error
+        try:
+            payload = AttributeDefinitionService().reorder_attribute(
+                ctx, item_type, preset=preset, **body
+            )
+        except AttributeDefinitionVersionConflict as exc:
+            return _conflict(lang, str(exc), exc.current)
+        except AttributeDefinitionConflictError as exc:
+            return _conflict(lang, str(exc))
+        except AttributeDefinitionNotFound as exc:
+            return _not_found(lang, str(exc))
+        except AttributeSchemaError as exc:
+            return _validation(lang, "; ".join(exc.errors))
+        return Response(payload, status=status.HTTP_200_OK)
+
+
 class AttributeDefaultsExportView(APIView):
     """GET /attribute-defaults/{item_type}/{preset}/export/ (Task 10)."""
 
@@ -394,6 +481,42 @@ class AttributeDefaultsImportView(AdminScopeRequiredMixin, APIView):
             return _not_found(lang, str(exc))
         except AttributeSchemaError as exc:
             return _validation(lang, "; ".join(exc.errors))
+        return Response(payload, status=status.HTTP_200_OK)
+
+
+class WorkspaceAttributeDefinitionReorderView(AdminScopeRequiredMixin, APIView):
+    """POST /workspaces/{id}/attribute-definitions/{item_type}/reorder/ (#1260).
+
+    Same body/response contract as :class:`AttributeDefaultsReorderView`, on the
+    workspace's resolved (materialized) definition instead of the global
+    default.
+    """
+
+    def post(self, request: Request, workspace_id: UUID, item_type: str) -> Response:
+        gate = _require_admin(request)
+        if isinstance(gate, Response):
+            return gate
+        ctx, lang = gate
+        body, error = _read_reorder_body(request, lang)
+        if error is not None:
+            return error
+        try:
+            payload = AttributeDefinitionService().reorder_attribute(
+                ctx, item_type, workspace_id=workspace_id, **body
+            )
+        except AttributeDefinitionVersionConflict as exc:
+            return _conflict(lang, str(exc), exc.current)
+        except AttributeDefinitionConflictError as exc:
+            return _conflict(lang, str(exc))
+        except AttributeDefinitionNotFound as exc:
+            return _not_found(lang, str(exc))
+        except AttributeSchemaError as exc:
+            return _validation(lang, "; ".join(exc.errors))
+        except CrossTenantWorkspaceError as exc:
+            # Same guard as every other workspace-scoped view here: the preset
+            # gate raises for a foreign-tenant id, which must not fall through
+            # to an uncaught 500.
+            return _forbidden(lang, str(exc))
         return Response(payload, status=status.HTTP_200_OK)
 
 
@@ -451,9 +574,11 @@ __all__ = [
     "AttributeDefaultsExportView",
     "AttributeDefaultsImportView",
     "AttributeDefaultsListView",
+    "AttributeDefaultsReorderView",
     "AttributeUsageView",
     "WorkspaceAttributeDefinitionExportView",
     "WorkspaceAttributeDefinitionImportView",
+    "WorkspaceAttributeDefinitionReorderView",
     "WorkspaceAttributeDefinitionResetView",
     "WorkspaceAttributeDefinitionView",
 ]

@@ -11,6 +11,7 @@ import "../i18n/index";
 import { attributeDefinitionsApi } from "../api/attribute-definitions";
 import { AttributeEditorPage } from "../components/AttributeEditor";
 import {
+  ORDER_STEP,
   deleteSection,
   deleteSectionSpec,
   isMetaPropertyLocked,
@@ -29,6 +30,8 @@ vi.mock("../api/attribute-definitions", () => ({
     resetWorkspace: vi.fn(),
     getGlobal: vi.fn(),
     putGlobal: vi.fn(),
+    reorderWorkspace: vi.fn(),
+    reorderGlobal: vi.fn(),
   },
 }));
 vi.mock("../context/WorkspaceContext", () => ({
@@ -58,7 +61,7 @@ const STATUS = attr({
 });
 
 describe("attribute-edits", () => {
-  it("moves an attribute between sections and renumbers order", () => {
+  it("moves an attribute between sections onto a sparse key", () => {
     const out = moveAttribute(
       [attr({ name: "a", order: 0 }), attr({ name: "b", section: "extra", order: 0 })],
       "a",
@@ -67,8 +70,11 @@ describe("attribute-edits", () => {
     );
     const moved = out.find((a) => a.name === "a")!;
     expect(moved.section).toBe("extra");
-    expect(moved.order).toBe(0);
-    expect(out.find((a) => a.name === "b")!.order).toBe(1);
+    // Feature #1260: the neighbours hold adjacent keys, so there is no integer
+    // slot left — the target section is re-spaced to multiples of ORDER_STEP
+    // instead of collapsing two entries onto one index.
+    expect(moved.order).toBe(ORDER_STEP);
+    expect(out.find((a) => a.name === "b")!.order).toBe(2 * ORDER_STEP);
   });
 
   it("renames a section on every attribute in it", () => {
@@ -162,6 +168,7 @@ describe("AttributeEditorPage", () => {
     });
     vi.mocked(attributeDefinitionsApi.putWorkspace).mockReset();
     vi.mocked(attributeDefinitionsApi.resetWorkspace).mockReset();
+    vi.mocked(attributeDefinitionsApi.reorderWorkspace).mockReset();
   });
 
   function renderPage(scope: "workspace" | "global" = "workspace") {
@@ -176,6 +183,125 @@ describe("AttributeEditorPage", () => {
     renderPage();
     expect(await screen.findByTestId("attribute-row-title")).toBeInTheDocument();
     expect(screen.getByTestId("attribute-section-general")).toBeInTheDocument();
+  });
+
+  // Feature #1260: a move is a DIRECT manipulation — it persists through the
+  // atomic reorder endpoint right away (carrying the version the editor read as
+  // its optimistic-lock precondition) and offers an undo, instead of waiting for
+  // the page's Save button.
+  it("persists a cross-section move immediately and offers an undo", async () => {
+    vi.mocked(attributeDefinitionsApi.getWorkspace).mockResolvedValue({
+      item_type: "Requirement",
+      preset: "standard",
+      is_customized: false,
+      version: 7,
+      attributes: [
+        attr({ name: "title", section: "general", order: ORDER_STEP }),
+        attr({ name: "uid", section: "change_control", order: ORDER_STEP }),
+      ],
+      origins: {},
+      sections: [],
+    });
+    vi.mocked(attributeDefinitionsApi.reorderWorkspace).mockResolvedValue({
+      item_type: "Requirement",
+      preset: "standard",
+      is_customized: true,
+      version: 8,
+      attributes: [
+        attr({ name: "uid", section: "change_control", order: ORDER_STEP }),
+        attr({ name: "title", section: "change_control", order: 2 * ORDER_STEP }),
+      ],
+      origins: {},
+      sections: [],
+    });
+    renderPage();
+
+    fireEvent.change(await screen.findByTestId("attribute-row-title-section"), {
+      target: { value: "change_control" },
+    });
+
+    await waitFor(() =>
+      expect(attributeDefinitionsApi.reorderWorkspace).toHaveBeenCalledWith(
+        "ws-1",
+        "Requirement",
+        { name: "title", section: "change_control", after: "uid", version: 7 }
+      )
+    );
+    // No full PUT: the move went through the atomic endpoint only.
+    expect(attributeDefinitionsApi.putWorkspace).not.toHaveBeenCalled();
+    expect(await screen.findByTestId("attribute-editor-undo")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByTestId("attribute-editor-undo"));
+
+    await waitFor(() =>
+      expect(attributeDefinitionsApi.reorderWorkspace).toHaveBeenLastCalledWith(
+        "ws-1",
+        "Requirement",
+        { name: "title", section: "general", after: null, version: 8 }
+      )
+    );
+  });
+
+  it("flushes buffered edits before a move so nothing is silently dropped", async () => {
+    vi.mocked(attributeDefinitionsApi.getWorkspace).mockResolvedValue({
+      item_type: "Requirement",
+      preset: "standard",
+      is_customized: false,
+      version: 3,
+      attributes: [
+        attr({ name: "title", section: "general", order: ORDER_STEP }),
+        attr({ name: "uid", section: "change_control", order: ORDER_STEP }),
+      ],
+      origins: {},
+      sections: [],
+    });
+    vi.mocked(attributeDefinitionsApi.putWorkspace).mockResolvedValue({
+      item_type: "Requirement",
+      preset: "standard",
+      is_customized: true,
+      version: 4,
+      attributes: [
+        attr({ name: "title", section: "general", order: ORDER_STEP, required: true }),
+        attr({ name: "uid", section: "change_control", order: ORDER_STEP }),
+      ],
+      origins: {},
+      sections: [],
+    });
+    vi.mocked(attributeDefinitionsApi.reorderWorkspace).mockResolvedValue({
+      item_type: "Requirement",
+      preset: "standard",
+      is_customized: true,
+      version: 5,
+      attributes: [
+        attr({ name: "uid", section: "change_control", order: ORDER_STEP }),
+        attr({ name: "title", section: "change_control", order: 2 * ORDER_STEP, required: true }),
+      ],
+      origins: {},
+      sections: [],
+    });
+    renderPage();
+
+    // A buffered edit (the inspector's required toggle) makes the page dirty.
+    await userEvent.click(await screen.findByTestId("attribute-row-title"));
+    await userEvent.click(screen.getByTestId("attribute-inspector-required"));
+    await waitFor(() =>
+      expect(screen.getByTestId("attribute-editor-save")).not.toBeDisabled()
+    );
+
+    fireEvent.change(screen.getByTestId("attribute-row-title-section"), {
+      target: { value: "change_control" },
+    });
+
+    // The buffered edit is written first, and the move then uses the version
+    // that flush produced — not the stale pre-save one.
+    await waitFor(() => expect(attributeDefinitionsApi.putWorkspace).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(attributeDefinitionsApi.reorderWorkspace).toHaveBeenCalledWith(
+        "ws-1",
+        "Requirement",
+        { name: "title", section: "change_control", after: "uid", version: 4 }
+      )
+    );
   });
 
   it("shows a lock icon and no toggles for a locked attribute", async () => {
@@ -432,6 +558,10 @@ describe("AttributeEditorPage", () => {
       sections: [],
     });
     // Same finding as "toggles audience through the expert switch" above.
+    // Feature #1260: the inspector's section field is still a *buffered* local
+    // edit (the drop-to-another-section control is the immediate one), so the
+    // order it writes is the sparse key the section picker would produce too:
+    // `uid` stays on its old key, `title` takes the next free slot behind it.
     vi.mocked(attributeDefinitionsApi.putWorkspace).mockResolvedValue({
       item_type: "Requirement",
       preset: "standard",
@@ -439,7 +569,7 @@ describe("AttributeEditorPage", () => {
       version: 2,
       attributes: [
         attr({ name: "uid", section: "change_control", order: 0 }),
-        attr({ name: "title", section: "change_control", order: 1 }),
+        attr({ name: "title", section: "change_control", order: ORDER_STEP }),
       ],
       origins: {},
       sections: [],
@@ -457,7 +587,11 @@ describe("AttributeEditorPage", () => {
         "ws-1",
         "Requirement",
         expect.arrayContaining([
-          expect.objectContaining({ name: "title", section: "change_control", order: 1 }),
+          expect.objectContaining({
+            name: "title",
+            section: "change_control",
+            order: ORDER_STEP,
+          }),
           expect.objectContaining({ name: "uid", section: "change_control", order: 0 }),
         ]),
         []
