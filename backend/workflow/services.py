@@ -822,6 +822,28 @@ def get_workflow_json(workspace_id: UUID | str, item_type: str) -> dict[str, Any
     return _get_store().get_workflow_json(workspace_id, item_type)
 
 
+def resolve_item_type(workspace_id: UUID | str, item_type: str) -> str | None:
+    """Resolve *item_type* to the workspace's stored spelling (issue #1356).
+
+    Exposed at the service boundary (ADR-01) for the ``review.*`` MCP tools:
+    their ``item_type`` parameter is a free string, while every engine lookup
+    (``get_definition``, ``get_available_transitions``' item-state read,
+    ``list_item_states``) matches it exactly — a case-mismatched value found
+    nothing, degraded to ``current_state=None`` and produced the misleading
+    "No approval-shaped transition is available from 'None'". The MCP layer
+    resolves the caller's spelling through this seam before calling the
+    facade; see :meth:`WorkflowDefinitionStore.resolve_item_type` for the
+    matching rules.
+
+    Requires an active ``TenantContext`` (tenant-scoped ORM read).
+
+    Returns:
+        The stored ``item_type`` spelling, or ``None`` when this workspace has
+        no definition for that type.
+    """
+    return _get_store().resolve_item_type(workspace_id, item_type)
+
+
 def list_item_states(
     workspace_id: UUID | str,
     *,
@@ -1416,6 +1438,7 @@ __all__ = [
     "initial_state_for",
     "get_definition",
     "get_workflow_json",
+    "resolve_item_type",
     "get_available_transitions",
     "is_approval_gate",
     "list_item_states",

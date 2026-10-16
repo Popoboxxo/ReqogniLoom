@@ -384,6 +384,175 @@ def test_request_changes_transitions_to_initial_state(
 
 
 # ---------------------------------------------------------------------------
+# #1356 — item_type case must resolve against the item's real workflow state
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def requirement_workflow(auth_context, workspace):
+    """Provision the extended Requirement workflow (draft -> in_review ->
+    approved), mirroring the QA workspace from #1356: its transitions
+    endpoint showed ``draft -> in_review`` as the move out of draft and
+    ``in_review -> approved`` as the approver-only gate."""
+    from workflow.services import create_default_workflow
+
+    TenantContext.set_tenant(auth_context.tenant_id)
+    try:
+        create_default_workflow(
+            workspace_id=workspace.id,
+            preset="extended",
+            item_type="Requirement",
+            tenant_id=auth_context.tenant_id,
+        )
+    finally:
+        TenantContext.clear_tenant()
+
+
+@pytest.fixture
+def requirement_in_draft(auth_context, workspace, requirement_workflow):
+    """A freshly created Requirement, still at its initial "draft" state."""
+    from application.requirement_service import RequirementService
+
+    return RequirementService().create_requirement(
+        workspace_id=workspace.id,
+        title="Draft requirement",
+        ctx=auth_context,
+        description="not yet submitted",
+    )
+
+
+@pytest.fixture
+def requirement_in_review(auth_context, workspace, requirement_workflow):
+    """A Requirement transitioned draft -> in_review — one approver-gated hop
+    ("in_review" -> "approved") away from its approval target."""
+    from application.requirement_service import RequirementService
+    from workflow.services import transition
+
+    created = RequirementService().create_requirement(
+        workspace_id=workspace.id,
+        title="Requirement awaiting review",
+        ctx=auth_context,
+        description="submitted",
+    )
+
+    TenantContext.set_tenant(auth_context.tenant_id)
+    try:
+        transition(
+            item_id=created.id,
+            target_state="in_review",
+            change_reason="ready for review",
+            ctx=auth_context,
+            item_type="Requirement",
+            workspace_id=workspace.id,
+        )
+    finally:
+        TenantContext.clear_tenant()
+
+    return created
+
+
+def test_approve_lowercase_item_type_names_the_real_state(
+    review_tool_group, auth_context, api_key, workspace, requirement_in_draft
+):
+    """#1356 repro: the QA pipeline sent ``item_type="requirement"`` (the
+    schema declares the parameter as a free string, so agents naturally use
+    the lowercase entity name). The workflow engine resolves states/definitions
+    case-sensitively, so every lookup missed: the facade degraded to
+    ``current_state=None`` and the refusal read "from 'None'" even though the
+    Requirement sits in "draft". After the fix the same call must name the
+    item's real state."""
+    result = review_tool_group.execute_tool(
+        "review.approve",
+        {
+            "item_id": str(requirement_in_draft.id),
+            "item_type": "requirement",
+            "workspace_id": str(workspace.id),
+            "change_reason": "n/a",
+        },
+        auth_context,
+        api_key,
+    )
+    assert result.success is False
+    assert result.error_code == "VALIDATION_ERROR"
+    assert "'draft'" in result.message
+    assert "None" not in result.message
+
+
+def test_approve_lowercase_item_type_crosses_the_gate_from_in_review(
+    review_tool_group, auth_context, api_key, workspace, requirement_in_review
+):
+    """#1356 repro (success path): with the case resolved, review.approve
+    works on the item's real state — from "in_review" it crosses the
+    approver-gated hop to "approved" instead of failing on an unknown type."""
+    result = review_tool_group.execute_tool(
+        "review.approve",
+        {
+            "item_id": str(requirement_in_review.id),
+            "item_type": "requirement",
+            "workspace_id": str(workspace.id),
+            "change_reason": "looks good",
+        },
+        auth_context,
+        api_key,
+    )
+    assert result.success is True, result.message
+    assert result.data["new_state"] == "approved"
+
+
+@pytest.mark.parametrize("tool_name", ["review.approve", "review.reject"])
+def test_unresolvable_item_type_fails_closed_naming_the_type(
+    review_tool_group, auth_context, api_key, workspace, requirement_in_draft, tool_name
+):
+    """#1356 fail-closed branch: an item_type this workspace has no workflow
+    definition for must be refused up front with the offending value named —
+    never proceed into the engine, never surface 'None' (the pre-fix
+    degradation), never silently no-op. Both write handlers resolve through
+    the same `_resolve_item_type` seam, so both are pinned here."""
+    result = review_tool_group.execute_tool(
+        tool_name,
+        {
+            "item_id": str(requirement_in_draft.id),
+            "item_type": "nonsense",
+            "workspace_id": str(workspace.id),
+            "change_reason": "n/a",
+            "reason": "n/a",
+        },
+        auth_context,
+        api_key,
+    )
+    assert result.success is False
+    assert result.error_code == "VALIDATION_ERROR"
+    assert "'nonsense'" in result.message
+    assert "None" not in result.message
+
+
+def test_list_pending_lowercase_item_type_filter_matches_the_canonical_filter(
+    review_tool_group, auth_context, api_key, workspace, requirement_in_review
+):
+    """#1356: the optional filter is canonicalised before the service walk
+    (which matches item_type exactly), so 'requirement' must return the same
+    queue as 'Requirement' — pre-fix the lowercase filter silently matched
+    nothing."""
+    canonical = review_tool_group.execute_tool(
+        "review.list_pending",
+        {"workspace_id": str(workspace.id), "item_type": "Requirement"},
+        auth_context,
+        api_key,
+    )
+    lowercase = review_tool_group.execute_tool(
+        "review.list_pending",
+        {"workspace_id": str(workspace.id), "item_type": "requirement"},
+        auth_context,
+        api_key,
+    )
+
+    assert canonical.success is True, canonical.message
+    assert lowercase.success is True, lowercase.message
+    assert lowercase.data["count"] >= 1
+    assert lowercase.data["items"] == canonical.data["items"]
+
+
+# ---------------------------------------------------------------------------
 # RBAC-gate registration
 # ---------------------------------------------------------------------------
 

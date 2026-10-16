@@ -101,30 +101,9 @@ describe("interviewsApi", () => {
     expect(result.phase).toBe("elicitation");
   });
 
-  it("answer POSTs field and value", async () => {
-    mockPost.mockResolvedValue({
-      ...STATE_FIXTURE,
-      collected_fields: { title: "SSO login" },
-    });
-
-    const result = await interviewsApi.answer(SESSION, "title", "SSO login");
-
-    expect(mockPost).toHaveBeenCalledWith(`/interviews/${SESSION}/answer/`, {
-      field: "title",
-      value: "SSO login",
-    });
-    expect(result.collected_fields.title).toBe("SSO login");
-  });
-
-  it("groundingContext GETs /interviews/{id}/grounding/", async () => {
-    const snapshot = { candidates: [{ artifact_id: "a-1", title: "Existing", score: 0.9 }] };
-    mockGet.mockResolvedValue(snapshot);
-
-    const result = await interviewsApi.groundingContext(SESSION);
-
-    expect(mockGet).toHaveBeenCalledWith(`/interviews/${SESSION}/grounding/`);
-    expect(result.candidates).toHaveLength(1);
-  });
+  // #1361: the dead `answer()` / `groundingContext()` wrappers were removed
+  // (no component ever called them). Their REST actions remain available to
+  // external clients; the SPA drives answers through `chat()` instead.
 
   it("formalize POSTs to /interviews/{id}/formalize/ with an empty body", async () => {
     mockPost.mockResolvedValue({ resulting_artifact_ids: ["req-1"], status: "completed" });

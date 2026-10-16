@@ -18,13 +18,24 @@ logic in the adapter). It exposes the durable proposal inbox to agents:
 * ``suggestion.reject`` — write; delegates to the discard path and stamps the
   receipt ``rejected`` (never destroying the target artifact, ADR-019 7(e)).
 
+Role gate (issue #1362(b)): deciding a ``trace_link`` suggestion is
+**human-only by design** — ``confirm_proposed_link``/``discard_proposed_link``
+reject every agent principal (``ctx.actor_type == "agent"``, i.e. anything on
+a ``reqlo_*`` API key) with ``PERMISSION_DENIED``. That is blanket, not just
+"not your own proposal": the ban exists so an AI cannot self-confirm a link it
+(or another agent) proposed. The tool descriptions say so, because an agent
+that only sees "-32001 An AI agent may not confirm a proposed trace link."
+otherwise reads a policy gate as a defect.
+
 Error mapping (ADR-019 003-01, mirrored from the REST taxonomy):
 
 * ``ProducerContextRequiredError`` -> ``PRODUCER_CONTEXT_REQUIRED`` (the REST
   code; 409 Conflict analogue): a production attempt outside an agent/API-key
   context fails closed.
 * ``AgentSelfConfirmError`` -> ``PERMISSION_DENIED`` (the REST 403 analogue):
-  an agent may not accept/reject its own proposal.
+  NO agent principal may accept/reject ANY proposal (the class name is
+  historical — the guard is a blanket agent ban, not a self-only check; see
+  the role-gate note above).
 * ``PermissionDeniedError`` -> ``PERMISSION_DENIED``; ``NotFoundError`` ->
   ``NOT_FOUND``; any other ``ValidationError`` -> ``VALIDATION_ERROR``.
 """
@@ -89,8 +100,13 @@ class SuggestionToolGroup(BaseToolGroup):
             "description": (
                 "Accept an open suggestion: delegates to the existing per-kind "
                 "domain path (for 'trace_link' the M2 confirm), then stamps the "
-                "receipt accepted with a server-set decided_by/decided_at. An "
-                "agent may not accept its own proposal (PERMISSION_DENIED)."
+                "receipt accepted with a server-set decided_by/decided_at. "
+                "Human-only by design (#1362b): deciding a suggestion is "
+                "rejected with PERMISSION_DENIED for every agent principal "
+                "(any reqlo_* API key) — an AI agent may not confirm a "
+                "proposed trace link, neither its own nor another agent's. "
+                "Fail-closed policy, not a defect: confirm from a human "
+                "session (REST /api/v1/suggestions/{id}/accept/) instead."
             ),
             "inputSchema": {
                 "type": "object",
@@ -109,7 +125,11 @@ class SuggestionToolGroup(BaseToolGroup):
                 "Reject an open suggestion: delegates to the per-kind discard "
                 "path (for 'trace_link' the M2 discard removes the proposal "
                 "link, never the linked artifacts), then stamps the receipt "
-                "rejected with a server-set decided_by/decided_at."
+                "rejected with a server-set decided_by/decided_at. Same "
+                "human-only role gate as suggestion.accept (#1362b): an agent "
+                "principal (reqlo_* API key) is rejected with "
+                "PERMISSION_DENIED for a trace_link suggestion. Fail-closed "
+                "policy; discard from a human session instead."
             ),
             "inputSchema": {
                 "type": "object",

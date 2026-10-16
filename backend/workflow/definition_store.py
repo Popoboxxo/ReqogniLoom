@@ -1256,6 +1256,58 @@ class WorkflowDefinitionStore:
             )
         return _dto_from_orm(record)
 
+    def resolve_item_type(
+        self, workspace_id: UUID | str, item_type: str
+    ) -> str | None:
+        """Resolve a caller-supplied ``item_type`` to the workspace's spelling.
+
+        Issue #1356: the MCP ``review.*`` tools accept ``item_type`` as a free
+        string and agents naturally send the lowercase entity name
+        (``"requirement"``). Every engine lookup — ``get_definition``,
+        ``get_item_state``, ``list_item_states`` — matches ``item_type``
+        exactly, so a case mismatch silently found nothing and the facade
+        degraded to ``current_state=None`` ("No approval-shaped transition is
+        available from 'None'"). This resolves the caller's spelling against
+        the workspace's own ``WorkflowEngineDefinition`` rows before any of
+        those lookups run; the exact-match engine semantics stay untouched.
+
+        Case-insensitive, exact-case first (an exact match always wins even if
+        another stored spelling happens to fold to the same key). Workspaces
+        can define custom types (REQ-177), so the workspace's row is the
+        authoritative spelling — not a static type list.
+
+        Requires an active ``TenantContext`` (``WorkflowEngineDefinition.objects``
+        is the tenant-scoped manager), same precondition as every other method
+        here.
+
+        Args:
+            workspace_id: Owning workspace.
+            item_type:    Caller-supplied type string (any case).
+
+        Returns:
+            The stored ``item_type`` spelling, or ``None`` when this workspace
+            has no definition for that type (unknown or unconfigured — the
+            caller cannot resolve a state either way).
+        """
+        wanted = str(item_type).strip() if item_type is not None else ""
+        if not wanted:
+            return None
+
+        rows = WorkflowEngineDefinition.objects.filter(
+            workspace_id=str(workspace_id)
+        )
+        exact = rows.filter(item_type=wanted).values_list(
+            "item_type", flat=True
+        ).first()
+        if exact is not None:
+            return exact
+
+        folded = wanted.casefold()
+        for stored in rows.values_list("item_type", flat=True):
+            if str(stored).casefold() == folded:
+                return stored
+        return None
+
     # -- Create default (REQ-L3-WE001-001) ------------------------------------
 
     def create_workspace_default_workflow(

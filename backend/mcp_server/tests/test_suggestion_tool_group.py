@@ -89,6 +89,25 @@ def test_suggest_links_producer_is_no_longer_read_exempt():
 
 
 # ---------------------------------------------------------------------------
+# Role-gate visibility in the tool contract (#1362b)
+# ---------------------------------------------------------------------------
+
+
+def test_decide_tools_declare_the_human_only_role_gate():
+    """#1362b: `suggestion.accept` is rejected for every agent principal
+    (reqlo_* key) with PERMISSION_DENIED — a fail-closed policy an agent
+    otherwise reads as a defect because no tool description said so. Both
+    decide tools must carry the gate in their description; a future edit
+    that drops it would re-open the exact confusion #1362 reported."""
+    schemas = {s["name"]: s for s in SuggestionToolGroup().get_tool_schemas()}
+
+    for tool_name in ("suggestion.accept", "suggestion.reject"):
+        description = schemas[tool_name]["description"]
+        assert "human-only" in description.lower(), tool_name
+        assert "PERMISSION_DENIED" in description, tool_name
+
+
+# ---------------------------------------------------------------------------
 # Error mapping (ADR-019 003-01)
 # ---------------------------------------------------------------------------
 

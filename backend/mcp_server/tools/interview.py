@@ -65,13 +65,19 @@ class InterviewToolGroup(BaseToolGroup):
             "name": "interview.start",
             "description": (
                 "Start a new interview session in a workspace (write). Two "
-                "modes: session_kind='single' (default) drives one typed "
-                "artifact and requires artifact_type; session_kind='multi' "
-                "starts a type-less multi-artifact discovery session -- omit "
-                "artifact_type there. Returns the new session_id plus its "
-                "current interview state so the caller can immediately render "
-                "the first question (multi sessions return state without "
-                "phase/missing_fields, which do not exist in that mode)."
+                "modes: session_kind='single' drives one typed artifact and "
+                "requires artifact_type; session_kind='multi' starts a "
+                "type-less multi-artifact discovery session. Omitting "
+                "artifact_type (without an explicit session_kind) starts the "
+                "multi discovery mode -- the MCP equivalent of the UI's "
+                "'I don't know yet which artifact type I need' entry; the "
+                "pre-#1361 behaviour was a hard -32602 from the defaulted "
+                "single mode instead. Omitting artifact_type while explicitly "
+                "asking for session_kind='single' stays a clean validation "
+                "error. Returns the new session_id plus its current interview "
+                "state so the caller can immediately render the first question "
+                "(multi sessions return state without phase/missing_fields, "
+                "which do not exist in that mode)."
             ),
             "inputSchema": {
                 "type": "object",
@@ -80,20 +86,24 @@ class InterviewToolGroup(BaseToolGroup):
                         "type": "string",
                         "description": (
                             "Target artifact type, e.g. 'Requirement', 'Risk', "
-                            "'TestCase'. Required for single-mode interviews; "
-                            "must be omitted for session_kind='multi'."
+                            "'TestCase'. Required when session_kind='single' "
+                            "(the default whenever this property is set); "
+                            "omit it (and session_kind) to start a multi "
+                            "discovery session instead. Must be omitted for "
+                            "an explicit session_kind='multi'."
                         ),
                     },
                     "workspace_id": {"type": "string", "description": "UUID of the workspace."},
                     "session_kind": {
                         "type": "string",
                         "enum": ["single", "multi"],
-                        "default": "single",
                         "description": (
                             "Interview mode: 'single' drives one typed artifact "
                             "via its per-type protocol; 'multi' lets the LLM "
                             "propose several possibly different-typed artifacts "
-                            "(read them via interview.propose)."
+                            "(read them via interview.propose). When omitted it "
+                            "is derived: 'single' if artifact_type is present, "
+                            "else 'multi' (discovery)."
                         ),
                     },
                     "seed_context": {
@@ -338,17 +348,29 @@ class InterviewToolGroup(BaseToolGroup):
     def _handle_start(
         self, *, params: Dict[str, Any], auth_context, api_key: str
     ) -> ToolResult:
-        # artifact_type is optional since the multi-artifact mode: a
-        # session_kind="multi" start omits it (schema parity -- see
-        # interview.start's inputSchema). Single-mode shape violations
-        # (missing artifact_type) are rejected by InterviewService.start()
-        # as a clean ValidationError below.
+        # #1361: artifact_type is optional since the multi-artifact mode; an
+        # OMITTED artifact_type with no explicit session_kind is the MCP
+        # equivalent of the UI's "I don't know yet" chooser and starts the
+        # multi discovery session. Pre-fix, session_kind defaulted to
+        # "single" unconditionally, so `interview.start {workspace_id}` -- a
+        # call documented as valid by the schema's optional artifact_type --
+        # failed with -32602 "artifact_type is required for a single-mode
+        # interview". The explicit shapes keep their exact contract: an
+        # explicit session_kind='single' without artifact_type is still the
+        # service's clean ValidationError, and an explicit artifact_type (or
+        # session_kind='single') still starts a single session. This
+        # derivation is the MCP tool's contract only; REST's strict shape
+        # check is unchanged (its client always sends both keys).
         artifact_type = params.get("artifact_type")
         workspace_id = require_uuid(params, "workspace_id")
         seed_context = params.get("seed_context")
-        session_kind = (
-            params.get("session_kind") or InterviewSession.SESSION_KIND_SINGLE
-        )
+        session_kind = params.get("session_kind")
+        if not session_kind:
+            session_kind = (
+                InterviewSession.SESSION_KIND_MULTI
+                if not artifact_type
+                else InterviewSession.SESSION_KIND_SINGLE
+            )
 
         try:
             session = self._service.start(

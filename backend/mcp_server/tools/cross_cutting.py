@@ -730,14 +730,24 @@ class CrossCuttingToolGroup(BaseToolGroup):
                 "likely_affected, rationale}) and result.change_description "
                 "(echoed back). ``include_outdated`` (default false) "
                 "excludes outdated neighbours. Read-only/advisory -- "
-                "nothing is persisted."
+                "nothing is persisted. "
+                "ID SEMANTICS (#1362c): ``entity_id`` is the ENTITY's own id "
+                "(e.g. the Requirement row id returned as ``id`` by "
+                "requirement.get), NOT the backing artifact id — unlike "
+                "context.query/context.related, which take an artifact_id. "
+                "``entity_type`` values are PascalCase and case-sensitive "
+                "(lowercase values are rejected with VALIDATION_ERROR)."
             ),
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "entity_id": {
                         "type": "string",
-                        "description": "UUID of the entity being changed.",
+                        "description": (
+                            "UUID of the entity being changed — the entity's "
+                            "own id (e.g. requirement.get's ``id``), not its "
+                            "backing artifact_id."
+                        ),
                     },
                     "entity_type": {
                         "type": "string",
@@ -747,7 +757,10 @@ class CrossCuttingToolGroup(BaseToolGroup):
                             "TestCase",
                             "StakeholderNeed",
                         ],
-                        "description": "Type of the entity being changed.",
+                        "description": (
+                            "Type of the entity being changed. PascalCase and "
+                            "case-sensitive — 'requirement' is rejected."
+                        ),
                     },
                     "change_description": {
                         "type": "string",
@@ -773,12 +786,25 @@ class CrossCuttingToolGroup(BaseToolGroup):
                 "in separate response fields, never merged. "
                 "``stale: true`` means the semantic portion is known-"
                 "incomplete (workspace has the feature off, unconfigured, "
-                "or its last background refresh failed)."
+                "or its last background refresh failed). "
+                "ID SEMANTICS (#1362c): ``artifact_id`` is the BACKING "
+                "Artifact's UUID — NOT the entity's own id. Entity read "
+                "tools return both (e.g. requirement.get's ``id`` is the "
+                "entity id, its ``artifact_id`` is the value this tool "
+                "wants); passing the entity id answers 'Artifact <uuid> not "
+                "found' although the entity exists."
             ),
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "artifact_id": {"type": "string", "description": "UUID of the artifact."},
+                    "artifact_id": {
+                        "type": "string",
+                        "description": (
+                            "UUID of the backing Artifact — take the "
+                            "``artifact_id`` field from an entity read tool "
+                            "(requirement.get etc.), not the entity's ``id``."
+                        ),
+                    },
                     "depth": {
                         "type": "integer",
                         "description": "Hard-edge traversal depth, 1-20 (default 2).",
@@ -806,12 +832,22 @@ class CrossCuttingToolGroup(BaseToolGroup):
                 "artifact from the Workspace Context Graph (Issue #377) -- "
                 "soft, machine-derived edges only, never TraceLinks. For "
                 "workspace-level orientation, use workspace.get_context "
-                "instead."
+                "instead. "
+                "ID SEMANTICS (#1362c): ``artifact_id`` is the BACKING "
+                "Artifact's UUID — NOT the entity's own id (same contract "
+                "as context.query; entity read tools return both)."
             ),
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "artifact_id": {"type": "string", "description": "UUID of the artifact."},
+                    "artifact_id": {
+                        "type": "string",
+                        "description": (
+                            "UUID of the backing Artifact — take the "
+                            "``artifact_id`` field from an entity read tool "
+                            "(requirement.get etc.), not the entity's ``id``."
+                        ),
+                    },
                     "edge_kinds": {
                         "type": "array",
                         "items": {"type": "string"},

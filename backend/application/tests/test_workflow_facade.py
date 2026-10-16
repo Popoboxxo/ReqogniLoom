@@ -404,3 +404,124 @@ class TestPresetRoleGateUsesWorkspaceId:
 
         # The preset-level gate must reject before the engine is reached.
         mock_wf_transition.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# #1356 — resolve_item_type: case-insensitive resolution against the
+# workspace's own definition rows
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def resolve_tenant(db):
+    from persistence.models import Tenant
+
+    return Tenant.objects.create(name="resolve-tenant", slug="resolve-tenant")
+
+
+@pytest.fixture
+def resolve_workspace(resolve_tenant):
+    from persistence.models import Workspace
+    from persistence.tenancy import TenantContext as PersistenceTenantContext
+
+    PersistenceTenantContext.set_tenant(resolve_tenant.id)
+    try:
+        return Workspace.objects.create(tenant=resolve_tenant, name="resolve-ws")
+    finally:
+        PersistenceTenantContext.clear_tenant()
+
+
+@pytest.fixture
+def resolve_ctx(resolve_tenant):
+    from auth_tenancy.context import AuthContext
+
+    return AuthContext(
+        user_id=uuid.uuid4(),
+        tenant_id=resolve_tenant.id,
+        active_roles=("editor", "approver", "admin"),
+        auth_method="test",
+        api_key_id=None,
+        tenant_name="resolve-tenant",
+    )
+
+
+@pytest.fixture
+def resolve_workspace_with_requirement(resolve_workspace, resolve_ctx):
+    from persistence.tenancy import TenantContext as PersistenceTenantContext
+    from workflow.services import create_default_workflow
+
+    PersistenceTenantContext.set_tenant(resolve_ctx.tenant_id)
+    try:
+        create_default_workflow(
+            workspace_id=resolve_workspace.id,
+            preset="extended",
+            item_type="Requirement",
+            tenant_id=resolve_ctx.tenant_id,
+        )
+    finally:
+        PersistenceTenantContext.clear_tenant()
+    return resolve_workspace
+
+
+@pytest.mark.django_db
+class TestResolveItemType:
+    """#1356: the engine matches item types exactly; the MCP review tools take
+    them as free strings. The facade resolves the caller's spelling against
+    the workspace's own definition rows so a lowercase "requirement" still
+    resolves the item's real state instead of degrading to None."""
+
+    def test_exact_canonical_spelling_resolves_to_itself(
+        self, resolve_ctx, resolve_workspace_with_requirement
+    ):
+        facade = WorkflowFacade()
+
+        assert (
+            facade.resolve_item_type(
+                resolve_ctx,
+                item_type="Requirement",
+                workspace_id=resolve_workspace_with_requirement.id,
+            )
+            == "Requirement"
+        )
+
+    def test_lowercase_spelling_resolves_to_the_stored_canonical_name(
+        self, resolve_ctx, resolve_workspace_with_requirement
+    ):
+        facade = WorkflowFacade()
+
+        assert (
+            facade.resolve_item_type(
+                resolve_ctx,
+                item_type="requirement",
+                workspace_id=resolve_workspace_with_requirement.id,
+            )
+            == "Requirement"
+        )
+
+    def test_unknown_type_returns_none(
+        self, resolve_ctx, resolve_workspace_with_requirement
+    ):
+        facade = WorkflowFacade()
+
+        assert (
+            facade.resolve_item_type(
+                resolve_ctx,
+                item_type="nonsense",
+                workspace_id=resolve_workspace_with_requirement.id,
+            )
+            is None
+        )
+
+    def test_blank_type_returns_none(
+        self, resolve_ctx, resolve_workspace_with_requirement
+    ):
+        facade = WorkflowFacade()
+
+        assert (
+            facade.resolve_item_type(
+                resolve_ctx,
+                item_type="   ",
+                workspace_id=resolve_workspace_with_requirement.id,
+            )
+            is None
+        )

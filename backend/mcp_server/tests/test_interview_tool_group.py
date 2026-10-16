@@ -190,6 +190,68 @@ class TestInterviewToolGroup:
         assert result.success is False
         assert result.error_code == "NOT_FOUND"
 
+    @patch("mcp_server.tools.interview.write_mcp_audit")
+    def test_start_without_artifact_type_starts_multi_discovery(self, mock_audit):
+        """#1361: omitting artifact_type (and session_kind) must not be a
+        -32602 from the defaulted single mode — it starts the multi discovery
+        session, the MCP equivalent of the UI's "I don't know yet" chooser.
+        The served use case: `interview.start {"workspace_id": ...}` with no
+        further params (the QA repro) used to fail with "artifact_type is
+        required for a single-mode interview"."""
+        group, svc = self._group()
+        session = _mock_session(artifact_type=None)
+        session.session_kind = "multi"
+        svc.start.return_value = session
+
+        result = group.execute_tool(
+            tool_name="interview.start",
+            params={"workspace_id": str(WORKSPACE_UUID)},
+            auth_context=EDITOR_CTX,
+            api_key=VALID_API_KEY,
+        )
+
+        assert result.success is True
+        svc.start.assert_called_once_with(
+            EDITOR_CTX,
+            None,
+            WORKSPACE_UUID,
+            session_kind="multi",
+            seed_context=None,
+        )
+        assert result.data["session_kind"] == "multi"
+        mock_audit.assert_called_once()
+
+    def test_start_explicit_single_without_artifact_type_still_rejected(self):
+        """#1361: the conditional default is only for the *omitted* shape. An
+        explicit session_kind='single' without artifact_type stays the
+        service's clean shape validation — the handler must forward it as
+        single (the injected service rejects it), never silently rewrite it
+        to multi."""
+        group, svc = self._group()
+        svc.start.side_effect = ValidationError(
+            "artifact_type is required for a single-mode interview"
+        )
+
+        result = group.execute_tool(
+            tool_name="interview.start",
+            params={
+                "workspace_id": str(WORKSPACE_UUID),
+                "session_kind": "single",
+            },
+            auth_context=EDITOR_CTX,
+            api_key=VALID_API_KEY,
+        )
+
+        assert result.success is False
+        assert result.error_code == "VALIDATION_ERROR"
+        svc.start.assert_called_once_with(
+            EDITOR_CTX,
+            None,
+            WORKSPACE_UUID,
+            session_kind="single",
+            seed_context=None,
+        )
+
     # ------------------------------------------------------------------
     # interview.answer + interview.get_state
     # ------------------------------------------------------------------

@@ -382,7 +382,13 @@ class RequirementsToolGroup(BaseToolGroup):
         },
         {
             "name": "requirement.validate",
-            "description": "AI validation of a requirement.",
+            "description": (
+                "AI validation of a requirement. MCP-ONLY (#1362d): this "
+                "action has NO REST counterpart — there is no "
+                "/api/v1/requirements/{id}/validate/ route, so do not probe "
+                "for one. Requires a configured LLM provider and fails with "
+                "LLM_NOT_CONFIGURED (JSON-RPC -32003) when none is available."
+            ),
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -407,7 +413,14 @@ class RequirementsToolGroup(BaseToolGroup):
         },
         {
             "name": "requirement.check_consistency",
-            "description": "AI consistency check across a workspace's requirements.",
+            "description": (
+                "AI consistency check across a workspace's requirements. "
+                "MCP-ONLY dispatch (#1362d): no REST endpoint starts this "
+                "check — the asymmetry is deliberate and documented, not a "
+                "missing route. Returns a task_id; poll it via "
+                "requirement.check_consistency_status (MCP) or the existing "
+                "REST poll route GET /api/v1/consistency-status/{task_id}/."
+            ),
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -418,7 +431,13 @@ class RequirementsToolGroup(BaseToolGroup):
         },
         {
             "name": "requirement.check_consistency_status",
-            "description": "Poll the result of a previously dispatched requirement.check_consistency task.",
+            "description": (
+                "Poll the result of a previously dispatched "
+                "requirement.check_consistency task. The task_id comes from "
+                "the MCP-only dispatch above; the same polled result is also "
+                "reachable over REST at GET /api/v1/consistency-status/"
+                "{task_id}/ (#1362d)."
+            ),
             "inputSchema": {
                 "type": "object",
                 "properties": {
