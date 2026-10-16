@@ -1766,6 +1766,66 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             logger.exception("RequirementViewSet.decompose_next_level: unhandled exception")
             return _service_error_response(exc, lang)
 
+    @action(detail=True, methods=["post"], url_path="decompose-next-level/accept")
+    def decompose_next_level_accept(
+        self, request: Request, pk: str, **kwargs: Any
+    ) -> Response:
+        """POST /api/v1/requirements/{pk}/decompose-next-level/accept/ — persist accepted drafts.
+
+        Issue #1360 (variant A): the server-side half of the Draft/Accept step
+        for the requirement decomposition, mirroring the need path
+        (``StakeholderNeedViewSet.derive_requirements_accept``, #1095). The
+        client posts the selected drafts of a ``decompose-next-level`` preview
+        and gets back the created artefacts; the domain work lives in
+        ``AiDerivationService.persist_derived_requirements_next_level``
+        (Layer 2, ADR-01) — this handler is transport only.
+
+        Request body: ``{"drafts": [{"title": "...", "description": "...", "rationale": "..."}]}``
+
+        Response 201: ``{"count": int, "created": [{"id", "status", "trace_link_id", "proposal"}], "proposal": {...}}``
+
+        The client flags ``status`` and ``from_ai`` are forbidden (#269/#851):
+        state and AI provenance are derived server-side. A workspace whose graph
+        has no ``"proposed"`` state answers 400 with ``authoring.reason`` —
+        the honest answer, since the downgrade to ``draft`` is what #1089
+        forbids.
+
+        Errors: 400 ``VALIDATION_ERROR``; 404 ``NOT_FOUND`` for a requirement
+        outside this tenant's scope.
+        """
+        lang = detect_lang(request)
+
+        invalid = reject_unknown_fields(request.data, {"drafts"}, lang)
+        if invalid is not None:
+            return invalid
+
+        payload = request.data if isinstance(request.data, dict) else {}
+        raw_drafts = payload.get("drafts")
+        if not isinstance(raw_drafts, list) or not raw_drafts:
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    message="'drafts' must be a non-empty list of accepted drafts.",
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            from application.ai_derivation_service import AiDerivationService
+
+            result = AiDerivationService().persist_derived_requirements_next_level(
+                get_auth_context(request), requirement_id=pk, drafts=raw_drafts
+            )
+            return Response(result, status=status.HTTP_201_CREATED)
+        except ValidationError as e:
+            return Response(build_error_response("VALIDATION_ERROR", lang, message=str(e)), status=status.HTTP_400_BAD_REQUEST)
+        except NotFoundError:
+            return Response(build_error_response("NOT_FOUND", lang), status=status.HTTP_404_NOT_FOUND)
+        except Exception as exc:
+            logger.exception("RequirementViewSet.decompose_next_level_accept: unhandled exception")
+            return _service_error_response(exc, lang)
+
     @action(detail=True, methods=["post"], url_path="derive-testcase")
     def derive_testcase(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """POST /api/v1/requirements/{pk}/derive-testcase/ — AI TestCase draft.

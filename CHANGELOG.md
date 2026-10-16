@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- feat(api): persist accepted next-level requirement drafts as proposals, so AI derivations reach the review queue (#1360)
+
 ## [1.8.0-beta.21] — 2026-10-15
 
 ### Added

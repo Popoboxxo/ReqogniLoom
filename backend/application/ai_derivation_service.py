@@ -1837,6 +1837,100 @@ class AiDerivationService(ServiceBase):
             "proposal": created[0]["proposal"],
         }
 
+
+    def persist_derived_requirements_next_level(
+        self,
+        ctx: AuthContext,
+        *,
+        requirement_id: UUID | str,
+        drafts: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Persist the accepted drafts of one decompose-next-level preview as proposals.
+
+        Server-side half of the Draft/Accept step for the requirement
+        decomposition (issue #1360, same contract as
+        :meth:`persist_derived_requirements` for the need path):
+
+        * the *authoring* decision goes through the single seam
+          (:meth:`proposal_authoring`), so the content author — not the
+          principal that pressed the button — decides the state;
+        * a workspace whose graph cannot express a proposal is a hard
+          ``ValidationError`` carrying ``authoring.reason``
+          (:func:`application.ai_proposal_service.require_proposal_support`),
+          never a silent downgrade to ``draft`` (#1089);
+        * every child carries the ``ai_elicit``/``origin`` markers (#1089);
+        * the whole batch runs in ONE ``transaction.atomic()`` block, so a
+          mid-loop failure cannot leave half the accepted drafts persisted;
+        * the ``derives-from`` link points child -> parent, so the NEW child is
+          the link source (#341) and *requirement_id*'s backing Artifact is the
+          resolvable target.
+
+        Args:
+            ctx: The accepting human's context.
+            requirement_id: The parent requirement the drafts were derived from.
+            drafts: Non-empty list of ``{"title", "description", "rationale"}``
+                maps with at most
+                :data:`MAX_ACCEPTED_DERIVED_REQUIREMENTS` entries.
+
+        Returns:
+            ``{"created": [...], "count": int, "proposal": {...}}`` — every
+            ``created`` entry carries its real ``status`` and ``proposal``
+            block read back from the workflow engine.
+
+        Raises:
+            NotFoundError: *requirement_id* does not exist for this tenant.
+            ValidationError: The payload is unusable, or the workspace's graph
+                has no ``"proposed"`` state.
+        """
+        self._set_tenant_context(ctx)
+
+        from application.requirement_service import RequirementService
+
+        # Tenant-scoped: a requirement in another tenant is indistinguishable
+        # from a non-existent one and raises NotFoundError before any write.
+        parent = RequirementService().get(ctx, requirement_id)
+        workspace_id = parent.workspace_id
+
+        accepted = self._validate_accepted_drafts(drafts)
+
+        # Resolved BEFORE any write, and NOT caught (#1089 contract).
+        authoring = self.proposal_authoring(
+            ctx, item_type="Requirement", workspace_id=workspace_id
+        )
+        require_proposal_support(authoring, item_type="Requirement")
+
+        created: list[dict[str, Any]] = []
+        with transaction.atomic():
+            for draft in accepted:
+                # ``d=draft`` binds THIS draft (same footgun as the need path).
+                created.append(
+                    self._write_derived_entity(
+                        ctx=ctx,
+                        workspace_id=workspace_id,
+                        item_type="Requirement",
+                        create_fn=lambda d=draft: RequirementService().create_requirement(
+                            workspace_id=workspace_id,
+                            title=d["title"],
+                            description=d["description"],
+                            rationale=d["rationale"],
+                            # The authoring context, never the caller's.
+                            ctx=authoring.create_context,
+                            custom_fields=_ai_origin_custom_fields(),
+                        ),
+                        source_entity_id=parent.artifact_id,
+                        source_item_type="Requirement",
+                        link_type=LinkType.DERIVES_FROM.value,
+                        new_entity_is_link_source=True,
+                        policy="manual",
+                    )
+                )
+
+        return {
+            "created": created,
+            "count": len(created),
+            "proposal": created[0]["proposal"],
+        }
+
     @staticmethod
     def _validate_accepted_drafts(drafts: Any) -> list[dict[str, str]]:
         """Return *drafts* normalized to ``{"title", "description", "rationale"}``.
