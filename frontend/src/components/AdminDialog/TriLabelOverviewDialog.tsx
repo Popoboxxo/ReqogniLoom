@@ -58,7 +58,7 @@ export function TriLabelOverviewDialog({
             data-testid="tri-label-overview-done"
             onClick={onClose}
           >
-            {t("common.close", "Close")}
+            {t("common.close")}
           </button>
         </>
       }

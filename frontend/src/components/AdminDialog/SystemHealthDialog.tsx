@@ -169,7 +169,7 @@ export function SystemHealthDialog({
             data-testid="system-health-done"
             onClick={onClose}
           >
-            {t("common.close", "Close")}
+            {t("common.close")}
           </button>
         </>
       }

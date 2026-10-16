@@ -221,12 +221,12 @@ export default function BaselinesView(): JSX.Element {
 
   const handleCompare = useCallback(async (): Promise<void> => {
     if (!compareAId || !compareBId) {
-      setDiffError(t("baselines.compareSelectBoth", "Select two baselines."));
+      setDiffError(t("baselines.compareSelectBoth"));
       return;
     }
     if (compareAId === compareBId) {
       setDiffError(
-        t("baselines.compareSameBaseline", "Select two different baselines.")
+        t("baselines.compareSameBaseline")
       );
       return;
     }

@@ -597,8 +597,8 @@ export function SidebarNavigation(): JSX.Element {
         data-testid="optional-toggle"
         title={
           hideAllOptional
-            ? t("nav.showOptionalArtifacts", "Optionale Artefakte einblenden")
-            : t("nav.hideOptionalArtifacts", "Optionale Artefakte ausblenden")
+            ? t("nav.showOptionalArtifacts")
+            : t("nav.hideOptionalArtifacts")
         }
         className={styles.optionalToggleBtn}
       >

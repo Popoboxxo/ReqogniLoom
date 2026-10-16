@@ -54,7 +54,7 @@ export function BaselineEntriesSection({
 
   const heading = (
     <h3 className={styles.heading}>
-      {t("baselines.capturedItems", "Captured items")}
+      {t("baselines.capturedItems")}
       {entries ? ` (${entries.length})` : ""}
     </h3>
   );
@@ -84,7 +84,7 @@ export function BaselineEntriesSection({
       <section data-testid="baseline-entries" className={styles.section}>
         {heading}
         <p data-testid="baseline-entries-empty" className={styles.mutedText}>
-          {t("baselines.noCapturedItems", "No captured items.")}
+          {t("baselines.noCapturedItems")}
         </p>
       </section>
     );
@@ -138,10 +138,7 @@ export function BaselineEntriesSection({
                 data-testid="baseline-entry-legacy"
                 className={`${styles.mutedText} ${styles.entryLegacy}`}
               >
-                {t(
-                  "baselines.legacyEntry",
-                  "No detailed state available (legacy baseline)."
-                )}
+                {t("baselines.legacyEntry")}
               </p>
             )}
           </li>
@@ -217,7 +214,7 @@ export function BaselineComparePanel({
 
       <div className={styles.compareRow}>
         <label className={styles.compareField}>
-          <span>{t("baselines.compareA", "Baseline A (from)")}</span>
+          <span>{t("baselines.compareA")}</span>
           <select
             data-testid="compare-select-a"
             value={aId}
@@ -234,7 +231,7 @@ export function BaselineComparePanel({
         </label>
 
         <label className={styles.compareField}>
-          <span>{t("baselines.compareB", "Baseline B (to)")}</span>
+          <span>{t("baselines.compareB")}</span>
           <select
             data-testid="compare-select-b"
             value={bId}
@@ -258,7 +255,7 @@ export function BaselineComparePanel({
           className={`${styles.compareRunBtn} ${disabled ? styles.compareRunBtnDisabled : styles.compareRunBtnEnabled}`}
         >
           {loading
-            ? t("baselines.comparing", "Comparing…")
+            ? t("baselines.comparing")
             : t("baselines.compareRun", "Compare")}
         </button>
       </div>
@@ -280,19 +277,19 @@ export function BaselineComparePanel({
             className={styles.compareSummary}
           >
             <SummaryBadge
-              label={t("baselines.added", "Added")}
+              label={t("baselines.added")}
               count={diff.summary.added}
               color="var(--color-success)"
               testid="compare-summary-added"
             />
             <SummaryBadge
-              label={t("baselines.removed", "Removed")}
+              label={t("baselines.removed")}
               count={diff.summary.removed}
               color="var(--color-danger)"
               testid="compare-summary-removed"
             />
             <SummaryBadge
-              label={t("baselines.changed", "Changed")}
+              label={t("baselines.changed")}
               count={diff.summary.changed}
               color="var(--color-warning)"
               testid="compare-summary-changed"
@@ -301,7 +298,7 @@ export function BaselineComparePanel({
 
           {diff.items.length === 0 ? (
             <p data-testid="compare-empty" className={styles.mutedText}>
-              {t("baselines.compareNoChanges", "No differences between the baselines.")}
+              {t("baselines.compareNoChanges")}
             </p>
           ) : (
             <ul className={styles.diffList}>
@@ -434,9 +431,9 @@ export const DiffItemRow = memo(function DiffItemRow({
         >
           <thead>
             <tr>
-              <th className={styles.diffTh}>{t("baselines.field", "Field")}</th>
-              <th className={styles.diffTh}>{t("baselines.before", "Before")}</th>
-              <th className={styles.diffTh}>{t("baselines.after", "After")}</th>
+              <th className={styles.diffTh}>{t("baselines.field")}</th>
+              <th className={styles.diffTh}>{t("baselines.before")}</th>
+              <th className={styles.diffTh}>{t("baselines.after")}</th>
             </tr>
           </thead>
           <tbody>

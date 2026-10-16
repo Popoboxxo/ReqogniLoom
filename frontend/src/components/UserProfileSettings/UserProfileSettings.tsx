@@ -109,7 +109,7 @@ export default function UserProfileSettings(): JSX.Element {
 
       {activeWorkspace && (
         <section className={styles.visibilitySection} data-testid="visibility-section">
-          <h3 className={styles.visibilityHeading}>{t("settings.visibility", "Sichtbarkeit")} (Workspace: {activeWorkspace.name})</h3>
+          <h3 className={styles.visibilityHeading}>{t("settings.visibility")} (Workspace: {activeWorkspace.name})</h3>
           <p
             className={styles.visibilityHint}
           >
@@ -158,7 +158,7 @@ export default function UserProfileSettings(): JSX.Element {
                     >
                       {overridden
                         ? t("settings.visibilityOverridden", "(überschrieben)")
-                        : t("settings.visibilityFromPreset", "(aus Preset)")}
+                        : t("settings.visibilityFromPreset")}
                     </span>
                   </span>
                 </label>

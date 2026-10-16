@@ -251,7 +251,7 @@ export function TestRunsList(): JSX.Element {
               htmlFor="testrun-name"
               className={styles.formLabel}
             >
-              {t("editor.name", "Name")} *
+              {t("editor.name")} *
             </label>
             <input
               id="testrun-name"
