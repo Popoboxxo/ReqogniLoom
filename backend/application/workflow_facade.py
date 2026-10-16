@@ -349,6 +349,34 @@ class WorkflowFacade(ServiceBase):
         except WorkflowDefinitionError:
             return None
 
+    def resolve_item_type(
+        self,
+        ctx: AuthContext,
+        *,
+        item_type: str,
+        workspace_id: UUID | str,
+    ) -> Optional[str]:
+        """Resolve a caller-supplied ``item_type`` to its canonical spelling.
+
+        Issue #1356: read path for callers that receive the type as a free
+        string (the ``review.*`` MCP tools — their ``item_type`` parameter has
+        no enum) and must resolve it against the workspace's own workflow
+        definitions before every engine lookup, because those match the type
+        exactly. Sets the tenant context and delegates to
+        ``workflow.services.resolve_item_type``.
+
+        Returns:
+            The stored spelling, or ``None`` when the workspace has no
+            definition for that type. Read-only; never raises for "unknown".
+        """
+        self._set_tenant_context(ctx)
+
+        from workflow.services import resolve_item_type as wf_resolve_item_type
+
+        return wf_resolve_item_type(
+            workspace_id=workspace_id, item_type=item_type
+        )
+
     # ---------- Definition edit-mode mutations (REQ-177) ----------
     #
     # The Workflow Editor's edit mode calls these to mutate the state-machine

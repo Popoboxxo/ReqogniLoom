@@ -53,6 +53,7 @@ import logging
 from typing import Any, Optional
 from uuid import UUID
 
+from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import status
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -73,6 +74,50 @@ logger = logging.getLogger(__name__)
 #: States the caller may narrow the queue to via ``?state=`` (repeatable,
 #: comma-separated). Empty/absent means "every state the workspace tracks".
 _STATE_PARAM = "state"
+
+# #1362(a): drf-spectacular cannot introspect ``request.query_params.get(...)``
+# calls, so ``GET /api/v1/reviews/pending/`` shipped documenting NO parameter
+# while *requiring* ``workspace_id`` — a generated client could only produce
+# requests the server rejects with 400 ("workspace_id is required"). Same
+# contract gap class as #447 (requirement-bundle/search). Declared explicitly;
+# keep these lists in sync with the parsing in ``_pending_response``.
+_FLAT_QUEUE_PARAMETERS = [
+    OpenApiParameter(
+        name="workspace_id",
+        type=str,
+        location=OpenApiParameter.QUERY,
+        required=True,
+        description="UUID of the workspace to scope the queue to.",
+    ),
+    OpenApiParameter(
+        name="item_type",
+        type=str,
+        location=OpenApiParameter.QUERY,
+        required=False,
+        description=(
+            "Optional single workflow item-type filter, e.g. 'Requirement' "
+            "or 'Adr'. Matched exactly against the workspace's tracked types."
+        ),
+    ),
+    OpenApiParameter(
+        name=_STATE_PARAM,
+        type=str,
+        location=OpenApiParameter.QUERY,
+        required=False,
+        many=True,
+        description=(
+            "Optional workflow-state narrowing; repeatable and/or "
+            "comma-separated, e.g. ``?state=proposed`` for just the AI "
+            "proposals. Omitted = every state the workspace tracks."
+        ),
+    ),
+]
+
+#: The path-scoped twin receives the workspace id from its URL segment, so it
+#: declares only the two optional query parameters.
+_PATH_SCOPED_QUEUE_PARAMETERS = [
+    p for p in _FLAT_QUEUE_PARAMETERS if p.name != "workspace_id"
+]
 
 
 def _parse_states(request: Request) -> list[str] | None:
@@ -181,6 +226,7 @@ class ReviewsPendingView(APIView):
     for a workspace that does not exist in this tenant.
     """
 
+    @extend_schema(parameters=_FLAT_QUEUE_PARAMETERS)
     def get(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         lang = detect_lang(request)
         workspace_id, error = parse_workspace_id(
@@ -200,6 +246,7 @@ class WorkspaceReviewsPendingView(APIView):
     here.
     """
 
+    @extend_schema(parameters=_PATH_SCOPED_QUEUE_PARAMETERS)
     def get(
         self, request: Request, workspace_id: str, *args: Any, **kwargs: Any
     ) -> Response:

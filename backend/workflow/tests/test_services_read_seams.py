@@ -129,8 +129,11 @@ class TestListItemStates:
     def test_falsy_item_type_means_no_filter(
         self, requirement_with_workflow, tenant, workspace
     ):
-        """``review.list_pending`` passes ``params.get("item_type")`` straight
-        through, so ``None``/``""`` must not degenerate into an impossible
+        """``review.list_pending`` only canonicalises a *truthy* item_type
+        before passing it down (the #1356 resolution in
+        ``mcp_server.tools.review`` leaves ``None``/``""`` untouched, and a
+        value that resolves to no definition keeps its original spelling), so
+        ``None``/``""`` must not degenerate into an impossible
         ``item_type=""`` filter."""
         TenantContext.set_tenant(tenant.id)
         try:

@@ -174,6 +174,54 @@ class TestDocumentedQueryParameters:
 
 
 # ---------------------------------------------------------------------------
+# #1362(a) — the review queue's mandatory workspace_id must be discoverable
+# ---------------------------------------------------------------------------
+
+
+class TestReviewQueueQueryParameters:
+    """#1362(a): ``GET /api/v1/reviews/pending/`` *requires* ``workspace_id``
+    (400 "workspace_id is required" without it) while the OpenAPI document
+    declared no query parameter at all — an agent could only learn the
+    parameter by trying. Same contract gap class as #447.
+    """
+
+    FLAT_PATH = "/api/v1/reviews/pending/"
+    ROOT_PATH = "/api/v1/reviews/"
+    NESTED_PATH = "/api/v1/workspaces/{workspace_id}/reviews/pending/"
+
+    def test_flat_route_documents_the_required_workspace_id(
+        self, openapi_schema: dict
+    ) -> None:
+        params = _query_params(openapi_schema, self.FLAT_PATH)
+        assert params["workspace_id"]["required"] is True
+        assert {"item_type", "state"}.issubset(set(params))
+
+    def test_collection_root_documents_the_required_workspace_id(
+        self, openapi_schema: dict
+    ) -> None:
+        """``/api/v1/reviews/`` is the same view under its natural URL — it
+        must document the same parameters."""
+        params = _query_params(openapi_schema, self.ROOT_PATH)
+        assert params["workspace_id"]["required"] is True
+
+    def test_path_scoped_route_documents_the_optional_filters(
+        self, openapi_schema: dict
+    ) -> None:
+        """The nested route takes the workspace from its path segment and
+        declares the two optional filters."""
+        params = _query_params(openapi_schema, self.NESTED_PATH)
+        assert {"item_type", "state"}.issubset(set(params))
+        assert "workspace_id" not in params
+        assert "workspace_id" in {
+            p["name"]
+            for p in openapi_schema["paths"][self.NESTED_PATH]["get"].get(
+                "parameters", []
+            )
+            if p["in"] == "path"
+        }
+
+
+# ---------------------------------------------------------------------------
 # #696 — the login body token is deprecated and must say so
 # ---------------------------------------------------------------------------
 

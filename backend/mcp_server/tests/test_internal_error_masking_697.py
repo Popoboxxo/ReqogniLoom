@@ -96,7 +96,14 @@ class TestReviewGroupMasksUnmappedFailures:
         must keep forwarding its own message — only the unmapped tail is masked."""
         group = ReviewToolGroup()
 
-        with patch(
+        # #1356: review.reject resolves the caller-supplied item_type against
+        # the workspace's workflow definitions before calling outdate() — a
+        # real DB read. Stubbed here so the fault lands on the handler's own
+        # outdate() call, keeping this masking test DB-free (same idiom as
+        # the reactivate test's ``_resolve_workspace_id`` stub above).
+        with patch.object(
+            group, "_resolve_item_type", return_value=("Requirement", None)
+        ), patch(
             "workflow.services.outdate", side_effect=ProgrammingError(SENSITIVE)
         ), caplog.at_level("ERROR"):
             result = group.execute_tool(

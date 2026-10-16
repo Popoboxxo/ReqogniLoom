@@ -9,6 +9,17 @@
  * them with the plugin: there is no shared package between the plugin and
  * this frontend, so a small, independent duplication here is the correct
  * choice over a premature shared-package abstraction.
+ *
+ * #1361: this client intentionally has no `answer()`/`groundingContext()`
+ * wrappers. The web surface is chat-driven — `interview.chat` extracts the
+ * per-field protocol answers server-side, so the classic single-field
+ * `POST .../answer/` action has no producer in the SPA; and the pane renders
+ * `grounding_snapshot.candidates` opportunistically from `get_state` without
+ * the SPA ever triggering the lazy (and, with a real LLM provider,
+ * AI-priced) `GET .../grounding/` computation per view. Both REST actions
+ * stay available (and MCP-wrapped as `interview.answer` /
+ * `interview.grounding_context`) for external clients; they were never wired
+ * here, so the wrappers were dead code (issue #1361).
  */
 
 import { apiClient, getAllPages, getList } from "./client";
@@ -180,21 +191,6 @@ export const interviewsApi = {
   /** Fetch a session's full state (phase, collected/missing fields, grounding). */
   getState(id: UUID): Promise<InterviewState> {
     return apiClient.get<InterviewState>(`/interviews/${id}/state/`);
-  },
-
-  /** Record an answer for `field` and return the updated state. */
-  answer(id: UUID, field: string, value: unknown): Promise<InterviewState> {
-    return apiClient.post<InterviewState>(`/interviews/${id}/answer/`, {
-      field,
-      value,
-    });
-  },
-
-  /** Structural + AI-ranked grounding candidates for the session. */
-  groundingContext(id: UUID): Promise<InterviewState["grounding_snapshot"]> {
-    return apiClient.get<InterviewState["grounding_snapshot"]>(
-      `/interviews/${id}/grounding/`
-    );
   },
 
   /**

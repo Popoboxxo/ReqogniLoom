@@ -2335,13 +2335,13 @@
       "name": "context.change_impact",
       "prefix": "context",
       "is_write": false,
-      "description": "Return entities potentially affected by a proposed change to a single Requirement/ArchitectureElement/TestCase/StakeholderNeed, for AI-agent context building. Gathers upstream+downstream TraceLink neighbours plus (for an ArchitectureElement anchor) direct decomposition children, then asks the LLM adapter (mock by default) to annotate each with a rough affected/rationale verdict against ``change_description``. Response: result.affected_entities (list of {id, entity_type, title, link_type, relation, likely_affected, rationale}) and result.change_description (echoed back). ``include_outdated`` (default false) excludes outdated neighbours. Read-only/advisory -- nothing is persisted.",
+      "description": "Return entities potentially affected by a proposed change to a single Requirement/ArchitectureElement/TestCase/StakeholderNeed, for AI-agent context building. Gathers upstream+downstream TraceLink neighbours plus (for an ArchitectureElement anchor) direct decomposition children, then asks the LLM adapter (mock by default) to annotate each with a rough affected/rationale verdict against ``change_description``. Response: result.affected_entities (list of {id, entity_type, title, link_type, relation, likely_affected, rationale}) and result.change_description (echoed back). ``include_outdated`` (default false) excludes outdated neighbours. Read-only/advisory -- nothing is persisted. ID SEMANTICS (#1362c): ``entity_id`` is the ENTITY's own id (e.g. the Requirement row id returned as ``id`` by requirement.get), NOT the backing artifact id — unlike context.query/context.related, which take an artifact_id. ``entity_type`` values are PascalCase and case-sensitive (lowercase values are rejected with VALIDATION_ERROR).",
       "inputSchema": {
         "type": "object",
         "properties": {
           "entity_id": {
             "type": "string",
-            "description": "UUID of the entity being changed."
+            "description": "UUID of the entity being changed — the entity's own id (e.g. requirement.get's ``id``), not its backing artifact_id."
           },
           "entity_type": {
             "type": "string",
@@ -2351,7 +2351,7 @@
               "TestCase",
               "StakeholderNeed"
             ],
-            "description": "Type of the entity being changed."
+            "description": "Type of the entity being changed. PascalCase and case-sensitive — 'requirement' is rejected."
           },
           "change_description": {
             "type": "string",
@@ -2372,13 +2372,13 @@
       "name": "context.query",
       "prefix": "context",
       "is_write": false,
-      "description": "Returns context for a single artifact -- for workspace-level orientation, use workspace.get_context instead. Combines hard TraceLink edges (upstream/downstream, via the same traversal traceability.query uses) with soft, machine-derived semantic edges from the Workspace Context Graph (Issue #377) -- hard and soft edges are always kept in separate response fields, never merged. ``stale: true`` means the semantic portion is known-incomplete (workspace has the feature off, unconfigured, or its last background refresh failed).",
+      "description": "Returns context for a single artifact -- for workspace-level orientation, use workspace.get_context instead. Combines hard TraceLink edges (upstream/downstream, via the same traversal traceability.query uses) with soft, machine-derived semantic edges from the Workspace Context Graph (Issue #377) -- hard and soft edges are always kept in separate response fields, never merged. ``stale: true`` means the semantic portion is known-incomplete (workspace has the feature off, unconfigured, or its last background refresh failed). ID SEMANTICS (#1362c): ``artifact_id`` is the BACKING Artifact's UUID — NOT the entity's own id. Entity read tools return both (e.g. requirement.get's ``id`` is the entity id, its ``artifact_id`` is the value this tool wants); passing the entity id answers 'Artifact <uuid> not found' although the entity exists.",
       "inputSchema": {
         "type": "object",
         "properties": {
           "artifact_id": {
             "type": "string",
-            "description": "UUID of the artifact."
+            "description": "UUID of the backing Artifact — take the ``artifact_id`` field from an entity read tool (requirement.get etc.), not the entity's ``id``."
           },
           "depth": {
             "type": "integer",
@@ -2412,13 +2412,13 @@
       "name": "context.related",
       "prefix": "context",
       "is_write": true,
-      "description": "Returns semantically related artifacts for a single artifact from the Workspace Context Graph (Issue #377) -- soft, machine-derived edges only, never TraceLinks. For workspace-level orientation, use workspace.get_context instead.",
+      "description": "Returns semantically related artifacts for a single artifact from the Workspace Context Graph (Issue #377) -- soft, machine-derived edges only, never TraceLinks. For workspace-level orientation, use workspace.get_context instead. ID SEMANTICS (#1362c): ``artifact_id`` is the BACKING Artifact's UUID — NOT the entity's own id (same contract as context.query; entity read tools return both).",
       "inputSchema": {
         "type": "object",
         "properties": {
           "artifact_id": {
             "type": "string",
-            "description": "UUID of the artifact."
+            "description": "UUID of the backing Artifact — take the ``artifact_id`` field from an entity read tool (requirement.get etc.), not the entity's ``id``."
           },
           "edge_kinds": {
             "type": "array",
@@ -3813,13 +3813,13 @@
       "name": "interview.start",
       "prefix": "interview",
       "is_write": true,
-      "description": "Start a new interview session in a workspace (write). Two modes: session_kind='single' (default) drives one typed artifact and requires artifact_type; session_kind='multi' starts a type-less multi-artifact discovery session -- omit artifact_type there. Returns the new session_id plus its current interview state so the caller can immediately render the first question (multi sessions return state without phase/missing_fields, which do not exist in that mode).",
+      "description": "Start a new interview session in a workspace (write). Two modes: session_kind='single' drives one typed artifact and requires artifact_type; session_kind='multi' starts a type-less multi-artifact discovery session. Omitting artifact_type (without an explicit session_kind) starts the multi discovery mode -- the MCP equivalent of the UI's 'I don't know yet which artifact type I need' entry; the pre-#1361 behaviour was a hard -32602 from the defaulted single mode instead. Omitting artifact_type while explicitly asking for session_kind='single' stays a clean validation error. Returns the new session_id plus its current interview state so the caller can immediately render the first question (multi sessions return state without phase/missing_fields, which do not exist in that mode).",
       "inputSchema": {
         "type": "object",
         "properties": {
           "artifact_type": {
             "type": "string",
-            "description": "Target artifact type, e.g. 'Requirement', 'Risk', 'TestCase'. Required for single-mode interviews; must be omitted for session_kind='multi'."
+            "description": "Target artifact type, e.g. 'Requirement', 'Risk', 'TestCase'. Required when session_kind='single' (the default whenever this property is set); omit it (and session_kind) to start a multi discovery session instead. Must be omitted for an explicit session_kind='multi'."
           },
           "workspace_id": {
             "type": "string",
@@ -3831,8 +3831,7 @@
               "single",
               "multi"
             ],
-            "default": "single",
-            "description": "Interview mode: 'single' drives one typed artifact via its per-type protocol; 'multi' lets the LLM propose several possibly different-typed artifacts (read them via interview.propose)."
+            "description": "Interview mode: 'single' drives one typed artifact via its per-type protocol; 'multi' lets the LLM propose several possibly different-typed artifacts (read them via interview.propose). When omitted it is derived: 'single' if artifact_type is present, else 'multi' (discovery)."
           },
           "seed_context": {
             "type": "object",
@@ -5447,7 +5446,7 @@
       "name": "requirement.check_consistency",
       "prefix": "requirement",
       "is_write": false,
-      "description": "AI consistency check across a workspace's requirements.",
+      "description": "AI consistency check across a workspace's requirements. MCP-ONLY dispatch (#1362d): no REST endpoint starts this check — the asymmetry is deliberate and documented, not a missing route. Returns a task_id; poll it via requirement.check_consistency_status (MCP) or the existing REST poll route GET /api/v1/consistency-status/{task_id}/.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -5465,7 +5464,7 @@
       "name": "requirement.check_consistency_status",
       "prefix": "requirement",
       "is_write": true,
-      "description": "Poll the result of a previously dispatched requirement.check_consistency task.",
+      "description": "Poll the result of a previously dispatched requirement.check_consistency task. The task_id comes from the MCP-only dispatch above; the same polled result is also reachable over REST at GET /api/v1/consistency-status/{task_id}/ (#1362d).",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -5795,7 +5794,7 @@
       "name": "requirement.validate",
       "prefix": "requirement",
       "is_write": true,
-      "description": "AI validation of a requirement.",
+      "description": "AI validation of a requirement. MCP-ONLY (#1362d): this action has NO REST counterpart — there is no /api/v1/requirements/{id}/validate/ route, so do not probe for one. Requires a configured LLM provider and fails with LLM_NOT_CONFIGURED (JSON-RPC -32003) when none is available.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -5925,7 +5924,8 @@
             "type": "string"
           },
           "item_type": {
-            "type": "string"
+            "type": "string",
+            "description": "Workflow entity type, e.g. 'Requirement', 'Adr', 'TestCase'. Matched case-insensitively against this workspace's workflow definitions."
           },
           "workspace_id": {
             "type": "string"
@@ -5955,7 +5955,7 @@
         "properties": {
           "item_type": {
             "type": "string",
-            "description": "Optional entity type filter."
+            "description": "Optional entity type filter, e.g. 'Requirement', 'Adr', 'TestCase'. Matched case-insensitively against this workspace's workflow definitions."
           },
           "workspace_id": {
             "type": "string",
@@ -5979,7 +5979,8 @@
             "type": "string"
           },
           "item_type": {
-            "type": "string"
+            "type": "string",
+            "description": "Workflow entity type, e.g. 'Requirement', 'Adr', 'TestCase'. Matched case-insensitively against this workspace's workflow definitions."
           },
           "workspace_id": {
             "type": "string"
@@ -5999,7 +6000,7 @@
       "name": "review.request_changes",
       "prefix": "review",
       "is_write": true,
-      "description": "Send an item currently awaiting review back to its workflow's initial state for rework, recording reason in the workflow history.",
+      "description": "Send an item currently awaiting review back to its workflow's initial state for rework, recording reason in the workflow history. MCP-ONLY (#1356 addendum, #1362d): there is no REST endpoint or UI action for this decision — the UI offers approve/reject only, so do not probe for a 'request changes' REST route.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -6007,7 +6008,8 @@
             "type": "string"
           },
           "item_type": {
-            "type": "string"
+            "type": "string",
+            "description": "Workflow entity type, e.g. 'Requirement', 'Adr', 'TestCase'. Matched case-insensitively against this workspace's workflow definitions."
           },
           "workspace_id": {
             "type": "string"
@@ -6329,7 +6331,7 @@
       "name": "suggestion.accept",
       "prefix": "suggestion",
       "is_write": true,
-      "description": "Accept an open suggestion: delegates to the existing per-kind domain path (for 'trace_link' the M2 confirm), then stamps the receipt accepted with a server-set decided_by/decided_at. An agent may not accept its own proposal (PERMISSION_DENIED).",
+      "description": "Accept an open suggestion: delegates to the existing per-kind domain path (for 'trace_link' the M2 confirm), then stamps the receipt accepted with a server-set decided_by/decided_at. Human-only by design (#1362b): deciding a suggestion is rejected with PERMISSION_DENIED for every agent principal (any reqlo_* API key) — an AI agent may not confirm a proposed trace link, neither its own nor another agent's. Fail-closed policy, not a defect: confirm from a human session (REST /api/v1/suggestions/{id}/accept/) instead.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -6365,7 +6367,7 @@
       "name": "suggestion.reject",
       "prefix": "suggestion",
       "is_write": true,
-      "description": "Reject an open suggestion: delegates to the per-kind discard path (for 'trace_link' the M2 discard removes the proposal link, never the linked artifacts), then stamps the receipt rejected with a server-set decided_by/decided_at.",
+      "description": "Reject an open suggestion: delegates to the per-kind discard path (for 'trace_link' the M2 discard removes the proposal link, never the linked artifacts), then stamps the receipt rejected with a server-set decided_by/decided_at. Same human-only role gate as suggestion.accept (#1362b): an agent principal (reqlo_* API key) is rejected with PERMISSION_DENIED for a trace_link suggestion. Fail-closed policy; discard from a human session instead.",
       "inputSchema": {
         "type": "object",
         "properties": {

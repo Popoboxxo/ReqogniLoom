@@ -25,6 +25,13 @@ state machine, no new state_meta flags. Reuses:
     by the transition validator; the module-level outdate() escape hatch is
     the only correct way to reach it.
   - WorkflowDefinitionDTO.initial_state for review.request_changes.
+  - WorkflowFacade.resolve_item_type (#1356) for the caller-supplied
+    item_type: the engine matches item types exactly ("Requirement"), while
+    this tool's schema declares a free string, so the handlers resolve the
+    caller's spelling against the workspace's own definition rows before any
+    state/transition lookup. Without that step a lowercase "requirement"
+    found no state at all and the refusal read "from 'None'" instead of
+    naming the item's real state. No preset/gate semantics change here.
 """
 from __future__ import annotations
 
@@ -74,7 +81,14 @@ class ReviewToolGroup(BaseToolGroup):
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "item_type": {"type": "string", "description": "Optional entity type filter."},
+                    "item_type": {
+                        "type": "string",
+                        "description": (
+                            "Optional entity type filter, e.g. 'Requirement', "
+                            "'Adr', 'TestCase'. Matched case-insensitively "
+                            "against this workspace's workflow definitions."
+                        ),
+                    },
                     "workspace_id": {"type": "string", "description": "Workspace to scope the search to."},
                 },
                 "required": ["workspace_id"],
@@ -93,7 +107,14 @@ class ReviewToolGroup(BaseToolGroup):
                 "type": "object",
                 "properties": {
                     "item_id": {"type": "string"},
-                    "item_type": {"type": "string"},
+                    "item_type": {
+                        "type": "string",
+                        "description": (
+                            "Workflow entity type, e.g. 'Requirement', 'Adr', "
+                            "'TestCase'. Matched case-insensitively against "
+                            "this workspace's workflow definitions."
+                        ),
+                    },
                     "workspace_id": {"type": "string"},
                     "change_reason": {"type": "string"},
                     "expected_version": {
@@ -121,7 +142,14 @@ class ReviewToolGroup(BaseToolGroup):
                 "type": "object",
                 "properties": {
                     "item_id": {"type": "string"},
-                    "item_type": {"type": "string"},
+                    "item_type": {
+                        "type": "string",
+                        "description": (
+                            "Workflow entity type, e.g. 'Requirement', 'Adr', "
+                            "'TestCase'. Matched case-insensitively against "
+                            "this workspace's workflow definitions."
+                        ),
+                    },
                     "workspace_id": {"type": "string"},
                     "reason": {"type": "string"},
                 },
@@ -133,13 +161,23 @@ class ReviewToolGroup(BaseToolGroup):
             "description": (
                 "Send an item currently awaiting review back to its "
                 "workflow's initial state for rework, recording reason in "
-                "the workflow history."
+                "the workflow history. MCP-ONLY (#1356 addendum, #1362d): "
+                "there is no REST endpoint or UI action for this decision — "
+                "the UI offers approve/reject only, so do not probe for a "
+                "'request changes' REST route."
             ),
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "item_id": {"type": "string"},
-                    "item_type": {"type": "string"},
+                    "item_type": {
+                        "type": "string",
+                        "description": (
+                            "Workflow entity type, e.g. 'Requirement', 'Adr', "
+                            "'TestCase'. Matched case-insensitively against "
+                            "this workspace's workflow definitions."
+                        ),
+                    },
                     "workspace_id": {"type": "string"},
                     "reason": {"type": "string"},
                     "expected_version": {
@@ -167,6 +205,18 @@ class ReviewToolGroup(BaseToolGroup):
 
         workspace_id = require_uuid(params, "workspace_id")
         item_type = params.get("item_type")
+
+        # #1356: the filter is a free string; resolve it to the workspace's
+        # stored spelling first so "requirement" filters the same rows as
+        # "Requirement" instead of silently matching none. An unresolvable
+        # filter keeps the caller's value (matches nothing), preserving the
+        # read tool's "unknown filter -> empty queue" behaviour.
+        if item_type:
+            resolved, _error = self._resolve_item_type(
+                item_type, auth_context, workspace_id
+            )
+            if resolved is not None:
+                item_type = resolved
 
         try:
             # Issue #1089: one source of truth for "what awaits a human". This
@@ -231,6 +281,12 @@ class ReviewToolGroup(BaseToolGroup):
         workspace_id = require_uuid(params, "workspace_id")
         reason = params.get("reason", "")
 
+        item_type, type_error = self._resolve_item_type(
+            item_type, auth_context, workspace_id
+        )
+        if type_error is not None:
+            return type_error
+
         from workflow.services import WorkflowItemNotFoundError, outdate
 
         try:
@@ -285,6 +341,12 @@ class ReviewToolGroup(BaseToolGroup):
         # compare itself runs inside the engine's row-locked transaction.
         expected_version = params.get("expected_version")
 
+        item_type, type_error = self._resolve_item_type(
+            item_type, auth_context, workspace_id
+        )
+        if type_error is not None:
+            return type_error
+
         facade = WorkflowFacade()
         definition = facade.get_definition(auth_context, item_type=item_type, workspace_id=workspace_id)
         if definition is None:
@@ -327,6 +389,45 @@ class ReviewToolGroup(BaseToolGroup):
         return ToolResult.ok({"item_id": str(item_id), "new_state": result.new_state})
 
     # ------------------------------------------------------------------
+    # Shared: caller-supplied item_type resolution (#1356)
+    # ------------------------------------------------------------------
+
+    def _resolve_item_type(
+        self, item_type: str, auth_context: AuthContext, workspace_id
+    ) -> "tuple[str | None, ToolResult | None]":
+        """Canonicalise a caller-supplied ``item_type`` (issue #1356).
+
+        This tool's schema declares ``item_type`` as a free string and agents
+        naturally send the lowercase entity name ("requirement"), but every
+        workflow-engine lookup — item state, definition, raw workflow_json —
+        matches the type exactly. The facade therefore resolved no state at
+        all and the refusal read "from 'None'" although the item sat in
+        "draft". Resolving through ``WorkflowFacade.resolve_item_type`` (the
+        workspace's own definition rows, case-insensitive) before any engine
+        call fixes the state resolution without touching the engine's exact-
+        match semantics or any preset/gate rule.
+
+        Returns:
+            ``(canonical, None)`` on success; ``(None, error)`` when the
+            workspace has no definition for the type. That second case fails
+            closed with the actual reason — without a definition there is no
+            state to resolve either way, and silently proceeding is what
+            produced the original 'None' message.
+        """
+        canonical = WorkflowFacade().resolve_item_type(
+            auth_context, item_type=item_type, workspace_id=workspace_id
+        )
+        if canonical is None:
+            return None, ToolResult.error(
+                "VALIDATION_ERROR",
+                f"No workflow is configured for item_type {item_type!r} in "
+                f"this workspace, so its workflow state cannot be resolved. "
+                f"Pass a workflow-tracked entity type (e.g. 'Requirement', "
+                f"'Adr', 'TestCase'; case is matched insensitively).",
+            )
+        return canonical, None
+
+    # ------------------------------------------------------------------
     # Shared: transition to the item's approval-gate target
     # ------------------------------------------------------------------
 
@@ -342,6 +443,12 @@ class ReviewToolGroup(BaseToolGroup):
         reason = params.get(reason_param, "")
         # CR-08: see review.request_changes.
         expected_version = params.get("expected_version")
+
+        item_type, type_error = self._resolve_item_type(
+            item_type, auth_context, workspace_id
+        )
+        if type_error is not None:
+            return type_error
 
         facade = WorkflowFacade()
         available = facade.get_available_transitions(
@@ -386,6 +493,15 @@ class ReviewToolGroup(BaseToolGroup):
             target = gate.to_state if gate is not None else None
 
         if target is None:
+            if available.current_state is None:
+                # #1356: never print 'None' as if it were a state. With the
+                # item_type resolved this is only reachable when no
+                # WorkflowItemState could be read or lazily created at all.
+                return ToolResult.error(
+                    "VALIDATION_ERROR",
+                    f"No workflow state could be resolved for {item_type} "
+                    f"{item_id} in this workspace.",
+                )
             return ToolResult.error(
                 "VALIDATION_ERROR",
                 f"No approval-shaped transition is available from '{available.current_state}' for {item_type}.",
