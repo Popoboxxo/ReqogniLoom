@@ -17,9 +17,19 @@ The fix is the sibling of the #1095 need path:
 the creation service, so every child is born ``"proposed"`` and lands in the
 pending-review queue.
 
-Assertions are deliberately driven over HTTP (plus one ORM create for the
-parent) so the suite pins the wire contract rather than service internals —
-the gap was precisely the missing transport.
+Assertions are driven over HTTP (plus ORM *creates* for the fixtures) so the
+suite pins the wire contract rather than service internals — the gap was
+precisely the missing transport.
+
+Two fixture rules this file had to learn the hard way (both are runtime
+preconditions of ``TenantManager``, not test cosmetics):
+
+* every tenant-scoped ORM call must run inside an armed tenant context
+  (``set_request_tenant``), including the *fixture* helpers that create users
+  and roles — otherwise ``TenantContextNotSetError``;
+* the API user needs a **workspace-scoped** ``UserRole`` — the endpoint is
+  permission-gated, and without a role it answers 403 instead of reaching the
+  validation branches these tests are about.
 
 Covered:
 * happy path — 201, children whose workflow state really is ``"proposed"``,
@@ -31,11 +41,6 @@ Covered:
 * the #851 envelope for an undeclared key, and a malformed body;
 * an unknown requirement is a 404 and creates nothing;
 * atomicity: an invalid second draft leaves no first-draft artefact.
-
-Note on RBAC: the endpoint is permission-gated (``HasOperationPermission``), so
-every test user carries a **workspace-scoped** EDITOR role. Without it the
-endpoint answers 403 — correct behaviour, but then the tests would not exercise
-the validation branches they are about.
 """
 from __future__ import annotations
 
@@ -81,13 +86,25 @@ def _make_workspace(tenant: Tenant, name: str, preset: str) -> Workspace:
 
 
 def _make_editor(tenant: Tenant, workspace: Workspace) -> User:
-    user = User.objects.create(
-        username=f"u-{uuid.uuid4().hex[:8]}", email="editor@t.test", tenant=tenant
-    )
-    user.set_password(_PASSWORD)
-    user.save(update_fields=["password"])
-    UserRole.objects.create(tenant=tenant, user=user, workspace=workspace, role=ROLE_EDITOR)
-    return user
+    """Editor with a workspace-scoped role, created inside an armed context.
+
+    Both parts matter: ``User``/``UserRole`` are tenant-scoped (no context →
+    ``TenantContextNotSetError``), and the endpoint is permission-gated (no
+    role → 403, so the validation branches would never be reached).
+    """
+    set_request_tenant(tenant.id)
+    try:
+        user = User.objects.create(
+            username=f"u-{uuid.uuid4().hex[:8]}", email="editor@t.test", tenant=tenant
+        )
+        user.set_password(_PASSWORD)
+        user.save(update_fields=["password"])
+        UserRole.objects.create(
+            tenant=tenant, user=user, workspace=workspace, role=ROLE_EDITOR
+        )
+        return user
+    finally:
+        clear_request_tenant()
 
 
 def _make_requirement(tenant: Tenant, workspace: Workspace, title: str) -> Requirement:
