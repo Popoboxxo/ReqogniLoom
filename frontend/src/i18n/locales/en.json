@@ -94,6 +94,8 @@
     "interviews": "Interviews",
     "searchPlaceholder": "Search all artifacts …",
     "optionalArtifacts": "Optional Artifacts",
+    "showOptionalArtifacts": "Show optional artifacts",
+    "hideOptionalArtifacts": "Hide optional artifacts",
     "searching": "Searching...",
     "mainNavigation": "Main navigation",
     "searchResults": "Search results",
@@ -207,6 +209,9 @@
     "sessionExpired": "Your session has expired. Please sign in again to continue."
   },
   "loading": "Loading...",
+  "common": {
+    "close": "Close"
+  },
   "actions": {
     "add": "Add",
     "edit": "Edit",
@@ -219,6 +224,8 @@
     "retry": "Retry",
     "back": "Back",
     "new": "New",
+    "newLink": "Create new link",
+    "showAll": "Show all",
     "delete": "Delete",
     "cancel": "Cancel",
     "create": "Create",
@@ -302,6 +309,7 @@
     "treeDropRoot": "Drop here to move to the top level",
     "treeContainsSelection": "Contains the current selection",
     "title": "Title",
+    "name": "Name",
     "description": "Description",
     "acceptanceCriteria": "Acceptance Criteria",
     "acceptanceCriteriaPlaceholder": "When is this requirement considered fulfilled?",
@@ -608,6 +616,9 @@
     "created": "Created",
     "noArtifacts": "No artifacts available",
     "artifactRequired": "Please select an artifact.",
+    "capturedItems": "Captured items",
+    "noCapturedItems": "No captured items.",
+    "legacyEntry": "No detailed state available (legacy baseline).",
     "deleteConfirmTitle": "Delete baseline?",
     "deleteConfirm": "Really delete this baseline?",
     "overrideLabel": "Override justification (SE-Auditor)",
@@ -617,6 +628,18 @@
     "compare": "Compare",
     "compareTitle": "Compare baselines",
     "compareRun": "Compare",
+    "compareA": "Baseline A (from)",
+    "compareB": "Baseline B (to)",
+    "compareSelectBoth": "Select two baselines.",
+    "compareSameBaseline": "Select two different baselines.",
+    "compareNoChanges": "No differences between the baselines.",
+    "comparing": "Comparing…",
+    "added": "Added",
+    "removed": "Removed",
+    "changed": "Changed",
+    "field": "Field",
+    "before": "Before",
+    "after": "After",
     "name": "Name",
     "namePlaceholder": "e.g. Release 1.2 sign-off",
     "nameHint": "Optional. Without a name one is generated from the timestamp. The name must be unique within the workspace."
@@ -888,8 +911,10 @@
     "saved": "Saved.",
     "traceabilityHint": "Configure which trace link type is used by default when decomposing (deriving) requirements.",
     "attributeVisibilityHint": "Configure which attributes are visible for each element type in this workspace.",
+    "visibility": "Visibility",
     "visibilityHint": "Toggle individual optional artifact types in the navigation and editors on or off. Overrides apply only to you in this workspace and take precedence over the preset default.",
     "visibilityOverridden": "(overridden)",
+    "visibilityFromPreset": "(from preset)",
     "visibilityReset": "Reset to preset",
     "tabs": {
       "general": "General",
@@ -1321,7 +1346,15 @@
     "loadFailed": "Failed to load ICDs.",
     "createFailed": "Failed to create ICD.",
     "newVersionFailed": "Failed to create new version.",
-    "immutableHint": "Past versions are immutable. Use 'New Version' to evolve the contract."
+    "immutableHint": "Past versions are immutable. Use 'New Version' to evolve the contract.",
+    "similarInterfaces": "Similar Interfaces",
+    "similar": {
+      "heading": "Similar ICDs",
+      "findButton": "Find Similar",
+      "noEmbedding": "No embedding available — similarity search not possible.",
+      "unavailable": "Similarity search is temporarily unavailable.",
+      "empty": "No similar ICDs found."
+    }
   },
   "diagrams": {
     "title": "Diagrams",
@@ -1463,6 +1496,8 @@
     }
   },
   "canvas": {
+    "defaultText": "Text",
+    "defaultLabel": "Label",
     "toolbar": {
       "pen": "Pen",
       "select": "Select",
@@ -1471,7 +1506,18 @@
       "width": "Stroke Width",
       "undo": "Undo (Ctrl+Z)",
       "redo": "Redo (Ctrl+Y)",
-      "save": "Save"
+      "save": "Save",
+      "rect": "Component (Rectangle)",
+      "ellipse": "Node (Ellipse)",
+      "text": "Text",
+      "connector": "Trace — drag from one node to another",
+      "lineStyle": "Trace style (solid / dashed)",
+      "fill": "Fill",
+      "noFill": "No fill",
+      "snap": "Snap to grid",
+      "zoomIn": "Zoom in",
+      "zoomOut": "Zoom out",
+      "zoomFit": "Fit content"
     },
     "status": {
       "tool": "Tool",
@@ -1479,7 +1525,8 @@
       "saved": "Saved",
       "error": "Save failed",
       "unsaved": "Unsaved changes",
-      "idle": "Ready"
+      "idle": "Ready",
+      "hint": "Drag traces node → node · Double-click a shape to label it · Alt+Drag pans · Ctrl+Scroll zooms"
     },
     "loading": "Loading canvas..."
   },
@@ -1555,6 +1602,7 @@
     "title": "Personal Access Tokens",
     "hint": "Tokens authenticate MCP and REST clients (Bearer/X-API-Key header). The token value is shown exactly once after creation.",
     "namePlaceholder": "Token label (e.g. ci-pipeline)",
+    "createNew": "Create new token",
     "plaintextWarning": "Save this token now — it will not be shown again.",
     "name": "Name",
     "created": "Created",
@@ -2268,6 +2316,7 @@
     "hint": "Every AI-supported action for this element in one place. The AI produces drafts for review – nothing is saved until you confirm."
   },
   "systemSettings": {
+    "adminOnly": "You must be an admin to view or edit System Settings.",
     "themes.heading": "Theme Palettes",
     "themes.hint": "Named color palettes for the whole tenant. Custom palettes can be imported as JSON files.",
     "themes.readOnly": "Read-only",
@@ -2406,7 +2455,16 @@
   },
   "profile": {
     "pageSummary": "Personal settings: profile, personal access tokens and visibility of optional artifact types.",
-    "saveShortcutHint": "Save (Ctrl/Cmd+S)"
+    "saveShortcutHint": "Save (Ctrl/Cmd+S)",
+    "nameHeading": "Name",
+    "noName": "No name set",
+    "saved": "Profile saved",
+    "edit": "Edit",
+    "firstName": "First name",
+    "lastName": "Last name",
+    "save": "Save",
+    "saving": "Saving…",
+    "cancel": "Cancel"
   },
   "permissions": {
     "title": "Item Permissions",

@@ -94,6 +94,8 @@
     "interviews": "Interviews",
     "searchPlaceholder": "Alle Artefakte durchsuchen …",
     "optionalArtifacts": "Optional-Artefakte",
+    "showOptionalArtifacts": "Optionale Artefakte einblenden",
+    "hideOptionalArtifacts": "Optionale Artefakte ausblenden",
     "searching": "Suche läuft...",
     "mainNavigation": "Hauptnavigation",
     "searchResults": "Suchergebnisse",
@@ -207,6 +209,9 @@
     "sessionExpired": "Ihre Sitzung ist abgelaufen. Bitte melden Sie sich erneut an, um fortzufahren."
   },
   "loading": "Laden...",
+  "common": {
+    "close": "Schließen"
+  },
   "actions": {
     "add": "Hinzufügen",
     "edit": "Bearbeiten",
@@ -219,6 +224,8 @@
     "retry": "Erneut versuchen",
     "back": "Zurück",
     "new": "Neu",
+    "newLink": "Neuen Link erstellen",
+    "showAll": "Alle anzeigen",
     "delete": "Löschen",
     "cancel": "Abbrechen",
     "create": "Erstellen",
@@ -302,6 +309,7 @@
     "treeDropRoot": "Hier ablegen, um auf oberste Ebene zu verschieben",
     "treeContainsSelection": "Enthält die aktuelle Auswahl",
     "title": "Titel",
+    "name": "Name",
     "description": "Beschreibung",
     "acceptanceCriteria": "Abnahmekriterien",
     "acceptanceCriteriaPlaceholder": "Wann gilt diese Anforderung als erfüllt?",
@@ -608,6 +616,9 @@
     "created": "Erstellt",
     "noArtifacts": "Keine Artefakte vorhanden",
     "artifactRequired": "Bitte ein Artefakt auswählen.",
+    "capturedItems": "Erfasste Einträge",
+    "noCapturedItems": "Keine erfassten Einträge.",
+    "legacyEntry": "Kein detaillierter Zustand verfügbar (Legacy-Baseline).",
     "deleteConfirmTitle": "Baseline löschen?",
     "deleteConfirm": "Diese Baseline wirklich löschen?",
     "overrideLabel": "Ausnahmebegründung (SE-Auditor)",
@@ -617,6 +628,18 @@
     "compare": "Vergleichen",
     "compareTitle": "Baselines vergleichen",
     "compareRun": "Vergleichen",
+    "compareA": "Baseline A (von)",
+    "compareB": "Baseline B (bis)",
+    "compareSelectBoth": "Wähle zwei Baselines aus.",
+    "compareSameBaseline": "Wähle zwei unterschiedliche Baselines aus.",
+    "compareNoChanges": "Keine Unterschiede zwischen den Baselines.",
+    "comparing": "Vergleiche…",
+    "added": "Hinzugefügt",
+    "removed": "Entfernt",
+    "changed": "Geändert",
+    "field": "Feld",
+    "before": "Vorher",
+    "after": "Nachher",
     "name": "Name",
     "namePlaceholder": "z. B. Release 1.2 Freigabe",
     "nameHint": "Optional. Ohne Angabe wird ein Name aus dem Zeitstempel erzeugt. Der Name muss im Workspace eindeutig sein."
@@ -888,8 +911,10 @@
     "saved": "Gespeichert.",
     "traceabilityHint": "Konfiguriere, welcher Trace Link Typ standardmäßig beim Herunterbruch (Ableiten) von Requirements verwendet werden soll.",
     "attributeVisibilityHint": "Konfiguriere, welche Attribute für die jeweiligen Elementtypen im Workspace sichtbar sind.",
+    "visibility": "Sichtbarkeit",
     "visibilityHint": "Blendet einzelne optionale Artefakttypen in der Navigation und den Editoren ein oder aus. Overrides wirken nur für dich in diesem Workspace und überschreiben die Preset-Vorgabe.",
     "visibilityOverridden": "(überschrieben)",
+    "visibilityFromPreset": "(aus Preset)",
     "visibilityReset": "Auf Preset zurücksetzen",
     "tabs": {
       "general": "Allgemein",
@@ -1321,7 +1346,15 @@
     "loadFailed": "ICDs konnten nicht geladen werden.",
     "createFailed": "ICD konnte nicht erstellt werden.",
     "newVersionFailed": "Neue Version konnte nicht erstellt werden.",
-    "immutableHint": "Frühere Versionen sind unveränderlich. Über 'Neue Version' den Vertrag weiterentwickeln."
+    "immutableHint": "Frühere Versionen sind unveränderlich. Über 'Neue Version' den Vertrag weiterentwickeln.",
+    "similarInterfaces": "Ähnliche Schnittstellen",
+    "similar": {
+      "heading": "Ähnliche ICDs",
+      "findButton": "Ähnliche finden",
+      "noEmbedding": "Kein Embedding vorhanden — Ähnlichkeitssuche nicht möglich.",
+      "unavailable": "Ähnlichkeitssuche ist vorübergehend nicht verfügbar.",
+      "empty": "Keine ähnlichen ICDs gefunden."
+    }
   },
   "diagrams": {
     "title": "Diagramme",
@@ -1463,6 +1496,8 @@
     }
   },
   "canvas": {
+    "defaultText": "Text",
+    "defaultLabel": "Beschriftung",
     "toolbar": {
       "pen": "Stift",
       "select": "Auswahl",
@@ -1471,7 +1506,18 @@
       "width": "Strichstärke",
       "undo": "Rückgängig (Strg+Z)",
       "redo": "Wiederholen (Strg+Y)",
-      "save": "Speichern"
+      "save": "Speichern",
+      "rect": "Komponente (Rechteck)",
+      "ellipse": "Knoten (Ellipse)",
+      "text": "Text",
+      "connector": "Trace — von einem Knoten zum anderen ziehen",
+      "lineStyle": "Trace-Stil (durchgezogen / gestrichelt)",
+      "fill": "Füllung",
+      "noFill": "Keine Füllung",
+      "snap": "Am Raster einrasten",
+      "zoomIn": "Vergrößern",
+      "zoomOut": "Verkleinern",
+      "zoomFit": "Inhalt einpassen"
     },
     "status": {
       "tool": "Werkzeug",
@@ -1479,7 +1525,8 @@
       "saved": "Gespeichert",
       "error": "Speichern fehlgeschlagen",
       "unsaved": "Ungespeicherte Änderungen",
-      "idle": "Bereit"
+      "idle": "Bereit",
+      "hint": "Traces von Knoten zu Knoten ziehen · Doppelklick auf eine Form beschriftet sie · Alt+Ziehen verschiebt die Ansicht · Strg+Scrollen zoomt"
     },
     "loading": "Canvas wird geladen..."
   },
@@ -1555,6 +1602,7 @@
     "title": "Persönliche Zugriffstoken",
     "hint": "Tokens authentifizieren MCP- und REST-Clients (Bearer/X-API-Key-Header). Der Token-Wert wird nach dem Erstellen genau einmal angezeigt.",
     "namePlaceholder": "Bezeichnung (z.B. ci-pipeline)",
+    "createNew": "Neuen Token erstellen",
     "plaintextWarning": "Token jetzt sichern — er wird danach nicht mehr angezeigt.",
     "name": "Name",
     "created": "Erstellt",
@@ -2200,7 +2248,7 @@
     "emptyHint": "Dieses Artefakt ist noch mit keinem anderen verknüpft.",
     "loading": "Kette wird geladen...",
     "error": "Ableitungskette konnte nicht geladen werden.",
-    "close": "Schliessen",
+    "close": "Schließen",
     "stationCount_one": "{{count}} Artefakt",
     "stationCount_other": "{{count}} Artefakte"
   },
@@ -2268,6 +2316,7 @@
     "hint": "Alle KI-gestützten Aktionen für dieses Element an einem Ort. Die KI erzeugt Entwürfe zur Prüfung – gespeichert wird erst nach deiner Bestätigung."
   },
   "systemSettings": {
+    "adminOnly": "Du musst Admin sein, um die Systemeinstellungen anzusehen oder zu bearbeiten.",
     "themes.heading": "Design-Paletten",
     "themes.hint": "Benannte Farbpaletten für den gesamten Tenant. Eigene Paletten lassen sich als JSON-Datei importieren.",
     "themes.readOnly": "Schreibgeschützt",
@@ -2406,7 +2455,16 @@
   },
   "profile": {
     "pageSummary": "Persönliche Einstellungen: Profil, Personal Access Tokens und Sichtbarkeit optionaler Artefakttypen.",
-    "saveShortcutHint": "Speichern (Strg/Cmd+S)"
+    "saveShortcutHint": "Speichern (Strg/Cmd+S)",
+    "nameHeading": "Name",
+    "noName": "Kein Name hinterlegt",
+    "saved": "Profil gespeichert",
+    "edit": "Bearbeiten",
+    "firstName": "Vorname",
+    "lastName": "Nachname",
+    "save": "Speichern",
+    "saving": "Speichern…",
+    "cancel": "Abbrechen"
   },
   "permissions": {
     "title": "Item-Berechtigungen",

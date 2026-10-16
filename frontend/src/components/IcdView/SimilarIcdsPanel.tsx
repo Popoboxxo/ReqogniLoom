@@ -64,7 +64,7 @@ export function SimilarIcdsPanel({
     <section data-testid="similar-icds-panel" className={styles.panel}>
       <div className={styles.header}>
         <h4 className={styles.heading}>
-          {t("icds.similar.heading", "Similar ICDs")}
+          {t("icds.similar.heading")}
         </h4>
         <button
           type="button"
@@ -75,7 +75,7 @@ export function SimilarIcdsPanel({
         >
           {state.status === "loading"
             ? t("loading", "Loading…")
-            : t("icds.similar.findButton", "Find Similar")}
+            : t("icds.similar.findButton")}
         </button>
       </div>
 
@@ -84,10 +84,7 @@ export function SimilarIcdsPanel({
           data-testid="similar-icds-no-embedding"
           className={styles.mutedText}
         >
-          {t(
-            "icds.similar.noEmbedding",
-            "No embedding available — similarity search not possible."
-          )}
+          {t("icds.similar.noEmbedding")}
         </p>
       )}
 
@@ -96,10 +93,7 @@ export function SimilarIcdsPanel({
           data-testid="similar-icds-unavailable"
           className={styles.mutedText}
         >
-          {t(
-            "icds.similar.unavailable",
-            "Similarity search is temporarily unavailable."
-          )}
+          {t("icds.similar.unavailable")}
         </p>
       )}
 
@@ -118,7 +112,7 @@ export function SimilarIcdsPanel({
           data-testid="similar-icds-empty"
           className={styles.mutedText}
         >
-          {t("icds.similar.empty", "No similar ICDs found.")}
+          {t("icds.similar.empty")}
         </p>
       )}
 

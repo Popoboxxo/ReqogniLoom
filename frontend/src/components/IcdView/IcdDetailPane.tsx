@@ -463,7 +463,7 @@ function SimilarIcdsPanel({
       className={styles.similarPanel}
     >
       <h4 className={styles.similarHeading}>
-        {t("icds.similarInterfaces", "Similar Interfaces")}
+        {t("icds.similarInterfaces")}
       </h4>
       <ul className={styles.similarList}>
         {similarICDs.map(({ icd, score }) => (

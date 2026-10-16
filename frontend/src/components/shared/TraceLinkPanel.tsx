@@ -234,14 +234,14 @@ export function TraceLinkPanel({
             data-testid="trace-link-panel-open-dialog"
             onClick={() => setShowDialog(true)}
           >
-            {t("actions.newLink", "Neuen Link erstellen")}
+            {t("actions.newLink")}
           </button>
           <a
             href="/traceability"
             className={`btn-secondary ${styles.showAllLink}`}
             onClick={(e) => { e.preventDefault(); navigate('/traceability'); }}
           >
-            {t("actions.showAll", "Alle anzeigen")}
+            {t("actions.showAll")}
           </a>
         </div>
       </div>

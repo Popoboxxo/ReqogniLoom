@@ -226,7 +226,23 @@ function collectInlineDefaultCount(dir: string): number {
 // "Entity Type" micro-rest to both files — plus `permissionMatrix.allowed`/
 // `denied` and the `settings.cloneName*`/`createSandbox`/`cloningSandbox`
 // micro-rest for the System-Settings sandbox button. Re-measured: 116 - 43 = 73.
-const MISSING_KEY_BASELINE = 73;
+//
+// Lowered to 19 (#1363 / W14, 2026-10-16): the 54 keys whose call sites passed
+// a hardcoded string literal as the second `t()` argument while the key was
+// absent from BOTH locale files are now translated in de.json and en.json, and
+// the redundant literal defaults were removed from all 60 call sites (mostly
+// English text that rendered into an otherwise German UI; #1363 counted 43 EN /
+// 17 DE call-site literals). `traceSpine.close` (DE) was corrected from
+// "Schliessen" to "Schließen" in the same change. Re-measured on branch
+// fix/w14-i18n: 73 - 54 = 19 missing keys remain — the scanner-blind residual
+// spots where the bare key is flagged although i18next resolves the plural
+// `_one`/`_other` forms at runtime (the `*.summary`/count family plus
+// `traceSpine.stationCount`, `workflow.*`, `import.*`, `systemSettings.*`),
+// the dynamic-prefix false positive `permissionMatrix.capability.`, and
+// `baselines.fieldChangesCount` (options-object `defaultValue`, invisible to
+// the inline-default scanner by construction). Measured value is the new
+// ceiling; never raise it.
+const MISSING_KEY_BASELINE = 19;
 
 // ---------------------------------------------------------------------------
 // DOC-02 / ADR-018 — deadline budgets (decision 2) and the second, inline-
@@ -242,18 +258,22 @@ const MISSING_KEY_BASELINE = 73;
 //      (ADR-018 finding 003-01). Targets are only date-gated, so they cannot
 //      make CI red before the deadline.
 //
-// MISSING_KEY_BASELINE stays 116 — re-measured on branch feat/w3-p2
-// (2026-10-03): exactly 116 keys are referenced in `src/` but present in
-// neither `de.json` nor `en.json`, so the existing ceiling is still accurate.
+// MISSING_KEY_BASELINE history: 116 until #1277 lowered it to 73
+// (re-measured on branch feat/w3-p2, 2026-10-03); #1363/W14 lowered it to the
+// measured 19 on branch fix/w14-i18n (2026-10-16). All values were actual
+// source-scan measurements at the time, never estimates.
 // Target 0 is ADR-018's end state ("baseline 0"); deadline 2027-06-30 is a
 // dated release-style budget in the future relative to 2026-10-03.
 //
 // INLINE_DEFAULT_BASELINE is the *real measured* number of inline-default
 // call sites on this branch, not the stale ~112 estimate the ADR carries.
 // Measured with INLINE_DEFAULT_PATTERN (string second argument only) over
-// `frontend/src/**/*.ts{,x}` excluding tests: 1283 (after #1277 lowered it
-// from 1289 by stripping the redundant literal defaults from the settings-tab
-// `save`/`saving` call sites — no new inline literal default was introduced;
+// `frontend/src/**/*.ts{,x}` excluding tests: 1223
+// (after #1277 lowered it from 1289 to 1283 by stripping the redundant
+// literal defaults from the settings-tab `save`/`saving` call sites, and
+// #1363/W14 lowered 1283 -> 1223 by removing the 60 redundant literal
+// defaults at the 54 now-translated call sites — re-measured, exact).
+// No new inline literal default was introduced by either change;
 // the dynamic-key fallbacks used there carry a variable, not a string, second
 // argument and are therefore invisible to this scanner by construction).
 // With the looser `t(<literal>,` shape (including options-object second args)
@@ -271,7 +291,7 @@ const MISSING_KEY_TARGET = 0;
 const MISSING_KEY_DEADLINE = "2027-06-30";
 
 /** Inline `t(key, default)` call sites permitted by the non-increase ratchet. */
-const INLINE_DEFAULT_BASELINE = 1283;
+const INLINE_DEFAULT_BASELINE = 1223;
 /** Inline `t(key, default)` call sites permitted once the deadline is reached. */
 const INLINE_DEFAULT_TARGET = 0;
 /** UTC date from which INLINE_DEFAULT_TARGET is enforced. */

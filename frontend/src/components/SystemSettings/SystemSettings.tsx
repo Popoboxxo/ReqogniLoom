@@ -69,10 +69,7 @@ export default function SystemSettings(): JSX.Element {
       <div className={styles.adminOnly}>
         <PageHeader title={t("nav.systemSettings", "System Settings")} />
         <p className={styles.adminOnlyText}>
-          {t(
-            "systemSettings.adminOnly",
-            "You must be an admin to view or edit System Settings."
-          )}
+          {t("systemSettings.adminOnly")}
         </p>
       </div>
     );

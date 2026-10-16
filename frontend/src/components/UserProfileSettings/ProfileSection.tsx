@@ -90,7 +90,7 @@ export function ProfileSection(): JSX.Element {
 
   return (
     <section ref={sectionRef} className={styles.section} data-testid="profile-section">
-      <h3 className={styles.heading}>{t("profile.nameHeading", "Name")}</h3>
+      <h3 className={styles.heading}>{t("profile.nameHeading")}</h3>
 
       {error && (
         <div
@@ -107,14 +107,14 @@ export function ProfileSection(): JSX.Element {
           data-testid="profile-saved"
           className={styles.saved}
         >
-          {t("profile.saved", "Profil gespeichert")}
+          {t("profile.saved")}
         </div>
       )}
 
       {!isEditing ? (
         <div className={styles.readRow}>
           <span data-testid="profile-display-name" className={styles.name}>
-            {displayName || t("profile.noName", "Kein Name hinterlegt")}
+            {displayName || t("profile.noName")}
           </span>
           <button
             type="button"
@@ -122,14 +122,14 @@ export function ProfileSection(): JSX.Element {
             onClick={startEdit}
             className={styles.secondaryButton}
           >
-            {t("profile.edit", "Bearbeiten")}
+            {t("profile.edit")}
           </button>
         </div>
       ) : (
         <div className={styles.fieldStack}>
           <div>
             <label htmlFor="profile-first-name" className={styles.label}>
-              {t("profile.firstName", "Vorname")}
+              {t("profile.firstName")}
             </label>
             <input
               id="profile-first-name"
@@ -144,7 +144,7 @@ export function ProfileSection(): JSX.Element {
           </div>
           <div>
             <label htmlFor="profile-last-name" className={styles.label}>
-              {t("profile.lastName", "Nachname")}
+              {t("profile.lastName")}
             </label>
             <input
               id="profile-last-name"
@@ -170,7 +170,7 @@ export function ProfileSection(): JSX.Element {
               aria-keyshortcuts={SAVE_SHORTCUT_ARIA}
               title={t("profile.saveShortcutHint", "Speichern (Strg/Cmd+S)")}
             >
-              {isSaving ? t("profile.saving", "Speichern…") : t("profile.save", "Speichern")}
+              {isSaving ? t("profile.saving") : t("profile.save")}
             </button>
             <button
               type="button"
@@ -179,7 +179,7 @@ export function ProfileSection(): JSX.Element {
               disabled={isSaving}
               className={styles.secondaryButton}
             >
-              {t("profile.cancel", "Abbrechen")}
+              {t("profile.cancel")}
             </button>
           </div>
         </div>

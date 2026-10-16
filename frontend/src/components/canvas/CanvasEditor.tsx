@@ -642,7 +642,7 @@ export function CanvasEditor({
         }
 
         if (tool === "text") {
-          const textbox = new fabric.Textbox(t("canvas.defaultText", "Text"), {
+          const textbox = new fabric.Textbox(t("canvas.defaultText"), {
             left: pointer.x,
             top: pointer.y,
             width: 160,
@@ -808,7 +808,7 @@ export function CanvasEditor({
           const br = boundingRect(target);
           let label = existing;
           if (!label) {
-            label = new fabric.Textbox(t("canvas.defaultLabel", "Label"), {
+            label = new fabric.Textbox(t("canvas.defaultLabel"), {
               left: br.left + br.width / 2,
               top: br.top + br.height / 2,
               width: Math.max(60, br.width - 16),
@@ -1190,9 +1190,9 @@ export function CanvasEditor({
 
         {/* Shape / text tools (REQ-L2-CV-001..003) */}
         <div className={styles.toolGroup}>
-          {toolButton("rect", ICONS.rect, t("canvas.toolbar.rect", "Component (Rectangle)"), styles.shapeTool)}
-          {toolButton("ellipse", ICONS.ellipse, t("canvas.toolbar.ellipse", "Node (Ellipse)"), styles.shapeTool)}
-          {toolButton("text", ICONS.text, t("canvas.toolbar.text", "Text"), styles.shapeTool)}
+          {toolButton("rect", ICONS.rect, t("canvas.toolbar.rect"), styles.shapeTool)}
+          {toolButton("ellipse", ICONS.ellipse, t("canvas.toolbar.ellipse"), styles.shapeTool)}
+          {toolButton("text", ICONS.text, t("canvas.toolbar.text"), styles.shapeTool)}
         </div>
 
         {/* Trace / connector tool (REQ-L2-CV-004): drag from node to node */}
@@ -1200,7 +1200,7 @@ export function CanvasEditor({
           {toolButton(
             "connector",
             ICONS.connector,
-            t("canvas.toolbar.connector", "Trace — drag from one node to another"),
+            t("canvas.toolbar.connector"),
             styles.shapeTool
           )}
           <button
@@ -1208,8 +1208,8 @@ export function CanvasEditor({
             data-testid="canvas-line-style"
             className={styles.toolButton}
             onClick={() => setLineStyle((s) => (s === "solid" ? "dashed" : "solid"))}
-            title={t("canvas.toolbar.lineStyle", "Trace style (solid / dashed)")}
-            aria-label={t("canvas.toolbar.lineStyle", "Trace style")}
+            title={t("canvas.toolbar.lineStyle")}
+            aria-label={t("canvas.toolbar.lineStyle")}
             aria-pressed={lineStyle === "dashed"}
           >
             {lineStyle === "dashed" ? ICONS.dashed : ICONS.solid}
@@ -1242,7 +1242,7 @@ export function CanvasEditor({
         </div>
 
         <div className={styles.toolGroup}>
-          <span className={styles.groupLabel}>{t("canvas.toolbar.fill", "Fill")}</span>
+          <span className={styles.groupLabel}>{t("canvas.toolbar.fill")}</span>
           {FILL_COLORS.map((c) => (
             <button
               key={c}
@@ -1253,7 +1253,7 @@ export function CanvasEditor({
               }`}
               style={c === "transparent" ? undefined : { background: c }}
               onClick={() => setFillColor(c)}
-              title={c === "transparent" ? t("canvas.toolbar.noFill", "No fill") : `Fill ${c}`}
+              title={c === "transparent" ? t("canvas.toolbar.noFill") : `Fill ${c}`}
               aria-label={`Fill ${c}`}
             />
           ))}
@@ -1284,8 +1284,8 @@ export function CanvasEditor({
             data-testid="canvas-snap-toggle"
             className={`${styles.toolButton} ${snapEnabled ? styles.toolButtonActive : ""}`}
             onClick={() => setSnapEnabled((v) => !v)}
-            title={t("canvas.toolbar.snap", "Snap to grid")}
-            aria-label={t("canvas.toolbar.snap", "Snap to grid")}
+            title={t("canvas.toolbar.snap")}
+            aria-label={t("canvas.toolbar.snap")}
             aria-pressed={snapEnabled}
           >
             {ICONS.grid}
@@ -1295,8 +1295,8 @@ export function CanvasEditor({
             data-testid="canvas-zoom-out"
             className={styles.toolButton}
             onClick={handleZoomOut}
-            title={t("canvas.toolbar.zoomOut", "Zoom out")}
-            aria-label={t("canvas.toolbar.zoomOut", "Zoom out")}
+            title={t("canvas.toolbar.zoomOut")}
+            aria-label={t("canvas.toolbar.zoomOut")}
           >
             {ICONS.zoomOut}
           </button>
@@ -1308,8 +1308,8 @@ export function CanvasEditor({
             data-testid="canvas-zoom-in"
             className={styles.toolButton}
             onClick={handleZoomIn}
-            title={t("canvas.toolbar.zoomIn", "Zoom in")}
-            aria-label={t("canvas.toolbar.zoomIn", "Zoom in")}
+            title={t("canvas.toolbar.zoomIn")}
+            aria-label={t("canvas.toolbar.zoomIn")}
           >
             {ICONS.zoomIn}
           </button>
@@ -1318,8 +1318,8 @@ export function CanvasEditor({
             data-testid="canvas-zoom-fit"
             className={styles.toolButton}
             onClick={handleZoomFit}
-            title={t("canvas.toolbar.zoomFit", "Fit content")}
-            aria-label={t("canvas.toolbar.zoomFit", "Fit content")}
+            title={t("canvas.toolbar.zoomFit")}
+            aria-label={t("canvas.toolbar.zoomFit")}
           >
             {ICONS.fit}
           </button>
@@ -1383,10 +1383,7 @@ export function CanvasEditor({
           {t("canvas.status.tool", "Tool")}: {activeTool}
         </span>
         <span className={styles.statusHint}>
-          {t(
-            "canvas.status.hint",
-            "Drag traces node → node · Double-click a shape to label it · Alt+Drag pans · Ctrl+Scroll zooms"
-          )}
+          {t("canvas.status.hint")}
         </span>
         <span
           className={

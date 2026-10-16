@@ -120,7 +120,7 @@ export function ApiKeysSection(): JSX.Element {
       {/* Create form card */}
       <div className={styles.card}>
         <h3 className={styles.subheading}>
-          {t("apiKeys.createNew", "Neuen Token erstellen")}
+          {t("apiKeys.createNew")}
         </h3>
         <div className={styles.createRow}>
           <input
