@@ -404,7 +404,9 @@ const LegacySplitView = React.forwardRef<HTMLDivElement, LegacySplitViewProps>(
 
       // 3. Default: 40% of viewport
       return Math.max(leftMinWidth, window.innerWidth * 0.4);
-    }, [initialLeftWidth, moduleType, storageKey, leftMinWidth]);
+      // `storageKey` already derives from `moduleType`, so listing the prop
+      // itself would only re-create the callback for the same storage key.
+    }, [initialLeftWidth, storageKey, leftMinWidth]);
 
     const [leftPanelWidth, setLeftPanelWidth] = useState(getInitialWidth());
     const [isResponsiveCollapsed, setIsResponsiveCollapsed] = useState(

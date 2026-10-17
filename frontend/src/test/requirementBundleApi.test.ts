@@ -10,14 +10,14 @@ describe("requirementBundleApi.exportRaw", () => {
   beforeEach(() => vi.resetAllMocks());
 
   it("calls apiClient.get with the query string for output_format=json", async () => {
-    (apiClient.get as any).mockResolvedValue({ items: [], truncated_at_depth: false });
+    (vi.mocked(apiClient.get)).mockResolvedValue({ items: [], truncated_at_depth: false });
     await requirementBundleApi.exportRaw("elem-1", {
       depth: 2, filter_mode: "all", output_format: "json",
     });
     expect(apiClient.get).toHaveBeenCalledWith(
       expect.stringContaining("/architecture/elem-1/requirement-bundle/?")
     );
-    const calledUrl = (apiClient.get as any).mock.calls[0][0] as string;
+    const calledUrl = (vi.mocked(apiClient.get)).mock.calls[0][0] as string;
     expect(calledUrl).toContain("depth=2");
     expect(calledUrl).toContain("filter_mode=all");
     expect(calledUrl).toContain("output_format=json");
@@ -46,11 +46,11 @@ describe("requirementBundleApi.exportRaw", () => {
   });
 
   it("custom filter_mode requires fields and serializes them comma-joined", async () => {
-    (apiClient.get as any).mockResolvedValue({ items: [], truncated_at_depth: false });
+    (vi.mocked(apiClient.get)).mockResolvedValue({ items: [], truncated_at_depth: false });
     await requirementBundleApi.exportRaw("elem-1", {
       filter_mode: "custom", fields: ["title", "status"], output_format: "json",
     });
-    const calledUrl = (apiClient.get as any).mock.calls[0][0] as string;
+    const calledUrl = (vi.mocked(apiClient.get)).mock.calls[0][0] as string;
     expect(calledUrl).toContain("fields=title%2Cstatus");
   });
 
@@ -100,17 +100,17 @@ describe("requirementBundleApi.exportCompressed", () => {
   beforeEach(() => vi.resetAllMocks());
 
   it("returns the sync CompressedResult shape", async () => {
-    (apiClient.get as any).mockResolvedValue({
+    (vi.mocked(apiClient.get)).mockResolvedValue({
       text: "compressed...", cache_hit: false, is_mock_fallback: true,
     });
     const result = await requirementBundleApi.exportCompressed("elem-1", { async: false });
     expect(result).toEqual({ text: "compressed...", cache_hit: false, is_mock_fallback: true });
-    const calledUrl = (apiClient.get as any).mock.calls[0][0] as string;
+    const calledUrl = (vi.mocked(apiClient.get)).mock.calls[0][0] as string;
     expect(calledUrl).toContain("mode=compressed");
   });
 
   it("returns the async {task_id} shape", async () => {
-    (apiClient.get as any).mockResolvedValue({ task_id: "abc-123" });
+    (vi.mocked(apiClient.get)).mockResolvedValue({ task_id: "abc-123" });
     const result = await requirementBundleApi.exportCompressed("elem-1", { async: true });
     expect(result).toEqual({ task_id: "abc-123" });
   });
@@ -119,7 +119,7 @@ describe("requirementBundleApi.exportCompressed", () => {
 describe("requirementBundleApi.getCompressionStatus", () => {
   it("calls the status endpoint with the task_id", async () => {
     vi.resetAllMocks();
-    (apiClient.get as any).mockResolvedValue({
+    (vi.mocked(apiClient.get)).mockResolvedValue({
       task_id: "abc-123", status: "pending", result: null, error: null,
     });
     const result = await requirementBundleApi.getCompressionStatus("abc-123");

@@ -367,7 +367,7 @@ export function AttributeEditorPage({
       await load();
       toast.show(t("attributes.catalog.added", { name: entry.name }));
     },
-    [activeWorkspace?.id, isGlobal, itemType, load, preset, t]
+    [activeWorkspace?.id, isGlobal, itemType, load, preset, t, toast]
   );
 
   // Selection/scratch state is scoped to one (itemType, preset) view — carrying

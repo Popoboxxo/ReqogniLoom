@@ -77,7 +77,7 @@ function GlobalPermissionMatrixCard(): JSX.Element {
         setSaving(false);
       }
     },
-    []
+    [t, toast]
   );
 
   return (

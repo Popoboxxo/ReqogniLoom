@@ -171,6 +171,12 @@ export function ArtifactRow({
   const showVersion = isFieldVisible("version") && version != null;
 
   return (
+    // `role` is bound to the same optional `onClick` prop as the handlers: with
+    // a click target the element is a proper button (role, tabIndex and
+    // Enter/Space below), without one it stays a plain container. The linter
+    // cannot evaluate the ternary role, so the static rule is disabled while
+    // the runtime contract stays in this element's attributes.
+    // eslint-disable-next-line jsx-a11y/no-static-element-interactions
     <div
       data-testid={testId}
       role={onClick ? "button" : undefined}
@@ -220,6 +226,12 @@ export function ArtifactRow({
             identity group follows the configured `uid`, so a tree that hides
             the readable id does not leave a dangling copy control behind. */}
         {showId && (
+          // Propagation guard only: stops a click on the id/copy area from
+          // also selecting the row. It adds no user-facing interaction of its
+          // own — the copy control inside is the real (button) interaction —
+          // so there is no keyboard equivalent to add (same pointer-only shape
+          // as RevealValue's convenience span).
+          // eslint-disable-next-line jsx-a11y/no-static-element-interactions, jsx-a11y/click-events-have-key-events
           <span className={styles.idGroup} onClick={(e) => e.stopPropagation()}>
             {showIdLabel ? <span className={styles.idLabel}>{resolvedIdLabel}</span> : null}
             {/*

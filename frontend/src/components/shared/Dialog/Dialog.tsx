@@ -164,6 +164,11 @@ export function Dialog({
   if (typeof document === "undefined") return null;
 
   return createPortal(
+    // The scrim's mousedown is a pointer convenience layered on the dialog
+    // contract, not the only way out: Escape is the keyboard close path
+    // (`useFocusTrap` `onEscape`) and the close button is a real tab stop, so
+    // the overlay adds no unreachable action.
+    // eslint-disable-next-line jsx-a11y/no-static-element-interactions
     <div
       className={styles.overlay}
       data-testid={`${testId}-overlay`}

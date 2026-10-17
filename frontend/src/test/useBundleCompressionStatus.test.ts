@@ -30,7 +30,7 @@ describe("useBundleCompressionStatus", () => {
   });
 
   it("polls on an interval while status is pending/running, stops at done", async () => {
-    (requirementBundleApi.getCompressionStatus as any)
+    vi.mocked(requirementBundleApi.getCompressionStatus)
       .mockResolvedValueOnce({ task_id: "t1", status: "pending", result: null, error: null })
       .mockResolvedValueOnce({ task_id: "t1", status: "running", result: null, error: null })
       .mockResolvedValueOnce({ task_id: "t1", status: "done", result: { result: "text" }, error: null });
@@ -54,7 +54,7 @@ describe("useBundleCompressionStatus", () => {
   it("prefers the flat `text` field over the deprecated result envelope", async () => {
     // Issue #448: the status payload now carries the completion on a
     // single-level `text` field matching the synchronous response shape.
-    (requirementBundleApi.getCompressionStatus as any).mockResolvedValue({
+    vi.mocked(requirementBundleApi.getCompressionStatus).mockResolvedValue({
       task_id: "t1",
       status: "done",
       text: "flat text",
@@ -70,7 +70,7 @@ describe("useBundleCompressionStatus", () => {
 
   it("falls back to the legacy envelope when `text` is absent", async () => {
     // Backward compatibility with a backend predating issue #448.
-    (requirementBundleApi.getCompressionStatus as any).mockResolvedValue({
+    vi.mocked(requirementBundleApi.getCompressionStatus).mockResolvedValue({
       task_id: "t1",
       status: "done",
       result: { result: "legacy envelope text" },
@@ -84,7 +84,7 @@ describe("useBundleCompressionStatus", () => {
   });
 
   it("stops polling and clears the interval on unmount", async () => {
-    (requirementBundleApi.getCompressionStatus as any).mockResolvedValue({
+    vi.mocked(requirementBundleApi.getCompressionStatus).mockResolvedValue({
       task_id: "t1", status: "pending", result: null, error: null,
     });
     const { unmount } = renderHook(() => useBundleCompressionStatus("t1", 1000));
@@ -96,7 +96,7 @@ describe("useBundleCompressionStatus", () => {
   });
 
   it("surfaces a failed status without throwing", async () => {
-    (requirementBundleApi.getCompressionStatus as any).mockResolvedValue({
+    vi.mocked(requirementBundleApi.getCompressionStatus).mockResolvedValue({
       task_id: "t1", status: "failed", result: null, error: "LLM_TOKEN_LIMIT_EXCEEDED",
     });
     const { result } = renderHook(() => useBundleCompressionStatus("t1", 1000));
@@ -106,7 +106,7 @@ describe("useBundleCompressionStatus", () => {
   });
 
   it("surfaces a not_found status (cross-tenant/expired task_id, ADR-03) as terminal and stops polling", async () => {
-    (requirementBundleApi.getCompressionStatus as any).mockResolvedValue({
+    vi.mocked(requirementBundleApi.getCompressionStatus).mockResolvedValue({
       task_id: "t1", status: "not_found", result: null, error: null,
     });
     const { result } = renderHook(() => useBundleCompressionStatus("t1", 1000));
@@ -120,7 +120,7 @@ describe("useBundleCompressionStatus", () => {
   });
 
   it("surfaces a network/getCompressionStatus rejection as a synthetic failed status and stops polling", async () => {
-    (requirementBundleApi.getCompressionStatus as any).mockRejectedValue(new Error("Network error"));
+    vi.mocked(requirementBundleApi.getCompressionStatus).mockRejectedValue(new Error("Network error"));
     const { result } = renderHook(() => useBundleCompressionStatus("t1", 1000));
     await act(async () => {});
     expect(result.current.status).toBe("failed");
@@ -132,7 +132,7 @@ describe("useBundleCompressionStatus", () => {
   });
 
   it("switches to the new taskId and resets state when taskId changes mid-poll", async () => {
-    (requirementBundleApi.getCompressionStatus as any).mockImplementation((taskId: string) =>
+    vi.mocked(requirementBundleApi.getCompressionStatus).mockImplementation((taskId: string) =>
       Promise.resolve(
         taskId === "t1"
           ? { task_id: "t1", status: "pending", result: null, error: null }
@@ -155,8 +155,8 @@ describe("useBundleCompressionStatus", () => {
     expect(requirementBundleApi.getCompressionStatus).toHaveBeenCalledWith("t2");
 
     // The old t1 interval must be gone — advancing time must not re-poll t1.
-    const callsAfterSwitch = (requirementBundleApi.getCompressionStatus as any).mock.calls.length;
+    const callsAfterSwitch = vi.mocked(requirementBundleApi.getCompressionStatus).mock.calls.length;
     await act(async () => { vi.advanceTimersByTime(5000); });
-    expect((requirementBundleApi.getCompressionStatus as any).mock.calls.length).toBe(callsAfterSwitch);
+    expect(vi.mocked(requirementBundleApi.getCompressionStatus).mock.calls.length).toBe(callsAfterSwitch);
   });
 });

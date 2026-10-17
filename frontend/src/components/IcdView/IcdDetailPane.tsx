@@ -470,7 +470,20 @@ function SimilarIcdsPanel({
           <li
             key={icd.id}
             data-testid={`similar-icd-${icd.id}`}
+            // Keyboard-operable row (same pattern as the WorkspaceTree rows and
+            // ArtifactRow): role/tabIndex/onKeyDown make the click target
+            // reachable and activatable without a pointer. The design-system
+            // ratchet exemption for this element keys on the tag + testid
+            // (`li[data-testid=…]`), so it stays valid.
+            role="button"
+            tabIndex={0}
             onClick={() => onSelect(icd.id)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                onSelect(icd.id);
+              }
+            }}
             className={styles.similarItem}
           >
             <div className={styles.similarItemRow}>
