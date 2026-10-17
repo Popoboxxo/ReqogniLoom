@@ -107,6 +107,13 @@ export function MemoryPage(): JSX.Element {
   // Monotonic request id so a stale response can never overwrite fresh state.
   const requestIdRef = useRef(0);
 
+  // FE-04: drop a pending filter-debounce timer when the page unmounts.
+  useEffect(() => {
+    return () => {
+      if (filterDebounceRef.current) clearTimeout(filterDebounceRef.current);
+    };
+  }, []);
+
   // Artifact selector source (all pages of the workspace's artifacts).
   useEffect(() => {
     if (!workspaceId) return;

@@ -91,6 +91,26 @@ describe("MemoryVisualizationSection", () => {
     );
   });
 
+  it("clears the pending filter-debounce timer on unmount (FE-04)", async () => {
+    const view = render(<MemoryVisualizationSection />);
+    // Let the initial load settle before switching to fake timers.
+    await screen.findByTestId("memory-viz-row-entry-1");
+
+    vi.useFakeTimers();
+    try {
+      fireEvent.change(screen.getByTestId("memory-viz-filter-input"), {
+        target: { value: "dark mode" },
+      });
+      expect(vi.getTimerCount()).toBeGreaterThan(0);
+
+      view.unmount();
+      // Without the unmount cleanup the debounce timer would still be pending.
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("switching scope re-fetches entries with the new scope", async () => {
     const user = userEvent.setup();
     render(<MemoryVisualizationSection />);

@@ -174,6 +174,8 @@ export function CanvasEditor({
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
   const undoStackRef = useRef<string[]>([]);
   const redoStackRef = useRef<string[]>([]);
+  // FE-04: the 2s "saved -> idle" reset must be tracked so unmount clears it.
+  const saveStatusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [activeTool, setActiveTool] = useState<CanvasTool>("select");
   const [color, setColor] = useState("#1f2937");
@@ -223,6 +225,15 @@ export function CanvasEditor({
   useEffect(() => {
     snapRef.current = snapEnabled;
   }, [snapEnabled]);
+
+  // FE-04: clear the pending save-status reset on unmount so the timer can
+  // never fire against an unmounted editor.
+  useEffect(() => {
+    return () => {
+      if (saveStatusTimerRef.current) clearTimeout(saveStatusTimerRef.current);
+      saveStatusTimerRef.current = null;
+    };
+  }, []);
 
   // -----------------------------------------------------------------------
   // Grid background sync (dot grid follows viewport pan/zoom)
@@ -451,7 +462,12 @@ export function CanvasEditor({
         queryKey: diagramKeys.detail(diagramId),
       });
 
-      setTimeout(() => setSaveStatus("idle"), 2000);
+      // FE-04: track the reset timer and never stack a second one.
+      if (saveStatusTimerRef.current) clearTimeout(saveStatusTimerRef.current);
+      saveStatusTimerRef.current = setTimeout(() => {
+        saveStatusTimerRef.current = null;
+        setSaveStatus("idle");
+      }, 2000);
     } catch (err) {
       console.error("Canvas auto-save failed", err);
       setSaveStatus("error");

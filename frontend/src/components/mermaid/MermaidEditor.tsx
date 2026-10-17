@@ -76,6 +76,9 @@ export function MermaidEditor({
 
   const previewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // FE-04: the "saved -> idle" reset timer, cleared on unmount like the two
+  // debounce timers above.
+  const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const editorContainerRef = useRef<HTMLDivElement>(null);
   const cmViewRef = useRef<InstanceType<typeof import("@codemirror/view").EditorView> | null>(null);
 
@@ -361,7 +364,7 @@ export function MermaidEditor({
           queryKey: diagramKeys.detail(diagramId),
         });
 
-        setTimeout(() => setSaveStatus("idle"), 2000);
+        idleTimerRef.current = setTimeout(() => setSaveStatus("idle"), 2000);
       } catch (err) {
         console.error("Mermaid auto-save failed", err);
         setSaveStatus("error");
@@ -381,6 +384,7 @@ export function MermaidEditor({
     return () => {
       if (previewTimerRef.current) clearTimeout(previewTimerRef.current);
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+      if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
     };
   }, []);
 
