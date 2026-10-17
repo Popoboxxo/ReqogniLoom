@@ -137,6 +137,47 @@ export async function createIsolatedWorkspace(token: string, name?: string): Pro
 }
 
 /**
+ * Best-effort hard-delete of a workspace created by a spec.
+ *
+ * `POST /api/v1/workspaces/{id}/delete/` is the admin hard-delete and requires
+ * the workspace name as a captcha (`{"confirmation": "<name>"}`, REQ-L1-042).
+ *
+ * Cleanup must never turn a green test red, so failures are logged (with the
+ * response body, which distinguishes a captcha mismatch from a `409
+ * baselines_immutable`) and swallowed. Callers therefore keep unique,
+ * non-colliding workspace names as their primary isolation mechanism; this only
+ * keeps the dev database from filling up with one throwaway workspace per run
+ * (see the litter note on `getWorkspaceId`, issue #1115).
+ *
+ * Issues #1347/#1348 were both caused by *fixed* isolated-workspace names
+ * ("already exists" on the second run). Names are now unique per run and the
+ * workspaces are removed afterwards.
+ */
+export async function deleteWorkspace(
+  token: string,
+  workspaceId: string,
+  name: string
+): Promise<void> {
+  const ctx = await request.newContext({ baseURL: BASE_URL });
+  try {
+    const response = await ctx.post(`/api/v1/workspaces/${workspaceId}/delete/`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { confirmation: name },
+    });
+    if (!response.ok() && response.status() !== 404) {
+      console.warn(
+        `deleteWorkspace(${workspaceId}) cleanup failed: ` +
+          `${response.status()} ${await response.text()}`
+      );
+    }
+  } catch (err) {
+    console.warn(`deleteWorkspace(${workspaceId}) cleanup failed: ${(err as Error).message}`);
+  } finally {
+    await ctx.dispose();
+  }
+}
+
+/**
  * Inject JWT token and workspace ID into sessionStorage so tests skip the
  * login UI and the WorkspaceContext picks up the real workspace.
  */
