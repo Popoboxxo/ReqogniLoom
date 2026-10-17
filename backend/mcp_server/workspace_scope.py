@@ -234,6 +234,12 @@ _TOOL_TARGETS: dict[str, tuple[tuple[str, str], ...]] = {
     "suggestion.reject": (("id", "suggestion"),),
     "test.derive_from_requirement": (("requirement_id", "requirement"),),
     "test.link": (("test_id", "testcase"), ("req_id", "requirement")),
+    # #1373: the write sibling of test.get — names its target via
+    # ``test_case_id`` (not ``id``). Without the entry no target workspace
+    # resolved, so a fenced key was over-denied inside its own workspace and an
+    # unfenced Editor in A could flip the review flag of a test case in B, whose
+    # service gate checks only tenant + WRITE.
+    "test.mark_reviewed": (("test_case_id", "testcase"),),
     "test.outdate": (("id", "testcase"),),
     "test.reactivate": (("id", "testcase"),),
     "test.run_complete": (("run_id", "test_run"),),

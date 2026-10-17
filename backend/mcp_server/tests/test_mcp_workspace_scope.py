@@ -380,8 +380,11 @@ def test_explicit_workspace_cannot_bypass_fenced_comment_target(
             key.plaintext,
         )
 
+    # #1376: the undeclared workspace_id no longer activates the Case-1
+    # shortcut; the gate resolves the comment's own workspace and the fence
+    # denies before the handler (was VALIDATION_ERROR via the W13b guard).
     assert result.success is False
-    assert result.error_code == "VALIDATION_ERROR"
+    assert result.error_code == "PERMISSION_DENIED"
     handler.assert_not_called()
     comment.refresh_from_db()
     assert comment.resolved is False
@@ -421,8 +424,10 @@ def test_comment_create_and_list_reject_explicit_workspace_bypass(
     with patch(f"mcp_server.tools.comment.CommentService.{method_name}") as handler:
         result = _dispatch(tool_name, params, key.plaintext)
 
+    # #1376: undeclared workspace_id is stripped, the target artifact's own
+    # workspace drives the fence, and the handler is never reached.
     assert result.success is False
-    assert result.error_code == "VALIDATION_ERROR"
+    assert result.error_code == "PERMISSION_DENIED"
     handler.assert_not_called()
 
 
@@ -915,10 +920,11 @@ class TestSuggestionDecisionToolsAreWorkspaceScoped:
         """B-01 residual: an explicit ``workspace_id`` must not reopen the hole.
 
         A caller fenced (WRITE only) to workspace A can send
-        ``workspace_id=A`` alongside a workspace-B suggestion id: the dispatch
-        gate then short-circuits to A and never resolves the suggestion's real
-        workspace. The handler must reject the undeclared ``workspace_id``
-        param (mirrors ``test_explicit_workspace_cannot_bypass_fenced_comment_target``).
+        ``workspace_id=A`` alongside a workspace-B suggestion id. Since #1376
+        the undeclared parameter is dropped before the gate, so the
+        suggestion's real workspace drives the fence and the call is denied
+        before the handler (the W13b handler guard remains as defense in depth
+        for direct calls).
         """
         suggestion = _make_suggestion(foreign_workspace)
         key = AuthenticationService().create_api_key(
@@ -944,8 +950,8 @@ class TestSuggestionDecisionToolsAreWorkspaceScoped:
             )
 
         assert result.success is False
-        assert result.error_code == "VALIDATION_ERROR"
-        # Undeclared param rejected before any domain work.
+        assert result.error_code == "PERMISSION_DENIED"
+        # Denied before any domain work.
         accept_handler.assert_not_called()
         reject_handler.assert_not_called()
         suggestion.refresh_from_db()
