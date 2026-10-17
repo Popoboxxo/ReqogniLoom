@@ -20,9 +20,10 @@ The guard therefore pins four invariants of ``deploy/docker-compose.yml``:
    version, but it is harmless and keeps the config portable to older Docker
    versions and other runtimes;
 3. all THREE services that run the Honcho image (``honcho``, ``honcho-deriver``,
-   ``honcho-migrate``) reference the SAME ``:latest@sha256:…`` immutable image,
+   ``honcho-migrate``) reference the SAME ``vX.Y.Z@sha256:…`` immutable image,
    so they cannot drift apart and the "verified against this image" claim in the
-   compose comments stays reproducible;
+   compose comments stays reproducible; a stable release tag (never ``latest``)
+   names the running version (#1315);
 4. every long-running service declares a keep-alive ``restart`` policy, while
    the one-shot services (``migrate``, ``llm-preflight``, ``honcho-migrate``)
    stay at Compose's default ``no`` (#1249). Before this guard the three Honcho
@@ -108,11 +109,16 @@ _EXPLICIT_MODULE_PREFIXES = (
 _DIALECTIC_LEVELS = ("minimal", "low", "medium", "high", "max")
 _DIALECTIC_PREFIX_TEMPLATE = "DIALECTIC_LEVELS__{}__"
 
-#: The verified-good immutable digest for the current ``:latest`` image (#1153).
+#: The released tag the stack is verified against (#1315): a stable anchor,
+#: unlike the moving ``latest``/``staging`` tags.
+_EXPECTED_TAG = "v3.3.0"
+#: The manifest-list digest of that release (#1153).
 _EXPECTED_DIGEST = (
-    "sha256:350b778af29b8b5b0b9a5b5436a00ea912acc7490908a9cb4fb7d80fa963e5c2"
+    "sha256:5bb8cf7a60845e08f83fed66f01907afa0969dd1d02e414ed576102f3b12dfe8"
 )
-_EXPECTED_IMAGE = f"ghcr.io/plastic-labs/honcho:latest@{_EXPECTED_DIGEST}"
+_EXPECTED_IMAGE = (
+    f"ghcr.io/plastic-labs/honcho:{_EXPECTED_TAG}@{_EXPECTED_DIGEST}"
+)
 
 
 def _load_compose() -> dict:
@@ -214,14 +220,32 @@ def test_entrypoint_shim_materialises_all_nine_session_headers(service_name: str
 
 @pytest.mark.parametrize("service_name", _HONCHO_IMAGE_SERVICES)
 def test_honcho_image_is_pinned_to_the_expected_digest(service_name: str) -> None:
-    """Every Honcho service must pin the exact ``:latest@sha256:`` reference."""
+    """Every Honcho service must pin the exact release-tag@sha256 reference."""
     image = _load_compose()["services"][service_name]["image"]
     assert "@sha256:" in image, (
-        f"{service_name}: image {image!r} is not digest-pinned; a moving :latest "
-        "tag is exactly the #1153 failure mode"
+        f"{service_name}: image {image!r} is not digest-pinned; a moving tag "
+        "is exactly the #1153 failure mode"
     )
-    assert image.endswith(_EXPECTED_DIGEST), (
-        f"{service_name}: image digest drift — expected {_EXPECTED_IMAGE!r}, got {image!r}"
+    assert image == _EXPECTED_IMAGE, (
+        f"{service_name}: image drift — expected {_EXPECTED_IMAGE!r}, got {image!r}"
+    )
+
+
+def test_honcho_image_uses_a_release_tag_not_latest() -> None:
+    """A digest alone is not a version anchor (#1315).
+
+    ``latest``/``staging`` are moving tags; a bare ``sha256:…`` is unreadable.
+    The reference must carry a released ``vX.Y.Z`` tag so "which version runs?"
+    is answerable without ``docker inspect``.
+    """
+    image = _load_compose()["services"]["honcho"]["image"]
+    tag = image.split(":", 2)[1].split("@", 1)[0]
+    assert tag not in {"latest", "staging"}, (
+        f"honcho: image {image!r} uses the moving tag {tag!r}; pin a released "
+        "vX.Y.Z tag (#1315)"
+    )
+    assert re.fullmatch(r"v\d+\.\d+\.\d+", tag), (
+        f"honcho: image tag {tag!r} is not a stable vX.Y.Z release tag (#1315)"
     )
 
 
@@ -308,8 +332,8 @@ def test_pinned_image_resolves_opencode_session_sdk_param() -> None:
            assert sdk_params["extra_headers"]["x-opencode-session"] == "spike"
            print("OK", sdk_params["extra_headers"]["x-opencode-session"])'
 
-    The import above resolves against the DIGEST-pinned image, so once the digest
-    is fixed the spike is reproducible across hosts.
+    The import above resolves against the tag+digest-pinned image, so once the
+    pin is fixed the spike is reproducible across hosts.
 
     ESCALATION (#1247): this spike proves the *config resolution* only — one seam
     short of the wire. If it passes but ``memory.ask`` still returns HTTP 500 /

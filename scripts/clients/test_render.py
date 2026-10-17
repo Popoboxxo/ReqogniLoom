@@ -98,3 +98,29 @@ def test_hermes_documents_the_desktop_plugin() -> None:
         assert "`reqogniloom.status`" in page
         assert "statusBar.right" in page
         assert f"`{version}`" in page
+
+
+def test_hermes_documents_the_agent_dashboard_plugin() -> None:
+    """The Hermes page must document the agent/dashboard plugin install and its
+    independent version rule (#1352)."""
+    for lang, head, rule in (
+        ("en", "Agent / dashboard plugin", "ADR-017 decision 2"),
+        ("de", "Agent-/Dashboard-Plugin", "ADR-017 Entscheidung 2"),
+    ):
+        page = (render.DOCS_DIR / ("hermes.md" if lang == "en" else "hermes.de.md")).read_text(
+            encoding="utf-8"
+        )
+        assert head in page
+        assert "integrations/hermes-agent-plugin" in page
+        assert "--with-dashboard" in page
+        assert "~/.hermes/plugins/reqogniloom" in page
+        assert rule in page
+
+
+def test_generated_hermes_version_matches_repo_version() -> None:
+    """#1353: the rendered desktop-plugin version must equal the repo VERSION."""
+    version = render.load_version()
+    files = render.plan_outputs(render.load_registry())
+    for name in ("hermes.md", "hermes.de.md"):
+        page = files[render.DOCS_DIR / name]
+        assert f"`{version}`" in page, f"{name} does not carry VERSION {version}"

@@ -7,10 +7,16 @@
 # shell history, or the config file.
 #
 # Usage:
-#   scripts/clients/install.sh --client <id> --url <https://host> \
-#       [--key-env REQOGNILOOM_API_KEY] [--skills-dir <dir>] [--dry-run] [--yes]
+#   bash scripts/clients/install.sh --client <id> --url <https://host> \
+#       [--key-env REQOGNILOOM_API_KEY] [--skills-dir <dir>] \
+#       [--with-dashboard] [--force|--refresh] [--dry-run] [--yes]
 #
 # --skills-dir overrides the per-client default skills directory.
+# --with-dashboard (hermes only) also links the agent + dashboard plugin into
+#       ~/.hermes/plugins/reqogniloom (own SemVer, ADR-017 decision 2).
+# --force / --refresh re-copies existing skills, DOMAIN_MODEL.md and a copied
+#       Hermes plugin after a timestamped `.bak-<ts>` backup; without it an
+#       existing destination is left untouched (safe re-runs, #1351).
 # Supported ids: claude-code codex opencode kimi-code antigravity hermes
 set -euo pipefail
 
@@ -21,11 +27,13 @@ CLIENT=""
 URL=""
 KEY_ENV="REQOGNILOOM_API_KEY"
 SKILLS_DIR=""
+WITH_DASHBOARD=0
+REFRESH=0
 DRY_RUN=0
 ASSUME_YES=0
 
 usage() {
-  sed -n '2,14p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  sed -n '2,20p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
   exit "${1:-0}"
 }
 
@@ -35,6 +43,8 @@ while [ $# -gt 0 ]; do
     --url) URL="${2:-}"; shift 2 ;;
     --key-env) KEY_ENV="${2:-}"; shift 2 ;;
     --skills-dir) SKILLS_DIR="${2:-}"; shift 2 ;;
+    --with-dashboard) WITH_DASHBOARD=1; shift ;;
+    --force|--refresh) REFRESH=1; shift ;;
     --dry-run) DRY_RUN=1; shift ;;
     --yes) ASSUME_YES=1; shift ;;
     -h|--help) usage 0 ;;
@@ -46,6 +56,10 @@ done
 [ -n "$URL" ] || { echo "--url is required" >&2; usage 1; }
 URL="${URL%/}"
 KEY_ENV="${KEY_ENV:-REQOGNILOOM_API_KEY}"
+if [ "$WITH_DASHBOARD" -eq 1 ] && [ "$CLIENT" != "hermes" ]; then
+  echo "--with-dashboard is only supported for --client hermes" >&2
+  usage 1
+fi
 
 run() {
   if [ "$DRY_RUN" -eq 1 ]; then
@@ -64,12 +78,13 @@ require_bin() {
   fi
 }
 
-# backup_file <path> — timestamped copy before an in-place edit.
+# backup_file <path> — timestamped copy (.bak-<ts>) before an in-place edit or a
+# --refresh replacement. Accepts a file or a directory.
 backup_file() {
   local path="$1"
-  [ -f "$path" ] || return 0
+  [ -e "$path" ] || return 0
   local bak="${path}.bak-$(date +%Y%m%d%H%M%S)"
-  run cp "$path" "$bak"
+  run cp -R "$path" "$bak"
   echo "backup: $bak"
 }
 
@@ -81,9 +96,11 @@ confirm() {
   case "$reply" in y|Y|yes|YES) return 0 ;; *) echo "aborted" >&2; exit 1 ;; esac
 }
 
-# copy_if_absent <src> <dst> — copy-if-absent (no refresh). Accepts a file or a
-# directory; an existing destination is left untouched, so re-runs are safe but
-# never update a changed source. Callers needing a refresh must remove the target.
+# copy_if_absent <src> <dst> — copy a file or a directory. An existing
+# destination is left untouched on a normal run (re-runs stay safe and
+# idempotent); --force/--refresh replaces it instead, after copying the old
+# target to `.bak-<ts>`. Without that branch the documented "re-run to update"
+# path was a no-op (#1351).
 copy_if_absent() {
   local src="$1" dst="$2"
   if [ ! -e "$src" ]; then
@@ -91,7 +108,16 @@ copy_if_absent() {
     return 0
   fi
   if [ -e "$dst" ]; then
-    echo "skip: $dst (already present)"
+    if [ "$REFRESH" -eq 0 ]; then
+      echo "skip: $dst (already present; pass --refresh to update)"
+      return 0
+    fi
+    backup_file "$dst"
+    # `cp -R src existing-dir` would nest src one level deeper; the backup above
+    # is the rollback path, so replace the target instead of merging into it.
+    run rm -rf "$dst"
+    run cp -R "$src" "$dst"
+    echo "refreshed: $dst"
     return 0
   fi
   if [ "$DRY_RUN" -eq 0 ]; then mkdir -p "$(dirname "$dst")"; fi
@@ -100,7 +126,7 @@ copy_if_absent() {
 }
 
 # copy_skills <src_dir> <dst_dir> — copy every child (one skill folder) into the
-# destination; existing children are skipped, so a second run changes nothing.
+# destination; existing children are skipped unless --force/--refresh was given.
 copy_skills() {
   local src="$1" dst="$2" child
   if [ ! -d "$src" ]; then
@@ -272,6 +298,54 @@ JSON
     "$(dirname "$skills_dir")/DOMAIN_MODEL.md"
 }
 
+# install_hermes_plugin - agent + dashboard plugin (issue #1352).
+#
+# The plugin lives in `integrations/hermes-agent-plugin/` and keeps its own
+# SemVer + minServerVersion (ADR-017 decision 2), so it is NOT version-coupled
+# to VERSION. A symlink is preferred over a copy: `git pull` then updates the
+# installed plugin without re-running the installer. Hosts where symlinks are
+# unavailable fall back to a copy; re-run with --force/--refresh to replace that
+# copy (timestamped backup first) or remove it manually.
+install_hermes_plugin() {
+  local src="${REPO_ROOT}/integrations/hermes-agent-plugin"
+  local dst="${HERMES_PLUGINS_DIR:-$HOME/.hermes/plugins}/reqogniloom"
+  if [ ! -d "$src" ]; then
+    echo "warn: plugin source '$src' not found (client '$CLIENT')" >&2
+    return 0
+  fi
+  if [ -L "$dst" ]; then
+    if [ "$REFRESH" -eq 1 ]; then
+      # Remove the link itself (never the target) and re-link; `ln -sfn` is not
+      # portable across all hosts the installer supports.
+      run rm -f "$dst"
+      run ln -s "$src" "$dst"
+      echo "refreshed: $dst -> $src"
+    else
+      echo "skip: $dst (symlink; follows git pull — pass --refresh to re-link)"
+    fi
+    return 0
+  fi
+  if [ -e "$dst" ]; then
+    if [ "$REFRESH" -eq 0 ]; then
+      echo "skip: $dst (already present; pass --refresh to update)"
+      return 0
+    fi
+    backup_file "$dst"
+    run rm -rf "$dst"
+  fi
+  if [ "$DRY_RUN" -eq 1 ]; then
+    printf '[dry-run] ln -s %s %s\n' "$src" "$dst"
+    return 0
+  fi
+  mkdir -p "$(dirname "$dst")"
+  if ln -s "$src" "$dst" 2>/dev/null; then
+    echo "installed: $dst -> $src"
+  else
+    cp -R "$src" "$dst"
+    echo "installed: $dst (copy; pass --refresh to update)"
+  fi
+}
+
 install_hermes() {
   require_bin hermes
   # `hermes mcp add` is discovery-first: it prompts for a key on a TTY and
@@ -286,6 +360,9 @@ install_hermes() {
   run hermes config set mcp_servers.reqogniloom.headers.Authorization "Bearer \${${KEY_ENV}}"
   copy_if_absent "${REPO_ROOT}/integrations/hermes-skill/reqogniloom" \
     "${SKILLS_DIR:-$HOME/.hermes/skills}/reqogniloom"
+  if [ "$WITH_DASHBOARD" -eq 1 ]; then
+    install_hermes_plugin
+  fi
 }
 
 case "$CLIENT" in
@@ -302,8 +379,11 @@ echo "install: $CLIENT configured"
 if [ "$CLIENT" != "kimi-code" ] && [ "$CLIENT" != "antigravity" ]; then
   # A dry-run must stay side-effect free: preview the verify step, never exec it.
   if [ "$DRY_RUN" -eq 1 ]; then
-    printf '[dry-run] skip: %s --client %s\n' "$SCRIPT_DIR/verify.sh" "$CLIENT"
+    printf '[dry-run] skip: bash %s --client %s\n' "$SCRIPT_DIR/verify.sh" "$CLIENT"
   else
-    exec "$SCRIPT_DIR/verify.sh" --client "$CLIENT"
+    # Invoke through `bash`: a Windows checkout (core.fileMode=false) does not
+    # materialise the index's 100755 bit, so a direct `exec` fails with exit 126
+    # even though the repository mode is correct (#1350).
+    exec bash "$SCRIPT_DIR/verify.sh" --client "$CLIENT"
   fi
 fi

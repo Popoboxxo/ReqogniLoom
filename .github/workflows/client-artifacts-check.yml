@@ -7,7 +7,8 @@ name: Client artifacts check
 #   1. a hand edit of a generated file (render.py --check reports STALE),
 #   2. a registry <-> shipped-snippet contradiction (transport path / literal key),
 #   3. a German/English parity break,
-#   4. a broken relative link inside docs/clients/**.
+#   4. a broken relative link inside docs/clients/**,
+#   5. a lost executable bit on scripts/clients/{install,verify}.sh (#1350).
 #
 # Read-only, no secrets: safe on pull requests from forks.
 on:
@@ -59,6 +60,24 @@ jobs:
           set -euo pipefail
           bash -n scripts/clients/install.sh
           bash -n scripts/clients/verify.sh
+      - name: Executable bits of installer/verifier (#1350)
+        # The documented one-command install calls the scripts directly, so the
+        # git mode must stay 100755. `chmod` alone is ineffective where the
+        # checkout has core.fileMode=false (Windows), hence the index-mode check
+        # and the update-index hint. Fix: git update-index --chmod=+x <path>
+        run: |
+          set -euo pipefail
+          status=0
+          for script in scripts/clients/install.sh scripts/clients/verify.sh; do
+            mode="$(git ls-files -s -- "$script" | awk '{print $1}')"
+            if [ "$mode" != "100755" ]; then
+              echo "::error file=$script::git mode is ${mode:-<untracked>}, expected 100755 (run: git update-index --chmod=+x $script)"
+              status=1
+            else
+              echo "ok: $script mode $mode"
+            fi
+          done
+          exit "$status"
       - name: Relative link check in docs/clients
         run: |
           python - <<'PY'

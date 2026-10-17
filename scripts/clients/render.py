@@ -141,6 +141,25 @@ def render_client(client: dict[str, Any], *, lang: str) -> str:
         "",
     ]
 
+    agent_plugin = client.get("agent_plugin_de" if de else "agent_plugin_en")
+    if agent_plugin:
+        # Agent-host plugin (e.g. Hermes agent + dashboard): independently
+        # versioned per ADR-017 decision 2, so the version rule is rendered as
+        # text from the registry instead of being derived from VERSION.
+        parts += [
+            "### " + ("Agent-/Dashboard-Plugin" if de else "Agent / dashboard plugin"),
+            "",
+            agent_plugin["intro"],
+            "",
+            _code_blocks(agent_plugin["install"]),
+            "",
+            _bullets(agent_plugin["items"]),
+            "",
+            "- **" + ("Versionsregel" if de else "Version rule") + ":** "
+            + agent_plugin["version_note"],
+            "",
+        ]
+
     desktop = client.get("desktop_plugin_de" if de else "desktop_plugin_en")
     if desktop:
         # Optional desktop-app plugin (e.g. Hermes): rendered as a subsection of

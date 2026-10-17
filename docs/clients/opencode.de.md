@@ -20,7 +20,7 @@
 
 ```bash
 # Ein Befehl: MCP-Server (remote/SSE) + Skills (-> ~/.config/opencode/skills, DOMAIN_MODEL.md):
-scripts/clients/install.sh --client opencode \
+bash scripts/clients/install.sh --client opencode \
   --url "$REQOGNILOOM_MCP_URL" --key-env REQOGNILOOM_API_KEY
 # (intern: opencode mcp add reqogniloom --url "$REQOGNILOOM_MCP_URL/mcp/sse/" \
 #   --header "X-API-Key={env:REQOGNILOOM_API_KEY}")
@@ -68,4 +68,5 @@ Vollständige, generierte Konfiguration (Env-Var-Referenzen, nie ein literaler K
 
 ## 8. Update / Deinstallation
 
-- Snippet/Config neu ziehen; `opencode plugin <modul>` (Stufe 2) installiert MCP + Skills in einem Schritt.
+- `bash scripts/clients/install.sh --client opencode --url "$REQOGNILOOM_MCP_URL" --refresh` aktualisiert vorhandene Skills + `DOMAIN_MODEL.md` (vorheriges Ziel als `.bak-<ts>`).
+- MCP-Transport geändert: Eintrag gemäß Snippet in `opencode.json` ersetzen; Stufe 2: `opencode plugin <modul>` installiert MCP + Skills in einem Schritt.

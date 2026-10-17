@@ -81,8 +81,10 @@ def test_independent_poc_version_is_not_forced_to_version(tmp_path: Path) -> Non
 
 
 def test_tag_derives_expected_version() -> None:
-    assert ratchet.main(["--tag", "v1.8.0-beta.20"]) == 0
+    version = ratchet.load_expected_version(REPO_ROOT)
+    assert ratchet.main(["--tag", f"v{version}"]) == 0
 
 
 def test_tag_and_expect_version_are_mutually_exclusive() -> None:
-    assert ratchet.main(["--tag", "v1.8.0-beta.20", "--expect-version", "1.8.0-beta.20"]) == 2
+    version = ratchet.load_expected_version(REPO_ROOT)
+    assert ratchet.main(["--tag", f"v{version}", "--expect-version", version]) == 2

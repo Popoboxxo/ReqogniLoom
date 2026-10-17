@@ -21,7 +21,7 @@
 ```bash
 # Kimi hat kein natives MCP-Add-Kommando -> Installer-Skript
 # (MCP-Config ~/.kimi-code/mcp.json + Skills -> ~/.kimi-code/skills)
-scripts/clients/install.sh --client kimi-code \
+bash scripts/clients/install.sh --client kimi-code \
   --url "https://<host>" --key-env REQOGNILOOM_API_KEY
 kimi               # -> /mcp-config zeigt reqogniloom
 ```
@@ -69,5 +69,5 @@ Vollständige, generierte Konfiguration (Env-Var-Referenzen, nie ein literaler K
 
 ## 8. Update / Deinstallation
 
-- Installer erneut ausführen (`mcp.json` wird neu geschrieben, Backup unter `mcp.json.bak-*`; Skills: copy-if-absent, kein Refresh).
+- Installer erneut ausführen (`mcp.json` wird neu geschrieben, Backup unter `mcp.json.bak-*`); mit `--refresh` werden auch Skills + `DOMAIN_MODEL.md` aktualisiert (Backup `.bak-<ts>`).
 - L3 erst mit einem Upstream-`kimi mcp add` (Feature-Request offen).
