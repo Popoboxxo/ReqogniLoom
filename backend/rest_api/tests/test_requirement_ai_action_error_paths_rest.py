@@ -276,11 +276,14 @@ def test_ai_actions_unexpected_error_returns_500(action: str) -> None:
     ["suggest-architecture", "decompose-next-level", "derive-testcase"],
 )
 def test_ai_actions_llm_response_error_returns_502(action: str) -> None:
-    """#1240: an unparseable LLM response is a described 502, never a 500.
+    """#1240/#1416: a genuinely unusable LLM response is a described 502.
 
-    ``LlmResponseError`` is raised for non-JSON / empty / wrong-shaped provider
-    output. Before the mapping it fell into the generic ``except Exception``
-    branch and surfaced as an opaque 500.
+    A bare ``LlmResponseError`` is raised for non-JSON / empty / wrong-shaped
+    provider output — the provider answered, its content could not be
+    processed. Before the mapping it fell into the generic ``except Exception``
+    branch and surfaced as an opaque 500. #1416 kept this code for exactly this
+    cause; provider outages moved to their own 503/504/429 classes (see
+    ``test_ai_actions_classify_provider_failures_by_cause``).
     """
     from application.ai_derivation_service import LlmResponseError
 
@@ -302,6 +305,128 @@ def test_ai_actions_llm_response_error_returns_502(action: str) -> None:
         resp.json()["error"]["message"]
         != "The LLM response was not valid JSON."
     )
+
+
+@pytest.mark.parametrize(
+    ("exc_type", "expected_status", "expected_code"),
+    [
+        ("LlmProviderTimeoutError", 504, "LLM_TIMEOUT"),
+        ("LlmProviderUnavailableError", 503, "LLM_UNAVAILABLE"),
+        ("LlmTokenLimitExceededError", 429, "LLM_TOKEN_LIMIT_EXCEEDED"),
+    ],
+    ids=["timeout", "unavailable", "token_limit"],
+)
+@pytest.mark.parametrize(
+    "action",
+    ["suggest-architecture", "decompose-next-level", "derive-testcase"],
+)
+def test_ai_actions_classify_provider_failures_by_cause(
+    action: str, exc_type: str, expected_status: int, expected_code: str
+) -> None:
+    """#1416: a provider outage no longer reads as "invalid output".
+
+    Before the fix every provider exception was wrapped in ``LlmResponseError``
+    and answered 502 ``LLM_OUTPUT_INVALID``. A timeout now answers 504
+    ``LLM_TIMEOUT``, a transport failure 503 ``LLM_UNAVAILABLE`` and an
+    exhausted REQ-106 daily budget 429 ``LLM_TOKEN_LIMIT_EXCEEDED`` — the
+    taxonomy #1165 established for architecture.decompose and CapabilityRouter
+    already uses for the token limit.
+    """
+    import application.ai_derivation_service as ai_module
+
+    error = getattr(ai_module, exc_type)("raw provider detail: api_key=fragment")
+
+    _, user, workspace = _scenario()
+    client = _client(user)
+    req = _requirement(client, workspace)
+
+    patcher, _ = _ai_mock(error)
+    try:
+        resp = client.post(
+            f"/api/v1/requirements/{req['id']}/{action}/", format="json"
+        )
+    finally:
+        patcher.stop()
+    assert resp.status_code == expected_status, resp.content
+    error_body = resp.json()["error"]
+    assert error_body["code"] == expected_code
+    # CWE-209: the raw provider text is replaced by the localized sentence.
+    assert "fragment" not in error_body["message"]
+
+
+def test_ai_actions_provider_timeout_message_is_localized() -> None:
+    """#1416: the 504 answer uses the existing localised LLM_TIMEOUT sentence."""
+    from application.ai_derivation_service import LlmProviderTimeoutError
+
+    _, user, workspace = _scenario()
+    client = _client(user)
+    req = _requirement(client, workspace)
+
+    patcher, _ = _ai_mock(LlmProviderTimeoutError("provider stack detail"))
+    try:
+        resp = client.post(
+            f"/api/v1/requirements/{req['id']}/derive-testcase/",
+            format="json",
+            HTTP_ACCEPT_LANGUAGE="de-DE,de;q=0.9",
+        )
+    finally:
+        patcher.stop()
+    assert resp.status_code == 504, resp.content
+    assert resp.json()["error"]["code"] == "LLM_TIMEOUT"
+    assert "KI-Dienst" in resp.json()["error"]["message"]
+
+
+@pytest.mark.parametrize(
+    ("transport_message", "expected_status", "expected_code"),
+    [
+        (
+            (
+                "LLM provider 'capture' call failed (timeout): TimeoutError: "
+                "operation on 'llm:capture' exceeded 25.0s timeout"
+            ),
+            504,
+            "LLM_TIMEOUT",
+        ),
+        (
+            "LLM provider 'capture' call failed (transient): Connection error",
+            503,
+            "LLM_UNAVAILABLE",
+        ),
+    ],
+    ids=["timeout", "connection"],
+)
+def test_ai_actions_end_to_end_provider_failure_classification(
+    transport_message: str, expected_status: int, expected_code: str, monkeypatch
+) -> None:
+    """#1416: the real service's classification reaches the wire unchanged.
+
+    Unlike the mocked-service tests above, this drives ``AiDerivationService``
+    itself against a provider that fails the way a real transport failure does
+    (``llm_adapter.resilient_transport`` wraps every outbound failure in an
+    ``LlmTransportError``).
+    """
+    from llm_adapter.resilient_transport import LlmTransportError
+
+    class _FailingProvider:
+        PROVIDER_NAME = "capture"
+
+        def complete(self, *_args, **_kwargs):
+            raise LlmTransportError(transport_message)
+
+    monkeypatch.setattr(
+        "llm_adapter.providers.get_provider", lambda *a, **k: _FailingProvider()
+    )
+
+    _, user, workspace = _scenario()
+    client = _client(user)
+    req = _requirement(client, workspace)
+
+    resp = client.post(
+        f"/api/v1/requirements/{req['id']}/derive-testcase/", format="json"
+    )
+
+    assert resp.status_code == expected_status, resp.content
+    assert resp.json()["error"]["code"] == expected_code
 
 
 def test_ai_actions_return_draft_payload() -> None:

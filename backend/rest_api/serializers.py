@@ -259,6 +259,20 @@ _ERROR_MESSAGES: dict[str, dict[str, str]] = {
             "Bitte versuchen Sie es später erneut."
         ),
     },
+    # Issue #1416: the REQ-106 daily token budget is exhausted — a quota
+    # refusal, not an invalid answer. 429, matching the error code
+    # CapabilityRouter already returns for the same condition.
+    "LLM_TOKEN_LIMIT_EXCEEDED": {
+        "en": (
+            "The tenant's daily AI token budget is exhausted. "
+            "Please retry later or raise TENANT_TOKEN_LIMIT_PER_DAY."
+        ),
+        "de": (
+            "Das tägliche KI-Token-Budget des Mandanten ist aufgebraucht. "
+            "Bitte versuchen Sie es später erneut oder erhöhen Sie "
+            "TENANT_TOKEN_LIMIT_PER_DAY."
+        ),
+    },
     # RFC #1002 PR B: the configurable write ratelimit for memory.write. Kept
     # distinct from the DRF transport throttles (which answer a plain 429 body):
     # REST maps this to HTTP 429 with a Retry-After header and MCP to the

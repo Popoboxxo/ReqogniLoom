@@ -85,6 +85,7 @@ import hashlib
 import json
 import logging
 import re
+import socket
 from collections.abc import Callable
 from typing import Any
 from uuid import UUID
@@ -649,10 +650,18 @@ def invalidate_derivation_cache(artifact_id: UUID | str | None) -> None:
 
 
 class LlmResponseError(RuntimeError):
-    """Raised when the LLM returns a response that cannot be parsed as JSON.
+    """Base: the LLM flow could not produce a usable answer.
 
-    Maps to HTTP 500 in the REST layer and to an INTERNAL_ERROR ToolResult in
-    the MCP layer — the request itself was valid, but the provider misbehaved.
+    The *cause* decides the transport classification (issue #1416): a provider
+    timeout is a :class:`LlmProviderTimeoutError` (504 ``LLM_TIMEOUT``), an
+    unreachable/failing provider is a :class:`LlmProviderUnavailableError`
+    (503 ``LLM_UNAVAILABLE``) and an exhausted REQ-106 daily budget is a
+    :class:`LlmTokenLimitExceededError` (429 ``LLM_TOKEN_LIMIT_EXCEEDED``).
+    Only a provider that *answered* with content that cannot be parsed stays a
+    bare :class:`LlmResponseError` (502 ``LLM_OUTPUT_INVALID``) — before
+    #1416 every provider exception was wrapped in this one type and surfaced
+    as "output invalid", which misled retry logic (a down provider looked like
+    a malformed answer).
 
     ``is_mock_fallback`` (issue #1240) carries the degraded-provider signal
     across the error path. :meth:`AiDerivationService._complete_retrying`
@@ -664,9 +673,48 @@ class LlmResponseError(RuntimeError):
     mock fallback rather than a real provider.
     """
 
+    #: Stable transport error code for this cause (REST + MCP).
+    error_code = "LLM_OUTPUT_INVALID"
+
     def __init__(self, *args: Any, is_mock_fallback: bool = False) -> None:
         super().__init__(*args)
         self.is_mock_fallback = is_mock_fallback
+
+
+def _is_timeout_failure(error: BaseException) -> bool:
+    """Return True when *error* is, or wraps, a provider timeout (issue #1416).
+
+    Mirrors ``ArchitectureDecomposeService._is_timeout_failure`` (#1165) and
+    ``AiReviewService._is_timeout_failure`` (#951): a real outbound call fails
+    inside ``llm_adapter.resilient_transport``, which wraps the terminal error
+    in an ``LlmTransportError`` and preserves the reason text. The resilience
+    taxonomy's own timeout type is not the builtin ``TimeoutError``, so the
+    reason text is the signal that survives the wrapper.
+
+    ``socket`` is imported at module level so the ``(TimeoutError,
+    socket.timeout)`` check stays identical to those precedents.
+    """
+    if isinstance(error, (TimeoutError, socket.timeout)):
+        return True
+    return "timeout" in str(error).lower()
+
+
+class LlmProviderTimeoutError(LlmResponseError):
+    """The provider timed out after the resilience policy was exhausted."""
+
+    error_code = "LLM_TIMEOUT"
+
+
+class LlmProviderUnavailableError(LlmResponseError):
+    """The provider was unreachable (transport failure / open circuit breaker)."""
+
+    error_code = "LLM_UNAVAILABLE"
+
+
+class LlmTokenLimitExceededError(LlmResponseError):
+    """The tenant's REQ-106 daily token budget is exhausted."""
+
+    error_code = "LLM_TOKEN_LIMIT_EXCEEDED"
 
 
 class AiDerivationService(ServiceBase):
@@ -2960,11 +3008,14 @@ class AiDerivationService(ServiceBase):
         capabilities, this method independently applies the per-tenant daily
         token limit (REQ-106), the hard sync timeout (REQ-084) and an audit
         log entry (REQ-L3-LA004-001) around the provider call (fix #115).
-        Provider/transport failures are mapped to :class:`LlmResponseError`
+        Provider/transport failures are mapped onto :class:`LlmResponseError`
         instead of escaping raw (fix #116) so every MCP tool in
         ``mcp_server.tools.ai_derivation`` — which already catches
-        ``LlmResponseError`` — reports a clean ``INTERNAL_ERROR`` instead of a
-        500 / transport fault.
+        ``LlmResponseError`` — reports a structured error instead of a 500 /
+        transport fault. Issue #1416 classifies the cause: a timeout raises
+        :class:`LlmProviderTimeoutError`, every other provider failure
+        :class:`LlmProviderUnavailableError` — genuinely unusable output only
+        stays a bare :class:`LlmResponseError`.
 
         Returns:
             A ``(text, cache_key)`` tuple. *cache_key* is the cache-backend
@@ -3069,7 +3120,11 @@ class AiDerivationService(ServiceBase):
                 success=False,
                 error="LLM_TOKEN_LIMIT_EXCEEDED",
             )
-            raise LlmResponseError(
+            # Issue #1416: a budget refusal is neither "output invalid" nor a
+            # provider outage — own type so REST/MCP answer 429
+            # LLM_TOKEN_LIMIT_EXCEEDED (the taxonomy CapabilityRouter already
+            # uses for the same REQ-106 condition).
+            raise LlmTokenLimitExceededError(
                 "Daily LLM token limit exceeded for this tenant. "
                 "Try again later or raise TENANT_TOKEN_LIMIT_PER_DAY."
             )
@@ -3114,8 +3169,11 @@ class AiDerivationService(ServiceBase):
             # fix #116: circuit-breaker/timeout failures (LlmTransportError),
             # missing-SDK / SDK errors (RuntimeError) and any other provider
             # exception (rate limits, malformed SDK responses, ...) must not
-            # escape this method uncaught — map them onto the one exception
-            # type every ai_derivation MCP tool already handles.
+            # escape this method uncaught. Issue #1416: classify by cause so a
+            # provider outage is not reported as an unusable answer — a
+            # timeout answers 504 LLM_TIMEOUT, every other failure 503
+            # LLM_UNAVAILABLE (both remain LlmResponseError subclasses, so
+            # every existing catch path keeps working).
             logger.warning(
                 "LLM provider %s call failed (purpose=%s, artifact=%s): %s",
                 provider_name,
@@ -3131,7 +3189,12 @@ class AiDerivationService(ServiceBase):
                 success=False,
                 error=str(error),
             )
-            raise LlmResponseError(
+            error_type = (
+                LlmProviderTimeoutError
+                if _is_timeout_failure(error)
+                else LlmProviderUnavailableError
+            )
+            raise error_type(
                 f"LLM provider '{provider_name}' call failed: {error}"
             ) from error
 
@@ -3430,9 +3493,9 @@ class AiDerivationService(ServiceBase):
         (issue #311). So the two cases are separated here:
 
         * array non-empty, no object in it → the extraction failed, raise
-          :class:`LlmResponseError` (mapped to ``INTERNAL_ERROR`` by every
-          ``mcp_server.tools.ai_derivation`` handler and to a 5xx by the REST
-          views, i.e. a *visible* failure);
+          :class:`LlmResponseError` (mapped to ``LLM_OUTPUT_INVALID``, #1416,
+          by every ``mcp_server.tools.ai_derivation`` handler and to a 502 by
+          the REST views, i.e. a *visible* failure);
         * array with a mix → keep the usable entries, WARN about the dropped
           ones, since a partial answer is still worth showing the user;
         * empty array → returned unchanged. An empty list stays a legal
@@ -3499,7 +3562,10 @@ __all__ = [
     "TESTCASE_DERIVE_PROMPT_TEMPLATE",
     "WORKSPACE_TO_GLOSSARY_PROMPT_TEMPLATE",
     "AiDerivationService",
+    "LlmProviderTimeoutError",
+    "LlmProviderUnavailableError",
     "LlmResponseError",
+    "LlmTokenLimitExceededError",
     "extract_json_payload",
     "invalidate_derivation_cache",
 ]

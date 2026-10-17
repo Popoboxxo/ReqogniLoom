@@ -1,6 +1,7 @@
 import json
 from unittest import mock
 
+import pytest
 from django.test import Client, RequestFactory
 
 from mcp_server.views import McpHttpTransportView
@@ -91,3 +92,20 @@ def test_auth_failed_still_returns_http_401():
     status-code mapping table (R3/task 13)."""
     response = _post_with_error_frame(-32000)  # AUTH_FAILED
     assert response.status_code == 401
+
+
+@pytest.mark.parametrize(
+    ("numeric_code", "expected"),
+    [
+        (-32013, 504),  # LLM_TIMEOUT
+        (-32014, 503),  # LLM_UNAVAILABLE
+        (-32015, 502),  # LLM_OUTPUT_INVALID
+        (-32016, 429),  # LLM_TOKEN_LIMIT_EXCEEDED
+    ],
+)
+def test_llm_failure_codes_keep_their_http_semantics_1416(numeric_code, expected):
+    """#1416: on the direct-method path the cause-specific LLM codes must not
+    degrade to the generic 400 — a provider outage is not a malformed request.
+    """
+    response = _post_with_error_frame(numeric_code)
+    assert response.status_code == expected

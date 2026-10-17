@@ -639,14 +639,16 @@ test.describe('[REQ-132] Ollama/AI-Feature — Missing Config Handling', () => {
       // clean, localized envelope - not an internal server error. The previous
       // assertion ("status < 500") contradicted that contract and could never
       // pass on a stack where the provider was actually missing.
+      // 429 LLM_TOKEN_LIMIT_EXCEEDED (#1416) is included additively: it is only
+      // reachable on stacks with a configured TENANT_TOKEN_LIMIT_PER_DAY.
       expect(
-        [502, 503, 504],
+        [502, 503, 504, 429],
         `[REQ-132] unexpected failure status ${status}: ${JSON.stringify(body)}`
       ).toContain(status);
       expect(
         String(body?.error?.code ?? ''),
         '[REQ-132] a failed derive must carry a documented LLM_* error code'
-      ).toMatch(/^LLM_(OUTPUT_INVALID|UNAVAILABLE|TIMEOUT)$/);
+      ).toMatch(/^LLM_(OUTPUT_INVALID|UNAVAILABLE|TIMEOUT|TOKEN_LIMIT_EXCEEDED)$/);
     } else {
       // Working provider (mock in CI): the endpoint must answer 200 with drafts.
       expect([200, 202], `[REQ-132] unexpected success status ${status}`).toContain(status);

@@ -147,6 +147,22 @@ def _derived_requirement_custom_fields(
     return None
 
 
+def _llm_error_result(exc: LlmResponseError) -> ToolResult:
+    """Map a derivation LLM failure to its cause-specific error code (#1416).
+
+    ``LlmResponseError`` and its subclasses carry the stable ``error_code``
+    classified at the service seam: ``LLM_TIMEOUT`` (provider timeout),
+    ``LLM_UNAVAILABLE`` (transport failure / open circuit),
+    ``LLM_TOKEN_LIMIT_EXCEEDED`` (REQ-106 daily budget) and
+    ``LLM_OUTPUT_INVALID`` (the provider answered unusably). Before #1416 all
+    of them collapsed into ``INTERNAL_ERROR``, so an agent could neither
+    distinguish a retry-able provider outage from an unusable answer nor back
+    off correctly. The message is forwarded verbatim, exactly as the previous
+    ``INTERNAL_ERROR`` branch did.
+    """
+    return ToolResult.error(exc.error_code, str(exc))
+
+
 def derive_requirements_from_need(
     *,
     service: AiDerivationService,
@@ -182,7 +198,7 @@ def derive_requirements_from_need(
     except ValidationError as exc:
         return ToolResult.error("VALIDATION_ERROR", str(exc))
     except LlmResponseError as exc:
-        return ToolResult.error("INTERNAL_ERROR", str(exc))
+        return _llm_error_result(exc)
 
     if mode == "preview":
         return ToolResult.ok(preview)
@@ -524,7 +540,7 @@ class AiDerivationToolGroup(BaseToolGroup):
         except ValidationError as exc:
             return ToolResult.error("VALIDATION_ERROR", str(exc))
         except LlmResponseError as exc:
-            return ToolResult.error("INTERNAL_ERROR", str(exc))
+            return _llm_error_result(exc)
 
         if mode == "preview":
             return ToolResult.ok(preview)
@@ -603,7 +619,7 @@ class AiDerivationToolGroup(BaseToolGroup):
         except ValidationError as exc:
             return ToolResult.error("VALIDATION_ERROR", str(exc))
         except LlmResponseError as exc:
-            return ToolResult.error("INTERNAL_ERROR", str(exc))
+            return _llm_error_result(exc)
 
         if mode == "preview":
             return ToolResult.ok(preview)
@@ -702,7 +718,7 @@ class AiDerivationToolGroup(BaseToolGroup):
         except ValidationError as exc:
             return ToolResult.error("VALIDATION_ERROR", str(exc))
         except LlmResponseError as exc:
-            return ToolResult.error("INTERNAL_ERROR", str(exc))
+            return _llm_error_result(exc)
 
         if mode == "preview":
             return ToolResult.ok(preview)
@@ -758,7 +774,7 @@ class AiDerivationToolGroup(BaseToolGroup):
         except ValidationError as exc:
             return ToolResult.error("VALIDATION_ERROR", str(exc))
         except LlmResponseError as exc:
-            return ToolResult.error("INTERNAL_ERROR", str(exc))
+            return _llm_error_result(exc)
 
         if mode == "preview":
             return ToolResult.ok(preview)
@@ -820,7 +836,7 @@ class AiDerivationToolGroup(BaseToolGroup):
         except ValidationError as exc:
             return ToolResult.error("VALIDATION_ERROR", str(exc))
         except LlmResponseError as exc:
-            return ToolResult.error("INTERNAL_ERROR", str(exc))
+            return _llm_error_result(exc)
 
         if mode == "preview":
             return ToolResult.ok(preview)

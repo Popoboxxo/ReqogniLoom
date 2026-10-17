@@ -69,6 +69,29 @@ ERROR_CODES = {
         "provider itself may be configured — enable the capability via "
         "LLM_CAPABILITIES to use this tool."
     ),
+    # #1416: the derive flows classify LLM failures by cause (mirrors the REST
+    # taxonomy from #1165/#1240). A provider timeout and an unreachable
+    # provider are retry-able upstream states, an unusable completion is an
+    # upstream response fault, and the REQ-106 daily budget is a quota
+    # refusal. All four are tool-execution errors — deliberately absent from
+    # _PROTOCOL_ERROR_CODES, so on tools/call they surface as
+    # ``result.isError == true`` with these string error_codes. The numeric
+    # ERROR_CODE_MAP entries below keep the direct-method dispatch path from
+    # collapsing them into -32603 (same reasoning as #1082).
+    "LLM_TIMEOUT": (
+        "The AI provider did not answer within the allotted time. Retry later."
+    ),
+    "LLM_UNAVAILABLE": (
+        "The AI provider is temporarily unavailable. Retry later."
+    ),
+    "LLM_OUTPUT_INVALID": (
+        "The AI provider answered with content that could not be processed. "
+        "Retry later."
+    ),
+    "LLM_TOKEN_LIMIT_EXCEEDED": (
+        "The tenant's daily AI token budget is exhausted. Retry later or raise "
+        "TENANT_TOKEN_LIMIT_PER_DAY."
+    ),
     "NOT_FOUND": "The requested resource was not found.",
     "INTERNAL_ERROR": "An internal server error occurred.",
     "PARSE_ERROR": "Failed to parse JSON-RPC request.",
@@ -185,6 +208,13 @@ ERROR_CODE_MAP = {
     # ErrorFormatter.format_error — telling the client the server broke when the
     # gate is an intentional, caller-visible deployment decision.
     "LLM_CAPABILITY_DISABLED": -32012,  # Server-defined: LLM capability gated off (#1148)
+    # #1416: cause-specific LLM failure codes for the derive flows. Next free
+    # server-defined codes after LLM_CAPABILITY_DISABLED; see the ERROR_CODES
+    # comment above for the wire behaviour.
+    "LLM_TIMEOUT": -32013,              # Server-defined: provider timeout (#1416)
+    "LLM_UNAVAILABLE": -32014,          # Server-defined: provider unreachable (#1416)
+    "LLM_OUTPUT_INVALID": -32015,       # Server-defined: unusable completion (#1416)
+    "LLM_TOKEN_LIMIT_EXCEEDED": -32016,  # Server-defined: REQ-106 daily budget (#1416)
 }
 
 

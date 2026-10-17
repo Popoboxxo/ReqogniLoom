@@ -60,8 +60,15 @@ from rest_framework.views import APIView
 # #1240: the AI-derivation flows signal an unparseable provider response with
 # this dedicated exception. It is registered in the exact-type maps below so the
 # generic ``except Exception`` branch on those routes answers a described 502
-# instead of an opaque 500.
-from application.ai_derivation_service import LlmResponseError
+# instead of an opaque 500. #1416 adds the cause-specific subclasses: a provider
+# timeout (504 LLM_TIMEOUT), an unavailable provider (503 LLM_UNAVAILABLE) and
+# an exhausted daily token budget (429 LLM_TOKEN_LIMIT_EXCEEDED).
+from application.ai_derivation_service import (
+    LlmProviderTimeoutError,
+    LlmProviderUnavailableError,
+    LlmResponseError,
+    LlmTokenLimitExceededError,
+)
 from application.artifact_attribute_gateway import (
     ArtifactAttributeGateway,
     AttributeValues,
@@ -274,6 +281,15 @@ _EXC_TO_HTTP: dict[type, int] = {
     # defect. 502 (Bad Gateway), alongside LLM_TIMEOUT (504) and LLM_UNAVAILABLE
     # (503); before this entry it fell through to the generic 500 branch.
     LlmResponseError: status.HTTP_502_BAD_GATEWAY,
+    # #1416: provider unavailability is not an invalid answer — it is retry-able
+    # upstream state. 504 for a timeout, 503 for a transport failure / open
+    # circuit (same taxonomy as architecture.decompose, #1165).
+    LlmProviderTimeoutError: status.HTTP_504_GATEWAY_TIMEOUT,
+    LlmProviderUnavailableError: status.HTTP_503_SERVICE_UNAVAILABLE,
+    # #1416: the REQ-106 daily budget is a quota refusal, not a bad provider
+    # answer. 429 + LLM_TOKEN_LIMIT_EXCEEDED mirrors CapabilityRouter's
+    # existing taxonomy for the very same condition.
+    LlmTokenLimitExceededError: status.HTTP_429_TOO_MANY_REQUESTS,
 }
 
 _EXC_TO_CODE: dict[type, str] = {
@@ -298,6 +314,10 @@ _EXC_TO_CODE: dict[type, str] = {
     NotFoundError: "NOT_FOUND",
     OptimisticLockError: "CONFLICT",
     LlmResponseError: "LLM_OUTPUT_INVALID",
+    # #1416: cause-specific codes for the derive flows (see _EXC_TO_HTTP).
+    LlmProviderTimeoutError: "LLM_TIMEOUT",
+    LlmProviderUnavailableError: "LLM_UNAVAILABLE",
+    LlmTokenLimitExceededError: "LLM_TOKEN_LIMIT_EXCEEDED",
 }
 
 
@@ -305,8 +325,17 @@ _EXC_TO_CODE: dict[type, str] = {
 #: client even though their code/status is (issue #1240). ``LlmResponseError``
 #: wraps raw provider/SDK failures, so its text can embed upstream detail (e.g.
 #: an authentication error echoing a key fragment). The client gets the static,
-#: localised ``LLM_OUTPUT_INVALID`` sentence instead; the detail goes to the log.
-_MESSAGE_NOT_SURFACEABLE: frozenset[type] = frozenset({LlmResponseError})
+#: localised sentence for its code instead; the detail goes to the log. The
+#: #1416 subclasses inherit the same provider text and are listed explicitly —
+#: the map lookup is by exact type, never by ``isinstance``.
+_MESSAGE_NOT_SURFACEABLE: frozenset[type] = frozenset(
+    {
+        LlmResponseError,
+        LlmProviderTimeoutError,
+        LlmProviderUnavailableError,
+        LlmTokenLimitExceededError,
+    }
+)
 
 
 def _with_request_id(body: dict[str, Any]) -> dict[str, Any]:
@@ -2737,6 +2766,23 @@ class ArchitectureElementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             502: OpenApiResponse(
                 response=ErrorResponseSerializer,
                 description="LLM_OUTPUT_INVALID — the provider answered unusably.",
+            ),
+            # #1416: provider failures are classified by cause, not answered as
+            # an invalid output.
+            503: OpenApiResponse(
+                response=ErrorResponseSerializer,
+                description="LLM_UNAVAILABLE — the provider is unreachable.",
+            ),
+            504: OpenApiResponse(
+                response=ErrorResponseSerializer,
+                description="LLM_TIMEOUT — the provider timed out.",
+            ),
+            429: OpenApiResponse(
+                response=ErrorResponseSerializer,
+                description=(
+                    "LLM_TOKEN_LIMIT_EXCEEDED — the tenant's daily AI token "
+                    "budget is exhausted."
+                ),
             ),
         },
         description=(
@@ -7011,6 +7057,23 @@ class AdrViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 response=ErrorResponseSerializer,
                 description="LLM_OUTPUT_INVALID — the provider answered unusably.",
             ),
+            # #1416: provider failures are classified by cause, not answered as
+            # an invalid output.
+            503: OpenApiResponse(
+                response=ErrorResponseSerializer,
+                description="LLM_UNAVAILABLE — the provider is unreachable.",
+            ),
+            504: OpenApiResponse(
+                response=ErrorResponseSerializer,
+                description="LLM_TIMEOUT — the provider timed out.",
+            ),
+            429: OpenApiResponse(
+                response=ErrorResponseSerializer,
+                description=(
+                    "LLM_TOKEN_LIMIT_EXCEEDED — the tenant's daily AI token "
+                    "budget is exhausted."
+                ),
+            ),
         },
         description=(
             "Structure a free-text decision into an ADR draft (REST parity with "
@@ -10462,6 +10525,23 @@ class GlossaryTermViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             502: OpenApiResponse(
                 response=ErrorResponseSerializer,
                 description="LLM_OUTPUT_INVALID — the provider answered unusably.",
+            ),
+            # #1416: provider failures are classified by cause, not answered as
+            # an invalid output.
+            503: OpenApiResponse(
+                response=ErrorResponseSerializer,
+                description="LLM_UNAVAILABLE — the provider is unreachable.",
+            ),
+            504: OpenApiResponse(
+                response=ErrorResponseSerializer,
+                description="LLM_TIMEOUT — the provider timed out.",
+            ),
+            429: OpenApiResponse(
+                response=ErrorResponseSerializer,
+                description=(
+                    "LLM_TOKEN_LIMIT_EXCEEDED — the tenant's daily AI token "
+                    "budget is exhausted."
+                ),
             ),
         },
         description=(

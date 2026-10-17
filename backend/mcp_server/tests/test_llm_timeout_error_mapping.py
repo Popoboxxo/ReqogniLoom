@@ -7,9 +7,11 @@ only stopped by the transport's catch-all — logged as an unhandled exception a
 answered with a bare HTTP 500.
 
 The services now map transport failures onto their own catchable error types,
-so all three tools return a proper ``ToolResult`` error (``INTERNAL_ERROR``)
-carrying an actionable message. These tests drive the tool handlers directly
-with a service double that fails the way a real timeout does.
+so all three tools return a proper ``ToolResult`` error carrying an actionable
+message. These tests drive the tool handlers directly with a service double
+that fails the way a real timeout does. Issue #1416 updated the derive tool's
+answer from the blanket ``INTERNAL_ERROR`` to the cause-specific
+``LLM_TIMEOUT`` (the other two groups keep their own error types).
 
 Issue #951 (``TestAiReviewFailureIsStructured``) extends the same contract to
 every remaining ``audit.ai_review`` failure path: a provider/transport error or
@@ -25,7 +27,10 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from application.ai_derivation_service import LlmResponseError
+from application.ai_derivation_service import (
+    LlmProviderTimeoutError,
+    LlmResponseError,
+)
 from application.ai_review_service import AiReviewResponseError
 from application.traceability_suggest_service import SuggestLinksResponseError
 from auth_tenancy.context import AuthContext
@@ -68,9 +73,9 @@ class _FailingService:
         return _raise
 
 
-def _assert_clean_timeout_error(result) -> None:
+def _assert_clean_timeout_error(result, expected_code: str = "INTERNAL_ERROR") -> None:
     assert result.success is False, "a timeout must not be reported as success"
-    assert result.error_code == "INTERNAL_ERROR"
+    assert result.error_code == expected_code
     assert "LLM_LONG_RUNNING_TIMEOUT" in (result.message or "")
 
 
@@ -101,7 +106,8 @@ def test_ai_review_timeout_returns_tool_error(auth_ctx):
 
 
 def test_derive_glossary_timeout_returns_tool_error(auth_ctx):
-    group = AiDerivationToolGroup(service=_FailingService(LlmResponseError))
+    """#1416: the derive tool names the cause — LLM_TIMEOUT, not a generic code."""
+    group = AiDerivationToolGroup(service=_FailingService(LlmProviderTimeoutError))
 
     result = group._handle_derive_glossary_from_workspace(
         params={"workspace_id": str(uuid.uuid4())},
@@ -109,7 +115,7 @@ def test_derive_glossary_timeout_returns_tool_error(auth_ctx):
         api_key="reqlo_test",
     )
 
-    _assert_clean_timeout_error(result)
+    _assert_clean_timeout_error(result, expected_code="LLM_TIMEOUT")
 
 
 # ---------------------------------------------------------------------------
