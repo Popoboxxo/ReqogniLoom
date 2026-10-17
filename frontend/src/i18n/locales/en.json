@@ -590,8 +590,11 @@
       "artifact_create": "Artifact proposal",
       "trace_link": "Trace link proposal",
       "interview_grounding": "Interview grounding",
-      "context_edge": "Context edge"
-    }
+      "context_edge": "Context edge",
+      "requirement_level": "Level proposal"
+    },
+    "unavailable": "not available",
+    "unavailableHint": "This suggestion kind is registered but not enabled yet – accept/reject is currently unavailable."
   },
   "baselines": {
     "placeholder": "Baselines — in progress.",
@@ -668,6 +671,7 @@
     "saveFailed": "Failed to save term.",
     "deleteFailed": "Failed to delete term.",
     "linkSynonymFailed": "Failed to save link.",
+    "deriveFailed": "AI derivation failed.",
     "summary_one": "{{count}} term",
     "summary_other": "{{count}} terms",
     "emptyTitle": "No terms yet",
@@ -2314,6 +2318,36 @@
   "aiActions": {
     "heading": "AI actions",
     "hint": "Every AI-supported action for this element in one place. The AI produces drafts for review – nothing is saved until you confirm."
+  },
+  "aiDerivation": {
+    "notice": "This is a preview: nothing is saved until you confirm.",
+    "preview": "Create preview",
+    "loading": "Drafts are being generated…",
+    "saving": "Saving…",
+    "confirm": "Confirm",
+    "reviewLater": "Review later",
+    "discard": "Discard",
+    "empty": "The AI proposed no drafts – there is nothing to review.",
+    "rationale": "Rationale",
+    "selectHint": "Select the drafts to be created.",
+    "selectDraft": "Select draft {{index}}",
+    "caveat": "Created drafts are born with status \"proposed\" and await your approval under \"Reviews\" → \"AI proposals only\".",
+    "statusCreated": "Created (status: proposed): {{count}} – approve them under \"Reviews\" → \"AI proposals only\".",
+    "statusParked": "{{count}} draft(s) saved as proposals – you will find them under \"Reviews\" → \"AI proposals only\".",
+    "statusKept": "No drafts were created: nothing was saved.",
+    "glossaryAction": "Derive AI glossary terms",
+    "glossaryDialogTitle": "AI glossary derivation",
+    "glossarySource": "Source: workspace",
+    "adrAction": "AI ADR draft",
+    "adrDialogTitle": "AI ADR from decision",
+    "adrSource": "Source: free-text decision",
+    "adrDecisionLabel": "Decision (free text)",
+    "adrDecisionPlaceholder": "Which decision should be structured as an ADR?",
+    "adrContext": "Context",
+    "adrConsequences": "Consequences",
+    "riskAction": "Derive AI risks",
+    "riskDialogTitle": "AI risks from architecture element",
+    "riskSource": "Source: {{title}}"
   },
   "systemSettings": {
     "adminOnly": "You must be an admin to view or edit System Settings.",

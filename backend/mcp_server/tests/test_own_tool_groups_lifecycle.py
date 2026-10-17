@@ -457,11 +457,14 @@ class TestTestCaseLifecycleTools:
         assert result.success and result_explicit_preview.success
         # Systemaudit item 11: the preview forwards the service dict
         # verbatim, which now also carries the mock-fallback flag.
+        # #1358: and the ephemeral marker on every preview response.
         assert set(result.data.keys()) == {
             "draft",
             "requirement_id",
             "is_mock_fallback",
+            "ephemeral",
         }
+        assert result.data["ephemeral"] is True
         assert result.data == result_explicit_preview.data
 
     def test_derive_from_requirement_write_mode_persists_testcase_and_verifies_link(self):

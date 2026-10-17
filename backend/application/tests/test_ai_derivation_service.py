@@ -231,8 +231,10 @@ def test_derive_requirements_from_need_returns_drafts(auth_context, workspace):
 
     # Systemaudit item 11: every flow now also reports whether the answer
     # came from the mock fallback instead of the configured provider.
-    assert set(result.keys()) == {"drafts", "is_mock_fallback"}
+    # #1358: and that the response is an ephemeral preview.
+    assert set(result.keys()) == {"drafts", "is_mock_fallback", "ephemeral"}
     assert result["is_mock_fallback"] is False
+    assert result["ephemeral"] is True
     assert len(result["drafts"]) == 2
     for draft in result["drafts"]:
         assert set(draft.keys()) == {
@@ -423,7 +425,11 @@ def test_suggest_architecture_empty_answer_stays_legal(
         auth_context, req.id
     )
 
-    assert result == {"suggested_arch_element_ids": [], "is_mock_fallback": False}
+    assert result == {
+        "suggested_arch_element_ids": [],
+        "is_mock_fallback": False,
+        "ephemeral": True,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -448,6 +454,7 @@ def test_decompose_next_level_returns_drafts(auth_context, workspace):
     )
 
     assert result["parent_requirement_id"] == str(req.id)
+    assert result["ephemeral"] is True
     assert len(result["drafts"]) >= 1
     for draft in result["drafts"]:
         assert set(draft.keys()) == {
@@ -783,7 +790,11 @@ def test_old_template_with_only_req_title_still_renders(
     # Systemaudit item 11: `is_mock_fallback` is False here — the configured
     # provider answered; the flag only marks an *unplanned* degradation to
     # MockLlmProvider (a MOCK_FALLBACK_MARKER-prefixed completion).
-    assert result == {"suggested_arch_element_ids": [], "is_mock_fallback": False}
+    assert result == {
+        "suggested_arch_element_ids": [],
+        "is_mock_fallback": False,
+        "ephemeral": True,
+    }
     prompt = provider.calls[0]["prompt"]
     assert prompt == "Legacy prompt for Legacy Requirement Title only."
 
@@ -802,6 +813,7 @@ def test_derive_testcase_returns_draft(auth_context, workspace):
     result = AiDerivationService().derive_testcase_from_requirement(auth_context, req.id)
 
     assert result["requirement_id"] == str(req.id)
+    assert result["ephemeral"] is True
     draft = result["draft"]
     assert set(draft.keys()) == {"title", "description", "steps"}
     assert draft["title"]
@@ -915,6 +927,7 @@ def test_derive_risks_from_architecture_returns_drafts_with_valid_probability_im
     result = AiDerivationService().derive_risks_from_architecture(auth_context, ae.id)
 
     assert result["architecture_element_id"] == str(ae.id)
+    assert result["ephemeral"] is True
     assert len(result["drafts"]) >= 1
     for draft in result["drafts"]:
         assert set(draft.keys()) == {
@@ -1577,6 +1590,7 @@ def test_derive_glossary_from_workspace_returns_term_definition_drafts(
     )
 
     assert result["workspace_id"] == str(workspace.id)
+    assert result["ephemeral"] is True
     assert "drafts" in result
     assert len(result["drafts"]) >= 1
     for draft in result["drafts"]:
@@ -1721,6 +1735,7 @@ def test_derive_adr_from_decision_returns_title_description_context(
     )
 
     assert result["workspace_id"] == str(workspace.id)
+    assert result["ephemeral"] is True
     assert "draft" in result
     for key in ("title", "description", "context", "consequences"):
         assert key in result["draft"]
@@ -1812,3 +1827,217 @@ def test_write_adr_draft_invalid_title_raises_validation_error(auth_context, wor
             consequences="",
             policy="manual",
         )
+
+
+# ---------------------------------------------------------------------------
+# persist_* — the mode="write" half (#1358, W12a)
+#
+# These are the three service seams both transports call for glossary/ADR/risk
+# (MCP mode="write" and the REST derive/derive-from-decision/derive-risks
+# actions), so their envelopes must match the MCP write-mode contract exactly:
+# ``written`` + ``is_mock_fallback`` (+ per-draft ``failed``).
+# ---------------------------------------------------------------------------
+
+
+def test_persist_glossary_drafts_writes_every_draft(auth_context, workspace):
+    """The preview's drafts are persisted; the envelope is the write receipt."""
+    from persistence.models import GlossaryTerm
+
+    RequirementService().create_requirement(
+        workspace_id=workspace.id, title="Some requirement", ctx=auth_context
+    )
+    svc = AiDerivationService()
+    preview = svc.derive_glossary_from_workspace(auth_context, workspace.id)
+    assert preview["ephemeral"] is True
+
+    result = svc.persist_glossary_drafts(
+        auth_context, workspace_id=workspace.id, preview=preview
+    )
+
+    assert result["is_mock_fallback"] is False
+    assert "ephemeral" not in result
+    assert len(result["written"]) == len(preview["drafts"]) >= 1
+    for written in result["written"]:
+        assert GlossaryTerm.objects.filter(id=written["id"]).exists()
+        # No backing workspace workflow in this fixture -> initial state; the
+        # proposal block still reports the truth instead of staying silent.
+        assert written["status"] == "draft"
+        assert written["proposal"]["supported"] is False
+    assert "failed" not in result
+
+
+def test_persist_glossary_drafts_empty_preview_writes_nothing(auth_context, workspace):
+    """An empty drafts list is a success with an empty receipt (MCP contract)."""
+    result = AiDerivationService().persist_glossary_drafts(
+        auth_context,
+        workspace_id=workspace.id,
+        preview={"drafts": [], "is_mock_fallback": False},
+    )
+
+    assert result == {"written": [], "is_mock_fallback": False}
+
+
+def test_persist_glossary_drafts_collision_is_a_failed_entry(auth_context, workspace):
+    """A duplicate term surfaces per-draft, never as a crashed batch (#1089)."""
+    RequirementService().create_requirement(
+        workspace_id=workspace.id, title="Some requirement", ctx=auth_context
+    )
+    svc = AiDerivationService()
+    preview = svc.derive_glossary_from_workspace(auth_context, workspace.id)
+    # The mock provider emits f"Term for {workspace_id}" for this workspace.
+    first = svc.persist_glossary_drafts(
+        auth_context, workspace_id=workspace.id, preview=preview
+    )
+    assert first["written"], first
+
+    second = svc.persist_glossary_drafts(
+        auth_context, workspace_id=workspace.id, preview=preview
+    )
+
+    assert second["written"] == []
+    assert len(second["failed"]) == len(preview["drafts"])
+    assert "already exists" in second["failed"][0]["error"]
+    assert second["failed"][0]["draft"]["term"]
+
+
+def test_persist_glossary_drafts_non_dict_entry_is_a_failed_entry(
+    auth_context, workspace
+):
+    """A garbage entry is reported per-draft — never an AttributeError crash."""
+    result = AiDerivationService().persist_glossary_drafts(
+        auth_context,
+        workspace_id=workspace.id,
+        preview={"drafts": ["not-an-object"], "is_mock_fallback": False},
+    )
+
+    assert result["written"] == []
+    assert len(result["failed"]) == 1
+    assert result["failed"][0]["draft"] == "not-an-object"
+
+
+def test_persist_risk_drafts_non_dict_entry_is_a_failed_entry(auth_context, workspace):
+    """Same guard as the glossary loop: an unusable entry fails alone."""
+    ae = ArchitectureService().create_architecture_element(
+        workspace_id=workspace.id, title="Element for garbage drafts", ctx=auth_context
+    )
+
+    result = AiDerivationService().persist_risk_drafts(
+        auth_context,
+        architecture_element_id=ae.id,
+        preview={"drafts": ["not-an-object"], "is_mock_fallback": False},
+    )
+
+    assert result["written"] == []
+    assert len(result["failed"]) == 1
+    assert result["failed"][0]["draft"] == "not-an-object"
+
+
+def test_persist_risk_drafts_writes_risks_with_mitigates_links(
+    auth_context, workspace
+):
+    """Each draft becomes a Risk linked to the element via 'mitigates'."""
+    from application.models import Risk
+
+    ae = ArchitectureService().create_architecture_element(
+        workspace_id=workspace.id, title="Payment Gateway", ctx=auth_context
+    )
+    svc = AiDerivationService()
+    preview = svc.derive_risks_from_architecture(auth_context, ae.id)
+    assert preview["ephemeral"] is True
+
+    result = svc.persist_risk_drafts(
+        auth_context, architecture_element_id=ae.id, preview=preview
+    )
+
+    assert result["is_mock_fallback"] is False
+    assert "ephemeral" not in result
+    assert len(result["written"]) == len(preview["drafts"]) >= 1
+    for written in result["written"]:
+        risk = Risk.objects.get(id=written["id"])
+        link = TraceLink.objects.get(id=written["trace_link_id"])
+        assert link.link_type == "mitigates"
+        # Risk -> ArchitectureElement (the new Risk is the link source).
+        assert link.source_id == risk.artifact_id
+        assert link.target_id == ae.artifact_id
+
+
+def test_persist_adr_draft_writes_the_single_draft(auth_context, workspace):
+    """The ADR preview's single draft is persisted; ``written`` is one object."""
+    from application.models import Adr
+
+    svc = AiDerivationService()
+    preview = svc.derive_adr_from_decision(
+        auth_context,
+        workspace.id,
+        decision_description="We will use Postgres instead of MySQL.",
+    )
+    assert preview["ephemeral"] is True
+
+    result = svc.persist_adr_draft(
+        auth_context, workspace_id=workspace.id, preview=preview
+    )
+
+    assert result["is_mock_fallback"] is False
+    assert "ephemeral" not in result
+    written = result["written"]
+    assert isinstance(written, dict)
+    assert written["id"]
+    assert Adr.objects.filter(id=written["id"]).exists()
+    assert written["proposal"]["supported"] is False
+
+
+def test_persist_adr_draft_invalid_title_is_validation_error(
+    auth_context, workspace
+):
+    """A draft ``create_adr`` rejects surfaces as ValidationError (no failed list)."""
+    svc = AiDerivationService()
+    preview = {
+        "draft": {
+            "title": "ab",
+            "description": "Some description.",
+            "context": "",
+            "consequences": "",
+        },
+        "is_mock_fallback": False,
+    }
+
+    with pytest.raises(ValidationError):
+        svc.persist_adr_draft(auth_context, workspace_id=workspace.id, preview=preview)
+
+
+def test_persist_methods_reject_a_malformed_preview(auth_context, workspace):
+    """A payload that is not a preview dict is a ValidationError, never a crash.
+
+    The policy guard is asserted in the same test because it is checked before
+    the preview shape — both are service-level defenses for direct callers.
+    """
+    ae = ArchitectureService().create_architecture_element(
+        workspace_id=workspace.id, title="Element for persist guards", ctx=auth_context
+    )
+    svc = AiDerivationService()
+
+    with pytest.raises(ValidationError):
+        svc.persist_glossary_drafts(
+            auth_context, workspace_id=workspace.id, preview={"not": "a preview"}
+        )
+    with pytest.raises(ValidationError):
+        svc.persist_risk_drafts(
+            auth_context,
+            architecture_element_id=ae.id,
+            preview={"not": "a preview"},
+        )
+    with pytest.raises(ValidationError):
+        svc.persist_adr_draft(
+            auth_context, workspace_id=workspace.id, preview={"not": "a preview"}
+        )
+
+    with pytest.raises(ValidationError) as exc_info:
+        svc.persist_glossary_drafts(
+            auth_context,
+            workspace_id=workspace.id,
+            preview={"drafts": []},
+            policy="bogus",
+        )
+    assert "'policy' must be one of ('manual', 'auto'), got 'bogus'." in str(
+        exc_info.value
+    )

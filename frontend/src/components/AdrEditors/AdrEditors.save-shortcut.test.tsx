@@ -32,6 +32,12 @@ vi.mock("../../context/WorkspaceContext", () => ({
   useWorkspace: () => useWorkspaceMock(),
 }));
 
+// #1360: the ADR derivation trigger needs the workspace-role hook — it is not
+// under test here, so resolve it to a permission-granting editor.
+vi.mock("../../hooks/useHasRole", () => ({
+  useHasRole: () => () => true,
+}));
+
 vi.mock("./useAdrData", () => ({
   useAdrData: () => ({
     items: [],

@@ -377,6 +377,12 @@ export const requirementsApi = {
    * carries the backend's (English) explanation of why. The UI shows its own
    * localised message instead; the field exists for API/MCP consumers and for
    * diagnostics.
+   *
+   * Issue #1358 (#1358): `ephemeral: true` states on the wire that the preview
+   * persists nothing. The persistence counterpart is
+   * `acceptAiDecomposition` below (#1368) — never a client-side
+   * `requirementsApi.create` per draft, which (from a user principal) is born
+   * as a plain ``draft`` and stays invisible (#1089).
    */
   aiDecomposeNextLevel(
     id: UUID
@@ -388,11 +394,46 @@ export const requirementsApi = {
       suggested_arch_element_id: string | null;
     }>;
     parent_requirement_id: string;
+    ephemeral?: boolean;
     note?: string;
   }> {
     return apiClient.post(
       `/requirements/${id}/decompose-next-level/`,
       {}
+    );
+  },
+
+  /**
+   * Issue #1368 (W12b): persist the drafts the human accepted from an
+   * `aiDecomposeNextLevel` preview.
+   *
+   * Calls POST /api/v1/requirements/{id}/decompose-next-level/accept/ with the
+   * reviewed drafts verbatim. Delegates server-side to
+   * `AiDerivationService.persist_decomposed_requirements`: every draft becomes
+   * one child Requirement linked to this one via a `derives-from` TraceLink
+   * (child -> parent) and is born ``proposed`` where the workspace's workflow
+   * supports it — the `proposal` block reports that read-back, so a caller
+   * must not claim a reviewable proposal when `is_proposal` is false.
+   *
+   * Forbidden in the body (#269/#851): `status` and `from_ai` — the workflow
+   * state and the AI provenance are derived server-side.
+   */
+  acceptAiDecomposition(
+    id: UUID,
+    drafts: Array<{ title: string; description?: string; rationale?: string }>
+  ): Promise<{
+    count: number;
+    created: Array<{
+      id: string;
+      status: string;
+      trace_link_id: string;
+      proposal: { is_proposal: boolean; reason?: string };
+    }>;
+    proposal: { is_proposal: boolean; reason?: string };
+  }> {
+    return apiClient.post(
+      `/requirements/${id}/decompose-next-level/accept/`,
+      { drafts }
     );
   },
 

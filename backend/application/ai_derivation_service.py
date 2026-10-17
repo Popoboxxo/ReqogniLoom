@@ -12,9 +12,10 @@ Every flow follows the **Draft/Accept** pattern (REQ-L2-AI-001):
 
 Issue #1089 changed what "persisted" means for the write-mode helpers
 (:meth:`_write_derived_entity`, :meth:`_write_glossary_term_draft`,
-:meth:`_write_adr_draft`) and for the REST persist path added in
-:mod:`rest_api.derive_views`: an artefact whose *content* was written by the
-LLM must be born in the ``"proposed"`` workflow state of
+:meth:`_write_adr_draft`) and for the REST persist path (the ``accept`` action
+on ``StakeholderNeedViewSet`` and the ``derive``/``derive-from-decision``/
+``derive-risks`` actions in :mod:`rest_api.views`): an artefact whose *content*
+was written by the LLM must be born in the ``"proposed"`` workflow state of
 :data:`workflow.definition_store.PROPOSED_STATE`, with a
 ``from_state="" -> "proposed"`` history entry naming who proposed it — even
 when a **human** triggered the derivation from the UI. The state is seeded at
@@ -23,6 +24,23 @@ see :mod:`application.ai_proposal_service`), and every write response now
 carries a ``proposal`` block reporting the state that was *actually* stored, so
 a workspace that cannot express a proposal says so instead of downgrading
 silently.
+
+Issue #1358 (W12a) pinned the **preview contract** these flows always had: a
+draft-only response is *ephemeral*. Every preview return below carries
+``"ephemeral": True`` so no caller can mistake the drafts for persisted data,
+and the *canonical persistence path* for AI-authored drafts is the write seam
+at the bottom of this class:
+
+  * :meth:`persist_glossary_drafts` — persists a glossary preview,
+  * :meth:`persist_risk_drafts` — persists a risk preview,
+  * :meth:`persist_adr_draft` — persists an ADR preview,
+  * plus the pre-existing trace-linked paths (MCP ``mode="write"`` for
+    requirements/decompose and the #1095 accept endpoint).
+
+The marker is added *here*, at the single Layer-2 seam, so MCP
+(:mod:`mcp_server.tools.ai_derivation`) and REST (:mod:`rest_api.views`) cannot
+drift apart — both forward these preview dicts verbatim. Write responses never
+carry the flag: their ``written`` payload is the persistence receipt.
 
 Flows (REQ-L2-AI-002):
   1. :meth:`derive_requirements_from_need` — StakeholderNeed -> SystemRequirements
@@ -652,8 +670,12 @@ class LlmResponseError(RuntimeError):
 class AiDerivationService(ServiceBase):
     """LLM-backed, draft-only derivation flows (REQ-L2-AI-001, REQ-L2-AI-002).
 
-    The three ``derive_*``/``decompose_*`` flows are preview-only. The
-    ``_write_*`` helpers are the persistence side and seed AI content into the
+    Every ``derive_*``/``decompose_*`` flow is **preview-only**: it returns
+    drafts marked ``ephemeral: True`` and persists nothing (issue #1358 — the
+    marker makes the contract visible on the wire). Persistence runs through
+    the ``_write_*`` helpers, exposed as :meth:`persist_glossary_drafts`,
+    :meth:`persist_risk_drafts` and :meth:`persist_adr_draft` (or the
+    pre-existing trace-linked write paths), and seeds AI content into the
     ``"proposed"`` workflow state (issue #1089) — see
     :mod:`application.ai_proposal_service`.
     """
@@ -680,10 +702,14 @@ class AiDerivationService(ServiceBase):
 
         Returns:
             ``{"drafts": [{title, description, rationale,
-            suggested_parent_id}], "is_mock_fallback": <bool>}``.
+            suggested_parent_id}], "is_mock_fallback": <bool>,
+            "ephemeral": True}``.
             ``is_mock_fallback`` is True when the drafts are mock-provider
             placeholders rather than a real LLM's proposal (see
-            :meth:`_complete_json_list`).
+            :meth:`_complete_json_list`). ``ephemeral`` is always True here:
+            nothing is persisted by this call (#1358) — use ``mode="write"``
+            (MCP) or POST the accepted drafts to
+            ``/api/v1/needs/{id}/derive-requirements/accept/`` to persist them.
 
         Raises:
             NotFoundError: The stakeholder need does not exist for this tenant.
@@ -746,7 +772,12 @@ class AiDerivationService(ServiceBase):
             }
             for item in items
         ]
-        return {"drafts": drafts, "is_mock_fallback": is_mock_fallback}
+        return {
+            "drafts": drafts,
+            "is_mock_fallback": is_mock_fallback,
+            # #1358: preview-only response marker (see module docstring).
+            "ephemeral": True,
+        }
 
     def suggest_architecture_for_requirement(
         self,
@@ -765,9 +796,12 @@ class AiDerivationService(ServiceBase):
 
         Returns:
             ``{"suggested_arch_element_ids": [<uuid-str>, ...],
-            "is_mock_fallback": <bool>}``. ``is_mock_fallback`` is True when
+            "is_mock_fallback": <bool>, "ephemeral": True}``.
+            ``is_mock_fallback`` is True when
             the suggestion came from the mock provider rather than the
-            configured one (see :meth:`_complete_json_list`).
+            configured one (see :meth:`_complete_json_list`). ``ephemeral`` is
+            always True: this call persists nothing (#1358) — the persistent
+            action is the MCP ``mode="write"`` allocation (top-ranked element).
 
         Raises:
             NotFoundError: The requirement does not exist for this tenant.
@@ -826,6 +860,8 @@ class AiDerivationService(ServiceBase):
         return {
             "suggested_arch_element_ids": result_ids,
             "is_mock_fallback": is_mock_fallback,
+            # #1358: preview-only response marker (see module docstring).
+            "ephemeral": True,
         }
 
     def _require_unallocated_requirement(
@@ -913,9 +949,13 @@ class AiDerivationService(ServiceBase):
         Returns:
             ``{"drafts": [{title, description, rationale,
             suggested_arch_element_id}], "parent_requirement_id": <uuid-str>,
-            "is_mock_fallback": <bool>}``. ``is_mock_fallback`` is True when
+            "is_mock_fallback": <bool>, "ephemeral": True}``.
+            ``is_mock_fallback`` is True when
             the drafts are mock-provider placeholders rather than a real
-            LLM's proposal (see :meth:`_complete_json_list`).
+            LLM's proposal (see :meth:`_complete_json_list`). ``ephemeral`` is
+            always True: nothing is persisted by this call (#1358) — use
+            ``mode="write"`` (MCP) to persist the drafts as ``proposed``
+            children.
             When ``drafts`` is empty an additional ``note`` key explains why
             (issue #311) — additive, present only in that case, mirroring how
             the write path only adds ``failed`` when something failed.
@@ -985,6 +1025,8 @@ class AiDerivationService(ServiceBase):
             "drafts": drafts,
             "parent_requirement_id": str(req.id),
             "is_mock_fallback": is_mock_fallback,
+            # #1358: preview-only response marker (see module docstring).
+            "ephemeral": True,
         }
         if not drafts:
             result["note"] = self._empty_decomposition_note(req)
@@ -1051,9 +1093,13 @@ class AiDerivationService(ServiceBase):
         Returns:
             ``{"draft": {"title": str, "description": str, "steps":
             [{"step": str, "expected_result": str}, ...]}, "requirement_id":
-            <uuid-str>, "is_mock_fallback": <bool>}``. ``is_mock_fallback``
+            <uuid-str>, "is_mock_fallback": <bool>, "ephemeral": True}``.
+            ``is_mock_fallback``
             is True when the draft is a mock-provider placeholder rather than
             a real LLM's proposal (see :meth:`_complete_json_object`).
+            ``ephemeral`` is always True: nothing is persisted by this call
+            (#1358) — use ``mode="write"`` on the MCP tool
+            ``test.derive_from_requirement`` to persist it.
 
         Raises:
             NotFoundError: The requirement does not exist for this tenant.
@@ -1100,6 +1146,8 @@ class AiDerivationService(ServiceBase):
             "draft": draft,
             "requirement_id": str(req.id),
             "is_mock_fallback": is_mock_fallback,
+            # #1358: preview-only response marker (see module docstring).
+            "ephemeral": True,
         }
 
     def derive_risks_from_architecture(
@@ -1130,9 +1178,13 @@ class AiDerivationService(ServiceBase):
         Returns:
             ``{"drafts": [{title, description, probability, impact,
             category}], "architecture_element_id": <uuid-str>,
-            "is_mock_fallback": <bool>}``. ``is_mock_fallback`` is True when
+            "is_mock_fallback": <bool>, "ephemeral": True}``.
+            ``is_mock_fallback`` is True when
             the drafts are mock-provider placeholders rather than a real
-            LLM's proposal (see :meth:`_complete_json_list`).
+            LLM's proposal (see :meth:`_complete_json_list`). ``ephemeral`` is
+            always True: nothing is persisted by this call (#1358) — persist
+            the preview via :meth:`persist_risk_drafts` (MCP ``mode="write"``,
+            REST ``POST /api/v1/architecture/{id}/derive-risks/``).
 
         Raises:
             NotFoundError: The architecture element does not exist for this
@@ -1181,6 +1233,8 @@ class AiDerivationService(ServiceBase):
             "drafts": drafts,
             "architecture_element_id": str(ae.id),
             "is_mock_fallback": is_mock_fallback,
+            # #1358: preview-only response marker (see module docstring).
+            "ephemeral": True,
         }
 
     def derive_glossary_from_workspace(
@@ -1209,10 +1263,14 @@ class AiDerivationService(ServiceBase):
 
         Returns:
             ``{"drafts": [{term, definition, synonyms, abbreviation}],
-            "workspace_id": <uuid-str>, "is_mock_fallback": <bool>}``.
+            "workspace_id": <uuid-str>, "is_mock_fallback": <bool>,
+            "ephemeral": True}``.
             ``is_mock_fallback`` is True when the drafts are mock-provider
             placeholders rather than a real LLM's proposal (see
-            :meth:`_complete_json_list`).
+            :meth:`_complete_json_list`). ``ephemeral`` is always True:
+            nothing is persisted by this call (#1358) — persist the preview
+            via :meth:`persist_glossary_drafts` (MCP ``mode="write"``, REST
+            ``POST /api/v1/glossary/derive/``).
 
         Raises:
             NotFoundError: The workspace does not exist for this tenant.
@@ -1242,6 +1300,8 @@ class AiDerivationService(ServiceBase):
             "drafts": self._glossary_drafts(items),
             "workspace_id": str(workspace.id),
             "is_mock_fallback": is_mock_fallback,
+            # #1358: preview-only response marker (see module docstring).
+            "ephemeral": True,
         }
 
     def _workspace_source_text(self, workspace: Workspace) -> str:
@@ -1330,9 +1390,13 @@ class AiDerivationService(ServiceBase):
         Returns:
             ``{"draft": {"title": str, "description": str, "context": str,
             "consequences": str}, "workspace_id": <uuid-str>,
-            "is_mock_fallback": <bool>}``. ``is_mock_fallback`` is True when
+            "is_mock_fallback": <bool>, "ephemeral": True}``.
+            ``is_mock_fallback`` is True when
             the draft is a mock-provider placeholder rather than a real LLM's
-            proposal (see :meth:`_complete_json_object`).
+            proposal (see :meth:`_complete_json_object`). ``ephemeral`` is
+            always True: nothing is persisted by this call (#1358) — persist
+            the preview via :meth:`persist_adr_draft` (MCP ``mode="write"``,
+            REST ``POST /api/v1/adrs/derive-from-decision/``).
 
         Raises:
             NotFoundError: The workspace does not exist for this tenant.
@@ -1367,6 +1431,8 @@ class AiDerivationService(ServiceBase):
             "draft": draft,
             "workspace_id": str(workspace.id),
             "is_mock_fallback": is_mock_fallback,
+            # #1358: preview-only response marker (see module docstring).
+            "ephemeral": True,
         }
 
     # ------------------------------------------------------------------
@@ -1837,6 +1903,125 @@ class AiDerivationService(ServiceBase):
             "proposal": created[0]["proposal"],
         }
 
+    def persist_decomposed_requirements(
+        self,
+        ctx: AuthContext,
+        *,
+        requirement_id: UUID | str,
+        drafts: list[dict[str, Any]],
+        policy: str = "manual",
+    ) -> dict[str, Any]:
+        """Persist the accepted drafts of a requirement decomposition (#1368, W12b).
+
+        The server-side half of the UI's "confirm" step for
+        :meth:`decompose_requirement_next_level`: the endpoint is preview-only
+        by design (#1358), so a human who reviewed the drafts must have a way
+        to persist exactly the drafts they saw — the same Draft/Accept contract
+        ``persist_derived_requirements`` implements for the need flow (#1095),
+        one level down the V-model.
+
+        Why the drafts arrive in the request instead of being re-derived: the
+        preview ran once and the human decided on *that* content. Re-running
+        the provider on accept would persist a second, possibly different
+        draft set than the one the reviewer approved — a silent mismatch the
+        UI cannot detect.
+
+        Contract (identical to the need flow, deliberately):
+
+        * the authoring state goes through the single seam
+          (:meth:`proposal_authoring`), so the derived children are born
+          ``"proposed"`` with the ``AI_DERIVATION_LABEL`` history entry — the
+          only provenance the pending-review queue reads;
+        * a workspace whose graph cannot express a proposal is a hard
+          ``ValidationError`` carrying ``authoring.reason`` (never a silent
+          downgrade to ``draft``, #1089);
+        * every child carries the ``ai_elicit``/``origin`` ``custom_fields``
+          markers and a ``rationale`` where the draft supplied one;
+        * the whole batch runs in ONE ``transaction.atomic()`` block, with the
+          per-draft ``_write_derived_entity`` savepoints nested inside it
+          (REQ-L3-PL003-002);
+        * each child is linked to the parent requirement through a
+          ``derives-from`` TraceLink, child -> parent (issue #341: the SE
+          direction; the MCP write path passes the same flag).
+
+        Args:
+            ctx: The accepting human's context. Identity, tenant/workspace
+                scoping and roles are preserved; only the authorship markers
+                change through ``authoring.create_context``.
+            requirement_id: Parent requirement the drafts were derived from.
+            drafts: Non-empty list of ``{"title": str, "description": str,
+                "rationale": str}`` maps with at most
+                :data:`MAX_ACCEPTED_DERIVED_REQUIREMENTS` entries.
+            policy: ``"manual"`` (default) or ``"auto"`` (best-effort
+                auto-advance through the workflow; the proposal state itself
+                stays a human decision, see :meth:`_auto_approve`).
+
+        Returns:
+            ``{"created": [<one _write_derived_entity result per draft>],
+            "count": int, "proposal": {...}}`` — same envelope as the need
+            accept path, so a client can render both with one code path.
+
+        Raises:
+            NotFoundError: *requirement_id* does not exist for this tenant.
+            ValidationError: The payload is unusable or the workspace's graph
+                has no ``"proposed"`` state.
+        """
+        self._set_tenant_context(ctx)
+        policy = self._validate_write_policy(policy)
+
+        from application.requirement_service import RequirementService
+
+        # Tenant-scoped: a requirement in another tenant is indistinguishable
+        # from a non-existent one and raises NotFoundError before any write.
+        parent = self._get_requirement(requirement_id)
+        workspace_id = parent.artifact.workspace_id
+
+        accepted = self._validate_accepted_drafts(drafts)
+
+        # Resolved BEFORE any write, and NOT caught: ``require_proposal_support``
+        # raises rather than handing back a context that would silently create a
+        # plain draft (#1089/#1368).
+        authoring = self.proposal_authoring(
+            ctx, item_type="Requirement", workspace_id=workspace_id
+        )
+        require_proposal_support(authoring, item_type="Requirement")
+
+        created: list[dict[str, Any]] = []
+        with transaction.atomic():
+            for draft in accepted:
+                # ``d=draft`` binds this iteration's draft into the closure —
+                # never the loop variable.
+                created.append(
+                    self._write_derived_entity(
+                        ctx=ctx,
+                        workspace_id=workspace_id,
+                        item_type="Requirement",
+                        create_fn=lambda d=draft: RequirementService().create_requirement(
+                            workspace_id=workspace_id,
+                            title=d["title"],
+                            description=d["description"],
+                            rationale=d["rationale"],
+                            ctx=authoring.create_context,
+                            custom_fields=_ai_origin_custom_fields(),
+                        ),
+                        # The parent's backing Artifact is used as the link
+                        # endpoint (definitively resolvable, exactly like the
+                        # need path above). 'derives-from' points child ->
+                        # parent (#341), so the NEW child is the link source.
+                        source_entity_id=parent.artifact_id,
+                        source_item_type="Requirement",
+                        link_type=LinkType.DERIVES_FROM.value,
+                        new_entity_is_link_source=True,
+                        policy=policy,
+                    )
+                )
+
+        return {
+            "created": created,
+            "count": len(created),
+            "proposal": created[0]["proposal"],
+        }
+
     @staticmethod
     def _validate_accepted_drafts(drafts: Any) -> list[dict[str, str]]:
         """Return *drafts* normalized to ``{"title", "description", "rationale"}``.
@@ -2090,6 +2275,306 @@ class AiDerivationService(ServiceBase):
             "status": proposal["state"] or "draft",
             "proposal": proposal,
         }
+
+    # ------------------------------------------------------------------
+    # Preview -> persist half of mode="write" (#1358, W12a)
+    #
+    # These three methods are the *canonical persistence path* for the
+    # glossary/ADR/risk previews above: the caller obtains the preview
+    # (derive_*), hands it back here, and every draft is persisted through
+    # the very same _write_* helper the MCP write mode always used. The
+    # split (preview call + persist call) is deliberate: the MCP adapter
+    # must be able to wrap ONLY the write half in ``mcp_audit_handoff`` so
+    # the derivation's LLM audit entry stays intact (Codeberg #313).
+    # ------------------------------------------------------------------
+
+    def persist_glossary_drafts(
+        self,
+        ctx: AuthContext,
+        *,
+        workspace_id: UUID | str,
+        preview: Dict[str, Any],
+        policy: str = "manual",
+    ) -> Dict[str, Any]:
+        """Persist the drafts of a glossary preview through the write seam.
+
+        The ``mode="write"`` half of :meth:`derive_glossary_from_workspace`
+        (#1358): shared by the MCP tool
+        ``ai_derivation.derive_glossary_from_workspace`` and the REST action
+        ``POST /api/v1/glossary/derive/``, so both transports persist through
+        the exact same helper (:meth:`_write_glossary_term_draft`) with the
+        same response envelope. An empty ``drafts`` list persists nothing and
+        is still a success (mirrors the MCP loop it replaces).
+
+        Args:
+            ctx: Authenticated, tenant-scoped context.
+            workspace_id: Workspace the drafts were derived for.
+            preview: The dict :meth:`derive_glossary_from_workspace` returned
+                — only ``drafts`` (and, for the response envelope,
+                ``is_mock_fallback``) are read.
+            policy: ``"manual"`` (default) or ``"auto"`` (best-effort
+                auto-advance through the term's workflow).
+
+        Returns:
+            ``{"written": [<one :meth:`_write_glossary_term_draft` result per
+            persisted draft>], "is_mock_fallback": <bool>}``, plus a
+            ``failed`` list when individual drafts were rejected. Each draft
+            is written in its own atomic transaction, so one rejected draft
+            (e.g. a colliding ``(workspace, term)`` pair) never discards the
+            drafts already written (REQ-L3-PL003-002).
+
+        Raises:
+            ValidationError: ``policy`` is invalid, the preview is malformed,
+                or the workspace does not exist for this tenant.
+        """
+        self._set_tenant_context(ctx)
+        policy = self._validate_write_policy(policy)
+
+        workspace = self._get_workspace(workspace_id)
+        drafts = self._preview_drafts(preview, "derive_glossary_from_workspace")
+
+        written: List[Dict[str, Any]] = []
+        failed: List[Dict[str, Any]] = []
+        for draft in drafts:
+            # Defensive on purpose (service = single write entry point,
+            # ADR-01): a hand-fed draft must surface as a per-draft
+            # ValidationError from GlossaryService.create, never as a
+            # KeyError/AttributeError crashing the batch.
+            entry = draft if isinstance(draft, dict) else {}
+            raw_synonyms = entry.get("synonyms")
+            try:
+                written.append(
+                    self._write_glossary_term_draft(
+                        ctx=ctx,
+                        workspace_id=workspace.id,
+                        term=str(entry.get("term", "") or ""),
+                        definition=str(entry.get("definition", "") or ""),
+                        synonyms=(
+                            [str(s) for s in raw_synonyms]
+                            if isinstance(raw_synonyms, list)
+                            else []
+                        ),
+                        abbreviation=str(entry.get("abbreviation", "") or ""),
+                        policy=policy,
+                    )
+                )
+            except (ValidationError, NotFoundError) as exc:
+                failed.append({"draft": draft, "error": str(exc)})
+
+        response: Dict[str, Any] = {
+            "written": written,
+            "is_mock_fallback": bool(preview.get("is_mock_fallback", False)),
+        }
+        if failed:
+            response["failed"] = failed
+        return response
+
+    def persist_risk_drafts(
+        self,
+        ctx: AuthContext,
+        *,
+        architecture_element_id: UUID | str,
+        preview: Dict[str, Any],
+        policy: str = "manual",
+    ) -> Dict[str, Any]:
+        """Persist the drafts of a risk preview through the write seam.
+
+        The ``mode="write"`` half of :meth:`derive_risks_from_architecture`
+        (#1358): shared by the MCP tool
+        ``ai_derivation.derive_risks_from_architecture`` and the REST action
+        ``POST /api/v1/architecture/{id}/derive-risks/``. Each draft is
+        persisted as a Risk linked back to the architecture element via the
+        ``mitigates`` trace link (Risk -> ArchitectureElement, see
+        :meth:`_write_derived_entity`'s ``new_entity_is_link_source``).
+
+        Args:
+            ctx: Authenticated, tenant-scoped context.
+            architecture_element_id: Source element the drafts were derived
+                from (also the trace-link target).
+            preview: The dict :meth:`derive_risks_from_architecture` returned
+                — only ``drafts`` (and, for the response envelope,
+                ``is_mock_fallback``) are read.
+            policy: ``"manual"`` (default) or ``"auto"`` (best-effort
+                auto-advance through the risk's workflow).
+
+        Returns:
+            ``{"written": [<one :meth:`_write_derived_entity` result per
+            persisted draft>], "is_mock_fallback": <bool>}``, plus a
+            ``failed`` list when individual drafts were rejected. Each draft
+            is written in its own atomic transaction (REQ-L3-PL003-002).
+
+        Raises:
+            ValidationError: ``policy`` is invalid or the preview is
+                malformed.
+            NotFoundError: The architecture element does not exist for this
+                tenant.
+        """
+        self._set_tenant_context(ctx)
+        policy = self._validate_write_policy(policy)
+
+        ae = self._get_architecture_element(architecture_element_id)
+        workspace_id = ae.artifact.workspace_id
+        drafts = self._preview_drafts(preview, "derive_risks_from_architecture")
+
+        # Issue #1089: derived Risks are AI content and must be born in the
+        # "proposed" state — the create closure hands the authoring context to
+        # RiskService; _write_derived_entity only verifies the outcome.
+        authoring = self.proposal_authoring(
+            ctx, item_type="Risk", workspace_id=workspace_id
+        )
+
+        from application.risk_service import RiskService
+
+        written: List[Dict[str, Any]] = []
+        failed: List[Dict[str, Any]] = []
+        for draft in drafts:
+            # ``d=draft`` is the default-arg binding, not a closure over the
+            # loop variable (the ``lambda: ... d`` footgun the MCP write loop
+            # documents). A non-dict entry normalizes to {} so it surfaces as
+            # a per-draft ValidationError from RiskService, never as an
+            # AttributeError crashing the batch; the enum fields are
+            # re-clamped exactly like the preview builder does.
+            entry = draft if isinstance(draft, dict) else {}
+            try:
+                written.append(
+                    self._write_derived_entity(
+                        ctx=ctx,
+                        workspace_id=workspace_id,
+                        item_type="Risk",
+                        create_fn=lambda d=entry: RiskService().create_risk(
+                            workspace_id=workspace_id,
+                            title=str(d.get("title", "") or ""),
+                            probability=self._clamp_choice(
+                                d.get("probability"), Risk.Probability.values, "medium"
+                            ),
+                            impact=self._clamp_choice(
+                                d.get("impact"), Risk.Impact.values, "medium"
+                            ),
+                            ctx=authoring.create_context,
+                            description=str(d.get("description", "") or ""),
+                            category=self._clamp_choice(
+                                d.get("category"), Risk.Category.values, "technical"
+                            ),
+                        ),
+                        # _resolve_artifact_id resolves bare ArchitectureElement
+                        # ids directly, so the element's own id is used as the
+                        # source (kept for audit/doc purposes).
+                        source_entity_id=ae.id,
+                        source_item_type="ArchitectureElement",
+                        link_type=LinkType.MITIGATES.value,
+                        new_entity_is_link_source=True,
+                        policy=policy,
+                    )
+                )
+            except (ValidationError, NotFoundError) as exc:
+                failed.append({"draft": draft, "error": str(exc)})
+
+        response: Dict[str, Any] = {
+            "written": written,
+            "is_mock_fallback": bool(preview.get("is_mock_fallback", False)),
+        }
+        if failed:
+            response["failed"] = failed
+        return response
+
+    def persist_adr_draft(
+        self,
+        ctx: AuthContext,
+        *,
+        workspace_id: UUID | str,
+        preview: Dict[str, Any],
+        policy: str = "manual",
+    ) -> Dict[str, Any]:
+        """Persist the draft of an ADR preview through the write seam.
+
+        The ``mode="write"`` half of :meth:`derive_adr_from_decision` (#1358):
+        shared by the MCP tool ``ai_derivation.derive_adr_from_decision`` and
+        the REST action ``POST /api/v1/adrs/derive-from-decision/``. No trace
+        link is created — see :meth:`_write_adr_draft`'s docstring (the input
+        is raw free text, so there is no source entity to link from).
+
+        Args:
+            ctx: Authenticated, tenant-scoped context.
+            workspace_id: Workspace the new ADR belongs to.
+            preview: The dict :meth:`derive_adr_from_decision` returned — only
+                ``draft`` (and, for the response envelope, ``is_mock_fallback``)
+                are read.
+            policy: ``"manual"`` (default) or ``"auto"`` (best-effort
+                auto-advance through the ADR's workflow).
+
+        Returns:
+            ``{"written": <one :meth:`_write_adr_draft` result>,
+            "is_mock_fallback": <bool>}``. ``written`` is a single object, not
+            a list: the flow has exactly one draft.
+
+        Raises:
+            ValidationError: ``policy`` is invalid, the preview is malformed,
+                or ``title``/``description`` fail
+                ``AdrService.create_adr``'s own validation.
+            NotFoundError: The workspace does not exist for this tenant.
+        """
+        self._set_tenant_context(ctx)
+        policy = self._validate_write_policy(policy)
+
+        workspace = self._get_workspace(workspace_id)
+        draft = preview.get("draft") if isinstance(preview, dict) else None
+        if not isinstance(draft, dict):
+            raise ValidationError(
+                "'preview' must be the dict returned by "
+                "derive_adr_from_decision (with a 'draft' object)."
+            )
+
+        # No per-draft collection here: the flow has exactly one draft, so a
+        # rejection is the honest 4xx/404 for the whole call — the mapping the
+        # MCP handler has always applied (ValidationError/NotFoundError are
+        # passed through to the transport unchanged).
+        written = self._write_adr_draft(
+            ctx=ctx,
+            workspace_id=workspace.id,
+            title=str(draft.get("title", "") or ""),
+            description=str(draft.get("description", "") or ""),
+            context=str(draft.get("context", "") or ""),
+            consequences=str(draft.get("consequences", "") or ""),
+            policy=policy,
+        )
+        return {
+            "written": written,
+            "is_mock_fallback": bool(preview.get("is_mock_fallback", False)),
+        }
+
+    @staticmethod
+    def _preview_drafts(preview: Any, flow: str) -> List[Dict[str, Any]]:
+        """Return the ``drafts`` list of a preview response, or raise.
+
+        The persist methods above are reachable from MCP, REST and direct
+        callers (ADR-01: the service is the single write entry point), so they
+        must not trust their own caller's payload: a malformed preview is a
+        :class:`ValidationError`, never a KeyError crash or a silently skipped
+        batch. Server-derived previews always satisfy this — the ``derive_*``
+        builders coerce every draft field.
+        """
+        drafts = preview.get("drafts") if isinstance(preview, dict) else None
+        if not isinstance(drafts, list):
+            raise ValidationError(
+                f"'preview' must be the dict returned by {flow} "
+                "(with a 'drafts' list)."
+            )
+        return drafts
+
+    @staticmethod
+    def _validate_write_policy(policy: Any) -> str:
+        """Return *policy* unchanged, or raise for an unsupported value.
+
+        The MCP and REST transports validate the value with their own error
+        vocabulary; this keeps the Layer-2 entry point honest for direct
+        callers as well (mirrors ``_validate_accepted_drafts``'s defensive
+        stance).
+        """
+        if policy not in ("manual", "auto"):
+            raise ValidationError(
+                f"'policy' must be one of ('manual', 'auto'), got '{policy}'."
+            )
+        return policy
 
     def _auto_approve(
         self,

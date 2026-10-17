@@ -37,6 +37,10 @@ import { TraceLinkPanel } from "../shared/TraceLinkPanel";
 import { DeriveRequirementForm } from "../shared/DeriveRequirementForm";
 import { ArchitectureDecomposePanel } from "../ArchitectureDecompose/ArchitectureDecomposePanel";
 import { AiActionSection, type AiActionDescriptor } from "../shared/AiActions";
+import {
+  AiDerivationDialog,
+  type AiDerivationDraft,
+} from "../shared/AiDerivationDialog";
 import { RequirementBundleExportPanel } from "../RequirementBundleExport/RequirementBundleExportPanel";
 import { requirementsApi } from "../../api/requirements";
 import { tracelinksApi } from "../../api/tracelinks";
@@ -151,6 +155,72 @@ export default function ArchitectureEditors(): JSX.Element {
   const [decomposeHasPendingWork, setDecomposeHasPendingWork] = useState(false);
   const [showDecomposeCloseConfirm, setShowDecomposeCloseConfirm] = useState(false);
 
+  // #1360 (W12c): AI risk derivation state (the shared review dialog).
+  const [riskOpen, setRiskOpen] = useState(false);
+  const [riskDrafts, setRiskDrafts] = useState<AiDerivationDraft[] | null>(null);
+  const [riskLoading, setRiskLoading] = useState(false);
+  const [riskLoadError, setRiskLoadError] = useState<string | null>(null);
+  const [riskSaving, setRiskSaving] = useState(false);
+  const [riskSubmitError, setRiskSubmitError] = useState<string | null>(null);
+  const [riskStatus, setRiskStatus] = useState<string | null>(null);
+
+  /**
+   * #1358/#1360: `derive-risks` preview (`ephemeral: true`) feeds the shared
+   * review dialog; Confirm / "Review later" call the `mode="write"` seam.
+   */
+  const openRiskDialog = useCallback(async (): Promise<void> => {
+    if (!element) return;
+    setRiskOpen(true);
+    setRiskDrafts(null);
+    setRiskLoadError(null);
+    setRiskSubmitError(null);
+    setRiskLoading(true);
+    try {
+      const preview = await architectureApi.deriveRisksPreview(element.id);
+      setRiskDrafts(
+        preview.drafts.map((draft) => ({
+          title: draft.title,
+          description: draft.description,
+        }))
+      );
+    } catch (err: unknown) {
+      const apiErr = err as { error?: { message?: string } };
+      setRiskLoadError(apiErr?.error?.message ?? t("needs.deriveFailed"));
+    } finally {
+      setRiskLoading(false);
+    }
+  }, [element, t]);
+
+  const closeRiskDialog = useCallback((): void => {
+    setRiskOpen(false);
+    setRiskDrafts(null);
+    setRiskLoadError(null);
+    setRiskSubmitError(null);
+  }, []);
+
+  const handleRiskDecision = useCallback(
+    async (parked: boolean): Promise<void> => {
+      if (!element) return;
+      setRiskSaving(true);
+      setRiskSubmitError(null);
+      try {
+        const receipt = await architectureApi.deriveRisksWrite(element.id);
+        setRiskStatus(
+          t(parked ? "aiDerivation.statusParked" : "aiDerivation.statusCreated", {
+            count: receipt.written.length,
+          })
+        );
+        closeRiskDialog();
+      } catch (err: unknown) {
+        const apiErr = err as { error?: { message?: string } };
+        setRiskSubmitError(apiErr?.error?.message ?? t("needs.deriveFailed"));
+      } finally {
+        setRiskSaving(false);
+      }
+    },
+    [element, t, closeRiskDialog]
+  );
+
   const requestCloseDecomposePanel = useCallback((): void => {
     if (decomposeHasPendingWork) {
       setShowDecomposeCloseConfirm(true);
@@ -164,6 +234,10 @@ export default function ArchitectureEditors(): JSX.Element {
    * trigger is this route's only one, and it now shares the section, the flat
    * icon and the button variant with the Requirements and Needs routes. Empty
    * when no element is selected, and an empty list renders no section at all.
+   *
+   * #1360 (W12c): the risk derivation (#1358's `derive-risks` REST parity, no
+   * UI entry before this) joins the same section — it is the element-scoped
+   * derivation, so the element route is its natural home.
    */
   const aiActions = useMemo<AiActionDescriptor[]>(() => {
     if (!element) return [];
@@ -174,8 +248,15 @@ export default function ArchitectureEditors(): JSX.Element {
         onClick: () => setShowDecomposePanel(true),
         testId: "arch-decompose-btn",
       },
+      {
+        label: t("aiDerivation.riskAction"),
+        hint: t("aiActions.hint"),
+        onClick: () => void openRiskDialog(),
+        disabled: riskLoading,
+        testId: "arch-derive-risks-btn",
+      },
     ];
-  }, [element, t]);
+  }, [element, t, openRiskDialog, riskLoading]);
 
   // Requirement Bundle Export panel state
   const [showBundleExportPanel, setShowBundleExportPanel] = useState(false);
@@ -731,6 +812,17 @@ export default function ArchitectureEditors(): JSX.Element {
               actions={aiActions}
             />
 
+            {/* #1360: the derivation's outcome, once the dialog is closed. */}
+            {riskStatus && (
+              <p
+                role="status"
+                data-testid="arch-derive-risks-status"
+                className={styles.selectPrompt}
+              >
+                {riskStatus}
+              </p>
+            )}
+
             {/* TraceLink panel — carries the e2e test-id since the old
                 placeholder aside ("See the Inspector sidebar") was removed:
                 the linked-requirements management lives HERE, the read-only
@@ -864,6 +956,24 @@ export default function ArchitectureEditors(): JSX.Element {
             elementTitle={element.title}
           />
         </Dialog>
+      )}
+
+      {/* #1360 (W12c): the shared review dialog for the risk derivation. */}
+      {riskOpen && element && (
+        <AiDerivationDialog
+          open
+          title={t("aiDerivation.riskDialogTitle")}
+          sourceLabel={t("aiDerivation.riskSource", { title: element.title })}
+          drafts={riskDrafts}
+          isLoading={riskLoading}
+          loadError={riskLoadError}
+          isSubmitting={riskSaving}
+          submitError={riskSubmitError}
+          onConfirm={() => void handleRiskDecision(false)}
+          onReviewLater={() => void handleRiskDecision(true)}
+          onDiscard={closeRiskDialog}
+          testIdPrefix="arch-derive-risks"
+        />
       )}
 
       {/* UI concept ch. 12.1: exactly one <h1> per route, always-visible

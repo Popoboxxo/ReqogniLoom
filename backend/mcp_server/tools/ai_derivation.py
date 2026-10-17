@@ -6,11 +6,16 @@ Exposes the three Draft/Accept derivation flows as MCP tools. Every tool
 supports two modes (Phase 3, REQ-L2-AI-003):
 
   mode="preview" (default) — returns *drafts only*, nothing is persisted.
-      This is the original, unchanged behaviour of all three tools.
-  mode="write"   — persists the draft(s) via the existing application
-      services, creates the corresponding TraceLink(s) back to the source
-      entity, and (with ``policy="auto"``) best-effort auto-advances the
-      new entity through its workflow.
+      This is the original, unchanged behaviour of all three tools, now
+      honestly marked on the wire: every preview response carries
+      ``"ephemeral": true`` (#1358) so an agent can never mistake the
+      drafts for persisted data.
+  mode="write"   — the canonical persistence path. Persists the draft(s) via
+      the existing application services, creates the corresponding
+      TraceLink(s) back to the source entity, and (with ``policy="auto"``)
+      best-effort auto-advances the new entity through its workflow. The
+      response is the persistence receipt (``written``, plus ``failed`` for
+      individually rejected drafts) and never carries ``ephemeral``.
 
 Tools:
   ai_derivation.derive_requirements_from_need(need_id, n=3, mode, policy)
@@ -290,8 +295,11 @@ _MODE_POLICY_SCHEMA_PROPERTIES: Dict[str, Any] = {
         "type": "string",
         "enum": list(_VALID_MODES),
         "description": (
-            "'preview' (default) returns drafts only; 'write' persists them "
-            "and creates the corresponding trace link(s)."
+            "'preview' (default) returns drafts only and marks the response "
+            "`ephemeral: true` (#1358) — nothing is persisted. 'write' is the "
+            "canonical persistence path: it persists the drafts (seeded as "
+            "'proposed' where the workspace's workflow supports it) and "
+            "creates the corresponding trace link(s)."
         ),
     },
     "policy": {
@@ -323,8 +331,10 @@ class AiDerivationToolGroup(BaseToolGroup):
             "name": "ai_derivation.derive_requirements_from_need",
             "description": (
                 "Propose system requirement drafts for a stakeholder need. "
-                "mode='preview' (default) returns drafts only; mode='write' "
-                "persists each draft as a Requirement and links it back to "
+                "mode='preview' (default) returns drafts only — the response "
+                "is marked `ephemeral: true` and persists nothing; "
+                "mode='write' (canonical persistence path) persists each "
+                "draft as a Requirement and links it back to "
                 "the need via a 'derives-from' trace link "
                 "(new Requirement -> Need)."
             ),
@@ -353,7 +363,9 @@ class AiDerivationToolGroup(BaseToolGroup):
             "description": (
                 "Suggest existing architecture elements that could satisfy "
                 "an unassigned requirement. mode='preview' (default) returns "
-                "element ids only; mode='write' allocates the requirement to "
+                "element ids only — marked `ephemeral: true`, persists "
+                "nothing; mode='write' (canonical persistence path) "
+                "allocates the requirement to "
                 "the top-ranked suggested element via an 'allocated-to' trace "
                 "link (only one allocation per requirement is possible; no "
                 "new ArchitectureElement is ever created by this tool)."
@@ -375,7 +387,9 @@ class AiDerivationToolGroup(BaseToolGroup):
             "description": (
                 "Propose next-level requirement drafts for a requirement that is "
                 "allocated to at least one architecture element. mode='preview' "
-                "(default) returns drafts only; mode='write' persists each draft "
+                "(default) returns drafts only — marked `ephemeral: true`, "
+                "persists nothing; mode='write' (canonical persistence path) "
+                "persists each draft "
                 "as a child Requirement and links it back to the parent via a "
                 "'derives-from' trace link (child -> parent)."
             ),
@@ -395,9 +409,11 @@ class AiDerivationToolGroup(BaseToolGroup):
             "name": "ai_derivation.derive_risks_from_architecture",
             "description": (
                 "Propose risk drafts for an architecture element. "
-                "mode='preview' (default) returns drafts only; mode='write' "
-                "persists each draft as a Risk and links it back to the "
-                "architecture element via a 'mitigates' trace link."
+                "mode='preview' (default) returns drafts only — marked "
+                "`ephemeral: true`, persists nothing; mode='write' (canonical "
+                "persistence path) persists each draft as a Risk and links it "
+                "back to the architecture element via a 'mitigates' trace link. "
+                "REST parity: POST /api/v1/architecture/{id}/derive-risks/."
             ),
             "inputSchema": {
                 "type": "object",
@@ -416,10 +432,12 @@ class AiDerivationToolGroup(BaseToolGroup):
             "description": (
                 "Propose glossary term drafts extracted from a workspace's "
                 "requirements and architecture elements. mode='preview' "
-                "(default) returns drafts only; mode='write' persists each "
-                "draft as a GlossaryTerm. No trace link is created (a "
-                "Workspace id cannot be a trace-link source and GlossaryTerm "
-                "has no backing Artifact)."
+                "(default) returns drafts only — marked `ephemeral: true`, "
+                "persists nothing; mode='write' (canonical persistence path) "
+                "persists each draft as a GlossaryTerm. No trace link is "
+                "created (a Workspace id cannot be a trace-link source and "
+                "GlossaryTerm has no backing Artifact). "
+                "REST parity: POST /api/v1/glossary/derive/."
             ),
             "inputSchema": {
                 "type": "object",
@@ -438,10 +456,13 @@ class AiDerivationToolGroup(BaseToolGroup):
             "description": (
                 "Structure a free-text decision description into an ADR "
                 "draft (title, description, context, consequences). "
-                "mode='preview' (default) returns the draft only; "
-                "mode='write' persists it as an Adr. No trace link is "
+                "mode='preview' (default) returns the draft only — marked "
+                "`ephemeral: true`, persists nothing; "
+                "mode='write' (canonical persistence path) persists it as an "
+                "Adr. No trace link is "
                 "created (the input is raw free text, not an existing "
-                "artifact id — there is no source entity to link from)."
+                "artifact id — there is no source entity to link from). "
+                "REST parity: POST /api/v1/adrs/derive-from-decision/."
             ),
             "inputSchema": {
                 "type": "object",
@@ -472,6 +493,10 @@ class AiDerivationToolGroup(BaseToolGroup):
     ) -> None:
         self._service = service or AiDerivationService()
         self._requirement_service = requirement_service or RequirementService()
+        # Retained for API compatibility (callers/tests may inject one): the
+        # risk write path moved into AiDerivationService.persist_risk_drafts
+        # in W12a (#1358), where the RiskService is constructed per call like
+        # every other write helper.
         self._risk_service = risk_service or RiskService()
 
     def _handle_derive_requirements(
@@ -683,55 +708,27 @@ class AiDerivationToolGroup(BaseToolGroup):
         if mode == "preview":
             return ToolResult.ok(preview)
 
+        # The persistence half lives in the service (#1358, W12a): the REST
+        # action ``POST /api/v1/architecture/{id}/derive-risks/`` calls the
+        # same ``persist_risk_drafts`` seam, so MCP and REST cannot drift
+        # apart. Each draft is still written in its own atomic transaction
+        # there (a failure on one draft must not discard the drafts already
+        # written — REQ-L3-PL003-002); this handler adds only the
+        # MCP-specific audit entries on top of the returned ``written``
+        # payload.
         try:
-            ae = self._service._get_architecture_element(architecture_element_id)
+            response = self._service.persist_risk_drafts(
+                auth_context,
+                architecture_element_id=architecture_element_id,
+                preview=preview,
+                policy=policy,
+            )
+        except ValidationError as exc:
+            return ToolResult.error("VALIDATION_ERROR", str(exc))
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
-        workspace_id = ae.artifact.workspace_id
 
-        # Issue #1089: derived Risks are AI content too — see
-        # derive_requirements_from_need above.
-        authoring = self._service.proposal_authoring(
-            auth_context, item_type="Risk", workspace_id=workspace_id
-        )
-
-        # See _handle_derive_requirements above: each draft is written in its
-        # own atomic transaction, so a failure on one draft must not discard
-        # the drafts already written in this loop.
-        written: List[Dict[str, Any]] = []
-        failed: List[Dict[str, Any]] = []
-        for draft in preview["drafts"]:
-            try:
-                result = self._service._write_derived_entity(
-                    ctx=auth_context,
-                    workspace_id=workspace_id,
-                    item_type="Risk",
-                    create_fn=lambda d=draft: self._risk_service.create_risk(
-                        workspace_id=workspace_id,
-                        title=d["title"],
-                        probability=d["probability"],
-                        impact=d["impact"],
-                        ctx=authoring.create_context,
-                        description=d["description"],
-                        category=d["category"],
-                    ),
-                    # _resolve_artifact_id resolves bare ArchitectureElement
-                    # ids directly, so the element's own id (not its artifact
-                    # id) is used as source_entity_id (kept for audit/doc
-                    # purposes, see docstring). 'mitigates' runs Risk ->
-                    # ArchitectureElement (link_types.builtin), the opposite
-                    # of the derivation direction, so the new Risk must be
-                    # the link source.
-                    source_entity_id=architecture_element_id,
-                    source_item_type="ArchitectureElement",
-                    link_type=LinkType.MITIGATES.value,
-                    new_entity_is_link_source=True,
-                    policy=policy,
-                )
-            except (ValidationError, NotFoundError) as exc:
-                failed.append({"draft": draft, "error": str(exc)})
-                continue
-            written.append(result)
+        for result in response["written"]:
             write_mcp_audit(
                 ctx=auth_context,
                 # #626: this tool creates exactly one new entity per audit call -- reuse "create", the REST pendant.
@@ -745,13 +742,6 @@ class AiDerivationToolGroup(BaseToolGroup):
                     "policy": policy,
                 },
             )
-        # See derive_requirements_from_need above (Systemaudit item 11).
-        response: Dict[str, Any] = {
-            "written": written,
-            "is_mock_fallback": bool(preview.get("is_mock_fallback", False)),
-        }
-        if failed:
-            response["failed"] = failed
         return ToolResult.ok(response)
 
     def _handle_derive_glossary_from_workspace(
@@ -774,37 +764,30 @@ class AiDerivationToolGroup(BaseToolGroup):
         if mode == "preview":
             return ToolResult.ok(preview)
 
-        # Unlike the other three write paths, this one creates NO trace
-        # link (see AiDerivationService._write_glossary_term_draft's
-        # docstring: a bare Workspace id is not a resolvable
-        # TraceLinkService source, and GlossaryTerm has no backing Artifact
-        # to link from either).
-        #
-        # Each draft is written in its own atomic transaction
-        # (_write_glossary_term_draft is wrapped in @atomic_transaction), so
-        # a failure on one draft must not discard the drafts already written
-        # in this loop. GlossaryService.create() raises ValidationError for
-        # a colliding (workspace, term) pair (REQ-L1-044's unique_together
-        # constraint) — caught here exactly like every other draft-specific
-        # ValidationError, never left to crash the batch
-        # (REQ-L3-PL003-002).
-        written: List[Dict[str, Any]] = []
-        failed: List[Dict[str, Any]] = []
-        for draft in preview["drafts"]:
-            try:
-                result = self._service._write_glossary_term_draft(
-                    ctx=auth_context,
-                    workspace_id=workspace_id,
-                    term=draft["term"],
-                    definition=draft["definition"],
-                    synonyms=draft["synonyms"],
-                    abbreviation=draft["abbreviation"],
-                    policy=policy,
-                )
-            except (ValidationError, NotFoundError) as exc:
-                failed.append({"draft": draft, "error": str(exc)})
-                continue
-            written.append(result)
+        # The persistence half lives in the service (#1358, W12a): the REST
+        # action ``POST /api/v1/glossary/derive/`` calls the same
+        # ``persist_glossary_drafts`` seam. It creates NO trace link (see
+        # AiDerivationService._write_glossary_term_draft's docstring: a bare
+        # Workspace id is not a resolvable TraceLinkService source, and
+        # GlossaryTerm has no backing Artifact to link from either). Each
+        # draft is still written in its own atomic transaction, so a failure
+        # on one draft must not discard the drafts already written in the
+        # batch (REQ-L3-PL003-002) — a colliding (workspace, term) pair
+        # (REQ-L1-044's unique_together constraint) surfaces per-draft in
+        # ``failed``, never as a crash of the whole call.
+        try:
+            response = self._service.persist_glossary_drafts(
+                auth_context,
+                workspace_id=workspace_id,
+                preview=preview,
+                policy=policy,
+            )
+        except ValidationError as exc:
+            return ToolResult.error("VALIDATION_ERROR", str(exc))
+        except NotFoundError as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+
+        for result in response["written"]:
             write_mcp_audit(
                 ctx=auth_context,
                 # #626: this tool creates exactly one new entity per audit call -- reuse "create", the REST pendant.
@@ -815,13 +798,6 @@ class AiDerivationToolGroup(BaseToolGroup):
                 api_key=api_key,
                 details={"source_workspace_id": str(workspace_id), "policy": policy},
             )
-        # See derive_requirements_from_need above (Systemaudit item 11).
-        response: Dict[str, Any] = {
-            "written": written,
-            "is_mock_fallback": bool(preview.get("is_mock_fallback", False)),
-        }
-        if failed:
-            response["failed"] = failed
         return ToolResult.ok(response)
 
     def _handle_derive_adr_from_decision(
@@ -850,48 +826,43 @@ class AiDerivationToolGroup(BaseToolGroup):
         if mode == "preview":
             return ToolResult.ok(preview)
 
-        # Unlike the other write paths, this one creates NO trace link (see
+        # The persistence half lives in the service (#1358, W12a): the REST
+        # action ``POST /api/v1/adrs/derive-from-decision/`` calls the same
+        # ``persist_adr_draft`` seam. It creates NO trace link (see
         # AiDerivationService._write_adr_draft's docstring): the input,
         # decision_description, is raw free text — there is no source
         # entity id at all to link from, regardless of whether Adr itself
         # is a resolvable TraceLink endpoint (it is).
-        draft = preview["draft"]
         try:
             # Codeberg #313: suppress _write_adr_draft's single internal
             # _audit() call (via AdrService.create_adr, same entity; no
             # TraceLink is created for this flow — see the docstring) —
-            # write_mcp_audit below is the sole entry.
+            # write_mcp_audit below is the sole entry. The handoff wraps ONLY
+            # this persist call (not the derivation above), so the LLM audit
+            # entry of the preview call stays intact.
             with mcp_audit_handoff():
-                result = self._service._write_adr_draft(
-                    ctx=auth_context,
+                response = self._service.persist_adr_draft(
+                    auth_context,
                     workspace_id=workspace_id,
-                    title=draft["title"],
-                    description=draft["description"],
-                    context=draft["context"],
-                    consequences=draft["consequences"],
+                    preview=preview,
                     policy=policy,
                 )
-        except (ValidationError, NotFoundError) as exc:
-            error_code = "VALIDATION_ERROR" if isinstance(exc, ValidationError) else "NOT_FOUND"
-            return ToolResult.error(error_code, str(exc))
+        except ValidationError as exc:
+            return ToolResult.error("VALIDATION_ERROR", str(exc))
+        except NotFoundError as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
 
         write_mcp_audit(
             ctx=auth_context,
             # #626: this tool creates exactly one new entity per audit call -- reuse "create", the REST pendant.
             operation="create",
             entity_type="Adr",
-            entity_id=UUID(result["id"]),
+            entity_id=UUID(response["written"]["id"]),
             tool_name="ai_derivation.derive_adr_from_decision",
             api_key=api_key,
             details={"workspace_id": str(workspace_id), "policy": policy},
         )
-        # See derive_requirements_from_need above (Systemaudit item 11).
-        return ToolResult.ok(
-            {
-                "written": result,
-                "is_mock_fallback": bool(preview.get("is_mock_fallback", False)),
-            }
-        )
+        return ToolResult.ok(response)
 
 
 __all__ = ["AiDerivationToolGroup"]

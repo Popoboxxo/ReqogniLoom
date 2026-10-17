@@ -87,3 +87,10 @@
   font-size: var(--font-size-sm);
   margin-top: var(--space-2);
 }
+
+/* #1360: the AI derivation's outcome message, under the page header. */
+.deriveStatus {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  margin: 0 0 var(--space-3);
+}

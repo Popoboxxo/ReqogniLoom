@@ -684,7 +684,9 @@ class McpTestToolGroup(BaseToolGroup):
             "description": (
                 "SysEng 2.0 N5: propose a TestCase draft (title, description, "
                 "steps) for a Requirement via the LLM adapter. mode='preview' "
-                "(default) returns the draft only; mode='write' persists it as "
+                "(default) returns the draft only — marked `ephemeral: true`, "
+                "persists nothing; mode='write' (canonical persistence path) "
+                "persists it as "
                 "a TestCase and links it back to the requirement via a "
                 "'verifies' trace link."
             ),

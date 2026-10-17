@@ -97,6 +97,13 @@ vi.mock("../api/requirements", () => ({
       drafts: [],
       parent_requirement_id: "req-001",
     }),
+    // #1368: the accept half of the Draft/Accept flow (the confirm step of
+    // the shared AI review dialog).
+    acceptAiDecomposition: vi.fn().mockResolvedValue({
+      count: 0,
+      created: [],
+      proposal: { is_proposal: true },
+    }),
   },
 }));
 
@@ -388,6 +395,8 @@ describe("RequirementEditors (COMP-RF-003 / REQ-L2-RF-003)", () => {
   // Issue #311: zero drafts used to render the *success* message — both
   // branches of the status ternary were literally identical, so "the AI
   // returned nothing" was indistinguishable from "derivation worked".
+  // #1368: the drafts now open the shared review dialog, so an empty answer is
+  // its explicit empty state there — and there is still no success message.
   it("reports an empty AI derivation as a problem, not as success (issue #311)", async () => {
     const user = userEvent.setup();
     vi.mocked(requirementsApi.aiDecomposeNextLevel).mockResolvedValue({
@@ -402,14 +411,13 @@ describe("RequirementEditors (COMP-RF-003 / REQ-L2-RF-003)", () => {
     });
     await user.click(screen.getByTestId("req-ai-derive-btn"));
 
-    const status = await screen.findByTestId("req-ai-derive-status");
-    await waitFor(() => {
-      expect(status).toHaveAttribute("role", "alert");
-    });
-    expect(status.textContent ?? "").toMatch(/aiDeriveEmpty|proposed no|keine/i);
+    expect(await screen.findByTestId("req-derive-drafts-empty")).toBeInTheDocument();
+    // Nothing claims a save: no status region, and both save actions are off.
+    expect(screen.queryByTestId("req-ai-derive-status")).not.toBeInTheDocument();
+    expect(screen.getByTestId("req-derive-drafts-confirm")).toBeDisabled();
   });
 
-  it("reports a non-empty AI derivation as success (issue #311)", async () => {
+  it("renders a non-empty AI derivation as reviewable drafts, not as a save (issue #311/#1368)", async () => {
     const user = userEvent.setup();
     vi.mocked(requirementsApi.aiDecomposeNextLevel).mockResolvedValue({
       drafts: [
@@ -429,10 +437,12 @@ describe("RequirementEditors (COMP-RF-003 / REQ-L2-RF-003)", () => {
     });
     await user.click(screen.getByTestId("req-ai-derive-btn"));
 
-    const status = await screen.findByTestId("req-ai-derive-status");
-    await waitFor(() => {
-      expect(status).toHaveAttribute("role", "status");
-    });
+    // The draft is on screen; the preview alone must not report a save.
+    expect(await screen.findByTestId("req-derive-drafts-title-0")).toHaveTextContent(
+      "Child requirement",
+    );
+    expect(screen.queryByTestId("req-ai-derive-status")).not.toBeInTheDocument();
+    expect(requirementsApi.acceptAiDecomposition).not.toHaveBeenCalled();
   });
 
   it("renders the AI actions in ONE section, each with the shared flat icon", async () => {

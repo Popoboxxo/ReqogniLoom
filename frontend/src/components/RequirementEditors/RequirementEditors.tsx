@@ -45,6 +45,10 @@ import { RequirementArtifactForm, REQUIREMENT_ATTRIBUTE_OVERRIDES } from './Requ
 import { ArtifactForm, type ArtifactFormValues } from '../shared/ArtifactForm';
 import { ReqTraceLinkPanel } from './ReqTraceLinkPanel';
 import { AiActionSection, type AiActionDescriptor } from '../shared/AiActions';
+import {
+  AiDerivationDialog,
+  type AiDerivationDraft,
+} from '../shared/AiDerivationDialog';
 import { SimilarRequirementsPanel } from './SimilarRequirementsPanel';
 import { ArtifactMemoryPanel } from '../Memory/ArtifactMemoryPanel';
 import { DeriveTestCasePanel } from '../TestCaseEditors/DeriveTestCasePanel';
@@ -146,6 +150,14 @@ export default function RequirementEditors(): JSX.Element {
   const [isAiDeriving, setIsAiDeriving] = useState(false);
   const [aiDeriveStatus, setAiDeriveStatus] = useState<string | null>(null);
   const [aiDeriveIsError, setAiDeriveIsError] = useState(false);
+  // Issue #1368 (W12b): the preview's drafts are no longer discarded. They
+  // live here until the user confirms, parks or discards them in the shared
+  // `<AiDerivationDialog>`. `null` = no preview result on screen.
+  const [showAiDeriveDialog, setShowAiDeriveDialog] = useState(false);
+  const [aiDrafts, setAiDrafts] = useState<AiDerivationDraft[] | null>(null);
+  const [aiDraftLoadError, setAiDraftLoadError] = useState<string | null>(null);
+  const [isAiSaving, setIsAiSaving] = useState(false);
+  const [aiDraftSubmitError, setAiDraftSubmitError] = useState<string | null>(null);
 
   // SysEng 2.0 N5 (test.derive_from_requirement): AI TestCase-draft copilot
   const [showDeriveTestcasePanel, setShowDeriveTestcasePanel] = useState(false);
@@ -340,38 +352,107 @@ export default function RequirementEditors(): JSX.Element {
   }, [activeWorkspace, t]);
 
   /**
-   * REQ-008: AI-assisted decomposition of the selected requirement to
+   * REQ-008 / #1368: AI-assisted decomposition of the selected requirement to
    * next-level drafts via POST /requirements/{id}/decompose-next-level/.
+   *
+   * The endpoint is a pure preview (#1358, `ephemeral: true`): this handler
+   * therefore no longer reports a saved review item. It opens the shared
+   * `<AiDerivationDialog>` on the returned drafts; only Confirm / "Review
+   * later" reach the accept seam (`acceptAiDecomposition`), Discard writes
+   * nothing. Before #1368 the drafts were counted and dropped while the
+   * status text promised "Vorschläge warten unter Reviews → Nur KI-Vorschläge"
+   * — a queue entry that never existed.
    */
   const handleAiDerive = useCallback(async (): Promise<void> => {
     if (!requirement) return;
     setIsAiDeriving(true);
     setAiDeriveIsError(false);
     setAiDeriveStatus(t('needs.deriveStarting'));
+    setAiDraftLoadError(null);
+    setAiDraftSubmitError(null);
+    setAiDrafts(null);
+    setShowAiDeriveDialog(true);
     try {
       const result = await requirementsApi.aiDecomposeNextLevel(requirement.id);
-      const count = result.drafts?.length ?? 0;
-      // Issue #311: both branches used to render the same success message, so
-      // a run that produced zero drafts reported "derived successfully" and
-      // left no trace of the fact that nothing had happened.
-      if (count > 0) {
-        // #1089: the derivation lands in `proposed`, so it is not finished
-        // work — it is a queue entry. The message has to name where the user
-        // reviews it, otherwise "derived successfully" reads as "done".
-        setAiDeriveStatus(t('needs.deriveSuccess', { count }));
-        refresh();
-        return;
-      }
-      setAiDeriveIsError(true);
-      setAiDeriveStatus(t('req.aiDeriveEmpty'));
+      const drafts = result.drafts ?? [];
+      // Issue #311: an empty answer is a state of its own, not a success — the
+      // dialog renders it as its explicit empty state, and the status region
+      // stays silent (it never claims a save that did not happen).
+      setAiDrafts(
+        drafts.map((draft) => ({
+          title: draft.title,
+          description: draft.description,
+          rationale: draft.rationale,
+        }))
+      );
+      setAiDeriveStatus(null);
     } catch (err: unknown) {
       const apiErr = err as { error?: { message?: string } };
+      // The failure is shown twice on purpose: in the dialog (where the user
+      // is) and in the route's status region (which survives closing it).
+      setAiDraftLoadError(apiErr?.error?.message ?? t('needs.deriveFailed'));
       setAiDeriveIsError(true);
       setAiDeriveStatus(apiErr?.error?.message ?? t('needs.deriveFailed'));
     } finally {
       setIsAiDeriving(false);
     }
-  }, [requirement, t, refresh]);
+  }, [requirement, t]);
+
+  // The dialog's two save actions. Mechanically they share the accept seam —
+  // every canonical write path lands the children in the workflow's
+  // `proposed` state (#1089), where `_auto_approve` deliberately stops — so
+  // the difference is the message: "created, approve them under Reviews" vs
+  // "parked for later review" (issue #1360's third outcome).
+  const handleAiDraftDecision = useCallback(
+    async (drafts: AiDerivationDraft[], parked: boolean): Promise<void> => {
+      if (!requirement || drafts.length === 0) return;
+      setIsAiSaving(true);
+      setAiDraftSubmitError(null);
+      try {
+        const result = await requirementsApi.acceptAiDecomposition(
+          requirement.id,
+          drafts.map((draft) => ({
+            title: draft.title,
+            description: draft.description,
+            rationale: draft.rationale,
+          }))
+        );
+        if (!result.proposal?.is_proposal) {
+          // The server read the created state back and it is not a proposal —
+          // e.g. a workspace whose graph has no "proposed" state. Surface its
+          // own reason instead of claiming a queue entry that does not exist.
+          setAiDraftSubmitError(
+            t('deriveRequirements.reviewRequired', {
+              reason: result.proposal?.reason || t('needs.deriveFailed'),
+            })
+          );
+          return;
+        }
+        setAiDeriveIsError(false);
+        setAiDeriveStatus(
+          t(parked ? 'aiDerivation.statusParked' : 'aiDerivation.statusCreated', {
+            count: result.count,
+          })
+        );
+        setShowAiDeriveDialog(false);
+        setAiDrafts(null);
+        refresh();
+      } catch (err: unknown) {
+        const apiErr = err as { error?: { message?: string } };
+        setAiDraftSubmitError(apiErr?.error?.message ?? t('needs.deriveFailed'));
+      } finally {
+        setIsAiSaving(false);
+      }
+    },
+    [requirement, t, refresh]
+  );
+
+  const closeAiDeriveDialog = useCallback((): void => {
+    setShowAiDeriveDialog(false);
+    setAiDrafts(null);
+    setAiDraftLoadError(null);
+    setAiDraftSubmitError(null);
+  }, []);
 
   /**
    * Issue #1092: the route's complete AI-action set, in one list. Each entry
@@ -758,6 +839,27 @@ export default function RequirementEditors(): JSX.Element {
             onCreated={() => setShowDeriveTestcasePanel(false)}
           />
         </Dialog>
+      )}
+      {/* Issue #1368 (W12b): the `decompose-next-level` preview's drafts are
+          rendered here, in the app-wide AI review dialog (#1360). Confirm and
+          "Review later" persist the selected drafts through the accept seam
+          (`proposed`, #1089); Discard writes nothing. */}
+      {showAiDeriveDialog && requirement && (
+        <AiDerivationDialog
+          open
+          title={t('actions.deriveAi')}
+          sourceLabel={requirement.title}
+          drafts={aiDrafts}
+          isLoading={isAiDeriving}
+          loadError={aiDraftLoadError}
+          isSubmitting={isAiSaving}
+          submitError={aiDraftSubmitError}
+          selectable
+          onConfirm={(drafts) => void handleAiDraftDecision(drafts, false)}
+          onReviewLater={(drafts) => void handleAiDraftDecision(drafts, true)}
+          onDiscard={closeAiDeriveDialog}
+          testIdPrefix="req-derive-drafts"
+        />
       )}
       {/* Same page shell as RiskEditors/AdrEditors/IssueEditors: header at
           page level, SplitView filling the rest. */}
