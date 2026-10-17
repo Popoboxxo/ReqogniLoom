@@ -137,7 +137,9 @@ class AsyncDispatcher:
                     self.target_subsystem, operation_path, payload
                 )
                 return DispatchResult(accepted=True, async_handle=handle)
-            except Exception:  # noqa: BLE001 — broker unreachable -> sync fallback
+            except Exception:  # noqa: BLE001, S110 — broker unreachable -> sync fallback
+                # Deliberate: any broker/queue failure degrades to the
+                # synchronous path below instead of failing the dispatch.
                 pass
 
         # Synchronous fallback when no broker is configured/reachable.

@@ -104,7 +104,7 @@ def _matrix_cache_keys(workspace_id: str) -> list[str]:
         from traceability.services import traceability_matrix_cache_key
 
         return [traceability_matrix_cache_key(workspace_id)]
-    except Exception:  # pragma: no cover - defensive; never break invalidation
+    except Exception:  # noqa: BLE001 — never break invalidation  # pragma: no cover - defensive
         return []
 
 

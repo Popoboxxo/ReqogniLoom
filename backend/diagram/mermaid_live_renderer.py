@@ -242,7 +242,7 @@ class MermaidLiveRenderer:
                     diagram_type=result.diagram.diagram_type,
                     payload_format=result.version.payload_format,
                 )
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 — REQ-L2-DS-007 fallback; logged warning
                 # REQ-L2-DS-007 AC5/AC9: Fallback on renderer failure
                 logger.warning(
                     "Renderer failed for diagram %s: %s. Activating fallback mode.",
@@ -271,7 +271,7 @@ class MermaidLiveRenderer:
                 error_message="",
             )
 
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — catch-all fallback path; logged error
             # Catch-all for unexpected errors — activate fallback
             logger.error(
                 "Unexpected error in get_live_preview_data for %s: %s",

@@ -98,6 +98,7 @@ from django.db.models import Count, Max
 from django.http import HttpResponse
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, status
+from rest_framework.exceptions import NotAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -405,7 +406,7 @@ class WorkspaceMemorySettingsView(APIView):
         lang = detect_lang(request)
         try:
             get_auth_context(request)
-        except Exception:
+        except NotAuthenticated:
             return Response(
                 build_error_response("AUTHENTICATION_REQUIRED", lang),
                 status=status.HTTP_401_UNAUTHORIZED,
@@ -423,7 +424,7 @@ class WorkspaceMemorySettingsView(APIView):
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
-        except Exception:
+        except NotAuthenticated:
             return Response(
                 build_error_response("AUTHENTICATION_REQUIRED", lang),
                 status=status.HTTP_401_UNAUTHORIZED,
@@ -487,7 +488,7 @@ class SystemMemorySettingsView(APIView):
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
-        except Exception:
+        except NotAuthenticated:
             return Response(
                 build_error_response("AUTHENTICATION_REQUIRED", lang),
                 status=status.HTTP_401_UNAUTHORIZED,
@@ -504,7 +505,7 @@ class SystemMemorySettingsView(APIView):
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
-        except Exception:
+        except NotAuthenticated:
             return Response(
                 build_error_response("AUTHENTICATION_REQUIRED", lang),
                 status=status.HTTP_401_UNAUTHORIZED,
@@ -543,7 +544,7 @@ class SystemMemorySettingsResetView(APIView):
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
-        except Exception:
+        except NotAuthenticated:
             return Response(
                 build_error_response("AUTHENTICATION_REQUIRED", lang),
                 status=status.HTTP_401_UNAUTHORIZED,
@@ -579,7 +580,7 @@ class SystemMemoryWorkspaceOverviewView(APIView):
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
-        except Exception:
+        except NotAuthenticated:
             return Response(
                 build_error_response("AUTHENTICATION_REQUIRED", lang),
                 status=status.HTTP_401_UNAUTHORIZED,
@@ -630,7 +631,7 @@ class SystemMemoryWorkspaceDeleteView(APIView):
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
-        except Exception:
+        except NotAuthenticated:
             return Response(
                 build_error_response("AUTHENTICATION_REQUIRED", lang),
                 status=status.HTTP_401_UNAUTHORIZED,
@@ -701,7 +702,7 @@ class SystemMemoryEntriesListView(_SystemMemoryVisualizationView):
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
-        except Exception:
+        except NotAuthenticated:
             return Response(
                 build_error_response("AUTHENTICATION_REQUIRED", lang),
                 status=status.HTTP_401_UNAUTHORIZED,
@@ -771,7 +772,7 @@ class SystemMemoryEntriesListView(_SystemMemoryVisualizationView):
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
-        except Exception:
+        except NotAuthenticated:
             return Response(
                 build_error_response("AUTHENTICATION_REQUIRED", lang),
                 status=status.HTTP_401_UNAUTHORIZED,
@@ -825,7 +826,7 @@ class SystemMemoryProjectionView(_SystemMemoryVisualizationView):
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
-        except Exception:
+        except NotAuthenticated:
             return Response(
                 build_error_response("AUTHENTICATION_REQUIRED", lang),
                 status=status.HTTP_401_UNAUTHORIZED,
@@ -1447,7 +1448,7 @@ class MemorySelfServiceView(APIView):
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
-        except Exception:
+        except NotAuthenticated:
             return Response(
                 build_error_response("AUTHENTICATION_REQUIRED", lang),
                 status=status.HTTP_401_UNAUTHORIZED,
@@ -1490,7 +1491,7 @@ class MemorySelfServiceView(APIView):
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
-        except Exception:
+        except NotAuthenticated:
             return Response(
                 build_error_response("AUTHENTICATION_REQUIRED", lang),
                 status=status.HTTP_401_UNAUTHORIZED,
@@ -1522,7 +1523,7 @@ class MemorySelfServiceView(APIView):
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
-        except Exception:
+        except NotAuthenticated:
             return Response(
                 build_error_response("AUTHENTICATION_REQUIRED", lang),
                 status=status.HTTP_401_UNAUTHORIZED,

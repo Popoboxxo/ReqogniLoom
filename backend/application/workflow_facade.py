@@ -134,7 +134,7 @@ class WorkflowFacade(ServiceBase):
                     workspace_id=ws_uuid,
                     expected_version=expected_version,
                 )
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 — remaps domain errors and re-raises
                 _remap_workflow_exc(exc)
 
             # REQ-L3-WF-003: audit inside same transaction. The operation MUST be
@@ -228,7 +228,7 @@ class WorkflowFacade(ServiceBase):
                 # workflow.services.reactivate() signals "not outdated" with a
                 # bare ValueError; surface it as a 400, not a 500.
                 raise ValidationError(str(exc)) from exc
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 — remaps domain errors and re-raises
                 _remap_workflow_exc(exc)
 
             self._audit(
@@ -290,7 +290,7 @@ class WorkflowFacade(ServiceBase):
                 workspace_id=workspace_id,
                 ctx=ctx,
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — remaps domain errors and re-raises
             _remap_workflow_exc(exc)
 
     def get_available_transitions(

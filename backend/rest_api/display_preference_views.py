@@ -34,6 +34,7 @@ from __future__ import annotations
 from typing import Any
 
 from rest_framework import serializers, status
+from rest_framework.exceptions import NotAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -85,7 +86,7 @@ class DisplayPreferenceView(APIView):
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
-        except Exception:
+        except NotAuthenticated:
             return _authentication_required(lang)
 
         return Response(DisplayPreferenceService().get_display_preferences(ctx))
@@ -94,7 +95,7 @@ class DisplayPreferenceView(APIView):
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
-        except Exception:
+        except NotAuthenticated:
             return _authentication_required(lang)
 
         serializer = DisplayPreferenceUpdateSerializer(data=request.data)

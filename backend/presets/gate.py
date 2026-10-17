@@ -547,7 +547,7 @@ class FeatureGateService:
                         f"Downgrade blocked: {count} global baseline"
                         + ("s exist" if count > 1 else " exists")
                     )
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 — ADR-016 fail-closed; recorded
                 # ADR-016 decision 2 / REQ-L2-PC-011: fail CLOSED. Swallowing
                 # the persistence error used to let an unverifiable downgrade
                 # through. Record it as an incompatibility instead, so the

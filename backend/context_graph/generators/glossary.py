@@ -24,10 +24,14 @@ artifact of the pair triggered (re-)generation.
 """
 from __future__ import annotations
 
+import logging
 import re
 from uuid import UUID
 
 from context_graph.types import ContextEdgeCandidate
+from persistence.tenancy import TenantContextNotSetError
+
+logger = logging.getLogger(__name__)
 
 GENERATOR_NAME = "glossary-v1"
 EDGE_KIND = "shares-term"
@@ -64,8 +68,10 @@ def _title_for_artifact(artifact_id: UUID) -> str:
     # Datenmodell-Konsolidierung Phase 2: Adr.objects is tenant-scoped now, so
     # a missing TenantContext also lands here and degrades to a blank title
     # rather than raising. Same exposure the persistence models above have.
-    except Exception:  # noqa: BLE001 — Adr model absent in some test configs
-        pass
+    # ImportError covers test configs without the Adr model; unexpected errors
+    # must surface.
+    except (ImportError, TenantContextNotSetError):
+        logger.debug("Adr title lookup skipped", exc_info=True)
 
     return ""
 
@@ -98,8 +104,10 @@ def _title_lookup_for_workspace(workspace_id: UUID, exclude_artifact_id: UUID) -
     # Datenmodell-Konsolidierung Phase 2: Adr.objects is tenant-scoped now, so
     # a missing TenantContext also lands here and degrades to a blank title
     # rather than raising. Same exposure the persistence models above have.
-    except Exception:  # noqa: BLE001 — Adr model absent in some test configs
-        pass
+    # ImportError covers test configs without the Adr model; unexpected errors
+    # must surface.
+    except (ImportError, TenantContextNotSetError):
+        logger.debug("Adr title batch lookup skipped", exc_info=True)
 
     return titles
 

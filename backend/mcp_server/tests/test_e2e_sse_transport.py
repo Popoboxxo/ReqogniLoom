@@ -350,7 +350,7 @@ def _redis_reachable(url: str) -> bool:
 
         client = redis.Redis.from_url(url, socket_connect_timeout=1)
         return bool(client.ping())
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort reachability probe; False on any failure
         return False
 
 

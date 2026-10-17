@@ -171,7 +171,7 @@ class DiffEngine:
             return {}
         try:
             states = loader(baseline_id, tenant_id)
-        except Exception:  # pragma: no cover - defensive
+        except Exception:  # noqa: BLE001 — stub-store tolerance  # pragma: no cover - defensive
             return {}
         return states if isinstance(states, dict) else {}
 

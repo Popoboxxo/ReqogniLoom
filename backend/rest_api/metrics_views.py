@@ -26,6 +26,7 @@ from uuid import UUID
 
 from rest_framework import status
 from rest_framework.decorators import action
+from rest_framework.exceptions import NotAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.viewsets import ViewSet
@@ -84,7 +85,7 @@ class MetricsViewSet(ViewSet):
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
-        except Exception:
+        except NotAuthenticated:
             return _authentication_required(lang)
 
         # SA-38: this thread-local must be cleared on every exit path (early
@@ -173,7 +174,7 @@ class MetricsViewSet(ViewSet):
         """
         try:
             get_auth_context(request)
-        except Exception:
+        except NotAuthenticated:
             return _authentication_required(detect_lang(request))
 
         return Response(get_metric_catalog(), status=status.HTTP_200_OK)

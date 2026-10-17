@@ -532,7 +532,7 @@ class AuthenticationService:
                 audience=self._jwt_audience,
             )
             session_id = UUID(str(claims["sid"]))
-        except Exception:
+        except Exception:  # noqa: BLE001 — expired/forged/legacy cookie; nothing to revoke
             # Expired/forged/legacy cookie — nothing to revoke.
             return
         self._revoke_refresh_family(session_id, reason="logout")

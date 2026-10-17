@@ -213,7 +213,7 @@ def _get_rule_preset_map() -> Mapping[str, frozenset[str]]:
         from django.conf import settings
 
         override = getattr(settings, "SE_AUDITOR_RULE_PRESETS", None)
-    except Exception:  # pragma: no cover — settings not configured (tooling)
+    except Exception:  # noqa: BLE001 — tooling runs without settings  # pragma: no cover
         override = None
 
     if not isinstance(override, dict):

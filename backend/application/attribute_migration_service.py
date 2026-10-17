@@ -55,6 +55,7 @@ from datetime import date, datetime
 from typing import Any
 from uuid import UUID
 
+from django.core.exceptions import FieldDoesNotExist
 from django.db import transaction
 from django.db.models import F
 from django.utils import timezone
@@ -1016,13 +1017,15 @@ class AttributeMigrationService(ServiceBase):
     def _field_carrier(model: Any, name: str) -> str | None:
         try:
             model._meta.get_field(name)
-        except Exception:  # FieldDoesNotExist and any dynamic oddity
+        except FieldDoesNotExist:
+            # Not a direct field on the concrete model — fall through to the
+            # shared Artifact carrier below.
             pass
         else:
             return "type"
         try:
             Artifact._meta.get_field(name)
-        except Exception:
+        except FieldDoesNotExist:
             return None
         return "artifact"
 
@@ -2586,14 +2589,14 @@ WorkspaceAttributeDefinitionStore.reset` now refuses with a conflict —
             if name and not field.is_relation:
                 try:
                     values.setdefault(name, getattr(row, name))
-                except Exception:  # pragma: no cover - defensive
+                except Exception:  # noqa: BLE001 — field probe  # pragma: no cover - defensive
                     continue
         for field in Artifact._meta.get_fields():
             name = getattr(field, "name", None)
             if name and not field.is_relation:
                 try:
                     values.setdefault(name, getattr(row.artifact, name))
-                except Exception:  # pragma: no cover - defensive
+                except Exception:  # noqa: BLE001 — field probe  # pragma: no cover - defensive
                     continue
         try:
             return expression.format_map(_SafeFormat(values))

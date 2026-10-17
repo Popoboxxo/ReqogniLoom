@@ -538,7 +538,7 @@ class ExportService(ServiceBase):
             preset = get_preset(workspace_id)
             # preset object may expose terminology_profile attribute or dict key
             return str(getattr(preset, "terminology_profile", "default"))
-        except Exception:
+        except Exception:  # noqa: BLE001 — ok; logged warning below
             logger.warning(
                 "ExportService: could not fetch terminology profile for ws=%s, "
                 "using 'default'",

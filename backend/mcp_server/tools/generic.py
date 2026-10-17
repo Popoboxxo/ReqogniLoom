@@ -116,7 +116,7 @@ def _enum_values(prefix: str, field: str) -> list[str] | None:
 
         model = getattr(application_models, prefix.capitalize())
         return list(getattr(model, choices_attr).values)
-    except Exception:  # pragma: no cover - defensive: never break tools/list
+    except Exception:  # noqa: BLE001 — defensive  # pragma: no cover - never break tools/list
         return None
 
 

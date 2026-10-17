@@ -283,7 +283,7 @@ class BaselineFacade(ServiceBase):
                 created_by=str(ctx.user_id),
                 document_id=doc_id,
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — remaps domain errors and re-raises
             # Remap baseline-domain exceptions to application layer
             _remap_baseline_exc(exc)
 
@@ -833,7 +833,7 @@ class BaselineFacade(ServiceBase):
                 baseline_b_id=UUID(str(baseline_b_id)),
                 tenant_id=ctx.tenant_id,
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — remaps domain errors and re-raises
             _remap_baseline_exc(exc)
 
     def get_baseline(self, baseline_id: UUID | str, ctx: AuthContext):
@@ -852,7 +852,7 @@ class BaselineFacade(ServiceBase):
 
         try:
             return baseline_get(baseline_id=UUID(str(baseline_id)), tenant_id=ctx.tenant_id)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — remaps domain errors and re-raises
             _remap_baseline_exc(exc)
 
     def list_baselines(
@@ -963,7 +963,7 @@ class BaselineFacade(ServiceBase):
                 item_id=item_id,
                 tenant_id=ctx.tenant_id,
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — remaps domain errors and re-raises
             _remap_baseline_exc(exc)
 
     def memberships_for_artifact(

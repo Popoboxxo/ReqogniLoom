@@ -556,7 +556,7 @@ def _resolve_memory_backend_name() -> str:
         row = SystemMemorySettings.objects.first()
         if row is not None and row.memory_backend:
             return row.memory_backend.strip().lower()
-    except Exception:  # noqa: BLE001 - settings are best-effort; env is the fallback.
+    except Exception:  # noqa: BLE001, S110 - settings are best-effort; env is the fallback.
         pass
     return os.environ.get("MEMORY_BACKEND", "pgvector").strip().lower()
 

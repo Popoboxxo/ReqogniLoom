@@ -180,7 +180,7 @@ def resolve_owning_workspace_id(
             .values_list(spec.workspace_field, flat=True)
             .first()
         )
-    except Exception:
+    except Exception:  # noqa: BLE001 — unresolved entity; returns None (logged)
         logger.debug(
             "Workspace resolution failed for entity=%s id=%s", entity_key, entity_id
         )

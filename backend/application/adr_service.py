@@ -241,7 +241,7 @@ class AdrService(ServiceBase):
                 workspace_id=workspace_id,
                 ctx=ctx,
             )
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort workflow init; logged at debug
             logger.debug("AdrService: workflow init skipped for adr=%s", adr.id)
 
         self._audit(ctx=ctx, operation="create", entity_type="Adr", entity_id=adr.id)

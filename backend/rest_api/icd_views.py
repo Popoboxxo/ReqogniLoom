@@ -612,7 +612,7 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 self._icd_to_dict(icd, status_map=status_map) for icd in icds
             ]
             return self._paginate(request, serialized)
-        except Exception:
+        except Exception:  # noqa: BLE001 — module-wide boundary; _internal_error logs
             return _internal_error(lang, "list")
 
     # -- create ------------------------------------------------------------
@@ -714,7 +714,7 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 ),
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        except Exception:
+        except Exception:  # noqa: BLE001 — module-wide boundary; _internal_error logs
             return _internal_error(lang, "create")
 
     # -- retrieve ----------------------------------------------------------
@@ -733,7 +733,7 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 build_error_response("NOT_FOUND", lang),
                 status=status.HTTP_404_NOT_FOUND,
             )
-        except Exception:
+        except Exception:  # noqa: BLE001 — module-wide boundary; _internal_error logs
             return _internal_error(lang, "retrieve")
 
     # -- partial_update ----------------------------------------------------
@@ -806,7 +806,7 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 ),
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        except Exception:
+        except Exception:  # noqa: BLE001 — module-wide boundary; _internal_error logs
             return _internal_error(lang, "partial_update")
 
     # -- destroy -----------------------------------------------------------
@@ -827,7 +827,7 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 build_error_response("NOT_FOUND", lang),
                 status=status.HTTP_404_NOT_FOUND,
             )
-        except Exception:
+        except Exception:  # noqa: BLE001 — module-wide boundary; _internal_error logs
             return _internal_error(lang, "destroy")
 
     # -- versions ----------------------------------------------------------
@@ -856,7 +856,7 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 build_error_response("NOT_FOUND", lang),
                 status=status.HTTP_404_NOT_FOUND,
             )
-        except Exception:
+        except Exception:  # noqa: BLE001 — module-wide boundary; _internal_error logs
             return _internal_error(lang, "versions")
 
     # -- diff --------------------------------------------------------------
@@ -907,7 +907,7 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 build_error_response("NOT_FOUND", lang, message=_client_message(exc, "diff")),
                 status=status.HTTP_404_NOT_FOUND,
             )
-        except Exception:
+        except Exception:  # noqa: BLE001 — module-wide boundary; _internal_error logs
             return _internal_error(lang, "diff")
 
     # -- similar -----------------------------------------------------------
@@ -956,7 +956,7 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 ),
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
-        except Exception:
+        except Exception:  # noqa: BLE001 — module-wide boundary; _internal_error logs
             return _internal_error(lang, "similar")
 
         return Response(
@@ -992,7 +992,7 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 build_error_response("NOT_FOUND", lang),
                 status=status.HTTP_404_NOT_FOUND,
             )
-        except Exception:
+        except Exception:  # noqa: BLE001 — module-wide boundary; _internal_error logs
             return _internal_error(lang, "parameters")
 
         if request.method == "GET":
@@ -1025,7 +1025,7 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 ),
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        except Exception:
+        except Exception:  # noqa: BLE001 — module-wide boundary; _internal_error logs
             return _internal_error(lang, "parameters")
         return self._paginate(request, serialized)
 
@@ -1070,7 +1070,7 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 ),
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        except Exception:
+        except Exception:  # noqa: BLE001 — module-wide boundary; _internal_error logs
             return _internal_error(lang, "parameters")
         return Response(
             IcdParameterSerializer(self._parameter_to_dict(item)).data,
@@ -1093,7 +1093,7 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
-        except Exception:
+        except Exception:  # noqa: BLE001 — module-wide boundary; _internal_error logs
             return _internal_error(lang, "parameter_detail")
 
         if request.method == "DELETE":
@@ -1108,7 +1108,7 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                     ),
                     status=status.HTTP_404_NOT_FOUND,
                 )
-            except Exception:
+            except Exception:  # noqa: BLE001 — module-wide boundary; _internal_error logs
                 return _internal_error(lang, "parameter_detail")
             return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -1158,6 +1158,6 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 ),
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        except Exception:
+        except Exception:  # noqa: BLE001 — module-wide boundary; _internal_error logs
             return _internal_error(lang, "parameter_detail")
         return Response(IcdParameterSerializer(self._parameter_to_dict(item)).data)

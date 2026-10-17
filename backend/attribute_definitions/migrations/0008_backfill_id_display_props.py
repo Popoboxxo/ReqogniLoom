@@ -93,7 +93,7 @@ def forwards(apps, schema_editor) -> None:
     # still need the usual post-migrate restart (same caveat as 0005/0006).
     try:
         from application.cache_invalidation import invalidate_workspace_caches
-    except Exception:  # pragma: no cover - import guard for reduced installs
+    except Exception:  # noqa: BLE001 — import guard  # pragma: no cover - reduced installs
         return
     for workspace_id in touched_workspaces:
         invalidate_workspace_caches(workspace_id)

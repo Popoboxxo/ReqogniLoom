@@ -126,7 +126,7 @@ def test_concurrent_transitions_produce_one_winner_and_only_valid_history_edges(
             result = "ok"
         except OptimisticLockError:
             result = "conflict"
-        except Exception as exc:  # pragma: no cover - diagnostic aid only
+        except Exception as exc:  # noqa: BLE001 — diagnostic  # pragma: no cover
             result = f"error:{exc!r}"
         finally:
             with outcomes_lock:

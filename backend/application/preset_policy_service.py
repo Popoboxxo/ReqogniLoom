@@ -136,7 +136,7 @@ class PresetPolicyService:
         try:
             preset = self._get_preset(str(workspace_id))
             return bool(preset.features.get(feature_key, False))
-        except Exception:
+        except Exception:  # noqa: BLE001 — feature treated as disabled; logged at debug
             logger.debug(
                 "PresetPolicyService: is_feature_enabled failed ws=%s key=%s "
                 "— treating feature as disabled",

@@ -735,7 +735,7 @@ class TestLlmAuditLogger:
                     error="test",
                 )
             assert any(issubclass(warning.category, RuntimeWarning) for warning in w)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — converted to test failure via pytest.fail
             pytest.fail(f"log_llm_call propagated an exception: {exc}")
         finally:
             # Restore original modules

@@ -34,6 +34,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from uuid import UUID
 
+from django.core.exceptions import ImproperlyConfigured
+
 # ---------------------------------------------------------------------------
 # DTOs (IF-WE-INT-004, IF-WE-INT-005)
 # ---------------------------------------------------------------------------
@@ -90,7 +92,9 @@ def _hmac_key() -> bytes:
             from django.conf import settings  # type: ignore[import-untyped]
 
             key_str = getattr(settings, "SECRET_KEY", "")
-        except Exception:
+        except (ImportError, ImproperlyConfigured):
+            # Django settings not configured/importable (bare unit tests):
+            # leave key_str empty so the RuntimeError below fires unchanged.
             pass
     if not key_str:
         raise RuntimeError(
@@ -153,7 +157,7 @@ def _verify_password(credential: str, user_id: UUID, tenant_id: UUID) -> bool:
             return False
 
         return check_password(credential, stored_hash)
-    except Exception:
+    except Exception:  # noqa: BLE001 — verification fails closed (deny) on any error
         return False
 
 

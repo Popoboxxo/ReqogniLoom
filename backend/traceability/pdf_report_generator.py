@@ -118,8 +118,8 @@ def _fetch_workspace_data(
         terminology_profile = str(
             getattr(preset, "terminology_profile", "default")
         )
-    except Exception:
-        pass
+    except Exception:  # best-effort label; "default" is a valid render
+        logger.debug("Terminology profile lookup failed; using 'default'", exc_info=True)
 
     requirements = list(
         Requirement.objects.filter(

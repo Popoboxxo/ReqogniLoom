@@ -161,7 +161,7 @@ def test_abandon_racing_formalize_never_undoes_a_committed_formalize(
             result = "formalized"
         except ValidationError:
             result = "refused"
-        except Exception as exc:  # pragma: no cover - diagnostic aid only
+        except Exception as exc:  # noqa: BLE001 — diagnostic  # pragma: no cover
             result = f"error:{exc!r}"
         finally:
             with outcomes_lock:
@@ -179,7 +179,7 @@ def test_abandon_racing_formalize_never_undoes_a_committed_formalize(
             result = "abandoned"
         except ValidationError:
             result = "refused"
-        except Exception as exc:  # pragma: no cover - diagnostic aid only
+        except Exception as exc:  # noqa: BLE001 — diagnostic  # pragma: no cover
             result = f"error:{exc!r}"
         finally:
             with outcomes_lock:

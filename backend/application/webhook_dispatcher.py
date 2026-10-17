@@ -356,7 +356,7 @@ class WebhookDispatcher:
             return exc.code, False, f"HTTP {exc.code}: {exc.reason}"
         except urllib.error.URLError as exc:
             return None, False, f"URLError: {exc.reason}"
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — delivery failure is returned, never raised
             return None, False, str(exc)
 
 

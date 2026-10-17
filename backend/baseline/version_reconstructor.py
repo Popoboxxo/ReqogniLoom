@@ -31,12 +31,15 @@ Version history note:
 """
 from __future__ import annotations
 
+import logging
 import uuid
 from collections import OrderedDict
 from datetime import UTC, datetime
 
 from baseline.exceptions import ItemNotInBaselineError, VersionNotFoundError
 from baseline.types import ItemPayload
+
+logger = logging.getLogger(__name__)
 
 # LRU cache default size (ADR-L3-BL004-01)
 LRU_CACHE_MAX_SIZE = 1000
@@ -188,7 +191,7 @@ class VersionReconstructor:
                     reconstructed_at=datetime.now(tz=UTC),
                 )
         except Exception:
-            pass
+            logger.debug("Live Requirement probe failed; trying next entity type", exc_info=True)
 
         # Try ArchitectureElement
         try:
@@ -207,7 +210,7 @@ class VersionReconstructor:
                     reconstructed_at=datetime.now(tz=UTC),
                 )
         except Exception:
-            pass
+            logger.debug("ArchitectureElement probe failed; trying next", exc_info=True)
 
         # Try bare Artifact
         try:
@@ -224,7 +227,7 @@ class VersionReconstructor:
                     reconstructed_at=datetime.now(tz=UTC),
                 )
         except Exception:
-            pass
+            logger.debug("Live Artifact probe failed; trying next entity type", exc_info=True)
 
         # Try GlossaryTerm
         try:
@@ -241,7 +244,7 @@ class VersionReconstructor:
                     reconstructed_at=datetime.now(tz=UTC),
                 )
         except Exception:
-            pass
+            logger.debug("GlossaryTerm probe failed; trying audit log", exc_info=True)
 
         return None
 
@@ -292,7 +295,7 @@ class VersionReconstructor:
                         reconstructed_at=datetime.now(tz=UTC),
                     )
         except Exception:
-            pass
+            logger.debug("Audit-log reconstruction probe failed", exc_info=True)
 
         return None
 

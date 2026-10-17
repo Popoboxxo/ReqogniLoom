@@ -45,6 +45,7 @@ import random
 from datetime import datetime, timedelta
 
 from django.conf import settings
+from django.core.exceptions import ImproperlyConfigured
 from django.db import DataError, IntegrityError, transaction
 from django.db.models import F
 from django.utils import timezone
@@ -173,7 +174,10 @@ def _num_proxies() -> int:
         from rest_framework.settings import api_settings
 
         candidates.append(getattr(api_settings, "NUM_PROXIES", None))
-    except Exception:  # noqa: BLE001 - DRF import/settings must not break the path
+    except (ImportError, ImproperlyConfigured):
+        # DRF not installed or Django settings not configured (bare unit tests):
+        # the bare settings.NUM_PROXIES read below is the fallback; the lockout
+        # path must not break on the probe.
         pass
     candidates.append(getattr(settings, "NUM_PROXIES", None))
     for candidate in candidates:

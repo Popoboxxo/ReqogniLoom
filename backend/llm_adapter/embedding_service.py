@@ -273,7 +273,7 @@ class SentenceTransformersEmbeddingProvider(EmbeddingProvider):
             # width so a non-default EMBEDDING_VECTOR_DIMENSIONS does not make
             # every write get skipped by the dimension guard.
             return _fit_vector_to_dimensions(vector.tolist(), self.dimensions)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — embedding best-effort; None (logged)
             logger.warning("sentence-transformers embedding failed: %s", exc)
             return None
 
@@ -306,7 +306,7 @@ class OllamaEmbeddingProvider(EmbeddingProvider):
                 logger.warning("ollama embedding returned unexpected shape")
                 return None
             return vector
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — embedding best-effort; None (logged)
             logger.warning("ollama embedding failed: %s", exc)
             return None
 
@@ -335,7 +335,7 @@ class OpenAiEmbeddingProvider(EmbeddingProvider):
                 logger.warning("openai embedding returned unexpected dimension %d", len(vector))
                 return None
             return vector
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — embedding best-effort; None (logged)
             logger.warning("openai embedding failed: %s", exc)
             return None
 
@@ -347,7 +347,7 @@ def generate_embedding(text: str) -> list[float] | None:
         return None
     try:
         return get_embedding_provider().embed(text)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 — embedding best-effort; None (logged)
         logger.warning("generate_embedding failed: %s", exc)
         return None
 

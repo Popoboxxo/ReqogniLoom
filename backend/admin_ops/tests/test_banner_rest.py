@@ -15,7 +15,10 @@ from admin_ops.services.banner_service import BannerService
 from auth_tenancy.context import AuthContext, AuthMethod
 from auth_tenancy.models import TenantRole
 from auth_tenancy.rest import HasOperationPermission
-from auth_tenancy.tests.conftest import tenant_b  # noqa: F401 — ambiguity fixture
+
+# Explicit re-export (PEP 484 `import x as x`): pytest registers the imported
+# fixture for this module; the alias marks it as intentional (silences F811).
+from auth_tenancy.tests.conftest import tenant_b as tenant_b
 from persistence.models import Workspace
 
 from .conftest import active_tenant

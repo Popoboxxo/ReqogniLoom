@@ -80,7 +80,7 @@ def _get_rigor_invariant_presets() -> Mapping[str, frozenset[str]]:
         from django.conf import settings
 
         override = getattr(settings, "ARCHITECTURE_RIGOR_INVARIANTS", None)
-    except Exception:  # pragma: no cover — settings not configured (tooling)
+    except Exception:  # noqa: BLE001 — tooling runs without settings  # pragma: no cover
         override = None
 
     if not isinstance(override, dict):
@@ -142,7 +142,7 @@ class ArchitectureElementInvariantValidator:
                 from presets.gate import get_gate_service
 
                 tier = get_gate_service().get_preset(str(workspace_id)).tier
-            except Exception:
+            except Exception:  # noqa: BLE001 — preset engine unavailable; fallback tier
                 tier = _FALLBACK_TIER
         return cls.for_tier(tier)
 

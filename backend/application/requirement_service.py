@@ -460,7 +460,7 @@ class RequirementService(ServiceBase):
                 workspace_id=workspace_id,
                 ctx=ctx,
             )
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort workflow init; logged at debug
             logger.debug(
                 "RequirementService: workflow init skipped (no definition) "
                 "for req=%s",
@@ -1294,7 +1294,7 @@ class RequirementService(ServiceBase):
                 warn_dimension_mismatch(
                     "RequirementService", len(embedding), field_dimensions
                 )
-        except Exception as exc:  # noqa: BLE0001 — best-effort
+        except Exception as exc:  # noqa: BLE001 — best-effort embedding; logged at debug
             logger.debug(
                 "RequirementService: embedding generation skipped for req=%s: %s",
                 requirement.id,

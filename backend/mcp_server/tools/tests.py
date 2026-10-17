@@ -937,7 +937,7 @@ class McpTestToolGroup(BaseToolGroup):
                         "link_type": "verifies",
                     },
                 )
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 — best-effort verifies-link; logged warning
                 logger.warning("TraceLink creation failed in test.create: %s", exc)
 
         response_data: dict[str, Any] = {"test_case": _test_case_to_dict(tc)}

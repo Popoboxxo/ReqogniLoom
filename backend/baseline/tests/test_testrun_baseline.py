@@ -431,7 +431,6 @@ class TestTestRunBaselineIntegration:
         """REQ-156: A project-scoped Baseline must contain delta entries for
         TestRun entities in the workspace (entity_type='test_run')."""
         from baseline.delta_index_builder import DeltaIndexBuilder
-        from baseline.store import BaselineStore
         from persistence.models import TestRun, Workspace
         from persistence.tenancy import TenantContext
         from presets.models import WorkspacePresetConfig
@@ -487,7 +486,6 @@ class TestTestRunBaselineIntegration:
         """REQ-156: TestRunResult entries within the workspace's TestRuns must
         also appear in the baseline delta index (entity_type='test_run_result')."""
         from baseline.delta_index_builder import DeltaIndexBuilder
-        from baseline.store import BaselineStore
         from persistence.models import TestRun, TestRunResult, Workspace
         from persistence.tenancy import TenantContext
         from presets.models import WorkspacePresetConfig
@@ -607,7 +605,6 @@ class TestTestRunBaselineIntegration:
         """REQ-156: When no TestRuns exist for a workspace, the baseline must
         not contain any test_run entries (no contamination from other workspaces)."""
         from baseline.delta_index_builder import DeltaIndexBuilder
-        from baseline.store import BaselineStore
         from persistence.models import TestRun, Workspace
         from persistence.tenancy import TenantContext
         from presets.models import WorkspacePresetConfig
