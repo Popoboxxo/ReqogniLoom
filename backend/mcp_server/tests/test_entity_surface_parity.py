@@ -34,8 +34,9 @@ REQ-193); a plain run resolves no target and writes nothing.
 from __future__ import annotations
 
 import json
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Dict, Iterable, Optional, Set
+from typing import Any
 from uuid import uuid4
 
 import pytest
@@ -71,7 +72,7 @@ RATCHET = entry_point("entity-surface-parity")
 pytestmark = pytest.mark.django_db
 
 
-def _live_tools() -> Dict[str, Dict[str, Any]]:
+def _live_tools() -> dict[str, dict[str, Any]]:
     """Every tool the live registry advertises, indexed by name.
 
     ``build_manifest`` is the same walk ``ToolRegistry.list_tools`` performs
@@ -99,7 +100,7 @@ def _route_exists(collection: str) -> bool:
     return True
 
 
-def _baseline_document() -> Dict[str, Any]:
+def _baseline_document() -> dict[str, Any]:
     """The committed baseline document, or a fresh one when it is absent.
 
     Handed to the framework as ``document=`` so a re-baseline preserves
@@ -118,7 +119,7 @@ def _baseline_document() -> Dict[str, Any]:
     }
 
 
-def _candidate_baseline(measured: Iterable[str]) -> Optional[BaselineDiff]:
+def _candidate_baseline(measured: Iterable[str]) -> BaselineDiff | None:
     """Write the named re-baseline candidate — and only when it is named.
 
     A re-baseline is a command a human types, never a side effect of a run:
@@ -299,12 +300,12 @@ def test_ratchet_is_a_subset_and_strictly_shrinking() -> None:
     # Accepted gaps are validated on LOAD, so a baseline entry without a reason
     # or an issue fails here rather than quietly widening the gate.
     baseline = json.loads(BASELINE_PATH.read_text(encoding="utf-8"))
-    baselined: Set[str] = gap_keys(
+    baselined: set[str] = gap_keys(
         baseline.get("violations", []), source=BASELINE_PATH.name
     )
     live_tools = _live_tools()
 
-    actual: Set[str] = set()
+    actual: set[str] = set()
     for key, spec in sorted(ENTITY_SPECS.items()):
         if not _route_exists(spec.rest_collection):
             actual.add(

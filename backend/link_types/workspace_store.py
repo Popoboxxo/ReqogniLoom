@@ -10,8 +10,9 @@ manual re-run all call it safely.
 """
 from __future__ import annotations
 
+import builtins
 import copy
-from typing import Any, List, Optional
+from typing import Any
 from uuid import UUID
 
 from django.db import transaction
@@ -29,7 +30,7 @@ class WorkspaceLinkTypeDefinitionStore:
 
     def get(
         self, tenant_id: UUID | str, workspace_id: UUID | str, key: str
-    ) -> Optional[WorkspaceLinkTypeDefinition]:
+    ) -> WorkspaceLinkTypeDefinition | None:
         """Return the workspace row for *key*, or None."""
         return WorkspaceLinkTypeDefinition.unscoped.filter(
             tenant_id=tenant_id, workspace_id=workspace_id, key=key
@@ -37,7 +38,7 @@ class WorkspaceLinkTypeDefinitionStore:
 
     def list(
         self, tenant_id: UUID | str, workspace_id: UUID | str
-    ) -> List[WorkspaceLinkTypeDefinition]:
+    ) -> builtins.list[WorkspaceLinkTypeDefinition]:
         """Return every workspace row, ordered by key (including inactive ones).
 
         The editor UI must see deactivated types to be able to re-enable them,
@@ -92,7 +93,7 @@ class WorkspaceLinkTypeDefinitionStore:
         if row is None:
             raise ValidationError(f"Link type '{key}' not found in this workspace.")
 
-        default: Optional[dict] = None
+        default: dict | None = None
         if row.source_global_id is not None:
             global_row = GlobalLinkTypeDefinition.unscoped.filter(
                 id=row.source_global_id

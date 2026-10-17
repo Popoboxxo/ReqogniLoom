@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any, Optional
+from typing import Any
 
 from application.prompt_resolver import resolve_and_render
 from link_types.catalog import resolve_catalog
@@ -100,7 +100,7 @@ def get_multi_protocol_prompt(ctx: Any, workspace_id, user_message: str, transcr
     )
 
 
-def parse_multi_proposal(raw_llm_output: str) -> "Optional[list[dict]]":
+def parse_multi_proposal(raw_llm_output: str) -> list[dict] | None:
     """Extract the fenced ```json list from an LLM reply.
 
     Returns the parsed list of artifact-proposal dicts, or ``None`` when the

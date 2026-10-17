@@ -10,7 +10,7 @@ tenant context required.
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from se_metrics.registry import (
     ALL_METRIC_KEYS,
@@ -38,7 +38,7 @@ _WS = "11111111-1111-1111-1111-111111111111"
 def _result() -> MetricsResult:
     return MetricsResult(
         workspace_id=_WS,
-        computed_at=datetime(2026, 10, 14, 12, 0, tzinfo=timezone.utc),
+        computed_at=datetime(2026, 10, 14, 12, 0, tzinfo=UTC),
         timeframe="P30D",
         volatility=VolatilityResult(
             total_changes=20, total_requirements=10, avg_changes_per_req=2.0

@@ -21,8 +21,8 @@ import pytest
 
 from llm_adapter.providers import (
     AzureOpenAiProvider,
-    OpencodeGoProvider,
     OpenAiProvider,
+    OpencodeGoProvider,
     ProviderConfig,
 )
 from llm_adapter.resilient_transport import LlmTransportError

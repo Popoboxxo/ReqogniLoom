@@ -49,7 +49,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import replace
-from typing import Any, Dict, Optional
+from typing import Any
 
 import pytest
 from django.test import Client
@@ -74,7 +74,7 @@ pytestmark = [pytest.mark.e2e, pytest.mark.django_db]
 
 
 def _tools_call(
-    client: Client, tool_name: str, arguments: Optional[Dict[str, Any]] = None
+    client: Client, tool_name: str, arguments: dict[str, Any] | None = None
 ):
     """POST a standard MCP ``tools/call`` frame via the Django test client.
 
@@ -99,7 +99,7 @@ def _tools_call_error_message(response) -> str:
     return body["error"].get("message", "")
 
 
-def _call_result_text(response, tool_name: str) -> Dict[str, Any]:
+def _call_result_text(response, tool_name: str) -> dict[str, Any]:
     """Parse the inner JSON payload of a successful MCP tool result.
 
     On the ``tools/call`` surface the handler's payload is wrapped in an

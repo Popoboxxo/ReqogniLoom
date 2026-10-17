@@ -12,10 +12,9 @@ import io
 
 import pytest
 
-from traceability.vcrm_report_generator import VCRMReportGenerator
 from traceability.coverage_calculator import CoverageCalculator
+from traceability.pdf_report_generator import VALID_LAYOUTS, generate_pdf_report
 from traceability.query_engine import QueryEngine
-from traceability.pdf_report_generator import generate_pdf_report, VALID_LAYOUTS
 from traceability.tests.conftest import (
     active_tenant,
     make_artifact,
@@ -23,6 +22,7 @@ from traceability.tests.conftest import (
     make_test_case,
     make_trace_link,
 )
+from traceability.vcrm_report_generator import VCRMReportGenerator
 
 pytestmark = pytest.mark.django_db
 

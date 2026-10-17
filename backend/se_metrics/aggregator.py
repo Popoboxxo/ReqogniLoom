@@ -31,13 +31,14 @@ from __future__ import annotations
 
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional
+from datetime import UTC, datetime, timedelta
+from typing import Any
 from uuid import UUID
 
-from audit.services import AuditQueryFilters, query as audit_query
-from traceability.services import coverage as traceability_coverage
-
+from audit.services import AuditQueryFilters
+from audit.services import query as audit_query
+from persistence.middleware import clear_request_tenant, set_request_tenant
+from persistence.tenancy import TenantContext
 from se_metrics.calculators import (
     CoverageCalculator,
     RiskClassifier,
@@ -57,8 +58,7 @@ from se_metrics.types import (
     VolatilityResult,
     WorkflowGapResult,
 )
-from persistence.middleware import clear_request_tenant, set_request_tenant
-from persistence.tenancy import TenantContext
+from traceability.services import coverage as traceability_coverage
 
 logger = logging.getLogger(__name__)
 
@@ -113,7 +113,7 @@ def _parse_timeframe_days(timeframe: str) -> int:
 # ---------------------------------------------------------------------------
 
 
-def _fetch_audit_entries(workspace_id: str, timeframe: str, tenant_id: UUID) -> List[Any]:
+def _fetch_audit_entries(workspace_id: str, timeframe: str, tenant_id: UUID) -> list[Any]:
     """IF-L1-044: Query AuditLog for Requirement change events.
 
     Returns list of AuditEntry objects (or empty list on error).
@@ -159,7 +159,7 @@ def _fetch_audit_entries(workspace_id: str, timeframe: str, tenant_id: UUID) -> 
             return []
 
         days = _parse_timeframe_days(timeframe)
-        cutoff = datetime.now(tz=timezone.utc) - timedelta(days=days)
+        cutoff = datetime.now(tz=UTC) - timedelta(days=days)
         filters = AuditQueryFilters(
             entity_type="Requirement",
             entity_ids=workspace_requirement_ids,
@@ -211,7 +211,7 @@ def _fetch_coverage(workspace_id: str, tenant_id: UUID) -> Any:
         clear_request_tenant()
 
 
-def _fetch_incomplete_states(workspace_id: str, tenant_id: UUID) -> List[IncompleteState]:
+def _fetch_incomplete_states(workspace_id: str, tenant_id: UUID) -> list[IncompleteState]:
     """IF-L1-046: Query WorkflowEngine for items with incomplete state history.
 
     Implements find_incomplete_states(workspace_id) via direct ORM query on
@@ -227,7 +227,11 @@ def _fetch_incomplete_states(workspace_id: str, tenant_id: UUID) -> List[Incompl
     """
     set_request_tenant(tenant_id)
     try:
-        from workflow.models import WorkflowEngineDefinition, WorkflowHistoryEntry, WorkflowItemState
+        from workflow.models import (
+            WorkflowEngineDefinition,
+            WorkflowHistoryEntry,
+            WorkflowItemState,
+        )
 
         ws_uuid = UUID(str(workspace_id))
 
@@ -258,7 +262,7 @@ def _fetch_incomplete_states(workspace_id: str, tenant_id: UUID) -> List[Incompl
             return []
 
         # Get visited states per item (from WorkflowHistoryEntry)
-        gaps: List[IncompleteState] = []
+        gaps: list[IncompleteState] = []
         for item_state in item_states:
             item_type = item_state.item_type
             mandatory = mandatory_states_by_type.get(item_type, set())
@@ -300,7 +304,7 @@ def _fetch_incomplete_states(workspace_id: str, tenant_id: UUID) -> List[Incompl
         clear_request_tenant()
 
 
-def _fetch_risks(workspace_id: str, tenant_id: UUID) -> List[Any]:
+def _fetch_risks(workspace_id: str, tenant_id: UUID) -> list[Any]:
     """IF-L1-047: Query ApplicationService for all risks in this workspace.
 
     Uses RiskService.list_risks() to get all risks, then RiskClassifier
@@ -357,7 +361,7 @@ def _fetch_risks(workspace_id: str, tenant_id: UUID) -> List[Any]:
 
 
 def _resolve_requirement_titles(
-    volatile_requirements: List[VolatileRequirement], tenant_id: UUID
+    volatile_requirements: list[VolatileRequirement], tenant_id: UUID
 ) -> None:
     """Resolve human-readable titles for VolatilityCalculator's top10 entries.
 
@@ -388,7 +392,7 @@ def _resolve_requirement_titles(
 
     TenantContext.set_tenant(tenant_id)
 
-    id_by_uuid: Dict[UUID, VolatileRequirement] = {}
+    id_by_uuid: dict[UUID, VolatileRequirement] = {}
     for vr in volatile_requirements:
         try:
             id_by_uuid[UUID(str(vr.requirement_id))] = vr
@@ -402,7 +406,7 @@ def _resolve_requirement_titles(
     try:
         from persistence.models import Requirement  # lazy import
 
-        titles: Dict[UUID, str] = dict(
+        titles: dict[UUID, str] = dict(
             Requirement.objects.filter(id__in=id_by_uuid.keys()).values_list(
                 "id", "title"
             )
@@ -421,7 +425,7 @@ def _resolve_requirement_titles(
 
 
 def _compute_verification_coverage(
-    *, total: int, covered: int, uncovered_ids: List[str]
+    *, total: int, covered: int, uncovered_ids: list[str]
 ) -> VerificationCoverageResult:
     """Percent + rounding for the verification-coverage metric (#1267)."""
     return VerificationCoverageCalculator().calculate(
@@ -471,7 +475,7 @@ def _fetch_verification_coverage(
         )
 
         covered = 0
-        uncovered_ids: List[str] = []
+        uncovered_ids: list[str] = []
         for requirement_id, artifact_id, method in rows:
             normalized = (method or "").strip().lower()
             if (
@@ -520,9 +524,9 @@ class MetricsAggregator:
     def compute(
         self,
         workspace_id: str,
-        timeframe: Optional[str] = None,
-        scope_filter: Optional[List[str]] = None,
-        threshold_config: Optional[ThresholdConfig] = None,
+        timeframe: str | None = None,
+        scope_filter: list[str] | None = None,
+        threshold_config: ThresholdConfig | None = None,
     ) -> MetricsResult:
         """Compute the full MetricsResult for a workspace.
 
@@ -544,13 +548,13 @@ class MetricsAggregator:
             Complete MetricsResult with all four metric categories and warnings.
         """
         effective_timeframe = timeframe or DEFAULT_TIMEFRAME
-        computed_at = datetime.now(tz=timezone.utc)
+        computed_at = datetime.now(tz=UTC)
 
         # Parallel data fetch from four external sources (REQ-L2-SM-011)
-        audit_entries: List[Any] = []
+        audit_entries: list[Any] = []
         coverage_data: Any = None
-        incomplete_states: List[IncompleteState] = []
-        risk_artifacts: List[Any] = []
+        incomplete_states: list[IncompleteState] = []
+        risk_artifacts: list[Any] = []
 
         # Get the current tenant to pass to workers
         tenant_id = TenantContext.get_tenant()
@@ -622,4 +626,4 @@ class MetricsAggregator:
         return result
 
 
-__all__ = ["MetricsAggregator", "DEFAULT_TIMEFRAME", "_parse_timeframe_days"]
+__all__ = ["DEFAULT_TIMEFRAME", "MetricsAggregator", "_parse_timeframe_days"]

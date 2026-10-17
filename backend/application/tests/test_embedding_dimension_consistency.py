@@ -27,7 +27,6 @@ from persistence.embedding_dimensions import (
     EMBEDDING_VECTOR_DIMENSIONS_ENV_VAR,
 )
 
-
 # ---------------------------------------------------------------------------
 # Static configuration coherence (no DB, no provider)
 # ---------------------------------------------------------------------------

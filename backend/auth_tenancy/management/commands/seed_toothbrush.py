@@ -25,21 +25,30 @@ from typing import Any
 
 from django.core.management.base import BaseCommand
 
+from application.adr_service import AdrService
+from application.architecture_service import ArchitectureService
+from application.glossary_service import GlossaryService
+from application.issue_service import IssueService
+from application.requirement_service import RequirementService
+from application.risk_service import RiskService
+from application.test_run_service import TestRunService
+from application.test_service import TestService
+from application.trace_link_service import TraceLinkService
+from application.workspace_service import WorkspaceService
 from auth_tenancy.context import AuthContext, AuthMethod
 from auth_tenancy.provisioning import DEFAULT_ADMIN_EMAIL, DEFAULT_ADMIN_USERNAME
-from persistence.middleware import set_request_tenant, clear_request_tenant
-from persistence.models import Tenant, User, Workspace, ElementType, RequirementType, MoSCoWPriority, StakeholderNeed, Artifact
-from application.workspace_service import WorkspaceService
-from application.requirement_service import RequirementService
-from application.architecture_service import ArchitectureService
-from application.trace_link_service import TraceLinkService
-from application.risk_service import RiskService
-from application.issue_service import IssueService
-from application.adr_service import AdrService
-from application.glossary_service import GlossaryService
-from application.test_service import TestService
-from application.test_run_service import TestRunService
-from icd.services import create_icd, IcdCreateDTO
+from icd.services import IcdCreateDTO, create_icd
+from persistence.middleware import clear_request_tenant, set_request_tenant
+from persistence.models import (
+    Artifact,
+    ElementType,
+    MoSCoWPriority,
+    RequirementType,
+    StakeholderNeed,
+    Tenant,
+    User,
+    Workspace,
+)
 
 WORKSPACE_NAME = "Zahnbürste SysEng Demo"
 

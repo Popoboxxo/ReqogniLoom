@@ -30,7 +30,6 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Optional
 
 from django.db.models import QuerySet
 
@@ -47,8 +46,8 @@ class IcdParameterCreateDTO:
     data_type: str = "other"
     direction: str = "input"
     description: str = ""
-    min_value: Optional[Decimal] = None
-    max_value: Optional[Decimal] = None
+    min_value: Decimal | None = None
+    max_value: Decimal | None = None
     nominal_value: str = ""
     tolerance: str = ""
     ordering: int = 0
@@ -58,16 +57,16 @@ class IcdParameterCreateDTO:
 class IcdParameterUpdateDTO:
     """Input payload for updating an IcdParameter (``None`` = keep current value)."""
 
-    name: Optional[str] = None
-    unit: Optional[str] = None
-    data_type: Optional[str] = None
-    direction: Optional[str] = None
-    description: Optional[str] = None
-    min_value: Optional[Decimal] = None
-    max_value: Optional[Decimal] = None
-    nominal_value: Optional[str] = None
-    tolerance: Optional[str] = None
-    ordering: Optional[int] = None
+    name: str | None = None
+    unit: str | None = None
+    data_type: str | None = None
+    direction: str | None = None
+    description: str | None = None
+    min_value: Decimal | None = None
+    max_value: Decimal | None = None
+    nominal_value: str | None = None
+    tolerance: str | None = None
+    ordering: int | None = None
 
 
 class IcdParameterNotFoundError(LookupError):
@@ -95,8 +94,8 @@ class IcdParameterService:
         data_type: str = "other",
         direction: str = "input",
         description: str = "",
-        min_value: Optional[Decimal] = None,
-        max_value: Optional[Decimal] = None,
+        min_value: Decimal | None = None,
+        max_value: Decimal | None = None,
         nominal_value: str = "",
         tolerance: str = "",
         ordering: int = 0,
@@ -155,16 +154,16 @@ class IcdParameterService:
         self,
         parameter_id: uuid.UUID,
         tenant_id: uuid.UUID,
-        name: Optional[str] = None,
-        unit: Optional[str] = None,
-        data_type: Optional[str] = None,
-        direction: Optional[str] = None,
-        description: Optional[str] = None,
-        min_value: Optional[Decimal] = None,
-        max_value: Optional[Decimal] = None,
-        nominal_value: Optional[str] = None,
-        tolerance: Optional[str] = None,
-        ordering: Optional[int] = None,
+        name: str | None = None,
+        unit: str | None = None,
+        data_type: str | None = None,
+        direction: str | None = None,
+        description: str | None = None,
+        min_value: Decimal | None = None,
+        max_value: Decimal | None = None,
+        nominal_value: str | None = None,
+        tolerance: str | None = None,
+        ordering: int | None = None,
     ) -> IcdParameter:
         """Update an existing IcdParameter in place (fields default to unchanged).
 
@@ -277,9 +276,9 @@ def get_parameter_service() -> IcdParameterService:
 
 
 __all__ = [
-    "IcdParameterService",
     "IcdParameterCreateDTO",
-    "IcdParameterUpdateDTO",
     "IcdParameterNotFoundError",
+    "IcdParameterService",
+    "IcdParameterUpdateDTO",
     "get_parameter_service",
 ]

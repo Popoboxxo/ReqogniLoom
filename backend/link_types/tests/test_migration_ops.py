@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import itertools
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -19,7 +19,7 @@ from persistence.tenancy import TenantContext
 
 #: Base for the synthetic ``created_at`` stamps handed out by the ``link``
 #: helper below.
-_EPOCH = datetime(2026, 1, 1, tzinfo=timezone.utc)
+_EPOCH = datetime(2026, 1, 1, tzinfo=UTC)
 
 
 @pytest.fixture

@@ -24,6 +24,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 
 from asgiref.sync import sync_to_async
+from django.conf import settings
 from django.db import close_old_connections
 from django.http import (
     HttpRequest,
@@ -31,10 +32,9 @@ from django.http import (
     JsonResponse,
     StreamingHttpResponse,
 )
-from django.conf import settings
+from django.utils.decorators import method_decorator
 from django.views import View
 from django.views.decorators.csrf import csrf_exempt
-from django.utils.decorators import method_decorator
 
 from auth_tenancy.errors import AuthenticationFailed
 from auth_tenancy.services.authentication import AuthenticationService
@@ -930,6 +930,6 @@ class McpSseTransportView(View):
 
 __all__ = [
     "McpHttpTransportView",
-    "McpSseTransportView",
     "McpMessagesView",
+    "McpSseTransportView",
 ]

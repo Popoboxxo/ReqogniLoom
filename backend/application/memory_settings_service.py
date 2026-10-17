@@ -14,7 +14,7 @@ audit entry, final whole-branch review I-6) — never for authorization.
 from __future__ import annotations
 
 import logging
-from typing import Any, Optional
+from typing import Any
 from uuid import UUID
 
 from django.db import transaction
@@ -65,7 +65,7 @@ class MemorySettingsService:
     """Read/write the singleton SystemMemorySettings row."""
 
     @staticmethod
-    def _serialize(row: Optional[SystemMemorySettings]) -> dict[str, Any]:
+    def _serialize(row: SystemMemorySettings | None) -> dict[str, Any]:
         data: dict[str, Any] = {}
         for field in _OVERRIDABLE_FIELDS:
             value = getattr(row, field, None) if row is not None else None
@@ -88,7 +88,7 @@ class MemorySettingsService:
         return data
 
     @staticmethod
-    def _audit_config_write(user_id: Optional[UUID], operation: str, changed_fields: list[str]) -> None:
+    def _audit_config_write(user_id: UUID | None, operation: str, changed_fields: list[str]) -> None:
         """Best-effort audit entry for a write to the global settings row.
 
         Not a :class:`ServiceBase` subclass (this service takes no ``ctx``),
@@ -139,7 +139,7 @@ class MemorySettingsService:
 
     @atomic_transaction
     def update_settings(
-        self, data: dict[str, Any], user_id: Optional[UUID] = None
+        self, data: dict[str, Any], user_id: UUID | None = None
     ) -> dict[str, Any]:
         """Apply a partial override. ``user_id`` is attribution-only.
 
@@ -185,7 +185,7 @@ class MemorySettingsService:
         return result
 
     @atomic_transaction
-    def reset_settings(self, user_id: Optional[UUID] = None) -> dict[str, Any]:
+    def reset_settings(self, user_id: UUID | None = None) -> dict[str, Any]:
         """Clear every override (including the secret). ``user_id`` is attribution-only."""
         row, created = SystemMemorySettings.objects.get_or_create(pk=SYSTEM_MEMORY_SETTINGS_ID)
         for field in _OVERRIDABLE_FIELDS:

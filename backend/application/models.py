@@ -426,18 +426,18 @@ class ImportIdempotencyRecord(models.Model):
 
 
 __all__ = [
-    "DomainEventOutbox",
-    "DomainEventDLQ",
-    "WebhookSubscription",
-    "WebhookDeliveryLog",
     "Adr",
-    "Risk",
-    "Issue",
     "ChangeRequest",
     "ChangeRequestAffectedItem",
-    "Goal",
-    "MainGoal",
     "Comment",
-    "Notification",
+    "DomainEventDLQ",
+    "DomainEventOutbox",
+    "Goal",
     "ImportIdempotencyRecord",
+    "Issue",
+    "MainGoal",
+    "Notification",
+    "Risk",
+    "WebhookDeliveryLog",
+    "WebhookSubscription",
 ]

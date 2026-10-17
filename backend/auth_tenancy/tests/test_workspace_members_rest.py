@@ -25,7 +25,6 @@ from auth_tenancy.services.authorization import WorkspaceMember
 
 from .conftest import active_tenant
 
-
 _MOCK_USER_ID = UUID("00000000-0000-0000-0000-000000000001")
 _MOCK_TENANT_ID = UUID("00000000-0000-0000-0000-000000000002")
 _WORKSPACE_ID = UUID("00000000-0000-0000-0000-000000000010")

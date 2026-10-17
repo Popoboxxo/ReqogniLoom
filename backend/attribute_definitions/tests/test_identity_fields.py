@@ -35,11 +35,11 @@ from django.test import override_settings
 from attribute_definitions.schema import ITEM_TYPES
 from attribute_definitions.tests.test_transport_contract_matrix import (
     _JWT_OVERRIDES,
-    _McpTransport,
-    _RestTransport,
     _SPECS,
     _build_env,
+    _McpTransport,
     _payload,
+    _RestTransport,
     _token,
 )
 

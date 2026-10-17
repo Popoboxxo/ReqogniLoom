@@ -39,8 +39,9 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 from attribute_definitions.migration_transforms import TRANSFORM_NAMES
 from attribute_definitions.schema import ITEM_TYPES, PRESETS
@@ -959,8 +960,8 @@ __all__ = [
     "MAX_SAMPLES",
     "MIGRATE_MODES",
     "MOVE",
-    "MigrationPlanError",
     "NON_WRITING_OPS",
+    "OPS",
     "OP_BACKFILL_VALUE",
     "OP_DEFINE_ATTRIBUTE",
     "OP_DEPRECATE_ATTRIBUTE",
@@ -971,12 +972,11 @@ __all__ = [
     "OP_MAP_VALUE",
     "OP_MERGE_ATTRIBUTE",
     "OP_MIGRATE_VALUE",
-    "OP_REQUEUE_DEFINITION",
     "OP_RENAME_ATTRIBUTE",
+    "OP_REQUEUE_DEFINITION",
     "OP_RETYPE_ATTRIBUTE",
     "OP_SPLIT_ATTRIBUTE",
     "OP_VERIFY",
-    "OPS",
     "PLAN_VERSION",
     "REF_CUSTOM_FIELD",
     "REF_KINDS",
@@ -992,8 +992,9 @@ __all__ = [
     "TARGET_SCOPE_WORKSPACE",
     "TRANSFORM_NAMES",
     "UNSUPPORTED_OPS",
-    "VERIFY_METRICS",
     "VALUE_OPS",
+    "VERIFY_METRICS",
+    "MigrationPlanError",
     "condition_atoms",
     "evaluate_condition",
     "iter_referenced_fields",

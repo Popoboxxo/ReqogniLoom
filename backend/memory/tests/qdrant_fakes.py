@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import math
 from types import SimpleNamespace
-from typing import Any, Optional
+from typing import Any
 
 
 class _FakeVectorParams:
@@ -41,7 +41,7 @@ class _FakeHnswConfigDiff:
 
 
 class _FakePointStruct:
-    def __init__(self, id: Any, vector: list, payload: Optional[dict] = None) -> None:
+    def __init__(self, id: Any, vector: list, payload: dict | None = None) -> None:
         self.id = id
         self.vector = vector
         self.payload = payload or {}
@@ -59,7 +59,7 @@ class _FakeFieldCondition:
 
 
 class _FakeFilter:
-    def __init__(self, must: Optional[list] = None, **kwargs: Any) -> None:
+    def __init__(self, must: list | None = None, **kwargs: Any) -> None:
         self.must = list(must or [])
 
 
@@ -94,7 +94,7 @@ FakeQdrantModels = SimpleNamespace(
 )
 
 
-def _matches(payload: dict, flt: Optional[_FakeFilter]) -> bool:
+def _matches(payload: dict, flt: _FakeFilter | None) -> bool:
     """Whether *payload* satisfies every ``must`` condition of *flt*."""
     if flt is None:
         return True
@@ -132,7 +132,7 @@ class FakeQdrantClient:
         #: collection name -> declared vector width
         self.vector_sizes: dict[str, int] = {}
         #: Attributes that can be forced to raise to simulate an outage.
-        self.fail_with: Optional[BaseException] = None
+        self.fail_with: BaseException | None = None
 
     def _guard(self) -> None:
         if self.fail_with is not None:

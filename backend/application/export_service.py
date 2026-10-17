@@ -42,7 +42,7 @@ import csv
 import io
 import json
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any
 from uuid import UUID
 
 from auth_tenancy.context import AuthContext
@@ -107,7 +107,7 @@ _COMMON_APP_FIELDS = [
     ("updated_at", "datetime"),
 ]
 
-ENTITY_FIELD_SPECS: Dict[str, List[tuple]] = {
+ENTITY_FIELD_SPECS: dict[str, list[tuple]] = {
     "StakeholderNeed": [
         ("title", "str"),
         ("description", "str"),
@@ -307,7 +307,7 @@ class ExportService(ServiceBase):
         entity_type: str,
         workspace_id: UUID | str,
         ctx: AuthContext,
-        artifact_id: Optional[UUID | str] = None,
+        artifact_id: UUID | str | None = None,
     ) -> ExportResult:
         """Export entities as JSON with embedded terminology metadata.
 
@@ -329,7 +329,7 @@ class ExportService(ServiceBase):
         rows = self._fetch_entities(entity_type, ws_uuid, artifact_id)
         terminology = self._get_terminology_profile(str(ws_uuid))
 
-        payload: Dict[str, Any] = {
+        payload: dict[str, Any] = {
             "metadata": {
                 "entity_type": entity_type,
                 "workspace_id": str(ws_uuid),
@@ -354,7 +354,7 @@ class ExportService(ServiceBase):
         entity_type: str,
         workspace_id: UUID | str,
         ctx: AuthContext,
-        artifact_id: Optional[UUID | str] = None,
+        artifact_id: UUID | str | None = None,
     ) -> ExportResult:
         """Export entities as CSV with terminology comment in first row.
 
@@ -409,7 +409,7 @@ class ExportService(ServiceBase):
         entity_type: str,
         workspace_id: UUID | str,
         ctx: AuthContext,
-        artifact_id: Optional[UUID | str] = None,
+        artifact_id: UUID | str | None = None,
     ) -> ExportResult:
         """Export entities as Markdown document.
 
@@ -471,7 +471,7 @@ class ExportService(ServiceBase):
         entity_type: str,
         workspace_id: UUID | str,
         ctx: AuthContext,
-        artifact_id: Optional[UUID | str] = None,
+        artifact_id: UUID | str | None = None,
     ) -> ExportResult:
         """Export workspace report as PDF.
 
@@ -550,8 +550,8 @@ class ExportService(ServiceBase):
     def _fetch_entities(
         entity_type: str,
         workspace_id: UUID,
-        artifact_id: Optional[UUID | str],
-    ) -> List[Dict[str, Any]]:
+        artifact_id: UUID | str | None,
+    ) -> list[dict[str, Any]]:
         """Query the persistence/application layer for entities of *entity_type*.
 
         IF-AS-EXT-OUT-007. Serialises each row via the shared
@@ -580,7 +580,7 @@ class ExportService(ServiceBase):
                 "TestCase": TestCase,
             }[entity_type]
 
-            flt: Dict[str, Any] = {"artifact__workspace_id": workspace_id}
+            flt: dict[str, Any] = {"artifact__workspace_id": workspace_id}
             if artifact_id is not None:
                 flt["artifact_id"] = UUID(str(artifact_id))
             qs = model.objects.filter(**flt).select_related("artifact")
@@ -607,8 +607,8 @@ class ExportService(ServiceBase):
         # falls back to *entity_type*'s preset initial state instead of the
         # column's own value (documented, reviewed data-loss tradeoff, see
         # the Task 12 report Finding 2).
-        status_map: Dict[str, str] = {}
-        status_fallback: Optional[str] = None
+        status_map: dict[str, str] = {}
+        status_fallback: str | None = None
         if rows and any(col == "status" for col, _kind in spec):
             from workflow import state_reader
 
@@ -628,8 +628,8 @@ class ExportService(ServiceBase):
 
     @staticmethod
     def _serialize_row(
-        obj: Any, spec: List[tuple], *, resolved_status: Optional[str] = None
-    ) -> Dict[str, Any]:
+        obj: Any, spec: list[tuple], *, resolved_status: str | None = None
+    ) -> dict[str, Any]:
         """Serialise a single ORM *obj* into a row dict per *spec*.
 
         *resolved_status*, when given, overrides the (now-dropped) ``status``
@@ -654,9 +654,9 @@ class ExportService(ServiceBase):
 
 
 __all__ = [
-    "ExportService",
-    "ExportResult",
     "ENTITY_FIELD_SPECS",
-    "_PERSISTENCE_ENTITY_TYPES",
     "_APP_ENTITY_TYPES",
+    "_PERSISTENCE_ENTITY_TYPES",
+    "ExportResult",
+    "ExportService",
 ]

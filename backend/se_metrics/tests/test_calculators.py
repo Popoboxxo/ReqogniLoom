@@ -18,8 +18,8 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from typing import List, Optional
+from datetime import UTC, datetime
+from typing import Optional
 from unittest.mock import MagicMock
 
 import pytest
@@ -42,7 +42,6 @@ from se_metrics.types import (
     VolatilityResult,
     WorkflowGapResult,
 )
-
 
 # ---------------------------------------------------------------------------
 # COMP-SM-003 VolatilityCalculator tests
@@ -364,7 +363,7 @@ def _make_metrics_result(
 
     return MetricsResult(
         workspace_id=workspace_id,
-        computed_at=datetime.now(tz=timezone.utc),
+        computed_at=datetime.now(tz=UTC),
         timeframe="P30D",
         volatility=VolatilityResult(
             total_changes=int(avg_changes * 10),

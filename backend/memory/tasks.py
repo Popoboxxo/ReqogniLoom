@@ -62,7 +62,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any
 from uuid import UUID
 
 from celery import shared_task
@@ -105,7 +105,7 @@ def _call_llm(prompt: str) -> str:
     return provider.complete(prompt, purpose="memory_extraction")
 
 
-def _parse_facts(raw_llm_output: str) -> Optional[List[dict]]:
+def _parse_facts(raw_llm_output: str) -> list[dict] | None:
     """Parse the LLM's ``{"facts": [...]}`` response; ``None`` on any malformed input."""
     try:
         parsed = json.loads(raw_llm_output)
@@ -119,7 +119,7 @@ def _parse_facts(raw_llm_output: str) -> Optional[List[dict]]:
     return facts
 
 
-def _as_uuid(value: object) -> Optional[UUID]:
+def _as_uuid(value: object) -> UUID | None:
     """Return *value* as a ``UUID``, or ``None`` when it is not UUID-shaped.
 
     Mirrors ``memory.backends._maybe_uuid``: ``artifact_id`` arrives either
@@ -163,7 +163,7 @@ def _artifact_context(artifact_id: UUID, entity_type: str) -> str:
     return f"artifact_id={artifact_id}"
 
 
-def _empty_result() -> Dict[str, Any]:
+def _empty_result() -> dict[str, Any]:
     """The all-zero result shape every early/empty return shares."""
     return {
         "artifact_facts_stored": 0,
@@ -178,9 +178,9 @@ def consolidate_interaction(
     workspace_id: UUID,
     user_id: UUID,
     interaction_text: str,
-    artifact_id: "UUID | str | None" = None,
+    artifact_id: UUID | str | None = None,
     entity_type: str = "",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Extract durable facts from ``interaction_text`` and upsert them into memory.
 
     Pure function wrapped by :func:`consolidate_interaction_task` for Celery
@@ -230,7 +230,7 @@ def consolidate_interaction(
             return _empty_result()
 
         backend = get_memory_backend()
-        counts: Dict[str, int] = {
+        counts: dict[str, int] = {
             "artifact_facts_stored": 0,
             "workspace_facts_stored": 0,
             "user_facts_stored": 0,
@@ -333,9 +333,9 @@ def consolidate_interaction_task(
     workspace_id: str,
     user_id: str,
     interaction_text: str,
-    artifact_id: "str | None" = None,
+    artifact_id: str | None = None,
     entity_type: str = "",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Celery entry point -- deserialises string ids, delegates to the pure function."""
     return consolidate_interaction(
         UUID(str(tenant_id)),
@@ -348,7 +348,7 @@ def consolidate_interaction_task(
 
 
 @shared_task(name="memory.reconcile_guard")
-def memory_reconcile_guard() -> Dict[str, Any]:
+def memory_reconcile_guard() -> dict[str, Any]:
     """Periodic fail-loud guard over ``manage.py memory_reconcile`` (#1250).
 
     Runs the READ-ONLY reconciliation report (it never deletes or repairs
@@ -376,7 +376,7 @@ def memory_reconcile_guard() -> Dict[str, Any]:
 
     out = StringIO()
     call_command("memory_reconcile", "--json", stdout=out)
-    report: Dict[str, Any] = json.loads(out.getvalue())
+    report: dict[str, Any] = json.loads(out.getvalue())
     if not report.get("ok"):
         logger.warning(
             "memory reconcile guard found inconsistencies (backend=%s): %s",

@@ -42,9 +42,17 @@ Layer 2 placement mirrors ``application.tree_display_config_service``: the
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 from uuid import UUID
 
+from application.base import ServiceBase
+from attribute_definitions.create_form_fields import (
+    CreateFormError,
+    catalog_field_entries,
+    merge_create_form_entries,
+    normalize_create_form_entries,
+    required_field_keys,
+)
 from auth_tenancy.context import AuthContext
 from auth_tenancy.models import (
     ROLE_ADMIN,
@@ -53,16 +61,7 @@ from auth_tenancy.models import (
     TreeDisplayConfig,
     UserDisplayPreference,
 )
-from attribute_definitions.create_form_fields import (
-    CreateFormError,
-    catalog_field_entries,
-    merge_create_form_entries,
-    normalize_create_form_entries,
-    required_field_keys,
-)
 from persistence.errors import ValidationError
-
-from application.base import ServiceBase
 
 #: Task 9 (spec section 6 precedent): bumped only if the export document's
 #: shape ever changes in a way ``import_config`` cannot read compatibly.
@@ -89,8 +88,8 @@ class CreateFormConfigService(ServiceBase):
         self,
         ctx: AuthContext,
         item_type: str,
-        workspace_id: Optional[UUID] = None,
-    ) -> List[Dict[str, Any]]:
+        workspace_id: UUID | None = None,
+    ) -> list[dict[str, Any]]:
         """Return the base entries for ``(item_type, workspace)``.
 
         The base is the workspace's resolved attribute definition projected to
@@ -114,8 +113,8 @@ class CreateFormConfigService(ServiceBase):
         ctx: AuthContext,
         *,
         item_type: str,
-        workspace_id: Optional[UUID] = None,
-    ) -> Dict[str, Any]:
+        workspace_id: UUID | None = None,
+    ) -> dict[str, Any]:
         """Return the *effective* form definition for ``(item_type, workspace)``.
 
         Resolution order is ``user > workspace > global > definition default``.
@@ -124,7 +123,7 @@ class CreateFormConfigService(ServiceBase):
         """
         self._set_tenant_context(ctx)
         base = self.catalog(ctx, item_type, workspace_id)
-        levels: tuple[tuple[str, Dict[str, Any]], ...] = (
+        levels: tuple[tuple[str, dict[str, Any]], ...] = (
             (SCOPE_USER, self._user_map(ctx)),
             (SCOPE_WORKSPACE, self._workspace_map(workspace_id)),
             (SCOPE_GLOBAL, self._global_map()),
@@ -149,9 +148,9 @@ class CreateFormConfigService(ServiceBase):
         ctx: AuthContext,
         *,
         scope: str,
-        item_type: Optional[str] = None,
-        workspace_id: Optional[UUID] = None,
-    ) -> Dict[str, Any]:
+        item_type: str | None = None,
+        workspace_id: UUID | None = None,
+    ) -> dict[str, Any]:
         """Return one level's stored configuration (not the resolved value).
 
         ``item_type`` omitted returns the whole ``{item_type: [...]}`` map, which
@@ -194,9 +193,9 @@ class CreateFormConfigService(ServiceBase):
         *,
         scope: str,
         item_type: str,
-        fields: Optional[List[Any]],
-        workspace_id: Optional[UUID] = None,
-    ) -> Dict[str, Any]:
+        fields: list[Any] | None,
+        workspace_id: UUID | None = None,
+    ) -> dict[str, Any]:
         """Store (or reset) one level's form definition for one item type.
 
         ``fields`` is the ordered list of ``{field_key, visible, required, order,
@@ -219,7 +218,7 @@ class CreateFormConfigService(ServiceBase):
         self._assert_writable_scope(scope)
         self._set_tenant_context(ctx)
 
-        normalized: Optional[List[Dict[str, Any]]] = None
+        normalized: list[dict[str, Any]] | None = None
         if fields is not None:
             valid_keys = [
                 entry["field_key"]
@@ -255,8 +254,8 @@ class CreateFormConfigService(ServiceBase):
         *,
         scope: str,
         item_type: str,
-        workspace_id: Optional[UUID] = None,
-    ) -> Dict[str, Any]:
+        workspace_id: UUID | None = None,
+    ) -> dict[str, Any]:
         """Serialize one level's form definition for download.
 
         The document carries a ``schema_version`` so a future format change is
@@ -281,8 +280,8 @@ class CreateFormConfigService(ServiceBase):
         scope: str,
         item_type: str,
         payload: Any,
-        workspace_id: Optional[UUID] = None,
-    ) -> Dict[str, Any]:
+        workspace_id: UUID | None = None,
+    ) -> dict[str, Any]:
         """Import a previously-exported document into one level.
 
         Structural validation and normalization are :meth:`set_config`'s
@@ -321,7 +320,7 @@ class CreateFormConfigService(ServiceBase):
         ctx: AuthContext,
         item_type: str,
         workspace_id: UUID,
-    ) -> List[str]:
+    ) -> list[str]:
         """Field keys a create payload must carry, from the effective form.
 
         Reads the *same* resolved definition the dialog renders, so the server
@@ -337,11 +336,11 @@ class CreateFormConfigService(ServiceBase):
     # Level readers
     # ------------------------------------------------------------------
 
-    def _user_map(self, ctx: AuthContext) -> Dict[str, Any]:
+    def _user_map(self, ctx: AuthContext) -> dict[str, Any]:
         row = UserDisplayPreference.objects.filter(user_id=ctx.user_id).first()
         return self._as_map(row.create_form_fields if row is not None else None)
 
-    def _workspace_map(self, workspace_id: Optional[UUID]) -> Dict[str, Any]:
+    def _workspace_map(self, workspace_id: UUID | None) -> dict[str, Any]:
         if workspace_id is None:
             return {}
         row = (
@@ -353,7 +352,7 @@ class CreateFormConfigService(ServiceBase):
         )
         return self._as_map(row.create_form_json if row is not None else None)
 
-    def _global_map(self) -> Dict[str, Any]:
+    def _global_map(self) -> dict[str, Any]:
         row = (
             TreeDisplayConfig.objects.filter(scope=TREE_DISPLAY_SCOPE_GLOBAL)
             .only("create_form_json")
@@ -369,7 +368,7 @@ class CreateFormConfigService(ServiceBase):
         self,
         ctx: AuthContext,
         item_type: str,
-        fields: Optional[List[Dict[str, Any]]],
+        fields: list[dict[str, Any]] | None,
     ) -> None:
         row, _created = UserDisplayPreference.objects.get_or_create(
             user_id=ctx.user_id,
@@ -386,7 +385,7 @@ class CreateFormConfigService(ServiceBase):
         ctx: AuthContext,
         workspace_id: UUID,
         item_type: str,
-        fields: Optional[List[Dict[str, Any]]],
+        fields: list[dict[str, Any]] | None,
     ) -> None:
         # A workspace-level default governs every member, so it needs write
         # authority — not merely read access.
@@ -406,7 +405,7 @@ class CreateFormConfigService(ServiceBase):
         self,
         ctx: AuthContext,
         item_type: str,
-        fields: Optional[List[Dict[str, Any]]],
+        fields: list[dict[str, Any]] | None,
     ) -> None:
         if not ctx.has_role(ROLE_ADMIN):
             from persistence.errors import PermissionDeniedError
@@ -431,9 +430,9 @@ class CreateFormConfigService(ServiceBase):
 
     @staticmethod
     def _apply(
-        mapping: Dict[str, Any],
+        mapping: dict[str, Any],
         item_type: str,
-        fields: Optional[List[Dict[str, Any]]],
+        fields: list[dict[str, Any]] | None,
     ) -> None:
         """Set or drop one item type's entry in *mapping* (in place)."""
         if fields is None:
@@ -442,7 +441,7 @@ class CreateFormConfigService(ServiceBase):
             mapping[item_type] = fields
 
     @staticmethod
-    def _as_map(raw: Any) -> Dict[str, Any]:
+    def _as_map(raw: Any) -> dict[str, Any]:
         """Coerce a stored JSON value to a plain ``{item_type: [...]}`` dict.
 
         A hand-edited or legacy row is never allowed to raise on a *read* path:
@@ -454,8 +453,8 @@ class CreateFormConfigService(ServiceBase):
         self,
         ctx: AuthContext,
         item_type: str,
-        workspace_id: Optional[UUID],
-    ) -> Dict[str, Any]:
+        workspace_id: UUID | None,
+    ) -> dict[str, Any]:
         """Best-effort resolved attribute definition of ``(item_type, workspace)``.
 
         Returns empty ``attributes``/``sections`` whenever the definition cannot
@@ -464,7 +463,7 @@ class CreateFormConfigService(ServiceBase):
         attribute engine is not ready. The import is lazy to avoid a module-load
         cycle with ``application.attribute_definition_service``.
         """
-        empty: Dict[str, Any] = {"attributes": [], "sections": []}
+        empty: dict[str, Any] = {"attributes": [], "sections": []}
         if not item_type or workspace_id is None:
             return empty
         try:
@@ -491,9 +490,9 @@ class CreateFormConfigService(ServiceBase):
         *,
         item_type: str,
         scope: str,
-        fields: List[Dict[str, Any]],
-        base: List[Dict[str, Any]],
-    ) -> Dict[str, Any]:
+        fields: list[dict[str, Any]],
+        base: list[dict[str, Any]],
+    ) -> dict[str, Any]:
         return {
             "item_type": item_type,
             "scope": scope,

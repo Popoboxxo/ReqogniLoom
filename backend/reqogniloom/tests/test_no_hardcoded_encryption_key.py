@@ -16,6 +16,7 @@ from pathlib import Path
 
 import pytest
 
+
 def _find_repo_root() -> Path | None:
     """Locate the checkout root, or None when only ``backend/`` is available.
 

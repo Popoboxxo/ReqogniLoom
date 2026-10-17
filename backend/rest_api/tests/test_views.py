@@ -19,25 +19,25 @@ Uses DRF APIClient with mock authentication to avoid database dependencies.
 from __future__ import annotations
 
 import uuid
+from datetime import UTC
 from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
 from rest_framework.test import APIRequestFactory
 
+from rest_api.serializers import build_error_response
 from rest_api.views import (
-    RequirementViewSet,
-    RequirementHistoryView,
-    ArtifactViewSet,
     ArchitectureElementViewSet,
+    ArtifactViewSet,
+    BaselineViewSet,
+    RequirementHistoryView,
+    RequirementViewSet,
     TestCaseViewSet,
     TraceLinkViewSet,
-    BaselineViewSet,
     WorkflowDefinitionViewSet,
     _service_error_response,
 )
-from rest_api.serializers import build_error_response
-
 
 # ---------------------------------------------------------------------------
 # Helper: build an authenticated request with mock AuthContext
@@ -128,6 +128,7 @@ class TestAuthEnforcement:
 
     def test_get_auth_context_without_context_raises(self) -> None:
         from rest_framework import exceptions
+
         from rest_api.auth_enforcer import get_auth_context
 
         req = MagicMock(spec=[])  # no auth_context attribute
@@ -531,7 +532,7 @@ class TestRequirementWorkflowHistory:
 
     def test_workflow_history_returns_entries_without_seal_value(self) -> None:
         """Entries expose a `sealed` boolean, never the raw signature_seal."""
-        from datetime import datetime, timezone
+        from datetime import datetime
 
         entry_gated = MagicMock()
         entry_gated.id = uuid.uuid4()
@@ -539,7 +540,7 @@ class TestRequirementWorkflowHistory:
         entry_gated.to_state = "approved"
         entry_gated.transitioned_by = "user-1"
         entry_gated.change_reason = "looks good"
-        entry_gated.transitioned_at = datetime(2026, 1, 2, tzinfo=timezone.utc)
+        entry_gated.transitioned_at = datetime(2026, 1, 2, tzinfo=UTC)
         entry_gated.signature_seal = "some-hmac-seal-value"
 
         entry_plain = MagicMock()
@@ -548,7 +549,7 @@ class TestRequirementWorkflowHistory:
         entry_plain.to_state = "in_review"
         entry_plain.transitioned_by = "user-2"
         entry_plain.change_reason = ""
-        entry_plain.transitioned_at = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        entry_plain.transitioned_at = datetime(2026, 1, 1, tzinfo=UTC)
         entry_plain.signature_seal = ""
 
         facade = MagicMock()
@@ -1184,9 +1185,10 @@ class TestRbacEnforcement:
     """Viewer role: POST → 403 (REQ-L3-RA003-002)."""
 
     def test_viewer_post_denied(self) -> None:
-        from rest_api.auth_enforcer import RbacPermission
         from rest_framework import exceptions
+
         from auth_tenancy.context import AuthContext, AuthMethod
+        from rest_api.auth_enforcer import RbacPermission
 
         ctx = AuthContext(
             user_id=uuid.uuid4(),
@@ -1365,6 +1367,7 @@ class TestNoBusinessLogicInViews:
     def test_views_module_has_no_workflow_state_machine(self) -> None:
         """Controller must not contain workflow state machine logic."""
         import inspect
+
         import rest_api.views as views_module
 
         source = inspect.getsource(views_module)
@@ -1380,6 +1383,7 @@ class TestNoBusinessLogicInViews:
     def test_views_delegate_to_service_not_orm(self) -> None:
         """Controller must call service methods, not ORM directly."""
         import inspect
+
         import rest_api.views as views_module
 
         source = inspect.getsource(views_module)
@@ -1439,6 +1443,7 @@ class TestOpenApiSchemaEndpoint:
     def test_schema_endpoint_defined_in_urls(self) -> None:
         """Schema URL is registered in rest_api.urls."""
         from django.urls import reverse
+
         from rest_api.urls import urlpatterns
 
         # Check schema URL pattern exists

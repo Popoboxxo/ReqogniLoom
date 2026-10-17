@@ -21,11 +21,13 @@ Architecture:
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
 
+from baseline.delta_index_builder import DeltaIndexBuilder, ScopeResolver
+from baseline.diff_engine import DiffEngine
 from baseline.exceptions import (
     BaselineImmutableError,
     BaselineNotFoundError,
@@ -45,10 +47,7 @@ from baseline.types import (
     DiffResult,
     ItemPayload,
 )
-from baseline.diff_engine import DiffEngine
 from baseline.version_reconstructor import LruPayloadCache, VersionReconstructor
-from baseline.delta_index_builder import DeltaIndexBuilder, ScopeResolver
-
 
 # ---------------------------------------------------------------------------
 # Helpers / fixtures
@@ -82,7 +81,7 @@ def _make_metadata(
         name=name,
         description="Test baseline",
         created_by="test-agent",
-        created_at=datetime.now(tz=timezone.utc),
+        created_at=datetime.now(tz=UTC),
     )
 
 
@@ -900,9 +899,9 @@ class TestResolveScopeItemIdsDiagramShadowArtifactFlag:
     def test_default_excludes_diagram_shadow_artifact_from_project_scope(self):
         """Default (True): matches the actual baseline snapshot — a Diagram
         shadow Artifact must not appear as a spurious scope item."""
+        from baseline.services import resolve_scope_item_ids
         from persistence.models import Artifact
         from persistence.tenancy import TenantContext
-        from baseline.services import resolve_scope_item_ids
 
         tenant, workspace = self._make_tenant_and_workspace()
         try:
@@ -927,9 +926,9 @@ class TestResolveScopeItemIdsDiagramShadowArtifactFlag:
         Diagram shadow Artifact must be included, so a TraceLink between it
         and a real artifact has both endpoints in scope — no TRACE-P7
         false-BLOCKER (Codeberg #353 regression fix)."""
+        from baseline.services import resolve_scope_item_ids
         from persistence.models import Artifact
         from persistence.tenancy import TenantContext
-        from baseline.services import resolve_scope_item_ids
 
         tenant, workspace = self._make_tenant_and_workspace()
         try:
@@ -954,9 +953,9 @@ class TestResolveScopeItemIdsDiagramShadowArtifactFlag:
 
     def test_exclude_diagram_shadow_artifacts_false_includes_it_in_global_scope(self):
         """Same flag semantics for global scope."""
+        from baseline.services import resolve_scope_item_ids
         from persistence.models import Artifact
         from persistence.tenancy import TenantContext
-        from baseline.services import resolve_scope_item_ids
 
         tenant, workspace = self._make_tenant_and_workspace()
         try:
@@ -1001,10 +1000,10 @@ class TestBaselineBuiltinWithExtendedPreset:
     def test_create_and_get_baseline_round_trip(self):
         """REQ-L2-RA-008: With extended preset, create baseline then
         retrieve it — snapshot must exist with correct entries."""
-        from persistence.tenancy import TenantContext
-        from persistence.models import Workspace
-        from presets.models import WorkspacePresetConfig
         from baseline.store import BaselineStore
+        from persistence.models import Workspace
+        from persistence.tenancy import TenantContext
+        from presets.models import WorkspacePresetConfig
 
         tenant = self._make_tenant()
         TenantContext.set_tenant(tenant.id)
@@ -1055,10 +1054,10 @@ class TestBaselineBuiltinWithExtendedPreset:
 
     def test_create_and_list_with_extended_preset(self):
         """With extended preset, multiple baselines can be created and listed."""
-        from persistence.tenancy import TenantContext
-        from persistence.models import Workspace
-        from presets.models import WorkspacePresetConfig
         from baseline.store import BaselineStore
+        from persistence.models import Workspace
+        from persistence.tenancy import TenantContext
+        from presets.models import WorkspacePresetConfig
 
         tenant = self._make_tenant()
         TenantContext.set_tenant(tenant.id)
@@ -1099,8 +1098,8 @@ class TestBaselineBuiltinWithExtendedPreset:
     def test_workspace_preset_name_propagates_to_config(self):
         """When gate.py lazy-creates WorkspacePresetConfig, it should pick
         up the tier name from workspace.preset JSONField."""
-        from persistence.tenancy import TenantContext
         from persistence.models import Workspace
+        from persistence.tenancy import TenantContext
         from presets.gate import _get_or_create_preset_config
 
         tenant = self._make_tenant()
@@ -1122,8 +1121,8 @@ class TestBaselineBuiltinWithExtendedPreset:
 
     def test_workspace_without_preset_defaults_to_minimal(self):
         """When workspace.preset is empty, lazy-created config defaults to minimal."""
-        from persistence.tenancy import TenantContext
         from persistence.models import Workspace
+        from persistence.tenancy import TenantContext
         from presets.gate import _get_or_create_preset_config
 
         tenant = self._make_tenant()
@@ -1167,9 +1166,9 @@ class TestDocumentScopeTraceLinkDescendants:
     def test_document_scope_includes_child_linked_via_derives_from(self):
         """A root StakeholderNeed with a Requirement that 'derives-from' it
         (no parent_id set) must be included in document scope."""
+        from baseline.services import resolve_scope_item_ids
         from persistence.models import Artifact, TraceLink
         from persistence.tenancy import TenantContext
-        from baseline.services import resolve_scope_item_ids
 
         tenant, workspace = self._make_tenant_and_workspace()
         try:
@@ -1208,9 +1207,9 @@ class TestDocumentScopeTraceLinkDescendants:
         """derives-from TraceLinks between ADRs are also followed (the retired
         refines type used to carry this pair before the link-type
         consolidation folded it into derives-from)."""
+        from baseline.services import resolve_scope_item_ids
         from persistence.models import Artifact, TraceLink
         from persistence.tenancy import TenantContext
-        from baseline.services import resolve_scope_item_ids
 
         tenant, workspace = self._make_tenant_and_workspace()
         try:
@@ -1246,9 +1245,9 @@ class TestDocumentScopeTraceLinkDescendants:
     def test_document_scope_excludes_unrelated_link_types(self):
         """Non-hierarchy link types (e.g. allocated-to) must NOT pull in the
         source artifact as a descendant."""
+        from baseline.services import resolve_scope_item_ids
         from persistence.models import Artifact, TraceLink
         from persistence.tenancy import TenantContext
-        from baseline.services import resolve_scope_item_ids
 
         tenant, workspace = self._make_tenant_and_workspace()
         try:

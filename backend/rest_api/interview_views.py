@@ -26,7 +26,12 @@ from application.base import (
 from application.interview_service import InterviewService
 from rest_api.mixins.free_text_sanitization import FreeTextSanitizationMixin
 from rest_api.query_params import parse_uuid_param
-from rest_api.views import _service_error_response, detect_lang, get_auth_context, parse_workspace_id
+from rest_api.views import (
+    _service_error_response,
+    detect_lang,
+    get_auth_context,
+    parse_workspace_id,
+)
 
 #: Every ApplicationService exception InterviewService can raise, mapped to
 #: HTTP codes by rest_api.views._service_error_response. Grouped once here
@@ -36,8 +41,8 @@ _SERVICE_EXCEPTIONS = (ValidationError, NotFoundError, PermissionDeniedError, Op
 
 
 def _session_to_dict(
-    session: Any, status_map: "dict[str, str] | None" = None
-) -> "dict[str, Any]":
+    session: Any, status_map: dict[str, str] | None = None
+) -> dict[str, Any]:
     """Bare session summary -- used by list()/retrieve(), which don't need
     the full get_state() computation (phase/missing_fields/grounding).
 
@@ -71,7 +76,7 @@ def _session_to_dict(
     }
 
 
-def _state_dict(ctx: Any, session_id: UUID) -> "dict[str, Any]":
+def _state_dict(ctx: Any, session_id: UUID) -> dict[str, Any]:
     """InterviewService.get_state()'s dict, normalised to an "id" key.
 
     get_state() itself returns "session_id" (its own internal convention,
@@ -85,7 +90,7 @@ def _state_dict(ctx: Any, session_id: UUID) -> "dict[str, Any]":
     return result
 
 
-def _started_session_state(ctx: Any, session: Any) -> "dict[str, Any]":
+def _started_session_state(ctx: Any, session: Any) -> dict[str, Any]:
     """State payload for a freshly started interview session (REST create()).
 
     Multi-kind sessions deliberately bypass InterviewService.get_state():

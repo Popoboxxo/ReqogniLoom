@@ -25,12 +25,11 @@ descriptions of a tenant's AI configuration.
 """
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any
 
 from application.base import NotFoundError, ValidationError
 from application.prompt_variable_service import PromptVariableService
 from auth_tenancy.context import AuthContext
-
 from mcp_server.tools.base import (
     BaseToolGroup,
     ToolResult,
@@ -146,7 +145,7 @@ class PromptVariableToolGroup(BaseToolGroup):
     ]
 
     @staticmethod
-    def _check_admin(auth_context: AuthContext) -> "ToolResult | None":
+    def _check_admin(auth_context: AuthContext) -> ToolResult | None:
         """Return a ``PERMISSION_DENIED`` ToolResult if the caller is not admin."""
         if auth_context.has_role("admin"):
             return None
@@ -157,7 +156,7 @@ class PromptVariableToolGroup(BaseToolGroup):
         )
 
     def _handle_list(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         denied = self._check_admin(auth_context)
         if denied is not None:
@@ -169,7 +168,7 @@ class PromptVariableToolGroup(BaseToolGroup):
         return ToolResult.ok({"variables": variables, "count": len(variables)})
 
     def _handle_get(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         denied = self._check_admin(auth_context)
         if denied is not None:
@@ -185,7 +184,7 @@ class PromptVariableToolGroup(BaseToolGroup):
         return ToolResult.ok({"variable": variable})
 
     def _handle_set(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         denied = self._check_admin(auth_context)
         if denied is not None:
@@ -220,7 +219,7 @@ class PromptVariableToolGroup(BaseToolGroup):
         return ToolResult.ok({"variable": variable})
 
     def _handle_clear(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         denied = self._check_admin(auth_context)
         if denied is not None:

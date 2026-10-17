@@ -25,9 +25,9 @@ Interfaces:
 from __future__ import annotations
 
 import logging
+from collections.abc import Generator, Sequence
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Generator, Iterator, List, Optional, Sequence
 from uuid import UUID
 
 from audit.models import AuditEntry
@@ -55,13 +55,13 @@ class AuditQueryFilters:
     All fields are optional; omitted fields are not applied as filters.
     """
 
-    entity_id: Optional[UUID] = None
-    entity_type: Optional[str] = None
-    actor: Optional[str] = None
-    operation: Optional[str] = None
-    source: Optional[str] = None
-    timestamp_from: Optional[datetime] = None
-    timestamp_to: Optional[datetime] = None
+    entity_id: UUID | None = None
+    entity_type: str | None = None
+    actor: str | None = None
+    operation: str | None = None
+    source: str | None = None
+    timestamp_from: datetime | None = None
+    timestamp_to: datetime | None = None
     # Fix #572 (review F1): additive multi-id filter. Distinct from entity_id
     # (single-id, pre-existing) — callers that need to restrict to a known
     # *set* of entities (e.g. "all Requirements in workspace X") apply that
@@ -69,7 +69,7 @@ class AuditQueryFilters:
     # truncated tenant-wide page and filtering it in Python, which silently
     # under-counts once a tenant's total entry volume for the period exceeds
     # the query's page budget.
-    entity_ids: Optional[Sequence[UUID]] = None
+    entity_ids: Sequence[UUID] | None = None
 
 
 @dataclass
@@ -82,7 +82,7 @@ class PaginatedAuditResult:
     total: int
     page: int
     page_size: int
-    entries: List[AuditEntry]
+    entries: list[AuditEntry]
 
 
 # ---------------------------------------------------------------------------
@@ -110,7 +110,7 @@ class AuditLogQuery:
 
     @staticmethod
     def query(
-        filters: Optional[AuditQueryFilters] = None,
+        filters: AuditQueryFilters | None = None,
         page: int = 1,
         page_size: int = DEFAULT_PAGE_SIZE,
     ) -> PaginatedAuditResult:
@@ -220,9 +220,9 @@ class AuditLogQuery:
 
 
 __all__ = [
-    "AuditQueryFilters",
-    "PaginatedAuditResult",
-    "AuditLogQuery",
     "DEFAULT_PAGE_SIZE",
     "MAX_PAGE_SIZE",
+    "AuditLogQuery",
+    "AuditQueryFilters",
+    "PaginatedAuditResult",
 ]

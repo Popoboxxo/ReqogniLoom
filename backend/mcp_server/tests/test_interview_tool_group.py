@@ -18,9 +18,7 @@ from uuid import UUID
 import pytest
 
 from application.base import NotFoundError, ValidationError
-
 from mcp_server.tools.interview import InterviewToolGroup
-
 
 EDITOR_CTX_ID = UUID("00000000-0000-0000-0000-000000000001")
 TENANT_UUID = UUID("00000000-0000-0000-0000-000000000002")

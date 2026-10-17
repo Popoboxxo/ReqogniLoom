@@ -24,12 +24,12 @@ Architecture: docs/se/L1/Gesamtsystem/L2/AuthAndTenancySystem/
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional, Sequence
 from uuid import UUID
 
 from django.db import transaction
 from django.db.models import Q
 
+from application.base import ServiceBase
 from auth_tenancy.context import AuthContext
 from auth_tenancy.models import (
     ITEM_PERMISSION_LEVEL_CHOICES,
@@ -38,10 +38,8 @@ from auth_tenancy.models import (
     ITEM_PERMISSION_WRITE,
     ItemPermission,
 )
-from application.base import ServiceBase
 
 from .permission_cache import DEFAULT_TTL_SECONDS, PermissionCache
-
 
 # -----------------------------------------------------------------------------
 # PermissionDecision — return value of ``check_permission``.
@@ -116,7 +114,7 @@ class ItemPermissionService:
     def __init__(
         self,
         *,
-        cache: Optional[PermissionCache] = None,
+        cache: PermissionCache | None = None,
     ) -> None:
         self._cache = cache or PermissionCache(ttl_seconds=DEFAULT_TTL_SECONDS)
 
@@ -128,7 +126,7 @@ class ItemPermissionService:
         *,
         user_id: UUID,
         workspace_id: UUID,
-        artifact_id: Optional[UUID],
+        artifact_id: UUID | None,
         level: str,
         granted_by_user_id: UUID,
     ) -> ItemPermission:
@@ -208,7 +206,7 @@ class ItemPermissionService:
         *,
         user_id: UUID,
         workspace_id: UUID,
-        artifact_id: Optional[UUID],
+        artifact_id: UUID | None,
     ) -> bool:
         """Delete a permission rule (admin-gated).
 
@@ -292,7 +290,7 @@ class ItemPermissionService:
         *,
         user_id: UUID,
         workspace_id: UUID,
-        artifact_id: Optional[UUID],
+        artifact_id: UUID | None,
     ) -> PermissionDecision:
         """Return the effective permission level for the given triple.
 
@@ -391,7 +389,7 @@ class ItemPermissionService:
 
 
 __all__ = [
+    "NO_RULE_REASON",
     "ItemPermissionService",
     "PermissionDecision",
-    "NO_RULE_REASON",
 ]

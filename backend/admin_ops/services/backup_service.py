@@ -17,19 +17,17 @@ import io
 import logging
 import os
 import uuid
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 from uuid import UUID
 
 from django.core.management import call_command
 from django.db import transaction
 
-from application.base import ServiceBase
-from auth_tenancy.context import AuthContext
-
 from admin_ops.models import BackupMetadata, BackupStatus, BackupType
 from admin_ops.services.exceptions import BackupNotFoundError, BackupStorageError
 from admin_ops.services.paths import absolute_backup_path, backup_root
+from application.base import ServiceBase
+from auth_tenancy.context import AuthContext
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +58,7 @@ class BackupService:
         ctx: AuthContext,
         *,
         backup_type: str = BackupType.FULL,
-        metadata: Optional[dict] = None,
+        metadata: dict | None = None,
     ) -> BackupMetadata:
         """Create a new backup and persist its row (admin-only).
 
@@ -134,7 +132,7 @@ class BackupService:
                 row.file_path = os.path.relpath(target_path, backup_root())
                 row.file_size_bytes = size
                 row.checksum_sha256 = digest
-                row.completed_at = datetime.now(timezone.utc)
+                row.completed_at = datetime.now(UTC)
                 row.modified_by_id = ctx.user_id
                 # Stamp the summary metadata (counts only — we don't
                 # double-store the data file's contents).
@@ -328,7 +326,7 @@ class BackupService:
                     status=BackupStatus.FAILED,
                     backup_type=backup_type,
                     error_message=error[:8000],
-                    completed_at=datetime.now(timezone.utc),
+                    completed_at=datetime.now(UTC),
                 )
         except Exception:  # pragma: no cover - best-effort path
             logger.exception(

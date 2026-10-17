@@ -24,11 +24,10 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from diagram.manager import DiagramManager, DiagramResult
-from diagram.mermaid_live_renderer import MermaidLiveRenderer, LivePreviewData
+from diagram.mermaid_live_renderer import LivePreviewData, MermaidLiveRenderer
 from diagram.models import Diagram, DiagramRevision, DiagramType, PayloadFormat
 from diagram.renderer import DiagramRenderer, RenderHints
-from diagram.validator import DiagramValidator, DiagramValidationError, ValidationResult
-
+from diagram.validator import DiagramValidationError, DiagramValidator, ValidationResult
 
 # ---------------------------------------------------------------------------
 # Fixtures

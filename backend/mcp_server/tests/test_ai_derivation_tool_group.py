@@ -8,22 +8,23 @@ from __future__ import annotations
 
 import pytest
 
-from auth_tenancy.context import AuthContext, AuthMethod
 from application.architecture_service import ArchitectureService
 from application.requirement_service import RequirementService
 from application.trace_link_service import TraceLinkService
+from auth_tenancy.context import AuthContext, AuthMethod
+from link_types.workspace_store import provision_workspace_link_types
+from mcp_server.tools.ai_derivation import AiDerivationToolGroup
 from persistence.middleware import clear_request_tenant, set_request_tenant
 from persistence.models import (
     Artifact,
     StakeholderNeed,
     Tenant,
     User,
+)
+from persistence.models import (
     Workspace as PersistenceWorkspace,
 )
 from persistence.tenancy import TenantContext
-
-from mcp_server.tools.ai_derivation import AiDerivationToolGroup
-from link_types.workspace_store import provision_workspace_link_types
 
 _API_KEY = "reqlo_testkey_ai"
 
@@ -921,7 +922,8 @@ def test_ai_derivation_write_tools_require_editor_role():
     from mcp_server.protocol_handler import ToolResult
     from mcp_server.tool_registry import ToolRegistry
     from persistence.middleware import clear_request_tenant, set_request_tenant
-    from persistence.models import Tenant, User, Workspace as PersistenceWorkspace
+    from persistence.models import Tenant, User
+    from persistence.models import Workspace as PersistenceWorkspace
 
     slug = f"mcp-viewer-{uuid.uuid4().hex[:8]}"
     tenant = Tenant.objects.create(name="T-viewer", slug=slug, is_active=True)

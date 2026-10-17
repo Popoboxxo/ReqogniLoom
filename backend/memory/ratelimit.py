@@ -29,7 +29,7 @@ from __future__ import annotations
 import logging
 import os
 import time
-from typing import Any, Optional
+from typing import Any
 
 from django.core.cache import cache
 
@@ -61,7 +61,7 @@ class MemoryWriteRateLimitExceeded(RuntimeError):
         )
 
 
-def _coerce_limit(value: Any) -> Optional[int]:
+def _coerce_limit(value: Any) -> int | None:
     """Return an int limit, or ``None`` for "unlimited"/unparsable-input default.
 
     ``0``/negative-int strings are "unlimited" only for ``0`` (an explicit
@@ -77,7 +77,7 @@ def _coerce_limit(value: Any) -> Optional[int]:
     return number
 
 
-def resolve_write_rate_limit() -> Optional[int]:
+def resolve_write_rate_limit() -> int | None:
     """Return the effective writes-per-hour limit, or ``None`` for unlimited.
 
     DB override wins over the environment; see the module docstring for the
@@ -102,7 +102,7 @@ def resolve_write_rate_limit() -> Optional[int]:
     return value if value > 0 else None
 
 
-def _window(now: Optional[float] = None) -> tuple[int, int]:
+def _window(now: float | None = None) -> tuple[int, int]:
     """Return ``(window_index, seconds_until_reset)`` for the current hour."""
     timestamp = int(now if now is not None else time.time())
     window_index = timestamp // WINDOW_SECONDS
@@ -115,7 +115,7 @@ def _counter_key(ctx: Any, window_index: int) -> str:
     return f"mem:write:rl:{ctx.tenant_id}:{ctx.user_id}:{window_index}"
 
 
-def check_write_rate_limit(ctx: Any, *, now: Optional[float] = None) -> int:
+def check_write_rate_limit(ctx: Any, *, now: float | None = None) -> int:
     """Increment and return the caller's write count for this window.
 
     Returns ``0`` when the limit is unlimited or the cache is unavailable (the
@@ -155,10 +155,10 @@ def check_write_rate_limit(ctx: Any, *, now: Optional[float] = None) -> int:
 
 
 __all__ = [
-    "RATE_LIMIT_ENV_VAR",
     "DEFAULT_MEMORY_WRITE_RATE_LIMIT_PER_HOUR",
+    "RATE_LIMIT_ENV_VAR",
     "WINDOW_SECONDS",
     "MemoryWriteRateLimitExceeded",
-    "resolve_write_rate_limit",
     "check_write_rate_limit",
+    "resolve_write_rate_limit",
 ]

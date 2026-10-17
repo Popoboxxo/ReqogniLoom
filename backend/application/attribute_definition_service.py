@@ -27,6 +27,11 @@ from uuid import UUID
 from django.core.cache import cache
 from django.db import transaction
 
+from application.base import ServiceBase
+from application.cache_invalidation import (
+    attribute_def_cache_key,
+    invalidate_workspace_caches,
+)
 from attribute_definitions.field_validation import (
     FieldValidationError,
     validate_values,
@@ -57,12 +62,6 @@ from attribute_definitions.workspace_definition_store import (
 )
 from audit.models import AuditEntry
 from auth_tenancy.context import AuthContext
-
-from application.base import ServiceBase
-from application.cache_invalidation import (
-    attribute_def_cache_key,
-    invalidate_workspace_caches,
-)
 
 #: Resolved definitions are read on every form load; 10 minutes is long enough
 #: to matter and short enough that a missed invalidation self-heals.
@@ -814,12 +813,11 @@ class AttributeDefinitionService(ServiceBase):
         Raises:
             FieldValidationError: one message per missing required field.
         """
+        from application.create_form_config_service import CreateFormConfigService
         from attribute_definitions.field_validation import (
             EXTENDED_PAYLOAD_KEY,
             _is_empty,
         )
-
-        from application.create_form_config_service import CreateFormConfigService
 
         try:
             required = CreateFormConfigService().required_field_keys(

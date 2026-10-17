@@ -26,8 +26,9 @@ Design note (ADR-AL-02):
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any
 from uuid import UUID
 
 logger = logging.getLogger(__name__)
@@ -68,13 +69,13 @@ class AuditableOperationOccurred:
     entity_id: UUID
     """Primary key of the affected entity."""
 
-    version: Optional[int] = None
+    version: int | None = None
     """Entity version at the time of the operation (may be None for deletes)."""
 
-    change_reason: Optional[str] = None
+    change_reason: str | None = None
     """Optional human-readable reason (e.g. workflow transition label)."""
 
-    details: Optional[Dict[str, Any]] = None
+    details: dict[str, Any] | None = None
     """Optional structured payload for the operation (ADR-10 groundwork).
 
     Kept out of ``ctx`` on purpose: ``ctx`` is request/enrichment context
@@ -83,7 +84,7 @@ class AuditableOperationOccurred:
     ``None`` means "no payload" and stores SQL NULL.
     """
 
-    ctx: Dict[str, Any] = field(default_factory=dict)
+    ctx: dict[str, Any] = field(default_factory=dict)
     """Request context. MCP path provides: source, client_name, api_key."""
 
 
@@ -93,7 +94,7 @@ class AuditableOperationOccurred:
 
 
 _HandlerType = Callable[[AuditableOperationOccurred], None]
-_subscribers: List[_HandlerType] = []
+_subscribers: list[_HandlerType] = []
 
 
 class DomainEventBus:

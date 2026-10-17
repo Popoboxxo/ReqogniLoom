@@ -45,9 +45,10 @@ from __future__ import annotations
 
 import os
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, NamedTuple, Optional, Sequence, Set, Tuple
+from typing import NamedTuple
 
 import pytest
 
@@ -151,8 +152,8 @@ class Reference(NamedTuple):
 class Definition:
     """The frontend's allowed set: exact ids plus derived patterns."""
 
-    exact: Set[str] = field(default_factory=set)
-    patterns: Set[Tuple[str, str]] = field(default_factory=set)
+    exact: set[str] = field(default_factory=set)
+    patterns: set[tuple[str, str]] = field(default_factory=set)
 
     def allows(self, value: str) -> bool:
         if value in self.exact:
@@ -169,7 +170,7 @@ class Definition:
 class DriftReport:
     """Outcome of one scan run."""
 
-    missing: Dict[str, List[str]] = field(default_factory=dict)
+    missing: dict[str, list[str]] = field(default_factory=dict)
     referenced: int = 0
     dynamic_references_skipped: int = 0
     frontend_definitions_skipped: int = 0
@@ -185,7 +186,7 @@ def _looks_like_repo_root(path: Path) -> bool:
     return (path / "frontend" / "src").is_dir() and (path / "e2e").is_dir()
 
 
-def _find_repo_root() -> Optional[Path]:
+def _find_repo_root() -> Path | None:
     """Locate the checkout root, or None when only ``backend/`` is mounted.
 
     The docker-compose backend-test service mounts ``backend/`` alone at
@@ -202,9 +203,9 @@ def _find_repo_root() -> Optional[Path]:
     return None
 
 
-def collect_source_files(root: Path) -> List[Path]:
+def collect_source_files(root: Path) -> list[Path]:
     """Yield JS/TS files under ``root``, skipping generated/vendored trees."""
-    found: List[Path] = []
+    found: list[Path] = []
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = [d for d in dirnames if d not in _SKIPPED_DIRS]
         found.extend(
@@ -215,7 +216,7 @@ def collect_source_files(root: Path) -> List[Path]:
     return sorted(found)
 
 
-def extract_e2e_references(text: str, relpath: str) -> Tuple[List[Reference], int]:
+def extract_e2e_references(text: str, relpath: str) -> tuple[list[Reference], int]:
     """Collect literal testid references from one e2e file's text.
 
     Returns the references plus the number of dynamic mentions that were
@@ -224,7 +225,7 @@ def extract_e2e_references(text: str, relpath: str) -> Tuple[List[Reference], in
     code, so they are counted (for visibility) instead of crashing or being
     guessed at.
     """
-    references: List[Reference] = []
+    references: list[Reference] = []
     dynamic = 0
     for lineno, line in enumerate(text.splitlines(), start=1):
         stripped = line.strip()
@@ -252,7 +253,7 @@ def extract_e2e_references(text: str, relpath: str) -> Tuple[List[Reference], in
     return references, dynamic
 
 
-def collect_carriers(frontend_texts: Sequence[str]) -> Dict[str, Set[str]]:
+def collect_carriers(frontend_texts: Sequence[str]) -> dict[str, set[str]]:
     """Map testid-channel names to the literal values bound to them.
 
     A single frontend file rarely binds and consumes the same channel: the
@@ -263,7 +264,7 @@ def collect_carriers(frontend_texts: Sequence[str]) -> Dict[str, Set[str]]:
     are included here too — their values are prefixes that template anchors
     join with, not full ids.
     """
-    carriers: Dict[str, Set[str]] = {}
+    carriers: dict[str, set[str]] = {}
     for text in frontend_texts:
         for match in _TESTID_CHANNEL.finditer(text):
             name, value = match.group(1), match.group(3)
@@ -273,16 +274,16 @@ def collect_carriers(frontend_texts: Sequence[str]) -> Dict[str, Set[str]]:
 
 
 def extract_frontend_definitions(
-    text: str, carriers: Dict[str, Set[str]]
-) -> Tuple[Definition, int]:
+    text: str, carriers: dict[str, set[str]]
+) -> tuple[Definition, int]:
     """Collect the allowed set from one frontend file's text.
 
     Returns the definition plus the number of templates that were too dynamic
     to derive a pattern from (unanchored multi-interpolation, or anchored on
     an expression this scan cannot resolve).
     """
-    exact: Set[str] = set()
-    patterns: Set[Tuple[str, str]] = set()
+    exact: set[str] = set()
+    patterns: set[tuple[str, str]] = set()
     skipped = 0
 
     for match in _DATA_TESTID.finditer(text):
@@ -344,8 +345,8 @@ def scan_drift(
     ]
     carriers = collect_carriers(texts)
 
-    exact: Set[str] = set()
-    patterns: Set[Tuple[str, str]] = set()
+    exact: set[str] = set()
+    patterns: set[tuple[str, str]] = set()
     frontend_skipped = 0
     for text in texts:
         file_definition, skipped = extract_frontend_definitions(text, carriers)
@@ -354,7 +355,7 @@ def scan_drift(
         frontend_skipped += skipped
     definition = Definition(exact=exact, patterns=patterns)
 
-    missing: Dict[str, List[str]] = {}
+    missing: dict[str, list[str]] = {}
     referenced = 0
     dynamic = 0
     for path in e2e_files:
@@ -376,7 +377,7 @@ def scan_drift(
     )
 
 
-def render_report(report: DriftReport, repo_root: Optional[Path] = None) -> str:
+def render_report(report: DriftReport, repo_root: Path | None = None) -> str:
     """Human-readable summary — the actionable part is the missing list."""
 
     def _rel(source: str) -> str:
@@ -414,7 +415,7 @@ def render_report(report: DriftReport, repo_root: Optional[Path] = None) -> str:
     return "\n".join(lines)
 
 
-def _repo_scan() -> Tuple[DriftReport, Path]:
+def _repo_scan() -> tuple[DriftReport, Path]:
     """Scan the real checkout; skips the calling test when it is unavailable."""
     repo_root = _find_repo_root()
     if repo_root is None:

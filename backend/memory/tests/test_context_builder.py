@@ -1,6 +1,5 @@
 import hashlib
 import re
-from typing import List, Optional
 
 import pytest
 
@@ -10,7 +9,7 @@ from persistence.embedding_dimensions import EMBEDDING_VECTOR_DIMENSIONS
 from persistence.tests.factories import active_tenant, make_user, make_workspace
 
 
-def _pinned_embedding(text: str) -> Optional[List[float]]:
+def _pinned_embedding(text: str) -> list[float] | None:
     """Deterministic embedding for *text*, independent of any provider.
 
     Deliberately NOT ``MockEmbeddingProvider``'s scheme (sha256 seed ->

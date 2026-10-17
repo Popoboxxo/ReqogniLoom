@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import copy
 from datetime import timedelta
-from typing import Optional
 from uuid import UUID
 
 from django.db import transaction
@@ -141,7 +140,7 @@ class PermissionDefinitionService(ServiceBase):
         global_def: GlobalPermissionDefinition,
         matrix: dict,
         *,
-        exclude_workspace_id: Optional[UUID] = None,
+        exclude_workspace_id: UUID | None = None,
     ) -> int:
         """Copy ``matrix`` into every non-customized derived workspace row."""
         qs = WorkspacePermissionDefinition.unscoped.filter(
@@ -160,7 +159,7 @@ class PermissionDefinitionService(ServiceBase):
         tenant_id: UUID | str,
         *,
         window_days: int = DEFAULT_MISMATCH_WINDOW_DAYS,
-    ) -> tuple[int, Optional[object]]:
+    ) -> tuple[int, object | None]:
         """Return (count, last_mismatch_at) for the trailing window."""
         since = timezone.now() - timedelta(days=window_days)
         qs = PermissionDecisionMismatch.unscoped.filter(
@@ -177,7 +176,7 @@ class PermissionDefinitionService(ServiceBase):
         ctx: AuthContext,
         *,
         target_mode: str,
-        confirm_pending_mismatch_count: Optional[int],
+        confirm_pending_mismatch_count: int | None,
     ) -> GlobalPermissionDefinition:
         """Guarded transition of the tenant's ``enforcement_mode`` (REQ-187).
 
@@ -329,10 +328,10 @@ class PermissionDefinitionService(ServiceBase):
         self,
         tenant_id: UUID | str,
         *,
-        workspace_id: Optional[UUID | str] = None,
-        capability: Optional[str] = None,
-        subject_type: Optional[str] = None,
-        subject_identifier: Optional[str] = None,
+        workspace_id: UUID | str | None = None,
+        capability: str | None = None,
+        subject_type: str | None = None,
+        subject_identifier: str | None = None,
         since=None,
         until=None,
         page: int = 1,
@@ -382,8 +381,8 @@ class PermissionDefinitionService(ServiceBase):
 
 
 __all__ = [
-    "PermissionDefinitionService",
-    "NoGlobalSourceError",
-    "MismatchCountStaleError",
     "DEFAULT_MISMATCH_WINDOW_DAYS",
+    "MismatchCountStaleError",
+    "NoGlobalSourceError",
+    "PermissionDefinitionService",
 ]

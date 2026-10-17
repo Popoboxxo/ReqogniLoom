@@ -5,8 +5,8 @@ COMP-AS-011 WebhookDispatcher (REQ-L1-024, REQ-L3-WHOOK-002/008/009).
 """
 import uuid
 
-from django.db import migrations, models
 import django.db.models.deletion
+from django.db import migrations, models
 
 
 class Migration(migrations.Migration):

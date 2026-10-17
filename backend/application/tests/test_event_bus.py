@@ -30,12 +30,12 @@ from django.utils import timezone
 
 from application.event_bus import (
     CLAIM_TIMEOUT_SECONDS,
+    MAX_RETRIES,
     DomainEvent,
     DomainEventBus,
     SubscriberRegistry,
     get_event_bus,
     poll_and_dispatch,
-    MAX_RETRIES,
 )
 
 pytestmark = pytest.mark.django_db

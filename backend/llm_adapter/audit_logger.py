@@ -25,7 +25,7 @@ from __future__ import annotations
 import logging
 import uuid
 import warnings
-from typing import Any, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
-def extract_token_usage(response: Any) -> Optional[int]:
+def extract_token_usage(response: Any) -> int | None:
     """Extract total token count from a provider response using duck typing.
 
     Handles multiple provider response shapes without importing provider SDKs:
@@ -119,10 +119,10 @@ class LlmAuditLogger:
         self,
         provider: str,
         capability: str,
-        artifact_id: Optional[str],
-        token_usage: Optional[int],
+        artifact_id: str | None,
+        token_usage: int | None,
         success: bool,
-        error: Optional[str],
+        error: str | None,
     ) -> None:
         """Write one audit entry for a completed (or failed) LLM call.
 

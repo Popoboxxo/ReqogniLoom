@@ -28,7 +28,6 @@ import pgvector.django
 from django.conf import settings
 from django.db import migrations, models
 
-
 _WORKSPACE_MEMORY_TABLE = "mem_workspace_memory"
 _USER_TENANT_MEMORY_TABLE = "mem_user_tenant_memory"
 

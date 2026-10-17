@@ -38,6 +38,7 @@ from django.conf import settings
 from django.middleware.csrf import get_token
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiExample, OpenApiResponse, extend_schema
+from rest_framework import exceptions as drf_exceptions
 from rest_framework import status
 from rest_framework.permissions import AllowAny
 from rest_framework.request import Request
@@ -68,7 +69,6 @@ from rest_api.throttling import (
     record_login_failure,
     reset_login_throttle,
 )
-from rest_framework import exceptions as drf_exceptions
 
 # The access cookie is scoped to the API mount so it is never sent to unrelated
 # paths (e.g. static assets). Login/logout must use the same path or the browser

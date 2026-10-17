@@ -102,11 +102,11 @@ def _chain(env, depth):
 
 def _assert_invariant(env, context):
     """For every hierarchy edge, child == parent + 1 unless either is NULL."""
+    from persistence.models import TraceLink
     from traceability.audit.hierarchy import (
         HIERARCHY_LINK_TYPES,
         normalise_hierarchy_edge,
     )
-    from persistence.models import TraceLink
 
     rows = {
         row["artifact_id"]: (row["level"], row["artifact__parent_id"])

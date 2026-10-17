@@ -12,8 +12,7 @@ Traceability: REQ-L2-RO-002, REQ-L2-RO-003, REQ-L2-RO-004, REQ-L2-RO-005 -> REQ-
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, Optional
-
+from typing import Any
 
 # ---------------------------------------------------------------------------
 # Exception hierarchy
@@ -109,14 +108,14 @@ class Policy:
 
 # Default policies per known target subsystem. Application code may override by
 # passing an explicit ``policy`` to ``execute_optional``.
-DEFAULT_POLICIES: Dict[str, Policy] = {
+DEFAULT_POLICIES: dict[str, Policy] = {
     "llm": Policy(timeout_seconds=30.0, max_retries=2, failure_threshold=5),
     "webhook": Policy(timeout_seconds=10.0, max_retries=3, failure_threshold=5),
     "github": Policy(timeout_seconds=15.0, max_retries=2, failure_threshold=5),
 }
 
 
-def resolve_policy(target_subsystem: str, override: Optional[Policy] = None) -> Policy:
+def resolve_policy(target_subsystem: str, override: Policy | None = None) -> Policy:
     """Return the effective policy for a target.
 
     Args:
@@ -148,10 +147,10 @@ class FallbackResponse:
     degraded: bool
     target_subsystem: str
     reason: str
-    error_code: Optional[str] = None
-    detail: Dict[str, Any] = field(default_factory=dict)
+    error_code: str | None = None
+    detail: dict[str, Any] = field(default_factory=dict)
 
-    def as_dict(self) -> Dict[str, Any]:
+    def as_dict(self) -> dict[str, Any]:
         """Return a JSON-serialisable representation for API responses."""
         return {
             "degraded": self.degraded,

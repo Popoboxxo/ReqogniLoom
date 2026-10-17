@@ -138,12 +138,12 @@ def validate_custom_fields(data: Any) -> dict:
 
 
 __all__ = [
-    "validate_custom_fields",
-    "coerce_custom_fields",
     "ALLOWED_VALUE_TYPES",
     "MAX_KEYS",
     "MAX_KEY_LENGTH",
     "MAX_VALUE_STRING_LENGTH",
+    "coerce_custom_fields",
+    "validate_custom_fields",
 ]
 
 

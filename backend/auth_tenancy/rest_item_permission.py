@@ -39,7 +39,7 @@ The view intentionally does NOT embed auditing logic — the service writes the
 from __future__ import annotations
 
 import logging
-from typing import Any, Optional
+from typing import Any
 from uuid import UUID
 
 from rest_framework import status
@@ -56,7 +56,6 @@ from auth_tenancy.services import (
     Operation,
 )
 from auth_tenancy.services.item_permission import PermissionDecision
-
 from persistence.errors import (
     NotFoundError,
     PermissionDeniedError,
@@ -140,7 +139,7 @@ def _err(
 # ---------------------------------------------------------------------------
 
 
-def _parse_uuid(value: Any, field: str) -> Optional[UUID]:
+def _parse_uuid(value: Any, field: str) -> UUID | None:
     """Parse *value* as a UUID; raise ValidationError on failure."""
     if value is None:
         return None
@@ -215,7 +214,7 @@ class ItemPermissionViewSet(APIView):
     @staticmethod
     def _workspace_membership_denial(
         request: Request, ctx: AuthContext, workspace_id: UUID
-    ) -> Optional[Response]:
+    ) -> Response | None:
         """Return a canonical 403 unless *ctx* holds a role in *workspace_id*.
 
         GitHub #1131. This collection route names its target workspace in the
@@ -377,7 +376,7 @@ class ItemPermissionViewSet(APIView):
         # does not expose a filter param. Cheap because the rule set for a
         # (user, workspace) pair is small in practice.
         artifact_filter_raw = request.query_params.get("artifact_id")
-        artifact_filter: Optional[UUID] = None
+        artifact_filter: UUID | None = None
         if artifact_filter_raw is not None:
             try:
                 artifact_filter = _parse_uuid(artifact_filter_raw, "artifact_id")

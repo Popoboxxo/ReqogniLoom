@@ -72,7 +72,7 @@ approval is blocked until the workspace definition is reconciled or reset.
 from __future__ import annotations
 
 import logging
-from typing import Iterable, Optional
+from collections.abc import Iterable
 from uuid import UUID
 
 from attribute_definitions.schema import (
@@ -232,7 +232,7 @@ def _is_blank(value: object) -> bool:
     return False
 
 
-def _resolve_attribute(entity: object, policy_field: str) -> Optional[str]:
+def _resolve_attribute(entity: object, policy_field: str) -> str | None:
     """Return the concrete attribute name on *entity* for *policy_field*.
 
     ``None`` means the policy field is not applicable to this entity type.
@@ -255,7 +255,7 @@ def check_mandatory_fields(
     item_id: UUID,
     target_state: str,
     change_reason: str = "",
-) -> Optional[tuple[str, str]]:
+) -> tuple[str, str] | None:
     """Check the tier's mandatory fields on an approval transition.
 
     The mandatory set is definition-scoped (#912): the workspace's resolved
@@ -390,7 +390,7 @@ def check_verification_evidence(
     item_type: str,
     item_id: UUID,
     target_state: str,
-) -> Optional[tuple[str, str]]:
+) -> tuple[str, str] | None:
     """Derive the V&V "Passed" judgement for a ``-> verified`` transition.
 
     A Requirement may only be declared verified when it satisfies
@@ -515,7 +515,7 @@ def check_verifies_link(
     item_type: str,
     item_id: UUID,
     target_state: str,
-) -> Optional[tuple[str, str]]:
+) -> tuple[str, str] | None:
     """Require a ``verifies`` link before a TestCase may be approved (#584).
 
     The link must point at a Requirement or ArchitectureElement that is alive
@@ -665,7 +665,7 @@ _STEPLESS_TEST_TYPES = frozenset({"inspection", "analysis", "demonstration"})
 _TEST_STEPS_ENFORCED_TYPES = frozenset({"TestCase"})
 
 
-def _require_verification_flag(workspace_id: str) -> Optional[bool]:
+def _require_verification_flag(workspace_id: str) -> bool | None:
     """Return the ``require_verification_on_approval`` feature flag value.
 
     ``None`` means the flag could not be resolved; callers treat that as
@@ -692,7 +692,7 @@ def check_requirement_verification_evidence(
     item_type: str,
     item_id: UUID,
     target_state: str,
-) -> Optional[tuple[str, str]]:
+) -> tuple[str, str] | None:
     """Require verification evidence before a Requirement may be approved (#1267).
 
     Active only when the workspace's preset sets the
@@ -769,7 +769,7 @@ def check_testcase_steps(
     item_type: str,
     item_id: UUID,
     target_state: str,
-) -> Optional[tuple[str, str]]:
+) -> tuple[str, str] | None:
     """Require a non-empty step list before a TestCase may be approved (#1269).
 
     Active only when the workspace's preset sets the
@@ -890,10 +890,10 @@ def policy_fields_without_consumer(
 
 __all__ = [
     "EC_MANDATORY_FIELDS_MISSING",
-    "EC_VERIFICATION_EVIDENCE_MISSING",
-    "EC_VERIFIES_LINK_MISSING",
     "EC_REQUIREMENT_VERIFICATION_MISSING",
     "EC_TEST_STEPS_MISSING",
+    "EC_VERIFICATION_EVIDENCE_MISSING",
+    "EC_VERIFIES_LINK_MISSING",
     "check_mandatory_fields",
     "check_requirement_verification_evidence",
     "check_testcase_steps",

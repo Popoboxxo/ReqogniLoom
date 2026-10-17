@@ -24,11 +24,11 @@ from __future__ import annotations
 import uuid
 
 import pytest
+from rest_framework.test import APIClient
 
 from auth_tenancy.models import ROLE_VIEWER, UserRole
 from persistence.middleware import clear_request_tenant, set_request_tenant
 from persistence.models import Tenant, TraceLink, User, Workspace
-from rest_framework.test import APIClient
 from traceability.types import LinkType
 
 pytestmark = pytest.mark.django_db

@@ -19,7 +19,6 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from auth_tenancy.context import AuthContext, AuthMethod
-
 from mcp_server.tools.requirements import RequirementsToolGroup
 
 #: ``list_tools()`` resolves the workspace preset and ``_requirement_to_dict``

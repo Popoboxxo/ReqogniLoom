@@ -37,8 +37,8 @@ Ownership note (Datenmodell-Konsolidierung Phase 2 / Milestone M2):
 from __future__ import annotations
 
 import uuid
-from collections.abc import Iterator
-from typing import Any, Dict, Sequence
+from collections.abc import Iterator, Sequence
+from typing import Any
 from uuid import UUID
 
 from django.conf import settings
@@ -59,7 +59,6 @@ from persistence.embedding_dimensions import EMBEDDING_VECTOR_DIMENSIONS
 from persistence.encryption import decrypt_secret, encrypt_secret
 from persistence.role_permissions import validate_role_permissions
 from persistence.tenancy import TenantManager, UnscopedManager
-
 
 # ---------------------------------------------------------------------------
 # Custom manager for User (AUTH_USER_MODEL compatibility)
@@ -1846,7 +1845,7 @@ class ArchitectureElement(TenantScopedModel):
         return levels.get(self.id, 0)
 
     @classmethod
-    def annotate_levels(cls, elements: Sequence["ArchitectureElement"]) -> Dict[UUID, int]:
+    def annotate_levels(cls, elements: Sequence[ArchitectureElement]) -> dict[UUID, int]:
         """Set ``_level_annotated`` on *elements* using a single SQL query.
 
         Issue #129: replaces the per-element Python recursion. One recursive
@@ -1902,7 +1901,7 @@ class ArchitectureElement(TenantScopedModel):
             )
             resolved = {row[0]: row[1] for row in cursor.fetchall()}
 
-        levels: Dict[UUID, int] = dict(roots)
+        levels: dict[UUID, int] = dict(roots)
         for el in pending:
             level = resolved.get(el.id, 0)
             el._level_annotated = level
@@ -1910,7 +1909,7 @@ class ArchitectureElement(TenantScopedModel):
         return levels
 
     @classmethod
-    def annotate_roles(cls, elements: Sequence["ArchitectureElement"]) -> None:
+    def annotate_roles(cls, elements: Sequence[ArchitectureElement]) -> None:
         """Set ``_role_annotated`` on *elements* using a single SQL query.
 
         Issue #129: the ``get_role()`` fallback fires one EXISTS query per

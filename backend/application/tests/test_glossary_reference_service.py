@@ -10,16 +10,16 @@ import uuid
 
 import pytest
 
-from auth_tenancy.context import AuthContext, AuthMethod
 from application.glossary_reference_service import (
     GlossaryReferenceService,
     build_reference_token,
     parse_references,
 )
 from application.glossary_service import GlossaryService
+from auth_tenancy.context import AuthContext, AuthMethod
+from link_types.workspace_store import provision_workspace_link_types
 from persistence.middleware import clear_request_tenant, set_request_tenant
 from persistence.models import Artifact, Tenant, TraceLink, User, Workspace
-from link_types.workspace_store import provision_workspace_link_types
 
 pytestmark = pytest.mark.django_db
 

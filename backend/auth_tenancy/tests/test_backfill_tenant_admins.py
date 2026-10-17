@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import importlib.util
 import pathlib
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from django.db import connection
@@ -135,7 +135,7 @@ def test_suspended_workspace_admin_is_not_used_as_backfill_source(historical_app
         user=suspended_admin,
         workspace=ws,
         role=ROLE_ADMIN,
-        suspended_at=datetime.now(timezone.utc),
+        suspended_at=datetime.now(UTC),
     )
 
     backfill_tenant_admins(historical_apps, None)

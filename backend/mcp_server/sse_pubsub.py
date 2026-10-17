@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import AsyncGenerator, Dict, Any, Optional
-from django.conf import settings
+from collections.abc import AsyncGenerator
+from typing import Any
+
 from cryptography.fernet import InvalidToken
+from django.conf import settings
 
 from persistence.encryption import ENCRYPTED_PREFIX, decrypt_secret, encrypt_secret
 
@@ -55,7 +57,7 @@ def _event_buffer_key(session_id: str) -> str:
     """Return the Redis key holding the capped replay buffer (REQ-107)."""
     return f"mcp:session:{session_id}:buffer"
 
-def _parse_event_envelope(raw: str) -> tuple[Optional[int], str]:
+def _parse_event_envelope(raw: str) -> tuple[int | None, str]:
     """Split a stored/published event into ``(event_id, data_json)``.
 
     Events are wrapped as ``{"id": <int>, "data": <message>}`` (REQ-107).
@@ -104,7 +106,7 @@ def store_session_api_key(
         logger.exception(f"Failed to store session api key for {session_id}")
         raise
 
-def get_session_api_key(session_id: str) -> Optional[str]:
+def get_session_api_key(session_id: str) -> str | None:
     """Return the API key bound to an SSE session, or None if unknown/expired."""
     try:
         r = _get_redis_client()
@@ -130,7 +132,7 @@ def get_session_api_key(session_id: str) -> Optional[str]:
         logger.exception(f"Failed to read session api key for {session_id}")
         return None
 
-def publish_mcp_message(session_id: str, message: Dict[str, Any]) -> None:
+def publish_mcp_message(session_id: str, message: dict[str, Any]) -> None:
     """Publish a JSON-RPC message to a specific SSE session.
 
     Each message is assigned a monotonic per-session event id and appended to a
@@ -163,8 +165,8 @@ def publish_mcp_message(session_id: str, message: Dict[str, Any]) -> None:
         logger.exception(f"Failed to publish MCP message to session {session_id}")
 
 def get_buffered_events(
-    session_id: str, after_event_id: Optional[int] = None
-) -> list[Dict[str, Any]]:
+    session_id: str, after_event_id: int | None = None
+) -> list[dict[str, Any]]:
     """Return buffered replay events for a session (REQ-107).
 
     Yields the wrapped ``{"id", "data"}`` envelopes still held in the capped
@@ -178,7 +180,7 @@ def get_buffered_events(
         logger.exception(f"Failed to read replay buffer for session {session_id}")
         return []
 
-    events: list[Dict[str, Any]] = []
+    events: list[dict[str, Any]] = []
     for item in raw_items:
         raw = item.decode("utf-8") if isinstance(item, bytes) else str(item)
         try:
@@ -193,7 +195,7 @@ def get_buffered_events(
 async def async_sse_generator(
     session_id: str,
     endpoint_url: str,
-    last_event_id: Optional[int] = None,
+    last_event_id: int | None = None,
 ) -> AsyncGenerator[str, None]:
     """Async generator that yields SSE events from Redis PubSub.
 
@@ -202,8 +204,9 @@ async def async_sse_generator(
     reconnecting client's ``Last-Event-ID`` header) the buffered events with a
     larger id are replayed first, then live streaming continues.
     """
-    import redis.asyncio as redis
     import asyncio
+
+    import redis.asyncio as redis
 
     redis_url = _get_redis_url()
     r = redis.from_url(redis_url)

@@ -35,14 +35,8 @@ ADR-L3-MC007-03: Hard-delete requires the same captcha confirmation text
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, Optional
+from typing import Any
 from uuid import UUID
-
-from auth_tenancy.context import AuthContext
-from link_types.defaults import (
-    default_decomposition_link_type,
-    default_trace_link_type,
-)
 
 from application.services import (
     NotFoundError,
@@ -50,7 +44,11 @@ from application.services import (
     ValidationError,
     WorkspaceService,
 )
-
+from auth_tenancy.context import AuthContext
+from link_types.defaults import (
+    default_decomposition_link_type,
+    default_trace_link_type,
+)
 from mcp_server.protocol_handler import ToolResult
 from mcp_server.tools.base import (
     BaseToolGroup,
@@ -64,7 +62,7 @@ from mcp_server.tools.cross_cutting import CrossCuttingToolGroup
 logger = logging.getLogger(__name__)
 
 
-def _workspace_to_dict(workspace: Any) -> Dict[str, Any]:
+def _workspace_to_dict(workspace: Any) -> dict[str, Any]:
     """Serialise a Workspace ORM object to a dict for MCP response.
 
     Only fields that are stable across the workspace lifecycle are returned;
@@ -157,8 +155,8 @@ class AdminToolGroup(BaseToolGroup):
 
     def __init__(
         self,
-        service: Optional[WorkspaceService] = None,
-        cross_cutting: Optional[CrossCuttingToolGroup] = None,
+        service: WorkspaceService | None = None,
+        cross_cutting: CrossCuttingToolGroup | None = None,
     ) -> None:
         self._service = service or WorkspaceService()
         # Wrapped read-side group for fallthrough (e.g. workspace.get_context)
@@ -171,7 +169,7 @@ class AdminToolGroup(BaseToolGroup):
     def execute_tool(
         self,
         tool_name: str,
-        params: Dict[str, Any],
+        params: dict[str, Any],
         auth_context: AuthContext,
         api_key: str,
     ) -> ToolResult:
@@ -203,7 +201,7 @@ class AdminToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_close(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """workspace.close — soft-delete a workspace (REQ-L1-042).
 
@@ -241,7 +239,7 @@ class AdminToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_reactivate(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """workspace.reactivate — undo a workspace close (REQ-L1-042).
 
@@ -278,7 +276,7 @@ class AdminToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_delete(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """workspace.delete — hard-delete a workspace (REQ-L1-042).
 
@@ -324,7 +322,7 @@ class AdminToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_get_preferences(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """workspace.get_preferences — retrieve workspace config preferences (read-only).
 

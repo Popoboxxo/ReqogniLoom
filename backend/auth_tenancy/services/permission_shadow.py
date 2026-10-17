@@ -21,7 +21,7 @@ Hard invariants (do not weaken):
 from __future__ import annotations
 
 import logging
-from typing import Iterable, Optional
+from collections.abc import Iterable
 from uuid import UUID
 
 from auth_tenancy.context import AuthContext, AuthMethod
@@ -54,9 +54,9 @@ def shadow_decide(
     legacy_decision: bool,
     ctx: AuthContext,
     operation: Operation | str,
-    roles: Optional[Iterable[str]] = None,
-    workspace_id: Optional[UUID | str] = None,
-    artifact_id: Optional[UUID | str] = None,
+    roles: Iterable[str] | None = None,
+    workspace_id: UUID | str | None = None,
+    artifact_id: UUID | str | None = None,
 ) -> bool:
     """Compare legacy vs. new model and return the authoritative verdict.
 
@@ -125,8 +125,8 @@ def _record_mismatch(
     *,
     ctx: AuthContext,
     capability: str,
-    workspace_id: Optional[UUID | str],
-    artifact_id: Optional[UUID | str],
+    workspace_id: UUID | str | None,
+    artifact_id: UUID | str | None,
     legacy_decision: bool,
     new_decision: bool,
     roles: tuple[str, ...],
@@ -150,4 +150,4 @@ def _record_mismatch(
         logger.exception("Failed to record PermissionDecisionMismatch")
 
 
-__all__ = ["shadow_decide", "build_subject_identifier"]
+__all__ = ["build_subject_identifier", "shadow_decide"]

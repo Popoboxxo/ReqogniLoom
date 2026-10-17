@@ -28,11 +28,10 @@ import pytest
 
 from application.base import NotFoundError, ValidationError
 from application.trace_link_service import (
-    TraceLinkService,
-    VALID_LINK_TYPES,
     MANUAL_LINK_TYPES,
+    VALID_LINK_TYPES,
+    TraceLinkService,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers

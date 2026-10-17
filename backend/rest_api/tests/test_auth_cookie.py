@@ -58,7 +58,7 @@ def admin_user(db):
     return user
 
 
-def _login(client: APIClient) -> "object":
+def _login(client: APIClient) -> object:
     """Log in ``cookieadmin`` and return the raw login response."""
     return client.post(
         "/api/v1/auth/login/",

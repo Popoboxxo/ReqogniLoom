@@ -33,15 +33,14 @@ Architecture:
 from __future__ import annotations
 
 import uuid
-from typing import Optional
 
 from django.core.cache import cache
 from django.db.models import QuerySet
 
 from traceability.coverage_calculator import CoverageCalculator
 from traceability.exceptions import (  # noqa: F401  (re-exported for callers)
-    CycleDetectedError,
     CrossTenantLinkError,
+    CycleDetectedError,
     InvalidFilterError,
     InvalidLinkTypeError,
     PayloadTooLargeError,
@@ -53,6 +52,7 @@ from traceability.exceptions import (  # noqa: F401  (re-exported for callers)
 from traceability.query_engine import QueryEngine
 from traceability.trace_link_manager import TraceLinkManager
 from traceability.types import (  # noqa: F401  (re-exported)
+    VALID_LINK_TYPES,
     CoverageData,
     CoverageReport,
     Direction,
@@ -62,7 +62,6 @@ from traceability.types import (  # noqa: F401  (re-exported)
     TransitiveResult,
     VCRMMatrix,
     VCRMRow,  # H1: Bug fix — was in __all__ but not imported
-    VALID_LINK_TYPES,
 )
 from traceability.vcrm_report_generator import VCRMReportGenerator
 
@@ -90,7 +89,7 @@ _MATRIX_CACHE_PREFIX = "reqogniloom:traceability-matrix"
 
 def traceability_matrix_cache_key(
     workspace_id: uuid.UUID | str,
-    baseline_id: Optional[uuid.UUID | str] = None,
+    baseline_id: uuid.UUID | str | None = None,
 ) -> str:
     """Return the shared-cache key for a workspace's VCRM matrix (REQ-104).
 
@@ -156,8 +155,8 @@ def collect_trace_graph(workspace_id: uuid.UUID) -> TraceGraphData:
 
 def coverage(
     workspace_id: uuid.UUID,
-    artifact_type: Optional[str] = None,
-    link_type: Optional[str] = None,
+    artifact_type: str | None = None,
+    link_type: str | None = None,
     *,
     include_unreviewed_ai: bool = False,
 ) -> CoverageReport:
@@ -181,7 +180,7 @@ def coverage(
 
 def get_coverage_data(
     workspace_id: uuid.UUID,
-    baseline_id: Optional[uuid.UUID] = None,
+    baseline_id: uuid.UUID | None = None,
     *,
     include_unreviewed_ai: bool = False,
 ) -> CoverageData:
@@ -212,7 +211,7 @@ def create_trace_link(
     source_id: uuid.UUID,
     target_id: uuid.UUID,
     link_type: str,
-    created_by_id: Optional[uuid.UUID] = None,
+    created_by_id: uuid.UUID | None = None,
     rationale: str = "",
 ):
     """Create a single TraceLink.
@@ -247,9 +246,9 @@ def get_trace_link(link_id: uuid.UUID):
 
 
 def list_trace_links(
-    workspace_id: Optional[uuid.UUID] = None,
-    filters: Optional[dict] = None,
-    link_type: Optional[str] = None,
+    workspace_id: uuid.UUID | None = None,
+    filters: dict | None = None,
+    link_type: str | None = None,
 ) -> list:
     """List the actual TraceLink rows for the active tenant (fix #264).
 
@@ -278,9 +277,9 @@ def list_trace_links(
 
 
 def list_trace_links_queryset(
-    workspace_id: Optional[uuid.UUID] = None,
-    filters: Optional[dict] = None,
-    link_type: Optional[str] = None,
+    workspace_id: uuid.UUID | None = None,
+    filters: dict | None = None,
+    link_type: str | None = None,
 ) -> QuerySet:
     """Lazy variant of :func:`list_trace_links` for paginated REST listings.
 
@@ -299,8 +298,8 @@ def list_trace_links_queryset(
 
 def update_trace_link(
     link_id: uuid.UUID,
-    link_type: Optional[str] = None,
-    modified_by_id: Optional[uuid.UUID] = None,
+    link_type: str | None = None,
+    modified_by_id: uuid.UUID | None = None,
 ):
     """Update a TraceLink's link_type.
 
@@ -323,7 +322,7 @@ def delete_trace_link(link_id: uuid.UUID) -> None:
 
 def batch_create_trace_links(
     items: list[dict],
-    created_by_id: Optional[uuid.UUID] = None,
+    created_by_id: uuid.UUID | None = None,
 ) -> list:
     """Atomically create multiple TraceLinks with Tarjan cycle check.
 
@@ -353,7 +352,7 @@ def batch_delete_trace_links(link_ids: list[uuid.UUID]) -> int:
 
 def generate_vcrm(
     workspace_id: uuid.UUID,
-    baseline_id: Optional[uuid.UUID] = None,
+    baseline_id: uuid.UUID | None = None,
 ) -> VCRMMatrix:
     """Generate the VCRM matrix.
 
@@ -378,7 +377,7 @@ def generate_vcrm(
 
 def export_vcrm_csv(
     workspace_id: uuid.UUID,
-    baseline_id: Optional[uuid.UUID] = None,
+    baseline_id: uuid.UUID | None = None,
 ) -> str:
     """Export the VCRM matrix as a CSV string.
 
@@ -392,7 +391,7 @@ def export_vcrm_csv(
 
 def export_vcrm_pdf(
     workspace_id: uuid.UUID,
-    baseline_id: Optional[uuid.UUID] = None,
+    baseline_id: uuid.UUID | None = None,
 ) -> bytes:
     """Export the VCRM matrix as PDF.
 

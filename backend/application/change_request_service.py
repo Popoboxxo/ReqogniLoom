@@ -19,15 +19,16 @@ from __future__ import annotations
 
 import logging
 import uuid as uuid_module
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any
 from uuid import UUID
 
 from django.db import transaction
 from django.db.models import F, QuerySet
 
-from application.artifact_version_service import ArtifactVersionService, snapshot_fields
 from application.artifact_service import _clean_custom_fields
+from application.artifact_version_service import ArtifactVersionService, snapshot_fields
 from application.base import (
     NotFoundError,
     PermissionDeniedError,
@@ -99,13 +100,13 @@ class ChangeRequestDTO:
     impact_assessment: str
     change_reason: str
     status: str
-    requestor_id: Optional[UUID]
-    assigned_reviewer_id: Optional[UUID]
+    requestor_id: UUID | None
+    assigned_reviewer_id: UUID | None
     version: int
-    baseline_id: Optional[UUID] = None
+    baseline_id: UUID | None = None
 
     @classmethod
-    def from_orm(cls, cr: ChangeRequest) -> "ChangeRequestDTO":
+    def from_orm(cls, cr: ChangeRequest) -> ChangeRequestDTO:
         """Build a DTO. ``status`` comes from the workflow engine (Phase 1).
 
         Task 12: the ``status`` column is dropped. Falls back to the
@@ -192,10 +193,10 @@ class ChangeRequestService(ServiceBase):
         description: str = "",
         impact_assessment: str = "",
         change_reason: str = "",
-        requestor_id: Optional[UUID] = None,
-        assigned_reviewer_id: Optional[UUID] = None,
-        affected_item_ids: Optional[Sequence[UUID | str]] = None,
-        custom_fields: Optional[dict] = None,
+        requestor_id: UUID | None = None,
+        assigned_reviewer_id: UUID | None = None,
+        affected_item_ids: Sequence[UUID | str] | None = None,
+        custom_fields: dict | None = None,
     ) -> ChangeRequest:
         """Create a ChangeRequest in draft status (REQ-157).
 
@@ -323,13 +324,13 @@ class ChangeRequestService(ServiceBase):
         self,
         cr_id: UUID,
         ctx,
-        title: Optional[str] = None,
-        description: Optional[str] = None,
-        impact_assessment: Optional[str] = None,
-        change_reason: Optional[str] = None,
-        assigned_reviewer_id: Optional[UUID] = None,
-        affected_item_ids: Optional[Sequence[UUID | str]] = None,
-        expected_version: Optional[int] = None,
+        title: str | None = None,
+        description: str | None = None,
+        impact_assessment: str | None = None,
+        change_reason: str | None = None,
+        assigned_reviewer_id: UUID | None = None,
+        affected_item_ids: Sequence[UUID | str] | None = None,
+        expected_version: int | None = None,
         custom_fields: object = _UNSET,
     ) -> ChangeRequest:
         """Update a ChangeRequest, incrementing its version (REQ-157).
@@ -504,7 +505,7 @@ class ChangeRequestService(ServiceBase):
         self,
         workspace_id: UUID,
         ctx,
-        status_filter: Optional[str] = None,
+        status_filter: str | None = None,
         include_deleted: bool = False,
     ) -> QuerySet:
         """Return ChangeRequests in *workspace_id* (tenant-scoped, REQ-157).
@@ -559,8 +560,8 @@ class ChangeRequestService(ServiceBase):
         cr_id: UUID,
         target_status: str,
         ctx,
-        change_reason: Optional[str] = None,
-        expected_version: Optional[int] = None,
+        change_reason: str | None = None,
+        expected_version: int | None = None,
     ) -> ChangeRequest:
         """Transition a ChangeRequest's CCB workflow status (REQ-157).
 
@@ -659,7 +660,7 @@ class ChangeRequestService(ServiceBase):
         # registered mirror model) — a ``cr.save()`` would clobber that with
         # the stale in-memory status, which is why this uses a queryset
         # ``.update()`` instead.
-        update_fields: Dict[str, Any] = {"version": F("version") + 1}
+        update_fields: dict[str, Any] = {"version": F("version") + 1}
         if change_reason is not None:
             update_fields["change_reason"] = change_reason
         ChangeRequest.objects.filter(id=cr.id).update(**update_fields)
@@ -778,7 +779,7 @@ class ChangeRequestService(ServiceBase):
         cr_id: UUID,
         item_ids: Sequence[UUID | str],
         ctx,
-    ) -> List[ChangeRequestAffectedItem]:
+    ) -> list[ChangeRequestAffectedItem]:
         """Replace the affected-item set of a ChangeRequest.
 
         Each id must be an Artifact of the CR's workspace and the caller's
@@ -823,7 +824,7 @@ class ChangeRequestService(ServiceBase):
         )
         return rows
 
-    def list_affected_items(self, cr_id: UUID, ctx) -> List[ChangeRequestAffectedItem]:
+    def list_affected_items(self, cr_id: UUID, ctx) -> list[ChangeRequestAffectedItem]:
         """Return the affected items of a ChangeRequest (tenant-scoped).
 
         Args:
@@ -851,7 +852,7 @@ class ChangeRequestService(ServiceBase):
         cr: ChangeRequest,
         item_ids: Sequence[UUID | str],
         tenant_id: UUID,
-    ) -> List[ChangeRequestAffectedItem]:
+    ) -> list[ChangeRequestAffectedItem]:
         """Validate *item_ids*, then rewrite the CR's affected-item rows."""
         normalized = self._validate_affected_items(
             item_ids=item_ids, workspace_id=cr.workspace_id, tenant_id=tenant_id
@@ -881,7 +882,7 @@ class ChangeRequestService(ServiceBase):
         item_ids: Sequence[UUID | str],
         workspace_id: UUID,
         tenant_id: UUID,
-    ) -> List[str]:
+    ) -> list[str]:
         """Return de-duplicated artifact id strings, all verified to exist.
 
         Row-level isolation: the lookup filters on ``tenant_id`` explicitly
@@ -889,7 +890,7 @@ class ChangeRequestService(ServiceBase):
         the CR's ``workspace_id``, so a CR can never reference an artifact of
         another tenant or another workspace.
         """
-        normalized: List[str] = []
+        normalized: list[str] = []
         for raw in item_ids or ():
             try:
                 normalized_id = str(uuid_module.UUID(str(raw)))
@@ -924,7 +925,7 @@ class ChangeRequestService(ServiceBase):
     @staticmethod
     def _capture_states(
         item_ids: Sequence[str], tenant_id: UUID
-    ) -> Dict[str, Dict[str, Any]]:
+    ) -> dict[str, dict[str, Any]]:
         """Capture curated per-artifact-type state via ``baseline.state_capture``.
 
         Reuses the baseline snapshot helper instead of duplicating a field-set
@@ -980,7 +981,7 @@ class ChangeRequestService(ServiceBase):
         self,
         cr_id: UUID,
         ctx,
-        baseline_id: Optional[UUID] = None,
+        baseline_id: UUID | None = None,
     ) -> ChangeRequest:
         """Link a ChangeRequest to its configuration baseline of record.
 
@@ -1026,7 +1027,7 @@ class ChangeRequestService(ServiceBase):
         self,
         cr: ChangeRequest,
         ctx,
-        baseline_id: Optional[UUID] = None,
+        baseline_id: UUID | None = None,
         override: bool = False,
     ) -> bool:
         """Attach the baseline of record; return True when the CR was changed.
@@ -1083,9 +1084,9 @@ class ChangeRequestService(ServiceBase):
 
 
 __all__ = [
-    "ChangeRequestService",
-    "ChangeRequestDTO",
-    "ChangeRequestValidator",
-    "CCB_DECISION_STATES",
     "CCB_CLOSING_STATES",
+    "CCB_DECISION_STATES",
+    "ChangeRequestDTO",
+    "ChangeRequestService",
+    "ChangeRequestValidator",
 ]

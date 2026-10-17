@@ -42,7 +42,6 @@ from __future__ import annotations
 
 from django.db import migrations
 
-
 _NO_FORCE = "ALTER TABLE {table} NO FORCE ROW LEVEL SECURITY;"
 _FORCE = "ALTER TABLE {table} FORCE ROW LEVEL SECURITY;"
 

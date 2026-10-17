@@ -1,6 +1,7 @@
 """Unit tests for ArchitectureElement.parent_id and get_level() — REQ-L1-041."""
 
 import pytest
+
 from persistence.models import ArchitectureElement, ArchitectureRole, Artifact
 from persistence.tenancy import TenantContext
 

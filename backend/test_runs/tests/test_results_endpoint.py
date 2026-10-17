@@ -27,7 +27,7 @@ HTTP server required.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -74,7 +74,7 @@ def _make_result(**kwargs: Any) -> MagicMock:
     r.status = kwargs.get("status", "passed")
     r.message = kwargs.get("message", "All checks passed")
     r.duration_ms = kwargs.get("duration_ms", 42)
-    r.executed_at = kwargs.get("executed_at", datetime(2026, 6, 29, 12, 0, tzinfo=timezone.utc))
+    r.executed_at = kwargs.get("executed_at", datetime(2026, 6, 29, 12, 0, tzinfo=UTC))
     r.version = 1
     r.created_at = r.executed_at
     r.created_by = creator

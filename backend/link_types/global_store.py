@@ -13,8 +13,9 @@ remains the second isolation layer underneath either way.
 """
 from __future__ import annotations
 
+import builtins
 import copy
-from typing import Any, List, Optional, Tuple
+from typing import Any
 from uuid import UUID
 
 from django.db import transaction
@@ -38,13 +39,13 @@ class GlobalLinkTypeDefinitionStore:
 
     def get(
         self, tenant_id: UUID | str, key: str
-    ) -> Optional[GlobalLinkTypeDefinition]:
+    ) -> GlobalLinkTypeDefinition | None:
         """Return the global row for ``(tenant, key)`` or None."""
         return GlobalLinkTypeDefinition.unscoped.filter(
             tenant_id=tenant_id, key=key
         ).first()
 
-    def list(self, tenant_id: UUID | str) -> List[GlobalLinkTypeDefinition]:
+    def list(self, tenant_id: UUID | str) -> builtins.list[GlobalLinkTypeDefinition]:
         """Return every global row of the tenant, ordered by key."""
         return list(
             GlobalLinkTypeDefinition.unscoped.filter(tenant_id=tenant_id).order_by("key")
@@ -74,7 +75,7 @@ class GlobalLinkTypeDefinitionStore:
     @transaction.atomic
     def update(
         self, tenant_id: UUID | str, key: str, definition_json: Any
-    ) -> Tuple[GlobalLinkTypeDefinition, int]:
+    ) -> tuple[GlobalLinkTypeDefinition, int]:
         """Replace a global template and propagate it.
 
         Returns:

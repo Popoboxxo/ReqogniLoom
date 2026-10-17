@@ -23,7 +23,8 @@ from __future__ import annotations
 
 import contextlib
 import json
-from typing import Any, Dict, Iterator, List, Optional
+from collections.abc import Iterator
+from typing import Any
 
 import pytest
 
@@ -173,15 +174,15 @@ class _TimeoutCapturingProvider:
 
     def __init__(self, response: str = "[]") -> None:
         self.response = response
-        self.calls: List[Dict[str, Any]] = []
+        self.calls: list[dict[str, Any]] = []
 
     def complete(
         self,
         prompt: str,
         *,
         purpose: str = "",
-        context: Optional[Dict[str, Any]] = None,
-        timeout: Optional[float] = None,
+        context: dict[str, Any] | None = None,
+        timeout: float | None = None,
     ) -> str:
         self.calls.append({"purpose": purpose, "timeout": timeout})
         return self.response

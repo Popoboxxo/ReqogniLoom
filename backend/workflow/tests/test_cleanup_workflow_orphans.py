@@ -33,11 +33,10 @@ from __future__ import annotations
 import uuid
 from importlib import import_module
 
+import pytest
 from django.core.management import call_command
 from django.db import connection, transaction
 from django.db.migrations.executor import MigrationExecutor
-
-import pytest
 
 from persistence.models import Tenant, Workspace
 from persistence.tenancy import TenantContext

@@ -43,13 +43,12 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any
 from uuid import UUID
-
-from auth_tenancy.context import AuthContext
 
 from application.base import NotFoundError, ServiceBase
 from application.workspace_lookup import import_entity_model
+from auth_tenancy.context import AuthContext
 from workflow import state_reader
 
 logger = logging.getLogger(__name__)
@@ -81,7 +80,7 @@ class _ReferenceEntitySpec:
     workspace_field: str
     item_type: str
     title_field: str = "title"
-    description_field: Optional[str] = "description"
+    description_field: str | None = "description"
     status_column: bool = False
 
 
@@ -90,7 +89,7 @@ class _ReferenceEntitySpec:
 #: the models: Requirement/ArchitectureElement/StakeholderNeed/TestCase are
 #: artifact-backed (the workspace lives on ``pl_artifact``), the other four
 #: hold their own ``workspace_id`` column.
-_ENTITY_SPECS: Dict[str, _ReferenceEntitySpec] = {
+_ENTITY_SPECS: dict[str, _ReferenceEntitySpec] = {
     "StakeholderNeed": _ReferenceEntitySpec(
         model_path="persistence.models.StakeholderNeed",
         workspace_field="artifact__workspace_id",
@@ -144,9 +143,9 @@ class ReferenceResolverService(ServiceBase):
         self,
         *,
         workspace_id: UUID,
-        references: List[str],
+        references: list[str],
         ctx: AuthContext,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Resolve *references* (e.g. ``["REQ-L1-007", "NEED-003"]``).
 
         Args:
@@ -183,7 +182,7 @@ class ReferenceResolverService(ServiceBase):
         # Blank/whitespace-only entries stay in the list: they are malformed
         # input, and the contract is that a malformed reference is reported
         # back in ``not_found`` rather than silently dropped.
-        normalized: List[str] = []
+        normalized: list[str] = []
         seen: set[str] = set()
         for raw in references:
             key = raw.strip()
@@ -192,7 +191,7 @@ class ReferenceResolverService(ServiceBase):
             seen.add(key)
             normalized.append(key)
 
-        resolved: Dict[str, Dict[str, Any]] = {}
+        resolved: dict[str, dict[str, Any]] = {}
         for entity_key, spec in _ENTITY_SPECS.items():
             pending = [key for key in normalized if key not in resolved]
             if not pending:
@@ -220,8 +219,8 @@ class ReferenceResolverService(ServiceBase):
     # ---------- internals ----------
 
     def _query_type(
-        self, spec: _ReferenceEntitySpec, workspace_id: UUID, uids: List[str]
-    ) -> List[Dict[str, Any]]:
+        self, spec: _ReferenceEntitySpec, workspace_id: UUID, uids: list[str]
+    ) -> list[dict[str, Any]]:
         """One bounded ``uid__in`` query for one entity type."""
         model = import_entity_model(spec.model_path)
         scope = {spec.workspace_field: workspace_id, "uid__in": uids}
@@ -233,8 +232,8 @@ class ReferenceResolverService(ServiceBase):
         return list(model.objects.filter(**scope).values(*fields))
 
     def _status_map(
-        self, spec: _ReferenceEntitySpec, entity_ids: List[str]
-    ) -> Dict[str, str]:
+        self, spec: _ReferenceEntitySpec, entity_ids: list[str]
+    ) -> dict[str, str]:
         """Wire-status lookup: the model column for TestRun, else the engine."""
         if spec.status_column:
             model = import_entity_model(spec.model_path)

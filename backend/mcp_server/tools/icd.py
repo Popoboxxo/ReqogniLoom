@@ -30,11 +30,10 @@ queries live in the :mod:`icd.services` facade.
 """
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
-
-from auth_tenancy.context import AuthContext
+from typing import Any
 
 from application.base import ValidationError
+from auth_tenancy.context import AuthContext
 from icd.models import Icd
 from icd.services import (
     IcdCreateDTO,
@@ -78,8 +77,8 @@ _UPDATE_FIELDS = (
 
 
 def _icd_to_dict(
-    icd: Icd, status_map: Optional[Dict[str, str]] = None
-) -> Dict[str, Any]:
+    icd: Icd, status_map: dict[str, str] | None = None
+) -> dict[str, Any]:
     """Serialize an Icd ORM row for the MCP read/create/update responses.
 
     Mirrors ``IcdViewSet.retrieve`` field-for-field (plus ``workspace_id`` and
@@ -250,7 +249,7 @@ class IcdToolGroup(BaseToolGroup):
     # ---- Handlers ---------------------------------------------------------
 
     def _handle_read(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         icd_id = require_uuid(params, "id")
         try:
@@ -260,7 +259,7 @@ class IcdToolGroup(BaseToolGroup):
         return ToolResult.ok({"icd": _icd_to_dict(icd)})
 
     def _handle_query(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         workspace_id = require_uuid(params, "workspace_id")
         icds = list_icds(workspace_id, auth_context.tenant_id)
@@ -274,7 +273,7 @@ class IcdToolGroup(BaseToolGroup):
         })
 
     def _handle_create(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         workspace_id = require_uuid(params, "workspace_id")
         name = require_param(params, "name")
@@ -319,7 +318,7 @@ class IcdToolGroup(BaseToolGroup):
         return ToolResult.ok({"icd": _icd_to_dict(result.icd)})
 
     def _handle_update(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         icd_id = require_uuid(params, "id")
 

@@ -23,12 +23,9 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import List, Optional
 from uuid import UUID
 
-from auth_tenancy.context import AuthContext
 from django.db.models import F, QuerySet
-from persistence.transactions import atomic_transaction
 
 from application.artifact_service import (
     _clean_custom_fields,
@@ -43,6 +40,8 @@ from application.optimistic_lock import (
     assert_expected_version,
     lock_for_version_check,
 )
+from auth_tenancy.context import AuthContext
+from persistence.transactions import atomic_transaction
 from workflow import state_reader
 
 logger = logging.getLogger(__name__)
@@ -85,7 +84,7 @@ class RiskDTO:
     version: int
 
     @classmethod
-    def from_orm(cls, risk: Risk, *, status: str = "") -> "RiskDTO":
+    def from_orm(cls, risk: Risk, *, status: str = "") -> RiskDTO:
         """Build a DTO. ``status`` comes from the workflow engine (Phase 1)."""
         resolved_status = status
         return cls(
@@ -188,10 +187,10 @@ class RiskService(ServiceBase):
         category: str = "technical",
         owner: str = "",
         mitigation_strategy: str = "",
-        uid: Optional[str] = None,
+        uid: str | None = None,
         detection: int = 5,
-        owner_user_id: Optional[UUID] = None,
-        custom_fields: Optional[dict] = None,
+        owner_user_id: UUID | None = None,
+        custom_fields: dict | None = None,
     ) -> Risk:
         """Create a Risk with automatic score calculation (REQ-L3-RISK-001/002/007).
 
@@ -310,18 +309,18 @@ class RiskService(ServiceBase):
         self,
         risk_id: UUID,
         ctx: AuthContext,
-        title: Optional[str] = None,
-        description: Optional[str] = None,
-        probability: Optional[str] = None,
-        impact: Optional[str] = None,
-        category: Optional[str] = None,
-        owner: Optional[str] = None,
-        mitigation_strategy: Optional[str] = None,
-        change_reason: Optional[str] = None,
-        detection: Optional[int] = None,
-        owner_user_id: Optional[UUID] = None,
+        title: str | None = None,
+        description: str | None = None,
+        probability: str | None = None,
+        impact: str | None = None,
+        category: str | None = None,
+        owner: str | None = None,
+        mitigation_strategy: str | None = None,
+        change_reason: str | None = None,
+        detection: int | None = None,
+        owner_user_id: UUID | None = None,
         custom_fields: object = _UNSET,
-        expected_version: Optional[int] = None,
+        expected_version: int | None = None,
     ) -> Risk:
         """Update a Risk, recomputing score when probability/impact change (REQ-L3-RISK-003).
 
@@ -551,7 +550,7 @@ class RiskService(ServiceBase):
 
     def list_risks_by_status(
         self, workspace_id: UUID, status: str, ctx: AuthContext
-    ) -> List[Risk]:
+    ) -> list[Risk]:
         """Return Risks filtered by workflow *status* (REQ-L3-RISK-010).
 
         Args:
@@ -578,7 +577,7 @@ class RiskService(ServiceBase):
 
     def query_risks_by_severity(
         self, workspace_id: UUID, severity: str, ctx: AuthContext
-    ) -> List[Risk]:
+    ) -> list[Risk]:
         """Query risks filtered by severity label (for SeMetrics integration).
 
         This method is the SeMetrics contract: SeMetrics calls
@@ -617,7 +616,7 @@ class RiskService(ServiceBase):
 
     def query_risks_by_score_range(
         self, workspace_id: UUID, min_score: int, max_score: int, ctx: AuthContext
-    ) -> List[Risk]:
+    ) -> list[Risk]:
         """Query risks by risk_score range (REQ-L3-RISK-010, ADR-L3-RISK-03).
 
         Args:
@@ -647,9 +646,9 @@ class RiskService(ServiceBase):
         risk_id: UUID,
         target_status: str,
         ctx: AuthContext,
-        change_reason: Optional[str] = None,
-        credential: Optional[str] = None,
-        expected_version: Optional[int] = None,
+        change_reason: str | None = None,
+        credential: str | None = None,
+        expected_version: int | None = None,
     ) -> Risk:
         """Transition a Risk's workflow status (REQ-L3-RISK-005).
 
@@ -758,7 +757,7 @@ class RiskService(ServiceBase):
 
 
 __all__ = [
-    "RiskService",
-    "RiskDTO",
     "RISK_LINK_TYPES",
+    "RiskDTO",
+    "RiskService",
 ]

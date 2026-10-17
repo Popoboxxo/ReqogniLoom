@@ -12,13 +12,12 @@ which collides with the JSON-RPC result envelope.
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict
+from typing import Any
 
+from application.link_type_facade import LinkTypeFacade
 from auth_tenancy.context import AuthContext
 from mcp_server.protocol_handler import ToolResult
 from mcp_server.tools.base import BaseToolGroup, optional_uuid
-
-from application.link_type_facade import LinkTypeFacade
 from persistence.errors import NotFoundError, PermissionDeniedError, ValidationError
 
 logger = logging.getLogger(__name__)
@@ -145,7 +144,7 @@ class LinkTypeToolGroup(BaseToolGroup):
             return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
 
     def _handle_list(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         workspace_id = optional_uuid(params, "workspace_id")
         if not workspace_id:
@@ -160,7 +159,7 @@ class LinkTypeToolGroup(BaseToolGroup):
         )
 
     def _handle_get(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         workspace_id = optional_uuid(params, "workspace_id")
         key = (params or {}).get("key")
@@ -184,7 +183,7 @@ class LinkTypeToolGroup(BaseToolGroup):
         return self._guard(_get)
 
     def _handle_create(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         key = (params or {}).get("key")
         definition = (params or {}).get("definition")
@@ -199,7 +198,7 @@ class LinkTypeToolGroup(BaseToolGroup):
         )
 
     def _handle_update(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         key = (params or {}).get("key")
         definition = (params or {}).get("definition")
@@ -223,7 +222,7 @@ class LinkTypeToolGroup(BaseToolGroup):
         )
 
     def _handle_reset(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         workspace_id = optional_uuid(params, "workspace_id")
         key = (params or {}).get("key")

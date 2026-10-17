@@ -193,9 +193,9 @@ class TestAttributeSchemaEndpoint:
         subset of what ``attribute-schema`` reports for that same type."""
         from django.core.management import call_command
 
-        from auth_tenancy.context import AuthContext, AuthMethod
         from application.attribute_definition_service import AttributeDefinitionService
         from attribute_definitions.schema import ITEM_TYPES
+        from auth_tenancy.context import AuthContext, AuthMethod
 
         call_command("bootstrap_attribute_definitions", tenant=str(tenant.id))
 
@@ -235,8 +235,8 @@ class TestAttributeSchemaEndpoint:
         see that reflected here, not 'is_visible: True' unconditionally."""
         from django.core.management import call_command
 
-        from auth_tenancy.context import AuthContext, AuthMethod
         from application.attribute_definition_service import AttributeDefinitionService
+        from auth_tenancy.context import AuthContext, AuthMethod
 
         call_command("bootstrap_attribute_definitions", tenant=str(tenant.id))
 

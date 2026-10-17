@@ -14,7 +14,7 @@ Covers:
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -22,7 +22,6 @@ from rest_framework.test import APIRequestFactory
 
 from application.stakeholder_need_service import StakeholderNeedDTO
 from rest_api.views import IssueViewSet
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -71,8 +70,8 @@ class TestStakeholderNeedDTO:
         need.uid = "SN-001"
         need.suspect = False
         need.version = 2
-        need.created_at = datetime(2026, 1, 1, tzinfo=timezone.utc)
-        need.modified_at = datetime(2026, 6, 1, tzinfo=timezone.utc)
+        need.created_at = datetime(2026, 1, 1, tzinfo=UTC)
+        need.modified_at = datetime(2026, 6, 1, tzinfo=UTC)
         return need
 
     def test_from_orm_populates_artifact_id(self) -> None:

@@ -57,12 +57,10 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, replace
-from typing import Optional
 from uuid import UUID
 
-from auth_tenancy.context import AuthContext
-
 from application.base import ServiceBase, ValidationError
+from auth_tenancy.context import AuthContext
 
 logger = logging.getLogger(__name__)
 
@@ -150,8 +148,6 @@ def resolve_proposal_authoring(
     Returns:
         The :class:`ProposalAuthoring` to drive the creation.
     """
-    from workflow.definition_store import PROPOSED_STATE
-
     # The definition read below goes through the tenant-scoped ORM manager, so
     # the thread-local must be armed here rather than at the call site. Every
     # caller of this function either already did (``ServiceBase._set_tenant_context``
@@ -162,6 +158,7 @@ def resolve_proposal_authoring(
     # silently reported "no workflow configured" — a fail-open into a wrong
     # answer, which is the exact class of bug #1089 is about.
     from persistence.tenancy import TenantContext
+    from workflow.definition_store import PROPOSED_STATE
 
     TenantContext.set_tenant(ctx.tenant_id)
 
@@ -230,7 +227,7 @@ def require_proposal_support(
 
 def verify_proposal_state(
     item_id: UUID | str, item_type: str
-) -> tuple[Optional[str], Optional[str]]:
+) -> tuple[str | None, str | None]:
     """Re-read an artefact's real workflow state and proposal provenance.
 
     The verification half of #1089: the creation path is only allowed to claim
@@ -256,8 +253,8 @@ def verify_proposal_state(
 
 def proposal_report(
     *,
-    state: Optional[str],
-    proposed_by: Optional[str],
+    state: str | None,
+    proposed_by: str | None,
     supported: bool,
     reason: str,
     label: str,
@@ -294,8 +291,8 @@ def _as_user(ctx: AuthContext) -> AuthContext:
 
 
 def _latest_proposal_actor(
-    item_id: UUID, item_type: str, workspace_id: Optional[UUID]
-) -> Optional[str]:
+    item_id: UUID, item_type: str, workspace_id: UUID | None
+) -> str | None:
     """Return the actor of the newest ``-> "proposed"`` history entry.
 
     Same read ``rest_api.mixins.workflow_transitions._latest_proposal_actor``
@@ -348,15 +345,15 @@ class AiProposalService(ServiceBase):
         return require_proposal_support(authoring, item_type=item_type)
 
     @staticmethod
-    def verify(item_id: UUID | str, item_type: str) -> tuple[Optional[str], Optional[str]]:
+    def verify(item_id: UUID | str, item_type: str) -> tuple[str | None, str | None]:
         """See :func:`verify_proposal_state`."""
         return verify_proposal_state(item_id, item_type)
 
     @staticmethod
     def report(
         *,
-        state: Optional[str],
-        proposed_by: Optional[str],
+        state: str | None,
+        proposed_by: str | None,
         supported: bool,
         reason: str,
         label: str,

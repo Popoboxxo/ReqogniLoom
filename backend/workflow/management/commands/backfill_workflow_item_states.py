@@ -26,9 +26,9 @@ from __future__ import annotations
 
 from django.core.management.base import BaseCommand
 
+from application.models import Adr, ChangeRequest, Issue, Risk
 from persistence.models import TestCase
 from persistence.tenancy import TenantContext
-from application.models import Adr, ChangeRequest, Issue, Risk
 from workflow.definition_store import WorkflowDefinitionError
 from workflow.lifecycle_manager import StateLifecycleManager
 

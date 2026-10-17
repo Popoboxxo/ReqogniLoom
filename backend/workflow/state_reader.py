@@ -13,7 +13,8 @@ every other Layer-1 read. ``item_ids_in_state`` additionally accepts an explicit
 """
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Iterable
+from collections.abc import Iterable
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from persistence.artifact_backing import model_for
@@ -156,7 +157,7 @@ def current_state(item_type: str, item_id: UUID | str) -> str | None:
 
 def outdated_ids(
     item_type: str, *, tenant_id: UUID | str | None = None
-) -> "QuerySet[UUID]":
+) -> QuerySet[UUID]:
     """Return the entity ids currently soft-deleted for *item_type*.
 
     The primitive behind ``workflow.services.outdated_item_ids`` (which is the
@@ -194,7 +195,7 @@ def outdated_ids(
 
 def item_ids_in_state(
     item_type: str, state: str, *, tenant_id: UUID | str | None = None
-) -> "QuerySet[UUID]":
+) -> QuerySet[UUID]:
     """Return the ``item_id`` values of *item_type* currently in *state*.
 
     Matches the state name literally — no ``state_meta`` interpretation (same
@@ -272,9 +273,9 @@ def initial_state(item_type: str) -> str:
 STATUS_TRACKED_ITEM_TYPES = frozenset({"Requirement", *_DEFAULT_PRESET_BY_ITEM_TYPE})
 
 __all__ = [
+    "STATUS_TRACKED_ITEM_TYPES",
     "current_state",
     "current_states",
     "initial_state",
     "item_ids_in_state",
-    "STATUS_TRACKED_ITEM_TYPES",
 ]

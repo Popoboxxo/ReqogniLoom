@@ -43,10 +43,9 @@ def goal_env(db):
 
 
 def make_goal(env, lineage_id, sequence_number, state):
+    from application.models import Goal
     from persistence.models import Artifact
     from workflow.models import WorkflowItemState
-
-    from application.models import Goal
 
     tenant, workspace, definition, _ctx = env
     artifact = Artifact.objects.create(

@@ -41,7 +41,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
 
 from diagram.node_graph import MAX_LABEL_LENGTH, SCHEMA_VERSION
 
@@ -78,8 +78,8 @@ class ConversionResult:
     """
 
     ok: bool
-    payload: Optional[dict] = None
-    reason: Optional[str] = None
+    payload: dict | None = None
+    reason: str | None = None
 
 
 def _is_genuine_freehand_path(obj: Any) -> bool:

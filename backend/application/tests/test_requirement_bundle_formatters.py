@@ -6,12 +6,12 @@ import io
 import json
 from uuid import uuid4
 
-from application.requirement_bundle_service import BundleItem, BundleResult
 from application.requirement_bundle_formatters import (
     format_bundle_csv,
     format_bundle_json,
     format_bundle_markdown,
 )
+from application.requirement_bundle_service import BundleItem, BundleResult
 
 
 def _sample_result() -> BundleResult:

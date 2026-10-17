@@ -32,22 +32,9 @@ Architecture:
 from __future__ import annotations
 
 import logging
-from typing import Dict, List, Optional
 from uuid import UUID
 
 from django.db.models import F, Q, QuerySet
-
-from auth_tenancy.context import AuthContext
-from persistence.models import (
-    Artifact,
-    ScenarioKind,
-    TestCase,
-    Tenant,
-    TestCaseOrigin,
-    TestCaseType,
-    Workspace,
-)
-from persistence.transactions import atomic_transaction
 
 from application.artifact_service import (
     _clean_custom_fields,
@@ -55,13 +42,24 @@ from application.artifact_service import (
     snapshot_versioned_fields,
 )
 from application.artifact_version_service import ArtifactVersionService, snapshot_fields
-from application.local_uid import generate_local_uid
 from application.base import NotFoundError, ServiceBase, ValidationError
+from application.local_uid import generate_local_uid
 from application.models import DomainEventOutbox
 from application.optimistic_lock import (
     assert_expected_version,
     lock_for_version_check,
 )
+from auth_tenancy.context import AuthContext
+from persistence.models import (
+    Artifact,
+    ScenarioKind,
+    Tenant,
+    TestCase,
+    TestCaseOrigin,
+    TestCaseType,
+    Workspace,
+)
+from persistence.transactions import atomic_transaction
 
 logger = logging.getLogger(__name__)
 
@@ -109,7 +107,7 @@ _VALID_ORIGINS = frozenset(value for value, _label in TestCaseOrigin.choices)
 _VALID_SCENARIO_KINDS = frozenset(value for value, _label in ScenarioKind.choices)
 
 
-def normalize_test_type(value: object) -> Optional[str]:
+def normalize_test_type(value: object) -> str | None:
     """Return the canonical ``TestCaseType`` value for *value* (#816, #953).
 
     Accepts the canonical lowercase values and the deprecated Title-case
@@ -132,7 +130,7 @@ def normalize_test_type(value: object) -> Optional[str]:
     )
 
 
-def canonical_test_type_or_none(value: object) -> Optional[str]:
+def canonical_test_type_or_none(value: object) -> str | None:
     """Lenient variant of :func:`normalize_test_type` for bulk import.
 
     The CSV importer must not abort a whole batch because one cell carries a
@@ -164,12 +162,12 @@ class TestService(ServiceBase):
         ctx: AuthContext,
         description: str = "",
         test_type: str = DEFAULT_TEST_TYPE,
-        steps: Optional[list] = None,
-        uid: Optional[str] = None,
-        custom_fields: Optional[dict] = None,
+        steps: list | None = None,
+        uid: str | None = None,
+        custom_fields: dict | None = None,
         test_type_value: object = _UNSET,
         origin: str = TestCaseOrigin.MANUAL,
-        reviewed: Optional[bool] = None,
+        reviewed: bool | None = None,
         scenario_kind: str = ScenarioKind.NOMINAL,
     ) -> TestCase:
         """Create a TestCase with initial WorkflowState.
@@ -305,13 +303,13 @@ class TestService(ServiceBase):
         self,
         test_case_id: UUID,
         ctx: AuthContext,
-        title: Optional[str] = None,
-        description: Optional[str] = None,
-        steps: Optional[list] = None,
+        title: str | None = None,
+        description: str | None = None,
+        steps: list | None = None,
         test_type: object = _UNSET,
         custom_fields: object = _UNSET,
-        change_reason: Optional[str] = None,
-        expected_version: Optional[int] = None,
+        change_reason: str | None = None,
+        expected_version: int | None = None,
         scenario_kind: object = _UNSET,
     ) -> TestCase:
         """Update a TestCase.
@@ -599,9 +597,9 @@ class TestService(ServiceBase):
         self,
         workspace_id: UUID,
         ctx: AuthContext,
-        test_type: Optional[str] = None,
+        test_type: str | None = None,
         include_deleted: bool = False,
-        search: Optional[str] = None,
+        search: str | None = None,
     ) -> QuerySet[TestCase]:
         """Return TestCases in *workspace_id*, optionally filtered by test_type.
 
@@ -649,7 +647,7 @@ class TestService(ServiceBase):
 
     # ---------- Coverage (REQ-L2-AS-025) ----------
 
-    def get_coverage(self, workspace_id: UUID, ctx: AuthContext) -> Dict[str, object]:
+    def get_coverage(self, workspace_id: UUID, ctx: AuthContext) -> dict[str, object]:
         """Return requirement coverage statistics for *workspace_id*.
 
         REQ-L2-AS-025: delegates to TraceabilityEngine.coverage().
@@ -693,11 +691,11 @@ class TestService(ServiceBase):
 
 
 __all__ = [
-    "TestService",
+    "DEFAULT_TEST_TYPE",
     "VALID_EXECUTION_STATUSES",
     "VALID_TEST_TYPES",
     "VALID_TEST_TYPE_VALUES",
-    "DEFAULT_TEST_TYPE",
-    "normalize_test_type",
+    "TestService",
     "canonical_test_type_or_none",
+    "normalize_test_type",
 ]

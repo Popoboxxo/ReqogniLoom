@@ -45,11 +45,12 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any
 from uuid import UUID
 
-from auth_tenancy.context import AuthContext
-
+from application import workspace_context_service
+from application.base import ProducerContextRequiredError
+from application.search_service import SEARCHABLE_ARTIFACT_TYPES
 from application.services import (
     ArtifactService,
     NotFoundError,
@@ -58,17 +59,12 @@ from application.services import (
     TraceLinkService,
     ValidationError,
 )
-from application.search_service import SEARCHABLE_ARTIFACT_TYPES
-from application.base import ProducerContextRequiredError
 from application.trace_link_service import MAX_WORKSPACE_LINKS_PAGE_SIZE
 from application.traceability_suggest_service import (
     SuggestLinksResponseError,
     TraceabilitySuggestService,
 )
-from application import workspace_context_service
-
-from traceability.audit import AuditScope
-
+from auth_tenancy.context import AuthContext
 from mcp_server.protocol_handler import ToolResult
 from mcp_server.tools.base import (
     BaseToolGroup,
@@ -79,6 +75,7 @@ from mcp_server.tools.base import (
     require_uuid,
     write_mcp_audit,
 )
+from traceability.audit import AuditScope
 
 logger = logging.getLogger(__name__)
 
@@ -92,7 +89,7 @@ _VALID_SUGGEST_LINKS_SCOPES = frozenset({"document", "project", "global"})
 # ``Workspace.ai_prompts["context_token_budgets"]``. ``None`` = unbounded.
 # Applying the budget to the actual response payload is Task 3 — this module
 # only exposes the read helper for now.
-DEFAULT_CONTEXT_TOKEN_BUDGETS: Dict[str, Optional[int]] = {
+DEFAULT_CONTEXT_TOKEN_BUDGETS: dict[str, int | None] = {
     "summary": 300,
     "normal": 2000,
     "full": None,
@@ -117,7 +114,7 @@ _MAX_TRACEABILITY_LINKS_PAGE = 1_000_000
 _MAX_RESOLVE_REFERENCES = 50
 
 
-def _get_context_token_budget(workspace: Any, depth: str) -> Optional[int]:
+def _get_context_token_budget(workspace: Any, depth: str) -> int | None:
     """Return the token budget for *depth*, honouring per-workspace overrides.
 
     REQ-L2-MC-004 (Phase 2): ``workspace.ai_prompts["context_token_budgets"]``
@@ -148,7 +145,7 @@ _CHANGE_IMPACT_PROMPT_TEMPLATE = (
 )
 
 
-def _complete_change_impact(prompt: str, *, context: Dict[str, Any]) -> str:
+def _complete_change_impact(prompt: str, *, context: dict[str, Any]) -> str:
     """LLM completion for ``context.change_impact`` candidate ranking.
 
     DECISION (Phase 2, Task 6 -- see task-6-report.md): this is a third,
@@ -877,10 +874,10 @@ class CrossCuttingToolGroup(BaseToolGroup):
 
     def __init__(
         self,
-        artifact_service: Optional[ArtifactService] = None,
-        search_service: Optional[SearchService] = None,
-        trace_service: Optional[TraceLinkService] = None,
-        trace_suggest_service: Optional[TraceabilitySuggestService] = None,
+        artifact_service: ArtifactService | None = None,
+        search_service: SearchService | None = None,
+        trace_service: TraceLinkService | None = None,
+        trace_suggest_service: TraceabilitySuggestService | None = None,
     ) -> None:
         self._artifact_service = artifact_service or ArtifactService()
         self._search_service = search_service or SearchService()
@@ -892,7 +889,7 @@ class CrossCuttingToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_traceability_query(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """traceability.query — return upstream/downstream TraceLink graph.
 
@@ -931,7 +928,7 @@ class CrossCuttingToolGroup(BaseToolGroup):
             return ToolResult.error("NOT_FOUND", str(exc))
 
         try:
-            links: List[Dict[str, Any]] = []
+            links: list[dict[str, Any]] = []
 
             directions_to_query = (
                 ("upstream", "downstream") if direction == "both" else (direction,)
@@ -973,7 +970,7 @@ class CrossCuttingToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_traceability_query_links(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """traceability.query_links — enumerate a workspace's TraceLinks (#1098).
 
@@ -1044,7 +1041,7 @@ class CrossCuttingToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_traceability_suggest_links(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """traceability.suggest_links — rank candidate link targets for
         SE-Auditor findings that name a missing trace link (TRACE-P1/-P1b/
@@ -1124,7 +1121,7 @@ class CrossCuttingToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_traceability_suggest_links_status(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """traceability.suggest_links_status — poll an async suggest-links task.
 
@@ -1144,7 +1141,7 @@ class CrossCuttingToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_traceability_create_link(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """traceability.create_link — generic TraceLink creation (write, audited).
 
@@ -1243,7 +1240,7 @@ class CrossCuttingToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_artifact_search(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """artifact.search — full-text search across all artifact types.
 
@@ -1275,7 +1272,7 @@ class CrossCuttingToolGroup(BaseToolGroup):
         query_str = require_param(params, "query")
         workspace_id = optional_uuid(params, "workspace_id")
         type_filter_raw = params.get("type_filter")
-        type_filter: Optional[List[str]] = (
+        type_filter: list[str] | None = (
             type_filter_raw if isinstance(type_filter_raw, list) else None
         )
         page: int = int(params.get("page", 1))
@@ -1341,7 +1338,7 @@ class CrossCuttingToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_artifact_get_tree(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """artifact.get_tree — hierarchical artifact structure from root.
 
@@ -1381,7 +1378,7 @@ class CrossCuttingToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_workspace_get_context(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """workspace.get_context — full workspace status summary for agent orientation.
 
@@ -1403,7 +1400,7 @@ class CrossCuttingToolGroup(BaseToolGroup):
         include_outdated = bool(params.get("include_outdated", False))
         role = params.get("role") or ""
 
-        context_data: Dict[str, Any] = self._context_caller_data(auth_context, role)
+        context_data: dict[str, Any] = self._context_caller_data(auth_context, role)
 
         if workspace_id_str:
             workspace_id = str(workspace_id_str)
@@ -1568,7 +1565,7 @@ class CrossCuttingToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_workspace_list(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """workspace.list — list the workspaces visible to the caller's tenant.
 
@@ -1606,7 +1603,7 @@ class CrossCuttingToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_workspace_resolve_references(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """workspace.resolve_references — batch-resolve local uid references.
 
@@ -1673,7 +1670,7 @@ class CrossCuttingToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_llm_system_prompt(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """workspace.llm_system_prompt — render a natural-language system
         prompt for AI-agent session start.
@@ -1737,7 +1734,7 @@ class CrossCuttingToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_test_coverage(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """context.test_coverage — TestCases verifying a Requirement + gaps.
 
@@ -1788,7 +1785,7 @@ class CrossCuttingToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_workspace_coverage(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """traceability.coverage — workspace-wide coverage summary (issue #410).
 
@@ -1820,7 +1817,7 @@ class CrossCuttingToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_vcrm(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """traceability.vcrm — VCRM export for a workspace (issue #410).
 
@@ -1867,7 +1864,7 @@ class CrossCuttingToolGroup(BaseToolGroup):
     )
 
     def _handle_change_impact(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """context.change_impact — entities potentially affected by a change.
 
@@ -1920,7 +1917,7 @@ class CrossCuttingToolGroup(BaseToolGroup):
         from persistence.models import ArchitectureElement, Requirement, StakeholderNeed, TestCase
         from persistence.tenancy import TenantContext
 
-        entity_models: Dict[str, Any] = {
+        entity_models: dict[str, Any] = {
             "Requirement": Requirement,
             "ArchitectureElement": ArchitectureElement,
             "TestCase": TestCase,
@@ -1979,9 +1976,8 @@ class CrossCuttingToolGroup(BaseToolGroup):
         the retired-realizes -> 'decomposes' mapping (Task 17), not
         something this handler special-cases.
         """
-        from persistence.models import ArchitectureElement
-
         from link_types.catalog import normalize_artifact_type
+        from persistence.models import ArchitectureElement
         from traceability.services import query as te_query
 
         raw_neighbors: list[dict[str, Any]] = []
@@ -2016,8 +2012,8 @@ class CrossCuttingToolGroup(BaseToolGroup):
         return raw_neighbors
 
     def _resolve_change_impact_candidates(
-        self, raw_neighbors: List[Dict[str, Any]], *, tenant_id: UUID
-    ) -> List[Dict[str, Any]]:
+        self, raw_neighbors: list[dict[str, Any]], *, tenant_id: UUID
+    ) -> list[dict[str, Any]]:
         """Bulk-resolve each raw neighbour's business id/title/outdated flag.
 
         ``raw_neighbors`` entries carry an Artifact id (``artifact_id``) —
@@ -2040,11 +2036,11 @@ class CrossCuttingToolGroup(BaseToolGroup):
         """
         from persistence.models import Requirement, StakeholderNeed, TestCase
 
-        by_type: Dict[str, List[Dict[str, Any]]] = {}
+        by_type: dict[str, list[dict[str, Any]]] = {}
         for neighbor in raw_neighbors:
             by_type.setdefault(neighbor["entity_type"], []).append(neighbor)
 
-        resolved: List[Dict[str, Any]] = []
+        resolved: list[dict[str, Any]] = []
 
         mirrored_models = {
             "Requirement": Requirement,
@@ -2167,8 +2163,8 @@ class CrossCuttingToolGroup(BaseToolGroup):
         return resolved
 
     def _rank_change_impact_candidates(
-        self, candidates: List[Dict[str, Any]], change_description: str
-    ) -> List[Dict[str, Any]]:
+        self, candidates: list[dict[str, Any]], change_description: str
+    ) -> list[dict[str, Any]]:
         """LLM-assisted ranking/annotation of trace-linked candidates.
 
         Never raises — any provider/parse failure falls back to the
@@ -2196,7 +2192,7 @@ class CrossCuttingToolGroup(BaseToolGroup):
         )
         context = {"candidates": [{"id": c["id"]} for c in candidates]}
 
-        annotations: Dict[str, Dict[str, Any]] = {}
+        annotations: dict[str, dict[str, Any]] = {}
         try:
             raw = _complete_change_impact(prompt, context=context)
             parsed = AiDerivationService._parse_json_list(raw)
@@ -2229,7 +2225,7 @@ class CrossCuttingToolGroup(BaseToolGroup):
 
     def _recent_changes(
         self, *, workspace_id: UUID, tenant_id: UUID, limit: int = 10
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Return the most recent workflow transitions across all item types.
 
         REQ-L2-MC-004 (Phase 2, Task 3): ``depth=full`` field. ADR-01 (#124):
@@ -2241,8 +2237,8 @@ class CrossCuttingToolGroup(BaseToolGroup):
         )
 
     def _truncate_to_budget(
-        self, context_data: Dict[str, Any], budget: "int | None"
-    ) -> Dict[str, Any]:
+        self, context_data: dict[str, Any], budget: int | None
+    ) -> dict[str, Any]:
         """Soft-truncate *context_data* under *budget* tokens — never raises.
 
         REQ-L2-MC-004 (Phase 2, Task 3): rough token estimate (1 token ~= 4
@@ -2268,7 +2264,7 @@ class CrossCuttingToolGroup(BaseToolGroup):
 
     def _entity_counts(
         self, *, workspace_id: UUID, tenant_id: UUID, include_outdated: bool
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Return per-entity-type counts for ``workspace.get_context`` depth.
 
         REQ-L2-MC-004 (Phase 2, Task 1). ADR-01 (#124): the aggregation itself
@@ -2283,7 +2279,7 @@ class CrossCuttingToolGroup(BaseToolGroup):
 
     def _entity_lists(
         self, *, workspace_id: UUID, tenant_id: UUID, include_outdated: bool
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Return lightweight per-item lists for ``depth in ("normal", "full")``.
 
         REQ-L2-MC-004 (Phase 2, Task 2). ADR-01 (#124): the aggregation itself
@@ -2306,7 +2302,7 @@ class CrossCuttingToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_context_query(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         from application.base import NotFoundError, ValidationError
         from application.context_service import get_context
@@ -2342,7 +2338,7 @@ class CrossCuttingToolGroup(BaseToolGroup):
         })
 
     def _handle_context_related(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         from application.base import NotFoundError, ValidationError
         from application.context_service import get_related

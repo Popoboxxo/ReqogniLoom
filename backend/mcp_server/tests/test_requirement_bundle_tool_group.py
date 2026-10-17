@@ -17,10 +17,11 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from auth_tenancy.context import AuthContext, AuthMethod
+from mcp_server.tools.requirement_bundle import RequirementBundleToolGroup
 from persistence.middleware import clear_request_tenant, set_request_tenant
 from persistence.models import (
-    Artifact,
     ArchitectureElement,
+    Artifact,
     Requirement,
     Tenant,
     TraceLink,
@@ -29,8 +30,6 @@ from persistence.models import (
 )
 from persistence.tenancy import TenantContext
 from traceability.types import LinkType
-
-from mcp_server.tools.requirement_bundle import RequirementBundleToolGroup
 
 _API_KEY = "reqlo_testkey_rb"
 

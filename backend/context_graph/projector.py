@@ -20,7 +20,8 @@ middleware does.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Callable, Dict, Iterable, List, Set, Tuple
+from collections.abc import Callable, Iterable
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from django.core.cache import cache
@@ -49,7 +50,7 @@ _TRACE_LINK_EVENT_TYPES = frozenset(
 )
 
 
-def _generator_registry() -> Dict[str, Tuple[Callable[[UUID], List[ContextEdgeCandidate]], str]]:
+def _generator_registry() -> dict[str, tuple[Callable[[UUID], list[ContextEdgeCandidate]], str]]:
     """Return {generator_name: (generate_for_artifact, origin)}.
 
     A function (not a module-level constant) so importing this module never
@@ -72,7 +73,7 @@ class ContextGraphProjector:
     therefore produces the identical final row set both times.
     """
 
-    def handle_event(self, event: "DomainEvent") -> None:
+    def handle_event(self, event: DomainEvent) -> None:
         workspace_id = event.workspace_id
         settings_row = self._get_settings_cached(workspace_id)
         if settings_row is None or not settings_row["enabled"]:
@@ -112,7 +113,7 @@ class ContextGraphProjector:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _resolve_affected_artifact_ids(event: "DomainEvent") -> List[UUID]:
+    def _resolve_affected_artifact_ids(event: DomainEvent) -> list[UUID]:
         """Return the artifact id(s) a re-derivation must run for.
 
         TraceLink events re-derive BOTH endpoints (Task 4 step 3). Every
@@ -124,7 +125,7 @@ class ContextGraphProjector:
         """
         payload = event.payload or {}
         if event.event_type in _TRACE_LINK_EVENT_TYPES:
-            ids: List[UUID] = []
+            ids: list[UUID] = []
             for key in ("source_artifact_id", "target_artifact_id"):
                 raw = payload.get(key)
                 if raw:
@@ -216,7 +217,7 @@ class ContextGraphProjector:
             generate_fn, origin = entry
             candidates = generate_fn(artifact_id)
 
-            fresh_keys: Set[Tuple[UUID, UUID, str]] = set()
+            fresh_keys: set[tuple[UUID, UUID, str]] = set()
             for candidate in candidates:
                 ContextEdge.objects.update_or_create(
                     source_id=candidate.source_id,
@@ -246,7 +247,7 @@ class ContextGraphProjector:
                     row.delete()
 
     @staticmethod
-    def _mark_success(settings_pk, event: "DomainEvent") -> None:
+    def _mark_success(settings_pk, event: DomainEvent) -> None:
         from context_graph.models import WorkspaceContextSettings
 
         WorkspaceContextSettings.objects.filter(pk=settings_pk).update(

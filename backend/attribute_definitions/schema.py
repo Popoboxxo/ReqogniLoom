@@ -10,7 +10,8 @@ service and the table view; every key below is part of it.
 from __future__ import annotations
 
 import re
-from typing import Any, Iterable, Mapping
+from collections.abc import Iterable, Mapping
+from typing import Any
 
 ATTRIBUTE_KINDS: frozenset[str] = frozenset({"core", "extended"})
 
@@ -1277,9 +1278,6 @@ __all__ = [
     "ATTRIBUTE_SPANS",
     "ATTRIBUTE_TYPES",
     "AUDIENCE_VALUES",
-    "AttributeDefinitionConflictError",
-    "AttributeDefinitionVersionConflict",
-    "AttributeSchemaError",
     "CORE_EDITABLE_META_PROPERTIES",
     "DEFAULT_ATTRIBUTE_SPAN",
     "DISPLAY_FORMAT_VALUES",
@@ -1299,6 +1297,9 @@ __all__ = [
     "SPAN_COLUMNS",
     "SYSTEM_FIELDS_ENABLED_ITEM_TYPES",
     "WIDGET_KEYS",
+    "AttributeDefinitionConflictError",
+    "AttributeDefinitionVersionConflict",
+    "AttributeSchemaError",
     "all_entity_carrier_fields",
     "effective_attribute_flow",
     "effective_section_flow",

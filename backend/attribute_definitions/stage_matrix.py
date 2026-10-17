@@ -56,7 +56,8 @@ absent and listed in the report as open points.
 """
 from __future__ import annotations
 
-from typing import Any, Iterable, Mapping
+from collections.abc import Iterable, Mapping
+from typing import Any
 
 from attribute_definitions.schema import normalize_attribute
 

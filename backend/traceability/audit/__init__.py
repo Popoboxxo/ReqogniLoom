@@ -25,14 +25,6 @@ from traceability.audit.registry import (
     get_rule_catalogue,
     register_rule,
 )
-from traceability.audit.rule_engine import RuleEngine
-from traceability.audit.types import (
-    AuditContext,
-    AuditResult,
-    AuditScope,
-    Finding,
-    Severity,
-)
 
 # Importing the remediation module self-registers every Remediation via
 # ``@register_remediation`` (Phase 3 Adopt/Modify — analysis half). Kept at
@@ -45,23 +37,31 @@ from traceability.audit.remediation import (  # noqa: E402
     get_remediation,
     register_remediation,
 )
+from traceability.audit.rule_engine import RuleEngine
+from traceability.audit.types import (
+    AuditContext,
+    AuditResult,
+    AuditScope,
+    Finding,
+    Severity,
+)
 
 __all__ = [
-    "RuleEngine",
-    "Rule",
-    "register_rule",
-    "get_registered_rules",
-    "get_rule_catalogue",
-    "active_rule_ids_for_tier",
     "AuditContext",
     "AuditResult",
     "AuditScope",
     "Finding",
-    "Severity",
     "Remediation",
     "RemediationActionKind",
     "RemediationProposal",
-    "register_remediation",
-    "get_remediation",
+    "Rule",
+    "RuleEngine",
+    "Severity",
+    "active_rule_ids_for_tier",
     "get_registered_remediations",
+    "get_registered_rules",
+    "get_remediation",
+    "get_rule_catalogue",
+    "register_remediation",
+    "register_rule",
 ]

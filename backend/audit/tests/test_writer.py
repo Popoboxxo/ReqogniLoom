@@ -15,9 +15,6 @@ import uuid
 
 import pytest
 
-from persistence.models import Tenant
-from persistence.tenancy import TenantContext, TenantContextNotSetError
-
 from audit.events import AuditableOperationOccurred, DomainEventBus
 from audit.models import AuditEntry
 from audit.tests.conftest import active_tenant, make_entry
@@ -27,6 +24,8 @@ from audit.writer import (
     MissingTenantContextError,
     TenantContextInjector,
 )
+from persistence.models import Tenant
+from persistence.tenancy import TenantContext, TenantContextNotSetError
 
 pytestmark = pytest.mark.django_db
 

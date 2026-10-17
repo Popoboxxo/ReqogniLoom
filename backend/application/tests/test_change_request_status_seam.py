@@ -13,12 +13,11 @@ from persistence.models import Artifact
 
 @pytest.fixture
 def cr_fixture(db):
+    from application.models import ChangeRequest
     from auth_tenancy.context import AuthContext, AuthMethod
     from persistence.models import Tenant, Workspace
     from persistence.tenancy import TenantContext
     from workflow.models import WorkflowEngineDefinition, WorkflowItemState
-
-    from application.models import ChangeRequest
 
     tenant = Tenant.objects.create(name="t-cr-seam")
     TenantContext.set_tenant(tenant.id)

@@ -55,7 +55,7 @@ Design notes:
 from __future__ import annotations
 
 import math
-from typing import Any, Optional
+from typing import Any
 
 from diagram.node_graph import EDGE_LINE_STYLES, EDGE_TYPES, NODE_TYPES, STYLE_ACCENTS
 from diagram.svg_safety import escape_xml_text
@@ -237,7 +237,7 @@ def _node_geometry_floats(node: dict) -> tuple[float, float, float, float]:
     return x, y, w, h
 
 
-def _node_anchor(node: dict, handle: Optional[str]) -> tuple[float, float]:
+def _node_anchor(node: dict, handle: str | None) -> tuple[float, float]:
     """Return the (x, y) point on *node*'s bounding box for a given handle.
 
     ``handle`` is one of :data:`diagram.node_graph.HANDLE_POSITIONS`
@@ -515,4 +515,4 @@ def render_svg(payload: dict) -> str:
     )
 
 
-__all__ = ["render_svg", "NodeGraphRenderError"]
+__all__ = ["NodeGraphRenderError", "render_svg"]

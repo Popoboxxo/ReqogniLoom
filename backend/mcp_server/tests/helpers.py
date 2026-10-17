@@ -2,14 +2,14 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, Optional
+from typing import Any
 
 # Reverse mapping: JSON-RPC numeric error code → string error code name.
 # ErrorFormatter.format_error emits {"code": <int>} per JSON-RPC 2.0 spec;
 # tests that call extract_error_code() compare against string names
 # (e.g. "VALIDATION_ERROR") so we map back here for readability.
 # Source of truth: mcp_server.protocol_handler.ERROR_CODE_MAP.
-_NUMERIC_TO_ERROR_CODE: Dict[int, str] = {
+_NUMERIC_TO_ERROR_CODE: dict[int, str] = {
     -32700: "PARSE_ERROR",
     -32600: "INVALID_REQUEST",
     -32601: "UNKNOWN_TOOL",
@@ -31,10 +31,10 @@ VIEWER_ROLE = "viewer"
 
 def make_jsonrpc_frame(
     method: str,
-    params: Optional[Dict[str, Any]] = None,
+    params: dict[str, Any] | None = None,
     request_id: int = 1,
     jsonrpc: str = "2.0",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Build a JSON-RPC 2.0 request frame (dict, not bytes)."""
     return {
         "jsonrpc": jsonrpc,
@@ -46,7 +46,7 @@ def make_jsonrpc_frame(
 
 def make_jsonrpc_request(
     method: str,
-    params: Optional[Dict[str, Any]] = None,
+    params: dict[str, Any] | None = None,
     request_id: int = 1,
     jsonrpc: str = "2.0",
 ) -> bytes:
@@ -57,10 +57,10 @@ def make_jsonrpc_request(
 def post_mcp(
     client,
     method: str,
-    params: Optional[Dict[str, Any]] = None,
+    params: dict[str, Any] | None = None,
     request_id: int = 1,
-    api_key: Optional[str] = None,
-    extra_headers: Optional[Dict[str, str]] = None,
+    api_key: str | None = None,
+    extra_headers: dict[str, str] | None = None,
     jsonrpc: str = "2.0",
 ):
     """POST a JSON-RPC request to /mcp/ via the given Django test client.
@@ -76,7 +76,7 @@ def post_mcp(
     return client.post("/mcp/", data=body, content_type="application/json", **headers)
 
 
-def extract_result(response) -> Dict[str, Any]:
+def extract_result(response) -> dict[str, Any]:
     """Extract the 'result' field from a JSON-RPC response, or raise AssertionError on error."""
     body = response.json()
     assert "result" in body, f"Expected 'result' in response, got: {body}"

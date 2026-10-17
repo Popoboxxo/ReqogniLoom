@@ -30,8 +30,6 @@ A workspace with 2735 requirements and 0 Goals therefore never gets a finding.
 """
 from __future__ import annotations
 
-from typing import Dict, List, Set
-
 from persistence.models import Goal, StakeholderNeed, Workspace
 from traceability.audit.registry import VAL_P1, Rule, register_rule
 from traceability.audit.types import AuditContext, Finding, Severity
@@ -55,7 +53,7 @@ def _goals_enabled(context: AuditContext) -> bool:
     ).exists()
 
 
-def _active_goal_artifact_ids(context: AuditContext) -> Set[str]:
+def _active_goal_artifact_ids(context: AuditContext) -> set[str]:
     """Return the artifact ids of the workspace's active Goals.
 
     "Active" is ``Artifact.lifecycle_status != "outdated"`` — the single
@@ -73,7 +71,7 @@ def _active_goal_artifact_ids(context: AuditContext) -> Set[str]:
     return {str(artifact_id) for artifact_id in qs}
 
 
-def _active_stakeholder_needs(context: AuditContext) -> Dict[str, str]:
+def _active_stakeholder_needs(context: AuditContext) -> dict[str, str]:
     """Return ``{artifact_id: title}`` for the workspace's active needs."""
     qs = StakeholderNeed.unscoped.filter(
         tenant_id=context.tenant_id,
@@ -115,7 +113,7 @@ class ValidationGoalsRule(Rule):
         """
         return Severity.WARNING
 
-    def check(self, context: AuditContext) -> List[Finding]:
+    def check(self, context: AuditContext) -> list[Finding]:
         # Gate 1 (fail-open): Goals must be enabled in this workspace.
         if not _goals_enabled(context):
             return []
@@ -130,7 +128,7 @@ class ValidationGoalsRule(Rule):
         if not needs:
             return []
 
-        satisfies_targets: Dict[str, Set[str]] = {}
+        satisfies_targets: dict[str, set[str]] = {}
         for link in context.iter_trace_links():
             if link["link_type"] != LinkType.SATISFIES.value:
                 continue
@@ -138,7 +136,7 @@ class ValidationGoalsRule(Rule):
                 link["target_id"]
             )
 
-        findings: List[Finding] = []
+        findings: list[Finding] = []
         for need_id in sorted(needs):
             targets = satisfies_targets.get(need_id, set())
             if targets & active_goal_ids:

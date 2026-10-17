@@ -85,12 +85,12 @@ one.
 from __future__ import annotations
 
 import copy
-from typing import Any, Dict, List
+from typing import Any
 
 #: link-type key -> additional allowed pairs, verbatim from the inventory run
 #: documented in this module's docstring. Never hand-written: regenerate with
 #: ``manage.py inventory_link_types --json`` and paste the ``uncovered`` list.
-GRANDFATHERED_PAIRS: Dict[str, List[Dict[str, str]]] = {
+GRANDFATHERED_PAIRS: dict[str, list[dict[str, str]]] = {
     "allocated-to": [
         # legacy `satisfies` Requirement -> StakeholderNeed, endpoints swapped
         # by SWAPPED_LEGACY_KEYS; 40 rows.
@@ -111,7 +111,7 @@ GRANDFATHERED_PAIRS: Dict[str, List[Dict[str, str]]] = {
 }
 
 
-def apply_grandfathered_pairs(definition: Dict[str, Any], key: str) -> Dict[str, Any]:
+def apply_grandfathered_pairs(definition: dict[str, Any], key: str) -> dict[str, Any]:
     """Return a copy of *definition* with the grandfathered pairs appended.
 
     Additive and duplicate-free: a built-in pair is never dropped, and a pair

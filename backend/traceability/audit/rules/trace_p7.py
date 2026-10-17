@@ -28,8 +28,6 @@ checks scope membership.
 """
 from __future__ import annotations
 
-from typing import List
-
 from traceability.audit.registry import TRACE_P7, Rule, register_rule
 from traceability.audit.types import AuditContext, Finding, Severity
 
@@ -54,7 +52,7 @@ class BaselineScopeConsistencyRule(Rule):
         "link that crosses the scope boundary."
     )
 
-    def check(self, context: AuditContext) -> List[Finding]:
+    def check(self, context: AuditContext) -> list[Finding]:
         """Return one finding per trace link that straddles the scope boundary.
 
         A scope-agnostic context (``scope is None``) yields no findings — the
@@ -70,7 +68,7 @@ class BaselineScopeConsistencyRule(Rule):
             # part of this scope.
             return []
 
-        findings: List[Finding] = []
+        findings: list[Finding] = []
         for link in context.iter_trace_links():
             source_in = link["source_id"] in scope_ids
             target_in = link["target_id"] in scope_ids

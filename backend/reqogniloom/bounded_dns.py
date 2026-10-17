@@ -63,7 +63,8 @@ import logging
 import socket
 import threading
 import time
-from typing import Any, Callable, Optional
+from collections.abc import Callable
+from typing import Any
 
 import redis
 
@@ -213,8 +214,8 @@ def resolve_host_bounded(
     *,
     family: int = 0,
     socktype: int = socket.SOCK_STREAM,
-    timeout: Optional[float] = None,
-    cooldown: Optional[float] = None,
+    timeout: float | None = None,
+    cooldown: float | None = None,
 ) -> list[tuple]:
     """Resolve *host* within a bounded budget; raise ``OSError`` on failure.
 

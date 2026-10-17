@@ -7,8 +7,8 @@
 # one). Lives under diagram/migrations/ because Diagram is defined in
 # diagram/models.py, even though the field references persistence.Artifact.
 
-from django.db import migrations, models
 import django.db.models.deletion
+from django.db import migrations, models
 
 
 class Migration(migrations.Migration):

@@ -25,7 +25,6 @@ from persistence.models import User, Workspace
 
 from .conftest import active_tenant
 
-
 # -- REQ-L3-AT002-001 RBAC matrix -----------------------------------------
 
 

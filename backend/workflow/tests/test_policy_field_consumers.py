@@ -66,12 +66,11 @@ class TestConsumedPolicyFields:
 
     def test_real_requirement_policy_is_fully_consumed(self) -> None:
         """The built-in presets must produce no hygiene warning at all."""
-        from presets.registry import PresetRegistry
-
         from attribute_definitions.management.commands.bootstrap_attribute_definitions import (
             introspect_core_attributes,
         )
         from persistence.models import Requirement
+        from presets.registry import PresetRegistry
 
         columns = {
             field.name

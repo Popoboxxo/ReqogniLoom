@@ -21,16 +21,22 @@ inside the same transaction (REQ-L2-AS-019).
 from __future__ import annotations
 
 import logging
-from typing import Any, Iterable
+from collections.abc import Iterable
+from typing import Any
 from uuid import UUID
 
 from django.db import IntegrityError, transaction
 from django.db.models import F
 from django.utils import timezone
 
+from application.attribute_definition_service import (
+    AttributeDefinitionNotFound,
+    AttributeDefinitionService,
+)
+from application.base import ServiceBase
 from attribute_definitions.schema import (
-    AttributeSchemaError,
     ITEM_TYPES,
+    AttributeSchemaError,
     normalize_attribute,
     validate_definition_key,
 )
@@ -38,12 +44,6 @@ from audit.models import AuditEntry
 from auth_tenancy.context import AuthContext
 from persistence.errors import NotFoundError
 from persistence.free_text import find_free_text_violation
-
-from application.attribute_definition_service import (
-    AttributeDefinitionNotFound,
-    AttributeDefinitionService,
-)
-from application.base import ServiceBase
 
 logger = logging.getLogger(__name__)
 

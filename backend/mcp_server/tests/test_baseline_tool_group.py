@@ -15,10 +15,9 @@ from __future__ import annotations
 import pytest
 
 from auth_tenancy.context import AuthContext
-from persistence.tenancy import TenantContext
-
 from mcp_server.tool_registry import ToolRegistry
 from mcp_server.tools.baseline import BaselineToolGroup
+from persistence.tenancy import TenantContext
 
 pytestmark = pytest.mark.django_db
 

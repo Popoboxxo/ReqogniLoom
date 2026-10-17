@@ -44,13 +44,13 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from application.base import ServiceBase
-from persistence.errors import NotFoundError, PermissionDeniedError, ValidationError
 from audit.models import AuditEntry
 from auth_tenancy.context import AuthContext
 from auth_tenancy.errors import PermissionDenied
 from auth_tenancy.rest import HasOperationPermission
 from auth_tenancy.services import AuthorizationService, Operation
 from auth_tenancy.services.authorization import LastAdminError, WorkspaceMember
+from persistence.errors import NotFoundError, PermissionDeniedError, ValidationError
 from presets.services import get_preset
 
 
@@ -376,4 +376,4 @@ class WorkspaceMemberRoleTransitionView(APIView):
         return self._handle(request, suspend=suspend, workspace_id=workspace_id, user_id=user_id)
 
 
-__all__ = ["WorkspaceMembersView", "WorkspaceMemberRoleTransitionView"]
+__all__ = ["WorkspaceMemberRoleTransitionView", "WorkspaceMembersView"]

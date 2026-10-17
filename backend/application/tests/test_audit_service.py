@@ -18,7 +18,7 @@ UMSETZUNGSPLAN_SYSENG_2.0.md §4, Phase 3. Covers:
 from __future__ import annotations
 
 import contextlib
-from typing import Iterator
+from collections.abc import Iterator
 
 import pytest
 
@@ -36,10 +36,10 @@ from persistence.models import (
     Workspace,
 )
 from persistence.tenancy import TenantContext
+from persistence.tests.factories import make_workspace
 from traceability.audit import AuditResult, Finding, Severity
 from traceability.audit.registry import TRACE_P1, TRACE_P2, TRACE_P4, TRACE_P5
 from traceability.types import LinkType
-from persistence.tests.factories import make_workspace
 
 pytestmark = pytest.mark.django_db
 

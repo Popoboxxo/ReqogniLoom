@@ -20,7 +20,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Optional
 
 
 class Severity(str, Enum):
@@ -57,8 +56,8 @@ class Finding:
     severity: Severity
     message: str
     artifact_ids: tuple[str, ...] = ()
-    scope: Optional[str] = None
-    scope_artifact_id: Optional[str] = None
+    scope: str | None = None
+    scope_artifact_id: str | None = None
 
     def to_dict(self) -> dict:
         """Return a JSON-serialisable representation."""
@@ -82,7 +81,7 @@ class AuditScope:
     """
 
     scope: str
-    artifact_id: Optional[str] = None
+    artifact_id: str | None = None
 
 
 @dataclass
@@ -106,8 +105,8 @@ class AuditContext:
     tier: str
     workspace_id: str
     tenant_id: str
-    scope: Optional[str] = None
-    scope_artifact_id: Optional[str] = None
+    scope: str | None = None
+    scope_artifact_id: str | None = None
     #: Whether :meth:`iter_trace_links` includes still-unconfirmed agent
     #: proposals (``TraceLink.proposed_at IS NOT NULL``). Defaults to ``True``
     #: so every existing audit caller is unchanged. A caller that audits the
@@ -116,7 +115,7 @@ class AuditContext:
     #: derivation/allocation findings disappear on a repeated run) sets it to
     #: ``False``.
     include_proposal_links: bool = True
-    _scope_item_ids: Optional[frozenset[str]] = field(
+    _scope_item_ids: frozenset[str] | None = field(
         default=None, repr=False, compare=False
     )
 
@@ -216,9 +215,9 @@ class AuditResult:
 
 
 __all__ = [
-    "Severity",
-    "Finding",
-    "AuditScope",
     "AuditContext",
     "AuditResult",
+    "AuditScope",
+    "Finding",
+    "Severity",
 ]

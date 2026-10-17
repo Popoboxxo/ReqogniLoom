@@ -383,7 +383,7 @@ def test_bulk_results_with_unknown_key_returns_400() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _make_run(workspace: Workspace, **fields) -> "object":
+def _make_run(workspace: Workspace, **fields) -> object:
     from persistence.models import TestRun
 
     return TestRun.objects.create(

@@ -19,8 +19,8 @@ from auth_tenancy.context import AuthMethod
 from auth_tenancy.errors import AuthenticationFailed
 from auth_tenancy.models import ROLE_ADMIN, UserRole
 from auth_tenancy.services import AuthenticationService, PasswordAuthenticationService
-from persistence.models import User, Workspace
 from persistence.middleware import clear_request_tenant, set_request_tenant
+from persistence.models import User, Workspace
 
 _SECRET = "test-secret-not-a-real-key"
 _ISSUER = "reqflow"

@@ -30,13 +30,45 @@ api_key_hash SHA-256).
 from __future__ import annotations
 
 import hashlib
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from datetime import UTC, datetime
+from typing import Any
 from unittest.mock import MagicMock
 from uuid import uuid4
 
 import pytest
 from django.test import Client
+
+# AdminOps — BackupMetadata is system-level (not tenant-scoped).
+from admin_ops.models import BackupMetadata, BackupStatus, BackupType
+
+# Application — DLQ rows live outside the TenantScopedModel lineage.
+from application.models import DomainEventDLQ
+
+# Application — RequirementService for the REST-simulated regression test
+# (Codeberg #313: calls the service directly, bypassing MCP entirely).
+from application.requirement_service import RequirementService
+
+# Audit — the model + service facade the tests inspect.
+from audit.models import AuditEntry
+from audit.query import AuditQueryFilters
+from audit.services import query
+
+# Auth & tenancy — for UserRole/ApiKey seeding and role constants.
+from auth_tenancy.context import AuthContext, AuthMethod
+from auth_tenancy.models import (
+    ITEM_PERMISSION_READ,
+    ROLE_ADMIN,
+    ItemPermission,
+    UserRole,
+)
+
+# MCP e2e fixtures (auto-imported via conftest.py).
+# JSON-RPC helpers.
+from mcp_server.tests.helpers import (
+    extract_error_code,
+    extract_result,
+    post_mcp,
+)
 
 # Persistence — direct ORM access used to seed entities per-test.
 from persistence.middleware import clear_request_tenant, set_request_tenant
@@ -52,39 +84,6 @@ from persistence.models import (
     Workspace,
 )
 from presets.models import WorkspacePresetConfig
-
-# Auth & tenancy — for UserRole/ApiKey seeding and role constants.
-from auth_tenancy.context import AuthContext, AuthMethod
-from auth_tenancy.models import (
-    ROLE_ADMIN,
-    ItemPermission,
-    ITEM_PERMISSION_READ,
-    UserRole,
-)
-
-# Application — RequirementService for the REST-simulated regression test
-# (Codeberg #313: calls the service directly, bypassing MCP entirely).
-from application.requirement_service import RequirementService
-
-# Application — DLQ rows live outside the TenantScopedModel lineage.
-from application.models import DomainEventDLQ
-
-# Audit — the model + service facade the tests inspect.
-from audit.models import AuditEntry
-from audit.query import AuditQueryFilters
-from audit.services import query
-
-# AdminOps — BackupMetadata is system-level (not tenant-scoped).
-from admin_ops.models import BackupMetadata, BackupStatus, BackupType
-
-# MCP e2e fixtures (auto-imported via conftest.py).
-
-# JSON-RPC helpers.
-from mcp_server.tests.helpers import (
-    extract_error_code,
-    extract_result,
-    post_mcp,
-)
 
 # SYSTEMAUDIT SA-62: classification marker for the `test_e2e_*.py` family —
 # see the `e2e` marker docstring in pyproject.toml.
@@ -103,7 +102,7 @@ pytestmark = pytest.mark.e2e
 # drives the corresponding MCP tool, and asserts that the produced
 # ``AuditEntry`` carries exactly these field values.
 
-WRITE_TOOL_AUDIT_OPS: Dict[str, Dict[str, str]] = {
+WRITE_TOOL_AUDIT_OPS: dict[str, dict[str, str]] = {
     "requirement.create": {"op": "create", "entity_type": "Requirement"},
     "requirement.update": {"op": "update", "entity_type": "Requirement"},
     # #573: the lifecycle tools map onto the op their REST pendant writes —
@@ -240,15 +239,15 @@ def mock_backup_service(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
     backup_row.checksum_sha256 = "0" * 64
     backup_row.error_message = ""
     backup_row.metadata = {}
-    backup_row.completed_at = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+    backup_row.completed_at = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
     backup_row.is_restorable = True
-    backup_row.created_at = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+    backup_row.created_at = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
     backup_row.created_by_id = None
 
     restore_result = MagicMock()
     restore_result.backup_id = uuid4()
-    restore_result.started_at = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
-    restore_result.completed_at = datetime(2026, 1, 1, 12, 0, 5, tzinfo=timezone.utc)
+    restore_result.started_at = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
+    restore_result.completed_at = datetime(2026, 1, 1, 12, 0, 5, tzinfo=UTC)
     restore_result.restored_tables = []
     restore_result.rows_per_table = {}
 
@@ -462,7 +461,7 @@ def _seed_test_run(workspace: Workspace, name: str = "Seeded Run") -> TestRun:
 
 
 def _seed_item_permission(
-    workspace: Workspace, user: User, granted_by: Optional[User] = None
+    workspace: Workspace, user: User, granted_by: User | None = None
 ) -> ItemPermission:
     set_request_tenant(workspace.tenant_id)
     try:
@@ -531,7 +530,7 @@ def _build_audit_params(
     user_admin: User,
     user_member: User,
     user_viewer: User,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Return the params dict for a single write-tool call.
 
     Seeds any prerequisite entity inside the tenant context, and
@@ -693,7 +692,7 @@ def _build_audit_params(
 # ---------------------------------------------------------------------------
 
 
-_WRITE_TOOL_NAMES: List[str] = list(WRITE_TOOL_AUDIT_OPS.keys())
+_WRITE_TOOL_NAMES: list[str] = list(WRITE_TOOL_AUDIT_OPS.keys())
 
 
 @pytest.mark.django_db(transaction=True)

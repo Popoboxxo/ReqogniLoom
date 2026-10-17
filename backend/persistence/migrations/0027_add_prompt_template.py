@@ -9,12 +9,12 @@
 #      setting during migration).
 #   3. Enable + FORCE RLS on ``pl_prompt_template`` (defense-in-depth).
 
-from django.conf import settings
-from django.db import migrations, models
-import django.db.models.deletion
-import django.db.models.manager
 import uuid
 
+import django.db.models.deletion
+import django.db.models.manager
+from django.conf import settings
+from django.db import migrations, models
 
 _TABLE = "pl_prompt_template"
 _POLICY = f"{_TABLE}_tenant_isolation"

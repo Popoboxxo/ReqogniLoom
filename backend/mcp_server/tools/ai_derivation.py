@@ -78,15 +78,14 @@ already a bespoke, non-generic class. Keeping the tool on ``ai_derivation``
 CRUD-group-injection alternative can be revisited later if a second generic
 entity needs a derive tool.
 """
-from typing import Any, Dict, List, Optional
+from typing import Any
 from uuid import UUID
-
-from auth_tenancy.context import AuthContext
 
 from application.ai_derivation_service import AiDerivationService, LlmResponseError
 from application.base import NotFoundError, ValidationError
 from application.requirement_service import RequirementService
 from application.risk_service import RiskService
+from auth_tenancy.context import AuthContext
 from mcp_server.tools.base import (
     BaseToolGroup,
     ParameterError,
@@ -101,7 +100,7 @@ _VALID_MODES = ("preview", "write")
 _VALID_POLICIES = ("manual", "auto")
 
 
-def _parse_mode_policy(params: Dict[str, Any]) -> tuple[str, str]:
+def _parse_mode_policy(params: dict[str, Any]) -> tuple[str, str]:
     """Return the validated ``(mode, policy)`` pair from *params*.
 
     Raises:
@@ -121,8 +120,8 @@ def _parse_mode_policy(params: Dict[str, Any]) -> tuple[str, str]:
 
 
 def _derived_requirement_custom_fields(
-    draft: Dict[str, Any],
-) -> Optional[Dict[str, Any]]:
+    draft: dict[str, Any],
+) -> dict[str, Any] | None:
     """Return the extended-attribute carrier for a persisted requirement draft.
 
     ``rationale`` is an extended (``kind="extended"``) Requirement attribute
@@ -152,7 +151,7 @@ def derive_requirements_from_need(
     *,
     service: AiDerivationService,
     requirement_service: RequirementService,
-    params: Dict[str, Any],
+    params: dict[str, Any],
     auth_context: AuthContext,
     api_key: str,
 ) -> ToolResult:
@@ -212,8 +211,8 @@ def derive_requirements_from_need(
     # must not discard the drafts already written in this loop. Failures
     # are collected instead of raised so the caller can see exactly
     # which drafts succeeded and which failed (REQ-L3-PL003-002).
-    written: List[Dict[str, Any]] = []
-    failed: List[Dict[str, Any]] = []
+    written: list[dict[str, Any]] = []
+    failed: list[dict[str, Any]] = []
     for draft in preview["drafts"]:
         try:
             result = service._write_derived_entity(
@@ -268,7 +267,7 @@ def derive_requirements_from_need(
     # the mock fallback rather than a real provider matters more, not less,
     # than knowing it about a throwaway draft. `.get` with a default keeps
     # this tolerant of a service double that returns only `drafts`.
-    response: Dict[str, Any] = {
+    response: dict[str, Any] = {
         "written": written,
         "is_mock_fallback": bool(preview.get("is_mock_fallback", False)),
         # Issue #1089: the workspace's proposal capability, reported once for
@@ -290,7 +289,7 @@ def derive_requirements_from_need(
     return ToolResult.ok(response)
 
 
-_MODE_POLICY_SCHEMA_PROPERTIES: Dict[str, Any] = {
+_MODE_POLICY_SCHEMA_PROPERTIES: dict[str, Any] = {
     "mode": {
         "type": "string",
         "enum": list(_VALID_MODES),
@@ -487,9 +486,9 @@ class AiDerivationToolGroup(BaseToolGroup):
 
     def __init__(
         self,
-        service: Optional[AiDerivationService] = None,
-        requirement_service: Optional[RequirementService] = None,
-        risk_service: Optional[RiskService] = None,
+        service: AiDerivationService | None = None,
+        requirement_service: RequirementService | None = None,
+        risk_service: RiskService | None = None,
     ) -> None:
         self._service = service or AiDerivationService()
         self._requirement_service = requirement_service or RequirementService()
@@ -500,7 +499,7 @@ class AiDerivationToolGroup(BaseToolGroup):
         self._risk_service = risk_service or RiskService()
 
     def _handle_derive_requirements(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         return derive_requirements_from_need(
             service=self._service,
@@ -511,7 +510,7 @@ class AiDerivationToolGroup(BaseToolGroup):
         )
 
     def _handle_suggest_architecture(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         requirement_id = require_uuid(params, "requirement_id")
         mode, policy = _parse_mode_policy(params)
@@ -590,7 +589,7 @@ class AiDerivationToolGroup(BaseToolGroup):
         )
 
     def _handle_decompose_next_level(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         requirement_id = require_uuid(params, "requirement_id")
         mode, policy = _parse_mode_policy(params)
@@ -625,8 +624,8 @@ class AiDerivationToolGroup(BaseToolGroup):
         # See _handle_derive_requirements above: each draft is written in its
         # own atomic transaction, so a failure on one draft must not discard
         # the drafts already written in this loop.
-        written: List[Dict[str, Any]] = []
-        failed: List[Dict[str, Any]] = []
+        written: list[dict[str, Any]] = []
+        failed: list[dict[str, Any]] = []
         for draft in preview["drafts"]:
             try:
                 result = self._service._write_derived_entity(
@@ -672,7 +671,7 @@ class AiDerivationToolGroup(BaseToolGroup):
             )
         # See derive_requirements_from_need above (Systemaudit item 11) and the
         # issue #1089 proposal block.
-        response: Dict[str, Any] = {
+        response: dict[str, Any] = {
             "written": written,
             "is_mock_fallback": bool(preview.get("is_mock_fallback", False)),
             "proposal": {
@@ -689,7 +688,7 @@ class AiDerivationToolGroup(BaseToolGroup):
         return ToolResult.ok(response)
 
     def _handle_derive_risks_from_architecture(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         architecture_element_id = require_uuid(params, "architecture_element_id")
         mode, policy = _parse_mode_policy(params)
@@ -745,7 +744,7 @@ class AiDerivationToolGroup(BaseToolGroup):
         return ToolResult.ok(response)
 
     def _handle_derive_glossary_from_workspace(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         workspace_id = require_uuid(params, "workspace_id")
         mode, policy = _parse_mode_policy(params)
@@ -801,7 +800,7 @@ class AiDerivationToolGroup(BaseToolGroup):
         return ToolResult.ok(response)
 
     def _handle_derive_adr_from_decision(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         workspace_id = require_uuid(params, "workspace_id")
         decision_description = params.get("decision_description")

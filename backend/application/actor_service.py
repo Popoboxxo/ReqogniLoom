@@ -20,17 +20,17 @@ lookup-then-create pattern is additionally wrapped in a retry on
 from __future__ import annotations
 
 import logging
-from typing import Any, Iterable, Optional
+from collections.abc import Iterable
+from typing import Any
 from uuid import UUID
 
 from django.db import IntegrityError, transaction
 from django.db.models.functions import Lower
 
+from application.base import ServiceBase
 from auth_tenancy.context import AuthContext
 from persistence.errors import NotFoundError, ValidationError
 from persistence.models import Actor, User
-
-from application.base import ServiceBase
 
 logger = logging.getLogger(__name__)
 
@@ -44,10 +44,10 @@ class ActorService(ServiceBase):
         self,
         ctx: AuthContext,
         *,
-        query: Optional[str] = None,
-        kind: Optional[str] = None,
+        query: str | None = None,
+        kind: str | None = None,
         include_inactive: bool = False,
-    ) -> "Iterable[Actor]":
+    ) -> Iterable[Actor]:
         """Return the tenant's actors for the picker (spec section 4).
 
         Args:
@@ -139,7 +139,7 @@ class ActorService(ServiceBase):
             return existing
 
     @staticmethod
-    def _find_external_by_name(name: str) -> Optional[Actor]:
+    def _find_external_by_name(name: str) -> Actor | None:
         """Look up the tenant's external actor by name, index-conformantly.
 
         The partial unique index is ``Lower("display_name")`` restricted to

@@ -8,11 +8,10 @@ from __future__ import annotations
 
 import pytest
 
-from persistence.models import Artifact, Requirement, Workspace
-from persistence.tests.test_entity_schema import EXPECTED_ENTITIES
-from persistence.models import TenantScopedModel
+from persistence.models import Artifact, Requirement, TenantScopedModel, Workspace
 from persistence.tenancy import TenantContext, TenantContextNotSetError
 from persistence.tests.conftest import active_tenant
+from persistence.tests.test_entity_schema import EXPECTED_ENTITIES
 
 pytestmark = pytest.mark.django_db(transaction=True)
 

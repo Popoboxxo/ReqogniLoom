@@ -11,16 +11,16 @@ NavigationShell mounts.
 from __future__ import annotations
 
 import logging
-from typing import Any, Iterable, Optional
+from collections.abc import Iterable
+from typing import Any
 from uuid import UUID
-
-from auth_tenancy.context import AuthContext
-from persistence.errors import NotFoundError
 
 from application.base import ServiceBase
 from application.models import Notification
 from application.notification_preference_service import NotificationPreferenceService
 from application.trace_link_service import resolve_artifact_id_or_none
+from auth_tenancy.context import AuthContext
+from persistence.errors import NotFoundError
 
 logger = logging.getLogger(__name__)
 
@@ -33,12 +33,12 @@ MAX_FANOUT = 200
 
 def create_notifications(
     *,
-    user_ids: Iterable[Optional[UUID]],
+    user_ids: Iterable[UUID | None],
     kind: str,
     message: str,
-    artifact_id: Optional[UUID],
+    artifact_id: UUID | None,
     tenant_id: UUID,
-    exclude_user_id: Optional[UUID] = None,
+    exclude_user_id: UUID | None = None,
 ) -> int:
     """Write one Notification per distinct non-null recipient; return the count.
 
@@ -96,9 +96,9 @@ def create_notifications(
 def notify_assigned(
     *,
     ctx: AuthContext,
-    artifact_id: Optional[UUID],
+    artifact_id: UUID | None,
     owner: Any,
-    previous_owner_id: Optional[UUID],
+    previous_owner_id: UUID | None,
 ) -> int:
     """Notify the newly set artifact owner; return the number of rows written.
 
@@ -251,7 +251,7 @@ def notify_suspect_flagged(
     *,
     artifact_id: UUID,
     tenant_id: UUID,
-    actor_user_id: Optional[UUID] = None,
+    actor_user_id: UUID | None = None,
 ) -> int:
     """Notify an artifact's owner and reporter that it was flagged suspect.
 

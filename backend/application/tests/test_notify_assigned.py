@@ -7,9 +7,9 @@ internal actor, never for the acting user, and never raises.
 from __future__ import annotations
 
 import uuid
+from unittest.mock import patch
 
 import pytest
-from unittest.mock import patch
 
 from application.models import Notification
 from application.notification_service import notify_assigned

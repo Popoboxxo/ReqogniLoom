@@ -23,7 +23,7 @@ import uuid
 import pytest
 
 from auth_tenancy.context import AuthContext, AuthMethod
-from mcp_server.tool_registry import ToolRegistry, _READ_ONLY_TOOL_NAMES
+from mcp_server.tool_registry import _READ_ONLY_TOOL_NAMES, ToolRegistry
 from mcp_server.tools.goals import MainGoalToolGroup
 from persistence.models import Tenant, Workspace
 from persistence.tenancy import TenantContext

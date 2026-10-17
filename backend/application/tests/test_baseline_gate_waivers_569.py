@@ -20,7 +20,7 @@ explicit Non-Goal (#569 §7), so the details are asserted on the intercepted
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 
 import pytest
@@ -181,7 +181,7 @@ class TestGateDecision:
             scope_artifact_id="",
             reason="Expired acceptance, superseded by the re-audit.",
             granted_by=str(ctx.user_id),
-            expires_at=datetime.now(timezone.utc) - timedelta(days=1),
+            expires_at=datetime.now(UTC) - timedelta(days=1),
         )
 
         p1, p2, p3, p4, p5, p6 = _gate_patches(findings=[_blocker("TRACE-P1")])

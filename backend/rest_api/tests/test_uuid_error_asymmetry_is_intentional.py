@@ -42,7 +42,6 @@ from rest_framework.test import APIClient
 from persistence.models import Tenant, Workspace
 from persistence.tenancy import TenantContext
 
-
 pytestmark = pytest.mark.django_db
 
 

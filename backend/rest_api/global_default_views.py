@@ -27,7 +27,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from application.workflow_facade import WorkflowFacade
-from auth_tenancy.models import GlobalPermissionDefinition, ROLE_ADMIN
+from auth_tenancy.models import ROLE_ADMIN, GlobalPermissionDefinition
 from auth_tenancy.services.permission_definition import (
     DEFAULT_MISMATCH_WINDOW_DAYS,
     MismatchCountStaleError,
@@ -843,17 +843,17 @@ class PermissionMismatchListView(APIView):
 
 
 __all__ = [
-    "GlobalWorkflowDefinitionListView",
-    "GlobalWorkflowDefinitionDetailView",
-    "GlobalWorkflowInitializeView",
-    "GlobalWorkflowStatesView",
-    "GlobalWorkflowStateDetailView",
-    "GlobalWorkflowTransitionsView",
-    "GlobalWorkflowTransitionDetailView",
-    "GlobalPermissionDefinitionView",
-    "EnforcementStatusView",
     "EnforcementFlipView",
+    "EnforcementStatusView",
+    "GlobalPermissionDefinitionView",
+    "GlobalWorkflowDefinitionDetailView",
+    "GlobalWorkflowDefinitionListView",
+    "GlobalWorkflowInitializeView",
+    "GlobalWorkflowStateDetailView",
+    "GlobalWorkflowStatesView",
+    "GlobalWorkflowTransitionDetailView",
+    "GlobalWorkflowTransitionsView",
+    "PermissionMismatchListView",
     "WorkspacePermissionDefinitionView",
     "WorkspacePermissionResetView",
-    "PermissionMismatchListView",
 ]

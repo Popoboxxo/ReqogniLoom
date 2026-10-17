@@ -35,7 +35,8 @@ and ``TestCase`` models as arguments.
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, Iterable, List
+from collections.abc import Iterable
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +46,7 @@ BASE_TYPE = "TestCase"
 
 #: Legacy lowercase suffix -> canonical ``TestCaseType`` value used by
 #: ``TestCase.test_type``.
-SUFFIX_TO_TEST_TYPE: Dict[str, str] = {
+SUFFIX_TO_TEST_TYPE: dict[str, str] = {
     "system": "system",
     "integration": "integration",
     "unit": "unit",
@@ -55,12 +56,12 @@ SUFFIX_TO_TEST_TYPE: Dict[str, str] = {
 }
 
 #: Canonical ``TestCaseType`` value -> legacy Title-case suffix (reverse).
-TEST_TYPE_TO_SUFFIX: Dict[str, str] = {
+TEST_TYPE_TO_SUFFIX: dict[str, str] = {
     test_type: suffix.capitalize() for suffix, test_type in SUFFIX_TO_TEST_TYPE.items()
 }
 
 
-def _as_list(values: Iterable[Any]) -> List[Any]:
+def _as_list(values: Iterable[Any]) -> list[Any]:
     return list(values)
 
 
@@ -87,7 +88,7 @@ def suspend_row_level_security() -> None:
 
 def normalize_testcase_artifact_types(
     Artifact: Any, TestCase: Any
-) -> Dict[str, int]:
+) -> dict[str, int]:
     """Backfill ``test_type`` from the suffix, then drop the redundant tag.
 
     Args:
@@ -99,7 +100,7 @@ def normalize_testcase_artifact_types(
         ``rewritten`` and ``unbacked`` (tagged artifacts with no ``TestCase``
         row, left untouched and logged).
     """
-    counts: Dict[str, int] = {
+    counts: dict[str, int] = {
         "tagged": 0,
         "column_backfilled": 0,
         "rewritten": 0,

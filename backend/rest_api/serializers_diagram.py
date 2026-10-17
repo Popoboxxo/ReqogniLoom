@@ -29,7 +29,6 @@ from diagram.node_graph import (
 )
 from rest_api.serializers import UnknownFieldRejectionMixin
 
-
 # ---------------------------------------------------------------------------
 # Canvas Stroke Serializers (IF-L1-058, IF-L1-060)
 # REQ-L1-056, REQ-L2-DS-006
@@ -262,19 +261,19 @@ class NodeGraphPayloadSerializer(serializers.Serializer):
 
 __all__ = [
     "CanvasPointSerializer",
-    "CanvasStrokeElementSerializer",
     "CanvasStrokeDataSerializer",
+    "CanvasStrokeElementSerializer",
     "CanvasStrokeResponseSerializer",
-    "MermaidSourceSerializer",
-    "MermaidSourceResponseSerializer",
     "MermaidPreviewResponseSerializer",
+    "MermaidSourceResponseSerializer",
+    "MermaidSourceSerializer",
+    "NodeGraphArtifactRefSerializer",
+    "NodeGraphEdgeSerializer",
+    "NodeGraphEdgeStyleSerializer",
+    "NodeGraphNodeSerializer",
+    "NodeGraphNodeStyleSerializer",
+    "NodeGraphPayloadSerializer",
     "NodeGraphPositionSerializer",
     "NodeGraphSizeSerializer",
-    "NodeGraphNodeStyleSerializer",
-    "NodeGraphEdgeStyleSerializer",
-    "NodeGraphArtifactRefSerializer",
-    "NodeGraphNodeSerializer",
-    "NodeGraphEdgeSerializer",
     "NodeGraphViewportSerializer",
-    "NodeGraphPayloadSerializer",
 ]

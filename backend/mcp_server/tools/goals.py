@@ -15,7 +15,7 @@ handlers.
 """
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any
 from uuid import UUID
 
 from application.base import (
@@ -43,6 +43,7 @@ from mcp_server.tools.system_fields import (
     system_field_values,
 )
 from workflow.definition_store import PRESET_SCHEMAS, PROPOSED_STATE
+
 
 # Issue #270 finding 5: ``target_state`` used to be an unconstrained string, so
 # clients guessed English state names ("approved") that the German
@@ -91,8 +92,8 @@ _MAIN_GOAL_APPROVED_STATE: str = next(
 
 
 def _goal_payload(
-    goal: Any, status_map: Optional[Dict[str, str]] = None
-) -> Dict[str, Any]:
+    goal: Any, status_map: dict[str, str] | None = None
+) -> dict[str, Any]:
     """Serialize a Goal ORM row for the ``goal.read``/``goal.query`` responses."""
     result = {
         "id": str(goal.id),
@@ -111,8 +112,8 @@ def _goal_payload(
 
 
 def _main_goal_payload(
-    main_goal: Any, status_map: Optional[Dict[str, str]] = None
-) -> Dict[str, Any]:
+    main_goal: Any, status_map: dict[str, str] | None = None
+) -> dict[str, Any]:
     """Serialize a MainGoal ORM row for the ``main_goal`` response envelope."""
     return {
         "id": str(main_goal.id),
@@ -441,7 +442,7 @@ class GoalToolGroup(BaseToolGroup):
     ]
 
     def _handle_read(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         goal_id = require_uuid(params, "goal_id")
         try:
@@ -451,7 +452,7 @@ class GoalToolGroup(BaseToolGroup):
         return ToolResult.ok(_goal_payload(goal))
 
     def _handle_query(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         workspace_id = require_uuid(params, "workspace_id")
         include_archived = bool(params.get("include_archived", False))
@@ -464,7 +465,7 @@ class GoalToolGroup(BaseToolGroup):
         return ToolResult.ok({"goals": [_goal_payload(g, status_map) for g in goals]})
 
     def _handle_create(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         workspace_id = require_uuid(params, "workspace_id")
         # Ledger gap #1 / issue #881: same central gate as GoalViewSet.create.
@@ -498,7 +499,7 @@ class GoalToolGroup(BaseToolGroup):
         return ToolResult.ok(result)
 
     def _handle_create_version(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         workspace_id = require_uuid(params, "workspace_id")
         lineage_id = require_uuid(params, "lineage_id")
@@ -533,7 +534,7 @@ class GoalToolGroup(BaseToolGroup):
         return ToolResult.ok(result)
 
     @staticmethod
-    def _require_goal_id(params: Dict[str, Any]) -> UUID:
+    def _require_goal_id(params: dict[str, Any]) -> UUID:
         """Read the Goal id from ``goal_id`` or its ``id`` alias.
 
         ``goal.*`` has always used ``goal_id``; the ``{entity}.outdate`` /
@@ -546,7 +547,7 @@ class GoalToolGroup(BaseToolGroup):
         return require_uuid(params, "goal_id")
 
     def _handle_update(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """Append a new lineage version carrying the updated fields.
 
@@ -566,7 +567,7 @@ class GoalToolGroup(BaseToolGroup):
         title = params.get("title")
         description = params.get("description")
         custom_fields_provided = "custom_fields" in params
-        update_kwargs: Dict[str, Any] = {}
+        update_kwargs: dict[str, Any] = {}
         # REQ-L2-AS-037 / Epic #934 WS1: forward the extended map when the
         # caller sent it; otherwise leave it unset so GoalService.update
         # inherits the addressed version's map.
@@ -580,7 +581,7 @@ class GoalToolGroup(BaseToolGroup):
             # validates like a create against the merged, final field
             # values (existing=None), mirroring GoalViewSet.create rather
             # than a partial-patch check.
-            merged_fields: Dict[str, Any] = {
+            merged_fields: dict[str, Any] = {
                 "title": existing_goal.title if title is None else title,
                 "description": (
                     existing_goal.description if description is None else description
@@ -626,14 +627,14 @@ class GoalToolGroup(BaseToolGroup):
         return ToolResult.ok(result)
 
     def _handle_list_versions(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         lineage_id = require_uuid(params, "lineage_id")
         versions = GoalService().list_versions(lineage_id, auth_context)
         return ToolResult.ok({"versions": versions})
 
     def _handle_transition(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """Transition a Goal version through the generic WorkflowEngine.
 
@@ -751,8 +752,8 @@ class GoalToolGroup(BaseToolGroup):
         *,
         goal_id: UUID,
         auth_context: AuthContext,
-        change_reason: Optional[str],
-        expected_version: Optional[int] = None,
+        change_reason: str | None,
+        expected_version: int | None = None,
     ) -> ToolResult:
         """Shared implementation of ``goal.delete`` / ``goal.outdate``.
 
@@ -794,7 +795,7 @@ class GoalToolGroup(BaseToolGroup):
         return ToolResult.ok(_goal_payload(goal))
 
     def _handle_delete(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """Soft-archive a Goal version (see the tool description for details)."""
         return self._archive(
@@ -805,7 +806,7 @@ class GoalToolGroup(BaseToolGroup):
         )
 
     def _handle_outdate(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """``{entity}.outdate``-named alias of ``goal.delete``.
 
@@ -826,7 +827,7 @@ class GoalToolGroup(BaseToolGroup):
         )
 
     def _handle_reactivate(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """Restore an archived Goal version to the workflow's initial state.
 
@@ -1003,7 +1004,7 @@ class MainGoalToolGroup(BaseToolGroup):
     ]
 
     def _handle_read(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """Return the currently valid MainGoal in a stable envelope.
 
@@ -1030,7 +1031,7 @@ class MainGoalToolGroup(BaseToolGroup):
         return ToolResult.ok({"main_goal": _main_goal_payload(main_goal)})
 
     def _handle_query(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """GitHub #1097: enumerate every MainGoal version of a workspace.
 
@@ -1058,7 +1059,7 @@ class MainGoalToolGroup(BaseToolGroup):
         )
 
     def _handle_generate(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         workspace_id = require_uuid(params, "workspace_id")
         try:
@@ -1074,7 +1075,7 @@ class MainGoalToolGroup(BaseToolGroup):
         return ToolResult.ok({"main_goal": result})
 
     def _handle_create_manual(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         workspace_id = require_uuid(params, "workspace_id")
         try:
@@ -1092,7 +1093,7 @@ class MainGoalToolGroup(BaseToolGroup):
         return ToolResult.ok({"main_goal": result})
 
     def _handle_approve(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """Approve a draft and answer with the *full* approved MainGoal.
 
@@ -1129,7 +1130,7 @@ class MainGoalToolGroup(BaseToolGroup):
         return ToolResult.ok({"main_goal": result})
 
     def _handle_list_versions(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         workspace_id = require_uuid(params, "workspace_id")
         versions = MainGoalService().list_versions(workspace_id, auth_context)

@@ -16,19 +16,18 @@ database.
 from __future__ import annotations
 
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import uuid4
 
 import pytest
 
-from application.base import PermissionDeniedError, ValidationError
 from admin_ops.models import BackupMetadata, BackupStatus, BackupType
 from admin_ops.services import AdminRestoreService, BackupService
 from admin_ops.services.admin_restore_service import RESTORE_CAPTCHA
 from admin_ops.services.exceptions import BackupNotFoundError
+from application.base import PermissionDeniedError, ValidationError
 
 from .conftest import active_tenant
-
 
 # ---------------------------------------------------------------------------
 # Fixtures local to this file
@@ -94,7 +93,7 @@ def completed_backup(
         file_path=rel_path,
         file_size_bytes=len(payload),
         checksum_sha256=digest,
-        completed_at=datetime.now(timezone.utc),
+        completed_at=datetime.now(UTC),
         created_by=admin_user,
     )
 

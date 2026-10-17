@@ -30,8 +30,8 @@ Strategy (backward-compatible, no destructive changes):
 """
 import uuid
 
-from django.db import migrations, models
 import django.db.models.deletion
+from django.db import migrations, models
 
 
 def backfill_artifacts(apps, schema_editor):

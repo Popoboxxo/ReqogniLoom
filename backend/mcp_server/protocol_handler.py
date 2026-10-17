@@ -32,7 +32,7 @@ import json
 import logging
 import sys
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -203,10 +203,10 @@ class ToolResult:
         self,
         *,
         success: bool,
-        data: Optional[Dict[str, Any]] = None,
-        error_code: Optional[str] = None,
-        message: Optional[str] = None,
-        details: Optional[Dict[str, Any]] = None,
+        data: dict[str, Any] | None = None,
+        error_code: str | None = None,
+        message: str | None = None,
+        details: dict[str, Any] | None = None,
     ) -> None:
         self.success = success
         self.data = data or {}
@@ -215,7 +215,7 @@ class ToolResult:
         self.details = details
 
     @classmethod
-    def ok(cls, data: Dict[str, Any]) -> "ToolResult":
+    def ok(cls, data: dict[str, Any]) -> ToolResult:
         """Construct a successful ToolResult."""
         return cls(success=True, data=data)
 
@@ -223,9 +223,9 @@ class ToolResult:
     def error(
         cls,
         error_code: str,
-        message: Optional[str] = None,
-        details: Optional[Dict[str, Any]] = None,
-    ) -> "ToolResult":
+        message: str | None = None,
+        details: dict[str, Any] | None = None,
+    ) -> ToolResult:
         """Construct an error ToolResult."""
         return cls(
             success=False,
@@ -246,7 +246,7 @@ class JsonRpcValidator:
     REQUIRED_FIELDS = ("jsonrpc", "method", "id")
 
     @classmethod
-    def validate(cls, frame: Any) -> Optional[str]:
+    def validate(cls, frame: Any) -> str | None:
         """Return an error code string if the frame is invalid, else None."""
         if not isinstance(frame, dict):
             return "INVALID_REQUEST"
@@ -272,9 +272,9 @@ class ErrorFormatter:
     @staticmethod
     def format_error(
         error_code: str,
-        message: Optional[str] = None,
-        details: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
+        message: str | None = None,
+        details: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         """Return a structured error dict (REQ-L2-MC-011, JSON-RPC 2.0 compliant).
 
         Returns error object with 'code' (int) and 'message' (str) per
@@ -283,7 +283,7 @@ class ErrorFormatter:
         # Map error_code string to JSON-RPC numeric code
         rpc_code = ERROR_CODE_MAP.get(error_code, -32603)  # Default to Internal Error
 
-        body: Dict[str, Any] = {
+        body: dict[str, Any] = {
             "code": rpc_code,
             "message": message or ERROR_CODES.get(error_code, error_code),
         }
@@ -295,9 +295,9 @@ class ErrorFormatter:
     def format_jsonrpc_error(
         request_id: Any,
         error_code: str,
-        message: Optional[str] = None,
-        details: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
+        message: str | None = None,
+        details: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         """Return a JSON-RPC 2.0 error response frame."""
         return {
             "jsonrpc": "2.0",
@@ -306,7 +306,7 @@ class ErrorFormatter:
         }
 
     @staticmethod
-    def format_jsonrpc_result(request_id: Any, data: Dict[str, Any]) -> Dict[str, Any]:
+    def format_jsonrpc_result(request_id: Any, data: dict[str, Any]) -> dict[str, Any]:
         """Return a JSON-RPC 2.0 success response frame."""
         return {
             "jsonrpc": "2.0",
@@ -324,14 +324,14 @@ class TransportAdapter(ABC):
     """Abstract transport interface. Concrete adapters implement read/write."""
 
     @abstractmethod
-    def read_request(self) -> Optional[Dict[str, Any]]:
+    def read_request(self) -> dict[str, Any] | None:
         """Read and parse one JSON-RPC request from the transport."""
 
     @abstractmethod
-    def write_response(self, response: Dict[str, Any]) -> None:
+    def write_response(self, response: dict[str, Any]) -> None:
         """Serialise and write a JSON-RPC response frame to the transport."""
 
-    def extract_api_key(self, frame: Dict[str, Any], headers: Optional[Dict[str, str]] = None) -> Optional[str]:
+    def extract_api_key(self, frame: dict[str, Any], headers: dict[str, str] | None = None) -> str | None:
         """Extract API key from request frame or headers (ADR-L3-MC001-03).
 
         Priority:
@@ -368,7 +368,7 @@ class StdioTransportAdapter(TransportAdapter):
         self._stdin = stdin or sys.stdin
         self._stdout = stdout or sys.stdout
 
-    def read_request(self) -> Optional[Dict[str, Any]]:
+    def read_request(self) -> dict[str, Any] | None:
         line = self._stdin.readline()
         if not line:
             return None
@@ -377,7 +377,7 @@ class StdioTransportAdapter(TransportAdapter):
         except json.JSONDecodeError:
             return {"_parse_error": True}
 
-    def write_response(self, response: Dict[str, Any]) -> None:
+    def write_response(self, response: dict[str, Any]) -> None:
         self._stdout.write(json.dumps(response) + "\n")
         self._stdout.flush()
 
@@ -385,25 +385,25 @@ class StdioTransportAdapter(TransportAdapter):
 class HttpTransportAdapter(TransportAdapter):
     """HTTP transport — reads from Django request body, writes to response dict."""
 
-    def __init__(self, body: bytes, headers: Optional[Dict[str, str]] = None) -> None:
+    def __init__(self, body: bytes, headers: dict[str, str] | None = None) -> None:
         self._body = body
         self._headers = headers or {}
-        self._response: Optional[Dict[str, Any]] = None
+        self._response: dict[str, Any] | None = None
 
-    def read_request(self) -> Optional[Dict[str, Any]]:
+    def read_request(self) -> dict[str, Any] | None:
         try:
             return json.loads(self._body)
         except (json.JSONDecodeError, ValueError):
             return {"_parse_error": True}
 
-    def write_response(self, response: Dict[str, Any]) -> None:
+    def write_response(self, response: dict[str, Any]) -> None:
         self._response = response
 
-    def get_response(self) -> Optional[Dict[str, Any]]:
+    def get_response(self) -> dict[str, Any] | None:
         """Return the response written by write_response()."""
         return self._response
 
-    def get_headers(self) -> Dict[str, str]:
+    def get_headers(self) -> dict[str, str]:
         """Return headers for API-key extraction."""
         return self._headers
 
@@ -416,25 +416,25 @@ class SseTransportAdapter(TransportAdapter):
     async server and is out of scope for this synchronous Django implementation.
     """
 
-    def __init__(self, body: bytes, headers: Optional[Dict[str, str]] = None) -> None:
+    def __init__(self, body: bytes, headers: dict[str, str] | None = None) -> None:
         self._body = body
         self._headers = headers or {}
         self._events: list = []
 
-    def read_request(self) -> Optional[Dict[str, Any]]:
+    def read_request(self) -> dict[str, Any] | None:
         try:
             return json.loads(self._body)
         except (json.JSONDecodeError, ValueError):
             return {"_parse_error": True}
 
-    def write_response(self, response: Dict[str, Any]) -> None:
+    def write_response(self, response: dict[str, Any]) -> None:
         self._events.append(response)
 
     def get_events(self) -> list:
         """Return the list of SSE events produced."""
         return self._events
 
-    def get_headers(self) -> Dict[str, str]:
+    def get_headers(self) -> dict[str, str]:
         return self._headers
 
 
@@ -461,8 +461,8 @@ class ProtocolHandler:
     def handle(
         self,
         adapter: TransportAdapter,
-        headers: Optional[Dict[str, str]] = None,
-    ) -> Optional[Dict[str, Any]]:
+        headers: dict[str, str] | None = None,
+    ) -> dict[str, Any] | None:
         """Handle one MCP request via *adapter* and return the response frame.
 
         Returns ``None`` for JSON-RPC notifications, which must not be
@@ -506,7 +506,7 @@ class ProtocolHandler:
             return response
 
         method: str = frame["method"]
-        params: Dict[str, Any] = frame.get("params") or {}
+        params: dict[str, Any] = frame.get("params") or {}
         
         # 1. Handle MCP lifecycle methods without API key validation (ping, initialize)
         if method == "ping":
@@ -543,7 +543,7 @@ class ProtocolHandler:
             return None
 
         # API-key extraction (ADR-L3-MC001-03 / REQ-L2-MC-006)
-        effective_headers: Dict[str, str] = {}
+        effective_headers: dict[str, str] = {}
         if headers:
             effective_headers = headers
         elif hasattr(adapter, "get_headers"):
@@ -680,8 +680,8 @@ class ProtocolHandler:
     def handle_http_request(
         self,
         body: bytes,
-        headers: Optional[Dict[str, str]] = None,
-    ) -> Optional[Dict[str, Any]]:
+        headers: dict[str, str] | None = None,
+    ) -> dict[str, Any] | None:
         """Convenience wrapper for HTTP transport (Django view integration).
 
         Args:
@@ -696,13 +696,13 @@ class ProtocolHandler:
 
 
 __all__ = [
-    "ProtocolHandler",
-    "ToolResult",
-    "JsonRpcValidator",
-    "ErrorFormatter",
-    "TransportAdapter",
-    "StdioTransportAdapter",
-    "HttpTransportAdapter",
-    "SseTransportAdapter",
     "ERROR_CODES",
+    "ErrorFormatter",
+    "HttpTransportAdapter",
+    "JsonRpcValidator",
+    "ProtocolHandler",
+    "SseTransportAdapter",
+    "StdioTransportAdapter",
+    "ToolResult",
+    "TransportAdapter",
 ]

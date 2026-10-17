@@ -63,4 +63,4 @@ def decrypt_secret(value: str) -> str:
         raise
 
 
-__all__ = ["ENCRYPTED_PREFIX", "encrypt_secret", "decrypt_secret"]
+__all__ = ["ENCRYPTED_PREFIX", "decrypt_secret", "encrypt_secret"]

@@ -366,4 +366,4 @@ class PublicLoginBannerView(APIView):
         )
 
 
-__all__ = ["GlobalBannerView", "WorkspaceBannerView", "PublicLoginBannerView"]
+__all__ = ["GlobalBannerView", "PublicLoginBannerView", "WorkspaceBannerView"]

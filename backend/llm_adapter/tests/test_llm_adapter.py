@@ -17,11 +17,10 @@ from __future__ import annotations
 
 import uuid
 import warnings
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # COMP-LA-001 — CapabilityInterface and result dataclasses
@@ -119,7 +118,12 @@ class TestLlmCapabilityInterface:
             IncompleteProvider()
 
     def test_complete_subclass_instantiates(self):
-        from llm_adapter.interface import LlmCapabilityInterface, LlmResult, LlmDecompositionResult, LlmConsistencyResult
+        from llm_adapter.interface import (
+            LlmCapabilityInterface,
+            LlmConsistencyResult,
+            LlmDecompositionResult,
+            LlmResult,
+        )
 
         class CompleteProvider(LlmCapabilityInterface):
             def validate_artifact(self, artifact_id: str) -> LlmResult:
@@ -151,21 +155,21 @@ class TestProviderRegistry:
 
     def test_mock_provider_returned_when_set(self, monkeypatch):
         monkeypatch.setenv("LLM_PROVIDER", "mock")
-        from llm_adapter.providers import get_provider, MockLlmProvider
+        from llm_adapter.providers import MockLlmProvider, get_provider
 
         provider = get_provider()
         assert isinstance(provider, MockLlmProvider)
 
     def test_missing_provider_raises_not_configured(self, monkeypatch):
         monkeypatch.delenv("LLM_PROVIDER", raising=False)
-        from llm_adapter.providers import get_provider, LlmNotConfiguredError
+        from llm_adapter.providers import LlmNotConfiguredError, get_provider
 
         with pytest.raises(LlmNotConfiguredError):
             get_provider()
 
     def test_unknown_provider_raises_provider_unknown(self, monkeypatch):
         monkeypatch.setenv("LLM_PROVIDER", "supersecret_provider_xyz")
-        from llm_adapter.providers import get_provider, LlmProviderUnknownError
+        from llm_adapter.providers import LlmProviderUnknownError, get_provider
 
         with pytest.raises(LlmProviderUnknownError):
             get_provider()
@@ -180,8 +184,13 @@ class TestProviderRegistry:
 
     def test_register_provider_decorator(self, monkeypatch):
         monkeypatch.setenv("LLM_PROVIDER", "test_custom_xyz")
-        from llm_adapter.interface import LlmCapabilityInterface, LlmResult, LlmDecompositionResult, LlmConsistencyResult
-        from llm_adapter.providers import register_provider, get_provider, ProviderConfig
+        from llm_adapter.interface import (
+            LlmCapabilityInterface,
+            LlmConsistencyResult,
+            LlmDecompositionResult,
+            LlmResult,
+        )
+        from llm_adapter.providers import ProviderConfig, get_provider, register_provider
 
         @register_provider("test_custom_xyz")
         class CustomProvider(LlmCapabilityInterface):
@@ -240,8 +249,8 @@ class TestMockLlmProvider:
         assert result.token_usage is not None
 
     def test_decompose_requirement_returns_decomposition_result(self, monkeypatch):
-        from llm_adapter.providers import MockLlmProvider, ProviderConfig
         from llm_adapter.interface import LlmDecompositionResult
+        from llm_adapter.providers import MockLlmProvider, ProviderConfig
 
         provider = MockLlmProvider(ProviderConfig(provider_name="mock"))
         result = provider.decompose_requirement("req-002")
@@ -249,8 +258,8 @@ class TestMockLlmProvider:
         assert len(result.children) >= 1
 
     def test_check_consistency_returns_consistency_result(self, monkeypatch):
-        from llm_adapter.providers import MockLlmProvider, ProviderConfig
         from llm_adapter.interface import LlmConsistencyResult
+        from llm_adapter.providers import MockLlmProvider, ProviderConfig
 
         provider = MockLlmProvider(ProviderConfig(provider_name="mock"))
         result = provider.check_consistency("ws-003")
@@ -327,7 +336,7 @@ class TestArtifactContentEmbedding:
         from llm_adapter.providers import OpenAiProvider, ProviderConfig
 
         provider = OpenAiProvider(ProviderConfig(provider_name="openai"))
-        captured: Dict[str, str] = {}
+        captured: dict[str, str] = {}
 
         def fake_chat(prompt: str):
             captured["prompt"] = prompt
@@ -346,7 +355,7 @@ class TestArtifactContentEmbedding:
         from llm_adapter.providers import OpenAiProvider, ProviderConfig
 
         provider = OpenAiProvider(ProviderConfig(provider_name="openai"))
-        captured: Dict[str, str] = {}
+        captured: dict[str, str] = {}
 
         def fake_chat(prompt: str):
             captured["prompt"] = prompt
@@ -448,8 +457,8 @@ class TestCapabilityRouterGracefulDegradation:
         """Helper to construct a router with controlled environment."""
         if monkeypatch and provider_env is not None:
             monkeypatch.setenv("LLM_PROVIDER", provider_env)
-        from llm_adapter.router import CapabilityRouter
         from llm_adapter.audit_logger import LlmAuditLogger
+        from llm_adapter.router import CapabilityRouter
 
         # Patch audit logger to avoid DB calls
         audit = MagicMock(spec=LlmAuditLogger)
@@ -498,8 +507,8 @@ class TestCapabilityRouterGracefulDegradation:
     def test_no_exception_escapes_router(self, monkeypatch):
         """Any configuration state must not raise unhandled exceptions."""
         monkeypatch.delenv("LLM_PROVIDER", raising=False)
-        from llm_adapter.router import CapabilityRouter
         from llm_adapter.audit_logger import LlmAuditLogger
+        from llm_adapter.router import CapabilityRouter
 
         audit = MagicMock(spec=LlmAuditLogger)
         router = CapabilityRouter(enabled_capabilities={"validate_artifact"}, audit_logger=audit)
@@ -512,9 +521,9 @@ class TestCapabilityRouterSyncExecution:
     """REQ-L3-LA003-001: sync routing for validate_artifact."""
 
     def _make_router_with_mock(self):
-        from llm_adapter.router import CapabilityRouter
         from llm_adapter.audit_logger import LlmAuditLogger
         from llm_adapter.providers import MockLlmProvider, ProviderConfig
+        from llm_adapter.router import CapabilityRouter
 
         audit = MagicMock(spec=LlmAuditLogger)
         provider = MockLlmProvider(ProviderConfig(provider_name="mock"))
@@ -539,8 +548,8 @@ class TestCapabilityRouterSyncExecution:
         assert 0.0 <= result.score <= 1.0
 
     def test_provider_error_returns_provider_error_code(self):
-        from llm_adapter.router import CapabilityRouter
         from llm_adapter.audit_logger import LlmAuditLogger
+        from llm_adapter.router import CapabilityRouter
 
         audit = MagicMock(spec=LlmAuditLogger)
         router = CapabilityRouter(enabled_capabilities={"validate_artifact"}, audit_logger=audit)
@@ -553,8 +562,8 @@ class TestCapabilityRouterSyncExecution:
         assert "500" in result["error"]["message"]
 
     def test_timeout_error_returns_timed_out(self):
-        from llm_adapter.router import CapabilityRouter
         from llm_adapter.audit_logger import LlmAuditLogger
+        from llm_adapter.router import CapabilityRouter
 
         audit = MagicMock(spec=LlmAuditLogger)
         router = CapabilityRouter(enabled_capabilities={"validate_artifact"}, audit_logger=audit)
@@ -566,8 +575,8 @@ class TestCapabilityRouterSyncExecution:
         assert "timed out" in result["error"]["message"].lower()
 
     def test_rate_limit_message(self):
-        from llm_adapter.router import CapabilityRouter
         from llm_adapter.audit_logger import LlmAuditLogger
+        from llm_adapter.router import CapabilityRouter
 
         audit = MagicMock(spec=LlmAuditLogger)
         router = CapabilityRouter(enabled_capabilities={"validate_artifact"}, audit_logger=audit)
@@ -586,8 +595,8 @@ class TestCapabilityRouterSyncExecution:
         details. It is now logged/audited and replaced by a static message,
         while the classified branches above keep their actionable text.
         """
-        from llm_adapter.router import CapabilityRouter
         from llm_adapter.audit_logger import LlmAuditLogger
+        from llm_adapter.router import CapabilityRouter
 
         sensitive = (
             "OperationalError: could not connect to server: "
@@ -610,9 +619,9 @@ class TestCapabilityRouterAsyncDispatch:
     """REQ-L2-LA-008, REQ-L3-LA003-001: async routing."""
 
     def test_decompose_requirement_returns_task_id(self):
-        from llm_adapter.router import CapabilityRouter
         from llm_adapter.audit_logger import LlmAuditLogger
         from llm_adapter.dispatcher import AsyncTaskDispatcher
+        from llm_adapter.router import CapabilityRouter
 
         audit = MagicMock(spec=LlmAuditLogger)
         fake_task_id = str(uuid.uuid4())
@@ -628,9 +637,9 @@ class TestCapabilityRouterAsyncDispatch:
         assert result == {"task_id": fake_task_id}
 
     def test_check_consistency_returns_task_id(self):
-        from llm_adapter.router import CapabilityRouter
         from llm_adapter.audit_logger import LlmAuditLogger
         from llm_adapter.dispatcher import AsyncTaskDispatcher
+        from llm_adapter.router import CapabilityRouter
 
         audit = MagicMock(spec=LlmAuditLogger)
         fake_task_id = str(uuid.uuid4())
@@ -646,9 +655,9 @@ class TestCapabilityRouterAsyncDispatch:
         assert result == {"task_id": fake_task_id}
 
     def test_broker_not_configured_returns_structured_error(self):
-        from llm_adapter.router import CapabilityRouter
         from llm_adapter.audit_logger import LlmAuditLogger
-        from llm_adapter.dispatcher import AsyncTaskDispatcher, BROKER_NOT_CONFIGURED
+        from llm_adapter.dispatcher import BROKER_NOT_CONFIGURED, AsyncTaskDispatcher
+        from llm_adapter.router import CapabilityRouter
 
         audit = MagicMock(spec=LlmAuditLogger)
         dispatcher = MagicMock(spec=AsyncTaskDispatcher)
@@ -698,6 +707,7 @@ class TestLlmAuditLogger:
         """
         import sys
         import types
+
         from llm_adapter.audit_logger import LlmAuditLogger
 
         # Inject a fake 'audit' package with a 'services' module whose log_write raises.
@@ -738,6 +748,7 @@ class TestLlmAuditLogger:
         """AuditLog write failure emits a Python warning (REQ-L3-LA004-003)."""
         import sys
         import types
+
         from llm_adapter.audit_logger import LlmAuditLogger
 
         fake_log_write = MagicMock(side_effect=RuntimeError("DB gone"))
@@ -832,7 +843,7 @@ class TestAsyncTaskDispatcher:
 
     def test_dispatch_async_returns_error_when_no_broker(self, monkeypatch):
         monkeypatch.delenv("CELERY_BROKER_URL", raising=False)
-        from llm_adapter.dispatcher import AsyncTaskDispatcher, BROKER_NOT_CONFIGURED
+        from llm_adapter.dispatcher import BROKER_NOT_CONFIGURED, AsyncTaskDispatcher
 
         dispatcher = AsyncTaskDispatcher()
         result = dispatcher.dispatch_async("decompose_requirement", {"requirement_id": "r1"})
@@ -978,8 +989,8 @@ class TestRunCapabilityTask:
     def test_dataclass_result_token_usage_is_unaffected_by_complete_approximation(self):
         # The approximation branch must only fire for 'complete' -- other
         # capabilities keep using the real .token_usage off their dataclass.
-        from llm_adapter.interface import LlmResult
         from llm_adapter import tasks
+        from llm_adapter.interface import LlmResult
 
         provider = MagicMock()
         provider.PROVIDER_NAME = "mock"
@@ -996,8 +1007,8 @@ class TestRunCapabilityTask:
         assert call_kwargs["input_tokens"] == 5
 
     def test_serialises_dataclass_result(self):
-        from llm_adapter.interface import LlmResult
         from llm_adapter import tasks
+        from llm_adapter.interface import LlmResult
 
         expected = LlmResult(
             score=0.9, suggestions=[], provider="mock", model="m", token_usage=5
@@ -1023,9 +1034,9 @@ class TestRunCapabilityTask:
         # NOT swallow a failure to do so (silently not arming RLS is exactly
         # the bug #444 fixed), so this test needs real DB access it never
         # needed before.
-        from persistence.tenancy import TenantContext, TenantContextNotSetError
-        from llm_adapter.interface import LlmResult
         from llm_adapter import tasks
+        from llm_adapter.interface import LlmResult
+        from persistence.tenancy import TenantContext, TenantContextNotSetError
 
         tenant_uuid = str(uuid.uuid4())
         seen = {}
@@ -1113,10 +1124,11 @@ class TestEndToEndWithMockProvider:
     def _make_full_router(self, capabilities):
         """Build a router with real MockLlmProvider, mocked audit logger."""
         import os
-        from llm_adapter.router import CapabilityRouter
+
         from llm_adapter.audit_logger import LlmAuditLogger
-        from llm_adapter.providers import MockLlmProvider, ProviderConfig
         from llm_adapter.dispatcher import AsyncTaskDispatcher
+        from llm_adapter.providers import MockLlmProvider, ProviderConfig
+        from llm_adapter.router import CapabilityRouter
 
         audit = MagicMock(spec=LlmAuditLogger)
         provider = MockLlmProvider(ProviderConfig(provider_name="mock"))
@@ -1137,8 +1149,8 @@ class TestEndToEndWithMockProvider:
         from llm_adapter.providers import MockLlmProvider, ProviderConfig
 
         provider = MockLlmProvider(ProviderConfig(provider_name="mock"))
-        from llm_adapter.router import CapabilityRouter
         from llm_adapter.audit_logger import LlmAuditLogger
+        from llm_adapter.router import CapabilityRouter
 
         audit = MagicMock(spec=LlmAuditLogger)
         with patch("llm_adapter.router.get_provider", return_value=provider):

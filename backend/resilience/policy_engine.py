@@ -22,8 +22,10 @@ Traceability: REQ-L2-RO-002, REQ-L2-RO-003 -> REQ-L1-032
 from __future__ import annotations
 
 import time
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
-from typing import Any, Callable, Optional
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeoutError
+from typing import Any
 
 from resilience import degradation
 from resilience.circuit_breaker import CircuitBreaker
@@ -31,9 +33,11 @@ from resilience.policies import (
     NonRetryableError,
     Policy,
     ResilienceError,
-    TimeoutError as ResilienceTimeoutError,
     TransientError,
     resolve_policy,
+)
+from resilience.policies import (
+    TimeoutError as ResilienceTimeoutError,
 )
 
 # Operation contract (IF-L1-051): a zero-arg callable that performs the actual
@@ -49,8 +53,8 @@ class PolicyEngine:
     def __init__(
         self,
         target_subsystem: str,
-        policy: Optional[Policy] = None,
-        breaker: Optional[CircuitBreaker] = None,
+        policy: Policy | None = None,
+        breaker: CircuitBreaker | None = None,
         sleep: Callable[[float], None] = time.sleep,
     ) -> None:
         """Bind the engine to a target.

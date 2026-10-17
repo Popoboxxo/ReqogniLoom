@@ -14,7 +14,7 @@ semantics (one call), not a fragile raw query count.
 """
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -24,7 +24,7 @@ from mcp_server.tool_registry import ToolRegistry
 pytestmark = pytest.mark.django_db
 
 
-def _dispatch(tool_name: str, params: Dict[str, Any], api_key: str):
+def _dispatch(tool_name: str, params: dict[str, Any], api_key: str):
     """Run one dispatch through a fully real (unmocked) ToolRegistry."""
     return ToolRegistry().dispatch_request(
         tool_name=tool_name, params=params, api_key=api_key
@@ -37,7 +37,7 @@ def _create_element(
     title: str,
     parent_id: str | None = None,
 ) -> str:
-    params: Dict[str, Any] = {
+    params: dict[str, Any] = {
         "workspace_id": workspace_id,
         "title": title,
         "element_type": "component",

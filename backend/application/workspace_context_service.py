@@ -28,7 +28,7 @@ having done so, which is the ``ServiceBase._set_tenant_context`` convention.
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any
 from uuid import UUID
 
 from django.db.models import F, OuterRef, Subquery
@@ -105,7 +105,7 @@ def count_open_requirements(
 
 def entity_counts(
     *, workspace_id: UUID, tenant_id: UUID, include_outdated: bool
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Return per-entity-type counts for the workspace.
 
     ``include_outdated`` deliberately does **not** hide the ``outdated``
@@ -227,7 +227,7 @@ def entity_counts(
 
 def entity_lists(
     *, workspace_id: UUID, tenant_id: UUID, include_outdated: bool
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Return lightweight per-item lists for ``depth in ("normal", "full")``.
 
     Field-name notes (verified against ``persistence.models``):
@@ -346,7 +346,7 @@ def entity_lists(
 
 def recent_changes(
     *, workspace_id: UUID, tenant_id: UUID, limit: int = 10
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """Return the most recent workflow transitions across all item types.
 
     ``WorkflowHistoryEntry`` carries its own ``workspace_id`` column, so the
@@ -375,13 +375,13 @@ def recent_changes(
     if not entries:
         return []
 
-    ids_by_type: Dict[str, List[UUID]] = {}
+    ids_by_type: dict[str, list[UUID]] = {}
     for entry in entries:
         ids_by_type.setdefault(entry.item_state.item_type, []).append(
             entry.item_state.item_id
         )
 
-    title_lookup: Dict[Any, str] = {}
+    title_lookup: dict[Any, str] = {}
     try:
         from persistence.models import ArchitectureElement, Requirement, TestCase
 
@@ -416,7 +416,7 @@ def recent_changes(
     ]
 
 
-def get_workspace(*, workspace_id: UUID, tenant_id: UUID) -> Optional[Any]:
+def get_workspace(*, workspace_id: UUID, tenant_id: UUID) -> Any | None:
     """Return the ``Workspace`` row, or ``None`` if it does not exist.
 
     Used for the per-workspace ``ai_prompts["context_token_budgets"]`` override
@@ -458,7 +458,7 @@ def get_tenant(*, tenant_id: UUID) -> Any:
     return Tenant.objects.get(id=tenant_id)
 
 
-def get_user(*, user_id: Optional[UUID]) -> Optional[Any]:
+def get_user(*, user_id: UUID | None) -> Any | None:
     """Return the ``User`` row for *user_id*, or ``None``.
 
     Thin identity lookup, counterpart to :func:`get_tenant`. Mirrors the

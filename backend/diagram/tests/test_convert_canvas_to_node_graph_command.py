@@ -24,9 +24,8 @@ from django.core.management import CommandError, call_command
 
 from diagram.manager import DiagramManager
 from diagram.models import PayloadFormat
-from persistence.models import ArtifactVersion
 from diagram.tests.conftest import active_tenant, make_artifact
-from persistence.models import Requirement, TraceLink
+from persistence.models import ArtifactVersion, Requirement, TraceLink
 from traceability.types import LinkType
 
 pytestmark = pytest.mark.django_db

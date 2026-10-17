@@ -16,7 +16,7 @@ criteria:
 from __future__ import annotations
 
 import contextlib
-from typing import Iterator
+from collections.abc import Iterator
 
 import pytest
 
@@ -37,9 +37,9 @@ from persistence.models import (
     Workspace,
 )
 from persistence.tenancy import TenantContext
+from persistence.tests.factories import make_workspace
 from presets.services import switch_preset
 from traceability.types import LinkType
-from persistence.tests.factories import make_workspace
 
 pytestmark = pytest.mark.django_db
 

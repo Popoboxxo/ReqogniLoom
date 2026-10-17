@@ -29,13 +29,11 @@ defense-in-depth check is needed here (unlike ``diagram.py``).
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict
-
-from auth_tenancy.context import AuthContext
+from typing import Any
 
 from application.base import NotFoundError, PermissionDeniedError, ValidationError
 from application.baseline_facade import BaselineFacade
-
+from auth_tenancy.context import AuthContext
 from mcp_server.protocol_handler import ToolResult
 from mcp_server.tools.base import (
     BaseToolGroup,
@@ -49,7 +47,7 @@ from mcp_server.tools.base import (
 logger = logging.getLogger(__name__)
 
 
-def _baseline_summary_to_dict(summary: Any) -> Dict[str, Any]:
+def _baseline_summary_to_dict(summary: Any) -> dict[str, Any]:
     """Serialise a ``baseline.types.BaselineSummary`` for MCP responses."""
     return {
         "baseline_id": str(summary.baseline_id),
@@ -62,7 +60,7 @@ def _baseline_summary_to_dict(summary: Any) -> Dict[str, Any]:
     }
 
 
-def _baseline_detail_to_dict(detail: Any) -> Dict[str, Any]:
+def _baseline_detail_to_dict(detail: Any) -> dict[str, Any]:
     """Serialise a ``baseline.types.BaselineDetail`` for MCP responses."""
     payload = _baseline_summary_to_dict(detail)
     payload["entries"] = [
@@ -204,7 +202,7 @@ class BaselineToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_create(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """baseline.create — create an immutable baseline snapshot (write, audited)."""
         workspace_id = require_uuid(params, "workspace_id")
@@ -258,7 +256,7 @@ class BaselineToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_list(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """baseline.list — list baseline summaries for a workspace."""
         workspace_id = require_uuid(params, "workspace_id")
@@ -283,7 +281,7 @@ class BaselineToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_get(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """baseline.get — fetch full baseline detail including delta entries."""
         baseline_id = require_uuid(params, "id")
@@ -302,7 +300,7 @@ class BaselineToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_compare(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """baseline.compare — structural diff between two baselines."""
         baseline_a_id = require_uuid(params, "baseline_a_id")

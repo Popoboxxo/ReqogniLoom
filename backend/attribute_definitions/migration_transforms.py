@@ -16,9 +16,10 @@ the registry can be extended by Teil B with a plain ``register(...)`` call.
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date, datetime
-from typing import Any, Callable
+from typing import Any
 from uuid import UUID
 
 #: Transform status vocabulary (spec §5): a transform must say which it did.
@@ -53,7 +54,7 @@ class TransformContext:
     options: dict[str, Any] = field(default_factory=dict)
     value_map: dict[str, Any] | None = None
     fallback: Any = None
-    link_resolver: Callable[[Any], "TransformOutcome"] | None = None
+    link_resolver: Callable[[Any], TransformOutcome] | None = None
 
 
 @dataclass

@@ -71,7 +71,7 @@ regardless of whether a prior active row exists. Rationale:
 """
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any
 
 from django.db import IntegrityError
 
@@ -87,8 +87,6 @@ from application.prompt_template_versioning import (
     publish_new_version,
 )
 from auth_tenancy.context import AuthContext
-from persistence.models import PromptTemplate
-
 from mcp_server.tools.base import (
     BaseToolGroup,
     ToolResult,
@@ -96,9 +94,10 @@ from mcp_server.tools.base import (
     require_param,
     write_mcp_audit,
 )
+from persistence.models import PromptTemplate
 
 
-def _template_to_dict(row: PromptTemplate) -> Dict[str, Any]:
+def _template_to_dict(row: PromptTemplate) -> dict[str, Any]:
     return {
         "name": row.name,
         "workspace_id": str(row.workspace_id) if row.workspace_id else None,
@@ -225,7 +224,7 @@ class PromptTemplateToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_get(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         slot = require_param(params, "slot")
         workspace_id = optional_uuid(params, "workspace_id")
@@ -252,7 +251,7 @@ class PromptTemplateToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_list(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """prompt_template.list — active templates visible to the caller.
 
@@ -316,7 +315,7 @@ class PromptTemplateToolGroup(BaseToolGroup):
         )
 
     def _handle_create_or_update(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         denied = self._check_admin(auth_context)
         if denied is not None:

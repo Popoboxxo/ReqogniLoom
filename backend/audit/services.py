@@ -53,19 +53,18 @@ from __future__ import annotations
 
 import contextlib
 import threading
-from typing import Any, Dict, Optional
+from typing import Any
 from uuid import UUID
 
 from audit.events import AuditableOperationOccurred
 from audit.models import AuditEntry
 from audit.query import (
+    DEFAULT_PAGE_SIZE,
     AuditLogQuery,
     AuditQueryFilters,
-    DEFAULT_PAGE_SIZE,
     PaginatedAuditResult,
 )
 from audit.writer import get_writer
-
 
 # ---------------------------------------------------------------------------
 # MCP audit handoff (Codeberg #313): suppress the redundant internal entry
@@ -129,11 +128,11 @@ def log_write(
     operation: str,
     entity_type: str,
     entity_id: UUID,
-    version: Optional[int] = None,
-    change_reason: Optional[str] = None,
-    ctx: Optional[Dict[str, Any]] = None,
-    details: Optional[Dict[str, Any]] = None,
-) -> Optional[AuditEntry]:
+    version: int | None = None,
+    change_reason: str | None = None,
+    ctx: dict[str, Any] | None = None,
+    details: dict[str, Any] | None = None,
+) -> AuditEntry | None:
     """Write an append-only audit log entry for a completed write operation.
 
     This is the primary entry point for COMP-AL-001 (AuditLogWriter). Callers
@@ -196,7 +195,7 @@ def log_write(
 
 
 def query(
-    filters: Optional[AuditQueryFilters] = None,
+    filters: AuditQueryFilters | None = None,
     page: int = 1,
     page_size: int = DEFAULT_PAGE_SIZE,
 ) -> PaginatedAuditResult:

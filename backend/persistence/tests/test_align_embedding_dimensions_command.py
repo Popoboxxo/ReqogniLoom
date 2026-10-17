@@ -218,8 +218,9 @@ class TestAlignEmbeddingDimensions:
         typed. The command must translate it into a ``CommandError`` that names
         the cause and both supported fixes.
         """
-        import persistence.management.commands.align_embedding_dimensions as cmd
         from django.db.utils import ProgrammingError
+
+        import persistence.management.commands.align_embedding_dimensions as cmd
 
         monkeypatch.setattr(cmd, "EMBEDDING_VECTOR_DIMENSIONS", 768)
 
@@ -278,8 +279,9 @@ class TestAlignEmbeddingDimensions:
         marker is the only thing keeping an unrelated fault from being reported
         as "check your credentials".
         """
-        import persistence.management.commands.align_embedding_dimensions as cmd
         from django.db.utils import ProgrammingError
+
+        import persistence.management.commands.align_embedding_dimensions as cmd
 
         monkeypatch.setattr(cmd, "EMBEDDING_VECTOR_DIMENSIONS", 768)
 

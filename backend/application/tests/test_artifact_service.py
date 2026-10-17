@@ -15,7 +15,7 @@ Coverage:
 from __future__ import annotations
 
 import uuid
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, call, patch
 
 import pytest
 

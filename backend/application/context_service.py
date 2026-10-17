@@ -18,13 +18,12 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import List, Optional
 from uuid import UUID
 
 from django.core.cache import cache
 
-from auth_tenancy.context import AuthContext
 from application.base import NotFoundError, ValidationError
+from auth_tenancy.context import AuthContext
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +37,7 @@ class ContextNodeDTO:
     artifact_id: str
     artifact_type: str
     title: str
-    uid: Optional[str]
+    uid: str | None
     link_type: str
     depth: int
 
@@ -48,7 +47,7 @@ class SoftEdgeDTO:
     artifact_id: str
     artifact_type: str
     title: str
-    uid: Optional[str]
+    uid: str | None
     edge_kind: str
     origin: str
     confidence: float
@@ -58,19 +57,19 @@ class SoftEdgeDTO:
 @dataclass
 class ContextResult:
     artifact: dict
-    upstream: List[ContextNodeDTO] = field(default_factory=list)
-    downstream: List[ContextNodeDTO] = field(default_factory=list)
-    semantic: List[SoftEdgeDTO] = field(default_factory=list)
-    open_risks: List[dict] = field(default_factory=list)
-    open_issues: List[dict] = field(default_factory=list)
+    upstream: list[ContextNodeDTO] = field(default_factory=list)
+    downstream: list[ContextNodeDTO] = field(default_factory=list)
+    semantic: list[SoftEdgeDTO] = field(default_factory=list)
+    open_risks: list[dict] = field(default_factory=list)
+    open_issues: list[dict] = field(default_factory=list)
     stale: bool = False
-    generated_at: Optional[str] = None
+    generated_at: str | None = None
     truncated: bool = False
 
 
 @dataclass
 class RelatedResult:
-    related: List[SoftEdgeDTO] = field(default_factory=list)
+    related: list[SoftEdgeDTO] = field(default_factory=list)
     scope: str = "workspace"
     truncated: bool = False
 
@@ -107,7 +106,7 @@ def _staleness(workspace_id: UUID) -> bool:
     return bool(row["last_error"])
 
 
-def _watermark(workspace_id: UUID) -> Optional[str]:
+def _watermark(workspace_id: UUID) -> str | None:
     from context_graph.models import WorkspaceContextSettings
 
     row = (
@@ -118,7 +117,7 @@ def _watermark(workspace_id: UUID) -> Optional[str]:
     return str(row) if row else None
 
 
-def _enrich_artifact_ids(artifact_ids: List[UUID], tenant_id: UUID) -> dict:
+def _enrich_artifact_ids(artifact_ids: list[UUID], tenant_id: UUID) -> dict:
     """Batch title/uid/artifact_type lookup — reuses traceability.service's
     existing enrichment rather than a second implementation (Task 6 note)."""
     from traceability.service import _enrich
@@ -130,7 +129,7 @@ def get_context(
     artifact_id: UUID,
     ctx: AuthContext,
     depth: int = 2,
-    include: Optional[List[str]] = None,
+    include: list[str] | None = None,
     max_nodes: int = 50,
 ) -> ContextResult:
     """Return combined hard + soft context for a single artifact (Task 6)."""
@@ -159,8 +158,8 @@ def get_context(
         "workspace_id": str(workspace_id),
     }
 
-    upstream: List[ContextNodeDTO] = []
-    downstream: List[ContextNodeDTO] = []
+    upstream: list[ContextNodeDTO] = []
+    downstream: list[ContextNodeDTO] = []
     truncated = False
 
     if "upstream" in include_set:
@@ -193,12 +192,12 @@ def get_context(
             for n in nodes
         ]
 
-    semantic: List[SoftEdgeDTO] = []
+    semantic: list[SoftEdgeDTO] = []
     if "semantic" in include_set:
         semantic = _soft_edges_for_artifact(artifact_id, ctx.tenant_id, limit=safe_max_nodes)
 
-    open_risks: List[dict] = []
-    open_issues: List[dict] = []
+    open_risks: list[dict] = []
+    open_issues: list[dict] = []
     if "risks" in include_set:
         open_risks = _open_risks_for_artifact(artifact_id)
     if "issues" in include_set:
@@ -222,7 +221,7 @@ def get_context(
 def get_related(
     artifact_id: UUID,
     ctx: AuthContext,
-    edge_kinds: Optional[List[str]] = None,
+    edge_kinds: list[str] | None = None,
     min_confidence: float = 0.5,
     limit: int = 10,
     scope: str = "workspace",
@@ -254,10 +253,10 @@ def _soft_edges_for_artifact(
     artifact_id: UUID,
     tenant_id: UUID,
     *,
-    edge_kinds: Optional[List[str]] = None,
+    edge_kinds: list[str] | None = None,
     min_confidence: float = 0.0,
     limit: int = 50,
-) -> List[SoftEdgeDTO]:
+) -> list[SoftEdgeDTO]:
     from django.db.models import Q
 
     from context_graph.models import ContextEdge
@@ -294,7 +293,7 @@ def _soft_edges_for_artifact(
     return result
 
 
-def _open_risks_for_artifact(artifact_id: UUID) -> List[dict]:
+def _open_risks_for_artifact(artifact_id: UUID) -> list[dict]:
     """Risks trace-linked to *artifact_id*, excluding the Closed terminal state.
 
     Risk has no ``lifecycle_status``/outdate() escape hatch (Phase 0's
@@ -335,7 +334,7 @@ def _open_risks_for_artifact(artifact_id: UUID) -> List[dict]:
     return result
 
 
-def _open_issues_for_artifact(artifact_id: UUID) -> List[dict]:
+def _open_issues_for_artifact(artifact_id: UUID) -> list[dict]:
     """Issues trace-linked to *artifact_id*, excluding terminal states
     (Closed/Resolved/Wontfix) — see :func:`_open_risks_for_artifact`."""
     from application.models import Issue
@@ -382,10 +381,10 @@ _VALID_GENERATORS = frozenset({"glossary"})
 @dataclass
 class ContextGraphSettingsDTO:
     enabled: bool
-    enabled_generators: List[str]
+    enabled_generators: list[str]
     provider: str
-    last_projected_at: Optional[str]
-    last_refresh_at: Optional[str]
+    last_projected_at: str | None
+    last_refresh_at: str | None
     last_error: str
     node_count: int
     edge_count: int
@@ -433,7 +432,7 @@ def update_settings(
     ctx: AuthContext,
     *,
     enabled: bool,
-    enabled_generators: Optional[List[str]] = None,
+    enabled_generators: list[str] | None = None,
 ) -> ContextGraphSettingsDTO:
     """Create/update the settings row for *workspace_id* (Task 9).
 
@@ -486,9 +485,10 @@ def trigger_manual_rebuild(workspace_id: UUID, ctx: AuthContext) -> None:
     """Manually trigger a rebuild without touching ``enabled`` (Task 9's
     "Rebuild now" button — for testing and for recovering from a
     ``last_error`` state without waiting for the next mutation)."""
+    from django.db import transaction
+
     from context_graph.models import WorkspaceContextSettings
     from context_graph.tasks import rebuild_workspace_graph_task
-    from django.db import transaction
 
     if not WorkspaceContextSettings.objects.filter(workspace_id=workspace_id).exists():
         raise NotFoundError(
@@ -498,15 +498,15 @@ def trigger_manual_rebuild(workspace_id: UUID, ctx: AuthContext) -> None:
 
 
 __all__ = [
+    "ContextGraphSettingsDTO",
+    "ContextNodeDTO",
+    "ContextResult",
+    "RelatedResult",
+    "SoftEdgeDTO",
+    "UnsupportedScopeError",
     "get_context",
     "get_related",
     "get_settings",
-    "update_settings",
     "trigger_manual_rebuild",
-    "ContextResult",
-    "RelatedResult",
-    "ContextNodeDTO",
-    "SoftEdgeDTO",
-    "ContextGraphSettingsDTO",
-    "UnsupportedScopeError",
+    "update_settings",
 ]

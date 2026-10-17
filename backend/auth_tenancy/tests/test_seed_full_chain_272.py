@@ -10,8 +10,8 @@ from __future__ import annotations
 import pytest
 
 from persistence.models import (
-    Artifact,
     ArchitectureElement,
+    Artifact,
     Goal,
     Requirement,
     StakeholderNeed,

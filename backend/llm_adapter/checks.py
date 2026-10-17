@@ -37,7 +37,7 @@ compose-level preflight gate that already exists for the image deployment.
 from __future__ import annotations
 
 import logging
-from typing import Any, List
+from typing import Any
 
 from django.core.checks import Warning as DjangoWarning
 
@@ -62,7 +62,7 @@ OPENCODE_SESSION_MISSING = "llm_adapter.W003"
 OPENCODE_PROVIDER_NAME = "opencode_go"
 
 
-def _embedding_columns() -> List[tuple[str, int]]:
+def _embedding_columns() -> list[tuple[str, int]]:
     """Return ``(label, declared_dimensions)`` for every ``VectorField`` in the
     project, discovered through the shared ``persistence.embedding_schema``
     helper.
@@ -83,7 +83,7 @@ def _embedding_columns() -> List[tuple[str, int]]:
     return [(column.label, column.field.dimensions) for column in embedding_columns()]
 
 
-def check_embedding_dimensions(app_configs: Any = None, **kwargs: Any) -> List[DjangoWarning]:
+def check_embedding_dimensions(app_configs: Any = None, **kwargs: Any) -> list[DjangoWarning]:
     """Warn when the configured embedding provider cannot fill the columns.
 
     Never raises and never touches the database beyond what
@@ -160,7 +160,7 @@ def check_embedding_dimensions(app_configs: Any = None, **kwargs: Any) -> List[D
 
 def check_opencode_session_required(
     app_configs: Any = None, **kwargs: Any
-) -> List[DjangoWarning]:
+) -> list[DjangoWarning]:
     """Warn when ``opencode_go`` is selected without its REQUIRED session id.
 
     GitHub #1050. The Zen-Go endpoint rejects a chat completion that carries no

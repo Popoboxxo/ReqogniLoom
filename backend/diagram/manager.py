@@ -27,17 +27,15 @@ from __future__ import annotations
 import json
 import uuid
 from dataclasses import dataclass
-from typing import Optional
 
 from audit.services import log_write
-from persistence.artifact_backing import ensure_artifact
-from persistence.models import ArtifactVersion
-from persistence.transactions import atomic_transaction
-
 from diagram.models import Diagram, DiagramRevision, DiagramType, PayloadFormat
 from diagram.renderer import DiagramRenderer, RenderableDiagram
 from diagram.traceability_connector import TraceabilityConnector, sync_node_links
-from diagram.validator import DiagramValidator, DiagramValidationError  # noqa: F401 re-export
+from diagram.validator import DiagramValidationError, DiagramValidator  # noqa: F401 re-export
+from persistence.artifact_backing import ensure_artifact
+from persistence.models import ArtifactVersion
+from persistence.transactions import atomic_transaction
 
 
 class DiagramRevisionNotFoundError(LookupError):
@@ -172,7 +170,7 @@ def _sync_node_graph_links(
     diagram: Diagram,
     payload_format: str,
     content: str,
-    created_by_id: Optional[uuid.UUID],
+    created_by_id: uuid.UUID | None,
 ) -> None:
     """Reconcile ``LinkType.DIAGRAM_REF`` TraceLinks for a node_graph save.
 
@@ -216,8 +214,8 @@ class DiagramResult:
     """Return type for get_diagram — bundles the row, a revision and render data."""
 
     diagram: Diagram
-    version: Optional[DiagramRevision]
-    renderable: Optional[RenderableDiagram]
+    version: DiagramRevision | None
+    renderable: RenderableDiagram | None
 
 
 # ---------------------------------------------------------------------------
@@ -239,9 +237,9 @@ class DiagramManager:
 
     def __init__(
         self,
-        validator: Optional[DiagramValidator] = None,
-        renderer: Optional[DiagramRenderer] = None,
-        traceability: Optional[TraceabilityConnector] = None,
+        validator: DiagramValidator | None = None,
+        renderer: DiagramRenderer | None = None,
+        traceability: TraceabilityConnector | None = None,
     ) -> None:
         self._validator = validator or DiagramValidator()
         self._renderer = renderer or DiagramRenderer()
@@ -262,10 +260,10 @@ class DiagramManager:
         content: str,
         tenant: object,
         description: str = "",
-        created_by: Optional[object] = None,
-        target_id: Optional[uuid.UUID] = None,
-        canvas_json: Optional[dict] = None,
-        workspace_id: Optional[uuid.UUID] = None,
+        created_by: object | None = None,
+        target_id: uuid.UUID | None = None,
+        canvas_json: dict | None = None,
+        workspace_id: uuid.UUID | None = None,
     ) -> Diagram:
         """Create a new Diagram with its content at revision 1.
 
@@ -374,9 +372,9 @@ class DiagramManager:
         diagram_id: uuid.UUID,
         payload_format: str,
         content: str,
-        modified_by: Optional[object] = None,
-        target_id: Optional[uuid.UUID] = None,
-        canvas_json: Optional[dict] = None,
+        modified_by: object | None = None,
+        target_id: uuid.UUID | None = None,
+        canvas_json: dict | None = None,
     ) -> DiagramRevision:
         """Record content revision N+1; recorded revisions remain unchanged.
 
@@ -459,7 +457,7 @@ class DiagramManager:
     def get_diagram(
         self,
         diagram_id: uuid.UUID,
-        version_number: Optional[int] = None,
+        version_number: int | None = None,
     ) -> DiagramResult:
         """Retrieve a Diagram and enrich it with render information.
 

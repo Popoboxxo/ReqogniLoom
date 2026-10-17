@@ -19,11 +19,10 @@ from __future__ import annotations
 import json
 from unittest.mock import MagicMock
 
-
 from mcp_server.protocol_handler import (
+    _PROTOCOL_ERROR_CODES,
     ERROR_CODE_MAP,
     ERROR_CODES,
-    _PROTOCOL_ERROR_CODES,
     ErrorFormatter,
     HttpTransportAdapter,
     JsonRpcValidator,
@@ -33,7 +32,6 @@ from mcp_server.protocol_handler import (
     ToolResult,
 )
 from reqogniloom.version import get_app_version
-
 
 # ---------------------------------------------------------------------------
 # JsonRpcValidator tests

@@ -25,7 +25,7 @@ itself not derivable (``None``) never masks a lower-priority one.
 """
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 from uuid import UUID
 
 from application.base import NotFoundError, ServiceBase
@@ -52,8 +52,8 @@ REQUIREMENT_TYPE_TO_LEVEL: dict[str, int] = {
 def suggest_level(
     *,
     requirement_type: str,
-    architecture_level: Optional[int],
-    parent_level: Optional[int],
+    architecture_level: int | None,
+    parent_level: int | None,
 ) -> dict[str, Any]:
     """Return a pure level suggestion from the three signals (#1289).
 
@@ -96,7 +96,7 @@ class RequirementLevelService(ServiceBase):
             raise NotFoundError(f"Requirement {requirement_id} not found")
         return requirement
 
-    def _parent_level(self, requirement: Requirement) -> Optional[int]:
+    def _parent_level(self, requirement: Requirement) -> int | None:
         """Level of the requirement's hierarchy parent (FK tree or derives-from).
 
         Reads the ``Artifact.parent_id`` FK tree and the ``derives-from``

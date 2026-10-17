@@ -24,26 +24,25 @@ from __future__ import annotations
 
 import logging
 import uuid
-from typing import Any, Optional
+from typing import Any
 
 from django.db import IntegrityError, transaction
 
-from persistence.transactions import atomic_transaction
-
-from application.base import (
-    NotFoundError,
-    PermissionDeniedError,
-    ServiceBase,
-    ValidationError,
-)
 from application.artifact_service import _clean_custom_fields
 from application.artifact_version_service import (
     ArtifactVersionService,
     lineage_anchor_artifact_id,
     snapshot_fields,
 )
+from application.base import (
+    NotFoundError,
+    PermissionDeniedError,
+    ServiceBase,
+    ValidationError,
+)
 from application.models import Goal
 from persistence.models import Artifact, Tenant, Workspace
+from persistence.transactions import atomic_transaction
 from workflow import state_reader
 
 logger = logging.getLogger(__name__)
@@ -103,9 +102,9 @@ class GoalService(ServiceBase):
         workspace_id: uuid.UUID,
         title: str,
         description: str = "",
-        lineage_id: Optional[uuid.UUID] = None,
+        lineage_id: uuid.UUID | None = None,
         ctx: Any,
-        custom_fields: Optional[dict] = None,
+        custom_fields: dict | None = None,
     ) -> dict:
         """Create a new Goal version, starting or continuing a lineage.
 
@@ -172,8 +171,8 @@ class GoalService(ServiceBase):
         # re-reading the maximum. Only a collision matched to THIS constraint
         # is absorbed -- any other IntegrityError propagates immediately.
         last_error: IntegrityError | None = None
-        goal: Optional[Goal] = None
-        artifact: Optional[Artifact] = None
+        goal: Goal | None = None
+        artifact: Artifact | None = None
         sequence_number = 1
         for _ in range(_SEQUENCE_ALLOCATION_ATTEMPTS):
             if lineage_id is not None:
@@ -491,8 +490,8 @@ class GoalService(ServiceBase):
         goal_id: uuid.UUID,
         ctx: Any,
         *,
-        title: Optional[str] = None,
-        description: Optional[str] = None,
+        title: str | None = None,
+        description: str | None = None,
         custom_fields: object = _UNSET,
     ) -> dict:
         """Update a Goal by appending a new version to its lineage.
@@ -527,7 +526,7 @@ class GoalService(ServiceBase):
         """
         goal = self.get(goal_id, ctx)
         if custom_fields is _UNSET:
-            resolved_custom_fields: Optional[dict] = (
+            resolved_custom_fields: dict | None = (
                 dict(goal.artifact.custom_fields or {}) if goal.artifact_id else {}
             )
         else:
@@ -543,7 +542,7 @@ class GoalService(ServiceBase):
 
     def get_available_transitions(
         self, goal_id: uuid.UUID, ctx: Any
-    ) -> tuple[Optional[str], list[str]]:
+    ) -> tuple[str | None, list[str]]:
         """Return ``(current_state, allowed target states)`` for a Goal version.
 
         Read-only, and the single seam both the REST ``transitions/`` endpoint
@@ -609,8 +608,8 @@ class GoalService(ServiceBase):
         self,
         goal_id: uuid.UUID,
         ctx: Any,
-        change_reason: Optional[str] = None,
-        expected_version: Optional[int] = None,
+        change_reason: str | None = None,
+        expected_version: int | None = None,
     ) -> Goal:
         """Archive (soft-delete) a Goal version via the WorkflowEngine.
 
@@ -652,8 +651,8 @@ class GoalService(ServiceBase):
         self,
         goal_id: uuid.UUID,
         ctx: Any,
-        change_reason: Optional[str] = None,
-        expected_version: Optional[int] = None,
+        change_reason: str | None = None,
+        expected_version: int | None = None,
     ) -> Goal:
         """Restore an archived Goal version to the workflow's initial state.
 
@@ -705,9 +704,9 @@ class GoalService(ServiceBase):
         goal_id: uuid.UUID,
         target_status: str,
         ctx: Any,
-        change_reason: Optional[str] = None,
-        credential: Optional[str] = None,
-        expected_version: Optional[int] = None,
+        change_reason: str | None = None,
+        credential: str | None = None,
+        expected_version: int | None = None,
     ) -> Goal:
         """Transition a Goal version's workflow state via the WorkflowEngine.
 

@@ -50,7 +50,7 @@ import logging
 import os
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any, Optional, Protocol
+from typing import Any, Protocol
 from uuid import UUID
 
 from django.db import transaction
@@ -123,9 +123,9 @@ class VectorPort(Protocol):
         collection: str,
         query_vector: Sequence[float],
         tenant_id: Any,
-        workspace_id: Optional[UUID] = None,
-        workspace_field: Optional[str] = None,
-        exclude_id: Optional[Any] = None,
+        workspace_id: UUID | None = None,
+        workspace_field: str | None = None,
+        exclude_id: Any | None = None,
         limit: int = 50,
         iterative_scan: bool = False,
     ) -> list[VectorHit]:
@@ -154,7 +154,7 @@ def _resolve_model_and_manager(collection: str) -> tuple[Any, Any]:
     raise ValueError(f"unknown vector collection: {collection!r}")
 
 
-def _distance_from_score(score: Any) -> Optional[float]:
+def _distance_from_score(score: Any) -> float | None:
     """Map a Qdrant similarity score to the port's cosine-distance convention.
 
     Qdrant's ``score`` is a similarity (higher = closer); the port uses
@@ -171,7 +171,7 @@ def _distance_from_score(score: Any) -> Optional[float]:
         return None
 
 
-def _coerce_uuid(value: Any) -> Optional[UUID]:
+def _coerce_uuid(value: Any) -> UUID | None:
     """Coerce a Qdrant payload id to the ``UUID`` ORM rows are keyed by.
 
     Qdrant stores/returns point ids as strings, while Requirement/TraceLink/Icd
@@ -206,9 +206,9 @@ class PgVectorVectorPort:
         collection: str,
         query_vector: Sequence[float],
         tenant_id: Any,
-        workspace_id: Optional[UUID] = None,
-        workspace_field: Optional[str] = None,
-        exclude_id: Optional[Any] = None,
+        workspace_id: UUID | None = None,
+        workspace_field: str | None = None,
+        exclude_id: Any | None = None,
         limit: int = 50,
         iterative_scan: bool = False,
     ) -> list[VectorHit]:
@@ -311,7 +311,7 @@ class QdrantVectorPort:
             )
         return self._client
 
-    def _collection_name(self, tenant_id: Any, workspace_id: Optional[UUID]) -> str:
+    def _collection_name(self, tenant_id: Any, workspace_id: UUID | None) -> str:
         from persistence.qdrant_config import build_collection_name  # lazy: security boundary
 
         if workspace_id is None:
@@ -335,7 +335,7 @@ class QdrantVectorPort:
         self,
         collection: str,
         tenant_id: Any,
-        workspace_id: Optional[UUID],
+        workspace_id: UUID | None,
         exclude_id: Any,
     ) -> Any:
         models = self._models()
@@ -372,9 +372,9 @@ class QdrantVectorPort:
         collection: str,
         query_vector: Sequence[float],
         tenant_id: Any,
-        workspace_id: Optional[UUID] = None,
-        workspace_field: Optional[str] = None,
-        exclude_id: Optional[Any] = None,
+        workspace_id: UUID | None = None,
+        workspace_field: str | None = None,
+        exclude_id: Any | None = None,
         limit: int = 50,
         iterative_scan: bool = False,
     ) -> list[VectorHit]:

@@ -12,7 +12,7 @@ Two things the stores below deliberately do not do live at this layer:
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any
 from uuid import UUID
 
 from auth_tenancy.context import AuthContext
@@ -25,8 +25,8 @@ from .base import ServiceBase
 _ADMIN_ROLES = frozenset({"admin", "tenant_admin"})
 
 
-def _global_to_dict(row: Any, *, propagated_to: int | None = None) -> Dict[str, Any]:
-    payload: Dict[str, Any] = {
+def _global_to_dict(row: Any, *, propagated_to: int | None = None) -> dict[str, Any]:
+    payload: dict[str, Any] = {
         "id": str(row.id),
         "key": row.key,
         "definition": row.definition_json or {},
@@ -37,7 +37,7 @@ def _global_to_dict(row: Any, *, propagated_to: int | None = None) -> Dict[str, 
     return payload
 
 
-def _workspace_to_dict(row: Any) -> Dict[str, Any]:
+def _workspace_to_dict(row: Any) -> dict[str, Any]:
     return {
         "id": str(row.id),
         "workspace_id": str(row.workspace_id),
@@ -71,14 +71,14 @@ class LinkTypeFacade(ServiceBase):
 
     # ---------- global scope ----------
 
-    def list_global(self, ctx: AuthContext) -> List[Dict[str, Any]]:
+    def list_global(self, ctx: AuthContext) -> list[dict[str, Any]]:
         """Return every global link-type template of the tenant."""
         self._set_tenant_context(ctx)
         return [_global_to_dict(row) for row in self._global.list(ctx.tenant_id)]
 
     def create_global(
         self, ctx: AuthContext, key: str, definition: Any
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Create a new tenant-wide link type."""
         self._set_tenant_context(ctx)
         self._require_admin(ctx)
@@ -93,7 +93,7 @@ class LinkTypeFacade(ServiceBase):
 
     def update_global(
         self, ctx: AuthContext, key: str, definition: Any
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Replace a global template and propagate it to on-default workspaces."""
         self._set_tenant_context(ctx)
         self._require_admin(ctx)
@@ -123,7 +123,7 @@ class LinkTypeFacade(ServiceBase):
 
     def list_workspace(
         self, ctx: AuthContext, workspace_id: UUID | str
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Return the resolved catalog rows of a workspace, inactive ones included.
 
         Read-only, so no admin gate: the trace-link dialog and the MCP schema
@@ -141,7 +141,7 @@ class LinkTypeFacade(ServiceBase):
         workspace_id: UUID | str,
         key: str,
         definition: Any,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Override one link type for one workspace."""
         self._set_tenant_context(ctx)
         self._require_admin(ctx)
@@ -156,7 +156,7 @@ class LinkTypeFacade(ServiceBase):
 
     def reset_workspace(
         self, ctx: AuthContext, workspace_id: UUID | str, key: str
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Restore a workspace override to its default."""
         self._set_tenant_context(ctx)
         self._require_admin(ctx)

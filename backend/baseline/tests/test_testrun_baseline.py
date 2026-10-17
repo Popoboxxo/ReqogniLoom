@@ -16,7 +16,7 @@ Design note (REQ-156):
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -25,7 +25,6 @@ from baseline.delta_index_builder import ScopeResolver
 from baseline.state_capture import capture_states
 from baseline.store import BaselineStore
 from baseline.types import BaselineMetadata, DeltaIndexTuple
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -42,7 +41,7 @@ def _make_metadata(name: str = "TR-Baseline", scope: str = "project") -> Baselin
         name=name,
         description="TestRun baseline test",
         created_by="test-agent",
-        created_at=datetime.now(tz=timezone.utc),
+        created_at=datetime.now(tz=UTC),
     )
 
 
@@ -245,8 +244,8 @@ class TestStateCaptureTestRuns:
         mock_run.uid = "TR-001"
         mock_run.name = "Sprint 42 regression"
         mock_run.status = "passed"
-        mock_run.started_at = datetime(2026, 7, 17, 10, 0, tzinfo=timezone.utc)
-        mock_run.finished_at = datetime(2026, 7, 17, 11, 0, tzinfo=timezone.utc)
+        mock_run.started_at = datetime(2026, 7, 17, 10, 0, tzinfo=UTC)
+        mock_run.finished_at = datetime(2026, 7, 17, 11, 0, tzinfo=UTC)
         mock_run.ci_job_id = "ci-12345"
         mock_run.workspace_id = uuid.UUID(workspace_id)
         mock_run.version = 5
@@ -281,7 +280,7 @@ class TestStateCaptureTestRuns:
         mock_result.test_case_id = uuid.UUID(tc_id)
         mock_result.test_case_title = "Login with valid credentials"
         mock_result.status = "passed"
-        mock_result.executed_at = datetime(2026, 7, 17, 10, 30, tzinfo=timezone.utc)
+        mock_result.executed_at = datetime(2026, 7, 17, 10, 30, tzinfo=UTC)
         mock_result.duration_ms = 142
         mock_result.message = ""
         mock_result.version = 1
@@ -431,11 +430,11 @@ class TestTestRunBaselineIntegration:
     def test_project_scope_baseline_includes_test_run_entries(self):
         """REQ-156: A project-scoped Baseline must contain delta entries for
         TestRun entities in the workspace (entity_type='test_run')."""
-        from persistence.tenancy import TenantContext
-        from persistence.models import Workspace, TestRun
-        from presets.models import WorkspacePresetConfig
-        from baseline.store import BaselineStore
         from baseline.delta_index_builder import DeltaIndexBuilder
+        from baseline.store import BaselineStore
+        from persistence.models import TestRun, Workspace
+        from persistence.tenancy import TenantContext
+        from presets.models import WorkspacePresetConfig
 
         tenant = self._make_tenant()
         TenantContext.set_tenant(tenant.id)
@@ -487,11 +486,11 @@ class TestTestRunBaselineIntegration:
     def test_project_scope_baseline_includes_test_run_result_entries(self):
         """REQ-156: TestRunResult entries within the workspace's TestRuns must
         also appear in the baseline delta index (entity_type='test_run_result')."""
-        from persistence.tenancy import TenantContext
-        from persistence.models import Workspace, TestRun, TestRunResult
-        from presets.models import WorkspacePresetConfig
-        from baseline.store import BaselineStore
         from baseline.delta_index_builder import DeltaIndexBuilder
+        from baseline.store import BaselineStore
+        from persistence.models import TestRun, TestRunResult, Workspace
+        from persistence.tenancy import TenantContext
+        from presets.models import WorkspacePresetConfig
 
         tenant = self._make_tenant()
         TenantContext.set_tenant(tenant.id)
@@ -550,11 +549,11 @@ class TestTestRunBaselineIntegration:
     def test_baseline_state_captures_test_run_fields(self):
         """REQ-156 + REQ-L2-BL-012: The persisted state of a TestRun entry
         must contain name, status, ci_job_id and workspace_id."""
-        from persistence.tenancy import TenantContext
-        from persistence.models import Workspace, TestRun
-        from presets.models import WorkspacePresetConfig
-        from baseline.models import BaselineDeltaIndexEntry
         from baseline.delta_index_builder import DeltaIndexBuilder
+        from baseline.models import BaselineDeltaIndexEntry
+        from persistence.models import TestRun, Workspace
+        from persistence.tenancy import TenantContext
+        from presets.models import WorkspacePresetConfig
 
         tenant = self._make_tenant()
         TenantContext.set_tenant(tenant.id)
@@ -607,11 +606,11 @@ class TestTestRunBaselineIntegration:
     def test_no_test_runs_baseline_has_no_test_run_entries(self):
         """REQ-156: When no TestRuns exist for a workspace, the baseline must
         not contain any test_run entries (no contamination from other workspaces)."""
-        from persistence.tenancy import TenantContext
-        from persistence.models import Workspace, TestRun
-        from presets.models import WorkspacePresetConfig
-        from baseline.store import BaselineStore
         from baseline.delta_index_builder import DeltaIndexBuilder
+        from baseline.store import BaselineStore
+        from persistence.models import TestRun, Workspace
+        from persistence.tenancy import TenantContext
+        from presets.models import WorkspacePresetConfig
 
         tenant = self._make_tenant()
         TenantContext.set_tenant(tenant.id)

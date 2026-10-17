@@ -28,7 +28,7 @@ from datetime import timedelta
 
 import pytest
 from django.contrib.auth import get_user_model
-from django.contrib.auth.signals import user_login_failed, user_logged_in
+from django.contrib.auth.signals import user_logged_in, user_login_failed
 from django.test import Client, override_settings
 
 from auth_tenancy import admin_lockout
@@ -36,8 +36,8 @@ from auth_tenancy.admin_login import (
     LOCKOUT_MESSAGE,
     LockoutAdminAuthenticationForm,
     _is_admin_login_request,
-    _on_user_login_failed,
     _on_user_logged_in,
+    _on_user_login_failed,
 )
 from auth_tenancy.models import AdminLoginLockout
 from persistence.models import Tenant

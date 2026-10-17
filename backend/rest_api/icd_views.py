@@ -56,23 +56,23 @@ from application.base import NotFoundError
 from application.workspace_context_service import get_tenant, get_user
 from icd.models import Icd, IcdDirection, IcdParameter, IcdRevision
 from icd.services import (
-    create_icd,
-    create_icd_parameter,
-    delete_icd,
-    delete_icd_parameter,
-    get_icd,
-    update_icd,
-    update_icd_parameter,
-    get_icd_history,
-    find_similar_icds,
-    list_icd_parameters,
-    list_icds,
     IcdCreateDTO,
     IcdParameterCreateDTO,
     IcdParameterNotFoundError,
     IcdParameterUpdateDTO,
     IcdPgVectorUnavailableError,
     IcdUpdateDTO,
+    create_icd,
+    create_icd_parameter,
+    delete_icd,
+    delete_icd_parameter,
+    find_similar_icds,
+    get_icd,
+    get_icd_history,
+    list_icd_parameters,
+    list_icds,
+    update_icd,
+    update_icd_parameter,
 )
 from rest_api.auth_enforcer import get_auth_context
 from rest_api.mixins.workflow_transitions import WorkflowTransitionsMixin
@@ -84,7 +84,7 @@ from rest_api.serializers import (
     detect_lang,
     reject_unknown_fields,
 )
-from rest_api.views import BaseEntityViewSet, _SYSTEM_FIELD_NAMES
+from rest_api.views import _SYSTEM_FIELD_NAMES, BaseEntityViewSet
 
 logger = logging.getLogger(__name__)
 

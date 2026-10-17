@@ -29,7 +29,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 import pytest
 
@@ -58,7 +58,7 @@ _MANIFEST_PATH_ENV = "MCP_TOOL_MANIFEST_PATH"
 _MANIFEST_UNREACHABLE_SKIP_ENV = "MCP_TOOL_MANIFEST_ALLOW_SKIP"
 
 
-def _find_manifest_path() -> Optional[Path]:
+def _find_manifest_path() -> Path | None:
     """Locate ``docs/agent-templates/tool-manifest.json``, or return None.
 
     A fixed ``parents[N]`` index cannot work here: on the host this file lives
@@ -85,10 +85,10 @@ MANIFEST_PATH = _find_manifest_path()
 
 
 def _rebaseline(
-    live: Dict[str, Any],
-    live_tools: Dict[str, Dict[str, Any]],
-    committed_tools: Dict[str, Dict[str, Any]],
-) -> Optional[Path]:
+    live: dict[str, Any],
+    live_tools: dict[str, dict[str, Any]],
+    committed_tools: dict[str, dict[str, Any]],
+) -> Path | None:
     """Regenerate the manifest — but only when the named env var asks for it.
 
     Re-baselining *this* ratchet is regenerating the committed manifest from the
@@ -120,7 +120,7 @@ def _rebaseline(
     return target
 
 
-def _by_name(manifest: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+def _by_name(manifest: dict[str, Any]) -> dict[str, dict[str, Any]]:
     """Index a manifest's ``tools`` list by tool name."""
     return {tool["name"]: tool for tool in manifest["tools"]}
 
@@ -187,7 +187,7 @@ def test_committed_manifest_matches_live_registry() -> None:
     #   * inputSchema— the call contract itself (required params!).
     # Comparing only names + is_write let a newly required parameter ship
     # unnoticed (issue #434).
-    drifted: Dict[str, list[str]] = {}
+    drifted: dict[str, list[str]] = {}
     for name in sorted(committed_tools.keys() & live_tools.keys()):
         differing = [
             field

@@ -35,7 +35,6 @@ from rest_api.api_key_views import ApiKeyViewSet
 from rest_api.auth_enforcer import RbacPermission
 from rest_api.auth_views import MeView
 
-
 # ---------------------------------------------------------------------------
 # Gate-level helpers
 # ---------------------------------------------------------------------------

@@ -19,7 +19,6 @@ import django.db.models.manager
 from django.conf import settings
 from django.db import migrations, models
 
-
 _EDGE_TABLE = "cg_context_edge"
 _SETTINGS_TABLE = "cg_workspace_context_settings"
 

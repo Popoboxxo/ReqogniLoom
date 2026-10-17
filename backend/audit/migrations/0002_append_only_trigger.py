@@ -13,7 +13,6 @@ multiple times, e.g. after migrate --run-syncdb).
 """
 from django.db import migrations
 
-
 _CREATE_FUNCTION_SQL = """
 CREATE OR REPLACE FUNCTION audit_entry_append_only()
 RETURNS TRIGGER AS $$

@@ -30,10 +30,10 @@ the width ``icd/0010_expand_current_content`` added it with. It is not read from
 migration history is immutable and must not shift when an operator changes that
 environment variable.
 """
-from django.db import migrations, models
 import django.db.models.deletion
 import pgvector.django.indexes
 import pgvector.django.vector
+from django.db import migrations, models
 
 #: Restores what ``icd/0006_icd_version_delete_guard`` installed, so an
 #: (unsupported, data-destroying) reverse migrate at least leaves the schema

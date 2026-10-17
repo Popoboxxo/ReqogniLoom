@@ -40,11 +40,14 @@ from __future__ import annotations
 
 import logging
 import os
+from collections.abc import Callable
 from concurrent.futures import (
     ThreadPoolExecutor,
+)
+from concurrent.futures import (
     TimeoutError as FutureTimeoutError,
 )
-from typing import Any, Callable, Dict, Optional, Set, Union
+from typing import Any
 
 from llm_adapter.audit_logger import LlmAuditLogger, extract_token_usage
 from llm_adapter.dispatcher import AsyncTaskDispatcher
@@ -70,13 +73,13 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 # Capabilities that are routed synchronously (validate_artifact only)
-_SYNC_CAPABILITIES: Set[str] = {"validate_artifact"}
+_SYNC_CAPABILITIES: set[str] = {"validate_artifact"}
 
 # Capabilities that are dispatched asynchronously via Celery
-_ASYNC_CAPABILITIES: Set[str] = {"decompose_requirement", "check_consistency", "derive_requirements"}
+_ASYNC_CAPABILITIES: set[str] = {"decompose_requirement", "check_consistency", "derive_requirements"}
 
 # All known capabilities
-_ALL_CAPABILITIES: Set[str] = _SYNC_CAPABILITIES | _ASYNC_CAPABILITIES
+_ALL_CAPABILITIES: set[str] = _SYNC_CAPABILITIES | _ASYNC_CAPABILITIES
 
 #: Error code returned when the caller requests a capability that is gated off
 #: by ``LLM_CAPABILITIES`` (#1148). Deliberately distinct from
@@ -105,7 +108,7 @@ def _sync_timeout_seconds() -> float:
     return sync_timeout_seconds()
 
 
-def _read_enabled_capabilities() -> Set[str]:
+def _read_enabled_capabilities() -> set[str]:
     """Parse LLM_CAPABILITIES env var into a set of active capability names.
 
     Format: comma-separated list, e.g. "validate_artifact,decompose_requirement".
@@ -130,12 +133,12 @@ def _read_enabled_capabilities() -> Set[str]:
 _GENERIC_PROVIDER_ERROR = "The LLM provider reported an error."
 
 
-def _not_configured_response(message: str = "LLM not configured") -> Dict[str, Any]:
+def _not_configured_response(message: str = "LLM not configured") -> dict[str, Any]:
     """Build a LLM_NOT_CONFIGURED error response dict."""
     return {"error": {"code": LLM_NOT_CONFIGURED, "message": message}}
 
 
-def _capability_disabled_response(capability_name: str) -> Dict[str, Any]:
+def _capability_disabled_response(capability_name: str) -> dict[str, Any]:
     """Build a LLM_CAPABILITY_DISABLED error response dict (#1148).
 
     The capability exists and the provider may be perfectly configured — it is
@@ -154,12 +157,12 @@ def _capability_disabled_response(capability_name: str) -> Dict[str, Any]:
     }
 
 
-def _provider_error_response(message: str) -> Dict[str, Any]:
+def _provider_error_response(message: str) -> dict[str, Any]:
     """Build a LLM_PROVIDER_ERROR response dict."""
     return {"error": {"code": LLM_PROVIDER_ERROR, "message": message}}
 
 
-def _token_limit_response(message: str) -> Dict[str, Any]:
+def _token_limit_response(message: str) -> dict[str, Any]:
     """Build a LLM_TOKEN_LIMIT_EXCEEDED response dict (REQ-106).
 
     Includes ``http_status: 429`` so a REST/MCP boundary can map the structured
@@ -218,11 +221,11 @@ class CapabilityRouter:
 
     def __init__(
         self,
-        enabled_capabilities: Optional[Set[str]] = None,
-        audit_logger: Optional[LlmAuditLogger] = None,
-        dispatcher: Optional[AsyncTaskDispatcher] = None,
+        enabled_capabilities: set[str] | None = None,
+        audit_logger: LlmAuditLogger | None = None,
+        dispatcher: AsyncTaskDispatcher | None = None,
     ) -> None:
-        self._enabled: Set[str] = (
+        self._enabled: set[str] = (
             enabled_capabilities
             if enabled_capabilities is not None
             else _read_enabled_capabilities()
@@ -238,7 +241,7 @@ class CapabilityRouter:
         self,
         capability_name: str,
         **kwargs: Any,
-    ) -> Union[LlmResult, Dict[str, Any]]:
+    ) -> LlmResult | dict[str, Any]:
         """Execute an LLM capability by name.
 
         Synchronous capabilities (validate_artifact) return an LlmResult.
@@ -358,8 +361,8 @@ class CapabilityRouter:
         )
 
     def _execute_sync(
-        self, capability_name: str, kwargs: Dict[str, Any]
-    ) -> Union[LlmResult, Dict[str, Any]]:
+        self, capability_name: str, kwargs: dict[str, Any]
+    ) -> LlmResult | dict[str, Any]:
         """Execute a capability synchronously via the provider.
 
         REQ-084: the provider call runs under a hard timeout
@@ -428,7 +431,7 @@ class CapabilityRouter:
     def _call_with_sync_timeout(
         provider_name: str,
         method: Callable[..., Any],
-        kwargs: Dict[str, Any],
+        kwargs: dict[str, Any],
     ) -> Any:
         """Run a sync provider call under the hard LLM sync timeout (REQ-084).
 
@@ -506,8 +509,8 @@ class CapabilityRouter:
     # ------------------------------------------------------------------
 
     def _dispatch_async(
-        self, capability_name: str, kwargs: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        self, capability_name: str, kwargs: dict[str, Any]
+    ) -> dict[str, Any]:
         """Dispatch a long-running capability to Celery and return task_id."""
         try:
             result = self._dispatcher.dispatch_async(capability_name, kwargs)
@@ -563,7 +566,7 @@ class CapabilityRouter:
     # Task status proxy
     # ------------------------------------------------------------------
 
-    def get_task_status(self, task_id: str) -> Dict[str, Any]:
+    def get_task_status(self, task_id: str) -> dict[str, Any]:
         """Proxy task status query to AsyncTaskDispatcher.
 
         Args:
@@ -573,7 +576,7 @@ class CapabilityRouter:
             Dict with keys: task_id, status, and optionally result or error.
         """
         status_result = self._dispatcher.get_task_status(task_id)
-        out: Dict[str, Any] = {
+        out: dict[str, Any] = {
             "task_id": status_result.task_id,
             "status": status_result.status,
         }
@@ -585,6 +588,6 @@ class CapabilityRouter:
 
 
 __all__ = [
-    "CapabilityRouter",
     "LLM_CAPABILITY_DISABLED",
+    "CapabilityRouter",
 ]

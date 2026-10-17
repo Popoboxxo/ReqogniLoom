@@ -76,19 +76,19 @@ from application.base import (
 )
 from baseline.exceptions import GovernanceAuthorityError
 from baseline.waivers import assert_gate_waiver_authority
-from traceability.audit import AuditScope, get_rule_catalogue
-from traceability.audit.finding_filters import (
-    apply_report_filters,
-    normalize_rule_ids,
-    normalize_severities,
-    resolve_artifact_ids_for_type,
-)
 from rest_api.auth_enforcer import get_auth_context
 from rest_api.serializers import (
     SanitizedCharField,
     UnknownFieldRejectionMixin,
     build_error_response,
     detect_lang,
+)
+from traceability.audit import AuditScope, get_rule_catalogue
+from traceability.audit.finding_filters import (
+    apply_report_filters,
+    normalize_rule_ids,
+    normalize_severities,
+    resolve_artifact_ids_for_type,
 )
 
 logger = logging.getLogger(__name__)
@@ -733,8 +733,8 @@ class AuditRuleCatalogView(APIView):
 
 __all__ = [
     "AuditRuleCatalogView",
+    "WorkspaceAuditAiReviewView",
+    "WorkspaceAuditRemediateView",
     "WorkspaceAuditView",
     "WorkspaceAuditWaiverView",
-    "WorkspaceAuditRemediateView",
-    "WorkspaceAuditAiReviewView",
 ]

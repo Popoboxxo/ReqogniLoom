@@ -29,7 +29,7 @@ and the command can run inside its transaction.
 """
 from __future__ import annotations
 
-from typing import List, NamedTuple, Optional
+from typing import NamedTuple
 
 from django.apps import apps
 from django.db.backends.utils import CursorWrapper
@@ -64,7 +64,7 @@ WHERE c.relname = %s AND a.attname = %s AND NOT a.attisdropped
 """
 
 
-def embedding_columns() -> List[EmbeddingColumn]:
+def embedding_columns() -> list[EmbeddingColumn]:
     """Return every ``VectorField`` in the project, discovered via the registry.
 
     Returns:
@@ -85,7 +85,7 @@ def embedding_columns() -> List[EmbeddingColumn]:
     ]
 
 
-def column_type(cursor: CursorWrapper, table: str, column: str) -> Optional[str]:
+def column_type(cursor: CursorWrapper, table: str, column: str) -> str | None:
     """Return the physical type of ``table.column``, or ``None`` if it is absent.
 
     Args:

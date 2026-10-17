@@ -30,10 +30,8 @@ ADR-L3-MC004-03: link_type validated server-side against the resolved,
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, Optional
+from typing import Any
 from uuid import UUID
-
-from auth_tenancy.context import AuthContext
 
 from application.services import (
     ArchitectureService,
@@ -43,7 +41,7 @@ from application.services import (
     TraceLinkService,
     ValidationError,
 )
-
+from auth_tenancy.context import AuthContext
 from mcp_server.protocol_handler import ToolResult
 from mcp_server.tools.base import (
     BaseToolGroup,
@@ -68,8 +66,8 @@ logger = logging.getLogger(__name__)
 
 
 def _arch_el_to_dict(
-    el: Any, status_map: Optional[Dict[str, str]] = None
-) -> Dict[str, Any]:
+    el: Any, status_map: dict[str, str] | None = None
+) -> dict[str, Any]:
     """Serialise an ArchitectureElement ORM object to a dict.
 
     Pass a pre-batched *status_map* (:func:`resolve_status_map`) from list-shaped
@@ -77,7 +75,7 @@ def _arch_el_to_dict(
     instead of N. On the single-item paths it stays ``None`` and
     :func:`resolve_engine_status` keeps its per-item fallback behaviour.
     """
-    result: Dict[str, Any] = {
+    result: dict[str, Any] = {
         "id": str(el.id),
         # Epic #934 WS1: ``uid`` is a visible read-only attribute on the
         # ArchitectureElement definition (the REST serializer returns it); the
@@ -369,8 +367,8 @@ class ArchitectureToolGroup(BaseToolGroup):
 
     def __init__(
         self,
-        service: Optional[ArchitectureService] = None,
-        trace_service: Optional[TraceLinkService] = None,
+        service: ArchitectureService | None = None,
+        trace_service: TraceLinkService | None = None,
     ) -> None:
         self._service = service or ArchitectureService()
         self._trace_service = trace_service or TraceLinkService()
@@ -380,7 +378,7 @@ class ArchitectureToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_get(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """architecture.get — fetch a single ArchitectureElement by UUID."""
         arch_id = require_uuid(params, "id")
@@ -397,7 +395,7 @@ class ArchitectureToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_query(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """architecture.query — list ArchitectureElements by workspace."""
         workspace_id = optional_uuid(params, "workspace_id")
@@ -431,7 +429,7 @@ class ArchitectureToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_create(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """architecture.create — create a new ArchitectureElement (write, audited)."""
         title = require_param(params, "title")
@@ -498,11 +496,11 @@ class ArchitectureToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_update(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """architecture.update — update an ArchitectureElement (write, audited)."""
         arch_id = require_uuid(params, "id")
-        data: Dict[str, Any] = params.get("data") or {}
+        data: dict[str, Any] = params.get("data") or {}
         # expected_version is required for optimistic locking
         expected_version = data.get("expected_version") or params.get("expected_version")
         if expected_version is None:
@@ -516,7 +514,7 @@ class ArchitectureToolGroup(BaseToolGroup):
         # REQ-L1-044: 'parent_id' is optional and tri-state — distinguish
         # "omitted" (leave current parent unchanged) from "set to null"
         # (detach to root), matching the REST partial_update contract.
-        update_kwargs: Dict[str, Any] = {}
+        update_kwargs: dict[str, Any] = {}
         if "parent_id" in data:
             raw_parent_id = data["parent_id"]
             if raw_parent_id is None:
@@ -613,7 +611,7 @@ class ArchitectureToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_link(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """architecture.link — create TraceLink between arch element and target.
 
@@ -680,7 +678,7 @@ class ArchitectureToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_outdate(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """architecture.outdate — soft-delete via the workflow engine (write, audited)."""
         arch_id = require_uuid(params, "id")
@@ -727,7 +725,7 @@ class ArchitectureToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_reactivate(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """architecture.reactivate — restore a previously outdated ArchitectureElement (write, audited)."""
         arch_id = require_uuid(params, "id")
@@ -772,7 +770,7 @@ class ArchitectureToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_decompose(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """architecture.decompose — generate a non-persistent decomposition draft."""
         from application.architecture_decompose_service import (
@@ -814,7 +812,7 @@ class ArchitectureToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_decompose_commit(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """architecture.decompose_commit — persist a reviewed draft atomically."""
         from application.architecture_decompose_service import (

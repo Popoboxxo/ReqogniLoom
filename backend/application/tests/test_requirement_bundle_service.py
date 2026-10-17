@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import contextlib
 import uuid
-from typing import Iterator
+from collections.abc import Iterator
 
 import pytest
 
@@ -385,8 +385,8 @@ class TestArchTreeWalkConstraints:
         from django.db import connection
 
         from application.requirement_bundle_service import (
-            MAX_DEPTH,
             _ARCH_TREE_CTE,
+            MAX_DEPTH,
         )
 
         root = make_architecture_element(workspace, title="Root")

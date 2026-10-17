@@ -19,8 +19,7 @@ Architecture:
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 from baseline.exceptions import (
     DuplicateBaselineNameError,
@@ -51,7 +50,7 @@ class ScopeResolver:
         scope: str,
         workspace_id: uuid.UUID,
         tenant_id: uuid.UUID,
-        document_id: Optional[uuid.UUID] = None,
+        document_id: uuid.UUID | None = None,
     ) -> list[DeltaIndexTuple]:
         """Return (item_id, version, entity_type) tuples for the given scope.
 
@@ -367,7 +366,7 @@ class DeltaIndexBuilder:
     def __init__(
         self,
         store=None,
-        scope_resolver: Optional[ScopeResolver] = None,
+        scope_resolver: ScopeResolver | None = None,
     ) -> None:
         if store is None:
             from baseline.store import get_store
@@ -381,9 +380,9 @@ class DeltaIndexBuilder:
         workspace_id: uuid.UUID,
         name: str,
         tenant_id: uuid.UUID,
-        description: Optional[str] = None,
+        description: str | None = None,
         created_by: str = "",
-        document_id: Optional[uuid.UUID] = None,
+        document_id: uuid.UUID | None = None,
     ) -> uuid.UUID:
         """Build and persist a new Baseline.
 
@@ -433,7 +432,7 @@ class DeltaIndexBuilder:
             name=name,
             description=description,
             created_by=created_by,
-            created_at=datetime.now(tz=timezone.utc),
+            created_at=datetime.now(tz=UTC),
         )
         return self._store.persist_delta_index(
             delta_index=delta_index,
@@ -519,10 +518,10 @@ class DeltaIndexBuilder:
 
 
 # Module-level singleton — lazily initialized
-_builder: "DeltaIndexBuilder | None" = None
+_builder: DeltaIndexBuilder | None = None
 
 
-def get_builder() -> "DeltaIndexBuilder":
+def get_builder() -> DeltaIndexBuilder:
     """Return the module-level DeltaIndexBuilder singleton (lazy init)."""
     global _builder
     if _builder is None:
@@ -531,8 +530,8 @@ def get_builder() -> "DeltaIndexBuilder":
 
 
 __all__ = [
-    "ScopeResolver",
-    "DeltaIndexBuilder",
-    "get_builder",
     "VALID_SCOPES",
+    "DeltaIndexBuilder",
+    "ScopeResolver",
+    "get_builder",
 ]

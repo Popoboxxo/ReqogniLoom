@@ -386,12 +386,11 @@ class TestFetchEntitiesResolvesStatusFromEngine:
     a permanently frozen creation-time value."""
 
     def test_requirement_export_reports_the_engine_state_not_the_stale_column(self):
+        from persistence.models import Artifact, Requirement, Tenant, Workspace
         from persistence.tenancy import TenantContext
         from workflow.lifecycle_manager import StateLifecycleManager
         from workflow.services import create_default_workflow
         from workflow.transition_validator import ValidationResult
-
-        from persistence.models import Artifact, Requirement, Tenant, Workspace
 
         tenant = Tenant.objects.create(name="export-status-tenant", slug="export-status-tenant")
         TenantContext.set_tenant(tenant.id)

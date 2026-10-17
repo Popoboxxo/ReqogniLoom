@@ -9,7 +9,7 @@ from django.utils import timezone
 from application.trace_link_service import AgentSelfConfirmError, TraceLinkService
 from auth_tenancy.context import AuthContext, AuthMethod
 from auth_tenancy.models import ApiKey
-from persistence.models import Artifact, TraceLink, Tenant, User, Workspace
+from persistence.models import Artifact, Tenant, TraceLink, User, Workspace
 from persistence.tenancy import TenantContext
 
 

@@ -26,10 +26,10 @@ source TestCase is itself outdated.
 from __future__ import annotations
 
 import pytest
+from rest_framework.test import APIClient
 
 from persistence.middleware import clear_request_tenant, set_request_tenant
 from persistence.models import Tenant, TraceLink, Workspace
-from rest_framework.test import APIClient
 from traceability.types import LinkType
 
 pytestmark = pytest.mark.django_db
@@ -213,7 +213,6 @@ def test_trace_links_survive_an_issue_soft_delete_and_reactivate(
     # still incidental to what #484 actually tests (soft-delete must not
     # cascade), only *how the row gets created* differs.
     from persistence.models import Issue
-
     from traceability.services import create_trace_link as _te_create_trace_link
 
     set_request_tenant(tenant.id)

@@ -27,13 +27,8 @@ Read scoping (``mcp_server/workspace_scope.py``):
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 from uuid import UUID
-
-from auth_tenancy.context import AuthContext
-
-from mcp_server.protocol_handler import ToolResult
-from mcp_server.tools.base import BaseToolGroup, ParameterError, optional_uuid
 
 from application.tree_display_config_service import (
     SCOPE_USER,
@@ -41,6 +36,9 @@ from application.tree_display_config_service import (
     WRITABLE_SCOPES,
     TreeDisplayConfigService,
 )
+from auth_tenancy.context import AuthContext
+from mcp_server.protocol_handler import ToolResult
+from mcp_server.tools.base import BaseToolGroup, ParameterError, optional_uuid
 from persistence.errors import PermissionDeniedError, ValidationError
 
 #: ``effective`` is a *read* resolution outcome (it walks user → workspace →
@@ -48,7 +46,7 @@ from persistence.errors import PermissionDeniedError, ValidationError
 _READ_SCOPES: tuple[str, ...] = ("effective",) + WRITABLE_SCOPES + ("default",)
 
 
-def _parse_fields(raw: Any) -> Optional[List[Any]]:
+def _parse_fields(raw: Any) -> list[Any] | None:
     """Return the ``fields`` parameter as a list, or ``None`` for a reset.
 
     ``None``/absent and the explicit JSON ``null`` are both "reset this level for
@@ -164,7 +162,7 @@ class TreeDisplayConfigToolGroup(BaseToolGroup):
         return TreeDisplayConfigService()
 
     def _handle_get(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """tree_display_config.get — the effective / per-level selection."""
         scope = str(params.get("scope") or "effective").strip().lower()
@@ -204,7 +202,7 @@ class TreeDisplayConfigToolGroup(BaseToolGroup):
             return ToolResult.error("PERMISSION_DENIED", str(exc))
 
     def _handle_set(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """tree_display_config.set — store/reset one level's selection."""
         scope = str(params.get("scope") or "").strip().lower()
@@ -218,7 +216,7 @@ class TreeDisplayConfigToolGroup(BaseToolGroup):
         item_type = str(item_type).strip()
 
         fields = _parse_fields(params.get("fields"))
-        workspace_id: Optional[UUID] = optional_uuid(params, "workspace_id")
+        workspace_id: UUID | None = optional_uuid(params, "workspace_id")
         if scope == SCOPE_WORKSPACE and workspace_id is None:
             raise ParameterError(
                 "Parameter 'workspace_id' is required for scope 'workspace'."

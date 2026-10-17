@@ -33,7 +33,7 @@ never break an AI call because memory is down.
 from __future__ import annotations
 
 import logging
-from typing import Iterable, Iterator, List, Optional, Tuple
+from collections.abc import Iterable, Iterator
 from uuid import UUID
 
 from memory.backends import MemoryBackend, MemoryEntryRef, get_memory_backend
@@ -75,7 +75,7 @@ def _is_workspace_memory_enabled(workspace_id: UUID) -> bool:
     return True if row is None else row
 
 
-def _as_uuid(value: object) -> Optional[UUID]:
+def _as_uuid(value: object) -> UUID | None:
     """Return *value* as a ``UUID``, or ``None`` when it is not UUID-shaped."""
     if value is None:
         return None
@@ -87,7 +87,7 @@ def _as_uuid(value: object) -> Optional[UUID]:
         return None
 
 
-def _contributor_label(contributor_user_id: Optional[UUID]) -> str:
+def _contributor_label(contributor_user_id: UUID | None) -> str:
     """Resolve a hit's provenance to a short human label (RFC #1002 PR C).
 
     ``MemoryEntry.contributor_user_id`` is a plain UUID (not an FK -- see
@@ -117,7 +117,7 @@ def _render_hit(scope: str, hit: MemoryEntryRef) -> str:
     return f"- [{scope}] {hit.content} (by {contributor}, {date})"
 
 
-def _render_section(scope: str, hits: Iterable[MemoryEntryRef]) -> List[str]:
+def _render_section(scope: str, hits: Iterable[MemoryEntryRef]) -> list[str]:
     """Return the heading + lines for *scope*, or ``[]`` when there are no hits."""
     hits = list(hits)
     if not hits:
@@ -131,7 +131,7 @@ def build_memory_context(
     user_id: UUID,
     query_text: str,
     *,
-    artifact_id: "UUID | str | None" = None,
+    artifact_id: UUID | str | None = None,
     entity_type: str = "",
 ) -> str:
     """Return a rendered memory-context block for *query_text*, or ``""``.
@@ -167,7 +167,7 @@ def build_memory_context(
             return ""
 
         backend: MemoryBackend = get_memory_backend()
-        hits_by_scope: "dict[str, List[MemoryEntryRef]]" = {}
+        hits_by_scope: dict[str, list[MemoryEntryRef]] = {}
         for scope, scope_id in _search_targets(
             artifact_uuid, workspace_id, user_id
         ):
@@ -178,15 +178,15 @@ def build_memory_context(
         logger.warning("build_memory_context failed, degrading to empty context: %s", exc)
         return ""
 
-    lines: List[str] = []
+    lines: list[str] = []
     for scope in _render_order(artifact_uuid):
         lines.extend(_render_section(scope, hits_by_scope.get(scope, [])))
     return "\n".join(lines)
 
 
 def _search_targets(
-    artifact_id: Optional[UUID], workspace_id: UUID, user_id: UUID
-) -> Iterator[Tuple[str, UUID]]:
+    artifact_id: UUID | None, workspace_id: UUID, user_id: UUID
+) -> Iterator[tuple[str, UUID]]:
     """Yield ``(scope, scope_id)`` pairs in artifact-first search order."""
     if artifact_id is not None:
         yield "artifact", artifact_id
@@ -194,7 +194,7 @@ def _search_targets(
     yield "user", user_id
 
 
-def _render_order(artifact_id: Optional[UUID]) -> Iterator[str]:
+def _render_order(artifact_id: UUID | None) -> Iterator[str]:
     """Yield scopes in render order (artifact-first only when requested)."""
     if artifact_id is not None:
         yield "artifact"

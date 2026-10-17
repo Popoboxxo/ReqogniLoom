@@ -10,7 +10,8 @@ import pytest
 
 from application.settings_service import SettingsService
 from auth_tenancy.context import AuthContext
-from persistence.models import Tenant, User, Workspace as PersistenceWorkspace
+from persistence.models import Tenant, User
+from persistence.models import Workspace as PersistenceWorkspace
 from persistence.tenancy import TenantContext
 
 pytestmark = pytest.mark.django_db

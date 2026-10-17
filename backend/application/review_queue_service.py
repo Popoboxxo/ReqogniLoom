@@ -44,14 +44,14 @@ of to the whole workspace.
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable
 from dataclasses import dataclass, field
-from typing import Any, Iterable, Optional
+from typing import Any
 from uuid import UUID
-
-from auth_tenancy.context import AuthContext
 
 from application.base import PermissionDeniedError, ServiceBase
 from application.workspace_service import WorkspaceService
+from auth_tenancy.context import AuthContext
 
 logger = logging.getLogger(__name__)
 
@@ -81,8 +81,8 @@ class PendingReviewItem:
     current_state: str
     workspace_id: str
     is_proposal: bool = False
-    proposed_by: Optional[str] = None
-    proposed_at: Optional[str] = None
+    proposed_by: str | None = None
+    proposed_at: str | None = None
     approval_targets: tuple[str, ...] = field(default=())
 
     def to_dict(self) -> dict[str, Any]:

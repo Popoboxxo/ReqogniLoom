@@ -25,14 +25,15 @@ from uuid import uuid4
 
 import pytest
 
+from application.base import PermissionDeniedError
 from auth_tenancy.context import AuthContext, AuthMethod
 from auth_tenancy.models import (
     ITEM_PERMISSION_NONE,
     ITEM_PERMISSION_READ,
     ITEM_PERMISSION_WRITE,
-    ItemPermission,
     ROLE_ADMIN,
     ROLE_EDITOR,
+    ItemPermission,
 )
 from auth_tenancy.services import (
     NO_RULE_REASON,
@@ -41,10 +42,7 @@ from auth_tenancy.services import (
 )
 from auth_tenancy.services.item_permission import PermissionDecision
 
-from application.base import PermissionDeniedError
-
 from .conftest import active_tenant
-
 
 # ---------------------------------------------------------------------------
 # Fixtures

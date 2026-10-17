@@ -21,8 +21,8 @@ req_id  : REQ-L2-TE-020
 """
 import uuid
 
-from django.db import migrations, models
 import django.db.models.deletion
+from django.db import migrations, models
 
 
 def backfill_artifacts(apps, schema_editor):

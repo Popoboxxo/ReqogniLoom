@@ -50,8 +50,8 @@ from auth_tenancy.models import (
     ROLE_VIEWER,
     UserRole,
 )
-from auth_tenancy.services.authentication import AuthenticationService
 from auth_tenancy.rest import ACCESS_COOKIE_NAME
+from auth_tenancy.services.authentication import AuthenticationService
 from persistence.middleware import clear_request_tenant, set_request_tenant
 from persistence.models import Tenant, User, Workspace
 

@@ -28,7 +28,6 @@ from auth_tenancy.services.permission_cache import (
 )
 from persistence import cache_generation as cache_generation_module
 
-
 ALLOW = PermissionDecision(level="write", reason="workspace-wide rule")
 DENY = PermissionDecision(level="deny", reason="closed-world default")
 

@@ -15,7 +15,6 @@ is what guarantees a deleted artifact's number is never handed out again.
 from __future__ import annotations
 
 import logging
-from typing import Dict, Optional
 from uuid import UUID
 
 from django.db import IntegrityError, transaction
@@ -24,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 #: item_type -> local uid prefix. Mirrors the artifact vocabulary the models and
 #: seeds already use.
-UID_PREFIXES: Dict[str, str] = {
+UID_PREFIXES: dict[str, str] = {
     "StakeholderNeed": "NEED",
     "Requirement": "REQ",
     "ArchitectureElement": "ARCH",
@@ -41,7 +40,7 @@ def uid_prefix(item_type: str) -> str:
     return UID_PREFIXES.get(item_type) or item_type[:6].upper() or "ITEM"
 
 
-def generate_local_uid(item_type: str, workspace_id: UUID | str) -> Optional[str]:
+def generate_local_uid(item_type: str, workspace_id: UUID | str) -> str | None:
     """Allocate the next local ``uid`` for *(workspace, item_type)*.
 
     Opens its own ``transaction.atomic()`` so the locked read/increment cannot

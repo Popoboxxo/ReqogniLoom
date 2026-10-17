@@ -21,7 +21,12 @@ from persistence.models import ArchitectureElement, RequirementLevel
 from traceability.audit import AuditScope, RuleEngine
 from traceability.audit.registry import ARCH_003, TRACE_P4, TRACE_P5
 from traceability.audit.rules import decomposition_consistency  # noqa: F401  (registers rules)
-from traceability.tests.conftest import active_tenant, make_artifact, make_requirement, make_trace_link
+from traceability.tests.conftest import (
+    active_tenant,
+    make_artifact,
+    make_requirement,
+    make_trace_link,
+)
 from traceability.types import LinkType
 
 pytestmark = pytest.mark.django_db

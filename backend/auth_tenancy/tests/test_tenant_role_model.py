@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import UTC
+
 import pytest
 from django.db import IntegrityError
 
@@ -40,12 +42,12 @@ def test_tenant_role_unique_together_blocks_duplicate():
 
 @pytest.mark.django_db
 def test_tenant_role_is_active_reflects_suspension():
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     tenant = Tenant.objects.create(name="T3", slug="tr-model-t3")
     user = User.objects.create(username="tr-user3", email="tr3@t.test", tenant=tenant)
     TenantContext.set_tenant(tenant.id)
     role = TenantRole.objects.create(tenant=tenant, user=user, role=TenantRole.ROLE_ADMIN)
-    role.suspended_at = datetime.now(timezone.utc)
+    role.suspended_at = datetime.now(UTC)
     role.save(update_fields=["suspended_at"])
     assert role.is_active is False

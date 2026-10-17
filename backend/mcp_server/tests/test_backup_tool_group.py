@@ -19,14 +19,11 @@ Covers:
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 from uuid import UUID
 
 import pytest
-
-from auth_tenancy.context import AuthContext, AuthMethod, IdentityClaims
-from auth_tenancy.errors import AuthenticationFailed
 
 from admin_ops.models import BackupStatus, BackupType
 from admin_ops.services import BackupNotFoundError
@@ -34,11 +31,11 @@ from application.base import (
     NotFoundError,
     PermissionDeniedError,
 )
-
+from auth_tenancy.context import AuthContext, AuthMethod, IdentityClaims
+from auth_tenancy.errors import AuthenticationFailed
 from mcp_server.protocol_handler import ERROR_CODE_MAP, ProtocolHandler
 from mcp_server.tool_registry import ToolRegistry
 from mcp_server.tools.backup import BackupToolGroup
-
 
 # ---------------------------------------------------------------------------
 # Shared fixtures
@@ -90,9 +87,9 @@ def _mock_backup(
     row.checksum_sha256 = "0" * 64
     row.error_message = ""
     row.metadata = {}
-    row.completed_at = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+    row.completed_at = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
     row.is_restorable = status_val == BackupStatus.COMPLETED
-    row.created_at = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+    row.created_at = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
     row.created_by_id = UUID("00000000-0000-0000-0000-000000000001")
     return row
 
@@ -101,8 +98,8 @@ def _mock_restore_result(*, backup_id: UUID = None) -> MagicMock:
     """Build a MagicMock that mimics a RestoreResult."""
     r = MagicMock()
     r.backup_id = backup_id or BACKUP_UUID
-    r.started_at = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
-    r.completed_at = datetime(2026, 1, 1, 12, 0, 5, tzinfo=timezone.utc)
+    r.started_at = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
+    r.completed_at = datetime(2026, 1, 1, 12, 0, 5, tzinfo=UTC)
     r.restored_tables = []
     r.rows_per_table = {}
     return r

@@ -18,10 +18,10 @@ from __future__ import annotations
 
 import pytest
 
-from application.ai_derivation_service import AiDerivationService
 from application.ai_derivation_service import (
     PROMPT_TEMPLATE_DEFAULTS as LEGACY_PROMPT_TEMPLATE_DEFAULTS,
 )
+from application.ai_derivation_service import AiDerivationService
 from application.architecture_decompose_service import (
     ARCH_DECOMPOSE_PROMPT_SLOT,
     ARCH_DECOMPOSE_PROMPT_TEMPLATE,

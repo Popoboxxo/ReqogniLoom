@@ -46,7 +46,7 @@ row — the exact silent-degradation shape #794 was about.
 from __future__ import annotations
 
 import logging
-from typing import Iterable, List, Optional
+from collections.abc import Iterable
 from uuid import UUID
 
 from django.core.management.base import BaseCommand, CommandError
@@ -110,7 +110,7 @@ class Command(BaseCommand):
         batch_size = max(1, int(options["batch_size"]))
         dry_run = bool(options["dry_run"])
         force = bool(options["force"])
-        limit: Optional[int] = options["limit"]
+        limit: int | None = options["limit"]
         models = (
             ("requirement", "tracelink", "icd")
             if options["model"] == "all"
@@ -201,7 +201,7 @@ class Command(BaseCommand):
         tenant,
         models: Iterable[str],
         batch_size: int,
-        limit: Optional[int],
+        limit: int | None,
         force: bool,
         dry_run: bool,
         totals: dict,
@@ -232,7 +232,7 @@ class Command(BaseCommand):
         tenant,
         name: str,
         batch_size: int,
-        limit: Optional[int],
+        limit: int | None,
         force: bool,
         dry_run: bool,
         totals: dict,
@@ -264,7 +264,7 @@ class Command(BaseCommand):
                 totals=totals,
             )
 
-    def _embed_batch(self, *, model, name: str, ids: List[UUID], totals: dict) -> None:
+    def _embed_batch(self, *, model, name: str, ids: list[UUID], totals: dict) -> None:
         from llm_adapter.embedding_service import (
             generate_embedding,
             get_embedding_text,

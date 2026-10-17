@@ -33,13 +33,8 @@ Read scoping (``mcp_server/workspace_scope.py``):
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 from uuid import UUID
-
-from auth_tenancy.context import AuthContext
-
-from mcp_server.protocol_handler import ToolResult
-from mcp_server.tools.base import BaseToolGroup, ParameterError, optional_uuid
 
 from application.create_form_config_service import (
     SCOPE_USER,
@@ -47,6 +42,9 @@ from application.create_form_config_service import (
     WRITABLE_SCOPES,
     CreateFormConfigService,
 )
+from auth_tenancy.context import AuthContext
+from mcp_server.protocol_handler import ToolResult
+from mcp_server.tools.base import BaseToolGroup, ParameterError, optional_uuid
 from persistence.errors import PermissionDeniedError, ValidationError
 
 #: ``effective`` is a *read* resolution outcome (it walks user → workspace →
@@ -54,7 +52,7 @@ from persistence.errors import PermissionDeniedError, ValidationError
 _READ_SCOPES: tuple[str, ...] = ("effective",) + WRITABLE_SCOPES + ("default",)
 
 
-def _parse_fields(raw: Any) -> Optional[List[Any]]:
+def _parse_fields(raw: Any) -> list[Any] | None:
     """Return the ``fields`` parameter as a list, or ``None`` for a reset.
 
     ``None``/absent and the explicit JSON ``null`` are both "reset this level for
@@ -233,7 +231,7 @@ class CreateFormConfigToolGroup(BaseToolGroup):
         return CreateFormConfigService()
 
     def _handle_get(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """create_form_definition.get — the effective / per-level form."""
         scope = str(params.get("scope") or "effective").strip().lower()
@@ -273,7 +271,7 @@ class CreateFormConfigToolGroup(BaseToolGroup):
             return ToolResult.error("PERMISSION_DENIED", str(exc))
 
     def _handle_set(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """create_form_definition.set — store/reset one level's form."""
         scope = str(params.get("scope") or "").strip().lower()
@@ -287,7 +285,7 @@ class CreateFormConfigToolGroup(BaseToolGroup):
         item_type = str(item_type).strip()
 
         fields = _parse_fields(params.get("fields"))
-        workspace_id: Optional[UUID] = optional_uuid(params, "workspace_id")
+        workspace_id: UUID | None = optional_uuid(params, "workspace_id")
         if scope == SCOPE_WORKSPACE and workspace_id is None:
             raise ParameterError(
                 "Parameter 'workspace_id' is required for scope 'workspace'."
@@ -312,7 +310,7 @@ class CreateFormConfigToolGroup(BaseToolGroup):
             return ToolResult.error("PERMISSION_DENIED", str(exc))
 
     def _handle_export(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """create_form_definition.export — one level as a versioned document."""
         scope, item_type, workspace_id = self._level_params(params)
@@ -331,7 +329,7 @@ class CreateFormConfigToolGroup(BaseToolGroup):
             return ToolResult.error("PERMISSION_DENIED", str(exc))
 
     def _handle_import(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """create_form_definition.import — load a versioned document into a level."""
         scope, item_type, workspace_id = self._level_params(params)
@@ -355,8 +353,8 @@ class CreateFormConfigToolGroup(BaseToolGroup):
 
     @staticmethod
     def _level_params(
-        params: Dict[str, Any],
-    ) -> "tuple[str, str, Optional[UUID]]":
+        params: dict[str, Any],
+    ) -> tuple[str, str, UUID | None]:
         """Shared ``scope``/``item_type``/``workspace_id`` normalization."""
         scope = str(params.get("scope") or "").strip().lower()
         if scope not in WRITABLE_SCOPES:
@@ -366,7 +364,7 @@ class CreateFormConfigToolGroup(BaseToolGroup):
         item_type = params.get("item_type")
         if not item_type or not str(item_type).strip():
             raise ParameterError("Parameter 'item_type' is required.")
-        workspace_id: Optional[UUID] = optional_uuid(params, "workspace_id")
+        workspace_id: UUID | None = optional_uuid(params, "workspace_id")
         if scope == SCOPE_WORKSPACE and workspace_id is None:
             raise ParameterError(
                 "Parameter 'workspace_id' is required for scope 'workspace'."

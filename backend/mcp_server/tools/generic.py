@@ -3,12 +3,13 @@ import inspect
 import logging
 import re
 import uuid
+from collections.abc import Callable
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any
 
-from application.base import NotFoundError, OptimisticLockError, ValidationError
 from application.artifact_attribute_gateway import artifact_system_fields
+from application.base import NotFoundError, OptimisticLockError, ValidationError
 from auth_tenancy.context import AuthContext
 from mcp_server.tools.base import (
     BaseToolGroup,
@@ -40,7 +41,7 @@ logger = logging.getLogger(__name__)
 # cannot drift when a service adds, renames or defaults a parameter.
 # ---------------------------------------------------------------------------
 
-_JSON_TYPE_BY_NAME: Dict[str, str] = {
+_JSON_TYPE_BY_NAME: dict[str, str] = {
     "str": "string",
     "uuid": "string",
     "datetime": "string",
@@ -63,7 +64,7 @@ _OPTIONAL_RE = re.compile(r"^(?:typing\.)?Optional\[(.+)\]$")
 # but it IS advertised for entities below on `{prefix}.create` (#374): the
 # service accepts an initial ``status`` there, so the enum values are useful
 # to document up front instead of leaving clients to guess.
-_ENUM_FIELDS_BY_PREFIX: Dict[str, Dict[str, str]] = {
+_ENUM_FIELDS_BY_PREFIX: dict[str, dict[str, str]] = {
     "risk": {
         "probability": "Probability",
         "impact": "Impact",
@@ -87,7 +88,7 @@ def _annotation_text(annotation: Any) -> str:
     return getattr(annotation, "__name__", None) or str(annotation)
 
 
-def _json_type_from_annotation(annotation: Any) -> Optional[str]:
+def _json_type_from_annotation(annotation: Any) -> str | None:
     """Map a parameter annotation to a JSON Schema type, or None if unknown."""
     text = _annotation_text(annotation).strip()
     if not text:
@@ -105,7 +106,7 @@ def _json_type_from_annotation(annotation: Any) -> Optional[str]:
     return _JSON_TYPE_BY_NAME.get(base.lower())
 
 
-def _enum_values(prefix: str, field: str) -> Optional[List[str]]:
+def _enum_values(prefix: str, field: str) -> list[str] | None:
     """Return the model's TextChoices values for a known enum field."""
     choices_attr = _ENUM_FIELDS_BY_PREFIX.get(prefix, {}).get(field)
     if choices_attr is None:
@@ -121,7 +122,7 @@ def _enum_values(prefix: str, field: str) -> Optional[List[str]]:
 
 def _fields_from_signature(
     method: Callable[..., Any], *, prefix: str, skip: frozenset[str]
-) -> Tuple[Dict[str, Any], List[str], bool]:
+) -> tuple[dict[str, Any], list[str], bool]:
     """Derive (properties, required, accepts_extra) from a service method.
 
     ``ctx``/``self`` are injected by the tool group, never sent by the client.
@@ -129,8 +130,8 @@ def _fields_from_signature(
     as the JSON Schema ``default`` so callers can see e.g. that
     ``issue.create``'s ``severity`` falls back to "medium".
     """
-    properties: Dict[str, Any] = {}
-    required: List[str] = []
+    properties: dict[str, Any] = {}
+    required: list[str] = []
     accepts_extra = False
 
     for name, param in inspect.signature(method).parameters.items():
@@ -146,7 +147,7 @@ def _fields_from_signature(
         if name == "status" and "update" in getattr(method, "__name__", ""):
             continue
 
-        field: Dict[str, Any] = {}
+        field: dict[str, Any] = {}
         json_type = _json_type_from_annotation(param.annotation)
         if json_type is not None:
             field["type"] = json_type
@@ -406,8 +407,8 @@ class GenericCrudToolGroup(BaseToolGroup):
         return value
 
     def _to_dict(
-        self, obj: Any, *, status_map: Optional[Dict[str, str]] = None
-    ) -> Dict[str, Any]:
+        self, obj: Any, *, status_map: dict[str, str] | None = None
+    ) -> dict[str, Any]:
         """Convert object to dict dynamically.
 
         ``status`` (present for Adr/Risk/Issue/ChangeRequest; absent for
@@ -465,7 +466,7 @@ class GenericCrudToolGroup(BaseToolGroup):
         """
         return bool(getattr(self, "_system_fields_enabled", False))
 
-    def _system_field_values(self, params: Dict[str, Any]) -> Dict[str, Any]:
+    def _system_field_values(self, params: dict[str, Any]) -> dict[str, Any]:
         """Return the Artifact-level system-field values present in *params*.
 
         Empty for item types whose transports do not carry them, so ``Risk``'s
@@ -475,7 +476,7 @@ class GenericCrudToolGroup(BaseToolGroup):
             return {}
         return system_field_values(params)
 
-    def _handle_read(self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str) -> ToolResult:
+    def _handle_read(self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str) -> ToolResult:
         obj_id = require_uuid(params, "id")
         try:
             obj = self._read_method(ctx=auth_context, **{self._read_id_param: obj_id})
@@ -483,7 +484,7 @@ class GenericCrudToolGroup(BaseToolGroup):
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
 
-    def _handle_create(self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str) -> ToolResult:
+    def _handle_create(self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str) -> ToolResult:
         workspace_id = require_uuid(params, "workspace_id")
         split_names = SYSTEM_FIELD_NAMES if self._system_fields_on else ()
         kwargs = {
@@ -524,7 +525,7 @@ class GenericCrudToolGroup(BaseToolGroup):
             logger.exception("%s.create failed", self.prefix)
             return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
 
-    def _handle_update(self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str) -> ToolResult:
+    def _handle_update(self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str) -> ToolResult:
         obj_id = require_uuid(params, "id")
         split_names = SYSTEM_FIELD_NAMES if self._system_fields_on else ()
         kwargs = {
@@ -616,7 +617,7 @@ class GenericCrudToolGroup(BaseToolGroup):
             logger.exception("%s.update failed", self.prefix)
             return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
 
-    def _handle_delete(self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str) -> ToolResult:
+    def _handle_delete(self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str) -> ToolResult:
         obj_id = require_uuid(params, "id")
         try:
             self._delete_method(ctx=auth_context, **{self._delete_id_param: obj_id})
@@ -639,7 +640,7 @@ class GenericCrudToolGroup(BaseToolGroup):
         obj = self._read_method(ctx=auth_context, **{self._read_id_param: obj_id})
         return obj.workspace_id
 
-    def _handle_outdate(self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str) -> ToolResult:
+    def _handle_outdate(self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str) -> ToolResult:
         obj_id = require_uuid(params, "id")
         reason = params.get("reason", "")
         from workflow.services import outdate
@@ -661,7 +662,7 @@ class GenericCrudToolGroup(BaseToolGroup):
             return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
         return ToolResult.ok({"id": str(obj_id), "status": "outdated"})
 
-    def _handle_reactivate(self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str) -> ToolResult:
+    def _handle_reactivate(self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str) -> ToolResult:
         obj_id = require_uuid(params, "id")
         from workflow.services import reactivate
 
@@ -683,7 +684,7 @@ class GenericCrudToolGroup(BaseToolGroup):
             return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
         return ToolResult.ok({"id": str(obj_id), "status": result.new_state})
 
-    def _handle_query(self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str) -> ToolResult:
+    def _handle_query(self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str) -> ToolResult:
         workspace_id = require_uuid(params, "workspace_id")
         include_outdated = params.get("include_outdated", False)
         # #1147 B3: a client-supplied `uid` used to be silently discarded —

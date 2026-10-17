@@ -20,7 +20,7 @@ req_id  : REQ-107 (SSE event ids + Last-Event-ID replay)
 from __future__ import annotations
 
 import json
-from typing import AsyncGenerator, List, Optional
+from collections.abc import AsyncGenerator
 from unittest import mock
 
 from asgiref.sync import async_to_sync
@@ -30,25 +30,24 @@ from mcp_server import sse_pubsub
 from mcp_server.sse_pubsub import EVENT_BUFFER_MAX
 from mcp_server.views import McpSseTransportView
 
-
 _API_KEY = "rfk_test_key_value"
 
 
 class _FakePipeline:
     """Minimal Redis pipeline stand-in that records and applies operations."""
 
-    def __init__(self, redis: "_FakeRedis") -> None:
+    def __init__(self, redis: _FakeRedis) -> None:
         self._redis = redis
 
-    def rpush(self, key: str, value: str) -> "_FakePipeline":
+    def rpush(self, key: str, value: str) -> _FakePipeline:
         self._redis.rpush(key, value)
         return self
 
-    def ltrim(self, key: str, start: int, end: int) -> "_FakePipeline":
+    def ltrim(self, key: str, start: int, end: int) -> _FakePipeline:
         self._redis.ltrim(key, start, end)
         return self
 
-    def expire(self, key: str, ttl: int) -> "_FakePipeline":
+    def expire(self, key: str, ttl: int) -> _FakePipeline:
         return self
 
     def execute(self) -> None:
@@ -152,9 +151,9 @@ def test_get_buffered_events_filters_by_id() -> None:
 # ---------------------------------------------------------------------------
 
 
-async def _drain(gen: AsyncGenerator[str, None], stop_after: int) -> List[str]:
+async def _drain(gen: AsyncGenerator[str, None], stop_after: int) -> list[str]:
     """Collect up to ``stop_after`` chunks, then close the generator."""
-    chunks: List[str] = []
+    chunks: list[str] = []
     async for chunk in gen:
         chunks.append(chunk)
         if len(chunks) >= stop_after:
@@ -214,7 +213,7 @@ def test_get_handler_reads_last_event_id_and_resumes_session() -> None:
     captured: dict = {}
 
     def _fake_generator(
-        session_id: str, endpoint_url: str, last_event_id: Optional[int] = None
+        session_id: str, endpoint_url: str, last_event_id: int | None = None
     ) -> AsyncGenerator[str, None]:
         captured["session_id"] = session_id
         captured["last_event_id"] = last_event_id
@@ -258,7 +257,7 @@ def test_get_handler_mints_new_session_when_binding_mismatches() -> None:
     captured: dict = {}
 
     def _fake_generator(
-        session_id: str, endpoint_url: str, last_event_id: Optional[int] = None
+        session_id: str, endpoint_url: str, last_event_id: int | None = None
     ) -> AsyncGenerator[str, None]:
         captured["session_id"] = session_id
 

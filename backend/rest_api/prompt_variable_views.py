@@ -69,7 +69,7 @@ class _PromptVariableAdminMixin:
             status=status.HTTP_403_FORBIDDEN,
         )
 
-    def _parse_workspace_id(self, request: Request) -> "UUID | None":
+    def _parse_workspace_id(self, request: Request) -> UUID | None:
         """Return the ``?workspace_id=`` scope, or ``None`` for tenant-global.
 
         Raises:

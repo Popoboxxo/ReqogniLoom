@@ -4,16 +4,12 @@ StakeholderNeedService — Stakeholder Need CRUD.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 from uuid import UUID
 
-from auth_tenancy.context import AuthContext
 from django.db.models import F, Q
-from persistence.models import Artifact, StakeholderNeed, Tenant, Workspace
-from persistence.transactions import atomic_transaction
-from workflow import state_reader
 
 from application.artifact_service import (
     _clean_custom_fields,
@@ -21,16 +17,20 @@ from application.artifact_service import (
     snapshot_versioned_fields,
 )
 from application.artifact_version_service import ArtifactVersionService, snapshot_fields
-from application.local_uid import generate_local_uid
 from application.base import (
     NotFoundError,
     ServiceBase,
     ValidationError,
 )
+from application.local_uid import generate_local_uid
 from application.optimistic_lock import (
     assert_expected_version,
     lock_for_version_check,
 )
+from auth_tenancy.context import AuthContext
+from persistence.models import Artifact, StakeholderNeed, Tenant, Workspace
+from persistence.transactions import atomic_transaction
+from workflow import state_reader
 
 logger = logging.getLogger(__name__)
 
@@ -43,13 +43,13 @@ class StakeholderNeedDTO:
     id: UUID
     workspace_id: UUID
     artifact_id: UUID  # REQ-001: required by diff/versions endpoints in views.py
-    parent_id: Optional[UUID]
+    parent_id: UUID | None
     title: str
     description: str
     category: str
     status: str
-    moscow_priority: Optional[str]
-    uid: Optional[str]
+    moscow_priority: str | None
+    uid: str | None
     suspect: bool
     version: int
     created_at: datetime
@@ -71,7 +71,7 @@ class StakeholderNeedDTO:
     @classmethod
     def from_orm(
         cls, need: StakeholderNeed, *, status: str | None = None
-    ) -> "StakeholderNeedDTO":
+    ) -> StakeholderNeedDTO:
         """Build a DTO. ``status`` comes from the workflow engine (Phase 1).
 
         Pass a pre-resolved *status* when building many DTOs in one pass
@@ -227,7 +227,7 @@ class StakeholderNeedService(ServiceBase):
         workspace_id: UUID | str,
         include_deleted: bool = False,
         search: str | None = None,
-    ) -> List[StakeholderNeedDTO]:
+    ) -> list[StakeholderNeedDTO]:
         """Return StakeholderNeeds in workspace_id.
 
         REQ-006: Excludes soft-deleted needs (lifecycle_status='deleted') by default.
@@ -428,7 +428,7 @@ class StakeholderNeedService(ServiceBase):
             )
         )
 
-    def derive_requirements_async(self, ctx: AuthContext, need_id: UUID | str) -> Dict[str, Any]:
+    def derive_requirements_async(self, ctx: AuthContext, need_id: UUID | str) -> dict[str, Any]:
         """Trigger an async LLM task to derive system requirements from a stakeholder need.
 
         Returns:

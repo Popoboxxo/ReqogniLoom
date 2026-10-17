@@ -81,8 +81,6 @@ against ``workflow.services.outdated_item_ids`` (state lives only in
 """
 from __future__ import annotations
 
-from typing import Dict, FrozenSet, List
-
 from django.db.models import Q
 
 from persistence.models import (
@@ -93,6 +91,8 @@ from persistence.models import (
 )
 from traceability.audit.hierarchy import (
     hierarchy_cycle_nodes as _hierarchy_cycle_nodes,
+)
+from traceability.audit.hierarchy import (
     root_requirement_ids as _root_requirement_ids,
 )
 from traceability.audit.registry import (
@@ -118,7 +118,7 @@ from workflow.services import outdated_item_ids
 # ---------------------------------------------------------------------------
 
 
-def _active_requirements(context: AuditContext) -> Dict[str, str]:
+def _active_requirements(context: AuditContext) -> dict[str, str]:
     """Return ``{artifact_id: title}`` for active, non-L4 Requirements.
 
     Datenmodell-Konsolidierung Phase 1: "active" is resolved through
@@ -154,7 +154,7 @@ def _active_requirements(context: AuditContext) -> Dict[str, str]:
     }
 
 
-def _active_stakeholder_need_ids(context: AuditContext) -> FrozenSet[str]:
+def _active_stakeholder_need_ids(context: AuditContext) -> frozenset[str]:
     """Return the artifact-id set of active StakeholderNeeds (L0).
 
     Datenmodell-Konsolidierung Phase 1: StakeholderNeed's soft-delete state
@@ -185,7 +185,7 @@ def _active_stakeholder_need_ids(context: AuditContext) -> FrozenSet[str]:
     )
 
 
-def _active_architecture_elements(context: AuditContext) -> Dict[str, str]:
+def _active_architecture_elements(context: AuditContext) -> dict[str, str]:
     """Return ``{artifact_id: title}`` for active ArchitectureElements."""
     qs = ArchitectureElement.unscoped.filter(
         tenant_id=context.tenant_id,
@@ -198,10 +198,10 @@ def _active_architecture_elements(context: AuditContext) -> Dict[str, str]:
 
 
 def _sources_by_link_type(
-    context: AuditContext, link_types: FrozenSet[str]
-) -> Dict[str, set]:
+    context: AuditContext, link_types: frozenset[str]
+) -> dict[str, set]:
     """Return ``{source_id: {target_id, ...}}`` for links of *link_types*."""
-    result: Dict[str, set] = {}
+    result: dict[str, set] = {}
     for link in context.iter_trace_links():
         if link["link_type"] not in link_types:
             continue
@@ -216,7 +216,7 @@ def _sources_by_link_type(
 _MAX_LISTED_CYCLE_NODES = 8
 
 
-def _describe_cycle_nodes(requirements: Dict[str, str], cycle_ids: FrozenSet[str]) -> str:
+def _describe_cycle_nodes(requirements: dict[str, str], cycle_ids: frozenset[str]) -> str:
     """Render the cyclic Requirements as ``Title (id)``, capped for readability."""
     listed = ", ".join(
         f"'{requirements[node_id]}' ({node_id})"
@@ -229,15 +229,15 @@ def _describe_cycle_nodes(requirements: Dict[str, str], cycle_ids: FrozenSet[str
 
 
 def _targets_by_link_type(
-    context: AuditContext, link_types: FrozenSet[str]
-) -> Dict[str, set]:
+    context: AuditContext, link_types: frozenset[str]
+) -> dict[str, set]:
     """Return ``{target_id: {source_id, ...}}`` for links of *link_types*.
 
     The reverse index of :func:`_sources_by_link_type`, for rules that have to
     read an edge from its target side (TRACE-P3 and the incoming
     ``allocated-to`` link).
     """
-    result: Dict[str, set] = {}
+    result: dict[str, set] = {}
     for link in context.iter_trace_links():
         if link["link_type"] not in link_types:
             continue
@@ -298,7 +298,7 @@ class SystemRequirementDerivesFromNeedRule(Rule):
         "StakeholderNeed it addresses."
     )
 
-    def check(self, context: AuditContext) -> List[Finding]:
+    def check(self, context: AuditContext) -> list[Finding]:
         requirements = _active_requirements(context)
         if not requirements:
             return []
@@ -309,7 +309,7 @@ class SystemRequirementDerivesFromNeedRule(Rule):
         if not root_ids and not cycle_ids:
             return []
 
-        findings: List[Finding] = []
+        findings: list[Finding] = []
         if cycle_ids:
             findings.append(
                 Finding(
@@ -387,7 +387,7 @@ class RequirementOrphanCheckRule(Rule):
         "derives from."
     )
 
-    def check(self, context: AuditContext) -> List[Finding]:
+    def check(self, context: AuditContext) -> list[Finding]:
         requirements = _active_requirements(context)
         if not requirements:
             return []
@@ -398,7 +398,7 @@ class RequirementOrphanCheckRule(Rule):
             context, frozenset({LinkType.DERIVES_FROM.value})
         )
 
-        findings: List[Finding] = []
+        findings: list[Finding] = []
         for req_id, title in sorted(requirements.items()):
             targets = derives_from.get(req_id, set())
             if targets & upstream_ids:
@@ -482,7 +482,7 @@ class RequirementAllocatedToArchitectureRule(Rule):
         """
         return Severity.WARNING
 
-    def check(self, context: AuditContext) -> List[Finding]:
+    def check(self, context: AuditContext) -> list[Finding]:
         requirements = _active_requirements(context)
         if not requirements:
             return []
@@ -492,7 +492,7 @@ class RequirementAllocatedToArchitectureRule(Rule):
             context, frozenset({LinkType.ALLOCATED_TO.value})
         )
 
-        findings: List[Finding] = []
+        findings: list[Finding] = []
         for req_id, title in sorted(requirements.items()):
             targets = allocated_to.get(req_id, set())
             if targets & arch_ids:
@@ -564,7 +564,7 @@ class ArchitectureElementSatisfiesRequirementRule(Rule):
         "element if it is not needed."
     )
 
-    def check(self, context: AuditContext) -> List[Finding]:
+    def check(self, context: AuditContext) -> list[Finding]:
         elements = _active_architecture_elements(context)
         if not elements:
             return []
@@ -577,7 +577,7 @@ class ArchitectureElementSatisfiesRequirementRule(Rule):
             context, frozenset({LinkType.ALLOCATED_TO.value})
         )
 
-        findings: List[Finding] = []
+        findings: list[Finding] = []
         for ae_id, title in sorted(elements.items()):
             justifying = allocated_from.get(ae_id, set())
             if justifying & requirement_ids:
@@ -597,8 +597,8 @@ class ArchitectureElementSatisfiesRequirementRule(Rule):
 
 
 __all__ = [
-    "SystemRequirementDerivesFromNeedRule",
-    "RequirementOrphanCheckRule",
-    "RequirementAllocatedToArchitectureRule",
     "ArchitectureElementSatisfiesRequirementRule",
+    "RequirementAllocatedToArchitectureRule",
+    "RequirementOrphanCheckRule",
+    "SystemRequirementDerivesFromNeedRule",
 ]

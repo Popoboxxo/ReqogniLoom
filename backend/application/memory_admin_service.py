@@ -27,7 +27,7 @@ a view-level coercion loop that a cached response would have to repeat.
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone as dt_timezone
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
@@ -497,7 +497,7 @@ class MemoryAdminService(ServiceBase):
 
         merged.sort(
             key=lambda row: (
-                row["created_at"] or datetime.min.replace(tzinfo=dt_timezone.utc),
+                row["created_at"] or datetime.min.replace(tzinfo=UTC),
                 row["id"],
             ),
             reverse=True,
@@ -665,7 +665,7 @@ class MemoryAdminService(ServiceBase):
 
 
 __all__ = [
-    "MemoryAdminService",
     "CLUSTER_SIMILARITY_THRESHOLD",
     "MAX_PROJECTION_POINTS",
+    "MemoryAdminService",
 ]

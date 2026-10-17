@@ -36,7 +36,6 @@ from django.db import models
 from persistence.models import TenantScopedModel
 from persistence.tenancy import TenantManager, UnscopedManager
 
-
 # ---------------------------------------------------------------------------
 # Append-only manager — COMP-AL-001 / REQ-L2-AL-003
 # ---------------------------------------------------------------------------

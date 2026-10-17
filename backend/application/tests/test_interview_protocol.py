@@ -5,7 +5,6 @@ import uuid
 
 import pytest
 
-from auth_tenancy.context import AuthContext, AuthMethod
 from application.base import NotFoundError
 from application.interview_protocol import (
     INTERVIEW_PROTOCOL_DEFAULTS,
@@ -13,6 +12,7 @@ from application.interview_protocol import (
     get_protocol,
     parse_protocol_yaml,
 )
+from auth_tenancy.context import AuthContext, AuthMethod
 from persistence.middleware import clear_request_tenant, set_request_tenant
 from persistence.models import PromptTemplate, Tenant, User, Workspace
 

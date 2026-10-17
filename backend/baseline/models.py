@@ -278,7 +278,7 @@ class BaselineGateWaiver(TenantScopedModel):
 
 
 __all__ = [
-    "BaselineSnapshot",
     "BaselineDeltaIndexEntry",
     "BaselineGateWaiver",
+    "BaselineSnapshot",
 ]

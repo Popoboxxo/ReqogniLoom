@@ -9,12 +9,14 @@ req_id  : REQ-L2-MC-004
 """
 from __future__ import annotations
 
+from datetime import UTC
+
 import pytest
 
 from auth_tenancy.context import AuthContext
+from link_types.workspace_store import provision_workspace_link_types
 from persistence.tenancy import TenantContext
 from workflow.services import create_default_workflow
-from link_types.workspace_store import provision_workspace_link_types
 
 pytestmark = pytest.mark.django_db
 
@@ -394,9 +396,10 @@ def test_get_context_test_pass_count_ignores_null_executed_at_placeholder(tenant
 
     Verifies fix using F("executed_at").desc(nulls_last=True).
     """
-    from datetime import datetime, timezone
-    from persistence.models import Artifact, TestCase, TestRun, TestRunResult, Workspace
+    from datetime import datetime
+
     from application.test_service import TestService
+    from persistence.models import Artifact, TestCase, TestRun, TestRunResult, Workspace
 
     tenant, workspace, ctx = tenant_workspace_ctx
     _ensure_workflow(tenant, workspace, "standard", "TestCase")
@@ -433,7 +436,7 @@ def test_get_context_test_pass_count_ignores_null_executed_at_placeholder(tenant
             test_run=test_run,
             test_case_id=test_case_id,
             status="passed",
-            executed_at=datetime.now(timezone.utc),
+            executed_at=datetime.now(UTC),
         )
 
     finally:
@@ -835,8 +838,8 @@ def test_get_context_summary_depth_is_truncated_under_budget(
     import json
 
     from mcp_server.tools.cross_cutting import (
-        CrossCuttingToolGroup,
         DEFAULT_CONTEXT_TOKEN_BUDGETS,
+        CrossCuttingToolGroup,
     )
 
     workspace_id, tenant_id = workspace_with_many_requirements
@@ -862,10 +865,9 @@ def test_workspace_can_override_token_budget(workspace_with_data, auth_ctx):
     ``ai_prompts["context_token_budgets"]`` override must be honoured."""
     import json
 
+    from mcp_server.tools.cross_cutting import CrossCuttingToolGroup
     from persistence.models import Workspace
     from persistence.tenancy import TenantContext
-
-    from mcp_server.tools.cross_cutting import CrossCuttingToolGroup
 
     workspace_id, tenant_id = workspace_with_data
 
@@ -1384,8 +1386,8 @@ def test_create_link_is_a_write_tool():
 @pytest.mark.django_db
 def test_workspace_list_returns_id_name_description(tenant_workspace_ctx):
     """workspace.list returns {id, name, description} for the caller's tenant."""
-    from persistence.models import Workspace
     from mcp_server.tools.cross_cutting import CrossCuttingToolGroup
+    from persistence.models import Workspace
 
     tenant, workspace, ctx = tenant_workspace_ctx
     TenantContext.set_tenant(tenant.id)
@@ -1432,8 +1434,8 @@ def test_workspace_list_is_tenant_isolated(tenant_workspace_ctx):
 @pytest.mark.django_db
 def test_workspace_list_excludes_inactive_by_default(tenant_workspace_ctx):
     """Closed (is_active=False) workspaces are hidden unless include_inactive=true."""
-    from persistence.models import Workspace
     from mcp_server.tools.cross_cutting import CrossCuttingToolGroup
+    from persistence.models import Workspace
 
     tenant, workspace, ctx = tenant_workspace_ctx
     TenantContext.set_tenant(tenant.id)

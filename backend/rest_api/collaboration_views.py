@@ -22,7 +22,6 @@ from rest_framework.views import APIView
 from application.comment_service import CommentService
 from application.notification_service import NotificationService
 from persistence.errors import NotFoundError, PermissionDeniedError, ValidationError
-
 from rest_api.auth_enforcer import get_auth_context
 from rest_api.serializers import (
     CommentSerializer,
@@ -261,8 +260,8 @@ class NotificationViewSet(BaseEntityViewSet):
 
 
 __all__ = [
+    "DEFAULT_NOTIFICATION_LIMIT",
     "ArtifactCommentsView",
     "CommentViewSet",
-    "DEFAULT_NOTIFICATION_LIMIT",
     "NotificationViewSet",
 ]

@@ -86,7 +86,7 @@ automatically.
 """
 from __future__ import annotations
 
-from typing import List, NamedTuple, Optional, Tuple
+from typing import NamedTuple
 
 from django.core.management.base import BaseCommand, CommandError
 from django.db import connection, transaction
@@ -155,12 +155,12 @@ class _HnswSpec(NamedTuple):
     """
 
     name: str
-    m: Optional[int]
-    ef_construction: Optional[int]
-    opclass: Optional[str]
+    m: int | None
+    ef_construction: int | None
+    opclass: str | None
 
 
-def _hnsw_specs(column: EmbeddingColumn) -> List[_HnswSpec]:
+def _hnsw_specs(column: EmbeddingColumn) -> list[_HnswSpec]:
     """Return the HNSW indexes declared on ``column``'s model, if any."""
     return [
         _HnswSpec(
@@ -241,10 +241,10 @@ class Command(BaseCommand):
             )
             return
 
-        already: List[EmbeddingColumn] = []
-        pending: List[Tuple[EmbeddingColumn, str]] = []
-        missing: List[EmbeddingColumn] = []
-        non_null_counts: List[Tuple[str, int]] = []
+        already: list[EmbeddingColumn] = []
+        pending: list[tuple[EmbeddingColumn, str]] = []
+        missing: list[EmbeddingColumn] = []
+        non_null_counts: list[tuple[str, int]] = []
 
         # Introspect before touching anything: the non-NULL counts must be
         # taken at the OLD width, and a missing column aborts the whole run

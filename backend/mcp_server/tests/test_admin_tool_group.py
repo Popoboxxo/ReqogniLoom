@@ -16,22 +16,18 @@ Covers:
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 from uuid import UUID
-
-
-from auth_tenancy.context import AuthContext, AuthMethod
 
 from application.base import (
     NotFoundError,
     PermissionDeniedError,
     ValidationError,
 )
-
+from auth_tenancy.context import AuthContext, AuthMethod
 from mcp_server.protocol_handler import ToolResult
 from mcp_server.tools.admin import AdminToolGroup
-
 
 # ---------------------------------------------------------------------------
 # Shared fixtures
@@ -110,7 +106,7 @@ class TestAdminToolGroup:
     @patch("mcp_server.tools.admin.write_mcp_audit")
     def test_workspace_close_calls_service_and_audits(self, mock_audit):
         group, svc, _ = self._group()
-        ws = _mock_workspace(is_active=False, closed_at=datetime.now(timezone.utc))
+        ws = _mock_workspace(is_active=False, closed_at=datetime.now(UTC))
         svc.close_workspace.return_value = ws
 
         result = group.execute_tool(
@@ -479,7 +475,7 @@ class TestAdminToolGroup:
         """Lifecycle tools must be handled locally — the wrapped
         CrossCuttingToolGroup must NOT be invoked for them."""
         group, svc, cross_cutting = self._group()
-        ws = _mock_workspace(is_active=False, closed_at=datetime.now(timezone.utc))
+        ws = _mock_workspace(is_active=False, closed_at=datetime.now(UTC))
         svc.close_workspace.return_value = ws
 
         with patch("mcp_server.tools.admin.write_mcp_audit"):

@@ -20,7 +20,6 @@ this module is importable from services, REST and MCP alike.
 from __future__ import annotations
 
 import logging
-from typing import FrozenSet, Optional
 
 from django.conf import settings
 
@@ -37,7 +36,7 @@ FALLBACK_DECOMPOSITION_LINK_TYPE = "decomposes"
 def _resolve(
     setting_name: str,
     fallback: str,
-    allowed: Optional[FrozenSet[str]] = None,
+    allowed: frozenset[str] | None = None,
 ) -> str:
     """Resolve *setting_name* to a valid link type, else *fallback*.
 

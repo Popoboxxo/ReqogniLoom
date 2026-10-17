@@ -22,8 +22,7 @@ from __future__ import annotations
 
 import csv
 import json
-from datetime import datetime, timedelta
-from datetime import timezone as dt_timezone
+from datetime import UTC, datetime, timedelta
 from io import StringIO
 from unittest.mock import patch
 from uuid import uuid4
@@ -184,7 +183,7 @@ def _snapshot() -> dict[str, tuple]:
 
 
 def _utc(year: int, month: int, day: int, hour: int = 12) -> datetime:
-    return datetime(year, month, day, hour, tzinfo=dt_timezone.utc)
+    return datetime(year, month, day, hour, tzinfo=UTC)
 
 
 def _day_after_the_rule(hour: int = 9) -> datetime:
@@ -194,7 +193,7 @@ def _day_after_the_rule(hour: int = 9) -> datetime:
     meaning "after the effective date" if the dated rule name ever moves.
     """
     day = LEGACY_KEY_ROTATION_RULE.effective_date + timedelta(days=1)
-    return datetime(day.year, day.month, day.day, hour, tzinfo=dt_timezone.utc)
+    return datetime(day.year, day.month, day.day, hour, tzinfo=UTC)
 
 
 def _compliant_attributes(fence: list[str] | None = None) -> dict:

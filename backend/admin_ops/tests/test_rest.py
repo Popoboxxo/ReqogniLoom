@@ -19,7 +19,7 @@ from __future__ import annotations
 import hashlib
 import os
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 from uuid import UUID
 
@@ -31,15 +31,14 @@ from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory
 
 from admin_ops.models import BackupMetadata, BackupStatus, BackupType
-from auth_tenancy.context import AuthContext, AuthMethod
 from application.base import (
     NotFoundError,
     PermissionDeniedError,
     ValidationError,
 )
+from auth_tenancy.context import AuthContext, AuthMethod
 
 from .conftest import active_tenant
-
 
 # ---------------------------------------------------------------------------
 # Shared test data
@@ -121,9 +120,9 @@ def _mock_backup(
     row.checksum_sha256 = "0" * 64
     row.error_message = ""
     row.metadata = {}
-    row.completed_at = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+    row.completed_at = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
     row.is_restorable = is_restorable
-    row.created_at = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+    row.created_at = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
     row.created_by_id = _MOCK_USER_ID
     return row
 
@@ -132,8 +131,8 @@ def _mock_restore_result(*, backup_id: UUID = None) -> MagicMock:
     """Build a MagicMock that mimics a RestoreResult."""
     r = MagicMock()
     r.backup_id = backup_id or VALID_BACKUP_ID
-    r.started_at = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
-    r.completed_at = datetime(2026, 1, 1, 12, 0, 5, tzinfo=timezone.utc)
+    r.started_at = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
+    r.completed_at = datetime(2026, 1, 1, 12, 0, 5, tzinfo=UTC)
     r.restored_tables = []
     r.rows_per_table = {}
     return r
@@ -585,7 +584,7 @@ class TestRBACWiring:
 
     def test_workspace_config_is_admin_only(self):
         """WORKSPACE_CONFIG is admin-only in the RBAC matrix."""
-        from auth_tenancy.services import Operation, AuthorizationService
+        from auth_tenancy.services import AuthorizationService, Operation
 
         authz = AuthorizationService()
         # Editor denied

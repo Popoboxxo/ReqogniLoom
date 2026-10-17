@@ -31,7 +31,6 @@ from baseline.services import diff as baseline_diff
 from baseline.state_capture import capture_states
 from baseline.types import DeltaIndexTuple
 
-
 # ---------------------------------------------------------------------------
 # Pure unit tests — classification logic
 # ---------------------------------------------------------------------------

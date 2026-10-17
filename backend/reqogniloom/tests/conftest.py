@@ -12,7 +12,7 @@ explicitly (or stub ``reqogniloom.health._run_required_checks`` wholesale).
 """
 from __future__ import annotations
 
-from typing import Iterator
+from collections.abc import Iterator
 
 import pytest
 

@@ -24,14 +24,13 @@ import pytest
 from application.base import NotFoundError, PermissionDeniedError, ValidationError
 from application.test_service import (
     DEFAULT_TEST_TYPE,
-    TestService,
     VALID_EXECUTION_STATUSES,
     VALID_TEST_TYPES,
+    TestService,
     normalize_test_type,
 )
 from auth_tenancy.context import AuthContext
 from persistence.models import TestCase
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -279,7 +278,8 @@ class TestCreateTestCase:
 
 def _real_setup(name: str):
     """Tenant + workspace + AuthContext for a real-DB TestService round-trip."""
-    from persistence.models import Tenant, User, Workspace as PersistenceWorkspace
+    from persistence.models import Tenant, User
+    from persistence.models import Workspace as PersistenceWorkspace
 
     tenant = Tenant.objects.create(name=name, slug=name)
     user = User.objects.create(

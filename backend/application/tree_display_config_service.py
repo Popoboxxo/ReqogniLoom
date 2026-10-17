@@ -38,9 +38,17 @@ Placement mirrors ``application.display_preference_service``: Layer 2, so the
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 from uuid import UUID
 
+from application.base import ServiceBase
+from attribute_definitions.tree_fields import (
+    DEFAULT_TREE_DISPLAY_FIELDS,
+    TreeFieldError,
+    field_catalog,
+    merge_tree_fields,
+    normalize_tree_fields,
+)
 from auth_tenancy.context import AuthContext
 from auth_tenancy.models import (
     ROLE_ADMIN,
@@ -49,16 +57,7 @@ from auth_tenancy.models import (
     TreeDisplayConfig,
     UserDisplayPreference,
 )
-from attribute_definitions.tree_fields import (
-    DEFAULT_TREE_DISPLAY_FIELDS,
-    TreeFieldError,
-    field_catalog,
-    merge_tree_fields,
-    normalize_tree_fields,
-)
 from persistence.errors import ValidationError
-
-from application.base import ServiceBase
 
 SCOPE_USER = "user"
 SCOPE_WORKSPACE = "workspace"
@@ -81,9 +80,9 @@ class TreeDisplayConfigService(ServiceBase):
         self,
         ctx: AuthContext,
         *,
-        item_type: Optional[str] = None,
-        workspace_id: Optional[UUID] = None,
-    ) -> List[Dict[str, Any]]:
+        item_type: str | None = None,
+        workspace_id: UUID | None = None,
+    ) -> list[dict[str, Any]]:
         """Return the selectable fields for *item_type* (built-in + custom).
 
         Custom attribute names are merged in best-effort from the workspace's
@@ -102,8 +101,8 @@ class TreeDisplayConfigService(ServiceBase):
         ctx: AuthContext,
         *,
         item_type: str,
-        workspace_id: Optional[UUID] = None,
-    ) -> Dict[str, Any]:
+        workspace_id: UUID | None = None,
+    ) -> dict[str, Any]:
         """Return the *effective* field selection for ``(item_type, workspace)``.
 
         Resolution order is ``user > workspace > global > default``. The
@@ -111,7 +110,7 @@ class TreeDisplayConfigService(ServiceBase):
         show "inherited" vs "set here".
         """
         self._set_tenant_context(ctx)
-        levels: tuple[tuple[str, Dict[str, Any]], ...] = (
+        levels: tuple[tuple[str, dict[str, Any]], ...] = (
             (SCOPE_USER, self._user_map(ctx)),
             (SCOPE_WORKSPACE, self._workspace_map(workspace_id)),
             (SCOPE_GLOBAL, self._global_map()),
@@ -141,9 +140,9 @@ class TreeDisplayConfigService(ServiceBase):
         ctx: AuthContext,
         *,
         scope: str,
-        item_type: Optional[str] = None,
-        workspace_id: Optional[UUID] = None,
-    ) -> Dict[str, Any]:
+        item_type: str | None = None,
+        workspace_id: UUID | None = None,
+    ) -> dict[str, Any]:
         """Return one level's stored configuration (not the resolved value).
 
         ``item_type`` omitted returns the whole ``{item_type: [...]}`` map, which
@@ -187,9 +186,9 @@ class TreeDisplayConfigService(ServiceBase):
         *,
         scope: str,
         item_type: str,
-        fields: Optional[List[Any]],
-        workspace_id: Optional[UUID] = None,
-    ) -> Dict[str, Any]:
+        fields: list[Any] | None,
+        workspace_id: UUID | None = None,
+    ) -> dict[str, Any]:
         """Store (or reset) one level's selection for one item type.
 
         ``fields`` is the ordered list of ``{"key", "width"}`` entries; ``None``
@@ -213,7 +212,7 @@ class TreeDisplayConfigService(ServiceBase):
         self._assert_writable_scope(scope)
         self._set_tenant_context(ctx)
 
-        normalized: Optional[List[Dict[str, Any]]] = None
+        normalized: list[dict[str, Any]] | None = None
         if fields is not None:
             try:
                 normalized = normalize_tree_fields(
@@ -244,11 +243,11 @@ class TreeDisplayConfigService(ServiceBase):
     # Level readers
     # ------------------------------------------------------------------
 
-    def _user_map(self, ctx: AuthContext) -> Dict[str, Any]:
+    def _user_map(self, ctx: AuthContext) -> dict[str, Any]:
         row = UserDisplayPreference.objects.filter(user_id=ctx.user_id).first()
         return self._as_map(row.tree_display_fields if row is not None else None)
 
-    def _workspace_map(self, workspace_id: Optional[UUID]) -> Dict[str, Any]:
+    def _workspace_map(self, workspace_id: UUID | None) -> dict[str, Any]:
         if workspace_id is None:
             return {}
         row = (
@@ -260,7 +259,7 @@ class TreeDisplayConfigService(ServiceBase):
         )
         return self._as_map(row.fields_json if row is not None else None)
 
-    def _global_map(self) -> Dict[str, Any]:
+    def _global_map(self) -> dict[str, Any]:
         row = (
             TreeDisplayConfig.objects.filter(scope=TREE_DISPLAY_SCOPE_GLOBAL)
             .only("fields_json")
@@ -276,7 +275,7 @@ class TreeDisplayConfigService(ServiceBase):
         self,
         ctx: AuthContext,
         item_type: str,
-        fields: Optional[List[Dict[str, Any]]],
+        fields: list[dict[str, Any]] | None,
     ) -> None:
         row, _created = UserDisplayPreference.objects.get_or_create(
             user_id=ctx.user_id,
@@ -293,7 +292,7 @@ class TreeDisplayConfigService(ServiceBase):
         ctx: AuthContext,
         workspace_id: UUID,
         item_type: str,
-        fields: Optional[List[Dict[str, Any]]],
+        fields: list[dict[str, Any]] | None,
     ) -> None:
         # A workspace-level default governs every member, so it needs write
         # authority — not merely read access to the tree.
@@ -313,7 +312,7 @@ class TreeDisplayConfigService(ServiceBase):
         self,
         ctx: AuthContext,
         item_type: str,
-        fields: Optional[List[Dict[str, Any]]],
+        fields: list[dict[str, Any]] | None,
     ) -> None:
         if not ctx.has_role(ROLE_ADMIN):
             from persistence.errors import PermissionDeniedError
@@ -338,9 +337,9 @@ class TreeDisplayConfigService(ServiceBase):
 
     @staticmethod
     def _apply(
-        mapping: Dict[str, Any],
+        mapping: dict[str, Any],
         item_type: str,
-        fields: Optional[List[Dict[str, Any]]],
+        fields: list[dict[str, Any]] | None,
     ) -> None:
         """Set or drop one item type's entry in *mapping* (in place)."""
         if fields is None:
@@ -349,7 +348,7 @@ class TreeDisplayConfigService(ServiceBase):
             mapping[item_type] = fields
 
     @staticmethod
-    def _as_map(raw: Any) -> Dict[str, Any]:
+    def _as_map(raw: Any) -> dict[str, Any]:
         """Coerce a stored JSON value to a plain ``{item_type: [...]}`` dict.
 
         A hand-edited or legacy row is never allowed to raise on a *read* path:
@@ -358,7 +357,7 @@ class TreeDisplayConfigService(ServiceBase):
         return dict(raw) if isinstance(raw, dict) else {}
 
     @staticmethod
-    def _default_fields() -> List[Dict[str, Any]]:
+    def _default_fields() -> list[dict[str, Any]]:
         """The pre-#1257 combination as full ``{"key", "width"}`` entries."""
         return merge_tree_fields(
             list(DEFAULT_TREE_DISPLAY_FIELDS),
@@ -372,10 +371,10 @@ class TreeDisplayConfigService(ServiceBase):
         *,
         item_type: str,
         scope: str,
-        fields: List[Dict[str, Any]],
+        fields: list[dict[str, Any]],
         ctx: AuthContext,
-        workspace_id: Optional[UUID],
-    ) -> Dict[str, Any]:
+        workspace_id: UUID | None,
+    ) -> dict[str, Any]:
         return {
             "item_type": item_type,
             "scope": scope,
@@ -396,9 +395,9 @@ class TreeDisplayConfigService(ServiceBase):
     @staticmethod
     def _custom_attribute_keys(
         ctx: AuthContext,
-        item_type: Optional[str],
-        workspace_id: Optional[UUID],
-    ) -> List[str]:
+        item_type: str | None,
+        workspace_id: UUID | None,
+    ) -> list[str]:
         """Best-effort custom attribute names of ``(item_type, workspace)``.
 
         Returns ``[]`` whenever the definition cannot be resolved — no

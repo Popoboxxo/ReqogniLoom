@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import contextlib
 import uuid
-from typing import Iterator
+from collections.abc import Iterator
 from unittest.mock import MagicMock, call, patch
 
 import pytest
@@ -35,7 +35,7 @@ from persistence.tenancy import TenantContext
 
 
 @contextlib.contextmanager
-def active_tenant(tenant: "Tenant") -> Iterator[None]:
+def active_tenant(tenant: Tenant) -> Iterator[None]:
     """Activate tenant context for the app-layer manager within the block."""
     TenantContext.set_tenant(tenant.id)
     try:
@@ -58,17 +58,17 @@ def _mock_resolve_arch_artifact_id() -> Iterator[None]:
 
 
 @pytest.fixture
-def tenant_a(db: None) -> "Tenant":
+def tenant_a(db: None) -> Tenant:
     return Tenant.objects.create(name="Tenant A", slug="ta-icd")
 
 
 @pytest.fixture
-def tenant_b(db: None) -> "Tenant":
+def tenant_b(db: None) -> Tenant:
     return Tenant.objects.create(name="Tenant B", slug="tb-icd")
 
 
 @pytest.fixture
-def workspace_id(tenant_a: "Tenant") -> uuid.UUID:
+def workspace_id(tenant_a: Tenant) -> uuid.UUID:
     """A real Workspace row's id.
 
     Datenmodell-Konsolidierung Phase 3 (Task 19): ``create_icd`` now calls
@@ -93,7 +93,7 @@ def tgt_id() -> uuid.UUID:
 
 
 def _make_create_dto(
-    tenant: "Tenant",
+    tenant: Tenant,
     workspace_id: uuid.UUID,
     src: uuid.UUID,
     tgt: uuid.UUID,
@@ -350,7 +350,7 @@ class TestIcdCreate:
     """REQ-L2-ICD-001, REQ-L2-ICD-002: CRUD and DbC fields."""
 
     def test_create_icd_produces_version_1(self, tenant_a, workspace_id, src_id, tgt_id):
-        from icd.services import create_icd, IcdCreateDTO
+        from icd.services import IcdCreateDTO, create_icd
 
         with active_tenant(tenant_a):
             dto = _make_create_dto(tenant_a, workspace_id, src_id, tgt_id)
@@ -360,7 +360,7 @@ class TestIcdCreate:
         assert result.current_version.version_number == 1
 
     def test_create_icd_persists_dbc_fields(self, tenant_a, workspace_id, src_id, tgt_id):
-        from icd.services import create_icd, IcdCreateDTO
+        from icd.services import IcdCreateDTO, create_icd
 
         with active_tenant(tenant_a):
             dto = _make_create_dto(
@@ -511,9 +511,9 @@ class TestIcdGetAndDelete:
         immutability trigger's allow-path. IcdParameter is now the only child
         table, and its FK is on_delete=CASCADE.
         """
+        from icd.icd_parameter_service import IcdParameterCreateDTO
         from icd.models import IcdParameter
         from icd.services import create_icd_parameter, delete_icd
-        from icd.icd_parameter_service import IcdParameterCreateDTO
 
         with active_tenant(tenant_a):
             result = self._create(tenant_a, workspace_id, src_id, tgt_id)
@@ -546,7 +546,7 @@ class TestIcdRevisionAppendOnly:
     """
 
     def test_update_increments_version_number(self, tenant_a, workspace_id, src_id, tgt_id):
-        from icd.services import create_icd, update_icd, IcdUpdateDTO
+        from icd.services import IcdUpdateDTO, create_icd, update_icd
 
         with active_tenant(tenant_a):
             dto = _make_create_dto(tenant_a, workspace_id, src_id, tgt_id)
@@ -560,7 +560,7 @@ class TestIcdRevisionAppendOnly:
         assert r2.icd.current_revision == 2
 
     def test_old_version_still_exists_after_update(self, tenant_a, workspace_id, src_id, tgt_id):
-        from icd.services import create_icd, get_icd_history, update_icd, IcdUpdateDTO
+        from icd.services import IcdUpdateDTO, create_icd, get_icd_history, update_icd
 
         with active_tenant(tenant_a):
             dto = _make_create_dto(tenant_a, workspace_id, src_id, tgt_id)
@@ -577,7 +577,7 @@ class TestIcdRevisionAppendOnly:
         assert versions[1].version_number == 2
 
     def test_original_version_fields_unchanged(self, tenant_a, workspace_id, src_id, tgt_id):
-        from icd.services import create_icd, get_icd_history, update_icd, IcdUpdateDTO
+        from icd.services import IcdUpdateDTO, create_icd, get_icd_history, update_icd
 
         with active_tenant(tenant_a):
             dto = _make_create_dto(
@@ -599,7 +599,7 @@ class TestBreakingChangeDetection:
     """REQ-L2-ICD-003: breaking changes are detected and returned in the response."""
 
     def test_compatible_update_not_breaking(self, tenant_a, workspace_id, src_id, tgt_id):
-        from icd.services import create_icd, update_icd, IcdUpdateDTO
+        from icd.services import IcdUpdateDTO, create_icd, update_icd
 
         with active_tenant(tenant_a):
             dto = _make_create_dto(
@@ -624,7 +624,7 @@ class TestBreakingChangeDetection:
         assert r2.validation_result.is_breaking is False
 
     def test_incompatible_update_detected(self, tenant_a, workspace_id, src_id, tgt_id):
-        from icd.services import create_icd, update_icd, IcdUpdateDTO
+        from icd.services import IcdUpdateDTO, create_icd, update_icd
 
         with active_tenant(tenant_a):
             dto = _make_create_dto(
@@ -753,7 +753,7 @@ class TestGetIcdVersions:
     def test_get_icd_versions_returns_current_version_per_icd(
         self, tenant_a, workspace_id, src_id, tgt_id
     ):
-        from icd.services import create_icd, update_icd, get_icd_versions, IcdUpdateDTO
+        from icd.services import IcdUpdateDTO, create_icd, get_icd_versions, update_icd
 
         with active_tenant(tenant_a):
             # Create two ICDs in the workspace
@@ -804,7 +804,7 @@ class TestAuditLogger:
     def test_breaking_change_triggers_log_write(
         self, tenant_a, workspace_id, src_id, tgt_id
     ):
-        from icd.services import create_icd, update_icd, IcdUpdateDTO
+        from icd.services import IcdUpdateDTO, create_icd, update_icd
 
         with active_tenant(tenant_a):
             dto = _make_create_dto(
@@ -828,7 +828,7 @@ class TestAuditLogger:
     def test_compatible_change_does_not_trigger_audit(
         self, tenant_a, workspace_id, src_id, tgt_id
     ):
-        from icd.services import create_icd, update_icd, IcdUpdateDTO
+        from icd.services import IcdUpdateDTO, create_icd, update_icd
 
         with active_tenant(tenant_a):
             dto = _make_create_dto(
@@ -870,7 +870,7 @@ class TestGetIcdHistory:
     def test_history_returns_all_versions_in_order(
         self, tenant_a, workspace_id, src_id, tgt_id
     ):
-        from icd.services import create_icd, update_icd, get_icd_history, IcdUpdateDTO
+        from icd.services import IcdUpdateDTO, create_icd, get_icd_history, update_icd
 
         with active_tenant(tenant_a):
             dto = _make_create_dto(tenant_a, workspace_id, src_id, tgt_id)
@@ -936,7 +936,7 @@ class TestTenantIsolation:
         UUID and tenant_b's own tenant_id. Previously used `.unscoped` with
         no tenant filter at all."""
         from icd.models import Icd
-        from icd.services import create_icd, update_icd, IcdUpdateDTO
+        from icd.services import IcdUpdateDTO, create_icd, update_icd
 
         with active_tenant(tenant_a):
             dto = _make_create_dto(tenant_a, workspace_id, src_id, tgt_id)
@@ -1024,7 +1024,7 @@ class TestIcdInterfaceTypeChoices:
         assert result.current_version.interface_type == "requires"
 
     def test_update_icd_changes_interface_type(self, tenant_a, workspace_id, src_id, tgt_id):
-        from icd.services import create_icd, update_icd, IcdUpdateDTO
+        from icd.services import IcdUpdateDTO, create_icd, update_icd
 
         with active_tenant(tenant_a):
             dto = _make_create_dto(

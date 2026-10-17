@@ -8,12 +8,12 @@
 # No data seeding is required: the table starts empty and is populated at
 # runtime by the LLM adapter after each successful call.
 
-from django.conf import settings
-from django.db import migrations, models
-import django.db.models.deletion
-import django.db.models.manager
 import uuid
 
+import django.db.models.deletion
+import django.db.models.manager
+from django.conf import settings
+from django.db import migrations, models
 
 _TABLE = "pl_token_usage_record"
 _POLICY = f"{_TABLE}_tenant_isolation"

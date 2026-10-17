@@ -35,7 +35,6 @@ from auth_tenancy.services import (
     scope_denial_reason,
 )
 
-
 # ---------------------------------------------------------------------------
 # Public DRF Authentication class (re-export for settings wiring)
 # ---------------------------------------------------------------------------

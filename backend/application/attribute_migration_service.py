@@ -50,19 +50,21 @@ from __future__ import annotations
 
 import copy
 import logging
+from collections.abc import Callable, Iterable
 from datetime import date, datetime
-from typing import Any, Callable, Iterable
+from typing import Any
 from uuid import UUID
 
 from django.db import transaction
 from django.db.models import F
 from django.utils import timezone
 
+from application.attribute_definition_service import AttributeDefinitionService
+from application.base import ServiceBase
 from attribute_definitions.migration_plan import (
     DEFINITION_OPS,
     MAX_SAMPLES,
     MOVE,
-    MigrationPlanError,
     NON_WRITING_OPS,
     OP_BACKFILL_VALUE,
     OP_DEFINE_ATTRIBUTE,
@@ -74,8 +76,8 @@ from attribute_definitions.migration_plan import (
     OP_MAP_VALUE,
     OP_MERGE_ATTRIBUTE,
     OP_MIGRATE_VALUE,
-    OP_REQUEUE_DEFINITION,
     OP_RENAME_ATTRIBUTE,
+    OP_REQUEUE_DEFINITION,
     OP_RETYPE_ATTRIBUTE,
     OP_SPLIT_ATTRIBUTE,
     OP_VERIFY,
@@ -90,6 +92,7 @@ from attribute_definitions.migration_plan import (
     TARGET_SCOPE_TENANT,
     TARGET_SCOPE_WORKSPACE,
     VALUE_OPS,
+    MigrationPlanError,
     evaluate_condition,
     normalize_plan,
     parse_verify_assertion,
@@ -114,9 +117,6 @@ from audit.models import AuditEntry
 from auth_tenancy.context import AuthContext
 from persistence.errors import NotFoundError, PermissionDeniedError
 from persistence.models import Artifact
-
-from application.attribute_definition_service import AttributeDefinitionService
-from application.base import ServiceBase
 
 logger = logging.getLogger(__name__)
 

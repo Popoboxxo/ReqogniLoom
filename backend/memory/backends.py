@@ -75,9 +75,10 @@ import logging
 import math
 import os
 from abc import ABC, abstractmethod
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Callable, Dict, Iterator, List, Optional, Sequence, Tuple, Type, Union
+from typing import Any, Union
 from uuid import UUID
 
 from django.db import transaction
@@ -88,7 +89,6 @@ from llm_adapter.embedding_service import generate_embedding
 from memory.models import MemoryEntry
 from persistence.middleware import clear_request_tenant, set_request_tenant
 from persistence.tenancy import TenantContext
-
 
 logger = logging.getLogger(__name__)
 
@@ -168,7 +168,7 @@ def _render_digest_facts(contents: Sequence[str]) -> str:
     return "\n".join(f"- {content}" for content in contents)
 
 
-def _digest_text(backend: str, scope: str, *, facts: Optional[int], body: str) -> str:
+def _digest_text(backend: str, scope: str, *, facts: int | None, body: str) -> str:
     """Assemble the canonical digest text from a header and a body.
 
     ``facts`` is the number of rendered facts, or ``None`` when the body is not
@@ -204,12 +204,12 @@ class MemoryEntryRef:
     entry_id: MemoryEntryId
     content: str
     confidence: float = 1.0
-    distance: Optional[float] = None
-    scope: Optional[str] = None
-    backend_ref: Optional[str] = None
-    contributor_user_id: Optional[UUID] = None
-    created_at: Optional[datetime] = None
-    superseded_by: Optional[str] = None
+    distance: float | None = None
+    scope: str | None = None
+    backend_ref: str | None = None
+    contributor_user_id: UUID | None = None
+    created_at: datetime | None = None
+    superseded_by: str | None = None
 
 
 @dataclass
@@ -277,7 +277,7 @@ class MemoryDigest:
     backend: str
     degraded: bool = False
     derivation_status: str = "unknown"
-    derived_count: Optional[int] = None
+    derived_count: int | None = None
 
 
 @dataclass
@@ -356,13 +356,13 @@ class MemoryBackend(ABC):
         scope_id: UUID,
         content: str,
         *,
-        contributor_user_id: Optional[UUID] = None,
-        source_event_id: Optional[UUID] = None,
-        source_session_id: Optional[UUID] = None,
+        contributor_user_id: UUID | None = None,
+        source_event_id: UUID | None = None,
+        source_session_id: UUID | None = None,
         language: str = "",
         confidence: float = 1.0,
         entity_type: str = "",
-        backend_ref: Optional[str] = None,
+        backend_ref: str | None = None,
     ) -> MemoryEntryRef:
         """Persist ``content`` as a new memory entry for ``scope``/``scope_id``.
 
@@ -380,8 +380,8 @@ class MemoryBackend(ABC):
         *,
         limit: int = 25,
         offset: int = 0,
-        q: Optional[str] = None,
-    ) -> Tuple[List[MemoryEntryRef], int]:
+        q: str | None = None,
+    ) -> tuple[list[MemoryEntryRef], int]:
         """Return ``(page, total)`` of live entries, newest first.
 
         ``total`` is the count of ALL live entries matching ``q`` (not just the
@@ -450,7 +450,7 @@ class MemoryBackend(ABC):
         scope_id: UUID,
         query: str,
         *,
-        reasoning_level: Optional[str] = None,
+        reasoning_level: str | None = None,
     ) -> MemoryAnswer:
         """Answer ``query`` from ``scope``'s memory in natural language.
 
@@ -486,7 +486,7 @@ class MemoryBackend(ABC):
         scope: str,
         scope_id: UUID,
         content: str,
-        source_event_id: Optional[UUID] = None,
+        source_event_id: UUID | None = None,
     ) -> MemoryEntryRef:
         """Persist ``content`` as a new memory entry for ``scope``/``scope_id``."""
         ...
@@ -494,14 +494,14 @@ class MemoryBackend(ABC):
     @abstractmethod
     def query(
         self, tenant_id: UUID, scope: str, scope_id: UUID, query_text: str, top_k: int = 5
-    ) -> List[MemoryEntryRef]:
+    ) -> list[MemoryEntryRef]:
         """Return the ``top_k`` entries most semantically similar to ``query_text``."""
         ...
 
     @abstractmethod
     def list_recent(
         self, tenant_id: UUID, scope: str, scope_id: UUID, limit: int = 20
-    ) -> List[MemoryEntryRef]:
+    ) -> list[MemoryEntryRef]:
         """Return the ``limit`` most recently created entries, newest first."""
         ...
 
@@ -525,13 +525,13 @@ class MemoryBackend(ABC):
         ...
 
 
-MEMORY_BACKEND_REGISTRY: Dict[str, Type[MemoryBackend]] = {}
+MEMORY_BACKEND_REGISTRY: dict[str, type[MemoryBackend]] = {}
 
 
-def register_memory_backend(name: str) -> Callable[[Type[MemoryBackend]], Type[MemoryBackend]]:
+def register_memory_backend(name: str) -> Callable[[type[MemoryBackend]], type[MemoryBackend]]:
     """Class decorator registering a :class:`MemoryBackend` under ``name``."""
 
-    def _decorator(cls: Type[MemoryBackend]) -> Type[MemoryBackend]:
+    def _decorator(cls: type[MemoryBackend]) -> type[MemoryBackend]:
         MEMORY_BACKEND_REGISTRY[name] = cls
         return cls
 
@@ -576,7 +576,7 @@ def _scope_filter(scope: str, scope_id: UUID) -> dict:
     raise ValueError(f"unknown memory scope: {scope!r}")
 
 
-def _maybe_uuid(value: object) -> Optional[UUID]:
+def _maybe_uuid(value: object) -> UUID | None:
     """Return *value* as a ``UUID``, or ``None`` when it is not UUID-shaped.
 
     Guards every ``.filter(id=...)`` built from a caller-supplied entry id:
@@ -589,7 +589,7 @@ def _maybe_uuid(value: object) -> Optional[UUID]:
         return None
 
 
-def _cosine_distance(a: Optional[list], b: Optional[list]) -> Optional[float]:
+def _cosine_distance(a: list | None, b: list | None) -> float | None:
     """Return cosine distance (``1 - cosine similarity``) between two vectors.
 
     ``None`` when either vector is missing/empty or their widths differ --
@@ -613,7 +613,7 @@ def _cosine_distance(a: Optional[list], b: Optional[list]) -> Optional[float]:
     return 1.0 - (dot / (norm_a * norm_b))
 
 
-def resolve_memory_entry_owner(entry_id: MemoryEntryId) -> Optional[MemoryEntry]:
+def resolve_memory_entry_owner(entry_id: MemoryEntryId) -> MemoryEntry | None:
     """Resolve *entry_id* to its owning :class:`MemoryEntry` row.
 
     Returns the row, or ``None`` when it is not UUID-shaped or no row matches.
@@ -649,7 +649,7 @@ def _tenant_context(tenant_id: UUID) -> Iterator[None]:
             clear_request_tenant()
 
 
-def _ref_from_entry(entry: MemoryEntry, *, distance: Optional[float] = None) -> MemoryEntryRef:
+def _ref_from_entry(entry: MemoryEntry, *, distance: float | None = None) -> MemoryEntryRef:
     """Build a :class:`MemoryEntryRef` from a canonical ``MemoryEntry`` row."""
     return MemoryEntryRef(
         entry_id=entry.id,
@@ -690,13 +690,13 @@ class PgvectorMemoryBackend(MemoryBackend):
         scope_id: UUID,
         content: str,
         *,
-        contributor_user_id: Optional[UUID] = None,
-        source_event_id: Optional[UUID] = None,
-        source_session_id: Optional[UUID] = None,
+        contributor_user_id: UUID | None = None,
+        source_event_id: UUID | None = None,
+        source_session_id: UUID | None = None,
         language: str = "",
         confidence: float = 1.0,
         entity_type: str = "",
-        backend_ref: Optional[str] = None,
+        backend_ref: str | None = None,
     ) -> MemoryEntryRef:
         embedding = generate_embedding(content)
         with _tenant_context(tenant_id):
@@ -723,8 +723,8 @@ class PgvectorMemoryBackend(MemoryBackend):
         *,
         limit: int = 25,
         offset: int = 0,
-        q: Optional[str] = None,
-    ) -> Tuple[List[MemoryEntryRef], int]:
+        q: str | None = None,
+    ) -> tuple[list[MemoryEntryRef], int]:
         with _tenant_context(tenant_id):
             qs = MemoryEntry.objects.filter(
                 **_scope_filter(scope, scope_id), superseded_by__isnull=True
@@ -827,7 +827,7 @@ class PgvectorMemoryBackend(MemoryBackend):
         scope_id: UUID,
         query: str,
         *,
-        reasoning_level: Optional[str] = None,
+        reasoning_level: str | None = None,
     ) -> MemoryAnswer:
         """Always degrade: pgvector has no generative / dialectic surface.
 
@@ -859,7 +859,7 @@ class PgvectorMemoryBackend(MemoryBackend):
         scope: str,
         scope_id: UUID,
         content: str,
-        source_event_id: Optional[UUID] = None,
+        source_event_id: UUID | None = None,
     ) -> MemoryEntryRef:
         return self.write(
             tenant_id, scope, scope_id, content, source_event_id=source_event_id
@@ -867,7 +867,7 @@ class PgvectorMemoryBackend(MemoryBackend):
 
     def query(
         self, tenant_id: UUID, scope: str, scope_id: UUID, query_text: str, top_k: int = 5
-    ) -> List[MemoryEntryRef]:
+    ) -> list[MemoryEntryRef]:
         query_embedding = generate_embedding(query_text)
         if query_embedding is None:
             return []
@@ -884,7 +884,7 @@ class PgvectorMemoryBackend(MemoryBackend):
             return [_ref_from_entry(e, distance=e.distance) for e in self._evaluate(qs)]
 
     @staticmethod
-    def _evaluate(qs: Any) -> List[Any]:
+    def _evaluate(qs: Any) -> list[Any]:
         """Evaluate *qs* under a transaction-local iterative ANN scan.
 
         Same hardening :meth:`application.vector_port.PgVectorPort._evaluate`
@@ -931,7 +931,7 @@ class PgvectorMemoryBackend(MemoryBackend):
 
     def list_recent(
         self, tenant_id: UUID, scope: str, scope_id: UUID, limit: int = 20
-    ) -> List[MemoryEntryRef]:
+    ) -> list[MemoryEntryRef]:
         with _tenant_context(tenant_id):
             qs = MemoryEntry.objects.filter(
                 **_scope_filter(scope, scope_id), superseded_by__isnull=True
@@ -947,18 +947,18 @@ class PgvectorMemoryBackend(MemoryBackend):
 
 
 __all__ = [
+    "MEMORY_BACKEND_REGISTRY",
+    "VALID_DERIVATION_STATUSES",
+    "VALID_MEMORY_SCOPES",
+    "VALID_REASONING_LEVELS",
+    "MemoryAnswer",
+    "MemoryBackend",
+    "MemoryDigest",
     "MemoryEntryId",
     "MemoryEntryRef",
     "MemoryHealth",
-    "MemoryDigest",
-    "MemoryAnswer",
-    "MemoryBackend",
-    "MEMORY_BACKEND_REGISTRY",
-    "VALID_MEMORY_SCOPES",
-    "VALID_REASONING_LEVELS",
-    "VALID_DERIVATION_STATUSES",
-    "register_memory_backend",
-    "get_memory_backend",
-    "resolve_memory_entry_owner",
     "PgvectorMemoryBackend",
+    "get_memory_backend",
+    "register_memory_backend",
+    "resolve_memory_entry_owner",
 ]

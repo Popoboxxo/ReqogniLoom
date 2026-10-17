@@ -16,18 +16,17 @@ import logging
 import os
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import UUID
 
 from django.core.management import call_command
 from django.db import transaction
 
-from application.base import ServiceBase, ValidationError
-from auth_tenancy.context import AuthContext
-
 from admin_ops.models import BackupMetadata
 from admin_ops.services.exceptions import BackupNotFoundError
 from admin_ops.services.paths import absolute_backup_path
+from application.base import ServiceBase, ValidationError
+from auth_tenancy.context import AuthContext
 
 logger = logging.getLogger(__name__)
 
@@ -120,7 +119,7 @@ class AdminRestoreService:
         # Snapshot for the audit entry before the body starts.
         snapshot_path = backup.file_path
         restore_event_id = uuid.uuid4()
-        started_at = datetime.now(timezone.utc)
+        started_at = datetime.now(UTC)
 
         try:
             with transaction.atomic():
@@ -162,7 +161,7 @@ class AdminRestoreService:
                 #    so the format is guaranteed to be compatible.
                 call_command("loaddata", abs_path, verbosity=0)
 
-                completed_at = datetime.now(timezone.utc)
+                completed_at = datetime.now(UTC)
                 result = RestoreResult(
                     backup_id=backup_id,
                     started_at=started_at,
@@ -242,4 +241,4 @@ class AdminRestoreService:
             )
 
 
-__all__ = ["AdminRestoreService", "RestoreResult", "RESTORE_CAPTCHA"]
+__all__ = ["RESTORE_CAPTCHA", "AdminRestoreService", "RestoreResult"]

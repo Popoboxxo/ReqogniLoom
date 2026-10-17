@@ -2,7 +2,7 @@
 import logging
 import os
 import sys
-from typing import Sequence
+from collections.abc import Sequence
 
 from django.apps import AppConfig
 

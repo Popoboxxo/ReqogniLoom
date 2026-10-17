@@ -25,8 +25,6 @@ implementations resolve their timeout through :func:`resolve_timeout_seconds`.
 """
 from __future__ import annotations
 
-from typing import Optional
-
 # Fallbacks used when Django settings are not configured (isolated unit tests).
 DEFAULT_SYNC_TIMEOUT_SECONDS = 25.0
 DEFAULT_LONG_RUNNING_TIMEOUT_SECONDS = 180.0
@@ -87,12 +85,12 @@ def long_running_timeout_seconds() -> float:
     return max(configured, sync_timeout_seconds())
 
 
-def is_long_running(purpose: Optional[str]) -> bool:
+def is_long_running(purpose: str | None) -> bool:
     """Return True when *purpose* prompts over the whole workspace."""
     return purpose is not None and purpose in WORKSPACE_WIDE_PURPOSES
 
 
-def resolve_timeout_seconds(purpose: Optional[str] = None) -> float:
+def resolve_timeout_seconds(purpose: str | None = None) -> float:
     """Return the sync-call timeout that applies to *purpose*.
 
     Args:

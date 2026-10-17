@@ -28,7 +28,6 @@ Registration happens in :meth:`application.apps.ApplicationConfig.ready`.
 from __future__ import annotations
 
 import logging
-from typing import Optional
 from uuid import UUID
 
 from django.core.cache import cache
@@ -114,7 +113,7 @@ def _matrix_cache_keys(workspace_id: str) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
-def invalidate_workspace_caches(workspace_id: Optional[str | UUID]) -> None:
+def invalidate_workspace_caches(workspace_id: str | UUID | None) -> None:
     """Invalidate every cache tied to *workspace_id*.
 
     Clears the shared Redis-backed cache keys and, best effort, the reachable
@@ -186,7 +185,7 @@ def _invalidate_in_process(workspace_id: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _resolve_workspace_id(instance) -> Optional[str]:
+def _resolve_workspace_id(instance) -> str | None:
     """Best-effort resolution of the workspace id for *instance*.
 
     Handles the three shapes used by the scoped models:
@@ -253,7 +252,7 @@ def _resolve_workspace_id(instance) -> Optional[str]:
     return None
 
 
-def _resolve_artifact_id(instance) -> Optional[str]:
+def _resolve_artifact_id(instance) -> str | None:
     """Best-effort resolution of the source artifact id for *instance*.
 
     Derivation results (REQ-105) are cached per source artifact, so a mutation
@@ -303,8 +302,8 @@ def register_signals() -> None:
     ``dispatch_uid`` makes registration idempotent.
     """
     from persistence.models import (
-        Artifact,
         ArchitectureElement,
+        Artifact,
         Requirement,
         TraceLink,
         Workspace,
@@ -340,11 +339,11 @@ def register_signals() -> None:
 
 
 __all__ = [
-    "invalidate_workspace_caches",
-    "register_signals",
-    "preset_cache_key",
-    "terminology_cache_key",
-    "features_cache_key",
-    "workflow_def_cache_key",
     "attribute_def_cache_key",
+    "features_cache_key",
+    "invalidate_workspace_caches",
+    "preset_cache_key",
+    "register_signals",
+    "terminology_cache_key",
+    "workflow_def_cache_key",
 ]

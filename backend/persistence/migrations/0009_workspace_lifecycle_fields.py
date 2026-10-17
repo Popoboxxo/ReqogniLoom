@@ -1,7 +1,7 @@
 # Generated manually for REQ-L1-042 (Workspace Lifecycle Management).
 
-from django.db import migrations, models
 import django.db.models.deletion
+from django.db import migrations, models
 
 
 class Migration(migrations.Migration):

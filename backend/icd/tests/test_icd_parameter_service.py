@@ -16,8 +16,8 @@ from __future__ import annotations
 
 import contextlib
 import uuid
+from collections.abc import Iterator
 from decimal import Decimal
-from typing import Iterator
 from unittest.mock import patch
 
 import pytest
@@ -25,13 +25,12 @@ import pytest
 from persistence.models import Tenant, Workspace
 from persistence.tenancy import TenantContext
 
-
 # ---------------------------------------------------------------------------
 # Test helpers
 # ---------------------------------------------------------------------------
 
 @contextlib.contextmanager
-def active_tenant(tenant: "Tenant") -> Iterator[None]:
+def active_tenant(tenant: Tenant) -> Iterator[None]:
     """Activate tenant context within block (app-layer manager)."""
     TenantContext.set_tenant(tenant.id)
     try:
@@ -189,8 +188,8 @@ class TestCreateParameter:
             )
 
     def test_unknown_icd_raises(self, tenant_a):
-        from icd.models import Icd
         from icd.icd_parameter_service import get_parameter_service
+        from icd.models import Icd
 
         svc = get_parameter_service()
         with pytest.raises(Icd.DoesNotExist):
@@ -202,8 +201,8 @@ class TestCreateParameter:
 
     def test_wrong_tenant_cannot_create_on_others_icd(self, tenant_a, tenant_b, icd_id):
         """A version created for tenant_a must not be reachable via tenant_b's id."""
-        from icd.models import Icd
         from icd.icd_parameter_service import get_parameter_service
+        from icd.models import Icd
 
         svc = get_parameter_service()
         with pytest.raises(Icd.DoesNotExist):
@@ -258,14 +257,14 @@ class TestUpdateParameter:
             svc.update_parameter(parameter_id=param.id, tenant_id=tenant_a.id, name="   ")
 
     def test_update_unknown_parameter_raises(self, tenant_a):
-        from icd.icd_parameter_service import get_parameter_service, IcdParameterNotFoundError
+        from icd.icd_parameter_service import IcdParameterNotFoundError, get_parameter_service
 
         svc = get_parameter_service()
         with pytest.raises(IcdParameterNotFoundError):
             svc.update_parameter(parameter_id=uuid.uuid4(), tenant_id=tenant_a.id, name="X")
 
     def test_update_wrong_tenant_raises(self, tenant_a, tenant_b, icd_id):
-        from icd.icd_parameter_service import get_parameter_service, IcdParameterNotFoundError
+        from icd.icd_parameter_service import IcdParameterNotFoundError, get_parameter_service
 
         svc = get_parameter_service()
         param = svc.create_parameter(
@@ -287,8 +286,8 @@ class TestDeleteParameter:
     """REQ-L2-ICD-002: hard delete of an IcdParameter."""
 
     def test_delete_removes_parameter(self, tenant_a, icd_id):
-        from icd.models import IcdParameter
         from icd.icd_parameter_service import get_parameter_service
+        from icd.models import IcdParameter
 
         svc = get_parameter_service()
         param = svc.create_parameter(
@@ -302,14 +301,14 @@ class TestDeleteParameter:
         assert not IcdParameter.unscoped.filter(id=param.id).exists()
 
     def test_delete_unknown_parameter_raises(self, tenant_a):
-        from icd.icd_parameter_service import get_parameter_service, IcdParameterNotFoundError
+        from icd.icd_parameter_service import IcdParameterNotFoundError, get_parameter_service
 
         svc = get_parameter_service()
         with pytest.raises(IcdParameterNotFoundError):
             svc.delete_parameter(parameter_id=uuid.uuid4(), tenant_id=tenant_a.id)
 
     def test_delete_wrong_tenant_raises(self, tenant_a, tenant_b, icd_id):
-        from icd.icd_parameter_service import get_parameter_service, IcdParameterNotFoundError
+        from icd.icd_parameter_service import IcdParameterNotFoundError, get_parameter_service
 
         svc = get_parameter_service()
         param = svc.create_parameter(

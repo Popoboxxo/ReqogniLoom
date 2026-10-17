@@ -27,7 +27,7 @@ this module.
 """
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
 from persistence.models import Workspace
 
@@ -45,8 +45,8 @@ class TenantScopedAdminMixin:
             is ``None``.
     """
 
-    tenant_lookup: Optional[str] = "tenant_id"
-    workspace_lookup: Optional[str] = None
+    tenant_lookup: str | None = "tenant_id"
+    workspace_lookup: str | None = None
 
     # -- queryset ---------------------------------------------------------
 

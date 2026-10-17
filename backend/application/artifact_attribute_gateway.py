@@ -99,18 +99,19 @@ References:
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Iterable, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 from uuid import UUID
 
-from auth_tenancy.context import AuthContext
 from attribute_definitions.schema import (
     ITEM_TYPES,
     all_entity_carrier_fields,
     entity_carrier_fields,
     resolve_attribute_span,
 )
+from auth_tenancy.context import AuthContext
 
 if TYPE_CHECKING:
     from application.attribute_definition_service import AttributeDefinitionService
@@ -1058,8 +1059,8 @@ __all__ = [
     "AttributeCarrier",
     "AttributeDescriptor",
     "AttributeValues",
-    "artifact_system_fields",
     "actors_to_value",
+    "artifact_system_fields",
     "carrier_for",
     "entity_item_type",
     "transport_field_names",

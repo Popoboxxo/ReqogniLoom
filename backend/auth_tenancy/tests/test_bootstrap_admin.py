@@ -53,8 +53,8 @@ def test_bootstrap_initializes_workflow_definitions(monkeypatch):
     /workflows/definition/initialize/ per entity type -- this is the
     *mandatory* bootstrap (see module docstring), so the gap hit every fresh
     deployment, not just local dev via seed_demo."""
-    from workflow.services import get_definition
     from auth_tenancy.provisioning import DEFAULT_WORKSPACE_ID
+    from workflow.services import get_definition
 
     monkeypatch.setenv("SYSTEM_ADMIN_PASSWORD", "s3cure-bootstrap-pw")
     call_command("bootstrap_admin")

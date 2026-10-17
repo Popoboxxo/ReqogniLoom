@@ -42,11 +42,11 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from application.base import PermissionDeniedError
 from audit.models import AuditEntry
 from auth_tenancy.context import AuthContext
 from auth_tenancy.rest import HasOperationPermission
 from auth_tenancy.services import Operation
-from application.base import PermissionDeniedError
 from rest_api.serializers import build_error_response, detect_lang
 
 logger = logging.getLogger(__name__)

@@ -8,6 +8,8 @@ import pytest
 from auth_tenancy.context import (
     AuthMethod,
     IdentityClaims,
+)
+from auth_tenancy.context import (
     TenantContext as TenantContextValue,
 )
 from auth_tenancy.services.tenant_context import TenantContextService

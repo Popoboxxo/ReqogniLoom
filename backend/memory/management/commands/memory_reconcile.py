@@ -44,7 +44,7 @@ one workspace.
 from __future__ import annotations
 
 import json
-from typing import Any, Optional
+from typing import Any
 from uuid import UUID
 
 from django.core.management.base import BaseCommand, CommandError
@@ -54,7 +54,7 @@ from memory.models import MemoryEntry
 from persistence.models import Tenant
 
 
-def _parse_uuid(raw: Optional[str], flag: str) -> Optional[UUID]:
+def _parse_uuid(raw: str | None, flag: str) -> UUID | None:
     """Parse an optional UUID CLI value; ``None`` when the flag is absent."""
     if raw is None:
         return None
@@ -64,14 +64,14 @@ def _parse_uuid(raw: Optional[str], flag: str) -> Optional[UUID]:
         raise CommandError(f"{flag} must be a valid UUID, got {raw!r}") from exc
 
 
-def _owner_ids(row: dict[str, Any]) -> tuple[str, Optional[UUID]]:
+def _owner_ids(row: dict[str, Any]) -> tuple[str, UUID | None]:
     """Return ``(scope, scope_id)`` for a ``values()`` row."""
     scope = row["scope"]
     scope_id = row.get(f"{scope}_id")
     return scope, scope_id
 
 
-def _qdrant_scan_finding(collection: Optional[str], exc: Exception) -> dict[str, Any]:
+def _qdrant_scan_finding(collection: str | None, exc: Exception) -> dict[str, Any]:
     """A warning for a collection (or the whole scan) that could not be read.
 
     A scan that silently skips a collection would make reconciliation look
@@ -194,7 +194,7 @@ class Command(BaseCommand):
     # -- local side ------------------------------------------------------
 
     @staticmethod
-    def _local_rows(tenant_id: UUID, workspace_id: Optional[UUID]) -> list[dict[str, Any]]:
+    def _local_rows(tenant_id: UUID, workspace_id: UUID | None) -> list[dict[str, Any]]:
         with _tenant_context(tenant_id):
             qs = MemoryEntry.objects.all()
             if workspace_id is not None:
@@ -291,7 +291,7 @@ class Command(BaseCommand):
 
     @staticmethod
     def _qdrant_orphans(
-        tenant_ids: list[UUID], workspace_id: Optional[UUID]
+        tenant_ids: list[UUID], workspace_id: UUID | None
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         """Qdrant points present with no matching local ``MemoryEntry`` row.
 

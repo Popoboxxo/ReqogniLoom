@@ -29,10 +29,10 @@ class _FakeTestRun:
     finished_at: datetime.datetime | None = None
     version: int = 1
     created_at: datetime.datetime = field(
-        default_factory=lambda: datetime.datetime.now(datetime.timezone.utc)
+        default_factory=lambda: datetime.datetime.now(datetime.UTC)
     )
     modified_at: datetime.datetime = field(
-        default_factory=lambda: datetime.datetime.now(datetime.timezone.utc)
+        default_factory=lambda: datetime.datetime.now(datetime.UTC)
     )
     _prefetched_results: list = field(default_factory=list)
 

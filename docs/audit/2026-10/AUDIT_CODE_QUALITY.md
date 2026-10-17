@@ -91,3 +91,44 @@ Frontend files with findings: 708. `tsc --noEmit`: 0 errors.
 2. Manually review `BLE001`, `S110`, and `F811` hotspots, prioritizing `rest_api`, `application`, and `mcp_server`.
 3. Frontend: replace `any` incrementally (start hotspots/tests), fix hook dependency warnings.
 4. Re-run after autofix to establish lowered baseline and ratchet.
+
+## Post-autofix baseline (W17 Slice 1) — frozen 2026-10-17
+
+Measured on branch `fix/w17-autofix-modernization` (base `origin/main @ 12cce237`),
+Ruff 0.17.0 (autofix run; re-measured with 0.17.1 — identical counts), scope
+`backend/**/*.py`, safe fixes only (`ruff --fix`, no `--unsafe-fixes`):
+
+| Command (in `backend/`) | Before | After (frozen) |
+|---|---:|---:|
+| `ruff check . --select UP,I001,RUF022` | 4686 | **34** |
+| `ruff check . --select F401` | 253 | **243** |
+| `ruff check .` (project default rule set) | 7294 | **2632** |
+
+Per-rule before → after of the autofix selector set (residuals have no *safe* fix):
+
+| Rule | Before | After | Residual reason |
+|---|---:|---:|---|
+| UP006 | 1862 | 0 | — |
+| UP045 | 1291 | 1 | fix only unsafe (comment inside annotation) |
+| UP035 | 452 | 0 | — |
+| UP037 | 208 | 0 | — |
+| UP017 | 112 | 0 | — |
+| UP007 | 18 | 2 | fix only unsafe (comment inside annotation) |
+| UP042 | 8 | 8 | no stable fix (`str`-Enum → `StrEnum`, behavior-relevant) |
+| UP031 | 7 | 7 | no stable fix (percent-format) |
+| UP028 | 1 | 1 | no stable fix (`yield from`) |
+| I001 | 575 | 0 | — |
+| RUF022 | 152 | 15 | fix only unsafe (`__all__` entries carrying comments) |
+
+**F401 note:** the UP006/UP017/UP035 rewrites orphaned 586 imports
+(`typing.*` names, `datetime.timezone`, `collections.abc.*`); they were removed in the
+same change set, plus 5 pre-existing dead `typing` imports — hence 253 → 243. The 243
+remaining F401 findings are pre-existing and intentionally untouched (re-export risk,
+hand-review slice). Observed non-selected-rule deltas under `--select ALL`: TC003
++121 (typing-only stdlib imports; rule not enabled by the project config), E501 −10,
+PLC0415 +3 (isort split/merge of local imports, same symbols).
+
+Ratchet intent: the "After" numbers are ceilings (analogous to the i18n baselines) —
+they may be lowered freely; raising one requires a documented justification. No CI
+wiring in this slice.
+

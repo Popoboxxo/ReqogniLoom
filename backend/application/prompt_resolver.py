@@ -27,11 +27,8 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any
 from uuid import UUID
-
-from auth_tenancy.context import AuthContext
-from persistence.models import PROMPT_VARIABLE_KIND_CONFIG
 
 from application.base import ValidationError
 from application.prompt_slots import get_slot_data_variables, get_slot_default
@@ -42,6 +39,8 @@ from application.prompt_variables import (
     VariableTypeError,
     deserialize_variable_value,
 )
+from auth_tenancy.context import AuthContext
+from persistence.models import PROMPT_VARIABLE_KIND_CONFIG
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +59,7 @@ class PromptSlotNotFoundError(ValidationError):
     """Raised when a slot has neither an active row nor a factory default."""
 
 
-def _as_uuid(workspace_id: UUID | str | None) -> Optional[UUID]:
+def _as_uuid(workspace_id: UUID | str | None) -> UUID | None:
     """Coerce a workspace id to ``UUID``; ``None`` stays ``None``."""
     if workspace_id is None:
         return None
@@ -69,9 +68,9 @@ def _as_uuid(workspace_id: UUID | str | None) -> Optional[UUID]:
     return UUID(str(workspace_id))
 
 
-def extract_placeholders(content: str) -> List[str]:
+def extract_placeholders(content: str) -> list[str]:
     """Return every ``{name}`` placeholder in *content*, in first-seen order."""
-    seen: List[str] = []
+    seen: list[str] = []
     for match in PLACEHOLDER_PATTERN.finditer(content or ""):
         name = match.group(1)
         if name not in seen:
@@ -97,7 +96,7 @@ def render_template(content: str, /, **values: Any) -> str:
 
 def try_resolve_template_content(
     slot_name: str, ctx: AuthContext, workspace_id: UUID | str | None = None
-) -> Optional[str]:
+) -> str | None:
     """Return the effective body for *slot_name*, or ``None`` if there is none.
 
     Chain, most specific first: active workspace row (only consulted when
@@ -149,8 +148,8 @@ def resolve_config_values(
     ctx: AuthContext,
     workspace_id: UUID | str | None = None,
     *,
-    overrides: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
+    overrides: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Return every ``config`` variable resolved for this tenant/workspace.
 
     Args:
@@ -170,7 +169,7 @@ def resolve_config_values(
         included — their values come from the calling code, not the catalog.
     """
     scope = _as_uuid(workspace_id)
-    values: Dict[str, Any] = {
+    values: dict[str, Any] = {
         name: spec.default_value
         for name, spec in PROMPT_VARIABLE_DEFAULTS.items()
         if spec.kind == PROMPT_VARIABLE_KIND_CONFIG
@@ -207,7 +206,7 @@ def resolve_config_values(
     return values
 
 
-def _memory_query_text(data_kwargs: Dict[str, Any]) -> str:
+def _memory_query_text(data_kwargs: dict[str, Any]) -> str:
     """Build the retrieval query for the auto-injected memory context.
 
     Joins every non-empty string data value the caller supplied, truncated to
@@ -227,7 +226,7 @@ def _auto_memory_context(
     workspace_id: UUID | str | None,
     artifact_id: UUID | str | None,
     entity_type: str,
-    data_kwargs: Dict[str, Any],
+    data_kwargs: dict[str, Any],
 ) -> str:
     """Compute the memory block for a slot that declares ``memory_context``.
 
@@ -262,7 +261,7 @@ def resolve_and_render(
     ctx: AuthContext,
     workspace_id: UUID | str | None = None,
     *,
-    config_overrides: Optional[Dict[str, Any]] = None,
+    config_overrides: dict[str, Any] | None = None,
     artifact_id: UUID | str | None = None,
     entity_type: str = "",
     **data_kwargs: Any,
@@ -292,7 +291,7 @@ def resolve_and_render(
     """
     content = resolve_template_content(slot_name, ctx, workspace_id)
     config_values = resolve_config_values(ctx, workspace_id, overrides=config_overrides)
-    values: Dict[str, Any] = {**config_values, **data_kwargs}
+    values: dict[str, Any] = {**config_values, **data_kwargs}
     if "memory_context" in get_slot_data_variables(slot_name) and "memory_context" not in values:
         values["memory_context"] = _auto_memory_context(
             ctx, workspace_id, artifact_id, entity_type, data_kwargs
@@ -305,7 +304,7 @@ def unknown_placeholders(
     slot_name: str,
     ctx: AuthContext,
     workspace_id: UUID | str | None = None,
-) -> List[str]:
+) -> list[str]:
     """Return placeholders in *content* that nothing can ever fill.
 
     A name counts as known when it is a declared ``data`` variable of

@@ -48,15 +48,14 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 from uuid import UUID
 
+from application.base import NotFoundError, ServiceBase, ValidationError
 from auth_tenancy.context import AuthContext
 from link_types.builtin import GLOSSARY_TERM_LEGACY_LINK_TYPE
 from persistence.models import ArtifactVersion, GlossaryTerm
 from persistence.transactions import atomic_transaction
-
-from application.base import NotFoundError, ServiceBase, ValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -90,7 +89,7 @@ class ParsedReference:
 
     raw: str
     global_uuid: UUID
-    revision: Optional[int]
+    revision: int | None
     start: int
     end: int
 
@@ -100,7 +99,7 @@ class ResolvedReference:
     """A parsed reference resolved against the stored term history."""
 
     global_uuid: UUID
-    requested_revision: Optional[int]
+    requested_revision: int | None
     resolved_revision: int
     head_revision: int
     term: str
@@ -110,7 +109,7 @@ class ResolvedReference:
     mode: str
 
 
-def parse_references(text: Optional[str]) -> List[ParsedReference]:
+def parse_references(text: str | None) -> list[ParsedReference]:
     """Return every glossary reference token in *text*, in document order.
 
     Pure function — no DB access — so the grammar is testable in isolation and
@@ -118,7 +117,7 @@ def parse_references(text: Optional[str]) -> List[ParsedReference]:
     """
     if not text:
         return []
-    parsed: List[ParsedReference] = []
+    parsed: list[ParsedReference] = []
     for match in GLOSSARY_REFERENCE_PATTERN.finditer(text):
         parsed.append(
             ParsedReference(
@@ -132,7 +131,7 @@ def parse_references(text: Optional[str]) -> List[ParsedReference]:
     return parsed
 
 
-def build_reference_token(global_uuid: UUID | str, revision: Optional[int] = None) -> str:
+def build_reference_token(global_uuid: UUID | str, revision: int | None = None) -> str:
     """Render the canonical token text for *global_uuid* (and optional revision)."""
     uid = str(global_uuid)
     if revision is None:
@@ -160,8 +159,8 @@ class GlossaryReferenceService(ServiceBase):
     # ---------- resolution ----------
 
     def resolve_references(
-        self, ctx: AuthContext, workspace_id: UUID, text: Optional[str]
-    ) -> Tuple[str, List[ResolvedReference]]:
+        self, ctx: AuthContext, workspace_id: UUID, text: str | None
+    ) -> tuple[str, list[ResolvedReference]]:
         """Resolve every token in *text* against the pinned revision or head.
 
         Returns ``(mode, resolutions)`` where *resolutions* holds one entry per
@@ -175,8 +174,8 @@ class GlossaryReferenceService(ServiceBase):
             return self.reference_mode(ctx, workspace_id), []
 
         mode = self.reference_mode(ctx, workspace_id)
-        seen: set[Tuple[UUID, Optional[int]]] = set()
-        resolutions: List[ResolvedReference] = []
+        seen: set[tuple[UUID, int | None]] = set()
+        resolutions: list[ResolvedReference] = []
         for ref in parsed:
             key = (ref.global_uuid, ref.revision)
             if key in seen:
@@ -263,7 +262,7 @@ class GlossaryReferenceService(ServiceBase):
         workspace_id: UUID,
         source_artifact_id: UUID,
         global_uuid: UUID,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Create the usage trace link and return the token + resolved term.
 
         Pinned by default: the returned ``token`` carries the term's current
@@ -349,8 +348,8 @@ class GlossaryReferenceService(ServiceBase):
     # ---------- bulk upgrade to head ----------
 
     def upgrade_text_to_head(
-        self, ctx: AuthContext, workspace_id: UUID, text: Optional[str]
-    ) -> Tuple[str, int]:
+        self, ctx: AuthContext, workspace_id: UUID, text: str | None
+    ) -> tuple[str, int]:
         """Rewrite every pinned token in *text* to the term's current head.
 
         Bare tokens and tokens whose term is unknown are left untouched. Returns
@@ -361,7 +360,7 @@ class GlossaryReferenceService(ServiceBase):
         if not parsed or text is None:
             return text or "", 0
 
-        cache: Dict[UUID, Optional[int]] = {}
+        cache: dict[UUID, int | None] = {}
         out = text
         upgraded = 0
         # Replace right-to-left so earlier match offsets stay valid.
@@ -384,8 +383,8 @@ class GlossaryReferenceService(ServiceBase):
     # ---------- render helper ----------
 
     def resolve_text(
-        self, ctx: AuthContext, workspace_id: UUID, text: Optional[str]
-    ) -> Dict[str, Any]:
+        self, ctx: AuthContext, workspace_id: UUID, text: str | None
+    ) -> dict[str, Any]:
         """Resolve *text* and report the drift summary the UI needs.
 
         The renderer keeps the original text and swaps each token for a

@@ -14,14 +14,13 @@ Design: mirrors persistence/tests/conftest.py pattern.
 from __future__ import annotations
 
 import contextlib
-from typing import Iterator
+from collections.abc import Iterator
 
 import pytest
 
 from persistence.models import Tenant, Workspace
 from persistence.tenancy import TenantContext
 from presets.models import WorkspacePresetConfig
-
 
 # ---------------------------------------------------------------------------
 # Tenant context helpers

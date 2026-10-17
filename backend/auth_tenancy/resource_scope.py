@@ -83,9 +83,10 @@ req_id: ADR-011, findings AUD-2026-09-222 / N2 / 240 / 035.
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Iterable
+from typing import Any
 from uuid import UUID
 
 from .context import AuthContext
@@ -98,12 +99,12 @@ from .workspace_scope import (
 logger = logging.getLogger(__name__)
 
 __all__ = [
-    "ResourceClassification",
-    "ResourceScope",
     "UNCLASSIFIED_DENIAL",
     "WORKSPACE_MEMBERSHIP_DENIAL",
     "WORKSPACE_TARGET_MISMATCH_DENIAL",
     "WORKSPACE_UNRESOLVABLE_DENIAL",
+    "ResourceClassification",
+    "ResourceScope",
     "classify_class_name",
     "classify_view",
     "enforce_request_scope",

@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 from dataclasses import FrozenInstanceError
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 import pytest
 
@@ -78,7 +78,7 @@ def _no_rebaseline_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv(JUSTIFICATION_ENV_VAR, raising=False)
 
 
-def _previous() -> Dict[str, Any]:
+def _previous() -> dict[str, Any]:
     """A baseline document in the shape the entity-surface ratchet stores."""
     return {
         "_comment": ["known REST/MCP entity-surface gaps", "Regenerate with: ..."],
@@ -87,7 +87,7 @@ def _previous() -> Dict[str, Any]:
     }
 
 
-def _justified(justify: Optional[object] = None) -> Dict[str, Dict[str, str]]:
+def _justified(justify: object | None = None) -> dict[str, dict[str, str]]:
     if justify is None:
         justify = {"reason": ACCEPTED_REASON, "issue": "#1103"}
     assert isinstance(justify, dict)
@@ -323,7 +323,7 @@ def test_the_typescript_mirror_declares_the_same_contract() -> None:
     fails on a contract-version mismatch.
     """
     here = Path(__file__).resolve()
-    mirror: Optional[Path] = None
+    mirror: Path | None = None
     for ancestor in here.parents:
         candidate = ancestor / TS_MIRROR_PATH
         if candidate.is_file():

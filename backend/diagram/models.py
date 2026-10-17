@@ -23,12 +23,11 @@ from __future__ import annotations
 import datetime as dt
 import uuid
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
 
 from django.db import models
 
 from persistence.models import TenantScopedModel
-
 
 # ---------------------------------------------------------------------------
 # Enumerations
@@ -177,8 +176,8 @@ class DiagramRevision:
     version_number: int
     payload_format: str = ""
     payload: str = ""
-    canvas_json: Optional[dict] = None
-    created_at: Optional[dt.datetime] = None
+    canvas_json: dict | None = None
+    created_at: dt.datetime | None = None
 
     @classmethod
     def from_payload(
@@ -186,8 +185,8 @@ class DiagramRevision:
         diagram_id: uuid.UUID,
         revision: int,
         payload: dict[str, Any],
-        created_at: Optional[dt.datetime] = None,
-    ) -> "DiagramRevision":
+        created_at: dt.datetime | None = None,
+    ) -> DiagramRevision:
         """Build a revision from a stored ``ArtifactVersion.payload``.
 
         Keys default rather than raising: a snapshot written before a field
@@ -204,7 +203,7 @@ class DiagramRevision:
         )
 
     @classmethod
-    def from_diagram(cls, diagram: Diagram) -> "DiagramRevision":
+    def from_diagram(cls, diagram: Diagram) -> DiagramRevision:
         """Build the *current* revision straight off the Diagram row."""
         return cls(
             diagram_id=diagram.pk,

@@ -2,7 +2,7 @@
 MCP Tool Group for Stakeholder Needs.
 """
 import logging
-from typing import Any, Dict, Optional
+from typing import Any
 
 from application.ai_derivation_service import AiDerivationService
 from application.base import NotFoundError, ValidationError
@@ -236,9 +236,9 @@ class StakeholderNeedsToolGroup(BaseToolGroup):
 
     def __init__(
         self,
-        service: Optional[StakeholderNeedService] = None,
-        ai_derivation_service: Optional[AiDerivationService] = None,
-        requirement_service: Optional[RequirementService] = None,
+        service: StakeholderNeedService | None = None,
+        ai_derivation_service: AiDerivationService | None = None,
+        requirement_service: RequirementService | None = None,
     ) -> None:
         self._service = service or StakeholderNeedService()
         # fix #112: needs.derive_requirements delegates to the same
@@ -250,7 +250,7 @@ class StakeholderNeedsToolGroup(BaseToolGroup):
         self._requirement_service = requirement_service or RequirementService()
 
     def _handle_read(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         need_id = require_uuid(params, "id")
         try:
@@ -260,7 +260,7 @@ class StakeholderNeedsToolGroup(BaseToolGroup):
         return ToolResult.ok({"need": _need_to_dict(need)})
 
     def _handle_query(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """needs.query — list StakeholderNeeds, optionally filtered by workspace."""
         workspace_id = optional_uuid(params, "workspace_id")
@@ -279,7 +279,7 @@ class StakeholderNeedsToolGroup(BaseToolGroup):
         })
 
     def _handle_create(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         title = require_param(params, "title")
         workspace_id = require_uuid(params, "workspace_id")
@@ -320,7 +320,7 @@ class StakeholderNeedsToolGroup(BaseToolGroup):
         return ToolResult.ok({"need": _need_to_dict(need)})
 
     def _handle_update(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         need_id = require_uuid(params, "id")
         change_reason = params.get("change_reason", "Update via MCP")
@@ -372,7 +372,7 @@ class StakeholderNeedsToolGroup(BaseToolGroup):
         return ToolResult.ok({"need": _need_to_dict(need)})
 
     def _handle_get_traces(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         need_id = require_uuid(params, "id")
         from application.trace_link_service import TraceLinkService
@@ -413,7 +413,7 @@ class StakeholderNeedsToolGroup(BaseToolGroup):
             return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
 
     def _handle_derive(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """Derive system requirement drafts from this stakeholder need (LLM).
 
@@ -440,7 +440,7 @@ class StakeholderNeedsToolGroup(BaseToolGroup):
         )
 
     def _handle_outdate(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """needs.outdate — soft-delete via the workflow engine (write, audited)."""
         need_id = require_uuid(params, "id")
@@ -484,7 +484,7 @@ class StakeholderNeedsToolGroup(BaseToolGroup):
         return ToolResult.ok({"id": str(need_id), "status": "outdated"})
 
     def _handle_reactivate(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """needs.reactivate — restore a previously outdated StakeholderNeed (write, audited)."""
         need_id = require_uuid(params, "id")

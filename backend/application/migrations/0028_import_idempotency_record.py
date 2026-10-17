@@ -1,9 +1,9 @@
 # ADR-014 §3 (INT-01 import contract v2): replay store for the optional
 # ``Idempotency-Key`` header. Scope (tenant, user, endpoint, key); TTL 24 h;
 # only terminal successes are cached.
-import django.utils.timezone
 import uuid
 
+import django.utils.timezone
 from django.db import migrations, models
 
 

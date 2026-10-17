@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import Any, Dict
+from typing import Any
 
 from persistence.models import (
     PROMPT_VARIABLE_KIND_CONFIG,
@@ -81,7 +81,7 @@ def _config(name: str, description: str, var_type: str, default: Any) -> PromptV
 #: Factory catalog. Every ``{placeholder}`` any shipped prompt template uses
 #: appears here exactly once, so the UI can document it and the resolver can
 #: tell a typo apart from a known name.
-PROMPT_VARIABLE_DEFAULTS: Dict[str, PromptVariableSpec] = {
+PROMPT_VARIABLE_DEFAULTS: dict[str, PromptVariableSpec] = {
     # --- data (code-bound) -------------------------------------------------
     "need_title": _data("need_title", "Title of the source stakeholder need."),
     "need_description": _data(

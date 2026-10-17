@@ -29,16 +29,18 @@ backend without a dialectic engine.
 """
 from __future__ import annotations
 
+import builtins
 import logging
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from collections.abc import Iterable, Sequence
+from typing import Any
 from uuid import UUID
 
 from memory.backends import (
+    VALID_REASONING_LEVELS,
     MemoryAnswer,
     MemoryDigest,
     MemoryEntryId,
     MemoryEntryRef,
-    VALID_REASONING_LEVELS,
     _maybe_uuid,
     _tenant_context,
     get_memory_backend,
@@ -82,7 +84,7 @@ VALID_SCOPES = ("user", "workspace", "artifact")
 MAX_ASK_QUERY_CHARS = 10000
 
 
-def _as_uuid(value: Any) -> Optional[UUID]:
+def _as_uuid(value: Any) -> UUID | None:
     """Return *value* as a ``UUID`` when UUID-shaped, else ``None``."""
     return _maybe_uuid(value)
 
@@ -104,8 +106,8 @@ class MemoryEntryService(ServiceBase):
         artifact_id: Any = None,
         confidence: float = 1.0,
         source_event_id: Any = None,
-        change_reason: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        change_reason: str | None = None,
+    ) -> dict[str, Any]:
         """Create one memory entry for ``scope`` and return its view.
 
         ``scope="user"`` writes for ``ctx.user_id`` (any authenticated caller);
@@ -152,13 +154,13 @@ class MemoryEntryService(ServiceBase):
         ctx: Any,
         *,
         workspace_id: Any = None,
-        scope: Optional[str] = None,
+        scope: str | None = None,
         artifact_id: Any = None,
         contributor_user_id: Any = None,
-        q: Optional[str] = None,
+        q: str | None = None,
         page: int = 1,
         page_size: int = DEFAULT_PAGE_SIZE,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Return one page of live entries for a single scope.
 
         ``scope`` defaults to ``artifact`` when ``artifact_id`` is given, else
@@ -222,7 +224,7 @@ class MemoryEntryService(ServiceBase):
         workspace_id: Any = None,
         artifact_id: Any = None,
         top_k: int = 5,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Semantic search across one or more scopes, merged by distance.
 
         ``scopes`` defaults to ``artifact`` when ``artifact_id`` is given, else
@@ -242,9 +244,9 @@ class MemoryEntryService(ServiceBase):
         scope_list = self._normalize_scopes(scopes, workspace_id, artifact_id)
         top_k = max(1, min(int(top_k), MAX_PAGE_SIZE))
 
-        merged: List[Tuple[Optional[float], str, MemoryEntryRef, str, UUID]] = []
+        merged: list[tuple[float | None, str, MemoryEntryRef, str, UUID]] = []
         seen: set = set()
-        backend_error: Optional[str] = None
+        backend_error: str | None = None
 
         with _tenant_context(ctx.tenant_id):
             for scope in scope_list:
@@ -297,7 +299,7 @@ class MemoryEntryService(ServiceBase):
             response["detail"] = backend_error
         return response
 
-    def get(self, ctx: Any, *, entry_id: MemoryEntryId) -> Dict[str, Any]:
+    def get(self, ctx: Any, *, entry_id: MemoryEntryId) -> dict[str, Any]:
         """Return one entry's full view (provenance included)."""
         with _tenant_context(ctx.tenant_id):
             entry = self._resolve_entry(entry_id)
@@ -309,7 +311,7 @@ class MemoryEntryService(ServiceBase):
         return view
 
     def forget(
-        self, ctx: Any, *, entry_id: MemoryEntryId, change_reason: Optional[str] = None
+        self, ctx: Any, *, entry_id: MemoryEntryId, change_reason: str | None = None
     ) -> None:
         """Delete one entry (local row + external backend object)."""
         with _tenant_context(ctx.tenant_id):
@@ -332,9 +334,9 @@ class MemoryEntryService(ServiceBase):
         *,
         entry_id: MemoryEntryId,
         content: str,
-        confidence: Optional[float] = None,
-        change_reason: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        confidence: float | None = None,
+        change_reason: str | None = None,
+    ) -> dict[str, Any]:
         """Replace one entry's content, preserving history (PATCH semantics).
 
         An edit must not mutate a remembered fact in place: the old row stays
@@ -401,7 +403,7 @@ class MemoryEntryService(ServiceBase):
         scope: str,
         workspace_id: Any = None,
         artifact_id: Any = None,
-        change_reason: Optional[str] = None,
+        change_reason: str | None = None,
     ) -> int:
         """Delete every entry of one scope; return the number of rows removed."""
         self._validate_scope(scope)
@@ -429,8 +431,8 @@ class MemoryEntryService(ServiceBase):
         entry_id: MemoryEntryId,
         target_scope: str = "workspace",
         workspace_id: Any = None,
-        change_reason: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        change_reason: str | None = None,
+    ) -> dict[str, Any]:
         """Promote a ``user``-scoped entry into ``workspace`` scope.
 
         Writes a new workspace-scoped entry carrying the same content and
@@ -496,7 +498,7 @@ class MemoryEntryService(ServiceBase):
             )
         return view
 
-    def health(self) -> Dict[str, Any]:
+    def health(self) -> dict[str, Any]:
         """Return the structured backend health envelope."""
         return envelope()
 
@@ -546,7 +548,7 @@ class MemoryEntryService(ServiceBase):
         query: str,
         workspace_id: Any,
         artifact_id: Any = None,
-        reasoning_level: Optional[str] = None,
+        reasoning_level: str | None = None,
     ) -> MemoryAnswer:
         """Answer a natural-language ``query`` from one scope's memory.
 
@@ -632,7 +634,7 @@ class MemoryEntryService(ServiceBase):
 
     @staticmethod
     def _default_scope(
-        scope: Optional[str], workspace_id: Any, artifact_id: Any
+        scope: str | None, workspace_id: Any, artifact_id: Any
     ) -> str:
         """Resolve the default read scope when the caller names none.
 
@@ -675,7 +677,7 @@ class MemoryEntryService(ServiceBase):
     @staticmethod
     def _normalize_scopes(
         scopes: Any, workspace_id: Any, artifact_id: Any
-    ) -> List[str]:
+    ) -> builtins.list[str]:
         if scopes is None:
             return [MemoryEntryService._default_scope(None, workspace_id, artifact_id)]
         if isinstance(scopes, str):
@@ -732,7 +734,7 @@ class MemoryEntryService(ServiceBase):
     @staticmethod
     def _resolve_read_scope(
         workspace_id: Any, artifact_id: Any
-    ) -> Tuple[str, UUID, Optional[UUID], Optional[UUID]]:
+    ) -> tuple[str, UUID, UUID | None, UUID | None]:
         """Resolve the ``(scope, scope_id, workspace_id, artifact_id)`` for a read.
 
         ``artifact_id`` given ⇒ the ``artifact`` scope, with that artifact as the
@@ -792,7 +794,7 @@ class MemoryEntryService(ServiceBase):
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _resolve_entry(entry_id: MemoryEntryId) -> Optional[MemoryEntry]:
+    def _resolve_entry(entry_id: MemoryEntryId) -> MemoryEntry | None:
         """Resolve *entry_id* to its row, tolerating an external backend id.
 
         A UUID is looked up by primary key; anything else (e.g. a honcho nanoid)
@@ -807,7 +809,7 @@ class MemoryEntryService(ServiceBase):
         return MemoryEntry.objects.filter(backend_ref=str(entry_id)).first()
 
     @staticmethod
-    def _fetch_entry(entry_id: MemoryEntryId) -> Optional[MemoryEntry]:
+    def _fetch_entry(entry_id: MemoryEntryId) -> MemoryEntry | None:
         uid = _as_uuid(entry_id)
         if uid is None:
             return None
@@ -833,9 +835,9 @@ class MemoryEntryService(ServiceBase):
         self,
         refs: Sequence[MemoryEntryRef],
         *,
-        scope: Optional[str],
-        scope_id: Optional[UUID],
-    ) -> List[Dict[str, Any]]:
+        scope: str | None,
+        scope_id: UUID | None,
+    ) -> builtins.list[dict[str, Any]]:
         """Bulk-assemble views for a page of backend refs (one extra query)."""
         rows = self._load_rows(refs)
         env = envelope()
@@ -851,7 +853,7 @@ class MemoryEntryService(ServiceBase):
         ]
 
     @staticmethod
-    def _load_rows(refs: Iterable[MemoryEntryRef]) -> Dict[str, MemoryEntry]:
+    def _load_rows(refs: Iterable[MemoryEntryRef]) -> dict[str, MemoryEntry]:
         ids = [uid for uid in (_as_uuid(ref.entry_id) for ref in refs) if uid is not None]
         if not ids:
             return {}
@@ -864,10 +866,10 @@ class MemoryEntryService(ServiceBase):
         scope: str,
         scope_id: UUID,
         contributor_user_id: Any,
-        q: Optional[str],
+        q: str | None,
         offset: int,
         page_size: int,
-    ) -> Tuple[List[Dict[str, Any]], int]:
+    ) -> tuple[builtins.list[dict[str, Any]], int]:
         """Admin-only contributor filter over a bounded backend scan."""
         contributor = _as_uuid(contributor_user_id)
         refs, _ = backend.list_entries(
@@ -881,12 +883,12 @@ class MemoryEntryService(ServiceBase):
     def _view(
         self,
         *,
-        ref: Optional[MemoryEntryRef],
-        row: Optional[MemoryEntry],
-        scope: Optional[str],
-        scope_id: Optional[UUID],
-        env: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
+        ref: MemoryEntryRef | None,
+        row: MemoryEntry | None,
+        scope: str | None,
+        scope_id: UUID | None,
+        env: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         """Build a :data:`MemoryEntryView` from a row, falling back to a ref.
 
         The canonical row is preferred: it carries owner ids and the full
@@ -954,10 +956,10 @@ class MemoryEntryService(ServiceBase):
 
 
 __all__ = [
-    "MemoryEntryService",
-    "MAX_PAGE_SIZE",
-    "DEFAULT_PAGE_SIZE",
     "CONTRIBUTOR_SCAN_LIMIT",
+    "DEFAULT_PAGE_SIZE",
     "MAX_ASK_QUERY_CHARS",
+    "MAX_PAGE_SIZE",
     "VALID_SCOPES",
+    "MemoryEntryService",
 ]

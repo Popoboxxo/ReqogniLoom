@@ -48,9 +48,9 @@ from application.traceability_suggest_service import (
     SuggestLinksResponseError,
     TraceabilitySuggestService,
 )
-from traceability.audit import AuditScope
 from rest_api.auth_enforcer import get_auth_context
 from rest_api.serializers import build_error_response, detect_lang
+from traceability.audit import AuditScope
 
 _VALID_SCOPES = frozenset({"document", "project", "global"})
 
@@ -179,7 +179,7 @@ class TraceabilitySuggestLinksStatusView(APIView):
 
 
 __all__ = [
-    "WorkspaceTraceabilitySuggestLinksView",
     "TraceabilitySuggestLinksStatusView",
+    "WorkspaceTraceabilitySuggestLinksView",
 ]
 

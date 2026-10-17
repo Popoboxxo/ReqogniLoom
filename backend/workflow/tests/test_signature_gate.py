@@ -18,7 +18,7 @@ from __future__ import annotations
 import importlib
 import sys
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -29,7 +29,6 @@ from workflow.signature_gate import (
     VerificationResult,
     generate_seal,
 )
-
 
 # ---------------------------------------------------------------------------
 # REQ-L3-WE004-002: HMAC seal
@@ -84,7 +83,7 @@ class TestCredentialVerification:
             transition_id="draft:in_review",
             user_id=uuid.uuid4(),
             credential=credential,
-            timestamp=datetime(2026, 1, 1, tzinfo=timezone.utc),
+            timestamp=datetime(2026, 1, 1, tzinfo=UTC),
             tenant_id=uuid.uuid4(),
         )
 

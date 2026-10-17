@@ -19,8 +19,8 @@ import pytest
 
 from diagram.manager import DiagramManager, DiagramResult
 from diagram.models import Diagram
+from diagram.tests.conftest import VALID_MERMAID_BLOCK, VALID_MERMAID_FLOW, active_tenant
 from diagram.validator import DiagramValidationError
-from diagram.tests.conftest import active_tenant, VALID_MERMAID_BLOCK, VALID_MERMAID_FLOW
 
 pytestmark = pytest.mark.django_db
 
@@ -567,8 +567,8 @@ class TestNodeGraphWritePath:
         produce an empty diff via ArtifactDiffService (the same engine
         backing GET /diagrams/<id>/diff/).
         """
-        from auth_tenancy.context import AuthContext, AuthMethod
         from application.artifact_diff_service import ArtifactDiffService
+        from auth_tenancy.context import AuthContext, AuthMethod
 
         with active_tenant(tenant_a):
             diagram = manager.create_diagram(

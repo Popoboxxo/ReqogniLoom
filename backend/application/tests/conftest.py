@@ -6,7 +6,8 @@ the per-app conftest closest to the tests that use them.
 from __future__ import annotations
 
 import uuid
-from typing import Any, Iterator
+from collections.abc import Iterator
+from typing import Any
 from unittest.mock import patch
 
 import pytest

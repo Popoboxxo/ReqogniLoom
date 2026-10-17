@@ -48,19 +48,19 @@ class ProtocolValidationError(Exception):
 class ProtocolField:
     name: str
     type: str = "text"
-    choices: "list[str] | None" = None
+    choices: list[str] | None = None
 
 
 @dataclass
 class ProtocolPhase:
     name: str
-    required_fields: "list[ProtocolField]" = field(default_factory=list)
+    required_fields: list[ProtocolField] = field(default_factory=list)
     prompt_fragment: str = ""
 
 
 @dataclass
 class ProtocolConfig:
-    phases: "list[ProtocolPhase]"
+    phases: list[ProtocolPhase]
 
 
 _VALID_FIELD_TYPES = {"text", "textarea", "enum", "number"}
@@ -140,7 +140,7 @@ def parse_protocol_yaml(content: str) -> ProtocolConfig:
 # for them produces a session formalize() can only reject.
 # Adr needs `description`, which the rationale -> description alias in
 # interview_artifact_adapters.build_adapter_fields already supplies.
-_EXTRA_REQUIRED_FIELDS: "dict[str, str]" = {
+_EXTRA_REQUIRED_FIELDS: dict[str, str] = {
     "Risk": (
         "      - name: probability\n"
         "        type: enum\n"
@@ -184,7 +184,7 @@ def _default_protocol_yaml(artifact_type: str) -> str:
 # picks it up identically to the 8 single-type slots. Module-level import of
 # interview_multi_protocol is safe: prompt_slots imports this module lazily
 # inside get_prompt_slots(), so no import cycle closes.
-INTERVIEW_PROTOCOL_DEFAULTS: "dict[str, str]" = {
+INTERVIEW_PROTOCOL_DEFAULTS: dict[str, str] = {
     **{
         f"interview.protocol.{artifact_type}": _default_protocol_yaml(artifact_type)
         for artifact_type in IN_SCOPE_ARTIFACT_TYPES

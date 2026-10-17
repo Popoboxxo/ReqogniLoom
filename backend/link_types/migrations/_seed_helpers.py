@@ -14,13 +14,13 @@ with byte-identical rows.
 """
 from __future__ import annotations
 
-from typing import Iterable, List, Tuple
+from collections.abc import Iterable
 from uuid import UUID
 
 
 def seed_tenant(
     tenant_id: UUID | str, workspace_ids: Iterable[UUID | str]
-) -> Tuple[int, int]:
+) -> tuple[int, int]:
     """Create the missing global and workspace rows for one tenant.
 
     Both writes are ``get_or_create``: an existing row — customized or not —
@@ -54,7 +54,7 @@ def seed_tenant(
         )
         globals_created += int(created)
 
-    ids: List[UUID | str] = list(workspace_ids)
+    ids: list[UUID | str] = list(workspace_ids)
     rows_created = sum(
         provision_workspace_link_types(workspace_id=workspace_id, tenant_id=tenant_id)
         for workspace_id in ids

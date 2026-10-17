@@ -53,7 +53,8 @@ Tenant isolation:
 from __future__ import annotations
 
 import uuid
-from typing import Any, Iterable, Optional
+from collections.abc import Iterable
+from typing import Any
 
 from baseline.types import DeltaIndexTuple
 from workflow import state_reader
@@ -602,7 +603,7 @@ def _to_uuids(item_ids: list[str]) -> list[uuid.UUID]:
     return result
 
 
-def _safe_uuid(raw: str) -> Optional[uuid.UUID]:
+def _safe_uuid(raw: str) -> uuid.UUID | None:
     try:
         return uuid.UUID(str(raw))
     except (ValueError, AttributeError, TypeError):

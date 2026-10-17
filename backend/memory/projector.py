@@ -238,7 +238,7 @@ class MemoryProjector:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _resolve_artifact_id(payload: dict) -> "str | None":
+    def _resolve_artifact_id(payload: dict) -> str | None:
         """Return the payload's ``artifact_id`` as a UUID string, or ``None``."""
         raw_artifact_id = payload.get("artifact_id")
         if not raw_artifact_id:

@@ -36,11 +36,9 @@ from __future__ import annotations
 
 import logging
 import uuid
-from typing import Any, Optional
+from typing import Any
 
 from django.db import IntegrityError, transaction
-
-from persistence.transactions import atomic_transaction
 
 from application.artifact_version_service import (
     ArtifactVersionService,
@@ -55,6 +53,7 @@ from application.base import (
 )
 from application.models import MainGoal
 from persistence.models import Artifact, Tenant, Workspace
+from persistence.transactions import atomic_transaction
 from workflow import state_reader
 
 logger = logging.getLogger(__name__)
@@ -506,8 +505,8 @@ class MainGoalService(ServiceBase):
         main_goal_id: uuid.UUID,
         ctx: Any,
         *,
-        change_reason: Optional[str] = None,
-        expected_version: Optional[int] = None,
+        change_reason: str | None = None,
+        expected_version: int | None = None,
     ) -> dict:
         """Transition a MainGoal to ``Freigegeben`` via the generic WorkflowEngine.
 
@@ -616,7 +615,7 @@ class MainGoalService(ServiceBase):
             raise NotFoundError(f"MainGoal {main_goal_id} not found")
         return main_goal
 
-    def get_current(self, workspace_id: uuid.UUID, ctx: Any) -> Optional[MainGoal]:
+    def get_current(self, workspace_id: uuid.UUID, ctx: Any) -> MainGoal | None:
         """Return the newest ``Freigegeben`` MainGoal row for the workspace.
 
         "Newest Freigegeben row wins": rows are never mutated or deleted, so

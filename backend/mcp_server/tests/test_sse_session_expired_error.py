@@ -16,7 +16,6 @@ req_id  : REQ-047 (string ``error_code`` envelope), REQ-L2-MC-011
 from __future__ import annotations
 
 import json
-from typing import Optional
 from unittest import mock
 
 from django.test import RequestFactory
@@ -34,7 +33,7 @@ def _post_with_dead_session(session_id: str = "5f0f0f0f-dead-4dea-9dea-000000000
         data=_BODY,
         content_type="application/json",
     )
-    unbound: Optional[str] = None
+    unbound: str | None = None
     with mock.patch(
         "mcp_server.sse_pubsub.get_session_api_key", return_value=unbound
     ), mock.patch("mcp_server.views._get_handler") as get_handler, mock.patch(
@@ -111,7 +110,7 @@ def test_unparseable_body_still_yields_a_valid_envelope() -> None:
         "/mcp/messages/?session_id=x", data=b"not json at all",
         content_type="application/json",
     )
-    unbound: Optional[str] = None
+    unbound: str | None = None
     with mock.patch("mcp_server.sse_pubsub.get_session_api_key", return_value=unbound):
         response = McpMessagesView().post(request)
 

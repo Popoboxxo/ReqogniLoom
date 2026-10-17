@@ -8,7 +8,7 @@ Traceability: REQ-L2-RO-001..006 -> REQ-L1-032
 """
 from __future__ import annotations
 
-from typing import Iterator
+from collections.abc import Iterator
 
 import pytest
 

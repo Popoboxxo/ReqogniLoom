@@ -26,12 +26,12 @@ allocation).
 from __future__ import annotations
 
 import contextlib
-from typing import Iterator
+from collections.abc import Iterator
 
 import pytest
 
-from application.audit_service import AuditService
 from application.architecture_service import ArchitectureService
+from application.audit_service import AuditService
 from application.requirement_service import RequirementService
 from application.test_service import TestService
 from application.trace_link_service import TraceLinkService
@@ -45,9 +45,9 @@ from persistence.models import (
     Workspace,
 )
 from persistence.tenancy import TenantContext
+from persistence.tests.factories import make_workspace
 from traceability.audit.types import Severity
 from traceability.types import LinkType
-from persistence.tests.factories import make_workspace
 
 pytestmark = pytest.mark.django_db
 

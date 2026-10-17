@@ -27,33 +27,12 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import asdict, dataclass, field, is_dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any
 from uuid import UUID
 
-from auth_tenancy.context import AuthContext
-from attribute_definitions.field_validation import (
-    FieldValidationError,
-    normalize_criteria_list,
-)
 from django.core.cache import cache
 from django.db.models import F, Q, QuerySet
-from persistence.models import (
-    Artifact,
-    Requirement,
-    RequirementLevelSource,
-    Tenant,
-    Workspace,
-)
-from persistence.transactions import TransactionContextManager, atomic_transaction
-from traceability.types import LinkType
-from workflow import state_reader
 
-from application.base import (
-    LlmNotConfiguredError,
-    NotFoundError,
-    ServiceBase,
-    ValidationError,
-)
 from application.artifact_service import (
     ArtifactService,
     _clean_custom_fields,
@@ -63,6 +42,12 @@ from application.artifact_service import (
     snapshot_versioned_fields,
 )
 from application.artifact_version_service import ArtifactVersionService, snapshot_fields
+from application.base import (
+    LlmNotConfiguredError,
+    NotFoundError,
+    ServiceBase,
+    ValidationError,
+)
 from application.local_uid import generate_local_uid
 from application.models import DomainEventOutbox
 from application.optimistic_lock import (
@@ -75,6 +60,21 @@ from application.vector_port import (
     VectorBackendUnavailableError,
     get_vector_port,
 )
+from attribute_definitions.field_validation import (
+    FieldValidationError,
+    normalize_criteria_list,
+)
+from auth_tenancy.context import AuthContext
+from persistence.models import (
+    Artifact,
+    Requirement,
+    RequirementLevelSource,
+    Tenant,
+    Workspace,
+)
+from persistence.transactions import TransactionContextManager, atomic_transaction
+from traceability.types import LinkType
+from workflow import state_reader
 
 logger = logging.getLogger(__name__)
 
@@ -95,7 +95,7 @@ _CONSISTENCY_TASK_TENANT_CACHE_PREFIX = "requirement_consistency_task_tenant"
 _CONSISTENCY_TASK_TENANT_TTL_SECONDS = 86400
 
 
-def detect_non_atomic_terms(title: str) -> List[str]:
+def detect_non_atomic_terms(title: str) -> list[str]:
     """Return the distinct conjunction words found in ``title``, lowercased.
 
     Deliberately a lightweight, always-available heuristic (no LLM call) —
@@ -168,7 +168,7 @@ class RequirementDTO:
     version: int
 
     @classmethod
-    def from_orm(cls, req: Requirement) -> "RequirementDTO":
+    def from_orm(cls, req: Requirement) -> RequirementDTO:
         """Build a DTO. ``status`` comes from the workflow engine (Phase 1).
 
         Task 12: the ``status`` column is dropped. Falls back to the
@@ -200,8 +200,8 @@ class DecompositionResultDTO:
     """Result of a decompose() operation."""
 
     parent_id: UUID
-    children: List[RequirementDTO] = field(default_factory=list)
-    trace_link_ids: List[UUID] = field(default_factory=list)
+    children: list[RequirementDTO] = field(default_factory=list)
+    trace_link_ids: list[UUID] = field(default_factory=list)
 
 
 @dataclass
@@ -209,7 +209,7 @@ class SimilarRequirementDTO:
     """A single similarity-search hit (REQ-L2-VS-004)."""
 
     id: UUID
-    uid: Optional[str]
+    uid: str | None
     title: str
     category: str
     status: str
@@ -229,8 +229,8 @@ class RequirementService(ServiceBase):
         trace_link_service=None,
         preset_policy_service=None,
     ) -> None:
-        from application.trace_link_service import TraceLinkService
         from application.preset_policy_service import get_preset_policy_service
+        from application.trace_link_service import TraceLinkService
 
         self._trace_link_service = trace_link_service or TraceLinkService()
         self._preset_policy = preset_policy_service or get_preset_policy_service()
@@ -261,7 +261,7 @@ class RequirementService(ServiceBase):
 
     def _duplicate_title_warning(
         self, workspace_id: UUID, title: str
-    ) -> Optional[str]:
+    ) -> str | None:
         """Issue #1178: NON-BLOCKING warning for a normalized-equal title.
 
         Returns a human-readable warning when the workspace already stores a
@@ -299,9 +299,9 @@ class RequirementService(ServiceBase):
     def _assert_uid_unique_in_workspace(
         self,
         workspace_id: UUID,
-        uid: Optional[str],
+        uid: str | None,
         *,
-        exclude_id: Optional[UUID] = None,
+        exclude_id: UUID | None = None,
     ) -> None:
         """#44: reject a client-supplied ``uid`` that collides within the
         same workspace.
@@ -333,12 +333,12 @@ class RequirementService(ServiceBase):
         rationale: str = "",
         source: str = "",
         category: str = "",
-        parent_id: Optional[UUID] = None,
+        parent_id: UUID | None = None,
         type: str = "SyReq",
-        complexity_fibonacci: Optional[int] = None,
-        verification_method: Optional[str] = None,
-        uid: Optional[str] = None,
-        custom_fields: Optional[dict] = None,
+        complexity_fibonacci: int | None = None,
+        verification_method: str | None = None,
+        uid: str | None = None,
+        custom_fields: dict | None = None,
     ) -> Requirement:
         """Create a Requirement with initial workflow state.
 
@@ -743,21 +743,21 @@ class RequirementService(ServiceBase):
         self,
         requirement_id: UUID,
         ctx: AuthContext,
-        title: Optional[str] = None,
-        description: Optional[str] = None,
-        acceptance_criteria: Optional[str] = None,
-        rationale: Optional[str] = None,
-        source: Optional[str] = None,
-        category: Optional[str] = None,
-        change_reason: Optional[str] = None,
-        type: Optional[str] = None,
+        title: str | None = None,
+        description: str | None = None,
+        acceptance_criteria: str | None = None,
+        rationale: str | None = None,
+        source: str | None = None,
+        category: str | None = None,
+        change_reason: str | None = None,
+        type: str | None = None,
         complexity_fibonacci: object = _UNSET,
         verification_method: object = _UNSET,
         parent_id: object = _UNSET,
         uid: object = _UNSET,
-        suspect: Optional[bool] = None,
+        suspect: bool | None = None,
         custom_fields: object = _UNSET,
-        expected_version: Optional[int] = None,
+        expected_version: int | None = None,
     ) -> Requirement:
         """Update a Requirement, enforcing change_reason policy.
 
@@ -1157,8 +1157,8 @@ class RequirementService(ServiceBase):
         workspace_id: UUID,
         ctx: AuthContext,
         include_deleted: bool = False,
-        status: Optional[str] = None,
-        search: Optional[str] = None,
+        status: str | None = None,
+        search: str | None = None,
     ) -> QuerySet[Requirement]:
         """Return Requirements in *workspace_id*.
 
@@ -1242,7 +1242,7 @@ class RequirementService(ServiceBase):
     @staticmethod
     def _generate_and_store_embedding(
         requirement: Requirement,
-    ) -> Optional[List[float]]:
+    ) -> list[float] | None:
         """Best-effort: generate and persist the requirement's embedding.
 
         REQ-L2-VS-004. Uses a bare ``.update()`` so it neither bumps the
@@ -1307,8 +1307,8 @@ class RequirementService(ServiceBase):
         requirement_id: UUID,
         ctx: AuthContext,
         limit: int = 10,
-        workspace_id: Optional[UUID] = None,
-    ) -> List[SimilarRequirementDTO]:
+        workspace_id: UUID | None = None,
+    ) -> list[SimilarRequirementDTO]:
         """Return the top-N requirements most similar to *requirement_id*.
 
         REQ-L2-VS-004: cosine-distance nearest-neighbour search over the
@@ -1438,8 +1438,8 @@ class RequirementService(ServiceBase):
         self,
         requirement_id: UUID,
         ctx: AuthContext,
-        children: Optional[List[Dict[str, Any]]] = None,
-        target_architecture_elements: Optional[List[UUID]] = None,
+        children: list[dict[str, Any]] | None = None,
+        target_architecture_elements: list[UUID] | None = None,
     ) -> DecompositionResultDTO:
         """Decompose a Requirement into child Requirements.
 
@@ -1638,9 +1638,9 @@ class RequirementService(ServiceBase):
     def _decompose_via_llm(
         requirement_id: str,
         *,
-        title: Optional[str] = None,
-        content: Optional[str] = None,
-    ) -> List[Dict[str, Any]]:
+        title: str | None = None,
+        content: str | None = None,
+    ) -> list[dict[str, Any]]:
         """Call LlmAdapter to generate child requirements.
 
         The parent requirement's ``title`` / ``content`` are forwarded so the
@@ -1678,7 +1678,7 @@ class RequirementService(ServiceBase):
                 "LLM returned unexpected decomposition structure; expected 'children' list"
             )
 
-        validated: List[Dict[str, Any]] = []
+        validated: list[dict[str, Any]] = []
         for item in raw_children:
             if not isinstance(item, dict) or "title" not in item:
                 raise ValueError(
@@ -1690,7 +1690,7 @@ class RequirementService(ServiceBase):
 
     # ---------- LLM Validation (REQ-L2-AS-013) ----------
 
-    def validate_requirement(self, requirement_id: UUID, ctx: AuthContext) -> Dict[str, Any]:
+    def validate_requirement(self, requirement_id: UUID, ctx: AuthContext) -> dict[str, Any]:
         """Validate a Requirement using the LlmAdapter.
 
         REQ-L2-AS-013: returns structured result or raises LlmNotConfiguredError.
@@ -1727,7 +1727,7 @@ class RequirementService(ServiceBase):
 
     def check_consistency(
         self, workspace_id: UUID, ctx: AuthContext
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Check consistency across a workspace's requirements via the LlmAdapter.
 
         REQ-089: wires the previously unreachable ``check_consistency``
@@ -1744,7 +1744,6 @@ class RequirementService(ServiceBase):
         self._set_tenant_context(ctx)
 
         from llm_adapter.services import check_consistency as _llm_check_consistency
-
         from workflow.services import outdated_item_ids
 
         rows = (
@@ -1779,7 +1778,7 @@ class RequirementService(ServiceBase):
 
         return result if isinstance(result, dict) else {"result": str(result)}
 
-    def get_consistency_status(self, task_id: str, ctx: AuthContext) -> Dict[str, Any]:
+    def get_consistency_status(self, task_id: str, ctx: AuthContext) -> dict[str, Any]:
         """Poll the outcome of a previously dispatched ``check_consistency`` task.
 
         GH-796: ``check_consistency`` returned a ``task_id`` with no way for a
@@ -1806,10 +1805,10 @@ class RequirementService(ServiceBase):
 
 
 __all__ = [
-    "RequirementService",
-    "RequirementDTO",
     "DecompositionResultDTO",
-    "SimilarRequirementDTO",
     "PgVectorUnavailableError",
     "QdrantUnavailableError",
+    "RequirementDTO",
+    "RequirementService",
+    "SimilarRequirementDTO",
 ]

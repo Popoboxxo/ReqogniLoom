@@ -20,15 +20,15 @@ authority) into ``baseline.waivers``. This module pins the Level-1 half:
 from __future__ import annotations
 
 import contextlib
-from datetime import datetime, timedelta, timezone
-from typing import Iterator
-
-import pytest
+from collections.abc import Iterator
+from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
 
+import pytest
+
+from baseline import waivers as waivers_module
 from baseline.exceptions import GovernanceAuthorityError, GovernanceReasonError
 from baseline.models import BaselineGateWaiver
-from baseline import waivers as waivers_module
 from baseline.waivers import (
     MIN_OVERRIDE_REASON_LENGTH,
     MIN_REASON_DISTINCT_WORDS,
@@ -270,7 +270,7 @@ class TestExpiryAtDecisionTime:
         suppressing afterwards, evaluated purely from the persisted timestamp.
         The row is not modified by the decision.
         """
-        future = datetime.now(timezone.utc) + timedelta(days=30)
+        future = datetime.now(UTC) + timedelta(days=30)
         row = _persist(tenant, workspace, expires_at=future)
 
         before = row.expires_at - timedelta(days=1)
@@ -306,7 +306,7 @@ class TestExpiryAtDecisionTime:
         """``NULL`` = unbounded (GH-821 behaviour, no regression)."""
         row = _persist(tenant, workspace, expires_at=None)
         record = _load_one(tenant, workspace, row)
-        far_future = datetime(2999, 1, 1, tzinfo=timezone.utc)
+        far_future = datetime(2999, 1, 1, tzinfo=UTC)
         assert suppression_applies(record, "TRACE-P1", ["art-1"], now=far_future) is True
 
 
@@ -326,7 +326,7 @@ class TestLoadWaivedFindingKeys:
             workspace,
             rule_id="VERIF-P8",
             artifact_ids=("art-2",),
-            expires_at=datetime.now(timezone.utc) - timedelta(days=1),
+            expires_at=datetime.now(UTC) - timedelta(days=1),
         )
 
         # Two positional arguments, no ``now`` — the public legacy contract.

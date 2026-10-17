@@ -49,7 +49,6 @@ from drf_spectacular.utils import (
 )
 from rest_framework import serializers
 
-
 # ---------------------------------------------------------------------------
 # Standardized error response schema (REQ-L2-RA-009)
 # ---------------------------------------------------------------------------
@@ -248,9 +247,9 @@ def _drop_dead_security_schemes(result: dict[str, Any]) -> None:
 
 
 __all__ = [
-    "ErrorResponseSerializer",
+    "COMMON_ERROR_RESPONSES",
     "ErrorBodySerializer",
     "ErrorDetailSerializer",
-    "COMMON_ERROR_RESPONSES",
+    "ErrorResponseSerializer",
     "enforce_common_error_responses",
 ]

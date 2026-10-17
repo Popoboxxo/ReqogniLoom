@@ -30,21 +30,19 @@ Read scoping (``mcp_server/workspace_scope.py``):
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from auth_tenancy.context import AuthContext
-
 from mcp_server.protocol_handler import ToolResult
 from mcp_server.tools.base import (
     BaseToolGroup,
     ParameterError,
     require_uuid,
 )
-
 from se_metrics.services import get_metric_catalog, get_metric_values
 
 
-def _parse_keys(raw: Any) -> Optional[List[str]]:
+def _parse_keys(raw: Any) -> list[str] | None:
     """Normalise the ``keys`` parameter to a list of strings, or None.
 
     Accepts the two shapes an MCP client naturally sends — an array of strings
@@ -57,7 +55,7 @@ def _parse_keys(raw: Any) -> Optional[List[str]]:
     if isinstance(raw, str):
         return [part.strip() for part in raw.split(",") if part.strip()]
     if isinstance(raw, (list, tuple)):
-        keys: List[str] = []
+        keys: list[str] = []
         for item in raw:
             if not isinstance(item, str):
                 raise ParameterError(
@@ -155,13 +153,13 @@ class MetricsToolGroup(BaseToolGroup):
     ]
 
     def _handle_catalog(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """metrics.catalog — the available statistics (read-only)."""
         return ToolResult.ok(get_metric_catalog())
 
     def _handle_get(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """metrics.get — the requested statistics' values (read-only)."""
         # Required in the schema; the dispatcher has already resolved and gated

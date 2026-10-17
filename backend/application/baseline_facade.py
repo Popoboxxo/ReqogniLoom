@@ -20,22 +20,22 @@ from __future__ import annotations
 
 import logging
 import uuid
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, List, Mapping, Optional, Sequence, Tuple
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     # Import-time only: ``traceability`` (Layer 1) is loaded lazily inside the
     # gate methods so this Layer-2 facade keeps its light import graph.
-    from traceability.audit import Finding
-
     # GH-821: only the string annotations of `_apply_waivers` /
     # `_coerce_waiver_requests` name this type; the runtime import stays local to
     # `_coerce_waiver_requests` so the facade keeps its light import graph. Without
     # this type-check-only alias the annotations reference an undefined name
     # (ruff F821 in the CI gate `ruff check . --select=F821,F822`).
     from baseline.waivers import BlockerWaiverRequest
+    from traceability.audit import Finding
 
 from auth_tenancy.context import AuthContext
 
@@ -51,7 +51,6 @@ from application.base import (
 )
 from application.event_bus import DomainEvent
 from application.preset_policy_service import get_preset_policy_service
-from persistence.transactions import atomic_transaction
 
 # D4 (#569): the reason-policy constants now live at Layer 1
 # (``baseline.waivers``, the SSOT for finding identity and matching). They are
@@ -64,6 +63,7 @@ from baseline.waivers import (  # noqa: F401  (re-exported public constants)
     MIN_REASON_DISTINCT_WORDS,
     MIN_REASON_WORDS,
 )
+from persistence.transactions import atomic_transaction
 
 logger = logging.getLogger(__name__)
 
@@ -91,10 +91,10 @@ class GateWaiverOutcome:
             metadata would otherwise be unable to say *which* decision applied.
     """
 
-    overridden: Tuple["Finding", ...] = ()
-    suppressed: Tuple["Finding", ...] = ()
-    waiver_ids: Tuple[UUID, ...] = ()
-    matched_waiver_ids: Tuple[UUID, ...] = ()
+    overridden: tuple[Finding, ...] = ()
+    suppressed: tuple[Finding, ...] = ()
+    waiver_ids: tuple[UUID, ...] = ()
+    matched_waiver_ids: tuple[UUID, ...] = ()
 
     @property
     def any_waived(self) -> bool:
@@ -177,10 +177,10 @@ class BaselineFacade(ServiceBase):
         workspace_id: UUID | str,
         name: str,
         ctx: AuthContext,
-        description: Optional[str] = None,
-        document_id: Optional[UUID | str] = None,
-        override_reason: Optional[str] = None,
-        waived_findings: Optional[Sequence[Mapping[str, Any]]] = None,
+        description: str | None = None,
+        document_id: UUID | str | None = None,
+        override_reason: str | None = None,
+        waived_findings: Sequence[Mapping[str, Any]] | None = None,
     ) -> UUID:
         """Create an immutable baseline after preset-scope validation.
 
@@ -229,7 +229,7 @@ class BaselineFacade(ServiceBase):
         self._check_scope_allowed(str(ws_id), scope)
 
         try:
-            doc_id: Optional[UUID] = (
+            doc_id: UUID | None = (
                 UUID(str(document_id)) if document_id is not None else None
             )
         except (ValueError, AttributeError, TypeError) as exc:
@@ -289,7 +289,7 @@ class BaselineFacade(ServiceBase):
 
         # Audit
         details: dict = {"scope": scope, "name": name, "workspace_id": str(ws_id)}
-        audit_change_reason: Optional[str] = None
+        audit_change_reason: str | None = None
         if outcome.overridden:
             # The append-only audit log is the authoritative waiver record:
             # who waived what, when, and why (REQ-L2-AL-001).
@@ -374,11 +374,11 @@ class BaselineFacade(ServiceBase):
         *,
         workspace_id: UUID,
         scope: str,
-        document_id: Optional[UUID],
+        document_id: UUID | None,
         ctx: AuthContext,
-        override_reason: Optional[str] = None,
-        waived_findings: Optional[Sequence[Mapping[str, Any]]] = None,
-        now: Optional[datetime] = None,
+        override_reason: str | None = None,
+        waived_findings: Sequence[Mapping[str, Any]] | None = None,
+        now: datetime | None = None,
     ) -> GateWaiverOutcome:
         """Reject the baseline build when the SE-Auditor reports BLOCKERs.
 
@@ -569,10 +569,10 @@ class BaselineFacade(ServiceBase):
         workspace_id: UUID,
         scope: str,
         ctx: AuthContext,
-        findings: Sequence["Finding"],
-        requests: Sequence["BlockerWaiverRequest"],
-        now: Optional[datetime] = None,
-    ) -> Tuple[Tuple["Finding", ...], Tuple["Finding", ...], Tuple[UUID, ...], Tuple[UUID, ...]]:
+        findings: Sequence[Finding],
+        requests: Sequence[BlockerWaiverRequest],
+        now: datetime | None = None,
+    ) -> tuple[tuple[Finding, ...], tuple[Finding, ...], tuple[UUID, ...], tuple[UUID, ...]]:
         """Suppress findings covered by per-finding waivers (GH-821, #569).
 
         Two sources count as "covered": the waivers on file for this workspace
@@ -615,7 +615,7 @@ class BaselineFacade(ServiceBase):
             suppression_applies,
         )
 
-        created_ids: List[UUID] = []
+        created_ids: list[UUID] = []
         if requests:
             # Same authority as the global override: accepting a known
             # deviation is an approval act, not a write act.
@@ -677,9 +677,9 @@ class BaselineFacade(ServiceBase):
             workspace_id, ctx.tenant_id, include_expired=False, now=now
         )
 
-        suppressed: List["Finding"] = []
-        remaining: List["Finding"] = []
-        matched_ids: List[UUID] = []
+        suppressed: list[Finding] = []
+        remaining: list[Finding] = []
+        matched_ids: list[UUID] = []
         for finding in findings:
             matching = [
                 record
@@ -710,8 +710,8 @@ class BaselineFacade(ServiceBase):
 
     @staticmethod
     def _coerce_waiver_requests(
-        raw: Optional[Sequence[Mapping[str, Any]]],
-    ) -> Tuple["BlockerWaiverRequest", ...]:
+        raw: Sequence[Mapping[str, Any]] | None,
+    ) -> tuple[BlockerWaiverRequest, ...]:
         """Normalize caller-supplied waivers, or raise ``ValidationError``.
 
         One normalisation point for both surfaces (REST serializer and MCP
@@ -859,8 +859,8 @@ class BaselineFacade(ServiceBase):
         self,
         workspace_id: UUID | str,
         ctx: AuthContext,
-        scope: Optional[str] = None,
-    ) -> List:
+        scope: str | None = None,
+    ) -> list:
         """Return baseline summaries for a workspace.
 
         Args:
@@ -970,7 +970,7 @@ class BaselineFacade(ServiceBase):
         self,
         artifact_id: UUID,
         ctx: AuthContext,
-    ) -> List[ArtifactBaselineMembership]:
+    ) -> list[ArtifactBaselineMembership]:
         """Return the baselines *artifact_id* is a member of, with drift info.
 
         #399 (cluster 5, decision D1): baseline membership produces a *visible,
@@ -1108,7 +1108,7 @@ class BaselineFacade(ServiceBase):
 
     def _memberships_armed(
         self, artifact_id: UUID, ctx: AuthContext
-    ) -> List[ArtifactBaselineMembership]:
+    ) -> list[ArtifactBaselineMembership]:
         """Body of :meth:`memberships_for_artifact` (tenant context is armed)."""
         from django.db.models import Q
 
@@ -1168,7 +1168,7 @@ class BaselineFacade(ServiceBase):
             ctx.tenant_id,
         ).get(item_key)
 
-        memberships: List[ArtifactBaselineMembership] = []
+        memberships: list[ArtifactBaselineMembership] = []
         for row in candidates:
             baseline_key = str(row["id"])
             if baseline_key not in membership:
@@ -1226,7 +1226,7 @@ class BaselineFacade(ServiceBase):
 _MAX_LISTED_FINDINGS = 10
 
 
-def _summarise_findings(findings: Sequence["Finding"]) -> str:
+def _summarise_findings(findings: Sequence[Finding]) -> str:
     """Render up to :data:`_MAX_LISTED_FINDINGS` findings, then a count hint."""
     listed = "; ".join(
         f"{f.rule_id} [{', '.join(f.artifact_ids) or 'graph'}]: {f.message}"
@@ -1278,7 +1278,7 @@ def _validate_gate_reason(reason: str, *, label: str) -> str:
 
 
 def _annotate_waiver(
-    description: Optional[str],
+    description: str | None,
     outcome: GateWaiverOutcome,
     override_reason: str,
 ) -> str:
@@ -1336,13 +1336,13 @@ def _summarise_waiver_ids(waiver_ids: Sequence[UUID]) -> str:
 
 def _remap_baseline_exc(exc: Exception) -> None:
     """Re-raise baseline-domain exceptions as application-layer exceptions."""
+    from application.base import NotFoundError, ValidationError
     from baseline.exceptions import (
         BaselineNotFoundError,
         DuplicateBaselineNameError,
         EmptyBaselineNameError,
         ScopeNotAllowedError,
     )
-    from application.base import NotFoundError, ValidationError
 
     if isinstance(exc, (ScopeNotAllowedError, EmptyBaselineNameError, DuplicateBaselineNameError)):
         raise ValidationError(str(exc)) from exc

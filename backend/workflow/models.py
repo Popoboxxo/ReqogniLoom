@@ -35,7 +35,6 @@ from django.db import models
 
 from persistence.models import TenantScopedModel
 
-
 # ---------------------------------------------------------------------------
 # REQ-178  GlobalWorkflowDefinition — tenant-wide default (source-of-truth)
 # ---------------------------------------------------------------------------
@@ -343,6 +342,6 @@ class WorkflowHistoryEntry(TenantScopedModel):
 __all__ = [
     "GlobalWorkflowDefinition",
     "WorkflowEngineDefinition",
-    "WorkflowItemState",
     "WorkflowHistoryEntry",
+    "WorkflowItemState",
 ]

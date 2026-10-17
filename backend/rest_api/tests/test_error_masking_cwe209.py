@@ -233,9 +233,8 @@ class TestGlobalWorkflowErrorMappingMasksUnmapped:
 
     def test_domain_errors_still_forward_their_own_message(self):
         """Control: masking the fallback must not swallow the mapped branches."""
-        from workflow.services import WorkflowDefinitionError
-
         from rest_api.global_default_views import _map_workflow_error
+        from workflow.services import WorkflowDefinitionError
 
         response = _map_workflow_error(WorkflowDefinitionError("no initial state"), "en")
 

@@ -38,13 +38,13 @@ from .models import (
     AuditLogEntry,
     Requirement,
     Role,
+    StakeholderNeed,
     Tenant,
     TestCase,
     TestRun,
     TestRunResult,
     TraceLink,
     Workspace,
-    StakeholderNeed,
 )
 
 User = get_user_model()

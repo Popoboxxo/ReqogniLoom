@@ -23,7 +23,6 @@ import os
 
 from django.conf import settings
 
-
 _BACKUP_SUBDIR = "backups"
 _BACKUP_DIR_ENV_VAR = "BACKUP_DIR"
 
@@ -51,4 +50,4 @@ def absolute_backup_path(relative_path: str) -> str:
     return os.path.join(backup_root(), relative_path)
 
 
-__all__ = ["backup_root", "absolute_backup_path"]
+__all__ = ["absolute_backup_path", "backup_root"]

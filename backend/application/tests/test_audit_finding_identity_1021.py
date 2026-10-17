@@ -20,7 +20,7 @@ the exact legacy rendering, so the scope-less key must stay byte-identical.
 from __future__ import annotations
 
 import contextlib
-from typing import Iterator
+from collections.abc import Iterator
 
 import pytest
 
@@ -30,9 +30,9 @@ from auth_tenancy.context import AuthContext
 from baseline.waivers import finding_key
 from persistence.models import Artifact, Requirement, Tenant, TraceLink, User, Workspace
 from persistence.tenancy import TenantContext
+from persistence.tests.factories import make_workspace
 from traceability.audit import AuditScope, Finding, RemediationProposal, Severity
 from traceability.audit.registry import TRACE_P1
-from persistence.tests.factories import make_workspace
 
 pytestmark = pytest.mark.django_db
 

@@ -54,9 +54,10 @@ from __future__ import annotations
 import csv
 import io
 import json
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date, datetime
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any
 from uuid import UUID
 
 from django.core.management.base import BaseCommand, CommandError
@@ -132,7 +133,7 @@ class RotationRule:
     source_reference: str
     criteria: Sequence[str]
 
-    def as_dict(self) -> Dict[str, Any]:
+    def as_dict(self) -> dict[str, Any]:
         return {
             "name": self.name,
             "effective_date": self.effective_date.isoformat(),
@@ -212,11 +213,11 @@ _VALUE_FIELDS = (
 )
 
 
-def _iso(value: Optional[datetime]) -> Optional[str]:
+def _iso(value: datetime | None) -> str | None:
     return value.isoformat() if value is not None else None
 
 
-def classify_expiry(expires_at: Optional[datetime], now: datetime) -> str:
+def classify_expiry(expires_at: datetime | None, now: datetime) -> str:
     """Return the observed expiry state, keeping "unset" apart from "expired".
 
     ``ApiKey.expires_at is None`` and ``ApiKey.expires_at <= now`` are very
@@ -233,7 +234,7 @@ def classify_expiry(expires_at: Optional[datetime], now: datetime) -> str:
     return EXPIRY_STATE_FUTURE
 
 
-def classify_status(revoked_at: Optional[datetime], expiry_state: str) -> str:
+def classify_status(revoked_at: datetime | None, expiry_state: str) -> str:
     """Return the observed lifecycle state.
 
     Precedence is revoked > expired > active, and it is *not* the same thing as
@@ -302,15 +303,15 @@ def classify_workspace_fence(workspace_ids: Sequence[Any]) -> str:
 
 
 def unsatisfied_rules(
-    *, scope: str, workspace_ids: Sequence[Any], expires_at: Optional[datetime]
-) -> List[str]:
+    *, scope: str, workspace_ids: Sequence[Any], expires_at: datetime | None
+) -> list[str]:
     """Return the new-key contract rules this key's attributes do not satisfy.
 
     Pure attribute comparison — no capability judgement, no usability verdict.
     The fence clause asks for a *canonical* fence, not merely a non-empty one:
     see :func:`classify_workspace_fence` for why non-emptiness is not enough.
     """
-    missing: List[str] = []
+    missing: list[str] = []
     if scope not in CANONICAL_SCOPES:
         missing.append("explicit-canonical-scope")
     if classify_workspace_fence(workspace_ids) != FENCE_STATE_SET:
@@ -322,13 +323,13 @@ def unsatisfied_rules(
 
 def rotation_reasons(
     *, created_at: datetime, missing_rules: Sequence[str]
-) -> List[str]:
+) -> list[str]:
     """Return why a key is a rotation candidate under the named rule.
 
     Two independent triggers, matching the audit wording: the key predates the
     rule's effective date, or its attributes fall short of the new-key contract.
     """
-    reasons: List[str] = []
+    reasons: list[str] = []
     if created_at.date() < LEGACY_KEY_ROTATION_RULE.effective_date:
         reasons.append(REASON_PRE_RULE)
     for rule_id in missing_rules:
@@ -339,8 +340,8 @@ def rotation_reasons(
 
 
 def collect_inventory(
-    *, tenant_id: Optional[UUID] = None, now: Optional[datetime] = None
-) -> List[Dict[str, Any]]:
+    *, tenant_id: UUID | None = None, now: datetime | None = None
+) -> list[dict[str, Any]]:
     """Return one read-only inventory record per ``ApiKey`` row.
 
     Whole-database by default (``--tenant-id`` narrows it), so it queries
@@ -362,7 +363,7 @@ def collect_inventory(
             cursor.execute("SET LOCAL row_security = off")
         rows = list(queryset.values(*_VALUE_FIELDS).order_by("created_at", "id"))
 
-    inventory: List[Dict[str, Any]] = []
+    inventory: list[dict[str, Any]] = []
     for row in rows:
         expires_at = row["expires_at"]
         created_at = row["created_at"]
@@ -406,11 +407,11 @@ def collect_inventory(
 
 
 def build_payload(
-    inventory: Sequence[Dict[str, Any]],
+    inventory: Sequence[dict[str, Any]],
     *,
-    now: Optional[datetime] = None,
-    tenant_id: Optional[UUID] = None,
-) -> Dict[str, Any]:
+    now: datetime | None = None,
+    tenant_id: UUID | None = None,
+) -> dict[str, Any]:
     """Assemble the machine-readable report envelope.
 
     ``generated_at`` is the only intentionally volatile field; the ``keys`` array
@@ -454,7 +455,7 @@ def build_payload(
     }
 
 
-def _render_fence(entry: Dict[str, Any]) -> str:
+def _render_fence(entry: dict[str, Any]) -> str:
     """Render the observed fence values together with their classification.
 
     A defective fence is called out as such rather than being printed like a
@@ -474,10 +475,10 @@ def _render_fence(entry: Dict[str, Any]) -> str:
 
 
 def render_text(
-    inventory: Sequence[Dict[str, Any]],
+    inventory: Sequence[dict[str, Any]],
     *,
-    now: Optional[datetime] = None,
-    tenant_id: Optional[UUID] = None,
+    now: datetime | None = None,
+    tenant_id: UUID | None = None,
 ) -> str:
     """Render the human-readable report."""
     moment = now or timezone.now()
@@ -568,10 +569,10 @@ def render_text(
 
 
 def render_json(
-    inventory: Sequence[Dict[str, Any]],
+    inventory: Sequence[dict[str, Any]],
     *,
-    now: Optional[datetime] = None,
-    tenant_id: Optional[UUID] = None,
+    now: datetime | None = None,
+    tenant_id: UUID | None = None,
 ) -> str:
     """Render the machine-readable report (stable key order via ``sort_keys``)."""
     payload = build_payload(inventory, now=now, tenant_id=tenant_id)
@@ -589,10 +590,10 @@ def _csv_cell(value: Any) -> str:
 
 
 def render_csv(
-    inventory: Sequence[Dict[str, Any]],
+    inventory: Sequence[dict[str, Any]],
     *,
-    now: Optional[datetime] = None,
-    tenant_id: Optional[UUID] = None,
+    now: datetime | None = None,
+    tenant_id: UUID | None = None,
 ) -> str:
     """Render the flat report for spreadsheet/diff workflows.
 
@@ -652,7 +653,7 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options) -> None:
         raw_tenant_id = options.get("tenant_id")
-        tenant_id: Optional[UUID] = None
+        tenant_id: UUID | None = None
         if raw_tenant_id:
             try:
                 tenant_id = UUID(str(raw_tenant_id))

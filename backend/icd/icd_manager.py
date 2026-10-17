@@ -43,13 +43,12 @@ from typing import Any
 
 from django.db import transaction
 
-from persistence.artifact_backing import ensure_artifact
-from persistence.models import ArtifactVersion
-
 from icd.audit_logger import get_audit_logger
 from icd.contract_validator import ValidationResult, get_validator
 from icd.models import Icd, IcdRevision
 from icd.traceability_connector import get_connector
+from persistence.artifact_backing import ensure_artifact
+from persistence.models import ArtifactVersion
 
 logger = logging.getLogger(__name__)
 
@@ -356,7 +355,7 @@ class IcdManager:
         req_id: REQ-L2-ICD-001, REQ-L2-ICD-002, REQ-L2-ICD-004
         IF:     IF-L1-037, IF-ICD-INT-002, IF-L1-040
         """
-        from persistence.models import Tenant, ArchitectureElement
+        from persistence.models import ArchitectureElement, Tenant
         from persistence.tenancy import TenantContext
 
         syntax_check = self._validator.validate_syntax(
@@ -777,12 +776,12 @@ def get_manager() -> IcdManager:
 
 
 __all__ = [
-    "IcdManager",
     "IcdCreateDTO",
-    "IcdUpdateDTO",
-    "IcdResult",
-    "SimilarIcdDTO",
+    "IcdManager",
     "IcdPgVectorUnavailableError",
     "IcdQdrantUnavailableError",
+    "IcdResult",
+    "IcdUpdateDTO",
+    "SimilarIcdDTO",
     "get_manager",
 ]

@@ -36,8 +36,7 @@ from diagram.tests.conftest import (
     VALID_CANVAS_STROKES,
     active_tenant,
 )
-from diagram.validator import DiagramValidator, DiagramValidationError, ValidationResult
-
+from diagram.validator import DiagramValidationError, DiagramValidator, ValidationResult
 
 # ---------------------------------------------------------------------------
 # Fixtures

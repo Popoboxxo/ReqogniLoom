@@ -19,20 +19,18 @@ Provides:
 """
 from __future__ import annotations
 
-from typing import Iterator
+from collections.abc import Iterator
 
 import pytest
 from django.test import override_settings
 
 from auth_tenancy.context import AuthContext, AuthMethod
 from auth_tenancy.models import ROLE_ADMIN, ROLE_EDITOR, ROLE_VIEWER
-from persistence.models import Tenant, User
-
 
 # Re-export auth_tenancy fixtures so a single `from admin_ops.tests.conftest`
 # import is enough for the test files.
 from auth_tenancy.tests.conftest import active_tenant, tenant_a  # noqa: F401
-
+from persistence.models import Tenant, User
 
 # ---------------------------------------------------------------------------
 # Auth fixtures

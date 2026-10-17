@@ -28,7 +28,7 @@ role, a non-UUID string, and an empty value.
 """
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any
 
 import pytest
 from django.test import Client, RequestFactory
@@ -90,7 +90,7 @@ def _header_value(kind: str, other: Workspace, unroled: Workspace) -> str:
     return ""
 
 
-def _context(response) -> Dict[str, Any]:
+def _context(response) -> dict[str, Any]:
     """Return the ``workspace_context`` payload of a ``workspace.get_context`` reply."""
     return extract_result(response)["workspace_context"]
 
@@ -240,7 +240,7 @@ def test_write_denial_is_identical_with_and_without_the_header(
     change the error. Doubled assertion (transport status + JSON-RPC error code)
     follows the convention of the neighbouring MCP tests.
     """
-    params: Dict[str, Any] = {"key": "w1neg-header-key", "definition": {"k": "v"}}
+    params: dict[str, Any] = {"key": "w1neg-header-key", "definition": {"k": "v"}}
 
     plain = post_mcp(viewer_client, "link_type.create", params)
     decorated = post_mcp(

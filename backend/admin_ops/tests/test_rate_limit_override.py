@@ -18,7 +18,7 @@ RLS for the new tenant-scoped table is covered separately in
 """
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
 import pytest
 from django.conf import settings
@@ -54,7 +54,7 @@ def _clear_rate_limit_cache():
     cache.clear()
 
 
-def _request(auth: AuthContext, *, body: Optional[dict] = None, method: str = "get") -> Request:
+def _request(auth: AuthContext, *, body: dict | None = None, method: str = "get") -> Request:
     factory = APIRequestFactory()
     builder = getattr(factory, method)
     raw = builder("/x/", body or {}, format="json") if body is not None else builder("/x/")

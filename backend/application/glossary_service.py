@@ -5,22 +5,22 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any, List, Optional
+from typing import Any
 from uuid import UUID
 
-from auth_tenancy.context import AuthContext
 from django.db.models import F, Q
-from persistence.artifact_backing import ensure_artifact
-from persistence.models import GlossaryTerm, Workspace
-from persistence.transactions import atomic_transaction
 
-from application.artifact_version_service import ArtifactVersionService, snapshot_fields
 from application.artifact_service import _clean_custom_fields
+from application.artifact_version_service import ArtifactVersionService, snapshot_fields
 from application.base import NotFoundError, ServiceBase, ValidationError
 from application.optimistic_lock import (
     assert_expected_version,
     lock_for_version_check,
 )
+from auth_tenancy.context import AuthContext
+from persistence.artifact_backing import ensure_artifact
+from persistence.models import GlossaryTerm, Workspace
+from persistence.transactions import atomic_transaction
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +31,7 @@ _UNSET = object()
 @dataclass
 class GlossaryTermDTO:
     id: UUID
-    workspace_id: Optional[UUID]
+    workspace_id: UUID | None
     term: str
     definition: str
     synonyms: list
@@ -45,10 +45,10 @@ class GlossaryTermDTO:
     # can call ArtifactDiffService.list_versions/.diff(artifact_id, ...)
     # without a direct GlossaryTerm ORM query (layering: views use
     # Serializer + Service, not the model directly).
-    artifact_id: Optional[UUID] = None
+    artifact_id: UUID | None = None
     # REQ-L2-AS-037 / Epic #934 WS1: extended user-defined attributes live on
     # the backing Artifact; exposed so both transports can read them back.
-    custom_fields: Optional[dict] = None
+    custom_fields: dict | None = None
 
     @property
     def artifact(self) -> Any:
@@ -64,7 +64,7 @@ class GlossaryTermDTO:
         return getattr(self, "_artifact", None)
 
     @classmethod
-    def from_orm(cls, term: GlossaryTerm) -> "GlossaryTermDTO":
+    def from_orm(cls, term: GlossaryTerm) -> GlossaryTermDTO:
         # Datenmodell-Konsolidierung Task 24: GlossaryTerm's own
         # `lifecycle_status` mirror column is dropped; the flag now lives
         # only on the backing Artifact (Decision D-3). Rows without one yet
@@ -130,7 +130,7 @@ class GlossaryService(ServiceBase):
 
     def list_by_workspace(
         self, ctx: AuthContext, workspace_id: UUID, include_deleted: bool = False
-    ) -> List[GlossaryTermDTO]:
+    ) -> list[GlossaryTermDTO]:
         """Return GlossaryTerms for *workspace_id*.
 
         REQ-006: Excludes soft-deleted terms (``status`` == "outdated") by
@@ -159,9 +159,9 @@ class GlossaryService(ServiceBase):
         workspace_id: UUID,
         term: str,
         definition: str,
-        synonyms: Optional[list] = None,
+        synonyms: list | None = None,
         abbreviation: str = "",
-        custom_fields: Optional[dict] = None,
+        custom_fields: dict | None = None,
     ) -> GlossaryTermDTO:
         if not term.strip() or not definition.strip():
             raise ValidationError("Term and definition are required.")
@@ -232,11 +232,11 @@ class GlossaryService(ServiceBase):
         self,
         ctx: AuthContext,
         term_id: UUID,
-        term: Optional[str] = None,
-        definition: Optional[str] = None,
-        synonyms: Optional[list] = None,
-        abbreviation: Optional[str] = None,
-        expected_version: Optional[int] = None,
+        term: str | None = None,
+        definition: str | None = None,
+        synonyms: list | None = None,
+        abbreviation: str | None = None,
+        expected_version: int | None = None,
         custom_fields: object = _UNSET,
     ) -> GlossaryTermDTO:
         """Update a GlossaryTerm (REQ-L1-044).

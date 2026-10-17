@@ -21,13 +21,12 @@ from __future__ import annotations
 
 import json
 from collections import Counter
-from typing import Dict
 from uuid import UUID
 
 from django.core.management.base import BaseCommand, CommandError
 
 
-def summarize_findings(workspace_id: UUID | str) -> Dict[str, int]:
+def summarize_findings(workspace_id: UUID | str) -> dict[str, int]:
     """Return ``{rule_id: finding_count}`` for a workspace's SE-Auditor run.
 
     Paginates through ``AuditService.run_audit`` via ``limit``/``offset``

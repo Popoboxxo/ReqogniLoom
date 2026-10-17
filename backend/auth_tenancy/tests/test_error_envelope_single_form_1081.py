@@ -125,10 +125,10 @@ def test_workspace_members_400_uses_the_canonical_envelope(mock_cls):
 def test_workspace_members_409_uses_the_canonical_envelope(mock_cls):
     """The last-admin 409 also flows through the same one builder."""
 
-    from auth_tenancy.services.authorization import LastAdminError
     from auth_tenancy.rest_workspace_members import (
         WorkspaceMemberRoleTransitionView,
     )
+    from auth_tenancy.services.authorization import LastAdminError
 
     mock_cls.return_value.suspend_role.side_effect = LastAdminError(
         "workspace", str(_WORKSPACE_ID)

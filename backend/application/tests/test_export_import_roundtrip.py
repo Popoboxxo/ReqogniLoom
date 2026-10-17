@@ -29,7 +29,7 @@ the Task 12 report Finding 2), not the common case this safety net protects.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -43,8 +43,8 @@ from persistence.models import (
     Artifact,
     Requirement,
     StakeholderNeed,
-    TestCase,
     Tenant,
+    TestCase,
     Workspace,
 )
 from workflow import state_reader
@@ -55,7 +55,7 @@ pytestmark = pytest.mark.django_db
 
 # A deliberately non-"now" timestamp so preservation is observable: a fresh
 # create would stamp the current time, which would not equal this value.
-_FIXED_TS = datetime(2020, 1, 2, 3, 4, 5, tzinfo=timezone.utc)
+_FIXED_TS = datetime(2020, 1, 2, 3, 4, 5, tzinfo=UTC)
 _FIXED_VERSION = 7
 
 

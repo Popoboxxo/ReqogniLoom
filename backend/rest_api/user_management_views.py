@@ -195,7 +195,7 @@ class UserViewSet(ViewSet):
 
         return Response(_user_to_dict(user), status=status.HTTP_201_CREATED)
 
-    def _resolve_user_pk(self, pk: "str | UUID | None") -> UUID | None:
+    def _resolve_user_pk(self, pk: str | UUID | None) -> UUID | None:
         """Coerce ``pk`` to a :class:`UUID`.
 
         The URL routes for this ViewSet use the ``<uuid:pk>`` path converter

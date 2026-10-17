@@ -25,8 +25,6 @@ from auth_tenancy.models import (
     ROLE_ADMIN,
     ItemPermission,
 )
-from persistence.middleware import clear_request_tenant, set_request_tenant
-from persistence.models import Tenant, User
 
 # Fixtures below are auto-loaded from conftest.py; re-imported here
 # so type checkers and IDEs see them as fixture references.
@@ -41,6 +39,8 @@ from mcp_server.tests.conftest import (  # noqa: F401
     e2e_workspace,
 )
 from mcp_server.tests.helpers import extract_result, post_mcp
+from persistence.middleware import clear_request_tenant, set_request_tenant
+from persistence.models import Tenant, User
 
 # SYSTEMAUDIT SA-62: classification marker for the `test_e2e_*.py` family —
 # see the `e2e` marker docstring in pyproject.toml. Composes with the

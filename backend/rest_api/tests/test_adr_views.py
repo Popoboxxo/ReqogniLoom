@@ -23,8 +23,7 @@ from rest_framework.test import APIClient
 from application.models import Adr
 from application.workspace_provisioning import provision_workspace_defaults
 from auth_tenancy.models import ROLE_ADMIN, UserRole
-from persistence.models import TraceLink
-from persistence.models import Tenant, User
+from persistence.models import Tenant, TraceLink, User
 from persistence.models import Workspace as PersistenceWorkspace
 from persistence.tenancy import TenantContext
 

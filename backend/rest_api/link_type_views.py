@@ -170,9 +170,9 @@ class WorkspaceLinkTypeResetView(AdminScopeRequiredMixin, APIView):
 
 
 __all__ = [
-    "LinkTypeDefaultsListView",
     "LinkTypeDefaultsDetailView",
-    "WorkspaceLinkTypeListView",
+    "LinkTypeDefaultsListView",
     "WorkspaceLinkTypeDetailView",
+    "WorkspaceLinkTypeListView",
     "WorkspaceLinkTypeResetView",
 ]

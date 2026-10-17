@@ -84,7 +84,7 @@ def make_artifact(tenant, workspace):
     from persistence.models import Artifact
     from persistence.tenancy import TenantContext
 
-    def _make(item_type: str, custom_fields: dict) -> "Artifact":
+    def _make(item_type: str, custom_fields: dict) -> Artifact:
         TenantContext.set_tenant(tenant.id)
         try:
             return Artifact.objects.create(

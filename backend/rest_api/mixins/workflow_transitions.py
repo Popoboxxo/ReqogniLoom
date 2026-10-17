@@ -18,7 +18,8 @@ share one implementation and one response contract.
 """
 from __future__ import annotations
 
-from typing import Any, Mapping
+from collections.abc import Mapping
+from typing import Any
 from uuid import UUID
 
 from rest_framework import status

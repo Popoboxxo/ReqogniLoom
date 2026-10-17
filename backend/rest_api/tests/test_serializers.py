@@ -21,6 +21,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from persistence.models import Adr
+from rest_api.preset_guard import FieldFilter
 from rest_api.serializers import (
     QUERYSET_OPTIMIZATIONS,
     AdrSerializer,
@@ -38,8 +39,6 @@ from rest_api.serializers import (
     detect_lang,
     get_error_message,
 )
-from rest_api.preset_guard import FieldFilter
-
 
 # ---------------------------------------------------------------------------
 # i18n error messages (REQ-L3-RA002-002)
@@ -177,8 +176,8 @@ class TestPageSizeCapIsNotSilent:
     """
 
     def _request(self, query: str):
-        from rest_framework.test import APIRequestFactory
         from rest_framework.request import Request
+        from rest_framework.test import APIRequestFactory
 
         return Request(APIRequestFactory().get(f"/api/v1/requirements/?{query}"))
 

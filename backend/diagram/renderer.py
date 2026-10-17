@@ -33,12 +33,11 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
 
 from diagram.models import DiagramType, PayloadFormat
 from diagram.node_graph_renderer import NodeGraphRenderError
 from diagram.node_graph_renderer import render_svg as _render_node_graph_svg
-
 
 # ---------------------------------------------------------------------------
 # Data contracts
@@ -65,7 +64,7 @@ class RenderableDiagram:
     payload_format: str
     content: str
     render_hint: str
-    metadata: Optional[dict[str, Any]] = None
+    metadata: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -143,7 +142,7 @@ class DiagramRenderer:
         diagram_type: str,
         payload_format: str,
         content: str,
-        metadata: Optional[dict[str, Any]] = None,
+        metadata: dict[str, Any] | None = None,
     ) -> RenderableDiagram:
         """Transform a validated payload into a RenderableDiagram.
 
@@ -281,6 +280,6 @@ class DiagramRenderer:
 
 __all__ = [
     "DiagramRenderer",
-    "RenderableDiagram",
     "RenderHints",
+    "RenderableDiagram",
 ]

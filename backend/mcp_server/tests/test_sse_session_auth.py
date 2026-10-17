@@ -18,7 +18,7 @@ req_id  : REQ-018 (SYSTEM_AUDIT P-02 — no API key in SSE URL)
 """
 from __future__ import annotations
 
-from typing import AsyncGenerator, List, Optional, Tuple
+from collections.abc import AsyncGenerator
 from unittest import mock
 
 import pytest
@@ -26,7 +26,6 @@ from asgiref.sync import async_to_sync
 from django.test import RequestFactory
 
 from mcp_server.views import McpMessagesView, McpSseTransportView
-
 
 _API_KEY = "rfk_test_key_value"
 
@@ -38,10 +37,10 @@ _API_KEY = "rfk_test_key_value"
 
 def test_sse_endpoint_url_excludes_api_key() -> None:
     """The SSE ``endpoint`` event URL carries only ``session_id`` — no api_key."""
-    captured: List[Tuple[str, str]] = []
+    captured: list[tuple[str, str]] = []
 
     def _fake_generator(
-        session_id: str, endpoint_url: str, last_event_id: Optional[int] = None
+        session_id: str, endpoint_url: str, last_event_id: int | None = None
     ) -> AsyncGenerator[str, None]:
         captured.append((session_id, endpoint_url))
 
@@ -144,7 +143,7 @@ def test_messages_invalid_session_is_rejected() -> None:
         content_type="application/json",
     )
 
-    unbound: Optional[str] = None
+    unbound: str | None = None
     with mock.patch(
         "mcp_server.sse_pubsub.get_session_api_key", return_value=unbound
     ), mock.patch("mcp_server.views._get_handler") as get_handler, mock.patch(
@@ -169,7 +168,7 @@ class _FakeRedis:
     def __init__(self) -> None:
         self.store: dict = {}
 
-    def set(self, key: str, value: str, ex: Optional[int] = None) -> None:
+    def set(self, key: str, value: str, ex: int | None = None) -> None:
         self.store[key] = value
 
     def get(self, key: str):
@@ -229,7 +228,7 @@ def test_tampered_session_api_key_returns_none() -> None:
 
 
 def _fake_sse_generator(
-    session_id: str, endpoint_url: str, last_event_id: Optional[int] = None
+    session_id: str, endpoint_url: str, last_event_id: int | None = None
 ) -> AsyncGenerator[str, None]:
     """Redis-free stand-in for the SSE event generator."""
 

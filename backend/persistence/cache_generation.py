@@ -47,7 +47,6 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from typing import Dict, Tuple
 
 from django.core.cache import cache
 
@@ -71,7 +70,7 @@ GENERATION_READ_TTL_SECONDS = 1.0
 _GENERATION_KEY_TTL_SECONDS = 60 * 60 * 24 * 30  # 30 days
 
 # (namespace, scope_id) -> (generation, monotonic timestamp of the read)
-_read_memo: Dict[Tuple[str, str], Tuple[int, float]] = {}
+_read_memo: dict[tuple[str, str], tuple[int, float]] = {}
 _read_memo_lock = threading.Lock()
 
 

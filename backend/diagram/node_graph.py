@@ -482,18 +482,18 @@ def extract_artifact_refs(payload: dict) -> list[tuple[str, dict]]:
 
 
 __all__ = [
-    "SCHEMA_VERSION",
-    "NODE_TYPES",
-    "EDGE_TYPES",
-    "STYLE_ACCENTS",
     "EDGE_LINE_STYLES",
+    "EDGE_TYPES",
     "HANDLE_POSITIONS",
     "KNOWN_ARTIFACT_ENTITY_TYPES",
-    "MAX_NODES",
     "MAX_EDGES",
-    "MAX_LABEL_LENGTH",
     "MAX_ID_LENGTH",
+    "MAX_LABEL_LENGTH",
+    "MAX_NODES",
     "MAX_PAYLOAD_BYTES",
-    "validate_node_graph",
+    "NODE_TYPES",
+    "SCHEMA_VERSION",
+    "STYLE_ACCENTS",
     "extract_artifact_refs",
+    "validate_node_graph",
 ]

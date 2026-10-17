@@ -15,7 +15,6 @@
 # reconstruction).
 from django.db import migrations
 
-
 _OLD_SLOT_NAMES = (
     "need_to_sysreq",
     "sysreq_to_arch_assign",

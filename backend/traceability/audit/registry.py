@@ -80,7 +80,7 @@ un-promoted where the evidence says so; see
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Dict, FrozenSet, List, Mapping
+from collections.abc import Mapping
 
 from traceability.audit.types import AuditContext, Finding, Severity
 
@@ -137,7 +137,7 @@ IFC_001 = "IFC-001"
 # ---------------------------------------------------------------------------
 
 # Standard and Extended share this baseline set.
-_STANDARD_RULES: FrozenSet[str] = frozenset(
+_STANDARD_RULES: frozenset[str] = frozenset(
     {
         TRACE_P1,
         TRACE_P1B,
@@ -155,7 +155,7 @@ _STANDARD_RULES: FrozenSet[str] = frozenset(
 )
 
 #: Extended adds the stricter SE-only rules on top of the standard set.
-_EXTENDED_ONLY_RULES: FrozenSet[str] = frozenset(
+_EXTENDED_ONLY_RULES: frozenset[str] = frozenset(
     {
         TRACE_P3,
         TRACE_P5,
@@ -176,19 +176,19 @@ _EXTENDED_ONLY_RULES: FrozenSet[str] = frozenset(
 #: fail on them: Minimal maps to the empty rule set structurally, and Standard's
 #: baseline set is disjoint from this one by construction.
 #: ``test_se_auditor_stage_coupling`` pins both.
-FULL_SE_RULE_IDS: FrozenSet[str] = _EXTENDED_ONLY_RULES
+FULL_SE_RULE_IDS: frozenset[str] = _EXTENDED_ONLY_RULES
 
 #: Tier → set of active rule ids. Minimal is intentionally empty ("Minimal =
 #: no SE-Auditor mandate", §2.2) and this emptiness is enforced structurally
 #: (see _get_rule_preset_map).
-RULE_PRESET_MAP: Mapping[str, FrozenSet[str]] = {
+RULE_PRESET_MAP: Mapping[str, frozenset[str]] = {
     "minimal": frozenset(),
     "standard": _STANDARD_RULES,
     "extended": _STANDARD_RULES | _EXTENDED_ONLY_RULES,
 }
 
 #: Every rule id known to the catalogue (union across all tiers).
-ALL_RULE_IDS: FrozenSet[str] = frozenset().union(*RULE_PRESET_MAP.values())
+ALL_RULE_IDS: frozenset[str] = frozenset().union(*RULE_PRESET_MAP.values())
 
 #: Fallback tier for unknown tier names — mid-rigor "standard" is the safest
 #: default (matches the ArchitectureElement invariant validator). Minimal is
@@ -199,7 +199,7 @@ _FALLBACK_TIER = "standard"
 assert not RULE_PRESET_MAP["minimal"], "Minimal preset must have no audit rules"
 
 
-def _get_rule_preset_map() -> Mapping[str, FrozenSet[str]]:
+def _get_rule_preset_map() -> Mapping[str, frozenset[str]]:
     """Return the effective tier→rule-ids mapping.
 
     Reads the optional ``SE_AUDITOR_RULE_PRESETS`` Django setting (dict of tier
@@ -217,7 +217,7 @@ def _get_rule_preset_map() -> Mapping[str, FrozenSet[str]]:
         override = None
 
     if not isinstance(override, dict):
-        merged: Dict[str, FrozenSet[str]] = dict(RULE_PRESET_MAP)
+        merged: dict[str, frozenset[str]] = dict(RULE_PRESET_MAP)
     else:
         merged = dict(RULE_PRESET_MAP)
         for tier, ids in override.items():
@@ -231,12 +231,12 @@ def _get_rule_preset_map() -> Mapping[str, FrozenSet[str]]:
     return merged
 
 
-def full_se_rule_ids() -> FrozenSet[str]:
+def full_se_rule_ids() -> frozenset[str]:
     """Return the Full-SE rule ids (stage 3 / Extended only). See the constant."""
     return FULL_SE_RULE_IDS
 
 
-def active_rule_ids_for_tier(tier: str) -> FrozenSet[str]:
+def active_rule_ids_for_tier(tier: str) -> frozenset[str]:
     """Return the set of active rule ids for *tier*.
 
     Unknown tiers fall back to the standard set. Minimal always returns the
@@ -331,7 +331,7 @@ class Rule(ABC):
         return Severity.BLOCKER
 
     @abstractmethod
-    def check(self, context: AuditContext) -> List[Finding]:
+    def check(self, context: AuditContext) -> list[Finding]:
         """Run the check and return findings (empty list = conformant)."""
         raise NotImplementedError
 
@@ -340,7 +340,7 @@ class Rule(ABC):
 # Registry + self-registration
 # ---------------------------------------------------------------------------
 
-_REGISTRY: Dict[str, Rule] = {}
+_REGISTRY: dict[str, Rule] = {}
 
 
 def register_rule(cls: type[Rule]) -> type[Rule]:
@@ -418,16 +418,15 @@ def clear_registry() -> None:  # pragma: no cover — test/tooling helper
 
 
 __all__ = [
-    "Rule",
-    "register_rule",
-    "get_registered_rules",
-    "get_rule_catalogue",
-    "clear_registry",
-    "active_rule_ids_for_tier",
-    "full_se_rule_ids",
-    "RULE_PRESET_MAP",
     "ALL_RULE_IDS",
+    "ARCH_003",
+    "CONS_P9",
+    "CONS_P10",
+    "CONS_P12",
+    "CONS_P13",
     "FULL_SE_RULE_IDS",
+    "IFC_001",
+    "RULE_PRESET_MAP",
     "TRACE_P1",
     "TRACE_P1B",
     "TRACE_P2",
@@ -436,12 +435,13 @@ __all__ = [
     "TRACE_P5",
     "TRACE_P6",
     "TRACE_P7",
-    "ARCH_003",
-    "VERIF_P8",
-    "CONS_P9",
-    "CONS_P10",
-    "CONS_P12",
-    "CONS_P13",
     "VAL_P1",
-    "IFC_001",
+    "VERIF_P8",
+    "Rule",
+    "active_rule_ids_for_tier",
+    "clear_registry",
+    "full_se_rule_ids",
+    "get_registered_rules",
+    "get_rule_catalogue",
+    "register_rule",
 ]

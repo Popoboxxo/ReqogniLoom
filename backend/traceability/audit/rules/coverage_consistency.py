@@ -106,8 +106,6 @@ paper. It is documented as a coverage convention instead.
 """
 from __future__ import annotations
 
-from typing import Dict, FrozenSet, List, Set, Tuple
-
 from persistence.models import (
     ArchitectureElement,
     Requirement,
@@ -138,7 +136,7 @@ from workflow.services import outdated_item_ids
 # ---------------------------------------------------------------------------
 
 
-def _active_requirements(context: AuditContext) -> Dict[str, Tuple[str, int | None]]:
+def _active_requirements(context: AuditContext) -> dict[str, tuple[str, int | None]]:
     """Return ``{artifact_id: (title, level)}`` for active Requirements.
 
     Datenmodell-Konsolidierung Phase 1: "active" is resolved through
@@ -167,7 +165,7 @@ def _active_requirements(context: AuditContext) -> Dict[str, Tuple[str, int | No
     }
 
 
-def _active_architecture_elements(context: AuditContext) -> Dict[str, str]:
+def _active_architecture_elements(context: AuditContext) -> dict[str, str]:
     """Return ``{artifact_id: title}`` for active ArchitectureElements.
 
     ArchitectureElement has no status mirror — ``outdate()`` writes only
@@ -185,7 +183,7 @@ def _active_architecture_elements(context: AuditContext) -> Dict[str, str]:
     }
 
 
-def _active_test_cases(context: AuditContext) -> Dict[str, str]:
+def _active_test_cases(context: AuditContext) -> dict[str, str]:
     """Return ``{artifact_id: title}`` for active TestCases.
 
     Datenmodell-Konsolidierung Phase 1: "active" excludes ``"outdated"`` via
@@ -227,7 +225,7 @@ def _active_test_cases(context: AuditContext) -> Dict[str, str]:
     }
 
 
-def _active_verifying_test_cases(context: AuditContext) -> Dict[str, str]:
+def _active_verifying_test_cases(context: AuditContext) -> dict[str, str]:
     """Return ``{artifact_id: title}`` for active *verification-evidence* TestCases.
 
     #424: unlike :func:`_active_test_cases`, this helper applies the shared
@@ -264,10 +262,10 @@ def _active_verifying_test_cases(context: AuditContext) -> Dict[str, str]:
 
 
 def _targets_by_source(
-    context: AuditContext, link_types: FrozenSet[str]
-) -> Dict[str, Set[str]]:
+    context: AuditContext, link_types: frozenset[str]
+) -> dict[str, set[str]]:
     """Return ``{source_id: {target_id, ...}}`` for links of *link_types*."""
-    result: Dict[str, Set[str]] = {}
+    result: dict[str, set[str]] = {}
     for link in context.iter_trace_links():
         if link["link_type"] not in link_types:
             continue
@@ -303,7 +301,7 @@ class TestCaseVerifiesExistingArtifactRule(Rule):
         "ArchitectureElement it tests."
     )
 
-    def check(self, context: AuditContext) -> List[Finding]:
+    def check(self, context: AuditContext) -> list[Finding]:
         test_cases = _active_test_cases(context)
         if not test_cases:
             return []
@@ -313,7 +311,7 @@ class TestCaseVerifiesExistingArtifactRule(Rule):
         target_pool = requirement_ids | arch_ids
         verifies = _targets_by_source(context, frozenset({LinkType.VERIFIES.value}))
 
-        findings: List[Finding] = []
+        findings: list[Finding] = []
         for tc_id, title in sorted(test_cases.items()):
             targets = verifies.get(tc_id, set())
             valid_targets = targets & target_pool
@@ -362,7 +360,7 @@ class LeafRequirementHasTestCaseRule(Rule):
         "Create a TestCase and link it to the leaf Requirement via 'verifies'."
     )
 
-    def check(self, context: AuditContext) -> List[Finding]:
+    def check(self, context: AuditContext) -> list[Finding]:
         requirements = _active_requirements(context)
         if not requirements:
             return []
@@ -382,13 +380,13 @@ class LeafRequirementHasTestCaseRule(Rule):
         active_test_case_ids = frozenset(_active_verifying_test_cases(context))
         verifies = _targets_by_source(context, frozenset({LinkType.VERIFIES.value}))
 
-        verified_requirement_ids: Set[str] = set()
+        verified_requirement_ids: set[str] = set()
         for tc_id, targets in verifies.items():
             if tc_id not in active_test_case_ids:
                 continue
             verified_requirement_ids.update(targets)
 
-        findings: List[Finding] = []
+        findings: list[Finding] = []
         for req_id in sorted(leaf_ids):
             if req_id in verified_requirement_ids:
                 continue
@@ -444,7 +442,7 @@ class OpenConflictBlocksApprovalRule(Rule):
         "extended."
     )
 
-    def check(self, context: AuditContext) -> List[Finding]:
+    def check(self, context: AuditContext) -> list[Finding]:
         """Never invoked (deferred rule) — kept only to satisfy the abstract
         :class:`Rule` interface. See :attr:`deferred_reason`.
         """
@@ -489,7 +487,7 @@ class NoDanglingSupersededReferenceRule(Rule):
         "extended."
     )
 
-    def check(self, context: AuditContext) -> List[Finding]:
+    def check(self, context: AuditContext) -> list[Finding]:
         """Never invoked (deferred rule) — kept only to satisfy the abstract
         :class:`Rule` interface. See :attr:`deferred_reason`.
         """
@@ -497,9 +495,9 @@ class NoDanglingSupersededReferenceRule(Rule):
 
 
 __all__ = [
-    "TestCaseVerifiesExistingArtifactRule",
     "LeafRequirementHasTestCaseRule",
-    "OpenConflictBlocksApprovalRule",
     "NoDanglingSupersededReferenceRule",
+    "OpenConflictBlocksApprovalRule",
+    "TestCaseVerifiesExistingArtifactRule",
     "_active_verifying_test_cases",
 ]

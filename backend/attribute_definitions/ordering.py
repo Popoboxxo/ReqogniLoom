@@ -21,7 +21,8 @@ settings module and usable from a data migration.
 """
 from __future__ import annotations
 
-from typing import Any, Iterable, Sequence
+from collections.abc import Iterable, Sequence
+from typing import Any
 
 from attribute_definitions.schema import ATTRIBUTE_SPANS, DEFAULT_ATTRIBUTE_SPAN
 

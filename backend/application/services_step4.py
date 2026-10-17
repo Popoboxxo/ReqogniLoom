@@ -20,18 +20,18 @@ Import paths::
 """
 from __future__ import annotations
 
-# COMP-AS-017
-from application.test_run_service import VALID_RESULT_STATUSES, TestRunService  # noqa: F401
-
 # COMP-AS-021
 from application.change_request_service import (  # noqa: F401
-    ChangeRequestService,
     ChangeRequestDTO,
+    ChangeRequestService,
     ChangeRequestValidator,
 )
 
 # ---------- Registry hook (services.py extension pattern) ----------
 from application.services import _registry  # noqa: E402
+
+# COMP-AS-017
+from application.test_run_service import VALID_RESULT_STATUSES, TestRunService  # noqa: F401
 
 _registry["TestRunService"] = TestRunService
 _registry["ChangeRequestService"] = ChangeRequestService
@@ -39,9 +39,9 @@ _registry["ChangeRequestService"] = ChangeRequestService
 # ---------- Public surface ----------
 
 __all__ = [
-    "TestRunService",
     "VALID_RESULT_STATUSES",
-    "ChangeRequestService",
     "ChangeRequestDTO",
+    "ChangeRequestService",
     "ChangeRequestValidator",
+    "TestRunService",
 ]

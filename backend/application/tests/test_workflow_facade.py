@@ -10,13 +10,12 @@ exception remapping, audit, event emission.
 from __future__ import annotations
 
 import uuid
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, call, patch
 
 import pytest
 
 from application.base import PermissionDeniedError, ValidationError
 from application.workflow_facade import WorkflowFacade, _remap_workflow_exc
-
 
 # ---------- Helpers ----------
 

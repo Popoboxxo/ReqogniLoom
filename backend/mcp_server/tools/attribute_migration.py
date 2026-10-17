@@ -25,9 +25,7 @@ No ORM in this module (ADR-01, enforced by
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List
-
-from auth_tenancy.context import AuthContext
+from typing import Any
 
 from application.attribute_migration_service import (
     AttributeMigrationConflict,
@@ -36,6 +34,7 @@ from application.attribute_migration_service import (
 )
 from application.base import PermissionDeniedError
 from attribute_definitions.migration_plan import MigrationPlanError
+from auth_tenancy.context import AuthContext
 from mcp_server.protocol_handler import ToolResult
 from mcp_server.tools.base import BaseToolGroup, require_param, require_uuid
 
@@ -77,7 +76,7 @@ class AttributeMigrationToolGroup(BaseToolGroup):
     def _get_service() -> AttributeMigrationService:
         return AttributeMigrationService()
 
-    def get_tool_schemas(self) -> List[Dict[str, Any]]:
+    def get_tool_schemas(self) -> list[dict[str, Any]]:
         return [
             {
                 "name": "attribute_migration.plan",
@@ -179,14 +178,14 @@ class AttributeMigrationToolGroup(BaseToolGroup):
     # ---- Handlers ---------------------------------------------------------
 
     @staticmethod
-    def _plan_param(params: Dict[str, Any]) -> Dict[str, Any]:
+    def _plan_param(params: dict[str, Any]) -> dict[str, Any]:
         plan = params.get("plan")
         if not isinstance(plan, dict):
             raise MigrationPlanError(["Parameter 'plan' must be an object."])
         return plan
 
     def _handle_plan(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         try:
             result = self._get_service().validate_plan(self._plan_param(params))
@@ -195,7 +194,7 @@ class AttributeMigrationToolGroup(BaseToolGroup):
         return ToolResult.ok(result)
 
     def _handle_dry_run(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         try:
             report = self._get_service().dry_run(auth_context, self._plan_param(params))
@@ -208,7 +207,7 @@ class AttributeMigrationToolGroup(BaseToolGroup):
         return ToolResult.ok({"report": report})
 
     def _handle_apply(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         try:
             report = self._get_service().apply(auth_context, self._plan_param(params))
@@ -221,7 +220,7 @@ class AttributeMigrationToolGroup(BaseToolGroup):
         return ToolResult.ok({"report": report})
 
     def _handle_rollback(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         run_id = require_uuid(params, "run_id")
         try:
@@ -235,7 +234,7 @@ class AttributeMigrationToolGroup(BaseToolGroup):
         return ToolResult.ok(result)
 
     def _handle_list_runs(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         try:
             runs = self._get_service().list_runs(
@@ -252,7 +251,7 @@ class AttributeMigrationToolGroup(BaseToolGroup):
         return ToolResult.ok({"runs": runs, "count": len(runs)})
 
     def _handle_get_run(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         run_id = require_param(params, "run_id")
         try:

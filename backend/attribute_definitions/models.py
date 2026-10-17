@@ -102,10 +102,10 @@ class WorkspaceAttributeDefinition(TenantScopedModel):
 
 
 __all__ = [
-    "GlobalAttributeDefinition",
-    "WorkspaceAttributeDefinition",
     "PRESET_CHOICES",
+    "PRESET_EXTENDED",
     "PRESET_MINIMAL",
     "PRESET_STANDARD",
-    "PRESET_EXTENDED",
+    "GlobalAttributeDefinition",
+    "WorkspaceAttributeDefinition",
 ]

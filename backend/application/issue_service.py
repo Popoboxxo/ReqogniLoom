@@ -23,12 +23,9 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import List, Optional
 from uuid import UUID
 
-from auth_tenancy.context import AuthContext
 from django.db.models import F, QuerySet
-from persistence.transactions import atomic_transaction
 
 from application.artifact_service import (
     _clean_custom_fields,
@@ -43,6 +40,8 @@ from application.optimistic_lock import (
     assert_expected_version,
     lock_for_version_check,
 )
+from auth_tenancy.context import AuthContext
+from persistence.transactions import atomic_transaction
 from workflow import state_reader
 
 logger = logging.getLogger(__name__)
@@ -81,13 +80,13 @@ class IssueDTO:
     description: str
     severity: str
     category: str
-    assignee_id: Optional[UUID]
+    assignee_id: UUID | None
     status: str
     version: int
-    tags: List[str] = field(default_factory=list)
+    tags: list[str] = field(default_factory=list)
 
     @classmethod
-    def from_orm(cls, issue: Issue, *, status: str = "") -> "IssueDTO":
+    def from_orm(cls, issue: Issue, *, status: str = "") -> IssueDTO:
         """Build a DTO. ``status`` comes from the workflow engine (Phase 1)."""
         resolved_status = status
         return cls(
@@ -181,11 +180,11 @@ class IssueService(ServiceBase):
         severity: str = "medium",
         description: str = "",
         category: str = "defect",
-        assignee_id: Optional[UUID] = None,
+        assignee_id: UUID | None = None,
         due_date=None,
-        tags: Optional[List[str]] = None,
-        uid: Optional[str] = None,
-        custom_fields: Optional[dict] = None,
+        tags: list[str] | None = None,
+        uid: str | None = None,
+        custom_fields: dict | None = None,
     ) -> Issue:
         """Create an Issue with initial workflow state (REQ-L3-ISSUE-001).
 
@@ -291,15 +290,15 @@ class IssueService(ServiceBase):
         self,
         issue_id: UUID,
         ctx: AuthContext,
-        title: Optional[str] = None,
-        description: Optional[str] = None,
-        severity: Optional[str] = None,
-        category: Optional[str] = None,
+        title: str | None = None,
+        description: str | None = None,
+        severity: str | None = None,
+        category: str | None = None,
         due_date: object = _UNSET,
-        tags: Optional[List[str]] = None,
-        change_reason: Optional[str] = None,
+        tags: list[str] | None = None,
+        change_reason: str | None = None,
         custom_fields: object = _UNSET,
-        expected_version: Optional[int] = None,
+        expected_version: int | None = None,
     ) -> Issue:
         """Update an Issue, incrementing its version (REQ-L3-ISSUE-003, ADR-L3-ISSUE-01).
 
@@ -511,7 +510,7 @@ class IssueService(ServiceBase):
 
     def list_issues_by_status(
         self, workspace_id: UUID, status: str, ctx: AuthContext
-    ) -> List[Issue]:
+    ) -> list[Issue]:
         """Return Issues filtered by workflow *status* (REQ-L3-ISSUE-011).
 
         Args:
@@ -538,7 +537,7 @@ class IssueService(ServiceBase):
 
     def list_issues_by_severity(
         self, workspace_id: UUID, severity: str, ctx: AuthContext
-    ) -> List[Issue]:
+    ) -> list[Issue]:
         """Query issues filtered by severity (REQ-L3-ISSUE-007, ADR-L3-ISSUE-01).
 
         Args:
@@ -565,7 +564,7 @@ class IssueService(ServiceBase):
 
     def list_issues_by_assignee(
         self, workspace_id: UUID, assignee_id: UUID, ctx: AuthContext
-    ) -> List[Issue]:
+    ) -> list[Issue]:
         """Query issues filtered by assignee (REQ-L3-ISSUE-008/011).
 
         Args:
@@ -589,9 +588,9 @@ class IssueService(ServiceBase):
         self,
         workspace_id: UUID,
         ctx: AuthContext,
-        statuses: Optional[List[str]] = None,
-        severities: Optional[List[str]] = None,
-    ) -> List[Issue]:
+        statuses: list[str] | None = None,
+        severities: list[str] | None = None,
+    ) -> list[Issue]:
         """Query issues with combined status AND severity filters (ADR-L3-ISSUE-03).
 
         Args:
@@ -634,9 +633,9 @@ class IssueService(ServiceBase):
     def assign_issue(
         self,
         issue_id: UUID,
-        assignee_id: Optional[UUID],
+        assignee_id: UUID | None,
         ctx: AuthContext,
-        change_reason: Optional[str] = None,
+        change_reason: str | None = None,
     ) -> Issue:
         """Assign (or unassign) an Issue, tracking the change date (REQ-L3-ISSUE-008).
 
@@ -687,9 +686,9 @@ class IssueService(ServiceBase):
         issue_id: UUID,
         target_status: str,
         ctx: AuthContext,
-        change_reason: Optional[str] = None,
-        credential: Optional[str] = None,
-        expected_version: Optional[int] = None,
+        change_reason: str | None = None,
+        credential: str | None = None,
+        expected_version: int | None = None,
     ) -> Issue:
         """Transition an Issue's workflow status (REQ-L3-ISSUE-005).
 
@@ -798,7 +797,7 @@ class IssueService(ServiceBase):
 
 
 __all__ = [
-    "IssueService",
-    "IssueDTO",
     "ISSUE_LINK_TYPES",
+    "IssueDTO",
+    "IssueService",
 ]

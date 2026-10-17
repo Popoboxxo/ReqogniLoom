@@ -55,15 +55,8 @@ from __future__ import annotations
 import logging
 import socket
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, NoReturn, Optional, Tuple
+from typing import Any, NoReturn
 from uuid import UUID
-
-from auth_tenancy.context import AuthContext
-from persistence.models import ArchitectureElement, Requirement, TraceLink
-from persistence.transactions import TransactionContextManager
-from traceability.audit import Finding, RuleEngine, Severity
-from traceability.audit.registry import ARCH_003, TRACE_P4, TRACE_P5
-from traceability.types import LinkType
 
 from application.ai_derivation_service import LlmResponseError
 from application.audit_service import AuditService
@@ -73,6 +66,12 @@ from application.base import (
     ServiceBase,
     ValidationError,
 )
+from auth_tenancy.context import AuthContext
+from persistence.models import ArchitectureElement, Requirement, TraceLink
+from persistence.transactions import TransactionContextManager
+from traceability.audit import Finding, RuleEngine, Severity
+from traceability.audit.registry import ARCH_003, TRACE_P4, TRACE_P5
+from traceability.types import LinkType
 
 logger = logging.getLogger(__name__)
 
@@ -133,7 +132,7 @@ ARCH_DECOMPOSE_PROMPT_TEMPLATE = (
 )
 
 
-def _rationale_custom_fields(rationale: object) -> Optional[Dict[str, Any]]:
+def _rationale_custom_fields(rationale: object) -> dict[str, Any] | None:
     """Return the extended-attribute carrier for a node's generated rationale.
 
     ``rationale`` is an extended (``kind="extended"``) attribute for **both**
@@ -173,7 +172,7 @@ class DecompositionAuditError(ValidationError):
     was rolled back. Subclasses :class:`ValidationError` → HTTP 422.
     """
 
-    def __init__(self, message: str, findings: List[Dict[str, Any]]) -> None:
+    def __init__(self, message: str, findings: list[dict[str, Any]]) -> None:
         super().__init__(message)
         self.findings = findings
 
@@ -244,7 +243,7 @@ class DraftRequirement:
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> "DraftRequirement":
+    def from_dict(cls, data: dict) -> DraftRequirement:
         return cls(
             title=str((data or {}).get("title", "")),
             description=str((data or {}).get("description", "")),
@@ -262,7 +261,7 @@ class DraftNode:
     """
 
     temp_id: str
-    parent_temp_id: Optional[str]
+    parent_temp_id: str | None
     title: str
     description: str
     element_type: str
@@ -279,7 +278,7 @@ class DraftNode:
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> "DraftNode":
+    def from_dict(cls, data: dict) -> DraftNode:
         temp_id = str((data or {}).get("temp_id", "")).strip()
         if not temp_id:
             raise ValidationError("Draft node is missing 'temp_id'.")
@@ -306,7 +305,7 @@ class DecompositionDraft:
     parent_requirement_id: str
     provider: str
     degraded: bool
-    nodes: List[DraftNode] = field(default_factory=list)
+    nodes: list[DraftNode] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
@@ -319,7 +318,7 @@ class DecompositionDraft:
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> "DecompositionDraft":
+    def from_dict(cls, data: dict) -> DecompositionDraft:
         if not isinstance(data, dict):
             raise ValidationError("Draft payload must be an object.")
         root_element_id = str(data.get("root_element_id", "")).strip()
@@ -346,10 +345,10 @@ class CommitResult:
     """Outcome of a successful :meth:`commit_draft`."""
 
     root_element_id: str
-    created_element_ids: List[str] = field(default_factory=list)
-    created_requirement_ids: List[str] = field(default_factory=list)
-    created_link_ids: List[str] = field(default_factory=list)
-    verified_rules: List[str] = field(default_factory=list)
+    created_element_ids: list[str] = field(default_factory=list)
+    created_requirement_ids: list[str] = field(default_factory=list)
+    created_link_ids: list[str] = field(default_factory=list)
+    verified_rules: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
@@ -375,7 +374,7 @@ class ArchitectureDecomposeService(ServiceBase):
         architecture_service=None,
         requirement_service=None,
         trace_link_service=None,
-        engine: Optional[RuleEngine] = None,
+        engine: RuleEngine | None = None,
     ) -> None:
         # Deferred imports keep the module import graph acyclic (these services
         # import back into application/*).
@@ -417,8 +416,8 @@ class ArchitectureDecomposeService(ServiceBase):
         ctx: AuthContext,
         element_id: UUID | str,
         *,
-        max_breadth: Optional[int] = None,
-        max_depth: Optional[int] = None,
+        max_breadth: int | None = None,
+        max_depth: int | None = None,
     ) -> DecompositionDraft:
         """Propose a decomposition for *element_id* (no DB writes).
 
@@ -558,14 +557,14 @@ class ArchitectureDecomposeService(ServiceBase):
 
         result = CommitResult(root_element_id=str(root_element.id))
         # temp_id -> (architecture_element_id, requirement_id) for parent lookup.
-        created: Dict[str, Tuple[UUID, UUID]] = {}
+        created: dict[str, tuple[UUID, UUID]] = {}
         # Issue #366: Requirement PK -> backing Artifact id. create_requirement's
         # ``parent_id`` addresses the *Artifact* tree (see
         # RequirementService.decompose, which passes ``parent_req.artifact_id``),
         # while _resolve_parents works in the Requirement PK space. Without this
         # translation the derived requirements were created with a NULL
         # Artifact.parent and artifact.get_tree reported an empty subtree.
-        req_artifact_ids: Dict[UUID, UUID] = {anchor.id: anchor.artifact_id}
+        req_artifact_ids: dict[UUID, UUID] = {anchor.id: anchor.artifact_id}
         new_artifact_ids: set[str] = set()
 
         with TransactionContextManager():
@@ -698,8 +697,8 @@ class ArchitectureDecomposeService(ServiceBase):
         node: DraftNode,
         root_element: ArchitectureElement,
         anchor: Requirement,
-        created: Dict[str, Tuple[UUID, UUID]],
-    ) -> Tuple[UUID, UUID]:
+        created: dict[str, tuple[UUID, UUID]],
+    ) -> tuple[UUID, UUID]:
         """Return (parent_element_id, parent_requirement_id) for *node*.
 
         Top-level nodes (``parent_temp_id is None``) hang off the selected root
@@ -735,7 +734,7 @@ class ArchitectureDecomposeService(ServiceBase):
             workspace_id=workspace_id,
             tenant_id=tenant_id,
         )
-        offending: List[Finding] = [
+        offending: list[Finding] = [
             f
             for f in engine_result.findings
             if f.rule_id in _N1_VERIFICATION_RULES
@@ -759,7 +758,7 @@ class ArchitectureDecomposeService(ServiceBase):
     @staticmethod
     def _resolve_anchor_requirement(
         element: ArchitectureElement,
-    ) -> Optional[Requirement]:
+    ) -> Requirement | None:
         """Return the first Requirement allocated to *element*, or None.
 
         ``allocated-to`` links point Requirement (source) -> ArchitectureElement
@@ -790,7 +789,7 @@ class ArchitectureDecomposeService(ServiceBase):
         max_breadth: int,
         max_depth: int,
         artifact_id: str,
-    ) -> Tuple[list, str, bool]:
+    ) -> tuple[list, str, bool]:
         """Call the LLM provider for a decomposition tree (graceful degradation).
 
         Returns ``(parsed_tree, provider_name, degraded)``. On any provider
@@ -1036,7 +1035,7 @@ class ArchitectureDecomposeService(ServiceBase):
 
     def _flatten_tree(
         self, raw_tree: list, *, max_breadth: int, max_depth: int
-    ) -> List[DraftNode]:
+    ) -> list[DraftNode]:
         """Flatten a nested provider tree into a pre-order :class:`DraftNode` list.
 
         Assigns stable ``temp_id``s (``n1``, ``n1.1`` …) and wires
@@ -1058,9 +1057,9 @@ class ArchitectureDecomposeService(ServiceBase):
         """
         max_breadth = min(max(1, int(max_breadth)), _ABSOLUTE_MAX_BREADTH)
         max_depth = min(max(1, int(max_depth)), _ABSOLUTE_MAX_DEPTH)
-        nodes: List[DraftNode] = []
+        nodes: list[DraftNode] = []
 
-        def _walk(items: list, parent_temp_id: Optional[str], prefix: str, level: int) -> None:
+        def _walk(items: list, parent_temp_id: str | None, prefix: str, level: int) -> None:
             kept = 0
             for item in items:
                 if kept >= max_breadth:
@@ -1093,16 +1092,16 @@ class ArchitectureDecomposeService(ServiceBase):
 
 
 __all__ = [
+    "ARCH_DECOMPOSE_PROMPT_SLOT",
+    "ARCH_DECOMPOSE_PROMPT_TEMPLATE",
     "ArchitectureDecomposeService",
-    "DecompositionDraft",
-    "DraftNode",
-    "DraftRequirement",
     "CommitResult",
-    "DecompositionNotAvailableError",
     "DecompositionAuditError",
+    "DecompositionDraft",
     "DecompositionLlmError",
     "DecompositionLlmTimeoutError",
     "DecompositionLlmUnavailableError",
-    "ARCH_DECOMPOSE_PROMPT_TEMPLATE",
-    "ARCH_DECOMPOSE_PROMPT_SLOT",
+    "DecompositionNotAvailableError",
+    "DraftNode",
+    "DraftRequirement",
 ]

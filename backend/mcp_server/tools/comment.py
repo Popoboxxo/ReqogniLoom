@@ -23,7 +23,7 @@ names, schemas, service delegation and stringification contract are unchanged.
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict
+from typing import Any
 from uuid import UUID
 
 from application.comment_service import CommentService
@@ -40,7 +40,7 @@ from persistence.errors import NotFoundError, PermissionDeniedError
 logger = logging.getLogger(__name__)
 
 
-def _comment_to_dict(comment: Any) -> Dict[str, Any]:
+def _comment_to_dict(comment: Any) -> dict[str, Any]:
     """Serialise a Comment for MCP responses (all values JSON-native)."""
     return {
         "id": str(comment.id),
@@ -110,7 +110,7 @@ class CommentToolGroup(BaseToolGroup):
         return CommentService()
 
     def _handle_create(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """Handle ``comment.create``."""
         reject_unknown_params(params, ["artifact_id", "text"], "comment.create")
@@ -129,7 +129,7 @@ class CommentToolGroup(BaseToolGroup):
         return ToolResult.ok(_comment_to_dict(comment))
 
     def _handle_list(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """Handle ``comment.list``."""
         reject_unknown_params(
@@ -149,7 +149,7 @@ class CommentToolGroup(BaseToolGroup):
         return ToolResult.ok({"comments": [_comment_to_dict(row) for row in rows]})
 
     def _handle_resolve(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """Handle ``comment.resolve``."""
         reject_unknown_params(params, ["id"], "comment.resolve")

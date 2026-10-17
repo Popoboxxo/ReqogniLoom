@@ -701,7 +701,7 @@ class TestElementTypeValidation:
     @staticmethod
     def _patch_create_chain(svc):
         """Return a context-manager stack that mocks all create dependencies."""
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import MagicMock, patch
 
         return list((
             patch("application.architecture_service.ServiceBase._set_tenant_context"),
@@ -1010,8 +1010,8 @@ import contextlib  # noqa: E402  — section-local imports for REQ-L1-044 tests
 
 from application.validators import (  # noqa: E402
     ALL_INVARIANTS,
-    ArchitectureElementInvariantValidator,
     RIGOR_INVARIANT_PRESETS,
+    ArchitectureElementInvariantValidator,
 )
 
 

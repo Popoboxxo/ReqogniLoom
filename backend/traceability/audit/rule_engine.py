@@ -15,7 +15,7 @@ findings by construction, never by chance.
 """
 from __future__ import annotations
 
-from typing import List, Optional, Sequence
+from collections.abc import Sequence
 
 from traceability.audit.registry import (
     active_rule_ids_for_tier,
@@ -44,7 +44,7 @@ class RuleEngine:
         tier: str,
         workspace_id: str,
         tenant_id: str,
-        scopes: Optional[Sequence[AuditScope]] = None,
+        scopes: Sequence[AuditScope] | None = None,
         include_proposal_links: bool = True,
     ) -> AuditResult:
         """Audit *workspace_id* under rigor *tier* and return all findings.
@@ -126,7 +126,7 @@ class RuleEngine:
         return result
 
     @staticmethod
-    def _run_rule(rule, context: AuditContext, tier: str) -> List[Finding]:
+    def _run_rule(rule, context: AuditContext, tier: str) -> list[Finding]:
         """Run one rule, stamping the tier-resolved severity onto findings.
 
         Rules return findings with their natural severity; the engine is the
@@ -149,7 +149,7 @@ class RuleEngine:
             return []
         severity = rule.severity_for_tier(tier)
         raw = rule.check(context)
-        stamped: List[Finding] = []
+        stamped: list[Finding] = []
         for finding in raw:
             if finding.severity is severity:
                 stamped.append(finding)

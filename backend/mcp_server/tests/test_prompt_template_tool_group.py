@@ -26,6 +26,7 @@ from __future__ import annotations
 import pytest
 
 from auth_tenancy.context import AuthContext, AuthMethod
+from mcp_server.tools.prompt_template import PromptTemplateToolGroup
 from persistence.middleware import clear_request_tenant, set_request_tenant
 from persistence.models import (
     PROMPT_TEMPLATE_DEFAULTS,
@@ -33,8 +34,6 @@ from persistence.models import (
     Tenant,
     User,
 )
-
-from mcp_server.tools.prompt_template import PromptTemplateToolGroup
 
 _API_KEY = "reqlo_testkey_pt"
 

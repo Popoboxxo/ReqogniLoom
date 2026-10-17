@@ -338,8 +338,8 @@ class TestNoSilentWorkflowBypass:
         bypassing role checks, the state machine and change_reason. It must now
         raise and leave the CR untouched.
         """
-        from workflow.lifecycle_manager import WorkflowStateError
         from workflow.definition_store import WorkflowDefinitionError
+        from workflow.lifecycle_manager import WorkflowStateError
 
         svc = ChangeRequestService()
         cr = svc.create_change_request(

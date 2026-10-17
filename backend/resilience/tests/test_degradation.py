@@ -12,8 +12,10 @@ from resilience.policies import (
     CircuitOpenError,
     FallbackResponse,
     NonRetryableError,
-    TimeoutError as ResilienceTimeoutError,
     TransientError,
+)
+from resilience.policies import (
+    TimeoutError as ResilienceTimeoutError,
 )
 
 

@@ -23,7 +23,7 @@ historical ``apps.get_model`` versions instead of the live ones.
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Tuple
+from typing import Any
 from uuid import UUID
 
 from .builtin import BUILTIN_LINK_TYPES, LEGACY_LINK_TYPE_MAPPING, SWAPPED_LEGACY_KEYS
@@ -53,7 +53,7 @@ _RENAMED = {
 #: Without this they survive the migration as ``verifies`` Risk -> Requirement,
 #: which no catalog entry allows — the triple that made the first real-world
 #: beta.6 -> beta.7 upgrade roll back.
-_ENDPOINT_EXCEPTIONS: Tuple[Tuple[str, str, str, str], ...] = (
+_ENDPOINT_EXCEPTIONS: tuple[tuple[str, str, str, str], ...] = (
     ("satisfies", "target", "StakeholderNeed", "derives-from"),
     ("verifies", "source", "Risk", "mitigates"),
 )
@@ -72,7 +72,7 @@ _DROPPED_SUFFIX = ":dropped"
 #: :func:`verify_migrated_links`; same matching rule as
 #: ``catalog.validate_link_pair``, and — through :func:`is_creatable` — by the
 #: ``blocking`` section of ``manage.py inventory_link_types``.
-_ALLOWED_PAIRS: Dict[str, Tuple[Tuple[str, str], ...]] = {
+_ALLOWED_PAIRS: dict[str, tuple[tuple[str, str], ...]] = {
     key: tuple(
         (pair["source_type"], pair["target_type"])
         for pair in apply_grandfathered_pairs(definition, key)["allowed_pairs"]
@@ -115,7 +115,7 @@ def is_creatable(link_type: str, source_type: str, target_type: str) -> bool:
 
 def predict_migrated_triple(
     link_type: str, source_type: str, target_type: str
-) -> Tuple[str, str, str] | None:
+) -> tuple[str, str, str] | None:
     """The triple a row will carry *after* the migration, without touching it.
 
     The read-only mirror of :func:`migrate_renamed_links` and
@@ -159,7 +159,7 @@ def predict_migrated_triple(
     return link_type, source, target
 
 
-def find_copy_of_conflicts(TraceLink: Any) -> Dict[UUID, List[UUID]]:
+def find_copy_of_conflicts(TraceLink: Any) -> dict[UUID, list[UUID]]:
     """Return ``{source_artifact_id: [link_id, ...]}`` for sources with >1 copy-of.
 
     ``Artifact.copied_from`` is a 1:1 field, so a source with two ``copy-of``
@@ -167,7 +167,7 @@ def find_copy_of_conflicts(TraceLink: Any) -> Dict[UUID, List[UUID]]:
     faithfully represent it (spec section 7). Run
     ``manage.py check_copy_of_conflicts`` to see them ahead of time.
     """
-    by_source: Dict[UUID, List[UUID]] = {}
+    by_source: dict[UUID, list[UUID]] = {}
     for link in TraceLink.objects.filter(link_type="copy-of").order_by(
         "created_at", "id"
     ):
@@ -175,7 +175,7 @@ def find_copy_of_conflicts(TraceLink: Any) -> Dict[UUID, List[UUID]]:
     return {source: ids for source, ids in by_source.items() if len(ids) > 1}
 
 
-def migrate_copy_of_links(Artifact: Any, TraceLink: Any) -> Tuple[int, int]:
+def migrate_copy_of_links(Artifact: Any, TraceLink: Any) -> tuple[int, int]:
     """Move ``copy-of`` links into ``Artifact.copied_from``.
 
     The newest link per source wins (``created_at``, then ``id`` as a stable
@@ -189,7 +189,7 @@ def migrate_copy_of_links(Artifact: Any, TraceLink: Any) -> Tuple[int, int]:
     moved = 0
     downgraded = 0
 
-    by_source: Dict[UUID, List[Any]] = {}
+    by_source: dict[UUID, list[Any]] = {}
     # Materialised before the first delete: the loop below mutates the very
     # rows this queryset selects.
     for link in list(
@@ -226,7 +226,7 @@ def migrate_copy_of_links(Artifact: Any, TraceLink: Any) -> Tuple[int, int]:
     return moved, downgraded
 
 
-def migrate_parent_child_links(TraceLink: Any) -> Tuple[int, int]:
+def migrate_parent_child_links(TraceLink: Any) -> tuple[int, int]:
     """Convert ``parent-child`` into ``decomposes``, deduplicating twins.
 
     Both types run parent -> child, so a pair that already carries a
@@ -300,7 +300,7 @@ def _rewrite(
     return True
 
 
-def _migrate_endpoint_exceptions(TraceLink: Any) -> Dict[str, Tuple[int, int]]:
+def _migrate_endpoint_exceptions(TraceLink: Any) -> dict[str, tuple[int, int]]:
     """Retype the rows of ``_ENDPOINT_EXCEPTIONS``, endpoints left alone.
 
     Two legacy keys mean something other than what their name says, and only
@@ -338,7 +338,7 @@ def _migrate_endpoint_exceptions(TraceLink: Any) -> Dict[str, Tuple[int, int]]:
         rather than the link type alone so the migration log keeps the two
         populations of a split key apart.
     """
-    counts: Dict[str, Tuple[int, int]] = {}
+    counts: dict[str, tuple[int, int]] = {}
 
     for key, endpoint, artifact_type, successor in _ENDPOINT_EXCEPTIONS:
         rewritten = 0
@@ -371,7 +371,7 @@ def _migrate_endpoint_exceptions(TraceLink: Any) -> Dict[str, Tuple[int, int]]:
     return counts
 
 
-def migrate_renamed_links(TraceLink: Any) -> Dict[str, int]:
+def migrate_renamed_links(TraceLink: Any) -> dict[str, int]:
     """Rename the remaining legacy types, swapping endpoints where required.
 
     ``satisfies`` and ``implements`` both ran ArchitectureElement ->
@@ -395,7 +395,7 @@ def migrate_renamed_links(TraceLink: Any) -> Dict[str, int]:
         exception reports under its own ``"<key>:<artifact_type>"`` key so the
         split populations stay visible in the migration log.
     """
-    counts: Dict[str, int] = {}
+    counts: dict[str, int] = {}
 
     for key, (rewritten, dropped) in _migrate_endpoint_exceptions(TraceLink).items():
         if rewritten:
@@ -476,7 +476,7 @@ def verify_migrated_links(TraceLink: Any) -> int:
         RuntimeError: if any surviving row's
             ``(link_type, source_type, target_type)`` triple is not creatable.
     """
-    offenders: Dict[Tuple[str, str, str], Tuple[int, Any]] = {}
+    offenders: dict[tuple[str, str, str], tuple[int, Any]] = {}
     checked = 0
 
     for link_id, link_type, source_type, target_type in TraceLink.objects.values_list(

@@ -44,7 +44,7 @@ contract.
 from __future__ import annotations
 
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from importlib import import_module
 from uuid import uuid4
 
@@ -303,7 +303,7 @@ def _seed_legacy_rows(tenant, label: str = "gh453") -> dict:
             from_state="Ready",
             to_state="Approved",
             transitioned_by="tester",
-            transitioned_at=datetime(2026, 7, 22, 10, 0, tzinfo=timezone.utc),
+            transitioned_at=datetime(2026, 7, 22, 10, 0, tzinfo=UTC),
         )
         adr_state = WorkflowItemState.objects.create(
             tenant=tenant,

@@ -23,7 +23,7 @@ import json
 import logging
 import secrets
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, NamedTuple
 from uuid import UUID
 
@@ -329,7 +329,7 @@ class AuthenticationService:
 
         return user_id, tenant_id
 
-    def resolve_active_user(self, user_id: UUID, tenant_id: UUID) -> "User | None":
+    def resolve_active_user(self, user_id: UUID, tenant_id: UUID) -> User | None:
         """Return the active user identified by ``(user_id, tenant_id)``.
 
         Used by ``RefreshView`` (GitHub #135) after a refresh token validates,
@@ -496,7 +496,7 @@ class AuthenticationService:
         grace = _reuse_grace_seconds()
         if grace <= 0 or record.used_at is None:
             return False
-        age = (datetime.now(tz=timezone.utc) - record.used_at).total_seconds()
+        age = (datetime.now(tz=UTC) - record.used_at).total_seconds()
         return 0 <= age <= grace
 
     @staticmethod
@@ -651,7 +651,7 @@ class AuthenticationService:
         agent_label: str = "",
         scope: str | None = None,
         workspace_ids: list[str] | None = None,
-        expires_at: "datetime | None" = None,
+        expires_at: datetime | None = None,
     ) -> ApiKeyCreationResult:
         """Create an API key and return its plaintext exactly once.
 
@@ -707,7 +707,7 @@ class AuthenticationService:
                 not isinstance(expires_at, datetime)
                 or expires_at.tzinfo is None
                 or expires_at.utcoffset() is None
-                or expires_at <= datetime.now(timezone.utc)
+                or expires_at <= datetime.now(UTC)
             ):
                 raise ValueError(
                     "Agent API keys require a strictly future timezone-aware expires_at."
@@ -734,7 +734,7 @@ class AuthenticationService:
             # is the authenticated caller's own user id.
             User.objects.select_for_update().filter(pk=user_id).first()
 
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
             active_count = (
                 ApiKey.unscoped.filter(
                     user_id=user_id, revoked_at__isnull=True
@@ -800,15 +800,15 @@ class AuthenticationService:
         if user_id is not None and api_key.user_id != user_id:
             raise AuthenticationFailed("invalid_api_key")
         if api_key.revoked_at is None:
-            api_key.revoked_at = datetime.now(timezone.utc)
+            api_key.revoked_at = datetime.now(UTC)
             api_key.save(update_fields=["revoked_at", "modified_at"])
 
 
 __all__ = [
-    "AuthenticationService",
     "ApiKeyCreationResult",
+    "AuthenticationService",
     "api_key_hash_candidates",
+    "generate_api_key_plaintext",
     "hash_api_key",
     "hash_api_key_legacy",
-    "generate_api_key_plaintext",
 ]

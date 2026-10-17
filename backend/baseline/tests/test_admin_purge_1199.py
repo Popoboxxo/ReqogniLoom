@@ -63,7 +63,6 @@ def test_purge_removes_snapshot_and_delta_entries() -> None:
 
 def test_purge_of_unknown_baseline_raises_not_found() -> None:
     from baseline.exceptions import BaselineNotFoundError
-
     from persistence.models import Tenant
 
     tenant = Tenant.objects.create(
@@ -83,7 +82,6 @@ def test_not_found_purge_does_not_leave_the_guc_armed() -> None:
     a later plain DELETE would silently pass the trigger.
     """
     from baseline.exceptions import BaselineNotFoundError
-
     from persistence.models import Tenant
 
     missing_tenant = Tenant.objects.create(

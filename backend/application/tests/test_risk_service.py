@@ -16,8 +16,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from application.base import NotFoundError, PermissionDeniedError, ValidationError
-from application.risk_service import RiskService, RiskDTO, RiskValidator, RISK_LINK_TYPES
 from application.models import Risk
+from application.risk_service import RISK_LINK_TYPES, RiskDTO, RiskService, RiskValidator
 
 pytestmark = pytest.mark.django_db
 

@@ -30,8 +30,9 @@ Design decisions:
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable
 import uuid
+from collections.abc import Callable
+from typing import Any
 from uuid import UUID
 
 from django.conf import settings
@@ -56,49 +57,16 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from application.services import (
-    ArtifactService,
-    ArtifactDiffService,
-    BaselineFacade,
-    BaselineGateBlockedError,
-    NotFoundError,
-    OptimisticLockError,
-    PermissionDeniedError,
-    RequirementService,
-    ArchitectureService,
-    SearchService,
-    TestService,
-    TestRunService,
-    TraceLinkService,
-    ValidationError,
-    WorkflowFacade,
-    WorkspaceService,
-    ExportService,
-    ReqifExportService,
-    ReqifImportResult,
-    ReqifImportService,
-    ReqifParseError,
-    ImportService,
-    AdrService,
-    RiskService,
-    IssueService,
-    GlossaryService,
-    PgVectorUnavailableError,
-    ChangeRequestService,
-)
-from application.goal_service import GoalService
-from application.main_goal_service import MainGoalService
 # #1240: the AI-derivation flows signal an unparseable provider response with
 # this dedicated exception. It is registered in the exact-type maps below so the
 # generic ``except Exception`` branch on those routes answers a described 502
 # instead of an opaque 500.
 from application.ai_derivation_service import LlmResponseError
-from application.import_idempotency import (
-    IdempotencyConflict,
-    abort as abort_idempotency_key,
-    begin as begin_idempotency_key,
-    compute_fingerprint,
-    finalize_success as finalize_idempotency_success,
+from application.artifact_attribute_gateway import (
+    ArtifactAttributeGateway,
+    AttributeValues,
+    artifact_system_fields,
+    transport_field_names,
 )
 from application.base import (
     ProducerContextRequiredError,
@@ -106,16 +74,21 @@ from application.base import (
     WaiverFindingNotBlockingError,
     WaiverReasonPolicyViolation,
 )
-from link_types.defaults import (
-    default_decomposition_link_type,
-    default_trace_link_type,
+from application.goal_service import GoalService
+from application.import_idempotency import (
+    IdempotencyConflict,
+    compute_fingerprint,
 )
-from application.artifact_attribute_gateway import (
-    ArtifactAttributeGateway,
-    AttributeValues,
-    artifact_system_fields,
-    transport_field_names,
+from application.import_idempotency import (
+    abort as abort_idempotency_key,
 )
+from application.import_idempotency import (
+    begin as begin_idempotency_key,
+)
+from application.import_idempotency import (
+    finalize_success as finalize_idempotency_success,
+)
+from application.main_goal_service import MainGoalService
 from application.requirement_bundle_formatters import (
     format_bundle_csv,
     format_bundle_json,
@@ -126,16 +99,52 @@ from application.requirement_bundle_service import (
     RequirementBundleQueryService,
     describe_attribute_schema,
 )
+from application.services import (
+    AdrService,
+    ArchitectureService,
+    ArtifactDiffService,
+    ArtifactService,
+    BaselineFacade,
+    BaselineGateBlockedError,
+    ChangeRequestService,
+    ExportService,
+    GlossaryService,
+    ImportService,
+    IssueService,
+    NotFoundError,
+    OptimisticLockError,
+    PermissionDeniedError,
+    PgVectorUnavailableError,
+    ReqifExportService,
+    ReqifImportResult,
+    ReqifImportService,
+    ReqifParseError,
+    RequirementService,
+    RiskService,
+    SearchService,
+    TestRunService,
+    TestService,
+    TraceLinkService,
+    ValidationError,
+    WorkflowFacade,
+    WorkspaceService,
+)
+
 # GH-914: the trace-link proposal guard raises a service-local exception, like
 # BundleDepthExceededError above — imported from its own module rather than
 # re-exported through application.services (which only carries the shared
 # persistence-layer exceptions).
 from application.trace_link_service import AgentSelfConfirmError
+
 # #1084: service-local exception of the workspace hard delete, imported from its
 # own module for the same reason as AgentSelfConfirmError above.
 from application.workspace_service import BaselineImmutabilityError
-from presets.exceptions import CrossTenantWorkspaceError
 from audit.query import AuditLogQuery, AuditQueryFilters
+from link_types.defaults import (
+    default_decomposition_link_type,
+    default_trace_link_type,
+)
+from presets.exceptions import CrossTenantWorkspaceError
 from reqogniloom.health import sunset_header_value
 from rest_api.auth_enforcer import get_auth_context
 from rest_api.mixins import (
@@ -146,6 +155,9 @@ from rest_api.mixins import (
 from rest_api.not_found import ROUTE_NOT_FOUND_MESSAGE
 
 logger = logging.getLogger(__name__)
+# INT-06 (findings 075/077/090): the shared error-response schema for the
+# documented error cases on the audited endpoints.
+from rest_api.openapi import ErrorResponseSerializer
 from rest_api.preset_guard import PresetError, PresetGateMixin
 from rest_api.query_params import (
     parse_include_deleted,
@@ -155,11 +167,13 @@ from rest_api.query_params import (
 )
 from rest_api.serializers import (
     AdrSerializer,
-    ArtifactSerializer,
     ArchitectureElementSerializer,
+    ArtifactSerializer,
     BaselineDiffSerializer,
     BaselineSerializer,
     BaselineSummarySerializer,
+    ChangeRequestSerializer,
+    GlossaryTermSerializer,
     GoalSerializer,
     ImpactNodeSerializer,
     IssueSerializer,
@@ -172,24 +186,19 @@ from rest_api.serializers import (
     StakeholderNeedSerializer,
     StandardPagination,
     TestCaseSerializer,
-    TestRunSerializer,
     TestRunResultBulkSerializer,
     TestRunResultSerializer,
+    TestRunSerializer,
     TraceLinkPagination,
     TraceLinkSerializer,
     TracePathSerializer,
     WorkflowDefinitionSerializer,
     WorkspaceSerializer,
-    GlossaryTermSerializer,
-    ChangeRequestSerializer,
     build_error_response,
     detect_lang,
     extract_preset_tier,
     reject_unknown_fields,
 )
-# INT-06 (findings 075/077/090): the shared error-response schema for the
-# documented error cases on the audited endpoints.
-from rest_api.openapi import ErrorResponseSerializer
 
 # GH-443: every soft-deleting ``destroy()`` below repeats the same paragraph
 # verbatim. That is deliberate duplication, not an oversight: drf-spectacular
@@ -698,8 +707,8 @@ class StakeholderNeedViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
 
     @property
     def service(self):
-        from application.stakeholder_need_service import StakeholderNeedService
         from application.preset_policy_service import PresetPolicyService
+        from application.stakeholder_need_service import StakeholderNeedService
         return StakeholderNeedService(preset_policy_service=PresetPolicyService())
 
     def _resolve_workflow_target(self, pk: str, ctx: Any) -> tuple[UUID, UUID]:
@@ -3245,8 +3254,8 @@ class ArchitectureElementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         """
         try:
             from application.bundle_compression_service import (
-                BundleCompressionService,
                 SYNC_ITEM_COUNT_THRESHOLD,
+                BundleCompressionService,
             )
 
             force_async = request.query_params.get("async", "").lower() == "true"
@@ -5829,7 +5838,7 @@ def _test_to_dict(tc: Any) -> dict[str, Any]:
 
 def _resolve_artifact_titles(
     artifact_ids: list[Any],
-) -> "dict[str, dict[str, Any]]":
+) -> dict[str, dict[str, Any]]:
     """Batch-resolve artifact IDs to {title, artifact_type} dicts.
 
     REQ-002: Provides human-readable labels for TraceLink endpoints without N+1
@@ -5847,7 +5856,7 @@ def _resolve_artifact_titles(
     return ArtifactService().resolve_artifact_titles(artifact_ids)
 
 
-def _tracelink_to_dict(tl: Any, titles: "dict[str, dict[str, Any]] | None" = None) -> dict[str, Any]:
+def _tracelink_to_dict(tl: Any, titles: dict[str, dict[str, Any]] | None = None) -> dict[str, Any]:
     """Convert TraceLink ORM object to dict.
 
     REQ-002: When *titles* is provided the dict includes source_title,
@@ -10786,22 +10795,22 @@ class AttributeSchemaView(APIView):
 
 
 __all__ = [
-    "StakeholderNeedViewSet",
-    "RequirementViewSet",
-    "ArtifactViewSet",
+    "AdrViewSet",
     "ArchitectureElementViewSet",
+    "ArtifactDiffService",
+    "ArtifactViewSet",
+    "BaselineViewSet",
+    "CsvExportView",
+    "CsvImportView",
+    "IssueViewSet",
+    "ReqifExportView",
+    "RequirementViewSet",
+    "RiskViewSet",
+    "SearchViewSet",
+    "StakeholderNeedViewSet",
     "TestCaseViewSet",
     "TraceLinkViewSet",
     "TraceabilityViewSet",
-    "BaselineViewSet",
     "WorkflowDefinitionViewSet",
     "WorkspaceViewSet",
-    "AdrViewSet",
-    "RiskViewSet",
-    "IssueViewSet",
-    "SearchViewSet",
-    "CsvImportView",
-    "CsvExportView",
-    "ReqifExportView",
-    "ArtifactDiffService",
 ]

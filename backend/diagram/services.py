@@ -31,7 +31,7 @@ Architecture:
 from __future__ import annotations
 
 import uuid
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 from diagram.canvas_editor import CanvasEditor, CanvasExportResult  # noqa: F401
 from diagram.manager import (  # noqa: F401
@@ -40,9 +40,9 @@ from diagram.manager import (  # noqa: F401
     DiagramRevisionNotFoundError,
     DiagramValidationError,
 )
-from diagram.mermaid_live_renderer import MermaidLiveRenderer, LivePreviewData  # noqa: F401
-from diagram.models import Diagram, DiagramRevision  # noqa: F401
 from diagram.mcp_artifact_provider import McpArtifactProvider
+from diagram.mermaid_live_renderer import LivePreviewData, MermaidLiveRenderer  # noqa: F401
+from diagram.models import Diagram, DiagramRevision  # noqa: F401
 from diagram.traceability_connector import sync_node_links
 from diagram.validator import ValidationResult  # noqa: F401  (H1: re-exported)
 from persistence.transactions import atomic_transaction
@@ -73,9 +73,9 @@ def create_diagram(
     content: str,
     tenant: object,
     description: str = "",
-    created_by: Optional[object] = None,
-    target_id: Optional[uuid.UUID] = None,
-    workspace_id: Optional[uuid.UUID] = None,
+    created_by: object | None = None,
+    target_id: uuid.UUID | None = None,
+    workspace_id: uuid.UUID | None = None,
 ) -> Diagram:
     """Create a new Diagram with its content at revision 1.
 
@@ -118,8 +118,8 @@ def update_diagram(
     diagram_id: uuid.UUID,
     payload_format: str,
     content: str,
-    modified_by: Optional[object] = None,
-    target_id: Optional[uuid.UUID] = None,
+    modified_by: object | None = None,
+    target_id: uuid.UUID | None = None,
 ) -> DiagramRevision:
     """Update a Diagram, recording content revision N+1.
 
@@ -152,7 +152,7 @@ def update_diagram(
 
 def get_diagram(
     diagram_id: uuid.UUID,
-    version_number: Optional[int] = None,
+    version_number: int | None = None,
 ) -> DiagramResult:
     """Retrieve a Diagram enriched with render information.
 
@@ -201,7 +201,7 @@ def get_diagram_header(diagram_id: uuid.UUID, tenant_id: uuid.UUID) -> Diagram:
 
 
 @atomic_transaction
-def delete_diagram(diagram_id: uuid.UUID, tenant_id: uuid.UUID, ctx: "AuthContext") -> None:
+def delete_diagram(diagram_id: uuid.UUID, tenant_id: uuid.UUID, ctx: AuthContext) -> None:
     """Soft-delete a tenant-scoped Diagram via the workflow engine's outdate()
     (REQ-066, REQ-006/Phase 0).
 
@@ -309,11 +309,11 @@ def canvas_auto_save(
     *,
     stroke_data: dict,
     tenant: object,
-    diagram_id: Optional[uuid.UUID] = None,
+    diagram_id: uuid.UUID | None = None,
     name: str = "Canvas Drawing",
-    user: Optional[object] = None,
-    target_id: Optional[uuid.UUID] = None,
-    workspace_id: Optional[uuid.UUID] = None,
+    user: object | None = None,
+    target_id: uuid.UUID | None = None,
+    workspace_id: uuid.UUID | None = None,
 ) -> Diagram:
     """Auto-Save canvas stroke data (IF-L1-058 entry point).
 
@@ -352,7 +352,7 @@ def canvas_auto_save(
 
 def get_canvas_diagram(
     diagram_id: uuid.UUID,
-    version_number: Optional[int] = None,
+    version_number: int | None = None,
 ) -> CanvasExportResult:
     """Retrieve a canvas diagram with stroke data and SVG export (IF-L1-060).
 
@@ -404,8 +404,8 @@ def update_mermaid_source(
     diagram_id: uuid.UUID,
     source: str,
     tenant: object,
-    user: Optional[object] = None,
-) -> "DiagramRevision":
+    user: object | None = None,
+) -> DiagramRevision:
     """Update Mermaid source code for an existing diagram.
 
     IF-L1-059 entry point: PUT /api/v1/diagrams/{id}/mermaid-source
@@ -463,7 +463,7 @@ def get_mermaid_preview(
 def validate_mermaid_source(
     source: str,
     diagram_type: str = "",
-) -> "ValidationResult":
+) -> ValidationResult:
     """Validate Mermaid source code for the 5 supported types.
 
     Convenience wrapper around MermaidLiveRenderer.validate_mermaid_source().
@@ -495,7 +495,7 @@ def validate_mermaid_source(
 # for an unknown/absent user id — is unchanged.
 
 
-def resolve_tenant(tenant_id: uuid.UUID) -> "Tenant":
+def resolve_tenant(tenant_id: uuid.UUID) -> Tenant:
     """Return the ``Tenant`` ORM object for ``tenant_id``.
 
     Args:
@@ -512,7 +512,7 @@ def resolve_tenant(tenant_id: uuid.UUID) -> "Tenant":
     return Tenant.objects.get(id=tenant_id)
 
 
-def resolve_user(user_id: Optional[uuid.UUID]) -> Optional["User"]:
+def resolve_user(user_id: uuid.UUID | None) -> User | None:
     """Return the ``User`` ORM object for ``user_id``, or ``None``.
 
     Args:

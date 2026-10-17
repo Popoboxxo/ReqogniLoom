@@ -40,9 +40,10 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import datetime, timezone as dt_timezone
-from typing import Any, Iterable, Mapping, Sequence
+from datetime import UTC, datetime
+from typing import Any
 from uuid import UUID
 
 from django.utils import timezone
@@ -107,7 +108,7 @@ def _resolve_now(now: datetime | None) -> datetime:
     if now is None:
         return timezone.now()
     if timezone.is_naive(now):
-        return now.replace(tzinfo=dt_timezone.utc)
+        return now.replace(tzinfo=UTC)
     return now
 
 
@@ -120,7 +121,7 @@ def _is_expired(expires_at: datetime | None, now: datetime) -> bool:
         return False
     expires = (
         expires_at if not timezone.is_naive(expires_at) else expires_at.replace(
-            tzinfo=dt_timezone.utc
+            tzinfo=UTC
         )
     )
     return expires <= now
@@ -577,10 +578,10 @@ def record_waiver(
 
 
 __all__ = [
-    "BlockerWaiverRequest",
     "MIN_OVERRIDE_REASON_LENGTH",
     "MIN_REASON_DISTINCT_WORDS",
     "MIN_REASON_WORDS",
+    "BlockerWaiverRequest",
     "SuppressionRecord",
     "assert_gate_waiver_authority",
     "canonical_artifact_ids",

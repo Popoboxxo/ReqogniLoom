@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import logging
 from datetime import timedelta
-from typing import Any, Optional
+from typing import Any
 from uuid import UUID
 
 from django.db import transaction
@@ -54,7 +54,7 @@ GROUNDING_RANK_PROMPT_TEMPLATE_NAME = "interview.grounding_rank"
 _DIAGRAM_REF_LINK_TYPE = "diagram-ref"
 
 
-def _validate_confirmed_proposal(confirmed_proposal: "list[dict]") -> None:
+def _validate_confirmed_proposal(confirmed_proposal: list[dict]) -> None:
     """Structure-validate a multi-mode proposal (pre-transaction, fail fast).
 
     Every item must be a dict with ``type: str`` and ``fields: dict``; every
@@ -145,10 +145,10 @@ class InterviewService(ServiceBase):
     def start(
         self,
         ctx,
-        artifact_type: "str | None",
+        artifact_type: str | None,
         workspace_id: UUID,
         session_kind: str = InterviewSession.SESSION_KIND_SINGLE,
-        seed_context: "Optional[dict]" = None,
+        seed_context: dict | None = None,
     ) -> InterviewSession:
         """Start an interview session (multi-artifact plan Task 6).
 
@@ -434,7 +434,7 @@ class InterviewService(ServiceBase):
         return protocol.phases[-1], []
 
     @staticmethod
-    def _serialise_field(f) -> "dict[str, Any]":
+    def _serialise_field(f) -> dict[str, Any]:
         # Spec 2 (Hermes plugin, §3-4): InterviewFormView renders one input
         # per missing field and needs its type/choices to pick the right
         # control (text/textarea/enum/number) -- a bare field-name string
@@ -444,7 +444,7 @@ class InterviewService(ServiceBase):
         # `.name` and ignore `.type`/`.choices`.
         return {"name": f.name, "type": f.type, "choices": f.choices}
 
-    def get_state(self, ctx, session_id: UUID) -> "dict[str, Any]":
+    def get_state(self, ctx, session_id: UUID) -> dict[str, Any]:
         session = self._get_session(ctx, session_id)
         # _get_session already resolves session.status through the engine.
         status = session.status
@@ -614,7 +614,7 @@ class InterviewService(ServiceBase):
             )
 
     @staticmethod
-    def _structural_candidates(ctx, session: InterviewSession) -> "list[dict[str, Any]]":
+    def _structural_candidates(ctx, session: InterviewSession) -> list[dict[str, Any]]:
         """Structural (non-AI) pre-filter — spec §6 step 1.
 
         Extracted from ``grounding_context`` (Task 5 -> Task 6) so the
@@ -651,7 +651,7 @@ class InterviewService(ServiceBase):
         ]
 
     @staticmethod
-    def _resolve_provider() -> "tuple[Any | None, str, Exception | None]":
+    def _resolve_provider() -> tuple[Any | None, str, Exception | None]:
         """Resolve the effective LLM provider for AI-assisted grounding.
 
         Mirrors ``BundleCompressionService._resolve_provider`` exactly (see
@@ -692,10 +692,10 @@ class InterviewService(ServiceBase):
         self,
         ctx,
         session: InterviewSession,
-        candidates: "list[dict[str, Any]]",
+        candidates: list[dict[str, Any]],
         provider: Any,
         provider_name: str,
-    ) -> "list[dict[str, Any]]":
+    ) -> list[dict[str, Any]]:
         """AI-assisted ranking on top of ``_structural_candidates`` — spec §6 step 2.
 
         Ports ``BundleCompressionService._call_provider``'s exact
@@ -715,8 +715,8 @@ class InterviewService(ServiceBase):
         candidates already computed, so failures here return early instead
         of calling the mock.
         """
-        from application.bundle_compression_service import MOCK_PROVIDER_NAME
         from application.ai_derivation_service import AiDerivationService
+        from application.bundle_compression_service import MOCK_PROVIDER_NAME
         from llm_adapter.audit_logger import LlmAuditLogger
         from llm_adapter.timeouts import resolve_timeout_seconds
         from llm_adapter.token_tracking import (
@@ -823,8 +823,8 @@ class InterviewService(ServiceBase):
 
     @staticmethod
     def _merge_ai_scores(
-        candidates: "list[dict[str, Any]]", raw: str
-    ) -> "list[dict[str, Any]]":
+        candidates: list[dict[str, Any]], raw: str
+    ) -> list[dict[str, Any]]:
         """Parse the provider's JSON ranking response and merge scores back
         into *candidates* by ``artifact_id``.
 
@@ -863,7 +863,7 @@ class InterviewService(ServiceBase):
         except Exception:  # noqa: BLE001 -- fail-open, see docstring
             return None
 
-    def grounding_context(self, ctx, session_id: UUID) -> "dict[str, Any]":
+    def grounding_context(self, ctx, session_id: UUID) -> dict[str, Any]:
         """Structural + AI-assisted grounding — spec §6.
 
         Always computes the Task 5 structural candidates first. The Task 6
@@ -918,7 +918,7 @@ class InterviewService(ServiceBase):
         return session.grounding_snapshot
 
     @atomic_transaction
-    def set_target(self, ctx, session_id: UUID, artifact_id: UUID) -> "dict[str, Any]":
+    def set_target(self, ctx, session_id: UUID, artifact_id: UUID) -> dict[str, Any]:
         """Confirm a ``grounding_context()`` candidate (or any already-known
         artifact_id) as the session's ``formalize()`` update target --
         issue #540.
@@ -977,8 +977,8 @@ class InterviewService(ServiceBase):
 
     @atomic_transaction
     def formalize(
-        self, ctx, session_id: UUID, confirmed_proposal: "list[dict] | None" = None
-    ) -> "dict[str, Any]":
+        self, ctx, session_id: UUID, confirmed_proposal: list[dict] | None = None
+    ) -> dict[str, Any]:
         """Turn the session's collected answers into real artifact(s) --
         spec §5 point 4.
 
@@ -1026,7 +1026,7 @@ class InterviewService(ServiceBase):
             return self._formalize_multi(ctx, session, confirmed_proposal or [])
         return self._formalize_single(ctx, session)
 
-    def _formalize_single(self, ctx, session) -> "dict[str, Any]":
+    def _formalize_single(self, ctx, session) -> dict[str, Any]:
         """Single-kind path: lock the session, then run the writer.
 
         CR-06: this wrapper takes the same row lock + status recheck that
@@ -1123,7 +1123,7 @@ class InterviewService(ServiceBase):
         locked_session.status = locked_status
         return locked_session
 
-    def _write_single_artifact(self, ctx, session) -> "dict[str, Any]":
+    def _write_single_artifact(self, ctx, session) -> dict[str, Any]:
         """Single-kind writer: one typed artifact from collected_fields.
 
         Dispatches through ARTIFACT_CREATION_ADAPTERS -- the same registry
@@ -1436,7 +1436,7 @@ class InterviewService(ServiceBase):
             )
         )
 
-    def _formalize_multi(self, ctx, session, confirmed_proposal: "list[dict]") -> "dict[str, Any]":
+    def _formalize_multi(self, ctx, session, confirmed_proposal: list[dict]) -> dict[str, Any]:
         """Multi-kind path: create every confirmed-proposal item atomically.
 
         Each item is created through its production service method via
@@ -1669,7 +1669,7 @@ class InterviewService(ServiceBase):
         )
 
     @atomic_transaction
-    def abandon(self, ctx, session_id: UUID) -> "dict[str, Any]":
+    def abandon(self, ctx, session_id: UUID) -> dict[str, Any]:
         """User-initiated cancel (2026-08-20 UI-visibility fix).
 
         Before this, the only path to STATUS_ABANDONED was the 30-day lazy
@@ -2132,7 +2132,7 @@ class InterviewService(ServiceBase):
             if self._find_protocol_field(protocol, field_name) is not None:
                 self.answer(ctx, session.id, field_name, value)
 
-    def generate_chat_turn(self, ctx, session_id: UUID, user_message: str) -> "dict[str, Any]":
+    def generate_chat_turn(self, ctx, session_id: UUID, user_message: str) -> dict[str, Any]:
         """Server-generated conversational turn -- Web Widget spec §5.
 
         Unlike grounding_context()'s AI-ranking layer, this is NOT fail-open:
@@ -2270,7 +2270,7 @@ class InterviewService(ServiceBase):
 
     def _generate_multi_chat_turn(
         self, ctx, session: InterviewSession, user_message: str
-    ) -> "dict[str, Any]":
+    ) -> dict[str, Any]:
         """One free-form multi-artifact chat turn (multi-artifact plan Task 5).
 
         Deliberately NOT ``get_state()``-backed: that helper resolves the
@@ -2420,7 +2420,7 @@ class InterviewService(ServiceBase):
             },
         }
 
-    def propose(self, ctx, session_id: UUID) -> "Optional[list[dict]]":
+    def propose(self, ctx, session_id: UUID) -> list[dict] | None:
         """Return the pending multi-artifact proposal for *session_id*, or None.
 
         Sourced from ``grounding_snapshot["pending_proposal"]`` -- written by
@@ -2430,7 +2430,7 @@ class InterviewService(ServiceBase):
         session = self._get_session(ctx, session_id)
         return session.grounding_snapshot.get("pending_proposal")
 
-    def provenance_session_id(self, ctx, artifact_id: UUID) -> "str | None":
+    def provenance_session_id(self, ctx, artifact_id: UUID) -> str | None:
         """Resolve the interview session that created *artifact_id*, if any.
 
         Reads the ``InterviewSessionArtifact`` provenance join row written by
@@ -2476,7 +2476,7 @@ class InterviewService(ServiceBase):
                 return None
         return str(row.session_id)
 
-    def list_sessions(self, ctx, workspace_id: UUID, status: "Optional[str]" = None):
+    def list_sessions(self, ctx, workspace_id: UUID, status: str | None = None):
         self._set_tenant_context(ctx)
         # Flip stale rows before filtering, so a "status=in_progress" list
         # doesn't include sessions that are stale-but-not-yet-read

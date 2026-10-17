@@ -23,7 +23,6 @@ from auth_tenancy.services import PreferenceService
 
 from .conftest import active_tenant
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

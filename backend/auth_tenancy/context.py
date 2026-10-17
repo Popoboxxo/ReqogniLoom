@@ -22,9 +22,9 @@ Architecture: docs/se/L1/Gesamtsystem/L2/AuthAndTenancySystem/
 """
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Mapping
 from uuid import UUID
 
 
@@ -150,7 +150,7 @@ class AuthContext:
         return role.lower() in {r.lower() for r in self.active_roles}
 
     @classmethod
-    def system(cls, *, tenant_id: UUID) -> "AuthContext":
+    def system(cls, *, tenant_id: UUID) -> AuthContext:
         """Build a minimal internal context for background/system-only work.
 
         Used ONLY for code paths that run with no specific authenticated
@@ -171,8 +171,8 @@ class AuthContext:
 
 
 __all__ = [
+    "AuthContext",
     "AuthMethod",
     "IdentityClaims",
     "TenantContext",
-    "AuthContext",
 ]

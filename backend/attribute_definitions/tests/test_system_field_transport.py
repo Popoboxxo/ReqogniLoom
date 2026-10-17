@@ -21,7 +21,7 @@ from django.core.management import call_command
 
 from application.actor_service import ActorService
 from application.adr_service import AdrService
-from application.artifact_attribute_gateway import AttributeValues, ArtifactAttributeGateway
+from application.artifact_attribute_gateway import ArtifactAttributeGateway, AttributeValues
 from auth_tenancy.context import AuthContext, AuthMethod
 from mcp_server.tools.generic import GenericCrudToolGroup
 from persistence.models import Artifact, Tenant, User, Workspace
@@ -146,10 +146,10 @@ def test_rest_adr_projection_reads_priority_and_owner(env) -> None:
 
 def test_definition_exposes_actor_type_for_owner_after_bootstrap(env) -> None:
     """The wired item type seeds owner/reporter as visible, editable actors."""
+    from attribute_definitions.schema import stored_attributes
     from attribute_definitions.workspace_definition_store import (
         WorkspaceAttributeDefinitionStore,
     )
-    from attribute_definitions.schema import stored_attributes
 
     tenant, _, workspace, _, _ = env
     row = WorkspaceAttributeDefinitionStore().resolve(
@@ -208,17 +208,18 @@ def test_system_fields_round_trip_for_every_wired_type() -> None:
     exact transport/type instead of only failing the aggregate ratchet.
     ``Risk`` is included since WS7 (#940) resolved the WS2 deferral.
     """
+    from django.test import override_settings
+
     from attribute_definitions.schema import SYSTEM_FIELDS_ENABLED_ITEM_TYPES
     from attribute_definitions.tests.test_transport_contract_matrix import (
         _JWT_OVERRIDES,
-        _McpTransport,
-        _RestTransport,
         _SPECS,
         _build_env,
+        _McpTransport,
         _payload,
+        _RestTransport,
         _token,
     )
-    from django.test import override_settings
 
     with override_settings(**_JWT_OVERRIDES):
         env = _build_env()

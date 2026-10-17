@@ -367,17 +367,17 @@ def test_definition_less_workspace_is_reported_not_raised(workspace, auth_contex
 
 
 def _current_state(item_id: str, item_type: str) -> str | None:
-    from workflow import state_reader
-
     import uuid as _uuid
+
+    from workflow import state_reader
 
     return state_reader.current_state(item_type, _uuid.UUID(item_id))
 
 
 def _proposal_history_actors(item_id: str, item_type: str) -> list[str]:
-    from workflow.models import WorkflowHistoryEntry, WorkflowItemState
-
     import uuid as _uuid
+
+    from workflow.models import WorkflowHistoryEntry, WorkflowItemState
 
     state = WorkflowItemState.objects.filter(
         item_id=_uuid.UUID(item_id), item_type=item_type

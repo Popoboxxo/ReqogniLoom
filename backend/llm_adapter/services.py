@@ -47,7 +47,7 @@ Usage examples::
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
 
 from llm_adapter.interface import LlmResult
 from llm_adapter.router import CapabilityRouter
@@ -67,9 +67,9 @@ _router = CapabilityRouter()
 def validate_artifact(
     artifact_id: str,
     *,
-    title: Optional[str] = None,
-    content: Optional[str] = None,
-) -> Union[LlmResult, Dict[str, Any]]:
+    title: str | None = None,
+    content: str | None = None,
+) -> LlmResult | dict[str, Any]:
     """Validate a single artifact using the configured LLM provider.
 
     This call is synchronous and returns within a few seconds.
@@ -103,9 +103,9 @@ def validate_artifact(
 def decompose_requirement(
     requirement_id: str,
     *,
-    title: Optional[str] = None,
-    content: Optional[str] = None,
-) -> Dict[str, Any]:
+    title: str | None = None,
+    content: str | None = None,
+) -> dict[str, Any]:
     """Decompose a requirement into sub-items via an async Celery task.
 
     Returns immediately with a task_id. The actual LLM call runs in the
@@ -137,8 +137,8 @@ def decompose_requirement(
 def check_consistency(
     workspace_id: str,
     *,
-    artifacts: Optional[List[dict]] = None,
-) -> Dict[str, Any]:
+    artifacts: list[dict] | None = None,
+) -> dict[str, Any]:
     """Check consistency across all artifacts in a workspace via async Celery task.
 
     Returns immediately with a task_id. The actual LLM call runs in the
@@ -164,7 +164,7 @@ def check_consistency(
     )
 
 
-def derive_requirements(need_id: str) -> Dict[str, Any]:
+def derive_requirements(need_id: str) -> dict[str, Any]:
     """Derive system requirements from a stakeholder need via an async Celery task.
 
     Returns immediately with a task_id. The actual LLM call runs in the
@@ -188,7 +188,7 @@ def derive_requirements(need_id: str) -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def get_task_status(task_id: str) -> Dict[str, Any]:
+def get_task_status(task_id: str) -> dict[str, Any]:
     """Query the status of an async LLM task.
 
     Args:
@@ -210,7 +210,7 @@ def get_task_status(task_id: str) -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def get_token_usage(days: int = 30) -> Dict[str, Any]:
+def get_token_usage(days: int = 30) -> dict[str, Any]:
     """Return the active tenant's aggregated token usage over ``days`` days.
 
     Args:

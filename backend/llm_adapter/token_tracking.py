@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import logging
 from datetime import timedelta
-from typing import Any, Dict, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -78,7 +78,7 @@ def record_token_usage(
     capability: str,
     input_tokens: int,
     output_tokens: int = 0,
-    workspace_id: Optional[str] = None,
+    workspace_id: str | None = None,
 ) -> None:
     """Persist one token-usage record for the active tenant (REQ-106).
 
@@ -164,7 +164,7 @@ def get_daily_usage(days: int = 1) -> int:
         return 0
 
 
-def aggregate_usage(days: int = 30) -> Dict[str, Any]:
+def aggregate_usage(days: int = 30) -> dict[str, Any]:
     """Aggregate the active tenant's usage over ``days`` days (REQ-106 query API).
 
     Returns a structured summary: overall total plus a per-provider breakdown.
@@ -179,7 +179,7 @@ def aggregate_usage(days: int = 30) -> Dict[str, Any]:
             "by_provider": {"<provider>": <int>, ...},
         }
     """
-    result: Dict[str, Any] = {"days": days, "total_tokens": 0, "by_provider": {}}
+    result: dict[str, Any] = {"days": days, "total_tokens": 0, "by_provider": {}}
     try:
         from django.db import transaction  # noqa: PLC0415
         from django.db.models import Sum  # noqa: PLC0415
@@ -208,7 +208,7 @@ def aggregate_usage(days: int = 30) -> Dict[str, Any]:
     return result
 
 
-def get_daily_token_limit() -> Optional[int]:
+def get_daily_token_limit() -> int | None:
     """Return the configured per-tenant daily token limit, or None if unlimited.
 
     Reads ``settings.TENANT_TOKEN_LIMIT_PER_DAY``. ``None`` (default) means no
@@ -245,10 +245,10 @@ def is_over_daily_limit() -> bool:
 
 __all__ = [
     "LLM_TOKEN_LIMIT_EXCEEDED",
-    "approximate_token_count",
-    "record_token_usage",
-    "get_daily_usage",
     "aggregate_usage",
+    "approximate_token_count",
     "get_daily_token_limit",
+    "get_daily_usage",
     "is_over_daily_limit",
+    "record_token_usage",
 ]

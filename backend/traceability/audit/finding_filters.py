@@ -20,7 +20,7 @@ unfiltered window that may contain no matches.
 """
 from __future__ import annotations
 
-from typing import Iterable, Optional
+from collections.abc import Iterable
 
 from traceability.audit.types import Severity
 
@@ -92,7 +92,7 @@ def finding_matches(
     *,
     rule_ids: frozenset[str] = frozenset(),
     severities: frozenset[str] = frozenset(),
-    artifact_type_ids: Optional[frozenset[str]] = None,
+    artifact_type_ids: frozenset[str] | None = None,
 ) -> bool:
     """Return whether *finding* (a :class:`traceability.audit.types.Finding`)
     satisfies every active filter. An empty/``None`` filter is inert.
@@ -113,8 +113,8 @@ def apply_report_filters(
     *,
     rule_ids: frozenset[str] = frozenset(),
     severities: frozenset[str] = frozenset(),
-    artifact_type_ids: Optional[frozenset[str]] = None,
-    limit: Optional[int] = None,
+    artifact_type_ids: frozenset[str] | None = None,
+    limit: int | None = None,
     offset: int = 0,
     max_findings: int = DEFAULT_MAX_FINDINGS,
 ) -> None:
@@ -178,11 +178,11 @@ def apply_report_filters(
 
 
 __all__ = [
-    "VALID_SEVERITIES",
     "DEFAULT_MAX_FINDINGS",
+    "VALID_SEVERITIES",
+    "apply_report_filters",
+    "finding_matches",
     "normalize_rule_ids",
     "normalize_severities",
     "resolve_artifact_ids_for_type",
-    "finding_matches",
-    "apply_report_filters",
 ]

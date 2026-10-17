@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import threading
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 from django.db import connection, transaction
@@ -350,7 +350,7 @@ def test_revoke_tenant_admin_requires_tenant_admin_actor():
 @pytest.mark.django_db
 def test_is_tenant_admin_false_for_suspended_row():
     tenant, admin, role = _make_tenant_with_admin("suspended")
-    role.suspended_at = datetime.now(timezone.utc)
+    role.suspended_at = datetime.now(UTC)
     role.save(update_fields=["suspended_at"])
     service = AuthorizationService()
 

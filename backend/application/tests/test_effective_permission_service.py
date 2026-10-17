@@ -16,19 +16,18 @@ from uuid import UUID
 
 import pytest
 
-from auth_tenancy.services.authorization import AuthorizationService
-from auth_tenancy.services.item_permission import (
-    NO_RULE_REASON,
-    ItemPermissionService,
-    PermissionDecision,
-)
-
 from application.base import ValidationError
 from application.effective_permission_service import (
     EffectivePermission,
     EffectivePermissionService,
     level_satisfies_level,
     more_restrictive_level,
+)
+from auth_tenancy.services.authorization import AuthorizationService
+from auth_tenancy.services.item_permission import (
+    NO_RULE_REASON,
+    ItemPermissionService,
+    PermissionDecision,
 )
 
 USER_ID = UUID("00000000-0000-0000-0000-000000000001")

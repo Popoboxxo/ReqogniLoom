@@ -39,7 +39,7 @@ recommendation only.
 from __future__ import annotations
 
 import contextlib
-from typing import Iterator, Optional
+from collections.abc import Iterator
 from uuid import UUID, uuid4
 
 from django.utils import timezone
@@ -119,7 +119,7 @@ def make_workspace(tenant: Tenant, **kwargs) -> Workspace:
     return workspace
 
 
-def make_workspace_id(tenant_id: Optional[UUID] = None) -> UUID:
+def make_workspace_id(tenant_id: UUID | None = None) -> UUID:
     """Create a bare ``Workspace`` row and return its primary key.
 
     Lightweight sibling of :func:`make_workspace` for tests that only need a
@@ -289,13 +289,13 @@ def make_requirement(workspace: Workspace, **kwargs) -> Requirement:
 
 __all__ = [
     "active_tenant",
+    "admin_user_and_token",
+    "assign_role",
+    "ctx_for_user",
+    "editor_ctx",
+    "editor_user_and_token",
+    "make_requirement",
     "make_user",
     "make_workspace",
     "make_workspace_id",
-    "assign_role",
-    "editor_ctx",
-    "ctx_for_user",
-    "admin_user_and_token",
-    "editor_user_and_token",
-    "make_requirement",
 ]

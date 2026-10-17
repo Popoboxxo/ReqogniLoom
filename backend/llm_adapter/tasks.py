@@ -110,9 +110,9 @@ def run_capability(
 
     # Imported here to avoid import-time coupling and keep the module importable
     # in contexts where these deps are not needed.
+    from llm_adapter.providers import get_provider, resolve_provider_config
     from persistence.middleware import clear_request_tenant, set_request_tenant
     from persistence.tenancy import TenantContext
-    from llm_adapter.providers import get_provider, resolve_provider_config
 
     # #522 review follow-up: snapshot the context *before* arming it. Under
     # CELERY_TASK_ALWAYS_EAGER (settings_test.py) apply_async runs this body
@@ -197,4 +197,4 @@ def run_capability(
                 )
 
 
-__all__ = ["run_capability", "ALLOWED_CAPABILITIES"]
+__all__ = ["ALLOWED_CAPABILITIES", "run_capability"]

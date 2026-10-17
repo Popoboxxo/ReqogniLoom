@@ -11,13 +11,12 @@ from __future__ import annotations
 
 import contextlib
 import uuid
-from typing import Iterator
+from collections.abc import Iterator
 
 import pytest
 
 from persistence.models import Artifact, Tenant, Workspace
 from persistence.tenancy import TenantContext
-
 
 # ---------------------------------------------------------------------------
 # Tenant context helpers

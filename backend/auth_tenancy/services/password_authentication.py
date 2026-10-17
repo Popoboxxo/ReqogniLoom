@@ -23,8 +23,7 @@ Architecture: docs/se/L1/Gesamtsystem/L2/AuthAndTenancySystem/
 from __future__ import annotations
 
 import time
-from datetime import datetime
-from datetime import timezone as dt_timezone
+from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 from django.conf import settings
@@ -284,7 +283,7 @@ class PasswordAuthenticationService:
             tenant_id=user.tenant_id,
             jti=jti,
             session_id=family_id,
-            expires_at=datetime.fromtimestamp(expires_at, tz=dt_timezone.utc),
+            expires_at=datetime.fromtimestamp(expires_at, tz=UTC),
         )
 
         return encode_hs256(claims, self._jwt_secret)

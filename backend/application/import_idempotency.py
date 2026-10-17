@@ -52,7 +52,7 @@ import hmac
 import logging
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Any, Dict, Optional
+from typing import Any
 from uuid import UUID
 
 from django.conf import settings
@@ -169,7 +169,7 @@ class IdempotencyConflict(Exception):
         code: str,
         message: str,
         *,
-        retry_after: Optional[int] = None,
+        retry_after: int | None = None,
     ) -> None:
         super().__init__(message)
         self.code = code
@@ -181,7 +181,7 @@ class CachedImportResult:
     """A terminal success stored under an idempotency key."""
 
     status_code: int
-    body: Dict[str, Any]
+    body: dict[str, Any]
 
 
 def _fingerprint_secret() -> bytes:
@@ -239,7 +239,7 @@ def begin(
     endpoint: str,
     key: str,
     fingerprint: str,
-) -> Optional[CachedImportResult]:
+) -> CachedImportResult | None:
     """Claim *key* or return a cached replay.
 
     Returns ``None`` when the caller owns the claim and must run the import;
@@ -367,7 +367,7 @@ def finalize_success(
     key: str,
     fingerprint: str,
     status_code: int,
-    body: Dict[str, Any],
+    body: dict[str, Any],
 ) -> None:
     """Persist a terminal success so subsequent replays are served from the store.
 

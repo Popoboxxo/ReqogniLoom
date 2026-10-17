@@ -70,4 +70,4 @@ def is_exempt_path(path: str) -> bool:
     return any(path.startswith(prefix) for prefix in EXEMPT_PATH_PREFIXES)
 
 
-__all__ = ["AuthTenancyMiddleware", "is_exempt_path", "EXEMPT_PATH_PREFIXES"]
+__all__ = ["EXEMPT_PATH_PREFIXES", "AuthTenancyMiddleware", "is_exempt_path"]

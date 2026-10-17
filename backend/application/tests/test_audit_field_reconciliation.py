@@ -57,10 +57,9 @@ def test_modified_at_is_not_nullable_after_the_swap(model_name):
 
 @pytest.mark.django_db
 def test_modified_at_is_populated_on_create():
+    from application.models import Adr
     from persistence.models import Tenant
     from persistence.tenancy import TenantContext
-
-    from application.models import Adr
 
     # tenant_id is a real FK since Task 15, and Adr.objects is tenant-scoped.
     tenant = Tenant.objects.create(name="audit-fields", slug="audit-fields")

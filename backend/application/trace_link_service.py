@@ -39,28 +39,28 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, List, Optional
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from django.db.models import Q
 
-from auth_tenancy.context import AuthContext
-
 from application.base import NotFoundError, ServiceBase, ValidationError
+from auth_tenancy.context import AuthContext
 from persistence.transactions import atomic_transaction
+from traceability.audit.hierarchy import (
+    HIERARCHY_LINK_TYPES,
+    recompute_requirement_levels,
+)
+
 # VALID_LINK_TYPES/MANUAL_LINK_TYPES are re-exported for backwards
 # compatibility only (application.services re-exports them again, and the MCP
 # tool schemas still publish MANUAL_LINK_TYPES as their enum). Neither is a
 # validation authority any more: link_types.catalog.validate_link_pair is,
 # per workspace. See _check_link_pair.
 from traceability.types import (  # noqa: F401 — re-exported via __all__
-    VALID_LINK_TYPES,
     MANUAL_LINK_TYPES,
+    VALID_LINK_TYPES,
     LinkType,
-)
-from traceability.audit.hierarchy import (
-    HIERARCHY_LINK_TYPES,
-    recompute_requirement_levels,
 )
 
 if TYPE_CHECKING:  # pragma: no cover — import cycle at runtime
@@ -180,7 +180,7 @@ class TraceLinkService(ServiceBase):
         """
         return self._resolve_artifact(entity_id)[0]
 
-    def _resolve_artifact(self, entity_id: UUID) -> tuple[UUID, Optional["Artifact"]]:
+    def _resolve_artifact(self, entity_id: UUID) -> tuple[UUID, Artifact | None]:
         """Resolve a business-entity ID to its backing Artifact (id + row).
 
         The TraceabilityEngine stores links between Artifact IDs.  Callers may
@@ -373,7 +373,7 @@ class TraceLinkService(ServiceBase):
         return None
 
     def resolve_entity_to_artifact_id(
-        self, entity_id: UUID, ctx: Optional[AuthContext] = None
+        self, entity_id: UUID, ctx: AuthContext | None = None
     ) -> UUID:
         """Public wrapper around :meth:`_resolve_artifact_id` (fix #264).
 
@@ -402,8 +402,8 @@ class TraceLinkService(ServiceBase):
         target_artifact_id: UUID,
         link_type: str,
         *,
-        source_artifact: Optional["Artifact"] = None,
-        target_artifact: Optional["Artifact"] = None,
+        source_artifact: Artifact | None = None,
+        target_artifact: Artifact | None = None,
         manual: bool = True,
     ) -> None:
         """Validate a link against the workspace's link-type catalog.
@@ -648,11 +648,14 @@ class TraceLinkService(ServiceBase):
                 engine reports as TraceLinkError (fix #264 Befund C).
         """
         from django.db import IntegrityError
+
         from traceability.services import (
             CrossTenantLinkError,
             SourceNotFoundError,
             TargetNotFoundError,
             TraceLinkError,
+        )
+        from traceability.services import (
             create_trace_link as te_create,
         )
 
@@ -747,7 +750,7 @@ class TraceLinkService(ServiceBase):
             source_artifact=source_artifact,
         )
 
-    def confirm_proposed_link(self, link_id: UUID, ctx: AuthContext) -> "TraceLink":
+    def confirm_proposed_link(self, link_id: UUID, ctx: AuthContext) -> TraceLink:
         """Accept an agent-proposed trace link (spec §5).
 
         Clears ``proposed_by``/``proposed_at`` — the link becomes an ordinary,
@@ -846,10 +849,10 @@ class TraceLinkService(ServiceBase):
         self,
         *,
         event_type_name: str,
-        link_id: Optional[UUID],
+        link_id: UUID | None,
         source_artifact_id: UUID,
         target_artifact_id: UUID,
-        source_artifact: Optional["Artifact"] = None,
+        source_artifact: Artifact | None = None,
     ) -> None:
         """Emit a TraceLink* domain event (Issue #377, context_graph Task 2).
 
@@ -931,12 +934,12 @@ class TraceLinkService(ServiceBase):
         ``select_related`` re-read collapses them into a single joined query.
         """
         try:
-            from persistence.models import TraceLink
             from llm_adapter.embedding_service import (
                 generate_embedding,
                 get_tracelink_embedding_text,
                 warn_dimension_mismatch,
             )
+            from persistence.models import TraceLink
 
             if not getattr(trace_link, "id", None):
                 return
@@ -985,7 +988,7 @@ class TraceLinkService(ServiceBase):
         trace_link_id: UUID,
         ctx: AuthContext,
         limit: int = 10,
-    ) -> List[SimilarTraceLinkDTO]:
+    ) -> list[SimilarTraceLinkDTO]:
         """Return the top-N trace links most similar to *trace_link_id*.
 
         REQ-L2-VS-004: cosine-distance nearest-neighbour search over the
@@ -997,7 +1000,6 @@ class TraceLinkService(ServiceBase):
             ValidationError: Query trace link has no embedding.
             PgVectorUnavailableError: pgvector package/extension unavailable.
         """
-        from persistence.models import TraceLink
         from application.requirement_service import (
             PgVectorUnavailableError,
             QdrantUnavailableError,
@@ -1008,6 +1010,7 @@ class TraceLinkService(ServiceBase):
             VectorBackendUnavailableError,
             get_vector_port,
         )
+        from persistence.models import TraceLink
 
         self._set_tenant_context(ctx)
 
@@ -1078,7 +1081,7 @@ class TraceLinkService(ServiceBase):
         from traceability.types import Direction
 
         # Gather all link IDs where this entity is source or target
-        link_ids: List[UUID] = []
+        link_ids: list[UUID] = []
         for direction in ("upstream", "downstream"):
             try:
                 results = query(
@@ -1196,9 +1199,8 @@ class TraceLinkService(ServiceBase):
         Raises:
             ValidationError: If the target is an ancestor of the source.
         """
-        from persistence.models import ArchitectureElement
-
         from application.validators import ArchitectureElementInvariantValidator
+        from persistence.models import ArchitectureElement
 
         source_el = (
             ArchitectureElement.objects.select_related("artifact")
@@ -1431,8 +1433,8 @@ class TraceLinkService(ServiceBase):
         self,
         entity_id: UUID,
         direction: str,
-        link_type: Optional[str] = None,
-        ctx: Optional[AuthContext] = None,
+        link_type: str | None = None,
+        ctx: AuthContext | None = None,
     ) -> list:
         """Query TraceLinks for *entity_id* with optional direction/type filter.
 
@@ -1466,7 +1468,7 @@ class TraceLinkService(ServiceBase):
         entity_id: UUID,
         direction: str,
         ctx: AuthContext,
-        link_type: Optional[str] = None,
+        link_type: str | None = None,
     ) -> list:
         """Return the real TraceLink rows attached to *entity_id* (fix #264).
 
@@ -1512,7 +1514,7 @@ class TraceLinkService(ServiceBase):
         self,
         workspace_id: UUID,
         ctx: AuthContext,
-        link_type: Optional[str] = None,
+        link_type: str | None = None,
     ) -> list:
         """Return every TraceLink whose source lives in *workspace_id* (#264).
 
@@ -1531,7 +1533,7 @@ class TraceLinkService(ServiceBase):
         self,
         workspace_id: UUID,
         ctx: AuthContext,
-        link_type: Optional[str] = None,
+        link_type: str | None = None,
     ):
         """Lazy variant of :meth:`list_links_for_workspace` (fix #571).
 
@@ -1551,7 +1553,7 @@ class TraceLinkService(ServiceBase):
         workspace_id: UUID,
         ctx: AuthContext,
         *,
-        link_type: Optional[str] = None,
+        link_type: str | None = None,
         page: int = 1,
         page_size: int = 25,
     ) -> dict:
@@ -1589,7 +1591,7 @@ class TraceLinkService(ServiceBase):
             "results": [_trace_link_to_dict(link) for link in page_rows],
         }
 
-    def list_incoming(self, entity_id: UUID, ctx: AuthContext) -> List[TraceEdgeDTO]:
+    def list_incoming(self, entity_id: UUID, ctx: AuthContext) -> list[TraceEdgeDTO]:
         """List TraceLinks where *entity_id* is the target (MCP-05, Codeberg #117).
 
         "Incoming" mirrors upstream traversal (QueryEngine returns the link
@@ -1604,7 +1606,7 @@ class TraceLinkService(ServiceBase):
             for n in neighbors
         ]
 
-    def list_outgoing(self, entity_id: UUID, ctx: AuthContext) -> List[TraceEdgeDTO]:
+    def list_outgoing(self, entity_id: UUID, ctx: AuthContext) -> list[TraceEdgeDTO]:
         """List TraceLinks where *entity_id* is the source (MCP-05, Codeberg #117)."""
         neighbors = self.query_trace_links(entity_id, direction="downstream", ctx=ctx)
         return [
@@ -1619,7 +1621,7 @@ class TraceLinkService(ServiceBase):
         source_id: UUID,
         ctx: AuthContext,
         *,
-        audit_entry_id: Optional[UUID] = None,
+        audit_entry_id: UUID | None = None,
     ) -> int:
         """Flag the artifacts a change to *source_id* makes questionable (SN-30).
 
@@ -1853,7 +1855,7 @@ class TraceLinkService(ServiceBase):
             )
 
 
-def resolve_artifact_id_or_none(entity_id: UUID) -> Optional[UUID]:
+def resolve_artifact_id_or_none(entity_id: UUID) -> UUID | None:
     """Best-effort business-entity id -> Artifact id, ``None`` on a miss.
 
     Menschen-im-System spec §5: notifications reference the generic Artifact,
@@ -1874,9 +1876,9 @@ def resolve_artifact_id_or_none(entity_id: UUID) -> Optional[UUID]:
 
 
 __all__ = [
-    "TraceLinkService",
-    "SimilarTraceLinkDTO",
-    "VALID_LINK_TYPES",
     "MANUAL_LINK_TYPES",
+    "VALID_LINK_TYPES",
+    "SimilarTraceLinkDTO",
+    "TraceLinkService",
     "resolve_artifact_id_or_none",
 ]

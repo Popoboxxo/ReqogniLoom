@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import pytest
 
-from workflow.migrations._proposed_backfill import backfill_definition
 from workflow.definition_store import PROPOSED_STATE
+from workflow.migrations._proposed_backfill import backfill_definition
 
 
 def test_backfill_adds_proposed_to_a_standard_graph():

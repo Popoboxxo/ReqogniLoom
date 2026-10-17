@@ -27,8 +27,8 @@ from rest_framework.test import APIClient
 
 from application.ai_proposal_service import AI_DERIVATION_LABEL
 from application.requirement_service import RequirementService
-from auth_tenancy.models import ROLE_ADMIN, ROLE_EDITOR, ROLE_VIEWER, UserRole
 from auth_tenancy.context import AuthContext
+from auth_tenancy.models import ROLE_ADMIN, ROLE_EDITOR, ROLE_VIEWER, UserRole
 from link_types.workspace_store import provision_workspace_link_types
 from persistence.middleware import clear_request_tenant, set_request_tenant
 from persistence.models import Tenant, User, Workspace

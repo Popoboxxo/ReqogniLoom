@@ -43,7 +43,7 @@ Safety properties:
 """
 from __future__ import annotations
 
-from typing import Any, List
+from typing import Any
 from uuid import UUID
 
 from django.core.management.base import BaseCommand, CommandError
@@ -102,7 +102,7 @@ class Command(BaseCommand):
     # -- helpers ----------------------------------------------------------
 
     @staticmethod
-    def _resolve_key(raw: str) -> List[ApiKey]:
+    def _resolve_key(raw: str) -> list[ApiKey]:
         """Return the key(s) matching *raw* (full UUID or prefix)."""
         value = raw.strip().lower()
         if not value:

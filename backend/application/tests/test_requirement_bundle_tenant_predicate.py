@@ -60,16 +60,16 @@ from __future__ import annotations
 
 import contextlib
 import re
-from typing import Iterator
+from collections.abc import Iterator
 from uuid import UUID
 
 import pytest
 from django.db import connection
 
 from application.requirement_bundle_service import (
+    _ARCH_TREE_CTE,
     MAX_DEPTH,
     RequirementBundleQueryService,
-    _ARCH_TREE_CTE,
 )
 from auth_tenancy.context import AuthContext, AuthMethod
 from persistence.models import (

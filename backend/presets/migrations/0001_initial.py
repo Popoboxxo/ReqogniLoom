@@ -15,9 +15,10 @@ req_id : REQ-L2-PC-001, REQ-L2-PC-009, REQ-L2-PC-011
 """
 from __future__ import annotations
 
+import uuid
+
 import django.db.models.deletion
 from django.db import migrations, models
-import uuid
 
 
 class Migration(migrations.Migration):

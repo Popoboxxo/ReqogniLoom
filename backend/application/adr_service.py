@@ -23,12 +23,9 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import List, Optional
 from uuid import UUID
 
-from auth_tenancy.context import AuthContext
 from django.db.models import F, QuerySet
-from persistence.transactions import atomic_transaction
 
 from application.artifact_service import (
     _clean_custom_fields,
@@ -43,6 +40,8 @@ from application.optimistic_lock import (
     assert_expected_version,
     lock_for_version_check,
 )
+from auth_tenancy.context import AuthContext
+from persistence.transactions import atomic_transaction
 from traceability.types import LinkType
 from workflow import state_reader
 
@@ -79,7 +78,7 @@ class AdrDTO:
     version: int
 
     @classmethod
-    def from_orm(cls, adr: Adr, *, status: str = "") -> "AdrDTO":
+    def from_orm(cls, adr: Adr, *, status: str = "") -> AdrDTO:
         """Build a DTO. ``status`` comes from the workflow engine (Phase 1)."""
         resolved_status = status
         return cls(
@@ -161,8 +160,8 @@ class AdrService(ServiceBase):
         context: str = "",
         decision: str = "",
         consequences: str = "",
-        uid: Optional[str] = None,
-        custom_fields: Optional[dict] = None,
+        uid: str | None = None,
+        custom_fields: dict | None = None,
     ) -> Adr:
         """Create an ADR with initial workflow state (REQ-L3-ADR-001).
 
@@ -262,14 +261,14 @@ class AdrService(ServiceBase):
         self,
         adr_id: UUID,
         ctx: AuthContext,
-        title: Optional[str] = None,
-        description: Optional[str] = None,
-        context: Optional[str] = None,
-        decision: Optional[str] = None,
-        consequences: Optional[str] = None,
-        change_reason: Optional[str] = None,
+        title: str | None = None,
+        description: str | None = None,
+        context: str | None = None,
+        decision: str | None = None,
+        consequences: str | None = None,
+        change_reason: str | None = None,
         custom_fields: object = _UNSET,
-        expected_version: Optional[int] = None,
+        expected_version: int | None = None,
     ) -> Adr:
         """Update an ADR, incrementing its version (REQ-L3-ADR-002, ADR-L3-ADR-01).
 
@@ -472,7 +471,7 @@ class AdrService(ServiceBase):
 
     def list_adrs_by_status(
         self, workspace_id: UUID, status: str, ctx: AuthContext
-    ) -> List[Adr]:
+    ) -> list[Adr]:
         """Return ADRs filtered by *status* (REQ-L3-ADR-008).
 
         Args:
@@ -505,10 +504,10 @@ class AdrService(ServiceBase):
         adr_id: UUID,
         target_status: str,
         ctx: AuthContext,
-        change_reason: Optional[str] = None,
-        superseded_by_id: Optional[UUID] = None,
-        credential: Optional[str] = None,
-        expected_version: Optional[int] = None,
+        change_reason: str | None = None,
+        superseded_by_id: UUID | None = None,
+        credential: str | None = None,
+        expected_version: int | None = None,
     ) -> Adr:
         """Transition an ADR's workflow status (REQ-L3-ADR-004).
 
@@ -625,6 +624,6 @@ class AdrService(ServiceBase):
 
 
 __all__ = [
-    "AdrService",
     "AdrDTO",
+    "AdrService",
 ]

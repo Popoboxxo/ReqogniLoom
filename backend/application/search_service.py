@@ -56,7 +56,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from dataclasses import field as dataclass_field
 from dataclasses import replace as dataclass_replace
-from typing import Any, Dict, List, Optional
+from typing import Any
 from uuid import UUID
 
 from django.db.models import F
@@ -152,7 +152,7 @@ _SEMANTIC_TOP_K = 50
 #: ``Requirement.workspace`` field -- see the port call in _run_semantic_query);
 #: TraceLink has no workspace of its own and resolves through ``source``; Icd
 #: carries ``workspace_id`` directly. ``None`` for a type with no such field.
-_SEMANTIC_WORKSPACE_FIELDS: Dict[str, Optional[str]] = {
+_SEMANTIC_WORKSPACE_FIELDS: dict[str, str | None] = {
     "Requirement": "artifact__workspace_id",
     "TraceLink": "source__workspace_id",
     "Icd": "workspace_id",
@@ -172,8 +172,8 @@ class _TableSpec:
     description_col: str = "COALESCE(e.description, '')"
     join_sql: str = ""
     workspace_col: str = "e.workspace_id"
-    uid_col: Optional[str] = "e.uid"
-    artifact_id_col: Optional[str] = None
+    uid_col: str | None = "e.uid"
+    artifact_id_col: str | None = None
 
 
 _ARTIFACT_JOIN = "JOIN pl_artifact a ON a.id = e.artifact_id"
@@ -189,7 +189,7 @@ _ARTIFACT_LEFT_JOIN = "LEFT JOIN pl_artifact a ON a.id = e.artifact_id"
 # Deliberately excluded:
 #   MainGoal — has no title, only a single aggregated ``content`` blob per
 #   workspace; it is a derived summary, not an addressable artifact.
-_TABLE_SPECS: Dict[str, _TableSpec] = {
+_TABLE_SPECS: dict[str, _TableSpec] = {
     "Requirement": _TableSpec(
         table="pl_requirement",
         join_sql=_ARTIFACT_JOIN,
@@ -289,7 +289,7 @@ class SearchHit:
     #: for the ``as_*`` tables whose FK is nullable) and surfaces the artifact's
     #: ``custom_fields``; the empty default only covers rows with no backing
     #: artifact (e.g. a pre-migration row) or a non-object/absent value.
-    custom_fields: Dict[str, Any] = dataclass_field(default_factory=dict)
+    custom_fields: dict[str, Any] = dataclass_field(default_factory=dict)
 
 
 @dataclass
@@ -304,7 +304,7 @@ class SearchResult:
         query: The parsed tsquery string for debugging.
     """
 
-    results: List[SearchHit]
+    results: list[SearchHit]
     total_count: int
     page: int
     limit: int
@@ -438,14 +438,14 @@ def _normalize_lexical_score(raw_score: float) -> float:
     return _clamp_unit_interval(raw_score / _SCORE_MAX)
 
 
-def _merge_hits(*hit_lists: List[SearchHit]) -> List[SearchHit]:
+def _merge_hits(*hit_lists: list[SearchHit]) -> list[SearchHit]:
     """Dedup ``hit_lists`` by ``hit.id``, keeping the highest relevance score.
 
     Shared by :meth:`SearchService._search_entity_type`'s two-pass
     (full-text + lexical) merge and :meth:`SearchService._search_multi_workspace`'s
     per-workspace merge -- same "keyed by id, keep max score" pattern either way.
     """
-    merged: Dict[str, SearchHit] = {}
+    merged: dict[str, SearchHit] = {}
     for hits in hit_lists:
         for hit in hits:
             existing = merged.get(hit.id)
@@ -454,7 +454,7 @@ def _merge_hits(*hit_lists: List[SearchHit]) -> List[SearchHit]:
     return list(merged.values())
 
 
-def _rrf_fuse(*rank_lists: List[SearchHit]) -> List[SearchHit]:
+def _rrf_fuse(*rank_lists: list[SearchHit]) -> list[SearchHit]:
     """Reciprocal Rank Fusion of N independently-ranked hit lists (Task 9).
 
     ``score(hit) = sum over each rank_list containing hit of
@@ -483,8 +483,8 @@ def _rrf_fuse(*rank_lists: List[SearchHit]) -> List[SearchHit]:
     The divisor is independent of the hit and strictly positive, so the fused
     ranking is preserved unchanged.
     """
-    scores: Dict[str, float] = {}
-    hits_by_id: Dict[str, SearchHit] = {}
+    scores: dict[str, float] = {}
+    hits_by_id: dict[str, SearchHit] = {}
     for rank_list in rank_lists:
         for rank, hit in enumerate(rank_list):
             scores[hit.id] = scores.get(hit.id, 0.0) + 1.0 / (_RRF_K + rank + 1)
@@ -504,7 +504,7 @@ def _rrf_fuse(*rank_lists: List[SearchHit]) -> List[SearchHit]:
     ]
 
 
-def _embedding_field_dimensions(entity_type: str) -> Optional[int]:
+def _embedding_field_dimensions(entity_type: str) -> int | None:
     """Return the declared ``VectorField(dimensions=...)`` for *entity_type*'s
     ``embedding`` column, or ``None`` if it has none / is unknown.
 
@@ -525,7 +525,7 @@ def _embedding_field_dimensions(entity_type: str) -> Optional[int]:
     return None
 
 
-def _semantic_search_hits(entity_type: str, hits: List[VectorHit]) -> List[SearchHit]:
+def _semantic_search_hits(entity_type: str, hits: list[VectorHit]) -> list[SearchHit]:
     """Hydrate port hits (id + distance) into SearchHit DTOs for *entity_type*.
 
     The port returns only the nearest ids and their cosine distances, so the
@@ -609,10 +609,10 @@ def _semantic_search_hits(entity_type: str, hits: List[VectorHit]) -> List[Searc
 
 def _run_semantic_query(
     entity_type: str,
-    query_embedding: Optional[List[float]],
+    query_embedding: list[float] | None,
     tenant_id: Any,
-    workspace_id: Optional[UUID],
-) -> List[SearchHit]:
+    workspace_id: UUID | None,
+) -> list[SearchHit]:
     """Cosine-similarity pass over ``entity_type``'s ``embedding`` column.
 
     REQ-L2-VS-004 (Task 9). Only Requirement/TraceLink/Icd carry an
@@ -675,7 +675,7 @@ def _run_semantic_query(
         )
         return []
 
-    def _dispatch() -> List[SearchHit]:
+    def _dispatch() -> list[SearchHit]:
         """Query the vector port for this type and hydrate the matching rows.
 
         The ANN query is delegated to the active
@@ -726,7 +726,7 @@ def _rows_to_hits(
     rows: Any,
     entity_type: str,
     normalizer: Callable[[float], float],
-) -> List[SearchHit]:
+) -> list[SearchHit]:
     """Map ``(id, workspace_id, title, description, score[, custom_fields])``
     rows to hits.
 
@@ -735,7 +735,7 @@ def _rows_to_hits(
     in the pass's own ``ORDER BY ... DESC`` order and normalization must not
     reorder them.
     """
-    hits: List[SearchHit] = []
+    hits: list[SearchHit] = []
     for row in rows:
         if len(row) == 6:
             eid, ws_id, title, description, score, custom_fields = row
@@ -761,8 +761,8 @@ def _run_fulltext_query(
     spec: _TableSpec,
     tsquery_str: str,
     tenant_id: Any,
-    workspace_id: Optional[UUID],
-) -> List[SearchHit]:
+    workspace_id: UUID | None,
+) -> list[SearchHit]:
     """tsvector/ts_rank pass for one entity type (REQ-L3-SEARCH-001/003)."""
     from django.db import connection
 
@@ -772,7 +772,7 @@ def _run_fulltext_query(
     )
 
     where_parts = ["e.tenant_id = %s", f"{tsv} @@ plainto_tsquery('german', %s)"]
-    params: List[Any] = [str(tenant_id), tsquery_str]
+    params: list[Any] = [str(tenant_id), tsquery_str]
     if workspace_id is not None:
         where_parts.append(f"{spec.workspace_col} = %s")
         params.append(str(workspace_id))
@@ -810,8 +810,8 @@ def _run_lexical_query(
     spec: _TableSpec,
     raw_query: str,
     tenant_id: Any,
-    workspace_id: Optional[UUID],
-) -> List[SearchHit]:
+    workspace_id: UUID | None,
+) -> list[SearchHit]:
     """Case-insensitive substring pass over title, uid and IDs (#345).
 
     The full-text pass alone cannot find ``"QA-AI"`` or a raw ID fragment
@@ -836,8 +836,8 @@ def _run_lexical_query(
     )
 
     # --- relevance CASE (bound first: it sits in the SELECT list) ---
-    case_parts: List[str] = [f"WHEN {title_lower} = %s THEN {_SCORE_TITLE_EXACT}"]
-    case_params: List[Any] = [needle]
+    case_parts: list[str] = [f"WHEN {title_lower} = %s THEN {_SCORE_TITLE_EXACT}"]
+    case_params: list[Any] = [needle]
     if uid_lower:
         case_parts.append(f"WHEN {uid_lower} = %s THEN {_SCORE_ID_EXACT}")
         case_params.append(needle)
@@ -853,8 +853,8 @@ def _run_lexical_query(
     score_sql = "CASE " + " ".join(case_parts) + f" ELSE {_SCORE_ID_SUBSTRING} END"
 
     # --- match predicate ---
-    match_parts: List[str] = [f"{title_lower} LIKE %s"]
-    match_params: List[Any] = [contains]
+    match_parts: list[str] = [f"{title_lower} LIKE %s"]
+    match_params: list[Any] = [contains]
     if uid_lower:
         match_parts.append(f"{uid_lower} LIKE %s")
         match_params.append(contains)
@@ -865,7 +865,7 @@ def _run_lexical_query(
         match_params.append(contains)
 
     where_parts = ["e.tenant_id = %s", "(" + " OR ".join(match_parts) + ")"]
-    params: List[Any] = [str(tenant_id), *match_params]
+    params: list[Any] = [str(tenant_id), *match_params]
     if workspace_id is not None:
         where_parts.append(f"{spec.workspace_col} = %s")
         params.append(str(workspace_id))
@@ -926,8 +926,8 @@ class SearchService(ServiceBase):
         self,
         query: str,
         ctx: AuthContext,
-        workspace_id: Optional[UUID | str] = None,
-        type_filter: Optional[List[str]] = None,
+        workspace_id: UUID | str | None = None,
+        type_filter: list[str] | None = None,
         page: int = _DEFAULT_PAGE,
         limit: int = _DEFAULT_LIMIT,
         scope: str = "workspace",
@@ -991,7 +991,7 @@ class SearchService(ServiceBase):
             raise ValidationError("min_score must be in [0, 1].")
 
         # Validate type filter (REQ-L3-SEARCH-004)
-        effective_types: List[str]
+        effective_types: list[str]
         if type_filter:
             invalid = set(type_filter) - _VALID_TYPES
             if invalid:
@@ -1012,7 +1012,7 @@ class SearchService(ServiceBase):
             raise ValidationError(f"Failed to parse search query: {exc}") from exc
 
         tenant_id = ctx.tenant_id
-        hits: List[SearchHit] = []
+        hits: list[SearchHit] = []
 
         # Task 9 (REQ-L2-VS-004): computed once here, not per entity type --
         # generate_embedding() never raises (its own contract: returns None on
@@ -1024,7 +1024,7 @@ class SearchService(ServiceBase):
         # sentence-transformers) -- a caller with e.g. type_filter=["TestCase"]
         # (no embedding column at all) must not pay that cost just because
         # Requirement/TraceLink/Icd exist elsewhere in the codebase.
-        query_embedding: Optional[List[float]] = None
+        query_embedding: list[float] | None = None
         if _EMBEDDABLE_TYPES & set(effective_types):
             query_embedding = generate_embedding(query)
 
@@ -1045,7 +1045,7 @@ class SearchService(ServiceBase):
                 query_embedding=query_embedding,
             )
         else:
-            ws_uuid: Optional[UUID] = (
+            ws_uuid: UUID | None = (
                 UUID(str(workspace_id)) if workspace_id is not None else None
             )
 
@@ -1104,10 +1104,10 @@ class SearchService(ServiceBase):
         entity_type: str,
         tsquery_str: str,
         tenant_id: Any,
-        workspace_id: Optional[UUID],
+        workspace_id: UUID | None,
         raw_query: str = "",
-        query_embedding: Optional[List[float]] = None,
-    ) -> List[SearchHit]:
+        query_embedding: list[float] | None = None,
+    ) -> list[SearchHit]:
         """Return hits for one entity type from all applicable search passes.
 
         Runs the tsvector full-text pass (REQ-L3-SEARCH-001/003), the lexical
@@ -1151,13 +1151,13 @@ class SearchService(ServiceBase):
     @classmethod
     def _search_multi_workspace(
         cls,
-        entity_types: List[str],
+        entity_types: list[str],
         tsquery_str: str,
         tenant_id: Any,
-        workspace_ids: List[UUID],
+        workspace_ids: list[UUID],
         raw_query: str,
-        query_embedding: Optional[List[float]] = None,
-    ) -> List[SearchHit]:
+        query_embedding: list[float] | None = None,
+    ) -> list[SearchHit]:
         """Search every type in ``entity_types`` across all ``workspace_ids``.
 
         Used for ``scope="tenant"``: runs the same per-type fusion
@@ -1174,9 +1174,9 @@ class SearchService(ServiceBase):
         An empty ``workspace_ids`` (caller has no accessible workspace) yields
         no hits for any type, by construction.
         """
-        hits: List[SearchHit] = []
+        hits: list[SearchHit] = []
         for entity_type in entity_types:
-            per_workspace_hits: List[List[SearchHit]] = []
+            per_workspace_hits: list[list[SearchHit]] = []
             for ws_id in workspace_ids:
                 try:
                     per_workspace_hits.append(
@@ -1208,9 +1208,9 @@ class SearchService(ServiceBase):
 
 
 __all__ = [
-    "SearchService",
-    "SearchResult",
-    "SearchHit",
-    "QueryParser",
     "SEARCHABLE_ARTIFACT_TYPES",
+    "QueryParser",
+    "SearchHit",
+    "SearchResult",
+    "SearchService",
 ]
