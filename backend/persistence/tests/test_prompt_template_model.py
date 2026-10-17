@@ -138,7 +138,7 @@ def test_concurrent_active_template_creation_only_one_succeeds(tenant):
             outcomes[key] = "ok"
         except IntegrityError:
             outcomes[key] = "conflict"
-        except Exception as exc:  # pragma: no cover - diagnostic aid only
+        except Exception as exc:  # noqa: BLE001 — diagnostic  # pragma: no cover
             outcomes[key] = f"error:{exc!r}"
         finally:
             TenantContext.clear_tenant()

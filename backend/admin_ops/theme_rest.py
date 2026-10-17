@@ -24,6 +24,7 @@ from __future__ import annotations
 from typing import Any
 
 from rest_framework import status
+from rest_framework.exceptions import NotAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -99,7 +100,7 @@ class ThemePaletteListView(APIView):
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
-        except Exception:
+        except NotAuthenticated:
             return _err("AUTHENTICATION_REQUIRED", lang, status.HTTP_401_UNAUTHORIZED)
         TenantContext.set_tenant(ctx.tenant_id)
         # Lazy backfill so tenants created after the seed migration still see
@@ -114,7 +115,7 @@ class ThemePaletteListView(APIView):
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
-        except Exception:
+        except NotAuthenticated:
             return _err("AUTHENTICATION_REQUIRED", lang, status.HTTP_401_UNAUTHORIZED)
         if not _is_system_admin(ctx):
             return _err("PERMISSION_DENIED", lang, status.HTTP_403_FORBIDDEN)
@@ -165,7 +166,7 @@ class ThemePaletteDetailView(APIView):
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
-        except Exception:
+        except NotAuthenticated:
             return _err("AUTHENTICATION_REQUIRED", lang, status.HTTP_401_UNAUTHORIZED)
         if not _is_system_admin(ctx):
             return _err("PERMISSION_DENIED", lang, status.HTTP_403_FORBIDDEN)
@@ -194,7 +195,7 @@ class ThemePaletteExportView(APIView):
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
-        except Exception:
+        except NotAuthenticated:
             return _err("AUTHENTICATION_REQUIRED", lang, status.HTTP_401_UNAUTHORIZED)
         TenantContext.set_tenant(ctx.tenant_id)
         ThemeService().ensure_system_palettes(ctx.tenant_id)
@@ -232,7 +233,7 @@ class UserThemePreferenceView(APIView):
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
-        except Exception:
+        except NotAuthenticated:
             return _err("AUTHENTICATION_REQUIRED", lang, status.HTTP_401_UNAUTHORIZED)
         TenantContext.set_tenant(ctx.tenant_id)
         pref = UserThemePreference.objects.filter(user_id=ctx.user_id).first()
@@ -247,7 +248,7 @@ class UserThemePreferenceView(APIView):
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
-        except Exception:
+        except NotAuthenticated:
             return _err("AUTHENTICATION_REQUIRED", lang, status.HTTP_401_UNAUTHORIZED)
 
         mode = request.data.get("mode")
@@ -282,7 +283,7 @@ class TenantThemeDefaultView(APIView):
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
-        except Exception:
+        except NotAuthenticated:
             return _err("AUTHENTICATION_REQUIRED", lang, status.HTTP_401_UNAUTHORIZED)
         TenantContext.set_tenant(ctx.tenant_id)
         default = TenantThemeDefault.objects.first()
@@ -297,7 +298,7 @@ class TenantThemeDefaultView(APIView):
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
-        except Exception:
+        except NotAuthenticated:
             return _err("AUTHENTICATION_REQUIRED", lang, status.HTTP_401_UNAUTHORIZED)
         if not _is_system_admin(ctx):
             return _err("PERMISSION_DENIED", lang, status.HTTP_403_FORBIDDEN)

@@ -7,7 +7,10 @@ from admin_ops.models import Banner, BannerLevel, BannerScope
 from admin_ops.services.banner_service import BannerService
 from application.base import NotFoundError, PermissionDeniedError
 from auth_tenancy.context import AuthContext, AuthMethod
-from auth_tenancy.tests.conftest import tenant_b
+
+# Explicit re-export (PEP 484 `import x as x`): pytest registers the imported
+# fixture for this module; the alias marks it as intentional (silences F811).
+from auth_tenancy.tests.conftest import tenant_b as tenant_b
 from persistence.models import Tenant, Workspace
 from persistence.tenancy import TenantContext
 

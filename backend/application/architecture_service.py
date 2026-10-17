@@ -197,7 +197,7 @@ class ArchitectureService(ServiceBase):
                 workspace_id=workspace_id,
                 ctx=ctx,
             )
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort workflow init; logged at debug
             logger.debug(
                 "ArchitectureService: workflow init skipped for arch_el=%s", arch_el.id
             )

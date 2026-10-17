@@ -290,7 +290,7 @@ class RiskService(ServiceBase):
                 workspace_id=workspace_id,
                 ctx=ctx,
             )
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort workflow init; logged at debug
             logger.debug("RiskService: workflow init skipped for risk=%s", risk.id)
 
         self._audit(ctx=ctx, operation="create", entity_type="Risk", entity_id=risk.id)

@@ -651,6 +651,11 @@ class WorkspaceAuditRemediateView(APIView):
                 status=status.HTTP_422_UNPROCESSABLE_ENTITY,
             )
         except Exception:
+            # Static 500 (CWE-209): the cause is masked in the response, so it
+            # must be logged here or it is lost to operators.
+            logger.exception(
+                "Audit remediation failed for workspace %s", workspace_id
+            )
             return Response(
                 build_error_response("INTERNAL_SERVER_ERROR", lang),
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -699,6 +704,9 @@ class WorkspaceAuditAiReviewView(APIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
         except Exception:
+            # Static 500 (CWE-209): the cause is masked in the response, so it
+            # must be logged here or it is lost to operators.
+            logger.exception("AI review failed for workspace %s", workspace_id)
             return Response(
                 build_error_response("INTERNAL_SERVER_ERROR", lang),
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,

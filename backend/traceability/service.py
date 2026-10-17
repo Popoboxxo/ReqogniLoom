@@ -30,12 +30,16 @@ Public import surface:
 """
 from __future__ import annotations
 
+import logging
 import uuid
 from dataclasses import dataclass, field
 
 from django.db import connection
 
+from persistence.tenancy import TenantContextNotSetError
 from traceability.types import VALID_LINK_TYPES
+
+logger = logging.getLogger(__name__)
 
 # Defensive hard cap (the REST layer also enforces this — REQ-L2-TE-019).
 MAX_DEPTH_CAP = 20
@@ -205,8 +209,9 @@ def _enrich(artifact_ids: list[str], tenant_id: uuid.UUID) -> dict[str, dict]:
         # swallowed — ADR nodes silently lose their title instead of failing
         # loudly. Same exposure the four persistence models above already have
         # (they are tenant-scoped too); left as-is rather than redesigned.
-        except Exception:  # noqa: BLE001 — defensive, matches prior behaviour
-            pass
+        # Only that documented cause is swallowed; unexpected errors surface.
+        except TenantContextNotSetError:
+            logger.debug("ADR title enrichment skipped", exc_info=True)
 
     return info
 

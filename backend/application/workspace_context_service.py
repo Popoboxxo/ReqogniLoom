@@ -397,7 +397,7 @@ def recent_changes(
             title_lookup.update(
                 dict(model.objects.filter(id__in=item_ids).values_list("id", "title"))
             )
-    except Exception:
+    except Exception:  # noqa: BLE001 — title enrichment is best-effort; logged
         logger.debug(
             "Could not resolve titles for recent_changes workspace=%s", workspace_id
         )

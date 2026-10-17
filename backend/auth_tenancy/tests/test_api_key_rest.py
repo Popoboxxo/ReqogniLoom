@@ -18,6 +18,7 @@ from rest_framework import status
 from rest_framework.test import APIRequestFactory
 
 from auth_tenancy.context import AuthContext, AuthMethod
+from auth_tenancy.errors import AuthenticationFailed
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -228,11 +229,18 @@ class TestApiKeyDestroy:
     def test_destroy_invalid_id_returns_404(
         self, mock_authn_cls: MagicMock
     ) -> None:
-        """Revoking a non-existent key returns 404."""
+        """Revoking a non-existent key returns 404.
+
+        The service signals "missing key or wrong owner" with the typed
+        ``AuthenticationFailed``; the view maps exactly that to 404 so key
+        existence is not disclosed (W17 Slice 2 narrowing).
+        """
         from rest_api.api_key_views import ApiKeyViewSet
 
         mock_instance = mock_authn_cls.return_value
-        mock_instance.revoke_api_key.side_effect = Exception("Not found")
+        # The service raises this exact code for "missing key or wrong owner"
+        # (AuthenticationService.revoke_api_key); codes are catalog-validated.
+        mock_instance.revoke_api_key.side_effect = AuthenticationFailed("invalid_api_key")
 
         factory = APIRequestFactory()
         request = factory.delete("/api/v1/api-keys/00000000-0000-0000-0000-000000000999/")
@@ -243,6 +251,31 @@ class TestApiKeyDestroy:
         response = view.destroy(request, pk="00000000-0000-0000-0000-000000000999")
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    @patch("rest_api.api_key_views.AuthenticationService")
+    def test_destroy_unexpected_error_propagates(
+        self, mock_authn_cls: MagicMock
+    ) -> None:
+        """Unexpected service errors must NOT be masked as 404 (W17 boundary).
+
+        Only the service's typed ``AuthenticationFailed`` maps to 404. Any
+        other failure (e.g. a database outage) is a real error and surfaces
+        instead of being answered as "key not found" — the view deliberately
+        has no catch-all on this route.
+        """
+        from rest_api.api_key_views import ApiKeyViewSet
+
+        mock_instance = mock_authn_cls.return_value
+        mock_instance.revoke_api_key.side_effect = RuntimeError("db down")
+
+        factory = APIRequestFactory()
+        request = factory.delete("/api/v1/api-keys/00000000-0000-0000-0000-000000000999/")
+        request.auth_context = _make_auth_context()
+
+        view = ApiKeyViewSet()
+        view._authn = mock_instance
+        with pytest.raises(RuntimeError, match="db down"):
+            view.destroy(request, pk="00000000-0000-0000-0000-000000000999")
 
 
 class TestApiKeyAccessControl:

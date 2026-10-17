@@ -556,7 +556,7 @@ class HonchoMemoryBackend(MemoryBackend):
                 base_url = row.honcho_base_url or os.environ.get("HONCHO_BASE_URL", "")
                 api_key = row.honcho_api_key or os.environ.get("HONCHO_API_KEY")
                 return base_url, api_key
-        except Exception:  # noqa: BLE001 - settings are best-effort; env is the fallback.
+        except Exception:  # noqa: BLE001, S110 - settings are best-effort; env is the fallback.
             pass
         return os.environ.get("HONCHO_BASE_URL", ""), os.environ.get("HONCHO_API_KEY")
 

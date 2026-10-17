@@ -47,6 +47,7 @@ from application.event_bus import DomainEvent
 from application.models import DomainEventOutbox
 from persistence.custom_fields import coerce_custom_fields
 from persistence.models import Artifact, Tenant, Workspace
+from persistence.tenancy import TenantContextNotSetError
 from persistence.transactions import atomic_transaction
 from traceability.audit.hierarchy import recompute_requirement_levels
 
@@ -264,6 +265,7 @@ class ArtifactService(ServiceBase):
             try:
                 artifact = Artifact.unscoped.filter(id=current_id).values("parent_id").first()
             except Exception:
+                logger.debug("Cycle detection aborted at %s", current_id, exc_info=True)
                 break
             if artifact is None:
                 break
@@ -572,6 +574,10 @@ class ArtifactService(ServiceBase):
 
         # ADR lives in the application layer (not persistence) — import locally
         # to avoid circular imports (adr_service imports TraceLinkService).
+        # Degrades to "no ADR titles" only for the two documented causes: the
+        # Adr model is absent in some test configs (ImportError) or the caller
+        # has no tenant context (TenantContextNotSetError). Anything else is a
+        # real error and must surface.
         try:
             from application.models import Adr
 
@@ -591,8 +597,8 @@ class ArtifactService(ServiceBase):
                     if key in result:
                         result[key]["title"] = row["title"] or ""
                         result[key]["is_outdated"] = row["id"] in outdated_adr_ids
-        except Exception:  # noqa: BLE001 — ADR model absent in some test configs
-            pass
+        except (ImportError, TenantContextNotSetError):
+            logger.debug("ADR title enrichment skipped", exc_info=True)
 
         return result
 

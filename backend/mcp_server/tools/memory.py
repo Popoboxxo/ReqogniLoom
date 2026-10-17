@@ -582,7 +582,7 @@ class MemoryToolGroup(BaseToolGroup):
                 from memory.metrics import increment_consolidation
 
                 increment_consolidation("mcp_remember_interaction")
-            except Exception:  # noqa: BLE001 - metrics must never break the write
+            except Exception:  # noqa: BLE001, S110 - metrics must never break the write
                 pass
             return {"scheduled": True, "task_id": str(result.id)}
 

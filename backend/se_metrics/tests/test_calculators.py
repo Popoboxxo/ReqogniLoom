@@ -354,12 +354,6 @@ def _make_metrics_result(
     critical_risks: int = 1,
 ) -> MetricsResult:
     """Build a MetricsResult fixture for ThresholdEvaluator tests."""
-    from se_metrics.types import (
-        CoverageResult,
-        RiskResult,
-        VolatilityResult,
-        WorkflowGapResult,
-    )
 
     return MetricsResult(
         workspace_id=workspace_id,

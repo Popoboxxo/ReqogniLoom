@@ -1279,7 +1279,7 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             return _service_error_response(exc if isinstance(exc, ValidationError) else ValidationError(str(exc)), lang)
         except PermissionDeniedError as exc:
             return _service_error_response(exc, lang)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
 
         return self._paginate(
@@ -1389,7 +1389,7 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         payload = RequirementSerializer(_dto_from_orm(item)).data
         # Issue #1178: the duplicate-title warning is additive, so it is added
@@ -1527,7 +1527,7 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             return _service_error_response(exc, lang)
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return self.with_etag(
             Response(RequirementSerializer(_dto_from_orm(item)).data), item
@@ -1684,7 +1684,7 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -1719,7 +1719,7 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return Response(result)
 
@@ -1739,7 +1739,7 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             )
         except (NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return Response(result)
 
@@ -1775,7 +1775,7 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             child = self._svc().get_requirement(result.children[0].id, ctx)
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return Response(
             {
@@ -2221,7 +2221,7 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 build_error_response("SERVICE_UNAVAILABLE", lang, message=str(exc)),
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
 
         serialized = [SimilarRequirementSerializer(r).data for r in results]
@@ -2343,7 +2343,7 @@ class ArtifactViewSet(BaseEntityViewSet):
             qs = self._svc().list_child_summaries(ctx, workspace_id)
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return self._paginate(
             request,
@@ -2387,7 +2387,7 @@ class ArtifactViewSet(BaseEntityViewSet):
             )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return Response(ArtifactSerializer(_artifact_to_dict(item)).data, status=status.HTTP_201_CREATED)
 
@@ -2415,7 +2415,7 @@ class ArtifactViewSet(BaseEntityViewSet):
             )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return Response(ArtifactSerializer(_artifact_to_dict(item)).data)
 
@@ -2426,7 +2426,7 @@ class ArtifactViewSet(BaseEntityViewSet):
             self._svc().delete_artifact(UUID(pk), ctx)
         except (NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -2476,7 +2476,7 @@ class ArtifactViewSet(BaseEntityViewSet):
                 build_error_response("NOT_FOUND", lang),
                 status=status.HTTP_404_NOT_FOUND,
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return Response(
             {
@@ -2610,7 +2610,7 @@ class ArchitectureElementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return self._paginate(
             request,
@@ -2667,7 +2667,7 @@ class ArchitectureElementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             self._apply_artifact_system_fields(request, "ArchitectureElement", item, ctx)
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return Response(ArchitectureElementSerializer(_arch_to_dict(item)).data, status=status.HTTP_201_CREATED)
 
@@ -2861,7 +2861,7 @@ class ArchitectureElementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             self._apply_artifact_system_fields(request, "ArchitectureElement", item, ctx)
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return Response(ArchitectureElementSerializer(_arch_to_dict(item)).data)
 
@@ -2890,7 +2890,7 @@ class ArchitectureElementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             self._svc().delete_architecture_element(UUID(pk), ctx)
         except (NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -2915,7 +2915,7 @@ class ArchitectureElementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             return _service_error_response(exc, lang)
         except ValueError:
             return Response(build_error_response("NOT_FOUND", lang), status=status.HTTP_404_NOT_FOUND)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return Response(report)
 
@@ -2949,7 +2949,7 @@ class ArchitectureElementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return Response(result)
 
@@ -2969,7 +2969,7 @@ class ArchitectureElementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             )
         except (NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return Response(result)
 
@@ -3151,7 +3151,7 @@ class ArchitectureElementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
 
         if query["mode"] == "raw":
@@ -3304,7 +3304,7 @@ class ArchitectureElementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
 
 
@@ -3422,7 +3422,7 @@ class TestCaseViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return self._paginate(
             request,
@@ -3503,7 +3503,7 @@ class TestCaseViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             self._apply_artifact_system_fields(request, "TestCase", item, ctx)
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
 
         # SysEng 2.0 N5: optional 'verifies' TraceLink to the source requirement
@@ -3623,7 +3623,7 @@ class TestCaseViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             return _service_error_response(exc, lang)
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return self.with_etag(Response(TestCaseSerializer(_test_to_dict(item)).data), item)
 
@@ -3647,7 +3647,7 @@ class TestCaseViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             self._svc().delete_test_case(UUID(pk), ctx)
         except (NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -3728,7 +3728,7 @@ class TestCaseViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 build_error_response("NOT_FOUND", lang),
                 status=status.HTTP_404_NOT_FOUND,
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return Response(TestCaseSerializer(_test_to_dict(item)).data)
 
@@ -3762,7 +3762,7 @@ class TestCaseViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return Response(result)
 
@@ -3782,7 +3782,7 @@ class TestCaseViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             )
         except (NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return Response(result)
 
@@ -4005,7 +4005,7 @@ class TraceLinkViewSet(BaseEntityViewSet):
             raise
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return self._paginate(
             request, items, lambda item: TraceLinkSerializer(item).data
@@ -4035,7 +4035,7 @@ class TraceLinkViewSet(BaseEntityViewSet):
             )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         # REQ-002: resolve titles for both endpoints of the created link.
         titles = _resolve_artifact_titles([item.source_id, item.target_id])
@@ -4058,7 +4058,7 @@ class TraceLinkViewSet(BaseEntityViewSet):
             self._svc().delete_trace_link(UUID(pk), ctx)
         except (NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -4079,7 +4079,7 @@ class TraceLinkViewSet(BaseEntityViewSet):
             link = self._svc().confirm_proposed_link(UUID(pk), ctx)
         except (ValueError, TypeError) as exc:
             return _service_error_response(exc, lang)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return Response(
             TraceLinkSerializer(_tracelink_to_dict(link)).data,
@@ -4100,7 +4100,7 @@ class TraceLinkViewSet(BaseEntityViewSet):
             self._svc().discard_proposed_link(UUID(pk), ctx)
         except (ValueError, TypeError) as exc:
             return _service_error_response(exc, lang)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -4151,7 +4151,7 @@ class TraceLinkViewSet(BaseEntityViewSet):
                 build_error_response("SERVICE_UNAVAILABLE", lang, message=str(exc)),
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
 
         serialized = [SimilarTraceLinkSerializer(r).data for r in results]
@@ -4738,7 +4738,7 @@ class BaselineViewSet(BaseEntityViewSet):
             items = self._svc().list_baselines(workspace_id=str(workspace_id), ctx=ctx)
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return self._paginate(
             request,
@@ -4768,7 +4768,7 @@ class BaselineViewSet(BaseEntityViewSet):
             item = self._svc().get_baseline(pk, ctx)
         except (NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         self._check_preset(request, workspace_id=str(item.workspace_id))
         return self.with_etag(Response(BaselineSerializer(_baseline_to_dict(item)).data), item)
@@ -4823,7 +4823,7 @@ class BaselineViewSet(BaseEntityViewSet):
             item = self._svc().get_baseline(baseline_id, ctx)
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return self.with_etag(
             Response(
@@ -5070,7 +5070,7 @@ class BaselineViewSet(BaseEntityViewSet):
             self._svc().purge_baseline(pk, ctx)
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -5466,7 +5466,7 @@ class WorkflowDefinitionViewSet(BaseEntityViewSet):
             )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return Response({"message": "Workflow initialized"}, status=status.HTTP_201_CREATED)
 
@@ -5490,7 +5490,7 @@ class WorkflowDefinitionViewSet(BaseEntityViewSet):
             )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return Response({"id": pk, "target_state": target_state})
 
@@ -6277,7 +6277,7 @@ class WorkspaceViewSet(BaseEntityViewSet):
             items = self._svc().list_workspaces(ctx=ctx)
         except (ValidationError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return self._paginate(
             request, items, lambda item: WorkspaceSerializer(_workspace_to_dict(item)).data
@@ -6393,7 +6393,7 @@ class WorkspaceViewSet(BaseEntityViewSet):
             )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return Response(
             WorkspaceSerializer(_workspace_to_dict(item)).data,
@@ -6508,7 +6508,7 @@ class WorkspaceViewSet(BaseEntityViewSet):
             return _service_error_response(exc, lang)
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return self.with_etag(
             Response(WorkspaceSerializer(_workspace_to_dict(ws)).data), ws
@@ -6578,7 +6578,7 @@ class WorkspaceViewSet(BaseEntityViewSet):
                 build_error_response("NOT_FOUND", lang),
                 status=status.HTTP_404_NOT_FOUND,
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return Response({"id": str(pk), "preset": target_tier})
 
@@ -6616,7 +6616,7 @@ class WorkspaceViewSet(BaseEntityViewSet):
             )
         except (NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
 
         ws_name = ws.name.replace(" ", "_")
@@ -6650,7 +6650,7 @@ class WorkspaceViewSet(BaseEntityViewSet):
             )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return Response(
             WorkspaceSerializer(_workspace_to_dict(item)).data,
@@ -6674,7 +6674,7 @@ class WorkspaceViewSet(BaseEntityViewSet):
             )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return Response(WorkspaceSerializer(_workspace_to_dict(item)).data)
 
@@ -6693,7 +6693,7 @@ class WorkspaceViewSet(BaseEntityViewSet):
             )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return Response(WorkspaceSerializer(_workspace_to_dict(item)).data)
 
@@ -6812,7 +6812,7 @@ class WorkspaceViewSet(BaseEntityViewSet):
                 ),
                 status=status.HTTP_409_CONFLICT,
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -6870,7 +6870,7 @@ class AdrViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             return _service_error_response(exc if isinstance(exc, ValidationError) else ValidationError(str(exc)), lang)
         except PermissionDeniedError as exc:
             return _service_error_response(exc, lang)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return self._paginate(
             request,
@@ -6941,7 +6941,7 @@ class AdrViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             self._apply_artifact_system_fields(request, "Adr", item, ctx)
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return Response(AdrSerializer(_adr_to_dict(item)).data, status=status.HTTP_201_CREATED)
 
@@ -7140,7 +7140,7 @@ class AdrViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             self._apply_artifact_system_fields(request, "Adr", item, ctx)
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return Response(AdrSerializer(_adr_to_dict(item)).data)
 
@@ -7163,7 +7163,7 @@ class AdrViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             self._svc().delete_adr(UUID(pk), ctx)
         except (NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -7197,7 +7197,7 @@ class AdrViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return Response(result)
 
@@ -7215,7 +7215,7 @@ class AdrViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             )
         except (NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return Response(result)
 
@@ -7271,7 +7271,7 @@ class AdrViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return Response(AdrSerializer(_adr_to_dict(item)).data)
 
@@ -7327,7 +7327,7 @@ class RiskViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             return _service_error_response(exc if isinstance(exc, ValidationError) else ValidationError(str(exc)), lang)
         except PermissionDeniedError as exc:
             return _service_error_response(exc, lang)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return self._paginate(
             request,
@@ -7405,7 +7405,7 @@ class RiskViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             self._apply_artifact_system_fields(request, "Risk", item, ctx)
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return Response(RiskSerializer(_risk_to_dict(item)).data, status=status.HTTP_201_CREATED)
 
@@ -7470,7 +7470,7 @@ class RiskViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             self._apply_artifact_system_fields(request, "Risk", item, ctx)
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return Response(RiskSerializer(_risk_to_dict(item)).data)
 
@@ -7494,7 +7494,7 @@ class RiskViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             self._svc().delete_risk(UUID(pk), ctx)
         except (NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -7528,7 +7528,7 @@ class RiskViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return Response(result)
 
@@ -7546,7 +7546,7 @@ class RiskViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             )
         except (NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return Response(result)
 
@@ -7723,7 +7723,7 @@ class GoalViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             return _service_error_response(exc if isinstance(exc, ValidationError) else ValidationError(str(exc)), lang)
         except PermissionDeniedError as exc:
             return _service_error_response(exc, lang)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         # Task 12: `status` column dropped -- batch-resolve it in-memory
         # before the ?status= filter/ordering below reads getattr(i, "status").
@@ -7822,7 +7822,7 @@ class GoalViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             self._apply_artifact_system_fields(request, "Goal", item, ctx)
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return Response(
             GoalSerializer(_goal_to_dict(item)).data, status=status.HTTP_201_CREATED
@@ -7838,7 +7838,7 @@ class GoalViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             result = ArtifactDiffService().list_versions_for_goal(goal.lineage_id, ctx)
         except (NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return Response(result)
 
@@ -7878,7 +7878,7 @@ class GoalViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return Response(result)
 
@@ -7976,7 +7976,7 @@ class GoalViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 build_error_response("NOT_FOUND", lang),
                 status=status.HTTP_404_NOT_FOUND,
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return Response(GoalSerializer(_goal_to_dict(item)).data)
 
@@ -8030,7 +8030,7 @@ class GoalViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 build_error_response("NOT_FOUND", lang),
                 status=status.HTTP_404_NOT_FOUND,
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return Response(GoalSerializer(_goal_to_dict(item)).data)
 
@@ -8071,7 +8071,7 @@ class MainGoalViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             return _service_error_response(exc if isinstance(exc, ValidationError) else ValidationError(str(exc)), lang)
         except PermissionDeniedError as exc:
             return _service_error_response(exc, lang)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         # Task 12: `status` column dropped -- batch-resolve it in-memory
         # before the ?status= filter/ordering below reads getattr(i, "status").
@@ -8148,7 +8148,7 @@ class MainGoalViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             item = self._svc().get(UUID(result["id"]), ctx)
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return Response(
             MainGoalSerializer(_main_goal_to_dict(item)).data,
@@ -8171,7 +8171,7 @@ class MainGoalViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             item = self._svc().get(UUID(result["id"]), ctx)
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         # UI-28: `is_mock_fallback` is not a persisted MainGoal field (it only
         # describes how THIS generate call was served), so it must be merged
@@ -8216,7 +8216,7 @@ class MainGoalViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return Response(MainGoalSerializer(_main_goal_to_dict(item)).data)
 
@@ -8235,7 +8235,7 @@ class MainGoalViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             main_goal = self._svc().get_current(workspace_id, ctx)
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         if main_goal is None:
             return Response(None, status=status.HTTP_200_OK)
@@ -8251,7 +8251,7 @@ class MainGoalViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             result = ArtifactDiffService().list_versions_for_main_goal(main_goal.workspace_id, ctx)
         except (NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return Response(result)
 
@@ -8290,7 +8290,7 @@ class MainGoalViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return Response(result)
 
@@ -8371,7 +8371,7 @@ class IssueViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             return _service_error_response(exc if isinstance(exc, ValidationError) else ValidationError(str(exc)), lang)
         except PermissionDeniedError as exc:
             return _service_error_response(exc, lang)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return self._paginate(
             request,
@@ -8439,7 +8439,7 @@ class IssueViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             self._apply_artifact_system_fields(request, "Issue", item, ctx)
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return Response(IssueSerializer(_issue_to_dict(item)).data, status=status.HTTP_201_CREATED)
 
@@ -8505,7 +8505,7 @@ class IssueViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             self._apply_artifact_system_fields(request, "Issue", item, ctx)
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return Response(IssueSerializer(_issue_to_dict(item)).data)
 
@@ -8539,7 +8539,7 @@ class IssueViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return Response(result)
 
@@ -8557,7 +8557,7 @@ class IssueViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             )
         except (NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return Response(result)
 
@@ -8581,7 +8581,7 @@ class IssueViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             self._svc().delete_issue(UUID(pk), ctx)
         except (NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -8651,7 +8651,7 @@ class ChangeRequestViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             )
         except PermissionDeniedError as exc:
             return _service_error_response(exc, lang)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return self._paginate(
             request,
@@ -8723,7 +8723,7 @@ class ChangeRequestViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             self._apply_artifact_system_fields(request, "ChangeRequest", item, ctx)
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return Response(
             ChangeRequestSerializer(_cr_to_dict(item)).data,
@@ -8777,7 +8777,7 @@ class ChangeRequestViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             self._apply_artifact_system_fields(request, "ChangeRequest", item, ctx)
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return Response(ChangeRequestSerializer(_cr_to_dict(item)).data)
 
@@ -8800,7 +8800,7 @@ class ChangeRequestViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             self._svc().delete_change_request(UUID(pk), ctx)
         except (NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -8849,7 +8849,7 @@ class ChangeRequestViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return Response(ChangeRequestSerializer(_cr_to_dict(item)).data)
 
@@ -8900,7 +8900,7 @@ class TestRunViewSet(BaseEntityViewSet):
             items = self._svc().list_test_runs(workspace_id=workspace_id, ctx=ctx)
         except (ValidationError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return self._paginate(request, items, _test_run_to_dict)
 
@@ -8965,7 +8965,7 @@ class TestRunViewSet(BaseEntityViewSet):
             )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return Response(_test_run_to_dict(item), status=status.HTTP_201_CREATED)
 
@@ -8996,7 +8996,7 @@ class TestRunViewSet(BaseEntityViewSet):
             )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return Response(_test_run_to_dict(item))
 
@@ -9030,7 +9030,7 @@ class TestRunViewSet(BaseEntityViewSet):
             item = self._svc().close_test_run(test_run_id=UUID(pk), ctx=ctx)
         except (NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return Response(_test_run_to_dict(item))
 
@@ -9059,7 +9059,7 @@ class TestRunViewSet(BaseEntityViewSet):
                     build_error_response("NOT_FOUND", lang),
                     status=status.HTTP_404_NOT_FOUND,
                 )
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 — map any service error uniformly
                 return _service_error_response(exc, lang)
             return Response([_test_run_result_to_dict(r) for r in run.results.all()])
 
@@ -9091,7 +9091,7 @@ class TestRunViewSet(BaseEntityViewSet):
             )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return Response(_test_run_result_to_dict(result), status=status.HTTP_201_CREATED)
 
@@ -9127,7 +9127,7 @@ class TestRunViewSet(BaseEntityViewSet):
             )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return Response(
             {"results": [_test_run_result_to_dict(r) for r in created], "count": len(created)},
@@ -9290,7 +9290,7 @@ class SearchViewSet(viewsets.ViewSet):
             )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
 
         # Serialize SearchHit dataclasses to dicts
@@ -9655,7 +9655,7 @@ class CsvImportView(APIView):
 
         try:
             ctx = get_auth_context(request)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
 
         contract_v2 = bool(getattr(settings, "IMPORT_CONTRACT_V2", False))
@@ -9790,7 +9790,7 @@ class CsvExportView(APIView):
 
         try:
             ctx = get_auth_context(request)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
 
         entity_type = request.query_params.get("entity_type")
@@ -9901,7 +9901,7 @@ class ReqifExportView(APIView):
 
         try:
             ctx = get_auth_context(request)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
 
         try:
@@ -10210,7 +10210,7 @@ class ReqifImportView(APIView):
 
         try:
             ctx = get_auth_context(request)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
 
         # ADR-014 §5: entity_type handling belongs to the v2 contract. Under
@@ -10346,7 +10346,7 @@ class GlossaryTermViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             term_id = UUID(pk)
             term = self._svc().get(ctx, term_id)
             return Response(GlossaryTermSerializer(term).data)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(e, lang)
 
     def create(self, request: Request, **kwargs: Any) -> Response:
@@ -10396,7 +10396,7 @@ class GlossaryTermViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             return Response(
                 GlossaryTermSerializer(term).data, status=status.HTTP_201_CREATED
             )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(e, lang)
 
     @extend_schema(
@@ -10584,7 +10584,7 @@ class GlossaryTermViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             # term's backing Artifact; the DTO exposes it via ``.artifact``.
             self._apply_artifact_system_fields(request, "GlossaryTerm", term, ctx)
             return Response(GlossaryTermSerializer(term).data)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(e, lang)
 
     def destroy(self, request: Request, pk: str, **kwargs: Any) -> Response:
@@ -10610,7 +10610,7 @@ class GlossaryTermViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             term_id = UUID(pk)
             self._svc().delete(ctx, term_id)
             return Response(status=status.HTTP_204_NO_CONTENT)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(e, lang)
 
     @action(detail=False, methods=["post"], url_path="references/resolve")
@@ -10711,7 +10711,7 @@ class GlossaryTermViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             result = ArtifactDiffService().list_versions(term.artifact_id, ctx)
         except (NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return Response(result)
 
@@ -10748,7 +10748,7 @@ class GlossaryTermViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return Response(result)
 
@@ -10789,7 +10789,7 @@ class AttributeSchemaView(APIView):
             schema = describe_attribute_schema(ctx, workspace_id, entity_type)
         except NotFoundError as exc:
             return _service_error_response(exc, lang)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return Response(schema)
 

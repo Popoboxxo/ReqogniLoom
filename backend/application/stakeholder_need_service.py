@@ -196,7 +196,7 @@ class StakeholderNeedService(ServiceBase):
                 workspace_id=workspace.id,
                 ctx=ctx,
             )
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort workflow init; logged at debug
             logger.debug(
                 "StakeholderNeedService: workflow init skipped for need=%s", need.id
             )

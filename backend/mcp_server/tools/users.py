@@ -446,7 +446,7 @@ class UsersToolGroup(BaseToolGroup):
         """
         try:
             user = User.objects.filter(id=user_id).first()
-        except Exception:
+        except Exception:  # noqa: BLE001 — probe fails closed (False)
             return False
         return bool(user and user.is_superuser)
 
@@ -1032,7 +1032,7 @@ class UsersToolGroup(BaseToolGroup):
 
         try:
             pre_user = User.objects.filter(id=target_user_id).first()
-        except Exception:
+        except Exception:  # noqa: BLE001 — audit probe best-effort; None means unknown
             pre_user = None
         was_active = pre_user.is_active if pre_user is not None else None
 

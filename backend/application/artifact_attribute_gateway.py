@@ -586,7 +586,7 @@ class ArtifactAttributeGateway:
         if callable(field_meta):
             try:
                 candidate = field_meta(name)
-            except Exception:  # pragma: no cover - defensive
+            except Exception:  # noqa: BLE001 — total function  # pragma: no cover - defensive
                 candidate = None
             if getattr(candidate, "many_to_many", False):
                 m2m = candidate

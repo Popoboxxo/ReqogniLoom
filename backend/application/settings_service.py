@@ -648,7 +648,7 @@ class _ReviewPolicyOps:
             from presets.services import get_preset
 
             return get_preset(workspace_id).preset
-        except Exception:
+        except Exception:  # noqa: BLE001 — preset unavailable; None is the fallback
             return None
 
     @classmethod

@@ -112,7 +112,7 @@ def memory_health(*, use_cache: bool = True) -> MemoryHealth:
     health = _probe()
     try:
         cache.set(HEALTH_CACHE_KEY, health, HEALTH_CACHE_TTL_SECONDS)
-    except Exception:  # noqa: BLE001 - see module docstring: best-effort cache
+    except Exception:  # noqa: BLE001, S110 - see module docstring: best-effort cache
         pass
     return health
 
@@ -131,7 +131,7 @@ def invalidate_health_cache() -> None:
     for key in (HEALTH_CACHE_KEY, DIGEST_CACHE_KEY, ASK_CACHE_KEY, DERIVATION_CACHE_KEY):
         try:
             cache.delete(key)
-        except Exception:  # noqa: BLE001 - best-effort, mirrors the read path
+        except Exception:  # noqa: BLE001, S110 - best-effort, mirrors the read path
             pass
 
 
@@ -167,7 +167,7 @@ def digest_available(*, use_cache: bool = True) -> bool:
     available = _probe_digest_available()
     try:
         cache.set(DIGEST_CACHE_KEY, available, HEALTH_CACHE_TTL_SECONDS)
-    except Exception:  # noqa: BLE001 - see module docstring: best-effort cache
+    except Exception:  # noqa: BLE001, S110 - see module docstring: best-effort cache
         pass
     return available
 
@@ -212,7 +212,7 @@ def ask_available(*, use_cache: bool = True) -> bool:
     available = _probe_ask_available()
     try:
         cache.set(ASK_CACHE_KEY, available, HEALTH_CACHE_TTL_SECONDS)
-    except Exception:  # noqa: BLE001 - see module docstring: best-effort cache
+    except Exception:  # noqa: BLE001, S110 - see module docstring: best-effort cache
         pass
     return available
 
@@ -255,7 +255,7 @@ def derivation_status(*, use_cache: bool = True) -> str:
     status = _probe_derivation_status()
     try:
         cache.set(DERIVATION_CACHE_KEY, status, HEALTH_CACHE_TTL_SECONDS)
-    except Exception:  # noqa: BLE001 - see module docstring: best-effort cache
+    except Exception:  # noqa: BLE001, S110 - see module docstring: best-effort cache
         pass
     return status
 

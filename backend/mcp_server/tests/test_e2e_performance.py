@@ -26,18 +26,8 @@ from auth_tenancy.models import (
     ItemPermission,
 )
 
-# Fixtures below are auto-loaded from conftest.py; re-imported here
-# so type checkers and IDEs see them as fixture references.
-from mcp_server.tests.conftest import (  # noqa: F401
-    admin_client,
-    e2e_api_key_admin,
-    e2e_preset,
-    e2e_tenant,
-    e2e_user_admin,
-    e2e_user_member,
-    e2e_userrole_admin,
-    e2e_workspace,
-)
+# Fixtures are auto-loaded from the sibling conftest.py (same directory),
+# so no re-import is needed here.
 from mcp_server.tests.helpers import extract_result, post_mcp
 from persistence.middleware import clear_request_tenant, set_request_tenant
 from persistence.models import Tenant, User

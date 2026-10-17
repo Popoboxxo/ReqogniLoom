@@ -65,6 +65,7 @@ from llm_adapter.token_tracking import (
     is_over_daily_limit,
     record_token_usage,
 )
+from persistence.tenancy import TenantContextNotSetError
 
 logger = logging.getLogger(__name__)
 
@@ -467,7 +468,7 @@ class CapabilityRouter:
             from persistence.tenancy import TenantContext  # noqa: PLC0415
 
             tenant_id = TenantContext.get_tenant()
-        except Exception:  # noqa: BLE001 — no tenant context → run without one
+        except TenantContextNotSetError:  # no tenant context → run without one
             pass
 
         def _call() -> Any:

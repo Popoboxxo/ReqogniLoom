@@ -511,10 +511,11 @@ class TestPollAndDispatch:
         with patch.object(
             bus, "dispatch_to_subscribers", side_effect=Exception("dispatch error")
         ):
-            try:
+            # The subscriber dispatch is expected to blow up; assert that it
+            # actually raises instead of silently absorbing it, otherwise the
+            # retry-bookkeeping assertions below could pass vacuously.
+            with pytest.raises(Exception, match="dispatch error"):
                 bus.dispatch_to_subscribers(domain_event)
-            except Exception:
-                pass
             # Simulate poll_and_dispatch retry logic
             record.retry_count += 1
             record.save(update_fields=["retry_count"])

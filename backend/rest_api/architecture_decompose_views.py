@@ -22,6 +22,7 @@ settings_views.py, ...) rather than growing views.py.
 """
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from rest_framework import serializers, status
@@ -44,6 +45,8 @@ from rest_api.serializers import (
     build_error_response,
     detect_lang,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class GenerateDraftRequestSerializer(
@@ -131,6 +134,12 @@ class WorkspaceArchitectureDecomposeView(APIView):
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
         except Exception:
+            # Static 500 (CWE-209): the cause is masked in the response, so it
+            # must be logged here or it is lost to operators.
+            logger.exception(
+                "Unhandled error in architecture decompose draft for workspace %s",
+                workspace_id,
+            )
             return Response(
                 build_error_response("INTERNAL_SERVER_ERROR", lang),
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -189,6 +198,12 @@ class WorkspaceArchitectureDecomposeCommitView(APIView):
                 status=status.HTTP_403_FORBIDDEN,
             )
         except Exception:
+            # Static 500 (CWE-209): the cause is masked in the response, so it
+            # must be logged here or it is lost to operators.
+            logger.exception(
+                "Unhandled error in architecture decompose commit for workspace %s",
+                workspace_id,
+            )
             return Response(
                 build_error_response("INTERNAL_SERVER_ERROR", lang),
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,

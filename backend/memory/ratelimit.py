@@ -90,7 +90,7 @@ def resolve_write_rate_limit() -> int | None:
         if row is not None and row.memory_write_rate_limit_per_hour is not None:
             value = int(row.memory_write_rate_limit_per_hour)
             return value if value > 0 else None
-    except Exception:  # noqa: BLE001 - settings are best-effort; env is the fallback
+    except Exception:  # noqa: BLE001, S110 - settings are best-effort; env is the fallback
         pass
 
     raw = os.environ.get(RATE_LIMIT_ENV_VAR)

@@ -250,7 +250,7 @@ class InterviewService(ServiceBase):
                 workspace_id=workspace_id,
                 ctx=ctx,
             )
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort workflow init; logged at debug
             logger.debug(
                 "InterviewService: workflow init skipped for multi-mode "
                 "session=%s", session.id
@@ -301,7 +301,7 @@ class InterviewService(ServiceBase):
                 workspace_id=workspace_id,
                 ctx=ctx,
             )
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort workflow init; logged at debug
             logger.debug(
                 "InterviewService: workflow init skipped for session=%s", session.id
             )

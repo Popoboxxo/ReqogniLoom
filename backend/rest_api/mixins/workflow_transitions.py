@@ -509,7 +509,7 @@ class WorkflowTransitionsMixin:
                 workspace_id=workspace_id,
                 expected_version=expected_version,
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — _error logs + maps uniformly
             return self._error(exc, lang)
 
         body: dict[str, Any] = {
@@ -569,7 +569,7 @@ class WorkflowTransitionsMixin:
                 item_type=self.workflow_item_type,
                 workspace_id=workspace_id,
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — _error logs + maps uniformly
             return self._error(exc, lang)
 
         body: dict[str, Any] = {

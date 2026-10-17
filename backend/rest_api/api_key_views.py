@@ -33,6 +33,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.viewsets import ViewSet
 
+from auth_tenancy.errors import AuthenticationFailed
 from auth_tenancy.models import normalize_api_key_scope
 from auth_tenancy.services import Operation
 from auth_tenancy.services.authentication import AuthenticationService
@@ -422,7 +423,10 @@ class ApiKeyViewSet(ViewSet):
 
         try:
             self._authn.revoke_api_key(api_key_id=key_uuid, user_id=UUID(user_id))
-        except Exception:
+        except AuthenticationFailed:
+            # The service signals "missing key or wrong owner" with this typed
+            # error; it is answered as 404 so key existence is not disclosed.
+            # Any other exception is a real failure and must surface.
             return Response(
                 build_error_response(code="NOT_FOUND", message="Key not found."),
                 status=status.HTTP_404_NOT_FOUND,

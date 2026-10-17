@@ -38,7 +38,10 @@ from admin_ops.rate_limits import RATE_LIMIT_SCOPES, resolve_rate
 from admin_ops.services.rate_limit_service import RateLimitService
 from application.base import ValidationError
 from auth_tenancy.context import AuthContext
-from auth_tenancy.tests.conftest import tenant_b  # noqa: F401 — isolation fixture
+
+# Explicit re-export (PEP 484 `import x as x`): pytest registers the imported
+# fixture for this module; the alias marks it as intentional (silences F811).
+from auth_tenancy.tests.conftest import tenant_b as tenant_b
 from persistence.models import Tenant
 
 from .conftest import active_tenant

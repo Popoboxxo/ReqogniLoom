@@ -1612,7 +1612,7 @@ class ToolRegistry:
             roles = self._authz_service.active_roles_for(
                 user_id=ctx.user_id, workspace_id=workspace_uuid
             )
-        except Exception:
+        except Exception:  # noqa: BLE001 — roles probe best-effort; fail-closed (), logged
             logger.debug("Role resolution failed for workspace=%s", workspace_id)
             roles = ()
 
@@ -1642,7 +1642,7 @@ class ToolRegistry:
             # fail-closed empty tuple rather than leak a non-role object into
             # the RBAC gate.
             return tuple(sorted({str(role) for role in roles}))
-        except Exception:
+        except Exception:  # noqa: BLE001 — global roles probe best-effort; fail-closed (), logged
             logger.debug("Global role resolution failed for user=%s", ctx.user_id)
             return ()
 
@@ -1751,7 +1751,7 @@ class ToolRegistry:
             return self._authz_service.is_tenant_admin(
                 user_id=ctx.user_id, tenant_id=ctx.tenant_id
             )
-        except Exception:
+        except Exception:  # noqa: BLE001 — tenant-admin probe best-effort; logged at debug
             logger.debug(
                 "Tenant-admin lookup failed for user=%s tool=%s",
                 ctx.user_id,
@@ -1929,7 +1929,7 @@ class ToolRegistry:
                 preset_rules = get_preset(workspace_id)
                 features = preset_rules.features
                 self._preset_cache.set(workspace_id, features)
-            except Exception:
+            except Exception:  # noqa: BLE001 — preset fail-open by design; auth is the hard gate
                 logger.warning("Preset lookup failed for workspace=%s", workspace_id)
                 # On failure, allow (fail-open for preset; auth is the hard gate)
                 return False

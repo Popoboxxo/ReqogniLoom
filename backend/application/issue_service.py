@@ -269,7 +269,7 @@ class IssueService(ServiceBase):
                 workspace_id=workspace_id,
                 ctx=ctx,
             )
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort workflow init; logged at debug
             logger.debug("IssueService: workflow init skipped for issue=%s", issue.id)
 
         self._audit(

@@ -1092,7 +1092,7 @@ class TraceLinkService(ServiceBase):
                 for item in results:
                     if hasattr(item, "link_id"):
                         link_ids.append(item.link_id)
-            except Exception:
+            except Exception:  # noqa: BLE001 — empty result is common; logged at debug
                 logger.debug(
                     "TraceLinkService: no links found for entity %s direction=%s",
                     entity_id,

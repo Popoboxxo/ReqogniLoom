@@ -28,8 +28,13 @@ from auth_tenancy.context import AuthContext, AuthMethod
 from auth_tenancy.models import ROLE_ADMIN, ROLE_EDITOR, ROLE_VIEWER
 
 # Re-export auth_tenancy fixtures so a single `from admin_ops.tests.conftest`
-# import is enough for the test files.
-from auth_tenancy.tests.conftest import active_tenant, tenant_a  # noqa: F401
+# import is enough for the test files. `import x as x` is the PEP 484
+# explicit re-export idiom: it marks the import as intentional (silences
+# F401/F811) while pytest still collects the fixtures for this package's
+# test modules and `test_admin_restore_service.py` imports `active_tenant`
+# from here directly.
+from auth_tenancy.tests.conftest import active_tenant as active_tenant
+from auth_tenancy.tests.conftest import tenant_a as tenant_a
 from persistence.models import Tenant, User
 
 # ---------------------------------------------------------------------------

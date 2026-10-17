@@ -198,7 +198,7 @@ def _serialize_response(response: OpenApiResponse) -> dict[str, Any]:
             direction="response",
             bypass_extensions=False,
         )
-    except Exception:  # pragma: no cover - defensive fallback
+    except Exception:  # noqa: BLE001 — defensive  # pragma: no cover - defensive fallback
         # The error body component name is stable and public (it is exported
         # in __all__ and referenced by auth_views), so a fallback ref keeps the
         # document valid even if a future drf-spectacular changes the private

@@ -245,7 +245,7 @@ class ReferenceResolverService(ServiceBase):
             }
         try:
             return state_reader.current_states(spec.item_type, entity_ids)
-        except Exception:
+        except Exception:  # noqa: BLE001 — statuses unavailable; degrades to {}
             logger.debug(
                 "resolve_references: status lookup failed for %s", spec.item_type
             )

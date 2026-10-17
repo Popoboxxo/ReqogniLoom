@@ -682,7 +682,7 @@ class TestLevelIsInvariantUnderArbitraryMutations:
             for step in range(self._MUTATIONS):
                 try:
                     mutate()
-                except Exception:  # noqa: BLE001 — a refused mutation
+                except Exception:  # noqa: BLE001, S110 — a refused mutation
                     # (cycle, self-reference) must leave the invariant intact
                     # all the same, so the failure is absorbed and the
                     # assertion below still runs.

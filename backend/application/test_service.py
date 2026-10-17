@@ -277,7 +277,7 @@ class TestService(ServiceBase):
                 workspace_id=workspace_id,
                 ctx=ctx,
             )
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort workflow init; logged at debug
             logger.debug(
                 "TestService: workflow init skipped for test_case=%s", test_case.id
             )

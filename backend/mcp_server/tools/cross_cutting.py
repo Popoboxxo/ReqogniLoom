@@ -1471,7 +1471,7 @@ class CrossCuttingToolGroup(BaseToolGroup):
             context_data["preset"] = preset_rules.preset
             context_data["preset_features"] = preset_rules.features
             context_data["change_reason_policy"] = preset_rules.change_reason
-        except Exception:
+        except Exception:  # noqa: BLE001 — context enrichment best-effort; logged at debug
             logger.debug("Could not load preset for workspace=%s", workspace_id)
             context_data["preset"] = "unknown"
 
@@ -1480,7 +1480,7 @@ class CrossCuttingToolGroup(BaseToolGroup):
 
             terminology = get_terminology(workspace_id)
             context_data["terminology"] = terminology
-        except Exception:
+        except Exception:  # noqa: BLE001 — context enrichment best-effort; logged at debug
             logger.debug("Could not load terminology for workspace=%s", workspace_id)
 
         # Count open requirements (status != 'approved').
@@ -1495,7 +1495,7 @@ class CrossCuttingToolGroup(BaseToolGroup):
                     include_outdated=include_outdated,
                 )
             )
-        except Exception:
+        except Exception:  # noqa: BLE001 — context enrichment best-effort; logged at debug
             logger.debug("Could not count open requirements")
 
         try:
@@ -1553,7 +1553,7 @@ class CrossCuttingToolGroup(BaseToolGroup):
                 workspace_id=UUID(workspace_id),
                 tenant_id=tenant_id,
             )
-        except Exception:
+        except Exception:  # noqa: BLE001 — context enrichment best-effort; logged at debug
             logger.debug(
                 "Could not load workspace for token-budget lookup workspace=%s",
                 workspace_id,

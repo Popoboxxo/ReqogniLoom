@@ -179,7 +179,7 @@ def test_concurrent_single_formalize_completes_exactly_once(
             # The documented loser path: the row lock released, the recheck
             # found the session already completed, ValidationError raised.
             outcome = "rejected"
-        except Exception as exc:  # pragma: no cover - diagnostic aid only
+        except Exception as exc:  # noqa: BLE001 — diagnostic  # pragma: no cover
             outcome = f"error:{exc!r}"
         finally:
             with outcomes_lock:

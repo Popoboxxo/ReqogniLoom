@@ -18,6 +18,7 @@ Architecture:
 """
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import UTC, datetime
 
@@ -28,6 +29,8 @@ from baseline.exceptions import (
 )
 from baseline.models import BaselineSnapshot
 from baseline.types import BaselineMetadata, DeltaIndexTuple
+
+logger = logging.getLogger(__name__)
 
 # Valid scope values
 VALID_SCOPES = frozenset({"document", "project", "global"})
@@ -453,9 +456,7 @@ class DeltaIndexBuilder:
 
             return capture_states(delta_index, tenant_id)
         except Exception:  # pragma: no cover - defensive
-            import logging
-
-            logging.getLogger(__name__).warning(
+            logger.warning(
                 "Baseline state capture failed; persisting null state.",
                 exc_info=True,
             )
@@ -480,7 +481,7 @@ class DeltaIndexBuilder:
                 try:
                     from presets.services import get_preset
                     preset = get_preset(workspace_id).preset
-                except Exception:
+                except Exception:  # noqa: BLE001 — only refines the error detail
                     preset = ""
                 raise ScopeNotAllowedError(scope=scope, preset=preset)
         except ScopeNotAllowedError:
@@ -489,8 +490,14 @@ class DeltaIndexBuilder:
             # If PresetConfigEngine is unavailable (e.g. in unit tests without
             # full Django app setup), allow the scope by default to not break
             # integration tests.  Production deployments always have the preset
-            # engine available.
-            pass
+            # engine available. Logged so the fail-open is auditable.
+            logger.warning(
+                "Preset gate unavailable for scope %r (workspace %s); "
+                "allowing scope by default.",
+                scope,
+                workspace_id,
+                exc_info=True,
+            )
 
     def _validate_metadata(
         self, name: str, workspace_id: uuid.UUID, tenant_id: uuid.UUID

@@ -229,7 +229,7 @@ class ExportOrchestrator:
 
         try:
             compressed, count = self._build_archive(cutoff_timestamp)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — failure outcome captured + logged
             job_log.outcome = "failure"
             job_log.error_details = str(exc)
             logger.error(
