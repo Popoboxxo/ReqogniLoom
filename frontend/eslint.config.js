@@ -52,7 +52,17 @@ export default [
       'jsx-a11y/click-events-have-key-events': 'warn',
       'jsx-a11y/no-static-element-interactions': 'warn',
       'jsx-a11y/role-has-required-aria-props': 'warn',
-      'jsx-a11y/label-has-associated-control': 'warn',
+      // `depth: 3` (default 2): five wrapping labels (WorkspaceSettings preset/
+      // terminology cards, AttributeCatalogDialog entry rows, the checkbox row
+      // in UserProfileSettings, GlossaryReferenceSection mode rows) put their
+      // real text one level below a layout wrapper
+      // (`<label><input/><span><span>{title}</span>…`), where browsers still
+      // compute it as the accessible name from the whole label subtree. The
+      // rule's default depth stopped at the wrapper and reported "no accessible
+      // text" for labels that have it; depth 3 is the smallest value that sees
+      // these texts. It neither weakens the nesting/htmlFor check nor accepts a
+      // textless label.
+      'jsx-a11y/label-has-associated-control': ['warn', { depth: 3 }],
 
       // --- UI concept enforcement gates (Task 7.3) -------------------------
       // Both at 'error' deliberately: unlike the jsx-a11y rules above (which

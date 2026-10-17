@@ -126,7 +126,7 @@ function mapTraceLink(
 
 type LoadState = "idle" | "loading" | "ready" | "empty" | "error";
 
-export function TracePanel({ kind, artifactId }: TracePanelProps): JSX.Element {
+export function TracePanel({ artifactId }: TracePanelProps): JSX.Element {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { activeWorkspace } = useWorkspace();
@@ -175,7 +175,10 @@ export function TracePanel({ kind, artifactId }: TracePanelProps): JSX.Element {
       setErrorMessage(err instanceof Error ? err.message : String(err));
       setState("error");
     }
-  }, [kind, artifactId, activeWorkspace]);
+    // `kind` is deliberately NOT a dependency: the fetch is keyed by
+    // `activeWorkspace` + `artifactId` only, and a `kind`-only change cannot
+    // alter the result set (it previously just triggered a redundant refetch).
+  }, [artifactId, activeWorkspace]);
 
   useEffect(() => {
     void load();
@@ -302,7 +305,12 @@ export function TracePanel({ kind, artifactId }: TracePanelProps): JSX.Element {
               key={lt}
               type="button"
               role="switch"
-              aria-pressed={active}
+              // `role="switch"` requires `aria-checked` (jsx-a11y
+              // role-has-required-aria-props); `aria-pressed` belongs to the
+              // toggle-button pattern. The other three switches in this
+              // codebase (SidebarNavigation, DiagramGraphEditorPage,
+              // WorkflowEditorHeader) already use `aria-checked`.
+              aria-checked={active}
               data-chip="true"
               data-value={lt}
               data-testid={`trace-filter-chip-${lt}`}

@@ -69,6 +69,11 @@ export function TagInput({
   };
 
   return (
+    // Click-to-focus convenience: a click anywhere on the pill container moves
+    // focus to the nested text input, which *is* the interactive control and a
+    // regular tab stop. Without a pointer there is nothing extra to reach, so
+    // no keyboard handler is added for the forwarding click.
+    // eslint-disable-next-line jsx-a11y/no-static-element-interactions, jsx-a11y/click-events-have-key-events
     <div
       data-testid={testId}
       className={styles.container}

@@ -14,11 +14,11 @@
  * Props control all data fetching (diffFetcher, versionsFetcher).
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, type Mock } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ArtifactDiff } from "./ArtifactDiff";
-import type { ArtifactVersion } from "../../types";
+import type { ArtifactDiffResult, ArtifactVersion } from "../../types";
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -26,6 +26,19 @@ import type { ArtifactVersion } from "../../types";
 
 const ENTITY_ID = "req-nav-001";
 const CURRENT_VERSION = 3;
+
+/**
+ * The component's own prop types, so the mocks below are real typed mocks
+ * (`vi.fn<DiffFetcher>()`) instead of `vi.fn()` + `as any` at the JSX site:
+ * a bare `vi.fn()` is `Mock<Procedure | Constructable>`, which is not
+ * assignable to a plain function prop.
+ */
+type DiffFetcher = (
+  id: string,
+  fromVersion: number,
+  toVersion: number
+) => Promise<ArtifactDiffResult>;
+type VersionsFetcher = (id: string) => Promise<ArtifactVersion[]>;
 
 const MOCK_VERSIONS: ArtifactVersion[] = [
   {
@@ -45,9 +58,10 @@ const MOCK_VERSIONS: ArtifactVersion[] = [
   },
 ];
 
-const MOCK_DIFF_RESULT = {
+const MOCK_DIFF_RESULT: ArtifactDiffResult = {
   from_version: 2,
   to_version: 3,
+  entity_type: "requirement",
   fields: [
     {
       name: "description",
@@ -64,14 +78,14 @@ const MOCK_DIFF_RESULT = {
 // ---------------------------------------------------------------------------
 
 describe("ArtifactDiff (REQ-053 smoke tests)", () => {
-  let onClose: ReturnType<typeof vi.fn>;
-  let diffFetcher: ReturnType<typeof vi.fn>;
-  let versionsFetcher: ReturnType<typeof vi.fn>;
+  let onClose: Mock<() => void>;
+  let diffFetcher: Mock<DiffFetcher>;
+  let versionsFetcher: Mock<VersionsFetcher>;
 
   beforeEach(() => {
-    onClose = vi.fn();
-    diffFetcher = vi.fn().mockResolvedValue(MOCK_DIFF_RESULT);
-    versionsFetcher = vi.fn().mockResolvedValue(MOCK_VERSIONS);
+    onClose = vi.fn<() => void>();
+    diffFetcher = vi.fn<DiffFetcher>().mockResolvedValue(MOCK_DIFF_RESULT);
+    versionsFetcher = vi.fn<VersionsFetcher>().mockResolvedValue(MOCK_VERSIONS);
   });
 
   it("[REQ-053] renders without crashing when versions list resolves to empty", async () => {
@@ -82,9 +96,9 @@ describe("ArtifactDiff (REQ-053 smoke tests)", () => {
         entityId={ENTITY_ID}
         entityType="requirement"
         currentVersion={CURRENT_VERSION}
-        diffFetcher={diffFetcher as any}
-        versionsFetcher={versionsFetcher as any}
-        onClose={onClose as any}
+        diffFetcher={diffFetcher}
+        versionsFetcher={versionsFetcher}
+        onClose={onClose}
       />
     );
 
@@ -101,9 +115,9 @@ describe("ArtifactDiff (REQ-053 smoke tests)", () => {
         entityId={ENTITY_ID}
         entityType="requirement"
         currentVersion={CURRENT_VERSION}
-        diffFetcher={diffFetcher as any}
-        versionsFetcher={versionsFetcher as any}
-        onClose={onClose as any}
+        diffFetcher={diffFetcher}
+        versionsFetcher={versionsFetcher}
+        onClose={onClose}
       />
     );
 
@@ -118,9 +132,9 @@ describe("ArtifactDiff (REQ-053 smoke tests)", () => {
         entityId={ENTITY_ID}
         entityType="requirement"
         currentVersion={CURRENT_VERSION}
-        diffFetcher={diffFetcher as any}
-        versionsFetcher={versionsFetcher as any}
-        onClose={onClose as any}
+        diffFetcher={diffFetcher}
+        versionsFetcher={versionsFetcher}
+        onClose={onClose}
       />
     );
 
@@ -139,9 +153,9 @@ describe("ArtifactDiff (REQ-053 smoke tests)", () => {
         entityId={ENTITY_ID}
         entityType="requirement"
         currentVersion={CURRENT_VERSION}
-        diffFetcher={diffFetcher as any}
-        versionsFetcher={versionsFetcher as any}
-        onClose={onClose as any}
+        diffFetcher={diffFetcher}
+        versionsFetcher={versionsFetcher}
+        onClose={onClose}
       />
     );
 
@@ -172,9 +186,9 @@ describe("ArtifactDiff (REQ-053 smoke tests)", () => {
         entityId={ENTITY_ID}
         entityType="requirement"
         currentVersion={1}
-        diffFetcher={diffFetcher as any}
-        versionsFetcher={versionsFetcher as any}
-        onClose={onClose as any}
+        diffFetcher={diffFetcher}
+        versionsFetcher={versionsFetcher}
+        onClose={onClose}
       />
     );
 
@@ -192,9 +206,9 @@ describe("ArtifactDiff (REQ-053 smoke tests)", () => {
         entityId={ENTITY_ID}
         entityType="requirement"
         currentVersion={CURRENT_VERSION}
-        diffFetcher={diffFetcher as any}
-        versionsFetcher={versionsFetcher as any}
-        onClose={onClose as any}
+        diffFetcher={diffFetcher}
+        versionsFetcher={versionsFetcher}
+        onClose={onClose}
       />
     );
 

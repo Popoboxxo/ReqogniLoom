@@ -55,6 +55,12 @@ function MockSplitPane({ minWidth }: { minWidth: number }): JSX.Element {
       <div data-testid="left-panel" style={{ width: `${leftPanelWidth}px` }}>
         Left Panel
       </div>
+      {/* Test double of the real SplitView divider: this mock exists only to
+          drive the resize arithmetic with mouse events. The keyboard path
+          (APG window-splitter Left/Right/Home/End, UI-27) lives in SplitView
+          itself and is covered by its own tests, so there is no keyboard
+          interaction to mirror here. */}
+      {/* eslint-disable-next-line jsx-a11y/no-static-element-interactions */}
       <div
         onMouseDown={handleDividerMouseDown}
         data-testid="divider"

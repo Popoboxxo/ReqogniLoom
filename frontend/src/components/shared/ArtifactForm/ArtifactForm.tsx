@@ -646,7 +646,7 @@ export function ArtifactForm({
       }
       return section.audience !== "expert";
     },
-    [expanded, fieldErrors]
+    [artifactId, expanded, fieldErrors]
   );
 
   const update = useCallback((attribute: AttributeSpec, next: unknown): void => {

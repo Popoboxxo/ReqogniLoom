@@ -1001,6 +1001,15 @@ export function CanvasEditor({
       fabricRef.current?.dispose();
       fabricRef.current = null;
     };
+    // Canvas construction must run once per diagram: this effect disposes and
+    // rebuilds the entire Fabric instance, so listing live editor values
+    // (`color`, `strokeWidth`, `t`) would tear the canvas down on every picker
+    // or language change. Live brush settings are re-applied by the
+    // tool-switch effect below; `initialCanvasJson`/`initialStrokes` are
+    // mount-time restore inputs by contract; `pushUndoState` /
+    // `updateGridBackground` are helpers invoked only from the canvas
+    // listeners registered here.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [diagramId]);
 
   // -----------------------------------------------------------------------

@@ -35,9 +35,17 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import { ArtifactDiff } from "./ArtifactDiff";
-import type { ArtifactVersion } from "../../types";
+import type { ArtifactDiffResult, ArtifactVersion } from "../../types";
 
 const ENTITY_ID = "req-bug04-race-001";
+
+/** The component's prop types — see the smoke test's note on typed mocks. */
+type DiffFetcher = (
+  id: string,
+  fromVersion: number,
+  toVersion: number
+) => Promise<ArtifactDiffResult>;
+type VersionsFetcher = (id: string) => Promise<ArtifactVersion[]>;
 
 const VERSIONS_AT_V1: ArtifactVersion[] = [
   { version: 0, label: "Creation baseline", modified_at: null },
@@ -49,11 +57,12 @@ const VERSIONS_AT_V2: ArtifactVersion[] = [
   { version: 2, label: "Current", modified_at: "2026-08-18T10:00:00Z" },
 ];
 
-const GOOD_DIFF_0_2 = {
+const GOOD_DIFF_0_2: ArtifactDiffResult = {
   from_version: 0,
   to_version: 2,
+  entity_type: "requirement",
   fields: [
-    { name: "title", status: "added" as const, from: null, to: "Baseline Diff Test" },
+    { name: "title", status: "added" as const, to: "Baseline Diff Test" },
   ],
 };
 
@@ -63,29 +72,31 @@ describe("ArtifactDiff — stale diff response race (spurious error banner, not 
     // can `await` its actual settlement afterwards instead of an arbitrary
     // fixed delay.
     let failSlowFirstCall: (() => void) | null = null;
-    let slowFirstCallPromise: Promise<unknown> | null = null;
+    let slowFirstCallPromise: Promise<ArtifactDiffResult> | null = null;
     let callCount = 0;
 
-    const diffFetcher = vi.fn().mockImplementation((_id: string, from: number, to: number) => {
-      callCount += 1;
-      if (callCount === 1) {
-        // First call — diff(0,1), triggered right after mount (currentVersion=1).
-        // Simulate it straggling behind the save: it resolves LATE, and by
-        // the time it "reaches the server" version 1 no longer exists as a
-        // retrievable snapshot (real backend behaviour, issue #213).
-        slowFirstCallPromise = new Promise((_resolve, reject) => {
-          failSlowFirstCall = () =>
-            reject({ error: { message: `Version ${from} not available` } });
-        });
-        return slowFirstCallPromise;
-      }
-      // Second call — diff(0,2), triggered once currentVersion updates to 2.
-      // Resolves immediately (fast), BEFORE the slow first call above.
-      return Promise.resolve({ ...GOOD_DIFF_0_2, from_version: from, to_version: to });
-    });
+    const diffFetcher = vi
+      .fn<DiffFetcher>()
+      .mockImplementation((_id: string, from: number, to: number) => {
+        callCount += 1;
+        if (callCount === 1) {
+          // First call — diff(0,1), triggered right after mount (currentVersion=1).
+          // Simulate it straggling behind the save: it resolves LATE, and by
+          // the time it "reaches the server" version 1 no longer exists as a
+          // retrievable snapshot (real backend behaviour, issue #213).
+          slowFirstCallPromise = new Promise<ArtifactDiffResult>((_resolve, reject) => {
+            failSlowFirstCall = () =>
+              reject({ error: { message: `Version ${from} not available` } });
+          });
+          return slowFirstCallPromise;
+        }
+        // Second call — diff(0,2), triggered once currentVersion updates to 2.
+        // Resolves immediately (fast), BEFORE the slow first call above.
+        return Promise.resolve({ ...GOOD_DIFF_0_2, from_version: from, to_version: to });
+      });
 
     const versionsFetcher = vi
-      .fn()
+      .fn<VersionsFetcher>()
       .mockResolvedValueOnce(VERSIONS_AT_V1)
       .mockResolvedValueOnce(VERSIONS_AT_V2);
 
@@ -94,8 +105,8 @@ describe("ArtifactDiff — stale diff response race (spurious error banner, not 
         entityId={ENTITY_ID}
         entityType="requirement"
         currentVersion={1}
-        diffFetcher={diffFetcher as any}
-        versionsFetcher={versionsFetcher as any}
+        diffFetcher={diffFetcher}
+        versionsFetcher={versionsFetcher}
         onClose={vi.fn()}
       />
     );
@@ -111,8 +122,8 @@ describe("ArtifactDiff — stale diff response race (spurious error banner, not 
         entityId={ENTITY_ID}
         entityType="requirement"
         currentVersion={2}
-        diffFetcher={diffFetcher as any}
-        versionsFetcher={versionsFetcher as any}
+        diffFetcher={diffFetcher}
+        versionsFetcher={versionsFetcher}
         onClose={vi.fn()}
       />
     );

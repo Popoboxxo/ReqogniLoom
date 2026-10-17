@@ -26,9 +26,17 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import { ArtifactDiff } from "./ArtifactDiff";
-import type { ArtifactVersion } from "../../types";
+import type { ArtifactDiffResult, ArtifactVersion } from "../../types";
 
 const ENTITY_ID = "req-bug04-001";
+
+/** The component's prop types — see the smoke test's note on typed mocks. */
+type DiffFetcher = (
+  id: string,
+  fromVersion: number,
+  toVersion: number
+) => Promise<ArtifactDiffResult>;
+type VersionsFetcher = (id: string) => Promise<ArtifactVersion[]>;
 
 // Mirrors ArtifactDiffService.list_versions() for a single-row entity that
 // has been created (version 1) and saved once (version 2): only 0 and 2
@@ -38,26 +46,29 @@ const REAL_SHAPE_VERSIONS: ArtifactVersion[] = [
   { version: 2, label: "Current", modified_at: "2026-08-18T10:00:00Z" },
 ];
 
-const MOCK_DIFF_RESULT = {
+const MOCK_DIFF_RESULT: ArtifactDiffResult = {
   from_version: 0,
   to_version: 2,
+  entity_type: "requirement",
   fields: [
-    { name: "title", status: "added" as const, from: null, to: "Baseline Diff Test" },
+    { name: "title", status: "added" as const, to: "Baseline Diff Test" },
   ],
 };
 
 describe("ArtifactDiff — version-0 comparison against a sparse [0, N] list (characterization)", () => {
   it("seeds from=0 automatically and fetches the diff without requiring a non-existent version 1", async () => {
-    const diffFetcher = vi.fn().mockResolvedValue(MOCK_DIFF_RESULT);
-    const versionsFetcher = vi.fn().mockResolvedValue(REAL_SHAPE_VERSIONS);
+    const diffFetcher = vi.fn<DiffFetcher>().mockResolvedValue(MOCK_DIFF_RESULT);
+    const versionsFetcher = vi
+      .fn<VersionsFetcher>()
+      .mockResolvedValue(REAL_SHAPE_VERSIONS);
 
     render(
       <ArtifactDiff
         entityId={ENTITY_ID}
         entityType="requirement"
         currentVersion={2}
-        diffFetcher={diffFetcher as any}
-        versionsFetcher={versionsFetcher as any}
+        diffFetcher={diffFetcher}
+        versionsFetcher={versionsFetcher}
         onClose={vi.fn()}
       />
     );
@@ -88,16 +99,18 @@ describe("ArtifactDiff — version-0 comparison against a sparse [0, N] list (ch
     // ArtifactInspector's cached version before a refetch lands), the
     // component must fall back to the *actual* latest entry from the
     // versions list instead of seeding a "to" version that was never real.
-    const diffFetcher = vi.fn().mockResolvedValue(MOCK_DIFF_RESULT);
-    const versionsFetcher = vi.fn().mockResolvedValue(REAL_SHAPE_VERSIONS);
+    const diffFetcher = vi.fn<DiffFetcher>().mockResolvedValue(MOCK_DIFF_RESULT);
+    const versionsFetcher = vi
+      .fn<VersionsFetcher>()
+      .mockResolvedValue(REAL_SHAPE_VERSIONS);
 
     render(
       <ArtifactDiff
         entityId={ENTITY_ID}
         entityType="requirement"
         currentVersion={1}
-        diffFetcher={diffFetcher as any}
-        versionsFetcher={versionsFetcher as any}
+        diffFetcher={diffFetcher}
+        versionsFetcher={versionsFetcher}
         onClose={vi.fn()}
       />
     );

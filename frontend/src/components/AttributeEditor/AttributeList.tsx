@@ -92,6 +92,13 @@ export function AttributeList({
       {allSections.map((section, sectionIndex) => {
         const rows = attributes.filter((a) => a.section === section);
         return (
+          // Pointer-only drop target: the section accepts a dragged row, and
+          // HTML5 drag-and-drop has no keyboard trigger by construction. The
+          // keyboard path for reordering is the explicit controls the section
+          // already renders — per-row up/down buttons and the move-to-section
+          // select (feature #1260) — so this element adds no unreachable
+          // action.
+          // eslint-disable-next-line jsx-a11y/no-static-element-interactions
           <section
             key={section}
             className={styles.section}

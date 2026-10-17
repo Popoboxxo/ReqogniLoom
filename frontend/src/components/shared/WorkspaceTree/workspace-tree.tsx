@@ -916,6 +916,10 @@ export function WorkspaceTree({
       {/* Root dropzone — only mounted while a drag is in flight. Dropping
           here detaches the dragged node to root level (parent = null). */}
       {dndEnabled && draggingId && (
+        // HTML5 drop target: it is only mounted while a pointer drag is in
+        // flight, and HTML5 drag-and-drop has no keyboard trigger, so there is
+        // no keyboard interaction to make reachable on this element.
+        // eslint-disable-next-line jsx-a11y/no-static-element-interactions
         <div
           data-testid={`${testId}-root-dropzone`}
           className={`${styles.rootDropzone}${

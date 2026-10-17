@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useCallback, useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { TraceLink, UUID, type LinkType } from "../../types";
@@ -43,7 +43,7 @@ export function TraceLinkPanel({
   // the pattern already used in ReqTraceLinkPanel.tsx.
   const [pendingDeleteLinkId, setPendingDeleteLinkId] = useState<UUID | null>(null);
 
-  const loadLinks = async () => {
+  const loadLinks = useCallback(async (): Promise<void> => {
     setLoading(true);
     setError(null);
     try {
@@ -104,13 +104,13 @@ export function TraceLinkPanel({
     } finally {
       setLoading(false);
     }
-  };
+  }, [artifactId, t, workspaceId]);
 
   useEffect(() => {
     if (workspaceId && artifactId) {
       loadLinks();
     }
-  }, [workspaceId, artifactId]);
+  }, [workspaceId, artifactId, loadLinks]);
 
   const handleDelete = async (linkId: UUID) => {
     try {
