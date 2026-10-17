@@ -13,8 +13,6 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Optional
-
 
 # ---------------------------------------------------------------------------
 # Link-Type Enum — the eleven built-in keys of ``link_types/builtin.py``.
@@ -124,7 +122,7 @@ class NeighborResult:
     entity_type: str          # e.g. "Artifact", "Requirement"
     link_type: str
     direction: str            # "upstream" | "downstream"
-    workspace_id: Optional[uuid.UUID] = None  # populated for cross-project results
+    workspace_id: uuid.UUID | None = None  # populated for cross-project results
 
 
 @dataclass(frozen=True)
@@ -139,7 +137,7 @@ class TransitiveResult:
     link_type: str
     direction: str
     depth: int
-    workspace_id: Optional[uuid.UUID] = None
+    workspace_id: uuid.UUID | None = None
 
 
 @dataclass
@@ -203,7 +201,7 @@ class RequirementCoverageEntry:
     #: request. Empty/None when the producer did not resolve them.
     uid: str = ""
     title: str = ""
-    level: Optional[int] = None
+    level: int | None = None
 
 
 @dataclass
@@ -260,16 +258,16 @@ class VCRMMatrix:
 
 
 __all__ = [
-    "LinkType",
-    "VALID_LINK_TYPES",
     "MANUAL_LINK_TYPES",
-    "Direction",
-    "NeighborResult",
-    "TransitiveResult",
-    "TraceGraphData",
-    "CoverageReport",
-    "RequirementCoverageEntry",
+    "VALID_LINK_TYPES",
     "CoverageData",
-    "VCRMRow",
+    "CoverageReport",
+    "Direction",
+    "LinkType",
+    "NeighborResult",
+    "RequirementCoverageEntry",
+    "TraceGraphData",
+    "TransitiveResult",
     "VCRMMatrix",
+    "VCRMRow",
 ]

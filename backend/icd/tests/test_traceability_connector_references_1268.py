@@ -43,7 +43,7 @@ def _make_artifact(tenant: Tenant, workspace: Workspace, artifact_type: str) -> 
         clear_request_tenant()
 
 
-def _make_icd(tenant: Tenant, workspace: Workspace) -> "object":
+def _make_icd(tenant: Tenant, workspace: Workspace) -> object:
     from icd.models import Icd
 
     icd_artifact = _make_artifact(tenant, workspace, "Icd")

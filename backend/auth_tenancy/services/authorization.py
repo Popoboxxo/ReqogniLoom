@@ -18,7 +18,7 @@ Architecture: docs/se/L1/Gesamtsystem/L2/AuthAndTenancySystem/
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum
 from uuid import UUID
 
@@ -170,7 +170,7 @@ def scope_allows(scope: str | None, operation: Operation) -> bool:
 #: HTTP method -> the operation it performs. Unknown/unlisted methods are
 #: treated as writes (fail-closed), which is why the lookups below default to
 #: :attr:`Operation.WRITE` rather than READ.
-_METHOD_TO_OPERATION: dict[str, "Operation"] = {
+_METHOD_TO_OPERATION: dict[str, Operation] = {
     "GET": Operation.READ,
     "HEAD": Operation.READ,
     "OPTIONS": Operation.READ,
@@ -434,7 +434,7 @@ class AuthorizationService:
 
     def list_workspace_members(
         self, *, caller_user_id: UUID, workspace_id: UUID
-    ) -> list["WorkspaceMember"]:
+    ) -> list[WorkspaceMember]:
         """Return the distinct active members of a workspace (REQ-014).
 
         Backs the Item-Permission user picker: instead of copy-pasting a raw
@@ -815,7 +815,7 @@ class AuthorizationService:
                 workspace_id=workspace_id,
                 role=normalized,
                 suspended_at__isnull=True,
-            ).update(suspended_at=datetime.now(timezone.utc))
+            ).update(suspended_at=datetime.now(UTC))
             # Existence was already confirmed above, so `updated_count == 0`
             # here is now unambiguous: the row exists but was already
             # suspended (the `suspended_at__isnull=True` filter excluded it)
@@ -1047,16 +1047,10 @@ class AuthorizationService:
         """
         return UserRole.objects.filter(
             workspace_id=workspace_id, role=ROLE_APPROVER, suspended_at__isnull=True
-        ).update(suspended_at=datetime.now(timezone.utc))
+        ).update(suspended_at=datetime.now(UTC))
 
 
 __all__ = [
-    "AuthorizationService",
-    "AuthorizationDecision",
-    "LastAdminError",
-    "WorkspaceMember",
-    "Operation",
-    "PresetPolicyValidator",
     "GOVERNANCE_OPERATIONS",
     "READ_ONLY_SCOPE",
     "SCOPE_ADMIN",
@@ -1064,6 +1058,12 @@ __all__ = [
     "SCOPE_READ_ONLY",
     "SCOPE_TIERS",
     "WRITE_SCOPE",
+    "AuthorizationDecision",
+    "AuthorizationService",
+    "LastAdminError",
+    "Operation",
+    "PresetPolicyValidator",
+    "WorkspaceMember",
     "operation_for_method",
     "required_scope_tier",
     "scope_allows",

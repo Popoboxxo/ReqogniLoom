@@ -23,6 +23,8 @@ from resilience.policies import (
     CircuitOpenError,
     FallbackResponse,
     NonRetryableError,
+)
+from resilience.policies import (
     TimeoutError as ResilienceTimeoutError,
 )
 

@@ -44,7 +44,8 @@ Traceability: REQ-L2-RO-001..006 -> REQ-L1-032
 """
 from __future__ import annotations
 
-from typing import Any, Callable, Optional
+from collections.abc import Callable
+from typing import Any
 
 from resilience.dispatcher import AsyncDispatcher, DispatchResult
 from resilience.policies import FallbackResponse, Policy
@@ -52,14 +53,14 @@ from resilience.policies import FallbackResponse, Policy
 # An operation is a callable that takes the (optional) payload and performs the
 # actual outbound call (IF-L1-051). It is transport-agnostic: the caller supplies
 # the HTTP/SDK call; the orchestrator only wraps it with policy.
-Operation = Callable[[Optional[dict]], Any]
+Operation = Callable[[dict | None], Any]
 
 
 def execute_optional(
     operation: Operation,
     target_subsystem: str,
-    payload: Optional[dict] = None,
-    policy: Optional[Policy] = None,
+    payload: dict | None = None,
+    policy: Policy | None = None,
 ) -> Any:
     """IF-L1-049 / IF-L1-050: wrap a synchronous outbound call with resilience policy.
 
@@ -95,8 +96,8 @@ def execute_optional(
 def execute_optional_async(
     operation_path: str,
     target_subsystem: str,
-    payload: Optional[dict] = None,
-    policy: Optional[Policy] = None,
+    payload: dict | None = None,
+    policy: Policy | None = None,
 ) -> DispatchResult:
     """IF-L1-049: enqueue an outbound call for asynchronous execution (REQ-L2-RO-001).
 
@@ -121,9 +122,9 @@ def execute_optional_async(
 
 
 __all__ = [
-    "execute_optional",
-    "execute_optional_async",
     "DispatchResult",
     "FallbackResponse",
     "Policy",
+    "execute_optional",
+    "execute_optional_async",
 ]

@@ -21,7 +21,6 @@ import pytest
 from rest_api.serializers import IssueSerializer
 from rest_api.views import IssueViewSet, _issue_to_dict
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

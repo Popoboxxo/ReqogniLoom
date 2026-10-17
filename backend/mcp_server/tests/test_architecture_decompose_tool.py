@@ -12,10 +12,12 @@ from __future__ import annotations
 import pytest
 
 from auth_tenancy.context import AuthContext, AuthMethod
+from link_types.workspace_store import provision_workspace_link_types
+from mcp_server.tools.architecture import ArchitectureToolGroup
 from persistence.middleware import clear_request_tenant, set_request_tenant
 from persistence.models import (
-    Artifact,
     ArchitectureElement,
+    Artifact,
     Requirement,
     Tenant,
     TraceLink,
@@ -25,9 +27,6 @@ from persistence.models import (
 from persistence.tenancy import TenantContext
 from presets.services import switch_preset
 from traceability.types import LinkType
-
-from mcp_server.tools.architecture import ArchitectureToolGroup
-from link_types.workspace_store import provision_workspace_link_types
 
 _API_KEY = "reqlo_testkey_n1"
 

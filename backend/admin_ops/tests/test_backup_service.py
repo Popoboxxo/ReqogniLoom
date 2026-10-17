@@ -21,16 +21,15 @@ import os
 from uuid import uuid4
 
 import pytest
-from auth_tenancy.context import AuthContext, AuthMethod
 
-from application.base import PermissionDeniedError
 from admin_ops.models import BackupMetadata, BackupStatus, BackupType
 from admin_ops.services import BackupService
 from admin_ops.services.exceptions import BackupNotFoundError, BackupStorageError
 from admin_ops.services.paths import absolute_backup_path, backup_root
+from application.base import PermissionDeniedError
+from auth_tenancy.context import AuthContext, AuthMethod
 
 from .conftest import active_tenant
-
 
 # ---------------------------------------------------------------------------
 # Fixtures local to this file

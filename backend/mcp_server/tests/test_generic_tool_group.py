@@ -86,7 +86,7 @@ class _GenericNamedService:
         )
 
 
-def _make_generic_named_service() -> "_GenericNamedService":
+def _make_generic_named_service() -> _GenericNamedService:
     return _GenericNamedService()
 
 

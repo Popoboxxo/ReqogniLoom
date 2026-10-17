@@ -9,10 +9,9 @@ from persistence.artifact_backing import ArtifactBackingError, ensure_artifact
 
 @pytest.fixture
 def diagram_env(db):
+    from diagram.models import Diagram
     from persistence.models import Tenant, Workspace
     from persistence.tenancy import TenantContext
-
-    from diagram.models import Diagram
 
     tenant = Tenant.objects.create(name="t-backing", slug="t-backing")
     TenantContext.set_tenant(tenant.id)

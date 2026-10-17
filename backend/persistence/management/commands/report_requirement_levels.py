@@ -18,7 +18,6 @@ calibration contract ``recompute_requirement_levels(fill_only=True)`` uses.
 """
 from __future__ import annotations
 
-from typing import Dict, Optional
 from uuid import UUID
 
 from django.core.management.base import BaseCommand
@@ -57,7 +56,7 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         apply_changes: bool = options["apply"]
-        tenant_filter: Optional[str] = options.get("tenant")
+        tenant_filter: str | None = options.get("tenant")
 
         tenants = Tenant.objects.all()
         if tenant_filter:
@@ -108,7 +107,7 @@ class Command(BaseCommand):
             )
         )
 
-        to_fill: Dict[int, list] = {1: [], 2: [], 3: [], 4: []}
+        to_fill: dict[int, list] = {1: [], 2: [], 3: [], 4: []}
         for row in rows:
             artifact_id = row["artifact_id"]
             level = row["level"]

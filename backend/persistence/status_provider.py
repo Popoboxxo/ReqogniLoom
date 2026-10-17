@@ -19,7 +19,8 @@ register-on-``ready()`` pattern ``audit.apps.AuditConfig`` already uses for
 """
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Callable, Optional
+from collections.abc import Callable
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 if TYPE_CHECKING:
@@ -31,7 +32,7 @@ if TYPE_CHECKING:
 #: without materialising it (see that function's docstring).
 OutdatedItemIdsProvider = Callable[..., "QuerySet[UUID]"]
 
-_provider: Optional[OutdatedItemIdsProvider] = None
+_provider: OutdatedItemIdsProvider | None = None
 
 
 def register_outdated_item_ids_provider(provider: OutdatedItemIdsProvider) -> None:
@@ -43,7 +44,7 @@ def register_outdated_item_ids_provider(provider: OutdatedItemIdsProvider) -> No
 
 def outdated_item_ids(
     item_type: str, *, tenant_id: UUID | str | None = None
-) -> "QuerySet[UUID]":
+) -> QuerySet[UUID]:
     """Return the outdated-item-id queryset for *item_type* (Layer-0 facade).
 
     Delegates to whatever ``workflow.services.outdated_item_ids`` registered
@@ -67,6 +68,6 @@ def outdated_item_ids(
 
 __all__ = [
     "OutdatedItemIdsProvider",
-    "register_outdated_item_ids_provider",
     "outdated_item_ids",
+    "register_outdated_item_ids_provider",
 ]

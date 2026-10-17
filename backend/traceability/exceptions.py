@@ -210,16 +210,16 @@ class BaselineCoverageNotSupportedError(TraceLinkError):
 
 
 __all__ = [
-    "TraceLinkError",
-    "InvalidLinkTypeError",
+    "BaselineCoverageNotSupportedError",
+    "ContradictoryHierarchyLinkError",
     "CrossTenantLinkError",
+    "CycleDetectedError",
+    "InvalidFilterError",
+    "InvalidLinkTypeError",
+    "PayloadTooLargeError",
+    "QueryTimeoutError",
+    "SelfLinkError",
     "SourceNotFoundError",
     "TargetNotFoundError",
-    "CycleDetectedError",
-    "SelfLinkError",
-    "ContradictoryHierarchyLinkError",
-    "QueryTimeoutError",
-    "PayloadTooLargeError",
-    "InvalidFilterError",
-    "BaselineCoverageNotSupportedError",
+    "TraceLinkError",
 ]

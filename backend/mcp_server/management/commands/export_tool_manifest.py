@@ -3,7 +3,7 @@ agent-template/plugin generator downstream reads from, instead of each
 maintaining its own copy of the tool list by hand."""
 import json
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any
 
 from django.core.management.base import BaseCommand
 
@@ -42,7 +42,7 @@ REPO_ROOT = _find_repo_root()
 DEFAULT_OUT = REPO_ROOT / _MANIFEST_SUFFIX
 
 
-def build_manifest() -> Dict[str, Any]:
+def build_manifest() -> dict[str, Any]:
     import os
     # Try to read VERSION file first; fall back to APP_VERSION env var (set at Docker build time)
     version_file = REPO_ROOT / "VERSION"
@@ -54,7 +54,7 @@ def build_manifest() -> Dict[str, Any]:
     registry = ToolRegistry()
     registry._ensure_groups()  # populates registry._groups; no DB access, pure schema build
 
-    tools: List[Dict[str, Any]] = []
+    tools: list[dict[str, Any]] = []
     seen_group_ids: set[int] = set()
     seen_names: set[str] = set()
     for prefix, group in registry._groups.items():

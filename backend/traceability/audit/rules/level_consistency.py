@@ -27,15 +27,13 @@ resolution.
 """
 from __future__ import annotations
 
-from typing import Dict, List, Optional, Set
-
 from traceability.audit.hierarchy import architecture_allocated_levels
 from traceability.audit.registry import CONS_P12, CONS_P13, Rule, register_rule
 from traceability.audit.types import AuditContext, Finding, Severity
 from workflow.services import outdated_item_ids
 
 
-def _active_requirements(context: AuditContext) -> Dict[str, dict]:
+def _active_requirements(context: AuditContext) -> dict[str, dict]:
     """Return ``{artifact_id: {"uid", "level"}}`` for the workspace's active rows.
 
     "Active" excludes soft-deleted rows via ``workflow.services.outdated_item_ids``
@@ -60,7 +58,7 @@ def _active_requirements(context: AuditContext) -> Dict[str, dict]:
     }
 
 
-def _architecture_levels(context: AuditContext) -> Dict[str, Optional[int]]:
+def _architecture_levels(context: AuditContext) -> dict[str, int | None]:
     """Return ``{requirement_artifact_id: architecture_level}`` for the tenant.
 
     Thin string-keyed projection of
@@ -96,9 +94,9 @@ class RequirementLevelNullRule(Rule):
         """Always WARNING — a corpus gap, never a baseline block (#581 lesson)."""
         return Severity.WARNING
 
-    def check(self, context: AuditContext) -> List[Finding]:
+    def check(self, context: AuditContext) -> list[Finding]:
         requirements = _active_requirements(context)
-        findings: List[Finding] = []
+        findings: list[Finding] = []
         for artifact_id in sorted(requirements):
             row = requirements[artifact_id]
             if row["level"] is not None:
@@ -142,13 +140,13 @@ class RequirementLevelArchitectureMismatchRule(Rule):
         """Always WARNING — advisory conflict report, never a baseline block."""
         return Severity.WARNING
 
-    def check(self, context: AuditContext) -> List[Finding]:
+    def check(self, context: AuditContext) -> list[Finding]:
         requirements = _active_requirements(context)
         if not requirements:
             return []
 
         architecture_levels = _architecture_levels(context)
-        findings: List[Finding] = []
+        findings: list[Finding] = []
         for artifact_id in sorted(architecture_levels):
             architecture_level = architecture_levels[artifact_id]
             if architecture_level is None:

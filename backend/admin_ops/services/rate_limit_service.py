@@ -14,7 +14,8 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any, Mapping, Optional
+from collections.abc import Mapping
+from typing import Any
 from uuid import UUID
 
 from django.conf import settings
@@ -63,12 +64,12 @@ def _validate_rate(value: Any) -> str:
     return rate
 
 
-def _defaults() -> Mapping[str, Optional[str]]:
+def _defaults() -> Mapping[str, str | None]:
     """The settings/env layer, i.e. precedence layer 3."""
     return settings.REST_FRAMEWORK.get("DEFAULT_THROTTLE_RATES", {})
 
 
-def _audit(user_id: Optional[UUID], entity_id: UUID, reason: str) -> None:
+def _audit(user_id: UUID | None, entity_id: UUID, reason: str) -> None:
     """Best-effort audit entry for a rate-limit change.
 
     Not fatal, mirroring ``MemorySettingsService._audit_config_write``: an
@@ -104,7 +105,7 @@ class RateLimitService:
     # -- read ---------------------------------------------------------------
 
     @staticmethod
-    def get_effective(tenant_id: Optional[UUID] = None) -> dict[str, dict[str, Any]]:
+    def get_effective(tenant_id: UUID | None = None) -> dict[str, dict[str, Any]]:
         """Effective value, origin and raw overrides for every scope."""
         return effective_rates(tenant_id=tenant_id, defaults=_defaults())
 
@@ -116,7 +117,7 @@ class RateLimitService:
         tenant_id: UUID,
         overrides: Mapping[str, Any],
         *,
-        user_id: Optional[UUID] = None,
+        user_id: UUID | None = None,
     ) -> dict[str, dict[str, Any]]:
         """Set or clear overrides for *tenant_id*.
 
@@ -159,7 +160,7 @@ class RateLimitService:
     @staticmethod
     @atomic_transaction
     def clear_tenant_overrides(
-        tenant_id: UUID, *, user_id: Optional[UUID] = None
+        tenant_id: UUID, *, user_id: UUID | None = None
     ) -> dict[str, dict[str, Any]]:
         """Delete every tenant-scoped override (falls back to global/settings)."""
         RateLimitOverride.unscoped.filter(tenant_id=tenant_id).delete()
@@ -172,7 +173,7 @@ class RateLimitService:
     def set_global_overrides(
         overrides: Mapping[str, Any],
         *,
-        user_id: Optional[UUID] = None,
+        user_id: UUID | None = None,
     ) -> dict[str, dict[str, Any]]:
         """Set or clear deployment-wide overrides (same value semantics)."""
         row, created = SystemRateLimitOverride.objects.get_or_create(
@@ -205,7 +206,7 @@ class RateLimitService:
     @staticmethod
     @atomic_transaction
     def clear_global_overrides(
-        *, user_id: Optional[UUID] = None
+        *, user_id: UUID | None = None
     ) -> dict[str, dict[str, Any]]:
         """Delete the deployment-wide override row entirely."""
         SystemRateLimitOverride.objects.all().delete()

@@ -23,13 +23,12 @@ from __future__ import annotations
 
 import hashlib
 import logging
-from typing import Any, Dict, Optional
+from typing import Any
 from uuid import UUID
-
-from persistence.tenancy import TenantContext, TenantContextNotSetError
 
 from audit.events import AuditableOperationOccurred, DomainEventBus
 from audit.models import AuditEntry
+from persistence.tenancy import TenantContext, TenantContextNotSetError
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +60,7 @@ class ContextEnricher:
     """
 
     @staticmethod
-    def enrich(actor_type: str, ctx: Dict[str, Any]) -> Dict[str, Optional[str]]:
+    def enrich(actor_type: str, ctx: dict[str, Any]) -> dict[str, str | None]:
         """Return enrichment fields for MCP context.
 
         Args:
@@ -82,9 +81,9 @@ class ContextEnricher:
             }
 
         # MCP agent path
-        client_name: Optional[str] = ctx.get("client_name")
-        raw_key: Optional[str] = ctx.get("api_key")
-        api_key_hash: Optional[str] = None
+        client_name: str | None = ctx.get("client_name")
+        raw_key: str | None = ctx.get("api_key")
+        api_key_hash: str | None = None
 
         if raw_key:
             digest = hashlib.sha256(raw_key.encode("utf-8")).hexdigest()
@@ -235,7 +234,7 @@ class AuditLogWriter:
 # Module-level singleton — registered in AuditConfig.ready()
 # ---------------------------------------------------------------------------
 
-_writer_instance: Optional[AuditLogWriter] = None
+_writer_instance: AuditLogWriter | None = None
 
 
 def get_writer() -> AuditLogWriter:
@@ -258,10 +257,10 @@ def register_writer_on_event_bus() -> None:
 
 
 __all__ = [
-    "MissingTenantContextError",
-    "ContextEnricher",
-    "TenantContextInjector",
     "AuditLogWriter",
+    "ContextEnricher",
+    "MissingTenantContextError",
+    "TenantContextInjector",
     "get_writer",
     "register_writer_on_event_bus",
 ]

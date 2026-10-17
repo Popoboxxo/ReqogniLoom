@@ -29,7 +29,6 @@ from traceability.audit.registry import (
 )
 from traceability.audit.types import AuditContext, Finding, Severity
 
-
 # ---------------------------------------------------------------------------
 # In-memory fake rules (not registered — no global registry pollution)
 # ---------------------------------------------------------------------------

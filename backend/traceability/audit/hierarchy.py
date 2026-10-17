@@ -160,7 +160,8 @@ are exactly what :func:`hierarchy_cycle_nodes` is for.
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import Any, Dict, FrozenSet, Iterable, List, Mapping, Optional, Set, Tuple, TypeVar
+from collections.abc import Iterable, Mapping
+from typing import Any, TypeVar
 from uuid import UUID
 
 from persistence.models import RequirementLevel, RequirementLevelSource
@@ -175,13 +176,13 @@ _NodeId = TypeVar("_NodeId")
 #: Hierarchy links stored as parent -> child (source is the parent).
 #: ``parent-child`` is gone — the migration folded it into ``decomposes``,
 #: which carries the same direction (source = parent).
-PARENT_TO_CHILD_LINK_TYPES: FrozenSet[str] = frozenset(
+PARENT_TO_CHILD_LINK_TYPES: frozenset[str] = frozenset(
     {LinkType.DECOMPOSES.value}
 )
 
 #: Hierarchy links stored as child -> parent (source is the child) — the
 #: inverse spelling of the same fact.
-CHILD_TO_PARENT_LINK_TYPES: FrozenSet[str] = frozenset(
+CHILD_TO_PARENT_LINK_TYPES: frozenset[str] = frozenset(
     {LinkType.DERIVES_FROM.value}
 )
 
@@ -190,7 +191,7 @@ CHILD_TO_PARENT_LINK_TYPES: FrozenSet[str] = frozenset(
 #: ``refines`` is deliberately excluded — decided by ADR-016 (decision 3):
 #: refinement is a weaker, semantic relation, not a hierarchy edge. See the
 #: module docstring.
-HIERARCHY_LINK_TYPES: FrozenSet[str] = (
+HIERARCHY_LINK_TYPES: frozenset[str] = (
     PARENT_TO_CHILD_LINK_TYPES | CHILD_TO_PARENT_LINK_TYPES
 )
 
@@ -222,7 +223,7 @@ ARCHITECTURE_DEPTH_TO_LEVEL: Mapping[int, int] = {
 }
 
 
-def architecture_depth_to_level(depth: Optional[int]) -> Optional[int]:
+def architecture_depth_to_level(depth: int | None) -> int | None:
     """Map an ``ArchitectureElement`` tree depth to a V-model cascade level.
 
     The explicit depth -> level mapping #1289 asks for. ``None`` (or a depth
@@ -237,7 +238,7 @@ def architecture_depth_to_level(depth: Optional[int]) -> Optional[int]:
 
 def normalise_hierarchy_edge(
     link_type: str, source_id: _NodeId, target_id: _NodeId
-) -> Optional[Tuple[_NodeId, _NodeId]]:
+) -> tuple[_NodeId, _NodeId] | None:
     """Return the ``(parent_id, child_id)`` normalisation of one hierarchy link.
 
     The single direction table of this module, so every caller (the audit
@@ -264,8 +265,8 @@ def normalise_hierarchy_edge(
 
 
 def requirement_hierarchy_edges(
-    context: AuditContext, requirement_ids: FrozenSet[str]
-) -> Set[Tuple[str, str]]:
+    context: AuditContext, requirement_ids: frozenset[str]
+) -> set[tuple[str, str]]:
     """Return the ``{(parent_id, child_id), ...}`` decomposition edges.
 
     Both link directions (see module docstring) are normalised into the same
@@ -280,7 +281,7 @@ def requirement_hierarchy_edges(
     Returns:
         Set of ``(parent_artifact_id, child_artifact_id)`` pairs.
     """
-    edges: Set[Tuple[str, str]] = set()
+    edges: set[tuple[str, str]] = set()
     for link in context.iter_trace_links():
         normalised = normalise_hierarchy_edge(
             link["link_type"], link["source_id"], link["target_id"]
@@ -294,8 +295,8 @@ def requirement_hierarchy_edges(
 
 
 def root_requirement_ids(
-    context: AuditContext, requirement_ids: FrozenSet[str]
-) -> FrozenSet[str]:
+    context: AuditContext, requirement_ids: frozenset[str]
+) -> frozenset[str]:
     """Return the subset of *requirement_ids* that have no hierarchy parent.
 
     The dynamic-graph stand-in for "L1 / SystemRequirement": nothing was
@@ -309,8 +310,8 @@ def root_requirement_ids(
 
 
 def leaf_requirement_ids(
-    context: AuditContext, requirement_ids: FrozenSet[str]
-) -> FrozenSet[str]:
+    context: AuditContext, requirement_ids: frozenset[str]
+) -> frozenset[str]:
     """Return the subset of *requirement_ids* that have no hierarchy child.
 
     The mirror image of :func:`root_requirement_ids`: nothing was
@@ -324,8 +325,8 @@ def leaf_requirement_ids(
 
 
 def cyclic_hierarchy_nodes(
-    edges: Set[Tuple[_NodeId, _NodeId]],
-) -> FrozenSet[_NodeId]:
+    edges: set[tuple[_NodeId, _NodeId]],
+) -> frozenset[_NodeId]:
     """Return the node ids that lie on a cycle in *edges* (issue #1021).
 
     Pure graph function over already-normalised ``(parent_id, child_id)``
@@ -352,8 +353,8 @@ def cyclic_hierarchy_nodes(
     Returns:
         The ids of every node on a cycle; empty for a DAG (the normal case).
     """
-    adjacency: Dict[_NodeId, List[_NodeId]] = {}
-    cyclic: Set[_NodeId] = set()
+    adjacency: dict[_NodeId, list[_NodeId]] = {}
+    cyclic: set[_NodeId] = set()
     for parent_id, child_id in edges:
         adjacency.setdefault(parent_id, []).append(child_id)
         adjacency.setdefault(child_id, [])
@@ -361,10 +362,10 @@ def cyclic_hierarchy_nodes(
             # A self-loop is an SCC of size 1 and would otherwise be missed.
             cyclic.add(parent_id)
 
-    index: Dict[_NodeId, int] = {}
-    lowlink: Dict[_NodeId, int] = {}
-    on_stack: Set[_NodeId] = set()
-    stack: List[_NodeId] = []
+    index: dict[_NodeId, int] = {}
+    lowlink: dict[_NodeId, int] = {}
+    on_stack: set[_NodeId] = set()
+    stack: list[_NodeId] = []
     counter = 0
 
     for root in adjacency:
@@ -374,7 +375,7 @@ def cyclic_hierarchy_nodes(
         counter += 1
         stack.append(root)
         on_stack.add(root)
-        work: List[Tuple[_NodeId, int]] = [(root, 0)]
+        work: list[tuple[_NodeId, int]] = [(root, 0)]
 
         while work:
             node, neighbour_index = work[-1]
@@ -394,7 +395,7 @@ def cyclic_hierarchy_nodes(
 
             work.pop()
             if lowlink[node] == index[node]:
-                component: List[_NodeId] = []
+                component: list[_NodeId] = []
                 while True:
                     member = stack.pop()
                     on_stack.discard(member)
@@ -411,8 +412,8 @@ def cyclic_hierarchy_nodes(
 
 
 def hierarchy_cycle_nodes(
-    context: AuditContext, requirement_ids: FrozenSet[str]
-) -> FrozenSet[str]:
+    context: AuditContext, requirement_ids: frozenset[str]
+) -> frozenset[str]:
     """Return the Requirement ids of *requirement_ids* that lie on a cycle.
 
     The "why is ``root_requirement_ids`` empty?" answer for the audit rules:
@@ -426,12 +427,12 @@ def hierarchy_cycle_nodes(
 
 
 def derive_requirement_levels(
-    edges: Set[Tuple[_NodeId, _NodeId]],
-    node_ids: Optional[Iterable[_NodeId]] = None,
+    edges: set[tuple[_NodeId, _NodeId]],
+    node_ids: Iterable[_NodeId] | None = None,
     *,
     root_level: int = ROOT_REQUIREMENT_LEVEL,
     cascade_top: int = CASCADE_TOP_LEVEL,
-) -> Dict[_NodeId, Optional[int]]:
+) -> dict[_NodeId, int | None]:
     """Return ``{node_id: level_or_None}`` for the V-model cascade (ADR-005).
 
     The pure half of the ``Requirement.level`` derivation: given already
@@ -473,23 +474,23 @@ def derive_requirement_levels(
         ``{node_id: level}`` with ``level`` an ``int`` in
         ``root_level..cascade_top`` or ``None`` when not derivable.
     """
-    parents: Dict[_NodeId, Set[_NodeId]] = defaultdict(set)
+    parents: dict[_NodeId, set[_NodeId]] = defaultdict(set)
     for parent_id, child_id in edges:
         parents[child_id].add(parent_id)
 
-    nodes: List[_NodeId] = (
+    nodes: list[_NodeId] = (
         sorted({node for edge in edges for node in edge}, key=repr)
         if node_ids is None
         else list(dict.fromkeys(node_ids))
     )
 
-    resolved: Dict[_NodeId, Optional[int]] = {}
+    resolved: dict[_NodeId, int | None] = {}
     for start in nodes:
         if start in resolved:
             continue
         # Frame: [node, parents still to visit, set of their resolved levels].
         # An empty level set means "no hierarchy parent in this subgraph".
-        stack: List[List[Any]] = [[start, list(parents.get(start, ())), set()]]
+        stack: list[list[Any]] = [[start, list(parents.get(start, ())), set()]]
         on_path = {start}
         while stack:
             frame = stack[-1]
@@ -507,7 +508,7 @@ def derive_requirement_levels(
                 continue
             levels = frame[2]
             if not levels:
-                level: Optional[int] = root_level
+                level: int | None = root_level
             elif len(levels) > 1:
                 level = None  # parents disagree about this node's depth
             else:
@@ -527,7 +528,7 @@ def derive_requirement_levels(
 
 def _tenant_hierarchy_subgraph(
     tenant_id: UUID,
-) -> Tuple[Dict[UUID, Optional[int]], Set[Tuple[UUID, UUID]]]:
+) -> tuple[dict[UUID, int | None], set[tuple[UUID, UUID]]]:
     """Return ``({artifact_id: current level}, {(parent, child), ...})``.
 
     The tenant's Requirement hierarchy as the union of its **two** sources (see
@@ -554,8 +555,8 @@ def _tenant_hierarchy_subgraph(
             "artifact_id", "level", "artifact__parent_id"
         )
     )
-    current: Dict[UUID, Optional[int]] = {}
-    fk_edges: Set[Tuple[UUID, UUID]] = set()
+    current: dict[UUID, int | None] = {}
+    fk_edges: set[tuple[UUID, UUID]] = set()
     for row in rows:
         artifact_id = row["artifact_id"]
         current[artifact_id] = row["level"]
@@ -578,10 +579,10 @@ def _tenant_hierarchy_subgraph(
 
 def _close_under(
     seeds: Iterable[_NodeId],
-    adjacency: Mapping[_NodeId, Set[_NodeId]],
-) -> Set[_NodeId]:
+    adjacency: Mapping[_NodeId, set[_NodeId]],
+) -> set[_NodeId]:
     """Return *seeds* plus everything reachable from them along *adjacency*."""
-    reached: Set[_NodeId] = set()
+    reached: set[_NodeId] = set()
     frontier = list(seeds)
     while frontier:
         node = frontier.pop()
@@ -594,7 +595,7 @@ def _close_under(
 
 def architecture_allocated_levels(
     tenant_id: UUID,
-) -> Dict[UUID, Optional[int]]:
+) -> dict[UUID, int | None]:
     """Return ``{requirement_artifact_id: architecture_level_or_None}`` (#1289).
 
     The architecture axis of the V-model level derivation: for every Requirement
@@ -623,8 +624,8 @@ def architecture_allocated_levels(
     if not requirement_ids:
         return {}
 
-    requirement_elements: Dict[UUID, Set[UUID]] = defaultdict(set)
-    element_ids: Set[UUID] = set()
+    requirement_elements: dict[UUID, set[UUID]] = defaultdict(set)
+    element_ids: set[UUID] = set()
     for source_id, target_id in TraceLink.unscoped.filter(
         tenant_id=tenant_id, link_type=LinkType.ALLOCATED_TO.value
     ).values_list("source_id", "target_id"):
@@ -649,7 +650,7 @@ def architecture_allocated_levels(
         for element in elements
     }
 
-    levels: Dict[UUID, Optional[int]] = {}
+    levels: dict[UUID, int | None] = {}
     for requirement_id, allocated_element_ids in requirement_elements.items():
         mapped = {
             level_by_artifact[element_id]
@@ -665,7 +666,7 @@ def recompute_requirement_levels(
     changed_artifact_ids: Iterable[UUID | str],
     *,
     fill_only: bool = False,
-) -> Dict[UUID, Optional[int]]:
+) -> dict[UUID, int | None]:
     """Recompute ``Requirement.level`` for the hierarchy around *changed ids*.
 
     **The single writer of ``Requirement.level``** (ADR-005). Every hierarchy
@@ -734,8 +735,8 @@ def recompute_requirement_levels(
     if not seeds:
         return {}
 
-    parents: Dict[UUID, Set[UUID]] = defaultdict(set)
-    children: Dict[UUID, Set[UUID]] = defaultdict(set)
+    parents: dict[UUID, set[UUID]] = defaultdict(set)
+    children: dict[UUID, set[UUID]] = defaultdict(set)
     for parent_id, child_id in edges:
         children[parent_id].add(child_id)
         parents[child_id].add(parent_id)
@@ -744,7 +745,7 @@ def recompute_requirement_levels(
     # ``level_source == MANUAL`` row is treated exactly like a pre-set value
     # under ``fill_only``: the graph may have moved, but the human's explicit
     # choice wins until they clear it (set_manual_level(level=None)).
-    manual_ids: Set[UUID] = set(
+    manual_ids: set[UUID] = set(
         Requirement.unscoped.filter(
             tenant_id=tenant_id,
             level_source=RequirementLevelSource.MANUAL,
@@ -757,7 +758,7 @@ def recompute_requirement_levels(
     scope_edges = {edge for edge in edges if edge[1] in scope}
     derived = derive_requirement_levels(scope_edges, sorted(scope, key=repr))
 
-    grouped: Dict[Optional[int], List[UUID]] = defaultdict(list)
+    grouped: dict[int | None, list[UUID]] = defaultdict(list)
     for artifact_id, level in derived.items():
         if level == current.get(artifact_id):
             continue
@@ -767,7 +768,7 @@ def recompute_requirement_levels(
             continue
         grouped[level].append(artifact_id)
 
-    changed: Dict[UUID, Optional[int]] = {}
+    changed: dict[UUID, int | None] = {}
     for level, artifact_ids in grouped.items():
         # A bulk UPDATE, not save(): ``level`` is a derived field, so a
         # hierarchy edit must not append a content revision or bump the version
@@ -781,7 +782,7 @@ def recompute_requirement_levels(
     return changed
 
 
-def _seed_tenant(seed_ids: Set[UUID]) -> Optional[UUID]:
+def _seed_tenant(seed_ids: set[UUID]) -> UUID | None:
     """Return the tenant that owns *seed_ids*, or ``None`` if none resolves.
 
     Read from the artifacts rather than from :class:`TenantContext` so the
@@ -806,7 +807,7 @@ def _seed_tenant(seed_ids: Set[UUID]) -> Optional[UUID]:
     )
 
 
-def classify_requirements(workspace_id: str | UUID) -> Dict[str, Set[str]]:
+def classify_requirements(workspace_id: str | UUID) -> dict[str, set[str]]:
     """Return ``{"roots", "leaves", "cycle_nodes"}`` for a workspace's Requirements.
 
     Convenience wrapper for callers that only have a bare ``workspace_id``

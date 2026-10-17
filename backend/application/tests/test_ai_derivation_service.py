@@ -25,6 +25,8 @@ from persistence.models import (
     Tenant,
     TraceLink,
     User,
+)
+from persistence.models import (
     Workspace as PersistenceWorkspace,
 )
 from persistence.tenancy import TenantContext

@@ -39,9 +39,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Dict, List, Optional
-
-from auth_tenancy.context import AuthContext
+from typing import Any
 
 from application.attribute_catalog_service import (
     AttributeCatalogNotFound,
@@ -56,7 +54,9 @@ from attribute_definitions.schema import (
     AttributeDefinitionConflictError,
     AttributeDefinitionVersionConflict,
 )
+from auth_tenancy.context import AuthContext
 from mcp_server.protocol_handler import ToolResult
+
 # Cross-group reuse on purpose: ``attribute_catalog.reorder`` returns the same
 # transport-safe definition payload ``attribute_definition.*`` already emits, so
 # an agent reads one shape for "the definition after my edit" regardless of
@@ -69,7 +69,7 @@ from presets.exceptions import CrossTenantWorkspaceError
 logger = logging.getLogger(__name__)
 
 
-def _tags_from_params(params: Dict[str, Any]) -> Optional[List[str]]:
+def _tags_from_params(params: dict[str, Any]) -> list[str] | None:
     tags = params.get("tags")
     if tags is None:
         return None
@@ -97,7 +97,7 @@ class AttributeCatalogToolGroup(BaseToolGroup):
     def _get_service() -> AttributeCatalogService:
         return AttributeCatalogService()
 
-    def get_tool_schemas(self) -> List[Dict[str, Any]]:
+    def get_tool_schemas(self) -> list[dict[str, Any]]:
         filter_properties = {
             "query": {"type": "string", "description": "Name substring (case-insensitive)."},
             "category": {"type": "string"},
@@ -290,7 +290,7 @@ class AttributeCatalogToolGroup(BaseToolGroup):
     # ---- Handlers ---------------------------------------------------------
 
     def _handle_list(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         try:
             entries = self._get_service().list_entries(
@@ -307,7 +307,7 @@ class AttributeCatalogToolGroup(BaseToolGroup):
         return ToolResult.ok({"entries": entries, "count": len(entries)})
 
     def _handle_search(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         query = require_param(params, "query")
         try:
@@ -325,7 +325,7 @@ class AttributeCatalogToolGroup(BaseToolGroup):
         return ToolResult.ok({"entries": entries, "count": len(entries)})
 
     def _handle_create(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         name = require_param(params, "name")
         definition = params.get("definition")
@@ -351,10 +351,10 @@ class AttributeCatalogToolGroup(BaseToolGroup):
         return ToolResult.ok({"entry": entry})
 
     def _handle_update(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         entry_id = require_uuid(params, "entry_id")
-        kwargs: Dict[str, Any] = {
+        kwargs: dict[str, Any] = {
             key: params[key]
             for key in (
                 "name", "definition", "category", "tags", "label",
@@ -375,7 +375,7 @@ class AttributeCatalogToolGroup(BaseToolGroup):
         return ToolResult.ok({"entry": entry})
 
     def _handle_deprecate(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         entry_id = require_uuid(params, "entry_id")
         try:
@@ -393,7 +393,7 @@ class AttributeCatalogToolGroup(BaseToolGroup):
         return ToolResult.ok({"entry": entry})
 
     def _handle_add_to_definition(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         entry_id = require_uuid(params, "entry_id")
         item_type = require_param(params, "item_type")
@@ -422,7 +422,7 @@ class AttributeCatalogToolGroup(BaseToolGroup):
         return ToolResult.ok(result)
 
     def _handle_reorder(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         item_type = require_param(params, "item_type")
         name = require_param(params, "name")
@@ -478,7 +478,7 @@ class AttributeCatalogToolGroup(BaseToolGroup):
         return ToolResult.ok({"definition": _definition_payload(definition)})
 
     def _handle_export(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         try:
             document = self._get_service().export_catalog(
@@ -490,7 +490,7 @@ class AttributeCatalogToolGroup(BaseToolGroup):
         return ToolResult.ok({"document": document})
 
     def _handle_import(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         document = params.get("document")
         if not isinstance(document, dict):

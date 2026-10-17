@@ -39,8 +39,9 @@ Design notes
 """
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Optional
 
 from se_metrics.types import MetricsResult
 
@@ -52,7 +53,7 @@ SCOPE_WORKSPACE = "workspace"
 SCOPE_TENANT = "tenant"
 SCOPE_ARTIFACT_TYPE = "artifact_type"
 
-SCOPES: Tuple[str, ...] = (SCOPE_WORKSPACE, SCOPE_TENANT, SCOPE_ARTIFACT_TYPE)
+SCOPES: tuple[str, ...] = (SCOPE_WORKSPACE, SCOPE_TENANT, SCOPE_ARTIFACT_TYPE)
 
 #: Scalar value type a metric extracts from a computed ``MetricsResult``.
 MetricValue = Optional[float]
@@ -81,7 +82,7 @@ class MetricSpec:
     expensive: bool
     default_visible: bool
     source: str
-    params: Tuple[str, ...]
+    params: tuple[str, ...]
     value: Callable[[MetricsResult], MetricValue]
 
     @property
@@ -89,7 +90,7 @@ class MetricSpec:
         """i18n key the frontend resolves before falling back to ``title``."""
         return f"metrics.catalog.{self.key}.title"
 
-    def to_catalog_entry(self) -> Dict[str, Any]:
+    def to_catalog_entry(self) -> dict[str, Any]:
         """Return the JSON-safe catalogue entry for this metric."""
         return {
             "key": self.key,
@@ -140,7 +141,7 @@ def _open_risks_critical(result: MetricsResult) -> MetricValue:
 
 #: Ordered catalogue. Order is the user-facing default widget order and is
 #: stable across REST and MCP (both return these entries in this order).
-METRIC_SPECS: Tuple[MetricSpec, ...] = (
+METRIC_SPECS: tuple[MetricSpec, ...] = (
     MetricSpec(
         key="traceability_coverage",
         title="Traceability Coverage",
@@ -233,17 +234,17 @@ METRIC_SPECS: Tuple[MetricSpec, ...] = (
 )
 
 #: Metric keys, in catalogue order.
-ALL_METRIC_KEYS: Tuple[str, ...] = tuple(spec.key for spec in METRIC_SPECS)
+ALL_METRIC_KEYS: tuple[str, ...] = tuple(spec.key for spec in METRIC_SPECS)
 
 #: Metric keys shown when the caller has no explicit per-user selection.
-DEFAULT_METRIC_KEYS: Tuple[str, ...] = tuple(
+DEFAULT_METRIC_KEYS: tuple[str, ...] = tuple(
     spec.key for spec in METRIC_SPECS if spec.default_visible
 )
 
-_SPECS_BY_KEY: Dict[str, MetricSpec] = {spec.key: spec for spec in METRIC_SPECS}
+_SPECS_BY_KEY: dict[str, MetricSpec] = {spec.key: spec for spec in METRIC_SPECS}
 
 
-def get_metric_spec(key: str) -> Optional[MetricSpec]:
+def get_metric_spec(key: str) -> MetricSpec | None:
     """Return the spec for *key*, or None when the key is unknown."""
     return _SPECS_BY_KEY.get(key)
 
@@ -253,14 +254,14 @@ def is_known_metric(key: str) -> bool:
     return key in _SPECS_BY_KEY
 
 
-def catalog_payload() -> List[Dict[str, Any]]:
+def catalog_payload() -> list[dict[str, Any]]:
     """Return the JSON-safe catalogue, in catalogue order."""
     return [spec.to_catalog_entry() for spec in METRIC_SPECS]
 
 
 def normalize_keys(
-    raw_keys: Optional[List[str]],
-) -> Tuple[List[str], List[str]]:
+    raw_keys: list[str] | None,
+) -> tuple[list[str], list[str]]:
     """Split *raw_keys* into ``(known, unknown)``, preserving order and deduping.
 
     ``None`` or an empty list means "every registered metric" — the caller
@@ -274,8 +275,8 @@ def normalize_keys(
     if not raw_keys:
         return list(ALL_METRIC_KEYS), []
 
-    known: List[str] = []
-    unknown: List[str] = []
+    known: list[str] = []
+    unknown: list[str] = []
     seen: set[str] = set()
     for raw in raw_keys:
         key = str(raw).strip()
@@ -287,15 +288,15 @@ def normalize_keys(
 
 
 def select_values(
-    result: MetricsResult, keys: List[str]
-) -> Dict[str, MetricValue]:
+    result: MetricsResult, keys: list[str]
+) -> dict[str, MetricValue]:
     """Extract the scalar values of *keys* from a computed *result*.
 
     Only known keys produce an entry. A metric whose extractor fails degrades
     to ``None`` (mirrors the aggregator's "never raise on a metric source"
     contract) instead of failing the whole read.
     """
-    values: Dict[str, MetricValue] = {}
+    values: dict[str, MetricValue] = {}
     for key in keys:
         spec = _SPECS_BY_KEY.get(key)
         if spec is None:

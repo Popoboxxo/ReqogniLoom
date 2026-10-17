@@ -21,7 +21,7 @@ makes every other worker discard its entry on the next read. A bulk
 from __future__ import annotations
 
 import threading
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 from uuid import UUID
 
 from persistence.cache_generation import bump_cache_generation, cache_generation
@@ -34,7 +34,7 @@ CACHE_NAMESPACE = "link_types"
 
 _cache_lock = threading.Lock()
 #: workspace_id (str) -> (generation, {key: definition_json})
-_catalog_cache: Dict[str, Tuple[int, Dict[str, Dict[str, Any]]]] = {}
+_catalog_cache: dict[str, tuple[int, dict[str, dict[str, Any]]]] = {}
 
 
 def normalize_artifact_type(artifact_type: str | None) -> str:
@@ -59,7 +59,7 @@ def invalidate_workspace(workspace_id: str) -> None:
     bump_cache_generation(CACHE_NAMESPACE, str(workspace_id))
 
 
-def resolve_catalog(workspace_id: UUID | str) -> Dict[str, Dict[str, Any]]:
+def resolve_catalog(workspace_id: UUID | str) -> dict[str, dict[str, Any]]:
     """Return ``{key: definition_json}`` for every **active** type of a workspace.
 
     Reads the materialized per-workspace rows; there is no merge-on-read
@@ -73,7 +73,7 @@ def resolve_catalog(workspace_id: UUID | str) -> Dict[str, Dict[str, Any]]:
     if entry is not None and entry[0] == generation:
         return entry[1]
 
-    catalog: Dict[str, Dict[str, Any]] = {}
+    catalog: dict[str, dict[str, Any]] = {}
     rows = WorkspaceLinkTypeDefinition.objects.filter(
         workspace_id=workspace_id
     ).only("key", "definition_json")
@@ -90,7 +90,7 @@ def resolve_catalog(workspace_id: UUID | str) -> Dict[str, Dict[str, Any]]:
 
 def get_definition(
     workspace_id: UUID | str, key: str
-) -> Optional[Dict[str, Any]]:
+) -> dict[str, Any] | None:
     """Return one active definition, or None when the key is absent/inactive."""
     return resolve_catalog(workspace_id).get(key)
 
@@ -152,7 +152,7 @@ def validate_link_pair(
     )
 
 
-def validate_definition(payload: Any, *, key: str) -> Dict[str, Any]:
+def validate_definition(payload: Any, *, key: str) -> dict[str, Any]:
     """Re-export of :func:`link_types.schema.validate_definition_json`.
 
     Keeps every write path importing from one module.

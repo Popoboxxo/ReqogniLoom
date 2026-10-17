@@ -53,11 +53,11 @@ def dispatch_outbox_events() -> int:
 def run_traceability_suggest_links(
     workspace_id: str,
     tenant_id: str,
-    scopes: "list[dict] | None" = None,
-    tier: "str | None" = None,
+    scopes: list[dict] | None = None,
+    tier: str | None = None,
     max_candidates: int = 5,
     *,
-    api_key_id: "str | None" = None,
+    api_key_id: str | None = None,
 ) -> dict:
     """Run the N3 ``suggest_links`` computation inside a Celery worker (#1197).
 
@@ -134,7 +134,7 @@ def run_traceability_suggest_links(
                 )
 
 
-def _resolve_agent_context(tenant_id: str, api_key_id: "str | None") -> "AuthContext":
+def _resolve_agent_context(tenant_id: str, api_key_id: str | None) -> AuthContext:
     """Rebuild the producer's agent :class:`AuthContext` inside the worker.
 
     ADR-03: only ``tenant_id`` and the API-key **id** cross the queue boundary,

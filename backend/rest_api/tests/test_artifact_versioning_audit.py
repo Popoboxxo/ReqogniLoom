@@ -46,7 +46,8 @@ REQ-142, REQ-L2-TE-020):
 from __future__ import annotations
 
 import uuid
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 from uuid import UUID
 
 import pytest
@@ -55,10 +56,10 @@ from rest_framework.test import APIClient
 from application.artifact_diff_service import _ENTITY_FIELDS
 from application.workspace_provisioning import provision_workspace_defaults
 from auth_tenancy.models import ROLE_ADMIN, UserRole
+from link_types.catalog import normalize_artifact_type
 from persistence.models import Artifact, Tenant, User
 from persistence.models import Workspace as PersistenceWorkspace
 from persistence.tenancy import TenantContext
-from link_types.catalog import normalize_artifact_type
 
 pytestmark = pytest.mark.django_db
 

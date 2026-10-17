@@ -42,18 +42,16 @@ item-level lookup runs on the tenant-isolated default manager).
 """
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Optional, Sequence, Tuple
 from uuid import UUID
 
+from application.base import ValidationError
 from auth_tenancy.services.authorization import AuthorizationService, Operation
 from auth_tenancy.services.item_permission import (
     ItemPermissionService,
     PermissionDecision,
 )
-
-from application.base import ValidationError
-
 
 # ---------------------------------------------------------------------------
 # Level ordering
@@ -62,7 +60,7 @@ from application.base import ValidationError
 # Queryable levels, least permissive first. The rank is the single comparison
 # key for both operations performed here: "which layer is more restrictive?"
 # and "does the effective level satisfy the queried level?".
-QUERYABLE_LEVELS: Tuple[str, ...] = ("read", "write")
+QUERYABLE_LEVELS: tuple[str, ...] = ("read", "write")
 
 _LEVEL_RANK = {"deny": 0, "read": 1, "write": 2}
 
@@ -122,8 +120,8 @@ class EffectivePermissionService:
     def __init__(
         self,
         *,
-        item_permission_service: Optional[ItemPermissionService] = None,
-        authz_service: Optional[AuthorizationService] = None,
+        item_permission_service: ItemPermissionService | None = None,
+        authz_service: AuthorizationService | None = None,
     ) -> None:
         self._item_permissions = item_permission_service or ItemPermissionService()
         self._authz = authz_service or AuthorizationService()
@@ -134,7 +132,7 @@ class EffectivePermissionService:
         active_roles: Sequence[str],
         user_id: UUID,
         workspace_id: UUID,
-        artifact_id: Optional[UUID] = None,
+        artifact_id: UUID | None = None,
         level: str,
     ) -> EffectivePermission:
         """Return the effective permission and whether it satisfies *level*.
@@ -192,7 +190,7 @@ class EffectivePermissionService:
 
     # -- Helpers ----------------------------------------------------------
 
-    def _resolve_rbac_level(self, active_roles: Sequence[str]) -> Tuple[str, str]:
+    def _resolve_rbac_level(self, active_roles: Sequence[str]) -> tuple[str, str]:
         """Collapse the RBAC matrix into the caller's strongest granted level.
 
         Returns the level (``"deny"`` / ``"read"`` / ``"write"``) plus the
@@ -210,9 +208,9 @@ class EffectivePermissionService:
 
 
 __all__ = [
+    "QUERYABLE_LEVELS",
     "EffectivePermission",
     "EffectivePermissionService",
-    "QUERYABLE_LEVELS",
     "level_satisfies_level",
     "more_restrictive_level",
 ]

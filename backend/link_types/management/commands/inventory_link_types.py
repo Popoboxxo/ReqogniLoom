@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import json
 from collections import Counter
-from typing import Any, Dict, List
+from typing import Any
 
 from django.core.management.base import BaseCommand, CommandError
 from django.db import connection, transaction
@@ -39,7 +39,7 @@ from link_types.catalog import normalize_artifact_type
 from link_types.migration_ops import is_creatable, predict_migrated_triple
 
 
-def collect_observed_triples() -> List[Dict[str, Any]]:
+def collect_observed_triples() -> list[dict[str, Any]]:
     """Return the distinct post-migration triples with their row counts.
 
     Every row is put through ``migration_ops.predict_migrated_triple``, the
@@ -106,7 +106,7 @@ def _is_covered(link_type: str, source: str, target: str) -> bool:
     return False
 
 
-def uncovered_triples(observed: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def uncovered_triples(observed: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Return the observed triples no built-in ``allowed_pairs`` entry matches.
 
     Built-ins only, deliberately: this is the list that decides what has to go
@@ -122,7 +122,7 @@ def uncovered_triples(observed: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     ]
 
 
-def blocking_triples(observed: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def blocking_triples(observed: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Return the observed triples ``verify_migrated_links`` would refuse.
 
     The pre-flight of issue #893: built-ins **plus** ``GRANDFATHERED_PAIRS``,

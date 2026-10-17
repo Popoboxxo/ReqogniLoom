@@ -44,7 +44,6 @@ from typing import Any
 
 from diagram.models import DiagramType, PayloadFormat
 
-
 # ---------------------------------------------------------------------------
 # Exceptions
 # ---------------------------------------------------------------------------
@@ -633,7 +632,7 @@ def _validate_canvas_strokes(stroke_data: dict) -> ValidationResult:
 
 
 __all__ = [
-    "DiagramValidator",
     "DiagramValidationError",
+    "DiagramValidator",
     "ValidationResult",
 ]

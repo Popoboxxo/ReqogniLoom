@@ -10,7 +10,14 @@ import uuid
 import pytest
 from rest_framework.test import APIClient
 
-from auth_tenancy.models import ROLE_ADMIN, ROLE_APPROVER, ROLE_EDITOR, ROLE_VIEWER, TenantRole, UserRole
+from auth_tenancy.models import (
+    ROLE_ADMIN,
+    ROLE_APPROVER,
+    ROLE_EDITOR,
+    ROLE_VIEWER,
+    TenantRole,
+    UserRole,
+)
 from auth_tenancy.tests.user_management_matrix import ACTIONS, ROLES, USER_MANAGEMENT_MATRIX
 from persistence.middleware import clear_request_tenant, set_request_tenant
 from persistence.models import Tenant, User, Workspace

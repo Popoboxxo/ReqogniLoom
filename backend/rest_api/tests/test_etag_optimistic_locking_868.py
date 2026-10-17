@@ -18,7 +18,7 @@ missing enforcement (the same reasoning as ``test_optimistic_locking.py``).
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone as dt_timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -120,7 +120,7 @@ def test_compute_etag_falls_back_to_a_timestamp_for_immutable_rows():
     """Baselines have no version counter; ``created_at`` is their stable token."""
 
     class _BaselineDetail:
-        created_at = datetime(2026, 9, 16, 12, 34, 56, tzinfo=dt_timezone.utc)
+        created_at = datetime(2026, 9, 16, 12, 34, 56, tzinfo=UTC)
 
     assert compute_etag(_BaselineDetail()) == '"2026-09-16T12:34:56+00:00"'
 

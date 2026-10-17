@@ -29,18 +29,18 @@ Design:
 from __future__ import annotations
 
 from collections.abc import Container
-from typing import Any, Optional
+from typing import Any
 
 from django.utils import translation
 from rest_framework import pagination, serializers, status
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from persistence.models import ElementType, ScenarioKind, TestCaseOrigin, TestCaseType
 from rest_api.mixins.workflow_state import WorkflowStateSerializerMixin
 from rest_api.mixins.workflow_transitions import _ALWAYS_ALLOWED_PATCH_FIELDS
 from rest_api.preset_guard import FieldFilter
 from rest_api.sanitization import FreeTextFieldMarker, validate_free_text
-from persistence.models import ElementType, ScenarioKind, TestCaseOrigin, TestCaseType
 
 # ---------------------------------------------------------------------------
 # Lock-counter semantics (issue #213)
@@ -357,7 +357,7 @@ def normalize_preset_blob(blob: Any) -> dict[str, Any]:
     return {**blob, "tier": resolved, "name": resolved}
 
 
-def extract_preset_tier(value: Any) -> Optional[str]:
+def extract_preset_tier(value: Any) -> str | None:
     """Extract a bare tier string from a workspace-preset write payload (GH-411).
 
     ``Workspace.preset`` round-trips through the wire as the resolved object
@@ -1179,7 +1179,7 @@ class RequirementSerializer(
         )
     )
 
-    def get_atomicity_warning(self, obj: Any) -> Optional[list[str]]:
+    def get_atomicity_warning(self, obj: Any) -> list[str] | None:
         from application.requirement_service import detect_non_atomic_terms
 
         # `obj` is a plain dict from `_dto_from_orm()` on every real call site
@@ -2754,40 +2754,40 @@ class NotificationSerializer(serializers.Serializer):
 
 
 __all__ = [
-    "ArtifactSerializer",
-    "StakeholderNeedSerializer",
-    "RequirementSerializer",
+    "QUERYSET_OPTIMIZATIONS",
+    "AdrSerializer",
     "ArchitectureElementSerializer",
-    "TestCaseSerializer",
-    "TraceLinkSerializer",
-    "BaselineSerializer",
+    "ArtifactSerializer",
     "BaselineDeltaEntrySerializer",
-    "BaselineSummarySerializer",
-    "FieldChangeSerializer",
-    "DiffItemSerializer",
     "BaselineDiffSerializer",
+    "BaselineSerializer",
+    "BaselineSummarySerializer",
+    "CommentSerializer",
+    "CustomFieldsSerializerMixin",
+    "DiffItemSerializer",
+    "FieldChangeSerializer",
+    "GlossaryTermSerializer",
+    "IssueSerializer",
+    "NotificationSerializer",
+    "PresetAwareSerializerMixin",
+    "RequirementSerializer",
+    "RiskSerializer",
+    "StakeholderNeedSerializer",
+    "StandardPagination",
+    "TestCaseSerializer",
+    "TestRunResultBulkSerializer",
+    "TestRunResultSerializer",
+    "TestRunSerializer",
+    "TraceLinkPagination",
+    "TraceLinkSerializer",
+    "UnknownFieldRejectionMixin",
+    "UserProfileSerializer",
     "WorkflowDefinitionSerializer",
     "WorkspaceSerializer",
-    "normalize_preset_blob",
-    "extract_preset_tier",
-    "AdrSerializer",
-    "RiskSerializer",
-    "IssueSerializer",
-    "TestRunSerializer",
-    "TestRunResultSerializer",
-    "TestRunResultBulkSerializer",
-    "GlossaryTermSerializer",
-    "UserProfileSerializer",
-    "CommentSerializer",
-    "NotificationSerializer",
-    "StandardPagination",
-    "TraceLinkPagination",
-    "PresetAwareSerializerMixin",
-    "CustomFieldsSerializerMixin",
-    "UnknownFieldRejectionMixin",
-    "build_error_response",
-    "get_error_message",
-    "detect_lang",
     "apply_queryset_optimizations",
-    "QUERYSET_OPTIMIZATIONS",
+    "build_error_response",
+    "detect_lang",
+    "extract_preset_tier",
+    "get_error_message",
+    "normalize_preset_blob",
 ]

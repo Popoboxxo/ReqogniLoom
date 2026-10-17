@@ -16,10 +16,10 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from diagram.mcp_artifact_provider import McpArtifactProvider
 from diagram.manager import DiagramResult
-from diagram.renderer import RenderableDiagram
+from diagram.mcp_artifact_provider import McpArtifactProvider
 from diagram.models import Diagram, DiagramRevision
+from diagram.renderer import RenderableDiagram
 
 
 def _make_mock_manager(

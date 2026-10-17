@@ -31,8 +31,6 @@ cannot drift from ``reqogniloom.health`` or the
 """
 from __future__ import annotations
 
-from typing import List
-
 from django.core.management.base import BaseCommand, CommandError
 
 from persistence.embedding_schema import column_type, embedding_columns
@@ -65,7 +63,7 @@ class Command(BaseCommand):
         provider_dimensions = get_embedding_provider(cfg).dimensions
         expected = f"vector({provider_dimensions})"
 
-        mismatches: List[str] = []
+        mismatches: list[str] = []
         checked = 0
         with connection.cursor() as cursor:
             for column in embedding_columns():

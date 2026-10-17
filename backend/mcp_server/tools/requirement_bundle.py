@@ -47,15 +47,13 @@ records.
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict
-
-from auth_tenancy.context import AuthContext
+from typing import Any
 
 from application.ai_derivation_service import LlmResponseError
 from application.base import NotFoundError, PermissionDeniedError, ValidationError
 from application.bundle_compression_service import (
-    BundleCompressionService,
     SYNC_ITEM_COUNT_THRESHOLD,
+    BundleCompressionService,
 )
 from application.requirement_bundle_formatters import (
     format_bundle_csv,
@@ -66,7 +64,7 @@ from application.requirement_bundle_service import (
     RequirementBundleQueryService,
     describe_attribute_schema,
 )
-
+from auth_tenancy.context import AuthContext
 from mcp_server.protocol_handler import ToolResult
 from mcp_server.tools.base import BaseToolGroup, require_param, require_uuid
 
@@ -266,7 +264,7 @@ class RequirementBundleToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_export(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """requirement_bundle.export — raw or AI-compressed requirement bundle export."""
         root_id = require_uuid(params, "root_id")
@@ -385,7 +383,7 @@ class RequirementBundleToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_attribute_schema(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """requirement_bundle.attribute_schema — discover valid field names."""
         workspace_id = require_uuid(params, "workspace_id")
@@ -401,7 +399,7 @@ class RequirementBundleToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_compression_status(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """requirement_bundle.compression_status — poll an async compression task.
 

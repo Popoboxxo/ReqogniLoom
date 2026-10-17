@@ -44,7 +44,7 @@ layer, not the adapter.
 from __future__ import annotations
 
 import logging
-from typing import Any, Optional
+from typing import Any
 from uuid import UUID
 
 from rest_framework import status
@@ -60,14 +60,14 @@ from admin_ops.services import (
 )
 from admin_ops.services.admin_restore_service import RESTORE_CAPTCHA
 from admin_ops.services.exceptions import BackupStorageError
-from auth_tenancy.context import AuthContext
-from auth_tenancy.rest import HasOperationPermission
-from auth_tenancy.services import Operation
 from application.base import (
     NotFoundError,
     PermissionDeniedError,
     ValidationError,
 )
+from auth_tenancy.context import AuthContext
+from auth_tenancy.rest import HasOperationPermission
+from auth_tenancy.services import Operation
 from rest_api.serializers import build_error_response, detect_lang
 
 logger = logging.getLogger(__name__)
@@ -169,7 +169,7 @@ def _err(
 # ---------------------------------------------------------------------------
 
 
-def _parse_uuid(value: Any, field: str) -> Optional[UUID]:
+def _parse_uuid(value: Any, field: str) -> UUID | None:
     """Parse *value* as a UUID; raise ValidationError on failure."""
     if value is None:
         return None
@@ -181,7 +181,7 @@ def _parse_uuid(value: Any, field: str) -> Optional[UUID]:
         raise ValidationError(f"Field '{field}' is not a valid UUID: {value!r}")
 
 
-def _parse_optional_str(value: Any, field: str, *, max_len: int = 512) -> Optional[str]:
+def _parse_optional_str(value: Any, field: str, *, max_len: int = 512) -> str | None:
     """Return *value* as a stripped string, or None if it is missing/empty."""
     if value is None:
         return None
@@ -322,8 +322,8 @@ class BackupListCreateView(APIView):
         self,
         *,
         ctx: AuthContext,
-        status_filter: Optional[str],
-        backup_type: Optional[str],
+        status_filter: str | None,
+        backup_type: str | None,
         limit: int,
         offset: int,
     ):
@@ -568,4 +568,4 @@ class AdminRestoreView(APIView):
         )
 
 
-__all__ = ["BackupListCreateView", "AdminRestoreView"]
+__all__ = ["AdminRestoreView", "BackupListCreateView"]

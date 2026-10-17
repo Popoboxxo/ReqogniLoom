@@ -118,9 +118,9 @@ def _validate_value(key: str, value: Any) -> Any:
 
 
 __all__ = [
-    "validate_role_permissions",
-    "MAX_PERMISSIONS",
     "MAX_KEY_LENGTH",
+    "MAX_PERMISSIONS",
     "MAX_SCOPES",
     "MAX_SCOPE_LENGTH",
+    "validate_role_permissions",
 ]

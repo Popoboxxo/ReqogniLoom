@@ -1194,8 +1194,7 @@ class TestRequirementVerificationGate:
 
     def test_flag_off_in_extended_is_not_possible_but_registry_is_pinned(self):
         """Guard the tier wiring the gate depends on (#1267)."""
-        from presets.registry import TIER_EXTENDED, TIER_MINIMAL, TIER_STANDARD
-        from presets.registry import get_registry
+        from presets.registry import TIER_EXTENDED, TIER_MINIMAL, TIER_STANDARD, get_registry
 
         registry = get_registry()
         assert (

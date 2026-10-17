@@ -22,7 +22,8 @@ from __future__ import annotations
 
 import datetime as dt
 import uuid
-from dataclasses import dataclass, field as dataclass_field
+from dataclasses import dataclass
+from dataclasses import field as dataclass_field
 from typing import Any
 
 from django.db import models
@@ -31,7 +32,6 @@ from pgvector.django import HnswIndex, VectorField
 from persistence.embedding_dimensions import EMBEDDING_VECTOR_DIMENSIONS
 from persistence.models import TenantScopedModel
 from persistence.tenancy import TenantManager, UnscopedManager
-
 
 # ---------------------------------------------------------------------------
 # Direction choices (REQ-L2-ICD-002)
@@ -289,7 +289,7 @@ class IcdRevision:
         revision: int,
         payload: dict[str, Any],
         created_at: dt.datetime | None = None,
-    ) -> "IcdRevision":
+    ) -> IcdRevision:
         """Build a revision from a stored ``ArtifactVersion.payload``.
 
         Every field defaults rather than raising on a missing key: payloads
@@ -319,7 +319,7 @@ class IcdRevision:
         )
 
     @classmethod
-    def from_icd(cls, icd: "Icd") -> "IcdRevision":
+    def from_icd(cls, icd: Icd) -> IcdRevision:
         """Build the *current* revision straight off the ICD header."""
         return cls(
             icd_id=icd.pk,

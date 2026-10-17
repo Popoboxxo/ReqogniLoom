@@ -32,7 +32,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any
 from uuid import UUID
 
 from django.db import connection, transaction
@@ -42,14 +42,13 @@ from auth_tenancy.context import AuthContext
 # Backward-compat alias used by tests that patch 'application.artifact_service.TenantContext'
 TenantContext = AuthContext
 
-from persistence.models import Artifact, Tenant, Workspace
-from persistence.custom_fields import coerce_custom_fields
-from persistence.transactions import atomic_transaction
-from traceability.audit.hierarchy import recompute_requirement_levels
-
 from application.base import NotFoundError, ServiceBase, ValidationError
 from application.event_bus import DomainEvent
 from application.models import DomainEventOutbox
+from persistence.custom_fields import coerce_custom_fields
+from persistence.models import Artifact, Tenant, Workspace
+from persistence.transactions import atomic_transaction
+from traceability.audit.hierarchy import recompute_requirement_levels
 
 logger = logging.getLogger(__name__)
 
@@ -78,7 +77,7 @@ def _clean_custom_fields(value: object) -> dict:
         raise ValidationError(exc.messages[0] if exc.messages else str(exc))
 
 
-def clean_free_text_field(value: Optional[str], field_name: str) -> Optional[str]:
+def clean_free_text_field(value: str | None, field_name: str) -> str | None:
     """Reject HTML markup / script URIs in a single free-text field (#269, #709).
 
     Defense in depth, same shape as :func:`_clean_custom_fields`: the REST
@@ -119,7 +118,7 @@ def clean_free_text_field(value: Optional[str], field_name: str) -> Optional[str
 _VERSION_NEUTRAL_FIELDS = frozenset({"version", "created_at", "modified_at"})
 
 
-def snapshot_versioned_fields(instance: Any) -> Dict[str, Any]:
+def snapshot_versioned_fields(instance: Any) -> dict[str, Any]:
     """Capture an entity's concrete column values before an update applies.
 
     Pair with :func:`has_field_changes` to decide whether an update is a real
@@ -147,7 +146,7 @@ def snapshot_versioned_fields(instance: Any) -> Dict[str, Any]:
     }
 
 
-def has_field_changes(instance: Any, snapshot: Dict[str, Any]) -> bool:
+def has_field_changes(instance: Any, snapshot: dict[str, Any]) -> bool:
     """Return True if any snapshotted column now holds a different value.
 
     #269 finding 5: ``version`` used to be incremented for every ``update_*()``
@@ -192,12 +191,12 @@ class TreeNodeDTO:
 
     id: UUID
     artifact_type: str
-    children: List["TreeNodeDTO"] = field(default_factory=list)
+    children: list[TreeNodeDTO] = field(default_factory=list)
     #: REQ-L2-AS-037 / Epic #934 WS1: extended attributes of this node's
     #: backing Artifact, so ``artifact.get_tree`` reports attributes too.
-    custom_fields: Dict[str, Any] = field(default_factory=dict)
+    custom_fields: dict[str, Any] = field(default_factory=dict)
 
-    def as_dict(self) -> Dict[str, Any]:
+    def as_dict(self) -> dict[str, Any]:
         return {
             "id": str(self.id),
             "artifact_type": self.artifact_type,
@@ -215,7 +214,7 @@ class TreeNodeDTO:
 # ---------------------------------------------------------------------------
 
 
-def _recompute_derived_levels(artifact_ids: List[UUID]) -> None:
+def _recompute_derived_levels(artifact_ids: list[UUID]) -> None:
     """Re-derive ``Requirement.level`` for *artifact_ids* (ADR-005).
 
     A thin, deliberately un-guarded delegation to the single writer,
@@ -248,14 +247,14 @@ class ArtifactService(ServiceBase):
     # ---------- Cycle Detection (REQ-L2-AS-001, ADR-L3-AS001-01) ----------
 
     @staticmethod
-    def _detect_cycle(new_parent_id: UUID, child_id: UUID) -> Optional[List[UUID]]:
+    def _detect_cycle(new_parent_id: UUID, child_id: UUID) -> list[UUID] | None:
         """Walk UP the ancestor chain from *new_parent_id* looking for *child_id*.
 
         Returns a list of UUIDs forming the cycle path if found, else None.
         O(depth) — acceptable for < 10-level hierarchies per ADR-L3-AS001-01.
         """
-        visited: List[UUID] = []
-        current_id: Optional[UUID] = new_parent_id
+        visited: list[UUID] = []
+        current_id: UUID | None = new_parent_id
 
         while current_id is not None:
             if current_id == child_id:
@@ -272,7 +271,7 @@ class ArtifactService(ServiceBase):
 
         return None
 
-    def _validate_no_cycle(self, artifact_id: UUID, new_parent_id: Optional[UUID]) -> None:
+    def _validate_no_cycle(self, artifact_id: UUID, new_parent_id: UUID | None) -> None:
         """Raise ValidationError if setting parent to *new_parent_id* creates a cycle.
 
         REQ-L2-AS-001 acceptance criteria:
@@ -298,8 +297,8 @@ class ArtifactService(ServiceBase):
         workspace_id: UUID,
         artifact_type: str,
         ctx: AuthContext,
-        parent_id: Optional[UUID] = None,
-        custom_fields: Optional[dict] = None,
+        parent_id: UUID | None = None,
+        custom_fields: dict | None = None,
     ) -> Artifact:
         """Create a new Artifact, validating parent cycle if supplied.
 
@@ -352,8 +351,8 @@ class ArtifactService(ServiceBase):
         self,
         artifact_id: UUID,
         ctx: AuthContext,
-        parent_id: Optional[UUID] = None,
-        artifact_type: Optional[str] = None,
+        parent_id: UUID | None = None,
+        artifact_type: str | None = None,
         custom_fields: object = _UNSET,
     ) -> Artifact:
         """Update parent, type or custom_fields; validates cycle if parent changes.
@@ -460,8 +459,8 @@ class ArtifactService(ServiceBase):
         )
 
     def resolve_artifact_titles(
-        self, artifact_ids: List[Any]
-    ) -> "Dict[str, Dict[str, Any]]":
+        self, artifact_ids: list[Any]
+    ) -> dict[str, dict[str, Any]]:
         """Batch-resolve artifact IDs to ``{title, artifact_type, is_outdated}``.
 
         REQ-002: Provides human-readable labels for TraceLink endpoints without
@@ -505,7 +504,7 @@ class ArtifactService(ServiceBase):
         if not str_ids:
             return {}
 
-        result: Dict[str, Dict[str, Any]] = {}
+        result: dict[str, dict[str, Any]] = {}
 
         # Fetch artifact types first.
         for art in Artifact.objects.filter(id__in=str_ids).values(
@@ -598,8 +597,8 @@ class ArtifactService(ServiceBase):
         return result
 
     def collect_artifact_names(
-        self, item_ids: List[str], tenant_id: UUID
-    ) -> Dict[str, str]:
+        self, item_ids: list[str], tenant_id: UUID
+    ) -> dict[str, str]:
         """Batch-resolve ``{item_id: title}`` for baseline-diff items (REQ-006).
 
         ``item_id`` is the Artifact UUID for ``entity_type == "item"`` entries
@@ -616,7 +615,7 @@ class ArtifactService(ServiceBase):
             TestCase,
         )
 
-        uuids: List[UUID] = []
+        uuids: list[UUID] = []
         for raw in item_ids:
             try:
                 uuids.append(UUID(str(raw)))
@@ -625,7 +624,7 @@ class ArtifactService(ServiceBase):
         if not uuids:
             return {}
 
-        names: Dict[str, str] = {}
+        names: dict[str, str] = {}
         for model in (Requirement, StakeholderNeed, ArchitectureElement, TestCase):
             for artifact_id, title in model.unscoped.filter(
                 artifact_id__in=uuids, tenant_id=tenant_id
@@ -675,7 +674,7 @@ class ArtifactService(ServiceBase):
             SELECT id, parent_id, artifact_type, custom_fields FROM tree ORDER BY depth;
         """
 
-        rows: Dict[UUID, Dict] = {}
+        rows: dict[UUID, dict] = {}
         with connection.cursor() as cursor:
             cursor.execute(sql, [str(root_id), str(workspace_id)])
             for row_id, parent_id, artifact_type, custom_fields in cursor.fetchall():
@@ -692,7 +691,7 @@ class ArtifactService(ServiceBase):
             )
 
         # Build nested structure
-        nodes: Dict[UUID, TreeNodeDTO] = {
+        nodes: dict[UUID, TreeNodeDTO] = {
             uid: TreeNodeDTO(
                 id=uid,
                 artifact_type=data["artifact_type"],
@@ -700,7 +699,7 @@ class ArtifactService(ServiceBase):
             )
             for uid, data in rows.items()
         }
-        root_node: Optional[TreeNodeDTO] = None
+        root_node: TreeNodeDTO | None = None
         for uid, data in rows.items():
             parent_id = data["parent_id"]
             if parent_id and parent_id in nodes:

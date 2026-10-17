@@ -29,7 +29,8 @@ fixture to the test, so no context leaks into the test itself.
 """
 from __future__ import annotations
 
-from typing import Any, Dict, Iterator
+from collections.abc import Iterator
+from typing import Any
 from unittest.mock import MagicMock
 from uuid import uuid4
 
@@ -37,10 +38,10 @@ import pytest
 from django.test import Client
 
 from auth_tenancy.models import (
-    ApiKey,
     ROLE_ADMIN,
     ROLE_EDITOR,
     ROLE_VIEWER,
+    ApiKey,
     TenantRole,
     UserRole,
 )
@@ -48,11 +49,10 @@ from auth_tenancy.services.authentication import (
     generate_api_key_plaintext,
     hash_api_key,
 )
+from link_types.workspace_store import provision_workspace_link_types
 from persistence.middleware import clear_request_tenant, set_request_tenant
 from persistence.models import Tenant, User, Workspace
 from presets.models import WorkspacePresetConfig
-from link_types.workspace_store import provision_workspace_link_types
-
 
 # ---------------------------------------------------------------------------
 # Autouse: reset module-level singletons between tests
@@ -105,7 +105,7 @@ def _e2e_clear_preset_cache() -> Iterator[None]:
 
 
 @pytest.fixture
-def e2e_preset() -> Dict[str, Any]:
+def e2e_preset() -> dict[str, Any]:
     """A preset descriptor enabling all features.
 
     The preset config is held in memory (``presets.registry``); the DB
@@ -195,7 +195,7 @@ def e2e_user_viewer(e2e_tenant: Tenant) -> User:
 def e2e_workspace(
     db: None,
     e2e_tenant: Tenant,
-    e2e_preset: Dict[str, Any],
+    e2e_preset: dict[str, Any],
 ) -> Workspace:
     """A workspace in *e2e_tenant* with the extended preset tier.
 

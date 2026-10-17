@@ -46,14 +46,10 @@ from django.urls import include, path
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 from rest_framework.routers import DefaultRouter
 
-from auth_tenancy.rest_item_permission import ItemPermissionViewSet
-from auth_tenancy.rest_workspace_members import (
-    WorkspaceMemberRoleTransitionView,
-    WorkspaceMembersView,
-)
 from admin_ops.banner_rest import GlobalBannerView, PublicLoginBannerView, WorkspaceBannerView
 from admin_ops.health_rest import SystemHealthView
 from admin_ops.rate_limit_rest import GlobalRateLimitsView, RateLimitsView
+from admin_ops.rest import AdminRestoreView, BackupListCreateView
 from admin_ops.theme_rest import (
     TenantThemeDefaultView,
     ThemePaletteDetailView,
@@ -61,6 +57,12 @@ from admin_ops.theme_rest import (
     ThemePaletteListView,
     UserThemePreferenceView,
 )
+from auth_tenancy.rest_item_permission import ItemPermissionViewSet
+from auth_tenancy.rest_workspace_members import (
+    WorkspaceMemberRoleTransitionView,
+    WorkspaceMembersView,
+)
+from baseline.urls import urlpatterns as baseline_urlpatterns
 from memory.memory_rest import (
     ArtifactMemoryDigestView,
     ArtifactMemoryView,
@@ -80,75 +82,19 @@ from memory.memory_rest import (
     WorkspaceMemorySearchView,
     WorkspaceMemorySettingsView,
 )
-from rest_api.audit_views import (
-    AuditRuleCatalogView,
-    WorkspaceAuditAiReviewView,
-    WorkspaceAuditRemediateView,
-    WorkspaceAuditView,
-    WorkspaceAuditWaiverView,
-)
-from rest_api.traceability_suggest_views import (
-    TraceabilitySuggestLinksStatusView,
-    WorkspaceTraceabilitySuggestLinksView,
-)
-from rest_api.review_views import (
-    ReviewsPendingView,
-    WorkspaceReviewsPendingView,
-)
-from rest_api.suggestion_views import (
-    SuggestionAcceptView,
-    SuggestionListView,
-    SuggestionRejectView,
-)
+from rest_api.api_key_views import ApiKeyViewSet
 from rest_api.architecture_decompose_views import (
     WorkspaceArchitectureDecomposeCommitView,
     WorkspaceArchitectureDecomposeView,
 )
-from admin_ops.rest import AdminRestoreView, BackupListCreateView
-from baseline.urls import urlpatterns as baseline_urlpatterns
-from rest_api.api_key_views import ApiKeyViewSet
-from rest_api.auth_views import LoginView, LogoutView, MeView, RefreshView
-from rest_api.collaboration_views import (
-    ArtifactCommentsView,
-    CommentViewSet,
-    NotificationViewSet,
-)
-from rest_api.diagram_canvas_views import (
-    CanvasStrokeView,
-    MermaidPreviewView,
-    MermaidSourceView,
-)
-from rest_api.diagram_views import DiagramViewSet
-from rest_api.display_preference_views import DisplayPreferenceView
-from rest_api.tree_display_config_views import (
-    TreeDisplayConfigGlobalView,
-    TreeDisplayConfigUserView,
-    TreeDisplayConfigWorkspaceView,
-)
-from rest_api.create_form_config_views import (
-    CreateFormConfigGlobalView,
-    CreateFormConfigUserView,
-    CreateFormConfigWorkspaceView,
-)
-from rest_api.icd_views import IcdViewSet
-from rest_api.interview_views import InterviewViewSet
-from rest_api.metrics_views import MetricsViewSet
-from rest_api.notification_preference_views import NotificationPreferenceView
-from rest_api.preference_views import UserPreferenceView
-from rest_api.user_management_views import UserViewSet
-from rest_api.prompt_variable_views import (
-    PromptVariableDetailView,
-    PromptVariableListView,
-)
-from rest_api.settings_views import (
-    ContextGraphRebuildView,
-    ContextGraphSettingsView,
-    LlmSettingsView,
-    PromptTemplateResetView,
-    PromptTemplateSlotDetailView,
-    PromptTemplateSlotListView,
-    PromptTemplateView,
-    ReviewPolicyView,
+from rest_api.attribute_catalog_views import (
+    AttributeCatalogAddToDefinitionView,
+    AttributeCatalogDeprecateView,
+    AttributeCatalogDetailView,
+    AttributeCatalogExportView,
+    AttributeCatalogImportView,
+    AttributeCatalogListView,
+    AttributeCatalogSearchView,
 )
 from rest_api.attribute_definition_views import (
     AttributeDefaultsDetailView,
@@ -163,15 +109,6 @@ from rest_api.attribute_definition_views import (
     WorkspaceAttributeDefinitionResetView,
     WorkspaceAttributeDefinitionView,
 )
-from rest_api.attribute_catalog_views import (
-    AttributeCatalogAddToDefinitionView,
-    AttributeCatalogDeprecateView,
-    AttributeCatalogDetailView,
-    AttributeCatalogExportView,
-    AttributeCatalogImportView,
-    AttributeCatalogListView,
-    AttributeCatalogSearchView,
-)
 from rest_api.attribute_migration_views import (
     AttributeMigrationApplyView,
     AttributeMigrationPlanView,
@@ -179,6 +116,31 @@ from rest_api.attribute_migration_views import (
     AttributeMigrationRunDetailView,
     AttributeMigrationRunListView,
 )
+from rest_api.audit_views import (
+    AuditRuleCatalogView,
+    WorkspaceAuditAiReviewView,
+    WorkspaceAuditRemediateView,
+    WorkspaceAuditView,
+    WorkspaceAuditWaiverView,
+)
+from rest_api.auth_views import LoginView, LogoutView, MeView, RefreshView
+from rest_api.collaboration_views import (
+    ArtifactCommentsView,
+    CommentViewSet,
+    NotificationViewSet,
+)
+from rest_api.create_form_config_views import (
+    CreateFormConfigGlobalView,
+    CreateFormConfigUserView,
+    CreateFormConfigWorkspaceView,
+)
+from rest_api.diagram_canvas_views import (
+    CanvasStrokeView,
+    MermaidPreviewView,
+    MermaidSourceView,
+)
+from rest_api.diagram_views import DiagramViewSet
+from rest_api.display_preference_views import DisplayPreferenceView
 from rest_api.global_default_views import (
     EnforcementFlipView,
     EnforcementStatusView,
@@ -194,6 +156,8 @@ from rest_api.global_default_views import (
     WorkspacePermissionDefinitionView,
     WorkspacePermissionResetView,
 )
+from rest_api.icd_views import IcdViewSet
+from rest_api.interview_views import InterviewViewSet
 from rest_api.link_type_views import (
     LinkTypeDefaultsDetailView,
     LinkTypeDefaultsListView,
@@ -201,6 +165,42 @@ from rest_api.link_type_views import (
     WorkspaceLinkTypeListView,
     WorkspaceLinkTypeResetView,
 )
+from rest_api.metrics_views import MetricsViewSet
+from rest_api.notification_preference_views import NotificationPreferenceView
+from rest_api.preference_views import UserPreferenceView
+from rest_api.prompt_variable_views import (
+    PromptVariableDetailView,
+    PromptVariableListView,
+)
+from rest_api.review_views import (
+    ReviewsPendingView,
+    WorkspaceReviewsPendingView,
+)
+from rest_api.settings_views import (
+    ContextGraphRebuildView,
+    ContextGraphSettingsView,
+    LlmSettingsView,
+    PromptTemplateResetView,
+    PromptTemplateSlotDetailView,
+    PromptTemplateSlotListView,
+    PromptTemplateView,
+    ReviewPolicyView,
+)
+from rest_api.suggestion_views import (
+    SuggestionAcceptView,
+    SuggestionListView,
+    SuggestionRejectView,
+)
+from rest_api.traceability_suggest_views import (
+    TraceabilitySuggestLinksStatusView,
+    WorkspaceTraceabilitySuggestLinksView,
+)
+from rest_api.tree_display_config_views import (
+    TreeDisplayConfigGlobalView,
+    TreeDisplayConfigUserView,
+    TreeDisplayConfigWorkspaceView,
+)
+from rest_api.user_management_views import UserViewSet
 from rest_api.views import (
     AdrViewSet,
     ArchitectureElementViewSet,
@@ -220,9 +220,9 @@ from rest_api.views import (
     ReqifImportView,
     RequirementHistoryView,
     RequirementViewSet,
-    StakeholderNeedViewSet,
     RiskViewSet,
     SearchViewSet,
+    StakeholderNeedViewSet,
     TestCaseViewSet,
     TestRunViewSet,
     TraceabilityViewSet,

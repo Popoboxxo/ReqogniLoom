@@ -51,7 +51,8 @@ service-level call to :func:`find_free_text_violation`) silently opts out.
 """
 from __future__ import annotations
 
-from typing import Any, Iterable, Mapping
+from collections.abc import Iterable, Mapping
+from typing import Any
 
 from rest_framework import serializers
 

@@ -18,14 +18,14 @@ from unittest.mock import MagicMock, patch
 import pytest
 from rest_framework import exceptions
 
+from auth_tenancy.rest import AuthTenancyAuthentication
+from auth_tenancy.services import Operation, operation_for_method
 from rest_api.auth_enforcer import (
     BearerTokenAuthentication,
     RbacPermission,
     get_auth_context,
 )
 from rest_api.auth_views import MeView
-from auth_tenancy.rest import AuthTenancyAuthentication
-from auth_tenancy.services import Operation, operation_for_method
 
 
 class TestBearerTokenAuthentication:
@@ -94,8 +94,9 @@ class TestRbacPermission:
 
     def test_viewer_role_get_allowed(self) -> None:
         """REQ-L3-RA003-002: Role viewer → GET allowed."""
-        from auth_tenancy.context import AuthContext, AuthMethod
         import uuid
+
+        from auth_tenancy.context import AuthContext, AuthMethod
 
         ctx = AuthContext(
             user_id=uuid.uuid4(),
@@ -116,8 +117,9 @@ class TestRbacPermission:
 
     def test_viewer_role_post_denied(self) -> None:
         """REQ-L3-RA003-002: Role viewer → POST denied (403)."""
-        from auth_tenancy.context import AuthContext, AuthMethod
         import uuid
+
+        from auth_tenancy.context import AuthContext, AuthMethod
 
         ctx = AuthContext(
             user_id=uuid.uuid4(),
@@ -139,8 +141,9 @@ class TestRbacPermission:
 
     def test_admin_role_all_methods_allowed(self) -> None:
         """REQ-L3-RA003-002: Role admin → all operations allowed."""
-        from auth_tenancy.context import AuthContext, AuthMethod
         import uuid
+
+        from auth_tenancy.context import AuthContext, AuthMethod
 
         ctx = AuthContext(
             user_id=uuid.uuid4(),
@@ -163,8 +166,9 @@ class TestRbacPermission:
 
     def test_editor_read_and_write_allowed(self) -> None:
         """REQ-L3-RA003-002: Role editor → read and write allowed."""
-        from auth_tenancy.context import AuthContext, AuthMethod
         import uuid
+
+        from auth_tenancy.context import AuthContext, AuthMethod
 
         ctx = AuthContext(
             user_id=uuid.uuid4(),
@@ -197,8 +201,9 @@ class TestGetAuthContext:
 
     def test_returns_context_when_present(self) -> None:
         """get_auth_context returns the AuthContext object."""
-        from auth_tenancy.context import AuthContext, AuthMethod
         import uuid
+
+        from auth_tenancy.context import AuthContext, AuthMethod
 
         ctx = AuthContext(
             user_id=uuid.uuid4(),
@@ -213,9 +218,10 @@ class TestGetAuthContext:
 
     def test_tenant_id_immutable_in_context(self) -> None:
         """REQ-L3-RA003-003: AuthContext is frozen — tenant_id cannot be overridden."""
-        from auth_tenancy.context import AuthContext, AuthMethod
         import uuid
         from dataclasses import FrozenInstanceError
+
+        from auth_tenancy.context import AuthContext, AuthMethod
 
         ctx = AuthContext(
             user_id=uuid.uuid4(),

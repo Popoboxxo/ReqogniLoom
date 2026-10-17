@@ -21,7 +21,7 @@ Reference:
 """
 from django.urls import path
 
-from mcp_server.views import McpHttpTransportView, McpSseTransportView, McpMessagesView
+from mcp_server.views import McpHttpTransportView, McpMessagesView, McpSseTransportView
 
 urlpatterns = [
     # HTTP transport (IF-MC-EXT-IN-001 over HTTP)

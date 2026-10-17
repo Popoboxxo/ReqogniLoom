@@ -24,20 +24,17 @@ from uuid import UUID
 
 import pytest
 
-from auth_tenancy.context import AuthContext, AuthMethod
-
 from application.base import (
     NotFoundError,
     PermissionDeniedError,
 )
-
-from mcp_server.tools.requirements import RequirementsToolGroup
+from auth_tenancy.context import AuthContext, AuthMethod
 from mcp_server.tools.architecture import ArchitectureToolGroup
-from mcp_server.tools.tests import TestToolGroup
+from mcp_server.tools.base import ParameterError, require_param, require_uuid
 from mcp_server.tools.cross_cutting import CrossCuttingToolGroup
 from mcp_server.tools.needs import StakeholderNeedsToolGroup
-from mcp_server.tools.base import require_param, require_uuid, ParameterError
-
+from mcp_server.tools.requirements import RequirementsToolGroup
+from mcp_server.tools.tests import TestToolGroup
 
 # ---------------------------------------------------------------------------
 # Shared fixtures

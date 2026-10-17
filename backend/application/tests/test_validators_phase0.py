@@ -56,7 +56,7 @@ def i5_ctx(i5_tenant):
 class TestI5ExcludesOutdatedRoot:
     def test_existing_root_blocks_second_root(self, i5_tenant, i5_workspace):
         """Positive control: a live root still blocks a second root."""
-        from persistence.models import Artifact, ArchitectureElement
+        from persistence.models import ArchitectureElement, Artifact
         from persistence.tenancy import TenantContext
 
         TenantContext.set_tenant(i5_tenant.id)
@@ -74,7 +74,7 @@ class TestI5ExcludesOutdatedRoot:
         self, i5_tenant, i5_workspace, i5_ctx
     ):
         """Once the sole root is outdate()'d, a new root must be allowed."""
-        from persistence.models import Artifact, ArchitectureElement
+        from persistence.models import ArchitectureElement, Artifact
         from persistence.tenancy import TenantContext
         from workflow.services import create_default_workflow, outdate
 

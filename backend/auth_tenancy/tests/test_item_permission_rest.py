@@ -26,6 +26,11 @@ from rest_framework import status
 from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory
 
+from application.base import (
+    NotFoundError,
+    PermissionDeniedError,
+    ValidationError,
+)
 from auth_tenancy.context import AuthContext, AuthMethod
 from auth_tenancy.models import (
     ITEM_PERMISSION_READ,
@@ -34,14 +39,7 @@ from auth_tenancy.models import (
 )
 from auth_tenancy.services import ItemPermissionService
 
-from application.base import (
-    NotFoundError,
-    PermissionDeniedError,
-    ValidationError,
-)
-
 from .conftest import active_tenant
-
 
 # ---------------------------------------------------------------------------
 # Helpers

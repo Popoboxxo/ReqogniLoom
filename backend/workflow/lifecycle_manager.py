@@ -18,9 +18,9 @@ Architecture:
 """
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from typing import Iterable, Optional
+from datetime import UTC, datetime
 from uuid import UUID
 
 from django.db import transaction
@@ -28,7 +28,6 @@ from django.db import transaction
 from .definition_store import WorkflowDefinitionStore
 from .models import WorkflowEngineDefinition, WorkflowHistoryEntry, WorkflowItemState
 from .transition_validator import ValidationResult
-
 
 # ---------------------------------------------------------------------------
 # Custom exceptions
@@ -67,7 +66,7 @@ class TransitionOutcome:
     history_entry_id: UUID
     previous_state: str
     new_state: str
-    signature_seal: Optional[str] = None
+    signature_seal: str | None = None
 
 
 class StateLifecycleManager:
@@ -169,7 +168,7 @@ class StateLifecycleManager:
                 from_state="",
                 to_state=initial_state,
                 transitioned_by=proposed_by or "agent",
-                transitioned_at=datetime.now(timezone.utc),
+                transitioned_at=datetime.now(UTC),
                 change_reason="",
                 workspace_id=workspace_id,
                 tenant_id=state.tenant_id,
@@ -297,8 +296,8 @@ class StateLifecycleManager:
         transitioned_by: str,
         validation_result: ValidationResult,
         change_reason: str = "",
-        expected_version: Optional[int] = None,
-        item_state: Optional[WorkflowItemState] = None,
+        expected_version: int | None = None,
+        item_state: WorkflowItemState | None = None,
     ) -> TransitionOutcome:
         """Atomically mutate state and append a history entry.
 
@@ -392,7 +391,7 @@ class StateLifecycleManager:
         # Append-only history entry (REQ-L2-WE-003, ADR-L3-WE003-03).
         # Use the unscoped manager to bypass TenantManager.get_queryset()
         # during INSERT (tenant_id comes from item_state.tenant_id).
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         history = WorkflowHistoryEntry.unscoped.create(
             item_state=item_state,
             from_state=previous_state,
@@ -446,7 +445,7 @@ class StateLifecycleManager:
         change_reason: str,
         actor: str,
         *,
-        actor_roles: Optional["Iterable[str]"] = None,
+        actor_roles: Iterable[str] | None = None,
         allow_system: bool = False,
     ) -> TransitionOutcome:
         """Transition an item to ``target_state`` bypassing normal
@@ -522,7 +521,7 @@ class StateLifecycleManager:
         # Use the unscoped manager to bypass TenantManager.get_queryset()
         # during INSERT (tenant_id comes from item_state.tenant_id), mirroring
         # perform_transition's history-append pattern above.
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         history = WorkflowHistoryEntry.unscoped.create(
             item_state=item_state,
             from_state=previous_state,

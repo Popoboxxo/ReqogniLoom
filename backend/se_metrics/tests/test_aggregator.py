@@ -21,7 +21,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, List, Optional
+from typing import Any, Optional
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -29,22 +29,21 @@ import pytest
 from auth_tenancy.context import AuthMethod
 from persistence.tenancy import TenantContext
 from se_metrics.aggregator import (
-    MetricsAggregator,
     DEFAULT_TIMEFRAME,
+    MetricsAggregator,
     _fetch_risks,
     _parse_timeframe_days,
     _resolve_requirement_titles,
 )
 from se_metrics.types import (
+    CoverageResult,
     MetricsResult,
+    RiskResult,
     ThresholdConfig,
     VolatileRequirement,
     VolatilityResult,
-    CoverageResult,
     WorkflowGapResult,
-    RiskResult,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers

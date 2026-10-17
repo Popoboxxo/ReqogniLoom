@@ -23,18 +23,16 @@ Architecture:
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
-from typing import Dict, List, Optional
+from datetime import UTC, datetime
 from uuid import UUID
 
 from django.db.models import QuerySet
 
+from application.base import NotFoundError, ServiceBase, ValidationError
+from application.local_uid import generate_local_uid
 from auth_tenancy.context import AuthContext
 from persistence.models import Tenant, TestCase, TestRun, TestRunResult, Workspace
 from persistence.transactions import atomic_transaction
-
-from application.base import NotFoundError, ServiceBase, ValidationError
-from application.local_uid import generate_local_uid
 
 logger = logging.getLogger(__name__)
 
@@ -54,9 +52,9 @@ class TestRunService(ServiceBase):
         name: str,
         ctx: AuthContext,
         ci_job_id: str = "",
-        test_case_ids: Optional[List[UUID]] = None,
-        uid: Optional[str] = None,
-        tested_artifact_version: Optional[str] = None,
+        test_case_ids: list[UUID] | None = None,
+        uid: str | None = None,
+        tested_artifact_version: str | None = None,
     ) -> TestRun:
         """Create a TestRun with optional initial TestCase results.
 
@@ -81,7 +79,7 @@ class TestRunService(ServiceBase):
             tenant=tenant,
             name=name,
             workspace=workspace,
-            started_at=datetime.now(timezone.utc),
+            started_at=datetime.now(UTC),
             ci_job_id=ci_job_id,
             tested_artifact_version=tested_artifact_version,
             # Issue #932: allocate the local readable uid when not supplied.
@@ -113,9 +111,9 @@ class TestRunService(ServiceBase):
         self,
         test_run_id: UUID,
         ctx: AuthContext,
-        name: Optional[str] = None,
-        ci_job_id: Optional[str] = None,
-        tested_artifact_version: Optional[str] = None,
+        name: str | None = None,
+        ci_job_id: str | None = None,
+        tested_artifact_version: str | None = None,
     ) -> TestRun:
         """Update TestRun metadata.
 
@@ -175,7 +173,7 @@ class TestRunService(ServiceBase):
         # Recalculate aggregate status
         aggregate_status = self._compute_aggregate_status(test_run, is_closing=True)
         test_run.status = aggregate_status
-        test_run.finished_at = datetime.now(timezone.utc)
+        test_run.finished_at = datetime.now(UTC)
         test_run.save()
 
         self._audit(
@@ -197,8 +195,8 @@ class TestRunService(ServiceBase):
         status: str,
         ctx: AuthContext,
         message: str = "",
-        duration_ms: Optional[int] = None,
-        executed_at: Optional[datetime] = None,
+        duration_ms: int | None = None,
+        executed_at: datetime | None = None,
     ) -> TestRunResult:
         """Record a single TestCase execution result in a TestRun.
 
@@ -235,7 +233,7 @@ class TestRunService(ServiceBase):
                 "status": status,
                 "message": message,
                 "duration_ms": duration_ms,
-                "executed_at": executed_at or datetime.now(timezone.utc),
+                "executed_at": executed_at or datetime.now(UTC),
             },
         )
 
@@ -269,9 +267,9 @@ class TestRunService(ServiceBase):
     def add_results_bulk(
         self,
         test_run_id: UUID,
-        results: List[Dict],
+        results: list[dict],
         ctx: AuthContext,
-    ) -> List[TestRunResult]:
+    ) -> list[TestRunResult]:
         """Record multiple TestCase results in a single call (REQ-L2-AS-031).
 
         GH-403: each entry is upserted per (test_run, test_case) — see
@@ -296,8 +294,8 @@ class TestRunService(ServiceBase):
         if test_run is None:
             raise NotFoundError(f"TestRun {test_run_id} not found")
 
-        created: List[TestRunResult] = []
-        now = datetime.now(timezone.utc)
+        created: list[TestRunResult] = []
+        now = datetime.now(UTC)
 
         for entry in results:
             status = entry.get("status", "not_run")
@@ -381,7 +379,7 @@ class TestRunService(ServiceBase):
     # ---------- Helpers ----------
 
     @staticmethod
-    def _sync_run_status_from_results(test_run_id: UUID) -> Optional[str]:
+    def _sync_run_status_from_results(test_run_id: UUID) -> str | None:
         """Re-derive ``status``/``finished_at`` after a result write (GH-584).
 
         A TestRun used to leave ``"in_progress"`` only when someone made a
@@ -482,12 +480,12 @@ class TestRunService(ServiceBase):
 
         if outstanding:
             new_status: str = "in_progress"
-            new_finished_at: Optional[datetime] = None
+            new_finished_at: datetime | None = None
         else:
             new_status = TestRunService._compute_aggregate_status(
                 locked_run, results=results
             )
-            new_finished_at = datetime.now(timezone.utc)
+            new_finished_at = datetime.now(UTC)
 
         # Nothing derived changed — do not touch the row. Without the
         # finished_at half of this guard, re-reporting an unchanged result on
@@ -508,7 +506,7 @@ class TestRunService(ServiceBase):
         test_run: TestRun,
         *,
         is_closing: bool = False,
-        results: Optional[List[TestRunResult]] = None,
+        results: list[TestRunResult] | None = None,
     ) -> str:
         """Compute the aggregate status from individual results.
 
@@ -547,6 +545,6 @@ class TestRunService(ServiceBase):
 
 
 __all__ = [
-    "TestRunService",
     "VALID_RESULT_STATUSES",
+    "TestRunService",
 ]

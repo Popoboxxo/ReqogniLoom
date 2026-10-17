@@ -18,9 +18,10 @@ tenant-scoped ``as_*`` table is row-level protected (REQ-L2-PL-010, ADR-PL-03).
 leaf_id : COMP-AS-021
 req_id  : REQ-157, REQ-L2-PL-010
 """
-from django.db import migrations, models
-import django.db.models.deletion
 import uuid
+
+import django.db.models.deletion
+from django.db import migrations, models
 
 _RLS_TABLE = "as_change_request_affected_item"
 _RLS_POLICY = f"{_RLS_TABLE}_tenant_isolation"

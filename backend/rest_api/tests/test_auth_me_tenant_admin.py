@@ -46,7 +46,7 @@ def _make_user(tenant: Tenant, *, username: str, is_tenant_admin: bool) -> User:
         clear_request_tenant()
 
 
-def _login(username: str) -> "dict":
+def _login(username: str) -> dict:
     client = APIClient()
     resp = client.post(
         "/api/v1/auth/login/", {"username": username, "password": "hunter2pass"}, format="json"

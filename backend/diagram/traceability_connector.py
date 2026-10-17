@@ -45,12 +45,10 @@ Per-node artifact_ref reconciler (Codeberg #353 Task 4):
 from __future__ import annotations
 
 import uuid
-from typing import Optional
 
 from diagram.models import Diagram
-from traceability.services import create_trace_link
 from traceability.exceptions import TraceLinkError
-
+from traceability.services import create_trace_link
 
 # ---------------------------------------------------------------------------
 # Shadow-Artifact resolution (Codeberg #353 Task 3 / #392)
@@ -116,10 +114,10 @@ def _resolve_artifact_id(diagram: Diagram) -> uuid.UUID:
 # ---------------------------------------------------------------------------
 
 def _resolve_target_artifact_id(
-    entity_type: Optional[str],
+    entity_type: str | None,
     ref_id: uuid.UUID,
     tenant_id: uuid.UUID,
-) -> Optional[uuid.UUID]:
+) -> uuid.UUID | None:
     """Resolve one validated node_graph ``artifact_ref`` to a target Artifact id.
 
     Returns ``None`` — a single "unresolvable" outcome — for all three abort
@@ -293,7 +291,7 @@ def _resolve_target_artifact_id(
 def sync_node_links(
     diagram: Diagram,
     node_graph_payload: dict,
-    created_by_id: Optional[uuid.UUID] = None,
+    created_by_id: uuid.UUID | None = None,
 ) -> None:
     """Reconcile a Diagram's ``DIAGRAM_REF`` TraceLinks to its node_graph refs.
 
@@ -448,7 +446,7 @@ class TraceabilityConnector:
         self,
         diagram_id: uuid.UUID,
         target_id: uuid.UUID,
-        created_by_id: Optional[uuid.UUID] = None,
+        created_by_id: uuid.UUID | None = None,
     ) -> object:
         """Create a 'references' TraceLink between a diagram and a target artifact.
 

@@ -66,9 +66,9 @@ def test_tenant_isolation_policy_exists_for_both_tables():
 @_pg_only
 def test_rls_blocks_cross_tenant_access_to_context_edge():
     """A ContextEdge row created for tenant A must be invisible to tenant B."""
+    from context_graph.models import ContextEdge
     from persistence.db_roles import APP_DB_ROLE
     from persistence.models import Artifact
-    from context_graph.models import ContextEdge
 
     tenant_a, workspace_a, ctx_a = seed_workspace("cg-rls-a")
     art1 = Artifact.objects.create(tenant=tenant_a, workspace=workspace_a, artifact_type="Requirement")

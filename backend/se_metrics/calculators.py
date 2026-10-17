@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import logging
 from collections import Counter, defaultdict
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from se_metrics.types import (
     CoverageResult,
@@ -33,9 +33,9 @@ from se_metrics.types import (
     RiskResult,
     ThresholdConfig,
     ThresholdWarning,
+    VerificationCoverageResult,
     VolatileRequirement,
     VolatilityResult,
-    VerificationCoverageResult,
     WorkflowGap,
     WorkflowGapResult,
 )
@@ -72,7 +72,7 @@ class VolatilityCalculator:
 
     def calculate(
         self,
-        audit_entries: List[Any],
+        audit_entries: list[Any],
         timeframe: str,
     ) -> VolatilityResult:
         """Compute volatility metrics from AuditLog entries.
@@ -206,8 +206,8 @@ class VerificationCoverageCalculator:
         *,
         total: int,
         covered: int,
-        uncovered_ids: List[str],
-    ) -> "VerificationCoverageResult":
+        uncovered_ids: list[str],
+    ) -> VerificationCoverageResult:
         """Compute the verification-coverage percentage.
 
         Args:
@@ -256,7 +256,7 @@ class WorkflowGapDetector:
     """
 
     def detect(
-        self, incomplete_states: List[IncompleteState]
+        self, incomplete_states: list[IncompleteState]
     ) -> WorkflowGapResult:
         """Detect workflow gaps from pre-fetched incomplete state data.
 
@@ -273,7 +273,7 @@ class WorkflowGapDetector:
         if not incomplete_states:
             return WorkflowGapResult(total_incomplete=0, items=[])
 
-        gaps: List[WorkflowGap] = []
+        gaps: list[WorkflowGap] = []
         distinct_item_ids: set = set()
 
         for state in incomplete_states:
@@ -334,7 +334,7 @@ class RiskClassifier:
     - No risks → {total: 0, by_severity: {critical:0, high:0, medium:0, low:0}}
     """
 
-    def classify(self, risk_artifacts: List[Any]) -> RiskResult:
+    def classify(self, risk_artifacts: list[Any]) -> RiskResult:
         """Classify open risks by severity.
 
         IF-SM-INT-005 contract.
@@ -348,7 +348,7 @@ class RiskClassifier:
         Returns:
             RiskResult with total open count and breakdown by severity.
         """
-        counts: Dict[str, int] = {"critical": 0, "high": 0, "medium": 0, "low": 0}
+        counts: dict[str, int] = {"critical": 0, "high": 0, "medium": 0, "low": 0}
 
         for risk in risk_artifacts:
             status = str(getattr(risk, "status", ""))
@@ -397,8 +397,8 @@ class ThresholdEvaluator:
         self,
         metrics_result: MetricsResult,
         workspace_id: str,
-        threshold_config: Optional[ThresholdConfig] = None,
-    ) -> List[ThresholdWarning]:
+        threshold_config: ThresholdConfig | None = None,
+    ) -> list[ThresholdWarning]:
         """Evaluate metric values against configured thresholds.
 
         IF-SM-INT-006 contract.
@@ -416,7 +416,7 @@ class ThresholdEvaluator:
         if threshold_config is None:
             return []
 
-        warnings: List[ThresholdWarning] = []
+        warnings: list[ThresholdWarning] = []
 
         # Check traceability coverage (warn if below minimum)
         if threshold_config.traceability_coverage_min is not None:
@@ -490,10 +490,10 @@ class ThresholdEvaluator:
 
 
 __all__ = [
-    "VolatilityCalculator",
     "CoverageCalculator",
-    "VerificationCoverageCalculator",
-    "WorkflowGapDetector",
     "RiskClassifier",
     "ThresholdEvaluator",
+    "VerificationCoverageCalculator",
+    "VolatilityCalculator",
+    "WorkflowGapDetector",
 ]

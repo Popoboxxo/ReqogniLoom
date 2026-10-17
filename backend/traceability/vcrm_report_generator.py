@@ -27,7 +27,7 @@ from __future__ import annotations
 import csv
 import io
 import uuid
-from typing import Any, Optional
+from typing import Any
 
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, landscape
@@ -37,7 +37,6 @@ from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, Tabl
 
 from persistence.models import ArchitectureElement
 from persistence.tenancy import TenantContext
-
 from traceability.coverage_calculator import CoverageCalculator
 from traceability.query_engine import QueryEngine
 from traceability.types import VCRMMatrix, VCRMRow
@@ -55,8 +54,8 @@ class VCRMReportGenerator:
 
     def __init__(
         self,
-        coverage_calculator: Optional[CoverageCalculator] = None,
-        query_engine: Optional[QueryEngine] = None,
+        coverage_calculator: CoverageCalculator | None = None,
+        query_engine: QueryEngine | None = None,
     ) -> None:
         self._coverage = coverage_calculator or CoverageCalculator()
         self._query_engine = query_engine or QueryEngine()
@@ -65,7 +64,7 @@ class VCRMReportGenerator:
     def generate_vcrm(
         self,
         workspace_id: uuid.UUID,
-        baseline_id: Optional[uuid.UUID] = None,
+        baseline_id: uuid.UUID | None = None,
     ) -> VCRMMatrix:
         """Generate the VCRM matrix for a workspace.
 
@@ -135,7 +134,7 @@ class VCRMReportGenerator:
     def export_vcrm_csv(
         self,
         workspace_id: uuid.UUID,
-        baseline_id: Optional[uuid.UUID] = None,
+        baseline_id: uuid.UUID | None = None,
     ) -> str:
         """Export the VCRM matrix as a CSV string.
 
@@ -159,7 +158,7 @@ class VCRMReportGenerator:
     def export_vcrm_pdf(
         self,
         workspace_id: uuid.UUID,
-        baseline_id: Optional[uuid.UUID] = None,
+        baseline_id: uuid.UUID | None = None,
     ) -> bytes:
         """Export the VCRM matrix as a PDF.
 

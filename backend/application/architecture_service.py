@@ -22,11 +22,17 @@ Architecture:
 from __future__ import annotations
 
 import logging
-from typing import List, Optional
 from uuid import UUID
 
 from django.db.models import F
 
+from application.artifact_service import _clean_custom_fields
+from application.artifact_version_service import ArtifactVersionService, snapshot_fields
+from application.base import NotFoundError, OptimisticLockError, ServiceBase, ValidationError
+from application.local_uid import generate_local_uid
+from application.models import DomainEventOutbox
+from application.optimistic_lock import assert_expected_version
+from application.validators import ArchitectureElementInvariantValidator
 from auth_tenancy.context import AuthContext
 from persistence.models import (
     ArchitectureElement,
@@ -37,14 +43,6 @@ from persistence.models import (
     derive_architecture_role,
 )
 from persistence.transactions import atomic_transaction
-
-from application.artifact_service import _clean_custom_fields
-from application.artifact_version_service import ArtifactVersionService, snapshot_fields
-from application.base import NotFoundError, OptimisticLockError, ServiceBase, ValidationError
-from application.local_uid import generate_local_uid
-from application.models import DomainEventOutbox
-from application.optimistic_lock import assert_expected_version
-from application.validators import ArchitectureElementInvariantValidator
 
 logger = logging.getLogger(__name__)
 
@@ -80,7 +78,7 @@ class ArchitectureService(ServiceBase):
         return normalized or ElementType.COMPONENT
 
     @staticmethod
-    def _parent_artifact_id(parent_element_id: Optional[UUID]) -> Optional[UUID]:
+    def _parent_artifact_id(parent_element_id: UUID | None) -> UUID | None:
         """Map an ArchitectureElement parent id to its backing Artifact id.
 
         Issue #366: ``ArchitectureElement.parent`` and ``Artifact.parent`` are
@@ -113,11 +111,11 @@ class ArchitectureService(ServiceBase):
         ctx: AuthContext,
         description: str = "",
         element_type: str = ElementType.COMPONENT,
-        parent_id: Optional[UUID] = None,
-        asil_level: Optional[str] = None,
-        make_or_buy: Optional[str] = None,
-        uid: Optional[str] = None,
-        custom_fields: Optional[dict] = None,
+        parent_id: UUID | None = None,
+        asil_level: str | None = None,
+        make_or_buy: str | None = None,
+        uid: str | None = None,
+        custom_fields: dict | None = None,
     ) -> ArchitectureElement:
         """Create an ArchitectureElement with initial version=1.
 
@@ -222,13 +220,13 @@ class ArchitectureService(ServiceBase):
         arch_el_id: UUID,
         ctx: AuthContext,
         expected_version: int | None = None,
-        title: Optional[str] = None,
-        description: Optional[str] = None,
-        element_type: Optional[str] = None,
+        title: str | None = None,
+        description: str | None = None,
+        element_type: str | None = None,
         parent_id: object = _UNSET,
-        asil_level: Optional[str] = _UNSET,
-        make_or_buy: Optional[str] = _UNSET,
-        uid: Optional[str] = _UNSET,
+        asil_level: str | None = _UNSET,
+        make_or_buy: str | None = _UNSET,
+        uid: str | None = _UNSET,
         custom_fields: object = _UNSET,
     ) -> ArchitectureElement:
         """Update an ArchitectureElement with optimistic locking.
@@ -436,8 +434,8 @@ class ArchitectureService(ServiceBase):
         workspace_id: UUID,
         ctx: AuthContext,
         include_deleted: bool = False,
-        search: Optional[str] = None,
-    ) -> List[ArchitectureElement]:
+        search: str | None = None,
+    ) -> list[ArchitectureElement]:
         """Return ArchitectureElements in *workspace_id*.
 
         REQ-006: Excludes soft-deleted elements (lifecycle_status='deleted') by default.
@@ -485,7 +483,7 @@ class ArchitectureService(ServiceBase):
         return elements
 
     @staticmethod
-    def _annotate_levels(elements: List[ArchitectureElement]) -> None:
+    def _annotate_levels(elements: list[ArchitectureElement]) -> None:
         """Set ``_level_annotated`` on each element via a single in-memory pass.
 
         REQ-070: The ArchitectureElement.level property otherwise recurses into
@@ -528,7 +526,7 @@ class ArchitectureService(ServiceBase):
             el._level_annotated = resolved
 
     @staticmethod
-    def _annotate_roles(elements: List[ArchitectureElement]) -> None:
+    def _annotate_roles(elements: list[ArchitectureElement]) -> None:
         """Set ``_role_annotated`` on each element via a single in-memory pass.
 
         SysEng 2.0 §1.2: the structural role is derived from tree position, not

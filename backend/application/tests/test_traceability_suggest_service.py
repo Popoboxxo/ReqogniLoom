@@ -26,7 +26,7 @@ import contextlib
 import inspect
 import json
 import re
-from typing import Iterator
+from collections.abc import Iterator
 from uuid import UUID
 
 import pytest

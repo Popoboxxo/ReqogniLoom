@@ -29,7 +29,7 @@ Design notes:
 """
 from __future__ import annotations
 
-from typing import FrozenSet, Iterable, Mapping, Optional
+from collections.abc import Iterable, Mapping
 from uuid import UUID
 
 from application.base import ValidationError
@@ -44,7 +44,7 @@ INVARIANT_I3 = "I3"
 INVARIANT_I4 = "I4"
 INVARIANT_I5 = "I5"
 
-ALL_INVARIANTS: FrozenSet[str] = frozenset(
+ALL_INVARIANTS: frozenset[str] = frozenset(
     {INVARIANT_I1, INVARIANT_I2, INVARIANT_I3, INVARIANT_I4, INVARIANT_I5}
 )
 
@@ -52,7 +52,7 @@ ALL_INVARIANTS: FrozenSet[str] = frozenset(
 #: I5 (single root per workspace) is active on every tier: the SysEng 2.0 role
 #: derivation (§1.2) names the unique root the "System", so a second root would
 #: yield two competing System elements regardless of the rigor preset.
-RIGOR_INVARIANT_PRESETS: Mapping[str, FrozenSet[str]] = {
+RIGOR_INVARIANT_PRESETS: Mapping[str, frozenset[str]] = {
     "minimal": frozenset({INVARIANT_I3, INVARIANT_I5}),
     "standard": frozenset(
         {INVARIANT_I1, INVARIANT_I2, INVARIANT_I3, INVARIANT_I5}
@@ -67,7 +67,7 @@ RIGOR_INVARIANT_PRESETS: Mapping[str, FrozenSet[str]] = {
 _FALLBACK_TIER = "minimal"
 
 
-def _get_rigor_invariant_presets() -> Mapping[str, FrozenSet[str]]:
+def _get_rigor_invariant_presets() -> Mapping[str, frozenset[str]]:
     """Return the effective tier→invariants mapping.
 
     Reads the optional ``ARCHITECTURE_RIGOR_INVARIANTS`` Django setting
@@ -107,14 +107,14 @@ class ArchitectureElementInvariantValidator:
     """
 
     def __init__(self, enabled_invariants: Iterable[str]) -> None:
-        self._enabled: FrozenSet[str] = frozenset(enabled_invariants)
+        self._enabled: frozenset[str] = frozenset(enabled_invariants)
 
     # ------------------------------------------------------------------
     # Construction
     # ------------------------------------------------------------------
 
     @classmethod
-    def for_tier(cls, tier: str) -> "ArchitectureElementInvariantValidator":
+    def for_tier(cls, tier: str) -> ArchitectureElementInvariantValidator:
         """Build a validator for a rigor *tier* name.
 
         Unknown tiers (e.g. custom presets) fall back to the "standard"
@@ -129,7 +129,7 @@ class ArchitectureElementInvariantValidator:
     @classmethod
     def for_workspace(
         cls, workspace_id: UUID | str | None
-    ) -> "ArchitectureElementInvariantValidator":
+    ) -> ArchitectureElementInvariantValidator:
         """Build a validator using the workspace's active preset tier.
 
         Resolution failures (missing workspace, unavailable persistence in
@@ -198,7 +198,7 @@ class ArchitectureElementInvariantValidator:
     # ------------------------------------------------------------------
 
     def check_i1(
-        self, element_id: Optional[UUID], parent_id: Optional[UUID]
+        self, element_id: UUID | None, parent_id: UUID | None
     ) -> None:
         """Reject parent assignments that create a cycle (REQ-L1-044 I1).
 
@@ -259,7 +259,7 @@ class ArchitectureElementInvariantValidator:
 
     def check_i3(
         self,
-        parent_id: Optional[UUID],
+        parent_id: UUID | None,
         workspace_id: UUID | str | None = None,
     ):
         """Validate that *parent_id* references a real element (REQ-L1-044 I3).
@@ -331,9 +331,9 @@ class ArchitectureElementInvariantValidator:
     def check_i5(
         self,
         *,
-        new_parent_id: Optional[UUID],
+        new_parent_id: UUID | None,
         workspace_id: UUID | str | None,
-        element_id: Optional[UUID] = None,
+        element_id: UUID | None = None,
     ) -> None:
         """Reject a second root in the same workspace (SysEng 2.0 §1.2, I5).
 
@@ -368,9 +368,9 @@ class ArchitectureElementInvariantValidator:
     def validate_parent_assignment(
         self,
         *,
-        parent_id: Optional[UUID],
+        parent_id: UUID | None,
         element=None,
-        element_id: Optional[UUID] = None,
+        element_id: UUID | None = None,
         workspace_id: UUID | str | None = None,
     ) -> None:
         """Run the hierarchy invariants for a (proposed) parent assignment.
@@ -412,8 +412,8 @@ class ArchitectureElementInvariantValidator:
     def validate_hierarchy_change(
         cls,
         *,
-        parent_id: Optional[UUID],
-        element_id: Optional[UUID] = None,
+        parent_id: UUID | None,
+        element_id: UUID | None = None,
         workspace_id: UUID | str | None = None,
     ) -> None:
         """One-shot validation used by DRF serializers.
@@ -441,12 +441,12 @@ class ArchitectureElementInvariantValidator:
 
 
 __all__ = [
-    "ArchitectureElementInvariantValidator",
-    "RIGOR_INVARIANT_PRESETS",
     "ALL_INVARIANTS",
     "INVARIANT_I1",
     "INVARIANT_I2",
     "INVARIANT_I3",
     "INVARIANT_I4",
     "INVARIANT_I5",
+    "RIGOR_INVARIANT_PRESETS",
+    "ArchitectureElementInvariantValidator",
 ]

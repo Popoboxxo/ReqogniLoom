@@ -85,15 +85,28 @@ import hashlib
 import json
 import logging
 import re
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from collections.abc import Callable
+from typing import Any
 from uuid import UUID
 
 from django.core.cache import cache
 from django.db import transaction
 
+from application.ai_proposal_service import (
+    proposal_report,
+    require_proposal_support,
+    resolve_proposal_authoring,
+    verify_proposal_state,
+)
+from application.base import NotFoundError, ServiceBase, ValidationError
+from application.glossary_service import GlossaryService
+from application.models import Risk
 from auth_tenancy.context import AuthContext
+from llm_adapter.providers import truncate_prompt_content
 from persistence.models import (
     PROMPT_TEMPLATE_DEFAULTS as _CORE_PROMPT_TEMPLATE_DEFAULTS,
+)
+from persistence.models import (
     ArchitectureElement,
     Requirement,
     ReviewPolicy,
@@ -101,19 +114,8 @@ from persistence.models import (
     TraceLink,
     Workspace,
 )
-from traceability.types import LinkType
-
-from application.base import NotFoundError, ServiceBase, ValidationError
-from application.ai_proposal_service import (
-    proposal_report,
-    require_proposal_support,
-    resolve_proposal_authoring,
-    verify_proposal_state,
-)
-from application.glossary_service import GlossaryService
-from application.models import Risk
-from llm_adapter.providers import truncate_prompt_content
 from persistence.transactions import atomic_transaction
+from traceability.types import LinkType
 
 logger = logging.getLogger(__name__)
 
@@ -131,7 +133,7 @@ MOCK_FALLBACK_MARKER = "[MOCK FALLBACK] "
 # language at all). Keyed by ``Workspace.language``'s ISO 639-1 code; any
 # code not listed here -- including an empty/unset value -- falls back to
 # "English", matching ``Workspace.language``'s own factory default (``"en"``).
-LANGUAGE_INSTRUCTION_NAMES: Dict[str, str] = {
+LANGUAGE_INSTRUCTION_NAMES: dict[str, str] = {
     "de": "German",
     "en": "English",
 }
@@ -369,7 +371,7 @@ fences.
 # building its own copy or reaching into the 3-entry persistence dict) so
 # both read paths — this service's :meth:`_get_template_content` and the MCP
 # ``prompt_template.get`` tool — agree on the same factory defaults.
-PROMPT_TEMPLATE_DEFAULTS: Dict[str, str] = {
+PROMPT_TEMPLATE_DEFAULTS: dict[str, str] = {
     **_CORE_PROMPT_TEMPLATE_DEFAULTS,
     "testcase_derive": TESTCASE_DERIVE_PROMPT_TEMPLATE,
     "architecture_to_risk": ARCHITECTURE_TO_RISK_PROMPT_TEMPLATE,
@@ -591,7 +593,7 @@ def _is_empty_completion(text: str) -> bool:
 #: model asked for "a JSON array of architecture element IDs from the provided
 #: list" frequently answers with the offered element *object* instead of a bare
 #: id string; the first recognised key wins.
-_ARCH_SUGGESTION_ID_KEYS: Tuple[str, ...] = (
+_ARCH_SUGGESTION_ID_KEYS: tuple[str, ...] = (
     "id",
     "arch_element_id",
     "architecture_element_id",
@@ -599,7 +601,7 @@ _ARCH_SUGGESTION_ID_KEYS: Tuple[str, ...] = (
 )
 
 
-def _arch_suggestion_id_candidates(item: Any) -> Tuple[str, ...]:
+def _arch_suggestion_id_candidates(item: Any) -> tuple[str, ...]:
     """Return the id strings *item* may carry in a suggestion array (issue #825).
 
     A provider answer is not obliged to be a bare id string: the
@@ -688,8 +690,8 @@ class AiDerivationService(ServiceBase):
         self,
         ctx: AuthContext,
         stakeholder_need_id: UUID | str,
-        n: Optional[int] = None,
-    ) -> Dict[str, Any]:
+        n: int | None = None,
+    ) -> dict[str, Any]:
         """Flow 1: propose system requirements for a stakeholder need.
 
         Args:
@@ -783,7 +785,7 @@ class AiDerivationService(ServiceBase):
         self,
         ctx: AuthContext,
         requirement_id: UUID | str,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Flow 2: suggest architecture elements to satisfy a requirement.
 
         Only meaningful while the requirement is unassigned: if an
@@ -936,7 +938,7 @@ class AiDerivationService(ServiceBase):
         self,
         ctx: AuthContext,
         requirement_id: UUID | str,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Flow 3: propose next-level requirement drafts for a requirement.
 
         Requires at least one ``allocated-to`` architecture element; otherwise a
@@ -1021,7 +1023,7 @@ class AiDerivationService(ServiceBase):
             }
             for item in items
         ]
-        result: Dict[str, Any] = {
+        result: dict[str, Any] = {
             "drafts": drafts,
             "parent_requirement_id": str(req.id),
             "is_mock_fallback": is_mock_fallback,
@@ -1074,7 +1076,7 @@ class AiDerivationService(ServiceBase):
         self,
         ctx: AuthContext,
         requirement_id: UUID | str,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Flow 4 (SysEng 2.0 N5): propose a TestCase draft for a requirement.
 
         Standard feature — unlike :meth:`decompose_requirement_next_level`
@@ -1154,7 +1156,7 @@ class AiDerivationService(ServiceBase):
         self,
         ctx: AuthContext,
         architecture_element_id: UUID | str,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Flow 5 (Phase 3): propose risk drafts for an architecture element.
 
         Standard feature — like :meth:`derive_testcase_from_requirement`, this
@@ -1241,7 +1243,7 @@ class AiDerivationService(ServiceBase):
         self,
         ctx: AuthContext,
         workspace_id: UUID | str,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Flow 6 (Phase 3, Task 4): propose glossary term drafts for a workspace.
 
         Standard feature — like :meth:`derive_testcase_from_requirement` and
@@ -1364,7 +1366,7 @@ class AiDerivationService(ServiceBase):
         ctx: AuthContext,
         workspace_id: UUID | str,
         decision_description: str,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Flow 7 (Phase 3, Task 5): structure a free-text decision into an ADR draft.
 
         Standard feature — like :meth:`derive_testcase_from_requirement`,
@@ -1499,7 +1501,7 @@ class AiDerivationService(ServiceBase):
         return workspace
 
     @staticmethod
-    def _clamp_choice(value: Any, valid_values: List[str], default: str) -> str:
+    def _clamp_choice(value: Any, valid_values: list[str], default: str) -> str:
         """Return *value* if it is one of *valid_values*, else *default*.
 
         Defensive guard against a hallucinating/misbehaving LLM response
@@ -1511,7 +1513,7 @@ class AiDerivationService(ServiceBase):
         return value if value in valid_values else default
 
     @staticmethod
-    def _allocated_target_ids(req: Requirement) -> List[UUID]:
+    def _allocated_target_ids(req: Requirement) -> list[UUID]:
         """Return the artifact ids this requirement is ``allocated-to``."""
         links = TraceLink.objects.filter(
             source_id=req.artifact_id,
@@ -1564,7 +1566,7 @@ class AiDerivationService(ServiceBase):
         link_type: str,
         policy: str = "manual",
         new_entity_is_link_source: bool = False,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Persist one derived draft entity and link it back to its source.
 
         Shared by all four derive tools' write path: ``create_fn`` is a
@@ -1703,7 +1705,7 @@ class AiDerivationService(ServiceBase):
         }
 
     @staticmethod
-    def _proposal_block(*, created_id, item_type: str, authoring) -> Dict[str, Any]:
+    def _proposal_block(*, created_id, item_type: str, authoring) -> dict[str, Any]:
         """Read back the created artefact's real state into a ``proposal`` block.
 
         Never raises: a state that cannot be read is reported as
@@ -2093,10 +2095,10 @@ class AiDerivationService(ServiceBase):
         workspace_id: UUID,
         term: str,
         definition: str,
-        synonyms: List[str],
+        synonyms: list[str],
         abbreviation: str,
         policy: str = "manual",
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Persist one derived GlossaryTerm draft (Phase 3, Task 4).
 
         Deliberately NOT built on :meth:`_write_derived_entity`, unlike every
@@ -2191,7 +2193,7 @@ class AiDerivationService(ServiceBase):
         context: str,
         consequences: str,
         policy: str = "manual",
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Persist one derived Adr draft (Phase 3, Task 5).
 
         Deliberately NOT built on :meth:`_write_derived_entity`, like
@@ -2793,8 +2795,8 @@ class AiDerivationService(ServiceBase):
         )
 
     def _estimate_confidence(
-        self, item_type: str, item_id: "UUID | str"
-    ) -> "float | None":
+        self, item_type: str, item_id: UUID | str
+    ) -> float | None:
         """Minimal v1 confidence heuristic (Phase 5, REQ-L2-RV-001).
 
         No LLM adapter surfaces a real confidence score today (verified: zero
@@ -2819,7 +2821,7 @@ class AiDerivationService(ServiceBase):
 
     @staticmethod
     def _get_template_content(
-        ctx: AuthContext, name: str, workspace_id: "UUID | None" = None
+        ctx: AuthContext, name: str, workspace_id: UUID | None = None
     ) -> str:
         """Return the effective prompt content for *name* (REQ-L2-PT-001).
 
@@ -2851,7 +2853,7 @@ class AiDerivationService(ServiceBase):
         return render_template(template, **values)
 
     @staticmethod
-    def _language_instruction(workspace_id: "UUID | str | None") -> str:
+    def _language_instruction(workspace_id: UUID | str | None) -> str:
         """Return an explicit output-language directive for *workspace_id*.
 
         Issue #795: none of this module's content-generating derive prompts
@@ -2899,10 +2901,10 @@ class AiDerivationService(ServiceBase):
     def _resolve_and_render(
         ctx: AuthContext,
         name: str,
-        workspace_id: "UUID | None" = None,
+        workspace_id: UUID | None = None,
         *,
-        config_overrides: "Dict[str, Any] | None" = None,
-        artifact_id: "UUID | str | None" = None,
+        config_overrides: dict[str, Any] | None = None,
+        artifact_id: UUID | str | None = None,
         entity_type: str = "",
         **data_kwargs: Any,
     ) -> str:
@@ -2936,8 +2938,8 @@ class AiDerivationService(ServiceBase):
         *,
         purpose: str,
         artifact_id: UUID | str,
-        context: Optional[Dict[str, Any]] = None,
-    ) -> Tuple[str, Optional[str]]:
+        context: dict[str, Any] | None = None,
+    ) -> tuple[str, str | None]:
         """Run the configured provider's free-form completion (cached).
 
         Falls back to the credential-free mock provider when no provider is
@@ -3183,10 +3185,10 @@ class AiDerivationService(ServiceBase):
         *,
         purpose: str,
         artifact_id: UUID | str,
-        context: Optional[Dict[str, Any]],
+        context: dict[str, Any] | None,
         max_retries: int,
         parse: Callable[[str], Any],
-    ) -> Tuple[Any, str, bool]:
+    ) -> tuple[Any, str, bool]:
         """Shared complete+parse retry loop behind the two ``_complete_json_*``
         methods (issue #311, #652).
 
@@ -3224,7 +3226,7 @@ class AiDerivationService(ServiceBase):
         Raises:
             LlmResponseError: *parse* kept failing through the last attempt.
         """
-        last_error: Optional[LlmResponseError] = None
+        last_error: LlmResponseError | None = None
         for attempt in range(max_retries + 1):
             raw, cache_key = self._complete(
                 prompt, purpose=purpose, artifact_id=artifact_id, context=context
@@ -3253,10 +3255,10 @@ class AiDerivationService(ServiceBase):
         *,
         purpose: str,
         artifact_id: UUID | str,
-        context: Optional[Dict[str, Any]] = None,
+        context: dict[str, Any] | None = None,
         require_objects: bool = True,
         max_retries: int = 1,
-    ) -> Tuple[List[Any], bool]:
+    ) -> tuple[list[Any], bool]:
         """Run a completion and return its JSON array (issue #311, #652).
 
         The single entry point for every array-shaped flow: it chains
@@ -3329,9 +3331,9 @@ class AiDerivationService(ServiceBase):
         *,
         purpose: str,
         artifact_id: UUID | str,
-        context: Optional[Dict[str, Any]] = None,
+        context: dict[str, Any] | None = None,
         max_retries: int = 1,
-    ) -> Tuple[Dict[str, Any], bool]:
+    ) -> tuple[dict[str, Any], bool]:
         """Object-shaped sibling of :meth:`_complete_json_list` (issue #311, #652).
 
         Used by the single-draft flows (``derive_testcase_from_requirement``,
@@ -3357,7 +3359,7 @@ class AiDerivationService(ServiceBase):
         return obj, is_mock_fallback
 
     def _discard_cached_completion(
-        self, cache_key: Optional[str], *, purpose: str, artifact_id: UUID | str
+        self, cache_key: str | None, *, purpose: str, artifact_id: UUID | str
     ) -> None:
         """Drop the cache entry of the completion that produced *cache_key*.
 
@@ -3395,7 +3397,7 @@ class AiDerivationService(ServiceBase):
         )
 
     @staticmethod
-    def _parse_json_list(raw: str) -> List[Any]:
+    def _parse_json_list(raw: str) -> list[Any]:
         """Parse *raw* into a JSON list via :func:`extract_json_payload`.
 
         Tolerates the mock-fallback marker, Markdown fences (bare or
@@ -3413,7 +3415,7 @@ class AiDerivationService(ServiceBase):
         return parsed
 
     @staticmethod
-    def _usable_entries(items: List[Any], *, purpose: str) -> List[Dict[str, Any]]:
+    def _usable_entries(items: list[Any], *, purpose: str) -> list[dict[str, Any]]:
         """Return the object entries of a parsed LLM array (issue #311).
 
         Every list-shaped Draft/Accept flow builds its drafts from the JSON
@@ -3467,7 +3469,7 @@ class AiDerivationService(ServiceBase):
         return entries
 
     @staticmethod
-    def _parse_json_object(raw: str) -> Dict[str, Any]:
+    def _parse_json_object(raw: str) -> dict[str, Any]:
         """Parse *raw* into a JSON object via :func:`extract_json_payload`.
 
         Sibling of :meth:`_parse_json_list` for flows whose LLM response is a
@@ -3487,17 +3489,17 @@ class AiDerivationService(ServiceBase):
 
 
 __all__ = [
-    "AiDerivationService",
-    "LlmResponseError",
-    "MOCK_FALLBACK_MARKER",
-    "extract_json_payload",
+    "BUNDLE_COMPRESSION_PROMPT_TEMPLATE",
+    "DECISION_TO_ADR_PROMPT_TEMPLATE",
     "DERIVATION_CACHE_TTL_SECONDS",
+    "INTERVIEW_CHAT_TURN_PROMPT_TEMPLATE",
+    "INTERVIEW_GROUNDING_RANK_PROMPT_TEMPLATE",
+    "INTERVIEW_TRANSCRIPT_SUMMARY_PROMPT_TEMPLATE",
+    "MOCK_FALLBACK_MARKER",
     "TESTCASE_DERIVE_PROMPT_TEMPLATE",
     "WORKSPACE_TO_GLOSSARY_PROMPT_TEMPLATE",
-    "DECISION_TO_ADR_PROMPT_TEMPLATE",
-    "BUNDLE_COMPRESSION_PROMPT_TEMPLATE",
-    "INTERVIEW_GROUNDING_RANK_PROMPT_TEMPLATE",
-    "INTERVIEW_CHAT_TURN_PROMPT_TEMPLATE",
-    "INTERVIEW_TRANSCRIPT_SUMMARY_PROMPT_TEMPLATE",
+    "AiDerivationService",
+    "LlmResponseError",
+    "extract_json_payload",
     "invalidate_derivation_cache",
 ]

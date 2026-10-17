@@ -40,7 +40,6 @@ import json
 import traceback
 import uuid
 from dataclasses import dataclass
-from typing import Optional
 
 from django.core.management.base import BaseCommand, CommandError
 
@@ -94,8 +93,8 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options) -> None:
         apply_changes: bool = bool(options.get("apply"))
-        diagram_id_raw: Optional[str] = options.get("diagram_id")
-        workspace_id_raw: Optional[str] = options.get("workspace_id")
+        diagram_id_raw: str | None = options.get("diagram_id")
+        workspace_id_raw: str | None = options.get("workspace_id")
 
         # Preserve the caller's ambient tenant context (if any), mirroring
         # backfill_outdated_from_legacy_status — this command must also work
@@ -162,7 +161,7 @@ class Command(BaseCommand):
     # ------------------------------------------------------------------
 
     def _resolve_targets(
-        self, diagram_id_raw: Optional[str], workspace_id_raw: Optional[str]
+        self, diagram_id_raw: str | None, workspace_id_raw: str | None
     ) -> list[tuple[uuid.UUID, uuid.UUID]]:
         """Return ``[(diagram_id, tenant_id), ...]`` for canvas_stroke diagrams.
 

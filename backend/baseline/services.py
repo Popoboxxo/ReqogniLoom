@@ -30,7 +30,6 @@ Preset gate (REQ-L2-BL-004):
 from __future__ import annotations
 
 import uuid
-from typing import Optional
 
 from baseline.delta_index_builder import get_builder
 from baseline.diff_engine import get_engine
@@ -60,7 +59,6 @@ from baseline.types import (  # noqa: F401  (re-exported)
 )
 from baseline.version_reconstructor import get_reconstructor
 
-
 # ---------------------------------------------------------------------------
 # IF-BL-EXT-IN-001: build
 # ---------------------------------------------------------------------------
@@ -71,9 +69,9 @@ def build(
     workspace_id: uuid.UUID,
     name: str,
     tenant_id: uuid.UUID,
-    description: Optional[str] = None,
+    description: str | None = None,
     created_by: str = "",
-    document_id: Optional[uuid.UUID] = None,
+    document_id: uuid.UUID | None = None,
 ) -> uuid.UUID:
     """Create and persist a new immutable Baseline.
 
@@ -180,8 +178,8 @@ def get(baseline_id: uuid.UUID, tenant_id: uuid.UUID) -> BaselineDetail:
 
 def list_baselines(
     workspace_id: uuid.UUID,
-    scope: Optional[str] = None,
-    tenant_id: Optional[uuid.UUID] = None,
+    scope: str | None = None,
+    tenant_id: uuid.UUID | None = None,
 ) -> list[BaselineSummary]:
     """Return Baseline summaries for a workspace, sorted by created_at DESC.
 
@@ -247,7 +245,7 @@ def preview_scope_items(
     scope: str,
     workspace_id: uuid.UUID,
     tenant_id: uuid.UUID,
-    artifact_id: Optional[uuid.UUID] = None,
+    artifact_id: uuid.UUID | None = None,
     sample_limit: int = 10,
 ) -> ScopePreview:
     """Read-only count + sample of items that would be included in a Baseline.
@@ -308,7 +306,7 @@ def resolve_scope_item_ids(
     scope: str,
     workspace_id: uuid.UUID,
     tenant_id: uuid.UUID,
-    artifact_id: Optional[uuid.UUID] = None,
+    artifact_id: uuid.UUID | None = None,
     exclude_diagram_shadow_artifacts: bool = True,
 ) -> list[str]:
     """Return the full ordered list of artifact ids contained in *scope*.

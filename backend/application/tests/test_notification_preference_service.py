@@ -8,10 +8,10 @@ fail-open contract (spec §9 A3).
 from __future__ import annotations
 
 import uuid
+from unittest.mock import patch
 
 import pytest
 from django.db import DatabaseError
-from unittest.mock import patch
 
 from application.models import Notification
 from application.notification_preference_service import (

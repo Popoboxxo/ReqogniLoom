@@ -30,9 +30,9 @@ from persistence.models import (
     TestCase,
     TraceLink,
     User,
-    Workspace,
     WorkflowDefinition,
     WorkflowState,
+    Workspace,
 )
 from persistence.tenancy import (
     TenantContext,

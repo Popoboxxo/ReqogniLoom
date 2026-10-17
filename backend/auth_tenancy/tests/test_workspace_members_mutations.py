@@ -12,7 +12,7 @@ Covers:
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 from rest_framework.test import APIClient
@@ -322,7 +322,7 @@ def test_reactivate_rejects_cross_tenant_workspace(admin_client, tenant, workspa
             user=target_b,
             workspace=workspace_b,
             role="editor",
-            suspended_at=datetime.now(timezone.utc),
+            suspended_at=datetime.now(UTC),
         )
     finally:
         clear_request_tenant()
@@ -347,7 +347,7 @@ def test_suspend_already_suspended_role_is_noop_200(admin_client, tenant, worksp
             user=target,
             workspace=workspace,
             role="editor",
-            suspended_at=datetime.now(timezone.utc),
+            suspended_at=datetime.now(UTC),
         )
     finally:
         clear_request_tenant()
@@ -616,7 +616,7 @@ def test_reactivate_denies_non_admin_caller(tenant, workspace):
             user=target,
             workspace=workspace,
             role="editor",
-            suspended_at=datetime.now(timezone.utc),
+            suspended_at=datetime.now(UTC),
         )
     finally:
         clear_request_tenant()

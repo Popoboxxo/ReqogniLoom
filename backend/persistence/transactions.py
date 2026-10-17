@@ -18,7 +18,8 @@ rollback (REQ-L3-PL003-002).
 from __future__ import annotations
 
 import functools
-from typing import Any, Callable, TypeVar
+from collections.abc import Callable
+from typing import Any, TypeVar
 
 from django.db import transaction
 
@@ -78,7 +79,7 @@ class TransactionContextManager:
         self.timeout_seconds = timeout_seconds
         self._atomic = transaction.atomic()
 
-    def __enter__(self) -> "TransactionContextManager":
+    def __enter__(self) -> TransactionContextManager:
         self._atomic.__enter__()
         if self.timeout_seconds is not None:
             from django.db import connection
@@ -96,7 +97,7 @@ class TransactionContextManager:
 
 
 __all__ = [
+    "TransactionContextManager",
     "TransactionTimeoutError",
     "atomic_transaction",
-    "TransactionContextManager",
 ]

@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import socket
 import time
-from typing import Callable, Optional
+from collections.abc import Callable
 
 import pytest
 import redis
@@ -48,8 +48,8 @@ def _reset_resolver_state():
 
 def _blocking_getaddrinfo(
     sleep_seconds: float,
-    calls: Optional[list] = None,
-    block_host: Optional[str] = None,
+    calls: list | None = None,
+    block_host: str | None = None,
 ) -> Callable[..., list]:
     """``socket.getaddrinfo`` replacement that blocks before resolving.
 

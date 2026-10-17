@@ -13,19 +13,18 @@ look like at revision N".
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 from uuid import UUID
 
 from django.db import transaction
 from django.db.models import Max
 
+from application.base import NotFoundError, ServiceBase
 from auth_tenancy.context import AuthContext
 from persistence.models import Artifact, ArtifactVersion
 
-from application.base import NotFoundError, ServiceBase
 
-
-def snapshot_fields(entity: Any, item_type: str) -> Dict[str, Any]:
+def snapshot_fields(entity: Any, item_type: str) -> dict[str, Any]:
     """Build a revision payload from the diffable field list for *item_type*.
 
     Reads ``artifact_diff_service._ENTITY_FIELDS`` so the fields that get
@@ -56,10 +55,10 @@ def snapshot_fields(entity: Any, item_type: str) -> Dict[str, Any]:
 
 def lineage_anchor_artifact_id(
     model: Any,
-    lineage_id: Optional[UUID] = None,
+    lineage_id: UUID | None = None,
     *,
-    workspace_id: Optional[UUID] = None,
-) -> Optional[UUID]:
+    workspace_id: UUID | None = None,
+) -> UUID | None:
     """Return the ``artifact_id`` of a lineage's first version.
 
     Goal and MainGoal are immutable-row-per-version: every edit writes a new
@@ -85,7 +84,7 @@ def lineage_anchor_artifact_id(
         The anchor Artifact id, or ``None`` if the scope has no version 1
         (possible only for pre-lineage legacy rows).
     """
-    filters: Dict[str, Any] = {"sequence_number": 1}
+    filters: dict[str, Any] = {"sequence_number": 1}
     if lineage_id is not None:
         filters["lineage_id"] = lineage_id
     if workspace_id is not None:
@@ -104,11 +103,11 @@ class ArtifactVersionService(ServiceBase):
     def record(
         self,
         artifact_id: UUID,
-        payload: Dict[str, Any],
+        payload: dict[str, Any],
         ctx: AuthContext,
         *,
         change_reason: str = "",
-        revision: Optional[int] = None,
+        revision: int | None = None,
     ) -> int:
         """Append a new revision and return its number.
 
@@ -162,7 +161,7 @@ class ArtifactVersionService(ServiceBase):
 
     def list_revisions(
         self, artifact_id: UUID, ctx: AuthContext
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """List an artifact's revisions oldest-first.
 
         Returns the same entry shape the diff API already publishes for
@@ -191,7 +190,7 @@ class ArtifactVersionService(ServiceBase):
 
     def get_payload(
         self, artifact_id: UUID, revision: int, ctx: AuthContext
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """Return the stored snapshot for *revision*, or ``None`` if absent."""
         self._set_tenant_context(ctx)
         row = ArtifactVersion.objects.filter(

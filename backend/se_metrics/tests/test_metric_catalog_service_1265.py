@@ -10,7 +10,7 @@ existing cached ``compute_metrics``. Both are exercised with ``compute_metrics``
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import patch
 
 from se_metrics.registry import ALL_METRIC_KEYS, DEFAULT_METRIC_KEYS
@@ -28,7 +28,7 @@ from se_metrics.types import (
 def _result() -> MetricsResult:
     return MetricsResult(
         workspace_id="22222222-2222-2222-2222-222222222222",
-        computed_at=datetime(2026, 10, 14, 9, 30, tzinfo=timezone.utc),
+        computed_at=datetime(2026, 10, 14, 9, 30, tzinfo=UTC),
         timeframe="P30D",
         volatility=VolatilityResult(
             total_changes=20, total_requirements=10, avg_changes_per_req=2.0

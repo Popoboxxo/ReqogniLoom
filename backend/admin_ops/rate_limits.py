@@ -35,7 +35,8 @@ Failure policy — **fail-safe towards the last known good rate**:
 from __future__ import annotations
 
 import logging
-from typing import Any, Mapping, Optional
+from collections.abc import Mapping
+from typing import Any
 from uuid import UUID
 
 from django.core.cache import cache
@@ -100,7 +101,7 @@ def _cache_delete(key: str) -> None:
         )
 
 
-def _tenant_overrides(tenant_id: Optional[UUID]) -> Mapping[str, str]:
+def _tenant_overrides(tenant_id: UUID | None) -> Mapping[str, str]:
     """Raw ``{scope: rate}`` overrides for *tenant_id*, or ``{}``.
 
     Read through the ``unscoped`` manager with an explicit ``tenant_id``
@@ -161,9 +162,9 @@ def _global_overrides() -> Mapping[str, str]:
 def resolve_rate(
     scope: str,
     *,
-    tenant_id: Optional[UUID] = None,
-    default: Optional[str] = None,
-) -> Optional[str]:
+    tenant_id: UUID | None = None,
+    default: str | None = None,
+) -> str | None:
     """Effective rate for *scope*: tenant override > global override > default.
 
     Args:
@@ -192,8 +193,8 @@ def resolve_rate(
 
 def effective_rates(
     *,
-    tenant_id: Optional[UUID] = None,
-    defaults: Optional[Mapping[str, Optional[str]]] = None,
+    tenant_id: UUID | None = None,
+    defaults: Mapping[str, str | None] | None = None,
 ) -> dict[str, dict[str, Any]]:
     """Read-only view of every scope's effective value and its origin.
 
@@ -232,7 +233,7 @@ def effective_rates(
     return result
 
 
-def invalidate(tenant_id: Optional[UUID] = None) -> None:
+def invalidate(tenant_id: UUID | None = None) -> None:
     """Drop the cached overrides for *tenant_id*, or the global layer if ``None``.
 
     Called by :class:`~admin_ops.services.rate_limit_service.RateLimitService`

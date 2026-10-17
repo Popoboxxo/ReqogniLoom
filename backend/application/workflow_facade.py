@@ -19,11 +19,11 @@ Architecture:
 from __future__ import annotations
 
 import logging
-from typing import List, Optional
 from uuid import UUID
 
-from auth_tenancy.context import AuthContext
 from django.db import DatabaseError, transaction
+
+from auth_tenancy.context import AuthContext
 
 # Backward-compat alias used by tests that patch 'application.workflow_facade.TenantContext'
 TenantContext = AuthContext
@@ -261,7 +261,7 @@ class WorkflowFacade(ServiceBase):
 
     def initialize_workflow_states(
         self,
-        item_ids: List[UUID | str],
+        item_ids: list[UUID | str],
         item_type: str,
         workspace_id: UUID | str,
         ctx: AuthContext,
@@ -355,7 +355,7 @@ class WorkflowFacade(ServiceBase):
         *,
         item_type: str,
         workspace_id: UUID | str,
-    ) -> Optional[str]:
+    ) -> str | None:
         """Resolve a caller-supplied ``item_type`` to its canonical spelling.
 
         Issue #1356: read path for callers that receive the type as a free
@@ -483,8 +483,8 @@ class WorkflowFacade(ServiceBase):
         from_state: str,
         to_state: str,
         allowed_roles: list[str] | None = None,
-        requires_change_reason: Optional[bool] = None,
-        signature_gate: Optional[bool] = None,
+        requires_change_reason: bool | None = None,
+        signature_gate: bool | None = None,
     ):
         """Edit an existing transition's rule metadata (REQ-177)."""
         self._set_tenant_context(ctx)
@@ -689,8 +689,8 @@ class WorkflowFacade(ServiceBase):
         from_state: str,
         to_state: str,
         allowed_roles: list[str] | None = None,
-        requires_change_reason: Optional[bool] = None,
-        signature_gate: Optional[bool] = None,
+        requires_change_reason: bool | None = None,
+        signature_gate: bool | None = None,
     ):
         self._set_tenant_context(ctx)
         obj, count = self._global_store().update_transition(
@@ -831,7 +831,7 @@ class WorkflowFacade(ServiceBase):
 
 # ---------- Exception remapping ----------
 
-def _state_guard_message(exc: Exception) -> Optional[str]:
+def _state_guard_message(exc: Exception) -> str | None:
     """Client-facing message when *exc* is a DATA-06 ``we_item_state`` DB guard.
 
     The migration ``workflow/0021_we_item_state_integrity`` installs two guards

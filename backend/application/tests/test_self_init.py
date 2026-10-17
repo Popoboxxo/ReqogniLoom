@@ -272,8 +272,9 @@ def test_run_self_init_skips_admin_creation_without_password_but_does_not_raise(
 
 def test_post_migrate_receiver_invokes_self_init_outside_test_context(monkeypatch):
     """[REQ-188] should invoke run_self_init from the post_migrate receiver once SELF_INIT_ON_MIGRATE is enabled and no test runner is active"""
-    from application import apps as apps_module
     from django.conf import settings as django_settings
+
+    from application import apps as apps_module
 
     monkeypatch.setattr(django_settings, "SELF_INIT_ON_MIGRATE", True)
     monkeypatch.setattr(sys, "argv", ["manage.py", "migrate"])
@@ -294,8 +295,9 @@ def test_post_migrate_receiver_invokes_self_init_outside_test_context(monkeypatc
 
 def test_post_migrate_receiver_noop_when_self_init_on_migrate_disabled(monkeypatch):
     """[REQ-188] should not invoke run_self_init when SELF_INIT_ON_MIGRATE is disabled (test-suite isolation guard)"""
-    from application import apps as apps_module
     from django.conf import settings as django_settings
+
+    from application import apps as apps_module
 
     monkeypatch.setattr(django_settings, "SELF_INIT_ON_MIGRATE", False)
 
@@ -307,8 +309,9 @@ def test_post_migrate_receiver_noop_when_self_init_on_migrate_disabled(monkeypat
 
 def test_post_migrate_receiver_noop_while_pytest_is_active(monkeypatch):
     """[REQ-188] should not invoke run_self_init while a pytest process is active, even if SELF_INIT_ON_MIGRATE is enabled"""
-    from application import apps as apps_module
     from django.conf import settings as django_settings
+
+    from application import apps as apps_module
 
     # Mirrors production settings (SELF_INIT_ON_MIGRATE defaults to True); the
     # defensive "pytest active" guard alone must still suppress self-init.

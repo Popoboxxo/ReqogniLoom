@@ -28,12 +28,12 @@
 # migration runs (the base tenant is created afterwards by the post_migrate
 # self-init, application/self_init.py), so the seed matched zero rows there.
 
-from django.conf import settings
-from django.db import migrations, models
-import django.db.models.deletion
-import django.db.models.manager
 import uuid
 
+import django.db.models.deletion
+import django.db.models.manager
+from django.conf import settings
+from django.db import migrations, models
 
 _TABLE = "pl_llm_settings"
 _POLICY = f"{_TABLE}_tenant_isolation"

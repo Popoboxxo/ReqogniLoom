@@ -29,7 +29,6 @@ from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from persistence.tenancy import TenantContext
-
 from resilience import audit_logger
 from resilience.models import CircuitBreakerState
 from resilience.policies import Policy, resolve_policy
@@ -84,7 +83,7 @@ class CircuitBreaker:
 
     # -- diagnostics ---------------------------------------------------------
 
-    def peek_state(self) -> tuple[str, int, "object | None"] | None:
+    def peek_state(self) -> tuple[str, int, object | None] | None:
         """Read-only snapshot of the persisted row, for logging only (issue #714).
 
         Unlike :meth:`can_execute` / :meth:`report_failure`, this never locks

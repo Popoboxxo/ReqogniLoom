@@ -20,7 +20,7 @@ pass and would have kept this file green against the unfixed code.
 from __future__ import annotations
 
 from datetime import timedelta
-from typing import Any, Dict, Tuple
+from typing import Any
 from unittest.mock import patch
 from uuid import UUID, uuid4
 
@@ -45,7 +45,7 @@ from presets.models import WorkspacePresetConfig
 # ---------------------------------------------------------------------------
 
 
-def _make_workspace(tenant: Tenant, name: str, preset: Dict[str, Any]) -> Workspace:
+def _make_workspace(tenant: Tenant, name: str, preset: dict[str, Any]) -> Workspace:
     """Create an extended-preset workspace in *tenant*."""
     set_request_tenant(tenant.id)
     try:
@@ -118,7 +118,7 @@ def _make_suggestion(workspace: Workspace):
 
 @pytest.fixture
 def foreign_workspace(
-    e2e_tenant: Tenant, e2e_preset: Dict[str, Any]
+    e2e_tenant: Tenant, e2e_preset: dict[str, Any]
 ) -> Workspace:
     """Workspace B — same tenant, no role assignment for any e2e user."""
     return _make_workspace(e2e_tenant, "Foreign Workspace B", e2e_preset)
@@ -138,7 +138,7 @@ def home_requirement(
     return _make_requirement(e2e_workspace, "Req in workspace A")
 
 
-def _dispatch(tool_name: str, params: Dict[str, Any], api_key: str):
+def _dispatch(tool_name: str, params: dict[str, Any], api_key: str):
     """Run one dispatch through a fully real (unmocked) ToolRegistry."""
     return ToolRegistry().dispatch_request(
         tool_name=tool_name, params=params, api_key=api_key
@@ -706,7 +706,7 @@ class TestResolveTargetWorkspaceId:
 # ---------------------------------------------------------------------------
 
 
-def _live_tools() -> Dict[str, Dict[str, Any]]:
+def _live_tools() -> dict[str, dict[str, Any]]:
     """Every tool the live registry advertises, indexed by name."""
     from mcp_server.management.commands.export_tool_manifest import build_manifest
 
@@ -803,7 +803,7 @@ class TestWorkspaceScopeCoverage:
         from mcp_server.workspace_scope import _TOOL_TARGETS
 
         tools = _live_tools()
-        bad: list[Tuple[str, str]] = []
+        bad: list[tuple[str, str]] = []
         for tool_name, targets in _TOOL_TARGETS.items():
             properties = (tools[tool_name].get("inputSchema") or {}).get(
                 "properties"

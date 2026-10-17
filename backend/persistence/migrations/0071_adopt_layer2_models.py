@@ -23,10 +23,11 @@ with ``manage.py sqlmigrate persistence 0071_adopt_layer2_models``: any
    from ``baseline``. It does mean no future ``baseline`` migration may depend
    on ``persistence/0071`` or later, or the graph acquires a cycle.
 """
+import uuid
+
 import django.core.validators
 import django.db.models.deletion
 import django.db.models.manager
-import uuid
 from django.conf import settings
 from django.db import migrations, models
 

@@ -53,25 +53,21 @@ Error mapping (REQ-L2-MC-011):
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, Optional
+from typing import Any
 from uuid import UUID
-
-from auth_tenancy.context import AuthContext
 
 from application.base import (
     NotFoundError,
     PermissionDeniedError,
     ValidationError,
 )
-
+from application.effective_permission_service import EffectivePermissionService
+from auth_tenancy.context import AuthContext
 from auth_tenancy.models import ItemPermission
 from auth_tenancy.services import (
     AuthorizationService,
     ItemPermissionService,
 )
-
-from application.effective_permission_service import EffectivePermissionService
-
 from mcp_server.protocol_handler import ToolResult
 from mcp_server.tools.base import (
     BaseToolGroup,
@@ -90,7 +86,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
-def _permission_to_dict(perm: ItemPermission) -> Dict[str, Any]:
+def _permission_to_dict(perm: ItemPermission) -> dict[str, Any]:
     """Serialise an ItemPermission row to a JSON-safe dict."""
     return {
         "id": str(perm.id),
@@ -205,8 +201,8 @@ class PermissionsToolGroup(BaseToolGroup):
 
     def __init__(
         self,
-        service: Optional[ItemPermissionService] = None,
-        authz_service: Optional[AuthorizationService] = None,
+        service: ItemPermissionService | None = None,
+        authz_service: AuthorizationService | None = None,
     ) -> None:
         self._service = service or ItemPermissionService()
         self._authz_service = authz_service or AuthorizationService()
@@ -230,7 +226,7 @@ class PermissionsToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_set_rule(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """permissions.set_rule — grant or upsert a permission rule (REQ-L1-039).
 
@@ -293,7 +289,7 @@ class PermissionsToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_list(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """permissions.list — list rules for a (user, workspace) pair.
 
@@ -333,7 +329,7 @@ class PermissionsToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_revoke(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """permissions.revoke — revoke a permission rule by id (REQ-L1-039).
 
@@ -417,7 +413,7 @@ class PermissionsToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_check(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """permissions.check — evaluate the caller's effective permission.
 

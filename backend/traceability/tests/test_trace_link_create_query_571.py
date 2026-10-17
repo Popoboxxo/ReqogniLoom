@@ -20,8 +20,8 @@ import pytest
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
 
-from traceability.trace_link_manager import TraceLinkManager
 from traceability.tests.conftest import active_tenant, make_artifact, make_trace_link
+from traceability.trace_link_manager import TraceLinkManager
 
 pytestmark = pytest.mark.django_db
 

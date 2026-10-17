@@ -20,22 +20,30 @@ Interfaces consumed:
 from __future__ import annotations
 
 import logging
-from typing import Any, Optional
+from typing import Any
 from uuid import UUID
 
-from auth_tenancy.context import AuthContext
 from django.db import InternalError
 from django.db.models import F, QuerySet
 from django.utils import timezone
+
+from application.base import NotFoundError, ServiceBase, ValidationError
+from application.optimistic_lock import assert_expected_version, lock_for_version_check
+from application.workspace_provisioning import provision_workspace_defaults
+from auth_tenancy.context import AuthContext
 from auth_tenancy.models import ROLE_ADMIN, UserRole
+from link_types.defaults import (
+    default_decomposition_link_type,
+    default_trace_link_type,
+)
 from persistence.free_text import find_free_text_violation
 from persistence.models import (
     ArchitectureElement,
     Artifact,
     AuditLogEntry,
     Requirement,
-    TestCase,
     Tenant,
+    TestCase,
     TraceLink,
     Workspace,
 )
@@ -46,14 +54,6 @@ from presets.models import (
     WorkspacePresetConfig,
 )
 
-from link_types.defaults import (
-    default_decomposition_link_type,
-    default_trace_link_type,
-)
-
-from application.base import NotFoundError, ServiceBase, ValidationError
-from application.optimistic_lock import assert_expected_version, lock_for_version_check
-from application.workspace_provisioning import provision_workspace_defaults
 # #1241: the workflow item state holds a PROTECT FK to the engine definition, so
 # it must be removed before the workspace cascade reaches that definition.
 from workflow.models import WorkflowItemState
@@ -151,7 +151,7 @@ def _validate_and_cap(value: str, *, max_length: int, field_name: str) -> str:
 
 
 def _assert_workspace_name_free(
-    name: str, tenant_id: UUID | str, *, exclude_id: Optional[UUID] = None
+    name: str, tenant_id: UUID | str, *, exclude_id: UUID | None = None
 ) -> None:
     """Raise ``ValidationError`` when *name* is already taken in the tenant.
 
@@ -193,7 +193,7 @@ class WorkspaceService(ServiceBase):
             NotFoundError: workspace does not exist or is in another tenant.
         """
         self._set_tenant_context(ctx)
-        workspace: Optional[Workspace] = Workspace.objects.filter(
+        workspace: Workspace | None = Workspace.objects.filter(
             id=workspace_id
         ).first()
         if workspace is None:
@@ -210,12 +210,12 @@ class WorkspaceService(ServiceBase):
         preset: str = "standard",
         terminology_profile: str = "se_mode",
         language: str = "de",
-        theme: Optional[str] = None,
-        decomposition_link_type: Optional[str] = None,
-        default_link_type: Optional[str] = None,
-        goals_enabled: Optional[bool] = None,
-        goals_ai_enabled: Optional[bool] = None,
-        glossary_reference_mode: Optional[str] = None,
+        theme: str | None = None,
+        decomposition_link_type: str | None = None,
+        default_link_type: str | None = None,
+        goals_enabled: bool | None = None,
+        goals_ai_enabled: bool | None = None,
+        glossary_reference_mode: str | None = None,
     ) -> Workspace:
         """Create a Workspace + its WorkspacePresetConfig companion.
 
@@ -548,7 +548,7 @@ class WorkspaceService(ServiceBase):
         and old parent id are captured BEFORE the insert.
         """
         archs = list(ArchitectureElement.objects.filter(artifact__workspace=source))
-        old_parent_of: dict[UUID, Optional[UUID]] = {}
+        old_parent_of: dict[UUID, UUID | None] = {}
         old_to_new_arch: dict[UUID, ArchitectureElement] = {}
         for arch in archs:
             old_id = arch.id

@@ -107,9 +107,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
-from typing import Any, Dict, List, Optional
-
-from auth_tenancy.context import AuthContext
+from typing import Any
 
 from application.ai_derivation_service import LlmResponseError
 from application.ai_review_service import AiReviewResponseError, AiReviewService
@@ -122,24 +120,12 @@ from application.base import (
     WaiverReasonPolicyViolation,
 )
 from application.dlq_service import DlqService
-
-from baseline.exceptions import GovernanceAuthorityError
-from baseline.waivers import assert_gate_waiver_authority
-
 from audit.models import AuditEntry
 from audit.query import AuditQueryFilters
 from audit.services import query as audit_query
-
-from persistence.tenancy import TenantContext
-from persistence.transactions import TransactionContextManager
-from traceability.audit import AuditScope
-from traceability.audit.finding_filters import (
-    apply_report_filters,
-    normalize_rule_ids,
-    normalize_severities,
-    resolve_artifact_ids_for_type,
-)
-
+from auth_tenancy.context import AuthContext
+from baseline.exceptions import GovernanceAuthorityError
+from baseline.waivers import assert_gate_waiver_authority
 from mcp_server.protocol_handler import ToolResult
 from mcp_server.tools.base import (
     BaseToolGroup,
@@ -150,6 +136,15 @@ from mcp_server.tools.base import (
     require_param,
     require_uuid,
     write_mcp_audit,
+)
+from persistence.tenancy import TenantContext
+from persistence.transactions import TransactionContextManager
+from traceability.audit import AuditScope
+from traceability.audit.finding_filters import (
+    apply_report_filters,
+    normalize_rule_ids,
+    normalize_severities,
+    resolve_artifact_ids_for_type,
 )
 
 logger = logging.getLogger(__name__)
@@ -192,7 +187,7 @@ _VALID_WAIVER_STATES = frozenset({"active", "expired", "all"})
 # ---------------------------------------------------------------------------
 
 
-def _audit_entry_to_dict(entry: AuditEntry) -> Dict[str, Any]:
+def _audit_entry_to_dict(entry: AuditEntry) -> dict[str, Any]:
     """Serialise an AuditEntry ORM object to a JSON-safe dict."""
     return {
         "id": str(entry.id),
@@ -217,7 +212,7 @@ def _audit_entry_to_dict(entry: AuditEntry) -> Dict[str, Any]:
     }
 
 
-def _dlq_row_to_dict(row: Any) -> Dict[str, Any]:
+def _dlq_row_to_dict(row: Any) -> dict[str, Any]:
     """Serialise a DomainEventDLQ row (or _DlqSnapshot) to a dict."""
     return {
         "id": str(row.id) if getattr(row, "id", None) else None,
@@ -262,7 +257,7 @@ def _parse_iso8601(raw: Any, field_name: str) -> datetime:
     return parsed
 
 
-def _parse_suppression_expires_at(raw: Any) -> Optional[datetime]:
+def _parse_suppression_expires_at(raw: Any) -> datetime | None:
     """Parse an optional ISO-8601 suppression expiry, preserving naivety.
 
     Unlike :func:`_parse_iso8601` this must NOT silently attach UTC to an
@@ -581,8 +576,8 @@ class AuditToolGroup(BaseToolGroup):
 
     def __init__(
         self,
-        dlq_service: Optional[DlqService] = None,
-        ai_review_service: Optional[AiReviewService] = None,
+        dlq_service: DlqService | None = None,
+        ai_review_service: AiReviewService | None = None,
     ) -> None:
         # No constructor injection for the audit query — we always go
         # through the module-level ``audit.services.query`` facade so
@@ -595,7 +590,7 @@ class AuditToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _check_admin(auth_context: AuthContext) -> Optional[ToolResult]:
+    def _check_admin(auth_context: AuthContext) -> ToolResult | None:
         """Return a ``PERMISSION_DENIED`` ToolResult if the caller is not admin.
 
         Returns ``None`` when the caller has the admin role (i.e. the
@@ -618,7 +613,7 @@ class AuditToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_audit_query(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """audit.query — query the audit log with filters (admin-only).
 
@@ -725,7 +720,7 @@ class AuditToolGroup(BaseToolGroup):
         except (ValidationError, ValueError) as exc:
             return ToolResult.error("VALIDATION_ERROR", str(exc))
 
-        entries: List[Dict[str, Any]] = [
+        entries: list[dict[str, Any]] = [
             _audit_entry_to_dict(e) for e in result.entries
         ]
         return ToolResult.ok(
@@ -742,7 +737,7 @@ class AuditToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_ai_review(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """audit.ai_review — bundle SE-Auditor findings into refactoring packages.
 
@@ -807,7 +802,7 @@ class AuditToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_se_audit(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """audit.se_audit — run the SE-Auditor for a workspace (read-only).
 
@@ -852,7 +847,7 @@ class AuditToolGroup(BaseToolGroup):
         # #569/m2: strict parse — only true/false (case-insensitive); absent
         # keeps the service default (True, O3). Only forwarded when the caller
         # named it, so the pre-#569 call shape is unchanged.
-        include_suppressed: Optional[bool] = None
+        include_suppressed: bool | None = None
         raw_include_suppressed = params.get("include_suppressed")
         if raw_include_suppressed is not None:
             if isinstance(raw_include_suppressed, bool):
@@ -884,7 +879,7 @@ class AuditToolGroup(BaseToolGroup):
         )
         has_filters = bool(rule_ids or severities or artifact_type)
 
-        run_kwargs: Dict[str, Any] = {
+        run_kwargs: dict[str, Any] = {
             "tier": tier,
             # A filtered run is taken unfiltered (no window) and narrowed below,
             # so limit/offset page over the *filtered* set (#1262).
@@ -929,7 +924,7 @@ class AuditToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_waive_finding(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """audit.waive_finding — grant a per-finding suppression (#569).
 
@@ -1091,7 +1086,7 @@ class AuditToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_waivers(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """audit.waivers — list the workspace's suppressions (#569).
 
@@ -1155,7 +1150,7 @@ class AuditToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_dlq_list(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """events.dlq_list — list DLQ entries for one workspace (admin-only).
 
@@ -1219,7 +1214,7 @@ class AuditToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_dlq_replay(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """events.dlq_replay — replay a single DLQ event (admin-only, write).
 

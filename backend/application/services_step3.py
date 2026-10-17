@@ -40,11 +40,11 @@ from __future__ import annotations
 # COMP-AS-013
 from application.adr_service import AdrDTO, AdrService  # noqa: F401
 
-# COMP-AS-014
-from application.risk_service import RISK_LINK_TYPES, RiskDTO, RiskService  # noqa: F401
-
 # COMP-AS-015
 from application.issue_service import ISSUE_LINK_TYPES, IssueDTO, IssueService  # noqa: F401
+
+# COMP-AS-014
+from application.risk_service import RISK_LINK_TYPES, RiskDTO, RiskService  # noqa: F401
 
 # ---------- Registry hook (services.py extension pattern) ----------
 from application.services import _registry  # noqa: E402

@@ -36,9 +36,7 @@ state machine, no new state_meta flags. Reuses:
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict
-
-from auth_tenancy.context import AuthContext
+from typing import Any
 
 from application.base import (
     NotFoundError,
@@ -47,7 +45,7 @@ from application.base import (
     ValidationError,
 )
 from application.workflow_facade import WorkflowFacade
-
+from auth_tenancy.context import AuthContext
 from mcp_server.tools.base import (
     BaseToolGroup,
     ToolResult,
@@ -199,7 +197,7 @@ class ReviewToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_list_pending(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         from application.review_queue_service import ReviewQueueService
 
@@ -256,7 +254,7 @@ class ReviewToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_approve(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         return self._transition_to_gate_target(
             params=params,
@@ -271,7 +269,7 @@ class ReviewToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_reject(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """review.reject -- soft-delete via the universal outdate() escape
         hatch (bypasses normal preset-transition validation, same as e.g.
@@ -331,7 +329,7 @@ class ReviewToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_request_changes(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         item_id = require_uuid(params, "item_id")
         item_type = require_param(params, "item_type")
@@ -394,7 +392,7 @@ class ReviewToolGroup(BaseToolGroup):
 
     def _resolve_item_type(
         self, item_type: str, auth_context: AuthContext, workspace_id
-    ) -> "tuple[str | None, ToolResult | None]":
+    ) -> tuple[str | None, ToolResult | None]:
         """Canonicalise a caller-supplied ``item_type`` (issue #1356).
 
         This tool's schema declares ``item_type`` as a free string and agents

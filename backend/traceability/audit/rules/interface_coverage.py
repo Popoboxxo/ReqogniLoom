@@ -40,15 +40,13 @@ coverage is surfaced through the IFC-001 findings until that metric lands.
 """
 from __future__ import annotations
 
-from typing import Dict, FrozenSet, List, Set
-
 from traceability.audit.registry import IFC_001, Rule, register_rule
 from traceability.audit.types import AuditContext, Finding, Severity
 from traceability.types import LinkType
 from workflow.services import outdated_item_ids
 
 
-def _active_icds(context: AuditContext) -> Dict[str, str]:
+def _active_icds(context: AuditContext) -> dict[str, str]:
     """Return ``{artifact_id: name}`` for the workspace's active ICDs.
 
     "Active" excludes soft-deleted rows via ``workflow.services.outdated_item_ids``
@@ -76,7 +74,7 @@ def _active_icds(context: AuditContext) -> Dict[str, str]:
     }
 
 
-def _active_architecture_element_ids(context: AuditContext) -> FrozenSet[str]:
+def _active_architecture_element_ids(context: AuditContext) -> frozenset[str]:
     """Return the artifact-id set of the workspace's active ArchitectureElements."""
     from persistence.models import ArchitectureElement
 
@@ -124,7 +122,7 @@ class IcdAnchoredInArchitectureRule(Rule):
         """
         return Severity.WARNING
 
-    def check(self, context: AuditContext) -> List[Finding]:
+    def check(self, context: AuditContext) -> list[Finding]:
         icds = _active_icds(context)
         if not icds:
             return []
@@ -132,7 +130,7 @@ class IcdAnchoredInArchitectureRule(Rule):
         arch_ids = _active_architecture_element_ids(context)
         icd_ids = frozenset(icds)
 
-        anchored: Set[str] = set()
+        anchored: set[str] = set()
         for link in context.iter_trace_links():
             if link["link_type"] != LinkType.REFERENCES.value:
                 continue
@@ -142,7 +140,7 @@ class IcdAnchoredInArchitectureRule(Rule):
             if source_id in icd_ids and target_id in arch_ids:
                 anchored.add(source_id)
 
-        findings: List[Finding] = []
+        findings: list[Finding] = []
         for icd_id in sorted(icd_ids):
             if icd_id in anchored:
                 continue

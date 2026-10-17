@@ -68,48 +68,14 @@ Architecture:
 """
 from __future__ import annotations
 
-# ---------------------------------------------------------------------------
-# Step-1 components — re-exported as the public facade
-# ---------------------------------------------------------------------------
-
-# COMP-AS-001
-from application.artifact_service import ArtifactService, TreeNodeDTO  # noqa: F401
-
-# COMP-AS-002
-from application.requirement_service import (  # noqa: F401
-    DecompositionResultDTO,
-    PgVectorUnavailableError,
-    RequirementDTO,
-    RequirementService,
-    SimilarRequirementDTO,
-)
-
 # COMP-AS-003
 from application.architecture_service import ArchitectureService  # noqa: F401
 
-# COMP-AS-004
-from application.test_service import TestService  # noqa: F401
-
-# COMP-AS-005
-from application.trace_link_service import (  # noqa: F401
-    TraceLinkService,
-    VALID_LINK_TYPES,
-    MANUAL_LINK_TYPES,
-)
-
-# COMP-AS-012
-from application.preset_policy_service import (  # noqa: F401
-    PresetPolicyService,
-    get_preset_policy_service,
-)
-
-# COMP-AS-016
-from application.event_bus import (  # noqa: F401
-    DomainEvent,
-    DomainEventBus,
-    get_event_bus,
-    poll_and_dispatch,
-)
+# ---------------------------------------------------------------------------
+# Step-1 components — re-exported as the public facade
+# ---------------------------------------------------------------------------
+# COMP-AS-001
+from application.artifact_service import ArtifactService, TreeNodeDTO  # noqa: F401
 
 # Shared exceptions
 from application.base import (  # noqa: F401
@@ -121,6 +87,39 @@ from application.base import (  # noqa: F401
     ProducerContextRequiredError,
     ServiceBase,
     ValidationError,
+)
+
+# COMP-AS-016
+from application.event_bus import (  # noqa: F401
+    DomainEvent,
+    DomainEventBus,
+    get_event_bus,
+    poll_and_dispatch,
+)
+
+# COMP-AS-012
+from application.preset_policy_service import (  # noqa: F401
+    PresetPolicyService,
+    get_preset_policy_service,
+)
+
+# COMP-AS-002
+from application.requirement_service import (  # noqa: F401
+    DecompositionResultDTO,
+    PgVectorUnavailableError,
+    RequirementDTO,
+    RequirementService,
+    SimilarRequirementDTO,
+)
+
+# COMP-AS-004
+from application.test_service import TestService  # noqa: F401
+
+# COMP-AS-005
+from application.trace_link_service import (  # noqa: F401
+    MANUAL_LINK_TYPES,
+    VALID_LINK_TYPES,
+    TraceLinkService,
 )
 
 # ---------------------------------------------------------------------------
@@ -147,27 +146,34 @@ _registry: dict = {
 # ---------------------------------------------------------------------------
 # Step-2 re-export (COMP-AS-006..011) — DO NOT modify above this line
 # ---------------------------------------------------------------------------
-from application.services_step2 import *  # noqa: F401,F403,E402
-
-# ---------------------------------------------------------------------------
-# Step-3 re-export (COMP-AS-013..015) — DO NOT modify above this line
-# ---------------------------------------------------------------------------
-from application.services_step3 import *  # noqa: F401,F403,E402
-
-# ---------------------------------------------------------------------------
-# Step-4 re-export (COMP-AS-017..018) — DO NOT modify above this line
-# ---------------------------------------------------------------------------
-from application.services_step4 import *  # noqa: F401,F403,E402
-
 # ---------------------------------------------------------------------------
 # COMP-AS-019 — ArtifactDiffService (REQ-L2-AS-032, REQ-L1-040)
 # ---------------------------------------------------------------------------
 from application.artifact_diff_service import ArtifactDiffService  # noqa: F401,E402
 
 # ---------------------------------------------------------------------------
+# Datenmodell-Konsolidierung Phase 5 — ArtifactVersionService (spec §6, D-4)
+# ---------------------------------------------------------------------------
+from application.artifact_version_service import ArtifactVersionService  # noqa: F401,E402
+
+# ---------------------------------------------------------------------------
+# Menschen-im-System — collaboration: comments + notifications (§4/§5)
+# ---------------------------------------------------------------------------
+from application.comment_service import CommentService  # noqa: F401,E402
+
+# ---------------------------------------------------------------------------
+# COMP-AS-022 — EffectivePermissionService (ADR-01, issue #722)
+# ---------------------------------------------------------------------------
+from application.effective_permission_service import (  # noqa: F401,E402
+    EffectivePermission,
+    EffectivePermissionService,
+)
+
+# ---------------------------------------------------------------------------
 # COMP-AS-020 Semantic Glossary
 # ---------------------------------------------------------------------------
 from application.glossary_service import GlossaryService, GlossaryTermDTO  # noqa: F401,E402
+from application.notification_service import NotificationService  # noqa: F401,E402
 
 # ---------------------------------------------------------------------------
 # COMP-AS-008 ReqIF 1.2 export (REQ-146)
@@ -183,25 +189,17 @@ from application.reqif_import_service import (  # noqa: F401,E402
     ReqifImportService,
     ReqifParseError,
 )
+from application.services_step2 import *  # noqa: F401,F403,E402
 
 # ---------------------------------------------------------------------------
-# Datenmodell-Konsolidierung Phase 5 — ArtifactVersionService (spec §6, D-4)
+# Step-3 re-export (COMP-AS-013..015) — DO NOT modify above this line
 # ---------------------------------------------------------------------------
-from application.artifact_version_service import ArtifactVersionService  # noqa: F401,E402
+from application.services_step3 import *  # noqa: F401,F403,E402
 
 # ---------------------------------------------------------------------------
-# Menschen-im-System — collaboration: comments + notifications (§4/§5)
+# Step-4 re-export (COMP-AS-017..018) — DO NOT modify above this line
 # ---------------------------------------------------------------------------
-from application.comment_service import CommentService  # noqa: F401,E402
-from application.notification_service import NotificationService  # noqa: F401,E402
-
-# ---------------------------------------------------------------------------
-# COMP-AS-022 — EffectivePermissionService (ADR-01, issue #722)
-# ---------------------------------------------------------------------------
-from application.effective_permission_service import (  # noqa: F401,E402
-    EffectivePermission,
-    EffectivePermissionService,
-)
+from application.services_step4 import *  # noqa: F401,F403,E402
 
 # ---------------------------------------------------------------------------
 # ADR-019 — generic proposal lifecycle facade (WP2)

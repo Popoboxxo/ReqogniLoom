@@ -16,10 +16,10 @@ import pytest
 
 from application.base import ValidationError
 from application.import_service import (
-    ImportRowError,
-    ImportResult,
-    ImportService,
     _MAX_ROWS,
+    ImportResult,
+    ImportRowError,
+    ImportService,
 )
 from application.test_service import TestService
 from attribute_definitions.global_definition_store import GlobalAttributeDefinitionStore

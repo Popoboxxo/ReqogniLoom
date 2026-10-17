@@ -119,8 +119,8 @@ class WorkspacePresetConfig(TenantScopedModel):
 # ---------------------------------------------------------------------------
 
 __all__ = [
-    "WorkspacePresetConfig",
+    "DOWNGRADE_POLICY_CHOICES",
     "PRESET_CHOICES",
     "TERMINOLOGY_CHOICES",
-    "DOWNGRADE_POLICY_CHOICES",
+    "WorkspacePresetConfig",
 ]

@@ -33,8 +33,7 @@ from __future__ import annotations
 
 import uuid
 from collections import OrderedDict
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 from baseline.exceptions import ItemNotInBaselineError, VersionNotFoundError
 from baseline.types import ItemPayload
@@ -58,7 +57,7 @@ class LruPayloadCache:
         # OrderedDict maintains insertion order; we move accessed items to end.
         self._cache: OrderedDict[tuple[str, int], ItemPayload] = OrderedDict()
 
-    def get(self, item_id: str, version: int) -> Optional[ItemPayload]:
+    def get(self, item_id: str, version: int) -> ItemPayload | None:
         """Return cached payload or None on miss."""
         key = (item_id, version)
         if key not in self._cache:
@@ -95,7 +94,7 @@ class VersionReconstructor:
     def __init__(
         self,
         store=None,
-        cache: Optional[LruPayloadCache] = None,
+        cache: LruPayloadCache | None = None,
     ) -> None:
         if store is None:
             from baseline.store import get_store
@@ -159,7 +158,7 @@ class VersionReconstructor:
 
     def _try_live_entity(
         self, item_id: str, version: int
-    ) -> Optional[ItemPayload]:
+    ) -> ItemPayload | None:
         """Return live entity payload if its current version matches.
 
         Avoids an audit log lookup for recently-created baselines where the
@@ -186,7 +185,7 @@ class VersionReconstructor:
                     title=req.title,
                     description=req.description or None,
                     content=None,
-                    reconstructed_at=datetime.now(tz=timezone.utc),
+                    reconstructed_at=datetime.now(tz=UTC),
                 )
         except Exception:
             pass
@@ -205,7 +204,7 @@ class VersionReconstructor:
                     title=ae.title,
                     description=ae.description or None,
                     content=None,
-                    reconstructed_at=datetime.now(tz=timezone.utc),
+                    reconstructed_at=datetime.now(tz=UTC),
                 )
         except Exception:
             pass
@@ -222,7 +221,7 @@ class VersionReconstructor:
                     title=str(art),
                     description=None,
                     content=None,
-                    reconstructed_at=datetime.now(tz=timezone.utc),
+                    reconstructed_at=datetime.now(tz=UTC),
                 )
         except Exception:
             pass
@@ -239,7 +238,7 @@ class VersionReconstructor:
                     title=gt.term,
                     description=gt.definition,
                     content=None,
-                    reconstructed_at=datetime.now(tz=timezone.utc),
+                    reconstructed_at=datetime.now(tz=UTC),
                 )
         except Exception:
             pass
@@ -248,7 +247,7 @@ class VersionReconstructor:
 
     def _load_from_audit_log(
         self, item_id: str, version: int
-    ) -> Optional[ItemPayload]:
+    ) -> ItemPayload | None:
         """Query AuditLogEntry for the entity payload at the specified version.
 
         The AuditLogEntry.payload JSONField is expected to contain the entity
@@ -290,7 +289,7 @@ class VersionReconstructor:
                         title=str(title),
                         description=payload_data.get("description"),
                         content=payload_data.get("content"),
-                        reconstructed_at=datetime.now(tz=timezone.utc),
+                        reconstructed_at=datetime.now(tz=UTC),
                     )
         except Exception:
             pass
@@ -299,10 +298,10 @@ class VersionReconstructor:
 
 
 # Module-level singleton — lazily initialized to avoid Django import at module load
-_reconstructor: "VersionReconstructor | None" = None
+_reconstructor: VersionReconstructor | None = None
 
 
-def get_reconstructor() -> "VersionReconstructor":
+def get_reconstructor() -> VersionReconstructor:
     """Return the module-level VersionReconstructor singleton (lazy init)."""
     global _reconstructor
     if _reconstructor is None:

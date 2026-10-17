@@ -10,9 +10,10 @@ No data seeding: factory defaults live in the code registry
 tenant/workspace overrides and admin-created config variables, so a fresh
 tenant needs no seed pass at all.
 """
+import uuid
+
 import django.db.models.deletion
 import django.db.models.manager
-import uuid
 from django.conf import settings
 from django.db import migrations, models
 

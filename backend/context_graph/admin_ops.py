@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import List
 from uuid import UUID
 
 from django.utils import timezone
@@ -64,7 +63,7 @@ def rebuild_workspace_graph(workspace_id: UUID) -> RebuildResult:
                 ),
             )
 
-        enabled_generators: List[str] = settings_row.enabled_generators or []
+        enabled_generators: list[str] = settings_row.enabled_generators or []
         artifact_ids = list(
             Artifact.objects.filter(workspace_id=workspace_id).values_list("id", flat=True)
         )
@@ -115,4 +114,4 @@ def rebuild_workspace_graph(workspace_id: UUID) -> RebuildResult:
         clear_request_tenant()
 
 
-__all__ = ["rebuild_workspace_graph", "RebuildResult"]
+__all__ = ["RebuildResult", "rebuild_workspace_graph"]

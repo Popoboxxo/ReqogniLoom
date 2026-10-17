@@ -47,7 +47,7 @@ class ValidationError(ValueError):
 
 
 __all__ = [
-    "PermissionDeniedError",
     "NotFoundError",
+    "PermissionDeniedError",
     "ValidationError",
 ]

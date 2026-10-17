@@ -33,8 +33,8 @@ from __future__ import annotations
 import json
 import logging
 import threading
-from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from datetime import UTC, datetime
+from typing import Any
 from uuid import UUID
 
 from persistence.tenancy import TenantContext
@@ -47,7 +47,7 @@ logger = logging.getLogger(__name__)
 # In-process lock registry for Thundering Herd Prevention (REQ-L2-SM-013)
 # ---------------------------------------------------------------------------
 
-_lock_registry: Dict[str, threading.Lock] = {}
+_lock_registry: dict[str, threading.Lock] = {}
 _lock_registry_mutex = threading.Lock()
 
 
@@ -94,7 +94,7 @@ class MetricsCacheManager:
 
     def get_cached(
         self, workspace_id: str, timeframe: str
-    ) -> Optional[MetricsResult]:
+    ) -> MetricsResult | None:
         """Fetch cached MetricsResult if present and within TTL.
 
         IF-SM-INT-008 contract (cache read path).
@@ -121,10 +121,10 @@ class MetricsCacheManager:
                 return None
 
             # TTL check
-            now = datetime.now(tz=timezone.utc)
+            now = datetime.now(tz=UTC)
             computed_at = entry.computed_at
             if computed_at.tzinfo is None:
-                computed_at = computed_at.replace(tzinfo=timezone.utc)
+                computed_at = computed_at.replace(tzinfo=UTC)
 
             age_seconds = (now - computed_at).total_seconds()
             if age_seconds > entry.cache_ttl_seconds:
@@ -175,7 +175,7 @@ class MetricsCacheManager:
             from se_metrics.models import MetricCache  # lazy import
 
             result_json = result.to_dict()
-            now = datetime.now(tz=timezone.utc)
+            now = datetime.now(tz=UTC)
 
             # SA-35: ``tenant_id`` used to be filled with the *workspace* id
             # ("use workspace_id as tenant proxy"), which made the column
@@ -211,7 +211,7 @@ class MetricsCacheManager:
                 exc_info=True,
             )
 
-    def invalidate(self, workspace_id: str, timeframe: Optional[str] = None) -> None:
+    def invalidate(self, workspace_id: str, timeframe: str | None = None) -> None:
         """Invalidate cache entries for a workspace.
 
         Called on AuditLog change events to ensure stale data is not served.
@@ -244,7 +244,7 @@ class MetricsCacheManager:
     # IF-SM-INT-007: ThresholdConfig access
     # ------------------------------------------------------------------
 
-    def get_threshold_config(self, workspace_id: str) -> Optional[ThresholdConfig]:
+    def get_threshold_config(self, workspace_id: str) -> ThresholdConfig | None:
         """Load workspace threshold configuration from DB.
 
         IF-SM-INT-007 contract (ThresholdEvaluator → MetricsCacheManager).
@@ -287,10 +287,10 @@ class MetricsCacheManager:
         self,
         workspace_id: str,
         tenant_id: str,
-        traceability_coverage_min: Optional[float] = None,
-        volatility_max_avg: Optional[float] = None,
-        workflow_gaps_max: Optional[int] = None,
-        open_risks_max_critical: Optional[int] = None,
+        traceability_coverage_min: float | None = None,
+        volatility_max_avg: float | None = None,
+        workflow_gaps_max: int | None = None,
+        open_risks_max_critical: int | None = None,
     ) -> ThresholdConfig:
         """Persist threshold configuration for a workspace (REQ-L2-SM-007 CRUD).
 
@@ -394,7 +394,7 @@ class MetricsCacheManager:
     # Deserialization
     # ------------------------------------------------------------------
 
-    def _deserialize(self, result_json: Dict) -> Optional[MetricsResult]:
+    def _deserialize(self, result_json: dict) -> MetricsResult | None:
         """Reconstruct a MetricsResult from cached JSON dict.
 
         Returns None if deserialization fails.
@@ -402,19 +402,19 @@ class MetricsCacheManager:
         try:
             from se_metrics.types import (
                 CoverageResult,
+                MetricsResult,
                 RiskResult,
+                ThresholdWarning,
                 VerificationCoverageResult,
                 VolatileRequirement,
                 VolatilityResult,
                 WorkflowGap,
                 WorkflowGapResult,
-                ThresholdWarning,
-                MetricsResult,
             )
 
             computed_at = datetime.fromisoformat(result_json["computed_at"])
             if computed_at.tzinfo is None:
-                computed_at = computed_at.replace(tzinfo=timezone.utc)
+                computed_at = computed_at.replace(tzinfo=UTC)
 
             vol_raw = result_json.get("volatility", {})
             volatility = VolatilityResult(

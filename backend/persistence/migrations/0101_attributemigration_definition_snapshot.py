@@ -29,9 +29,10 @@ hand-written (same shape as ``persistence/0091_attribute_migration_rls_policy.py
 
 Requirements: REQ-L2-PL-010 (RLS on all tenant-scoped tables), ADR-PL-03.
 """
+import uuid
+
 import django.db.models.deletion
 import django.db.models.manager
-import uuid
 from django.conf import settings
 from django.db import migrations, models
 

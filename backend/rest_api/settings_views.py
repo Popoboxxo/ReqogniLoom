@@ -36,7 +36,6 @@ from rest_api.serializers import (
     detect_lang,
 )
 
-
 # ---------------------------------------------------------------------------
 # Serializer
 # ---------------------------------------------------------------------------
@@ -387,7 +386,7 @@ class _PromptSlotAdminMixin:
             status=status.HTTP_403_FORBIDDEN,
         )
 
-    def _parse_workspace_id(self, request: Request) -> "UUID | None":
+    def _parse_workspace_id(self, request: Request) -> UUID | None:
         """Return the ``?workspace_id=`` scope, or ``None`` for tenant-global.
 
         Raises:
@@ -752,17 +751,17 @@ class ContextGraphRebuildView(AdminScopeRequiredMixin, APIView):
 
 
 __all__ = [
-    "LlmSettingsView",
+    "ContextGraphRebuildView",
+    "ContextGraphSettingsSerializer",
+    "ContextGraphSettingsView",
     "LlmSettingsSerializer",
-    "PromptTemplateView",
-    "PromptTemplateSlotListView",
-    "PromptTemplateSlotDetailView",
-    "PromptTemplateSlotWriteSerializer",
+    "LlmSettingsView",
     "PromptTemplateResetView",
     "PromptTemplateSerializer",
-    "ReviewPolicyView",
+    "PromptTemplateSlotDetailView",
+    "PromptTemplateSlotListView",
+    "PromptTemplateSlotWriteSerializer",
+    "PromptTemplateView",
     "ReviewPolicySerializer",
-    "ContextGraphSettingsView",
-    "ContextGraphSettingsSerializer",
-    "ContextGraphRebuildView",
+    "ReviewPolicyView",
 ]

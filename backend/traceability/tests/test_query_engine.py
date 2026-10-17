@@ -18,7 +18,7 @@ from unittest.mock import patch
 import pytest
 
 from traceability.exceptions import PayloadTooLargeError, QueryTimeoutError
-from traceability.query_engine import QueryEngine, MAX_GRAPH_ITEMS
+from traceability.query_engine import MAX_GRAPH_ITEMS, QueryEngine
 from traceability.tests.conftest import (
     active_tenant,
     make_artifact,

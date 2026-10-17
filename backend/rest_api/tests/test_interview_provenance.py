@@ -41,7 +41,7 @@ def _seed_artifact(tenant, workspace) -> Artifact:
 
 def _seed_multi_session_with_provenance(
     tenant, workspace
-) -> "tuple[InterviewSession, Artifact]":
+) -> tuple[InterviewSession, Artifact]:
     """A multi-mode session plus one provenance row pointing at a new
     Artifact -- the exact row shape ``_formalize_multi`` writes."""
     set_request_tenant(tenant.id)

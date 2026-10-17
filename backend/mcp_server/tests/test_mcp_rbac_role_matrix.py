@@ -33,7 +33,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from typing import Any, Dict
+from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
@@ -287,7 +287,7 @@ _ADMIN_NAMESPACE_NON_ADMIN_BY_DESIGN = frozenset(
 _COVERED_ELSEWHERE = frozenset({"permissions.revoke"})
 
 
-def _admin_only_calls(identity: _Identity) -> Dict[str, Dict[str, Any]]:
+def _admin_only_calls(identity: _Identity) -> dict[str, dict[str, Any]]:
     """Return ``tool_name -> params`` for every admin-only tool under test.
 
     Parameters are valid enough to get past parameter validation and reach the

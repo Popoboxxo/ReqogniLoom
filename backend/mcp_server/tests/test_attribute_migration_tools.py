@@ -11,8 +11,8 @@ import uuid
 
 import pytest
 
-from attribute_definitions.plans import plan_path
 from attribute_definitions.migration_plan import load_plan_file
+from attribute_definitions.plans import plan_path
 from auth_tenancy.context import AuthContext, AuthMethod
 from mcp_server.tools.attribute_migration import AttributeMigrationToolGroup
 from persistence.models import Artifact, Requirement, Tenant, Workspace

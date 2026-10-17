@@ -22,6 +22,7 @@ from application.base import NotFoundError, PermissionDeniedError, ValidationErr
 from application.requirement_service import RequirementService
 from application.workspace_service import BaselineImmutabilityError, WorkspaceService
 from audit.models import AuditEntry
+from baseline.models import BaselineSnapshot
 from persistence.models import (
     ArchitectureElement,
     Artifact,
@@ -33,7 +34,6 @@ from persistence.models import (
     User,
     Workspace,
 )
-from baseline.models import BaselineSnapshot
 from workflow.models import WorkflowEngineDefinition
 from workflow.services import get_available_transitions
 

@@ -48,7 +48,7 @@ from __future__ import annotations
 import importlib.util
 import logging
 from collections.abc import Iterator
-from typing import Any, List, Optional, Tuple
+from typing import Any
 from uuid import UUID
 
 from django.core.exceptions import ImproperlyConfigured
@@ -131,7 +131,7 @@ class MemoryIndexError(RuntimeError):
         tenant_id: UUID,
         scope: str,
         scope_id: UUID,
-        cause: Optional[BaseException] = None,
+        cause: BaseException | None = None,
     ) -> None:
         self.reason = reason
         self.entry_id = entry_id
@@ -158,7 +158,7 @@ def _qdrant_client_available() -> bool:
         return False
 
 
-def assert_collection_dimension(actual: Optional[int], expected: int) -> None:
+def assert_collection_dimension(actual: int | None, expected: int) -> None:
     """Fail loud when an existing Qdrant collection's width drifts.
 
     The configured width ALWAYS mirrors
@@ -181,7 +181,7 @@ def assert_collection_dimension(actual: Optional[int], expected: int) -> None:
         )
 
 
-def _collection_dimension(info: Any) -> Optional[int]:
+def _collection_dimension(info: Any) -> int | None:
     """Extract a collection's vector width from a qdrant ``CollectionInfo``.
 
     Tolerates both the unnamed-vector shape (``params.vectors.size``) and the
@@ -202,7 +202,7 @@ def _collection_dimension(info: Any) -> Optional[int]:
     return None
 
 
-def _safe_generate_embedding(text: str) -> Optional[List[float]]:
+def _safe_generate_embedding(text: str) -> list[float] | None:
     """Best-effort local embedding; ``None`` on any provider failure.
 
     A missing embedding provider must never fail a memory write (the canonical
@@ -214,7 +214,7 @@ def _safe_generate_embedding(text: str) -> Optional[List[float]]:
         return None
 
 
-def _distance_from_score(score: Any) -> Optional[float]:
+def _distance_from_score(score: Any) -> float | None:
     """Map a Qdrant similarity score to the project's cosine-distance convention.
 
     Qdrant's ``score`` is a similarity (higher = closer) for cosine, while
@@ -326,7 +326,7 @@ class QdrantMemoryBackend(MemoryBackend):
 
     # -- collection selection (security boundary) ------------------------
 
-    def _artifact_workspace_id(self, tenant_id: UUID, artifact_id: UUID) -> Optional[UUID]:
+    def _artifact_workspace_id(self, tenant_id: UUID, artifact_id: UUID) -> UUID | None:
         """Resolve the owning workspace of *artifact_id* from the local DB.
 
         Arms the tenant context itself (RLS): callers such as ``query``/
@@ -463,13 +463,13 @@ class QdrantMemoryBackend(MemoryBackend):
         scope_id: UUID,
         content: str,
         *,
-        contributor_user_id: Optional[UUID] = None,
-        source_event_id: Optional[UUID] = None,
-        source_session_id: Optional[UUID] = None,
+        contributor_user_id: UUID | None = None,
+        source_event_id: UUID | None = None,
+        source_session_id: UUID | None = None,
         language: str = "",
         confidence: float = 1.0,
         entity_type: str = "",
-        backend_ref: Optional[str] = None,
+        backend_ref: str | None = None,
     ) -> MemoryEntryRef:
         """Persist *content* canonically and index its vector in Qdrant.
 
@@ -543,7 +543,7 @@ class QdrantMemoryBackend(MemoryBackend):
         return _ref_from_entry(entry)
 
     def _index_point(
-        self, tenant_id: UUID, scope: str, scope_id: UUID, entry_id: UUID, vector: List[float]
+        self, tenant_id: UUID, scope: str, scope_id: UUID, entry_id: UUID, vector: list[float]
     ) -> None:
         """Upsert one point; raises on any client/collection failure.
 
@@ -576,8 +576,8 @@ class QdrantMemoryBackend(MemoryBackend):
         *,
         limit: int = 25,
         offset: int = 0,
-        q: Optional[str] = None,
-    ) -> Tuple[List[MemoryEntryRef], int]:
+        q: str | None = None,
+    ) -> tuple[list[MemoryEntryRef], int]:
         """Page the LOCAL canonical mirror (no Qdrant call), newest first."""
         with _tenant_context(tenant_id):
             qs = MemoryEntry.objects.filter(
@@ -600,9 +600,9 @@ class QdrantMemoryBackend(MemoryBackend):
     def delete_entry(self, tenant_id: UUID, entry_id: MemoryEntryId) -> bool:
         """Delete the canonical row AND its Qdrant point (best-effort)."""
         removed = False
-        point_id: Optional[str] = None
-        scope: Optional[str] = None
-        scope_id: Optional[UUID] = None
+        point_id: str | None = None
+        scope: str | None = None
+        scope_id: UUID | None = None
         with _tenant_context(tenant_id):
             uid = _maybe_uuid(entry_id)
             row = MemoryEntry.objects.filter(id=uid).first() if uid is not None else None
@@ -632,7 +632,7 @@ class QdrantMemoryBackend(MemoryBackend):
         scope: str,
         scope_id: UUID,
         *,
-        point_ids: Optional[List[str]] = None,
+        point_ids: list[str] | None = None,
     ) -> None:
         """Delete Qdrant points by id, or the whole scope when ``point_ids`` is None."""
         try:
@@ -739,7 +739,7 @@ class QdrantMemoryBackend(MemoryBackend):
         scope_id: UUID,
         query: str,
         *,
-        reasoning_level: Optional[str] = None,
+        reasoning_level: str | None = None,
     ) -> MemoryAnswer:
         """Always degrade: Qdrant has no generative/dialectic surface."""
         return MemoryAnswer(
@@ -758,13 +758,13 @@ class QdrantMemoryBackend(MemoryBackend):
         scope: str,
         scope_id: UUID,
         content: str,
-        source_event_id: Optional[UUID] = None,
+        source_event_id: UUID | None = None,
     ) -> MemoryEntryRef:
         return self.write(tenant_id, scope, scope_id, content, source_event_id=source_event_id)
 
     def query(
         self, tenant_id: UUID, scope: str, scope_id: UUID, query_text: str, top_k: int = 5
-    ) -> List[MemoryEntryRef]:
+    ) -> list[MemoryEntryRef]:
         """Vector search inside the scope's collection.
 
         Fail-open on a network/provider outage (``[]``), but a missing tenant --
@@ -799,12 +799,12 @@ class QdrantMemoryBackend(MemoryBackend):
         self,
         client: Any,
         name: str,
-        vector: List[float],
+        vector: list[float],
         scope: str,
         scope_id: UUID,
         tenant_id: UUID,
         top_k: int,
-    ) -> List[Any]:
+    ) -> list[Any]:
         """Query the collection, tolerating both the modern and legacy client API."""
         query_filter = self._qdrant_filter(tenant_id, scope, scope_id)
         if hasattr(client, "query_points"):
@@ -827,7 +827,7 @@ class QdrantMemoryBackend(MemoryBackend):
         )
 
     @staticmethod
-    def _refs_from_hits(tenant_id: UUID, hits: List[Any]) -> List[MemoryEntryRef]:
+    def _refs_from_hits(tenant_id: UUID, hits: list[Any]) -> list[MemoryEntryRef]:
         """Map Qdrant hits back to canonical rows (the source of content)."""
         by_entry: dict[UUID, Any] = {}
         for hit in hits:
@@ -839,7 +839,7 @@ class QdrantMemoryBackend(MemoryBackend):
             return []
         with _tenant_context(tenant_id):
             rows = {row.id: row for row in MemoryEntry.objects.filter(id__in=list(by_entry))}
-        refs: List[MemoryEntryRef] = []
+        refs: list[MemoryEntryRef] = []
         for entry_id, hit in by_entry.items():
             row = rows.get(entry_id)
             if row is None:
@@ -852,7 +852,7 @@ class QdrantMemoryBackend(MemoryBackend):
 
     def list_recent(
         self, tenant_id: UUID, scope: str, scope_id: UUID, limit: int = 20
-    ) -> List[MemoryEntryRef]:
+    ) -> list[MemoryEntryRef]:
         with _tenant_context(tenant_id):
             rows = (
                 MemoryEntry.objects.filter(
@@ -945,10 +945,10 @@ class QdrantMemoryBackend(MemoryBackend):
 
 
 __all__ = [
-    "QdrantMemoryBackend",
-    "MemoryIndexError",
     "INDEX_REASON_EMBEDDING_UNAVAILABLE",
     "INDEX_REASON_UPSERT_FAILED",
+    "MemoryIndexError",
+    "QdrantMemoryBackend",
     "assert_collection_dimension",
     "resolve_effective_qdrant_config",
 ]

@@ -150,14 +150,14 @@ class GovernanceAuthorityError(BaselineError):
 __all__ = [
     "BaselineError",
     "BaselineImmutableError",
+    "BaselineNotFoundError",
     "DuplicateBaselineIdError",
     "DuplicateBaselineNameError",
     "EmptyBaselineNameError",
-    "BaselineNotFoundError",
+    "GovernanceAuthorityError",
+    "GovernanceReasonError",
+    "ItemNotInBaselineError",
     "ScopeMismatchError",
     "ScopeNotAllowedError",
-    "ItemNotInBaselineError",
     "VersionNotFoundError",
-    "GovernanceReasonError",
-    "GovernanceAuthorityError",
 ]

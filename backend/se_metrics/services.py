@@ -38,9 +38,9 @@ Architecture:
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-from se_metrics.aggregator import MetricsAggregator, DEFAULT_TIMEFRAME
+from se_metrics.aggregator import DEFAULT_TIMEFRAME, MetricsAggregator
 from se_metrics.cache import MetricsCacheManager
 from se_metrics.registry import (
     ALL_METRIC_KEYS,
@@ -55,8 +55,8 @@ from se_metrics.types import MetricsResult, ThresholdConfig
 logger = logging.getLogger(__name__)
 
 # Module-level singletons (lazy, reused per process)
-_aggregator: Optional[MetricsAggregator] = None
-_cache_manager: Optional[MetricsCacheManager] = None
+_aggregator: MetricsAggregator | None = None
+_cache_manager: MetricsCacheManager | None = None
 
 
 def _get_aggregator() -> MetricsAggregator:
@@ -80,8 +80,8 @@ def _get_cache_manager() -> MetricsCacheManager:
 
 def compute_metrics(
     workspace_id: str,
-    timeframe: Optional[str] = None,
-    scope_filter: Optional[List[str]] = None,
+    timeframe: str | None = None,
+    scope_filter: list[str] | None = None,
 ) -> MetricsResult:
     """Compute (or retrieve from cache) SE process metrics for a workspace.
 
@@ -160,7 +160,7 @@ def compute_metrics(
 # ---------------------------------------------------------------------------
 
 
-def get_threshold_config(workspace_id: str) -> Optional[ThresholdConfig]:
+def get_threshold_config(workspace_id: str) -> ThresholdConfig | None:
     """Retrieve threshold configuration for a workspace.
 
     Returns None if no thresholds are configured.
@@ -177,10 +177,10 @@ def get_threshold_config(workspace_id: str) -> Optional[ThresholdConfig]:
 def save_threshold_config(
     workspace_id: str,
     tenant_id: str,
-    traceability_coverage_min: Optional[float] = None,
-    volatility_max_avg: Optional[float] = None,
-    workflow_gaps_max: Optional[int] = None,
-    open_risks_max_critical: Optional[int] = None,
+    traceability_coverage_min: float | None = None,
+    volatility_max_avg: float | None = None,
+    workflow_gaps_max: int | None = None,
+    open_risks_max_critical: int | None = None,
 ) -> ThresholdConfig:
     """Create or update threshold configuration for a workspace.
 
@@ -213,7 +213,7 @@ def save_threshold_config(
     return config
 
 
-def invalidate_cache(workspace_id: str, timeframe: Optional[str] = None) -> None:
+def invalidate_cache(workspace_id: str, timeframe: str | None = None) -> None:
     """Invalidate cached metrics for a workspace.
 
     Called by AuditLog change event handlers to ensure stale data is not served.
@@ -230,7 +230,7 @@ def invalidate_cache(workspace_id: str, timeframe: Optional[str] = None) -> None
 # ---------------------------------------------------------------------------
 
 
-def get_metric_catalog() -> Dict[str, Any]:
+def get_metric_catalog() -> dict[str, Any]:
     """Return the available statistics catalogue (Issue #1265).
 
     One payload for the UI, ``GET /api/v1/metrics/catalog/`` and MCP
@@ -251,10 +251,10 @@ def get_metric_catalog() -> Dict[str, Any]:
 
 def get_metric_values(
     workspace_id: str,
-    keys: Optional[List[str]] = None,
-    timeframe: Optional[str] = None,
+    keys: list[str] | None = None,
+    timeframe: str | None = None,
     refresh: bool = False,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Return the selected statistics with their values (Issue #1265).
 
     Backs ``GET /api/v1/metrics/?workspace_id=…&keys=…`` and MCP
@@ -291,7 +291,7 @@ def get_metric_values(
     values = select_values(result, known_keys)
     computed_at = result.computed_at.isoformat()
 
-    metrics: Dict[str, Any] = {}
+    metrics: dict[str, Any] = {}
     for key in known_keys:
         spec = get_metric_spec(key)
         if spec is None:  # defensive: normalize_keys already filtered

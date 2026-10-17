@@ -61,7 +61,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-from typing import Any, Optional
+from typing import Any
 
 from django.http import HttpRequest, HttpResponse, JsonResponse
 
@@ -131,7 +131,7 @@ class McpApiKeyRateThrottle(DynamicRateThrottle):
         super().__init__()
         self._credential = credential
 
-    def get_cache_key(self, request: HttpRequest, view: Any = None) -> Optional[str]:
+    def get_cache_key(self, request: HttpRequest, view: Any = None) -> str | None:
         """Bucket key for this credential, or ``None`` when there is none.
 
         ``None`` means "not applicable" to ``SimpleRateThrottle`` — an
@@ -154,14 +154,14 @@ class McpIpRateThrottle(DynamicRateThrottle):
 
     scope = "mcp_ip"
 
-    def get_cache_key(self, request: HttpRequest, view: Any = None) -> Optional[str]:
+    def get_cache_key(self, request: HttpRequest, view: Any = None) -> str | None:
         return self.cache_format % {
             "scope": self.scope,
             "ident": self.get_ident(request),
         }
 
 
-def _charge_or_refuse(throttle: DynamicRateThrottle, request: HttpRequest) -> Optional[float]:
+def _charge_or_refuse(throttle: DynamicRateThrottle, request: HttpRequest) -> float | None:
     """Charge *throttle* for this request; return retry-after on refusal, else None.
 
     ``SimpleRateThrottle.wait()`` returns ``None`` once the recorded history has
@@ -175,7 +175,7 @@ def _charge_or_refuse(throttle: DynamicRateThrottle, request: HttpRequest) -> Op
     return None
 
 
-def check_mcp_ip_rate_limit(request: HttpRequest) -> Optional[float]:
+def check_mcp_ip_rate_limit(request: HttpRequest) -> float | None:
     """Charge the per-IP backstop; return retry-after on refusal.
 
     Safe to run **before** authentication: the bucket is keyed on the client IP
@@ -187,7 +187,7 @@ def check_mcp_ip_rate_limit(request: HttpRequest) -> Optional[float]:
     return _charge_or_refuse(McpIpRateThrottle(), request)
 
 
-def check_mcp_key_rate_limit(request: HttpRequest, credential: str) -> Optional[float]:
+def check_mcp_key_rate_limit(request: HttpRequest, credential: str) -> float | None:
     """Charge the per-credential budget for an **already-authenticated** credential.
 
     The caller must have verified *credential* first. Charging an unverified

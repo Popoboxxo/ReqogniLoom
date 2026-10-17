@@ -19,7 +19,6 @@ Architecture:
 from __future__ import annotations
 
 import uuid
-from typing import Optional
 
 from baseline.exceptions import BaselineNotFoundError, ScopeMismatchError
 from baseline.models import BaselineSnapshot
@@ -160,7 +159,7 @@ class DiffEngine:
 
     def _load_states(
         self, baseline_id: uuid.UUID, tenant_id: uuid.UUID
-    ) -> dict[str, Optional[dict]]:
+    ) -> dict[str, dict | None]:
         """Load all stored states of a baseline, tolerating older stores.
 
         Falls back to an empty mapping if the store predates ``load_states``
@@ -220,9 +219,9 @@ class DiffEngine:
 
 
 def _field_diff(
-    state_a: Optional[dict],
-    state_b: Optional[dict],
-) -> Optional[dict]:
+    state_a: dict | None,
+    state_b: dict | None,
+) -> dict | None:
     """Return a per-field diff of two captured states (REQ-L2-BL-012).
 
     Only fields present in *both* snapshots are compared. The captured key set
@@ -258,7 +257,7 @@ def _field_diff(
     return changes
 
 
-def _effective_version(state: Optional[dict], index_version: int) -> int:
+def _effective_version(state: dict | None, index_version: int) -> int:
     """Return the version to report for a snapshotted item.
 
     The delta index stores ``Artifact.version`` — the shadow/base-table counter
@@ -276,10 +275,10 @@ def _effective_version(state: Optional[dict], index_version: int) -> int:
 
 
 # Module-level singleton — lazily initialized
-_engine: "DiffEngine | None" = None
+_engine: DiffEngine | None = None
 
 
-def get_engine() -> "DiffEngine":
+def get_engine() -> DiffEngine:
     """Return the module-level DiffEngine singleton (lazy init)."""
     global _engine
     if _engine is None:

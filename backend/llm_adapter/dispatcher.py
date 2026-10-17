@@ -31,7 +31,7 @@ from __future__ import annotations
 import os
 import warnings
 from dataclasses import dataclass, field
-from typing import Any, Dict, Optional, Union
+from typing import Any
 
 BROKER_NOT_CONFIGURED = "BROKER_NOT_CONFIGURED"
 
@@ -53,8 +53,8 @@ class TaskStatusResult:
 
     task_id: str
     status: str  # pending | running | done | failed | not_found
-    result: Optional[Dict[str, Any]] = None
-    error: Optional[str] = None
+    result: dict[str, Any] | None = None
+    error: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -71,7 +71,7 @@ def _broker_configured() -> bool:
     return bool(os.environ.get("CELERY_BROKER_URL", ""))
 
 
-def _resolve_tenant_id() -> Optional[str]:
+def _resolve_tenant_id() -> str | None:
     """Return the active tenant id as a string, or None when no context is set.
 
     The task runs in a Celery worker outside the request thread, so the tenant
@@ -100,8 +100,8 @@ class AsyncTaskDispatcher:
     def dispatch_async(
         self,
         capability: str,
-        kwargs: Dict[str, Any],
-    ) -> Union[str, Dict[str, Any]]:
+        kwargs: dict[str, Any],
+    ) -> str | dict[str, Any]:
         """Dispatch a capability to the Celery task queue.
 
         Returns immediately with a task_id (UUID string). The actual LLM call
@@ -151,9 +151,9 @@ class AsyncTaskDispatcher:
     def dispatch_task(
         self,
         task: Any,
-        args: Optional[list] = None,
-        kwargs: Optional[Dict[str, Any]] = None,
-    ) -> Union[str, Dict[str, Any]]:
+        args: list | None = None,
+        kwargs: dict[str, Any] | None = None,
+    ) -> str | dict[str, Any]:
         """Dispatch an arbitrary registered Celery task and return its task_id.
 
         Generic sibling of :meth:`dispatch_async` for application-layer
@@ -206,6 +206,7 @@ class AsyncTaskDispatcher:
 
         try:
             from celery.result import AsyncResult  # noqa: PLC0415
+
             from reqogniloom.celery import app as celery_app  # noqa: PLC0415
 
             async_result = AsyncResult(task_id, app=celery_app)
@@ -243,7 +244,7 @@ class AsyncTaskDispatcher:
 
 
 __all__ = [
+    "BROKER_NOT_CONFIGURED",
     "AsyncTaskDispatcher",
     "TaskStatusResult",
-    "BROKER_NOT_CONFIGURED",
 ]

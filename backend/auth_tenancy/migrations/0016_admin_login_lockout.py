@@ -8,8 +8,9 @@ same precedent as ``persistence.User``/``Tenant``. It is therefore NOT covered b
 the ``TenantScopedModel`` RLS coverage gate and needs no policy migration.
 """
 
-import django.db.models.deletion
 import uuid
+
+import django.db.models.deletion
 from django.conf import settings
 from django.db import migrations, models
 

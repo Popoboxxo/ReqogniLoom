@@ -29,9 +29,7 @@ No ORM in this module (ADR-01, enforced by
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List
-
-from auth_tenancy.context import AuthContext
+from typing import Any
 
 from application.attribute_definition_service import (
     AttributeDefinitionNotFound,
@@ -40,6 +38,7 @@ from application.attribute_definition_service import (
 )
 from application.base import PermissionDeniedError
 from attribute_definitions.schema import AttributeDefinitionConflictError
+from auth_tenancy.context import AuthContext
 from mcp_server.protocol_handler import ToolResult
 from mcp_server.tools.base import BaseToolGroup, require_param, require_uuid
 from presets.exceptions import CrossTenantWorkspaceError
@@ -47,7 +46,7 @@ from presets.exceptions import CrossTenantWorkspaceError
 logger = logging.getLogger(__name__)
 
 
-def _definition_payload(definition: Dict[str, Any]) -> Dict[str, Any]:
+def _definition_payload(definition: dict[str, Any]) -> dict[str, Any]:
     """Return a transport-safe copy of a service payload.
 
     The MCP transport serialises with stdlib ``json.dumps``, which has no UUID
@@ -59,7 +58,7 @@ def _definition_payload(definition: Dict[str, Any]) -> Dict[str, Any]:
     (``resolve``/``update_workspace``/``reset_workspace``) and the global
     payload (``list_global``) each carry only a subset of these keys.
     """
-    payload: Dict[str, Any] = {
+    payload: dict[str, Any] = {
         "item_type": str(definition["item_type"]),
         "preset": str(definition.get("preset") or ""),
         "is_customized": bool(definition.get("is_customized", False)),
@@ -111,7 +110,7 @@ class AttributeDefinitionToolGroup(BaseToolGroup):
     def _get_service() -> AttributeDefinitionService:
         return AttributeDefinitionService()
 
-    def get_tool_schemas(self) -> List[Dict[str, Any]]:
+    def get_tool_schemas(self) -> list[dict[str, Any]]:
         """Advertise the four tools with their JSON schemas."""
         workspace_scoped = {
             "type": "object",
@@ -339,7 +338,7 @@ class AttributeDefinitionToolGroup(BaseToolGroup):
     # base dispatcher's execute_tool already maps it to VALIDATION_ERROR.
 
     def _handle_list(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         try:
             definitions = self._get_service().list_global(
@@ -353,7 +352,7 @@ class AttributeDefinitionToolGroup(BaseToolGroup):
         return ToolResult.ok({"definitions": payload, "count": len(payload)})
 
     def _handle_get(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         item_type = require_param(params, "item_type")
         workspace_id = require_uuid(params, "workspace_id")
@@ -378,7 +377,7 @@ class AttributeDefinitionToolGroup(BaseToolGroup):
         return ToolResult.ok({"definition": _definition_payload(definition)})
 
     def _handle_update(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         item_type = require_param(params, "item_type")
         workspace_id = require_uuid(params, "workspace_id")
@@ -412,7 +411,7 @@ class AttributeDefinitionToolGroup(BaseToolGroup):
         return ToolResult.ok({"definition": _definition_payload(definition)})
 
     def _handle_reset(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         item_type = require_param(params, "item_type")
         workspace_id = require_uuid(params, "workspace_id")
@@ -434,7 +433,7 @@ class AttributeDefinitionToolGroup(BaseToolGroup):
         return ToolResult.ok({"definition": _definition_payload(definition)})
 
     def _handle_create(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         item_type = require_param(params, "item_type")
         preset = require_param(params, "preset")
@@ -456,7 +455,7 @@ class AttributeDefinitionToolGroup(BaseToolGroup):
         return ToolResult.ok({"definition": _definition_payload(definition)})
 
     def _handle_delete(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         item_type = require_param(params, "item_type")
         preset = require_param(params, "preset")
@@ -474,7 +473,7 @@ class AttributeDefinitionToolGroup(BaseToolGroup):
         return ToolResult.ok({"definition": _definition_payload(definition)})
 
     def _handle_create_workspace(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         item_type = require_param(params, "item_type")
         workspace_id = require_uuid(params, "workspace_id")
@@ -500,7 +499,7 @@ class AttributeDefinitionToolGroup(BaseToolGroup):
         return ToolResult.ok({"definition": _definition_payload(definition)})
 
     def _handle_delete_workspace(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         item_type = require_param(params, "item_type")
         workspace_id = require_uuid(params, "workspace_id")
@@ -520,7 +519,7 @@ class AttributeDefinitionToolGroup(BaseToolGroup):
         return ToolResult.ok({"definition": _definition_payload(definition)})
 
     def _handle_count_usages(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         item_type = require_param(params, "item_type")
         workspace_id = require_uuid(params, "workspace_id")
@@ -534,7 +533,7 @@ class AttributeDefinitionToolGroup(BaseToolGroup):
         return ToolResult.ok({"count": count})
 
     def _handle_export(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         item_type = require_param(params, "item_type")
         preset = require_param(params, "preset")
@@ -549,7 +548,7 @@ class AttributeDefinitionToolGroup(BaseToolGroup):
         return ToolResult.ok({"document": document})
 
     def _handle_export_workspace(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         item_type = require_param(params, "item_type")
         workspace_id = require_uuid(params, "workspace_id")
@@ -569,7 +568,7 @@ class AttributeDefinitionToolGroup(BaseToolGroup):
         return ToolResult.ok({"document": document})
 
     def _handle_import(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         item_type = require_param(params, "item_type")
         preset = require_param(params, "preset")
@@ -592,7 +591,7 @@ class AttributeDefinitionToolGroup(BaseToolGroup):
         return ToolResult.ok({"definition": _definition_payload(definition)})
 
     def _handle_import_workspace(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         item_type = require_param(params, "item_type")
         workspace_id = require_uuid(params, "workspace_id")

@@ -36,9 +36,7 @@ Error mapping (REQ-L2-MC-011):
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, Optional
-
-from auth_tenancy.context import AuthContext
+from typing import Any
 
 from admin_ops.models import BackupStatus, BackupType
 from admin_ops.services import (
@@ -47,13 +45,12 @@ from admin_ops.services import (
 )
 from admin_ops.services.admin_restore_service import RESTORE_CAPTCHA
 from admin_ops.services.exceptions import BackupNotFoundError, BackupStorageError
-
 from application.base import (
     NotFoundError,
     PermissionDeniedError,
     ValidationError,
 )
-
+from auth_tenancy.context import AuthContext
 from mcp_server.protocol_handler import ToolResult
 from mcp_server.tools.base import (
     BaseToolGroup,
@@ -80,7 +77,7 @@ _VALID_TYPES = frozenset(choice for choice, _label in BackupType.choices)
 # ---------------------------------------------------------------------------
 
 
-def _backup_to_dict(backup: Any) -> Dict[str, Any]:
+def _backup_to_dict(backup: Any) -> dict[str, Any]:
     """Serialise a BackupMetadata row to a JSON-safe dict."""
     return {
         "id": str(backup.id),
@@ -110,7 +107,7 @@ def _backup_to_dict(backup: Any) -> Dict[str, Any]:
     }
 
 
-def _restore_result_to_dict(result: Any) -> Dict[str, Any]:
+def _restore_result_to_dict(result: Any) -> dict[str, Any]:
     """Serialise a RestoreResult to a JSON-safe dict."""
     return {
         "backup_id": str(result.backup_id),
@@ -194,8 +191,8 @@ class BackupToolGroup(BaseToolGroup):
 
     def __init__(
         self,
-        backup_service: Optional[BackupService] = None,
-        restore_service: Optional[AdminRestoreService] = None,
+        backup_service: BackupService | None = None,
+        restore_service: AdminRestoreService | None = None,
     ) -> None:
         self._backup_service = backup_service or BackupService()
         self._restore_service = restore_service or AdminRestoreService()
@@ -205,7 +202,7 @@ class BackupToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_backup_create(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """admin.backup_create — create a new backup (REQ-L1-046).
 
@@ -215,7 +212,7 @@ class BackupToolGroup(BaseToolGroup):
         """
         # Optional parameters
         reason_raw = params.get("reason")
-        reason: Optional[str] = None
+        reason: str | None = None
         if reason_raw is not None:
             if not isinstance(reason_raw, str):
                 raise ParameterError(
@@ -234,7 +231,7 @@ class BackupToolGroup(BaseToolGroup):
                 f"Optional parameter 'backup_type' must be one of {sorted(_VALID_TYPES)}.",
             )
 
-        metadata: Dict[str, Any] = {}
+        metadata: dict[str, Any] = {}
         if reason:
             metadata["reason"] = reason
 
@@ -283,7 +280,7 @@ class BackupToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_backup_list(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """admin.backup_list — list backups (newest first, REQ-L1-046).
 
@@ -370,7 +367,7 @@ class BackupToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_restore(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """admin.restore — restore from a backup (REQ-L1-046, captcha-gated).
 

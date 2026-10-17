@@ -27,10 +27,9 @@ from uuid import UUID
 
 from django.core.cache import cache
 
-from auth_tenancy.context import AuthContext
-
 from application.base import ServiceBase
 from application.requirement_bundle_formatters import format_bundle_markdown
+from auth_tenancy.context import AuthContext
 
 if TYPE_CHECKING:
     from application.requirement_bundle_service import BundleResult
@@ -126,11 +125,11 @@ class CompressionStatusResult:
 
     task_id: str
     status: str
-    result: "dict | None" = None
-    error: "str | None" = None
-    text: "str | None" = None
+    result: dict | None = None
+    error: str | None = None
+    text: str | None = None
     is_mock_fallback: bool = False
-    provider: "str | None" = None
+    provider: str | None = None
 
 
 def _is_placeholder_provider(provider_name: str) -> bool:
@@ -149,7 +148,7 @@ def _is_placeholder_provider(provider_name: str) -> bool:
     return provider_name == MOCK_PROVIDER_NAME
 
 
-def _completion_text(task_result: "dict | str | None") -> "str | None":
+def _completion_text(task_result: dict | str | None) -> str | None:
     """Unwrap the completion text from a Celery ``run_capability`` result.
 
     ``llm_adapter.tasks._serialise`` wraps a plain ``str`` return value as
@@ -168,11 +167,11 @@ def _completion_text(task_result: "dict | str | None") -> "str | None":
 
 def _bundle_cache_key(
     root_id: UUID,
-    depth: "int | None",
+    depth: int | None,
     filter_mode: str,
-    fields: "list[str] | None",
+    fields: list[str] | None,
     format: str,
-    bundle_result: "BundleResult",
+    bundle_result: BundleResult,
     provider_name: str,
     prompt: str,
 ) -> str:
@@ -241,12 +240,12 @@ class BundleCompressionService(ServiceBase):
     def compress(
         self,
         ctx: AuthContext,
-        bundle_result: "BundleResult",
+        bundle_result: BundleResult,
         *,
         root_id: UUID,
-        depth: "int | None",
+        depth: int | None,
         filter_mode: str,
-        fields: "list[str] | None",
+        fields: list[str] | None,
         format: str,
         workspace_id: UUID,
     ) -> CompressionResult:
@@ -324,15 +323,15 @@ class BundleCompressionService(ServiceBase):
     def compress_async(
         self,
         ctx: AuthContext,
-        bundle_result: "BundleResult",
+        bundle_result: BundleResult,
         *,
         root_id: UUID,
-        depth: "int | None",
+        depth: int | None,
         filter_mode: str,
-        fields: "list[str] | None",
+        fields: list[str] | None,
         format: str,
         workspace_id: UUID,
-    ) -> "str | dict":
+    ) -> str | dict:
         """Dispatch bundle compression to a Celery worker.
 
         Returns a task_id (str) on success, or the structured
@@ -505,7 +504,7 @@ class BundleCompressionService(ServiceBase):
         )
 
     @staticmethod
-    def _resolve_provider() -> "tuple[Any | None, str, Exception | None]":
+    def _resolve_provider() -> tuple[Any | None, str, Exception | None]:
         """Resolve the effective LLM provider once, before any cache lookup.
 
         Split out of :meth:`_call_provider` (issue #445) because the cache key
@@ -544,10 +543,10 @@ class BundleCompressionService(ServiceBase):
         prompt: str,
         *,
         root_id: UUID,
-        provider: "Any | None",
+        provider: Any | None,
         provider_name: str,
-        resolve_error: "Exception | None",
-    ) -> "tuple[str, bool]":
+        resolve_error: Exception | None,
+    ) -> tuple[str, bool]:
         """Call the pre-resolved LLM provider's free-form completion.
 
         The provider is resolved by :meth:`_resolve_provider` and handed in
@@ -711,11 +710,11 @@ class BundleCompressionService(ServiceBase):
 
 
 __all__ = [
-    "BundleCompressionService",
-    "CompressionResult",
-    "CompressionStatusResult",
+    "BUNDLE_COMPRESSION_CACHE_TTL_SECONDS",
     "MOCK_PROVIDER_NAME",
     "PROMPT_TEMPLATE_NAME",
     "SYNC_ITEM_COUNT_THRESHOLD",
-    "BUNDLE_COMPRESSION_CACHE_TTL_SECONDS",
+    "BundleCompressionService",
+    "CompressionResult",
+    "CompressionStatusResult",
 ]

@@ -17,12 +17,11 @@ import json
 import pytest
 
 from auth_tenancy.context import AuthContext
+from mcp_server.tool_registry import ToolRegistry
+from mcp_server.tools.diagram import DiagramToolGroup
 from persistence.tenancy import TenantContext
 from workflow.models import WorkflowItemState
 from workflow.services import create_default_workflow
-
-from mcp_server.tool_registry import ToolRegistry
-from mcp_server.tools.diagram import DiagramToolGroup
 
 pytestmark = pytest.mark.django_db
 

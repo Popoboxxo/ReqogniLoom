@@ -10,8 +10,8 @@ and no data is touched. Reversible by definition (the AlterField restores the
 previous help_text on reverse).
 """
 
-from django.db import migrations, models
 import django.db.models.deletion
+from django.db import migrations, models
 
 
 class Migration(migrations.Migration):

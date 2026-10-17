@@ -21,11 +21,10 @@ from __future__ import annotations
 
 from typing import Any
 
+from application.base import ServiceBase
 from auth_tenancy.context import AuthContext
 from auth_tenancy.models import UserDisplayPreference
 from persistence.errors import ValidationError
-
-from application.base import ServiceBase
 
 #: The closed display-preference vocabulary. A new flag is added here and in
 #: ``DisplayPreferenceUpdateSerializer`` together — the serializer's declared

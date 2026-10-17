@@ -1,7 +1,7 @@
 import pytest
 
 from auth_tenancy.services.authorization import AuthorizationService
-from persistence.tests.factories import active_tenant, make_user, make_workspace, assign_role
+from persistence.tests.factories import active_tenant, assign_role, make_user, make_workspace
 
 
 @pytest.mark.django_db

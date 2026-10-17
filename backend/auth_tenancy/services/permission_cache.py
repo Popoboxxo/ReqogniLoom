@@ -58,7 +58,7 @@ from __future__ import annotations
 import threading
 import time
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from persistence.cache_generation import bump_cache_generation, cache_generation
@@ -102,7 +102,7 @@ class CacheEntry:
     changed permissions since, so the entry must not be served (SA-28).
     """
 
-    decision: "PermissionDecision"
+    decision: PermissionDecision
     expires_at: float
     generation: int = 0
 
@@ -131,8 +131,8 @@ class PermissionCache:
         *,
         user_id: UUID,
         workspace_id: UUID,
-        artifact_id: Optional[UUID],
-    ) -> Optional["PermissionDecision"]:
+        artifact_id: UUID | None,
+    ) -> PermissionDecision | None:
         """Return the cached decision for ``key`` or ``None`` if absent/expired.
 
         An entry is served only when it is (a) present, (b) still within its
@@ -162,8 +162,8 @@ class PermissionCache:
         *,
         user_id: UUID,
         workspace_id: UUID,
-        artifact_id: Optional[UUID],
-        decision: "PermissionDecision",
+        artifact_id: UUID | None,
+        decision: PermissionDecision,
     ) -> None:
         """Store ``decision`` under the given key, with the configured TTL."""
         _ThreadLocalCacheStore.ensure()
@@ -179,7 +179,7 @@ class PermissionCache:
         *,
         user_id: UUID,
         workspace_id: UUID,
-        artifact_id: Optional[UUID],
+        artifact_id: UUID | None,
     ) -> None:
         """Remove a single key from the calling thread's cache.
 
@@ -235,11 +235,11 @@ class _ThreadLocalCacheStore:
 
 
 __all__ = [
-    "PermissionCache",
     "DEFAULT_TTL_SECONDS",
     "GENERATION_NAMESPACE",
     "GENERATION_SCOPE",
     "CacheEntry",
+    "PermissionCache",
     "bump_generation",
     "current_generation",
 ]

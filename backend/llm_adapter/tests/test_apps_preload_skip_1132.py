@@ -16,8 +16,8 @@ from pathlib import Path
 import pytest
 
 from llm_adapter.apps import (
-    _is_celery_beat_invocation,
     _PRELOAD_SKIP_COMMANDS,
+    _is_celery_beat_invocation,
 )
 
 _BACKEND_DIR = Path(__file__).resolve().parents[2]

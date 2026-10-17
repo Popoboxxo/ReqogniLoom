@@ -14,9 +14,10 @@ PROPOSAL — authored manually for human review, NOT applied (no ``makemigration
 / ``migrate`` run). See the hand-off report for the approval gate.
 """
 
+import uuid
+
 import django.db.models.deletion
 import django.db.models.manager
-import uuid
 from django.conf import settings
 from django.db import migrations, models
 

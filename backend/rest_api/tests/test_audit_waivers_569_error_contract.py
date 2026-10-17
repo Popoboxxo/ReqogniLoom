@@ -14,7 +14,7 @@ behaviour lives in ``test_audit_waivers_569_rest.py``.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timedelta, timezone as dt_timezone
+from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 
 import pytest
@@ -242,7 +242,7 @@ def test_no_new_endpoint_emits_422():
         scope_artifact_id="",
         reason="An earlier justification that has since expired.",
         granted_by=str(user.id),
-        expires_at=datetime.now(dt_timezone.utc) - timedelta(days=1),
+        expires_at=datetime.now(UTC) - timedelta(days=1),
     )
     record(
         "E8",

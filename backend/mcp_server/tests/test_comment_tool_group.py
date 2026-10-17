@@ -13,8 +13,7 @@ names, mocks and assertions but use the real one:
 """
 import json
 import uuid
-from datetime import datetime
-from datetime import timezone as dt_timezone
+from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -33,7 +32,7 @@ def _comment_stub():
     stub.resolved = False
     stub.resolved_by_id = None
     stub.resolved_at = None
-    stub.created_at = datetime(2026, 9, 4, 10, 0, tzinfo=dt_timezone.utc)
+    stub.created_at = datetime(2026, 9, 4, 10, 0, tzinfo=UTC)
     return stub
 
 

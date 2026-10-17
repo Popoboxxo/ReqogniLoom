@@ -18,12 +18,10 @@ from uuid import UUID
 
 import pytest
 
-from auth_tenancy.context import AuthContext, AuthMethod
-
 from application.base import (
     PermissionDeniedError,
 )
-
+from auth_tenancy.context import AuthContext, AuthMethod
 from auth_tenancy.models import (
     ITEM_PERMISSION_READ,
     ITEM_PERMISSION_WRITE,
@@ -34,9 +32,7 @@ from auth_tenancy.services.item_permission import (
     NO_RULE_REASON,
     PermissionDecision,
 )
-
 from mcp_server.tools.permissions import PermissionsToolGroup
-
 
 # ---------------------------------------------------------------------------
 # Shared fixtures / data

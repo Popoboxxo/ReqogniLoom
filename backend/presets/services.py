@@ -35,11 +35,8 @@ Public API surface (IF-PC-EXT-IN-003):
 """
 from __future__ import annotations
 
-from typing import Dict, List
-
 from presets.gate import FeatureGateService, get_gate_service
 from presets.registry import PresetConfig
-
 
 # ---------------------------------------------------------------------------
 # Typed return type alias for downstream documentation
@@ -148,7 +145,7 @@ def is_feature_enabled(key: str, workspace_id: str) -> bool:
     return service.is_feature_enabled(key, str(workspace_id))
 
 
-def get_terminology(workspace_id: str) -> Dict[str, str]:
+def get_terminology(workspace_id: str) -> dict[str, str]:
     """Return the label mapping for the workspace's active terminology profile.
 
     IF-PC-EXT-IN-002, REQ-L2-PC-009.
@@ -192,7 +189,7 @@ def switch_preset(workspace_id: str, target_preset: str) -> PresetRules:
     return PresetRules(config)
 
 
-def switch_terminology_profile(workspace_id: str, target_profile: str) -> Dict[str, str]:
+def switch_terminology_profile(workspace_id: str, target_profile: str) -> dict[str, str]:
     """Switch the workspace's active terminology profile.
 
     IF-PC-EXT-IN-003, REQ-L2-PC-010.
@@ -214,7 +211,7 @@ def switch_terminology_profile(workspace_id: str, target_profile: str) -> Dict[s
     return mapping.as_dict()
 
 
-def validate_downgrade(workspace_id: str, target_preset: str) -> List[str]:
+def validate_downgrade(workspace_id: str, target_preset: str) -> list[str]:
     """Validate a potential downgrade without executing it.
 
     IF-PC-EXT-IN-003, REQ-L2-PC-011.
@@ -301,11 +298,11 @@ __all__ = [
     "PresetRules",
     "assert_workspace_in_tenant",
     "get_preset",
-    "is_feature_enabled",
     "get_terminology",
+    "get_workflow_configurability",
+    "is_feature_enabled",
+    "is_scope_allowed",
     "switch_preset",
     "switch_terminology_profile",
     "validate_downgrade",
-    "is_scope_allowed",
-    "get_workflow_configurability",
 ]

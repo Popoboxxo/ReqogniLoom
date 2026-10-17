@@ -70,7 +70,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-from typing import Any, Dict, List, Tuple
+from typing import Any
 from unittest import mock
 from uuid import uuid4
 
@@ -170,7 +170,7 @@ def _dispatch_message(
     session_id: str,
     api_key: str,
     body: bytes,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """POST *body* to ``/mcp/messages/`` for *session_id* and return the
     single JSON-RPC frame that would have been published to the SSE stream.
     """
@@ -179,9 +179,9 @@ def _dispatch_message(
         data=body,
         content_type="application/json",
     )
-    published: List[Tuple[str, Dict[str, Any]]] = []
+    published: list[tuple[str, dict[str, Any]]] = []
 
-    def _capture(sid: str, message: Dict[str, Any]) -> None:
+    def _capture(sid: str, message: dict[str, Any]) -> None:
         published.append((sid, message))
 
     with mock.patch(
@@ -400,8 +400,8 @@ def test_sse_live_redis_round_trip_delivers_published_message(
     endpoint_url = f"/mcp/messages/?session_id={session_id}"
     message = {"jsonrpc": "2.0", "id": 99, "result": {"ok": True}}
 
-    async def _consume() -> List[str]:
-        chunks: List[str] = []
+    async def _consume() -> list[str]:
+        chunks: list[str] = []
         gen = sse_pubsub.async_sse_generator(session_id, endpoint_url, last_event_id=0)
         try:
             # Exactly 5 chunks are yielded before the generator enters its

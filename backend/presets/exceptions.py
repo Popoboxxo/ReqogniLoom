@@ -105,13 +105,13 @@ class CrossTenantWorkspaceError(PresetError):
 
 
 __all__ = [
-    "PresetError",
     "ConfigurationError",
+    "CrossTenantWorkspaceError",
+    "CustomPresetNotAllowedError",
+    "DowngradeBlockedError",
     "ImmutablePresetError",
+    "IncompleteProfileError",
+    "PresetError",
     "ScopeNotAvailableError",
     "UnknownFeatureKeyError",
-    "DowngradeBlockedError",
-    "IncompleteProfileError",
-    "CustomPresetNotAllowedError",
-    "CrossTenantWorkspaceError",
 ]

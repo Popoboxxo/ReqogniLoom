@@ -20,13 +20,12 @@ Design notes:
 from __future__ import annotations
 
 import threading
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 from uuid import UUID
 
 from django.db import transaction
 
 from persistence.cache_generation import bump_cache_generation, cache_generation
-
 from presets.exceptions import (
     ConfigurationError,
     CrossTenantWorkspaceError,
@@ -35,9 +34,9 @@ from presets.exceptions import (
 )
 from presets.registry import (
     FEATURE_KEYS,
+    TIER_EXTENDED,
     TIER_MINIMAL,
     TIER_STANDARD,
-    TIER_EXTENDED,
     PresetConfig,
     PresetRegistry,
     get_registry,
@@ -67,16 +66,16 @@ _cache_lock = threading.Lock()
 _CACHE_NAMESPACE = "preset"
 
 # Workspace-tier cache: workspace_id (str) -> (generation, PresetConfig)
-_tier_cache: Dict[str, Tuple[int, PresetConfig]] = {}
+_tier_cache: dict[str, tuple[int, PresetConfig]] = {}
 
 # Workspace-profile cache: workspace_id (str) -> (generation, TerminologyMapping)
-_profile_cache: Dict[str, Tuple[int, TerminologyMapping]] = {}
+_profile_cache: dict[str, tuple[int, TerminologyMapping]] = {}
 
 # Workspace-owner cache: workspace_id (str) -> tenant_id (UUID).
 # SA-15: a workspace never changes tenant, so this mapping is immutable for the
 # lifetime of the row and safe to memoise process-locally. It exists only to
 # keep the tenant guard off the hot path (REQ-L2-PC-013 sub-10ms budget).
-_workspace_tenant_cache: Dict[str, UUID] = {}
+_workspace_tenant_cache: dict[str, UUID] = {}
 
 # Hard cap so a long-running worker touching many workspaces cannot grow the
 # owner cache without bound. Reaching it simply drops the memo (correctness is
@@ -104,7 +103,7 @@ def _invalidate_workspace(workspace_id: str) -> None:
 
 
 def _cached_for_generation(
-    store: Dict[str, Tuple[int, Any]], ws_key: str, generation: int
+    store: dict[str, tuple[int, Any]], ws_key: str, generation: int
 ) -> Any:
     """Return the cached value for *ws_key* if tagged with *generation*, else None.
 
@@ -139,7 +138,7 @@ def _cached_for_generation(
 
 
 def _store_for_generation(
-    store: Dict[str, Tuple[int, Any]],
+    store: dict[str, tuple[int, Any]],
     ws_key: str,
     value: Any,
     generation: int,
@@ -314,8 +313,8 @@ class FeatureGateService:
 
     def __init__(
         self,
-        registry: Optional[PresetRegistry] = None,
-        terminology_service: Optional[TerminologyProfileService] = None,
+        registry: PresetRegistry | None = None,
+        terminology_service: TerminologyProfileService | None = None,
     ) -> None:
         self._registry = registry or get_registry()
         self._terminology = terminology_service or get_terminology_service()
@@ -477,7 +476,7 @@ class FeatureGateService:
 
     def validate_downgrade(
         self, workspace_id: str, target_tier: str
-    ) -> List[str]:
+    ) -> list[str]:
         """Validate a downgrade from the current tier to *target_tier*.
 
         Checks for data incompatibilities:
@@ -517,7 +516,7 @@ class FeatureGateService:
 
     def _collect_downgrade_incompatibilities(
         self, workspace_id: str, target_tier: str
-    ) -> List[str]:
+    ) -> list[str]:
         """Return human-readable incompatibility strings for the downgrade.
 
         Fail-closed (ADR-016 decision 2): a persistence failure while checking
@@ -531,10 +530,10 @@ class FeatureGateService:
         Returns:
             List of incompatibility description strings; empty if clean.
         """
-        from persistence.models import Artifact
         from baseline.models import BaselineSnapshot
+        from persistence.models import Artifact
 
-        issues: List[str] = []
+        issues: list[str] = []
 
         # Extended → Standard: global baselines must not exist
         if target_tier in ("minimal", "standard"):

@@ -20,8 +20,6 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import List, Optional
-
 
 # ---------------------------------------------------------------------------
 # Result dataclasses — REQ-L3-LA001-002 / REQ-L2-LA-004
@@ -41,10 +39,10 @@ class LlmResult:
     """
 
     score: float
-    suggestions: List[str]
+    suggestions: list[str]
     provider: str
     model: str
-    token_usage: Optional[int]
+    token_usage: int | None
 
     def __post_init__(self) -> None:
         """Normalize and validate score range (REQ-L3-LA001-002).
@@ -75,7 +73,7 @@ class LlmDecompositionResult(LlmResult):
                   id, title, type, and description.
     """
 
-    children: List[dict] = field(default_factory=list)
+    children: list[dict] = field(default_factory=list)
 
 
 @dataclass
@@ -89,7 +87,7 @@ class LlmConsistencyResult(LlmResult):
                 id, severity, and description.
     """
 
-    issues: List[dict] = field(default_factory=list)
+    issues: list[dict] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -114,9 +112,9 @@ class LlmCapabilityInterface(ABC):
         self,
         artifact_id: str,
         *,
-        title: Optional[str] = None,
-        content: Optional[str] = None,
-        timeout: Optional[float] = None,
+        title: str | None = None,
+        content: str | None = None,
+        timeout: float | None = None,
     ) -> LlmResult:
         """Validate a single artifact using the LLM.
 
@@ -143,9 +141,9 @@ class LlmCapabilityInterface(ABC):
         self,
         requirement_id: str,
         *,
-        title: Optional[str] = None,
-        content: Optional[str] = None,
-        timeout: Optional[float] = None,
+        title: str | None = None,
+        content: str | None = None,
+        timeout: float | None = None,
     ) -> LlmDecompositionResult:
         """Decompose a requirement into child items using the LLM.
 
@@ -171,8 +169,8 @@ class LlmCapabilityInterface(ABC):
         self,
         workspace_id: str,
         *,
-        artifacts: Optional[List[dict]] = None,
-        timeout: Optional[float] = None,
+        artifacts: list[dict] | None = None,
+        timeout: float | None = None,
     ) -> LlmConsistencyResult:
         """Check consistency across all artifacts in a workspace.
 
@@ -197,7 +195,7 @@ class LlmCapabilityInterface(ABC):
         self,
         need_id: str,
         *,
-        timeout: Optional[float] = None,
+        timeout: float | None = None,
     ) -> LlmDecompositionResult:
         """Derive System Requirements from a Stakeholder Need.
 
@@ -216,8 +214,8 @@ class LlmCapabilityInterface(ABC):
         prompt: str,
         *,
         purpose: str = "",
-        context: Optional[dict] = None,
-        timeout: Optional[float] = None,
+        context: dict | None = None,
+        timeout: float | None = None,
     ) -> str:
         """Return the raw completion text for a free-form prompt (REQ-L2-AI-002).
 
@@ -239,7 +237,7 @@ class LlmCapabilityInterface(ABC):
 
 __all__ = [
     "LlmCapabilityInterface",
-    "LlmResult",
-    "LlmDecompositionResult",
     "LlmConsistencyResult",
+    "LlmDecompositionResult",
+    "LlmResult",
 ]

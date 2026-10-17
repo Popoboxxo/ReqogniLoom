@@ -93,8 +93,6 @@ finding simply lists all of them. The message names at most
 """
 from __future__ import annotations
 
-from typing import Dict, FrozenSet, List, Optional, Set, Tuple
-
 from traceability.audit.registry import (
     ARCH_003,
     TRACE_P4,
@@ -123,7 +121,7 @@ def _l4_level() -> int:
     return RequirementLevel.L4_PRESENTATION
 
 
-def _fetch_architecture_elements(context: AuditContext) -> Dict[str, Dict[str, Optional[str]]]:
+def _fetch_architecture_elements(context: AuditContext) -> dict[str, dict[str, str | None]]:
     """Return ``{element_id: {"parent_id": ..., "artifact_id": ...}}`` for
     non-deleted elements in scope.
 
@@ -157,7 +155,7 @@ def _fetch_architecture_elements(context: AuditContext) -> Dict[str, Dict[str, O
     }
 
 
-def _fetch_requirement_levels(context: AuditContext) -> Dict[str, Optional[int]]:
+def _fetch_requirement_levels(context: AuditContext) -> dict[str, int | None]:
     """Return ``{requirement_artifact_id: level_or_None}`` for non-deleted requirements.
 
     Datenmodell-Konsolidierung Phase 1: "non-deleted" is resolved through
@@ -187,7 +185,7 @@ def _fetch_requirement_levels(context: AuditContext) -> Dict[str, Optional[int]]
     }
 
 
-def _derives_from_pairs(context: AuditContext) -> Set[Tuple[str, str]]:
+def _derives_from_pairs(context: AuditContext) -> set[tuple[str, str]]:
     """Return the set of ``(source_id, target_id)`` derives-from pairs.
 
     Per SE_LINK_SEMANTICS the source is the "deriving" (child) requirement and
@@ -219,14 +217,14 @@ class ArchitectureDecompositionOrphanRule(Rule):
         "restore the deleted parent."
     )
 
-    def check(self, context: AuditContext) -> List[Finding]:
+    def check(self, context: AuditContext) -> list[Finding]:
         """Flag ArchitectureElements whose ``parent_id`` does not resolve.
 
         Root elements (``parent_id is None``, role SYSTEM) are never orphans by
         definition and are skipped.
         """
         elements = _fetch_architecture_elements(context)
-        findings: List[Finding] = []
+        findings: list[Finding] = []
         for element_id, data in elements.items():
             parent_id = data["parent_id"]
             if parent_id is None:
@@ -249,12 +247,12 @@ class ArchitectureDecompositionOrphanRule(Rule):
 
 
 def _decomposes_requirement_pairs(
-    context: AuditContext, requirement_levels: Dict[str, Optional[int]]
-) -> List[Tuple[str, str]]:
+    context: AuditContext, requirement_levels: dict[str, int | None]
+) -> list[tuple[str, str]]:
     """Return ``[(parent_req_id, child_req_id), ...]`` for ``decomposes`` links
     between two Requirements, skipping any pair touching an L4 requirement.
     """
-    pairs: List[Tuple[str, str]] = []
+    pairs: list[tuple[str, str]] = []
     l4 = _l4_level()
     for link in context.iter_trace_links():
         if link["link_type"] != LinkType.DECOMPOSES.value:
@@ -288,11 +286,11 @@ class RequirementDecompositionDerivationRule(Rule):
         "the parent it was decomposed from."
     )
 
-    def check(self, context: AuditContext) -> List[Finding]:
+    def check(self, context: AuditContext) -> list[Finding]:
         levels = _fetch_requirement_levels(context)
         derives_from = _derives_from_pairs(context)
 
-        findings: List[Finding] = []
+        findings: list[Finding] = []
         for parent_id, child_id in _decomposes_requirement_pairs(context, levels):
             if (child_id, parent_id) not in derives_from:
                 findings.append(
@@ -313,9 +311,9 @@ class RequirementDecompositionDerivationRule(Rule):
 
 def _allocated_to_map(
     context: AuditContext,
-    requirement_ids: FrozenSet[str],
-    architecture_artifact_ids: FrozenSet[str],
-) -> Dict[str, Set[str]]:
+    requirement_ids: frozenset[str],
+    architecture_artifact_ids: frozenset[str],
+) -> dict[str, set[str]]:
     """Return ``{architecture_artifact_id: {requirement_id, ...}}`` from
     allocated-to links (source = Requirement, target = ArchitectureElement's
     Artifact, matching ``TraceLinkService.allocate()``).
@@ -325,7 +323,7 @@ def _allocated_to_map(
     own PK (the ``parent_id`` tree, Track a) must translate via the
     ``artifact_id`` field returned by :func:`_fetch_architecture_elements`.
     """
-    allocations: Dict[str, Set[str]] = {}
+    allocations: dict[str, set[str]] = {}
     for link in context.iter_trace_links():
         if link["link_type"] != LinkType.ALLOCATED_TO.value:
             continue
@@ -356,12 +354,12 @@ class ArchitectureDecompositionRequirementDerivationRule(Rule):
         "parent element, or allocate it to the correct element."
     )
 
-    def check(self, context: AuditContext) -> List[Finding]:
+    def check(self, context: AuditContext) -> list[Finding]:
         elements = _fetch_architecture_elements(context)
         levels = _fetch_requirement_levels(context)
         l4 = _l4_level()
-        requirement_ids: FrozenSet[str] = frozenset(levels)
-        architecture_artifact_ids: FrozenSet[str] = frozenset(
+        requirement_ids: frozenset[str] = frozenset(levels)
+        architecture_artifact_ids: frozenset[str] = frozenset(
             data["artifact_id"] for data in elements.values()
         )
         # allocations keyed by ArchitectureElement Artifact id (TraceLink
@@ -369,13 +367,13 @@ class ArchitectureDecompositionRequirementDerivationRule(Rule):
         allocations_by_artifact = _allocated_to_map(
             context, requirement_ids, architecture_artifact_ids
         )
-        allocations_by_element: Dict[str, Set[str]] = {
+        allocations_by_element: dict[str, set[str]] = {
             element_id: allocations_by_artifact.get(data["artifact_id"], set())
             for element_id, data in elements.items()
         }
         derives_from = _derives_from_pairs(context)
 
-        findings: List[Finding] = []
+        findings: list[Finding] = []
         for child_id, data in elements.items():
             parent_id = data["parent_id"]
             if parent_id is None or parent_id not in elements:
@@ -407,7 +405,7 @@ class ArchitectureDecompositionRequirementDerivationRule(Rule):
 
     @staticmethod
     def _message(
-        child_id: str, parent_id: str, violating: List[str]
+        child_id: str, parent_id: str, violating: list[str]
     ) -> str:
         """Render the aggregated finding message for one decomposition edge."""
         listed = ", ".join(violating[:_MAX_LISTED_REQUIREMENTS])
@@ -425,6 +423,6 @@ class ArchitectureDecompositionRequirementDerivationRule(Rule):
 
 __all__ = [
     "ArchitectureDecompositionOrphanRule",
-    "RequirementDecompositionDerivationRule",
     "ArchitectureDecompositionRequirementDerivationRule",
+    "RequirementDecompositionDerivationRule",
 ]

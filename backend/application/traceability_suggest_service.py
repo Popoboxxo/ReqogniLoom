@@ -53,16 +53,16 @@ from __future__ import annotations
 import json
 import logging
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any
 from uuid import UUID
 
 from django.core.cache import cache
 
-from auth_tenancy.context import AuthContext
-
 from application.audit_service import AuditFindingView, AuditService
 from application.base import ServiceBase, require_producer_context
+from auth_tenancy.context import AuthContext
 from traceability.audit import AuditScope
 from traceability.audit.registry import TRACE_P1, TRACE_P1B, TRACE_P2
 
@@ -197,7 +197,7 @@ class LinkSuggestion:
     finding_index: int
     rule_id: str
     source_artifact_id: str
-    ranked_candidates: List[LinkCandidate] = field(default_factory=list)
+    ranked_candidates: list[LinkCandidate] = field(default_factory=list)
     rationale: str = ""
 
     def to_dict(self) -> dict:
@@ -231,7 +231,7 @@ class SuggestLinksResult:
     eligible_findings: int = 0
     truncated: bool = False
     total_findings_available: int = 0
-    suggestions: List[LinkSuggestion] = field(default_factory=list)
+    suggestions: list[LinkSuggestion] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
@@ -256,7 +256,7 @@ class TraceabilitySuggestService(ServiceBase):
     SE-Auditor already raises. No independent vector search.
     """
 
-    def __init__(self, audit_service: Optional[AuditService] = None) -> None:
+    def __init__(self, audit_service: AuditService | None = None) -> None:
         self._audit = audit_service or AuditService()
 
     def suggest_links(
@@ -264,8 +264,8 @@ class TraceabilitySuggestService(ServiceBase):
         workspace_id: str | UUID,
         ctx: AuthContext,
         *,
-        tier: Optional[str] = None,
-        scopes: Optional[Sequence[AuditScope]] = None,
+        tier: str | None = None,
+        scopes: Sequence[AuditScope] | None = None,
         max_candidates: int = _DEFAULT_MAX_CANDIDATES,
     ) -> SuggestLinksResult:
         """Rank plausible link targets for missing-link SE-Auditor findings.
@@ -333,8 +333,8 @@ class TraceabilitySuggestService(ServiceBase):
         tenant_id = str(ctx.tenant_id)
         ws_id = str(workspace_id)
 
-        candidates_by_index: Dict[int, List[LinkCandidate]] = {}
-        finding_payloads: List[Dict[str, Any]] = []
+        candidates_by_index: dict[int, list[LinkCandidate]] = {}
+        finding_payloads: list[dict[str, Any]] = []
         for fv in eligible:
             source_id = fv.finding.artifact_ids[0]
             source_title, source_text = self._source_lookup(source_id, tenant_id, ws_id)
@@ -367,7 +367,7 @@ class TraceabilitySuggestService(ServiceBase):
         raw, provider_name, degraded = self._complete(finding_payloads, workspace_id=ws_id)
         proposed = self._parse_suggestions(raw, is_mock_fallback=degraded)
 
-        by_index: Dict[int, AuditFindingView] = {fv.index: fv for fv in findings}
+        by_index: dict[int, AuditFindingView] = {fv.index: fv for fv in findings}
         suggestions = self._build_suggestions(proposed, by_index, candidates_by_index)
 
         # WP5: durably persist the top-ranked candidate of every ranked
@@ -396,8 +396,8 @@ class TraceabilitySuggestService(ServiceBase):
 
     def _persist_suggestions(
         self,
-        suggestions: List[LinkSuggestion],
-        workspace_id: "str | UUID",
+        suggestions: list[LinkSuggestion],
+        workspace_id: str | UUID,
         ctx: AuthContext,
     ) -> None:
         """Persist the top-ranked candidate of every finding as a suggestion.
@@ -444,10 +444,10 @@ class TraceabilitySuggestService(ServiceBase):
         workspace_id: str | UUID,
         ctx: AuthContext,
         *,
-        tier: Optional[str] = None,
-        scopes: Optional[Sequence[AuditScope]] = None,
+        tier: str | None = None,
+        scopes: Sequence[AuditScope] | None = None,
         max_candidates: int = _DEFAULT_MAX_CANDIDATES,
-    ) -> "str | Dict[str, Any]":
+    ) -> str | dict[str, Any]:
         """Dispatch :meth:`suggest_links` to a Celery worker (#1197).
 
         The synchronous run takes ~94.5 s on a large workspace and previously
@@ -515,7 +515,7 @@ class TraceabilitySuggestService(ServiceBase):
 
     def get_suggest_links_status(
         self, task_id: str, ctx: AuthContext
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Poll the outcome of a previously dispatched :meth:`suggest_links_async`.
 
         Response shape (mirrors ``ConsistencyStatusView``)::
@@ -558,7 +558,7 @@ class TraceabilitySuggestService(ServiceBase):
     @staticmethod
     def _source_lookup(
         source_id: str, tenant_id: str, workspace_id: str
-    ) -> Tuple[str, str]:
+    ) -> tuple[str, str]:
         """Return ``(title, "title description")`` for the source Requirement.
 
         All three supported rules (TRACE-P1/-P1b/-P2) name a Requirement as
@@ -584,7 +584,7 @@ class TraceabilitySuggestService(ServiceBase):
     @staticmethod
     def _candidate_pool(
         rule_id: str, source_id: str, tenant_id: str, workspace_id: str
-    ) -> Dict[str, Tuple[str, str, str]]:
+    ) -> dict[str, tuple[str, str, str]]:
         """Return ``{artifact_id: (title, description, artifact_type)}`` for
         the type-compatible candidate pool of *rule_id* (workspace-scoped,
         active/non-deleted, excluding the source itself).
@@ -603,9 +603,9 @@ class TraceabilitySuggestService(ServiceBase):
         from workflow import state_reader
         from workflow.services import outdated_item_ids
 
-        pool: Dict[str, Tuple[str, str, str]] = {}
+        pool: dict[str, tuple[str, str, str]] = {}
 
-        def _add(qs, artifact_type: str, item_type: "str | None" = None) -> None:
+        def _add(qs, artifact_type: str, item_type: str | None = None) -> None:
             """Add every row of *qs* to *pool*, keyed by artifact_id.
 
             *item_type* given: *qs* is not yet outdated-filtered — resolved
@@ -674,7 +674,7 @@ class TraceabilitySuggestService(ServiceBase):
         tenant_id: str,
         workspace_id: str,
         limit: int,
-    ) -> List[LinkCandidate]:
+    ) -> list[LinkCandidate]:
         """Score + sort the candidate pool by keyword overlap (deterministic).
 
         Sort key: highest overlap score first; ties broken by title then id
@@ -684,7 +684,7 @@ class TraceabilitySuggestService(ServiceBase):
         pool = self._candidate_pool(rule_id, source_id, tenant_id, workspace_id)
         source_kw = _keywords(source_text)
 
-        scored: List[Tuple[int, str, str, str]] = []
+        scored: list[tuple[int, str, str, str]] = []
         for artifact_id, (title, description, artifact_type) in pool.items():
             score = len(source_kw & _keywords(f"{title} {description}"))
             scored.append((score, title, artifact_id, artifact_type))
@@ -702,8 +702,8 @@ class TraceabilitySuggestService(ServiceBase):
 
     @staticmethod
     def _finding_payload(
-        fv: AuditFindingView, source_title: str, candidates: List[LinkCandidate]
-    ) -> Dict[str, Any]:
+        fv: AuditFindingView, source_title: str, candidates: list[LinkCandidate]
+    ) -> dict[str, Any]:
         """Render one eligible finding as the dict handed to the LLM as context."""
         return {
             "finding_index": fv.index,
@@ -729,9 +729,9 @@ class TraceabilitySuggestService(ServiceBase):
     def _build_suggestions(
         self,
         proposed: list,
-        by_index: Dict[int, AuditFindingView],
-        candidates_by_index: Dict[int, List[LinkCandidate]],
-    ) -> List[LinkSuggestion]:
+        by_index: dict[int, AuditFindingView],
+        candidates_by_index: dict[int, list[LinkCandidate]],
+    ) -> list[LinkSuggestion]:
         """Resolve the LLM's proposed rankings against the real findings/candidates.
 
         ``finding_index`` is looked up in *by_index* (built from the actual
@@ -744,7 +744,7 @@ class TraceabilitySuggestService(ServiceBase):
         dropped entirely rather than returned as an empty, non-actionable
         shell.
         """
-        suggestions: List[LinkSuggestion] = []
+        suggestions: list[LinkSuggestion] = []
         for item in proposed:
             if not isinstance(item, dict):
                 continue
@@ -761,7 +761,7 @@ class TraceabilitySuggestService(ServiceBase):
             if not isinstance(raw_ranking, list):
                 continue
 
-            ranked: List[LinkCandidate] = []
+            ranked: list[LinkCandidate] = []
             seen = set()
             for raw_idx in raw_ranking:
                 idx = self._coerce_index(raw_idx)
@@ -785,7 +785,7 @@ class TraceabilitySuggestService(ServiceBase):
         return suggestions
 
     @staticmethod
-    def _coerce_index(raw_idx: Any) -> Optional[int]:
+    def _coerce_index(raw_idx: Any) -> int | None:
         """Best-effort int coercion for a single proposed index, or None."""
         if isinstance(raw_idx, bool):
             return None
@@ -799,8 +799,8 @@ class TraceabilitySuggestService(ServiceBase):
     # ------------------------------------------------------------------
 
     def _complete(
-        self, finding_payloads: List[Dict[str, Any]], *, workspace_id: str
-    ) -> Tuple[str, str, bool]:
+        self, finding_payloads: list[dict[str, Any]], *, workspace_id: str
+    ) -> tuple[str, str, bool]:
         """Call the LLM provider for a candidate ranking (graceful degradation).
 
         Returns ``(raw_completion, provider_name, degraded)``. On any
@@ -969,10 +969,10 @@ class TraceabilitySuggestService(ServiceBase):
 
 
 __all__ = [
-    "TraceabilitySuggestService",
-    "SuggestLinksResult",
-    "LinkSuggestion",
-    "LinkCandidate",
-    "SuggestLinksResponseError",
     "SUGGEST_LINKS_PROMPT_TEMPLATE",
+    "LinkCandidate",
+    "LinkSuggestion",
+    "SuggestLinksResponseError",
+    "SuggestLinksResult",
+    "TraceabilitySuggestService",
 ]

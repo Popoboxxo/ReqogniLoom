@@ -28,10 +28,10 @@ import uuid
 import pytest
 
 from auth_tenancy.context import AuthContext
+from link_types.workspace_store import provision_workspace_link_types
 from persistence.tenancy import TenantContext
 from traceability.types import LinkType
 from workflow.services import create_default_workflow
-from link_types.workspace_store import provision_workspace_link_types
 
 pytestmark = pytest.mark.django_db
 

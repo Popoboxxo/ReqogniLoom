@@ -29,7 +29,6 @@ from __future__ import annotations
 
 from django.db import migrations
 
-
 # Tables protected by THIS migration. ``at_item_permission`` is a
 # TenantScopedModel added in auth_tenancy migration 0003_item_permission.
 _PROTECTED_TABLES = (

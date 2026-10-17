@@ -188,9 +188,9 @@ class TestServiceFacadeDelete:
         import json
 
         from diagram.models import Diagram
+        from diagram.tests.conftest import make_artifact
         from persistence.models import Requirement, TraceLink
         from traceability.types import LinkType
-        from diagram.tests.conftest import make_artifact
         from workflow.services import create_default_workflow
 
         with active_tenant(tenant_a):

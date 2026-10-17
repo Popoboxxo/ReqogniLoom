@@ -24,7 +24,6 @@ from presets.gate import FeatureGateService, _invalidate_workspace
 from presets.models import WorkspacePresetConfig
 from presets.registry import TIER_EXTENDED, TIER_MINIMAL, TIER_STANDARD
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------

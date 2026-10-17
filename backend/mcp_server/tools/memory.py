@@ -56,10 +56,15 @@ writes own" is enforced by ``MemoryPolicy`` there.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Callable
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Any, Callable, Dict
+from typing import Any
 
+from application.base import NotFoundError, PermissionDeniedError, ValidationError
+from application.memory_admin_service import MemoryAdminService
+from application.memory_entry_service import MemoryEntryService
+from application.memory_settings_service import MemorySettingsService
 from auth_tenancy.context import AuthContext
 from mcp_server.protocol_handler import ToolResult
 from mcp_server.tools.base import (
@@ -69,10 +74,6 @@ from mcp_server.tools.base import (
     require_param,
     require_uuid,
 )
-from application.base import NotFoundError, PermissionDeniedError, ValidationError
-from application.memory_admin_service import MemoryAdminService
-from application.memory_entry_service import MemoryEntryService
-from application.memory_settings_service import MemorySettingsService
 from memory.backends import VALID_REASONING_LEVELS
 from memory.health import envelope
 from memory.policy import MemoryPolicy
@@ -344,7 +345,7 @@ class MemoryToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_write(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """Persist a memory fact (write)."""
         content = require_param(params, "content")
@@ -365,7 +366,7 @@ class MemoryToolGroup(BaseToolGroup):
         )
 
     def _handle_get(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """Return one entry's full view (read-only)."""
         entry_id = require_param(params, "entry_id")
@@ -374,7 +375,7 @@ class MemoryToolGroup(BaseToolGroup):
         )
 
     def _handle_digest(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """Return the active backend's digest for one scope (read-only).
 
@@ -394,7 +395,7 @@ class MemoryToolGroup(BaseToolGroup):
         workspace_id = require_param(params, "workspace_id")
         artifact_id = optional_uuid(params, "artifact_id")
 
-        def _call() -> Dict[str, Any]:
+        def _call() -> dict[str, Any]:
             digest = MemoryEntryService().digest(
                 auth_context, workspace_id=workspace_id, artifact_id=artifact_id
             )
@@ -410,7 +411,7 @@ class MemoryToolGroup(BaseToolGroup):
         return self._service_call(_call)
 
     def _handle_ask(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """Answer a natural-language question from one scope (LLM-invoking write).
 
@@ -437,7 +438,7 @@ class MemoryToolGroup(BaseToolGroup):
         artifact_id = optional_uuid(params, "artifact_id")
         reasoning_level = params.get("reasoning_level")
 
-        def _call() -> Dict[str, Any]:
+        def _call() -> dict[str, Any]:
             answer = MemoryEntryService().ask(
                 auth_context,
                 query=query,
@@ -456,7 +457,7 @@ class MemoryToolGroup(BaseToolGroup):
         return self._service_call(_call)
 
     def _handle_query(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """Semantic search over one or more scopes (read-only)."""
         query_text = require_param(params, "query")
@@ -477,7 +478,7 @@ class MemoryToolGroup(BaseToolGroup):
         )
 
     def _handle_list(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """Chronological listing of recent entries (read-only)."""
         scope = params.get("scope")
@@ -499,7 +500,7 @@ class MemoryToolGroup(BaseToolGroup):
         )
 
     def _handle_forget(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """Delete a memory entry (write).
 
@@ -517,7 +518,7 @@ class MemoryToolGroup(BaseToolGroup):
         )
 
     def _handle_promote(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """Promote own user memory into workspace scope (write, #1301).
 
@@ -542,7 +543,7 @@ class MemoryToolGroup(BaseToolGroup):
         )
 
     def _handle_remember_interaction(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """Enqueue the consolidation pipeline for one interaction (write, #1300).
 
@@ -564,7 +565,7 @@ class MemoryToolGroup(BaseToolGroup):
         artifact_id = optional_uuid(params, "artifact_id")
         entity_type = str(params.get("entity_type") or "")
 
-        def _call() -> Dict[str, Any]:
+        def _call() -> dict[str, Any]:
             from memory.tasks import consolidate_interaction_task
 
             result = consolidate_interaction_task.delay(
@@ -588,7 +589,7 @@ class MemoryToolGroup(BaseToolGroup):
         return self._service_call(_call)
 
     def _handle_overview(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """System-Admin per-workspace memory overview (read, #1302).
 
@@ -606,7 +607,7 @@ class MemoryToolGroup(BaseToolGroup):
         )
 
     def _handle_projection(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """System-Admin PCA/cluster projection of scoped memory (read, #1302).
 
@@ -629,7 +630,7 @@ class MemoryToolGroup(BaseToolGroup):
         )
 
     def _handle_export(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """System-Admin DSGVO export of the tenant's memory entries (#1302).
 
@@ -639,7 +640,7 @@ class MemoryToolGroup(BaseToolGroup):
         at the shared ``EXPORT_MAX_ROWS`` bound, and reports ``truncated`` when
         the cap bit.
         """
-        def _call() -> Dict[str, Any]:
+        def _call() -> dict[str, Any]:
             from memory.memory_rest import EXPORT_MAX_ROWS
 
             result = MemoryAdminService().list_entries(
@@ -656,7 +657,7 @@ class MemoryToolGroup(BaseToolGroup):
         return self._service_call(_call)
 
     def _handle_settings(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """System-Admin view of the effective memory configuration (#1302).
 
@@ -667,7 +668,7 @@ class MemoryToolGroup(BaseToolGroup):
         from the REST view so both transports report the identical effective
         configuration instead of drifting.
         """
-        def _call() -> Dict[str, Any]:
+        def _call() -> dict[str, Any]:
             MemoryPolicy.assert_can_purge(auth_context)
             from memory.memory_rest import _with_env_fallback
 
@@ -678,7 +679,7 @@ class MemoryToolGroup(BaseToolGroup):
         return self._service_call(_call)
 
     def _handle_delete_workspace(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """System-Admin DSGVO delete of a workspace's memory (#1302).
 

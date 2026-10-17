@@ -22,8 +22,8 @@ Traceability: REQ-L2-RO-006 -> REQ-L1-032
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, Optional
-from uuid import UUID, uuid5, NAMESPACE_URL
+from typing import Any
+from uuid import NAMESPACE_URL, UUID, uuid5
 
 from audit.models import AuditEntry
 from audit.services import log_write
@@ -82,9 +82,9 @@ def log_state_change(
 
 def log_degradation(
     target_subsystem: str,
-    error_code: Optional[str],
+    error_code: str | None,
     reason: str,
-    detail: Optional[Dict[str, Any]] = None,
+    detail: dict[str, Any] | None = None,
 ) -> None:
     """IF-RO-INT-006: record a graceful-degradation event.
 
@@ -113,7 +113,7 @@ def log_degradation(
 def _safe_write(
     change_reason: str,
     target_subsystem: str,
-    ctx: Dict[str, Any],
+    ctx: dict[str, Any],
 ) -> None:
     """Write to the AuditLog, swallowing any error (REQ-L3-RO-005-03).
 

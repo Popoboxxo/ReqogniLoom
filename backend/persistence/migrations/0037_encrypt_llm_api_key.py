@@ -17,10 +17,9 @@
 #      double-encrypts.
 #   5. Restore FORCE ROW LEVEL SECURITY.
 
+from cryptography.fernet import Fernet
 from django.conf import settings
 from django.db import migrations, models
-
-from cryptography.fernet import Fernet
 
 _TABLE = "pl_llm_settings"
 

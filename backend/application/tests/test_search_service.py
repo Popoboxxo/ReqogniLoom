@@ -11,28 +11,27 @@ by verifying tenant_id in SQL params.
 from __future__ import annotations
 
 import uuid
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, call, patch
 
 import pytest
 
 from application.base import ValidationError
 from application.search_service import (
-    SEARCHABLE_ARTIFACT_TYPES,
-    QueryParser,
-    SearchHit,
-    SearchResult,
-    SearchService,
     _RRF_K,
     _SCORE_ID_SUBSTRING,
     _SCORE_MAX,
     _SCORE_TITLE_EXACT,
     _SCORE_TITLE_PREFIX,
+    SEARCHABLE_ARTIFACT_TYPES,
+    QueryParser,
+    SearchHit,
+    SearchResult,
+    SearchService,
     _normalize_cosine_similarity,
     _normalize_fulltext_score,
     _normalize_lexical_score,
     _rrf_fuse,
 )
-
 
 # ---------- QueryParser ----------
 

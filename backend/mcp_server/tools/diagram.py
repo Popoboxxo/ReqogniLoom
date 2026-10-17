@@ -21,10 +21,9 @@ handler method per tool, own tool group).
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, Optional
+from typing import Any
 
 from auth_tenancy.context import AuthContext
-
 from diagram.models import Diagram
 from diagram.node_graph_renderer import NodeGraphRenderError
 from diagram.renderer import DiagramRenderer
@@ -40,7 +39,6 @@ from diagram.services import (
     resolve_user,
     update_diagram,
 )
-
 from mcp_server.protocol_handler import ToolResult
 from mcp_server.tools.base import (
     BaseToolGroup,
@@ -85,7 +83,7 @@ def _assert_write_permission(auth_context: AuthContext) -> None:
         )
 
 
-def _diagram_header_to_dict(diagram: Diagram) -> Dict[str, Any]:
+def _diagram_header_to_dict(diagram: Diagram) -> dict[str, Any]:
     """Serialise a Diagram header (no version payload) for MCP responses."""
     return {
         "id": str(diagram.id),
@@ -240,7 +238,7 @@ class DiagramToolGroup(BaseToolGroup):
         return resolve_tenant(auth_context.tenant_id)
 
     @staticmethod
-    def _resolve_user(auth_context: AuthContext) -> Optional[Any]:
+    def _resolve_user(auth_context: AuthContext) -> Any | None:
         return resolve_user(auth_context.user_id)
 
     # ------------------------------------------------------------------
@@ -248,7 +246,7 @@ class DiagramToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_create(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """diagram.create — create a new diagram + initial version (write, audited)."""
         try:
@@ -302,7 +300,7 @@ class DiagramToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_get(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """diagram.get — fetch a diagram (current or a specific version).
 
@@ -374,7 +372,7 @@ class DiagramToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_update(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """diagram.update — append a new immutable version (write, audited)."""
         try:
@@ -430,7 +428,7 @@ class DiagramToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_query(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """diagram.query — list diagrams for a workspace."""
         workspace_id = optional_uuid(params, "workspace_id")
@@ -458,7 +456,7 @@ class DiagramToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_outdate(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """diagram.outdate — soft-delete via the workflow engine (write, audited)."""
         try:
@@ -512,7 +510,7 @@ class DiagramToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_reactivate(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """diagram.reactivate — restore a previously outdated diagram (write, audited)."""
         try:

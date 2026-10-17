@@ -23,13 +23,13 @@ from traceability.exceptions import (
     SourceNotFoundError,
     TargetNotFoundError,
 )
-from traceability.trace_link_manager import TraceLinkManager
 from traceability.tests.conftest import (
     active_tenant,
     make_artifact,
     make_requirement,
     make_trace_link,
 )
+from traceability.trace_link_manager import TraceLinkManager
 
 pytestmark = pytest.mark.django_db
 

@@ -10,7 +10,7 @@ does (``rest_api.metrics_views`` → ``set_tenant``).
 from __future__ import annotations
 
 import contextlib
-from typing import Iterator
+from collections.abc import Iterator
 
 import pytest
 

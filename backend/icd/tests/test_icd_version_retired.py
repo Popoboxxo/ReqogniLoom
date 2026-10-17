@@ -19,7 +19,7 @@ from __future__ import annotations
 import contextlib
 import json
 import uuid
-from typing import Iterator
+from collections.abc import Iterator
 from unittest.mock import patch
 
 import pytest
@@ -37,7 +37,6 @@ from icd.services import (
 )
 from persistence.models import ArtifactVersion, Tenant, Workspace
 from persistence.tenancy import TenantContext
-
 
 # ---------------------------------------------------------------------------
 # Test helpers — declared locally, matching the convention the two sibling

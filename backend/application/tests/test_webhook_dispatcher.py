@@ -11,18 +11,17 @@ from __future__ import annotations
 
 import json
 import uuid
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, call, patch
 
 import pytest
 
+from application.event_bus import DomainEvent
 from application.webhook_dispatcher import (
+    _MAX_RETRIES,
     SUBSCRIBED_EVENT_TYPES,
     WebhookDispatcher,
-    _MAX_RETRIES,
     get_webhook_dispatcher,
 )
-from application.event_bus import DomainEvent
-
 
 # ---------- Helpers ----------
 

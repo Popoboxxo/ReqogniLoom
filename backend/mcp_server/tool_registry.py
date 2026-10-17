@@ -36,7 +36,8 @@ import hashlib
 import logging
 import time
 from collections import OrderedDict
-from typing import Any, Callable, Dict, NamedTuple, Optional, Tuple
+from collections.abc import Callable
+from typing import Any, NamedTuple
 from uuid import UUID
 
 from auth_tenancy.context import AuthContext, AuthMethod
@@ -49,7 +50,6 @@ from auth_tenancy.services.authorization import (
     scope_allows,
     scope_denial_reason,
 )
-
 from mcp_server.protocol_handler import ToolResult
 
 logger = logging.getLogger(__name__)
@@ -76,7 +76,7 @@ logger = logging.getLogger(__name__)
 
 #: Named phase presets -> the tool-group prefixes they include. A prefix is the
 #: part before the first "." in a tool name (ADR-L3-MC002-03).
-_TOOLSETS: Dict[str, Tuple[str, ...]] = {
+_TOOLSETS: dict[str, tuple[str, ...]] = {
     "core": (
         "requirement", "needs", "architecture", "test",
         "traceability", "artifact", "context", "comment",
@@ -107,7 +107,7 @@ _TOOLSETS: Dict[str, Tuple[str, ...]] = {
     ),
 }
 
-TOOLSET_NAMES: Tuple[str, ...] = tuple(_TOOLSETS)
+TOOLSET_NAMES: tuple[str, ...] = tuple(_TOOLSETS)
 
 #: JSON-schema keys that are pure prose; stripped in `compact` mode.
 _SCHEMA_PROSE_KEYS = ("description", "title")
@@ -142,14 +142,14 @@ def _first_sentence(text: str, limit: int = 160) -> str:
     return collapsed if len(collapsed) <= limit else collapsed[: limit - 1].rstrip() + "…"
 
 
-def compact_tool(tool: Dict[str, Any]) -> Dict[str, Any]:
+def compact_tool(tool: dict[str, Any]) -> dict[str, Any]:
     """Return *tool* with its prose trimmed but its callable schema intact.
 
     Keeps ``name``, a first-sentence ``description`` and the full ``inputSchema``
     minus every ``description``/``title`` (types, ``required`` and ``enum``
     survive, so the tool stays callable).
     """
-    compacted: Dict[str, Any] = {
+    compacted: dict[str, Any] = {
         "name": tool.get("name"),
         "description": _first_sentence(tool.get("description") or ""),
     }
@@ -160,13 +160,13 @@ def compact_tool(tool: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def filter_tool_catalogue(
-    tools: list[Dict[str, Any]],
+    tools: list[dict[str, Any]],
     *,
-    toolset: Optional[str] = None,
-    groups: Optional[Any] = None,
-    names: Optional[Any] = None,
-    search: Optional[str] = None,
-) -> list[Dict[str, Any]]:
+    toolset: str | None = None,
+    groups: Any | None = None,
+    names: Any | None = None,
+    search: str | None = None,
+) -> list[dict[str, Any]]:
     """Return the subset of *tools* matching the given selectors.
 
     Selectors combine with AND: a toolset narrows by prefix, an explicit
@@ -178,7 +178,7 @@ def filter_tool_catalogue(
     """
     selected = list(tools)
 
-    prefix_source: Optional[Tuple[str, ...]] = None
+    prefix_source: tuple[str, ...] | None = None
     if toolset is not None:
         if toolset not in _TOOLSETS:
             raise ValueError(
@@ -219,7 +219,7 @@ def filter_tool_catalogue(
 # that checks every GenericCrudToolGroup write tool is accounted for here.
 # ---------------------------------------------------------------------------
 
-_WRITE_TOOL_PREFIXES: Tuple[str, ...] = (
+_WRITE_TOOL_PREFIXES: tuple[str, ...] = (
     "requirement.create",
     "requirement.update",
     "requirement.decompose",
@@ -604,7 +604,7 @@ _READ_ONLY_TOOL_NAMES: frozenset[str] = frozenset(
     }
 )
 
-_READ_ONLY_TOOL_SUFFIXES: Tuple[str, ...] = (".read", ".query")
+_READ_ONLY_TOOL_SUFFIXES: tuple[str, ...] = (".read", ".query")
 
 # ---------------------------------------------------------------------------
 # Governance tool namespaces (#865)
@@ -781,7 +781,7 @@ _TENANT_ADMIN_ELEVATED_USER_TOOLS: frozenset[str] = frozenset(
 # Tool → feature-key mapping for preset filtering (REQ-L2-MC-008)
 # ---------------------------------------------------------------------------
 
-_TOOL_FEATURE_MAP: Dict[str, str] = {
+_TOOL_FEATURE_MAP: dict[str, str] = {
     "requirement.decompose": "llm_decompose",
     "requirement.validate": "llm_validate",
     "architecture.link": "architecture_links",
@@ -810,7 +810,7 @@ class _PresetCacheEntry:
 
     TTL_SECONDS = 300  # 5 minutes
 
-    def __init__(self, features: Dict[str, bool]) -> None:
+    def __init__(self, features: dict[str, bool]) -> None:
         self.features = features
         self.expires_at = time.monotonic() + self.TTL_SECONDS
 
@@ -833,9 +833,9 @@ class PresetCache:
         if maxsize <= 0:
             raise ValueError("PresetCache maxsize must be positive")
         self._maxsize = maxsize
-        self._cache: "OrderedDict[str, _PresetCacheEntry]" = OrderedDict()
+        self._cache: OrderedDict[str, _PresetCacheEntry] = OrderedDict()
 
-    def get(self, workspace_id: str) -> Optional[Dict[str, bool]]:
+    def get(self, workspace_id: str) -> dict[str, bool] | None:
         entry = self._cache.get(workspace_id)
         if entry is None:
             return None
@@ -847,7 +847,7 @@ class PresetCache:
         self._cache.move_to_end(workspace_id)
         return entry.features
 
-    def set(self, workspace_id: str, features: Dict[str, bool]) -> None:
+    def set(self, workspace_id: str, features: dict[str, bool]) -> None:
         self._cache[workspace_id] = _PresetCacheEntry(features)
         self._cache.move_to_end(workspace_id)
         # Evict least-recently-used entries until within the size bound.
@@ -866,11 +866,11 @@ class PresetCache:
 class ToolGroupRouter:
     """Route tool names to ToolGroup instances based on name prefix."""
 
-    def __init__(self, groups: Dict[str, Any]) -> None:
+    def __init__(self, groups: dict[str, Any]) -> None:
         """Initialise with a mapping of prefix → ToolGroup instance."""
         self._groups = groups  # e.g. {"requirement": group, "architecture": group}
 
-    def route(self, tool_name: str) -> Tuple[Optional[Any], Optional[str]]:
+    def route(self, tool_name: str) -> tuple[Any | None, str | None]:
         """Return (tool_group, error_code) for *tool_name*.
 
         Returns:
@@ -916,20 +916,20 @@ class ToolRegistry:
 
     def __init__(
         self,
-        auth_service: Optional[AuthenticationService] = None,
-        authz_service: Optional[AuthorizationService] = None,
-        workspace_exists: Optional[Callable[[str], bool]] = None,
+        auth_service: AuthenticationService | None = None,
+        authz_service: AuthorizationService | None = None,
+        workspace_exists: Callable[[str], bool] | None = None,
     ) -> None:
         self._auth_service = auth_service or AuthenticationService()
         self._authz_service = authz_service or AuthorizationService()
         self._workspace_exists_fn = workspace_exists or self._default_workspace_exists
         self._preset_cache = PresetCache()
-        self._router: Optional[ToolGroupRouter] = None
+        self._router: ToolGroupRouter | None = None
 
         # Lazy-imported tool groups to avoid circular imports at module load
-        self._groups: Dict[str, Any] = {}
+        self._groups: dict[str, Any] = {}
 
-    def register_groups(self, groups: Dict[str, Any]) -> None:
+    def register_groups(self, groups: dict[str, Any]) -> None:
         """Register tool group instances.
 
         Args:
@@ -943,16 +943,12 @@ class ToolRegistry:
         """Lazy-initialise default tool groups if none registered."""
         if self._router is not None:
             return
-        from mcp_server.tools.requirements import RequirementsToolGroup
-        from mcp_server.tools.needs import StakeholderNeedsToolGroup
-        from mcp_server.tools.architecture import ArchitectureToolGroup
-        from mcp_server.tools.tests import TestToolGroup
-        from mcp_server.tools.cross_cutting import CrossCuttingToolGroup
+        from application.adr_service import AdrService
+        from application.change_request_service import ChangeRequestService
+        from application.glossary_service import GlossaryService
+        from application.issue_service import IssueService
+        from application.risk_service import RiskService
         from mcp_server.tools.admin import AdminToolGroup
-        from mcp_server.tools.permissions import PermissionsToolGroup
-        from mcp_server.tools.audit import AuditToolGroup
-        from mcp_server.tools.backup import BackupToolGroup
-        from mcp_server.tools.users import UsersToolGroup
 
         # ADR-L3-MC007-02: the ``workspace`` prefix is owned by AdminToolGroup,
         # which falls through non-lifecycle workspace.* tools (e.g.
@@ -975,31 +971,35 @@ class ToolRegistry:
         # (COMP-AT-002) so the RBAC matrix remains the single
         # source of truth.
         from mcp_server.tools.ai_derivation import AiDerivationToolGroup
+        from mcp_server.tools.architecture import ArchitectureToolGroup
+        from mcp_server.tools.attribute_catalog import AttributeCatalogToolGroup
+        from mcp_server.tools.attribute_definition import AttributeDefinitionToolGroup
+        from mcp_server.tools.attribute_migration import AttributeMigrationToolGroup
+        from mcp_server.tools.audit import AuditToolGroup
+        from mcp_server.tools.backup import BackupToolGroup
+        from mcp_server.tools.baseline import BaselineToolGroup
+        from mcp_server.tools.comment import CommentToolGroup
+        from mcp_server.tools.create_form_config import CreateFormConfigToolGroup
+        from mcp_server.tools.cross_cutting import CrossCuttingToolGroup
+        from mcp_server.tools.diagram import DiagramToolGroup
         from mcp_server.tools.generic import GenericCrudToolGroup
+        from mcp_server.tools.goals import GoalToolGroup, MainGoalToolGroup
+        from mcp_server.tools.icd import IcdToolGroup
+        from mcp_server.tools.interview import InterviewToolGroup
+        from mcp_server.tools.link_type import LinkTypeToolGroup
+        from mcp_server.tools.memory import MemoryToolGroup
+        from mcp_server.tools.metrics import MetricsToolGroup
+        from mcp_server.tools.needs import StakeholderNeedsToolGroup
+        from mcp_server.tools.permissions import PermissionsToolGroup
         from mcp_server.tools.prompt_template import PromptTemplateToolGroup
         from mcp_server.tools.prompt_variable import PromptVariableToolGroup
-        from mcp_server.tools.diagram import DiagramToolGroup
+        from mcp_server.tools.requirement_bundle import RequirementBundleToolGroup
+        from mcp_server.tools.requirements import RequirementsToolGroup
         from mcp_server.tools.review import ReviewToolGroup
         from mcp_server.tools.suggestion import SuggestionToolGroup
-        from mcp_server.tools.baseline import BaselineToolGroup
-        from mcp_server.tools.goals import GoalToolGroup, MainGoalToolGroup
-        from mcp_server.tools.requirement_bundle import RequirementBundleToolGroup
-        from mcp_server.tools.interview import InterviewToolGroup
-        from mcp_server.tools.memory import MemoryToolGroup
-        from mcp_server.tools.link_type import LinkTypeToolGroup
-        from mcp_server.tools.attribute_definition import AttributeDefinitionToolGroup
-        from mcp_server.tools.attribute_catalog import AttributeCatalogToolGroup
-        from mcp_server.tools.attribute_migration import AttributeMigrationToolGroup
-        from mcp_server.tools.icd import IcdToolGroup
-        from mcp_server.tools.comment import CommentToolGroup
-        from mcp_server.tools.metrics import MetricsToolGroup
+        from mcp_server.tools.tests import TestToolGroup
         from mcp_server.tools.tree_display_config import TreeDisplayConfigToolGroup
-        from mcp_server.tools.create_form_config import CreateFormConfigToolGroup
-        from application.adr_service import AdrService
-        from application.risk_service import RiskService
-        from application.issue_service import IssueService
-        from application.glossary_service import GlossaryService
-        from application.change_request_service import ChangeRequestService
+        from mcp_server.tools.users import UsersToolGroup
 
         # REQ-129: share ONE instance across prefixes that belong to the same
         # tool group. CrossCuttingToolGroup owns both the ``traceability`` and
@@ -1106,8 +1106,8 @@ class ToolRegistry:
         })
 
     def list_tools(
-        self, api_key: str, workspace_id: Optional[str] = None
-    ) -> list[Dict[str, Any]]:
+        self, api_key: str, workspace_id: str | None = None
+    ) -> list[dict[str, Any]]:
         """List the tools available to the given API key.
 
         Applies the same RBAC gate as :meth:`dispatch_request` (REQ-108): a
@@ -1139,7 +1139,7 @@ class ToolRegistry:
         # thread-local, so the DB-level RLS session variable (COMP-PL-006)
         # is armed as a backstop for the MCP path too — previously only the
         # app-layer thread-local filter was active here.
-        from persistence.middleware import set_request_tenant, clear_request_tenant
+        from persistence.middleware import clear_request_tenant, set_request_tenant
         try:
             if auth_ctx.tenant_id is not None:
                 set_request_tenant(auth_ctx.tenant_id)
@@ -1164,7 +1164,7 @@ class ToolRegistry:
             # CrossCuttingToolGroup). Iterating _groups.values() naively would
             # emit each shared group's schemas once per prefix, producing
             # duplicate tool entries in tools/list.
-            tools: list[Dict[str, Any]] = []
+            tools: list[dict[str, Any]] = []
             seen_group_ids: set[int] = set()
             for group in self._groups.values():
                 if id(group) in seen_group_ids:
@@ -1208,12 +1208,12 @@ class ToolRegistry:
     def list_tools_page(
         self,
         api_key: str,
-        workspace_id: Optional[str] = None,
+        workspace_id: str | None = None,
         *,
-        toolset: Optional[str] = None,
-        tool_filter: Optional[Dict[str, Any]] = None,
+        toolset: str | None = None,
+        tool_filter: dict[str, Any] | None = None,
         compact: bool = False,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Filtered/compacted catalogue for ``tools/list`` and ``tools/filter``.
 
         Applies exactly the RBAC/scope gating of :meth:`list_tools` first, so a
@@ -1272,7 +1272,7 @@ class ToolRegistry:
     def dispatch_request(
         self,
         tool_name: str,
-        params: Dict[str, Any],
+        params: dict[str, Any],
         api_key: str,
     ) -> ToolResult:
         """Execute a MCP tool call after full auth/RBAC/preset checks.
@@ -1306,7 +1306,7 @@ class ToolRegistry:
         # The try/finally guarantees the context is cleared on every
         # exit path (success, early-return error, or unhandled exception).
         try:
-            from persistence.middleware import set_request_tenant, clear_request_tenant
+            from persistence.middleware import clear_request_tenant, set_request_tenant
 
             if auth_ctx is not None and auth_ctx.tenant_id is not None:
                 set_request_tenant(auth_ctx.tenant_id)
@@ -1525,7 +1525,7 @@ class ToolRegistry:
 
     def _validate_api_key(
         self, api_key: str
-    ) -> Tuple[Optional[AuthContext], Optional[str]]:
+    ) -> tuple[AuthContext | None, str | None]:
         """Validate API key via AuthenticationService.
 
         Returns:
@@ -1579,7 +1579,7 @@ class ToolRegistry:
         return ctx, None
 
     def _resolve_roles(
-        self, ctx: AuthContext, workspace_id: Optional[str]
+        self, ctx: AuthContext, workspace_id: str | None
     ) -> AuthContext:
         """Resolve active roles for ctx in workspace_id.
 
@@ -1628,7 +1628,7 @@ class ToolRegistry:
             api_key_workspace_ids=ctx.api_key_workspace_ids,
         )
 
-    def _resolve_global_roles(self, ctx: AuthContext) -> Tuple[str, ...]:
+    def _resolve_global_roles(self, ctx: AuthContext) -> tuple[str, ...]:
         """Aggregate every non-suspended role the caller holds across workspaces.
 
         Used when no workspace context is available (REQ-127, REQ-108). Returns
@@ -1647,8 +1647,8 @@ class ToolRegistry:
             return ()
 
     def _resolve_list_roles(
-        self, ctx: AuthContext, workspace_id: Optional[str]
-    ) -> Tuple[str, ...]:
+        self, ctx: AuthContext, workspace_id: str | None
+    ) -> tuple[str, ...]:
         """Resolve the caller's active roles for the ``tools/list`` RBAC gate.
 
         With a workspace context we reuse the workspace-scoped resolution.
@@ -1717,7 +1717,7 @@ class ToolRegistry:
         return Operation.WRITE
 
     def _is_bootstrap_candidate(
-        self, tool_name: str, params: Dict[str, Any], ctx: AuthContext
+        self, tool_name: str, params: dict[str, Any], ctx: AuthContext
     ) -> bool:
         """SEC-05: let a self-targeted admin-bootstrap ``user.assign_role``
         call past the blanket write-RBAC gate.
@@ -1762,10 +1762,10 @@ class ToolRegistry:
     def _scoped_gate_context(
         self,
         tool_name: str,
-        params: Dict[str, Any],
+        params: dict[str, Any],
         ctx: AuthContext,
-        role_workspace_id: Optional[str],
-    ) -> Tuple[AuthContext, Optional[str]]:
+        role_workspace_id: str | None,
+    ) -> tuple[AuthContext, str | None]:
         """Return ``(ctx to gate on, workspace the call targets)``.
 
         Three cases, in order:
@@ -1800,8 +1800,8 @@ class ToolRegistry:
 
     @staticmethod
     def _check_workspace_fence(
-        ctx: AuthContext, target_workspace_id: Optional[str]
-    ) -> Optional[str]:
+        ctx: AuthContext, target_workspace_id: str | None
+    ) -> str | None:
         """Return why the key may not act on *target_workspace_id*, else None.
 
         ``ApiKey.workspace_ids`` fences a key to an explicit set of workspaces.
@@ -1831,8 +1831,8 @@ class ToolRegistry:
 
     @staticmethod
     def _unresolved_target_param_error(
-        tool_name: str, params: Dict[str, Any], scope_workspace_id: Optional[str]
-    ) -> Optional[str]:
+        tool_name: str, params: dict[str, Any], scope_workspace_id: str | None
+    ) -> str | None:
         """Return the parameter-level diagnosis for a fence denial, else None.
 
         #1357: only relevant when the fence denied because **no target
@@ -1849,7 +1849,7 @@ class ToolRegistry:
 
         return target_param_error(tool_name, params)
 
-    def _check_rbac(self, ctx: AuthContext, tool_name: Optional[str] = None) -> Optional[str]:
+    def _check_rbac(self, ctx: AuthContext, tool_name: str | None = None) -> str | None:
         """Return error message if write is not permitted, else None.
 
         REQ-L2-MC-007: Viewer-only role must not write.
@@ -1879,7 +1879,7 @@ class ToolRegistry:
             )
         return None
 
-    def _check_read_rbac(self, ctx: AuthContext, tool_name: str) -> Optional[str]:
+    def _check_read_rbac(self, ctx: AuthContext, tool_name: str) -> str | None:
         """Return an error message if the caller may not read here, else None.
 
         Systemaudit 2026-08-29 §6.5. Only reached once the target workspace is
@@ -1961,7 +1961,7 @@ class ToolRegistry:
 
 
 __all__ = [
-    "ToolRegistry",
     "PresetCache",
     "ToolGroupRouter",
+    "ToolRegistry",
 ]

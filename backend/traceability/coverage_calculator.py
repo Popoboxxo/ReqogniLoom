@@ -28,13 +28,11 @@ from __future__ import annotations
 import logging
 import time
 import uuid
-from typing import Optional
 
 from django.db import connection
 
 from persistence.models import Requirement, TraceLink
 from persistence.tenancy import TenantContext
-
 from traceability.exceptions import BaselineCoverageNotSupportedError, InvalidFilterError
 from traceability.types import (
     CoverageData,
@@ -104,8 +102,8 @@ class CoverageCalculator:
     def coverage(
         self,
         workspace_id: uuid.UUID,
-        artifact_type: Optional[str] = None,
-        link_type: Optional[str] = None,
+        artifact_type: str | None = None,
+        link_type: str | None = None,
         *,
         include_outdated: bool = False,
         include_unreviewed_ai: bool = False,
@@ -216,7 +214,7 @@ class CoverageCalculator:
     def get_coverage_data(
         self,
         workspace_id: uuid.UUID,
-        baseline_id: Optional[uuid.UUID] = None,
+        baseline_id: uuid.UUID | None = None,
         include_outdated: bool = False,
         include_unreviewed_ai: bool = False,
     ) -> CoverageData:

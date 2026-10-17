@@ -66,10 +66,17 @@ from __future__ import annotations
 import difflib
 import json
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any
 from uuid import UUID
 
+from application.artifact_version_service import (
+    ArtifactVersionService,
+    lineage_anchor_artifact_id,
+)
+from application.base import NotFoundError, ServiceBase
+from application.models import Adr, Goal, Issue, MainGoal, Risk
 from auth_tenancy.context import AuthContext
+from link_types.catalog import normalize_artifact_type
 from persistence.models import (
     ArchitectureElement,
     Artifact,
@@ -78,15 +85,6 @@ from persistence.models import (
     StakeholderNeed,
     TestCase,
 )
-from link_types.catalog import normalize_artifact_type
-
-from application.models import Adr, Goal, Issue, MainGoal, Risk
-
-from application.artifact_version_service import (
-    ArtifactVersionService,
-    lineage_anchor_artifact_id,
-)
-from application.base import NotFoundError, ServiceBase
 
 logger = logging.getLogger(__name__)
 
@@ -124,7 +122,7 @@ _JSON_FIELDS = frozenset({"steps"})
 # (append-only, one row per transition) — that is the correct place to show
 # "status changed from X to Y", not a content diff keyed on a lock counter
 # that status changes never advance.
-_ENTITY_FIELDS: Dict[str, List[str]] = {
+_ENTITY_FIELDS: dict[str, list[str]] = {
     "Requirement": ["title", "description", "category"],
     "ArchitectureElement": ["title", "description", "element_type"],
     "TestCase": ["title", "description", "steps", "origin", "reviewed", "scenario_kind"],
@@ -212,7 +210,7 @@ _ENTITY_MODELS = {
 # ---------------------------------------------------------------------------
 
 
-def creation_baseline_entry() -> Dict[str, Any]:
+def creation_baseline_entry() -> dict[str, Any]:
     """Return the synthetic version-0 row (empty creation baseline).
 
     #272 (cluster 5, spec section 7.4.2 / decision D6): ``content_available``
@@ -240,7 +238,7 @@ def creation_baseline_entry() -> Dict[str, Any]:
     }
 
 
-def _entity_timestamp(entity: Any) -> Optional[str]:
+def _entity_timestamp(entity: Any) -> str | None:
     """Return the entity's last-modified timestamp as ISO-8601, if any."""
     for attr in ("updated_at", "modified_at"):
         value = getattr(entity, attr, None)
@@ -268,7 +266,7 @@ class ArtifactDiffService(ServiceBase):
         from_version: int,
         to_version: int,
         ctx: AuthContext,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Compute structured field-level diff between two revisions.
 
         Datenmodell-Konsolidierung Task 29 (Milestone M5): the **only**
@@ -329,7 +327,7 @@ class ArtifactDiffService(ServiceBase):
         # Compute field-level diff
         fields = self._compute_fields_diff(from_snapshot, to_snapshot, entity_type)
 
-        result: Dict[str, Any] = {
+        result: dict[str, Any] = {
             "from_version": from_version,
             "to_version": to_version,
             "entity_type": entity_type,
@@ -343,10 +341,10 @@ class ArtifactDiffService(ServiceBase):
     @staticmethod
     def _entity_to_snapshot(
         entity: Any, entity_type: str
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Extract comparable field values from an entity instance."""
         fields = _ENTITY_FIELDS.get(entity_type, [])
-        snapshot: Dict[str, Any] = {}
+        snapshot: dict[str, Any] = {}
         for field_name in fields:
             value = getattr(entity, field_name, None)
             # Serialise JSON fields to a stable string representation
@@ -361,10 +359,10 @@ class ArtifactDiffService(ServiceBase):
 
     def _compute_fields_diff(
         self,
-        from_data: Dict[str, Any],
-        to_data: Dict[str, Any],
+        from_data: dict[str, Any],
+        to_data: dict[str, Any],
         entity_type: str,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Compare two snapshots field-by-field.
 
         Returns a list of field diff entries, each with:
@@ -375,7 +373,7 @@ class ArtifactDiffService(ServiceBase):
           - ``lines``: unified diff lines (only for text fields with changes)
         """
         fields = _ENTITY_FIELDS.get(entity_type, [])
-        result: List[Dict[str, Any]] = []
+        result: list[dict[str, Any]] = []
 
         all_field_names = list(
             dict.fromkeys(fields + list(from_data.keys()) + list(to_data.keys()))
@@ -386,7 +384,7 @@ class ArtifactDiffService(ServiceBase):
             has_new = field_name in to_data
 
             if not has_old and has_new:
-                entry: Dict[str, Any] = {
+                entry: dict[str, Any] = {
                     "name": field_name,
                     "status": "added",
                     "to": to_data[field_name],
@@ -463,7 +461,7 @@ class ArtifactDiffService(ServiceBase):
         return str(value).strip()
 
     @staticmethod
-    def _compute_line_diff(old_text: str, new_text: str) -> List[str]:
+    def _compute_line_diff(old_text: str, new_text: str) -> list[str]:
         """Compute unified diff lines between two text blocks.
 
         Returns a list of diff lines with standard prefixes:
@@ -491,7 +489,7 @@ class ArtifactDiffService(ServiceBase):
         self,
         artifact_id: UUID,
         ctx: AuthContext,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """List an artifact's retrievable content revisions, oldest first.
 
         Datenmodell-Konsolidierung Task 29 (Milestone M5): one implementation
@@ -519,7 +517,7 @@ class ArtifactDiffService(ServiceBase):
         entity_type: str,
         entity_id: UUID,
         ctx: AuthContext,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """List retrievable versions for an entity by type and ID.
 
         Works for entities with a ``version`` field but no artifact FK
@@ -541,7 +539,7 @@ class ArtifactDiffService(ServiceBase):
             versions.append(self._current_version_entry(entity))
         return versions
 
-    def _current_version_entry(self, entity: Any) -> Dict[str, Any]:
+    def _current_version_entry(self, entity: Any) -> dict[str, Any]:
         """Build the "current state" row of a version list.
 
         The label deliberately omits the lock-counter value: rendering
@@ -568,7 +566,7 @@ class ArtifactDiffService(ServiceBase):
         from_version: int,
         to_version: int,
         ctx: AuthContext,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Compute structured diff for an entity by type and ID.
 
         Works for entities with a ``version`` field but no artifact FK.
@@ -610,7 +608,7 @@ class ArtifactDiffService(ServiceBase):
             entity_type,
         )
 
-        result: Dict[str, Any] = {
+        result: dict[str, Any] = {
             "from_version": from_version,
             "to_version": to_version,
             "entity_type": entity_type,
@@ -632,7 +630,7 @@ class ArtifactDiffService(ServiceBase):
         entity: Any,
         entity_type: str,
         version: int,
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """Resolve entity field values for a given version (no artifact FK).
 
         Version 0 → None (creation baseline, no data).
@@ -663,7 +661,7 @@ class ArtifactDiffService(ServiceBase):
         raw = getattr(entity, "version", None)
         return raw if isinstance(raw, int) else 1
 
-    def list_versions_for_goal(self, lineage_id: UUID, ctx: AuthContext) -> List[Dict[str, Any]]:
+    def list_versions_for_goal(self, lineage_id: UUID, ctx: AuthContext) -> list[dict[str, Any]]:
         """List all versions of a Goal lineage, chronologically (REQ-L2-TE-020, Task 6)."""
         from application.goal_service import GoalService
 
@@ -671,7 +669,7 @@ class ArtifactDiffService(ServiceBase):
 
     def list_versions_for_main_goal(
         self, workspace_id: UUID, ctx: AuthContext
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """List all MainGoal versions for a workspace, chronologically (Task 6)."""
         from application.main_goal_service import MainGoalService
 
@@ -683,7 +681,7 @@ class ArtifactDiffService(ServiceBase):
         from_version: int,
         to_version: int,
         ctx: AuthContext,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Compute a field-level diff between two versions of a Goal lineage.
 
         GH-1200: Goal is immutable-row-per-version — every edit writes a new
@@ -721,7 +719,7 @@ class ArtifactDiffService(ServiceBase):
         from_version: int,
         to_version: int,
         ctx: AuthContext,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Compute a field-level diff between two versions of a MainGoal chain.
 
         GH-1200: MainGoal has no ``lineage_id`` column — its chain is the

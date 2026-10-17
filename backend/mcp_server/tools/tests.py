@@ -64,13 +64,10 @@ defect) and splitting one lifecycle across two namespaces.
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, Optional
+from typing import Any
 from uuid import UUID
 
-from auth_tenancy.context import AuthContext
-
 from application.ai_derivation_service import AiDerivationService, LlmResponseError
-from application.test_service import normalize_test_type
 from application.services import (
     NotFoundError,
     PermissionDeniedError,
@@ -79,7 +76,8 @@ from application.services import (
     TraceLinkService,
     ValidationError,
 )
-
+from application.test_service import normalize_test_type
+from auth_tenancy.context import AuthContext
 from mcp_server.protocol_handler import ToolResult
 from mcp_server.tools.ai_derivation import (
     _MODE_POLICY_SCHEMA_PROPERTIES,
@@ -163,8 +161,8 @@ _RUN_LIST_MAX_LIMIT = 500
 
 
 def _test_case_to_dict(
-    tc: Any, status_map: Optional[Dict[str, str]] = None
-) -> Dict[str, Any]:
+    tc: Any, status_map: dict[str, str] | None = None
+) -> dict[str, Any]:
     """Serialise a TestCase ORM object to a dict.
 
     GH-453: ``status`` and ``version`` are included, matching
@@ -179,7 +177,7 @@ def _test_case_to_dict(
     ``"approved"``/``"deprecated"``, or ``"outdated"`` for soft-deleted rows),
     i.e. the same vocabulary the REST ``TestCaseSerializer`` returns.
     """
-    result: Dict[str, Any] = {
+    result: dict[str, Any] = {
         "id": str(tc.id),
         # Epic #934 WS1: ``uid`` is a visible read-only attribute on the
         # TestCase definition (the REST serializer returns it); the MCP
@@ -218,7 +216,7 @@ def _test_case_to_dict(
     return result
 
 
-def _test_run_result_summary(tr: Any) -> Dict[str, int]:
+def _test_run_result_summary(tr: Any) -> dict[str, int]:
     """Per-status result tallies for a TestRun — the REST ``_result_summary``.
 
     Mirrors ``rest_api.views._result_summary`` (REQ-L2-AS-030) so a client can
@@ -236,7 +234,7 @@ def _test_run_result_summary(tr: Any) -> Dict[str, int]:
     }
 
 
-def _test_run_to_dict(tr: Any) -> Dict[str, Any]:
+def _test_run_to_dict(tr: Any) -> dict[str, Any]:
     """Serialise a TestRun ORM object to the shared MCP/REST wire shape.
 
     #1080: extracted from the four inline dicts the ``test.run_*`` handlers
@@ -267,7 +265,7 @@ def _test_run_to_dict(tr: Any) -> Dict[str, Any]:
     }
 
 
-def _resolve_create_test_type(params: Dict[str, Any]) -> str:
+def _resolve_create_test_type(params: dict[str, Any]) -> str:
     """Resolve ``test.create``'s test type from ``test_type``/``type`` (#1151).
 
     Both spellings go through :func:`normalize_test_type` so they are validated
@@ -282,8 +280,8 @@ def _resolve_create_test_type(params: Dict[str, Any]) -> str:
     is expressed by returning the legacy-default sentinel ``"Unit"`` (the
     service normalises it to ``"unit"``).
     """
-    canonical: Optional[str] = None
-    source_param: Optional[str] = None
+    canonical: str | None = None
+    source_param: str | None = None
     for param_name in ("test_type", "type"):
         raw = params.get(param_name)
         if raw is None:
@@ -304,7 +302,7 @@ def _resolve_create_test_type(params: Dict[str, Any]) -> str:
     return canonical if canonical is not None else "Unit"
 
 
-def _parse_run_list_limit(params: Dict[str, Any]) -> int:
+def _parse_run_list_limit(params: dict[str, Any]) -> int:
     """Read and validate ``test.run_list``'s ``limit`` parameter.
 
     Absent (or ``null``) means :data:`_RUN_LIST_DEFAULT_LIMIT`. Raises
@@ -759,10 +757,10 @@ class McpTestToolGroup(BaseToolGroup):
 
     def __init__(
         self,
-        service: Optional[TestService] = None,
-        trace_service: Optional[TraceLinkService] = None,
-        run_service: Optional[TestRunService] = None,
-        ai_derivation_service: Optional[AiDerivationService] = None,
+        service: TestService | None = None,
+        trace_service: TraceLinkService | None = None,
+        run_service: TestRunService | None = None,
+        ai_derivation_service: AiDerivationService | None = None,
     ) -> None:
         self._service = service or TestService()
         self._trace_service = trace_service or TraceLinkService()
@@ -774,7 +772,7 @@ class McpTestToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_get(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """test.get — fetch a single TestCase by UUID."""
         tc_id = require_uuid(params, "id")
@@ -791,7 +789,7 @@ class McpTestToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_query(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """test.query — list TestCases by workspace."""
         workspace_id = optional_uuid(params, "workspace_id")
@@ -824,7 +822,7 @@ class McpTestToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_create(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """test.create — create a TestCase, optionally with 'verifies' TraceLink.
 
@@ -912,7 +910,7 @@ class McpTestToolGroup(BaseToolGroup):
             api_key=api_key,
         )
 
-        trace_link_id: Optional[str] = None
+        trace_link_id: str | None = None
         if linked_req_id:
             try:
                 # Codeberg #313: suppress create_trace_link's single
@@ -942,7 +940,7 @@ class McpTestToolGroup(BaseToolGroup):
             except Exception as exc:
                 logger.warning("TraceLink creation failed in test.create: %s", exc)
 
-        response_data: Dict[str, Any] = {"test_case": _test_case_to_dict(tc)}
+        response_data: dict[str, Any] = {"test_case": _test_case_to_dict(tc)}
         if trace_link_id:
             response_data["trace_link_id"] = trace_link_id
         return ToolResult.ok(response_data)
@@ -952,14 +950,14 @@ class McpTestToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_update(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """test.update — update TestCase fields including execution_status.
 
         ADR-L3-MC005-02: status written as 'status' field in data dict.
         """
         tc_id = require_uuid(params, "id")
-        data: Dict[str, Any] = params.get("data") or {}
+        data: dict[str, Any] = params.get("data") or {}
         # Attribut v3 WS2 (#936): owner/reporter/priority live on the Artifact;
         # the nested `data` object carries them for this group. Applied inside
         # each branch's try block (below) so a rejected value maps to
@@ -1034,7 +1032,7 @@ class McpTestToolGroup(BaseToolGroup):
                 # Only forward optional fields the caller actually sent: both
                 # use an `_UNSET` sentinel, so an absent key must not clear the
                 # stored value.
-                optional_kwargs: Dict[str, Any] = {}
+                optional_kwargs: dict[str, Any] = {}
                 if "test_type" in data:
                     optional_kwargs["test_type"] = data["test_type"]
                 if "custom_fields" in data:
@@ -1080,7 +1078,7 @@ class McpTestToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_link(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """test.link — create a 'verifies' TraceLink between TestCase and Requirement.
 
@@ -1145,7 +1143,7 @@ class McpTestToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_run_create(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """test.run_create — create a TestRun."""
         # Issue #459 (finding 1): a client-supplied but unrecognised parameter
@@ -1214,7 +1212,7 @@ class McpTestToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_run_list(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """test.run_list — list a workspace's TestRuns, newest first (#1080).
 
@@ -1256,7 +1254,7 @@ class McpTestToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_run_get(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """test.run_get — fetch a TestRun by UUID."""
         run_id = require_uuid(params, "run_id")
@@ -1292,7 +1290,7 @@ class McpTestToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_run_report_results(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """test.run_report_results — add results to a TestRun (bulk).
 
@@ -1379,7 +1377,7 @@ class McpTestToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_run_complete(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """test.run_complete — finalize a TestRun (GH-403).
 
@@ -1418,7 +1416,7 @@ class McpTestToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_derive_from_requirement(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """test.derive_from_requirement — propose (or persist) a TestCase draft.
 
@@ -1522,7 +1520,7 @@ class McpTestToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_mark_reviewed(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """test.mark_reviewed — set the in-content review flag (#424).
 
@@ -1573,7 +1571,7 @@ class McpTestToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_outdate(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """test.outdate — soft-delete via the workflow engine (write, audited)."""
         tc_id = require_uuid(params, "id")
@@ -1618,7 +1616,7 @@ class McpTestToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_reactivate(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """test.reactivate — restore a previously outdated TestCase (write, audited)."""
         tc_id = require_uuid(params, "id")

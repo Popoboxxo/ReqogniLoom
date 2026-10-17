@@ -34,7 +34,6 @@ from dataclasses import dataclass
 from datetime import datetime
 from uuid import UUID
 
-
 # ---------------------------------------------------------------------------
 # DTOs (IF-WE-INT-004, IF-WE-INT-005)
 # ---------------------------------------------------------------------------
@@ -139,6 +138,7 @@ def _verify_password(credential: str, user_id: UUID, tenant_id: UUID) -> bool:
     """
     try:
         from django.contrib.auth.hashers import check_password  # type: ignore[import-untyped]
+
         from persistence.models import User  # type: ignore[import-untyped]
 
         user = User.unscoped.filter(id=user_id).first()
@@ -224,8 +224,8 @@ class SignatureGateVerifier:
 
 
 __all__ = [
-    "SignatureGateVerifier",
     "CredentialVerificationRequest",
+    "SignatureGateVerifier",
     "VerificationResult",
     "generate_seal",
 ]

@@ -39,9 +39,8 @@ can never disagree.
 """
 from __future__ import annotations
 
-from typing import Any, Dict, Mapping, Tuple
-
-from auth_tenancy.context import AuthContext
+from collections.abc import Mapping
+from typing import Any
 
 #: Both registries are Django-free on purpose: this module is imported at
 #: ``tools``-registry build time, before an app registry is guaranteed. The
@@ -50,17 +49,18 @@ from auth_tenancy.context import AuthContext
 #: which item type declares what.
 from application.artifact_attribute_gateway import transport_field_names
 from attribute_definitions.schema import ENTITY_LEVEL_CARRIER_FIELDS
+from auth_tenancy.context import AuthContext
 
 #: The Attribute-level system field names, in wire order: the Artifact-level
 #: trio (spec section 3) plus the carrier-backed names of ADR-006. Read from the
 #: registry that owns them rather than re-listed, so a new carrier field cannot
 #: be added to the definition but forgotten here (which would show up as an
 #: opaque "Invalid field for adr.create" TypeError).
-SYSTEM_FIELD_NAMES: Tuple[str, ...] = transport_field_names()
+SYSTEM_FIELD_NAMES: tuple[str, ...] = transport_field_names()
 
 #: JSON-Schema fragment for the Artifact-level fields, merged into a tool's
 #: create/update ``properties`` for every enabled item type.
-SYSTEM_FIELD_SCHEMA: Dict[str, Dict[str, Any]] = {
+SYSTEM_FIELD_SCHEMA: dict[str, dict[str, Any]] = {
     "owner": {
         "type": ["object", "null"],
         "description": (
@@ -89,7 +89,7 @@ SYSTEM_FIELD_SCHEMA: Dict[str, Dict[str, Any]] = {
 #: names per item type come from the one registry; the wire shapes are fixed by
 #: spec section 4 (``multiple`` envelope) and the catalogue (``multi-enum``
 #: option list).
-CARRIER_FIELD_SCHEMA: Dict[str, Dict[str, Dict[str, Any]]] = {
+CARRIER_FIELD_SCHEMA: dict[str, dict[str, dict[str, Any]]] = {
     item_type: {
         name: {
             "type": ["object", "array", "null"],
@@ -106,7 +106,7 @@ CARRIER_FIELD_SCHEMA: Dict[str, Dict[str, Dict[str, Any]]] = {
 }
 
 
-def schema_for(item_type: str) -> Dict[str, Dict[str, Any]]:
+def schema_for(item_type: str) -> dict[str, dict[str, Any]]:
     """Return the inputSchema fragment a tool of *item_type* advertises.
 
     The Artifact-level trio (for every enabled type) plus the carrier-backed
@@ -129,7 +129,7 @@ def system_fields_enabled(item_type: str) -> bool:
     return item_type in SYSTEM_FIELDS_ENABLED_ITEM_TYPES
 
 
-def system_field_values(params: Mapping[str, Any]) -> Dict[str, Any]:
+def system_field_values(params: Mapping[str, Any]) -> dict[str, Any]:
     """Return the system-field values present in *params* (only sent keys).
 
     Claims exactly the fields the caller actually passed, so ``Risk``'s legacy
@@ -185,7 +185,7 @@ def apply_system_fields(
         raise ValidationError(str(exc)) from exc
 
 
-def add_system_fields(payload: Dict[str, Any], obj: Any) -> Dict[str, Any]:
+def add_system_fields(payload: dict[str, Any], obj: Any) -> dict[str, Any]:
     """Merge the system fields into a wire ``payload`` in place.
 
     Mirror of the REST DTO builders: every MCP read/create/update projection for

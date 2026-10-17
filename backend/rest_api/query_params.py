@@ -38,8 +38,8 @@ from rest_framework.response import Response
 from rest_api.serializers import build_error_response
 
 __all__ = [
-    "MISSING_TEMPLATE",
     "INVALID_UUID_TEMPLATE",
+    "MISSING_TEMPLATE",
     "parse_include_deleted",
     "parse_uuid_param",
     "parse_workspace_id",

@@ -15,7 +15,7 @@ Registered from :meth:`application.apps.ApplicationConfig.ready`, mirroring the
 """
 from __future__ import annotations
 
-from typing import Any, List
+from typing import Any
 
 from django.conf import settings
 from django.core.checks import Warning as DjangoWarning
@@ -26,7 +26,7 @@ IMPORT_FINGERPRINT_SECRET_MISSING = "application.W001"
 
 def check_import_fingerprint_secret(
     app_configs: Any = None, **kwargs: Any
-) -> List[DjangoWarning]:
+) -> list[DjangoWarning]:
     """Warn when ``IMPORT_FINGERPRINT_SECRET`` is empty (ADR-014 §7, D2a).
 
     A ``Warning``, not an ``Error``: the ``SECRET_KEY``-derived fallback is

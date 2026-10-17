@@ -35,14 +35,14 @@ from __future__ import annotations
 import json
 import logging
 import socket
+from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any
 from uuid import UUID
-
-from auth_tenancy.context import AuthContext
 
 from application.audit_service import AuditFindingView, AuditService
 from application.base import ServiceBase
+from auth_tenancy.context import AuthContext
 from traceability.audit import AuditScope
 
 logger = logging.getLogger(__name__)
@@ -164,7 +164,7 @@ class RefactoringPackage:
 
     title: str
     rationale: str
-    finding_refs: List[Dict[str, Any]] = field(default_factory=list)
+    finding_refs: list[dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
@@ -195,7 +195,7 @@ class AiReviewResult:
     total_findings: int = 0
     truncated: bool = False
     total_findings_available: int = 0
-    packages: List[RefactoringPackage] = field(default_factory=list)
+    packages: list[RefactoringPackage] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         packaged = sum(len(p.finding_refs) for p in self.packages)
@@ -217,7 +217,7 @@ class AiReviewResult:
 class AiReviewService(ServiceBase):
     """Single-Entry-Point facade for the N8 ``audit.ai_review`` copilot."""
 
-    def __init__(self, audit_service: Optional[AuditService] = None) -> None:
+    def __init__(self, audit_service: AuditService | None = None) -> None:
         self._audit = audit_service or AuditService()
 
     def review(
@@ -225,8 +225,8 @@ class AiReviewService(ServiceBase):
         workspace_id: str | UUID,
         ctx: AuthContext,
         *,
-        tier: Optional[str] = None,
-        scopes: Optional[Sequence[AuditScope]] = None,
+        tier: str | None = None,
+        scopes: Sequence[AuditScope] | None = None,
     ) -> AiReviewResult:
         """Run the SE-Auditor and bundle its findings into refactoring packages.
 
@@ -268,7 +268,7 @@ class AiReviewService(ServiceBase):
         )
         proposed = self._parse_packages(raw, is_mock_fallback=degraded)
 
-        by_index: Dict[int, AuditFindingView] = {fv.index: fv for fv in findings}
+        by_index: dict[int, AuditFindingView] = {fv.index: fv for fv in findings}
         packages = self._build_packages(proposed, by_index)
 
         return AiReviewResult(
@@ -286,7 +286,7 @@ class AiReviewService(ServiceBase):
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _finding_payload(fv: AuditFindingView) -> Dict[str, Any]:
+    def _finding_payload(fv: AuditFindingView) -> dict[str, Any]:
         """Render one finding as the compact dict handed to the LLM as context."""
         return {
             "index": fv.index,
@@ -300,8 +300,8 @@ class AiReviewService(ServiceBase):
     def _build_packages(
         self,
         proposed: list,
-        by_index: Dict[int, AuditFindingView],
-    ) -> List[RefactoringPackage]:
+        by_index: dict[int, AuditFindingView],
+    ) -> list[RefactoringPackage]:
         """Resolve the LLM's proposed packages against the real findings.
 
         Every ``finding_indices`` entry is looked up in *by_index* (built
@@ -311,7 +311,7 @@ class AiReviewService(ServiceBase):
         references after filtering is dropped entirely rather than returned
         as an empty, non-actionable shell.
         """
-        packages: List[RefactoringPackage] = []
+        packages: list[RefactoringPackage] = []
         for item in proposed:
             if not isinstance(item, dict):
                 continue
@@ -342,7 +342,7 @@ class AiReviewService(ServiceBase):
         return packages
 
     @staticmethod
-    def _coerce_index(raw_idx: Any) -> Optional[int]:
+    def _coerce_index(raw_idx: Any) -> int | None:
         """Best-effort int coercion for a single proposed index, or None."""
         if isinstance(raw_idx, bool):
             return None
@@ -359,7 +359,7 @@ class AiReviewService(ServiceBase):
     def _build_memory_context(
         ctx: AuthContext,
         workspace_id: str | UUID,
-        findings_payload: List[Dict[str, Any]],
+        findings_payload: list[dict[str, Any]],
     ) -> str:
         """Return the workspace/user memory block for this review, or ``""``.
 
@@ -391,11 +391,11 @@ class AiReviewService(ServiceBase):
 
     def _complete(
         self,
-        findings_payload: List[Dict[str, Any]],
+        findings_payload: list[dict[str, Any]],
         *,
         workspace_id: str,
         memory_context: str = "",
-    ) -> Tuple[str, str, bool]:
+    ) -> tuple[str, str, bool]:
         """Call the LLM provider for a package grouping (graceful degradation).
 
         Returns ``(raw_completion, provider_name, degraded)``. On any
@@ -581,9 +581,9 @@ class AiReviewService(ServiceBase):
 
 
 __all__ = [
-    "AiReviewService",
-    "AiReviewResult",
-    "RefactoringPackage",
-    "AiReviewResponseError",
     "AI_REVIEW_PROMPT_TEMPLATE",
+    "AiReviewResponseError",
+    "AiReviewResult",
+    "AiReviewService",
+    "RefactoringPackage",
 ]

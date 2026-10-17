@@ -14,7 +14,8 @@ from application.architecture_service import ArchitectureService
 from application.requirement_service import RequirementService
 from application.trace_link_service import TraceLinkService
 from auth_tenancy.context import AuthContext
-from persistence.models import ArchitectureElement, Requirement, TraceLink, Tenant, User, Workspace as PersistenceWorkspace
+from persistence.models import ArchitectureElement, Requirement, Tenant, TraceLink, User
+from persistence.models import Workspace as PersistenceWorkspace
 from traceability.types import LinkType
 
 

@@ -22,15 +22,13 @@ Covers:
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 from uuid import UUID, uuid4
 
 import pytest
 
-from auth_tenancy.context import AuthContext, AuthMethod, IdentityClaims
-from auth_tenancy.errors import AuthenticationFailed
-
+from application.audit_service import SuppressionView
 from application.base import (
     NotFoundError,
     PermissionDeniedError,
@@ -39,31 +37,27 @@ from application.base import (
     WaiverFindingNotBlockingError,
     WaiverReasonPolicyViolation,
 )
-from application.audit_service import SuppressionView
 from application.dlq_service import _DlqSnapshot
-
+from auth_tenancy.context import AuthContext, AuthMethod, IdentityClaims
+from auth_tenancy.errors import AuthenticationFailed
 from auth_tenancy.services import Operation
-
 from baseline.models import BaselineGateWaiver
-
-from persistence.models import Tenant
-
 from mcp_server.protocol_handler import (
-    ERROR_CODES,
-    ERROR_CODE_MAP,
-    ProtocolHandler,
     _PROTOCOL_ERROR_CODES,
+    ERROR_CODE_MAP,
+    ERROR_CODES,
+    ProtocolHandler,
 )
 from mcp_server.tool_registry import (
-    ToolRegistry,
     _GOVERNANCE_TOOL_NAMES,
     _GOVERNANCE_TOOL_NAMESPACES,
     _READ_ONLY_TOOL_NAMES,
     _WRITE_TOOL_PREFIXES,
+    ToolRegistry,
 )
 from mcp_server.tools.audit import AuditToolGroup
 from mcp_server.tools.base import McpAuditWriteError, write_mcp_audit
-
+from persistence.models import Tenant
 
 # ---------------------------------------------------------------------------
 # Shared fixtures
@@ -124,7 +118,7 @@ def _mock_audit_entry(
     row.change_reason = change_reason
     row.source = source
     row.client_name = None
-    row.timestamp = timestamp or datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+    row.timestamp = timestamp or datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
     return row
 
 
@@ -146,7 +140,7 @@ def _mock_dlq_row(
     row.payload = {"foo": "bar"}
     row.error_message = error_message
     row.retry_count = retry_count
-    row.moved_at = moved_at or datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+    row.moved_at = moved_at or datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
     return row
 
 
@@ -1045,7 +1039,7 @@ def _suppression_view(
         scope_artifact_id="",
         reason=_VALID_REASON,
         granted_by=str(USER_ID),
-        created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        created_at=datetime(2026, 1, 1, tzinfo=UTC),
         expires_at=expires_at,
         state=state,
     )

@@ -28,7 +28,7 @@ formalize logic runs.
 from __future__ import annotations
 
 import contextlib
-from typing import Iterator
+from collections.abc import Iterator
 
 import pytest
 
@@ -45,8 +45,8 @@ from persistence.models import (
     Workspace,
 )
 from persistence.tenancy import TenantContext
-from workflow import state_reader
 from persistence.tests.factories import make_workspace
+from workflow import state_reader
 
 pytestmark = pytest.mark.django_db
 

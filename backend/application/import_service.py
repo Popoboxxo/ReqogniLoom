@@ -41,22 +41,23 @@ import json
 import logging
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 from uuid import UUID
 
-from auth_tenancy.context import AuthContext
 from django.db import transaction
 from django.db.models import Q
 from django.utils.dateparse import parse_datetime
+
+from auth_tenancy.context import AuthContext
 
 # Backward-compat alias used by tests that patch 'application.import_service.TenantContext'
 TenantContext = AuthContext
 
 from application.base import NotFoundError, ServiceBase, ValidationError
 from application.export_service import (
-    ENTITY_FIELD_SPECS,
     _APP_ENTITY_TYPES,
     _PERSISTENCE_ENTITY_TYPES,
+    ENTITY_FIELD_SPECS,
 )
 from application.reqif_import_service import (
     _apply_imported_workflow_state,
@@ -101,7 +102,7 @@ PERSISTENCE_ERROR_MESSAGE = (
 # Required fields per entity type (REQ-L3-IMP-001). Derived from the shared
 # round-trip field registry so importer and exporter cannot drift apart; every
 # supported entity requires a non-empty ``title``.
-_REQUIRED_FIELDS: Dict[str, List[str]] = {
+_REQUIRED_FIELDS: dict[str, list[str]] = {
     entity_type: ["title"] for entity_type in ENTITY_FIELD_SPECS
 }
 
@@ -206,13 +207,13 @@ class ImportResult:
     success: bool
     imported_count: int
     skipped_count: int
-    errors: List[ImportRowError] = field(default_factory=list)
+    errors: list[ImportRowError] = field(default_factory=list)
     status: str = "ok"
-    warnings: List[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
     # --- ADR-014 v2 (additive) ---
     failed_count: int = 0
     duplicate_count: int = 0
-    items: List[Dict[str, Any]] = field(default_factory=list)
+    items: list[dict[str, Any]] = field(default_factory=list)
     request_id: str = ""
     idempotent_replay: bool = False
     contract: str = CONTRACT_VERSION
@@ -222,7 +223,7 @@ class ImportResult:
     total_count: int = 0
 
     @property
-    def counts(self) -> Dict[str, int]:
+    def counts(self) -> dict[str, int]:
         """v2 result counters (ADR-014 §1): succeeded/skipped/failed/total.
 
         ``skipped`` counts only duplicates (successful rows that were skipped
@@ -247,7 +248,7 @@ class ImportResult:
             "total": total,
         }
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Serialise to the v2 envelope with legacy keys kept additive (§5)."""
         return {
             "success": self.success,
@@ -339,7 +340,7 @@ class ImportService(ServiceBase):
         # the import reports the misleading "title is missing or empty" instead
         # of naming the real cause. The REST layer decodes with ``utf-8-sig``;
         # stripping here too keeps direct service callers (and tests) correct.
-        warnings: List[str] = []
+        warnings: list[str] = []
         if csv_text.startswith("\ufeff"):
             csv_text = csv_text[1:]
             warnings.append(
@@ -383,7 +384,7 @@ class ImportService(ServiceBase):
         # only its own row; the remaining valid rows are still persisted
         # (partial success => 207). Grouping by row number also yields exactly
         # one ``items`` entry per failed row instead of one per error.
-        row_errors: Dict[int, List[ImportRowError]] = {}
+        row_errors: dict[int, list[ImportRowError]] = {}
         for row_num, row in rows:
             for err in self._validate_row(row_num, row, entity_type):
                 row_errors.setdefault(row_num, []).append(err)
@@ -401,7 +402,7 @@ class ImportService(ServiceBase):
         for row_num, errs in row_errors.items():
             row_errors[row_num] = self._dedupe_row_errors(errs)
 
-        validation_errors: List[ImportRowError] = [
+        validation_errors: list[ImportRowError] = [
             err for errs in row_errors.values() for err in errs
         ]
         failed_count = len(row_errors)
@@ -553,11 +554,11 @@ class ImportService(ServiceBase):
     def _failed_item(
         entity_type: str,
         row_number: int,
-        identifier: Optional[str],
+        identifier: str | None,
         cause_code: str,
         message: str,
         status_value: str = "failed",
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Build one structured v2 outcome entry (ADR-014 §1)."""
         return {
             "row": row_number,
@@ -568,7 +569,7 @@ class ImportService(ServiceBase):
         }
 
     @staticmethod
-    def _dedupe_row_errors(errors: List[ImportRowError]) -> List[ImportRowError]:
+    def _dedupe_row_errors(errors: list[ImportRowError]) -> list[ImportRowError]:
         """Collapse duplicate messages for a single row, first-seen order kept.
 
         ``_validate_row`` and the shared attribute gate independently report the
@@ -577,7 +578,7 @@ class ImportService(ServiceBase):
         second (issue #1195).
         """
         seen: set[str] = set()
-        unique: List[ImportRowError] = []
+        unique: list[ImportRowError] = []
         for error in errors:
             key = error.message.strip().casefold()
             if key in seen:
@@ -587,9 +588,9 @@ class ImportService(ServiceBase):
         return unique
 
     @staticmethod
-    def _row_error_message(errors: List[ImportRowError]) -> str:
+    def _row_error_message(errors: list[ImportRowError]) -> str:
         """Join one row's distinct error messages into a single full message."""
-        messages: List[str] = []
+        messages: list[str] = []
         for error in errors:
             if error.message and error.message not in messages:
                 messages.append(error.message)
@@ -597,7 +598,7 @@ class ImportService(ServiceBase):
 
     @staticmethod
     def _cause_code_for_errors(
-        errors: List[ImportRowError], default: str
+        errors: list[ImportRowError], default: str
     ) -> str:
         """Return the machine-readable cause code for one row's error list.
 
@@ -625,10 +626,10 @@ class ImportService(ServiceBase):
         cls,
         *,
         entity_type: str,
-        rows: List[Tuple[int, Dict[str, str]]],
-        row_errors: Dict[int, List[ImportRowError]],
+        rows: list[tuple[int, dict[str, str]]],
+        row_errors: dict[int, list[ImportRowError]],
         cause_code: str,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Build exactly one structured outcome entry per failed row.
 
         Each entry carries the row's full message (all distinct causes joined)
@@ -636,7 +637,7 @@ class ImportService(ServiceBase):
         (issue #1195).
         """
         row_by_number = {num: row for num, row in rows}
-        items: List[Dict[str, Any]] = []
+        items: list[dict[str, Any]] = []
         for row_number, errors in row_errors.items():
             row = row_by_number.get(row_number)
             identifier = None
@@ -662,11 +663,11 @@ class ImportService(ServiceBase):
         self,
         *,
         entity_type: str,
-        rows: List[Tuple[int, Dict[str, str]]],
-        errors: List[ImportRowError],
+        rows: list[tuple[int, dict[str, str]]],
+        errors: list[ImportRowError],
         cause_code: str,
         status: str,
-        warnings: List[str],
+        warnings: list[str],
     ) -> ImportResult:
         """Build an all-or-nothing failure result with a structured item list.
 
@@ -675,7 +676,7 @@ class ImportService(ServiceBase):
         exactly one entry per failed row (issue #1195); the legacy
         ``errors``/``skipped_count`` fields keep their pre-ADR values.
         """
-        grouped: Dict[int, List[ImportRowError]] = {}
+        grouped: dict[int, list[ImportRowError]] = {}
         for error in errors:
             grouped.setdefault(error.row_number, []).append(error)
         items = self._failed_items(
@@ -720,7 +721,7 @@ class ImportService(ServiceBase):
         return models[entity_type]
 
     @staticmethod
-    def _natural_key(row: Dict[str, str]) -> Optional[Tuple[str, str]]:
+    def _natural_key(row: dict[str, str]) -> tuple[str, str] | None:
         """Return the entity's natural key as ``(column, value)`` (untouched).
 
         Priority (ADR-014 §3, CSV natural key): the stable business id ``uid``
@@ -741,7 +742,7 @@ class ImportService(ServiceBase):
         return None
 
     @staticmethod
-    def _workspace_filter(entity_type: str, workspace_id: UUID) -> Dict[str, Any]:
+    def _workspace_filter(entity_type: str, workspace_id: UUID) -> dict[str, Any]:
         """ORM filter kwargs scoping a lookup to the target workspace."""
         if entity_type in _APP_ENTITY_TYPES:
             return {"workspace_id": workspace_id}
@@ -750,10 +751,10 @@ class ImportService(ServiceBase):
     @classmethod
     def _dedupe_rows(
         cls,
-        rows: List[Tuple[int, Dict[str, str]]],
+        rows: list[tuple[int, dict[str, str]]],
         entity_type: str,
         workspace_id: UUID,
-    ) -> Tuple[List[Tuple[int, Dict[str, str]]], List[Dict[str, Any]]]:
+    ) -> tuple[list[tuple[int, dict[str, str]]], list[dict[str, Any]]]:
         """Split *rows* into (kept, duplicate items) using the natural key.
 
         A row is a duplicate when its natural key was already seen earlier in
@@ -813,7 +814,7 @@ class ImportService(ServiceBase):
 
         existing_ids = set()
         if ids:
-            valid_ids: List[str] = []
+            valid_ids: list[str] = []
             for value in ids:
                 try:
                     valid_ids.append(str(UUID(value)))
@@ -866,15 +867,15 @@ class ImportService(ServiceBase):
             "title": existing_titles,
         }
 
-        kept: List[Tuple[int, Dict[str, str]]] = []
-        duplicates: List[Dict[str, Any]] = []
-        seen: Dict[Tuple[str, str], int] = {}
+        kept: list[tuple[int, dict[str, str]]] = []
+        duplicates: list[dict[str, Any]] = []
+        seen: dict[tuple[str, str], int] = {}
         # Issue #1178: title bookkeeping independent of the natural key, so a
         # row carrying a unique ``uid``/``id`` cannot smuggle in a title this
         # file already accepted. Kept rows register their title; skipped rows
         # do not, so the "Duplicate of row N" message names the first
         # occurrence that was actually written.
-        seen_titles: Dict[str, int] = {}
+        seen_titles: dict[str, int] = {}
         for row_num, row in rows:
             key = cls._natural_key(row)
             if key is None:
@@ -919,9 +920,9 @@ class ImportService(ServiceBase):
         cls,
         entity_type: str,
         row_number: int,
-        row: Dict[str, str],
-        first_row: Optional[int],
-    ) -> Dict[str, Any]:
+        row: dict[str, str],
+        first_row: int | None,
+    ) -> dict[str, Any]:
         """Structured ``DUPLICATE`` outcome for one skipped row."""
         identifier = (
             (row.get("uid") or "").strip()
@@ -948,15 +949,15 @@ class ImportService(ServiceBase):
     @staticmethod
     def _parse_csv(
         csv_text: str,
-    ) -> Tuple[List[Tuple[int, Dict[str, str]]], List[ImportRowError], List[str]]:
+    ) -> tuple[list[tuple[int, dict[str, str]]], list[ImportRowError], list[str]]:
         """Parse CSV text into (row_number, dict) tuples.
 
         Skips comment lines starting with '#'.
         Returns (rows, errors, header_fields).
         """
-        errors: List[ImportRowError] = []
-        rows: List[Tuple[int, Dict[str, str]]] = []
-        header_fields: List[str] = []
+        errors: list[ImportRowError] = []
+        rows: list[tuple[int, dict[str, str]]] = []
+        header_fields: list[str] = []
 
         # Defensive BOM strip: the REST layer decodes with ``utf-8-sig``, but a
         # direct service caller may still hand over a leading U+FEFF. Dropping
@@ -991,7 +992,7 @@ class ImportService(ServiceBase):
         return rows, errors, header_fields
 
     @staticmethod
-    def _unknown_columns(header_fields: List[str], entity_type: str) -> List[str]:
+    def _unknown_columns(header_fields: list[str], entity_type: str) -> list[str]:
         """Return header columns not recognised for *entity_type*'s field spec.
 
         REQ-L3-IMP-001 follow-up (fix #120): ``_insert_rows`` builds each
@@ -1014,11 +1015,11 @@ class ImportService(ServiceBase):
     @staticmethod
     def _validate_row(
         row_number: int,
-        row: Dict[str, str],
+        row: dict[str, str],
         entity_type: str,
-    ) -> List[ImportRowError]:
+    ) -> list[ImportRowError]:
         """Validate a single row. Returns list of errors (empty = valid)."""
-        errors: List[ImportRowError] = []
+        errors: list[ImportRowError] = []
         required = _REQUIRED_FIELDS.get(entity_type, [])
 
         for field_name in required:
@@ -1047,11 +1048,11 @@ class ImportService(ServiceBase):
 
     @staticmethod
     def _validate_attribute_definitions(
-        rows: List[Tuple[int, Dict[str, str]]],
+        rows: list[tuple[int, dict[str, str]]],
         entity_type: str,
         workspace_id: UUID,
         ctx: AuthContext,
-    ) -> List[ImportRowError]:
+    ) -> list[ImportRowError]:
         """Validate every row against the workspace's resolved AttributeDefinition.
 
         Reuses ``AttributeDefinitionService.validate_artifact_fields`` -- the
@@ -1078,7 +1079,7 @@ class ImportService(ServiceBase):
         )
         from presets.exceptions import CrossTenantWorkspaceError
 
-        errors: List[ImportRowError] = []
+        errors: list[ImportRowError] = []
         service = AttributeDefinitionService()
         for row_num, row in rows:
             try:
@@ -1120,7 +1121,7 @@ class ImportService(ServiceBase):
 
     @staticmethod
     def _insert_rows(
-        rows: List[Tuple[int, Dict[str, str]]],
+        rows: list[tuple[int, dict[str, str]]],
         entity_type: str,
         workspace_id: UUID,
         ctx: AuthContext,
@@ -1166,8 +1167,7 @@ class ImportService(ServiceBase):
 
         Returns count of inserted rows.
         """
-        from workflow.models import WorkflowEngineDefinition
-
+        from application.models import Adr, Issue, Risk
         from persistence.models import (
             ArchitectureElement,
             Artifact,
@@ -1176,7 +1176,7 @@ class ImportService(ServiceBase):
             TestCase,
             Workspace,
         )
-        from application.models import Adr, Issue, Risk
+        from workflow.models import WorkflowEngineDefinition
 
         persistence_models = {
             "StakeholderNeed": StakeholderNeed,
@@ -1254,8 +1254,8 @@ class ImportService(ServiceBase):
             if entity_type in _PERSISTENCE_ENTITY_TYPES
             else app_models[entity_type]
         )
-        preserved_artifact_ids: List[Any] = []
-        preserved_entity_ids: List[Any] = []
+        preserved_artifact_ids: list[Any] = []
+        preserved_entity_ids: list[Any] = []
         identity_columns = {
             col: kind for col, kind in spec if col in _IDENTITY_COLUMNS
         }
@@ -1295,8 +1295,8 @@ class ImportService(ServiceBase):
         inserted = 0
         for _row_num, row in rows:
             # ---- Parse row per field spec, splitting identity from content ----
-            identity: Dict[str, Any] = {}
-            content: Dict[str, Any] = {}
+            identity: dict[str, Any] = {}
+            content: dict[str, Any] = {}
             for col, kind in spec:
                 if col not in row:
                     continue
@@ -1362,7 +1362,7 @@ class ImportService(ServiceBase):
                         content["test_type"] = canonical_test_type
 
             # ---- Backing Artifact (every entity type has one) ----
-            artifact_kwargs: Dict[str, Any] = dict(
+            artifact_kwargs: dict[str, Any] = dict(
                 tenant=tenant,
                 workspace=workspace,
                 artifact_type=artifact_type_tag,
@@ -1380,7 +1380,7 @@ class ImportService(ServiceBase):
             # ---- Entity row ----
             if entity_type in _PERSISTENCE_ENTITY_TYPES:
                 model = persistence_models[entity_type]
-                create_kwargs: Dict[str, Any] = dict(
+                create_kwargs: dict[str, Any] = dict(
                     tenant=tenant, artifact=artifact, **content
                 )
                 if entity_type == "Requirement":
@@ -1415,7 +1415,7 @@ class ImportService(ServiceBase):
             obj = model.objects.create(**create_kwargs)
 
             # ---- Preserve audit timestamps (bypass auto_now/auto_now_add) ----
-            ts_updates: Dict[str, Any] = {}
+            ts_updates: dict[str, Any] = {}
             if created_at is not None:
                 ts_updates["created_at"] = created_at
             if modified_at is not None:

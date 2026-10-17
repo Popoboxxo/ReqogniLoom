@@ -31,7 +31,7 @@ from __future__ import annotations
 import logging
 import uuid
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
 
 from diagram.manager import DiagramManager
 from diagram.models import Diagram, DiagramRevision, DiagramType, PayloadFormat
@@ -64,8 +64,8 @@ class LivePreviewData:
     diagram_id: uuid.UUID
     source: str
     diagram_type: str
-    render_hints: Optional[RenderHints] = None
-    export_data: Optional[dict[str, Any]] = None
+    render_hints: RenderHints | None = None
+    export_data: dict[str, Any] | None = None
     fallback_mode: bool = False
     error_message: str = ""
 
@@ -103,9 +103,9 @@ class MermaidLiveRenderer:
 
     def __init__(
         self,
-        manager: Optional[DiagramManager] = None,
-        validator: Optional[DiagramValidator] = None,
-        renderer: Optional[DiagramRenderer] = None,
+        manager: DiagramManager | None = None,
+        validator: DiagramValidator | None = None,
+        renderer: DiagramRenderer | None = None,
     ) -> None:
         """Initialize with optional collaborator injection (for testing).
 
@@ -128,8 +128,8 @@ class MermaidLiveRenderer:
         diagram_id: uuid.UUID,
         source: str,
         tenant: object,
-        user: Optional[object] = None,
-    ) -> "DiagramRevision":
+        user: object | None = None,
+    ) -> DiagramRevision:
         """Handle Mermaid source update for an existing diagram.
 
         IF-L1-059 entry point: PUT /api/v1/diagrams/{id}/mermaid-source
@@ -349,7 +349,7 @@ class MermaidLiveRenderer:
 # Module-level singleton (lazy-initialised)
 # ---------------------------------------------------------------------------
 
-_mermaid_live_renderer: Optional[MermaidLiveRenderer] = None
+_mermaid_live_renderer: MermaidLiveRenderer | None = None
 
 
 def get_mermaid_live_renderer() -> MermaidLiveRenderer:
@@ -361,7 +361,7 @@ def get_mermaid_live_renderer() -> MermaidLiveRenderer:
 
 
 __all__ = [
-    "MermaidLiveRenderer",
     "LivePreviewData",
+    "MermaidLiveRenderer",
     "get_mermaid_live_renderer",
 ]

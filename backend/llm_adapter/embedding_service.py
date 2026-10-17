@@ -68,8 +68,8 @@ import logging
 import os
 import random
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable, Dict, List, Optional, Type
 
 from persistence.embedding_dimensions import EMBEDDING_VECTOR_DIMENSIONS
 
@@ -87,17 +87,17 @@ class EmbeddingProvider(ABC):
     dimensions: int
 
     @abstractmethod
-    def embed(self, text: str) -> Optional[List[float]]:
+    def embed(self, text: str) -> list[float] | None:
         ...
 
 
 @dataclass
 class EmbeddingProviderConfig:
     provider_name: str = ""
-    model_name: Optional[str] = None
-    base_url: Optional[str] = None
-    api_key: Optional[str] = None
-    timeout: Optional[float] = None
+    model_name: str | None = None
+    base_url: str | None = None
+    api_key: str | None = None
+    timeout: float | None = None
 
 
 def _read_env_config() -> EmbeddingProviderConfig:
@@ -120,13 +120,11 @@ def _read_env_config() -> EmbeddingProviderConfig:
 #: avoided *crashing* on the memory<->llm_adapter circular import (memory
 #: itself imports ``llm_adapter.embedding_service.generate_embedding`) --
 #: it did not remove the backwards dependency.
-_settings_override_provider: Optional[
-    Callable[["EmbeddingProviderConfig"], "EmbeddingProviderConfig"]
-] = None
+_settings_override_provider: Callable[[EmbeddingProviderConfig], EmbeddingProviderConfig] | None = None
 
 
 def register_settings_override_provider(
-    provider: Callable[["EmbeddingProviderConfig"], "EmbeddingProviderConfig"],
+    provider: Callable[[EmbeddingProviderConfig], EmbeddingProviderConfig],
 ) -> None:
     """Register the Layer-2/Ext settings-override lookup. Called once from
     ``memory.apps.MemoryConfig.ready()`` at Django startup."""
@@ -163,17 +161,17 @@ def _read_config() -> EmbeddingProviderConfig:
     return _apply_db_settings(_read_env_config())
 
 
-EMBEDDING_PROVIDER_REGISTRY: Dict[str, Type[EmbeddingProvider]] = {}
+EMBEDDING_PROVIDER_REGISTRY: dict[str, type[EmbeddingProvider]] = {}
 
 
-def register_embedding_provider(name: str) -> Callable[[Type[EmbeddingProvider]], Type[EmbeddingProvider]]:
-    def _decorator(cls: Type[EmbeddingProvider]) -> Type[EmbeddingProvider]:
+def register_embedding_provider(name: str) -> Callable[[type[EmbeddingProvider]], type[EmbeddingProvider]]:
+    def _decorator(cls: type[EmbeddingProvider]) -> type[EmbeddingProvider]:
         EMBEDDING_PROVIDER_REGISTRY[name] = cls
         return cls
     return _decorator
 
 
-def get_embedding_provider(config: Optional[EmbeddingProviderConfig] = None) -> EmbeddingProvider:
+def get_embedding_provider(config: EmbeddingProviderConfig | None = None) -> EmbeddingProvider:
     cfg = config or _read_config()
     provider_cls = EMBEDDING_PROVIDER_REGISTRY.get(cfg.provider_name)
     if provider_cls is None:
@@ -181,7 +179,7 @@ def get_embedding_provider(config: Optional[EmbeddingProviderConfig] = None) -> 
     return provider_cls(cfg)
 
 
-def _fit_vector_to_dimensions(vector: List[float], dimensions: int) -> List[float]:
+def _fit_vector_to_dimensions(vector: list[float], dimensions: int) -> list[float]:
     """Resize ``vector`` to exactly ``dimensions`` entries (#1149).
 
     Every embedding column is sized from ``EMBEDDING_VECTOR_DIMENSIONS`` and
@@ -225,7 +223,7 @@ class MockEmbeddingProvider(EmbeddingProvider):
     def __init__(self, config: EmbeddingProviderConfig) -> None:
         self._config = config
 
-    def embed(self, text: str) -> Optional[List[float]]:
+    def embed(self, text: str) -> list[float] | None:
         if not text or not text.strip():
             return None
         seed = int(hashlib.sha256(text.encode("utf-8")).hexdigest(), 16) % (2**32)
@@ -252,7 +250,7 @@ class SentenceTransformersEmbeddingProvider(EmbeddingProvider):
     # Memory Admin UI Phase 3, a SystemMemorySettings override) would be
     # silently ignored by every worker that had already loaded some model,
     # while the admin UI reported the new value as active.
-    _loaded_model_name: Optional[str] = None
+    _loaded_model_name: str | None = None
 
     def __init__(self, config: EmbeddingProviderConfig) -> None:
         self._model_name = config.model_name or self._DEFAULT_MODEL
@@ -265,7 +263,7 @@ class SentenceTransformersEmbeddingProvider(EmbeddingProvider):
             cls._loaded_model_name = self._model_name
         return cls._model
 
-    def embed(self, text: str) -> Optional[List[float]]:
+    def embed(self, text: str) -> list[float] | None:
         if not text or not text.strip():
             return None
         try:
@@ -292,7 +290,7 @@ class OllamaEmbeddingProvider(EmbeddingProvider):
         self._model_name = config.model_name or self._DEFAULT_MODEL
         self._timeout = config.timeout or 10
 
-    def embed(self, text: str) -> Optional[List[float]]:
+    def embed(self, text: str) -> list[float] | None:
         if not text or not text.strip():
             return None
         import requests
@@ -325,7 +323,7 @@ class OpenAiEmbeddingProvider(EmbeddingProvider):
         self._model_name = config.model_name or self._DEFAULT_MODEL
         self._timeout = config.timeout or 10
 
-    def embed(self, text: str) -> Optional[List[float]]:
+    def embed(self, text: str) -> list[float] | None:
         if not text or not text.strip():
             return None
         try:
@@ -342,7 +340,7 @@ class OpenAiEmbeddingProvider(EmbeddingProvider):
             return None
 
 
-def generate_embedding(text: str) -> Optional[List[float]]:
+def generate_embedding(text: str) -> list[float] | None:
     """Backward-compatible facade -- existing call sites (Requirement, TraceLink,
     Icd embedding generation) are unchanged, now backed by the registry."""
     if not text or not text.strip():
@@ -422,7 +420,7 @@ def get_icd_embedding_text(icd) -> str:
     ``name`` directly — the contract and the name now live on the same row,
     so the old ``icd_id``/``icd.name`` relation walk is gone.
     """
-    parts: List[str] = []
+    parts: list[str] = []
 
     name = getattr(icd, "name", None)
     if name:
@@ -476,14 +474,14 @@ def get_tracelink_embedding_text(tracelink) -> str:
 
 
 __all__ = [
+    "EMBEDDING_PROVIDER_REGISTRY",
     "EmbeddingProvider",
     "EmbeddingProviderConfig",
-    "EMBEDDING_PROVIDER_REGISTRY",
-    "register_embedding_provider",
-    "get_embedding_provider",
     "generate_embedding",
+    "get_embedding_provider",
     "get_embedding_text",
     "get_icd_embedding_text",
     "get_tracelink_embedding_text",
+    "register_embedding_provider",
     "warn_dimension_mismatch",
 ]

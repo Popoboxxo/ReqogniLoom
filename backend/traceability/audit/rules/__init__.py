@@ -41,13 +41,15 @@ auditor's.
 """
 from __future__ import annotations
 
-from . import coverage_consistency  # noqa: F401  (registration side effect)
-from . import decomposition_consistency  # noqa: F401  (registration side effect)
-from . import interface_coverage  # noqa: F401  (registration side effect)
-from . import level_consistency  # noqa: F401  (registration side effect)
-from . import trace_derivation_allocation  # noqa: F401  (registration side effect)
-from . import trace_p7  # noqa: F401  (registration side effect)
-from . import validation_goals  # noqa: F401  (registration side effect)
+from . import (
+    coverage_consistency,  # noqa: F401  (registration side effect)
+    decomposition_consistency,  # noqa: F401  (registration side effect)
+    interface_coverage,  # noqa: F401  (registration side effect)
+    level_consistency,  # noqa: F401  (registration side effect)
+    trace_derivation_allocation,  # noqa: F401  (registration side effect)
+    trace_p7,  # noqa: F401  (registration side effect)
+    validation_goals,  # noqa: F401  (registration side effect)
+)
 
 __all__ = [
     "coverage_consistency",

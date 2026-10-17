@@ -29,7 +29,6 @@ from uuid import UUID
 from presets.exceptions import CrossTenantWorkspaceError
 from presets.services import get_preset, is_feature_enabled
 
-
 # ---------------------------------------------------------------------------
 # Data contracts (IF-RA-INT-002 and IF-RA-INT-004)
 # ---------------------------------------------------------------------------
@@ -62,7 +61,7 @@ class FieldFilter:
     required_fields: frozenset[str] = field(default_factory=frozenset)
 
     @classmethod
-    def allow_all(cls) -> "FieldFilter":
+    def allow_all(cls) -> FieldFilter:
         """Return a FieldFilter that allows all fields with no extra requirements."""
         return cls(permitted_fields=frozenset(), required_fields=frozenset())
 
@@ -246,8 +245,8 @@ class PresetGateMixin:
         try:
             decision = guard.check_endpoint(self.preset_endpoint_key, workspace_id)
         except PresetError:
-            from rest_framework.response import Response
             from rest_framework import status
+            from rest_framework.response import Response
             # Service unavailable
             raise Http404()
 
@@ -256,9 +255,9 @@ class PresetGateMixin:
 
 
 __all__ = [
-    "PresetDecision",
     "FieldFilter",
+    "PresetDecision",
     "PresetError",
-    "PresetGuard",
     "PresetGateMixin",
+    "PresetGuard",
 ]

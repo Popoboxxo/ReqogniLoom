@@ -18,8 +18,9 @@ adapter reject every proposal with a ValidationError.
 """
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable, Dict
+from typing import Any
 from uuid import UUID
 
 from application.adr_service import AdrService
@@ -226,7 +227,7 @@ def build_adapter_fields(collected_fields: dict) -> dict:
     return fields
 
 
-ARTIFACT_CREATION_ADAPTERS: Dict[str, Callable[[dict, AuthContext, Any], CreatedArtifactRef]] = {
+ARTIFACT_CREATION_ADAPTERS: dict[str, Callable[[dict, AuthContext, Any], CreatedArtifactRef]] = {
     "Requirement": _requirement,
     "StakeholderNeed": _stakeholder_need,
     "ArchitectureElement": _architecture_element,

@@ -25,7 +25,6 @@ import pgvector.django
 from django.conf import settings
 from django.db import migrations, models
 
-
 _MEMORY_ENTRY_TABLE = "mem_memory_entry"
 
 

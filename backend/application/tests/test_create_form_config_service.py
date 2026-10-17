@@ -402,11 +402,10 @@ class TestServerRequiredEnforcement:
         workspace: Workspace,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        from attribute_definitions.field_validation import FieldValidationError
-
         from application.attribute_definition_service import (
             AttributeDefinitionService,
         )
+        from attribute_definitions.field_validation import FieldValidationError
 
         monkeypatch.setattr(
             CreateFormConfigService,

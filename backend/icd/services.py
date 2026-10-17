@@ -50,7 +50,6 @@ from icd.icd_parameter_service import (
 )
 from icd.models import Icd, IcdParameter, IcdRevision
 
-
 # ---------------------------------------------------------------------------
 # IF-L1-037: ApplicationService CRUD
 # ---------------------------------------------------------------------------

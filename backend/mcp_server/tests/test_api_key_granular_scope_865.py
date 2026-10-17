@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import uuid
 from types import SimpleNamespace
-from typing import Any, Dict
+from typing import Any
 
 import pytest
 
@@ -40,7 +40,7 @@ class _StubGroup:
         self.tool_names = tool_names
         self.calls: list[str] = []
 
-    def get_tool_schemas(self) -> list[Dict[str, Any]]:
+    def get_tool_schemas(self) -> list[dict[str, Any]]:
         return [{"name": name, "description": name} for name in self.tool_names]
 
     def execute_tool(self, *, tool_name: str, params: Any, auth_context: Any, api_key: str):

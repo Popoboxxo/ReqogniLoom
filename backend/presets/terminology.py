@@ -17,8 +17,6 @@ Design notes (ADR-05):
 """
 from __future__ import annotations
 
-from typing import Dict
-
 from presets.exceptions import IncompleteProfileError
 
 # ---------------------------------------------------------------------------
@@ -46,7 +44,7 @@ MANDATORY_PROFILE_KEYS: frozenset[str] = frozenset(
 # Built-in profile definitions
 # ---------------------------------------------------------------------------
 
-_DEV_MODE_LABELS: Dict[str, str] = {
+_DEV_MODE_LABELS: dict[str, str] = {
     "artifact_l1": "Epic",
     "artifact_l2": "Story",
     "requirement": "Acceptance Criterion",
@@ -57,7 +55,7 @@ _DEV_MODE_LABELS: Dict[str, str] = {
     "trace_link": "Dependency",
 }
 
-_SE_MODE_LABELS: Dict[str, str] = {
+_SE_MODE_LABELS: dict[str, str] = {
     "artifact_l1": "System Requirement",
     "artifact_l2": "Function",
     "requirement": "Requirement",
@@ -68,7 +66,7 @@ _SE_MODE_LABELS: Dict[str, str] = {
     "trace_link": "Trace Link",
 }
 
-_BUILT_IN_PROFILES: Dict[str, Dict[str, str]] = {
+_BUILT_IN_PROFILES: dict[str, dict[str, str]] = {
     PROFILE_DEV_MODE: _DEV_MODE_LABELS,
     PROFILE_SE_MODE: _SE_MODE_LABELS,
 }
@@ -88,7 +86,7 @@ class TerminologyMapping:
 
     __slots__ = ("profile_name", "labels")
 
-    def __init__(self, profile_name: str, labels: Dict[str, str]) -> None:
+    def __init__(self, profile_name: str, labels: dict[str, str]) -> None:
         self.profile_name = profile_name
         self.labels = dict(labels)  # defensive copy
 
@@ -103,7 +101,7 @@ class TerminologyMapping:
         """
         return self.labels.get(key, key)
 
-    def as_dict(self) -> Dict[str, str]:
+    def as_dict(self) -> dict[str, str]:
         """Return a plain dict copy of the labels."""
         return dict(self.labels)
 
@@ -179,7 +177,7 @@ class TerminologyProfileService:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _validate_profile(name: str, labels: Dict[str, str]) -> None:
+    def _validate_profile(name: str, labels: dict[str, str]) -> None:
         """Raise IncompleteProfileError if mandatory keys are absent.
 
         Args:
@@ -207,10 +205,10 @@ def get_terminology_service() -> TerminologyProfileService:
 
 
 __all__ = [
-    "TerminologyMapping",
-    "TerminologyProfileService",
+    "MANDATORY_PROFILE_KEYS",
     "PROFILE_DEV_MODE",
     "PROFILE_SE_MODE",
-    "MANDATORY_PROFILE_KEYS",
+    "TerminologyMapping",
+    "TerminologyProfileService",
     "get_terminology_service",
 ]

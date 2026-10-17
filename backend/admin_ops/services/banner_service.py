@@ -15,18 +15,16 @@ and forwarded here as a plain flag. This is the same shape used by
 from __future__ import annotations
 
 import logging
-from typing import Optional
 from uuid import UUID
 
 from django.db import transaction
 
+from admin_ops.models import Banner, BannerLevel, BannerScope
 from application.base import NotFoundError, PermissionDeniedError, ServiceBase
 from auth_tenancy.context import AuthContext
 from persistence.middleware import clear_request_tenant, set_request_tenant
 from persistence.models import Tenant, Workspace
 from persistence.tenancy import TenantContext
-
-from admin_ops.models import Banner, BannerLevel, BannerScope
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +34,7 @@ class BannerService:
 
     # -- Global banner -----------------------------------------------------
 
-    def get_global_banner(self, ctx: AuthContext) -> Optional[Banner]:
+    def get_global_banner(self, ctx: AuthContext) -> Banner | None:
         """Return the tenant's global banner row, or ``None`` if never configured."""
         ServiceBase._set_tenant_context(ctx)
         return Banner.objects.filter(scope=BannerScope.GLOBAL).first()
@@ -92,7 +90,7 @@ class BannerService:
 
     # -- Workspace banner ----------------------------------------------------
 
-    def get_workspace_banner(self, ctx: AuthContext, *, workspace_id: UUID) -> Optional[Banner]:
+    def get_workspace_banner(self, ctx: AuthContext, *, workspace_id: UUID) -> Banner | None:
         """Return the workspace's banner row, or ``None`` if never configured."""
         ServiceBase._set_tenant_context(ctx)
         return Banner.objects.filter(
@@ -158,7 +156,7 @@ class BannerService:
     # -- Public (unauthenticated) login-page banner --------------------------
 
     @staticmethod
-    def resolve_login_tenant_id() -> Optional[UUID]:
+    def resolve_login_tenant_id() -> UUID | None:
         """Return the single deployed tenant's id, or ``None`` if ambiguous.
 
         The unauthenticated login page carries no tenant signal at all: this
@@ -186,7 +184,7 @@ class BannerService:
             return None
         return tenant_ids[0]
 
-    def get_login_banner(self) -> Optional[Banner]:
+    def get_login_banner(self) -> Banner | None:
         """Return the enabled, login-page-visible global banner, or ``None``.
 
         No :class:`AuthContext` and no caller-supplied tenant — this runs on a

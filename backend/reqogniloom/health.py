@@ -510,7 +510,7 @@ def _sunset_header_value(raw: str | None = None) -> str:
         # An operator-supplied RFC 1123 date is passed through unchanged.
         return str(raw)
     if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=_dt.timezone.utc)
+        parsed = parsed.replace(tzinfo=_dt.UTC)
     return _email_utils.format_datetime(parsed, usegmt=True)
 
 

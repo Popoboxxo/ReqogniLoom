@@ -36,7 +36,6 @@ import pytest
 from application.artifact_diff_service import ArtifactDiffService
 from application.base import NotFoundError
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

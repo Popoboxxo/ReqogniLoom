@@ -462,4 +462,4 @@ def _escape_xml(text: str) -> str:
     )
 
 
-__all__ = ["generate_pdf_report", "VALID_LAYOUTS"]
+__all__ = ["VALID_LAYOUTS", "generate_pdf_report"]

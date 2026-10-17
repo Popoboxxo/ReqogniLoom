@@ -29,8 +29,8 @@ entry and the **produced** ``details`` payload on the intercepted
 from __future__ import annotations
 
 import contextlib
-from datetime import datetime, timedelta, timezone
-from typing import Iterator
+from collections.abc import Iterator
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import pytest
@@ -57,7 +57,7 @@ from baseline.waivers import (
 from persistence.models import Tenant, User
 from persistence.tenancy import TenantContext
 from persistence.tests.factories import make_workspace
-from traceability.audit import AuditScope, AuditResult, Finding, Severity
+from traceability.audit import AuditResult, AuditScope, Finding, Severity
 
 pytestmark = pytest.mark.django_db
 
@@ -581,7 +581,7 @@ class TestExpiry:
     ):
         """AC-569-31 / V35: past or naive request expiry ⇒ 400, no row."""
         service = AuditService(engine=_ScopeAwareStubEngine([_blocker()]))
-        past = datetime.now(timezone.utc) - timedelta(days=1)
+        past = datetime.now(UTC) - timedelta(days=1)
         naive = datetime.now() + timedelta(days=1)
 
         for value in (past, naive):
@@ -602,7 +602,7 @@ class TestExpiry:
         self, tenant, workspace, admin_ctx
     ):
         """AC-569-21 / m1: only an expired row ⇒ 409, no silent 200."""
-        past = datetime.now(timezone.utc) - timedelta(days=1)
+        past = datetime.now(UTC) - timedelta(days=1)
         _persist(tenant, workspace, expires_at=past)
 
         service = AuditService(engine=_ScopeAwareStubEngine([_blocker()]))
@@ -621,7 +621,7 @@ class TestExpiry:
         self, tenant, workspace, admin_ctx
     ):
         """AC-569-21 / R3-07: request ``expires_at`` guard (400) runs before the 409."""
-        past = datetime.now(timezone.utc) - timedelta(days=2)
+        past = datetime.now(UTC) - timedelta(days=2)
         _persist(tenant, workspace, expires_at=past)
 
         service = AuditService(engine=_ScopeAwareStubEngine([_blocker()]))
@@ -632,13 +632,13 @@ class TestExpiry:
                 rule_id="TRACE-P1",
                 artifact_ids=["art-1"],
                 reason=_REASON,
-                expires_at=datetime.now(timezone.utc) - timedelta(days=1),
+                expires_at=datetime.now(UTC) - timedelta(days=1),
             )
         assert not isinstance(exc_info.value, SuppressionExpiredError)
 
     def test_active_existing_waiver_is_a_200_no_op(self, tenant, workspace, admin_ctx):
         """AC-569-21: an active row ⇒ created=False (not 409)."""
-        future = datetime.now(timezone.utc) + timedelta(days=30)
+        future = datetime.now(UTC) + timedelta(days=30)
         _persist(tenant, workspace, expires_at=future)
         service = AuditService(engine=_ScopeAwareStubEngine([_blocker()]))
         _view, created = service.suppress_finding(
@@ -673,7 +673,7 @@ class TestListSuppressions:
             workspace,
             rule_id="VERIF-P8",
             artifact_ids=("art-2",),
-            expires_at=datetime.now(timezone.utc) - timedelta(days=1),
+            expires_at=datetime.now(UTC) - timedelta(days=1),
         )
         service = AuditService()
 
@@ -750,7 +750,7 @@ class TestRunAuditSuppression:
             workspace,
             rule_id="TRACE-P1",
             artifact_ids=("art-1",),
-            expires_at=datetime.now(timezone.utc) - timedelta(days=1),
+            expires_at=datetime.now(UTC) - timedelta(days=1),
         )
         service = AuditService(engine=_ScopeAwareStubEngine([_blocker()]))
         report = service.run_audit(workspace.id, admin_ctx, tier="extended")
@@ -761,7 +761,7 @@ class TestRunAuditSuppression:
         self, tenant, workspace, admin_ctx
     ):
         """AC-569-31: moving ``now`` past the expiry flips the suppression off."""
-        expires_at = datetime.now(timezone.utc) + timedelta(days=30)
+        expires_at = datetime.now(UTC) + timedelta(days=30)
         _persist(
             tenant,
             workspace,
@@ -869,7 +869,7 @@ class TestWaiverDecrementsAvailableBlockers:
             workspace,
             rule_id="TRACE-P1",
             artifact_ids=("art-1",),
-            expires_at=datetime.now(timezone.utc) - timedelta(days=1),
+            expires_at=datetime.now(UTC) - timedelta(days=1),
         )
         service = AuditService(engine=_ScopeAwareStubEngine([_blocker()]))
         report = service.run_audit(workspace.id, admin_ctx, tier="extended")

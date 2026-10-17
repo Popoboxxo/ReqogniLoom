@@ -30,7 +30,7 @@ The goal of this test is to verify that:
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import ANY, MagicMock, patch
 from uuid import UUID
 
@@ -38,7 +38,6 @@ import pytest
 
 from auth_tenancy.context import AuthContext, AuthMethod, IdentityClaims
 from auth_tenancy.errors import AuthenticationFailed
-
 from mcp_server.protocol_handler import ERROR_CODE_MAP, ProtocolHandler
 from mcp_server.tool_registry import ToolRegistry
 
@@ -154,7 +153,7 @@ class TestE2EWorkspaceClose:
         svc = MagicMock()
         svc.close_workspace.return_value = _mock_workspace(
             is_active=False,
-            closed_at=datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
+            closed_at=datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC),
         )
         registry, _, _, _ = _build_registry(roles=("admin",), service=svc)
         handler = _handler(registry)

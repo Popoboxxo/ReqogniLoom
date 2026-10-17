@@ -14,15 +14,14 @@ from __future__ import annotations
 import pytest
 
 from auth_tenancy.context import AuthContext
+from link_types.workspace_store import provision_workspace_link_types
+from mcp_server.tools.architecture import ArchitectureToolGroup
+from mcp_server.tools.needs import StakeholderNeedsToolGroup
+from mcp_server.tools.requirements import RequirementsToolGroup
+from mcp_server.tools.tests import TestToolGroup
 from persistence.tenancy import TenantContext
 from workflow.models import WorkflowItemState
 from workflow.services import create_default_workflow
-
-from mcp_server.tools.requirements import RequirementsToolGroup
-from mcp_server.tools.architecture import ArchitectureToolGroup
-from mcp_server.tools.tests import TestToolGroup
-from mcp_server.tools.needs import StakeholderNeedsToolGroup
-from link_types.workspace_store import provision_workspace_link_types
 
 pytestmark = pytest.mark.django_db
 
@@ -469,7 +468,8 @@ class TestTestCaseLifecycleTools:
 
     def test_derive_from_requirement_write_mode_persists_testcase_and_verifies_link(self):
         from application.requirement_service import RequirementService
-        from persistence.models import TestCase as TestCaseModel, TraceLink
+        from persistence.models import TestCase as TestCaseModel
+        from persistence.models import TraceLink
 
         _tenant, workspace, ctx = _make_tenant_workspace_ctx("tc-mcp-derive-write")
         req = RequirementService().create_requirement(

@@ -21,8 +21,9 @@ Traceability: REQ-L2-RO-001 -> REQ-L1-032
 """
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable, Optional
+from typing import Any
 
 from resilience import degradation
 from resilience.circuit_breaker import CircuitBreaker
@@ -54,8 +55,8 @@ class AsyncDispatcher:
     def __init__(
         self,
         target_subsystem: str,
-        policy: Optional[Policy] = None,
-        breaker: Optional[CircuitBreaker] = None,
+        policy: Policy | None = None,
+        breaker: CircuitBreaker | None = None,
     ) -> None:
         """Bind the dispatcher to a target.
 
@@ -102,7 +103,7 @@ class AsyncDispatcher:
     def dispatch_async(
         self,
         operation_path: str,
-        payload: Optional[dict] = None,
+        payload: dict | None = None,
     ) -> DispatchResult:
         """IF-L1-049: enqueue an optional call onto the async queue (REQ-L3-RO-001-01).
 

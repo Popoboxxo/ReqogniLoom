@@ -22,6 +22,7 @@ suite (``application/tests/test_audit_waivers_569.py``).
 from __future__ import annotations
 
 import uuid
+from datetime import UTC
 from typing import Any
 from unittest.mock import patch
 
@@ -395,7 +396,7 @@ class TestWaiverErrorContract:
         ).exists()
 
     def test_expired_existing_waiver_returns_409(self):
-        from datetime import datetime, timedelta, timezone as dt_timezone
+        from datetime import datetime, timedelta
 
         _, workspace, user = _broken_extended_workspace()
         ctx = _auth_context(user.id, workspace.tenant_id)
@@ -410,7 +411,7 @@ class TestWaiverErrorContract:
             scope_artifact_id="",
             reason="An earlier justification that has since expired.",
             granted_by=str(user.id),
-            expires_at=datetime.now(dt_timezone.utc) - timedelta(days=1),
+            expires_at=datetime.now(UTC) - timedelta(days=1),
         )
 
         with patch("application.audit_service.ServiceBase._audit") as mock_audit:
@@ -702,7 +703,7 @@ def _insert_waiver(workspace, user, *, suffix, expires_at=None, scope="project")
 
 class TestWaiverList:
     def test_list_filters_by_state_and_renders_identity_key(self):
-        from datetime import datetime, timedelta, timezone as dt_timezone
+        from datetime import datetime, timedelta
 
         _, workspace, user = _broken_extended_workspace()
         ctx = _auth_context(user.id, workspace.tenant_id)
@@ -711,7 +712,7 @@ class TestWaiverList:
             workspace,
             user,
             suffix="a2",
-            expires_at=datetime.now(dt_timezone.utc) - timedelta(days=1),
+            expires_at=datetime.now(UTC) - timedelta(days=1),
         )
 
         default = _call(WorkspaceAuditWaiverView, "get", workspace, ctx)

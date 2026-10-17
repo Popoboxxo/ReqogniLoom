@@ -98,7 +98,6 @@ import io
 import logging
 import re
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
 
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
@@ -235,7 +234,7 @@ _ADR_STATUS_MAP = {
 # ---------------------------------------------------------------------------
 
 
-def _csv_safe(text: Optional[str]) -> str:
+def _csv_safe(text: str | None) -> str:
     """Guard a multi-line text value against ImportService's naive '#'-strip.
 
     See module docstring: ``ImportService._parse_csv`` strips any physical
@@ -248,7 +247,7 @@ def _csv_safe(text: Optional[str]) -> str:
     return re.sub(r"\n#", "\n #", text)
 
 
-def _extract_req_sections(text: str) -> List[Tuple[str, str, str]]:
+def _extract_req_sections(text: str) -> list[tuple[str, str, str]]:
     """Split *text* into ``(uid, title, body)`` tuples for every REQ heading.
 
     Any heading (1-6 '#') ends the current section's body capture, whether or
@@ -256,10 +255,10 @@ def _extract_req_sections(text: str) -> List[Tuple[str, str, str]]:
     sub-heading (e.g. "## Offene Punkte") from leaking into the preceding
     requirement's body.
     """
-    sections: List[Tuple[str, str, str]] = []
-    current_id: Optional[str] = None
+    sections: list[tuple[str, str, str]] = []
+    current_id: str | None = None
     current_title = ""
-    body_lines: List[str] = []
+    body_lines: list[str] = []
 
     def _flush() -> None:
         if current_id:
@@ -302,7 +301,7 @@ def _section_body_after(text: str, heading_prefix: str) -> str:
     """
     lines = text.splitlines()
     capturing = False
-    body: List[str] = []
+    body: list[str] = []
     for line in lines:
         if _ANY_HEADING_RE.match(line):
             if capturing:
@@ -361,7 +360,7 @@ def _unmapped_reason(path: Path) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _stakeholder_need_row(uid: str, title: str, body: str) -> Dict[str, str]:
+def _stakeholder_need_row(uid: str, title: str, body: str) -> dict[str, str]:
     # Source documents (docs/se/L0/*.md) do not track status; draft is the
     # conscious default for newly imported StakeholderNeeds.
     return {
@@ -377,7 +376,7 @@ def _requirement_level(uid: str) -> int:
     return _REQ_LEVEL_MAP[parts[1]]
 
 
-def _requirement_row(uid: str, title: str, body: str) -> Dict[str, str]:
+def _requirement_row(uid: str, title: str, body: str) -> dict[str, str]:
     # Source documents (docs/se/**/*_Requirements.md) do not track status; draft
     # is the conscious default for newly imported Requirements.
     return {
@@ -390,8 +389,8 @@ def _requirement_row(uid: str, title: str, body: str) -> Dict[str, str]:
 
 
 def _architecture_uid(
-    path: Path, text: str, warnings: List[str]
-) -> Tuple[str, str]:
+    path: Path, text: str, warnings: list[str]
+) -> tuple[str, str]:
     """Derive a stable ``(uid, element_type)`` pair for an Architecture.md file."""
     if path.name == "L1_Gesamtsystem_Architecture.md":
         return "ARCH-L1-000", "subsystem"
@@ -416,7 +415,7 @@ def _architecture_uid(
 
 def _architecture_row(
     uid: str, title: str, body: str, element_type: str
-) -> Dict[str, str]:
+) -> dict[str, str]:
     return {
         "title": title[:500],
         "description": _csv_safe(body),
@@ -427,7 +426,7 @@ def _architecture_row(
 
 def _adr_row(
     uid: str, title: str, description: str, context: str, consequences: str, status: str
-) -> Dict[str, str]:
+) -> dict[str, str]:
     return {
         "title": title[:200],
         "description": _csv_safe(description),
@@ -445,14 +444,14 @@ def _adr_row(
 
 def _parse_stakeholder_need_file(
     path: Path,
-) -> Tuple[List[Tuple[str, Dict[str, str]]], List[str]]:
+) -> tuple[list[tuple[str, dict[str, str]]], list[str]]:
     text = path.read_text(encoding="utf-8")
     rows = [
         (uid, _stakeholder_need_row(uid, title, body))
         for uid, title, body in _extract_req_sections(text)
         if uid.startswith("REQ-L0")
     ]
-    warnings: List[str] = []
+    warnings: list[str] = []
     if not rows:
         warnings.append(f"{path}: no REQ-L0 stakeholder-need headings found (0 entries).")
     return rows, warnings
@@ -460,22 +459,22 @@ def _parse_stakeholder_need_file(
 
 def _parse_requirement_file(
     path: Path,
-) -> Tuple[List[Tuple[str, Dict[str, str]]], List[str]]:
+) -> tuple[list[tuple[str, dict[str, str]]], list[str]]:
     text = path.read_text(encoding="utf-8")
     rows = [
         (uid, _requirement_row(uid, title, body))
         for uid, title, body in _extract_req_sections(text)
         if not uid.startswith("REQ-L0")
     ]
-    warnings: List[str] = []
+    warnings: list[str] = []
     if not rows:
         warnings.append(f"{path}: no REQ-L[1-3] requirement headings found (0 entries).")
     return rows, warnings
 
 
 def _parse_architecture_file(
-    path: Path, warnings: List[str]
-) -> Tuple[str, Dict[str, str]]:
+    path: Path, warnings: list[str]
+) -> tuple[str, dict[str, str]]:
     text = path.read_text(encoding="utf-8")
     uid, element_type = _architecture_uid(path, text, warnings)
     title = _first_markdown_title(text, fallback=path.stem)
@@ -488,8 +487,8 @@ def _parse_architecture_file(
 
 
 def _parse_adr_file(
-    path: Path, warnings: List[str]
-) -> Optional[Tuple[str, Dict[str, str]]]:
+    path: Path, warnings: list[str]
+) -> tuple[str, dict[str, str]] | None:
     text = path.read_text(encoding="utf-8")
     match = _ADR_FILENAME_RE.match(path.name)
     if not match:
@@ -531,7 +530,7 @@ _TABLE_SEPARATOR_CELL_RE = re.compile(r"^:?-+:?$")
 _UNESCAPED_PIPE_RE = re.compile(r"(?<!\\)\|")
 
 
-def _split_table_row(line: str) -> List[str]:
+def _split_table_row(line: str) -> list[str]:
     """Split a ``| a | b | c |`` markdown table row into stripped cells.
 
     Honours ``\\|`` as an escaped, non-splitting pipe and drops the empty
@@ -545,13 +544,13 @@ def _split_table_row(line: str) -> List[str]:
     return [p.strip().replace("\\|", "|") for p in parts]
 
 
-def _is_table_separator_row(cells: List[str]) -> bool:
+def _is_table_separator_row(cells: list[str]) -> bool:
     return bool(cells) and all(_TABLE_SEPARATOR_CELL_RE.match(c) for c in cells)
 
 
 def _requirement_table_row(
     uid: str, category: str, title: str, description: str, status: str
-) -> Dict[str, str]:
+) -> dict[str, str]:
     """Build an ImportService CSV row for one docs/REQUIREMENTS.md table row.
 
     ``status`` is passed through verbatim (not defaulted to "draft" like the
@@ -575,7 +574,7 @@ def _requirement_table_row(
 
 def _parse_requirements_table_file(
     path: Path,
-) -> Tuple[List[Tuple[str, Dict[str, str]]], List[str]]:
+) -> tuple[list[tuple[str, dict[str, str]]], list[str]]:
     """Parse a docs/REQUIREMENTS.md-style file into ``(uid, row)`` tuples.
 
     Recognises every markdown table row whose first cell matches
@@ -592,7 +591,7 @@ def _parse_requirements_table_file(
     rather than being dropped or misaligning the columns.
     """
     text = path.read_text(encoding="utf-8")
-    rows: List[Tuple[str, Dict[str, str]]] = []
+    rows: list[tuple[str, dict[str, str]]] = []
     for line in text.splitlines():
         stripped = line.strip()
         if not stripped.startswith("|"):
@@ -612,13 +611,13 @@ def _parse_requirements_table_file(
         description = " | ".join(cells[3:-1])
         rows.append((req_id, _requirement_table_row(req_id, category, title, description, status)))
 
-    warnings: List[str] = []
+    warnings: list[str] = []
     if not rows:
         warnings.append(f"{path}: no 'REQ-<number>' requirement table rows found (0 entries).")
     return rows, warnings
 
 
-def _write_csv(rows: List[Dict[str, str]], entity_type: str) -> str:
+def _write_csv(rows: list[dict[str, str]], entity_type: str) -> str:
     """Serialise *rows* to CSV using the exact column order ImportService
     expects (application.export_service.ENTITY_FIELD_SPECS[entity_type])."""
     fieldnames = [col for col, _kind in ENTITY_FIELD_SPECS[entity_type]]
@@ -655,8 +654,8 @@ def _existing_uids(entity_type: str, workspace_id) -> set:
 
 
 def _resolve_architecture_parents(
-    entries: List[Tuple[str, str, Path]]
-) -> Tuple[Dict[str, Optional[str]], List[str]]:
+    entries: list[tuple[str, str, Path]]
+) -> tuple[dict[str, str | None], list[str]]:
     """Resolve each ArchitectureElement's parent uid from the folder nesting.
 
     *entries* is the deduplicated ``(uid, element_type, path)`` list gathered
@@ -672,23 +671,23 @@ def _resolve_architecture_parents(
     Returns a ``{uid: parent_uid_or_None}`` mapping plus warnings for any
     element whose structural parent could not be determined.
     """
-    warnings: List[str] = []
+    warnings: list[str] = []
     root_present = any(uid == _ARCH_ROOT_UID for uid, _etype, _path in entries)
 
     # Index every non-root subsystem by the directory that contains its file;
     # a component's parent is the subsystem whose directory is its ancestor.
-    subsystem_dir_to_uid: Dict[Path, str] = {}
+    subsystem_dir_to_uid: dict[Path, str] = {}
     for uid, element_type, path in entries:
         if uid == _ARCH_ROOT_UID or element_type == "component":
             continue
         subsystem_dir_to_uid[path.parent] = uid
 
-    parent_of: Dict[str, Optional[str]] = {}
+    parent_of: dict[str, str | None] = {}
     for uid, element_type, path in entries:
         if uid == _ARCH_ROOT_UID:
             parent_of[uid] = None
         elif element_type == "component":
-            parent_uid: Optional[str] = None
+            parent_uid: str | None = None
             for ancestor in path.parents:
                 if ancestor in subsystem_dir_to_uid:
                     parent_uid = subsystem_dir_to_uid[ancestor]
@@ -715,7 +714,7 @@ def _resolve_architecture_parents(
 # ---------------------------------------------------------------------------
 
 
-def _parse_trace_matrix(text: str) -> List[Tuple[str, str, str]]:
+def _parse_trace_matrix(text: str) -> list[tuple[str, str, str]]:
     """Parse ``traceability-matrix.md`` into ``(source_uid, target_uid, link_type)``.
 
     The current section is tracked from the leading number of each ``##``/``###``
@@ -727,8 +726,8 @@ def _parse_trace_matrix(text: str) -> List[Tuple[str, str, str]]:
     and are therefore skipped implicitly, as are placeholder ``...`` rows and
     column headers (the uid regexes require a trailing number).
     """
-    triples: List[Tuple[str, str, str]] = []
-    spec: Optional[str] = None
+    triples: list[tuple[str, str, str]] = []
+    spec: str | None = None
     for raw in text.splitlines():
         line = raw.strip()
         heading = _MATRIX_HEADING_RE.match(line)
@@ -757,7 +756,7 @@ def _parse_trace_matrix(text: str) -> List[Tuple[str, str, str]]:
     return triples
 
 
-def _uid_artifact_index(workspace_id) -> Dict[str, object]:
+def _uid_artifact_index(workspace_id) -> dict[str, object]:
     """Return a ``{uid: artifact_id}`` map over all four imported entity types.
 
     Used by the trace-link pass to resolve a matrix uid to the backing Artifact
@@ -765,7 +764,7 @@ def _uid_artifact_index(workspace_id) -> Dict[str, object]:
     context. On the (source-data) chance that a uid is reused across entity
     types, the first occurrence wins.
     """
-    index: Dict[str, object] = {}
+    index: dict[str, object] = {}
 
     def _add(pairs) -> None:
         for uid, artifact_id in pairs:
@@ -871,16 +870,16 @@ class Command(BaseCommand):
         all_files = sorted(docs_root.rglob("*.md"))
         self.stdout.write(f"Scanning {len(all_files)} markdown files under {docs_root} ...")
 
-        buckets: Dict[str, List[Tuple[str, Dict[str, str], Path]]] = {
+        buckets: dict[str, list[tuple[str, dict[str, str], Path]]] = {
             "StakeholderNeed": [],
             "Requirement": [],
             "ArchitectureElement": [],
             "Adr": [],
         }
-        unmapped: List[Tuple[Path, str]] = []
-        parse_warnings: List[str] = []
+        unmapped: list[tuple[Path, str]] = []
+        parse_warnings: list[str] = []
         # (uid, element_type, path) for the Feature 1 parent-resolution pass.
-        arch_files: List[Tuple[str, str, Path]] = []
+        arch_files: list[tuple[str, str, Path]] = []
 
         for path in all_files:
             # traceability-matrix.md is consumed by the Feature 2 trace-link
@@ -898,7 +897,7 @@ class Command(BaseCommand):
                 parse_warnings.extend(warns)
                 buckets["Requirement"].extend((uid, row, path) for uid, row in rows)
             elif bucket == "ArchitectureElement":
-                warns: List[str] = []
+                warns: list[str] = []
                 uid, row = _parse_architecture_file(path, warns)
                 parse_warnings.extend(warns)
                 buckets["ArchitectureElement"].append((uid, row, path))
@@ -920,11 +919,11 @@ class Command(BaseCommand):
         # These are source-data issues, not something this command silently
         # "fixes" — the first occurrence (deterministic file/heading order)
         # wins and every later duplicate is reported.
-        dedup_warnings: List[str] = []
-        deduped_buckets: Dict[str, List[Tuple[str, Dict[str, str]]]] = {}
+        dedup_warnings: list[str] = []
+        deduped_buckets: dict[str, list[tuple[str, dict[str, str]]]] = {}
         for entity_type, entries in buckets.items():
-            seen: Dict[str, Path] = {}
-            deduped: List[Tuple[str, Dict[str, str]]] = []
+            seen: dict[str, Path] = {}
+            deduped: list[tuple[str, dict[str, str]]] = []
             for uid, row, path in entries:
                 if uid in seen:
                     dedup_warnings.append(
@@ -939,7 +938,7 @@ class Command(BaseCommand):
         # Deduplicate the architecture-file list (first occurrence per uid wins,
         # mirroring the bucket dedup) for the Feature 1 parent-resolution pass.
         seen_arch_uids: set = set()
-        arch_entries: List[Tuple[str, str, Path]] = []
+        arch_entries: list[tuple[str, str, Path]] = []
         for uid, element_type, path in arch_files:
             if uid in seen_arch_uids:
                 continue
@@ -947,7 +946,7 @@ class Command(BaseCommand):
             arch_entries.append((uid, element_type, path))
 
         # ---------- Idempotency filter + import ----------
-        stats: Dict[str, Dict[str, int]] = {}
+        stats: dict[str, dict[str, int]] = {}
         set_request_tenant(workspace.tenant_id)
         try:
             for entity_type, entries in deduped_buckets.items():
@@ -997,7 +996,7 @@ class Command(BaseCommand):
             trace_warnings,
         )
 
-    def _resolve_workspace_and_ctx(self, options) -> Tuple[Workspace, AuthContext]:
+    def _resolve_workspace_and_ctx(self, options) -> tuple[Workspace, AuthContext]:
         """Resolve the target ``Workspace`` and build a synthetic admin ``AuthContext``.
 
         Shared by both ``--format=docs`` and ``--format=table``.
@@ -1050,9 +1049,9 @@ class Command(BaseCommand):
         entries, parse_warnings = _parse_requirements_table_file(file_path)
 
         # First-occurrence-wins uid dedup, mirroring --format=docs.
-        dedup_warnings: List[str] = []
-        seen: Dict[str, bool] = {}
-        deduped: List[Tuple[str, Dict[str, str]]] = []
+        dedup_warnings: list[str] = []
+        seen: dict[str, bool] = {}
+        deduped: list[tuple[str, dict[str, str]]] = []
         for uid, row in entries:
             if uid in seen:
                 dedup_warnings.append(
@@ -1115,10 +1114,10 @@ class Command(BaseCommand):
         self,
         importer: ImportService,
         entity_type: str,
-        rows: List[Dict[str, str]],
+        rows: list[dict[str, str]],
         workspace_id,
         ctx: AuthContext,
-    ) -> Tuple[int, int]:
+    ) -> tuple[int, int]:
         """Import *rows* for *entity_type* in chunks of _MAX_ROWS_PER_CALL.
 
         Returns (imported_count, failed_count).
@@ -1152,11 +1151,11 @@ class Command(BaseCommand):
 
     def _apply_parents(
         self,
-        arch_entries: List[Tuple[str, str, Path]],
+        arch_entries: list[tuple[str, str, Path]],
         workspace,
         ctx: AuthContext,
         dry_run: bool,
-    ) -> Tuple[Dict[str, int], List[str]]:
+    ) -> tuple[dict[str, int], list[str]]:
         """Feature 1: write ArchitectureElement.parent_id from folder structure.
 
         Writes ``parent_id`` via a direct, idempotency-guarded ORM update — a
@@ -1217,7 +1216,7 @@ class Command(BaseCommand):
         workspace,
         ctx: AuthContext,
         dry_run: bool,
-    ) -> Tuple[Dict[str, int], List[str]]:
+    ) -> tuple[dict[str, int], list[str]]:
         """Feature 2: create TraceLinks from ``traceability-matrix.md``.
 
         Uses :meth:`TraceLinkService.create_trace_link` — the regular,
@@ -1227,7 +1226,7 @@ class Command(BaseCommand):
 
         Must run inside an active tenant context. Returns ``(stats, warnings)``.
         """
-        warnings: List[str] = []
+        warnings: list[str] = []
         stats = {
             "parsed": 0,
             "resolved": 0,
@@ -1249,7 +1248,7 @@ class Command(BaseCommand):
         triples = _parse_trace_matrix(matrix_path.read_text(encoding="utf-8"))
         # Intra-run dedup (identical source/target/type tuples collapse to one).
         seen: set = set()
-        deduped: List[Tuple[str, str, str]] = []
+        deduped: list[tuple[str, str, str]] = []
         for triple in triples:
             if triple in seen:
                 continue
@@ -1305,15 +1304,15 @@ class Command(BaseCommand):
 
     def _report(
         self,
-        stats: Dict[str, Dict[str, int]],
-        parse_warnings: List[str],
-        dedup_warnings: List[str],
-        unmapped: List[Tuple[Path, str]],
+        stats: dict[str, dict[str, int]],
+        parse_warnings: list[str],
+        dedup_warnings: list[str],
+        unmapped: list[tuple[Path, str]],
         dry_run: bool,
-        parent_stats: Dict[str, int],
-        parent_warnings: List[str],
-        trace_stats: Dict[str, int],
-        trace_warnings: List[str],
+        parent_stats: dict[str, int],
+        parent_warnings: list[str],
+        trace_stats: dict[str, int],
+        trace_warnings: list[str],
     ) -> None:
         self.stdout.write("")
         self.stdout.write(self.style.SUCCESS("=== Import summary ==="))

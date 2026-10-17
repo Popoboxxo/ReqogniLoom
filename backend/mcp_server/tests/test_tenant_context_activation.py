@@ -48,7 +48,6 @@ from mcp_server.protocol_handler import ToolResult
 from mcp_server.tool_registry import ToolRegistry
 from persistence.tenancy import TenantContext, TenantContextNotSetError
 
-
 # ---------------------------------------------------------------------------
 # Test data
 # ---------------------------------------------------------------------------

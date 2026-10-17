@@ -14,7 +14,7 @@ import datetime
 import decimal
 import io
 import uuid
-from typing import Any, Dict
+from typing import Any
 
 from application.csv_safety import neutralize_csv_formula
 from application.requirement_bundle_service import BundleItem, BundleResult
@@ -58,7 +58,7 @@ def _csv_safe(value: Any) -> Any:
     return neutralize_csv_formula(value)
 
 
-def _item_to_dict(item: BundleItem) -> Dict[str, Any]:
+def _item_to_dict(item: BundleItem) -> dict[str, Any]:
     return {
         "requirement_id": str(item.requirement_id),
         "found_under_element_id": str(item.found_under_element_id),
@@ -67,7 +67,7 @@ def _item_to_dict(item: BundleItem) -> Dict[str, Any]:
     }
 
 
-def format_bundle_json(result: BundleResult) -> Dict[str, Any]:
+def format_bundle_json(result: BundleResult) -> dict[str, Any]:
     """Return a JSON-ready dict: {"items": [...], "truncated_at_depth": bool}.
 
     Every value in the payload is guaranteed ``json.dumps``-serialisable (see
@@ -88,7 +88,7 @@ def format_bundle_markdown(result: BundleResult) -> str:
     if result.truncated_at_depth:
         lines.append("\n> **Note:** results truncated at the maximum depth cap.")
 
-    current_group: "str | None" = None
+    current_group: str | None = None
     for item in result.items:
         group_key = str(item.found_under_element_id)
         if group_key != current_group:
@@ -117,7 +117,7 @@ def format_bundle_csv(result: BundleResult) -> str:
     opened in spreadsheet applications.
     """
     buffer = io.StringIO()
-    field_names: "list[str]" = []
+    field_names: list[str] = []
     seen = set()
     for item in result.items:
         for key in item.fields:
@@ -141,4 +141,4 @@ def format_bundle_csv(result: BundleResult) -> str:
     return buffer.getvalue()
 
 
-__all__ = ["format_bundle_json", "format_bundle_markdown", "format_bundle_csv"]
+__all__ = ["format_bundle_csv", "format_bundle_json", "format_bundle_markdown"]

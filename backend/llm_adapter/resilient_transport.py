@@ -21,7 +21,8 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Any, Callable, Optional
+from collections.abc import Callable
+from typing import Any
 
 from resilience.circuit_breaker import CircuitBreaker
 from resilience.policies import (
@@ -73,7 +74,7 @@ class LlmTransportError(RuntimeError):
     """
 
 
-def _extract_status_code(exc: BaseException) -> Optional[int]:
+def _extract_status_code(exc: BaseException) -> int | None:
     """Best-effort HTTP status extraction from heterogeneous SDK exceptions.
 
     Anthropic/OpenAI SDK errors expose ``status_code``; ``requests.HTTPError``
@@ -318,9 +319,9 @@ def resilient_call(
 
 
 __all__ = [
+    "LLM_BACKOFF_BASE_SECONDS",
+    "LLM_MAX_RETRIES",
     "LlmTransportError",
     "classify_exception",
     "resilient_call",
-    "LLM_MAX_RETRIES",
-    "LLM_BACKOFF_BASE_SECONDS",
 ]

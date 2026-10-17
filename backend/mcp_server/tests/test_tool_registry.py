@@ -21,18 +21,15 @@ from uuid import UUID
 
 import pytest
 
-
 from auth_tenancy.context import AuthContext, AuthMethod
 from auth_tenancy.errors import AuthenticationFailed
-
 from mcp_server.protocol_handler import ToolResult
 from mcp_server.tool_registry import (
-    ToolRegistry,
+    McpAuthenticationError,
     PresetCache,
     ToolGroupRouter,
-    McpAuthenticationError,
+    ToolRegistry,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -481,13 +478,13 @@ class TestToolRegistryDispatch:
         would have caught that regression automatically for any current or
         future ``GenericCrudToolGroup`` entity.
         """
+        from application.adr_service import AdrService
+        from application.change_request_service import ChangeRequestService
+        from application.glossary_service import GlossaryService
+        from application.issue_service import IssueService
+        from application.risk_service import RiskService
         from mcp_server.tool_registry import _WRITE_TOOL_PREFIXES
         from mcp_server.tools.generic import GenericCrudToolGroup
-        from application.adr_service import AdrService
-        from application.risk_service import RiskService
-        from application.issue_service import IssueService
-        from application.glossary_service import GlossaryService
-        from application.change_request_service import ChangeRequestService
 
         groups = [
             GenericCrudToolGroup("adr", AdrService),

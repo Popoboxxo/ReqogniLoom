@@ -48,7 +48,7 @@ def test_rule_catalogue_requires_authentication(client) -> None:
     assert resp.status_code in (401, 403)
 
 
-def _make_icd(tenant, workspace) -> "object":
+def _make_icd(tenant, workspace) -> object:
     from icd.models import Icd
 
     set_request_tenant(tenant.id)

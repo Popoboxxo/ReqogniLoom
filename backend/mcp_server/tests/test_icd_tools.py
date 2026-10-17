@@ -15,7 +15,7 @@ UserRole/ApiKey wiring), so no collaborator is mocked.
 """
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any
 
 import pytest
 from django.core.management import call_command
@@ -27,7 +27,7 @@ from mcp_server.tool_registry import ToolRegistry
 pytestmark = pytest.mark.django_db
 
 
-def _dispatch(tool_name: str, params: Dict[str, Any], api_key: str):
+def _dispatch(tool_name: str, params: dict[str, Any], api_key: str):
     """Run one dispatch through a fully real (unmocked) ToolRegistry."""
     return ToolRegistry().dispatch_request(
         tool_name=tool_name, params=params, api_key=api_key
@@ -66,10 +66,10 @@ def _create_icd(
     workspace_id: str,
     api_key: str,
     *,
-    custom_fields: Optional[Dict[str, Any]] = None,
+    custom_fields: dict[str, Any] | None = None,
 ):
     source_id, target_id = _create_architecture_pair(workspace_id, api_key)
-    params: Dict[str, Any] = {
+    params: dict[str, Any] = {
         "workspace_id": workspace_id,
         "name": "contract-matrix-icd",
         "source_element_id": source_id,

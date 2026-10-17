@@ -18,9 +18,10 @@ Authored manually for human review (mirrors ``0019_userdisplaypreference``); no
 ``makemigrations``/``migrate`` run.
 """
 
+import uuid
+
 import django.db.models.deletion
 import django.db.models.manager
-import uuid
 from django.conf import settings
 from django.db import migrations, models
 

@@ -24,9 +24,7 @@ RFC #1002 PR C additions:
 """
 from __future__ import annotations
 
-from typing import Dict
-
-MEMORY_PROMPT_DEFAULTS: Dict[str, str] = {
+MEMORY_PROMPT_DEFAULTS: dict[str, str] = {
     "memory.extract": """\
 Extract durable facts or preferences from this interaction that would be
 useful to remember in future conversations. Only extract facts that are

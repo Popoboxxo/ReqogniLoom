@@ -32,7 +32,6 @@ from .models import (
     WorkflowItemState,
 )
 
-
 # ---------------------------------------------------------------------------
 # DTOs (IF-WE-INT-001)
 # ---------------------------------------------------------------------------
@@ -1814,18 +1813,18 @@ class WorkflowDefinitionStore:
 
 
 __all__ = [
-    "WorkflowDefinitionStore",
-    "WorkflowDefinitionDTO",
-    "TransitionDefinitionDTO",
-    "WorkflowDefinitionError",
+    "PRESET_SCHEMAS",
+    "PROPOSED_ROLES",
+    "PROPOSED_STATE",
+    "SCHEMAS_WITHOUT_PROPOSED",
+    "NoGlobalSourceError",
     "OrphanedStateError",
     "PresetDowngradeBlockedError",
     "StateReferencedError",
-    "NoGlobalSourceError",
-    "PRESET_SCHEMAS",
+    "TransitionDefinitionDTO",
+    "WorkflowDefinitionDTO",
+    "WorkflowDefinitionError",
+    "WorkflowDefinitionStore",
     "get_state_meta",
-    "PROPOSED_STATE",
-    "PROPOSED_ROLES",
-    "SCHEMAS_WITHOUT_PROPOSED",
     "inject_proposed_state",
 ]

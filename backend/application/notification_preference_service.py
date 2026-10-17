@@ -23,15 +23,15 @@ Requirements: OD-1 (2026-09-15); spec §5, §9 A3.
 from __future__ import annotations
 
 import logging
-from typing import Any, Iterable
+from collections.abc import Iterable
+from typing import Any
 from uuid import UUID
-
-from auth_tenancy.context import AuthContext
-from auth_tenancy.models import UserNotificationPreference
-from persistence.errors import ValidationError
 
 from application.base import ServiceBase
 from application.models import Notification
+from auth_tenancy.context import AuthContext
+from auth_tenancy.models import UserNotificationPreference
+from persistence.errors import ValidationError
 
 logger = logging.getLogger(__name__)
 

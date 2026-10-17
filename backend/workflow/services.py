@@ -43,7 +43,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
 from uuid import UUID
 
 from django.db import transaction
@@ -147,8 +147,8 @@ class TransitionResult:
     item_id: UUID
     previous_state: str
     new_state: str
-    history_entry_id: Optional[UUID]
-    signature_seal: Optional[str] = None
+    history_entry_id: UUID | None
+    signature_seal: str | None = None
 
 
 @dataclass(frozen=True)
@@ -164,7 +164,7 @@ class AvailableTransitions:
             — i.e. the moves the caller may perform right now.
     """
 
-    current_state: Optional[str]
+    current_state: str | None
     states: tuple[str, ...]
     transitions: tuple[TransitionDefinitionDTO, ...]
 
@@ -849,7 +849,7 @@ def list_item_states(
     *,
     tenant_id: UUID | str,
     item_type: str | None = None,
-) -> "QuerySet[WorkflowItemState]":
+) -> QuerySet[WorkflowItemState]:
     """Return the tracked workflow states of a workspace's items.
 
     Exposed at the service boundary (ADR-01, issue #124) for
@@ -977,7 +977,7 @@ def get_history(
 
 def outdated_item_ids(
     item_type: str, *, tenant_id: UUID | str | None = None
-) -> "QuerySet[UUID]":
+) -> QuerySet[UUID]:
     """Return the entity ids currently soft-deleted for *item_type*.
 
     Datenmodell-Konsolidierung Phase 4 (Decision D-3): reads
@@ -1028,7 +1028,7 @@ def outdated_item_ids(
 
 def item_ids_with_status(
     item_type: str, status: str, *, tenant_id: UUID | str | None = None
-) -> "QuerySet[UUID]":
+) -> QuerySet[UUID]:
     """Return the entity ids whose wire-level ``status`` equals *status*.
 
     Since Datenmodell-Konsolidierung Phase 4 the wire value ``"outdated"``

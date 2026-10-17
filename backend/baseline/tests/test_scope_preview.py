@@ -165,9 +165,9 @@ class TestPreviewScopeItemsWithData:
 
     def test_project_scope_counts_only_workspace_artifacts(self):
         """REQ-L1-049: project scope counts only this workspace's artifacts."""
-        from persistence.tenancy import TenantContext
-        from persistence.models import Artifact
         from baseline.services import preview_scope_items
+        from persistence.models import Artifact
+        from persistence.tenancy import TenantContext
 
         tenant = self._make_tenant()
         TenantContext.set_tenant(tenant.id)
@@ -199,9 +199,9 @@ class TestPreviewScopeItemsWithData:
 
     def test_global_scope_counts_all_workspaces(self):
         """REQ-L1-049: global scope counts all artifacts in the tenant."""
-        from persistence.tenancy import TenantContext
-        from persistence.models import Artifact
         from baseline.services import preview_scope_items
+        from persistence.models import Artifact
+        from persistence.tenancy import TenantContext
 
         tenant = self._make_tenant()
         TenantContext.set_tenant(tenant.id)
@@ -237,9 +237,9 @@ class TestPreviewScopeItemsWithData:
         ._resolve_artifact_id) is an internal implementation detail, not a
         real domain artifact — it must not appear in a project-scope
         baseline preview."""
-        from persistence.tenancy import TenantContext
-        from persistence.models import Artifact
         from baseline.services import preview_scope_items
+        from persistence.models import Artifact
+        from persistence.tenancy import TenantContext
 
         tenant = self._make_tenant()
         TenantContext.set_tenant(tenant.id)
@@ -265,9 +265,9 @@ class TestPreviewScopeItemsWithData:
     def test_global_scope_excludes_diagram_shadow_artifacts(self):
         """M3 (Codeberg #353 final review): same Diagram-shadow-Artifact
         exclusion as the project-scope test above, applied to global scope."""
-        from persistence.tenancy import TenantContext
-        from persistence.models import Artifact
         from baseline.services import preview_scope_items
+        from persistence.models import Artifact
+        from persistence.tenancy import TenantContext
 
         tenant = self._make_tenant()
         TenantContext.set_tenant(tenant.id)
@@ -292,9 +292,9 @@ class TestPreviewScopeItemsWithData:
 
     def test_document_scope_counts_root_and_descendants(self):
         """REQ-L1-049: document scope counts root artifact + descendants."""
-        from persistence.tenancy import TenantContext
-        from persistence.models import Artifact
         from baseline.services import preview_scope_items
+        from persistence.models import Artifact
+        from persistence.tenancy import TenantContext
 
         tenant = self._make_tenant()
         TenantContext.set_tenant(tenant.id)
@@ -342,9 +342,9 @@ class TestPreviewScopeItemsWithData:
 
     def test_sample_caps_at_10_when_more_items(self):
         """REQ-L1-049: sample is capped at 10 even with more data."""
-        from persistence.tenancy import TenantContext
-        from persistence.models import Artifact
         from baseline.services import preview_scope_items
+        from persistence.models import Artifact
+        from persistence.tenancy import TenantContext
 
         tenant = self._make_tenant()
         TenantContext.set_tenant(tenant.id)

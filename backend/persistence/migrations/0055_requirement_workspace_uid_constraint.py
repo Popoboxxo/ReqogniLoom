@@ -21,8 +21,8 @@ under concurrent creates. This migration:
    application/tests/test_reqif_import_service.py::
    TestReqifImportUpsertCollisions).
 """
-from django.db import migrations, models
 import django.db.models.deletion
+from django.db import migrations, models
 
 
 def _backfill_workspace(apps, schema_editor):

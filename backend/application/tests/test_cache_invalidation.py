@@ -274,6 +274,7 @@ class TestResolveWorkspaceIdForTraceLink:
     def test_cached_source_relation_costs_no_query(self):
         from django.db import connection
         from django.test.utils import CaptureQueriesContext
+
         from persistence.models import TraceLink
         from persistence.tenancy import TenantContext
 
@@ -302,6 +303,7 @@ class TestResolveWorkspaceIdForTraceLink:
     def test_uncached_source_relation_falls_back_to_one_query(self):
         from django.db import connection
         from django.test.utils import CaptureQueriesContext
+
         from persistence.models import TraceLink
         from persistence.tenancy import TenantContext
 

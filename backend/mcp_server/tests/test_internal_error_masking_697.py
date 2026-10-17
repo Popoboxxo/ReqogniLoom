@@ -19,9 +19,9 @@ from unittest.mock import patch
 from uuid import UUID
 
 import pytest
-from auth_tenancy.context import AuthContext, AuthMethod
 from django.db.utils import ProgrammingError
 
+from auth_tenancy.context import AuthContext, AuthMethod
 from mcp_server.tools.generic import GenericCrudToolGroup
 from mcp_server.tools.link_type import LinkTypeToolGroup
 from mcp_server.tools.review import ReviewToolGroup

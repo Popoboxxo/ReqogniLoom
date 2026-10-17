@@ -25,7 +25,6 @@ artifact of the pair triggered (re-)generation.
 from __future__ import annotations
 
 import re
-from typing import Dict, List
 from uuid import UUID
 
 from context_graph.types import ContextEdgeCandidate
@@ -71,11 +70,11 @@ def _title_for_artifact(artifact_id: UUID) -> str:
     return ""
 
 
-def _title_lookup_for_workspace(workspace_id: UUID, exclude_artifact_id: UUID) -> Dict[UUID, str]:
+def _title_lookup_for_workspace(workspace_id: UUID, exclude_artifact_id: UUID) -> dict[UUID, str]:
     """Return {artifact_id: title} for every other titled artifact in the workspace."""
     from persistence import models as pm
 
-    titles: Dict[UUID, str] = {}
+    titles: dict[UUID, str] = {}
     for model_name in _PERSISTENCE_TITLE_MODELS:
         model = getattr(pm, model_name)
         for row in (
@@ -105,12 +104,12 @@ def _title_lookup_for_workspace(workspace_id: UUID, exclude_artifact_id: UUID) -
     return titles
 
 
-def _term_pattern(term_text: str) -> "re.Pattern[str]":
+def _term_pattern(term_text: str) -> re.Pattern[str]:
     """Whole-word, case-insensitive match for a single term/synonym string."""
     return re.compile(r"\b" + re.escape(term_text.strip()) + r"\b", re.IGNORECASE)
 
 
-def generate_for_artifact(artifact_id: UUID) -> List[ContextEdgeCandidate]:
+def generate_for_artifact(artifact_id: UUID) -> list[ContextEdgeCandidate]:
     """Return the full, current set of ``shares-term`` candidates for *artifact_id*.
 
     Full recomputation, not an incremental delta — required for the
@@ -136,7 +135,7 @@ def generate_for_artifact(artifact_id: UUID) -> List[ContextEdgeCandidate]:
     if not terms:
         return []
 
-    matched_terms: List[dict] = []
+    matched_terms: list[dict] = []
     for term in terms:
         candidates_text = [term["term"], *(term["synonyms"] or [])]
         if any(_term_pattern(t).search(title) for t in candidates_text if t):
@@ -152,7 +151,7 @@ def generate_for_artifact(artifact_id: UUID) -> List[ContextEdgeCandidate]:
     # other_artifact_id -> [{"term_id":..., "term_name":...}, ...] (Task 5:
     # "evidence must contain enough information for a human to verify the
     # claim by inspection — the term name, not just its id").
-    shared: Dict[UUID, List[dict]] = {}
+    shared: dict[UUID, list[dict]] = {}
     for term in matched_terms:
         candidates_text = [term["term"], *(term["synonyms"] or [])]
         patterns = [_term_pattern(t) for t in candidates_text if t]
@@ -162,7 +161,7 @@ def generate_for_artifact(artifact_id: UUID) -> List[ContextEdgeCandidate]:
                     {"term_id": str(term["id"]), "term_name": term["term"]}
                 )
 
-    result: List[ContextEdgeCandidate] = []
+    result: list[ContextEdgeCandidate] = []
     for other_id, term_hits in shared.items():
         # Canonicalise the unordered pair: same row regardless of which of
         # the two artifacts triggered (re-)generation.
@@ -181,4 +180,4 @@ def generate_for_artifact(artifact_id: UUID) -> List[ContextEdgeCandidate]:
     return result
 
 
-__all__ = ["generate_for_artifact", "GENERATOR_NAME", "EDGE_KIND", "ORIGIN"]
+__all__ = ["EDGE_KIND", "GENERATOR_NAME", "ORIGIN", "generate_for_artifact"]

@@ -21,12 +21,10 @@ cross-layer import.
 """
 from __future__ import annotations
 
-from typing import Dict, Iterable, Optional, Type
-
-_registry: Dict[str, Type] = {}
+_registry: dict[str, type] = {}
 
 
-def register_models(models: Dict[str, Type]) -> None:
+def register_models(models: dict[str, type]) -> None:
     """Register one or more named model classes. Additive — never clears.
 
     Called from an owning app's ``AppConfig.ready()`` (e.g.
@@ -35,12 +33,12 @@ def register_models(models: Dict[str, Type]) -> None:
     _registry.update(models)
 
 
-def get_model(name: str) -> Optional[Type]:
+def get_model(name: str) -> type | None:
     """Return the registered model class for *name*, or ``None`` if absent."""
     return _registry.get(name)
 
 
-def get_models(*names: str) -> Dict[str, Type]:
+def get_models(*names: str) -> dict[str, type]:
     """Return ``{name: model}`` for every *names* entry that is registered.
 
     Names with no registered model are silently omitted — mirrors the old
@@ -50,4 +48,4 @@ def get_models(*names: str) -> Dict[str, Type]:
     return {name: _registry[name] for name in names if name in _registry}
 
 
-__all__ = ["register_models", "get_model", "get_models"]
+__all__ = ["get_model", "get_models", "register_models"]

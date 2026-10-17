@@ -21,7 +21,7 @@ statistic is and how it is queried.
 from __future__ import annotations
 
 import logging
-from typing import Any, List, Optional
+from typing import Any
 from uuid import UUID
 
 from rest_framework import status
@@ -47,12 +47,12 @@ logger = logging.getLogger(__name__)
 _TRUTHY = frozenset({"1", "true", "yes", "on"})
 
 
-def _is_truthy(raw: Optional[str]) -> bool:
+def _is_truthy(raw: str | None) -> bool:
     """Parse an opt-in boolean query parameter (default False)."""
     return raw is not None and str(raw).strip().lower() in _TRUTHY
 
 
-def _parse_keys(raw: Optional[str]) -> Optional[List[str]]:
+def _parse_keys(raw: str | None) -> list[str] | None:
     """Split a comma-separated ``keys`` parameter, or None when absent.
 
     A present-but-blank value yields ``[]``, which

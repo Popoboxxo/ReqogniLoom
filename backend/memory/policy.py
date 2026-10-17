@@ -36,7 +36,7 @@ call so a Celery-style caller cannot silently read an empty role set.
 """
 from __future__ import annotations
 
-from typing import Any, Optional, Tuple
+from typing import Any
 from uuid import UUID
 
 from memory.models import MemoryEntry
@@ -63,7 +63,7 @@ WRITE_ROLES = frozenset({"editor", "approver", "admin"})
 ADMIN_ROLES = frozenset({"admin"})
 
 
-def _owner_of(entry: Any) -> Tuple[str, Optional[UUID], Optional[UUID], Optional[UUID]]:
+def _owner_of(entry: Any) -> tuple[str, UUID | None, UUID | None, UUID | None]:
     """Return ``(scope, user_id, workspace_id, artifact_id)`` for *entry*.
 
     Accepts a ``MemoryEntry`` instance or a mapping with the same keys, so the
@@ -85,7 +85,7 @@ def _owner_of(entry: Any) -> Tuple[str, Optional[UUID], Optional[UUID], Optional
     )
 
 
-def _as_uuid(value: Any) -> Optional[UUID]:
+def _as_uuid(value: Any) -> UUID | None:
     """Return *value* as a ``UUID``, or ``None`` when it already is/absent."""
     if value is None or isinstance(value, UUID):
         return value
@@ -95,7 +95,7 @@ def _as_uuid(value: Any) -> Optional[UUID]:
         return None
 
 
-def resolve_artifact_workspace_id(artifact_id: Any) -> Optional[UUID]:
+def resolve_artifact_workspace_id(artifact_id: Any) -> UUID | None:
     """Return the workspace id owning *artifact_id*, or ``None``.
 
     Requires an active tenant context (``Artifact`` is ``TenantScopedModel``);
@@ -115,7 +115,7 @@ def resolve_artifact_workspace_id(artifact_id: Any) -> Optional[UUID]:
         return None
 
 
-def _roles_for(user_id: Any, workspace_id: Any) -> Tuple[str, ...]:
+def _roles_for(user_id: Any, workspace_id: Any) -> tuple[str, ...]:
     """Active workspace roles for ``user_id`` in ``workspace_id``.
 
     Imported lazily (see ``application.base.ServiceBase._assert_write_permission``):
@@ -326,9 +326,9 @@ class MemoryPolicy:
 
 
 __all__ = [
-    "MemoryPolicy",
-    "MemoryPermissionDenied",
-    "WRITE_ROLES",
     "ADMIN_ROLES",
+    "WRITE_ROLES",
+    "MemoryPermissionDenied",
+    "MemoryPolicy",
     "resolve_artifact_workspace_id",
 ]

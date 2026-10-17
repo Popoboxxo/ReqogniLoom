@@ -32,18 +32,16 @@ Architecture:
 from __future__ import annotations
 
 import logging
-from typing import List, Optional
 from uuid import UUID
 
 from django.db import transaction
-
-from auth_tenancy.context import AuthContext
 
 from application.base import (
     NotFoundError,
     ServiceBase,
 )
 from application.models import DomainEventDLQ, DomainEventOutbox
+from auth_tenancy.context import AuthContext
 from persistence.models import Workspace
 
 logger = logging.getLogger(__name__)
@@ -76,9 +74,9 @@ class DlqService:
         ctx: AuthContext,
         *,
         workspace_id: UUID,
-        event_type: Optional[str] = None,
+        event_type: str | None = None,
         limit: int = DEFAULT_LIMIT,
-    ) -> List[DomainEventDLQ]:
+    ) -> list[DomainEventDLQ]:
         """Return DLQ entries for one workspace, ordered by ``-moved_at`` (admin-only).
 
         Args:
@@ -310,4 +308,4 @@ def _frozen_snapshot(
     )
 
 
-__all__ = ["DlqService", "LIST_LIMIT_CAP", "DEFAULT_LIMIT", "_DlqSnapshot"]
+__all__ = ["DEFAULT_LIMIT", "LIST_LIMIT_CAP", "DlqService", "_DlqSnapshot"]

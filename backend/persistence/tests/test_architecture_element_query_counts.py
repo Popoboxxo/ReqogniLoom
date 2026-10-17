@@ -7,8 +7,8 @@ N+1 cannot silently return.
 """
 
 import pytest
-from django.test.utils import CaptureQueriesContext
 from django.db import connection
+from django.test.utils import CaptureQueriesContext
 
 from persistence.models import ArchitectureElement, Artifact
 from persistence.tenancy import TenantContext

@@ -7,7 +7,7 @@ without an import cycle.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict
+from typing import Any
 from uuid import UUID
 
 
@@ -28,7 +28,7 @@ class ContextEdgeCandidate:
     origin: str
     confidence: float
     generator: str
-    evidence: Dict[str, Any] = field(default_factory=dict)
+    evidence: dict[str, Any] = field(default_factory=dict)
 
 
 __all__ = ["ContextEdgeCandidate"]

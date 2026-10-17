@@ -39,14 +39,12 @@ import json
 import math
 import uuid
 from dataclasses import dataclass
-from typing import Optional
 
 from diagram.manager import DiagramManager, DiagramResult
 from diagram.models import Diagram, DiagramRevision, DiagramType, PayloadFormat
 from diagram.svg_safety import escape_xml_text
 from diagram.traceability_connector import TraceabilityConnector
 from diagram.validator import DiagramValidator
-
 
 # ---------------------------------------------------------------------------
 # Data contracts
@@ -66,9 +64,9 @@ class CanvasExportResult:
     diagram_id: uuid.UUID
     stroke_data: dict
     svg: str
-    version: Optional[DiagramRevision] = None
+    version: DiagramRevision | None = None
     # Optional full canvas JSON (e.g. fabric.js). None for legacy versions.
-    canvas_json: Optional[dict] = None
+    canvas_json: dict | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -290,7 +288,7 @@ def _pen_elements(stroke_data: dict) -> list[dict]:
 _SKIPPED_CANVAS_JSON_DATA_TYPES = frozenset({"arrowHead", "connectorPreview"})
 
 
-def _canvas_json_object_to_element(obj: dict) -> Optional[dict]:
+def _canvas_json_object_to_element(obj: dict) -> dict | None:
     """Map one `canvas_json` (Fabric `toJSON(["data"])`) object to the
     internal element schema consumed by :func:`_element_to_svg`.
 
@@ -409,7 +407,7 @@ def _canvas_json_object_to_element(obj: dict) -> Optional[dict]:
     }
 
 
-def _generate_svg(stroke_data: dict, canvas_json: Optional[dict] = None) -> str:
+def _generate_svg(stroke_data: dict, canvas_json: dict | None = None) -> str:
     """Generate SVG string from canvas stroke data.
 
     REQ-L2-DS-006: SVG is a derived export format from JSON stroke data.
@@ -481,9 +479,9 @@ class CanvasEditor:
 
     def __init__(
         self,
-        validator: Optional[DiagramValidator] = None,
-        manager: Optional[DiagramManager] = None,
-        traceability: Optional[TraceabilityConnector] = None,
+        validator: DiagramValidator | None = None,
+        manager: DiagramManager | None = None,
+        traceability: TraceabilityConnector | None = None,
     ) -> None:
         self._validator = validator or DiagramValidator()
         self._manager = manager or DiagramManager()
@@ -496,13 +494,13 @@ class CanvasEditor:
 
     def handle_stroke_update(
         self,
-        diagram_id: Optional[uuid.UUID],
+        diagram_id: uuid.UUID | None,
         stroke_data: dict,
         tenant: object,
-        user: Optional[object] = None,
+        user: object | None = None,
         name: str = "Canvas Drawing",
-        target_id: Optional[uuid.UUID] = None,
-        workspace_id: Optional[uuid.UUID] = None,
+        target_id: uuid.UUID | None = None,
+        workspace_id: uuid.UUID | None = None,
     ) -> Diagram:
         """Validate and persist canvas stroke data (Auto-Save entry point).
 
@@ -585,7 +583,7 @@ class CanvasEditor:
         self,
         diagram_id: uuid.UUID,
         target_id: uuid.UUID,
-        created_by_id: Optional[uuid.UUID] = None,
+        created_by_id: uuid.UUID | None = None,
     ) -> object:
         """Create a 'references' TraceLink between a canvas and a target artifact.
 
@@ -654,7 +652,7 @@ class CanvasEditor:
     def get_canvas(
         self,
         diagram_id: uuid.UUID,
-        version_number: Optional[int] = None,
+        version_number: int | None = None,
     ) -> CanvasExportResult:
         """Retrieve a canvas diagram with stroke data and SVG export.
 

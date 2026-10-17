@@ -16,7 +16,7 @@ parity with REST's POST /api/v1/interviews/{id}/chat/).
 """
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any
 
 from application.base import NotFoundError, ValidationError
 from application.interview_service import InterviewService
@@ -32,7 +32,7 @@ from mcp_server.tools.base import (
 from persistence.models import InterviewSession
 
 
-def _session_to_dict(session: Any, status_map: Optional[Dict[str, str]] = None) -> dict:
+def _session_to_dict(session: Any, status_map: dict[str, str] | None = None) -> dict:
     return {
         "id": str(session.id),
         "workspace_id": str(session.workspace_id),
@@ -342,11 +342,11 @@ class InterviewToolGroup(BaseToolGroup):
         },
     ]
 
-    def __init__(self, service: Optional[InterviewService] = None) -> None:
+    def __init__(self, service: InterviewService | None = None) -> None:
         self._service = service or InterviewService()
 
     def _handle_start(
-        self, *, params: Dict[str, Any], auth_context, api_key: str
+        self, *, params: dict[str, Any], auth_context, api_key: str
     ) -> ToolResult:
         # #1361: artifact_type is optional since the multi-artifact mode; an
         # OMITTED artifact_type with no explicit session_kind is the MCP
@@ -425,7 +425,7 @@ class InterviewToolGroup(BaseToolGroup):
         return self._service.get_state(auth_context, session.id)
 
     def _handle_get_state(
-        self, *, params: Dict[str, Any], auth_context, api_key: str
+        self, *, params: dict[str, Any], auth_context, api_key: str
     ) -> ToolResult:
         session_id = require_uuid(params, "session_id")
         try:
@@ -435,7 +435,7 @@ class InterviewToolGroup(BaseToolGroup):
         return ToolResult.ok(state)
 
     def _handle_answer(
-        self, *, params: Dict[str, Any], auth_context, api_key: str
+        self, *, params: dict[str, Any], auth_context, api_key: str
     ) -> ToolResult:
         session_id = require_uuid(params, "session_id")
         field = require_param(params, "field")
@@ -463,7 +463,7 @@ class InterviewToolGroup(BaseToolGroup):
         return ToolResult.ok(self._service.get_state(auth_context, session.id))
 
     def _handle_list(
-        self, *, params: Dict[str, Any], auth_context, api_key: str
+        self, *, params: dict[str, Any], auth_context, api_key: str
     ) -> ToolResult:
         workspace_id = require_uuid(params, "workspace_id")
         status = params.get("status")
@@ -477,7 +477,7 @@ class InterviewToolGroup(BaseToolGroup):
         })
 
     def _handle_get(
-        self, *, params: Dict[str, Any], auth_context, api_key: str
+        self, *, params: dict[str, Any], auth_context, api_key: str
     ) -> ToolResult:
         session_id = require_uuid(params, "session_id")
         try:
@@ -487,7 +487,7 @@ class InterviewToolGroup(BaseToolGroup):
         return ToolResult.ok(_session_to_dict(session))
 
     def _handle_grounding_context(
-        self, *, params: Dict[str, Any], auth_context, api_key: str
+        self, *, params: dict[str, Any], auth_context, api_key: str
     ) -> ToolResult:
         session_id = require_uuid(params, "session_id")
         try:
@@ -497,7 +497,7 @@ class InterviewToolGroup(BaseToolGroup):
         return ToolResult.ok(result)
 
     def _handle_formalize(
-        self, *, params: Dict[str, Any], auth_context, api_key: str
+        self, *, params: dict[str, Any], auth_context, api_key: str
     ) -> ToolResult:
         session_id = require_uuid(params, "session_id")
         # CR-05: forward the confirmed proposal so a multi-kind session is not
@@ -523,7 +523,7 @@ class InterviewToolGroup(BaseToolGroup):
         return ToolResult.ok(result)
 
     def _handle_abandon(
-        self, *, params: Dict[str, Any], auth_context, api_key: str
+        self, *, params: dict[str, Any], auth_context, api_key: str
     ) -> ToolResult:
         session_id = require_uuid(params, "session_id")
         try:
@@ -544,7 +544,7 @@ class InterviewToolGroup(BaseToolGroup):
         return ToolResult.ok(result)
 
     def _handle_set_target(
-        self, *, params: Dict[str, Any], auth_context, api_key: str
+        self, *, params: dict[str, Any], auth_context, api_key: str
     ) -> ToolResult:
         session_id = require_uuid(params, "session_id")
         artifact_id = require_uuid(params, "artifact_id")
@@ -566,7 +566,7 @@ class InterviewToolGroup(BaseToolGroup):
         return ToolResult.ok(result)
 
     def _handle_propose(
-        self, *, params: Dict[str, Any], auth_context, api_key: str
+        self, *, params: dict[str, Any], auth_context, api_key: str
     ) -> ToolResult:
         """Read-only pending-proposal readout (multi-artifact plan Task 6).
 
@@ -582,7 +582,7 @@ class InterviewToolGroup(BaseToolGroup):
         return ToolResult.ok({"proposal": proposal})
 
     def _handle_chat(
-        self, *, params: Dict[str, Any], auth_context, api_key: str
+        self, *, params: dict[str, Any], auth_context, api_key: str
     ) -> ToolResult:
         """Server-generated chat turn -- MCP parity with REST chat (issue #1164).
 

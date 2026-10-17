@@ -12,7 +12,7 @@ Tests:
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -31,7 +31,7 @@ from .conftest import active_tenant
 def _make_result(ws_id: str = "ws-1") -> MetricsResult:
     return MetricsResult(
         workspace_id=ws_id,
-        computed_at=datetime.now(tz=timezone.utc),
+        computed_at=datetime.now(tz=UTC),
         timeframe="P30D",
         volatility=VolatilityResult(total_changes=0, total_requirements=0, avg_changes_per_req=0.0),
         traceability_coverage=CoverageResult(total=0, covered=0, coverage_percent=0.0),

@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 from uuid import UUID
 
 logger = logging.getLogger(__name__)
@@ -65,7 +65,7 @@ class EntityWorkspaceSpec:
 #: local ``workspace`` FK and an ``artifact`` OneToOne; the local column is used
 #: because it needs no join. ``ArchitectureElement``/``TestCase``/
 #: ``StakeholderNeed`` carry only the artifact link.
-ENTITY_SPECS: Dict[str, EntityWorkspaceSpec] = {
+ENTITY_SPECS: dict[str, EntityWorkspaceSpec] = {
     "requirement": EntityWorkspaceSpec("persistence.models.Requirement"),
     "architecture": EntityWorkspaceSpec(
         "persistence.models.ArchitectureElement",
@@ -130,7 +130,7 @@ ENTITY_SPECS: Dict[str, EntityWorkspaceSpec] = {
 #: an ``artifact_id`` accept a *domain* id (e.g. a Requirement id) just as
 #: readily as a generic ``pl_artifact`` id, so probing only ``Artifact`` would
 #: leave the common case unresolved.
-ARTIFACT_BACKED_ENTITY_KEYS: Tuple[str, ...] = (
+ARTIFACT_BACKED_ENTITY_KEYS: tuple[str, ...] = (
     "requirement",
     "architecture",
     "need",
@@ -156,7 +156,7 @@ def import_entity_model(model_path: str) -> Any:
 
 def resolve_owning_workspace_id(
     entity_key: str, entity_id: UUID
-) -> Optional[UUID]:
+) -> UUID | None:
     """Return the workspace owning ``entity_id``, or ``None`` if unresolvable.
 
     Args:

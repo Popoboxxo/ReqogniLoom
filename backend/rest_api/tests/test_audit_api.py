@@ -12,7 +12,7 @@ so the endpoints exercise the AuditService end to end.
 from __future__ import annotations
 
 import contextlib
-from typing import Iterator
+from collections.abc import Iterator
 
 import pytest
 from rest_framework.test import APIRequestFactory

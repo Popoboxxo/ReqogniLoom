@@ -22,7 +22,6 @@ import django.db.models.manager
 from django.conf import settings
 from django.db import migrations, models
 
-
 _WORKSPACE_MEMORY_SETTINGS_TABLE = "mem_workspace_memory_settings"
 
 

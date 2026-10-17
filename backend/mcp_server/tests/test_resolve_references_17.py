@@ -23,7 +23,7 @@ Covered here:
 """
 from __future__ import annotations
 
-from typing import Any, Dict, Tuple
+from typing import Any
 from uuid import UUID, uuid4
 
 import pytest
@@ -46,7 +46,7 @@ pytestmark = pytest.mark.django_db
 # ---------------------------------------------------------------------------
 
 
-def _make_ctx(name: str) -> Tuple[Tenant, Workspace, AuthContext]:
+def _make_ctx(name: str) -> tuple[Tenant, Workspace, AuthContext]:
     """Create a Tenant + User + Workspace + AuthContext triple for *name*."""
     tenant = Tenant.objects.create(name=name, slug=name)
     user = User.objects.create(
@@ -81,7 +81,7 @@ def _ensure_workflow(workspace: Workspace, item_type: str) -> None:
         clear_request_tenant()
 
 
-def _seed_entities(workspace: Workspace, ctx: AuthContext) -> Dict[str, str]:
+def _seed_entities(workspace: Workspace, ctx: AuthContext) -> dict[str, str]:
     """Seed one entity per core artifact type; return their local uids."""
     from application.adr_service import AdrService
     from application.architecture_service import ArchitectureService
@@ -122,7 +122,7 @@ def _seed_entities(workspace: Workspace, ctx: AuthContext) -> Dict[str, str]:
 
 
 @pytest.fixture
-def resolver_env() -> Tuple[Workspace, AuthContext, Dict[str, str]]:
+def resolver_env() -> tuple[Workspace, AuthContext, dict[str, str]]:
     _, workspace, ctx = _make_ctx("resolve-refs")
     uids = _seed_entities(workspace, ctx)
     return workspace, ctx, uids
@@ -145,7 +145,7 @@ def _resolve(workspace: Workspace, ctx: AuthContext, references: list) -> Any:
 
 class TestResolvePositive:
     def test_resolves_references_across_artifact_types(
-        self, resolver_env: Tuple[Workspace, AuthContext, Dict[str, str]]
+        self, resolver_env: tuple[Workspace, AuthContext, dict[str, str]]
     ) -> None:
         workspace, ctx, uids = resolver_env
         result = _resolve(
@@ -170,7 +170,7 @@ class TestResolvePositive:
         assert data["resolved"]["ADR-042"]["artifact_type"] == "Adr"
 
     def test_response_matches_issue_example_shape(
-        self, resolver_env: Tuple[Workspace, AuthContext, Dict[str, str]]
+        self, resolver_env: tuple[Workspace, AuthContext, dict[str, str]]
     ) -> None:
         """The issue's contract verbatim: resolved keyed by reference,
         not_found for the invalid one."""
@@ -190,7 +190,7 @@ class TestResolvePositive:
         assert set(entry) == {"id", "artifact_type", "title", "description", "status"}
 
     def test_empty_reference_list_resolves_to_empty_payload(
-        self, resolver_env: Tuple[Workspace, AuthContext, Dict[str, str]]
+        self, resolver_env: tuple[Workspace, AuthContext, dict[str, str]]
     ) -> None:
         workspace, ctx, _ = resolver_env
         result = _resolve(workspace, ctx, [])
@@ -199,7 +199,7 @@ class TestResolvePositive:
         assert result.data == {"resolved": {}, "not_found": []}
 
     def test_duplicate_reference_resolves_once(
-        self, resolver_env: Tuple[Workspace, AuthContext, Dict[str, str]]
+        self, resolver_env: tuple[Workspace, AuthContext, dict[str, str]]
     ) -> None:
         workspace, ctx, _ = resolver_env
         result = _resolve(workspace, ctx, ["REQ-L1-007", "REQ-L1-007"])
@@ -216,7 +216,7 @@ class TestResolvePositive:
 
 class TestResolveNegative:
     def test_unknown_and_malformed_references_land_in_not_found(
-        self, resolver_env: Tuple[Workspace, AuthContext, Dict[str, str]]
+        self, resolver_env: tuple[Workspace, AuthContext, dict[str, str]]
     ) -> None:
         workspace, ctx, _ = resolver_env
         result = _resolve(
@@ -243,7 +243,7 @@ class TestResolveNegative:
         ]
 
     def test_reference_list_longer_than_bound_is_rejected(
-        self, resolver_env: Tuple[Workspace, AuthContext, Dict[str, str]]
+        self, resolver_env: tuple[Workspace, AuthContext, dict[str, str]]
     ) -> None:
         workspace, ctx, _ = resolver_env
         references = [f"REQ-L1-{n:03d}" for n in range(_MAX_RESOLVE_REFERENCES + 1)]
@@ -255,7 +255,7 @@ class TestResolveNegative:
         assert str(_MAX_RESOLVE_REFERENCES) in result.message
 
     def test_non_string_entries_are_rejected(
-        self, resolver_env: Tuple[Workspace, AuthContext, Dict[str, str]]
+        self, resolver_env: tuple[Workspace, AuthContext, dict[str, str]]
     ) -> None:
         workspace, ctx, _ = resolver_env
         result = _resolve(workspace, ctx, ["REQ-L1-007", 42, None])  # type: ignore[list-item]
@@ -264,7 +264,7 @@ class TestResolveNegative:
         assert result.error_code == "VALIDATION_ERROR"
 
     def test_references_must_be_a_list(
-        self, resolver_env: Tuple[Workspace, AuthContext, Dict[str, str]]
+        self, resolver_env: tuple[Workspace, AuthContext, dict[str, str]]
     ) -> None:
         workspace, ctx, _ = resolver_env
         result = _resolve(workspace, ctx, "REQ-L1-007")  # type: ignore[arg-type]
@@ -273,7 +273,7 @@ class TestResolveNegative:
         assert result.error_code == "VALIDATION_ERROR"
 
     def test_missing_references_parameter_is_rejected(
-        self, resolver_env: Tuple[Workspace, AuthContext, Dict[str, str]]
+        self, resolver_env: tuple[Workspace, AuthContext, dict[str, str]]
     ) -> None:
         workspace, ctx, _ = resolver_env
         result = CrossCuttingToolGroup().execute_tool(
@@ -287,7 +287,7 @@ class TestResolveNegative:
         assert result.error_code == "VALIDATION_ERROR"
 
     def test_invalid_workspace_uuid_is_rejected(
-        self, resolver_env: Tuple[Workspace, AuthContext, Dict[str, str]]
+        self, resolver_env: tuple[Workspace, AuthContext, dict[str, str]]
     ) -> None:
         _, ctx, _ = resolver_env
         result = CrossCuttingToolGroup().execute_tool(
@@ -301,7 +301,7 @@ class TestResolveNegative:
         assert result.error_code == "VALIDATION_ERROR"
 
     def test_unknown_workspace_reports_not_found(
-        self, resolver_env: Tuple[Workspace, AuthContext, Dict[str, str]]
+        self, resolver_env: tuple[Workspace, AuthContext, dict[str, str]]
     ) -> None:
         _, ctx, _ = resolver_env
         result = CrossCuttingToolGroup().execute_tool(
@@ -322,7 +322,7 @@ class TestResolveNegative:
 
 class TestResolveIsolation:
     def test_reference_from_other_workspace_not_resolved(
-        self, resolver_env: Tuple[Workspace, AuthContext, Dict[str, str]]
+        self, resolver_env: tuple[Workspace, AuthContext, dict[str, str]]
     ) -> None:
         """The same uid in a sibling workspace must not leak across."""
         workspace, ctx, _ = resolver_env
@@ -345,7 +345,7 @@ class TestResolveIsolation:
         assert "Foreign requirement" not in str(result.data)
 
     def test_reference_from_other_tenant_not_resolved(
-        self, resolver_env: Tuple[Workspace, AuthContext, Dict[str, str]]
+        self, resolver_env: tuple[Workspace, AuthContext, dict[str, str]]
     ) -> None:
         """Same uid in another tenant: invisible, reported not_found."""
         workspace, ctx, _ = resolver_env
@@ -373,7 +373,7 @@ class TestResolveIsolation:
         assert "Cross-tenant requirement" not in str(result.data)
 
     def test_workspace_of_other_tenant_is_not_found(
-        self, resolver_env: Tuple[Workspace, AuthContext, Dict[str, str]]
+        self, resolver_env: tuple[Workspace, AuthContext, dict[str, str]]
     ) -> None:
         """Naming a foreign-tenant workspace: NOT_FOUND, not a leak."""
         _, ctx, _ = resolver_env
@@ -398,7 +398,7 @@ class TestResolveIsolation:
 # ---------------------------------------------------------------------------
 
 
-def _make_foreign_workspace(tenant: Tenant, name: str, preset: Dict[str, Any]) -> Workspace:
+def _make_foreign_workspace(tenant: Tenant, name: str, preset: dict[str, Any]) -> Workspace:
     """Workspace B — same tenant, no role assignment for any e2e user."""
     set_request_tenant(tenant.id)
     try:
@@ -410,7 +410,7 @@ def _make_foreign_workspace(tenant: Tenant, name: str, preset: Dict[str, Any]) -
     return workspace
 
 
-def _dispatch(tool_name: str, params: Dict[str, Any], api_key: str):
+def _dispatch(tool_name: str, params: dict[str, Any], api_key: str):
     return ToolRegistry().dispatch_request(
         tool_name=tool_name, params=params, api_key=api_key
     )
@@ -422,7 +422,7 @@ class TestDispatchGate:
         e2e_userrole_viewer: Any,
         e2e_api_key_viewer: str,
         e2e_tenant: Tenant,
-        e2e_preset: Dict[str, Any],
+        e2e_preset: dict[str, Any],
     ) -> None:
         """The required ``workspace_id`` is what lets the gate scope
         the caller's roles — resolving against an unassigned workspace

@@ -21,7 +21,7 @@ req_id  : REQ-L2-MC-005 (SSE transport)
 """
 from __future__ import annotations
 
-from typing import AsyncGenerator, Optional
+from collections.abc import AsyncGenerator
 from unittest import mock
 from wsgiref.util import is_hop_by_hop
 
@@ -37,7 +37,7 @@ def _open_stream():
     """Perform an authenticated SSE handshake and return the response."""
 
     def _fake_generator(
-        session_id: str, endpoint_url: str, last_event_id: Optional[int] = None
+        session_id: str, endpoint_url: str, last_event_id: int | None = None
     ) -> AsyncGenerator[str, None]:
         async def _gen() -> AsyncGenerator[str, None]:
             yield f"data: {endpoint_url}\n\n"

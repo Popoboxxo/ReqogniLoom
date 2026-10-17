@@ -16,10 +16,10 @@ import pytest
 
 from application.base import NotFoundError, PermissionDeniedError, ValidationError
 from application.change_request_service import (
-    ChangeRequestService,
-    ChangeRequestDTO,
-    ChangeRequestValidator,
     CCB_STATES,
+    ChangeRequestDTO,
+    ChangeRequestService,
+    ChangeRequestValidator,
 )
 from application.models import ChangeRequest
 

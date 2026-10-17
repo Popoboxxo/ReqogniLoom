@@ -23,11 +23,14 @@ Architecture:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 from uuid import UUID
 
-from .definition_store import WorkflowDefinitionDTO, WorkflowDefinitionError, WorkflowDefinitionStore
+from .definition_store import (
+    WorkflowDefinitionDTO,
+    WorkflowDefinitionError,
+    WorkflowDefinitionStore,
+)
 from .precondition_rules import (
     EC_MANDATORY_FIELDS_MISSING,
     EC_REQUIREMENT_VERIFICATION_MISSING,
@@ -43,7 +46,6 @@ from .precondition_rules import (
     is_verification_transition,
 )
 from .signature_gate import CredentialVerificationRequest, SignatureGateVerifier
-
 
 # ---------------------------------------------------------------------------
 # Error codes (REQ-L3-WE002-001)
@@ -115,7 +117,7 @@ class ValidationRequest:
     proposal_author: str = ""
     change_reason: str = ""
     credential: str = ""
-    timestamp: Optional[datetime] = None
+    timestamp: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -131,9 +133,9 @@ class ValidationResult:
     """
 
     valid: bool
-    error_code: Optional[str] = None
-    error_message: Optional[str] = None
-    seal: Optional[str] = None
+    error_code: str | None = None
+    error_message: str | None = None
+    seal: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -241,7 +243,7 @@ class TransitionValidator:
     @staticmethod
     def _resolve_preset_tier(
         workspace_id: str, definition: WorkflowDefinitionDTO
-    ) -> Optional[str]:
+    ) -> str | None:
         """Return the workspace's active preset tier, or ``None`` if unknown.
 
         Issue #270 finding 1: the change_reason error message used to claim
@@ -254,7 +256,7 @@ class TransitionValidator:
         "risk_default", ...) drives one entity type and says nothing about
         the workspace's tier.
         """
-        tier: Optional[str] = None
+        tier: str | None = None
         try:
             from presets.services import get_preset
 
@@ -465,7 +467,7 @@ class TransitionValidator:
                 )
 
             # Delegate to COMP-WE-004 (IF-WE-INT-004)
-            ts = request.timestamp or datetime.now(timezone.utc)
+            ts = request.timestamp or datetime.now(UTC)
             verification_req = CredentialVerificationRequest(
                 transition_id=f"{request.item_id}:{request.current_state}:{request.target_state}",
                 user_id=request.user_id,
@@ -491,18 +493,18 @@ class TransitionValidator:
 
 
 __all__ = [
+    "EC_CHANGE_REASON_REQUIRED",
+    "EC_DEFINITION_NOT_FOUND",
+    "EC_MANDATORY_FIELDS_MISSING",
+    "EC_REQUIREMENT_VERIFICATION_MISSING",
+    "EC_ROLE_NOT_ALLOWED",
+    "EC_SIGNATURE_INVALID",
+    "EC_SIGNATURE_REQUIRED",
+    "EC_TEST_STEPS_MISSING",
+    "EC_TRANSITION_NOT_ALLOWED",
+    "EC_VERIFICATION_EVIDENCE_MISSING",
+    "EC_VERIFIES_LINK_MISSING",
     "TransitionValidator",
     "ValidationRequest",
     "ValidationResult",
-    "EC_TRANSITION_NOT_ALLOWED",
-    "EC_ROLE_NOT_ALLOWED",
-    "EC_CHANGE_REASON_REQUIRED",
-    "EC_SIGNATURE_REQUIRED",
-    "EC_SIGNATURE_INVALID",
-    "EC_DEFINITION_NOT_FOUND",
-    "EC_MANDATORY_FIELDS_MISSING",
-    "EC_VERIFICATION_EVIDENCE_MISSING",
-    "EC_VERIFIES_LINK_MISSING",
-    "EC_REQUIREMENT_VERIFICATION_MISSING",
-    "EC_TEST_STEPS_MISSING",
 ]

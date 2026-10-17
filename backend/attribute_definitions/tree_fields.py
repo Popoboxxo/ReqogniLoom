@@ -27,8 +27,9 @@ custom attribute can be configured without a code change.
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, Iterable, Mapping, Sequence
+from typing import Any
 
 #: Ordered width tokens a tree field may carry. ``full`` spans the row, ``half``
 #: shares it with a sibling; the vocabulary mirrors the attribute-layout engine's

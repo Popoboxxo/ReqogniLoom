@@ -41,6 +41,8 @@ from application.base import NotFoundError
 from application.workspace_context_service import get_tenant, get_user
 from diagram.models import Diagram, DiagramType, PayloadFormat
 from diagram.services import (
+    DiagramResult,
+    DiagramValidationError,
     create_diagram,
     delete_diagram,
     get_diagram,
@@ -48,8 +50,6 @@ from diagram.services import (
     list_diagrams,
     list_versions,
     update_diagram,
-    DiagramResult,
-    DiagramValidationError,
 )
 from rest_api.auth_enforcer import get_auth_context
 from rest_api.mixins.workflow_transitions import WorkflowTransitionsMixin

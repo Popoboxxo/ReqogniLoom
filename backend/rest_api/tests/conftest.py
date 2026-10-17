@@ -8,6 +8,7 @@ from django.core.cache import cache
 from rest_framework.test import APIClient
 
 from auth_tenancy.models import ROLE_ADMIN, ROLE_EDITOR, UserRole
+from link_types.workspace_store import provision_workspace_link_types
 from persistence.middleware import clear_request_tenant, set_request_tenant
 from persistence.models import (
     ArchitectureElement,
@@ -19,7 +20,6 @@ from persistence.models import (
     Workspace,
 )
 from traceability.types import LinkType
-from link_types.workspace_store import provision_workspace_link_types
 
 _ROLE_CLIENT_PASSWORD = "hunter2pass"
 

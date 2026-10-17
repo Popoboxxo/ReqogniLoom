@@ -115,16 +115,15 @@ from __future__ import annotations
 import json
 import logging
 import re
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from django.utils import timezone
 from django.utils.text import slugify
 
-from auth_tenancy.context import AuthContext
-
 from application.base import NotFoundError, ServiceBase
 from application.export_service import ExportResult
+from auth_tenancy.context import AuthContext
 
 if TYPE_CHECKING:  # pragma: no cover - resolved by type checkers only
     from reqif.models.reqif_core_content import ReqIFCoreContent
@@ -284,7 +283,7 @@ def _artifact_spec_object_id(artifact_id: UUID) -> str:
 
 
 def _spec_object_identifier(
-    artifact_id: UUID, reqif_identifier_by_id: Dict[UUID, str]
+    artifact_id: UUID, reqif_identifier_by_id: dict[UUID, str]
 ) -> str:
     """SPEC-OBJECT IDENTIFIER for *artifact_id* (issue #1003).
 
@@ -374,7 +373,7 @@ class ReqifExportService(ServiceBase):
             ws_uuid, exported_ids, reqif_identifier_by_id, last_change=now
         )
 
-        spec_types: List[Any] = [
+        spec_types: list[Any] = [
             self._build_need_type(now),
             self._build_requirement_type(now),
             ReqIFSpecificationType(
@@ -520,7 +519,7 @@ class ReqifExportService(ServiceBase):
     @classmethod
     def _build_spec_objects(
         cls, workspace_id: UUID, last_change: str | None = None
-    ) -> Tuple[List[ReqIFSpecObject], List[ReqIFSpecHierarchy], Dict[UUID, str]]:
+    ) -> tuple[list[ReqIFSpecObject], list[ReqIFSpecHierarchy], dict[UUID, str]]:
         """Fetch Needs+Requirements, build SPEC-OBJECTs and the hierarchy tree.
 
         Returns:
@@ -546,16 +545,16 @@ class ReqifExportService(ServiceBase):
                 "reqif_uid",
             )
         )
-        parent_by_id: Dict[UUID, Optional[UUID]] = {
+        parent_by_id: dict[UUID, UUID | None] = {
             a["id"]: a["parent_id"] for a in all_artifacts
         }
-        custom_fields_by_id: Dict[UUID, dict] = {
+        custom_fields_by_id: dict[UUID, dict] = {
             a["id"]: (a["custom_fields"] or {}) for a in all_artifacts
         }
-        reqif_identifier_by_id: Dict[UUID, str] = {
+        reqif_identifier_by_id: dict[UUID, str] = {
             a["id"]: (a["reqif_identifier"] or "") for a in all_artifacts
         }
-        reqif_uid_by_id: Dict[UUID, str] = {
+        reqif_uid_by_id: dict[UUID, str] = {
             a["id"]: (a["reqif_uid"] or "") for a in all_artifacts
         }
 
@@ -566,8 +565,8 @@ class ReqifExportService(ServiceBase):
             artifact__workspace_id=workspace_id
         ).select_related("artifact")
 
-        exported_ids: Dict[UUID, str] = {}
-        spec_objects: List[ReqIFSpecObject] = []
+        exported_ids: dict[UUID, str] = {}
+        spec_objects: list[ReqIFSpecObject] = []
 
         # Datenmodell-Konsolidierung Phase 1: ``status`` is no longer written
         # by the workflow engine, so it is resolved through
@@ -731,11 +730,11 @@ class ReqifExportService(ServiceBase):
 
     @staticmethod
     def _build_hierarchy(
-        exported_ids: Dict[UUID, str],
-        parent_by_id: Dict[UUID, Optional[UUID]],
-        reqif_identifier_by_id: Dict[UUID, str],
+        exported_ids: dict[UUID, str],
+        parent_by_id: dict[UUID, UUID | None],
+        reqif_identifier_by_id: dict[UUID, str],
         last_change: str | None = None,
-    ) -> List[ReqIFSpecHierarchy]:
+    ) -> list[ReqIFSpecHierarchy]:
         """Build nested SPEC-HIERARCHY nodes from the Artifact.parent tree.
 
         Only exported (Need/Requirement) artifacts get a hierarchy node. When
@@ -747,7 +746,7 @@ class ReqifExportService(ServiceBase):
         ``last_change`` is required by the ReqIF XSD on SPEC-HIERARCHY.
         """
 
-        def nearest_exported_ancestor(artifact_id: UUID) -> Optional[UUID]:
+        def nearest_exported_ancestor(artifact_id: UUID) -> UUID | None:
             seen: set = set()
             current = parent_by_id.get(artifact_id)
             while current is not None and current not in seen:
@@ -759,7 +758,7 @@ class ReqifExportService(ServiceBase):
 
         # hierarchy_parent[artifact_id] = nearest exported ancestor, or None
         # (=> top-level child of the SPECIFICATION).
-        children_by_parent: Dict[Optional[UUID], List[UUID]] = {}
+        children_by_parent: dict[UUID | None, list[UUID]] = {}
         for artifact_id in exported_ids:
             hp = nearest_exported_ancestor(artifact_id)
             children_by_parent.setdefault(hp, []).append(artifact_id)
@@ -770,7 +769,7 @@ class ReqifExportService(ServiceBase):
                 key=lambda aid: _spec_object_identifier(aid, reqif_identifier_by_id)
             )
 
-        def build_nodes(parent: Optional[UUID], level: int) -> List[ReqIFSpecHierarchy]:
+        def build_nodes(parent: UUID | None, level: int) -> list[ReqIFSpecHierarchy]:
             _load_reqif()
             nodes = []
             for artifact_id in children_by_parent.get(parent, []):
@@ -795,10 +794,10 @@ class ReqifExportService(ServiceBase):
     @staticmethod
     def _build_spec_relations(
         workspace_id: UUID,
-        exported_ids: Dict[UUID, str],
-        reqif_identifier_by_id: Dict[UUID, str],
+        exported_ids: dict[UUID, str],
+        reqif_identifier_by_id: dict[UUID, str],
         last_change: str | None = None,
-    ) -> Tuple[List[ReqIFSpecRelation], List[ReqIFSpecRelationType]]:
+    ) -> tuple[list[ReqIFSpecRelation], list[ReqIFSpecRelationType]]:
         _load_reqif()
         from persistence.models import TraceLink
 
@@ -806,7 +805,7 @@ class ReqifExportService(ServiceBase):
             source__workspace_id=workspace_id, target__workspace_id=workspace_id
         ).values("id", "source_id", "target_id", "link_type")
 
-        relations: List[ReqIFSpecRelation] = []
+        relations: list[ReqIFSpecRelation] = []
         used_link_types: set = set()
 
         for link in links:

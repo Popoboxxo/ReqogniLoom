@@ -18,9 +18,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 from uuid import UUID
-
 
 # ---------------------------------------------------------------------------
 # Volatility types (COMP-SM-003, IF-SM-INT-002)
@@ -58,7 +57,7 @@ class VolatilityResult:
     total_changes: int
     total_requirements: int
     avg_changes_per_req: float
-    top10_volatile: List[VolatileRequirement] = field(default_factory=list)
+    top10_volatile: list[VolatileRequirement] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -78,7 +77,7 @@ class CoverageResult:
     total: int
     covered: int
     coverage_percent: float  # rounded to 1 decimal place
-    uncovered_ids: List[str] = field(default_factory=list)
+    uncovered_ids: list[str] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -125,7 +124,7 @@ class WorkflowGapResult:
     """
 
     total_incomplete: int
-    items: List[WorkflowGap] = field(default_factory=list)
+    items: list[WorkflowGap] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -147,7 +146,7 @@ class RiskResult:
     """
 
     total: int
-    by_severity: Dict[str, int] = field(
+    by_severity: dict[str, int] = field(
         default_factory=lambda: {"critical": 0, "high": 0, "medium": 0, "low": 0}
     )
 
@@ -174,7 +173,7 @@ class VerificationCoverageResult:
     total: int = 0
     covered: int = 0
     coverage_percent: float = 0.0
-    uncovered_ids: List[str] = field(default_factory=list)
+    uncovered_ids: list[str] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -218,10 +217,10 @@ class ThresholdConfig:
     """
 
     workspace_id: str
-    traceability_coverage_min: Optional[float] = None
-    volatility_max_avg: Optional[float] = None
-    workflow_gaps_max: Optional[int] = None
-    open_risks_max_critical: Optional[int] = None
+    traceability_coverage_min: float | None = None
+    volatility_max_avg: float | None = None
+    workflow_gaps_max: int | None = None
+    open_risks_max_critical: int | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -254,9 +253,9 @@ class MetricsResult:
     verification_coverage: VerificationCoverageResult = field(
         default_factory=VerificationCoverageResult
     )
-    warnings: List[ThresholdWarning] = field(default_factory=list)
+    warnings: list[ThresholdWarning] = field(default_factory=list)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Serialize to JSON-compatible dict (REQ-L2-SM-012).
 
         Missing optional values are serialized as None/empty, never omitted.
@@ -320,15 +319,15 @@ class MetricsResult:
 
 
 __all__ = [
-    "VolatileRequirement",
-    "VolatilityResult",
     "CoverageResult",
     "IncompleteState",
+    "MetricsResult",
+    "RiskResult",
+    "ThresholdConfig",
+    "ThresholdWarning",
+    "VerificationCoverageResult",
+    "VolatileRequirement",
+    "VolatilityResult",
     "WorkflowGap",
     "WorkflowGapResult",
-    "RiskResult",
-    "ThresholdWarning",
-    "ThresholdConfig",
-    "MetricsResult",
-    "VerificationCoverageResult",
 ]

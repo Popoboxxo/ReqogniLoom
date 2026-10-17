@@ -32,7 +32,7 @@ import logging
 import time
 import urllib.error
 import urllib.request
-from typing import Any, List, Optional
+from typing import Any
 from uuid import UUID
 
 from django.conf import settings
@@ -45,7 +45,7 @@ logger = logging.getLogger(__name__)
 # ---------- Constants ----------
 
 # Event types this dispatcher subscribes to (REQ-L3-WHOOK-001)
-SUBSCRIBED_EVENT_TYPES: List[str] = [
+SUBSCRIBED_EVENT_TYPES: list[str] = [
     "RequirementCreated",
     "RequirementUpdated",
     "RequirementDeleted",
@@ -136,7 +136,7 @@ class WebhookDispatcher:
     # ---------- Private: config loading ----------
 
     @staticmethod
-    def _load_webhook_configs(workspace_id: UUID, event_type: str) -> List[Any]:
+    def _load_webhook_configs(workspace_id: UUID, event_type: str) -> list[Any]:
         """Fetch enabled WebhookSubscriptions matching workspace + event_type.
 
         IF-AS-EXT-OUT-007. REQ-L3-WHOOK-002, REQ-L3-WHOOK-009 (tenant isolation).
@@ -325,7 +325,7 @@ class WebhookDispatcher:
         url: str,
         payload_bytes: bytes,
         secret: str,
-    ) -> tuple[Optional[int], bool, str]:
+    ) -> tuple[int | None, bool, str]:
         """Perform a single HTTP POST.
 
         Returns:
@@ -362,7 +362,7 @@ class WebhookDispatcher:
 
 # ---------- Module-level singleton ----------
 
-_dispatcher_instance: Optional[WebhookDispatcher] = None
+_dispatcher_instance: WebhookDispatcher | None = None
 
 
 def get_webhook_dispatcher() -> WebhookDispatcher:
@@ -374,7 +374,7 @@ def get_webhook_dispatcher() -> WebhookDispatcher:
 
 
 __all__ = [
-    "WebhookDispatcher",
     "SUBSCRIBED_EVENT_TYPES",
+    "WebhookDispatcher",
     "get_webhook_dispatcher",
 ]

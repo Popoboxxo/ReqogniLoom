@@ -55,9 +55,9 @@ Adding a remediation for a new rule
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict, FrozenSet, List, Mapping, Optional
 
 from traceability.audit.registry import TRACE_P1, TRACE_P2, TRACE_P5
 from traceability.audit.types import Finding
@@ -97,7 +97,7 @@ class RemediationProposal:
     automatic: bool
     reason: str
     finding_artifact_ids: tuple[str, ...] = ()
-    action_kind: Optional[str] = None
+    action_kind: str | None = None
     params: Mapping[str, str] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
@@ -117,7 +117,7 @@ class RemediationProposal:
         rule_id: str,
         reason: str,
         finding_artifact_ids: tuple[str, ...] = (),
-    ) -> "RemediationProposal":
+    ) -> RemediationProposal:
         """Build a not-automatic proposal (outcome (c))."""
         return cls(
             rule_id=rule_id,
@@ -136,7 +136,7 @@ class RemediationProposal:
         link_type: str,
         reason: str,
         finding_artifact_ids: tuple[str, ...] = (),
-    ) -> "RemediationProposal":
+    ) -> RemediationProposal:
         """Build an automatic ``create_trace_link`` proposal (outcome (a)/(b))."""
         return cls(
             rule_id=rule_id,
@@ -176,7 +176,7 @@ class Remediation(ABC):
         raise NotImplementedError
 
 
-_REMEDIATION_REGISTRY: Dict[str, Remediation] = {}
+_REMEDIATION_REGISTRY: dict[str, Remediation] = {}
 
 
 def register_remediation(cls: type[Remediation]) -> type[Remediation]:
@@ -195,12 +195,12 @@ def register_remediation(cls: type[Remediation]) -> type[Remediation]:
     return cls
 
 
-def get_remediation(rule_id: str) -> Optional[Remediation]:
+def get_remediation(rule_id: str) -> Remediation | None:
     """Return the registered remediation for *rule_id*, or ``None``."""
     return _REMEDIATION_REGISTRY.get(rule_id)
 
 
-def get_registered_remediations() -> Dict[str, Remediation]:
+def get_registered_remediations() -> dict[str, Remediation]:
     """Return a copy of the ``rule_id -> Remediation`` registry."""
     return dict(_REMEDIATION_REGISTRY)
 
@@ -218,7 +218,7 @@ def clear_remediation_registry() -> None:  # pragma: no cover — test/tooling h
 # ---------------------------------------------------------------------------
 
 
-def _stakeholder_need_artifact_ids(tenant_id: str, workspace_id: str) -> FrozenSet[str]:
+def _stakeholder_need_artifact_ids(tenant_id: str, workspace_id: str) -> frozenset[str]:
     """Return artifact ids of active StakeholderNeeds in the workspace.
 
     Datenmodell-Konsolidierung Phase 1: StakeholderNeed's soft-delete state
@@ -250,7 +250,7 @@ def _stakeholder_need_artifact_ids(tenant_id: str, workspace_id: str) -> FrozenS
     )
 
 
-def _architecture_artifact_ids(tenant_id: str, workspace_id: str) -> FrozenSet[str]:
+def _architecture_artifact_ids(tenant_id: str, workspace_id: str) -> frozenset[str]:
     """Return artifact ids of active ArchitectureElements in the workspace.
 
     ArchitectureElement has no status mirror — ``outdate()`` writes only
@@ -413,14 +413,14 @@ class RequirementAllocatedToArchitectureRemediation(Remediation):
 
 
 __all__ = [
+    "Remediation",
     "RemediationActionKind",
     "RemediationProposal",
-    "Remediation",
-    "register_remediation",
-    "get_remediation",
-    "get_registered_remediations",
-    "clear_remediation_registry",
+    "RequirementAllocatedToArchitectureRemediation",
     "RequirementDecompositionDerivationRemediation",
     "SystemRequirementDerivesFromNeedRemediation",
-    "RequirementAllocatedToArchitectureRemediation",
+    "clear_remediation_registry",
+    "get_registered_remediations",
+    "get_remediation",
+    "register_remediation",
 ]

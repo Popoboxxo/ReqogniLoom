@@ -28,7 +28,6 @@ from workflow.definition_store import (
 )
 from workflow.models import WorkflowEngineDefinition, WorkflowItemState
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -60,6 +59,7 @@ def _make_def(
 
 def _tenant_id() -> uuid.UUID:
     from django.conf import settings
+
     from persistence.models import Tenant
 
     t = Tenant.objects.filter(slug="test-tenant").first()

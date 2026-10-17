@@ -24,7 +24,6 @@ req_id: REQ-L2-PT-001
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, Tuple
 
 
 @dataclass(frozen=True)
@@ -33,7 +32,7 @@ class PromptSlotSpec:
 
     name: str
     default_content: str
-    data_variables: Tuple[str, ...]
+    data_variables: tuple[str, ...]
 
 
 #: Every ``interview.protocol.<Type>`` slot is rendered with the same set.
@@ -44,7 +43,7 @@ class PromptSlotSpec:
 #: other AI slot. The per-type YAML protocol slots are only *parsed* as YAML
 #: (``interview_protocol.get_protocol`` via ``try_resolve_template_content``),
 #: never rendered, so declaring the variable there is inert for them.
-INTERVIEW_PROTOCOL_DATA_VARIABLES: Tuple[str, ...] = (
+INTERVIEW_PROTOCOL_DATA_VARIABLES: tuple[str, ...] = (
     "artifact_type",
     "phase_name",
     "collected_fields_json",
@@ -63,7 +62,7 @@ INTERVIEW_PROTOCOL_DATA_VARIABLES: Tuple[str, ...] = (
 #: The one deliberate exception is ``interview.transcript_summary`` -- it
 #: compacts an already-supplied transcript and must not introduce outside
 #: facts into that digest, so it stays memory-free.
-_DATA_VARIABLES_BY_SLOT: Dict[str, Tuple[str, ...]] = {
+_DATA_VARIABLES_BY_SLOT: dict[str, tuple[str, ...]] = {
     "need_to_sysreq": ("need_title", "need_description", "memory_context"),
     "sysreq_to_arch_assign": (
         "req_title",
@@ -116,7 +115,7 @@ _DATA_VARIABLES_BY_SLOT: Dict[str, Tuple[str, ...]] = {
 }
 
 
-def get_prompt_slots() -> Dict[str, PromptSlotSpec]:
+def get_prompt_slots() -> dict[str, PromptSlotSpec]:
     """Return the merged factory registry, keyed by slot name.
 
     Rebuilt per call (cheap dict comprehension over ~20 entries) so a test
@@ -130,7 +129,7 @@ def get_prompt_slots() -> Dict[str, PromptSlotSpec]:
     from application.interview_protocol import INTERVIEW_PROTOCOL_DEFAULTS
     from memory.prompts import MEMORY_PROMPT_DEFAULTS
 
-    merged: Dict[str, str] = {
+    merged: dict[str, str] = {
         **PROMPT_TEMPLATE_DEFAULTS,
         **INTERVIEW_PROTOCOL_DEFAULTS,
         **MEMORY_PROMPT_DEFAULTS,
@@ -138,7 +137,7 @@ def get_prompt_slots() -> Dict[str, PromptSlotSpec]:
         # slot, editable through AiPromptsSection like every other one.
         "architecture_decompose_tree": ARCH_DECOMPOSE_PROMPT_TEMPLATE,
     }
-    slots: Dict[str, PromptSlotSpec] = {}
+    slots: dict[str, PromptSlotSpec] = {}
     for name, content in merged.items():
         if name.startswith("interview.protocol."):
             data_variables = INTERVIEW_PROTOCOL_DATA_VARIABLES
@@ -156,7 +155,7 @@ def get_slot_default(name: str) -> str | None:
     return spec.default_content if spec is not None else None
 
 
-def get_slot_data_variables(name: str) -> Tuple[str, ...]:
+def get_slot_data_variables(name: str) -> tuple[str, ...]:
     """Return the declared data variables of *name* (empty for unknown slots)."""
     spec = get_prompt_slots().get(name)
     return spec.data_variables if spec is not None else ()

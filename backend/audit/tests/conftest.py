@@ -7,16 +7,14 @@ from __future__ import annotations
 
 import contextlib
 import uuid
-from typing import Iterator
+from collections.abc import Iterator
 
 import pytest
 
-from persistence.models import Tenant
-from persistence.tenancy import TenantContext
-
 from audit.events import DomainEventBus
 from audit.models import AuditEntry
-
+from persistence.models import Tenant
+from persistence.tenancy import TenantContext
 
 # ---------------------------------------------------------------------------
 # Tenant fixtures

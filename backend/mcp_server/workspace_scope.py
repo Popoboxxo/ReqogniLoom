@@ -76,7 +76,8 @@ enforcing it.
 """
 from __future__ import annotations
 
-from typing import Any, Dict, Mapping, Optional, Tuple
+from collections.abc import Mapping
+from typing import Any
 from uuid import UUID
 
 from application.workspace_lookup import (
@@ -89,7 +90,7 @@ from application.workspace_lookup import (
 # ---------------------------------------------------------------------------
 
 
-def _artifact_or_domain(param: str) -> Tuple[Tuple[str, str], ...]:
+def _artifact_or_domain(param: str) -> tuple[tuple[str, str], ...]:
     """Targets for a param naming either an Artifact or a domain entity."""
     return ((param, "artifact"),) + tuple(
         (param, key) for key in ARTIFACT_BACKED_ENTITY_KEYS
@@ -99,7 +100,7 @@ def _artifact_or_domain(param: str) -> Tuple[Tuple[str, str], ...]:
 #: ``tool name -> ((param, entity key), ...)``, probed in order, first hit wins.
 #: Only tools that name an object by id belong here — tools whose
 #: ``workspace_id`` is required are scoped by the dispatcher without help.
-_TOOL_TARGETS: Dict[str, Tuple[Tuple[str, str], ...]] = {
+_TOOL_TARGETS: dict[str, tuple[tuple[str, str], ...]] = {
     # -- reads ---------------------------------------------------------
     "adr.read": (("id", "adr"),),
     "architecture.get": (("id", "architecture"),),
@@ -403,7 +404,7 @@ TENANT_SCOPED_READ_TOOLS: frozenset[str] = frozenset(
 
 def resolve_target_workspace_id(
     tool_name: str, params: Mapping[str, Any]
-) -> Optional[str]:
+) -> str | None:
     """Return the workspace owning the object ``tool_name`` targets.
 
     Args:

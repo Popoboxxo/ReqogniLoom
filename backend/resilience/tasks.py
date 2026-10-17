@@ -14,7 +14,7 @@ Traceability: REQ-L2-RO-001 -> REQ-L1-032
 """
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
 # Celery is optional. When the package is unavailable we expose ``shared_task`` as
 # a no-op decorator so this module imports cleanly and the synchronous fallback in
@@ -42,7 +42,7 @@ except Exception:  # noqa: BLE001
 def execute_optional_task(
     target_subsystem: str,
     operation_path: str,
-    payload: Optional[dict] = None,
+    payload: dict | None = None,
 ) -> Any:
     """Celery worker entry point: resolve and run an optional call under policy.
 

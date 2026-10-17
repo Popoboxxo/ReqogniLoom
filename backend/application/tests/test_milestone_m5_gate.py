@@ -74,11 +74,10 @@ def test_diff_between_two_stored_revisions(diffable_requirement):
 
 @pytest.fixture
 def diffable_requirement(db):
+    from application.requirement_service import RequirementService
     from auth_tenancy.context import AuthContext, AuthMethod
     from persistence.models import Tenant, Workspace
     from persistence.tenancy import TenantContext
-
-    from application.requirement_service import RequirementService
 
     tenant = Tenant.objects.create(name="t-m5", slug=f"t-m5-{uuid.uuid4().hex[:8]}")
     TenantContext.set_tenant(tenant.id)
@@ -128,9 +127,6 @@ def _mock_arch_artifact_resolution():
 @pytest.fixture
 def diffable_icd(db, _mock_arch_artifact_resolution):
     from auth_tenancy.context import AuthContext, AuthMethod
-    from persistence.models import Tenant, Workspace
-    from persistence.tenancy import TenantContext
-
     from icd.services import (
         IcdCreateDTO,
         IcdParameterCreateDTO,
@@ -139,6 +135,8 @@ def diffable_icd(db, _mock_arch_artifact_resolution):
         create_icd_parameter,
         update_icd,
     )
+    from persistence.models import Tenant, Workspace
+    from persistence.tenancy import TenantContext
 
     tenant = Tenant.objects.create(name="t-m5-icd", slug=f"t-m5-icd-{uuid.uuid4().hex[:8]}")
     TenantContext.set_tenant(tenant.id)

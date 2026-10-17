@@ -17,6 +17,7 @@ from django.core.management import call_command
 from django.db import connection
 from django.db.migrations.executor import MigrationExecutor
 
+
 def _historical_apps():
     """The model registry ``0073``'s RunPython functions really receive.
 

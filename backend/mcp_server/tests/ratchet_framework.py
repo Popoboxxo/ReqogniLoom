@@ -76,9 +76,10 @@ from __future__ import annotations
 import json
 import os
 import re
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Set, Tuple, Union
+from typing import Any, Union
 
 __all__ = [
     "CONTRACT_VERSION",
@@ -196,7 +197,7 @@ class RebaselineEntryPoint:
         return f"{self.legacy_env}={self.placeholder}" if self.legacy_env else "--"
 
 
-REBASELINE_ENTRY_POINTS: Tuple[RebaselineEntryPoint, ...] = (
+REBASELINE_ENTRY_POINTS: tuple[RebaselineEntryPoint, ...] = (
     RebaselineEntryPoint(
         ratchet="entity-surface-parity",
         suite="backend/mcp_server/tests/test_entity_surface_parity.py",
@@ -247,7 +248,7 @@ REBASELINE_ENTRY_POINTS: Tuple[RebaselineEntryPoint, ...] = (
 )
 
 
-def entry_point(point: Union[RebaselineEntryPoint, str]) -> RebaselineEntryPoint:
+def entry_point(point: RebaselineEntryPoint | str) -> RebaselineEntryPoint:
     """Resolve a ratchet id (or pass through an entry point)."""
     if isinstance(point, RebaselineEntryPoint):
         return point
@@ -258,7 +259,7 @@ def entry_point(point: Union[RebaselineEntryPoint, str]) -> RebaselineEntryPoint
     raise RatchetError(f"unknown ratchet {point!r}; known ratchets: {known}")
 
 
-def rebaseline_hint(point: Union[RebaselineEntryPoint, str]) -> str:
+def rebaseline_hint(point: RebaselineEntryPoint | str) -> str:
     """The copy-pasteable command, for failure messages that offer a way out."""
     return entry_point(point).command
 
@@ -269,11 +270,11 @@ def rebaseline_hint(point: Union[RebaselineEntryPoint, str]) -> str:
 
 
 def resolve_rebaseline_target(
-    point: Union[RebaselineEntryPoint, str],
+    point: RebaselineEntryPoint | str,
     *,
-    default_path: Optional[Path] = None,
-    env: Optional[Mapping[str, str]] = None,
-) -> Optional[Path]:
+    default_path: Path | None = None,
+    env: Mapping[str, str] | None = None,
+) -> Path | None:
     """Return where a re-baseline should write, or ``None`` for a normal run.
 
     The canonical env var wins; the documented legacy alias is honoured so the
@@ -311,9 +312,9 @@ class BaselineDiff:
     """A measured set split against a baselined set."""
 
     #: Measured now, absent from the baseline -- a gap nobody has accepted.
-    new: Tuple[str, ...]
+    new: tuple[str, ...]
     #: Baselined, absent from the measurement -- a claim that is no longer true.
-    rotated: Tuple[str, ...]
+    rotated: tuple[str, ...]
 
 
 def split_baseline(
@@ -324,13 +325,13 @@ def split_baseline(
     Both sides are keyed sets: a ratchet's measurement must be idempotent per
     key, otherwise the diff cannot say which entry is the new one.
     """
-    live: Set[str] = set(measured)
-    known: Set[str] = set(baselined)
+    live: set[str] = set(measured)
+    known: set[str] = set(baselined)
     return BaselineDiff(new=tuple(sorted(live - known)), rotated=tuple(sorted(known - live)))
 
 
 def assert_no_undocumented_gaps(
-    diff: BaselineDiff, point: Union[RebaselineEntryPoint, str]
+    diff: BaselineDiff, point: RebaselineEntryPoint | str
 ) -> None:
     """Fail when the measurement produced a gap the baseline does not accept."""
     resolved = entry_point(point)
@@ -348,7 +349,7 @@ def assert_no_undocumented_gaps(
 
 
 def assert_no_stale_entries(
-    diff: BaselineDiff, point: Union[RebaselineEntryPoint, str]
+    diff: BaselineDiff, point: RebaselineEntryPoint | str
 ) -> None:
     """Fail when an accepted gap no longer reproduces.
 
@@ -391,14 +392,14 @@ class Gap:
     #: True when the baseline still stores this gap as a bare string.
     legacy: bool = False
 
-    def as_entry(self) -> Union[str, Dict[str, str]]:
+    def as_entry(self) -> str | dict[str, str]:
         """The shape this gap is written back in."""
         if self.legacy:
             return self.key
         return {"gap": self.key, "reason": self.reason, "issue": self.issue}
 
 
-def _check_reason(reason: Any, label: str) -> Optional[str]:
+def _check_reason(reason: Any, label: str) -> str | None:
     """Return a problem string, or None when *reason* is substantive enough."""
     if not isinstance(reason, str) or not reason.strip():
         return f"{label}: reason must be a non-empty string"
@@ -411,14 +412,14 @@ def _check_reason(reason: Any, label: str) -> Optional[str]:
     return None
 
 
-def _check_issue(issue: Any, label: str) -> Optional[str]:
+def _check_issue(issue: Any, label: str) -> str | None:
     """Return a problem string, or None when *issue* references a tracker item."""
     if not isinstance(issue, str) or not ISSUE_PATTERN.search(issue):
         return f"{label}: issue must reference a tracker item (e.g. '#1103')"
     return None
 
 
-def _validate_gap_entry(entry: Any) -> Tuple[Optional[Gap], Optional[str]]:
+def _validate_gap_entry(entry: Any) -> tuple[Gap | None, str | None]:
     """Classify one baseline entry as (gap, None) or (None, problem)."""
     if isinstance(entry, str):
         if not ISSUE_PATTERN.search(entry):
@@ -461,14 +462,14 @@ def normalise_gap(entry: Any, *, source: str = "") -> Gap:
     return gap
 
 
-def load_gaps(entries: Sequence[Any], *, source: str = "") -> List[Gap]:
+def load_gaps(entries: Sequence[Any], *, source: str = "") -> list[Gap]:
     """Validate every entry of a baseline's gap list, reporting all problems at once.
 
     Enforced on LOAD: a baseline that carries an unjustified accepted gap fails
     here, before any comparison runs.
     """
-    gaps: List[Gap] = []
-    problems: List[str] = []
+    gaps: list[Gap] = []
+    problems: list[str] = []
     for index, entry in enumerate(entries):
         gap, problem = _validate_gap_entry(entry)
         if problem is not None:
@@ -487,7 +488,7 @@ def load_gaps(entries: Sequence[Any], *, source: str = "") -> List[Gap]:
     return gaps
 
 
-def gap_keys(entries: Sequence[Any], *, source: str = "") -> Set[str]:
+def gap_keys(entries: Sequence[Any], *, source: str = "") -> set[str]:
     """The set of accepted gap keys in a baseline's gap list."""
     return {gap.key for gap in load_gaps(entries, source=source)}
 
@@ -498,8 +499,8 @@ def gap_keys(entries: Sequence[Any], *, source: str = "") -> Set[str]:
 
 
 def load_justifications(
-    env: Optional[Mapping[str, str]] = None,
-) -> Dict[str, Justification]:
+    env: Mapping[str, str] | None = None,
+) -> dict[str, Justification]:
     """Read ``$RATCHET_JUSTIFY`` -- the justifications a dump has to carry.
 
     The value is either a path to a JSON file or inline JSON; both must decode
@@ -536,7 +537,7 @@ def load_justifications(
     return data
 
 
-def _justification_parts(value: Justification) -> Tuple[str, str, Optional[str]]:
+def _justification_parts(value: Justification) -> tuple[str, str, str | None]:
     """Split a justification into (reason, issue, problem)."""
     if isinstance(value, str):
         problem = _check_reason(value, "justification") or _check_issue(value, "justification")
@@ -558,9 +559,9 @@ def _justification_parts(value: Justification) -> Tuple[str, str, Optional[str]]
 
 def unjustified_keys(
     diff: BaselineDiff,
-    point: Union[RebaselineEntryPoint, str],
-    justify: Optional[Mapping[str, Justification]] = None,
-) -> List[str]:
+    point: RebaselineEntryPoint | str,
+    justify: Mapping[str, Justification] | None = None,
+) -> list[str]:
     """The widening entries that lack a usable justification.
 
     "Widening" is :data:`JUSTIFY_NEW` for a ratchet whose baseline lists accepted
@@ -572,7 +573,7 @@ def unjustified_keys(
     widening = (
         diff.rotated if resolved.justify_direction == JUSTIFY_ROTATED else diff.new
     )
-    problems: List[str] = []
+    problems: list[str] = []
     for key in widening:
         if key not in justifications:
             problems.append(f"    {key}: no justification supplied")
@@ -585,8 +586,8 @@ def unjustified_keys(
 
 def assert_dump_justified(
     diff: BaselineDiff,
-    point: Union[RebaselineEntryPoint, str],
-    justify: Optional[Mapping[str, Justification]] = None,
+    point: RebaselineEntryPoint | str,
+    justify: Mapping[str, Justification] | None = None,
 ) -> None:
     """Refuse a dump that widens the accepted set without justification.
 
@@ -622,12 +623,12 @@ def assert_dump_justified(
 
 def write_baseline(
     *,
-    point: Union[RebaselineEntryPoint, str],
+    point: RebaselineEntryPoint | str,
     target: Path,
     measured: Iterable[str],
-    previous: Optional[Mapping[str, Any]] = None,
-    justify: Optional[Mapping[str, Justification]] = None,
-    document: Optional[Mapping[str, Any]] = None,
+    previous: Mapping[str, Any] | None = None,
+    justify: Mapping[str, Justification] | None = None,
+    document: Mapping[str, Any] | None = None,
     gaps_key: str = "violations",
 ) -> BaselineDiff:
     """Write a re-baselined gap list, refusing an unjustified widening.
@@ -652,7 +653,7 @@ def write_baseline(
     diff = split_baseline(measured_keys, known)
     assert_dump_justified(diff, resolved, justifications)
 
-    entries: List[Union[str, Dict[str, str]]] = []
+    entries: list[str | dict[str, str]] = []
     for key in sorted(measured_keys):
         existing = known.get(key)
         if existing is not None:
@@ -662,7 +663,7 @@ def write_baseline(
         assert problem is None  # assert_dump_justified already checked this
         entries.append({"gap": key, "reason": reason, "issue": issue})
 
-    out: Dict[str, Any] = dict(document or {})
+    out: dict[str, Any] = dict(document or {})
     out[gaps_key] = entries
     # Provenance: the widening is auditable in the diff that produced it.
     out["rebaselined_by"] = resolved.command
@@ -674,17 +675,17 @@ def write_baseline(
 
 
 def maybe_rebaseline(
-    point: Union[RebaselineEntryPoint, str],
+    point: RebaselineEntryPoint | str,
     *,
     measured: Iterable[str],
-    previous: Optional[Mapping[str, Any]] = None,
-    document: Optional[Mapping[str, Any]] = None,
-    target: Optional[Path] = None,
-    default_path: Optional[Path] = None,
-    justify: Optional[Mapping[str, Justification]] = None,
+    previous: Mapping[str, Any] | None = None,
+    document: Mapping[str, Any] | None = None,
+    target: Path | None = None,
+    default_path: Path | None = None,
+    justify: Mapping[str, Justification] | None = None,
     gaps_key: str = "violations",
-    env: Optional[Mapping[str, str]] = None,
-) -> Optional[BaselineDiff]:
+    env: Mapping[str, str] | None = None,
+) -> BaselineDiff | None:
     """Write a re-baseline -- and ONLY when the named env var asks for one.
 
     The whole of part 1 in one call: a normal run resolves no target, reads no

@@ -32,8 +32,8 @@ import pytest
 from django.core.management import call_command
 from rest_framework.test import APIClient
 
-from auth_tenancy.models import ROLE_ADMIN, UserRole
 from attribute_definitions.mandatory_fields import required_attribute_names
+from auth_tenancy.models import ROLE_ADMIN, UserRole
 from persistence.middleware import clear_request_tenant, set_request_tenant
 from persistence.models import Tenant, User, Workspace
 from presets.registry import get_registry

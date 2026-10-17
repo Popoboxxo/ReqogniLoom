@@ -6,8 +6,8 @@ REQ-L2-PL-009 (on_delete rules).
 """
 from __future__ import annotations
 
-import uuid
 import time
+import uuid
 
 import pytest
 from django.db.models import F, ProtectedError

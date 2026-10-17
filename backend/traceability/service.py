@@ -32,7 +32,6 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
-from typing import Optional
 
 from django.db import connection
 
@@ -60,7 +59,7 @@ class ImpactNode:
     artifact_id: str
     artifact_type: str          # from Artifact.artifact_type
     title: str                  # from the backing domain entity
-    uid: Optional[str]          # from the backing domain entity (may be None)
+    uid: str | None          # from the backing domain entity (may be None)
     link_type: str              # the link type that led to this node
     depth: int                  # hops from the start node (>= 1)
     path: list[str] = field(default_factory=list)  # artifact_ids start -> node
@@ -102,8 +101,8 @@ class ResolvedArtifact:
 
     artifact_id: str
     resolved: bool
-    entity_type: Optional[str] = None
-    entity_id: Optional[str] = None
+    entity_type: str | None = None
+    entity_id: str | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -130,7 +129,7 @@ def _clamp_limit(limit: int) -> int:
     return min(int(limit), MAX_LIMIT)
 
 
-def _validate_link_types(link_types: Optional[list[str]]) -> Optional[list[str]]:
+def _validate_link_types(link_types: list[str] | None) -> list[str] | None:
     """Return a cleaned link_types list, or None. Unknown values are dropped."""
     if not link_types:
         return None
@@ -218,9 +217,9 @@ def _enrich(artifact_ids: list[str], tenant_id: uuid.UUID) -> dict[str, dict]:
 
 def impact_analysis(
     artifact_id: uuid.UUID,
-    workspace_id: Optional[uuid.UUID],
+    workspace_id: uuid.UUID | None,
     tenant_id: uuid.UUID,
-    link_types: Optional[list[str]] = None,
+    link_types: list[str] | None = None,
     direction: str = "outgoing",
     max_depth: int = DEFAULT_MAX_DEPTH,
     limit: int = DEFAULT_LIMIT,
@@ -347,10 +346,10 @@ def impact_analysis(
 def find_path(
     source_id: uuid.UUID,
     target_id: uuid.UUID,
-    workspace_id: Optional[uuid.UUID],
+    workspace_id: uuid.UUID | None,
     tenant_id: uuid.UUID,
     max_depth: int = DEFAULT_MAX_DEPTH,
-) -> Optional[list[TracePath]]:
+) -> list[TracePath] | None:
     """Return the shortest path(s) from *source_id* to *target_id*.
 
     Follows directed outgoing edges (source -> target). Uses a BFS-style
@@ -499,7 +498,7 @@ def detect_cycles(
 #: Kept as a function-local import list (not module-level) to avoid circular
 #: imports between ``traceability`` and ``persistence``/``application``,
 #: exactly like ``_enrich`` above.
-def _domain_model_registry() -> "list[tuple[str, object, bool]]":
+def _domain_model_registry() -> list[tuple[str, object, bool]]:
     """Return ``(entity_type_label, model, is_tenant_scoped)`` for every type.
 
     ``is_tenant_scoped`` drives an explicit, redundant ``tenant_id`` filter in
@@ -520,13 +519,13 @@ def _domain_model_registry() -> "list[tuple[str, object, bool]]":
     yet — the same failure class as the previous direct import raising
     ``ImportError`` in that situation.
     """
+    from persistence.domain_model_registry import get_models
     from persistence.models import (
         ArchitectureElement,
         Requirement,
         StakeholderNeed,
         TestCase,
     )
-    from persistence.domain_model_registry import get_models
 
     app_models = get_models("Adr", "Risk", "Issue", "Goal", "MainGoal")
     Adr = app_models["Adr"]
@@ -676,16 +675,16 @@ def resolve_artifacts(
 
 
 __all__ = [
-    "ImpactNode",
-    "TracePath",
-    "ResolvedArtifact",
-    "impact_analysis",
-    "find_path",
-    "detect_cycles",
-    "resolve_artifacts",
-    "MAX_DEPTH_CAP",
-    "DEFAULT_MAX_DEPTH",
     "DEFAULT_LIMIT",
+    "DEFAULT_MAX_DEPTH",
+    "MAX_DEPTH_CAP",
     "MAX_LIMIT",
     "RESOLVE_BATCH_LIMIT",
+    "ImpactNode",
+    "ResolvedArtifact",
+    "TracePath",
+    "detect_cycles",
+    "find_path",
+    "impact_analysis",
+    "resolve_artifacts",
 ]

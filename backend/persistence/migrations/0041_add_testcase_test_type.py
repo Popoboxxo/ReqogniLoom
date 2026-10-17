@@ -23,7 +23,6 @@ Reversibility:
 
 from django.db import migrations, models
 
-
 # Legacy artifact_type prefix -> canonical test_type value.
 _ARTIFACT_TYPE_TO_TEST_TYPE = {
     'TestCase:System': 'system',

@@ -35,14 +35,12 @@ Reference:
 from __future__ import annotations
 
 import logging
-from typing import Optional
 from uuid import UUID
 
+from application.event_bus import DomainEvent, get_event_bus
 from auth_tenancy.context import AuthContext
 from persistence.errors import NotFoundError, PermissionDeniedError, ValidationError
 from persistence.tenancy import TenantContext
-
-from application.event_bus import DomainEvent, get_event_bus
 
 logger = logging.getLogger(__name__)
 
@@ -253,8 +251,8 @@ class ServiceBase:
         operation: str,
         entity_type: str,
         entity_id: UUID,
-        change_reason: Optional[str] = None,
-        details: Optional[dict] = None,
+        change_reason: str | None = None,
+        details: dict | None = None,
     ) -> None:
         """Write a synchronous AuditLog entry inside the current transaction.
 
@@ -319,7 +317,7 @@ class ServiceBase:
     @staticmethod
     def _baseline_drift_details(
         artifact_id: UUID, ctx: AuthContext
-    ) -> Optional[dict]:
+    ) -> dict | None:
         """Return ``{"baseline_drift": [...]}`` for an edit's audit entry.
 
         #399 (cluster 5, decision D1): membership in a baseline produces a
@@ -400,7 +398,7 @@ class ServiceBase:
         event_type: str,
         entity_id: UUID,
         workspace_id: UUID,
-        payload: Optional[dict] = None,
+        payload: dict | None = None,
     ) -> DomainEvent:
         """Construct a DomainEvent with optional extra payload."""
         return DomainEvent(
@@ -412,16 +410,16 @@ class ServiceBase:
 
 
 __all__ = [
-    "ServiceBase",
     "BaselineGateBlockedError",
-    "WaiverReasonPolicyViolation",
-    "WaiverFindingNotBlockingError",
-    "SuppressionExpiredError",
-    "ProducerContextRequiredError",
-    "require_producer_context",
-    "PermissionDeniedError",
-    "NotFoundError",
-    "ValidationError",
-    "OptimisticLockError",
     "LlmNotConfiguredError",
+    "NotFoundError",
+    "OptimisticLockError",
+    "PermissionDeniedError",
+    "ProducerContextRequiredError",
+    "ServiceBase",
+    "SuppressionExpiredError",
+    "ValidationError",
+    "WaiverFindingNotBlockingError",
+    "WaiverReasonPolicyViolation",
+    "require_producer_context",
 ]

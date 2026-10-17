@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Optional
 from unittest.mock import MagicMock, patch
 
@@ -34,7 +34,6 @@ from se_metrics.types import (
     WorkflowGapResult,
 )
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -44,7 +43,7 @@ def _make_metrics_result(workspace_id: str = "ws-1", timeframe: str = "P30D") ->
     """Build a minimal MetricsResult fixture."""
     return MetricsResult(
         workspace_id=workspace_id,
-        computed_at=datetime.now(tz=timezone.utc),
+        computed_at=datetime.now(tz=UTC),
         timeframe=timeframe,
         volatility=VolatilityResult(
             total_changes=10, total_requirements=5, avg_changes_per_req=2.0
@@ -227,6 +226,7 @@ class TestMetricsCacheManagerWithDb:
     def test_stale_cache_returns_none(self, db):
         """Cached entry past TTL returns None."""
         import django.utils.timezone as dj_tz
+
         from se_metrics.models import MetricCache
 
         mgr = MetricsCacheManager()

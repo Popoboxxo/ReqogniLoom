@@ -50,7 +50,7 @@ Scoping and permissions
 from __future__ import annotations
 
 import logging
-from typing import Any, Optional
+from typing import Any
 from uuid import UUID
 
 from drf_spectacular.utils import OpenApiParameter, extend_schema
@@ -137,7 +137,7 @@ def _parse_states(request: Request) -> list[str] | None:
     return states or None
 
 
-def _parse_item_type(request: Request) -> Optional[str]:
+def _parse_item_type(request: Request) -> str | None:
     """Read the optional ``?item_type=`` filter (``None`` = every type)."""
     value = request.query_params.get("item_type")
     if value is None:

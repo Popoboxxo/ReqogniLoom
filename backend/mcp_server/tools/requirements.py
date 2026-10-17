@@ -31,19 +31,17 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any, Dict, Optional
-
-from auth_tenancy.context import AuthContext
+from typing import Any
 
 from application.services import (
     LlmNotConfiguredError,
     NotFoundError,
+    PermissionDeniedError,
     ProducerContextRequiredError,
     RequirementService,
     ValidationError,
-    PermissionDeniedError,
 )
-
+from auth_tenancy.context import AuthContext
 from mcp_server.protocol_handler import ToolResult
 from mcp_server.tools.base import (
     BaseToolGroup,
@@ -69,8 +67,8 @@ logger = logging.getLogger(__name__)
 
 
 def _requirement_to_dict(
-    req: Any, status_map: Optional[Dict[str, str]] = None
-) -> Dict[str, Any]:
+    req: Any, status_map: dict[str, str] | None = None
+) -> dict[str, Any]:
     """Serialise a Requirement ORM object to a dict for MCP response.
 
     Issue #409: SE mask fields (acceptance_criteria, type,
@@ -91,7 +89,7 @@ def _requirement_to_dict(
     ``suggestion.list`` candidate's ``artifact_id`` into
     ``requirement.get``/``requirement.query``.
     """
-    result: Dict[str, Any] = {
+    result: dict[str, Any] = {
         "id": str(req.id),
         # The MCP requirement surface used to expose only the Requirement row
         # id, while sibling tools hand back ARTIFACT ids:
@@ -552,7 +550,7 @@ class RequirementsToolGroup(BaseToolGroup):
         },
     ]
 
-    def __init__(self, service: Optional[RequirementService] = None) -> None:
+    def __init__(self, service: RequirementService | None = None) -> None:
         self._service = service or RequirementService()
 
     # ------------------------------------------------------------------
@@ -560,7 +558,7 @@ class RequirementsToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_get(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """requirement.get — fetch a single requirement by UUID."""
         req_id = require_uuid(params, "id")
@@ -577,7 +575,7 @@ class RequirementsToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_query(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """requirement.query — list requirements, optionally filtered by workspace."""
         workspace_id = optional_uuid(params, "workspace_id")
@@ -609,7 +607,7 @@ class RequirementsToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_create(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """requirement.create — create a new requirement (write, audited)."""
         title = require_param(params, "title")
@@ -703,11 +701,11 @@ class RequirementsToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_update(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """requirement.update — update an existing requirement (write, audited)."""
         req_id = require_uuid(params, "id")
-        data: Dict[str, Any] = params.get("data") or {}
+        data: dict[str, Any] = params.get("data") or {}
 
         # #601: the documented contract nests fields under `data` (#21), but
         # need.update's contract is flat top-level params -- that cross-tool
@@ -752,14 +750,14 @@ class RequirementsToolGroup(BaseToolGroup):
         # Only forward custom_fields when the caller actually sent it: the
         # service uses an `_UNSET` sentinel so an absent key must not be
         # conflated with "clear the map".
-        custom_fields_kwargs: Dict[str, Any] = {}
+        custom_fields_kwargs: dict[str, Any] = {}
         if "custom_fields" in data or "custom_fields" in params:
             custom_fields_kwargs["custom_fields"] = _field("custom_fields")
 
         # ADR-005: `parent_id` re-parents and re-derives `level`. Same
         # "only forward what was sent" rule as custom_fields — an absent key must
         # not be conflated with "detach to the top of the cascade".
-        hierarchy_kwargs: Dict[str, Any] = {}
+        hierarchy_kwargs: dict[str, Any] = {}
         if "parent_id" in data or "parent_id" in params:
             hierarchy_kwargs["parent_id"] = _field("parent_id")
 
@@ -836,7 +834,7 @@ class RequirementsToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_outdate(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """requirement.outdate — soft-delete via the workflow engine (write, audited)."""
         req_id = require_uuid(params, "id")
@@ -881,7 +879,7 @@ class RequirementsToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_reactivate(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """requirement.reactivate — restore a previously outdated requirement (write, audited)."""
         req_id = require_uuid(params, "id")
@@ -929,7 +927,7 @@ class RequirementsToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_decompose(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """requirement.decompose — AI-powered decomposition (LLM required)."""
         # ADR-L3-MC003-02: Early LLM check
@@ -978,7 +976,7 @@ class RequirementsToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_derive(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """requirement.derive — derive a child requirement onto a mandatory
         ArchitectureElement (single-child decomposition, no LLM required)."""
@@ -1027,7 +1025,7 @@ class RequirementsToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_check_consistency(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """requirement.check_consistency — AI consistency check across a workspace.
 
@@ -1080,7 +1078,7 @@ class RequirementsToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_check_consistency_status(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """requirement.check_consistency_status — poll a check_consistency task.
 
@@ -1113,7 +1111,7 @@ class RequirementsToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_validate(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """requirement.validate — AI-powered validation (LLM required)."""
         # ADR-L3-MC003-02: Early LLM check
@@ -1166,7 +1164,7 @@ class RequirementsToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_acceptance_criteria_get(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """requirement.acceptance_criteria.get — read all criteria, or one by index."""
         req_id = require_uuid(params, "id")
@@ -1186,7 +1184,7 @@ class RequirementsToolGroup(BaseToolGroup):
             return ToolResult.error("VALIDATION_ERROR", str(exc))
 
     def _handle_acceptance_criteria_set(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """requirement.acceptance_criteria.set — replace the whole criteria list."""
         # #1357 security review (HIGH): same guard as requirement.suggest_level —
@@ -1228,7 +1226,7 @@ class RequirementsToolGroup(BaseToolGroup):
         return ToolResult.ok(result)
 
     def _handle_acceptance_criteria_check(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """requirement.acceptance_criteria.check — check off one criterion by index."""
         # #1357 security review (HIGH): same guard as its ``set`` sibling —
@@ -1274,7 +1272,7 @@ class RequirementsToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_suggest_level(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """requirement.suggest_level — persist a level suggestion (never silent)."""
         from application.requirement_level_service import RequirementLevelService

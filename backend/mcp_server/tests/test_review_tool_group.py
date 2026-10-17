@@ -22,11 +22,10 @@ from __future__ import annotations
 import pytest
 
 from auth_tenancy.context import AuthContext
+from mcp_server.tools.review import ReviewToolGroup
 from persistence.models import Tenant, User
 from persistence.models import Workspace as PersistenceWorkspace
 from persistence.tenancy import TenantContext
-
-from mcp_server.tools.review import ReviewToolGroup
 
 pytestmark = pytest.mark.django_db
 

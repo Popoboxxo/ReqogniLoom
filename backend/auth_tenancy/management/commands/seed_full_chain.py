@@ -28,7 +28,7 @@ domain data.
 """
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
 from django.core.management.base import BaseCommand
 
@@ -360,7 +360,7 @@ class Command(BaseCommand):
     )
 
     def handle(self, *args: Any, **options: Any) -> None:
-        tenant: Optional[Tenant] = Tenant.objects.first()
+        tenant: Tenant | None = Tenant.objects.first()
         if tenant is None:
             tenant = Tenant.objects.create(name="Default Tenant")
         admin = User.objects.filter(

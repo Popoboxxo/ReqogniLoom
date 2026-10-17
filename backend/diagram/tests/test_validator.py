@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import pytest
 
-from diagram.validator import DiagramValidator, DiagramValidationError, ValidationResult
+from diagram.validator import DiagramValidationError, DiagramValidator, ValidationResult
 
 
 @pytest.fixture

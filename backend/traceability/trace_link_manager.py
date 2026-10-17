@@ -31,14 +31,13 @@ from __future__ import annotations
 import uuid
 from collections import defaultdict
 from collections.abc import Iterable
-from typing import Any, Optional
+from typing import Any
 
 from django.db import transaction
 from django.db.models import QuerySet
 
 from persistence.models import Artifact, TraceLink
 from persistence.tenancy import TenantContext
-
 from traceability.audit.hierarchy import (
     HIERARCHY_LINK_TYPES,
     normalise_hierarchy_edge,
@@ -54,7 +53,6 @@ from traceability.exceptions import (
     TargetNotFoundError,
 )
 from traceability.types import VALID_LINK_TYPES
-
 
 # ---------------------------------------------------------------------------
 # Link-type validation
@@ -216,7 +214,7 @@ class TraceLinkManager:
         workspace_id: uuid.UUID | None = None,
         filters: dict[str, Any] | None = None,
         link_type: str | None = None,
-    ) -> "QuerySet[TraceLink]":
+    ) -> QuerySet[TraceLink]:
         """Shared filter-building for get_trace_links()/get_trace_links_queryset().
 
         Review fix (F7, follow-up to #571): ``embedding`` (a wide pgvector
@@ -271,7 +269,7 @@ class TraceLinkManager:
         workspace_id: uuid.UUID | None = None,
         filters: dict[str, Any] | None = None,
         link_type: str | None = None,
-    ) -> "QuerySet[TraceLink]":
+    ) -> QuerySet[TraceLink]:
         """Lazy (un-evaluated) variant of :meth:`get_trace_links`.
 
         Fix #571: ``GET /api/v1/tracelinks/?workspace_id=...`` used to call
@@ -303,7 +301,7 @@ class TraceLinkManager:
         source_id: uuid.UUID,
         target_id: uuid.UUID,
         link_type: str,
-        created_by_id: Optional[uuid.UUID] = None,
+        created_by_id: uuid.UUID | None = None,
         rationale: str = "",
     ) -> TraceLink:
         """Create a single TraceLink with full validation.
@@ -453,7 +451,7 @@ class TraceLinkManager:
         parent_id, child_id = normalised
 
         edges: list[tuple[uuid.UUID, uuid.UUID]] = []
-        conflict: Optional[tuple[uuid.UUID, uuid.UUID, str]] = None
+        conflict: tuple[uuid.UUID, uuid.UUID, str] | None = None
         rows = TraceLink.objects.filter(
             link_type__in=HIERARCHY_LINK_TYPES
         ).values_list("source_id", "target_id", "link_type")
@@ -497,7 +495,7 @@ class TraceLinkManager:
         self,
         link_id: uuid.UUID,
         link_type: str | None = None,
-        modified_by_id: Optional[uuid.UUID] = None,
+        modified_by_id: uuid.UUID | None = None,
     ) -> TraceLink:
         """Update link_type on an existing TraceLink.
 
@@ -537,7 +535,7 @@ class TraceLinkManager:
     def batch_create(
         self,
         items: list[dict],
-        created_by_id: Optional[uuid.UUID] = None,
+        created_by_id: uuid.UUID | None = None,
     ) -> list[TraceLink]:
         """Atomically create multiple TraceLinks with Tarjan cycle check.
 

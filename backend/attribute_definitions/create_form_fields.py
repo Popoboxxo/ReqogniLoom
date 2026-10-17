@@ -26,7 +26,8 @@ attribute the definition actually carries, or the dialog could not render it.
 """
 from __future__ import annotations
 
-from typing import Any, Iterable, Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
+from typing import Any
 
 #: The keys a stored entry carries. Any other key is rejected on write — an
 #: untyped blob would let a typo (``visable``) persist and silently read as

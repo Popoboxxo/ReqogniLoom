@@ -16,14 +16,13 @@ Coverage:
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from application.base import NotFoundError, PermissionDeniedError, ValidationError
-from application.test_run_service import TestRunService, VALID_RESULT_STATUSES
-
+from application.test_run_service import VALID_RESULT_STATUSES, TestRunService
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -53,7 +52,7 @@ def _make_test_run(**kwargs):
     tr.workspace_id = kwargs.get("workspace_id", WS_ID)
     tr.status = kwargs.get("status", "in_progress")
     tr.ci_job_id = kwargs.get("ci_job_id", "")
-    tr.started_at = kwargs.get("started_at", datetime.now(timezone.utc))
+    tr.started_at = kwargs.get("started_at", datetime.now(UTC))
     tr.finished_at = kwargs.get("finished_at", None)
     results_mock = MagicMock()
     results_mock.all.return_value = kwargs.get("results", [])

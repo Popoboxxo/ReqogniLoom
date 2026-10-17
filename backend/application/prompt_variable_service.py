@@ -19,18 +19,10 @@ leaf_id: COMP-AS-PV
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 from uuid import UUID
 
 from django.db import IntegrityError
-
-from auth_tenancy.context import AuthContext
-from persistence.models import (
-    PROMPT_VARIABLE_KIND_CONFIG,
-    PROMPT_VARIABLE_KIND_DATA,
-    PROMPT_VARIABLE_TYPES,
-    PromptVariable,
-)
 
 from application.base import NotFoundError, ServiceBase, ValidationError
 from application.prompt_variable_versioning import (
@@ -45,6 +37,13 @@ from application.prompt_variables import (
     VariableTypeError,
     deserialize_variable_value,
     serialize_variable_value,
+)
+from auth_tenancy.context import AuthContext
+from persistence.models import (
+    PROMPT_VARIABLE_KIND_CONFIG,
+    PROMPT_VARIABLE_KIND_DATA,
+    PROMPT_VARIABLE_TYPES,
+    PromptVariable,
 )
 
 
@@ -63,10 +62,10 @@ class PromptVariableService(ServiceBase):
     def _build_state(
         name: str,
         *,
-        spec: Optional[PromptVariableSpec],
-        global_row: Optional[PromptVariable],
-        workspace_row: Optional[PromptVariable],
-    ) -> Dict[str, Any]:
+        spec: PromptVariableSpec | None,
+        global_row: PromptVariable | None,
+        workspace_row: PromptVariable | None,
+    ) -> dict[str, Any]:
         """Resolve one variable's per-scope rows into the wire representation.
 
         Precedence mirrors ``application.prompt_resolver.resolve_config_values``
@@ -113,8 +112,8 @@ class PromptVariableService(ServiceBase):
         }
 
     def list_variables(
-        self, ctx: AuthContext, *, workspace_id: Optional[UUID] = None
-    ) -> List[Dict[str, Any]]:
+        self, ctx: AuthContext, *, workspace_id: UUID | None = None
+    ) -> list[dict[str, Any]]:
         """Return every catalog variable with its per-scope state, name-sorted.
 
         The result is the union of the factory registry and every name that
@@ -144,8 +143,8 @@ class PromptVariableService(ServiceBase):
         ]
 
     def _state(
-        self, ctx: AuthContext, name: str, *, workspace_id: Optional[UUID]
-    ) -> Dict[str, Any]:
+        self, ctx: AuthContext, name: str, *, workspace_id: UUID | None
+    ) -> dict[str, Any]:
         """Fetch one variable's rows and resolve them (single-name read path)."""
         return self._build_state(
             name,
@@ -163,8 +162,8 @@ class PromptVariableService(ServiceBase):
         )
 
     def get_variable(
-        self, ctx: AuthContext, name: str, *, workspace_id: Optional[UUID] = None
-    ) -> Dict[str, Any]:
+        self, ctx: AuthContext, name: str, *, workspace_id: UUID | None = None
+    ) -> dict[str, Any]:
         """Return one variable's state.
 
         Raises:
@@ -188,10 +187,10 @@ class PromptVariableService(ServiceBase):
         *,
         name: str,
         value: Any,
-        workspace_id: Optional[UUID] = None,
-        var_type: Optional[str] = None,
-        description: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        workspace_id: UUID | None = None,
+        var_type: str | None = None,
+        description: str | None = None,
+    ) -> dict[str, Any]:
         """Publish a new active version of *name* for the given scope.
 
         Args:
@@ -288,8 +287,8 @@ class PromptVariableService(ServiceBase):
         return self._state(ctx, name, workspace_id=workspace_id)
 
     def clear_variable(
-        self, ctx: AuthContext, *, name: str, workspace_id: Optional[UUID] = None
-    ) -> Dict[str, Any]:
+        self, ctx: AuthContext, *, name: str, workspace_id: UUID | None = None
+    ) -> dict[str, Any]:
         """Drop *name*'s active row at the given scope (idempotent).
 
         Clearing a workspace scope restores the tenant default; clearing the

@@ -42,29 +42,25 @@ from uuid import UUID, uuid4
 
 import pytest
 
+from application.base import (
+    NotFoundError,
+    PermissionDeniedError,
+)
 from auth_tenancy.context import AuthContext, AuthMethod, IdentityClaims
 from auth_tenancy.errors import AuthenticationFailed
 from auth_tenancy.errors import PermissionDenied as AuthTenancyPermissionDenied
-from auth_tenancy.models import ApiKey, ROLE_ADMIN, ROLE_VIEWER, TenantRole, UserRole
+from auth_tenancy.models import ROLE_ADMIN, ROLE_VIEWER, ApiKey, TenantRole, UserRole
 from auth_tenancy.services import AuthorizationService
 from auth_tenancy.services.authentication import (
     generate_api_key_plaintext,
     hash_api_key,
 )
 from auth_tenancy.services.authorization import LastAdminError
-
-from application.base import (
-    NotFoundError,
-    PermissionDeniedError,
-)
-
-from persistence.middleware import clear_request_tenant, set_request_tenant
-from persistence.models import Tenant, User
-
 from mcp_server.protocol_handler import ERROR_CODE_MAP, ProtocolHandler
 from mcp_server.tool_registry import ToolRegistry
 from mcp_server.tools.users import UsersToolGroup
-
+from persistence.middleware import clear_request_tenant, set_request_tenant
+from persistence.models import Tenant, User
 
 # ---------------------------------------------------------------------------
 # Shared fixtures / data

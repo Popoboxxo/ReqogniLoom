@@ -30,7 +30,6 @@ import pytest
 from diagram.traceability_connector import TraceabilityConnector, _resolve_artifact_id
 from traceability.exceptions import TargetNotFoundError
 
-
 # TestCreateDocumentLink uses only mocks — no DB marker needed.
 
 
@@ -142,7 +141,7 @@ class TestCreateDocumentLinkWithManagerIntegration:
         Artifact that backs the TraceLink source needs a real workspace FK.
         """
         from diagram.manager import DiagramManager
-        from diagram.tests.conftest import active_tenant, VALID_MERMAID_BLOCK
+        from diagram.tests.conftest import VALID_MERMAID_BLOCK, active_tenant
 
         manager = DiagramManager()
         target_id = uuid.uuid4()

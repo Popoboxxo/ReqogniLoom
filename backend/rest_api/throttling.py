@@ -71,7 +71,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
-from typing import Any, Optional
+from typing import Any
 from uuid import UUID
 
 from django.core.exceptions import ImproperlyConfigured
@@ -176,7 +176,7 @@ class DynamicRateThrottle(SimpleRateThrottle):
             return True
 
 
-def _tenant_id(request: Any) -> Optional[UUID]:
+def _tenant_id(request: Any) -> UUID | None:
     """Tenant of the request, or ``None`` when it has no auth context.
 
     Anonymous REST requests (schema, health, login, refresh) and every MCP

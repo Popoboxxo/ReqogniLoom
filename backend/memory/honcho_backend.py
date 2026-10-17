@@ -237,20 +237,20 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any, List, Optional, Tuple
+from typing import Any
 from uuid import UUID
 
 from django.utils import timezone
 
 from llm_adapter.embedding_service import generate_embedding
 from memory.backends import (
-    MemoryBackend,
+    _DIGEST_MAX_FACTS,
     MemoryAnswer,
+    MemoryBackend,
     MemoryDigest,
     MemoryEntryId,
     MemoryEntryRef,
     MemoryHealth,
-    _DIGEST_MAX_FACTS,
     _cosine_distance,
     _digest_text,
     _maybe_uuid,
@@ -459,7 +459,7 @@ def _ask_timeout_s() -> float:
     return value if value > 0 else _DEFAULT_ASK_TIMEOUT_S
 
 
-def _safe_generate_embedding(text: str) -> Optional[List[float]]:
+def _safe_generate_embedding(text: str) -> list[float] | None:
     """Best-effort local embedding; ``None`` on any provider failure.
 
     Used for the local mirror row and for the in-process query distance. The
@@ -473,7 +473,7 @@ def _safe_generate_embedding(text: str) -> Optional[List[float]]:
         return None
 
 
-def _unit_count(value: Any) -> Optional[int]:
+def _unit_count(value: Any) -> int | None:
     """Parse one ``queue_status`` work-unit counter; ``None`` when unusable.
 
     Guards the #1052 failure detection (see :meth:`HonchoMemoryBackend.
@@ -546,7 +546,7 @@ class HonchoMemoryBackend(MemoryBackend):
         self._configured_workspaces: set = set()
 
     @staticmethod
-    def _resolve_config() -> tuple[str, Optional[str]]:
+    def _resolve_config() -> tuple[str, str | None]:
         """SystemMemorySettings override (Phase 3) wins over env vars if set."""
         try:
             from memory.models import SystemMemorySettings
@@ -767,9 +767,9 @@ class HonchoMemoryBackend(MemoryBackend):
         scope_id: UUID,
         content: str,
         *,
-        contributor_user_id: Optional[UUID] = None,
-        source_event_id: Optional[UUID] = None,
-        source_session_id: Optional[UUID] = None,
+        contributor_user_id: UUID | None = None,
+        source_event_id: UUID | None = None,
+        source_session_id: UUID | None = None,
         language: str = "",
         confidence: float = 1.0,
     ) -> None:
@@ -844,13 +844,13 @@ class HonchoMemoryBackend(MemoryBackend):
         scope_id: UUID,
         content: str,
         *,
-        contributor_user_id: Optional[UUID] = None,
-        source_event_id: Optional[UUID] = None,
-        source_session_id: Optional[UUID] = None,
+        contributor_user_id: UUID | None = None,
+        source_event_id: UUID | None = None,
+        source_session_id: UUID | None = None,
         language: str = "",
         confidence: float = 1.0,
         entity_type: str = "",
-        backend_ref: Optional[str] = None,
+        backend_ref: str | None = None,
     ) -> MemoryEntryRef:
         """Store *content* as a conclusion and mirror it into ``mem_memory_entry``.
 
@@ -915,8 +915,8 @@ class HonchoMemoryBackend(MemoryBackend):
         *,
         limit: int = 25,
         offset: int = 0,
-        q: Optional[str] = None,
-    ) -> Tuple[List[MemoryEntryRef], int]:
+        q: str | None = None,
+    ) -> tuple[list[MemoryEntryRef], int]:
         """Page the LOCAL mirror rows (no network call) -- newest first."""
         with _tenant_context(tenant_id):
             qs = MemoryEntry.objects.filter(
@@ -947,7 +947,7 @@ class HonchoMemoryBackend(MemoryBackend):
         conclusion that predates the mirror (or whose mirror row is already
         gone) still gets deleted.
         """
-        backend_ref: Optional[str] = None
+        backend_ref: str | None = None
         removed = False
         with _tenant_context(tenant_id):
             uid = _maybe_uuid(entry_id)
@@ -1064,13 +1064,13 @@ class HonchoMemoryBackend(MemoryBackend):
             )
 
         degraded = engine_failed
-        page_items: Optional[List[Any]] = None
+        page_items: list[Any] | None = None
         if engine_failed:
             # The engine could not be read at all -- whether it had derived
             # anything is NOT determinable from here, and must not collapse
             # into "none" (F9 applied to the Deriver).
             derivation_status: str = "unknown"
-            derived_count: Optional[int] = None
+            derived_count: int | None = None
         else:
             derivation_status, derived_count, page_items = self._derivation_probe(
                 tenant_id, scope, scope_id
@@ -1146,7 +1146,7 @@ class HonchoMemoryBackend(MemoryBackend):
             derived_count=derived_count,
         )
 
-    def _engine_digest_body(self, tenant_id: UUID, scope: str, scope_id: UUID) -> Tuple[str, bool]:
+    def _engine_digest_body(self, tenant_id: UUID, scope: str, scope_id: UUID) -> tuple[str, bool]:
         """Return ``(body, failed)`` from the engine's representation/peer card.
 
         ``failed`` is ``True`` whenever a transport/backend call raised, which is
@@ -1254,7 +1254,7 @@ class HonchoMemoryBackend(MemoryBackend):
 
     def _derivation_probe(
         self, tenant_id: UUID, scope: str, scope_id: UUID
-    ) -> Tuple[str, Optional[int], Optional[List[Any]]]:
+    ) -> tuple[str, int | None, list[Any] | None]:
         """Probe whether Honcho's Deriver has produced anything for this scope.
 
         Returns ``(status, derived_count, items)`` with ``status`` from
@@ -1319,7 +1319,7 @@ class HonchoMemoryBackend(MemoryBackend):
         if derived:
             bounded = len(items) < _DERIVATION_PROBE_PAGE_SIZE
             status: str = "ok"
-            count: Optional[int] = len(derived) if bounded else None
+            count: int | None = len(derived) if bounded else None
         elif len(items) >= _DERIVATION_PROBE_PAGE_SIZE:
             # Saturated page: the newest N conclusions hold no derived item,
             # but older ones might. Confirm server-side per derived level
@@ -1368,7 +1368,7 @@ class HonchoMemoryBackend(MemoryBackend):
         scope_id: UUID,
         query: str,
         *,
-        reasoning_level: Optional[str] = None,
+        reasoning_level: str | None = None,
     ) -> MemoryAnswer:
         """Answer ``query`` via the engine's dialectic surface (F6 follow-up).
 
@@ -1444,7 +1444,7 @@ class HonchoMemoryBackend(MemoryBackend):
         scope: str,
         scope_id: UUID,
         content: str,
-        source_event_id: Optional[UUID] = None,
+        source_event_id: UUID | None = None,
     ) -> MemoryEntryRef:
         return self.write(
             tenant_id, scope, scope_id, content, source_event_id=source_event_id
@@ -1452,7 +1452,7 @@ class HonchoMemoryBackend(MemoryBackend):
 
     def query(
         self, tenant_id: UUID, scope: str, scope_id: UUID, query_text: str, top_k: int = 5
-    ) -> List[MemoryEntryRef]:
+    ) -> list[MemoryEntryRef]:
         """Semantic search over this scope's conclusions, with a real distance.
 
         Unlike the pre-#1002 implementation, ``distance`` is computed in
@@ -1466,7 +1466,7 @@ class HonchoMemoryBackend(MemoryBackend):
             query_text, top_k=max(1, min(top_k, _MAX_PAGE_SIZE))
         )
         query_embedding = _safe_generate_embedding(query_text)
-        refs: List[MemoryEntryRef] = []
+        refs: list[MemoryEntryRef] = []
         with _tenant_context(tenant_id):
             for conclusion in results[:top_k]:
                 local = MemoryEntry.objects.filter(
@@ -1483,7 +1483,7 @@ class HonchoMemoryBackend(MemoryBackend):
 
     def list_recent(
         self, tenant_id: UUID, scope: str, scope_id: UUID, limit: int = 20
-    ) -> List[MemoryEntryRef]:
+    ) -> list[MemoryEntryRef]:
         """Return this scope's most recent conclusions, newest first.
 
         Still Honcho-backed (the read path for ``memory.list``): Honcho's list

@@ -140,7 +140,7 @@ def drop_collision_orphans(apps, schema_editor) -> None:
     for tenant_id in Tenant.objects.values_list("id", flat=True):
         TenantContext.set_tenant(tenant_id)
         try:
-            wad_extended_names_cache: dict[tuple, "set[str] | None"] = {}
+            wad_extended_names_cache: dict[tuple, set[str] | None] = {}
             orphaned_ids: list = []
             values = CustomFieldValue.objects.filter(
                 tenant_id=tenant_id

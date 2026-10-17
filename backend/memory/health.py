@@ -48,11 +48,11 @@ health read still said ``healthy``.
 """
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any
 
 from django.core.cache import cache
 
-from memory.backends import MemoryHealth, VALID_DERIVATION_STATUSES, get_memory_backend
+from memory.backends import VALID_DERIVATION_STATUSES, MemoryHealth, get_memory_backend
 
 #: Short enough that a backend recovering (or going down) is reflected quickly,
 #: long enough that the honcho network probe does not run per request.
@@ -260,7 +260,7 @@ def derivation_status(*, use_cache: bool = True) -> str:
     return status
 
 
-def envelope() -> Dict[str, Any]:
+def envelope() -> dict[str, Any]:
     """Return the response envelope.
 
     Shape: ``{backend, ok, detail, degraded, digest_available,
@@ -284,7 +284,7 @@ def envelope() -> Dict[str, Any]:
     }
 
 
-def health_view() -> Dict[str, Any]:
+def health_view() -> dict[str, Any]:
     """Return the shape used by the ``admin/health`` ``memory`` component.
 
     Same fields as :func:`envelope`, so REST/MCP/admin all describe the backend
@@ -294,17 +294,17 @@ def health_view() -> Dict[str, Any]:
 
 
 __all__ = [
-    "HEALTH_CACHE_TTL_SECONDS",
-    "HEALTH_CACHE_KEY",
-    "DIGEST_CACHE_KEY",
     "ASK_CACHE_KEY",
     "DERIVATION_CACHE_KEY",
-    "memory_health",
-    "digest_available",
+    "DIGEST_CACHE_KEY",
+    "HEALTH_CACHE_KEY",
+    "HEALTH_CACHE_TTL_SECONDS",
     "ask_available",
     "derivation_status",
-    "invalidate_health_cache",
-    "is_degraded",
+    "digest_available",
     "envelope",
     "health_view",
+    "invalidate_health_cache",
+    "is_degraded",
+    "memory_health",
 ]

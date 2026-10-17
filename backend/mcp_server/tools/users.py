@@ -138,9 +138,14 @@ Parameters accepted by ``user.assign_tenant_admin`` / ``user.revoke_tenant_admin
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, Optional
+from typing import Any
 from uuid import UUID
 
+from application.base import (
+    NotFoundError,
+    PermissionDeniedError,
+    ValidationError,
+)
 from auth_tenancy.context import AuthContext
 from auth_tenancy.errors import PermissionDenied as AuthTenancyPermissionDenied
 from auth_tenancy.models import (
@@ -153,15 +158,6 @@ from auth_tenancy.models import (
 from auth_tenancy.services import AuthorizationService
 from auth_tenancy.services.authorization import LastAdminError
 from auth_tenancy.services.user_account import UserAccountService
-
-from application.base import (
-    NotFoundError,
-    PermissionDeniedError,
-    ValidationError,
-)
-
-from persistence.models import User
-
 from mcp_server.protocol_handler import ToolResult
 from mcp_server.tools.base import (
     BaseToolGroup,
@@ -170,6 +166,7 @@ from mcp_server.tools.base import (
     require_uuid,
     write_mcp_audit,
 )
+from persistence.models import User
 
 logger = logging.getLogger(__name__)
 
@@ -196,7 +193,7 @@ _PASSWORD_MIN_LENGTH: int = 8
 # ---------------------------------------------------------------------------
 
 
-def _user_to_dict(user: User) -> Dict[str, Any]:
+def _user_to_dict(user: User) -> dict[str, Any]:
     """Serialise a User ORM object to a JSON-safe dict.
 
     Never includes the password hash; the MCP response must not leak
@@ -411,7 +408,7 @@ class UsersToolGroup(BaseToolGroup):
     ]
 
     def __init__(
-        self, authz_service: Optional[AuthorizationService] = None
+        self, authz_service: AuthorizationService | None = None
     ) -> None:
         self._authz_service = authz_service or AuthorizationService()
         self._accounts = UserAccountService()
@@ -421,7 +418,7 @@ class UsersToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _check_admin(auth_context: AuthContext) -> Optional[ToolResult]:
+    def _check_admin(auth_context: AuthContext) -> ToolResult | None:
         """Return a ``PERMISSION_DENIED`` ToolResult if the caller is not admin.
 
         Returns ``None`` when the caller has the admin role (i.e. the
@@ -602,7 +599,7 @@ class UsersToolGroup(BaseToolGroup):
             return ToolResult.error("VALIDATION_ERROR", str(exc))
 
     def _handle_user_create(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """user.create — create a new user (tenant-admin-only, write).
 
@@ -692,7 +689,7 @@ class UsersToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_user_assign_role(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """user.assign_role — assign a role to a user in a workspace.
 
@@ -936,7 +933,7 @@ class UsersToolGroup(BaseToolGroup):
             return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
 
     def _handle_user_list(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """user.list — list users (tenant-admin-only, read).
 
@@ -999,7 +996,7 @@ class UsersToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_user_deactivate(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """user.deactivate — deactivate a user (tenant-admin-only, write).
 
@@ -1089,7 +1086,7 @@ class UsersToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_user_activate(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """user.activate — activate a user (tenant-admin-only, write).
 
@@ -1149,7 +1146,7 @@ class UsersToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_user_suspend_role(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """user.suspend_role — soft-suspend a workspace role assignment.
 
@@ -1208,7 +1205,7 @@ class UsersToolGroup(BaseToolGroup):
         return ToolResult.ok({"suspended": True})
 
     def _handle_user_reactivate_role(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """user.reactivate_role — clear a workspace role's suspension.
 
@@ -1266,7 +1263,7 @@ class UsersToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
 
     def _handle_user_assign_tenant_admin(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """user.assign_tenant_admin — grant tenant-admin (tenant-admin-only).
 
@@ -1314,7 +1311,7 @@ class UsersToolGroup(BaseToolGroup):
         return ToolResult.ok({"granted": True})
 
     def _handle_user_revoke_tenant_admin(
-        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """user.revoke_tenant_admin — revoke tenant-admin (tenant-admin-only).
 

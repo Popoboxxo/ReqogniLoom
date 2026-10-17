@@ -19,10 +19,10 @@ values as a frozen snapshot for pre-existing data.
 """
 from __future__ import annotations
 
-from typing import Iterable
+from collections.abc import Iterable
 
-from .authorization import _RBAC_MATRIX, Operation
 from ..models import ROLE_ADMIN, ROLE_APPROVER, ROLE_EDITOR, ROLE_VIEWER
+from .authorization import _RBAC_MATRIX, Operation
 
 # Canonical role keys (closed set) — order is presentation-stable.
 ROLE_KEYS: tuple[str, ...] = (ROLE_ADMIN, ROLE_EDITOR, ROLE_VIEWER, ROLE_APPROVER)
@@ -160,11 +160,11 @@ def evaluate_matrix(
 
 
 __all__ = [
-    "ROLE_KEYS",
     "CAPABILITY_KEYS",
+    "ROLE_KEYS",
     "MatrixValidationError",
     "default_permission_matrix",
-    "validate_matrix",
-    "merge_matrix",
     "evaluate_matrix",
+    "merge_matrix",
+    "validate_matrix",
 ]

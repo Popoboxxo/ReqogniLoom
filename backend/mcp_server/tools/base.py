@@ -14,12 +14,12 @@ from __future__ import annotations
 
 import logging
 from abc import ABC
-from typing import Any, Dict, Iterable, List, Optional
+from collections.abc import Iterable
+from typing import Any
 from uuid import UUID
 
-from auth_tenancy.context import AuthContext
-
 from audit.services import mcp_audit_handoff
+from auth_tenancy.context import AuthContext
 from mcp_server.protocol_handler import ToolResult
 from persistence.tenancy import TenantContextNotSetError
 from workflow import state_reader
@@ -35,7 +35,7 @@ class ParameterError(ValueError):
     """Raised when required parameters are missing or invalid."""
 
 
-def require_param(params: Dict[str, Any], name: str) -> Any:
+def require_param(params: dict[str, Any], name: str) -> Any:
     """Return params[name] or raise ParameterError."""
     val = params.get(name)
     if val is None or (isinstance(val, str) and not val.strip()):
@@ -43,7 +43,7 @@ def require_param(params: Dict[str, Any], name: str) -> Any:
     return val
 
 
-def optional_uuid(params: Dict[str, Any], name: str) -> Optional[UUID]:
+def optional_uuid(params: dict[str, Any], name: str) -> UUID | None:
     """Return UUID from params[name] or None."""
     val = params.get(name)
     if val is None:
@@ -54,7 +54,7 @@ def optional_uuid(params: Dict[str, Any], name: str) -> Optional[UUID]:
         raise ParameterError(f"Parameter '{name}' is not a valid UUID: '{val}'")
 
 
-def require_uuid(params: Dict[str, Any], name: str) -> UUID:
+def require_uuid(params: dict[str, Any], name: str) -> UUID:
     """Return UUID from params[name] or raise ParameterError."""
     val = params.get(name)
     if val is None:
@@ -66,7 +66,7 @@ def require_uuid(params: Dict[str, Any], name: str) -> UUID:
 
 
 def reject_unknown_params(
-    params: Dict[str, Any], allowed: List[str], tool_name: str
+    params: dict[str, Any], allowed: list[str], tool_name: str
 ) -> None:
     """Raise ParameterError if *params* contains a key not in *allowed*.
 
@@ -98,9 +98,9 @@ def reject_unknown_params(
 def resolve_engine_status(
     item_type: str,
     item_id: Any,
-    fallback: Optional[str] = None,
+    fallback: str | None = None,
     *,
-    status_map: Optional[Dict[str, str]] = None,
+    status_map: dict[str, str] | None = None,
 ) -> str:
     """Resolve an entity's ``status`` wire value from the workflow engine.
 
@@ -151,7 +151,7 @@ def resolve_engine_status(
     return fallback or state_reader.initial_state(item_type)
 
 
-def resolve_status_map(item_type: str, item_ids: Iterable[Any]) -> Dict[str, str]:
+def resolve_status_map(item_type: str, item_ids: Iterable[Any]) -> dict[str, str]:
     """Batch-resolve wire ``status`` values for many items in one query.
 
     Thin, defensive wrapper over ``workflow.state_reader.current_states`` for
@@ -175,11 +175,11 @@ def resolve_status_map(item_type: str, item_ids: Iterable[Any]) -> Dict[str, str
 
 def validate_artifact_write(
     auth_context: AuthContext,
-    item_type: Optional[str],
+    item_type: str | None,
     workspace_id: Any,
-    changed_fields: Dict[str, Any],
-    existing: Optional[Dict[str, Any]],
-) -> Optional[ToolResult]:
+    changed_fields: dict[str, Any],
+    existing: dict[str, Any] | None,
+) -> ToolResult | None:
     """Validate an MCP create/update payload against the resolved AttributeDefinition.
 
     Same central gate as ``rest_api.mixins.workflow_transitions.
@@ -245,7 +245,7 @@ def validate_artifact_write(
     return None
 
 
-def artifact_custom_fields(entity: Any) -> Dict[str, Any]:
+def artifact_custom_fields(entity: Any) -> dict[str, Any]:
     """Return the ``custom_fields`` map from an entity's backing Artifact.
 
     Mirrors ``rest_api.views._artifact_custom_fields`` (REQ-L2-AS-037): the
@@ -282,7 +282,7 @@ def write_mcp_audit(
     entity_id: UUID,
     tool_name: str,
     api_key: str,
-    details: Optional[Dict[str, Any]] = None,
+    details: dict[str, Any] | None = None,
     *,
     fail_closed: bool = False,
 ) -> None:
@@ -353,12 +353,12 @@ class BaseToolGroup(ABC):
     """
 
     # Subclasses must define: {"tool.name": "_method_name"}
-    _TOOL_MAP: Dict[str, str] = {}
+    _TOOL_MAP: dict[str, str] = {}
     
     # Subclasses can define schema mapping: {"tool.name": {...schema dict...}}
-    _TOOL_SCHEMAS: List[Dict[str, Any]] = []
+    _TOOL_SCHEMAS: list[dict[str, Any]] = []
 
-    def get_tool_schemas(self) -> List[Dict[str, Any]]:
+    def get_tool_schemas(self) -> list[dict[str, Any]]:
         """Return the MCP JSON schemas for all tools in this group."""
         if self._TOOL_SCHEMAS:
             return self._TOOL_SCHEMAS
@@ -381,7 +381,7 @@ class BaseToolGroup(ABC):
             for name in self._TOOL_MAP.keys()
         ]
 
-    def schema_param_names(self, tool_name: str) -> List[str]:
+    def schema_param_names(self, tool_name: str) -> list[str]:
         """Return the declared ``inputSchema`` property names of *tool_name*.
 
         Single source of truth for handlers that call
@@ -403,7 +403,7 @@ class BaseToolGroup(ABC):
     def execute_tool(
         self,
         tool_name: str,
-        params: Dict[str, Any],
+        params: dict[str, Any],
         auth_context: AuthContext,
         api_key: str,
     ) -> ToolResult:
@@ -444,13 +444,13 @@ __all__ = [
     "McpAuditWriteError",
     "ParameterError",
     "artifact_custom_fields",
-    "require_param",
+    "mcp_audit_handoff",
     "optional_uuid",
-    "require_uuid",
     "reject_unknown_params",
+    "require_param",
+    "require_uuid",
     "resolve_engine_status",
     "resolve_status_map",
     "validate_artifact_write",
     "write_mcp_audit",
-    "mcp_audit_handoff",
 ]

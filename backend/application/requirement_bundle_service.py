@@ -16,20 +16,19 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Dict, List
+from typing import Any
 from uuid import UUID
 
 from django.db import connection
-
-from attribute_definitions.schema import ITEM_TYPES
-from auth_tenancy.context import AuthContext
-from traceability.types import LinkType
 
 from application.attribute_definition_service import (
     AttributeDefinitionNotFound,
     AttributeDefinitionService,
 )
 from application.base import NotFoundError, ServiceBase, ValidationError
+from attribute_definitions.schema import ITEM_TYPES
+from auth_tenancy.context import AuthContext
+from traceability.types import LinkType
 
 MAX_DEPTH = 20  # mirrors ArtifactService.get_tree's recursive CTE cap
 
@@ -61,12 +60,12 @@ class BundleItem:
     requirement_id: UUID
     found_under_element_id: UUID
     depth: int
-    fields: Dict[str, Any]
+    fields: dict[str, Any]
 
 
 @dataclass
 class BundleResult:
-    items: List[BundleItem] = field(default_factory=list)
+    items: list[BundleItem] = field(default_factory=list)
     truncated_at_depth: bool = False
 
 
@@ -208,10 +207,10 @@ class RequirementBundleQueryService(ServiceBase):
         ctx: AuthContext,
         root_id: UUID,
         workspace_id: UUID,
-        depth: "int | None" = None,
+        depth: int | None = None,
         *,
         filter_mode: str = "all",
-        fields: "List[str] | None" = None,
+        fields: list[str] | None = None,
     ) -> BundleResult:
         """Return every Requirement allocated (ALLOCATED_TO) to *root_id* or
         its ALLOCATED_TO sub-elements, up to *depth* levels, with fields
@@ -406,7 +405,7 @@ class RequirementBundleQueryService(ServiceBase):
             return BundleResult(items=[], truncated_at_depth=truncated)
 
         req_artifact_ids = [r[0] for r in rows]
-        found_under_by_req: Dict[UUID, tuple] = {
+        found_under_by_req: dict[UUID, tuple] = {
             r[0]: (r[1], r[2]) for r in rows
         }
 
@@ -430,7 +429,7 @@ class RequirementBundleQueryService(ServiceBase):
             ).values(*query_fields)
         )
 
-        status_by_id: Dict[Any, str] = {}
+        status_by_id: dict[Any, str] = {}
         if wants_status and req_rows:
             from workflow import state_reader
 
@@ -443,7 +442,7 @@ class RequirementBundleQueryService(ServiceBase):
                 for row in req_rows
             }
 
-        lifecycle_status_by_artifact_id: Dict[Any, str] = {}
+        lifecycle_status_by_artifact_id: dict[Any, str] = {}
         if wants_lifecycle_status and req_rows:
             from persistence.models import Artifact
 
@@ -454,7 +453,7 @@ class RequirementBundleQueryService(ServiceBase):
                 ).values_list("id", "lifecycle_status")
             }
 
-        items: List[BundleItem] = []
+        items: list[BundleItem] = []
         for row in req_rows:
             artifact_id = row.pop("artifact_id")
             found_under_artifact_id, found_depth = found_under_by_req[artifact_id]
@@ -481,8 +480,8 @@ class RequirementBundleQueryService(ServiceBase):
         ctx: AuthContext,
         workspace_id: UUID,
         filter_mode: str,
-        fields: "List[str] | None",
-    ) -> "set[str]":
+        fields: list[str] | None,
+    ) -> set[str]:
         """Return the field names a bundle export must carry (spec section 7).
 
         Replaces the retired ``AttributeVisibilityConfigService`` /
@@ -565,7 +564,7 @@ class RequirementBundleQueryService(ServiceBase):
         return exportable
 
 
-def _active_tier(workspace_id: UUID) -> "str | None":
+def _active_tier(workspace_id: UUID) -> str | None:
     """Return the workspace's active rigor tier, or ``None`` when unresolvable.
 
     The same lookup ``workflow.precondition_rules.check_mandatory_fields`` uses
@@ -584,7 +583,7 @@ def _active_tier(workspace_id: UUID) -> "str | None":
 
 
 def _gate_required_names(
-    ctx: AuthContext, workspace_id: UUID, item_type: str, tier: "str | None"
+    ctx: AuthContext, workspace_id: UUID, item_type: str, tier: str | None
 ) -> set:
     """Effective approval-gate field names for ``(item_type, tier)`` (#1192).
 
@@ -632,8 +631,8 @@ def _gate_required_names(
 def describe_attribute_schema(
     ctx: AuthContext,
     workspace_id: UUID,
-    entity_type: "str | None" = None,
-) -> "List[Dict[str, Any]]":
+    entity_type: str | None = None,
+) -> list[dict[str, Any]]:
     """Return the available attributes for *entity_type* (or every known type),
     resolved against *workspace_id*'s real, currently-active AttributeDefinition.
 
@@ -682,9 +681,9 @@ def describe_attribute_schema(
         known_types = (entity_type,)
 
     gateway = ArtifactAttributeGateway()
-    result: List[Dict[str, Any]] = []
+    result: list[dict[str, Any]] = []
     for et in known_types:
-        tier: "str | None" = None
+        tier: str | None = None
         try:
             definition = gateway.resolve_definition(ctx, et, workspace_id)
             tier = definition.get("preset")
@@ -730,11 +729,11 @@ def describe_attribute_schema(
 
 
 __all__ = [
-    "RequirementBundleQueryService",
-    "BundleResult",
-    "BundleItem",
-    "BundleDepthExceededError",
-    "REQUIREMENT_ALL_FIELDS",
     "MAX_DEPTH",
+    "REQUIREMENT_ALL_FIELDS",
+    "BundleDepthExceededError",
+    "BundleItem",
+    "BundleResult",
+    "RequirementBundleQueryService",
     "describe_attribute_schema",
 ]

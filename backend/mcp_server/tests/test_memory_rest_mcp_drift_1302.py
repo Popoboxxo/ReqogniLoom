@@ -13,12 +13,10 @@ route/tool so a rename is caught instead of leaving dead weight.
 """
 from __future__ import annotations
 
-from typing import Dict, Set
-
 #: MCP memory tool -> the REST memory route name(s) providing the same
 #: capability. A tool maps to more than one route where REST splits a capability
 #: by URL (workspace vs artifact scope).
-_MCP_TO_REST_ROUTES: Dict[str, Set[str]] = {
+_MCP_TO_REST_ROUTES: dict[str, set[str]] = {
     "memory.get": {"memory-entry-detail"},
     "memory.forget": {"memory-entry-detail"},
     "memory.write": {"workspace-memory-entries", "artifact-memory"},
@@ -35,7 +33,7 @@ _MCP_TO_REST_ROUTES: Dict[str, Set[str]] = {
 }
 
 #: MCP memory tools with no REST route by design (reason mandatory).
-_MCP_TOOLS_WITHOUT_REST_ROUTE: Dict[str, str] = {
+_MCP_TOOLS_WITHOUT_REST_ROUTE: dict[str, str] = {
     "memory.remember_interaction": (
         "explicit consolidation trigger (#1300); the automatic path is the "
         "interview outbox -> MemoryProjector, which has no REST endpoint"
@@ -44,7 +42,7 @@ _MCP_TOOLS_WITHOUT_REST_ROUTE: Dict[str, str] = {
 
 #: REST memory routes with no MCP tool by design (reason mandatory). These are
 #: required to exist — a rename/removal here is a real drift.
-_REST_ROUTES_WITHOUT_MCP_TOOL: Dict[str, str] = {
+_REST_ROUTES_WITHOUT_MCP_TOOL: dict[str, str] = {
     "system-memory-settings-reset": (
         "Django-superuser-only reset of the deployment-global override; "
         "deliberately not exposed on the MCP surface"
@@ -63,7 +61,7 @@ _REST_ROUTES_WITHOUT_MCP_TOOL: Dict[str, str] = {
 #: may or may not be present in this worktree. Exempt when present, but not
 #: required to exist — the reverse direction (a route without a pendant) is
 #: still reported by :func:`test_every_rest_memory_route_has_a_pendant_or_a_reason`.
-_DEFERRED_REST_ROUTES_WITHOUT_MCP_TOOL: Dict[str, str] = {
+_DEFERRED_REST_ROUTES_WITHOUT_MCP_TOOL: dict[str, str] = {
     "system-memory-consolidations": (
         "per-trigger-source consolidation counter (the REST half of #1300, "
         "landed by the event/projector stream); a metrics read, not an "
@@ -72,11 +70,11 @@ _DEFERRED_REST_ROUTES_WITHOUT_MCP_TOOL: Dict[str, str] = {
 }
 
 
-def _rest_memory_routes() -> Dict[str, str]:
+def _rest_memory_routes() -> dict[str, str]:
     """Return ``{route name: path}`` for every memory route in ``rest_api.urls``."""
     from rest_api.urls import urlpatterns
 
-    routes: Dict[str, str] = {}
+    routes: dict[str, str] = {}
     for pattern in urlpatterns:
         name = getattr(pattern, "name", None)
         path = str(getattr(pattern, "pattern", ""))
@@ -86,7 +84,7 @@ def _rest_memory_routes() -> Dict[str, str]:
     return routes
 
 
-def _mcp_memory_tools() -> Set[str]:
+def _mcp_memory_tools() -> set[str]:
     """Every live MCP tool in the ``memory`` namespace."""
     from mcp_server.management.commands.export_tool_manifest import build_manifest
 

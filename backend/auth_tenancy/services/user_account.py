@@ -12,10 +12,11 @@ from uuid import UUID
 
 from django.db import IntegrityError, transaction
 
-from .authorization import AuthorizationService
+from persistence.models import Tenant, User
+
 from ..errors import PermissionDenied
 from ..models import ROLE_ADMIN, TenantRole, UserRole
-from persistence.models import Tenant, User
+from .authorization import AuthorizationService
 
 # Minimum password length. Mirrors ``mcp_server/tools/users.py``'s
 # ``_PASSWORD_MIN_LENGTH`` — the user-creation path is privileged and must

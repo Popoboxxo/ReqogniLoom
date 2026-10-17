@@ -15,8 +15,8 @@ from django.test import override_settings
 
 from application import ai_derivation_service as ds
 from application.ai_derivation_service import (
-    AiDerivationService,
     MOCK_FALLBACK_MARKER,
+    AiDerivationService,
     invalidate_derivation_cache,
 )
 from auth_tenancy.context import AuthContext
@@ -25,6 +25,8 @@ from persistence.models import (
     StakeholderNeed,
     Tenant,
     User,
+)
+from persistence.models import (
     Workspace as PersistenceWorkspace,
 )
 from persistence.tenancy import TenantContext

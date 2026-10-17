@@ -37,12 +37,12 @@ from __future__ import annotations
 
 import pytest
 from django.test import override_settings
+from rest_framework.test import APIClient
 
 from auth_tenancy.models import ROLE_ADMIN, UserRole
 from auth_tenancy.rest import ACCESS_COOKIE_NAME
 from persistence.middleware import clear_request_tenant, set_request_tenant
 from persistence.models import Tenant, User, Workspace
-from rest_framework.test import APIClient
 
 _SECRET = "csrf-regression-test-secret"
 

@@ -11,13 +11,19 @@ import uuid
 
 import pytest
 
-from auth_tenancy.models import ROLE_ADMIN, ROLE_APPROVER, ROLE_EDITOR, ROLE_VIEWER, TenantRole, UserRole
+from auth_tenancy.models import (
+    ROLE_ADMIN,
+    ROLE_APPROVER,
+    ROLE_EDITOR,
+    ROLE_VIEWER,
+    TenantRole,
+    UserRole,
+)
 from auth_tenancy.services.authentication import AuthenticationService
 from auth_tenancy.tests.user_management_matrix import ACTIONS, ROLES, USER_MANAGEMENT_MATRIX
 from mcp_server.tool_registry import ToolRegistry
 from persistence.middleware import clear_request_tenant, set_request_tenant
 from persistence.models import Tenant, User, Workspace
-
 
 _ACTION_TO_TOOL_CALL = {
     "user.create": ("user.create", lambda ids: {"username": f"u-{uuid.uuid4().hex[:8]}", "email": f"{uuid.uuid4().hex[:8]}@t.test", "password": "a-real-password-123"}),

@@ -196,6 +196,6 @@ class WorkspaceArchitectureDecomposeCommitView(APIView):
 
 
 __all__ = [
-    "WorkspaceArchitectureDecomposeView",
     "WorkspaceArchitectureDecomposeCommitView",
+    "WorkspaceArchitectureDecomposeView",
 ]

@@ -36,7 +36,7 @@ already holds a ``consolidation_counts()``-shaped payload can serve unchanged.
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List
+from typing import Any
 
 from django.core.cache import cache
 
@@ -60,7 +60,7 @@ def _counter_key(source: str) -> str:
 def _register_source(source: str) -> None:
     """Add *source* to the registry so :func:`consolidation_counts` can list it."""
     try:
-        sources: List[str] = cache.get(SOURCE_REGISTRY_KEY) or []
+        sources: list[str] = cache.get(SOURCE_REGISTRY_KEY) or []
         if source not in sources:
             cache.set(SOURCE_REGISTRY_KEY, [*sources, source], timeout=None)
     except Exception:  # noqa: BLE001 - registry is best-effort, see module docstring
@@ -98,13 +98,13 @@ def increment_consolidation(source: Any, *, amount: int = 1) -> int:
     return count
 
 
-def consolidation_counts() -> Dict[str, int]:
+def consolidation_counts() -> dict[str, int]:
     """Return ``{source: total}`` for every source seen; ``{}`` if none/unavailable."""
     try:
         sources = cache.get(SOURCE_REGISTRY_KEY) or []
     except Exception:  # noqa: BLE001 - a cache outage reads as "no sources"
         return {}
-    counts: Dict[str, int] = {}
+    counts: dict[str, int] = {}
     for source in sources:
         try:
             counts[source] = int(cache.get(_counter_key(source)) or 0)
@@ -133,8 +133,8 @@ __all__ = [
     "COUNTER_KEY_PREFIX",
     "SOURCE_REGISTRY_KEY",
     "UNKNOWN_SOURCE",
-    "increment_consolidation",
     "consolidation_counts",
-    "total_consolidations",
+    "increment_consolidation",
     "reset_consolidation_counters",
+    "total_consolidations",
 ]

@@ -22,7 +22,6 @@ Design notes (ADR-PC-02):
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import FrozenSet, List
 
 from presets.exceptions import (
     ConfigurationError,
@@ -39,16 +38,16 @@ TIER_MINIMAL = "minimal"
 TIER_STANDARD = "standard"
 TIER_EXTENDED = "extended"
 
-DEFAULT_TIERS: FrozenSet[str] = frozenset({TIER_MINIMAL, TIER_STANDARD, TIER_EXTENDED})
+DEFAULT_TIERS: frozenset[str] = frozenset({TIER_MINIMAL, TIER_STANDARD, TIER_EXTENDED})
 
 # Ordered for upgrade/downgrade comparison (lower index = less rigor)
-TIER_ORDER: List[str] = [TIER_MINIMAL, TIER_STANDARD, TIER_EXTENDED]
+TIER_ORDER: list[str] = [TIER_MINIMAL, TIER_STANDARD, TIER_EXTENDED]
 
 # ---------------------------------------------------------------------------
 # Feature key registry — all valid keys (REQ-L2-PC-002)
 # ---------------------------------------------------------------------------
 
-FEATURE_KEYS: FrozenSet[str] = frozenset(
+FEATURE_KEYS: frozenset[str] = frozenset(
     {
         "baselines",
         "global_baselines",
@@ -443,13 +442,13 @@ def get_registry() -> PresetRegistry:
 
 
 __all__ = [
+    "DEFAULT_TIERS",
+    "FEATURE_KEYS",
+    "TIER_EXTENDED",
+    "TIER_MINIMAL",
+    "TIER_ORDER",
+    "TIER_STANDARD",
     "PresetConfig",
     "PresetRegistry",
-    "TIER_MINIMAL",
-    "TIER_STANDARD",
-    "TIER_EXTENDED",
-    "DEFAULT_TIERS",
-    "TIER_ORDER",
-    "FEATURE_KEYS",
     "get_registry",
 ]

@@ -30,9 +30,10 @@ Table growth is bounded by ``manage.py cleanup_expired_refresh_tokens``.
 req_id : REQ-L2-AT-002, REQ-L3-AT001-001
 """
 
+import uuid
+
 import django.db.models.deletion
 import django.db.models.manager
-import uuid
 from django.conf import settings
 from django.db import migrations, models
 

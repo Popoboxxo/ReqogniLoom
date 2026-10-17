@@ -32,10 +32,9 @@ import time
 import uuid
 from typing import Any, Optional
 
-from django.db import connection, OperationalError, ProgrammingError
+from django.db import OperationalError, ProgrammingError, connection
 
 from persistence.tenancy import TenantContext
-
 from traceability.exceptions import PayloadTooLargeError, QueryTimeoutError
 from traceability.types import (
     Direction,

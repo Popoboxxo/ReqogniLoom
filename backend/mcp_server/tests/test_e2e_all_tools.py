@@ -41,13 +41,38 @@ Section layout (target ≥ 130 tests):
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
-from typing import Any, Dict, List
+from datetime import UTC, datetime
+from typing import Any
 from unittest.mock import MagicMock
 from uuid import uuid4
 
 import pytest
 from django.test import Client
+
+# AdminOps — the BackupMetadata is a system-level entity (not tenant-scoped).
+from admin_ops.models import BackupMetadata, BackupStatus, BackupType
+
+# Application models — DLQ + audit entry types live outside the
+# TenantScopedModel lineage, so they have to be imported directly.
+from application.models import DomainEventDLQ
+from audit.models import AuditEntry
+
+# Auth & tenancy — to seed UserRoles, ApiKeys and read role constants.
+from auth_tenancy.models import (
+    ITEM_PERMISSION_READ,
+    ROLE_ADMIN,
+    ItemPermission,
+    UserRole,
+)
+
+# MCP e2e fixtures (auto-imported via conftest.py).
+# JSON-RPC helpers — see mcp_server/tests/helpers.py.
+from mcp_server.tests.helpers import (
+    extract_error_code,
+    extract_result,
+    make_jsonrpc_frame,
+    post_mcp,
+)
 
 # Persistence layer — direct ORM access used to seed entities per-test.
 from persistence.middleware import clear_request_tenant, set_request_tenant
@@ -60,32 +85,6 @@ from persistence.models import (
     TestRun,
     User,
     Workspace,
-)
-
-# Auth & tenancy — to seed UserRoles, ApiKeys and read role constants.
-from auth_tenancy.models import (
-    ROLE_ADMIN,
-    UserRole,
-    ItemPermission,
-    ITEM_PERMISSION_READ,
-)
-
-# Application models — DLQ + audit entry types live outside the
-# TenantScopedModel lineage, so they have to be imported directly.
-from application.models import DomainEventDLQ
-from audit.models import AuditEntry
-
-# AdminOps — the BackupMetadata is a system-level entity (not tenant-scoped).
-from admin_ops.models import BackupMetadata, BackupStatus, BackupType
-
-# MCP e2e fixtures (auto-imported via conftest.py).
-
-# JSON-RPC helpers — see mcp_server/tests/helpers.py.
-from mcp_server.tests.helpers import (
-    extract_error_code,
-    extract_result,
-    make_jsonrpc_frame,
-    post_mcp,
 )
 
 # SYSTEMAUDIT SA-62: classification marker for the `test_e2e_*.py` family —
@@ -199,15 +198,15 @@ def mock_backup_service(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
     backup_row.checksum_sha256 = "0" * 64
     backup_row.error_message = ""
     backup_row.metadata = {}
-    backup_row.completed_at = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+    backup_row.completed_at = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
     backup_row.is_restorable = True
-    backup_row.created_at = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+    backup_row.created_at = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
     backup_row.created_by_id = None
 
     restore_result = MagicMock()
     restore_result.backup_id = uuid4()
-    restore_result.started_at = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
-    restore_result.completed_at = datetime(2026, 1, 1, 12, 0, 5, tzinfo=timezone.utc)
+    restore_result.started_at = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
+    restore_result.completed_at = datetime(2026, 1, 1, 12, 0, 5, tzinfo=UTC)
     restore_result.restored_tables = []
     restore_result.rows_per_table = {}
 
@@ -369,7 +368,7 @@ def _seed_audit_entry(workspace: Workspace, user: User) -> AuditEntry:
 # ===========================================================================
 
 
-_HAPPY_PATH_CASES: List[Dict[str, Any]] = [
+_HAPPY_PATH_CASES: list[dict[str, Any]] = [
     # requirement.*
     {
         "tool": "requirement.get",
@@ -717,10 +716,10 @@ _PLACEHOLDER_EMAIL = "__EMAIL__"
 
 
 def _resolve_params_for_case(
-    case: Dict[str, Any],
+    case: dict[str, Any],
     workspace: Workspace,
-    extra: Dict[str, Any],
-) -> Dict[str, Any]:
+    extra: dict[str, Any],
+) -> dict[str, Any]:
     """Replace placeholder markers in a happy-path case with real ids.
 
     Recognised placeholders:
@@ -778,10 +777,10 @@ def _resolve_params_for_case(
 
 
 def _seed_for_case(
-    case: Dict[str, Any],
+    case: dict[str, Any],
     workspace: Workspace,
-    e2e_users: Dict[str, User],
-) -> Dict[str, Any]:
+    e2e_users: dict[str, User],
+) -> dict[str, Any]:
     """Seed any entities the case needs, return a dict of placeholder -> id.
 
     The keys of the returned dict mirror the placeholder markers used in
@@ -958,7 +957,7 @@ def test_e2e_tool_happy_path(
 # ===========================================================================
 
 
-_RBAC_DENIAL_CASES: List[Dict[str, Any]] = [
+_RBAC_DENIAL_CASES: list[dict[str, Any]] = [
     # requirement.*
     {"tool": "requirement.create", "params": {"title": "T", "workspace_id": "__WORKSPACE__"}},
     {"tool": "requirement.update", "params": {"id": str(uuid4()), "workspace_id": "__WORKSPACE__", "data": {"title": "X"}}},
@@ -999,7 +998,7 @@ _RBAC_DENIAL_IDS = [c["tool"] for c in _RBAC_DENIAL_CASES]
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.parametrize("case", _RBAC_DENIAL_CASES, ids=_RBAC_DENIAL_IDS)
 def test_e2e_viewer_denied_for_write_tool(
-    case: Dict[str, Any],
+    case: dict[str, Any],
     viewer_client: Client,
     e2e_workspace: Workspace,
     e2e_user_viewer: User,
@@ -1023,7 +1022,7 @@ def test_e2e_viewer_denied_for_write_tool(
     )
 
 
-def _walk_params(value: Any, workspace: Workspace, extra: Dict[str, Any]) -> Any:
+def _walk_params(value: Any, workspace: Workspace, extra: dict[str, Any]) -> Any:
     """Resolve placeholder markers in a flat params dict. Re-uses the
     walker logic from ``_resolve_params_for_case`` for consistency.
     """
@@ -1037,7 +1036,7 @@ def _walk_params(value: Any, workspace: Workspace, extra: Dict[str, Any]) -> Any
 # ===========================================================================
 
 
-_AUTH_FAILURE_CASES: List[Dict[str, Any]] = [
+_AUTH_FAILURE_CASES: list[dict[str, Any]] = [
     {"tool": "requirement.get", "params": {"id": str(uuid4())}},
     {"tool": "workspace.close", "params": {"workspace_id": str(uuid4())}},
     {"tool": "permissions.list", "params": {"workspace_id": str(uuid4()), "user_id": str(uuid4())}},
@@ -1051,7 +1050,7 @@ _AUTH_FAILURE_CASES: List[Dict[str, Any]] = [
     "case", _AUTH_FAILURE_CASES, ids=[c["tool"] for c in _AUTH_FAILURE_CASES]
 )
 def test_e2e_invalid_api_key_returns_auth_failed(
-    case: Dict[str, Any], invalid_client: Client
+    case: dict[str, Any], invalid_client: Client
 ):
     """Syntactically valid but unknown API key must produce 401 + AUTH_FAILED."""
     response = post_mcp(invalid_client, case["tool"], case["params"])
@@ -2389,8 +2388,8 @@ def test_e2e_workspace_delete_happy_path(
     # e2e_workspace fixture (which is shared with other tests).
     set_request_tenant(e2e_workspace.tenant_id)
     try:
-        from presets.models import WorkspacePresetConfig
         from persistence.models import Workspace as PWorkspace
+        from presets.models import WorkspacePresetConfig
         target = PWorkspace.unscoped.create(
             tenant=e2e_workspace.tenant,
             name=f"Delete Me {uuid4().hex[:6]}",

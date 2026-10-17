@@ -22,8 +22,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from llm_adapter.interface import LlmCapabilityInterface
 from llm_adapter import providers
+from llm_adapter.interface import LlmCapabilityInterface
 from llm_adapter.providers import (
     AnthropicProvider,
     AzureOpenAiProvider,

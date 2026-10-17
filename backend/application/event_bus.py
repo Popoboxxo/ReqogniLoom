@@ -45,10 +45,10 @@ import contextlib
 import logging
 import threading
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any
 from uuid import UUID, uuid4
 
 from django.conf import settings
@@ -87,7 +87,7 @@ class TenantMismatchError(UnresolvedTenantError):
     """
 
 
-def _workspace_tenant_id(workspace_id: Any) -> Optional[UUID]:
+def _workspace_tenant_id(workspace_id: Any) -> UUID | None:
     """Return ``workspace_id -> pl_workspace.tenant_id`` or ``None``.
 
     Best-effort: a failure here (the relation is RLS-hidden, there is no DB in
@@ -113,7 +113,7 @@ def _workspace_tenant_id(workspace_id: Any) -> Optional[UUID]:
         return None
 
 
-def _resolve_emission_tenant_id(workspace_id: Any) -> Optional[UUID]:
+def _resolve_emission_tenant_id(workspace_id: Any) -> UUID | None:
     """Resolve the tenant to stamp on a new outbox row (#1183 / A4 + F2).
 
     The **workspace relation is authoritative**: ``pl_workspace.tenant_id`` is
@@ -178,10 +178,10 @@ class DomainEvent:
     event_type: str                     # One of DomainEventOutbox.EventType values
     entity_id: UUID                     # Primary entity affected
     workspace_id: UUID                  # Tenant/workspace isolation
-    payload: Dict[str, Any] = field(default_factory=dict)
+    payload: dict[str, Any] = field(default_factory=dict)
     event_id: UUID = field(default_factory=uuid4)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Serialise for outbox payload field."""
         return {
             "event_id": str(self.event_id),
@@ -205,7 +205,7 @@ class SubscriberRegistry:
     """
 
     def __init__(self) -> None:
-        self._registry: Dict[str, List[Callable[[DomainEvent], None]]] = {}
+        self._registry: dict[str, list[Callable[[DomainEvent], None]]] = {}
         self._lock = threading.Lock()
 
     def register(self, event_type: str, subscriber: Callable[[DomainEvent], None]) -> None:
@@ -224,12 +224,12 @@ class SubscriberRegistry:
                 except ValueError:
                     pass
 
-    def get_subscribers(self, event_type: str) -> List[Callable[[DomainEvent], None]]:
+    def get_subscribers(self, event_type: str) -> list[Callable[[DomainEvent], None]]:
         """Return a snapshot list of subscribers for *event_type*."""
         with self._lock:
             return list(self._registry.get(event_type, []))
 
-    def all_subscribers(self) -> Dict[str, List[Callable[[DomainEvent], None]]]:
+    def all_subscribers(self) -> dict[str, list[Callable[[DomainEvent], None]]]:
         """Return a copy of the full registry (for monitoring)."""
         with self._lock:
             return {k: list(v) for k, v in self._registry.items()}
@@ -256,10 +256,10 @@ class DomainEventBus:
     superseded by SA-02 — see the docstring note in that architecture doc.
     """
 
-    _instance: Optional["DomainEventBus"] = None
+    _instance: DomainEventBus | None = None
     _lock = threading.Lock()
 
-    def __new__(cls) -> "DomainEventBus":
+    def __new__(cls) -> DomainEventBus:
         with cls._lock:
             if cls._instance is None:
                 inst = super().__new__(cls)
@@ -348,13 +348,13 @@ class DomainEventBus:
         """Deregister a subscriber (REQ-L3-DEB-005)."""
         self._registry.unregister(event_type, subscriber)
 
-    def get_subscriber_registry(self) -> Dict[str, List[Callable[[DomainEvent], None]]]:
+    def get_subscriber_registry(self) -> dict[str, list[Callable[[DomainEvent], None]]]:
         """Expose registry snapshot for monitoring (REQ-L3-DEB-010)."""
         return self._registry.all_subscribers()
 
     def dispatch_to_subscribers(
         self, event: DomainEvent, timeout_seconds: int = 30
-    ) -> List[str]:
+    ) -> list[str]:
         """Dispatch *event* to all registered subscribers.
 
         Called by the OutboxPoller worker after fetching an unpublished event.
@@ -374,7 +374,7 @@ class DomainEventBus:
             losing it (see REQ-L3-DEB-008 vs. at-least-once REQ_072).
         """
         subscribers = self._registry.get_subscribers(event.event_type)
-        errors: List[str] = []
+        errors: list[str] = []
         for subscriber in subscribers:
             try:
                 start = time.monotonic()
@@ -402,7 +402,7 @@ class DomainEventBus:
 # Module-level singleton accessor
 # ---------------------------------------------------------------------------
 
-_bus_instance: Optional[DomainEventBus] = None
+_bus_instance: DomainEventBus | None = None
 
 
 def get_event_bus() -> DomainEventBus:
@@ -517,7 +517,7 @@ def _reclaim_cutoff() -> datetime:
     return timezone.now() - timedelta(seconds=CLAIM_TIMEOUT_SECONDS)
 
 
-def _claim_event(pk: Any) -> Optional[DomainEventOutbox]:
+def _claim_event(pk: Any) -> DomainEventOutbox | None:
     """Claim one outbox row and commit the claim before returning.
 
     The transaction here covers *only* the claim, so the ``SELECT FOR UPDATE``
@@ -666,7 +666,7 @@ def _enforcement_enabled() -> bool:
     return bool(getattr(settings, "RLS_AS_ENFORCED", False))
 
 
-def _list_candidate_pks(batch_size: int) -> List[Any]:
+def _list_candidate_pks(batch_size: int) -> list[Any]:
     """Candidate PKs via the ORM — the DEFAULT-OFF path (behaviour unchanged).
 
     Under the permissive policy (``RLS_AS_ENFORCED`` unset) the app role sees
@@ -683,7 +683,7 @@ def _list_candidate_pks(batch_size: int) -> List[Any]:
     )
 
 
-def _list_candidates_enforced(batch_size: int) -> List[tuple]:
+def _list_candidates_enforced(batch_size: int) -> list[tuple]:
     """Candidate ``(pk, tenant_id)`` pairs via the ``SECURITY DEFINER`` helper.
 
     ENFORCEMENT-ON path (#1183 / A4). With ``app.rls_as_enforced=on`` the app

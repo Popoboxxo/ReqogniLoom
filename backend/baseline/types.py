@@ -12,8 +12,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Optional
-
+from typing import Any
 
 # ---------------------------------------------------------------------------
 # COMP-BL-001: DeltaIndex types
@@ -34,7 +33,7 @@ class DeltaIndexTuple:
     item_id: str
     version: int
     entity_type: str = "item"  # "item" | "icd" | "trace_link" | "glossary_term"
-    state: Optional[dict[str, Any]] = None
+    state: dict[str, Any] | None = None
 
 
 @dataclass
@@ -47,12 +46,12 @@ class BaselineMetadata:
     workspace_id: uuid.UUID
     scope: str
     name: str
-    description: Optional[str] = None
+    description: str | None = None
     created_by: str = ""
-    created_at: Optional[datetime] = None  # set by BaselineStore if None
+    created_at: datetime | None = None  # set by BaselineStore if None
 
     # Optional: set after persistence
-    baseline_id: Optional[uuid.UUID] = None
+    baseline_id: uuid.UUID | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -81,7 +80,7 @@ class ChangedItem:
     id: str
     old_version: int
     new_version: int
-    field_changes: Optional[dict[str, Any]] = None
+    field_changes: dict[str, Any] | None = None
 
 
 @dataclass
@@ -223,9 +222,9 @@ class ItemPayload:
     item_id: str
     version: int
     title: str
-    description: Optional[str] = None
-    content: Optional[str] = None
-    reconstructed_at: Optional[datetime] = None
+    description: str | None = None
+    content: str | None = None
+    reconstructed_at: datetime | None = None
 
     def to_dict(self) -> dict:
         """Return JSON-serializable representation."""
@@ -243,12 +242,12 @@ class ItemPayload:
 # ---------------------------------------------------------------------------
 
 __all__ = [
-    "DeltaIndexTuple",
-    "BaselineMetadata",
-    "ChangedItem",
-    "DiffResult",
     "BaselineDetail",
+    "BaselineMetadata",
     "BaselineSummary",
+    "ChangedItem",
+    "DeltaIndexTuple",
+    "DiffResult",
     "ItemPayload",
     "ScopePreview",
     "ScopePreviewItem",

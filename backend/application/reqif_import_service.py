@@ -157,10 +157,9 @@ import json
 import logging
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any
 from uuid import UUID
 
-from auth_tenancy.context import AuthContext
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError, transaction
 from django.utils import timezone
@@ -178,6 +177,7 @@ from application.reqif_export_service import (
     _SPEC_OBJECT_TYPE_NEED,
     _SPEC_OBJECT_TYPE_REQUIREMENT,
 )
+from auth_tenancy.context import AuthContext
 from persistence.custom_fields import validate_custom_fields
 from traceability.types import VALID_LINK_TYPES
 
@@ -341,7 +341,7 @@ def _apply_imported_workflow_state(
         )
 
 
-def _map_status(current: str, valid_states: Optional[List[str]]) -> str:
+def _map_status(current: str, valid_states: list[str] | None) -> str:
     """Map a free-text status onto a valid workflow state.
 
     Ported from ``0003_reconcile_status_mirror._map_status`` — see that
@@ -399,7 +399,7 @@ class ReqifParseError(ValidationError):
     """
 
 
-def _parse_artifact_uuid(identifier: str) -> Optional[UUID]:
+def _parse_artifact_uuid(identifier: str) -> UUID | None:
     """Recover the Artifact UUID from a ``_<uuid>`` SPEC-OBJECT identifier.
 
     Returns None for anything that is not exactly the export's own scheme
@@ -414,7 +414,7 @@ def _parse_artifact_uuid(identifier: str) -> Optional[UUID]:
         return None
 
 
-def _parse_relation_uuid(identifier: Optional[str]) -> Optional[UUID]:
+def _parse_relation_uuid(identifier: str | None) -> UUID | None:
     """Recover the TraceLink UUID from a ``_r-<uuid>`` SPEC-RELATION identifier.
 
     The relation-scheme counterpart of :func:`_parse_artifact_uuid`, matching
@@ -456,7 +456,7 @@ class ReqifEntityReport:
     updated: int = 0
     skipped: int = 0
     failed: int = 0
-    items: List[Dict[str, Any]] = field(default_factory=list)
+    items: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def succeeded(self) -> int:
@@ -464,7 +464,7 @@ class ReqifEntityReport:
         return self.created + self.updated
 
     @property
-    def errors(self) -> List[Dict[str, str]]:
+    def errors(self) -> list[dict[str, str]]:
         """Legacy additive error view derived from the structured ``items``.
 
         ADR-014 §5: the legacy keys are *additive* and must not change meaning.
@@ -481,9 +481,9 @@ class ReqifEntityReport:
     def add_item(
         self,
         *,
-        row: Optional[int],
-        identifier: Optional[str],
-        kind: Optional[str],
+        row: int | None,
+        identifier: str | None,
+        kind: str | None,
         status: str,
         code: str,
         message: str,
@@ -552,10 +552,10 @@ class ReqifImportResult:
     needs: ReqifEntityReport
     requirements: ReqifEntityReport
     relations: ReqifEntityReport
-    warnings: List[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
     request_id: str = ""
     idempotent_replay: bool = False
-    extra_items: List[Dict[str, Any]] = field(default_factory=list)
+    extra_items: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def failed_total(self) -> int:
@@ -568,7 +568,7 @@ class ReqifImportResult:
         )
 
     @property
-    def counts(self) -> Dict[str, int]:
+    def counts(self) -> dict[str, int]:
         """v2 result counters (ADR-014 §1). ``total`` includes skipped."""
         succeeded = (
             self.needs.succeeded
@@ -590,7 +590,7 @@ class ReqifImportResult:
         }
 
     @property
-    def items(self) -> List[Dict[str, Any]]:
+    def items(self) -> list[dict[str, Any]]:
         """Combined structured item list (failures + skips), ADR-014 §1."""
         return [
             *self.needs.items,
@@ -616,7 +616,7 @@ class ReqifImportResult:
     @classmethod
     def parse_failure(
         cls, message: str, *, dry_run: bool, request_id: str
-    ) -> "ReqifImportResult":
+    ) -> ReqifImportResult:
         """Build the v2 result for a file-level PARSE_ERROR (ADR-014 §2).
 
         No object was persisted; the single synthetic item makes ``items``
@@ -687,7 +687,7 @@ class ReqifImportService(ServiceBase):
         workspace_id: UUID | str,
         ctx: AuthContext,
         dry_run: bool = False,
-        request_id: Optional[str] = None,
+        request_id: str | None = None,
     ) -> ReqifImportResult:
         """Parse, validate, and (unless dry_run) atomically persist a ReqIF document.
 
@@ -753,12 +753,12 @@ class ReqifImportService(ServiceBase):
         needs_report = ReqifEntityReport()
         reqs_report = ReqifEntityReport()
         relations_report = ReqifEntityReport()
-        warnings: List[str] = []
+        warnings: list[str] = []
 
         tenant = workspace.tenant
 
         with transaction.atomic():
-            identifier_to_artifact: Dict[str, Any] = {}
+            identifier_to_artifact: dict[str, Any] = {}
 
             for position, so in enumerate(spec_objects, start=1):
                 kind = self._spec_object_kind(so.spec_object_type)
@@ -958,7 +958,7 @@ class ReqifImportService(ServiceBase):
     # ---------- SPEC-OBJECT upsert ----------
 
     @staticmethod
-    def _spec_object_kind(spec_object_type_ref: str) -> Optional[str]:
+    def _spec_object_kind(spec_object_type_ref: str) -> str | None:
         if spec_object_type_ref == _SPEC_OBJECT_TYPE_NEED:
             return "StakeholderNeed"
         if spec_object_type_ref == _SPEC_OBJECT_TYPE_REQUIREMENT:
@@ -973,7 +973,7 @@ class ReqifImportService(ServiceBase):
         spec_type: Any,
         workspace: Any,
         tenant: Any,
-        warnings: List[str],
+        warnings: list[str],
     ) -> tuple:
         """Create or update the Artifact + Need/Requirement for one SPEC-OBJECT.
 
@@ -1452,11 +1452,11 @@ class ReqifImportService(ServiceBase):
         title: str,
         description: str,
         category: str,
-        verification_method: Optional[str],
-        moscow_priority: Optional[str],
-        custom_fields: Dict[str, Any],
-        external_uid: Optional[str],
-        foreign_identifier: Optional[str],
+        verification_method: str | None,
+        moscow_priority: str | None,
+        custom_fields: dict[str, Any],
+        external_uid: str | None,
+        foreign_identifier: str | None,
         status_raw: str,
         workspace_id: UUID,
     ) -> bool:
@@ -1572,8 +1572,8 @@ class ReqifImportService(ServiceBase):
 
     @staticmethod
     def _apply_hierarchy(
-        specifications: Optional[List[Any]],
-        identifier_to_artifact: Dict[str, Any],
+        specifications: list[Any] | None,
+        identifier_to_artifact: dict[str, Any],
     ) -> None:
         """Apply SPEC-HIERARCHY nesting as Artifact.parent within the workspace.
 
@@ -1591,7 +1591,7 @@ class ReqifImportService(ServiceBase):
         canonical roundtrip representation too.
         """
 
-        def walk(nodes: Optional[List[Any]], parent_artifact: Optional[Any]) -> None:
+        def walk(nodes: list[Any] | None, parent_artifact: Any | None) -> None:
             for node in nodes or []:
                 child_artifact = identifier_to_artifact.get(node.spec_object)
                 next_parent = parent_artifact
@@ -1616,9 +1616,9 @@ class ReqifImportService(ServiceBase):
 
     @staticmethod
     def _apply_relations(
-        spec_relations: Optional[List[Any]],
-        spec_types: Optional[List[Any]],
-        identifier_to_artifact: Dict[str, Any],
+        spec_relations: list[Any] | None,
+        spec_types: list[Any] | None,
+        identifier_to_artifact: dict[str, Any],
         tenant: Any,
         relations_report: ReqifEntityReport,
     ) -> None:
@@ -1729,7 +1729,7 @@ class ReqifImportService(ServiceBase):
 
     @staticmethod
     def _ensure_relation_link(
-        relation_identifier: Optional[str],
+        relation_identifier: str | None,
         link_type: str,
         source_artifact: Any,
         target_artifact: Any,
@@ -1841,8 +1841,8 @@ class ReqifImportService(ServiceBase):
 
 
 __all__ = [
-    "ReqifImportService",
-    "ReqifImportResult",
     "ReqifEntityReport",
+    "ReqifImportResult",
+    "ReqifImportService",
     "ReqifParseError",
 ]

@@ -49,6 +49,13 @@ from uuid import UUID
 
 from django.db import IntegrityError
 
+from application.base import ServiceBase, ValidationError
+from application.prompt_template_versioning import (
+    deactivate_scope,
+    get_active_template,
+    list_active_templates,
+    publish_new_version,
+)
 from auth_tenancy.context import AuthContext
 from persistence.models import (
     PROMPT_TEMPLATE_DEFAULTS,
@@ -59,14 +66,6 @@ from persistence.models import (
     ReviewPolicy,
 )
 from presets.registry import TIER_EXTENDED
-
-from application.base import ServiceBase, ValidationError
-from application.prompt_template_versioning import (
-    deactivate_scope,
-    get_active_template,
-    list_active_templates,
-    publish_new_version,
-)
 
 # Fields a client may write onto the LlmSettings row.
 _LLM_WRITABLE_FIELDS = ("provider", "base_url", "model_name", "api_key")
@@ -933,7 +932,7 @@ class SettingsService(ServiceBase):
     # validation live in ``_ReviewPolicyOps``.
 
     def get_effective_review_policy(
-        self, ctx: AuthContext, *, workspace_id: "str | None" = None
+        self, ctx: AuthContext, *, workspace_id: str | None = None
     ) -> ReviewPolicy:
         """Return the effective ReviewPolicy for ``workspace_id``.
 
@@ -951,7 +950,7 @@ class SettingsService(ServiceBase):
         self,
         ctx: AuthContext,
         *,
-        workspace_id: "str | None",
+        workspace_id: str | None,
         mode: str,
         min_confidence: float,
     ) -> ReviewPolicy:

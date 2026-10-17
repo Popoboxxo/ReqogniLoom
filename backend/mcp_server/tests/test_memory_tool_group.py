@@ -17,7 +17,7 @@ from uuid import uuid4
 import pytest
 
 from auth_tenancy.context import AuthContext, AuthMethod
-from mcp_server.tool_registry import ToolRegistry, _READ_ONLY_TOOL_NAMES, _WRITE_TOOL_PREFIXES
+from mcp_server.tool_registry import _READ_ONLY_TOOL_NAMES, _WRITE_TOOL_PREFIXES, ToolRegistry
 from mcp_server.tools.memory import MemoryToolGroup
 from memory.backends import MemoryHealth
 from memory.models import MemoryEntry

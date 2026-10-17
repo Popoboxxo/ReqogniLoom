@@ -23,8 +23,7 @@ Architecture:
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 from baseline.exceptions import (
     BaselineImmutableError,
@@ -60,7 +59,7 @@ class BaselineStore:
         delta_index: list[DeltaIndexTuple],
         metadata: BaselineMetadata,
         tenant_id: uuid.UUID,
-        states: Optional[dict[str, dict]] = None,
+        states: dict[str, dict] | None = None,
     ) -> uuid.UUID:
         """Persist a complete Baseline atomically.
 
@@ -86,7 +85,7 @@ class BaselineStore:
 
         states = states or {}
 
-        created_at = metadata.created_at or datetime.now(tz=timezone.utc)
+        created_at = metadata.created_at or datetime.now(tz=UTC)
 
         with transaction.atomic():
             # Check for duplicate name before INSERT to produce a clean error
@@ -168,8 +167,8 @@ class BaselineStore:
         self,
         baseline_id: uuid.UUID,
         tenant_id: uuid.UUID,
-        item_ids: Optional[list[str]] = None,
-    ) -> dict[str, Optional[dict]]:
+        item_ids: list[str] | None = None,
+    ) -> dict[str, dict | None]:
         """Return ``{item_id: state}`` for a baseline (REQ-L2-BL-012).
 
         Used by DiffEngine to build field-level diffs. When ``item_ids`` is
@@ -294,8 +293,8 @@ class BaselineStore:
     def list(
         self,
         workspace_id: uuid.UUID,
-        scope: Optional[str] = None,
-        tenant_id: Optional[uuid.UUID] = None,
+        scope: str | None = None,
+        tenant_id: uuid.UUID | None = None,
     ) -> list[BaselineSummary]:
         """Return Baseline summaries for a workspace, sorted by created_at DESC.
 
@@ -350,10 +349,10 @@ class BaselineStore:
 
 
 # Module-level singleton — lazily initialized (BaselineStore is stateless)
-_store: "BaselineStore | None" = None
+_store: BaselineStore | None = None
 
 
-def get_store() -> "BaselineStore":
+def get_store() -> BaselineStore:
     """Return the module-level BaselineStore singleton (lazy init)."""
     global _store
     if _store is None:

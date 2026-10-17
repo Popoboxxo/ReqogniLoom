@@ -16,7 +16,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from application.base import NotFoundError, PermissionDeniedError, ValidationError
-from application.issue_service import IssueService, IssueDTO, IssueValidator, ISSUE_LINK_TYPES
+from application.issue_service import ISSUE_LINK_TYPES, IssueDTO, IssueService, IssueValidator
 from application.models import Issue
 
 pytestmark = pytest.mark.django_db

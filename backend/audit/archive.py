@@ -37,8 +37,8 @@ import json
 import logging
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from django.conf import settings
 
@@ -54,7 +54,7 @@ logger = logging.getLogger(__name__)
 _DEFAULT_RETENTION_YEARS = 2
 
 
-def _get_cold_storage_backend() -> Optional[str]:
+def _get_cold_storage_backend() -> str | None:
     """Read cold storage URI from settings or environment.
 
     Returns:
@@ -88,13 +88,13 @@ class ArchiveJobLog:
 
     job_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     timestamp: str = field(
-        default_factory=lambda: datetime.now(tz=timezone.utc).isoformat()
+        default_factory=lambda: datetime.now(tz=UTC).isoformat()
     )
     partition: str = ""
     entry_count: int = 0
     outcome: str = "pending"  # 'success' | 'failure' | 'skipped'
-    error_details: Optional[str] = None
-    cold_storage_location: Optional[str] = None
+    error_details: str | None = None
+    cold_storage_location: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -282,7 +282,7 @@ class ExportOrchestrator:
         return buf.getvalue(), count
 
     @staticmethod
-    def _serialize_entry(entry: AuditEntry) -> Dict[str, Any]:
+    def _serialize_entry(entry: AuditEntry) -> dict[str, Any]:
         """Convert an AuditEntry to the required export dict.
 
         REQ-L3-AL003-003: all 9 mandatory fields present. api_key_hash is
@@ -379,8 +379,8 @@ class ArchiveLifecycleManager:
 
     def __init__(
         self,
-        orchestrator: Optional[ExportOrchestrator] = None,
-        dropper: Optional[PartitionDropper] = None,
+        orchestrator: ExportOrchestrator | None = None,
+        dropper: PartitionDropper | None = None,
     ) -> None:
         backend_uri = _get_cold_storage_backend()
         if orchestrator is None and backend_uri:
@@ -389,7 +389,7 @@ class ArchiveLifecycleManager:
         self._orchestrator = orchestrator
         self._dropper = dropper or PartitionDropper()
 
-    def run_monthly_archive(self) -> List[ArchiveJobLog]:
+    def run_monthly_archive(self) -> list[ArchiveJobLog]:
         """Execute the monthly archive job.
 
         Determines the cutoff timestamp (now - retention_years), exports all
@@ -407,7 +407,7 @@ class ArchiveLifecycleManager:
             return []
 
         retention_years = _get_retention_years()
-        now = datetime.now(tz=timezone.utc)
+        now = datetime.now(tz=UTC)
         # Cutoff: entries older than retention_years years
         cutoff = now - timedelta(days=365 * retention_years)
 
@@ -417,7 +417,7 @@ class ArchiveLifecycleManager:
             retention_years,
         )
 
-        logs: List[ArchiveJobLog] = []
+        logs: list[ArchiveJobLog] = []
         job_log = self._orchestrator.export(
             cutoff_timestamp=cutoff,
             year=cutoff.year,
@@ -478,8 +478,8 @@ except ImportError:
 
 __all__ = [
     "ArchiveJobLog",
+    "ArchiveLifecycleManager",
     "ColdStorageAdapter",
     "ExportOrchestrator",
     "PartitionDropper",
-    "ArchiveLifecycleManager",
 ]

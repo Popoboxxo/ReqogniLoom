@@ -50,6 +50,7 @@ class TestRequiredSecrets:
         Verify that _get_required_secret raises ImproperlyConfigured when var is not set.
         """
         from django.core.exceptions import ImproperlyConfigured
+
         from reqogniloom.settings import _get_required_secret
 
         # Test that it raises ImproperlyConfigured when not set

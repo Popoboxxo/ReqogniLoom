@@ -37,7 +37,6 @@ from workflow.lifecycle_manager import (
 from workflow.models import WorkflowEngineDefinition, WorkflowHistoryEntry, WorkflowItemState
 from workflow.transition_validator import ValidationResult
 
-
 # ---------------------------------------------------------------------------
 # Fixtures / helpers
 # ---------------------------------------------------------------------------

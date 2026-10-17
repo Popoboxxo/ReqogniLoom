@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 from uuid import UUID
 
 from auth_tenancy.context import AuthContext
@@ -66,7 +66,7 @@ class PresetPolicyService:
     """
 
     def __init__(self) -> None:
-        self._cache: Dict[str, _CacheEntry] = {}
+        self._cache: dict[str, _CacheEntry] = {}
 
     # ---------- Cache helpers ----------
 
@@ -169,7 +169,7 @@ class PresetPolicyService:
 
     def validate_transition_roles(
         self, ctx: AuthContext, target_state: str, workspace_id: str
-    ) -> Tuple[bool, Optional[str]]:
+    ) -> tuple[bool, str | None]:
         """Check that *ctx* has a role permitted for *target_state* transition.
 
         IF-AS-INT-007. REQ-L3-PPL-003.
@@ -214,7 +214,7 @@ class PresetPolicyService:
 
     def check_downgrade_compatibility(
         self, workspace_id: str, target_preset: str
-    ) -> Tuple[bool, List[str]]:
+    ) -> tuple[bool, list[str]]:
         """Check if a preset downgrade is safe.
 
         REQ-L3-PPL-004, REQ-L2-AS-020.
@@ -269,7 +269,7 @@ class PresetPolicyService:
 
 
 # Module-level singleton (lazily created per process)
-_policy_service: Optional[PresetPolicyService] = None
+_policy_service: PresetPolicyService | None = None
 
 
 def get_preset_policy_service() -> PresetPolicyService:

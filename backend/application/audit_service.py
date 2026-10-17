@@ -30,14 +30,12 @@ entry point, so audit + tenant scoping + SE-semantics validation all apply.
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import List, Optional, Sequence
 from uuid import UUID
 
 from django.utils import timezone
-
-from auth_tenancy.context import AuthContext
 
 from application.base import (
     NotFoundError,
@@ -48,6 +46,7 @@ from application.base import (
     WaiverFindingNotBlockingError,
     WaiverReasonPolicyViolation,
 )
+from auth_tenancy.context import AuthContext
 from baseline.exceptions import GovernanceAuthorityError, GovernanceReasonError
 from baseline.waivers import (
     BlockerWaiverRequest,
@@ -60,6 +59,7 @@ from baseline.waivers import (
     suppression_applies,
     validate_waiver_reason,
 )
+from persistence.transactions import atomic_transaction
 from traceability.audit import (
     AuditScope,
     Finding,
@@ -69,8 +69,6 @@ from traceability.audit import (
     Severity,
     get_remediation,
 )
-
-from persistence.transactions import atomic_transaction
 
 logger = logging.getLogger(__name__)
 
@@ -112,11 +110,11 @@ class AuditFindingView:
     #: (``include_suppressed`` default ``True``, O3).
     suppressed: bool = False
     #: Expiry of the matching suppression (``None`` = unbounded), if any.
-    suppressed_until: Optional[datetime] = None
+    suppressed_until: datetime | None = None
     #: Justification of the matching suppression, if any.
-    suppression_reason: Optional[str] = None
+    suppression_reason: str | None = None
     #: Id of the matching ``BaselineGateWaiver`` row, if any.
-    suppression_id: Optional[UUID] = None
+    suppression_id: UUID | None = None
 
     @property
     def finding_key(self) -> str:
@@ -164,7 +162,7 @@ class SuppressionView:
     reason: str
     granted_by: str
     created_at: datetime
-    expires_at: Optional[datetime]
+    expires_at: datetime | None
     state: str
 
     def to_dict(self) -> dict:
@@ -186,7 +184,7 @@ class SuppressionView:
     @classmethod
     def from_record(
         cls, record: SuppressionRecord, *, state: str
-    ) -> "SuppressionView":
+    ) -> SuppressionView:
         """Build a view from a loaded :class:`SuppressionRecord`."""
         return cls(
             waiver_id=record.id,
@@ -243,9 +241,9 @@ class AuditReport:
     """
 
     tier: str
-    scope: Optional[str]
-    scope_artifact_id: Optional[str]
-    findings: List[AuditFindingView] = field(default_factory=list)
+    scope: str | None
+    scope_artifact_id: str | None
+    findings: list[AuditFindingView] = field(default_factory=list)
     truncated: bool = False
     total_findings_available: int = 0
     total_blockers_available: int = 0
@@ -321,8 +319,8 @@ class RemediationResult:
 
     applied: bool
     proposal: RemediationProposal
-    finding_resolved: Optional[bool] = None
-    created_link_id: Optional[str] = None
+    finding_resolved: bool | None = None
+    created_link_id: str | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -357,7 +355,7 @@ class AuditService(ServiceBase):
     #: prompt context (audit.ai_review).
     MAX_REPORT_FINDINGS: int = 500
 
-    def __init__(self, engine: Optional[RuleEngine] = None) -> None:
+    def __init__(self, engine: RuleEngine | None = None) -> None:
         # The RuleEngine is stateless; a single shared instance is fine, but an
         # override keeps the service test-injectable.
         self._engine = engine or RuleEngine()
@@ -392,8 +390,8 @@ class AuditService(ServiceBase):
         workspace_id: str | UUID,
         ctx: AuthContext,
         *,
-        tier: Optional[str] = None,
-        scopes: Optional[Sequence[AuditScope]] = None,
+        tier: str | None = None,
+        scopes: Sequence[AuditScope] | None = None,
     ):
         """Run the RuleEngine directly and return the raw, uncapped result.
 
@@ -420,9 +418,9 @@ class AuditService(ServiceBase):
         workspace_id: str | UUID,
         ctx: AuthContext,
         *,
-        tier: Optional[str] = None,
-        scopes: Optional[Sequence[AuditScope]] = None,
-    ) -> List[Finding]:
+        tier: str | None = None,
+        scopes: Sequence[AuditScope] | None = None,
+    ) -> list[Finding]:
         """Return only the BLOCKER-severity findings for *workspace_id*.
 
         The gate counterpart of :meth:`run_audit`: same RuleEngine, same
@@ -494,10 +492,10 @@ class AuditService(ServiceBase):
         *,
         rule_id: str,
         artifact_ids: Sequence[str],
-        scope: Optional[str] = None,
-        scope_artifact_id: Optional[str] = None,
+        scope: str | None = None,
+        scope_artifact_id: str | None = None,
         reason: str,
-        expires_at: Optional[datetime] = None,
+        expires_at: datetime | None = None,
     ) -> tuple[SuppressionView, bool]:
         """Persist a per-finding suppression and return ``(view, created)``.
 
@@ -702,8 +700,8 @@ class AuditService(ServiceBase):
         ctx: AuthContext,
         *,
         state: str = "active",
-        now: Optional[datetime] = None,
-    ) -> List[SuppressionView]:
+        now: datetime | None = None,
+    ) -> list[SuppressionView]:
         """List the workspace's suppressions filtered by lifecycle *state*.
 
         ``state`` accepts ``"active"`` (default), ``"expired"`` or ``"all"``;
@@ -727,7 +725,7 @@ class AuditService(ServiceBase):
                 workspace_id, ctx.tenant_id, include_expired=False, now=now
             )
         }
-        views: List[SuppressionView] = []
+        views: list[SuppressionView] = []
         for record in all_records:
             record_state = "active" if record.id in active_ids else "expired"
             if state != "all" and record_state != state:
@@ -742,8 +740,8 @@ class AuditService(ServiceBase):
         records: Sequence[SuppressionRecord],
         finding: Finding,
         *,
-        now: Optional[datetime] = None,
-    ) -> Optional[SuppressionRecord]:
+        now: datetime | None = None,
+    ) -> SuppressionRecord | None:
         """Return the first suppression that applies to *finding*, if any.
 
         Uses the single matcher :func:`baseline.waivers.suppression_applies`
@@ -765,9 +763,9 @@ class AuditService(ServiceBase):
     def _select_suppression_candidate(
         candidates: Sequence[Finding],
         *,
-        normalized_scope: Optional[str],
-        normalized_scope_artifact: Optional[str],
-    ) -> Optional[Finding]:
+        normalized_scope: str | None,
+        normalized_scope_artifact: str | None,
+    ) -> Finding | None:
         """Pick the finding to suppress among same-key BLOCKER candidates.
 
         When several findings share the scope-less key in different scopes, a
@@ -810,12 +808,12 @@ class AuditService(ServiceBase):
         workspace_id: str | UUID,
         ctx: AuthContext,
         *,
-        tier: Optional[str] = None,
-        scopes: Optional[Sequence[AuditScope]] = None,
-        limit: Optional[int] = None,
+        tier: str | None = None,
+        scopes: Sequence[AuditScope] | None = None,
+        limit: int | None = None,
         offset: int = 0,
         include_suppressed: bool = True,
-        now: Optional[datetime] = None,
+        now: datetime | None = None,
         include_proposal_links: bool = True,
     ) -> AuditReport:
         """Run the SE-Auditor for *workspace_id* and return findings + proposals.
@@ -934,7 +932,7 @@ class AuditService(ServiceBase):
         if not include_suppressed:
             # Filter before cap/window so a caller hiding suppressed findings
             # still gets up to MAX_REPORT_FINDINGS *visible* ones.
-            kept: List[tuple[int, Finding]] = []
+            kept: list[tuple[int, Finding]] = []
             for pair in indexed:
                 if pair[0] in suppression_by_index:
                     suppressed_filtered += 1
@@ -1005,8 +1003,8 @@ class AuditService(ServiceBase):
         *,
         rule_id: str,
         artifact_ids: Sequence[str],
-        scope: Optional[str] = None,
-        scope_artifact_id: Optional[str] = None,
+        scope: str | None = None,
+        scope_artifact_id: str | None = None,
     ) -> RemediationProposal:
         """Return the remediation proposal for one finding (read-only)."""
         self._set_tenant_context(ctx)
@@ -1058,8 +1056,8 @@ class AuditService(ServiceBase):
         *,
         rule_id: str,
         artifact_ids: Sequence[str],
-        scope: Optional[str] = None,
-        scope_artifact_id: Optional[str] = None,
+        scope: str | None = None,
+        scope_artifact_id: str | None = None,
         verify: bool = True,
     ) -> RemediationResult:
         """Apply the automatic remediation for one finding (Adopt-Workflow).
@@ -1097,7 +1095,7 @@ class AuditService(ServiceBase):
 
         created_link_id = self._execute_action(proposal, ctx)
 
-        finding_resolved: Optional[bool] = None
+        finding_resolved: bool | None = None
         if verify:
             still_present = self._finding_still_present(
                 finding,
@@ -1119,7 +1117,7 @@ class AuditService(ServiceBase):
 
     def _execute_action(
         self, proposal: RemediationProposal, ctx: AuthContext
-    ) -> Optional[str]:
+    ) -> str | None:
         """Dispatch an automatic proposal to the matching domain service.
 
         Exhaustive over :class:`RemediationActionKind`; an unknown kind is a
@@ -1134,7 +1132,7 @@ class AuditService(ServiceBase):
     @staticmethod
     def _create_trace_link(
         proposal: RemediationProposal, ctx: AuthContext
-    ) -> Optional[str]:
+    ) -> str | None:
         """Create the proposed TraceLink via the TraceLinkService (ADR-01).
 
         The endpoints in the proposal are Artifact ids (every TraceLink
@@ -1161,8 +1159,8 @@ class AuditService(ServiceBase):
         workspace_id: str,
         ctx: AuthContext,
         *,
-        scope: Optional[str],
-        scope_artifact_id: Optional[str],
+        scope: str | None,
+        scope_artifact_id: str | None,
     ) -> bool:
         """Re-run the audit and report whether *finding* is still raised.
 
@@ -1196,8 +1194,8 @@ class AuditService(ServiceBase):
         *,
         rule_id: str,
         artifact_ids: Sequence[str],
-        scope: Optional[str],
-        scope_artifact_id: Optional[str],
+        scope: str | None,
+        scope_artifact_id: str | None,
     ) -> Finding:
         """Reconstruct a minimal Finding from a remediate/propose request.
 
@@ -1216,9 +1214,9 @@ class AuditService(ServiceBase):
 
 
 __all__ = [
-    "AuditService",
-    "AuditReport",
     "AuditFindingView",
+    "AuditReport",
+    "AuditService",
     "RemediationResult",
     "SuppressionView",
 ]
