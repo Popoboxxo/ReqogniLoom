@@ -429,10 +429,12 @@ export function WorkspaceTree({
   // store default rather than showing another workspace's configuration.
   useTreeDisplayFieldsLoader(itemType, workspaceId ?? null);
   const displayFields = useTreeDisplayFields(itemType);
-  const displayFieldSet = useMemo(() => new Set(displayFields), [displayFields]);
+  // FE-07: `displayFields` is a tiny, referentially stable store value, so a
+  // plain `includes` lookup replaces the premature `new Set(...)` memo without
+  // tripping react-hooks/exhaustive-deps over a per-render Set.
   const showsField = useCallback(
-    (key: string): boolean => displayFieldSet.has(key),
-    [displayFieldSet]
+    (key: string): boolean => displayFields.includes(key),
+    [displayFields]
   );
   const searchPlaceholderLabel =
     searchPlaceholder ?? t('editor.searchPlaceholder');

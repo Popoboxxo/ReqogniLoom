@@ -24,7 +24,7 @@
  */
 
 import type { CSSProperties } from "react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { architectureDecomposeApi } from "../../api/architectureDecompose";
@@ -232,7 +232,7 @@ export function ArchitectureDecomposePanel({
   }, []);
 
   const nodeCount = draft?.nodes.length ?? 0;
-  const linkEstimate = useMemo(() => nodeCount * 3, [nodeCount]);
+  const linkEstimate = nodeCount * 3;
 
   return (
     <section className={styles.panel} data-testid="arch-decompose-panel">
