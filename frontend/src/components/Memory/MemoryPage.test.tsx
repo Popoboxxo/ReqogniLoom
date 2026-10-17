@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import * as client from "../../api/client";
@@ -152,6 +152,26 @@ describe("MemoryPage", () => {
       "ws-1",
       expect.objectContaining({ scope: "workspace", page: 1 })
     );
+  });
+
+  it("clears the pending filter-debounce timer on unmount (FE-04)", async () => {
+    const view = render(<MemoryPage />);
+    // Let the initial load settle before switching to fake timers.
+    await screen.findByTestId("memory-row-w1");
+
+    vi.useFakeTimers();
+    try {
+      fireEvent.change(screen.getByTestId("memory-filter-input"), {
+        target: { value: "dark" },
+      });
+      expect(vi.getTimerCount()).toBeGreaterThan(0);
+
+      view.unmount();
+      // Without the unmount cleanup the debounce timer would still be pending.
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("switching to the Meins tab loads the user's own entries and offers promote", async () => {

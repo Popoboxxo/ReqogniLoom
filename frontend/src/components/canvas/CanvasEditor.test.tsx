@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render as rtlRender, screen, fireEvent } from "@testing-library/react";
+import { render as rtlRender, screen, fireEvent, act } from "@testing-library/react";
 import type { ReactElement } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import userEvent from "@testing-library/user-event";
@@ -46,6 +46,13 @@ vi.mock("../../api/diagrams", () => ({
   },
 }));
 
+// FE-04: capture the canvas event handlers CanvasEditor registers so a test
+// can mark the canvas dirty through the real `path:created` path. The
+// save-status reset timer only exists after a completed save.
+const fabricHandlers = vi.hoisted(
+  () => new Map<string, (...args: unknown[]) => void>()
+);
+
 // Mock Fabric.js
 vi.mock("fabric", () => ({
   Canvas: class {
@@ -58,7 +65,10 @@ vi.mock("fabric", () => ({
       globalCompositeOperation: "source-over",
     };
     constructor(_element: HTMLCanvasElement | string, _options?: object) {}
-    on = vi.fn().mockReturnThis();
+    on = vi.fn((event: string, handler: (...args: unknown[]) => void) => {
+      fabricHandlers.set(event, handler);
+      return this;
+    });
     off = vi.fn().mockReturnThis();
     add = vi.fn().mockReturnThis();
     remove = vi.fn().mockReturnThis();
@@ -283,11 +293,41 @@ describe("CanvasEditor — Undo/Redo", () => {
 describe("CanvasEditor — Auto-Save trigger", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    fabricHandlers.clear();
     vi.useFakeTimers();
   });
 
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it("clears the pending save-status reset timer on unmount (FE-04)", async () => {
+    const { diagramsApi: mockApi } = await import("../../api/diagrams");
+
+    const view = render(<CanvasEditor diagramId="test-diagram-id" />);
+
+    // Fabric is imported dynamically by the init effect — flush that promise.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    const markDirty = fabricHandlers.get("path:created");
+    expect(markDirty).toBeDefined();
+    act(() => {
+      markDirty?.();
+    });
+
+    fireEvent.click(screen.getByTestId("canvas-save-btn"));
+    // Let the mocked save promise settle so the 2s reset timer is scheduled.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(mockApi.saveCanvasStrokes).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBeGreaterThan(0);
+
+    view.unmount();
+    // Without the unmount cleanup the 2s reset timer would still be pending.
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it("does NOT call saveCanvasStrokes when canvas is clean (not dirty)", async () => {

@@ -276,6 +276,49 @@ describe("MermaidEditor", () => {
     });
   });
 
+  it("clears the pending idle-reset timer on unmount (FE-04)", async () => {
+    cm.listener = null;
+    const view = render(
+      <MermaidEditor
+        diagramId="test-diagram-id"
+        initialSource="flowchart TD\n  A --> B"
+      />
+    );
+
+    // CodeMirror initialises via a dynamic import — wait for it under real
+    // timers, then switch so only the debounce/save timers are faked.
+    await waitFor(() => {
+      expect(cm.listener).not.toBeNull();
+    });
+
+    vi.useFakeTimers();
+    try {
+      act(() => {
+        cm.listener?.({
+          docChanged: true,
+          state: { doc: { toString: () => "flowchart TD\n  A --> C" } },
+        });
+      });
+
+      // Fire the 300ms preview debounce and the 2s auto-save debounce; the
+      // resolved save then schedules the 2s "saved -> idle" reset timer.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2100);
+      });
+      expect(mockSaveMermaidSource).toHaveBeenCalledWith(
+        "test-diagram-id",
+        "flowchart TD\n  A --> C"
+      );
+      expect(vi.getTimerCount()).toBeGreaterThan(0);
+
+      view.unmount();
+      // Without `idleTimerRef` in the cleanup the reset timer stays pending.
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("triggers auto-save after debounce period", async () => {
     vi.useFakeTimers();
     render(

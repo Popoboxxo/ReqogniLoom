@@ -127,6 +127,13 @@ export function MemoryVisualizationSection(): JSX.Element {
 
   const workspaceId = activeWorkspace?.id;
 
+  // FE-04: drop a pending filter-debounce timer when the section unmounts.
+  useEffect(() => {
+    return () => {
+      if (filterDebounceRef.current) clearTimeout(filterDebounceRef.current);
+    };
+  }, []);
+
   // Scope can only be "workspace" while a workspace is active.
   useEffect(() => {
     if (scope === "workspace" && !workspaceId) {
