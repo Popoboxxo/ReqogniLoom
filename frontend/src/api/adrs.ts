@@ -109,4 +109,66 @@ export const adrsApi = {
   versions(id: UUID): Promise<ArtifactVersion[]> {
     return apiClient.get<ArtifactVersion[]>(`/adrs/${id}/versions/`);
   },
+
+  // -----------------------------------------------------------------------
+  // AI ADR derivation (#1358 REST parity / #1360 UI entry)
+  // -----------------------------------------------------------------------
+
+  /**
+   * POST /api/v1/adrs/derive-from-decision/ (`mode="preview"`, the default):
+   * structures the free-text decision into an ADR draft. `ephemeral: true` —
+   * nothing is persisted.
+   */
+  derivePreview(
+    workspaceId: UUID,
+    decisionDescription: string
+  ): Promise<AdrDerivePreview> {
+    return apiClient.post<AdrDerivePreview>("/adrs/derive-from-decision/", {
+      workspace_id: workspaceId,
+      decision_description: decisionDescription,
+      mode: "preview",
+    });
+  },
+
+  /**
+   * POST /api/v1/adrs/derive-from-decision/ (`mode="write"`): the canonical
+   * persistence path (W12a) — persists through the same Layer-2 seam the MCP
+   * tool uses, born `proposed` where the workflow supports it (#1089).
+   */
+  deriveWrite(
+    workspaceId: UUID,
+    decisionDescription: string
+  ): Promise<AdrDeriveReceipt> {
+    return apiClient.post<AdrDeriveReceipt>("/adrs/derive-from-decision/", {
+      workspace_id: workspaceId,
+      decision_description: decisionDescription,
+      mode: "write",
+    });
+  },
 };
+
+/** The draft of `POST /adrs/derive-from-decision/` (`mode="preview"`). */
+export interface AdrDeriveDraft {
+  title: string;
+  description: string;
+  context?: string;
+  consequences?: string;
+}
+
+export interface AdrDerivePreview {
+  draft: AdrDeriveDraft;
+  /** #1358: the preview persists nothing — stated on the wire. */
+  ephemeral?: boolean;
+  is_mock_fallback?: boolean;
+}
+
+export interface AdrDeriveWrittenEntry {
+  id: string;
+  status: string;
+  proposal: { is_proposal: boolean; reason?: string };
+}
+
+export interface AdrDeriveReceipt {
+  written: AdrDeriveWrittenEntry;
+  is_mock_fallback?: boolean;
+}

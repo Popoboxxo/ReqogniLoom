@@ -31,6 +31,7 @@ import { useTranslation } from "react-i18next";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
 import { extractErrorMessage } from "../../api/client";
 import type { Suggestion } from "../../api/suggestions";
+import { isSuggestionKindEnabled } from "../../api/suggestions";
 import { useSuggestionsData } from "./useSuggestionsData";
 import styles from "./SuggestionsInbox.module.css";
 
@@ -51,9 +52,17 @@ function formatTimestamp(iso: string, locale?: string): string {
   }).format(date);
 }
 
-/** Provenance source: the server-set proposer, else the producer label. */
+/**
+ * Provenance source (#1359): the readable producer/agent label first.
+ *
+ * `producer` is the service/agent label the server derived from the API key
+ * ("QA-Agent"), `proposed_by` is the raw actor id (a key UUID for an agent
+ * principal). Showing the UUID first — as this did — turned every row into an
+ * unreadable `Vorschlag von e7192ea6-…` even though the readable label was in
+ * the same payload. The UUID survives as the row's `title` tooltip.
+ */
 function provenanceSource(suggestion: Suggestion, fallback: string): string {
-  return suggestion.proposed_by || suggestion.producer || fallback;
+  return suggestion.producer || suggestion.proposed_by || fallback;
 }
 
 export function SuggestionsInbox(): JSX.Element {
@@ -204,6 +213,16 @@ export function SuggestionsInbox(): JSX.Element {
               suggestion,
               t("suggestions.unknownSource"),
             );
+            // #1359: a dormant kind's accept/reject can only answer
+            // SUGGESTION_KIND_NOT_ENABLED (400), so the row says so and offers
+            // no usable-looking buttons instead of a guaranteed failure.
+            const kindEnabled = isSuggestionKindEnabled(suggestion.kind);
+            // The raw actor id stays reachable as a tooltip, but only when it
+            // is not the visible label itself.
+            const provenanceTooltip =
+              suggestion.proposed_by && suggestion.proposed_by !== source
+                ? suggestion.proposed_by
+                : undefined;
             return (
               <li
                 key={suggestion.id}
@@ -216,10 +235,12 @@ export function SuggestionsInbox(): JSX.Element {
                     className={styles.kindBadge}
                   >
                     {kindLabel}
+                    {!kindEnabled && ` – ${t("suggestions.unavailable")}`}
                   </span>
                   <span
                     data-testid={`suggestion-provenance-${suggestion.id}`}
                     className={styles.provenance}
+                    {...(provenanceTooltip ? { title: provenanceTooltip } : {})}
                   >
                     {t("suggestions.provenance", {
                       source,
@@ -230,6 +251,15 @@ export function SuggestionsInbox(): JSX.Element {
                     })}
                   </span>
                 </div>
+
+                {!kindEnabled && (
+                  <p
+                    data-testid={`suggestion-unavailable-${suggestion.id}`}
+                    className={styles.mutedText}
+                  >
+                    {t("suggestions.unavailableHint")}
+                  </p>
+                )}
 
                 {suggestion.target_item_type && (
                   <div
@@ -252,7 +282,12 @@ export function SuggestionsInbox(): JSX.Element {
                       kind: kindLabel,
                       source,
                     })}
-                    disabled={isActing}
+                    disabled={isActing || !kindEnabled}
+                    title={
+                      kindEnabled
+                        ? undefined
+                        : t("suggestions.unavailableHint")
+                    }
                     onClick={() => void handleAccept(suggestion.id)}
                   >
                     {t("suggestions.accept")}
@@ -265,7 +300,12 @@ export function SuggestionsInbox(): JSX.Element {
                       kind: kindLabel,
                       source,
                     })}
-                    disabled={isActing}
+                    disabled={isActing || !kindEnabled}
+                    title={
+                      kindEnabled
+                        ? undefined
+                        : t("suggestions.unavailableHint")
+                    }
                     onClick={() => openReject(suggestion)}
                   >
                     {t("suggestions.reject")}

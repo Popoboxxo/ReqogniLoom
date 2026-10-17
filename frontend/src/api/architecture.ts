@@ -125,4 +125,63 @@ export const architectureApi = {
   versions(id: UUID): Promise<ArtifactVersion[]> {
     return apiClient.get<ArtifactVersion[]>(`/architecture/${id}/versions/`);
   },
+
+  // -----------------------------------------------------------------------
+  // AI risk derivation (#1358 REST parity / #1360 UI entry)
+  // -----------------------------------------------------------------------
+
+  /**
+   * POST /api/v1/architecture/{id}/derive-risks/ (`mode="preview"`, the
+   * default): risk drafts for the element. `ephemeral: true` — nothing is
+   * persisted.
+   */
+  deriveRisksPreview(id: UUID): Promise<ArchitectureDeriveRisksPreview> {
+    return apiClient.post<ArchitectureDeriveRisksPreview>(
+      `/architecture/${id}/derive-risks/`,
+      {}
+    );
+  },
+
+  /**
+   * POST /api/v1/architecture/{id}/derive-risks/ (`mode="write"`): the
+   * canonical persistence path (W12a) — persists each draft as a Risk linked
+   * back via the `mitigates` TraceLink, born `proposed` where the workflow
+   * supports it (#1089).
+   */
+  deriveRisksWrite(id: UUID): Promise<ArchitectureDeriveRisksReceipt> {
+    return apiClient.post<ArchitectureDeriveRisksReceipt>(
+      `/architecture/${id}/derive-risks/`,
+      { mode: "write" }
+    );
+  },
 };
+
+/** One draft of `POST /architecture/{id}/derive-risks/` (`mode="preview"`). */
+export interface ArchitectureDeriveRisksDraft {
+  title: string;
+  description?: string;
+  probability?: string;
+  impact?: string;
+  category?: string;
+}
+
+export interface ArchitectureDeriveRisksPreview {
+  drafts: ArchitectureDeriveRisksDraft[];
+  architecture_element_id: string;
+  /** #1358: the preview persists nothing — stated on the wire. */
+  ephemeral?: boolean;
+  is_mock_fallback?: boolean;
+}
+
+export interface ArchitectureDeriveRisksWrittenEntry {
+  id: string;
+  status: string;
+  trace_link_id: string;
+  proposal: { is_proposal: boolean; reason?: string };
+}
+
+export interface ArchitectureDeriveRisksReceipt {
+  written: ArchitectureDeriveRisksWrittenEntry[];
+  is_mock_fallback?: boolean;
+  failed?: Array<{ draft?: unknown; error: string }>;
+}

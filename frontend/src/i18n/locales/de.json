@@ -590,8 +590,11 @@
       "artifact_create": "Artefakt-Vorschlag",
       "trace_link": "Verknüpfungs-Vorschlag",
       "interview_grounding": "Interview-Absicherung",
-      "context_edge": "Kontext-Kante"
-    }
+      "context_edge": "Kontext-Kante",
+      "requirement_level": "Ebenen-Vorschlag"
+    },
+    "unavailable": "nicht verfügbar",
+    "unavailableHint": "Diese Vorschlagsart ist registriert, aber noch nicht aktiviert – Annehmen/Ablehnen ist derzeit nicht möglich."
   },
   "baselines": {
     "placeholder": "Baselines — in Bearbeitung.",
@@ -668,6 +671,7 @@
     "saveFailed": "Begriff konnte nicht gespeichert werden.",
     "deleteFailed": "Begriff konnte nicht gelöscht werden.",
     "linkSynonymFailed": "Verknüpfung konnte nicht gespeichert werden.",
+    "deriveFailed": "KI-Ableitung fehlgeschlagen.",
     "summary_one": "{{count}} Begriff",
     "summary_other": "{{count}} Begriffe",
     "emptyTitle": "Noch keine Begriffe",
@@ -2314,6 +2318,36 @@
   "aiActions": {
     "heading": "KI-Aktionen",
     "hint": "Alle KI-gestützten Aktionen für dieses Element an einem Ort. Die KI erzeugt Entwürfe zur Prüfung – gespeichert wird erst nach deiner Bestätigung."
+  },
+  "aiDerivation": {
+    "notice": "Das ist eine Vorschau: bis du bestätigst, wird nichts gespeichert.",
+    "preview": "Vorschau erzeugen",
+    "loading": "Entwürfe werden erzeugt…",
+    "saving": "Wird gespeichert…",
+    "confirm": "Bestätigen",
+    "reviewLater": "Review später",
+    "discard": "Verwerfen",
+    "empty": "Die KI hat keine Entwürfe vorgeschlagen – es gibt nichts zu prüfen.",
+    "rationale": "Begründung",
+    "selectHint": "Wähle die Entwürfe aus, die angelegt werden sollen.",
+    "selectDraft": "Entwurf {{index}} auswählen",
+    "caveat": "Angelegte Entwürfe erhalten den Status „Vorschlag“ und warten unter „Reviews“ → „Nur KI-Vorschläge“ auf deine Freigabe.",
+    "statusCreated": "Angelegt (Status: Vorschlag): {{count}} – Freigabe unter „Reviews“ → „Nur KI-Vorschläge“.",
+    "statusParked": "{{count}} Entwurf/Entwürfe als Vorschlag gespeichert – du findest sie unter „Reviews“ → „Nur KI-Vorschläge“.",
+    "statusKept": "Keine Entwürfe angelegt: nichts wurde gespeichert.",
+    "glossaryAction": "KI-Begriffe ableiten",
+    "glossaryDialogTitle": "KI-Glossar-Ableitung",
+    "glossarySource": "Quelle: Arbeitsbereich",
+    "adrAction": "KI-ADR-Entwurf",
+    "adrDialogTitle": "KI-ADR aus Entscheidung",
+    "adrSource": "Quelle: Freitext-Entscheidung",
+    "adrDecisionLabel": "Entscheidung (Freitext)",
+    "adrDecisionPlaceholder": "Welche Entscheidung soll als ADR strukturiert werden?",
+    "adrContext": "Kontext",
+    "adrConsequences": "Konsequenzen",
+    "riskAction": "KI-Risiko-Ableitung",
+    "riskDialogTitle": "KI-Risiken aus Architekturelement",
+    "riskSource": "Quelle: {{title}}"
   },
   "systemSettings": {
     "adminOnly": "Du musst Admin sein, um die Systemeinstellungen anzusehen oder zu bearbeiten.",

@@ -1903,6 +1903,125 @@ class AiDerivationService(ServiceBase):
             "proposal": created[0]["proposal"],
         }
 
+    def persist_decomposed_requirements(
+        self,
+        ctx: AuthContext,
+        *,
+        requirement_id: UUID | str,
+        drafts: list[dict[str, Any]],
+        policy: str = "manual",
+    ) -> dict[str, Any]:
+        """Persist the accepted drafts of a requirement decomposition (#1368, W12b).
+
+        The server-side half of the UI's "confirm" step for
+        :meth:`decompose_requirement_next_level`: the endpoint is preview-only
+        by design (#1358), so a human who reviewed the drafts must have a way
+        to persist exactly the drafts they saw — the same Draft/Accept contract
+        ``persist_derived_requirements`` implements for the need flow (#1095),
+        one level down the V-model.
+
+        Why the drafts arrive in the request instead of being re-derived: the
+        preview ran once and the human decided on *that* content. Re-running
+        the provider on accept would persist a second, possibly different
+        draft set than the one the reviewer approved — a silent mismatch the
+        UI cannot detect.
+
+        Contract (identical to the need flow, deliberately):
+
+        * the authoring state goes through the single seam
+          (:meth:`proposal_authoring`), so the derived children are born
+          ``"proposed"`` with the ``AI_DERIVATION_LABEL`` history entry — the
+          only provenance the pending-review queue reads;
+        * a workspace whose graph cannot express a proposal is a hard
+          ``ValidationError`` carrying ``authoring.reason`` (never a silent
+          downgrade to ``draft``, #1089);
+        * every child carries the ``ai_elicit``/``origin`` ``custom_fields``
+          markers and a ``rationale`` where the draft supplied one;
+        * the whole batch runs in ONE ``transaction.atomic()`` block, with the
+          per-draft ``_write_derived_entity`` savepoints nested inside it
+          (REQ-L3-PL003-002);
+        * each child is linked to the parent requirement through a
+          ``derives-from`` TraceLink, child -> parent (issue #341: the SE
+          direction; the MCP write path passes the same flag).
+
+        Args:
+            ctx: The accepting human's context. Identity, tenant/workspace
+                scoping and roles are preserved; only the authorship markers
+                change through ``authoring.create_context``.
+            requirement_id: Parent requirement the drafts were derived from.
+            drafts: Non-empty list of ``{"title": str, "description": str,
+                "rationale": str}`` maps with at most
+                :data:`MAX_ACCEPTED_DERIVED_REQUIREMENTS` entries.
+            policy: ``"manual"`` (default) or ``"auto"`` (best-effort
+                auto-advance through the workflow; the proposal state itself
+                stays a human decision, see :meth:`_auto_approve`).
+
+        Returns:
+            ``{"created": [<one _write_derived_entity result per draft>],
+            "count": int, "proposal": {...}}`` — same envelope as the need
+            accept path, so a client can render both with one code path.
+
+        Raises:
+            NotFoundError: *requirement_id* does not exist for this tenant.
+            ValidationError: The payload is unusable or the workspace's graph
+                has no ``"proposed"`` state.
+        """
+        self._set_tenant_context(ctx)
+        policy = self._validate_write_policy(policy)
+
+        from application.requirement_service import RequirementService
+
+        # Tenant-scoped: a requirement in another tenant is indistinguishable
+        # from a non-existent one and raises NotFoundError before any write.
+        parent = self._get_requirement(requirement_id)
+        workspace_id = parent.artifact.workspace_id
+
+        accepted = self._validate_accepted_drafts(drafts)
+
+        # Resolved BEFORE any write, and NOT caught: ``require_proposal_support``
+        # raises rather than handing back a context that would silently create a
+        # plain draft (#1089/#1368).
+        authoring = self.proposal_authoring(
+            ctx, item_type="Requirement", workspace_id=workspace_id
+        )
+        require_proposal_support(authoring, item_type="Requirement")
+
+        created: list[dict[str, Any]] = []
+        with transaction.atomic():
+            for draft in accepted:
+                # ``d=draft`` binds this iteration's draft into the closure —
+                # never the loop variable.
+                created.append(
+                    self._write_derived_entity(
+                        ctx=ctx,
+                        workspace_id=workspace_id,
+                        item_type="Requirement",
+                        create_fn=lambda d=draft: RequirementService().create_requirement(
+                            workspace_id=workspace_id,
+                            title=d["title"],
+                            description=d["description"],
+                            rationale=d["rationale"],
+                            ctx=authoring.create_context,
+                            custom_fields=_ai_origin_custom_fields(),
+                        ),
+                        # The parent's backing Artifact is used as the link
+                        # endpoint (definitively resolvable, exactly like the
+                        # need path above). 'derives-from' points child ->
+                        # parent (#341), so the NEW child is the link source.
+                        source_entity_id=parent.artifact_id,
+                        source_item_type="Requirement",
+                        link_type=LinkType.DERIVES_FROM.value,
+                        new_entity_is_link_source=True,
+                        policy=policy,
+                    )
+                )
+
+        return {
+            "created": created,
+            "count": len(created),
+            "proposal": created[0]["proposal"],
+        }
+
     @staticmethod
     def _validate_accepted_drafts(drafts: Any) -> list[dict[str, str]]:
         """Return *drafts* normalized to ``{"title", "description", "rationale"}``.

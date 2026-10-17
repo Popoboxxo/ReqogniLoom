@@ -38,6 +38,13 @@ vi.mock("../context/WorkspaceContext", () => ({
   useWorkspace: () => ({ activeWorkspace: { id: "ws-001", name: "WS" } }),
 }));
 
+// #1360: the AI derivation trigger is gated by the shared workspace-role hook
+// (R2/T1 convention) — editor here, so the trigger renders; the gate itself is
+// covered by the hook's own tests.
+vi.mock("../hooks/useHasRole", () => ({
+  useHasRole: () => () => true,
+}));
+
 // Isolate from the ArtifactInspector sidebar — its own data fetching is out
 // of scope for this test (TracePanel behavior for glossary is covered by the
 // pre-existing "backend gap" documentation, not re-tested here). Captures the

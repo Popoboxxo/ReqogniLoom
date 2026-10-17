@@ -23,15 +23,35 @@
 import { apiClient, getList } from "./client";
 import type { PaginatedResponse } from "../types";
 
-/** The four value kinds the backend registry knows (ADR-019 §2). */
+/** The suggestion kinds the backend registry knows (ADR-019 §2). */
 export type SuggestionKind =
   | "artifact_create"
   | "trace_link"
   | "interview_grounding"
-  | "context_edge";
+  | "context_edge"
+  | "requirement_level";
 
 /** Lifecycle states of a persisted suggestion. */
 export type SuggestionStatus = "open" | "accepted" | "rejected" | "superseded";
+
+/**
+ * #1359: kinds that are *registered but dormant* in the backend
+ * (`application/suggestion_adapters.py`): their producer and accept/reject
+ * paths raise `SUGGESTION_KIND_NOT_ENABLED`. They are listed here so the UI
+ * can render them as "not available yet" — with both decisions disabled —
+ * instead of offering buttons that can only fail. `trace_link` and
+ * `requirement_level` are the MVP-active kinds.
+ */
+export const DORMANT_SUGGESTION_KINDS: ReadonlySet<SuggestionKind> = new Set([
+  "artifact_create",
+  "interview_grounding",
+  "context_edge",
+]);
+
+/** Whether a kind's decisions can actually be taken today (#1359). */
+export function isSuggestionKindEnabled(kind: SuggestionKind): boolean {
+  return !DORMANT_SUGGESTION_KINDS.has(kind);
+}
 
 /**
  * One row of `GET /api/v1/suggestions/`.

@@ -6,6 +6,11 @@ import { PageHeader } from '../shared/PageHeader';
 import { useInterviewStartCta } from '../shared/useInterviewStartCta';
 import { IncludeDeletedToggle } from '../shared/IncludeDeletedToggle/IncludeDeletedToggle';
 import { Dialog } from '../shared/Dialog';
+import {
+  AiDerivationDialog,
+  type AiDerivationDraft,
+} from '../shared/AiDerivationDialog';
+import { useHasRole } from '../../hooks/useHasRole';
 import { SAVE_SHORTCUT_ARIA, useSaveShortcut } from '../../hooks/useSaveShortcut';
 import { AdrList } from './AdrList';
 import { AdrArtifactForm } from './AdrArtifactForm';
@@ -31,6 +36,8 @@ export default function AdrEditors(): JSX.Element {
   const { id: selectedId } = useParams<{ id?: string }>();
   const navigate = useNavigate();
   const { activeWorkspace } = useWorkspace();
+  // R2/T1-convention: the derivation is a write action (editor+).
+  const hasRole = useHasRole();
   // Shared with the other artifact routes so the CTA cannot drift.
   const interviewCta = useInterviewStartCta('Adr');
   const [includeDeleted, setIncludeDeleted] = useState(false);
@@ -59,6 +66,91 @@ export default function AdrEditors(): JSX.Element {
   // also the dialog title, matching ch. 12.8 ("dialog title repeats the
   // label of the button that opened it").
   const newAdrLabel = t('adrs.newAdr', 'New ADR');
+
+  // #1358/#1360 (W12c): AI ADR derivation state. The decision text is part of
+  // the dialog's setup step (`drafts === null`), because the preview prompt
+  // needs it; `mode="write"` only becomes reachable after a preview.
+  const [deriveOpen, setDeriveOpen] = useState(false);
+  const [deriveDecision, setDeriveDecision] = useState('');
+  const [deriveDrafts, setDeriveDrafts] = useState<AiDerivationDraft[] | null>(null);
+  const [deriveLoading, setDeriveLoading] = useState(false);
+  const [deriveLoadError, setDeriveLoadError] = useState<string | null>(null);
+  const [deriveSaving, setDeriveSaving] = useState(false);
+  const [deriveSubmitError, setDeriveSubmitError] = useState<string | null>(null);
+  const [deriveStatus, setDeriveStatus] = useState<string | null>(null);
+
+  const openDeriveDialog = useCallback((): void => {
+    setDeriveDecision('');
+    setDeriveDrafts(null);
+    setDeriveLoadError(null);
+    setDeriveSubmitError(null);
+    setDeriveOpen(true);
+  }, []);
+
+  const closeDeriveDialog = useCallback((): void => {
+    setDeriveOpen(false);
+    setDeriveDrafts(null);
+    setDeriveLoadError(null);
+    setDeriveSubmitError(null);
+  }, []);
+
+  const handleDerivePreview = useCallback(async (): Promise<void> => {
+    if (!activeWorkspace || !deriveDecision.trim()) return;
+    setDeriveLoading(true);
+    setDeriveLoadError(null);
+    try {
+      const preview = await adrsApi.derivePreview(activeWorkspace.id, deriveDecision.trim());
+      const draft = preview.draft;
+      setDeriveDrafts([
+        {
+          title: draft.title,
+          // The reviewer sees every part of the draft the write will persist;
+          // the dialog's three-part row (title/description/rationale) is the
+          // shared shape, so context/consequences are folded into the body.
+          description: [
+            draft.description,
+            draft.context ? `${t('aiDerivation.adrContext')}: ${draft.context}` : null,
+            draft.consequences
+              ? `${t('aiDerivation.adrConsequences')}: ${draft.consequences}`
+              : null,
+          ]
+            .filter(Boolean)
+            .join('\n\n'),
+        },
+      ]);
+    } catch (e) {
+      const msg =
+        (e as { error?: { message?: string } })?.error?.message ?? t('needs.deriveFailed');
+      setDeriveLoadError(msg);
+    } finally {
+      setDeriveLoading(false);
+    }
+  }, [activeWorkspace, deriveDecision, t]);
+
+  const handleDeriveDecision = useCallback(
+    async (parked: boolean): Promise<void> => {
+      if (!activeWorkspace || !deriveDecision.trim()) return;
+      setDeriveSaving(true);
+      setDeriveSubmitError(null);
+      try {
+        await adrsApi.deriveWrite(activeWorkspace.id, deriveDecision.trim());
+        setDeriveStatus(
+          t(parked ? 'aiDerivation.statusParked' : 'aiDerivation.statusCreated', {
+            count: 1,
+          })
+        );
+        closeDeriveDialog();
+        refresh();
+      } catch (e) {
+        const msg =
+          (e as { error?: { message?: string } })?.error?.message ?? t('needs.deriveFailed');
+        setDeriveSubmitError(msg);
+      } finally {
+        setDeriveSaving(false);
+      }
+    },
+    [activeWorkspace, deriveDecision, t, closeDeriveDialog, refresh]
+  );
 
   const openCreateDialog = useCallback((): void => {
     setCreateError(null);
@@ -199,8 +291,31 @@ export default function AdrEditors(): JSX.Element {
         // one. Secondary actions belong in the overflow menu (ch. 12.1), so
         // it moved there: same action, same `interview-start-cta` testid,
         // exactly one visible create CTA per route.
-        overflowActions={[interviewCta]}
+        //
+        // #1358/#1360: the ADR derivation had no UI entry at all — it joins
+        // the same overflow menu (editor-only: it is a write action). The
+        // interview CTA stays the literal first entry (ch. 12.1 convention,
+        // see `action-labels.test.ts`'s overflow-menu check).
+        overflowActions={[
+          interviewCta,
+          ...(hasRole('editor')
+            ? [
+                {
+                  label: t('aiDerivation.adrAction'),
+                  onClick: openDeriveDialog,
+                  disabled: !activeWorkspace,
+                  testId: 'adr-derive-btn',
+                },
+              ]
+            : []),
+        ]}
       />
+
+      {deriveStatus && (
+        <p role="status" data-testid="adr-derive-status" className={styles.deriveStatus}>
+          {deriveStatus}
+        </p>
+      )}
 
       <div className={styles.splitWrapper}>
         <SplitView
@@ -354,6 +469,46 @@ export default function AdrEditors(): JSX.Element {
             )}
           </form>
         </Dialog>
+      )}
+
+      {/* #1358/#1360 (W12c): the shared AI review dialog. The decision text is
+          this flow's setup step (the preview prompt needs it); only after a
+          preview exists do Confirm / "Review later" reach the write seam. */}
+      {deriveOpen && (
+        <AiDerivationDialog
+          open
+          title={t('aiDerivation.adrDialogTitle')}
+          sourceLabel={t('aiDerivation.adrSource')}
+          drafts={deriveDrafts}
+          isLoading={deriveLoading}
+          loadError={deriveLoadError}
+          isSubmitting={deriveSaving}
+          submitError={deriveSubmitError}
+          confirmDisabled={!deriveDecision.trim()}
+          intro={
+            <label className={styles.createLabel}>
+              {t('aiDerivation.adrDecisionLabel')}
+              <textarea
+                value={deriveDecision}
+                onChange={(e) => setDeriveDecision(e.target.value)}
+                placeholder={t('aiDerivation.adrDecisionPlaceholder')}
+                rows={3}
+                className={fieldHints.createInput}
+                // Once a preview exists the text is the prompt the shown draft
+                // came from; editing it silently would make Confirm persist a
+                // different derivation than the one on screen (the write seam
+                // regenerates from this text). Discard + reopen to change it.
+                disabled={deriveLoading || deriveSaving || deriveDrafts !== null}
+                data-testid="adr-derive-decision-input"
+              />
+            </label>
+          }
+          onPreview={() => void handleDerivePreview()}
+          onConfirm={() => void handleDeriveDecision(false)}
+          onReviewLater={() => void handleDeriveDecision(true)}
+          onDiscard={closeDeriveDialog}
+          testIdPrefix="adr-derive"
+        />
       )}
     </div>
   );

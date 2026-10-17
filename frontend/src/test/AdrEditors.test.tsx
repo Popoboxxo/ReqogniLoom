@@ -192,6 +192,12 @@ vi.mock("../context/WorkspaceContext", () => ({
   WorkspaceProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 
+// #1360: the ADR derivation trigger is gated by the shared workspace-role hook
+// (R2/T1 convention) — editor here; the gate itself is covered elsewhere.
+vi.mock("../hooks/useHasRole", () => ({
+  useHasRole: () => () => true,
+}));
+
 // Task 23: CreateTraceLinkDialog (mounted inside TraceLinkPanel, which this
 // tree pulls in transitively) now reads the link-type catalog via
 // useLinkTypes() — needs a provider-free mock here, same as every other

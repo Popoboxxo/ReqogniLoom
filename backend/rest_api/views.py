@@ -1814,9 +1814,10 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         no allocated architecture element.
 
         #1358: the response is an *ephemeral* preview (``"ephemeral": true``)
-        — the drafts are not persisted. The canonical write path is
-        ``mode="write"`` on the MCP tool
-        ``ai_derivation.decompose_requirement_next_level``.
+        — the drafts are not persisted. The canonical write paths are
+        ``POST /api/v1/requirements/{pk}/decompose-next-level/accept/``
+        (#1368, the human Draft/Accept step) and ``mode="write"`` on the MCP
+        tool ``ai_derivation.decompose_requirement_next_level`` (agents).
         """
         lang = detect_lang(request)
         try:
@@ -1832,6 +1833,126 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             return Response(build_error_response("NOT_FOUND", lang), status=status.HTTP_404_NOT_FOUND)
         except Exception as exc:
             logger.exception("RequirementViewSet.decompose_next_level: unhandled exception")
+            return _service_error_response(exc, lang)
+
+    @extend_schema(
+        request=OpenApiRequest(
+            request=inline_serializer(
+                name="RequirementDecomposeAcceptRequest",
+                fields={
+                    "drafts": serializers.ListField(
+                        child=serializers.DictField(),
+                        help_text=(
+                            "The accepted drafts exactly as reviewed — each "
+                            "one {'title', 'description', 'rationale'}."
+                        ),
+                    ),
+                },
+            ),
+        ),
+        responses={
+            201: OpenApiResponse(
+                description=(
+                    "The persistence receipt (`created` with one entry per "
+                    "draft: id/status/trace_link_id/proposal, `count`, and the "
+                    "batch's shared `proposal` block read back from the "
+                    "workflow engine)."
+                )
+            ),
+            400: OpenApiResponse(
+                response=ErrorResponseSerializer,
+                description=(
+                    "Unknown key (top-level or inside a draft), malformed "
+                    "`drafts` body, or a workspace whose workflow graph has no "
+                    "'proposed' state."
+                ),
+            ),
+            403: OpenApiResponse(
+                response=ErrorResponseSerializer,
+                description="Caller lacks the editor role (POST requires WRITE).",
+            ),
+            404: OpenApiResponse(
+                response=ErrorResponseSerializer,
+                description="Requirement not found in the active tenant.",
+            ),
+        },
+        description=(
+            "Persist the accepted drafts of a `decompose-next-level` preview "
+            "(#1368, W12b — the human Draft/Accept step; the preview itself is "
+            "`ephemeral: true` and persists nothing, #1358).\n\n"
+            "Delegates to `AiDerivationService.persist_decomposed_requirements` "
+            "(Layer 2, ADR-01): each accepted draft becomes one child "
+            "Requirement linked to this requirement via a 'derives-from' trace "
+            "link (child -> parent) and is born `proposed` where the "
+            "workspace's workflow supports it (#1089) — so it lands in the "
+            "pending-review queue instead of in a draft nobody is shown.\n\n"
+            "The client sends neither `status` nor `from_ai` (#269/#851): the "
+            "workflow state and the AI provenance are derived server-side."
+        ),
+    )
+    @action(detail=True, methods=["post"], url_path="decompose-next-level/accept")
+    def decompose_next_level_accept(
+        self, request: Request, pk: str, **kwargs: Any
+    ) -> Response:
+        """POST /api/v1/requirements/{pk}/decompose-next-level/accept/ (#1368).
+
+        The server-side half of the UI's confirm step for the requirement
+        decomposition: the client posts the drafts the human reviewed and gets
+        back the created children — no client-side ``POST /requirements/`` per
+        draft (which, from a user principal, was born as a plain ``draft`` and
+        stayed invisible — the #1089 defect class), no hand-built TraceLink.
+
+        Body: ``{"drafts": [{"title": ..., "description": ...,
+        "rationale": ...}]}``. Unknown keys are rejected (#851), the top-level
+        ones and the per-draft ones alike.
+        """
+        lang = detect_lang(request)
+
+        # #1095/#851 convention: the accepted top-level keys are exactly
+        # {"drafts"}, checked BEFORE anything is read or written.
+        invalid = reject_unknown_fields(request.data, {"drafts"}, lang)
+        if invalid is not None:
+            return invalid
+
+        payload = request.data if isinstance(request.data, dict) else {}
+        raw_drafts = payload.get("drafts")
+        if not isinstance(raw_drafts, list) or not raw_drafts:
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    message="'drafts' must be a non-empty list of accepted drafts.",
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        for entry in raw_drafts:
+            invalid = reject_unknown_fields(
+                entry, {"title", "description", "rationale"}, lang
+            )
+            if invalid is not None:
+                return invalid
+
+        try:
+            from application.ai_derivation_service import AiDerivationService
+
+            result = AiDerivationService().persist_decomposed_requirements(
+                get_auth_context(request), requirement_id=pk, drafts=raw_drafts
+            )
+            return Response(result, status=status.HTTP_201_CREATED)
+        except ValidationError as e:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message=str(e)),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except NotFoundError:
+            return Response(
+                build_error_response("NOT_FOUND", lang),
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        except Exception as exc:
+            logger.exception(
+                "RequirementViewSet.decompose_next_level_accept: unhandled exception"
+            )
             return _service_error_response(exc, lang)
 
     @action(detail=True, methods=["post"], url_path="derive-testcase")

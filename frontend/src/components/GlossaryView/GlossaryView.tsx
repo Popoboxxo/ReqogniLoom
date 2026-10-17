@@ -37,6 +37,11 @@ import { ListToolbar } from "../shared/ListToolbar";
 import { EmptyState } from "../shared/EmptyState";
 import { CreateTraceLinkDialog } from "../shared/CreateTraceLinkDialog/create-trace-link-dialog";
 import { Dialog } from "../shared/Dialog";
+import {
+  AiDerivationDialog,
+  type AiDerivationDraft,
+} from "../shared/AiDerivationDialog";
+import { useHasRole } from "../../hooks/useHasRole";
 import { WorkflowStatusEditor } from "../WorkflowStatusEditor";
 import { extractErrorMessage } from "../../api/client";
 import styles from "./GlossaryView.module.css";
@@ -56,6 +61,9 @@ import { GlossarySynonyms } from "./GlossarySynonyms";
 export default function GlossaryView(): JSX.Element {
   const { t } = useTranslation();
   const { activeWorkspace } = useWorkspace();
+  // R2/T1-convention: the AI derivation is a write action, so a viewer must not
+  // find its trigger in the DOM at all (the server enforces it anyway).
+  const hasRole = useHasRole();
   const [terms, setTerms] = useState<GlossaryTerm[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -87,6 +95,16 @@ export default function GlossaryView(): JSX.Element {
 
   // C9 (REQ-006): trace-link creation dialog for the selected glossary entry.
   const [showLinkDialog, setShowLinkDialog] = useState(false);
+
+  // #1360 (W12c): the shared AI review dialog's state for the glossary
+  // derivation (preview drafts, write bookkeeping, result message).
+  const [deriveOpen, setDeriveOpen] = useState(false);
+  const [deriveDrafts, setDeriveDrafts] = useState<AiDerivationDraft[] | null>(null);
+  const [deriveLoading, setDeriveLoading] = useState(false);
+  const [deriveLoadError, setDeriveLoadError] = useState<string | null>(null);
+  const [deriveSaving, setDeriveSaving] = useState(false);
+  const [deriveSubmitError, setDeriveSubmitError] = useState<string | null>(null);
+  const [deriveStatus, setDeriveStatus] = useState<string | null>(null);
 
   // C10 (REQ-006): synonym-linking — the (termId, synonym index) currently
   // showing its "link to existing entry" picker, plus the picker's search query.
@@ -134,6 +152,68 @@ export default function GlossaryView(): JSX.Element {
     } catch (err) {
       console.error("Failed to link synonym", err);
       setRowError(extractErrorMessage(err) || t("glossary.linkSynonymFailed"));
+    }
+  };
+
+  /**
+   * #1358 (W12a) / #1360 (W12c): the glossary derivation had no UI entry at
+   * all. This opens the shared AI review dialog on a `mode="preview"` run
+   * (`ephemeral: true` — nothing persisted); Confirm / "Review later" call
+   * the `mode="write"` seam, Discard writes nothing.
+   */
+  const openDeriveDialog = async () => {
+    if (!activeWorkspace) return;
+    setDeriveOpen(true);
+    setDeriveDrafts(null);
+    setDeriveLoadError(null);
+    setDeriveSubmitError(null);
+    setDeriveLoading(true);
+    try {
+      const preview = await glossaryApi.derivePreview(activeWorkspace.id);
+      setDeriveDrafts(
+        preview.drafts.map((draft) => ({
+          title: draft.term,
+          description: draft.definition,
+        }))
+      );
+    } catch (err) {
+      setDeriveLoadError(
+        extractErrorMessage(err) || t("glossary.deriveFailed")
+      );
+    } finally {
+      setDeriveLoading(false);
+    }
+  };
+
+  const closeDeriveDialog = () => {
+    setDeriveOpen(false);
+    setDeriveDrafts(null);
+    setDeriveLoadError(null);
+    setDeriveSubmitError(null);
+  };
+
+  // Confirm and "Review later" both persist through the same write seam (every
+  // canonical path lands the terms in `proposed`, #1089); only the success
+  // message differs — created now vs parked for the review queue.
+  const handleDeriveDecision = async (parked: boolean) => {
+    if (!activeWorkspace) return;
+    setDeriveSaving(true);
+    setDeriveSubmitError(null);
+    try {
+      const receipt = await glossaryApi.deriveWrite(activeWorkspace.id);
+      setDeriveStatus(
+        t(parked ? "aiDerivation.statusParked" : "aiDerivation.statusCreated", {
+          count: receipt.written.length,
+        })
+      );
+      closeDeriveDialog();
+      loadTerms();
+    } catch (err) {
+      setDeriveSubmitError(
+        extractErrorMessage(err) || t("glossary.deriveFailed")
+      );
+    } finally {
+      setDeriveSaving(false);
     }
   };
 
@@ -495,7 +575,48 @@ export default function GlossaryView(): JSX.Element {
           onClick: openCreateForm,
           testId: "create-glossary-term-btn",
         }}
+        // #1358/#1360: the derivation had no UI entry. Same overflow pattern
+        // as Requirements' PDF export; editor-only (write action).
+        overflowActions={
+          hasRole("editor")
+            ? [
+                {
+                  label: t("aiDerivation.glossaryAction"),
+                  onClick: () => void openDeriveDialog(),
+                  disabled: deriveLoading || !activeWorkspace,
+                  testId: "glossary-derive-btn",
+                },
+              ]
+            : []
+        }
       />
+
+      {deriveStatus && (
+        <p
+          role="status"
+          data-testid="glossary-derive-status"
+          className={styles.referenceHint}
+        >
+          {deriveStatus}
+        </p>
+      )}
+
+      {deriveOpen && (
+        <AiDerivationDialog
+          open
+          title={t("aiDerivation.glossaryDialogTitle")}
+          sourceLabel={t("aiDerivation.glossarySource")}
+          drafts={deriveDrafts}
+          isLoading={deriveLoading}
+          loadError={deriveLoadError}
+          isSubmitting={deriveSaving}
+          submitError={deriveSubmitError}
+          onConfirm={() => void handleDeriveDecision(false)}
+          onReviewLater={() => void handleDeriveDecision(true)}
+          onDiscard={closeDeriveDialog}
+          testIdPrefix="glossary-derive"
+        />
+      )}
 
       {/* #802: sibling of the SplitView — <Dialog> portals into document.body
           itself, so the create form is not clipped by either pane. */}

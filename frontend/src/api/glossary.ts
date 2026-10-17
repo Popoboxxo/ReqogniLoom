@@ -118,4 +118,59 @@ export const glossaryApi = {
       { workspace_id: workspaceId, text }
     );
   },
+
+  // -----------------------------------------------------------------------
+  // AI glossary derivation (#1358 REST parity / #1360 UI entry)
+  // -----------------------------------------------------------------------
+
+  /**
+   * POST /api/v1/glossary/derive/ (`mode="preview"`, the default): AI term
+   * drafts for the workspace. `ephemeral: true` — nothing is persisted.
+   */
+  derivePreview: async (workspaceId: string): Promise<GlossaryDerivePreview> => {
+    return apiClient.post<GlossaryDerivePreview>('/glossary/derive/', {
+      workspace_id: workspaceId,
+    });
+  },
+
+  /**
+   * POST /api/v1/glossary/derive/ (`mode="write"`): the canonical persistence
+   * path (W12a) — persists the derivation through the same Layer-2 seam the
+   * MCP tool uses, born `proposed` where the workflow supports it (#1089).
+   */
+  deriveWrite: async (workspaceId: string): Promise<GlossaryDeriveReceipt> => {
+    return apiClient.post<GlossaryDeriveReceipt>('/glossary/derive/', {
+      workspace_id: workspaceId,
+      mode: 'write',
+    });
+  },
 };
+
+/** One draft of `POST /glossary/derive/` (`mode="preview"`). */
+export interface GlossaryDeriveDraft {
+  term: string;
+  definition: string;
+  synonyms?: string[];
+  abbreviation?: string;
+}
+
+export interface GlossaryDerivePreview {
+  drafts: GlossaryDeriveDraft[];
+  workspace_id: string;
+  /** #1358: the preview persists nothing — stated on the wire. */
+  ephemeral?: boolean;
+  is_mock_fallback?: boolean;
+}
+
+/** One persisted term of the `mode="write"` receipt. */
+export interface GlossaryDeriveWrittenEntry {
+  id: string;
+  status: string;
+  proposal: { is_proposal: boolean; reason?: string };
+}
+
+export interface GlossaryDeriveReceipt {
+  written: GlossaryDeriveWrittenEntry[];
+  is_mock_fallback?: boolean;
+  failed?: Array<{ draft?: unknown; error: string }>;
+}

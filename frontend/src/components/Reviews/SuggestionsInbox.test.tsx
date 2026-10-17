@@ -34,6 +34,10 @@ vi.mock("react-i18next", () => {
     key: string,
     fallbackOrOptions?: string | Record<string, unknown>,
   ): string => {
+    const map: Record<string, string> = {
+      "suggestions.unavailable": "nicht verfügbar",
+    };
+    if (map[key]) return map[key];
     if (typeof fallbackOrOptions === "string") return fallbackOrOptions;
     if (fallbackOrOptions && typeof fallbackOrOptions === "object") {
       const rendered = Object.entries(fallbackOrOptions)
@@ -101,17 +105,56 @@ describe("SuggestionsInbox (ADR-019 / WP6)", () => {
     vi.mocked(listSuggestions).mockResolvedValue(LIST_ONE as never);
   });
 
-  it("renders the server-set provenance for an open suggestion", async () => {
+  it("renders the readable producer label first and keeps the raw actor id as a tooltip (#1359)", async () => {
     renderInbox();
 
     const provenance = await screen.findByTestId("suggestion-provenance-sug-1");
-    expect(provenance).toHaveTextContent("source=BenchTraceAgent");
+    // #1359: the readable producer/agent label wins over the raw principal.
+    expect(provenance).toHaveTextContent("source=TraceabilitySuggestService");
+    // The UUID/actor id survives as the row's tooltip, not as the visible text.
+    expect(provenance).toHaveAttribute("title", "BenchTraceAgent");
     expect(screen.getByTestId("suggestion-row-sug-1")).toBeInTheDocument();
     // The kind and target are shown too — the reviewer sees what is proposed.
     expect(screen.getByTestId("suggestion-kind-sug-1")).toBeInTheDocument();
     expect(screen.getByTestId("suggestion-target-sug-1")).toHaveTextContent(
       "TraceLink",
     );
+  });
+
+  it("falls back to the proposer when no producer label exists (#1359)", async () => {
+    vi.mocked(listSuggestions).mockResolvedValue({
+      ...LIST_ONE,
+      results: [{ ...SUGGESTION, producer: null }],
+    } as never);
+
+    renderInbox();
+
+    const provenance = await screen.findByTestId("suggestion-provenance-sug-1");
+    expect(provenance).toHaveTextContent("source=BenchTraceAgent");
+    // Nothing to repeat as a tooltip when the id IS the label.
+    expect(provenance).not.toHaveAttribute("title");
+  });
+
+  it("marks a dormant suggestion kind as unavailable and disables both decisions (#1359)", async () => {
+    vi.mocked(listSuggestions).mockResolvedValue({
+      ...LIST_ONE,
+      results: [{ ...SUGGESTION, kind: "context_edge" as const }],
+    } as never);
+
+    renderInbox();
+
+    const row = await screen.findByTestId("suggestion-row-sug-1");
+    expect(row).toBeInTheDocument();
+    expect(screen.getByTestId("suggestion-kind-sug-1")).toHaveTextContent(
+      "nicht verfügbar",
+    );
+    expect(screen.getByTestId("suggestion-unavailable-sug-1")).toHaveTextContent(
+      "suggestions.unavailableHint",
+    );
+    // Registered-but-dormant: the decisions raise
+    // SUGGESTION_KIND_NOT_ENABLED server-side, so the UI must not offer them.
+    expect(screen.getByTestId("suggestion-accept-sug-1")).toBeDisabled();
+    expect(screen.getByTestId("suggestion-reject-sug-1")).toBeDisabled();
   });
 
   it("annehmen calls the API and refreshes the list", async () => {
