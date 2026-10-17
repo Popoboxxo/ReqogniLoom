@@ -19,6 +19,8 @@ from __future__ import annotations
 import json
 from unittest.mock import MagicMock
 
+import pytest
+
 from mcp_server.protocol_handler import (
     _PROTOCOL_ERROR_CODES,
     ERROR_CODE_MAP,
@@ -135,6 +137,43 @@ class TestLlmCapabilityDisabledRegistration:
 
     def test_code_is_a_tool_execution_error_not_a_protocol_error(self):
         assert "LLM_CAPABILITY_DISABLED" not in _PROTOCOL_ERROR_CODES
+
+
+class TestLlmFailureCodeRegistration:
+    """#1416 — the cause-specific LLM failure codes are registered.
+
+    Same contract as LLM_CAPABILITY_DISABLED: tool-execution errors, so on
+    ``tools/call`` they surface as ``result.isError`` with the string code and
+    the direct-method dispatch path resolves a defined numeric code (never
+    -32603).
+    """
+
+    @pytest.mark.parametrize(
+        ("code", "numeric"),
+        [
+            ("LLM_TIMEOUT", -32013),
+            ("LLM_UNAVAILABLE", -32014),
+            ("LLM_OUTPUT_INVALID", -32015),
+            ("LLM_TOKEN_LIMIT_EXCEEDED", -32016),
+        ],
+    )
+    def test_code_is_registered_in_both_vocabularies(self, code, numeric):
+        assert code in ERROR_CODES
+        assert ERROR_CODES[code].strip()
+        assert ERROR_CODE_MAP[code] == numeric
+        assert ERROR_CODE_MAP[code] != ERROR_CODE_MAP["INTERNAL_ERROR"]
+
+    @pytest.mark.parametrize(
+        "code",
+        [
+            "LLM_TIMEOUT",
+            "LLM_UNAVAILABLE",
+            "LLM_OUTPUT_INVALID",
+            "LLM_TOKEN_LIMIT_EXCEEDED",
+        ],
+    )
+    def test_code_is_a_tool_execution_error_not_a_protocol_error(self, code):
+        assert code not in _PROTOCOL_ERROR_CODES
 
 
 # ---------------------------------------------------------------------------
@@ -534,3 +573,16 @@ class TestToolsCallIsError:
         assert response["error"]["code"] == -32012
         assert response["error"]["code"] != -32603
         assert response["error"]["message"] == ERROR_CODES["LLM_CAPABILITY_DISABLED"]
+
+    def test_llm_timeout_direct_dispatch_maps_to_defined_code(self):
+        # #1416: a derive timeout must not collapse into -32603 either.
+        registry = _make_registry_mock(
+            ToolResult.error("LLM_TIMEOUT", "provider timed out")
+        )
+        handler = ProtocolHandler(tool_registry=registry)
+        body = _make_valid_body("ai_derivation.decompose_requirement_next_level", request_id=14)
+        response = handler.handle_http_request(body=body, headers=_AUTH_HEADERS)
+        assert "result" not in response
+        assert response["error"]["code"] == -32013
+        assert response["error"]["code"] != -32603
+        assert response["error"]["message"] == "provider timed out"

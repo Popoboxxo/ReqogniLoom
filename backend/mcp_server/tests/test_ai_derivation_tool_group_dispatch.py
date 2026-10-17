@@ -11,8 +11,9 @@ only the dispatch-contract gaps that file leaves open:
   (another tenant's need / requirement / architecture element / workspace),
 * parameter validation for every tool's required id plus the ``n``,
   ``policy`` and ``decision_description`` value checks,
-* the ``LlmResponseError`` -> ``INTERNAL_ERROR`` mapping for ALL SIX tools,
-  including the hallucinated-architecture-id answer (issue #825),
+* the ``LlmResponseError`` -> cause-specific error-code mapping for ALL SIX
+  tools (``LLM_OUTPUT_INVALID`` for unusable output, #1416), including the
+  hallucinated-architecture-id answer (issue #825),
 * the write-mode response envelope (``is_mock_fallback`` + ``proposal``),
   the per-draft ``failed`` collection and the ``policy="auto"`` variant,
 * the LLM-response cache (REQ-105) seen through the tool group,
@@ -409,12 +410,14 @@ def test_derive_adr_description_must_be_a_non_empty_string(caller, bad_descripti
 
 
 @pytest.mark.parametrize("tool_name", sorted(_ID_PARAM_BY_TOOL))
-def test_unparseable_provider_answer_maps_to_internal_error(caller, tool_name):
-    """An unusable provider answer reaches the agent as INTERNAL_ERROR.
+def test_unparseable_provider_answer_maps_to_llm_output_invalid(caller, tool_name):
+    """An unusable provider answer reaches the agent as LLM_OUTPUT_INVALID.
 
     Companion to ``test_ai_derivation_tool_group.py``'s decompose-only proof:
     every tool's handler maps :class:`LlmResponseError` to the same stable
     error code, never to a successful empty preview and never to a 500.
+    Issue #1416: the code names the actual cause — the provider answered, but
+    its content could not be processed (it is no longer ``INTERNAL_ERROR``).
     """
     params = _make_source(caller, tool_name)
     if tool_name.endswith("adr_from_decision"):
@@ -424,11 +427,16 @@ def test_unparseable_provider_answer_maps_to_internal_error(caller, tool_name):
         result = _exec(AiDerivationToolGroup(), tool_name, params, caller[2])
 
     assert result.success is False
-    assert result.error_code == "INTERNAL_ERROR"
+    assert result.error_code == "LLM_OUTPUT_INVALID"
 
 
-def test_suggest_architecture_hallucinated_ids_map_to_internal_error(caller):
-    """Issue #825: an answer offering no offered element is INTERNAL_ERROR."""
+def test_suggest_architecture_hallucinated_ids_map_to_llm_output_invalid(caller):
+    """Issue #825: an answer offering no offered element is unusable output.
+
+    Issue #1416: it answers ``LLM_OUTPUT_INVALID`` — the provider replied, but
+    the content was not usable — instead of the former blanket
+    ``INTERNAL_ERROR``.
+    """
     _tenant, workspace, ctx = caller
     req = _make_requirement(workspace.id, ctx, "Dispatch req")
     arch = _make_architecture_element(workspace.id, ctx, "Dispatch comp")
@@ -443,7 +451,7 @@ def test_suggest_architecture_hallucinated_ids_map_to_internal_error(caller):
         )
 
     assert result.success is False
-    assert result.error_code == "INTERNAL_ERROR"
+    assert result.error_code == "LLM_OUTPUT_INVALID"
     assert str(arch.id) not in result.message
 
 

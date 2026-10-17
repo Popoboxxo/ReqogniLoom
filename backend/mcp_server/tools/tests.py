@@ -1441,7 +1441,11 @@ class McpTestToolGroup(BaseToolGroup):
         except PermissionDeniedError as exc:
             return ToolResult.error("PERMISSION_DENIED", str(exc))
         except LlmResponseError as exc:
-            return ToolResult.error("INTERNAL_ERROR", str(exc))
+            # #1416: forward the cause-specific code classified at the service
+            # seam (LLM_TIMEOUT / LLM_UNAVAILABLE / LLM_TOKEN_LIMIT_EXCEEDED /
+            # LLM_OUTPUT_INVALID) instead of collapsing every cause into
+            # INTERNAL_ERROR — same mapping as AiDerivationToolGroup.
+            return ToolResult.error(exc.error_code, str(exc))
 
         if mode == "preview":
             return ToolResult.ok(preview)

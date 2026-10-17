@@ -441,6 +441,18 @@ class McpHttpTransportView(CorsMixin, View):
                 http_status = 404
             elif error_code == "INTERNAL_ERROR":
                 http_status = 500
+            # #1416: the derive flows' cause-specific LLM failure codes keep
+            # their REST-documented HTTP semantics on the direct-method
+            # dispatch path too (they would otherwise fall into the generic
+            # 400 — "your request was malformed" — for an upstream outage).
+            elif error_code == "LLM_TIMEOUT":
+                http_status = 504
+            elif error_code == "LLM_UNAVAILABLE":
+                http_status = 503
+            elif error_code == "LLM_OUTPUT_INVALID":
+                http_status = 502
+            elif error_code == "LLM_TOKEN_LIMIT_EXCEEDED":
+                http_status = 429
             else:
                 http_status = 400
 

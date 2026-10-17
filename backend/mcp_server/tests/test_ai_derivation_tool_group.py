@@ -176,6 +176,8 @@ def test_decompose_unusable_llm_array_is_visible_error(ai_ctx, monkeypatch):
     Guards the whole boundary, not just the service: the extraction failure
     raised by ``AiDerivationService._usable_entries`` has to arrive as a failed
     ToolResult, never as a successful preview with an empty ``drafts`` list.
+    Issue #1416: a genuinely unusable answer keeps the
+    ``LLM_OUTPUT_INVALID`` code (no longer the blanket ``INTERNAL_ERROR``).
     """
     import json
 
@@ -206,7 +208,7 @@ def test_decompose_unusable_llm_array_is_visible_error(ai_ctx, monkeypatch):
     )
 
     assert not result.success
-    assert result.error_code == "INTERNAL_ERROR"
+    assert result.error_code == "LLM_OUTPUT_INVALID"
 
 
 def test_decompose_empty_llm_array_is_annotated(ai_ctx, monkeypatch):
