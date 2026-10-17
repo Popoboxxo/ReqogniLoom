@@ -926,6 +926,14 @@ class ToolRegistry:
         self._preset_cache = PresetCache()
         self._router: ToolGroupRouter | None = None
 
+        # Lazily built ``tool name -> declared inputSchema properties`` index.
+        # See :meth:`_published_schema_param_names` (#1376): routing alone is
+        # not enough because a prefix can delegate to a wrapped group
+        # (``AdminToolGroup`` -> ``CrossCuttingToolGroup`` for
+        # ``workspace.get_context``), so the *published* schema, not the routed
+        # group's local schema list, must decide whether a parameter exists.
+        self._schema_param_index: dict[str, tuple[str, ...]] | None = None
+
         # Lazy-imported tool groups to avoid circular imports at module load
         self._groups: dict[str, Any] = {}
 
@@ -938,6 +946,8 @@ class ToolRegistry:
         """
         self._groups = groups
         self._router = ToolGroupRouter(groups)
+        # Registered schemas changed — the published-parameter index is stale.
+        self._schema_param_index = None
 
     def _ensure_groups(self) -> None:
         """Lazy-initialise default tool groups if none registered."""
@@ -1311,6 +1321,10 @@ class ToolRegistry:
             if auth_ctx is not None and auth_ctx.tenant_id is not None:
                 set_request_tenant(auth_ctx.tenant_id)
 
+            # #1376: an undeclared ``workspace_id`` must behave exactly as if
+            # it had never been sent — before role resolution, the gates and
+            # the handler all see the same, schema-backed parameters.
+            params = self._drop_undeclared_workspace_id(tool_name, params)
             context, error = self._resolve_dispatch_context(tool_name, params, auth_ctx)
             if error is not None:
                 return error
@@ -1325,6 +1339,93 @@ class ToolRegistry:
             from persistence.middleware import clear_request_tenant
 
             clear_request_tenant()
+
+    def _drop_undeclared_workspace_id(
+        self, tool_name: str, params: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Remove a ``workspace_id`` the tool's published schema does not declare.
+
+        #1376 (CWE-863): ``_scoped_gate_context`` Case 1 trusts a
+        client-supplied ``workspace_id`` as the workspace the call targets.
+        That trust is only warranted for tools whose ``inputSchema`` actually
+        declares the parameter — the dispatcher's role narrowing, the API-key
+        fence and the preset gate all use it as an explicit target then.
+
+        For every other tool the value is a caller-controlled shortcut past
+        target resolution: a key fenced to workspace A could send
+        ``{"workspace_id": A, "id": <object in B>}``, get gated against A and
+        reach a handler that mutates/reads the object in B (the service layer
+        checks tenant and roles, not the object's workspace). ``_TOOL_TARGETS``
+        entries for those tools exist precisely so the *object* decides the
+        workspace; the undeclared parameter must not pre-empt that.
+
+        The fix is structural rather than per-handler: the parameter is
+        dropped here, before role resolution and before every gate, so the
+        call behaves exactly as if it had not been sent. Target resolution and
+        the fence then run on the object id as usual (fail-closed: an
+        unresolvable or foreign target is denied), and no handler can read the
+        stray value incidentally. Handlers that already reject the parameter
+        themselves (:func:`tools.base.reject_unknown_params`) keep that guard
+        for direct (non-dispatch) calls; at the wire it is simply never seen.
+
+        Returns the original mapping when nothing changes, otherwise a shallow
+        copy without ``workspace_id`` — the caller's dict is left untouched.
+
+        Unknown tool names and non-:class:`BaseToolGroup` registrations are
+        returned unchanged: the former are answered with ``UNKNOWN_TOOL``
+        before any handler runs, and the latter only occur in tests (every
+        production group in :meth:`_ensure_groups` is a ``BaseToolGroup``;
+        ``test_mcp_workspace_fence_1376.py`` ratchets that).
+        """
+        if "workspace_id" not in params:
+            return params
+        declared = self._published_schema_param_names(tool_name)
+        if declared is None or "workspace_id" in declared:
+            return params
+        return {key: value for key, value in params.items() if key != "workspace_id"}
+
+    def _published_schema_param_names(self, tool_name: str) -> tuple[str, ...] | None:
+        """Return *tool_name*'s published ``inputSchema`` property names.
+
+        Built by walking every registered group's ``get_tool_schemas()`` — the
+        same catalogue ``list_tools``/the manifest publish — and cached until
+        :meth:`register_groups` runs again. Routing is deliberately not used:
+        ``AdminToolGroup`` delegates non-lifecycle ``workspace.*`` calls to a
+        wrapped ``CrossCuttingToolGroup`` (e.g. ``workspace.get_context``), so
+        the routed group's local schema list does not necessarily contain the
+        tool's published contract.
+
+        ``None`` means "not inspectable": the tool name is absent from every
+        schema of a :class:`BaseToolGroup` (unknown tool, or a unit-test-only
+        double group). Callers keep the pre-#1376 behaviour in that case; in
+        production unknown names are answered with ``UNKNOWN_TOOL`` before any
+        handler runs, and every group registered by :meth:`_ensure_groups` is a
+        ``BaseToolGroup`` (ratcheted by
+        ``test_mcp_workspace_fence_1376.py``).
+        """
+        if self._schema_param_index is None:
+            # Lazy import: tool groups import ``mcp_server.protocol_handler``
+            # and some are themselves imported lazily by ``_ensure_groups``.
+            from mcp_server.tools.base import BaseToolGroup
+
+            index: dict[str, tuple[str, ...]] = {}
+            seen_groups: set[int] = set()
+            for group in self._groups.values():
+                if id(group) in seen_groups:
+                    continue
+                seen_groups.add(id(group))
+                if not isinstance(group, BaseToolGroup):
+                    continue
+                for schema in group.get_tool_schemas():
+                    name = schema.get("name")
+                    if not name or name in index:
+                        continue
+                    properties = (schema.get("inputSchema") or {}).get(
+                        "properties"
+                    ) or {}
+                    index[name] = tuple(properties)
+            self._schema_param_index = index
+        return self._schema_param_index.get(tool_name)
 
     def _resolve_dispatch_context(
         self,
@@ -1439,8 +1540,15 @@ class ToolRegistry:
                 return ToolResult.error("PERMISSION_DENIED", read_error)
 
         # --- Step 4: Preset feature gate (REQ-L2-MC-008) ---
-        if context.workspace_id:
-            preset_error = self._check_preset(context.workspace_id, tool_name)
+        # #1376: the gate runs against the workspace the call actually targets.
+        # For a schema-declared ``workspace_id`` that is the named workspace
+        # (unchanged behaviour); for an object-targeted call it is the
+        # resolved target workspace, so the undeclared parameter no longer
+        # picks which workspace's preset is consulted. The gate can only deny,
+        # so the fence/RBAC checks above stay the deciding hard gate.
+        preset_workspace_id = context.scope_workspace_id or context.workspace_id
+        if preset_workspace_id:
+            preset_error = self._check_preset(preset_workspace_id, tool_name)
             if preset_error:
                 return ToolResult.error(
                     "FEATURE_NOT_ENABLED",
@@ -1771,7 +1879,12 @@ class ToolRegistry:
         Three cases, in order:
 
         1. ``role_workspace_id`` is set — Step 2 already narrowed ``ctx`` to
-           that workspace, so it is returned unchanged.
+           that workspace, so it is returned unchanged. Since #1376 this only
+           happens when the tool's published schema **declares**
+           ``workspace_id``: an undeclared value is dropped by
+           :meth:`_drop_undeclared_workspace_id` before this point, because
+           otherwise it would bypass target resolution and the object's
+           workspace check.
         2. The tool names an object whose owning workspace resolves (see
            :func:`mcp_server.workspace_scope.resolve_target_workspace_id`) —
            roles are re-resolved against *that* workspace for the gate only.

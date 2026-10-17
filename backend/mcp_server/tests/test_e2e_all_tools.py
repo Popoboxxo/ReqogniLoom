@@ -234,6 +234,10 @@ def _seed_requirement(workspace: Workspace, title: str = "Seeded Requirement") -
 
     The tenant context is set explicitly because Requirement/Artifact are
     TenantScopedModel and the default manager refuses to write without one.
+    ``workspace`` is mirrored onto the denormalized ``Requirement.workspace``
+    column exactly like ``RequirementService`` does (#133): the #1376
+    dispatcher resolves a requirement-target call's workspace from that
+    column, and a NULL there would read as "unresolvable target".
     """
     set_request_tenant(workspace.tenant_id)
     try:
@@ -248,6 +252,7 @@ def _seed_requirement(workspace: Workspace, title: str = "Seeded Requirement") -
         return Requirement.unscoped.create(
             tenant=workspace.tenant,
             artifact=artifact,
+            workspace=workspace,
             title=title,
             description="seeded for E2E test",
             category="functional",

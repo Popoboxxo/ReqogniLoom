@@ -22,8 +22,11 @@ Contract pinned here:
    (a nonexistent object must not become distinguishable from a fenced one),
 5. an unfenced key's behaviour is unchanged,
 6. security review (HIGH): an undeclared ``workspace_id`` in the call must not
-   reopen the fence through the dispatcher's workspace shortcut — the three
-   handlers reject it before any read/mutation and without a NOT_FOUND oracle,
+   reopen the fence through the dispatcher's workspace shortcut. Since #1376
+   the dispatcher itself drops such a parameter before the gate, so the target
+   object's workspace drives the fence and the call is denied before the
+   handler; the W13b/W13c handler guards remain as defense in depth for direct
+   (non-dispatch) calls,
 7. security review (advisory): ``target_param_error`` inspects **every** target
    candidate — a malformed one stays diagnosed even when another candidate is
    well-formed.
@@ -434,13 +437,14 @@ class TestUnfencedKeyUnchanged:
 class TestExplicitWorkspaceCannotBypassFencedTarget:
     """A caller-supplied ``workspace_id`` must not bypass the fence.
 
-    The dispatch gate short-circuits to the caller-supplied workspace when that
-    param is present and never resolves the object's real workspace
-    (``_scoped_gate_context`` Case 1), so accepting the undeclared key in the
-    handler would let a key fenced to workspace A read/mutate a requirement in
-    B. Mirrors ``test_explicit_workspace_cannot_bypass_fenced_suggestion_target``
-    / ``..._comment_target``: the handler rejects the undeclared parameter
-    before any domain work, which forces object-derived resolution in the gate.
+    The dispatch gate used to short-circuit to the caller-supplied workspace
+    when that param was present and never resolve the object's real workspace
+    (``_scoped_gate_context`` Case 1). Since #1376 the dispatcher drops an
+    undeclared ``workspace_id`` before the gate, so the requirement's own
+    workspace drives the fence: the call is denied before the handler, with no
+    domain work and no existence oracle. The handler-side
+    ``reject_unknown_params`` guards remain as defense in depth for direct
+    calls that bypass dispatch.
     """
 
     @pytest.mark.parametrize(
@@ -479,9 +483,8 @@ class TestExplicitWorkspaceCannotBypassFencedTarget:
             result = _dispatch(tool_name, params, fenced_key)
 
         assert result.success is False
-        assert result.error_code == "VALIDATION_ERROR"
-        assert "workspace_id" in result.message
-        assert SCOPE_MESSAGE_FRAGMENT not in result.message
+        assert result.error_code == "PERMISSION_DENIED"
+        assert SCOPE_MESSAGE_FRAGMENT in result.message
         # No domain work: the undecided foreign object stays untouched.
         suggest_handler.assert_not_called()
         set_handler.assert_not_called()
@@ -502,9 +505,12 @@ class TestExplicitWorkspaceCannotBypassFencedTarget:
         fenced_key: str,
         e2e_workspace: Workspace,
     ) -> None:
-        """Without the guard, a nonexistent id surfaced as NOT_FOUND while an
-        existing (foreign) id mutated — an existence oracle. Both must now be
-        the same parameter error.
+        """A nonexistent id and a foreign one must yield the same denial.
+
+        Since #1376 the undeclared ``workspace_id`` is dropped, so neither id
+        resolves a target inside the fence and both take the fail-closed
+        workspace-scope branch — the parameter can no longer produce a
+        NOT_FOUND for one and a mutation for the other.
         """
         result = _dispatch(
             "requirement.suggest_level",
@@ -513,9 +519,8 @@ class TestExplicitWorkspaceCannotBypassFencedTarget:
         )
 
         assert result.success is False
-        assert result.error_code == "VALIDATION_ERROR"
-        assert "workspace_id" in result.message
-        assert SCOPE_MESSAGE_FRAGMENT not in result.message
+        assert result.error_code == "PERMISSION_DENIED"
+        assert SCOPE_MESSAGE_FRAGMENT in result.message
 
 
 # ---------------------------------------------------------------------------
