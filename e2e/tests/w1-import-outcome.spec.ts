@@ -24,6 +24,7 @@ import {
   getAuthToken,
   setWorkspaceId,
   createIsolatedWorkspace,
+  deleteWorkspace,
   SEEDED_WORKSPACE_ID,
 } from '../helpers/auth';
 import path from 'path';
@@ -156,7 +157,12 @@ test.describe('[INT-01] Import outcome contract', () => {
     // Import into a fresh, empty workspace so the first call is a real write;
     // the UI keeps one Idempotency-Key per selected file, so clicking import a
     // second time must be served from the replay store.
-    const targetWorkspaceId = await createIsolatedWorkspace(token, 'e2e-w1-reqif-replay');
+    //
+    // Issue #1348: the name used to be the fixed "e2e-w1-reqif-replay", so the
+    // second run failed at workspace creation ("already exists") before the
+    // replay flow was reached. Unique per run + hard-delete afterwards.
+    const replayWorkspaceName = `e2e-w1-reqif-replay-${Date.now().toString(36)}`;
+    const targetWorkspaceId = await createIsolatedWorkspace(token, replayWorkspaceName);
     await setWorkspaceId(page, targetWorkspaceId);
     await loginAsAdmin(page);
 
@@ -174,6 +180,8 @@ test.describe('[INT-01] Import outcome contract', () => {
       await expect(page.locator('[data-testid="reqif-import-replay-badge"]')).toBeVisible({ timeout: 30000 });
     } finally {
       fs.unlinkSync(reqifPath);
+      // #1348: drop the throwaway workspace (cascades the imported artifacts).
+      await deleteWorkspace(token, targetWorkspaceId, replayWorkspaceName);
     }
   });
 });

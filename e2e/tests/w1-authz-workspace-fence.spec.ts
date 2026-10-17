@@ -11,7 +11,12 @@
 // object's existence is proven first with the seeded admin JWT (200), so the
 // 403 cannot be a masked 404.
 import { test, expect } from '@playwright/test';
-import { getAuthToken, createIsolatedWorkspace, SEEDED_WORKSPACE_ID } from '../helpers/auth';
+import {
+  getAuthToken,
+  createIsolatedWorkspace,
+  deleteWorkspace,
+  SEEDED_WORKSPACE_ID,
+} from '../helpers/auth';
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8001';
 
@@ -34,7 +39,13 @@ test.describe('[SEC-02/03] Workspace fence', () => {
 
     // Foreign-workspace object: same tenant, a workspace the key is not
     // fenced to.
-    const foreignWorkspaceId = await createIsolatedWorkspace(token, 'e2e-w1-fence-foreign');
+    //
+    // Issue #1347: this used the fixed name "e2e-w1-fence-foreign", so a
+    // second run (or a run after a failed cleanup) died with
+    // "workspace named e2e-w1-fence-foreign already exists". The name is now
+    // unique per run; the workspace is hard-deleted in the finally block.
+    const foreignWorkspaceName = `e2e-w1-fence-foreign-${Date.now().toString(36)}`;
+    const foreignWorkspaceId = await createIsolatedWorkspace(token, foreignWorkspaceName);
     const foreignCreate = await request.post(`${BACKEND_URL}/api/v1/requirements/`, {
       headers: authHeaders,
       data: {
@@ -97,6 +108,8 @@ test.describe('[SEC-02/03] Workspace fence', () => {
         headers: authHeaders,
         data: { change_reason: 'e2e cleanup' },
       });
+      // #1347: remove the throwaway workspace as well (cascades its artifacts).
+      await deleteWorkspace(token, foreignWorkspaceId, foreignWorkspaceName);
     }
   });
 });

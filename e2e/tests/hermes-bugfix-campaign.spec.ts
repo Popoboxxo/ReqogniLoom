@@ -28,6 +28,7 @@ import {
   revokeAllApiKeys,
   SEEDED_WORKSPACE_ID,
 } from '../helpers/auth';
+import { getLlmProvider, llmRequestTimeoutMs, llmSkipHint } from '../helpers/llm';
 
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8001';
@@ -135,11 +136,20 @@ test.describe('[REQ-128] Requirement Derivation from Needs — URL routing fix',
   });
 
   test('[REQ-128] POST /api/v1/needs/{uuid}/derive-requirements/ returns 200 with draft requirements', async ({ request }) => {
+    // #1343: this is an LLM-backed call. On a stack with a real provider it
+    // takes tens of seconds (see helpers/llm.ts); keep the tight default on
+    // the mock/CI path and require an explicit opt-in for the slow one.
+    const provider = await getLlmProvider(request, token);
+    const skip = llmSkipHint(provider);
+    test.skip(skip !== null, skip ?? '');
+    if (llmRequestTimeoutMs(provider) !== undefined) test.slow();
+
     const response = await request.post(
       `${BACKEND_URL}/api/v1/needs/${needId}/derive-requirements/`,
       {
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         data: {},
+        timeout: llmRequestTimeoutMs(provider),
       }
     );
     // Must return 200 (or 202 for async) with draft requirements
@@ -151,11 +161,21 @@ test.describe('[REQ-128] Requirement Derivation from Needs — URL routing fix',
   });
 
   test('[REQ-128] derived requirements drafts contain title and description', async ({ request }) => {
+    // #1343: same LLM-backed guard as above. The previous call populated the
+    // derivation cache for this need, so on a real provider this second call
+    // is served from cache and is fast - the guard is still needed for a cold
+    // cache (e.g. an isolated run of this test).
+    const provider = await getLlmProvider(request, token);
+    const skip = llmSkipHint(provider);
+    test.skip(skip !== null, skip ?? '');
+    if (llmRequestTimeoutMs(provider) !== undefined) test.slow();
+
     const response = await request.post(
       `${BACKEND_URL}/api/v1/needs/${needId}/derive-requirements/`,
       {
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         data: {},
+        timeout: llmRequestTimeoutMs(provider),
       }
     );
     expect(response.status()).toBe(200);

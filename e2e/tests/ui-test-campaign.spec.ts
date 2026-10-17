@@ -16,6 +16,7 @@
  */
 
 import { test, expect, Page, BrowserContext } from '@playwright/test';
+import { getLlmProvider, llmRequestTimeoutMs, llmSkipHint } from '../helpers/llm';
 
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 const BACKEND_URL  = process.env.BACKEND_URL  || 'http://localhost:8001';
@@ -228,6 +229,14 @@ test.describe('[REQ-L1-095 + REQ-128] Need Creation + Requirement Derivation —
   });
 
   test('[REQ-128] Need created via API → derive-requirements endpoint returns 200', async ({ request }) => {
+    // #1344: LLM-backed call - see helpers/llm.ts. Skip (with an actionable
+    // hint) when this stack runs a real provider and the slow run was not
+    // explicitly opted into; keep the tight 15 s default on the mock/CI path.
+    const provider = await getLlmProvider(request, token);
+    const skip = llmSkipHint(provider);
+    test.skip(skip !== null, skip ?? '');
+    if (llmRequestTimeoutMs(provider) !== undefined) test.slow();
+
     // Create a need
     const createResp = await request.post(
       `${BACKEND_URL}/api/v1/workspaces/${SEEDED_WORKSPACE_ID}/needs/`,
@@ -249,6 +258,7 @@ test.describe('[REQ-L1-095 + REQ-128] Need Creation + Requirement Derivation —
       {
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         data: {},
+        timeout: llmRequestTimeoutMs(provider),
       }
     );
     expect([200, 202], '[REQ-128] derive-requirements must not 500').toContain(deriveResp.status());
@@ -276,11 +286,19 @@ test.describe('[REQ-134] API-Key Management — UI Journey', () => {
 
   test.beforeAll(async () => {
     token = await getToken();
-    // Clean up E2E keys to stay under the 10-key cap
+    // Clean up E2E keys to stay under the 10-key cap.
+    //
+    // W16 hardening (same state-drift class as #1347/#1348): the list endpoint
+    // is paginated (default 25, oldest first) and DELETE only soft-revokes, so
+    // on a long-lived dev database the *active* E2E keys are beyond page 1 and
+    // a single unpaged request cleaned nothing. Ask for the documented maximum
+    // (default page size is 25); a tenant with more than 100 keys would need
+    // the full page walk that helpers/auth.ts::revokeAllApiKeys implements.
     const { request } = await import('@playwright/test');
     const ctx = await request.newContext({ baseURL: BACKEND_URL });
     const listResp = await ctx.get('/api/v1/api-keys/', {
       headers: { Authorization: `Bearer ${token}` },
+      params: { page_size: '100' },
     });
     if (listResp.ok()) {
       const body = await listResp.json();
@@ -349,16 +367,32 @@ test.describe('[REQ-134] API-Key Management — UI Journey', () => {
     await screenshot(page, 'req134-03-api-key-created-plaintext-shown');
 
     // Find key ID via API (retrieve endpoint — the REQ-134 bug was 405 on retrieve)
-    const listResp = await request.get(`${BACKEND_URL}/api/v1/api-keys/`, {
+    const listResp = await request.get(`${BACKEND_URL}/api/v1/api-keys/?page_size=100`, {
       headers: { Authorization: `Bearer ${token}` },
     });
     expect(listResp.status()).toBe(200);
     const body = await listResp.json();
     // Tolerate both response shapes: bare array (w1) and StandardPagination
     // envelope {count, next, previous, results} (w2, INT-05/AUD-2026-09-074).
+    //
+    // W16 hardening: the list is paginated (default 25, oldest first), so on a
+    // database with more than 25 keys the just-created key is not on page 1 -
+    // the test then failed with "created key must appear in list" for reasons
+    // unrelated to REQ-134. Request the documented maximum page size and, if
+    // the key is still absent, walk `next` like helpers/auth.ts::revokeAllApiKeys.
     const keys: Array<{ id: string; name: string }> = Array.isArray(body)
       ? body
       : (body?.results ?? []);
+    let nextUrl: string | null = Array.isArray(body) ? null : (body?.next ?? null);
+    while (nextUrl && !keys.some((k) => k.name === keyName)) {
+      const pageResp = await request.get(nextUrl, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      expect(pageResp.status()).toBe(200);
+      const pageBody = await pageResp.json();
+      keys.push(...(Array.isArray(pageBody) ? pageBody : (pageBody?.results ?? [])));
+      nextUrl = Array.isArray(pageBody) ? null : (pageBody?.next ?? null);
+    }
     const created = keys.find((k) => k.name === keyName);
     expect(created, '[REQ-134] created key must appear in list').toBeTruthy();
 
@@ -555,7 +589,16 @@ test.describe('[REQ-132] Ollama/AI-Feature — Missing Config Handling', () => {
   });
 
   test('[REQ-132] AI derive-requirements gracefully handles missing Ollama config', async ({ request }) => {
-    // Create a need and try derivation — the mock provider must respond cleanly
+    // #1345: LLM-backed call - see helpers/llm.ts. The "missing Ollama config"
+    // premise only exists on a stack whose provider is not a working real one
+    // (CI runs LLM_PROVIDER=mock). On a real-provider stack the call waits for
+    // a full model completion and is skipped unless E2E_REAL_LLM=1.
+    const provider = await getLlmProvider(request, token);
+    const skip = llmSkipHint(provider);
+    test.skip(skip !== null, skip ?? '');
+    if (llmRequestTimeoutMs(provider) !== undefined) test.slow();
+
+    // Create a need and try derivation - the mock provider must respond cleanly
     const needResp = await request.post(
       `${BACKEND_URL}/api/v1/workspaces/${SEEDED_WORKSPACE_ID}/needs/`,
       {
@@ -575,14 +618,40 @@ test.describe('[REQ-132] Ollama/AI-Feature — Missing Config Handling', () => {
       {
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         data: {},
+        timeout: llmRequestTimeoutMs(provider),
       }
     );
-    // Must not return 5xx (REQ-132: clear error or graceful fallback)
-    expect(deriveResp.status(), '[REQ-132] AI derive must not return 5xx without config').toBeLessThan(500);
+    const status = deriveResp.status();
 
-    // Response body must be structured (not raw exception trace)
+    // Response must always be a structured JSON envelope - never a raw
+    // exception trace / HTML error page (REQ-132's actual "graceful" promise).
+    expect(
+      deriveResp.headers()['content-type'] ?? '',
+      '[REQ-132] AI derive must answer with a JSON envelope, not an HTML/trace page'
+    ).toContain('application/json');
     const body = await deriveResp.json();
-    expect(body, '[REQ-132] response must be JSON object, not raw exception').toBeTruthy();
+    expect(body, '[REQ-132] response must be a JSON object').toBeTruthy();
+
+    if (status >= 400) {
+      // A genuinely unreachable provider is an upstream condition, and the
+      // documented mapping (backend/rest_api/serializers.py:
+      // LLM_TIMEOUT=504, LLM_UNAVAILABLE=503, LLM_OUTPUT_INVALID=502) is a
+      // clean, localized envelope - not an internal server error. The previous
+      // assertion ("status < 500") contradicted that contract and could never
+      // pass on a stack where the provider was actually missing.
+      expect(
+        [502, 503, 504],
+        `[REQ-132] unexpected failure status ${status}: ${JSON.stringify(body)}`
+      ).toContain(status);
+      expect(
+        String(body?.error?.code ?? ''),
+        '[REQ-132] a failed derive must carry a documented LLM_* error code'
+      ).toMatch(/^LLM_(OUTPUT_INVALID|UNAVAILABLE|TIMEOUT)$/);
+    } else {
+      // Working provider (mock in CI): the endpoint must answer 200 with drafts.
+      expect([200, 202], `[REQ-132] unexpected success status ${status}`).toContain(status);
+      expect(body).toHaveProperty('drafts');
+    }
   });
 });
 

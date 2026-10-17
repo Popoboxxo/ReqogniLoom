@@ -51,3 +51,33 @@ docker compose logs backend --since 30m | grep -E '"(GET|POST) /api/v1/auth'
 If step 3 shows nothing for a request the browser clearly made, the browser
 is not talking to this stack — reopen the app at the current, confirmed
 address rather than debugging the backend.
+
+## LLM-backed specs (derive-requirements)
+
+Some API-level specs assert on `POST /api/v1/needs/{id}/derive-requirements/`
+(`hermes-bugfix-campaign.spec.ts`, `ui-test-campaign.spec.ts`), which calls the
+configured LLM provider synchronously.
+
+- **CI** runs the stack with `LLM_PROVIDER=mock`
+  (`.github/workflows/playwright.yml`): the call answers in ~0.1 s and the
+  specs run with the normal 15 s request budget (`use.actionTimeout`).
+- **A local dev stack may use a real provider.** Measured on 2026-10-17 with
+  `LLM_PROVIDER=opencode_go` / `mimo-v2.5`: one derive call takes 46-74 s and
+  returns real drafts. Playwright's `request` fixture inherits the 15 s
+  `actionTimeout`, which surfaced as
+  `TimeoutError: apiRequestContext.post: Timeout 15000ms exceeded`
+  (issues #1343/#1344/#1345).
+
+The specs therefore probe `GET /api/v1/llm-settings/` first
+(`e2e/helpers/llm.ts`): with a non-mock provider they **skip** with an
+actionable message instead of failing. To actually exercise the real-provider
+path (slower, ~1-2 min per call):
+
+```bash
+E2E_REAL_LLM=1 npx playwright test tests/hermes-bugfix-campaign.spec.ts --grep "REQ-128"
+```
+
+That grants the request a 180 s budget (aligned with the backend's
+`LLM_LONG_RUNNING_TIMEOUT`) and marks the test `slow` (180 s test timeout).
+Do not raise the global `actionTimeout` for this: it would hide real hangs in
+every other spec.
