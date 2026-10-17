@@ -10,7 +10,7 @@
  */
 
 import { render, screen } from "@testing-library/react";
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 
 import { SplitView } from "./SplitView";
 
@@ -233,5 +233,40 @@ describe("SplitView — concept contract", () => {
     expect(screen.getByTestId("legacy-right")).toBeInTheDocument();
     expect(screen.getByTestId("splitview-divider")).toBeInTheDocument();
     expect(screen.queryByTestId("splitview-list")).not.toBeInTheDocument();
+  });
+
+  it("#1421: concept position memory finds the aria-pressed row when the detail closes", () => {
+    // Scope: the concept `list`/`detail` contract only — no production view
+    // mounts it yet (they all use the legacy `leftPanel`/`rightPanel` panels),
+    // so this guards the contract itself, not a live view. It still fails
+    // under the old `[aria-selected="true"]`-only selector, because the
+    // current row of a `role="button"` list is marked `aria-pressed="true"`
+    // (ArtifactRow since #1421) — `aria-selected` is invalid on buttons.
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(Element.prototype, "scrollIntoView", {
+      configurable: true,
+      writable: true,
+      value: scrollIntoView,
+    });
+
+    try {
+      const list = (
+        <div>
+          <div role="button" aria-pressed="false" data-testid="row-a">A</div>
+          <div role="button" aria-pressed="true" data-testid="row-b">B</div>
+        </div>
+      );
+      const { rerender } = render(
+        <SplitView list={list} detail={<div>Detail</div>} />
+      );
+
+      // Detail closes (list visible again) -> scroll the current row into view.
+      rerender(<SplitView list={list} detail={null} />);
+
+      expect(scrollIntoView).toHaveBeenCalledTimes(1);
+      expect(scrollIntoView.mock.instances[0]).toBe(screen.getByTestId("row-b"));
+    } finally {
+      delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+    }
   });
 });

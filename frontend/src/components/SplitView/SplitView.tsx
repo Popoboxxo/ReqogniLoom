@@ -706,9 +706,13 @@ const ConceptSplitView = React.forwardRef<HTMLDivElement, ConceptSplitViewProps>
     // times (hidden via `display: none` on mobile instead of unmounted),
     // so its native scrollTop survives detail open/close for free. On top
     // of that, when the user navigates back to the list (detail -> null),
-    // scroll the currently-selected row into view — list items follow the
-    // `aria-selected="true"` convention already used across the app's list
-    // primitives (e.g. WorkspaceTree).
+    // scroll the currently-selected row into view. The selector below covers
+    // both current-row conventions of this concept `list`/`detail` contract —
+    // `aria-selected="true"` (treeitems, e.g. WorkspaceTree) and
+    // `aria-pressed="true"` (selectable `role="button"` rows, ArtifactRow
+    // since #1421). No production view mounts this contract yet (they all use
+    // the legacy `leftPanel`/`rightPanel` panels instead), so the union is
+    // forward-compat hygiene, not a user-visible fix today.
     // ---------------------------------------------------------------------
 
     const listContainerRef = useRef<HTMLDivElement>(null);
@@ -717,7 +721,7 @@ const ConceptSplitView = React.forwardRef<HTMLDivElement, ConceptSplitViewProps>
     useEffect(() => {
       if (wasDetailOpenRef.current && !hasDetail) {
         const selected = listContainerRef.current?.querySelector(
-          '[aria-selected="true"]'
+          '[aria-selected="true"], [aria-pressed="true"]'
         );
         selected?.scrollIntoView({ block: 'nearest' });
       }
