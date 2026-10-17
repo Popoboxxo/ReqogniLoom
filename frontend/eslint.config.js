@@ -52,6 +52,12 @@ export default [
       'jsx-a11y/click-events-have-key-events': 'warn',
       'jsx-a11y/no-static-element-interactions': 'warn',
       'jsx-a11y/role-has-required-aria-props': 'warn',
+      // Issue #1421: ARIA props must be allowed by the element's declared role
+      // (`role="button" aria-selected` was axe-critical, WCAG 4.1.2). Enabled
+      // after a repo-wide scan found zero violations. Caveat: the rule only
+      // evaluates *explicit* roles — a dynamic `role={...}` (ArtifactRow) stays
+      // a unit-tested contract (ArtifactRow.test.tsx), not a lint-visible one.
+      'jsx-a11y/role-supports-aria-props': 'warn',
       // `depth: 3` (default 2): five wrapping labels (WorkspaceSettings preset/
       // terminology cards, AttributeCatalogDialog entry rows, the checkbox row
       // in UserProfileSettings, GlossaryReferenceSection mode rows) put their

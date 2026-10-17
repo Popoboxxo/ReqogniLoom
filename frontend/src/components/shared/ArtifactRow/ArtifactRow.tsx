@@ -176,12 +176,17 @@ export function ArtifactRow({
     // Enter/Space below), without one it stays a plain container. The linter
     // cannot evaluate the ternary role, so the static rule is disabled while
     // the runtime contract stays in this element's attributes.
+    // Issue #1421: the selected state is announced with `aria-pressed`, not
+    // `aria-selected` — the latter is not allowed on `role="button"` (axe
+    // `aria-allowed-attr`, WCAG 4.1.2). This row is the same single-select list
+    // row as BaselinesView/TestRunsList/GlossaryTermList, which all already
+    // announce the state this way, so the interaction language stays uniform.
     // eslint-disable-next-line jsx-a11y/no-static-element-interactions
     <div
       data-testid={testId}
       role={onClick ? "button" : undefined}
       tabIndex={onClick ? 0 : undefined}
-      aria-selected={onClick ? selected : undefined}
+      aria-pressed={onClick ? selected : undefined}
       className={`${styles.root} ${selected ? styles.selected : ""}`}
       onClick={onClick}
       onKeyDown={

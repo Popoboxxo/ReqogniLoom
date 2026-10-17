@@ -141,7 +141,7 @@ describe("ArtifactRow", () => {
     expect(screen.getByTestId("version-badge")).toHaveTextContent("v3");
   });
 
-  it("marks the row selected with aria-selected when onClick is provided", () => {
+  it("announces the selected state via aria-pressed, never aria-selected (issue #1421)", () => {
     render(
       <ArtifactRow
         id="G-1"
@@ -151,7 +151,19 @@ describe("ArtifactRow", () => {
         onClick={() => {}}
       />,
     );
-    expect(screen.getByTestId("artifact-row")).toHaveAttribute("aria-selected", "true");
+    // `aria-selected` is not allowed on `role="button"` (axe
+    // `aria-allowed-attr`, WCAG 4.1.2); the row announces its single-select
+    // state with `aria-pressed` instead.
+    const row = screen.getByTestId("artifact-row");
+    expect(row).toHaveAttribute("aria-pressed", "true");
+    expect(row).not.toHaveAttribute("aria-selected");
+  });
+
+  it("keeps both pressed and selected state off the DOM of a non-interactive row", () => {
+    render(<ArtifactRow id="G-1" title="Ziel" />);
+    const row = screen.getByTestId("artifact-row");
+    expect(row).not.toHaveAttribute("aria-pressed");
+    expect(row).not.toHaveAttribute("aria-selected");
   });
 
   it("calls onClick when the row is clicked", async () => {
