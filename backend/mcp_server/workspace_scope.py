@@ -435,7 +435,7 @@ def resolve_target_workspace_id(
     return None
 
 
-def target_param_error(tool_name: str, params: Mapping[str, Any]) -> Optional[str]:
+def target_param_error(tool_name: str, params: Mapping[str, Any]) -> str | None:
     """Explain a *parameter-level* cause for an unresolved target workspace.
 
     Only meaningful after :func:`resolve_target_workspace_id` returned ``None``

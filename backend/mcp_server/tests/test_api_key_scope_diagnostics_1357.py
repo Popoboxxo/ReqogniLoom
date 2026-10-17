@@ -32,7 +32,7 @@ from __future__ import annotations
 
 import json
 from datetime import timedelta
-from typing import Any, Dict
+from typing import Any
 from unittest.mock import patch
 from uuid import uuid4
 
@@ -55,7 +55,7 @@ SCOPE_MESSAGE_FRAGMENT = "restricted to specific workspaces"
 # ---------------------------------------------------------------------------
 
 
-def _make_workspace(tenant: Tenant, name: str, preset: Dict[str, Any]) -> Workspace:
+def _make_workspace(tenant: Tenant, name: str, preset: dict[str, Any]) -> Workspace:
     set_request_tenant(tenant.id)
     try:
         workspace = Workspace.objects.create(
@@ -106,7 +106,7 @@ def _make_suggestion(workspace: Workspace) -> Suggestion:
         clear_request_tenant()
 
 
-def _dispatch(tool_name: str, params: Dict[str, Any], api_key: str):
+def _dispatch(tool_name: str, params: dict[str, Any], api_key: str):
     return ToolRegistry().dispatch_request(
         tool_name=tool_name, params=params, api_key=api_key
     )
@@ -118,7 +118,7 @@ def _dispatch(tool_name: str, params: Dict[str, Any], api_key: str):
 
 
 @pytest.fixture
-def foreign_workspace(e2e_tenant: Tenant, e2e_preset: Dict[str, Any]) -> Workspace:
+def foreign_workspace(e2e_tenant: Tenant, e2e_preset: dict[str, Any]) -> Workspace:
     """Workspace B — same tenant, no role for any e2e user."""
     return _make_workspace(e2e_tenant, "W13b Foreign Workspace B", e2e_preset)
 
@@ -344,7 +344,7 @@ class TestWireErrorContract:
     """Observe the codes on the direct-method surface the QA pipeline used."""
 
     @staticmethod
-    def _handle(method: str, params: Dict[str, Any], api_key: str) -> Dict[str, Any]:
+    def _handle(method: str, params: dict[str, Any], api_key: str) -> dict[str, Any]:
         from mcp_server.protocol_handler import ProtocolHandler
         from mcp_server.tool_registry import ToolRegistry
 
@@ -460,7 +460,7 @@ class TestExplicitWorkspaceCannotBypassFencedTarget:
         foreign_requirement: Requirement,
     ) -> None:
         before = foreign_requirement.acceptance_criteria_items
-        params: Dict[str, Any] = {
+        params: dict[str, Any] = {
             "id": str(foreign_requirement.id),
             "workspace_id": str(e2e_workspace.id),
         }

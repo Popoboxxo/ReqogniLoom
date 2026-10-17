@@ -2295,9 +2295,9 @@ class AiDerivationService(ServiceBase):
         ctx: AuthContext,
         *,
         workspace_id: UUID | str,
-        preview: Dict[str, Any],
+        preview: dict[str, Any],
         policy: str = "manual",
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Persist the drafts of a glossary preview through the write seam.
 
         The ``mode="write"`` half of :meth:`derive_glossary_from_workspace`
@@ -2335,8 +2335,8 @@ class AiDerivationService(ServiceBase):
         workspace = self._get_workspace(workspace_id)
         drafts = self._preview_drafts(preview, "derive_glossary_from_workspace")
 
-        written: List[Dict[str, Any]] = []
-        failed: List[Dict[str, Any]] = []
+        written: list[dict[str, Any]] = []
+        failed: list[dict[str, Any]] = []
         for draft in drafts:
             # Defensive on purpose (service = single write entry point,
             # ADR-01): a hand-fed draft must surface as a per-draft
@@ -2363,7 +2363,7 @@ class AiDerivationService(ServiceBase):
             except (ValidationError, NotFoundError) as exc:
                 failed.append({"draft": draft, "error": str(exc)})
 
-        response: Dict[str, Any] = {
+        response: dict[str, Any] = {
             "written": written,
             "is_mock_fallback": bool(preview.get("is_mock_fallback", False)),
         }
@@ -2376,9 +2376,9 @@ class AiDerivationService(ServiceBase):
         ctx: AuthContext,
         *,
         architecture_element_id: UUID | str,
-        preview: Dict[str, Any],
+        preview: dict[str, Any],
         policy: str = "manual",
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Persist the drafts of a risk preview through the write seam.
 
         The ``mode="write"`` half of :meth:`derive_risks_from_architecture`
@@ -2427,8 +2427,8 @@ class AiDerivationService(ServiceBase):
 
         from application.risk_service import RiskService
 
-        written: List[Dict[str, Any]] = []
-        failed: List[Dict[str, Any]] = []
+        written: list[dict[str, Any]] = []
+        failed: list[dict[str, Any]] = []
         for draft in drafts:
             # ``d=draft`` is the default-arg binding, not a closure over the
             # loop variable (the ``lambda: ... d`` footgun the MCP write loop
@@ -2471,7 +2471,7 @@ class AiDerivationService(ServiceBase):
             except (ValidationError, NotFoundError) as exc:
                 failed.append({"draft": draft, "error": str(exc)})
 
-        response: Dict[str, Any] = {
+        response: dict[str, Any] = {
             "written": written,
             "is_mock_fallback": bool(preview.get("is_mock_fallback", False)),
         }
@@ -2484,9 +2484,9 @@ class AiDerivationService(ServiceBase):
         ctx: AuthContext,
         *,
         workspace_id: UUID | str,
-        preview: Dict[str, Any],
+        preview: dict[str, Any],
         policy: str = "manual",
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Persist the draft of an ADR preview through the write seam.
 
         The ``mode="write"`` half of :meth:`derive_adr_from_decision` (#1358):
@@ -2545,7 +2545,7 @@ class AiDerivationService(ServiceBase):
         }
 
     @staticmethod
-    def _preview_drafts(preview: Any, flow: str) -> List[Dict[str, Any]]:
+    def _preview_drafts(preview: Any, flow: str) -> list[dict[str, Any]]:
         """Return the ``drafts`` list of a preview response, or raise.
 
         The persist methods above are reachable from MCP, REST and direct
