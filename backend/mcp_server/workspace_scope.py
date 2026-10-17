@@ -209,6 +209,17 @@ _TOOL_TARGETS: Dict[str, Tuple[Tuple[str, str], ...]] = {
     "requirement.reactivate": (("id", "requirement"),),
     "requirement.update": (("id", "requirement"),),
     "requirement.validate": (("requirement_id", "requirement"),),
+    # #1357: the requirement tools that name their target object by ``id`` must
+    # resolve the gate from the requirement's own workspace — the same rule as
+    # requirement.update/outdate above. Without these entries a
+    # workspace-restricted key had "no target workspace" from the fence's point
+    # of view, so a call against a requirement in the key's *own* workspace was
+    # denied with the workspace-scope message (and a genuinely missing/typo'd
+    # parameter was masked by the same message). The acceptance-criteria write
+    # pair mirrors requirement.acceptance_criteria.get (the #1288 read fix).
+    "requirement.acceptance_criteria.check": (("id", "requirement"),),
+    "requirement.acceptance_criteria.set": (("id", "requirement"),),
+    "requirement.suggest_level": (("id", "requirement"),),
     "risk.delete": (("id", "risk"),),
     "risk.outdate": (("id", "risk"),),
     "risk.reactivate": (("id", "risk"),),
@@ -423,8 +434,81 @@ def resolve_target_workspace_id(
     return None
 
 
+def target_param_error(tool_name: str, params: Mapping[str, Any]) -> Optional[str]:
+    """Explain a *parameter-level* cause for an unresolved target workspace.
+
+    Only meaningful after :func:`resolve_target_workspace_id` returned ``None``
+    for *tool_name*: it answers "was the target unresolvable because the call
+    itself is malformed?" (#1357). Two cases qualify:
+
+    * a supplied target parameter is not a UUID — a definite parameter defect,
+      reported with priority over the next case, or
+    * none of the tool's registered target parameters was supplied at all —
+      the caller missed (or typo'd) the parameter naming the object.
+
+    All target parameters are inspected, not just the first one: a malformed
+    candidate stays reported even when another candidate was well-formed (its
+    lookup simply found no row), so the call's actual defect is named instead
+    of the workspace-scope text.
+
+    Returns ``None`` when the failure is *not* parameter-level — i.e. every
+    supplied target parameter is well-formed but resolved to no row (deleted
+    object, foreign tenant). That failure must keep the caller's previous
+    answer (the fail-closed workspace-fence denial), so a nonexistent object
+    never becomes distinguishable from a fenced-out one through this diagnosis.
+
+    The message names the tool, the expected parameter(s) and the received
+    parameter keys, so an agent can spot a wrong parameter name (the case in
+    #1357: ``suggestion_id`` sent where ``id`` is required) instead of being
+    sent debugging the key's workspace fence.
+    """
+    targets = _TOOL_TARGETS.get(tool_name)
+    if not targets:
+        return None
+
+    malformed: list[str] = []
+    has_well_formed = False
+    for param_name, _entity_key in targets:
+        raw = params.get(param_name)
+        if raw in (None, ""):
+            continue
+        try:
+            UUID(str(raw))
+        except (ValueError, TypeError, AttributeError):
+            malformed.append(param_name)
+        else:
+            has_well_formed = True
+
+    if malformed:
+        names = sorted(set(malformed))
+        rendered = ", ".join(f"'{name}'" for name in names)
+        return (
+            f"Tool '{tool_name}' received malformed target parameter(s) "
+            f"{rendered}: a target id must be a valid UUID. The target object "
+            "could not be resolved; correct the parameter and retry."
+        )
+
+    if has_well_formed:
+        # Every supplied target id was well-formed and tried against the
+        # object lookup: the resolution failure is data-level (no such row in
+        # this tenant), not a parameter problem.
+        return None
+
+    expected = sorted({name for name, _entity_key in targets})
+    rendered_expected = " or ".join(f"'{name}'" for name in expected)
+    received = sorted(str(key) for key in params)
+    rendered_received = ", ".join(f"'{key}'" for key in received) if received else "(none)"
+    return (
+        f"Tool '{tool_name}' requires target parameter {rendered_expected} to "
+        "name the object it acts on, but none was supplied "
+        f"(received parameters: {rendered_received}). Check the parameter name "
+        "and retry."
+    )
+
+
 __all__ = [
     "TENANT_SCOPED_READ_TOOLS",
     "TOOL_ENFORCED_WORKSPACE_SCOPE",
     "resolve_target_workspace_id",
+    "target_param_error",
 ]

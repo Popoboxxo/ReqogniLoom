@@ -50,6 +50,7 @@ from mcp_server.tools.base import (
     artifact_custom_fields,
     mcp_audit_handoff,
     optional_uuid,
+    reject_unknown_params,
     require_param,
     require_uuid,
     resolve_engine_status,
@@ -1188,6 +1189,15 @@ class RequirementsToolGroup(BaseToolGroup):
         self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """requirement.acceptance_criteria.set — replace the whole criteria list."""
+        # #1357 security review (HIGH): same guard as requirement.suggest_level —
+        # an undeclared ``workspace_id`` would let the dispatch shortcut scope
+        # fence and RBAC to the caller's own workspace while this handler still
+        # writes the (foreign) requirement named by ``id``.
+        reject_unknown_params(
+            params,
+            allowed=self.schema_param_names("requirement.acceptance_criteria.set"),
+            tool_name="requirement.acceptance_criteria.set",
+        )
         req_id = require_uuid(params, "id")
         criteria = params.get("criteria")
         if not isinstance(criteria, list):
@@ -1221,6 +1231,13 @@ class RequirementsToolGroup(BaseToolGroup):
         self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """requirement.acceptance_criteria.check — check off one criterion by index."""
+        # #1357 security review (HIGH): same guard as its ``set`` sibling —
+        # an undeclared ``workspace_id`` must not reopen the fence bypass.
+        reject_unknown_params(
+            params,
+            allowed=self.schema_param_names("requirement.acceptance_criteria.check"),
+            tool_name="requirement.acceptance_criteria.check",
+        )
         req_id = require_uuid(params, "id")
         if "index" not in params:
             return ToolResult.error(
@@ -1262,6 +1279,18 @@ class RequirementsToolGroup(BaseToolGroup):
         """requirement.suggest_level — persist a level suggestion (never silent)."""
         from application.requirement_level_service import RequirementLevelService
 
+        # #1357 security review (HIGH): reject an undeclared ``workspace_id``
+        # (or any extra key) before any read/mutation. The dispatch gate
+        # short-circuits to a caller-supplied ``workspace_id`` and never
+        # resolves the object's real workspace, so accepting it here would let
+        # a key fenced to workspace A propose against a requirement in B.
+        # Rejecting the undeclared parameter forces object-derived resolution
+        # in the gate (mirrors the B-01 guards in comment/suggestion).
+        reject_unknown_params(
+            params,
+            allowed=self.schema_param_names("requirement.suggest_level"),
+            tool_name="requirement.suggest_level",
+        )
         req_id = require_uuid(params, "id")
         try:
             suggestion = RequirementLevelService().propose_level(req_id, auth_context)

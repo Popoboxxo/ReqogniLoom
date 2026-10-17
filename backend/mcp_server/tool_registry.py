@@ -1415,6 +1415,18 @@ class ToolRegistry:
             context.gate_ctx, context.scope_workspace_id
         )
         if fence_error:
+            # #1357: the fence stays fail-closed — the call below never runs.
+            # But when the fence denied because *no target workspace could be
+            # resolved* and the reason is a parameter-level defect of the call
+            # (missing/typo'd/malformed target id), answer with the validation
+            # class (JSON-RPC -32602 on the direct-method path, the same
+            # error the tool's own parameter validation would raise) instead
+            # of the workspace-scope text, which used to mask the real cause.
+            param_error = self._unresolved_target_param_error(
+                tool_name, params, context.scope_workspace_id
+            )
+            if param_error is not None:
+                return ToolResult.error("VALIDATION_ERROR", param_error)
             return ToolResult.error("PERMISSION_DENIED", fence_error)
 
         if self._is_write_tool(tool_name):
@@ -1816,6 +1828,26 @@ class ToolRegistry:
         from auth_tenancy.resource_scope import workspace_fence_denial
 
         return workspace_fence_denial(ctx.api_key_workspace_ids, target_workspace_id)
+
+    @staticmethod
+    def _unresolved_target_param_error(
+        tool_name: str, params: Dict[str, Any], scope_workspace_id: Optional[str]
+    ) -> Optional[str]:
+        """Return the parameter-level diagnosis for a fence denial, else None.
+
+        #1357: only relevant when the fence denied because **no target
+        workspace could be resolved** (``scope_workspace_id is None``). When a
+        target *was* resolved and lies outside the fence, the parameters are
+        not the issue and the caller keeps the plain scope text. The diagnosis
+        itself lives in :func:`mcp_server.workspace_scope.target_param_error`
+        (the same registry that feeds target resolution), so the two cannot
+        disagree about which parameter names the target.
+        """
+        if scope_workspace_id is not None:
+            return None
+        from mcp_server.workspace_scope import target_param_error
+
+        return target_param_error(tool_name, params)
 
     def _check_rbac(self, ctx: AuthContext, tool_name: Optional[str] = None) -> Optional[str]:
         """Return error message if write is not permitted, else None.
