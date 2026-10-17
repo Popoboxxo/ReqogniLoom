@@ -70,6 +70,21 @@ jobs:
       - name: Install renderer dependency
         run: pip install --disable-pip-version-check pyyaml
 
+      # Issue #1349: the release path must fail when a version-coupled plugin
+      # manifest (incl. the four Hermes desktop-plugin carriers) lags VERSION.
+      - name: Plugin package ratchet (#1349)
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          TAG="${INPUT_TAG:-$RELEASE_TAG}"
+          if [[ -n "$TAG" ]]; then
+            python scripts/check_plugin_packages.py --tag "$TAG"
+          else
+            python scripts/check_plugin_packages.py
+          fi
+
       - name: Validate generated client artifacts (drift / parity)
         run: python scripts/clients/render.py --check
 

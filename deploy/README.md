@@ -63,13 +63,15 @@ check is conditional: mock/anthropic/openai/ollama/azure deployments are unaffec
 
 > **Related (#1153):** this preflight only proves the session value is *present* in the environment.
 > A Honcho deployment can still answer incorrectly if the `honcho` image drifts off its verified
-> digest — see `## Troubleshooting: Stale Honcho image (#1153)` below.
+> tag/digest — see `## Troubleshooting: Stale Honcho image (#1153)` below.
 
 ## Optional profiles (off by default)
 
 
 All three are Compose **profiles**: they cost nothing — no pull, no start — until you name them
-(`--profile <name>` / `COMPOSE_PROFILES=<name>`, or the `make` wrappers).
+(`--profile <name>` / `COMPOSE_PROFILES=<name>`, or the `make` wrappers). The profile choice is
+per-invocation: a `down` without the same `--profile` flags leaves those containers running — see
+[Teardown and upgrades](#teardown-and-upgrades-include-every-profile-you-ever-started).
 
 | Profile | What | Status |
 |---|---|---|
@@ -185,7 +187,8 @@ call `docker compose` directly instead.
 
 Everything that outlives a container is a **named Docker volume** — `docker compose down`
 (without `-v`) keeps them, `down -v` wipes the stack. Bind mounts are used only by the dev
-override; the minimal stack declares the first two plus `backend_dr_backups`.
+override; the minimal stack declares the first two plus `backend_dr_backups`. Stopping a stack
+that used profiles needs those profiles on `down` too — see the teardown section below.
 
 | Volume | Mount | Holds |
 |---|---|---|
@@ -196,6 +199,51 @@ override; the minimal stack declares the first two plus `backend_dr_backups`.
 | `honcho_postgres_data`, `honcho_redis_data` | Honcho services | only with `--profile honcho` |
 | `bluepencil_data` | `bluepencil:/data` | review notes, only with the `bluepencil` profile |
 | `qdrant_data` | `qdrant:/qdrant/storage` | Qdrant vector index, only with the `qdrant` profile — **not** in the Postgres dump; regenerable from Postgres (see the Qdrant section) |
+
+## Teardown and upgrades: include every profile you ever started
+
+Profiles are opt-in at **start** time, and Compose only manages the containers whose profiles are
+active in the *same* invocation. A plain `docker compose down` therefore leaves profiled containers
+(`honcho`, `honcho-*`, `qdrant`, `bluepencil`) running — and `--remove-orphans` does **not** remove
+them: they belong to the project, they are merely profiled. The result after a version upgrade is a
+mixed stack in which the default services are recreated while a profiled container keeps running for
+days (#1354).
+
+Name the full profile set on `down` (run from the repository root):
+
+```bash
+docker compose -f deploy/docker-compose.yml --project-directory . \
+  --profile honcho --profile qdrant --profile bluepencil down
+```
+
+`make down` does not activate profiles either; use the command above whenever a profile was ever
+started.
+
+**Alternative: pin the profile set for the whole session.** Export the same list so `up` and `down`
+cannot disagree:
+
+```bash
+export COMPOSE_PROFILES=honcho,qdrant,bluepencil   # bluepencil: DEBUG/QS only
+docker compose -f deploy/docker-compose.yml --project-directory . up -d
+docker compose -f deploy/docker-compose.yml --project-directory . down
+```
+
+**Warning: `-v` deletes data.** `down` alone keeps the named volumes listed above; adding `-v`
+removes them — the database, the Celery queue, Honcho's memory and the Qdrant index. Use it only for
+a deliberate reset:
+
+```bash
+# DESTRUCTIVE: wipes postgres/redis/honcho/bluepencil/qdrant volumes
+docker compose -f deploy/docker-compose.yml --project-directory . \
+  --profile honcho --profile qdrant --profile bluepencil down -v
+```
+
+**Recommended upgrade sequence:** `down` with the full profile set → `docker compose pull` → `up -d`
+with the same profile set. That guarantees no container from the previous release survives the
+upgrade.
+
+The minimal stack has no profile-gated services; the same rule applies with
+`-f deploy/docker-compose.minimal.yml`.
 
 ## Minimal stack
 
@@ -304,12 +352,13 @@ ReqogniLoom's UI — the summary/dream job simply never lands. Pin `SUMMARY_MODE
 `DREAM_DEDUCTION_MODEL_CONFIG__*` and `DREAM_INDUCTION_MODEL_CONFIG__*` alongside the
 deriver/dialectic block (see the `honcho` service comments; RFC #1002 finding F6).
 
-**Pinned image (#1153).** Everything above only holds for the *verified* image. All three services
-that run the Honcho image (`honcho`, `honcho-deriver`, `honcho-migrate`) are pinned to
-`ghcr.io/plastic-labs/honcho:latest@sha256:350b778af29b8b5b0b9a5b5436a00ea912acc7490908a9cb4fb7d80fa963e5c2`,
-so the moving `:latest` tag cannot silently resolve to a different build than the one the wiring
-above was verified against. For the failure mode and the recreate command, see
-`## Troubleshooting: Stale Honcho image (#1153)` below.
+**Pinned image (#1153, #1315).** Everything above only holds for the *verified* image. All three
+services that run the Honcho image (`honcho`, `honcho-deriver`, `honcho-migrate`) are pinned to a
+**stable release tag plus digest**:
+`ghcr.io/plastic-labs/honcho:v3.3.0@sha256:5bb8cf7a60845e08f83fed66f01907afa0969dd1d02e414ed576102f3b12dfe8`.
+The tag names the release that is running, the digest makes the bytes immutable, so neither a moved
+`:latest` nor an untagged digest can silently change the image. For the failure mode, the recreate
+command and the upgrade procedure, see `## Troubleshooting: Stale Honcho image (#1153)` below.
 
 ### Derivation visibility (`derivation_status`) and the Zen-Go quota dependency (#1155)
 
@@ -617,11 +666,12 @@ Honcho's dialectic endpoint returns HTTP 500 — or the underlying provider call
 `GET /health/` looks green, so nothing surfaces in ReqogniLoom's UI and the summary/dream layers
 simply never land.
 
-**Cause.** A **stale/moved `:latest` image**, not a repo-code bug. `ghcr.io/plastic-labs/honcho:latest`
-is a *moving* tag: a host that pulled it at a different time ran a different build than the one the
-stack was verified against. The compose wiring already reaches the SDK parameters correctly — the
-`x-opencode-session` shim and the `extra_headers` kwarg are all in place — but the running container
-came from a different build than the verified one.
+**Cause.** A **stale/moved `:latest` image**, not a repo-code bug. When the Honcho services were
+deployed by tag, `ghcr.io/plastic-labs/honcho:latest` was a *moving* tag: a host that pulled it at a
+different time ran a different build than the one the stack was verified against. The compose wiring
+already reaches the SDK parameters correctly — the `x-opencode-session` shim and the
+`extra_headers` kwarg are all in place — but the running container came from a different build than
+the verified one. The pin is now a **stable tag + digest** (#1315), so neither half can move again.
 
 **Fix.** Recreate the two long-running engine services so they pick up the pinned image — run from
 the repository root:
@@ -633,27 +683,41 @@ docker compose -f deploy/docker-compose.yml --project-directory . --profile honc
 `docker compose restart <service>` is **not** sufficient: a restart reuses the existing container
 and its already-pulled image, so a stale image is never replaced. Only a recreate
 (`--force-recreate`, or a re-run `up -d` after the image reference changed) re-resolves and
-re-creates the container.
+re-creates the container. If the pin changed *across a release*, run `honcho-migrate` as well — a
+version jump is a migration event (see **Upgrade** below).
 
-**Digest pin.** All three services that run the Honcho image — `honcho`, `honcho-deriver` and
+**Tag + digest pin.** All three services that run the Honcho image — `honcho`, `honcho-deriver` and
 `honcho-migrate` — are pinned to the verified immutable reference:
 
 ```
-ghcr.io/plastic-labs/honcho:latest@sha256:350b778af29b8b5b0b9a5b5436a00ea912acc7490908a9cb4fb7d80fa963e5c2
+ghcr.io/plastic-labs/honcho:v3.3.0@sha256:5bb8cf7a60845e08f83fed66f01907afa0969dd1d02e414ed576102f3b12dfe8
 ```
 
 `honcho-migrate` is pinned as well on purpose: if migrations ran on a different build than the
 server, the Alembic/embedding schema could drift from what the API and deriver expect.
 
-**Update.** When the upstream `:latest` image is refreshed, the new digest must be updated in all
-three places that pin it: the three `image:` lines (the `honcho`, `honcho-deriver` and
-`honcho-migrate` services) in `deploy/docker-compose.yml`, this README, and `_EXPECTED_DIGEST` in
-`backend/memory/tests/test_honcho_deploy_contract.py`; then re-run the guard test above. Copy the
-value from the manifest-list/index `Digest:` field — not `config.digest`.
+**Which version runs?** Read the tag (and cross-check it against the image label):
 
-**Spike evidence.** This digest is the manually verified reference (the live spike imports
+```bash
+docker buildx imagetools inspect ghcr.io/plastic-labs/honcho:v3.3.0 | head -n 5
+docker inspect --format '{{ index .Config.Labels "org.opencontainers.image.version" }}' \
+  "$(docker compose -f deploy/docker-compose.yml --project-directory . --profile honcho ps -q honcho)"
+```
+
+**Upgrade.** Pick a *released* tag (never `latest`/`staging`), re-resolve its manifest-list digest
+and update both in all three places that pin them: the three `image:` lines in
+`deploy/docker-compose.yml`, this README, and `_EXPECTED_TAG`/`_EXPECTED_DIGEST` in
+`backend/memory/tests/test_honcho_deploy_contract.py`; then re-run the guard test above. Copy the
+value from the manifest-list/index `Digest:` field — not `config.digest`. A Honcho version jump is a
+**migration event**: `honcho-migrate` applies Honcho's own alembic migrations and
+`configure_embeddings.py`, so smoke-test a memory read **and** write afterwards.
+
+**Spike evidence.** The deploy contract was established with the #1153 spike, which imports
 `src.config.settings` inside the *pinned* image and asserts
-`sdk_params["extra_headers"]["x-opencode-session"]` is the configured value). The deploy contract is
+`sdk_params["extra_headers"]["x-opencode-session"]` is the configured value. The v3.3.0 pin was
+re-checked against the real image: it still ships `scripts/configure_embeddings.py` (with `--yes`),
+`alembic`, and an importable `src.config.settings` (Python 3.13). Re-run the spike command from the
+guard test's docstring after every tag bump to re-prove the header resolution. The deploy contract is
 regression-guarded, Docker-free and Django-free, by
 `backend/memory/tests/test_honcho_deploy_contract.py`; run it on the host with:
 
@@ -662,7 +726,8 @@ cd backend && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest memory/tests/tes
 ```
 
 The guard asserts the shared `x-honcho-env` session value, the nine-module entrypoint shim for both
-`honcho` and `honcho-deriver`, and the digest pin (all three services sharing one image).
+`honcho` and `honcho-deriver`, and the stable-tag + digest pin (all three services sharing one
+image).
 
 ## Optional: switch the embedding provider (and resize the schema)
 

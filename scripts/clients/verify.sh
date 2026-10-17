@@ -6,7 +6,7 @@
 # marker; for config-file-only clients we validate the config loads and point
 # the operator at the in-client smoke task (docs/clients/README.md).
 #
-# Usage: scripts/clients/verify.sh --client <id>
+# Usage: bash scripts/clients/verify.sh --client <id>
 set -euo pipefail
 
 CLIENT=""

@@ -22,10 +22,28 @@
 # Ein Befehl: MCP-Server (remote) + Agent-Skill (-> ~/.hermes/skills/reqogniloom).
 # Der Installer merged mcp_servers.reqogniloom non-interaktiv via
 # `hermes config set` (Env-Referenz statt Key):
-scripts/clients/install.sh --client hermes \
+bash scripts/clients/install.sh --client hermes \
   --url "https://<host>" --key-env REQOGNILOOM_API_KEY
 hermes mcp test reqogniloom         # -> ✓ Connected, 248 Tools
 ```
+
+### Agent-/Dashboard-Plugin
+
+Neben dem MCP-Server und dem Desktop-Plugin liefert das Repo das **Agent-/Dashboard-Plugin** für den Hermes-Agenten-Host (`integrations/hermes-agent-plugin/`): Slash-Command `/reqogniloom`, Dashboard-Tab `ReqogniLoom` und opt-in Listen-Mode. Dashboard-Tab und Agent-Plugin liegen im selben Verzeichnis; `dashboard/manifest.json` verweist auf die mitgelieferten Assets `dist/index.js`/`dist/style.css` (kein Build-Schritt). Quelle: `https://github.com/Popoboxxo/ReqogniLoom.git#integrations/hermes-agent-plugin`.
+
+```bash
+# Agent + Dashboard-Plugin (Symlink: Updates folgen dem Repo per git pull)
+ln -s /path/to/ReqogniLoom/integrations/hermes-agent-plugin \
+  ~/.hermes/plugins/reqogniloom
+# oder zusammen mit MCP-Server + Skill in einem Schritt:
+bash scripts/clients/install.sh --client hermes --with-dashboard \
+  --url "https://<host>" --key-env REQOGNILOOM_API_KEY
+```
+
+- Dashboard-Tab `ReqogniLoom` (`tab.path: /reqogniloom`, Position `after:analytics`) — read-only: Workspace-Zähler und offene Interviews.
+- Slash-Command `/reqogniloom` plus opt-in Listen-Mode; Vorschläge landen als `suggestion` und werden erst nach `/reqogniloom accept` persistent.
+
+- **Versionsregel:** eigenes SemVer in `plugin.yaml` und `dashboard/manifest.json` plus `minServerVersion` — **nicht** an das Repo-`VERSION` gekoppelt (ADR-017 Entscheidung 2).
 
 ### Desktop-Plugin
 
@@ -42,7 +60,7 @@ npm run build     # -> dist/plugin.js; der postbuild-Schritt führt scripts/veri
 - Statusbar-Eintrag `reqogniloom.status` (`area: statusBar.right`, Priorität 20).
 - Kommando `reqogniloom.open` (im Manifest `contributes.commands` deklariert) — öffnet das Panel.
 
-- **Version:** `1.8.0-beta.20` (aus dem Repo-`VERSION`) — Drift zwischen installiertem und ausgeliefertem Plugin erkennt `scripts/check_plugin_packages.py` beim Release.
+- **Version:** `1.8.0-beta.21` (aus dem Repo-`VERSION`) — Drift zwischen installiertem und ausgeliefertem Plugin erkennt `scripts/check_plugin_packages.py` beim Release; das Desktop-Plugin folgt dem Repo-`VERSION` (ADR-017 Option A).
 
 ## 3. Konfiguration
 
@@ -82,5 +100,8 @@ mcp_servers:
 
 ## 8. Update / Deinstallation
 
-- Installer erneut ausführen; oder direkt `hermes config set mcp_servers.reqogniloom…`.
+- MCP-Server/Skill: `bash scripts/clients/install.sh --client hermes --url "$REQOGNILOOM_MCP_URL" --refresh` aktualisiert den Skill + `DOMAIN_MODEL.md` (Backup `.bak-<ts>`); oder direkt `hermes config set mcp_servers.reqogniloom…` (idempotent).
+- Agent-/Dashboard-Plugin: nach einem `git pull` folgt die Symlink-Installation automatisch; eine Kopie (Host ohne Symlink-Unterstützung) aktualisiert `bash scripts/clients/install.sh --client hermes --with-dashboard --refresh` (Backup `.bak-<ts>`).
+- Desktop-Plugin: nach `git pull` erneut `npm ci && npm run build` in `integrations/hermes-plugin/reqogniloom/` ausführen.
+- Versionsregeln je Artefakt (ADR-017): Desktop-Plugin = Repo-`VERSION` (Option A); Agent-/Dashboard-Plugin = eigene SemVer + `minServerVersion` (Entscheidung 2).
 - Repo-Pull bzw. Store-Update; Stufe-2-Ziel: Katalogeintrag → `hermes mcp install reqogniloom`.

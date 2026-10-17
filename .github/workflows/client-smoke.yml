@@ -86,7 +86,10 @@ jobs:
           REQOGNILOOM_API_KEY: ${{ secrets.QA_CLIENT_KEY }}
         run: |
           set -euo pipefail
-          scripts/clients/install.sh \
+          # `bash` prefix keeps this working even if the checkout lost the
+          # script's executable bit (#1350); the mode itself is gated in
+          # client-artifacts-check.yml.
+          bash scripts/clients/install.sh \
             --client "$CLIENT" \
             --url "http://localhost:8001" \
             --key-env REQOGNILOOM_API_KEY \
@@ -98,7 +101,7 @@ jobs:
           REQOGNILOOM_API_KEY: ${{ secrets.QA_CLIENT_KEY }}
         run: |
           set -euo pipefail
-          scripts/clients/verify.sh --client "$CLIENT"
+          bash scripts/clients/verify.sh --client "$CLIENT"
 
       - name: Tear down the compose instance
         if: always()

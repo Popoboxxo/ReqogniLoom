@@ -21,7 +21,7 @@
 
 ```bash
 # One command: MCP config + skills (-> ~/.gemini/skills, DOMAIN_MODEL.md)
-scripts/clients/install.sh --client antigravity \
+bash scripts/clients/install.sh --client antigravity \
   --url "$REQOGNILOOM_MCP_URL" --key-env REQOGNILOOM_API_KEY
 ```
 
@@ -64,4 +64,5 @@ Complete, generated configuration (env-var references, never a literal key):
 
 ## 8. Update / uninstall
 
+- `bash scripts/clients/install.sh --client antigravity --url "$REQOGNILOOM_MCP_URL" --refresh` updates skills + `DOMAIN_MODEL.md` (previous target kept as `.bak-<ts>`).
 - Re-pull the package/store update; Stage-2 goal: publish in the MCP store instead of merging files.

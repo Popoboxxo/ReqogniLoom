@@ -2,9 +2,9 @@
 """Release ratchet for plugin packages (issues #1283 / #1284 / #1285).
 
 ``VERSION`` is the single source of truth for every first-party, in-repo
-plugin artifact (ADR-017, Option A). This check runs *after* a release tag and
-answers two questions that otherwise only surface as a silent
-"installed != shipped" drift:
+plugin artifact (ADR-017, Option A). This check runs in the tag release path
+(``docker-publish.yml`` -> ``release-gates``) and answers two questions that
+otherwise only surface as a silent "installed != shipped" drift:
 
 1. **Presence** — every first-party plugin package that the release claims to
    ship still exists as a *source* tree/manifest in the repo. This is the

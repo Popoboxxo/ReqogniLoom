@@ -21,7 +21,7 @@
 
 ```bash
 # Ein Befehl: MCP-Server + Skills (-> ~/.codex/skills):
-scripts/clients/install.sh --client codex \
+bash scripts/clients/install.sh --client codex \
   --url "$REQOGNILOOM_MCP_URL" --key-env REQOGNILOOM_API_KEY
 codex mcp list            # -> reqogniloom   enabled
 export REQOGNILOOM_API_KEY="reqlo_…"   # via bearer_token_env_var
@@ -61,4 +61,5 @@ bearer_token_env_var = "REQOGNILOOM_API_KEY"
 
 ## 8. Update / Deinstallation
 
-- Config-Snippet aktualisieren bzw. `codex mcp remove reqogniloom` + erneut `add`.
+- `bash scripts/clients/install.sh --client codex --url "$REQOGNILOOM_MCP_URL" --refresh` aktualisiert Skills + `DOMAIN_MODEL.md` (vorheriges Ziel als `.bak-<ts>`).
+- MCP-Eintrag geändert (URL/Transport): `codex mcp remove reqogniloom` + erneut `add` — der Installer legt ihn nur an.

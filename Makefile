@@ -28,7 +28,7 @@ DEV_COMPOSE := $(COMPOSE) -f deploy/docker-compose.yml -f deploy/docker-compose.
 MINIMAL_COMPOSE := $(COMPOSE) -f deploy/docker-compose.minimal.yml --project-directory .
 TEST_COMPOSE := $(COMPOSE) -f deploy/docker-compose.yml -f testing/docker-compose.test.yml --project-directory .
 
-.PHONY: up down minimal minimal-down honcho qdrant qdrant-down bluepencil bluepencil-down build test test-backend test-frontend test-e2e test-e2e-reseed help
+.PHONY: up down minimal minimal-down honcho qdrant qdrant-down bluepencil bluepencil-down build release-bump test test-backend test-frontend test-e2e test-e2e-reseed help
 
 ## up: Start the full dev stack (hot-reload override applied)
 up:
@@ -69,6 +69,10 @@ bluepencil-down:
 ## build: Build images with real version/commit/build-time stamped in (scripts/build.sh)
 build:
 	./scripts/build.sh
+
+## release-bump: Bump every version carrier (incl. Hermes plugins), re-render docs and run the release gates. Usage: make release-bump NEW_VERSION=1.8.0-beta.22 (release branch only)
+release-bump:
+	python scripts/bump_version.py --version "$(NEW_VERSION)"
 
 ## test: Run backend (pytest) + frontend (vitest) tests — NO E2E
 test: test-backend test-frontend

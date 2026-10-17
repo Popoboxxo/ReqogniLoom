@@ -56,6 +56,51 @@ jobs:
     uses: ./.github/workflows/ci.yml
     secrets: inherit
 
+  # Issue #1349 / #1353: release consistency gates run on the TAG before any
+  # image is built, so drift fails at the tag instead of reaching a user. The
+  # ratchet checks every VERSION-coupled manifest (including the four
+  # hand-maintained Hermes desktop-plugin carriers); render.py --check fails
+  # when docs/clients/** and the generated store artifacts were not re-rendered
+  # at release time. `workflow_dispatch` falls back to the repo VERSION.
+  release-gates:
+    name: "Release consistency gates"
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.12'
+
+      - name: Install renderer dependency
+        run: pip install --disable-pip-version-check pyyaml
+
+      - name: Resolve expected release version
+        id: version
+        env:
+          REF_NAME: ${{ github.ref_name }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" == "push" ]]; then
+            EXPECTED="${REF_NAME#v}"
+            FILE_VERSION="$(tr -d '[:space:]' < VERSION)"
+            if [[ "$EXPECTED" != "$FILE_VERSION" ]]; then
+              echo "ERROR: VERSION ($FILE_VERSION) != tag ($REF_NAME) - release bump missing" >&2
+              exit 1
+            fi
+          else
+            EXPECTED="$(tr -d '[:space:]' < VERSION)"
+          fi
+          echo "expected=$EXPECTED" >> "$GITHUB_OUTPUT"
+          echo "[release-gates] expected=${EXPECTED}"
+
+      - name: Plugin package ratchet (#1349)
+        run: python scripts/check_plugin_packages.py --expect-version "${{ steps.version.outputs.expected }}"
+
+      - name: Client artifacts render check (#1353)
+        run: python scripts/clients/render.py --check
+
   # SEC-08 / AUD-2026-09-149: approval gate between CI and the production
   # publish. This job must be protected by a `staging` environment with required
   # reviewers (Repository Settings -> Environments -> staging). Until reviewers
@@ -63,7 +108,7 @@ jobs:
   # reference and the required-reviewer configuration together are the gate.
   staging-gate:
     name: "Staging approval gate"
-    needs: ci
+    needs: [ci, release-gates]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     environment:
@@ -73,7 +118,7 @@ jobs:
         run: echo "Staging gate approved — proceeding to release build and publish."
 
   build-and-push:
-    needs: [ci, staging-gate]
+    needs: [ci, staging-gate, release-gates]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     # SEC-08: keyless cosign and GitHub build-provenance attestations use the

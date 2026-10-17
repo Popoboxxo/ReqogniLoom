@@ -63,3 +63,4 @@ claude mcp add --transport http reqogniloom \
 
 - `claude plugin update reqogniloom` (version fed from `VERSION`).
 - Uninstall: `claude plugin uninstall reqogniloom`.
+- The installer copies no skills for this client (the plugin ships them) — `--refresh` is a no-op here.
