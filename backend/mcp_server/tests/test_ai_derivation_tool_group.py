@@ -296,8 +296,10 @@ def test_derive_requirements_preview_mode_unchanged(ai_ctx):
 
     assert result.success and result_explicit_preview.success
     # Systemaudit item 11: the preview forwards the service dict verbatim,
-    # which now also carries the mock-fallback flag.
-    assert set(result.data.keys()) == {"drafts", "is_mock_fallback"}
+    # which now also carries the mock-fallback flag. #1358: and the ephemeral
+    # marker — a preview response is never persisted data.
+    assert set(result.data.keys()) == {"drafts", "is_mock_fallback", "ephemeral"}
+    assert result.data["ephemeral"] is True
     assert result.data == result_explicit_preview.data
 
 
@@ -363,6 +365,8 @@ def test_derive_risks_from_architecture_tool(ai_ctx):
 
     assert result.success
     assert result.data["architecture_element_id"] == str(arch.id)
+    # #1358: the preview marks itself ephemeral — nothing was persisted.
+    assert result.data["ephemeral"] is True
     assert len(result.data["drafts"]) >= 1
     for draft in result.data["drafts"]:
         assert draft["probability"] in ("low", "medium", "high")
@@ -710,6 +714,8 @@ def test_derive_glossary_from_workspace_tool(ai_ctx):
 
     assert result.success
     assert result.data["workspace_id"] == str(workspace.id)
+    # #1358: preview responses are ephemeral by contract.
+    assert result.data["ephemeral"] is True
     assert len(result.data["drafts"]) >= 1
     for draft in result.data["drafts"]:
         assert set(draft.keys()) == {"term", "definition", "synonyms", "abbreviation"}
@@ -803,6 +809,8 @@ def test_derive_adr_from_decision_tool(ai_ctx):
 
     assert result.success
     assert result.data["workspace_id"] == str(workspace.id)
+    # #1358: preview responses are ephemeral by contract.
+    assert result.data["ephemeral"] is True
     draft = result.data["draft"]
     assert set(draft.keys()) == {"title", "description", "context", "consequences"}
 

@@ -335,7 +335,7 @@
       "name": "ai_derivation.decompose_requirement_next_level",
       "prefix": "ai_derivation",
       "is_write": true,
-      "description": "Propose next-level requirement drafts for a requirement that is allocated to at least one architecture element. mode='preview' (default) returns drafts only; mode='write' persists each draft as a child Requirement and links it back to the parent via a 'derives-from' trace link (child -> parent).",
+      "description": "Propose next-level requirement drafts for a requirement that is allocated to at least one architecture element. mode='preview' (default) returns drafts only — marked `ephemeral: true`, persists nothing; mode='write' (canonical persistence path) persists each draft as a child Requirement and links it back to the parent via a 'derives-from' trace link (child -> parent).",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -349,7 +349,7 @@
               "preview",
               "write"
             ],
-            "description": "'preview' (default) returns drafts only; 'write' persists them and creates the corresponding trace link(s)."
+            "description": "'preview' (default) returns drafts only and marks the response `ephemeral: true` (#1358) — nothing is persisted. 'write' is the canonical persistence path: it persists the drafts (seeded as 'proposed' where the workspace's workflow supports it) and creates the corresponding trace link(s)."
           },
           "policy": {
             "type": "string",
@@ -369,7 +369,7 @@
       "name": "ai_derivation.derive_adr_from_decision",
       "prefix": "ai_derivation",
       "is_write": true,
-      "description": "Structure a free-text decision description into an ADR draft (title, description, context, consequences). mode='preview' (default) returns the draft only; mode='write' persists it as an Adr. No trace link is created (the input is raw free text, not an existing artifact id — there is no source entity to link from).",
+      "description": "Structure a free-text decision description into an ADR draft (title, description, context, consequences). mode='preview' (default) returns the draft only — marked `ephemeral: true`, persists nothing; mode='write' (canonical persistence path) persists it as an Adr. No trace link is created (the input is raw free text, not an existing artifact id — there is no source entity to link from). REST parity: POST /api/v1/adrs/derive-from-decision/.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -387,7 +387,7 @@
               "preview",
               "write"
             ],
-            "description": "'preview' (default) returns drafts only; 'write' persists them and creates the corresponding trace link(s)."
+            "description": "'preview' (default) returns drafts only and marks the response `ephemeral: true` (#1358) — nothing is persisted. 'write' is the canonical persistence path: it persists the drafts (seeded as 'proposed' where the workspace's workflow supports it) and creates the corresponding trace link(s)."
           },
           "policy": {
             "type": "string",
@@ -408,7 +408,7 @@
       "name": "ai_derivation.derive_glossary_from_workspace",
       "prefix": "ai_derivation",
       "is_write": true,
-      "description": "Propose glossary term drafts extracted from a workspace's requirements and architecture elements. mode='preview' (default) returns drafts only; mode='write' persists each draft as a GlossaryTerm. No trace link is created (a Workspace id cannot be a trace-link source and GlossaryTerm has no backing Artifact).",
+      "description": "Propose glossary term drafts extracted from a workspace's requirements and architecture elements. mode='preview' (default) returns drafts only — marked `ephemeral: true`, persists nothing; mode='write' (canonical persistence path) persists each draft as a GlossaryTerm. No trace link is created (a Workspace id cannot be a trace-link source and GlossaryTerm has no backing Artifact). REST parity: POST /api/v1/glossary/derive/.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -422,7 +422,7 @@
               "preview",
               "write"
             ],
-            "description": "'preview' (default) returns drafts only; 'write' persists them and creates the corresponding trace link(s)."
+            "description": "'preview' (default) returns drafts only and marks the response `ephemeral: true` (#1358) — nothing is persisted. 'write' is the canonical persistence path: it persists the drafts (seeded as 'proposed' where the workspace's workflow supports it) and creates the corresponding trace link(s)."
           },
           "policy": {
             "type": "string",
@@ -442,7 +442,7 @@
       "name": "ai_derivation.derive_requirements_from_need",
       "prefix": "ai_derivation",
       "is_write": true,
-      "description": "Propose system requirement drafts for a stakeholder need. mode='preview' (default) returns drafts only; mode='write' persists each draft as a Requirement and links it back to the need via a 'derives-from' trace link (new Requirement -> Need).",
+      "description": "Propose system requirement drafts for a stakeholder need. mode='preview' (default) returns drafts only — the response is marked `ephemeral: true` and persists nothing; mode='write' (canonical persistence path) persists each draft as a Requirement and links it back to the need via a 'derives-from' trace link (new Requirement -> Need).",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -460,7 +460,7 @@
               "preview",
               "write"
             ],
-            "description": "'preview' (default) returns drafts only; 'write' persists them and creates the corresponding trace link(s)."
+            "description": "'preview' (default) returns drafts only and marks the response `ephemeral: true` (#1358) — nothing is persisted. 'write' is the canonical persistence path: it persists the drafts (seeded as 'proposed' where the workspace's workflow supports it) and creates the corresponding trace link(s)."
           },
           "policy": {
             "type": "string",
@@ -480,7 +480,7 @@
       "name": "ai_derivation.derive_risks_from_architecture",
       "prefix": "ai_derivation",
       "is_write": true,
-      "description": "Propose risk drafts for an architecture element. mode='preview' (default) returns drafts only; mode='write' persists each draft as a Risk and links it back to the architecture element via a 'mitigates' trace link.",
+      "description": "Propose risk drafts for an architecture element. mode='preview' (default) returns drafts only — marked `ephemeral: true`, persists nothing; mode='write' (canonical persistence path) persists each draft as a Risk and links it back to the architecture element via a 'mitigates' trace link. REST parity: POST /api/v1/architecture/{id}/derive-risks/.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -494,7 +494,7 @@
               "preview",
               "write"
             ],
-            "description": "'preview' (default) returns drafts only; 'write' persists them and creates the corresponding trace link(s)."
+            "description": "'preview' (default) returns drafts only and marks the response `ephemeral: true` (#1358) — nothing is persisted. 'write' is the canonical persistence path: it persists the drafts (seeded as 'proposed' where the workspace's workflow supports it) and creates the corresponding trace link(s)."
           },
           "policy": {
             "type": "string",
@@ -514,7 +514,7 @@
       "name": "ai_derivation.suggest_architecture_for_requirement",
       "prefix": "ai_derivation",
       "is_write": true,
-      "description": "Suggest existing architecture elements that could satisfy an unassigned requirement. mode='preview' (default) returns element ids only; mode='write' allocates the requirement to the top-ranked suggested element via an 'allocated-to' trace link (only one allocation per requirement is possible; no new ArchitectureElement is ever created by this tool).",
+      "description": "Suggest existing architecture elements that could satisfy an unassigned requirement. mode='preview' (default) returns element ids only — marked `ephemeral: true`, persists nothing; mode='write' (canonical persistence path) allocates the requirement to the top-ranked suggested element via an 'allocated-to' trace link (only one allocation per requirement is possible; no new ArchitectureElement is ever created by this tool).",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -528,7 +528,7 @@
               "preview",
               "write"
             ],
-            "description": "'preview' (default) returns drafts only; 'write' persists them and creates the corresponding trace link(s)."
+            "description": "'preview' (default) returns drafts only and marks the response `ephemeral: true` (#1358) — nothing is persisted. 'write' is the canonical persistence path: it persists the drafts (seeded as 'proposed' where the workspace's workflow supports it) and creates the corresponding trace link(s)."
           },
           "policy": {
             "type": "string",
@@ -4850,7 +4850,7 @@
               "preview",
               "write"
             ],
-            "description": "'preview' (default) returns drafts only; 'write' persists them and creates the corresponding trace link(s)."
+            "description": "'preview' (default) returns drafts only and marks the response `ephemeral: true` (#1358) — nothing is persisted. 'write' is the canonical persistence path: it persists the drafts (seeded as 'proposed' where the workspace's workflow supports it) and creates the corresponding trace link(s)."
           },
           "policy": {
             "type": "string",
@@ -6484,7 +6484,7 @@
       "name": "test.derive_from_requirement",
       "prefix": "test",
       "is_write": true,
-      "description": "SysEng 2.0 N5: propose a TestCase draft (title, description, steps) for a Requirement via the LLM adapter. mode='preview' (default) returns the draft only; mode='write' persists it as a TestCase and links it back to the requirement via a 'verifies' trace link.",
+      "description": "SysEng 2.0 N5: propose a TestCase draft (title, description, steps) for a Requirement via the LLM adapter. mode='preview' (default) returns the draft only — marked `ephemeral: true`, persists nothing; mode='write' (canonical persistence path) persists it as a TestCase and links it back to the requirement via a 'verifies' trace link.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -6498,7 +6498,7 @@
               "preview",
               "write"
             ],
-            "description": "'preview' (default) returns drafts only; 'write' persists them and creates the corresponding trace link(s)."
+            "description": "'preview' (default) returns drafts only and marks the response `ephemeral: true` (#1358) — nothing is persisted. 'write' is the canonical persistence path: it persists the drafts (seeded as 'proposed' where the workspace's workflow supports it) and creates the corresponding trace link(s)."
           },
           "policy": {
             "type": "string",

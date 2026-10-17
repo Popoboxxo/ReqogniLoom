@@ -357,6 +357,55 @@ def _service_error_response(exc: Exception, lang: str = "en") -> Response:
     return Response(body, status=http_status)
 
 
+#: Accepted values of the ``mode`` key on the AI-derivation actions (#1358).
+_DERIVATION_MODES = ("preview", "write")
+#: Accepted values of the ``policy`` key on the AI-derivation actions.
+_DERIVATION_POLICIES = ("manual", "auto")
+
+
+def _parse_derivation_mode_policy(
+    request: Request, lang: str
+) -> tuple[str, str, Response | None]:
+    """Parse the optional ``mode``/``policy`` body keys of an AI-derivation action.
+
+    #1358 (W12a): ``mode="preview"`` (the default) answers the ephemeral draft
+    preview only — the response carries ``"ephemeral": true``. ``mode="write"``
+    is the canonical persistence path: it persists the drafts through
+    ``AiDerivationService.persist_*``, the very same write seam the MCP tools'
+    ``mode="write"`` uses, so both transports cannot drift apart.
+
+    Returns ``(mode, policy, error)`` with exactly one of the three ever being
+    meaningful — :func:`rest_api.query_params.parse_workspace_id`'s
+    ``(value, error)`` convention, so a caller cannot accidentally swallow the
+    400 inside a broad ``except``.
+    """
+    payload = request.data if isinstance(request.data, dict) else {}
+    mode = payload.get("mode", "preview")
+    policy = payload.get("policy", "manual")
+    if mode not in _DERIVATION_MODES:
+        return mode, policy, Response(
+            build_error_response(
+                "VALIDATION_ERROR",
+                lang,
+                message=f"'mode' must be one of {_DERIVATION_MODES}, got '{mode}'.",
+            ),
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    if policy not in _DERIVATION_POLICIES:
+        return mode, policy, Response(
+            build_error_response(
+                "VALIDATION_ERROR",
+                lang,
+                message=(
+                    f"'policy' must be one of {_DERIVATION_POLICIES}, "
+                    f"got '{policy}'."
+                ),
+            ),
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    return mode, policy, None
+
+
 # ---------------------------------------------------------------------------
 # Base ViewSet mixin: error handling + auth context
 # REQ-L3-RA001-004: no business logic — only HTTP translation.
@@ -870,6 +919,11 @@ class StakeholderNeedViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         ``StakeholderNeedService.derive_requirements_async``, which sent the
         LLM only the need's bare UUID, never persisted a result, and
         returned a task_id with no reachable status endpoint.
+
+        #1358: the response is an *ephemeral* preview (``"ephemeral": true``)
+        — nothing is persisted. The canonical persistence path is
+        ``POST /api/v1/needs/{pk}/derive-requirements/accept/`` below (or
+        ``mode="write"`` on the MCP tool).
         """
         lang = detect_lang(request)
         raw_n = request.data.get("n") if isinstance(request.data, dict) else None
@@ -904,6 +958,10 @@ class StakeholderNeedViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         REQ-L2-AI-001 / REQ-L2-AI-002: Explicit, user-triggered Draft/Accept flow.
         Returns proposed system requirements without persisting anything. Body
         may contain ``{"n": <int>}`` to control how many drafts to request.
+
+        #1358: the response is an *ephemeral* preview (``"ephemeral": true``)
+        — persist the accepted drafts via
+        ``POST .../derive-requirements/accept/`` (canonical path).
         """
         lang = detect_lang(request)
         raw_n = request.data.get("n") if isinstance(request.data, dict) else None
@@ -943,7 +1001,8 @@ class StakeholderNeedViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         draft, no hand-built TraceLink, and no ``actor_type`` guessing on the
         client. The domain work is
         ``AiDerivationService.persist_derived_requirements`` (Layer 2, ADR-01);
-        this handler is transport only.
+        this handler is transport only. This is the canonical persistence path
+        for a ``derive-requirements`` preview (#1358).
 
         Request body (every key is required to be declared):
 
@@ -1724,6 +1783,10 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         REQ-L2-AI-001 / REQ-L2-AI-002: Draft/Accept flow. Suggests architecture
         elements that could satisfy this (still unassigned) requirement without
         persisting anything. Returns 400 if the requirement is already assigned.
+
+        #1358: the response is an *ephemeral* preview (``"ephemeral": true``).
+        The canonical persistence path for the top-ranked element is
+        ``mode="write"`` on the MCP tool (no REST write counterpart yet).
         """
         lang = detect_lang(request)
         try:
@@ -1749,6 +1812,11 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         requirement drafts (optionally tagged with a suggested architecture
         element) without persisting anything. Returns 400 if the requirement has
         no allocated architecture element.
+
+        #1358: the response is an *ephemeral* preview (``"ephemeral": true``)
+        — the drafts are not persisted. The canonical write path is
+        ``mode="write"`` on the MCP tool
+        ``ai_derivation.decompose_requirement_next_level``.
         """
         lang = detect_lang(request)
         try:
@@ -1774,6 +1842,10 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         flow. Proposes a TestCase draft (title, description, steps) verifying
         this requirement without persisting anything. Standard feature — no
         rigor-preset / RuleEngine gate, unlike decompose_next_level.
+
+        #1358: the response is an *ephemeral* preview (``"ephemeral": true``).
+        The canonical write path is ``mode="write"`` on the MCP tool
+        ``test.derive_from_requirement``.
         """
         lang = detect_lang(request)
         try:
@@ -2468,6 +2540,140 @@ class ArchitectureElementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         except Exception as exc:
             return _service_error_response(exc, lang)
         return Response(ArchitectureElementSerializer(_arch_to_dict(item)).data, status=status.HTTP_201_CREATED)
+
+    @extend_schema(
+        request=OpenApiRequest(
+            request=inline_serializer(
+                name="ArchitectureDeriveRisksRequest",
+                fields={
+                    "mode": serializers.ChoiceField(
+                        choices=["preview", "write"],
+                        required=False,
+                        default="preview",
+                        help_text=(
+                            "'preview' (default) returns drafts only and marks "
+                            "the response `ephemeral: true`; 'write' is the "
+                            "canonical persistence path (persists each draft "
+                            "as a Risk linked via 'mitigates')."
+                        ),
+                    ),
+                    "policy": serializers.ChoiceField(
+                        choices=["manual", "auto"],
+                        required=False,
+                        default="manual",
+                        help_text=(
+                            "Only relevant for mode='write': 'manual' (default) "
+                            "leaves new risks in their initial state; 'auto' "
+                            "best-effort auto-advances them."
+                        ),
+                    ),
+                },
+            ),
+        ),
+        parameters=[
+            OpenApiParameter(
+                name="pk",
+                type=str,
+                location=OpenApiParameter.PATH,
+                description="UUID of the architecture element to derive risks for.",
+            ),
+        ],
+        responses={
+            200: OpenApiResponse(
+                description=(
+                    "Ephemeral risk draft preview — carries `ephemeral: true` "
+                    "and persists nothing."
+                )
+            ),
+            201: OpenApiResponse(
+                description=(
+                    "Write mode: the persistence receipt (`written` with the "
+                    "new Risk ids/trace links, `is_mock_fallback`, `failed` for "
+                    "rejected drafts)."
+                )
+            ),
+            400: OpenApiResponse(
+                response=ErrorResponseSerializer,
+                description="Unknown field or invalid mode/policy.",
+            ),
+            403: OpenApiResponse(
+                response=ErrorResponseSerializer,
+                description="Caller lacks the editor role (POST requires WRITE).",
+            ),
+            404: OpenApiResponse(
+                response=ErrorResponseSerializer,
+                description="Architecture element not found in the active tenant.",
+            ),
+            502: OpenApiResponse(
+                response=ErrorResponseSerializer,
+                description="LLM_OUTPUT_INVALID — the provider answered unusably.",
+            ),
+        },
+        description=(
+            "AI risk derivation for an architecture element (REST parity with "
+            "the MCP tool `ai_derivation.derive_risks_from_architecture`, "
+            "#1358).\n\n"
+            "- `mode='preview'` (default): ephemeral drafts, nothing persisted.\n"
+            "- `mode='write'`: persists each draft through "
+            "`AiDerivationService.persist_risk_drafts`, linked back to the "
+            "element via a 'mitigates' trace link (Risk -> ArchitectureElement); "
+            "born `proposed` where the workspace's workflow supports it."
+        ),
+    )
+    @action(detail=True, methods=["post"], url_path="derive-risks")
+    def derive_risks(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """POST /api/v1/architecture/{pk}/derive-risks/ — AI risk drafts (preview | write).
+
+        Issue #1358 (W12a): REST parity for
+        ``ai_derivation.derive_risks_from_architecture``. The preview response
+        is ephemeral (``"ephemeral": true``, #1358); ``mode="write"`` is the
+        canonical persistence path and reuses the exact same write seam as the
+        MCP tool (``AiDerivationService.persist_risk_drafts`` →
+        ``_write_derived_entity`` + ``mitigates`` link), so both transports
+        persist identically (status ``proposed`` where the workspace's workflow
+        supports it, see #1089).
+
+        Body: ``{"mode"?: "preview"|"write", "policy"?: "manual"|"auto"}`` —
+        the source element is the URL pk. Unknown keys are rejected (#851).
+        """
+        lang = detect_lang(request)
+        invalid = reject_unknown_fields(request.data, {"mode", "policy"}, lang)
+        if invalid is not None:
+            return invalid
+        mode, policy, error = _parse_derivation_mode_policy(request, lang)
+        if error is not None:
+            return error
+
+        try:
+            from application.ai_derivation_service import AiDerivationService
+
+            ctx = get_auth_context(request)
+            service = AiDerivationService()
+            preview = service.derive_risks_from_architecture(ctx, pk)
+            if mode == "preview":
+                return Response(preview, status=status.HTTP_200_OK)
+            result = service.persist_risk_drafts(
+                ctx,
+                architecture_element_id=pk,
+                preview=preview,
+                policy=policy,
+            )
+            return Response(result, status=status.HTTP_201_CREATED)
+        except ValidationError as e:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message=str(e)),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except NotFoundError:
+            return Response(
+                build_error_response("NOT_FOUND", lang),
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        except Exception as exc:
+            logger.exception(
+                "ArchitectureElementViewSet.derive_risks: unhandled exception"
+            )
+            return _service_error_response(exc, lang)
 
     def partial_update(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """PATCH /api/v1/architecture-elements/{pk}/ — update an element. Returns 200.
@@ -6609,6 +6815,153 @@ class AdrViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             return _service_error_response(exc, lang)
         return Response(AdrSerializer(_adr_to_dict(item)).data, status=status.HTTP_201_CREATED)
 
+    @extend_schema(
+        request=OpenApiRequest(
+            request=inline_serializer(
+                name="AdrDeriveFromDecisionRequest",
+                fields={
+                    "workspace_id": serializers.UUIDField(
+                        help_text="Workspace the resulting ADR would belong to."
+                    ),
+                    "decision_description": serializers.CharField(
+                        help_text="Free-text description of the decision to structure."
+                    ),
+                    "mode": serializers.ChoiceField(
+                        choices=["preview", "write"],
+                        required=False,
+                        default="preview",
+                        help_text=(
+                            "'preview' (default) returns the draft only and "
+                            "marks the response `ephemeral: true`; 'write' is "
+                            "the canonical persistence path (persists the ADR)."
+                        ),
+                    ),
+                    "policy": serializers.ChoiceField(
+                        choices=["manual", "auto"],
+                        required=False,
+                        default="manual",
+                        help_text=(
+                            "Only relevant for mode='write': 'manual' (default) "
+                            "leaves the ADR in its initial state; 'auto' "
+                            "best-effort auto-advances it."
+                        ),
+                    ),
+                },
+            ),
+        ),
+        responses={
+            200: OpenApiResponse(
+                description=(
+                    "Ephemeral ADR draft preview — carries `ephemeral: true` "
+                    "and persists nothing."
+                )
+            ),
+            201: OpenApiResponse(
+                description=(
+                    "Write mode: the persistence receipt (`written` with the "
+                    "new Adr id/status/proposal block, `is_mock_fallback`)."
+                )
+            ),
+            400: OpenApiResponse(
+                response=ErrorResponseSerializer,
+                description=(
+                    "Unknown field, malformed workspace_id, empty "
+                    "decision_description, invalid mode/policy."
+                ),
+            ),
+            403: OpenApiResponse(
+                response=ErrorResponseSerializer,
+                description="Caller lacks the editor role (POST requires WRITE).",
+            ),
+            404: OpenApiResponse(
+                response=ErrorResponseSerializer,
+                description="Workspace not found in the active tenant.",
+            ),
+            502: OpenApiResponse(
+                response=ErrorResponseSerializer,
+                description="LLM_OUTPUT_INVALID — the provider answered unusably.",
+            ),
+        },
+        description=(
+            "Structure a free-text decision into an ADR draft (REST parity with "
+            "the MCP tool `ai_derivation.derive_adr_from_decision`, #1358).\n\n"
+            "- `mode='preview'` (default): ephemeral draft, nothing persisted.\n"
+            "- `mode='write'`: persists the draft through "
+            "`AiDerivationService.persist_adr_draft` (born `proposed` where the "
+            "workspace's workflow supports it). No trace link is created (the "
+            "input is raw free text, not an existing artifact id)."
+        ),
+    )
+    @action(detail=False, methods=["post"], url_path="derive-from-decision")
+    def derive_from_decision(self, request: Request, **kwargs: Any) -> Response:
+        """POST /api/v1/adrs/derive-from-decision/ — AI ADR draft (preview | write).
+
+        Issue #1358 (W12a): REST parity for
+        ``ai_derivation.derive_adr_from_decision``. The preview response is
+        ephemeral (``"ephemeral": true``, #1358); ``mode="write"`` is the
+        canonical persistence path and reuses the exact same write seam as the
+        MCP tool (``AiDerivationService.persist_adr_draft`` →
+        ``_write_adr_draft``), so both transports persist identically (status
+        ``proposed`` where the workspace's workflow supports it, see #1089).
+
+        Body: ``{"workspace_id": <uuid>, "decision_description": <str>,
+        "mode"?: "preview"|"write", "policy"?: "manual"|"auto"}``. Unknown keys
+        are rejected (#851).
+        """
+        lang = detect_lang(request)
+        invalid = reject_unknown_fields(
+            request.data,
+            {"workspace_id", "decision_description", "mode", "policy"},
+            lang,
+        )
+        if invalid is not None:
+            return invalid
+        payload = request.data if isinstance(request.data, dict) else {}
+        workspace_id, error = parse_workspace_id(payload.get("workspace_id"), lang)
+        if error is not None:
+            return error
+        decision_description = payload.get("decision_description")
+        if not isinstance(decision_description, str) or not decision_description.strip():
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    message="'decision_description' must be a non-empty string.",
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        mode, policy, error = _parse_derivation_mode_policy(request, lang)
+        if error is not None:
+            return error
+
+        try:
+            from application.ai_derivation_service import AiDerivationService
+
+            ctx = get_auth_context(request)
+            service = AiDerivationService()
+            preview = service.derive_adr_from_decision(
+                ctx, workspace_id, decision_description=decision_description
+            )
+            if mode == "preview":
+                return Response(preview, status=status.HTTP_200_OK)
+            result = service.persist_adr_draft(
+                ctx, workspace_id=workspace_id, preview=preview, policy=policy
+            )
+            return Response(result, status=status.HTTP_201_CREATED)
+        except ValidationError as e:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message=str(e)),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except NotFoundError:
+            return Response(
+                build_error_response("NOT_FOUND", lang),
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        except Exception as exc:
+            logger.exception("AdrViewSet.derive_from_decision: unhandled exception")
+            return _service_error_response(exc, lang)
+
     def partial_update(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """PATCH /api/v1/adrs/{pk}/ — update an ADR. Returns 200."""
         lang = detect_lang(request)
@@ -9915,6 +10268,137 @@ class GlossaryTermViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             )
         except Exception as e:
             return _service_error_response(e, lang)
+
+    @extend_schema(
+        # #1358 (W12a): the action reads request.data directly (no model
+        # serializer backs this payload), so the body is declared explicitly —
+        # same pattern as the CSV/ReqIF uploads above.
+        request=OpenApiRequest(
+            request=inline_serializer(
+                name="GlossaryDeriveRequest",
+                fields={
+                    "workspace_id": serializers.UUIDField(
+                        help_text="Workspace UUID to scan for candidate terms."
+                    ),
+                    "mode": serializers.ChoiceField(
+                        choices=["preview", "write"],
+                        required=False,
+                        default="preview",
+                        help_text=(
+                            "'preview' (default) returns drafts only and marks "
+                            "the response `ephemeral: true`; 'write' is the "
+                            "canonical persistence path (persists each draft "
+                            "as a GlossaryTerm)."
+                        ),
+                    ),
+                    "policy": serializers.ChoiceField(
+                        choices=["manual", "auto"],
+                        required=False,
+                        default="manual",
+                        help_text=(
+                            "Only relevant for mode='write': 'manual' (default) "
+                            "leaves new terms in their initial state; 'auto' "
+                            "best-effort auto-advances them."
+                        ),
+                    ),
+                },
+            ),
+        ),
+        responses={
+            200: OpenApiResponse(
+                description=(
+                    "Ephemeral draft preview — carries `ephemeral: true` and "
+                    "persists nothing."
+                )
+            ),
+            201: OpenApiResponse(
+                description=(
+                    "Write mode: the persistence receipt (`written`, "
+                    "`is_mock_fallback`, `failed` for rejected drafts)."
+                )
+            ),
+            400: OpenApiResponse(
+                response=ErrorResponseSerializer,
+                description="Unknown field, malformed workspace_id, invalid mode/policy.",
+            ),
+            403: OpenApiResponse(
+                response=ErrorResponseSerializer,
+                description="Caller lacks the editor role (POST requires WRITE).",
+            ),
+            404: OpenApiResponse(
+                response=ErrorResponseSerializer,
+                description="Workspace not found in the active tenant.",
+            ),
+            502: OpenApiResponse(
+                response=ErrorResponseSerializer,
+                description="LLM_OUTPUT_INVALID — the provider answered unusably.",
+            ),
+        },
+        description=(
+            "AI glossary derivation for a workspace (REST parity with the MCP "
+            "tool `ai_derivation.derive_glossary_from_workspace`, #1358).\n\n"
+            "- `mode='preview'` (default): ephemeral drafts, nothing persisted.\n"
+            "- `mode='write'`: persists each draft through "
+            "`AiDerivationService.persist_glossary_drafts` (born `proposed` "
+            "where the workspace's workflow supports it). No trace link is "
+            "created."
+        ),
+    )
+    @action(detail=False, methods=["post"], url_path="derive")
+    def derive(self, request: Request, **kwargs: Any) -> Response:
+        """POST /api/v1/glossary/derive/ — AI glossary term drafts (preview | write).
+
+        Issue #1358 (W12a): REST parity for
+        ``ai_derivation.derive_glossary_from_workspace``. The preview response
+        is ephemeral (``"ephemeral": true``, #1358); ``mode="write"`` is the
+        canonical persistence path and reuses the exact same write seam as the
+        MCP tool (``AiDerivationService.persist_glossary_drafts`` →
+        ``_write_glossary_term_draft``), so both transports persist
+        identically (status ``proposed`` where the workspace's workflow
+        supports it, see #1089).
+
+        Body: ``{"workspace_id": <uuid>, "mode"?: "preview"|"write",
+        "policy"?: "manual"|"auto"}``. Unknown keys are rejected (#851).
+        """
+        lang = detect_lang(request)
+        invalid = reject_unknown_fields(
+            request.data, {"workspace_id", "mode", "policy"}, lang
+        )
+        if invalid is not None:
+            return invalid
+        payload = request.data if isinstance(request.data, dict) else {}
+        workspace_id, error = parse_workspace_id(payload.get("workspace_id"), lang)
+        if error is not None:
+            return error
+        mode, policy, error = _parse_derivation_mode_policy(request, lang)
+        if error is not None:
+            return error
+
+        try:
+            from application.ai_derivation_service import AiDerivationService
+
+            ctx = get_auth_context(request)
+            service = AiDerivationService()
+            preview = service.derive_glossary_from_workspace(ctx, workspace_id)
+            if mode == "preview":
+                return Response(preview, status=status.HTTP_200_OK)
+            result = service.persist_glossary_drafts(
+                ctx, workspace_id=workspace_id, preview=preview, policy=policy
+            )
+            return Response(result, status=status.HTTP_201_CREATED)
+        except ValidationError as e:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message=str(e)),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except NotFoundError:
+            return Response(
+                build_error_response("NOT_FOUND", lang),
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        except Exception as exc:
+            logger.exception("GlossaryTermViewSet.derive: unhandled exception")
+            return _service_error_response(exc, lang)
 
     def partial_update(self, request: Request, pk: str, **kwargs: Any) -> Response:
         ctx = get_auth_context(request)

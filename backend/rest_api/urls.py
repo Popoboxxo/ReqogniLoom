@@ -20,7 +20,10 @@ Registers:
   /api/v1/workflows/          WorkflowDefinitionViewSet
   /api/v1/workspaces/         WorkspaceViewSet (list + retrieve, REQ-L1-017)
   /api/v1/adrs/               AdrViewSet (REQ-L1-029)
+  /api/v1/adrs/derive-from-decision/  AdrViewSet.derive_from_decision (#1358 REST parity)
   /api/v1/risks/              RiskViewSet (REQ-L1-029)
+  /api/v1/architecture/{pk}/derive-risks/  ArchitectureElementViewSet.derive_risks (#1358)
+  /api/v1/glossary/derive/    GlossaryTermViewSet.derive (#1358 REST parity)
   /api/v1/goals/               GoalViewSet (REQ-L2-TE-020)
   /api/v1/main-goals/          MainGoalViewSet (REQ-L2-TE-020)
   /api/v1/issues/             IssueViewSet (REQ-L1-029)
