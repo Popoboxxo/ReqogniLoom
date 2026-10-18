@@ -44,6 +44,12 @@ export interface TreeDragController {
   dropTargetId: string | null;
   /** Row wiring, `undefined` when D&D is off (rows then render unchanged). */
   rowDragProps: TreeRowDragProps | undefined;
+  /**
+   * Shared move entry point for the pointer drop and the keyboard "Move…"
+   * dialog. Runs the client-side guards and returns whether `onReparent` was
+   * invoked (i.e. whether the move was forwarded).
+   */
+  reparent: (draggedId: string, newParentId: string | null) => boolean;
   /** Root dropzone is only mounted while `draggingId` is set. */
   onRootDragOver: (e: ReactDragEvent) => void;
   onRootDragLeave: (e: ReactDragEvent) => void;
@@ -130,28 +136,43 @@ export function useTreeDrag(
     [],
   );
 
+  /**
+   * Applies the client-side no-op guards and forwards the move to `onReparent`.
+   *
+   * Shared by the pointer drop and the keyboard "Move…" dialog so both paths
+   * swallow exactly the same cases (same parent, the node itself, its own
+   * subtree) instead of one of them drifting from the other. Returns whether
+   * the callback was invoked.
+   */
+  const reparent = useCallback(
+    (draggedId: string, newParentId: string | null): boolean => {
+      if (!draggedId || !onReparent) return false;
+      // Dropping onto the parent it already has moves nothing.
+      if ((parentById.get(draggedId) ?? null) === newParentId) return false;
+      // Moving a node onto itself or into its own subtree would close a cycle.
+      // Detaching to root (newParentId === null) can never be a cycle.
+      if (
+        newParentId !== null &&
+        collectSelfAndDescendantIds(nodes, draggedId).has(newParentId)
+      ) {
+        return false;
+      }
+      onReparent(draggedId, newParentId);
+      return true;
+    },
+    [nodes, parentById, onReparent],
+  );
+
   const handleDrop = useCallback(
     (e: ReactDragEvent, newParentId: string | null): void => {
       e.preventDefault();
       e.stopPropagation();
       const draggedId = e.dataTransfer?.getData('text/plain') || draggingId;
       resetDrag();
-      if (!draggedId || !onReparent) return;
-      // Dropping onto the parent it already has moves nothing.
-      if ((parentById.get(draggedId) ?? null) === newParentId) return;
-      // Dropping a node on itself or into its own subtree would close a cycle.
-      // Recomputed from the id that actually arrived rather than reusing
-      // `forbiddenDropTargetIds`, which is keyed on the drag we started.
-      // Detaching to root (newParentId === null) can never be a cycle.
-      if (
-        newParentId !== null &&
-        collectSelfAndDescendantIds(nodes, draggedId).has(newParentId)
-      ) {
-        return;
-      }
-      onReparent(draggedId, newParentId);
+      if (!draggedId) return;
+      reparent(draggedId, newParentId);
     },
-    [draggingId, nodes, parentById, resetDrag, onReparent],
+    [draggingId, resetDrag, reparent],
   );
 
   const handleRootDragOver = useCallback((e: ReactDragEvent): void => {
@@ -192,6 +213,7 @@ export function useTreeDrag(
     draggingId,
     dropTargetId,
     rowDragProps,
+    reparent,
     onRootDragOver: handleRootDragOver,
     onRootDragLeave: handleRootDragLeave,
     onRootDrop: handleRootDrop,

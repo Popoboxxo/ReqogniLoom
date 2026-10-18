@@ -39,6 +39,7 @@ import { useWorkspaceTreeState } from '../../../context/WorkspaceTreeStateContex
 import { TreeDisplayFieldsProvider } from './tree-display-fields-context';
 import { useTreeDisplayFieldsSelection } from './tree-display-fields';
 import { collectAncestorIds } from './tree-hierarchy';
+import { TreeMoveDialog } from './tree-move-dialog';
 import {
   ROOT_DROP_TARGET,
   useTreeDrag,
@@ -468,6 +469,7 @@ export function WorkspaceTree({
       addChild: t('editor.addChild'),
       containsSelection: t('editor.treeContainsSelection'),
       outdated: t('editor.outdatedBadge'),
+      moveNode: t('editor.moveNode'),
     }),
     [t],
   );
@@ -486,6 +488,10 @@ export function WorkspaceTree({
   );
   const [searchInput, setSearchInput] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  // H-1: the node whose keyboard "Move…" dialog is open, and the text of the
+  // polite live region that announces a successful keyboard reparent.
+  const [moveNodeId, setMoveNodeId] = useState<string | null>(null);
+  const [moveAnnouncement, setMoveAnnouncement] = useState('');
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const didInitRef = useRef(false);
 
@@ -816,7 +822,25 @@ export function WorkspaceTree({
   // stays here so the design-system ratchet baseline keeps its anchors.
   // -------------------------------------------------------------------
   const drag = useTreeDrag(nodes, onReparent);
-  const { dndEnabled, draggingId, dropTargetId, rowDragProps } = drag;
+  const { dndEnabled, draggingId, dropTargetId, rowDragProps, reparent } = drag;
+
+  // H-1: the keyboard path shares `reparent` with the drop handler, so the
+  // cycle/no-op guards are identical. A forwarded move is announced through the
+  // single polite live region below (the tree's only live region).
+  const handleMoveConfirm = useCallback(
+    (newParentId: string | null): void => {
+      if (moveNodeId === null) return;
+      if (reparent(moveNodeId, newParentId)) {
+        setMoveAnnouncement(t('editor.moveNodeDone'));
+      }
+      setMoveNodeId(null);
+    },
+    [moveNodeId, reparent, t],
+  );
+  const moveNode = useMemo(
+    () => nodes.find((n) => n.id === moveNodeId) ?? null,
+    [nodes, moveNodeId],
+  );
 
   return (
     <TreeDisplayFieldsProvider fields={displayFields}>
@@ -910,6 +934,7 @@ export function WorkspaceTree({
                   onFocusRow={setFocusedId}
                   dragProps={rowDragProps}
                   labels={rowLabels}
+                  onRequestMove={dndEnabled ? setMoveNodeId : undefined}
                   rowStyle={rowPositionStyle(virtualRow.start)}
                 />
               );
@@ -946,9 +971,32 @@ export function WorkspaceTree({
               onFocusRow={setFocusedId}
               dragProps={rowDragProps}
               labels={rowLabels}
+              onRequestMove={dndEnabled ? setMoveNodeId : undefined}
             />
           ))}
         </ul>
+      )}
+
+      {/* H-1: the tree's single polite live region. Announcing a keyboard
+          reparent here (rather than adding a second region) keeps the tree to
+          one status channel. */}
+      <p
+        role="status"
+        aria-live="polite"
+        className={styles.visuallyHidden}
+        data-testid={`${testId}-move-status`}
+      >
+        {moveAnnouncement}
+      </p>
+
+      {moveNode && (
+        <TreeMoveDialog
+          node={moveNode}
+          nodes={nodes}
+          testIdPrefix={testId}
+          onClose={() => setMoveNodeId(null)}
+          onConfirm={handleMoveConfirm}
+        />
       )}
       </div>
     </TreeDisplayFieldsProvider>
@@ -1002,6 +1050,12 @@ interface TreeRowProps {
    */
   dragProps?: TreeRowDragProps;
   /**
+   * H-1: opens the keyboard "Move…" dialog for this node. `undefined` when the
+   * consumer did not opt in via `onReparent`, so the affordance only exists
+   * where reparenting is actually possible.
+   */
+  onRequestMove?: (id: string) => void;
+  /**
    * Issue #676: translated labels for the row's icon-only controls. Resolved
    * once in `WorkspaceTree` and handed down rather than calling
    * `useTranslation()` per row — a large virtualized tree mounts hundreds of
@@ -1021,6 +1075,8 @@ interface TreeRowLabels {
   containsSelection: string;
   /** Label of the outdated/deprecated marker badge (outdated visibility). */
   outdated: string;
+  /** H-1: accessible name of the visible keyboard reparenting button. */
+  moveNode: string;
 }
 
 function TreeRow({
@@ -1041,6 +1097,7 @@ function TreeRow({
   onRowRef,
   onFocusRow,
   dragProps,
+  onRequestMove,
   labels,
   rowStyle,
 }: TreeRowProps): JSX.Element {
@@ -1263,6 +1320,32 @@ function TreeRow({
           className={styles.addChildButton}
         >
           +
+        </button>
+      )}
+
+      {/* H-1 (SC 2.1.1/2.5.7): visible, keyboard-operable reparenting path.
+          Native drag & drop is pointer-only, so the row also offers a real
+          button. It is only rendered where reparenting is opted in
+          (`onRequestMove`). Unlike the chevron/"+" above — which are pointer
+          affordances for actions the treeitem itself handles via the keyboard —
+          this button IS the keyboard path, so it must be focusable. `tabIndex`
+          follows the roving tabindex: only the focused row's button joins the
+          tab order, keeping a 100-row tree at two stops instead of 101. */}
+      {onRequestMove && (
+        <button
+          type="button"
+          className="btn-icon"
+          data-testid={`${testIdPrefix}-move-${node.id}`}
+          aria-label={labels.moveNode}
+          title={labels.moveNode}
+          aria-haspopup="dialog"
+          tabIndex={isFocused ? 0 : -1}
+          onClick={(e) => {
+            e.stopPropagation();
+            onRequestMove(node.id);
+          }}
+        >
+          <span aria-hidden="true">⇅</span>
         </button>
       )}
     </li>
