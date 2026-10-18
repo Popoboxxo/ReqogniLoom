@@ -15,10 +15,9 @@
  * ArchitectureEditors.
  */
 
-import { useMemo } from "react";
-
 import { architectureApi } from "../../api/architecture";
 import { workflowTransitionsApi } from "../../api/workflow-transitions";
+import { useInitialFormValues } from "../../hooks/useInitialFormValues";
 import type { ArchitectureElement } from "../../types";
 import { ArtifactForm, type ArtifactFormValues } from "../shared/ArtifactForm";
 
@@ -89,10 +88,7 @@ export function ArchitectureArtifactForm({
   onDeleted,
   onDirtyChange,
 }: ArchitectureArtifactFormProps): JSX.Element {
-  const initialValues = useMemo(
-    () => architectureToFormValues(element),
-    [element]
-  );
+  const initialValues = useInitialFormValues(element, architectureToFormValues);
 
   return (
     <ArtifactForm

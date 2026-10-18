@@ -11,10 +11,9 @@
  * migration unifies upward).
  */
 
-import { useMemo } from "react";
-
 import { issuesApi } from "../../api/issues";
 import { workflowTransitionsApi } from "../../api/workflow-transitions";
+import { useInitialFormValues } from "../../hooks/useInitialFormValues";
 import type { Issue } from "../../types";
 import { ArtifactForm, type ArtifactFormValues } from "../shared/ArtifactForm";
 
@@ -86,7 +85,7 @@ export function IssueArtifactForm({
   onDeleted,
   onDirtyChange,
 }: IssueArtifactFormProps): JSX.Element {
-  const initialValues = useMemo(() => issueToFormValues(issue), [issue]);
+  const initialValues = useInitialFormValues(issue, issueToFormValues);
 
   return (
     <ArtifactForm

@@ -5,8 +5,7 @@ import { SplitView } from '../SplitView/SplitView';
 import { PageHeader } from '../shared/PageHeader';
 import { useInterviewStartCta } from '../shared/useInterviewStartCta';
 import { IncludeDeletedToggle } from '../shared/IncludeDeletedToggle/IncludeDeletedToggle';
-import { Dialog } from '../shared/Dialog';
-import { SAVE_SHORTCUT_ARIA, useSaveShortcut } from '../../hooks/useSaveShortcut';
+import { EditorPageShell } from '../shared/EditorPageShell';
 import { RiskList } from './RiskList';
 import { RiskArtifactForm } from './RiskArtifactForm';
 import { RightSidebar } from '../shared/ArtifactInspector';
@@ -44,11 +43,6 @@ export default function RiskEditors(): JSX.Element {
   const [createError, setCreateError] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const titleInputRef = useRef<HTMLInputElement>(null);
-  // #1100 follow-up: the create form owns the save shortcut (see AdrEditors).
-  const formRef = useRef<HTMLFormElement>(null);
-  // FR-U5-01: synchronous same-tick submit guard for button + `Ctrl`/`Cmd`+`S`
-  // (mirror of `savingRef` in `shared/ArtifactForm/ArtifactForm.tsx`).
-  const submittingRef = useRef(false);
 
   // 12.1/14.2: named after the result ("New Risk"), not the gesture ("+ New");
   // also the dialog title, matching ch. 12.8 ("dialog title repeats the
@@ -69,11 +63,10 @@ export default function RiskEditors(): JSX.Element {
   }, []);
 
   const handleCreateNew = async (): Promise<void> => {
-    // FR-U5-01: same-tick guard — see `submittingRef` above.
-    if (submittingRef.current) return;
+    // FR-U5-01: the same-tick submit guard for the button and the `Ctrl`/`Cmd`+`S`
+    // chord now lives in the shared `EditorPageShell` this page renders.
     if (!activeWorkspace) return;
     if (!newTitle.trim()) return;
-    submittingRef.current = true;
     setCreateError(null);
     setIsCreating(true);
     try {
@@ -95,20 +88,9 @@ export default function RiskEditors(): JSX.Element {
       const msg = (e as { error?: { message?: string } })?.error?.message ?? t('risks.createFailed');
       setCreateError(msg);
     } finally {
-      submittingRef.current = false;
       setIsCreating(false);
     }
   };
-
-  // #1100: hand-written create dialog — opts into the shared shortcut (see
-  // AdrEditors for the same wiring and the topmost-form rationale).
-  useSaveShortcut({
-    onSave: handleCreateNew,
-    enabled: showCreateDialog,
-    isSaving: isCreating,
-    containerRef: formRef,
-    canSave: newTitle.trim().length > 0,
-  });
 
   const handleSaved = () => { refresh(); };
   const handleDeleted = () => { navigate('/risks'); refresh(); };
@@ -239,98 +221,69 @@ export default function RiskEditors(): JSX.Element {
         />
       </div>
 
-      {showCreateDialog && (
-        <Dialog
-          title={newRiskLabel}
-          onClose={closeCreateDialog}
-          testId="risk-create-dialog"
-          initialFocusRef={titleInputRef}
-          footer={
-            <>
-              <button
-                type="button"
-                data-testid="risk-create-cancel-btn"
-                className="btn-secondary"
-                onClick={closeCreateDialog}
-                disabled={isCreating}
-              >
-                {t('actions.cancel', 'Cancel')}
-              </button>
-              <button
-                type="submit"
-                form="risk-create-form"
-                data-testid="risk-new-save-btn"
-                className="btn-primary"
-                disabled={isCreating || !newTitle.trim()}
-                aria-keyshortcuts={SAVE_SHORTCUT_ARIA}
-                title={t('artifactForm.saveShortcutHint', 'Speichern (Strg/Cmd+S)')}
-              >
-                {isCreating ? t('actions.saving', 'Saving...') : t('actions.create', 'Erstellen')}
-              </button>
-            </>
-          }
+      <EditorPageShell
+        open={showCreateDialog}
+        title={newRiskLabel}
+        testId="risk-create-dialog"
+        formId="risk-create-form"
+        initialFocusRef={titleInputRef}
+        onClose={closeCreateDialog}
+        onSubmit={handleCreateNew}
+        isSaving={isCreating}
+        canSave={newTitle.trim().length > 0}
+        cancelTestId="risk-create-cancel-btn"
+        saveTestId="risk-new-save-btn"
+        error={createError}
+        errorClassName={styles.createError}
+      >
+        <label
+          htmlFor="risk-new-title"
+          className={styles.createLabel}
         >
-          <form
-            id="risk-create-form"
-            ref={formRef}
-            onSubmit={(e) => { e.preventDefault(); void handleCreateNew(); }}
-          >
-            <label
-              htmlFor="risk-new-title"
-              className={styles.createLabel}
-            >
-              {t('editor.title', 'Title')}
-            </label>
-            <input
-              ref={titleInputRef}
-              id="risk-new-title"
-              data-testid="risk-new-title-input"
-              type="text"
-              value={newTitle}
-              onChange={(e) => setNewTitle(e.target.value)}
-              placeholder={t('risks.titlePlaceholder', 'z. B. Ausfall der Datenbank im Peak-Load')}
-              className={styles.createInput}
-            />
+          {t('editor.title', 'Title')}
+        </label>
+        <input
+          ref={titleInputRef}
+          id="risk-new-title"
+          data-testid="risk-new-title-input"
+          type="text"
+          value={newTitle}
+          onChange={(e) => setNewTitle(e.target.value)}
+          placeholder={t('risks.titlePlaceholder', 'z. B. Ausfall der Datenbank im Peak-Load')}
+          className={styles.createInput}
+        />
 
-            {/* BUG-11: description/category — ordinary risksApi.create()
-                fields the backend already accepts, previously missing
-                here. */}
-            <label htmlFor="risk-new-description" className={fieldHints.createLabel}>
-              {t('editor.description', 'Description')}
-            </label>
-            <textarea
-              id="risk-new-description"
-              data-testid="risk-new-description-input"
-              value={newDescription}
-              onChange={(e) => setNewDescription(e.target.value)}
-              rows={3}
-              className={fieldHints.createInput}
-            />
+        {/* BUG-11: description/category — ordinary risksApi.create()
+            fields the backend already accepts, previously missing
+            here. */}
+        <label htmlFor="risk-new-description" className={fieldHints.createLabel}>
+          {t('editor.description', 'Description')}
+        </label>
+        <textarea
+          id="risk-new-description"
+          data-testid="risk-new-description-input"
+          value={newDescription}
+          onChange={(e) => setNewDescription(e.target.value)}
+          rows={3}
+          className={fieldHints.createInput}
+        />
 
-            <label htmlFor="risk-new-category" className={fieldHints.createLabel}>
-              {t('editor.category', 'Category')}
-            </label>
-            <select
-              id="risk-new-category"
-              data-testid="risk-new-category-select"
-              value={newCategory}
-              onChange={(e) => setNewCategory(e.target.value)}
-              className={fieldHints.createInput}
-            >
-              <option value="">{t('editor.categoryPlaceholder', 'Select')} --</option>
-              {CATEGORY_OPTIONS.map((o) => (
-                <option key={o} value={o}>{o}</option>
-              ))}
-            </select>
-
-            {createError && (
-              <p role="alert" className={styles.createError}>
-                {createError}
-              </p>
-            )}
-          </form>
-        </Dialog>
-      )}
+        <label htmlFor="risk-new-category" className={fieldHints.createLabel}>
+          {t('editor.category', 'Category')}
+        </label>
+        <select
+          id="risk-new-category"
+          data-testid="risk-new-category-select"
+          value={newCategory}
+          onChange={(e) => setNewCategory(e.target.value)}
+          className={fieldHints.createInput}
+        >
+          <option value="">{t('editor.categoryPlaceholder', 'Select')} --</option>
+          {CATEGORY_OPTIONS.map((o) => (
+            <option key={o} value={o}>{o}</option>
+          ))}
+        </select>
+      </EditorPageShell>
     </div>
   );
 }

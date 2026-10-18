@@ -51,13 +51,14 @@
  * handling; not solved here.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { stakeholderNeedApi } from "../../api/stakeholder-need";
 import { workflowTransitionsApi } from "../../api/workflow-transitions";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { useEntityReset } from "../../hooks/use-entity-reset";
+import { useInitialFormValues } from "../../hooks/useInitialFormValues";
 import type { StakeholderNeed } from "../../types";
 import { ArtifactForm, type ArtifactFormValues } from "../shared/ArtifactForm";
 import styles from "./NeedArtifactForm.module.css";
@@ -142,7 +143,7 @@ export function NeedArtifactForm({
   // for need A silently rides along on need B's PATCH once B is selected
   // (the component is reused across list selections, never remounted).
   useEntityReset(need.id, () => setChangeReason(""));
-  const initialValues = useMemo(() => needToFormValues(need), [need]);
+  const initialValues = useInitialFormValues(need, needToFormValues);
 
   // S-2: `changeReason` lives outside ArtifactForm's own `values` bag, so its
   // internal `useFormDirty` never sees it. Combine ArtifactForm's own dirty

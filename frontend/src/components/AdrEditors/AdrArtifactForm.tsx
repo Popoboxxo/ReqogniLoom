@@ -13,10 +13,9 @@
  * `AdrEditors` — see that component's doc comment for why.
  */
 
-import { useMemo } from "react";
-
 import { adrsApi } from "../../api/adrs";
 import { workflowTransitionsApi } from "../../api/workflow-transitions";
+import { useInitialFormValues } from "../../hooks/useInitialFormValues";
 import type { Adr } from "../../types";
 import { ArtifactForm, type ArtifactFormValues } from "../shared/ArtifactForm";
 
@@ -66,7 +65,7 @@ export function AdrArtifactForm({
   onDeleted,
   onDirtyChange,
 }: AdrArtifactFormProps): JSX.Element {
-  const initialValues = useMemo(() => adrToFormValues(adr), [adr]);
+  const initialValues = useInitialFormValues(adr, adrToFormValues);
 
   return (
     <ArtifactForm

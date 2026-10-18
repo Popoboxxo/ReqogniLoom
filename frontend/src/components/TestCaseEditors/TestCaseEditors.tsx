@@ -5,9 +5,8 @@ import { SplitView } from '../SplitView/SplitView';
 import { PageHeader } from '../shared/PageHeader';
 import { useInterviewStartCta } from '../shared/useInterviewStartCta';
 import { IncludeDeletedToggle } from '../shared/IncludeDeletedToggle/IncludeDeletedToggle';
-import { Dialog } from '../shared/Dialog';
 import { ConfirmDialog } from '../shared/ConfirmDialog';
-import { SAVE_SHORTCUT_ARIA, useSaveShortcut } from '../../hooks/useSaveShortcut';
+import { EditorPageShell } from '../shared/EditorPageShell';
 import { TestCaseList } from './TestCaseList';
 import { TestCaseArtifactForm } from './TestCaseArtifactForm';
 import { CustomFieldsEditor } from '../shared/CustomFieldsEditor';
@@ -72,11 +71,6 @@ export default function TestCaseEditors(): JSX.Element {
   const [createError, setCreateError] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const titleInputRef = useRef<HTMLInputElement>(null);
-  // #1100 follow-up: the create form owns the save shortcut (see AdrEditors).
-  const formRef = useRef<HTMLFormElement>(null);
-  // FR-U5-01: synchronous same-tick submit guard for button + `Ctrl`/`Cmd`+`S`
-  // (mirror of `savingRef` in `shared/ArtifactForm/ArtifactForm.tsx`).
-  const submittingRef = useRef(false);
 
   // Systemaudit 2026-08-27 UI-07: does the currently-open TestCaseForm have
   // unsaved local edits? Reported by the form itself via onDirtyChange.
@@ -134,11 +128,10 @@ export default function TestCaseEditors(): JSX.Element {
   }, []);
 
   const handleCreateNew = async (): Promise<void> => {
-    // FR-U5-01: same-tick guard — see `submittingRef` above.
-    if (submittingRef.current) return;
+    // FR-U5-01: the same-tick submit guard for the button and the `Ctrl`/`Cmd`+`S`
+    // chord now lives in the shared `EditorPageShell` this page renders.
     if (!activeWorkspace) return;
     if (!newTitle.trim()) return;
-    submittingRef.current = true;
     setCreateError(null);
     setIsCreating(true);
     try {
@@ -161,20 +154,9 @@ export default function TestCaseEditors(): JSX.Element {
       const msg = (e as { error?: { message?: string } })?.error?.message ?? t('testcases.createFailed');
       setCreateError(msg);
     } finally {
-      submittingRef.current = false;
       setIsCreating(false);
     }
   };
-
-  // #1100: hand-written create dialog — opts into the shared shortcut (see
-  // AdrEditors for the same wiring and the topmost-form rationale).
-  useSaveShortcut({
-    onSave: handleCreateNew,
-    enabled: showCreateDialog,
-    isSaving: isCreating,
-    containerRef: formRef,
-    canSave: newTitle.trim().length > 0,
-  });
 
   // F-2 (Task 23 fix round 4, reintroduced here — see NeedsEditors'
   // handleSaved for the original fix): a save that touched
@@ -390,106 +372,77 @@ export default function TestCaseEditors(): JSX.Element {
         />
       </div>
 
-      {showCreateDialog && (
-        <Dialog
-          title={newTestCaseLabel}
-          onClose={closeCreateDialog}
-          testId="tc-create-dialog"
-          // The dialog's own focusable-order default would land on the close
-          // (×) button, not the title field — same as CreateWorkspaceModal,
-          // point the trap at the field the user actually wants to type into.
-          initialFocusRef={titleInputRef}
-          footer={
-            <>
-              <button
-                type="button"
-                data-testid="tc-create-cancel-btn"
-                className="btn-secondary"
-                onClick={closeCreateDialog}
-                disabled={isCreating}
-              >
-                {t('actions.cancel', 'Cancel')}
-              </button>
-              <button
-                type="submit"
-                form="tc-create-form"
-                data-testid="tc-new-save-btn"
-                className="btn-primary"
-                disabled={isCreating || !newTitle.trim()}
-                aria-keyshortcuts={SAVE_SHORTCUT_ARIA}
-                title={t('artifactForm.saveShortcutHint', 'Speichern (Strg/Cmd+S)')}
-              >
-                {isCreating ? t('actions.saving', 'Saving...') : t('actions.create', 'Erstellen')}
-              </button>
-            </>
-          }
+      <EditorPageShell
+        open={showCreateDialog}
+        title={newTestCaseLabel}
+        testId="tc-create-dialog"
+        formId="tc-create-form"
+        // The dialog's own focusable-order default would land on the close
+        // (×) button, not the title field — same as CreateWorkspaceModal,
+        // point the trap at the field the user actually wants to type into.
+        initialFocusRef={titleInputRef}
+        onClose={closeCreateDialog}
+        onSubmit={handleCreateNew}
+        isSaving={isCreating}
+        canSave={newTitle.trim().length > 0}
+        cancelTestId="tc-create-cancel-btn"
+        saveTestId="tc-new-save-btn"
+        error={createError}
+        errorClassName={styles.createError}
+      >
+        <label
+          htmlFor="tc-new-title"
+          className={styles.createLabel}
         >
-          <form
-            id="tc-create-form"
-            ref={formRef}
-            onSubmit={(e) => { e.preventDefault(); void handleCreateNew(); }}
-          >
-            <label
-              htmlFor="tc-new-title"
-              className={styles.createLabel}
-            >
-              {t('editor.title', 'Title')}
-            </label>
-            <input
-              ref={titleInputRef}
-              id="tc-new-title"
-              data-testid="tc-new-title-input"
-              type="text"
-              value={newTitle}
-              onChange={(e) => setNewTitle(e.target.value)}
-              placeholder={t('testcases.titlePlaceholder')}
-              className={styles.createInput}
-            />
+          {t('editor.title', 'Title')}
+        </label>
+        <input
+          ref={titleInputRef}
+          id="tc-new-title"
+          data-testid="tc-new-title-input"
+          type="text"
+          value={newTitle}
+          onChange={(e) => setNewTitle(e.target.value)}
+          placeholder={t('testcases.titlePlaceholder')}
+          className={styles.createInput}
+        />
 
-            {/* BUG-11: description — an ordinary testcasesApi.create() field
-                the backend already accepts, previously missing here. */}
-            <label htmlFor="tc-new-description" className={fieldHints.createLabel}>
-              {t('editor.description', 'Description')}
-            </label>
-            <textarea
-              id="tc-new-description"
-              data-testid="tc-new-description-input"
-              value={newDescription}
-              onChange={(e) => setNewDescription(e.target.value)}
-              rows={3}
-              className={fieldHints.createInput}
-            />
+        {/* BUG-11: description — an ordinary testcasesApi.create() field
+            the backend already accepts, previously missing here. */}
+        <label htmlFor="tc-new-description" className={fieldHints.createLabel}>
+          {t('editor.description', 'Description')}
+        </label>
+        <textarea
+          id="tc-new-description"
+          data-testid="tc-new-description-input"
+          value={newDescription}
+          onChange={(e) => setNewDescription(e.target.value)}
+          rows={3}
+          className={fieldHints.createInput}
+        />
 
-            {/* #864: real `TestCase.test_type` column — the create contract
-                accepts it. #953: preselected to the documented default
-                (`unit`); "Not specified" remains an explicit user choice that
-                leaves the column NULL. */}
-            <label htmlFor="tc-new-test-type" className={fieldHints.createLabel}>
-              {t('testcases.testType.label', 'Test Type')}
-            </label>
-            <select
-              id="tc-new-test-type"
-              data-testid="tc-new-test-type-select"
-              value={newTestType}
-              onChange={(e) => setNewTestType(e.target.value as TestCaseType | '')}
-              className={fieldHints.createInput}
-            >
-              <option value="">{t('testcases.testType.none', 'Not specified')}</option>
-              {TEST_TYPE_OPTIONS.map((type) => (
-                <option key={type} value={type}>
-                  {t(`testcases.testType.${type}`, type)}
-                </option>
-              ))}
-            </select>
-
-            {createError && (
-              <p role="alert" className={styles.createError}>
-                {createError}
-              </p>
-            )}
-          </form>
-        </Dialog>
-      )}
+        {/* #864: real `TestCase.test_type` column — the create contract
+            accepts it. #953: preselected to the documented default
+            (`unit`); "Not specified" remains an explicit user choice that
+            leaves the column NULL. */}
+        <label htmlFor="tc-new-test-type" className={fieldHints.createLabel}>
+          {t('testcases.testType.label', 'Test Type')}
+        </label>
+        <select
+          id="tc-new-test-type"
+          data-testid="tc-new-test-type-select"
+          value={newTestType}
+          onChange={(e) => setNewTestType(e.target.value as TestCaseType | '')}
+          className={fieldHints.createInput}
+        >
+          <option value="">{t('testcases.testType.none', 'Not specified')}</option>
+          {TEST_TYPE_OPTIONS.map((type) => (
+            <option key={type} value={type}>
+              {t(`testcases.testType.${type}`, type)}
+            </option>
+          ))}
+        </select>
+      </EditorPageShell>
     </div>
   );
 }
