@@ -1,9 +1,9 @@
 {
   "name": "reqogniloom",
   "label": "ReqogniLoom",
-  "description": "ReqogniLoom interviews and artifacts: per-workspace counts and the interviews still open.",
+  "description": "ReqogniLoom across servers: artifacts and interviews, the full MCP tool surface (read, compute, write with confirmation) and a review queue with human approval.",
   "icon": "ClipboardList",
-  "version": "0.2.0",
+  "version": "1.0.0",
   "tab": { "path": "/reqogniloom", "position": "after:analytics" },
   "entry": "dist/index.js",
   "css": "dist/style.css",
