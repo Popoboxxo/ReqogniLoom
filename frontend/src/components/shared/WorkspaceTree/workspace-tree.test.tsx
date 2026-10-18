@@ -1588,6 +1588,25 @@ describe('WorkspaceTree — keyboard reparenting (H-1)', () => {
     expect(openMoveDialog('child1')).toHaveAttribute('role', 'dialog');
   });
 
+  it('activates the move control with the Enter key (SC 2.1.1)', async () => {
+    // N1 (Phase 6 review): the delegated tree keydown handler on the <ul> used
+    // to claim Enter (calling onSelect) without checking `e.target`, so Enter
+    // on the new visible Move control never opened the dialog — the control
+    // was reachable but not operable. Only a real keyboard activation can
+    // catch that; the mouse-only `fireEvent.click` tests above stay green
+    // either way.
+    const onSelect = vi.fn();
+    renderTree({ nodes: TREE_NODES, onReparent: vi.fn(), onSelect });
+
+    const button = moveButton('child1');
+    button.focus();
+    await userEvent.keyboard('{Enter}');
+
+    expect(screen.getByTestId('workspace-tree-move-dialog')).toBeInTheDocument();
+    // The tree must not have read the keypress as row activation.
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
   it('reparents to the chosen parent and announces the result', () => {
     const onReparent = vi.fn();
     renderTree({ nodes: TREE_NODES, onReparent });

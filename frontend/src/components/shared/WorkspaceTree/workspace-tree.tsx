@@ -726,6 +726,18 @@ export function WorkspaceTree({
 
   const handleTreeKeyDown = useCallback(
     (e: ReactKeyboardEvent<HTMLUListElement>): void => {
+      // N1 (SC 2.1.1, Phase 6 review): this handler is delegated on the <ul>,
+      // so it also sees keys pressed while one of a row's own native controls
+      // has focus — the "Move…" button, the expand toggle, a form control in a
+      // custom `renderRow`. Those controls own their keys: without this guard
+      // Enter on the Move button was swallowed by the case below (it called
+      // `onSelect` instead of activating the button, so the dialog never
+      // opened) and printable keys were swallowed by the letter-jump. Bail out
+      // before the switch, so the native activation wins. Rows themselves
+      // (`<li role="treeitem">`) are unaffected — keyboard navigation between
+      // rows still runs through the switch below.
+      const eventTarget = e.target as HTMLElement | null;
+      if (eventTarget?.closest('button, a, input, select, textarea')) return;
       if (visibleRows.length === 0) return;
       const currentId = focusedId ?? selectedId ?? visibleRows[0].internal.node.id;
       const currentIndex = visibleRows.findIndex((r) => r.internal.node.id === currentId);
