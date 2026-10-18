@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import importlib.util
 import inspect
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -204,9 +205,28 @@ class InboundGateRemovedTests(unittest.TestCase):
     )
     def test_every_route_is_registered_without_a_dependency(self) -> None:
         routes = [route for route in plugin_api.router.routes if getattr(route, "path", "").startswith("/")]
+        registered = {(sorted(route.methods)[0], route.path) for route in routes}
         self.assertEqual(
-            sorted(route.path for route in routes),
-            ["/interviews", "/stats", "/version", "/workspaces"],
+            registered,
+            {
+                ("GET", "/interviews"),
+                ("GET", "/stats"),
+                ("GET", "/version"),
+                ("GET", "/workspaces"),
+                ("GET", "/tools"),
+                ("GET", "/tool/{tool_name:path}"),
+                ("GET", "/servers"),
+                ("POST", "/servers"),
+                ("PATCH", "/servers/{server_id}"),
+                ("DELETE", "/servers/{server_id}"),
+                ("POST", "/servers/{server_id}/test"),
+                ("POST", "/active"),
+                ("POST", "/workspace-selected"),
+                ("GET", "/write-gate"),
+                ("POST", "/write-gate"),
+                ("POST", "/write/preview"),
+                ("POST", "/write"),
+            },
         )
         for route in routes:
             with self.subTest(path=route.path):
@@ -260,5 +280,572 @@ class DashboardApiHttpTests(unittest.TestCase):
         self.assertIn("error", response.json())
 
 
+# --------------------------------------------------------------------------
+# P2: servers, catalogue, write gate
+# --------------------------------------------------------------------------
+
+_WORKSPACE_UUID = "11111111-1111-1111-1111-111111111111"
+
+_CATALOGUE = [
+    {
+        "name": "requirement.query",
+        "description": "List requirements.",
+        "inputSchema": {"type": "object", "properties": {"workspace_id": {"type": "string"}}},
+    },
+    {
+        "name": "requirement.create",
+        "description": "Create one.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"workspace_id": {"type": "string"}, "title": {"type": "string"}},
+            "required": ["workspace_id", "title"],
+        },
+    },
+    {
+        "name": "review.approve",
+        "description": "Approve a proposal.",
+        "inputSchema": {"type": "object", "properties": {"id": {"type": "string"}}, "required": ["id"]},
+    },
+    {
+        "name": "workspace.delete",
+        "description": "Delete a workspace.",
+        "inputSchema": {"type": "object", "properties": {"id": {"type": "string"}}, "required": ["id"]},
+    },
+    {
+        # Declares no workspace_id — the case that made "inject only declared
+        # parameters" a rule in the UI (finding #1376).
+        "name": "traceability.create_link",
+        "description": "Link two artifacts.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"source_id": {"type": "string"}, "target_id": {"type": "string"}},
+            "required": ["source_id", "target_id"],
+        },
+    },
+]
+
+
+def _catalogue_client(*, user_key: bool = True, call_result: Any = None) -> MagicMock:
+    """Client double with a tool catalogue and a recordable ``call_tool``."""
+    fake = MagicMock()
+    fake.base_url = "http://qs.test:8001"
+    fake.server_id = "qs"
+    fake.tools_list.return_value = [dict(tool) for tool in _CATALOGUE]
+    fake.has_user_api_key.return_value = user_key
+    fake.call_tool.return_value = {"created": "req-1"} if call_result is None else call_result
+    return fake
+
+
+class _CatalogueTestBase(unittest.TestCase):
+    """Shared setup: isolated catalogue cache + registry + client double."""
+
+    def setUp(self) -> None:
+        plugin_api.tools.invalidate()
+        self.addCleanup(plugin_api.tools.invalidate)
+        self.fake_client = _catalogue_client()
+        patcher = patch.object(plugin_api, "ReqogniLoomClient", return_value=self.fake_client)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _preview(self, tool: str, arguments: Dict[str, Any], **extra: Any) -> Dict[str, Any]:
+        return plugin_api.write_preview({"tool": tool, "arguments": arguments, **extra})
+
+
+class ServersApiTests(unittest.TestCase):
+    def test_list_migrates_and_reports_the_registry(self) -> None:
+        plugin_api.registry.add_server("qs", "http://qs.test:8001", api_key="reqlo_secret")
+        result = plugin_api.list_servers()
+        self.assertEqual(result["active"], "qs")
+        self.assertEqual(result["servers"][0]["id"], "qs")
+        self.assertNotIn("reqlo_secret", json.dumps(result))
+
+    def test_add_probes_the_new_server_and_returns_health(self) -> None:
+        fake = _catalogue_client()
+        with patch.object(plugin_api, "ReqogniLoomClient", return_value=fake):
+            result = plugin_api.add_server({"id": "qs", "base_url": "http://qs.test:8001"})
+        self.assertEqual(result["server"]["id"], "qs")
+        self.assertTrue(result["server"]["active"])
+        self.assertIn("verify", result)
+
+    def test_add_rejects_an_invalid_id(self) -> None:
+        result = plugin_api.add_server({"id": "Bad Id", "base_url": "http://qs.test:8001"})
+        self.assertIn("error", result)
+
+    def test_patch_updates_without_echoing_a_key(self) -> None:
+        plugin_api.registry.add_server("qs", "http://qs.test:8001", api_key="reqlo_old")
+        result = plugin_api.update_server("qs", {"api_key": "reqlo_new", "name": "QS"})
+        self.assertEqual(result["registry"]["servers"][0]["name"], "QS")
+        self.assertNotIn("reqlo_new", json.dumps(result))
+        self.assertEqual(plugin_api.registry.get_server("qs")["api_key"], "reqlo_new")
+
+    def test_delete_removes_the_entry(self) -> None:
+        plugin_api.registry.add_server("qs", "http://qs.test:8001")
+        result = plugin_api.delete_server("qs")
+        self.assertEqual(result["registry"]["servers"], [])
+
+    def test_test_route_probes_one_server(self) -> None:
+        plugin_api.registry.add_server("qs", "http://qs.test:8001", api_key="reqlo_a")
+        fake = _catalogue_client()
+        with patch.object(plugin_api, "ReqogniLoomClient", return_value=fake):
+            result = plugin_api.test_server("qs")
+        self.assertTrue(result["verify"]["reachable"])
+        self.assertTrue(result["verify"]["auth_ok"])
+
+    def test_test_route_on_an_unknown_server_is_an_error_not_a_crash(self) -> None:
+        self.assertIn("error", plugin_api.test_server("ghost"))
+
+    def test_switching_the_active_server_drops_the_catalogue_cache(self) -> None:
+        plugin_api.registry.add_server("qs", "http://qs.test:8001")
+        plugin_api.registry.add_server("prod", "http://prod.test:8001")
+        plugin_api.tools.fetch_catalogue(_catalogue_client(), server_key="qs")
+        with patch.object(plugin_api.tools, "invalidate") as invalidate:
+            plugin_api.set_active_server({"server_id": "prod"})
+        invalidate.assert_called_once_with()
+
+    def test_write_gate_round_trip(self) -> None:
+        self.assertTrue(plugin_api.read_write_gate()["write_gate"])
+        self.assertFalse(plugin_api.set_write_gate({"enabled": False})["write_gate"])
+        self.assertFalse(plugin_api.read_write_gate()["write_gate"])
+        self.assertTrue(plugin_api.set_write_gate({"enabled": True})["write_gate"])
+
+
+class ToolCatalogueApiTests(_CatalogueTestBase):
+    def test_catalogue_is_served_with_classification(self) -> None:
+        result = plugin_api.tool_catalogue()
+        self.assertEqual(result["tool_count"], len(_CATALOGUE))
+        by_name = {tool["name"]: tool for tool in result["tools"]}
+        self.assertEqual(by_name["requirement.create"]["class"], "mutate")
+        self.assertTrue(by_name["review.approve"]["requires_human"])
+        self.assertTrue(by_name["workspace.delete"]["destructive"])
+        self.assertEqual(by_name["requirement.query"]["class"], "read")
+
+    def test_catalogue_second_call_is_cached(self) -> None:
+        plugin_api.tool_catalogue()
+        plugin_api.tool_catalogue()
+        self.assertEqual(self.fake_client.tools_list.call_count, 1)
+
+    def test_catalogue_refresh_bypasses_the_cache(self) -> None:
+        plugin_api.tool_catalogue()
+        plugin_api.tool_catalogue(refresh=1)
+        self.assertEqual(self.fake_client.tools_list.call_count, 2)
+
+    def test_tool_detail_serves_one_schema(self) -> None:
+        result = plugin_api.tool_detail("requirement.create")
+        self.assertEqual(result["tool"]["required"], ["workspace_id", "title"])
+
+    def test_tool_detail_of_an_unknown_tool_is_an_error(self) -> None:
+        self.assertIn("error", plugin_api.tool_detail("nope.nope"))
+
+    def test_backend_failure_keeps_the_200_error_contract(self) -> None:
+        self.fake_client.tools_list.side_effect = plugin_api.ReqogniLoomError("could not reach host")
+        self.assertIn("error", plugin_api.tool_catalogue())
+
+
+class WritePreviewTests(_CatalogueTestBase):
+    def test_preview_issues_a_token_and_never_calls_the_tool(self) -> None:
+        result = self._preview("requirement.create", {"workspace_id": _WORKSPACE_UUID, "title": "T"})
+        self.assertEqual(result["risk"], "normal")
+        self.assertEqual(len(result["confirm_token"]), 64)
+        self.assertFalse(result["destructive"])
+        self.assertIsNone(result["typed_confirmation"])
+        self.assertEqual(result["problems"], [])
+        self.fake_client.call_tool.assert_not_called()
+
+    def test_preview_marks_destructive_calls_with_typed_confirmation(self) -> None:
+        result = self._preview("workspace.delete", {"id": _WORKSPACE_UUID})
+        self.assertEqual(result["risk"], "destructive")
+        self.assertEqual(result["typed_confirmation"], "workspace.delete")
+        self.assertTrue(result["blocked"] is False)
+
+    def test_preview_reports_missing_required_arguments(self) -> None:
+        result = self._preview("requirement.create", {"workspace_id": _WORKSPACE_UUID})
+        self.assertEqual(result["problems"], ["missing required parameter 'title'"])
+
+    def test_preview_flags_a_missing_human_key_for_approval_tools(self) -> None:
+        self.fake_client.has_user_api_key.return_value = False
+        result = self._preview("review.approve", {"id": "s-1"})
+        self.assertTrue(result["requires_human"])
+        self.assertFalse(result["human_key_available"])
+
+    def test_preview_reports_a_closed_gate_as_blocked(self) -> None:
+        plugin_api.registry.set_write_gate(False)
+        result = self._preview("requirement.create", {"workspace_id": _WORKSPACE_UUID, "title": "T"})
+        self.assertTrue(result["blocked"])
+        self.assertFalse(result["write_gate"])
+
+    def test_preview_without_a_tool_name_is_an_error(self) -> None:
+        self.assertIn("error", plugin_api.write_preview({}))
+
+    def test_preview_of_an_unknown_tool_is_an_error(self) -> None:
+        self.assertIn("error", plugin_api.write_preview({"tool": "nope.nope", "arguments": {}}))
+
+
+class WriteExecutionTests(_CatalogueTestBase):
+    def _token(self, tool: str, arguments: Dict[str, Any]) -> str:
+        return self._preview(tool, arguments)["confirm_token"]
+
+    def test_write_executes_with_the_agent_principal(self) -> None:
+        arguments = {"workspace_id": _WORKSPACE_UUID, "title": "T"}
+        result = plugin_api.write(
+            {
+                "tool": "requirement.create",
+                "arguments": arguments,
+                "confirm_token": self._token("requirement.create", arguments),
+            }
+        )
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["principal"], "agent")
+        self.assertTrue(result["mutating"])
+        self.fake_client.call_tool.assert_called_once_with(
+            "requirement.create", arguments, principal="agent"
+        )
+
+    def test_write_routes_approval_tools_to_the_human_principal(self) -> None:
+        arguments = {"id": "s-1"}
+        result = plugin_api.write(
+            {
+                "tool": "review.approve",
+                "arguments": arguments,
+                "confirm_token": self._token("review.approve", arguments),
+            }
+        )
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["principal"], "user")
+        self.fake_client.call_tool.assert_called_once_with("review.approve", arguments, principal="user")
+
+    def test_write_refuses_when_the_human_key_is_missing(self) -> None:
+        self.fake_client.has_user_api_key.return_value = False
+        arguments = {"id": "s-1"}
+        result = plugin_api.write(
+            {
+                "tool": "review.approve",
+                "arguments": arguments,
+                "confirm_token": self._token("review.approve", arguments),
+            }
+        )
+        self.assertIn("human API key", result["error"])
+        self.fake_client.call_tool.assert_not_called()
+
+    def test_write_refuses_a_changed_argument_set(self) -> None:
+        preview_token = self._token("requirement.create", {"workspace_id": _WORKSPACE_UUID, "title": "A"})
+        result = plugin_api.write(
+            {
+                "tool": "requirement.create",
+                "arguments": {"workspace_id": _WORKSPACE_UUID, "title": "B"},
+                "confirm_token": preview_token,
+            }
+        )
+        self.assertIn("confirmation mismatch", result["error"])
+        self.fake_client.call_tool.assert_not_called()
+
+    def test_write_refuses_a_skipped_preview(self) -> None:
+        # No token at all: the digest would be computable, but the backend keeps
+        # issued tokens in a store, so a never-previewed call cannot pass.
+        result = plugin_api.write(
+            {
+                "tool": "requirement.create",
+                "arguments": {"workspace_id": _WORKSPACE_UUID, "title": "T"},
+            }
+        )
+        self.assertIn("preview again", result["error"])
+        self.fake_client.call_tool.assert_not_called()
+
+    def test_write_refuses_invalid_arguments_before_checking_the_token(self) -> None:
+        # Order matters for the message the operator sees: a call that is missing
+        # required fields is reported as such, not as a confirmation problem.
+        result = plugin_api.write({"tool": "requirement.create", "arguments": {}})
+        self.assertIn("missing required parameter", result["error"])
+        self.fake_client.call_tool.assert_not_called()
+
+    def test_write_refuses_a_replayed_token(self) -> None:
+        # The single-use rule, proven end to end: the same (tool, arguments,
+        # token) triple must work exactly once, otherwise a double-click in the
+        # UI files the same artifact twice.
+        arguments = {"workspace_id": _WORKSPACE_UUID, "title": "T"}
+        token = self._token("requirement.create", arguments)
+        first = plugin_api.write(
+            {"tool": "requirement.create", "arguments": arguments, "confirm_token": token}
+        )
+        self.assertTrue(first["ok"])
+        second = plugin_api.write(
+            {"tool": "requirement.create", "arguments": arguments, "confirm_token": token}
+        )
+        self.assertIn("preview again", second["error"])
+        self.assertEqual(self.fake_client.call_tool.call_count, 1)
+
+    def test_write_refuses_non_object_arguments(self) -> None:
+        # Silently coercing to {} would run the *wrong* call (an empty argument
+        # set) and report success.
+        result = plugin_api.write({"tool": "requirement.create", "arguments": [1, 2]})
+        self.assertIn("JSON object", result["error"])
+        self.fake_client.call_tool.assert_not_called()
+
+    def test_write_refuses_while_the_gate_is_closed(self) -> None:
+        arguments = {"workspace_id": _WORKSPACE_UUID, "title": "T"}
+        token = self._token("requirement.create", arguments)
+        plugin_api.registry.set_write_gate(False)
+        result = plugin_api.write(
+            {"tool": "requirement.create", "arguments": arguments, "confirm_token": token}
+        )
+        self.assertIn("write gate is closed", result["error"])
+        self.fake_client.call_tool.assert_not_called()
+
+    def test_reads_are_not_gated(self) -> None:
+        plugin_api.registry.set_write_gate(False)
+        arguments = {"workspace_id": _WORKSPACE_UUID}
+        result = plugin_api.write(
+            {
+                "tool": "requirement.query",
+                "arguments": arguments,
+                "confirm_token": self._token("requirement.query", arguments),
+            }
+        )
+        self.assertTrue(result["ok"])
+        self.assertFalse(result["mutating"])
+
+    def test_destructive_call_requires_the_typed_name(self) -> None:
+        arguments = {"id": _WORKSPACE_UUID}
+        token = self._token("workspace.delete", arguments)
+        result = plugin_api.write(
+            {"tool": "workspace.delete", "arguments": arguments, "confirm_token": token}
+        )
+        self.assertIn("destructive call", result["error"])
+        result_ok = plugin_api.write(
+            {
+                "tool": "workspace.delete",
+                "arguments": arguments,
+                "confirm_token": token,
+                "typed": "workspace.delete",
+            }
+        )
+        self.assertTrue(result_ok["ok"])
+
+    def test_write_refuses_declared_validation_failures(self) -> None:
+        arguments = {"workspace_id": _WORKSPACE_UUID, "title": ""}
+        result = plugin_api.write(
+            {
+                "tool": "requirement.create",
+                "arguments": arguments,
+                "confirm_token": self._token("requirement.create", arguments),
+            }
+        )
+        self.assertIn("is empty", result["error"])
+
+    def test_write_refuses_an_undeclared_parameter(self) -> None:
+        # The backend accepts an undeclared workspace_id (finding #1376); the
+        # plugin must not become the amplifier that sends it.
+        arguments = {"id": "s-1", "workspace_id": _WORKSPACE_UUID}
+        result = plugin_api.write(
+            {
+                "tool": "review.approve",
+                "arguments": arguments,
+                "confirm_token": self._token("review.approve", arguments),
+            }
+        )
+        self.assertIn("unknown parameter", result["error"])
+
+    def test_backend_failure_is_reported_as_error_not_raised(self) -> None:
+        self.fake_client.call_tool.side_effect = plugin_api.ReqogniLoomError("PERMISSION_DENIED")
+        arguments = {"workspace_id": _WORKSPACE_UUID, "title": "T"}
+        result = plugin_api.write(
+            {
+                "tool": "requirement.create",
+                "arguments": arguments,
+                "confirm_token": self._token("requirement.create", arguments),
+            }
+        )
+        self.assertIn("PERMISSION_DENIED", result["error"])
+        self.assertNotIn("ok", result)
+
+    def test_write_remembers_the_workspace_per_server(self) -> None:
+        plugin_api.registry.add_server("qs", "http://qs.test:8001")
+        arguments = {"workspace_id": _WORKSPACE_UUID, "title": "T"}
+        plugin_api.write(
+            {
+                "tool": "requirement.create",
+                "arguments": arguments,
+                "confirm_token": self._token("requirement.create", arguments),
+            }
+        )
+        self.assertEqual(plugin_api.registry.get_server("qs")["last_workspace_id"], _WORKSPACE_UUID)
+
+
+@unittest.skipIf(TestClient is None, "fastapi.testclient is unavailable")
+class WriteApiHttpTests(unittest.TestCase):
+    """The write gate over real HTTP: body parsing, status codes, no 500."""
+
+    def setUp(self) -> None:
+        plugin_api.tools.invalidate()
+        self.addCleanup(plugin_api.tools.invalidate)
+        self.app = FastAPI()
+        self.app.include_router(plugin_api.router, prefix="/api/plugins/reqogniloom")
+        self.client = TestClient(self.app, base_url="http://localhost:8000")
+        self.fake_client = _catalogue_client()
+        patcher = patch.object(plugin_api, "ReqogniLoomClient", return_value=self.fake_client)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _post(self, path: str, body: Dict[str, Any]) -> Any:
+        return self.client.post("/api/plugins/reqogniloom" + path, json=body)
+
+    def test_preview_and_write_round_trip_over_http(self) -> None:
+        arguments = {"workspace_id": _WORKSPACE_UUID, "title": "T"}
+        preview = self._post("/write/preview", {"tool": "requirement.create", "arguments": arguments})
+        self.assertEqual(preview.status_code, 200)
+        token = preview.json()["confirm_token"]
+        executed = self._post(
+            "/write",
+            {"tool": "requirement.create", "arguments": arguments, "confirm_token": token},
+        )
+        self.assertEqual(executed.status_code, 200)
+        self.assertTrue(executed.json()["ok"])
+
+    def test_write_without_a_body_is_an_error_not_a_500(self) -> None:
+        response = self._post("/write", {})
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("error", response.json())
+
+    def test_servers_and_gate_routes_answer_over_http(self) -> None:
+        self.assertEqual(self.client.get("/api/plugins/reqogniloom/servers").status_code, 200)
+        self.assertEqual(self.client.get("/api/plugins/reqogniloom/write-gate").status_code, 200)
+        added = self._post("/servers", {"id": "qs", "base_url": "http://qs.test:8001"})
+        self.assertEqual(added.status_code, 200)
+        self.assertEqual(added.json()["server"]["id"], "qs")
+
+    def test_tool_detail_with_a_dotted_name_resolves(self) -> None:
+        response = self.client.get("/api/plugins/reqogniloom/tool/requirement.create")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["tool"]["name"], "requirement.create")
+
+
+class ServerApiHardeningTests(unittest.TestCase):
+    """The refusals that the review round asked for, one test each."""
+
+    def test_add_normalises_a_mixed_case_id_and_answers_with_that_id(self) -> None:
+        # The response used to be built from the *request* value while the registry
+        # stored the normalised one, so the UI showed an id that did not exist.
+        fake = _catalogue_client()
+        with patch.object(plugin_api, "ReqogniLoomClient", return_value=fake):
+            result = plugin_api.add_server({"id": "QS-Test", "base_url": "http://qs.test:8001"})
+        self.assertEqual(result["server"]["id"], "qs-test")
+        self.assertEqual(plugin_api.registry.get_server("qs-test")["id"], "qs-test")
+
+    def test_add_never_returns_the_key_it_stored(self) -> None:
+        fake = _catalogue_client()
+        with patch.object(plugin_api, "ReqogniLoomClient", return_value=fake):
+            result = plugin_api.add_server(
+                {"id": "qs", "base_url": "http://qs.test:8001", "api_key": "reqlo_secret"}
+            )
+        self.assertNotIn("reqlo_secret", json.dumps(result))
+        self.assertTrue(result["server"]["has_api_key"])
+        self.assertEqual(result["server"]["api_key_source"], "file")
+
+    def test_write_gate_refuses_a_non_boolean(self) -> None:
+        # "false" as a string, or a truncated body, must not read as *open*: this
+        # is the single switch in front of every mutating tool.
+        plugin_api.registry.set_write_gate(True)
+        for bad in ("false", 0, None, "yes", []):
+            with self.subTest(value=bad):
+                result = plugin_api.set_write_gate({"enabled": bad})
+                self.assertIn("must be true or false", result["error"])
+        self.assertTrue(plugin_api.registry.write_gate_enabled(), "the gate must be unchanged")
+
+    def test_write_gate_accepts_a_real_boolean(self) -> None:
+        self.assertFalse(plugin_api.set_write_gate({"enabled": False})["write_gate"])
+        self.assertFalse(plugin_api.registry.write_gate_enabled())
+
+    def test_unknown_server_id_is_an_error_body_not_an_exception(self) -> None:
+        for call in (
+            lambda: plugin_api.delete_server("ghost"),
+            lambda: plugin_api.update_server("ghost", {"name": "x"}),
+            lambda: plugin_api.test_server("ghost"),
+            lambda: plugin_api.set_active_server({"server_id": "ghost"}),
+        ):
+            with self.subTest(call=call):
+                self.assertIn("error", call())
+
+    def test_remember_workspace_rejects_an_unknown_server(self) -> None:
+        result = plugin_api.workspace_selected({"server_id": "ghost", "workspace_id": "w-1"})
+        self.assertIn("error", result)
+
+
+class SchemaContractTests(_CatalogueTestBase):
+    """The plugin must not teach its callers to send undeclared parameters."""
+
+    def test_catalogue_entries_carry_the_declared_property_names(self) -> None:
+        result = plugin_api.tool_catalogue()
+        entry = [tool for tool in result["tools"] if tool["name"] == "requirement.create"][0]
+        self.assertIn("workspace_id", entry["input_schema"]["properties"])
+        self.assertIn("title", entry["input_schema"]["properties"])
+
+    def test_traceability_create_link_declares_no_workspace(self) -> None:
+        # The UI injects the selected workspace only into tools that declare it;
+        # this is the tool that made that rule necessary.
+        result = plugin_api.tool_catalogue()
+        entry = [tool for tool in result["tools"] if tool["name"] == "traceability.create_link"]
+        if not entry:
+            raise unittest.SkipTest("traceability.create_link not in the fixture catalogue")
+        self.assertNotIn("workspace_id", entry[0]["input_schema"].get("properties", {}))
+
+
 if __name__ == "__main__":
     unittest.main()
+
+class HardeningRouteTests(unittest.TestCase):
+    """The route-level behaviour the second review round demanded."""
+
+    def test_write_gate_on_an_unwritable_registry_is_an_error_body_not_a_500(self) -> None:
+        with patch.object(
+            plugin_api.registry, "save_registry", side_effect=plugin_api.registry.RegistryError("cannot write")
+        ):
+            result = plugin_api.set_write_gate({"enabled": False})
+        self.assertIn("error", result)
+        self.assertNotIn("write_gate", result)
+
+    def test_the_catalogue_cache_key_is_the_normalised_server_id(self) -> None:
+        # GET /tools?server_id=QS and ?server_id=qs address the same server, so
+        # they must share one cache entry (the registry lower-cases on the way in).
+        self.assertEqual(plugin_api._server_key(None, "QS-Test"), "qs-test")
+        self.assertEqual(plugin_api._server_key(None, "qs"), "qs")
+
+    def test_workspace_selected_remembers_the_choice(self) -> None:
+        plugin_api.registry.add_server("qs", "http://qs.test:8001")
+        result = plugin_api.workspace_selected({"server_id": "qs", "workspace_id": _WORKSPACE_UUID})
+        self.assertEqual(result["workspace_id"], _WORKSPACE_UUID)
+        self.assertEqual(
+            plugin_api.registry.get_server("qs")["last_workspace_id"], _WORKSPACE_UUID
+        )
+
+    def test_reading_the_stats_does_not_write_the_workspace_memory(self) -> None:
+        # A GET with a side effect is not a GET: the memory is written by
+        # POST /workspace-selected, and only there.
+        plugin_api.registry.add_server("qs", "http://qs.test:8001")
+        fake = _catalogue_client()
+        with patch.object(plugin_api, "ReqogniLoomClient", return_value=fake):
+            plugin_api.stats(workspace_id=_WORKSPACE_UUID)
+        self.assertIsNone(plugin_api.registry.get_server("qs")["last_workspace_id"])
+
+    def test_a_metadata_target_cannot_be_added(self) -> None:
+        for bad in ("http://169.254.169.254", "http://metadata.google.internal"):
+            with self.subTest(url=bad):
+                result = plugin_api.add_server({"id": "evil", "base_url": bad})
+                self.assertIn("error", result)
+
+    def test_a_stored_metadata_target_is_refused_at_use(self) -> None:
+        # The file is editable; the refusal has to hold when a request is made,
+        # not only when the entry was written.
+        entry = dict(plugin_api.registry._new_entry("evil", "evil", base_url="http://169.254.169.254"))
+        plugin_api.registry.save_registry(
+            {"registry_version": 1, "active": "evil", "write_gate": True, "servers": [entry]}
+        )
+        self.assertIn("error", plugin_api.stats())
+        self.assertIn("error", plugin_api.tool_catalogue())
+
+    def test_changing_the_url_answers_with_a_note_about_the_cleared_keys(self) -> None:
+        plugin_api.registry.add_server("qs", "http://qs.test:8001", api_key="reqlo_agent")
+        result = plugin_api.update_server("qs", {"base_url": "http://other.test:8001"})
+        self.assertIn("note", result)
+        self.assertIsNone(plugin_api.registry.get_server("qs")["api_key"])
+
+    def test_probing_an_unknown_server_is_an_error_body(self) -> None:
+        self.assertIn("error", plugin_api.test_server("ghost"))

@@ -144,5 +144,127 @@ class HandleSlashTests(unittest.TestCase):
         self.assertIn("could not reach host", result)
 
 
+def _slash_server_add(server_id: str, base_url: str) -> None:
+    """Add one server through the real command path (no direct registry call)."""
+    result = plugin._handle_slash(f"server add {server_id} {base_url}")
+    assert "Added server" in result, result
+
+
+class ServerGroupTests(unittest.TestCase):
+    """`/reqogniloom server …` — the multi-server management group.
+
+    The registry itself is covered in test_registry.py; here the wiring is: does
+    the command reach the registry, report it readably, and never leak a key.
+    """
+
+    def test_help_mentions_the_server_group(self) -> None:
+        text = plugin._handle_slash("help")
+        self.assertIn("server list", text)
+        self.assertIn("REQOGNILOOM_API_KEY_", text)
+
+    def test_server_list_on_an_unconfigured_install_explains_the_setup(self) -> None:
+        result = plugin._handle_slash("server list")
+        self.assertIn("server add", result)
+
+    def test_server_list_shows_a_configured_server(self) -> None:
+        plugin._registry.add_server("qs", "http://qs.test:8001", api_key="reqlo_secret")
+        result = plugin._handle_slash("server list")
+        self.assertIn("qs", result)
+        self.assertIn("http://qs.test:8001", result)
+        self.assertNotIn("reqlo_secret", result, "the listing must not print the key")
+
+    def test_server_add_uses_env_references_and_activates(self) -> None:
+        result = plugin._handle_slash("server add qs http://qs.test:8001")
+        self.assertIn("Added server qs", result)
+        self.assertIn("REQOGNILOOM_API_KEY_QS", result)
+        self.assertEqual(plugin._registry.load_registry()["active"], "qs")
+
+    def test_server_add_requires_both_arguments(self) -> None:
+        self.assertIn("Usage:", plugin._handle_slash("server add qs"))
+
+    def test_server_add_rejects_an_invalid_id(self) -> None:
+        result = plugin._handle_slash("server add 'Bad Id' http://qs.test:8001")
+        self.assertIn("Server configuration error", result)
+
+    def test_server_use_switches_and_names_the_active_one(self) -> None:
+        _slash_server_add("qs", "http://qs.test:8001")
+        _slash_server_add("prod", "http://prod.test:8001")
+        result = plugin._handle_slash("server use prod")
+        self.assertIn("Active server is now prod", result)
+
+    def test_server_use_without_an_id_prints_usage(self) -> None:
+        self.assertIn("Usage:", plugin._handle_slash("server use"))
+
+    def test_server_use_unknown_id_is_a_configuration_error(self) -> None:
+        with self.assertRaises(plugin._registry.RegistryError):
+            plugin._registry.set_active("ghost")
+        result = plugin._handle_slash("server use ghost")
+        self.assertIn("Server configuration error", result)
+        self.assertIn("ghost", result)
+
+    def test_server_rm_drops_the_entry(self) -> None:
+        _slash_server_add("qs", "http://qs.test:8001")
+        result = plugin._handle_slash("server rm qs")
+        self.assertIn("Removed server qs", result)
+        self.assertEqual(plugin._registry.load_registry()["servers"], [])
+
+    def test_server_use_invalidates_the_tool_catalogue(self) -> None:
+        # The catalogue belongs to a server: a stale cache would show the old
+        # server's tools (and its tool count) after a switch.
+        _slash_server_add("qs", "http://qs.test:8001")
+        _slash_server_add("prod", "http://prod.test:8001")
+        with patch.object(plugin._tools, "invalidate") as invalidate:
+            plugin._handle_slash("server use qs")
+        invalidate.assert_called_once_with()
+
+    def test_server_without_action_defaults_to_list(self) -> None:
+        _slash_server_add("qs", "http://qs.test:8001")
+        self.assertIn("qs", plugin._handle_slash("server"))
+
+    def test_unknown_server_action_prints_usage(self) -> None:
+        self.assertIn("Usage:", plugin._handle_slash("server frobnicate"))
+
+    def test_server_test_reports_reachability(self) -> None:
+        _slash_server_add("qs", "http://qs.test:8001")
+        plugin._registry.update_server("qs", api_key="reqlo_agent")
+
+        class FakeProbeClient:
+            def version(self):
+                return {"version": "1.8.0-beta.21"}
+
+            def tools_list(self, *, api_key=None):
+                return [{"name": "requirement.get"}]
+
+        with patch.object(plugin, "_server_action_client", return_value=FakeProbeClient()):
+            result = plugin._handle_slash("server test qs")
+        self.assertIn("reachable", result)
+        self.assertIn("1.8.0-beta.21", result)
+        self.assertIn("tools:      1", result)
+
+    def test_server_test_stores_the_outcome_for_the_listing(self) -> None:
+        _slash_server_add("qs", "http://qs.test:8001")
+        plugin._registry.update_server("qs", api_key="reqlo_agent")
+
+        class FakeProbeClient:
+            def version(self):
+                return {"version": "1.8.0-beta.21"}
+
+            def tools_list(self, *, api_key=None):
+                return [{"name": "requirement.get"}] * 3
+
+        with patch.object(plugin, "_server_action_client", return_value=FakeProbeClient()):
+            plugin._handle_slash("server test qs")
+        view = plugin._registry.public_registry()["servers"][0]
+        self.assertEqual(view["verify"]["tool_count"], 3)
+
+    def test_server_test_without_a_server_points_at_the_setup(self) -> None:
+        result = plugin._handle_slash("server test")
+        self.assertIn("server add", result)
+
+    def test_server_test_of_an_unknown_id_is_a_configuration_error(self) -> None:
+        result = plugin._handle_slash("server test ghost")
+        self.assertIn("Server configuration error", result)
+
+
 if __name__ == "__main__":
     unittest.main()

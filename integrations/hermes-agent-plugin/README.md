@@ -1,10 +1,13 @@
 # reqogniloom (Hermes Agent plugin)
 
-Drives ReqogniLoom requirements work from inside Hermes, and can listen along
-while you talk:
+ReqogniLoom inside Hermes, on three surfaces over one client:
 
-- `/reqogniloom` — start, answer and formalize one interview by hand;
-- a read-only dashboard tab — per-workspace counts and the interviews still open;
+- **`/reqogniloom`** — drive one interview by hand, list workspaces, read stats,
+  decide server-side suggestions, and manage several ReqogniLoom servers;
+- a **dashboard tab** — artifacts and interviews per workspace, a **write** view
+  for the artifact/flow operations, a **tool console** over the server's whole
+  MCP surface, **server management** (multi-server switching, health, write gate)
+  and an **admin** view for the destructive tools;
 - an opt-in **listen mode** — while it is on, your messages are captured into a
   type-less multi-artifact interview and whatever ReqogniLoom proposes from them
   is parked as a *suggestion* for `/reqogniloom review`. Nothing is created
@@ -13,48 +16,42 @@ while you talk:
 Upstream tracking: [Popoboxxo/ReqogniLoom#1201](https://github.com/Popoboxxo/ReqogniLoom/issues/1201)
 (agent-native integration + ambient capture) and
 [Popoboxxo/ReqogniLoom#1202](https://github.com/Popoboxxo/ReqogniLoom/issues/1202)
-(the live-QA findings this rewrite addresses — F1 token gate, F2 minimal tab,
-F4 MCP surface unused, F5 base-URL default, F6 README drift, F7 host
-contract).
+(the live-QA findings this line of work answers — F1 token gate, F2 minimal tab,
+F4 MCP surface unused, F5 base-URL default, F6 README drift, F7 host contract).
 
-**Status: verified against one live install, thin by design.** The mounted router
-was exercised against a running Hermes dashboard (`/api/plugins/reqogniloom/`:
-`/version`, `/stats`, `/workspaces` answered 200 through the host dashboard's own
-auth, which is the only gate). The listen mode in this revision is unit-tested,
-not yet re-verified live. Built
-against the plugin contract observed
-in [`NousResearch/hermes-agent`](https://github.com/NousResearch/hermes-agent)'s
-[`plugins/disk-cleanup`](https://github.com/NousResearch/hermes-agent/tree/main/plugins/disk-cleanup)
-(slash command + hooks) and
-[`plugins/hermes-achievements`](https://github.com/NousResearch/hermes-agent/tree/main/plugins/hermes-achievements)
-(dashboard tab: `manifest.json` + `plugin_api.py` FastAPI router + a
-build-step-free `dist/index.js` that takes React/hooks/components from the
-host's injected `window.__HERMES_PLUGIN_SDK__` but issues its own
-`window.fetch` calls for data, because the host hands the plugin no credential
-at all). Since then the plugin has been exercised against a live Hermes
-install ([#1202](https://github.com/Popoboxxo/ReqogniLoom/issues/1202),
-[#1203](https://github.com/Popoboxxo/ReqogniLoom/issues/1203)). The old
-`integrations/hermes-plugin/reqogniloom/` TS port targeted a different,
-unverified `@hermes/plugin-sdk` contract (a desktop-IDE-style
-`{id, name, register(ctx)}` with `ctx.register({area: "panes"|...})`) that
-doesn't match either of the two real reference plugins above, and has been
-removed; this plugin and the skill are the shipped Hermes integrations.
+**Status: verified against one live install, thin by design.** The dashboard
+routes were exercised against a running Hermes dashboard
+(`/api/plugins/reqogniloom/`: `/version`, `/stats`, `/workspaces` answered 200
+through the host dashboard's own auth, which is the only gate). The 1.0 rewrite
+adds the tool catalogue, the write gate and multi-server management; the Python
+half and the bundle are covered by the tests in `tests/` (see *Development*).
+
+What is new in 1.0, and what is deliberately still a gap, is listed under
+*Known gaps* — the short version: every tool the MCP server publishes is
+reachable, every call that mutates state passes a confirmation gate, and nothing
+is adopted without a human decision.
 
 ## Transport
 
 The shared client (`reqogniloom_client.py`) speaks ReqogniLoom's **native MCP
-server** for every operation: `POST {base_url}/mcp/` with a JSON-RPC 2.0
-`tools/call` frame, authenticated with the `X-API-Key` header. That is the same
-tool surface the rest of the ecosystem uses, so the plugin cannot drift from a
-second, partial API. The MCP transport rejects a `Bearer` JWT
-(`bearer_not_supported`), so the key must travel as `X-API-Key`. Tool results
-arrive as MCP content blocks (`result.content[0].text`, a JSON string) and are
-decoded by the client; tool-execution errors arrive as HTTP 200 with
-`result.isError`.
+server** for every operation: `POST {base_url}/mcp/` with a JSON-RPC 2.0 frame,
+authenticated with the `X-API-Key` header. That is the same tool surface the
+rest of the ecosystem uses, so the plugin cannot drift from a second, partial
+API. The MCP transport rejects a `Bearer` JWT (`bearer_not_supported`), so the
+key must travel as `X-API-Key`. Tool results arrive as MCP content blocks
+(`result.content[0].text`, a JSON string) and are decoded by the client;
+tool-execution errors arrive as HTTP 200 with `result.isError`.
 
-Only `GET /api/v1/version/` stays on REST: it is public and has no MCP tool. It
-never sends the API key.
+Two things travel over MCP that are not `tools/call`:
 
+- **`tools/list`** — the live catalogue (`ReqogniLoomClient.tools_list`). The
+  dashboard reads it instead of vendoring a tool list, so a tool the server adds
+  later is usable without a plugin release.
+- **REST, only where no MCP tool exists.** Today that is exactly one call:
+  `GET /api/v1/version/` is public, needs no key, and has no MCP counterpart —
+  it is also how a server's *reachability* is probed independently of its key.
+  Every further exception must be listed under *REST fallbacks (parity gaps)*
+  below with its issue reference.
 
 ## Install
 
@@ -64,26 +61,73 @@ ln -s /path/to/ReqogniLoom/integrations/hermes-agent-plugin ~/.hermes/plugins/re
 
 ## Configuration
 
-Environment variables, read at call time (no persisted config file):
+### Servers (multi-server)
 
-- `REQOGNILOOM_BASE_URL` — default `http://localhost:8001`. The default is
-  intentional, but when the variable is **unset** and a transport failure
-  occurs the client raises a `ReqogniLoomError` naming the variable, e.g.
-  `could not reach http://localhost:8001/… — REQOGNILOOM_BASE_URL is not set,
-  so the request went to the default http://localhost:8001; set
-  REQOGNILOOM_BASE_URL to your ReqogniLoom instance (e.g.
-  https://reqogniloom.example.com)`. An invalid (non-`http(s)` or empty) value
-  is rejected at construction, e.g. `invalid REQOGNILOOM_BASE_URL
-  'ftp://nope': expected an http:// or https:// URL, e.g.
-  REQOGNILOOM_BASE_URL=http://localhost:8001`.
-- `REQOGNILOOM_API_KEY` — a ReqogniLoom API key (`reqlo_...`), sent as the
-  `X-API-Key` header on every MCP call. It is **never** sent on the public
-  `GET /api/v1/version/` call. A missing key fails fast, before any request.
+Servers live in `$HERMES_HOME/reqogniloom/servers.json`, mode **0600**, written
+under a lock, managed from `/reqogniloom server …` or the tab's *Servers* view:
+
+```json
+{
+  "registry_version": 1,
+  "write_gate": true,
+  "active": "qs",
+  "servers": [
+    {
+      "id": "qs",
+      "name": "QS 172.20.5.120",
+      "base_url": "http://172.20.5.120:8001",
+      "api_key": "reqlo_…",              "api_key_source": "file",
+      "api_key_env": null,
+      "user_api_key": null,              "user_api_key_source": "env",
+      "user_api_key_env": "REQOGNILOOM_USER_API_KEY_QS",
+      "default_workspace_id": null,
+      "last_workspace_id": "b5a8ff85-…",
+      "verify": { "reachable": true, "auth_ok": true, "app_version": "1.8.0-beta.21",
+                  "tool_count": 248, "checked_at": "2026-10-18T18:00:00Z" }
+    }
+  ]
+}
+```
+
+- **Why a file and not environment variables:** a server must be addable while
+  the host process runs; the environment of a running process cannot be
+  extended, so a var-only scheme would need a gateway restart per server.
+- **Keys never leave the backend.** The dashboard API serialises entries with
+  `public_server()`, which reports only *whether* a credential resolves and
+  *where it comes from* (`file` or `env:NAME`) — never its value.
+- **Two keys per server.** `api_key` (agent principal) carries every normal
+  call; `user_api_key` (human principal) is used only for the approval-class
+  tools, which the server refuses for an agent. Without it those buttons are
+  disabled with an explanation instead of failing opaquely.
+- **`write_gate`** is the global switch for mutating calls (default: open).
+  Reads and computations run regardless.
+
+### Migration from the environment (nothing to do)
+
+An install that only ever set `REQOGNILOOM_BASE_URL` / `REQOGNILOOM_API_KEY`
+migrates itself the first time a server is listed or the tab opens: it becomes
+the entry `default`, referencing both variables — the key stays in the
+environment, nothing is copied into the file. From then on the registry file is
+authoritative; environment variables still win for an entry whose
+`api_key_source` is `env` (which is what makes key rotation a `.env` edit).
+
+Environment variables, read at call time:
+
+- `REQOGNILOOM_BASE_URL` — default `http://localhost:8001`. An unset variable
+  with a transport failure raises `could not reach … — REQOGNILOOM_BASE_URL is
+  not set, so the request went to the default …`; an invalid value is rejected at
+  construction. With a configured registry this variable is only a migration
+  seed.
+- `REQOGNILOOM_API_KEY` — the agent key (`reqlo_…`), sent as `X-API-Key`. Never
+  sent on the public `GET /api/v1/version/`. A missing key fails fast.
+- `REQOGNILOOM_API_KEY_<ID>` / `REQOGNILOOM_USER_API_KEY_<ID>` — per-server keys,
+  referenced by `server add`. Keys are never typed on the command line, because
+  that puts them into the shell history.
 
 ## Slash command
 
 ```
-/reqogniloom start <artifact_type> [workspace_id]   Start a new interview (workspace_id optional — defaults to your first visible workspace)
+/reqogniloom start <artifact_type> [workspace_id]   Start a new interview (workspace_id optional)
 /reqogniloom status                                 Show the current interview's phase and missing fields
 /reqogniloom answer <field> <value...>               Answer one field of the current interview
 /reqogniloom chat <message...>                       Send a free-form chat turn
@@ -94,30 +138,114 @@ Environment variables, read at call time (no persisted config file):
 /reqogniloom suggestion list [workspace_id]          List server-side ADR-019 suggestions (read-only)
 /reqogniloom suggestion accept <id>                  Accept one server-side suggestion by id
 /reqogniloom suggestion reject <id> [reason...]      Reject one server-side suggestion by id
+/reqogniloom server list                             Servers, active marker, key sources, health
+/reqogniloom server use <id>                         Switch the active server (the tab shares it)
+/reqogniloom server add <id> <base_url>              Add a server (key via REQOGNILOOM_API_KEY_<ID>)
+/reqogniloom server test [id]                        Probe reachability, version and key
+/reqogniloom server rm <id>                          Remove a server
 /reqogniloom help                                    Show this text
 ```
 
-The "current interview" is remembered across command invocations in
+Every subcommand except `server` runs against the **active** server. The
+"current interview" is remembered across command invocations in
 `$HERMES_HOME/reqogniloom/state.json` (falls back to `~/.hermes` if
-`HERMES_HOME` is unset) — same pattern `disk-cleanup` uses for its own
-state file.
+`HERMES_HOME` is unset).
 
 ## Dashboard tab
 
-Read-only: per-workspace artifact counters (requirements, test cases, open
-interviews) for the picked workspace, the open interviews as detail rows
-(session id, type, phase, status, updated), and the ReqogniLoom build version.
-Backend routes are mounted at `/api/plugins/reqogniloom/` by the Hermes
-dashboard (`GET /stats`, `GET /workspaces`, `GET /version`, `GET /interviews`)
-— see `dashboard/plugin_api.py`. The workspace picker defaults to the first
-visible workspace and re-loads the counters and interview rows on change.
+Five views over three backend capabilities:
 
-The tab relies on the **host dashboard's own auth**: there is no plugin-level
-token, header or credential, and the tab loads straight into the data. The four
-routes are read-only and same-origin; a genuine `ReqogniLoomError` backend
-failure keeps the `200 + {"error": …}` contract so the tab can render it instead
-of a 500. `REQOGNILOOM_API_KEY` remains the outbound tenant credential and is
-never a dashboard credential.
+| View | What it does |
+|---|---|
+| **Overview** | Counters (requirements, test cases, open interviews, tools on the server) and the open interviews as detail rows — a count answers "how many", never "which". |
+| **Write** | Create any artifact type, link two artifacts, decide the review queue, stage a memory fact, drive an interview, snapshot a baseline. |
+| **Tools** | The whole MCP catalogue of the active server: search, group filter, class and risk badges, one form per tool, result panel. |
+| **Servers** | Registry CRUD, one-click health probe, active switch, write-gate toggle. |
+| **Admin** | Every destructive tool of the server, each opening in the console. |
+
+Forms are **rendered from the tool's JSON schema**. Nothing about a tool's fields
+is hardcoded here, so a tool the server adds later is immediately usable. Only
+*declared* parameters are offered: the backend accepts a few undeclared ones
+(finding
+[#1376](https://github.com/Popoboxxo/ReqogniLoom/issues/1376)) and this UI must
+not be the place that starts sending them.
+
+### The write gate
+
+Every call from the tab goes through two backend steps:
+
+1. `POST /write/preview` classifies the call and returns a `confirm_token` bound
+   to `server|tool|arguments`, plus the risk class, the validation problems and a
+   compact argument summary. **Nothing is executed.**
+2. `POST /write` executes it — and refuses when the token no longer matches the
+   arguments, when the write gate is closed for a mutating call, when a declared
+   parameter is missing or unknown, or when an approval-class tool has no human
+   key.
+
+The UI wires this up as: reads and computations run straight through (still with
+a token), **mutating** calls open a confirmation panel, and **destructive** calls
+additionally require the tool name to be typed. The token is not a security
+boundary — the plugin shares the host dashboard's session cookie, and the host's
+auth is the only inbound gate — but it lives in the backend, so the confirmation
+step cannot be skipped by a UI bug.
+
+### What a write actually creates
+
+Writes run under the plugin's **agent** key, so ReqogniLoom seeds the artifact
+into the workflow state **`proposed`** (`workflow.services.initial_state_for`) —
+it is never adopted as a final requirement by the plugin. The review queue in the
+*Write* view (`review.list_pending`) plus the ADR-019 suggestion inbox
+(`suggestion.list`) is where a human decides, and that decision needs the human
+key. On a `minimal`-preset workspace there is no `proposed` state by design
+(`SCHEMAS_WITHOUT_PROPOSED`), so an artifact starts in the preset's normal
+initial state instead.
+
+### Tool classification
+
+MCP puts no `is_write` flag on the wire, so `reqogniloom_tools.py` derives one
+from the tool name (`read` / `compute` / `mutate`), with explicit name maps for
+the tools whose name lies (e.g. `requirement.acceptance_criteria.check` mutates,
+`attribute_migration.plan` does not). The derivation is pinned against the repo's
+generated `docs/agent-templates/tool-manifest.json` in **both** directions — no
+server write may classify as `read`, no server read as `mutate` — so drift fails
+in the test suite instead of silently dropping a confirmation dialog.
+`compute` means "runs an LLM or a heavy analysis without changing state"
+(`requirement.validate`, `traceability.coverage`, …): a spinner, not a
+confirmation.
+
+The `compute` class is the one place such a misclassification could hide — it
+drops the confirmation dialog just as `read` does — so every member needs a line
+in `COMPUTE_JUSTIFICATIONS` and the test asserts the map covers the set exactly.
+Nine tools the manifest calls writes were sitting in `compute` (the
+`ai_derivation.*` family, `requirement.decompose`, `requirement.suggest_level`,
+`traceability.suggest_links`); they are `mutate` now.
+
+If a server ever publishes the standard MCP `annotations`, those win over the
+name heuristics — with one exception: an entry in `MUTATE_EXACT` stands, because a
+`readOnlyHint` must not talk a persisting tool out of its dialog. Annotations may
+add a mutation signal, never remove an explicit one.
+
+### Destructive calls
+
+`is_destructive()` matches name *segments* (`delete`, `purge`, `destroy`, `wipe`,
+`reset`, `drop`), not a `.delete` suffix: `memory.delete_workspace` and
+`attribute_definition.delete_workspace` are a GDPR wipe of every memory tier a
+workspace owns, and the suffix test let them through with a plain yes/no. Verified
+against all 248 manifest tools (12 matches, all hard deletes or resets).
+
+### What a server URL may be
+
+Every request sends the entry's key as `X-API-Key` to that entry's `base_url`, so
+the URL is checked the way a credential destination has to be:
+
+- a target in the link-local / cloud-metadata range, or an unspecified address, is
+  refused when it is written **and** when it is used (the registry file is
+  editable, and the environment can carry a URL too);
+- private ranges are allowed on purpose — a ReqogniLoom install on a LAN is the
+  normal case here;
+- changing the `base_url` of an existing entry **clears its keys**, so a
+  re-pointed entry cannot hand the previous host's key to a new one; the response
+  says so.
 
 ## Listen mode ("hear along")
 
@@ -150,70 +278,23 @@ item, with the confirmed proposal passed back to the API — and removes them fr
 the queue. Nothing else creates artifacts, and a failed capture leaves the queue
 untouched.
 
-**What `accept` actually creates: proposals, not final requirements.** The
-accept path is `interview.formalize` under the plugin's API-key context, which
-is an *agent* principal. ReqogniLoom seeds an agent-created artifact into the
-workflow state **`proposed`** (`workflow.services.initial_state_for`), so the
-artifact is born as a proposal and waits for a human confirm — it is never
-adopted as a final requirement by the plugin. Use `/reqogniloom review pending`
-to list that server-side queue (`review.list_pending`) together with the ADR-019
-suggestion inbox (`suggestion.list`); nothing is auto-confirmed.
-
-This is the M1 proposal semantics (the workflow `proposed` state), reused rather
-than re-implemented (ADR-01 thin client). The plugin does **not** route artifact
-creation through the ADR-019 `suggestion.accept` adapter: in the ADR-019 MVP the
-`artifact_create` kind is registered but dormant, so no generic accept path for
-new artifacts exists server-side. `suggestion.list`/`suggestion.accept`/
-`suggestion.reject` are available in the client and surfaced by `review pending`
-for the kinds that *are* live (e.g. `trace_link`).
-
-One honest boundary: the `minimal` rigor preset deliberately has no `proposed`
-state (`workflow/definition_store.py`, `SCHEMAS_WITHOUT_PROPOSED`), so on a
-`minimal`-preset workspace `formalize` lands the artifact in the preset's normal
-initial state (`draft`) instead — still not a final/adopted requirement, but also
-not parked in the review queue. The proposal loop is only meaningful for the
-`standard`/`extended` presets. Forcing `proposed` into `minimal` is explicitly
-out of scope (ADR-019 O3).
-
-Two deliberate limits: at most one capture every 45 s per install (a chatty
-session must not queue an LLM turn per message), and a hard cap of 20 queued
-suggestions (oldest dropped first) so the queue cannot grow without bound.
-Duplicates are dropped by content hash. Diagnostics go to
-`$HERMES_HOME/reqogniloom/capture.log`; the worker writes nothing to stdout and
-never fails the turn it was spawned from.
-
-## Server-side suggestions (ADR-019)
-
-The ADR-019 suggestion inbox can also be decided straight from the command line,
-by **explicit id** — the listing itself stays read-only:
-
-```text
-/reqogniloom suggestion list [ws]                 # read-only: server-side suggestions of a workspace
-/reqogniloom suggestion accept <id>               # accept ONE server-side suggestion by id
-/reqogniloom suggestion reject <id> [reason...]   # reject ONE, with an optional reason
-```
-
-`accept` and `reject` always name exactly one suggestion id: there is no default
-and no `all`, so **nothing is ever accepted automatically**. An incomplete
-command (no id) prints the usage line and calls no tool. This is deliberately
-distinct from the listen-mode pair above: `accept <index|all>` formalizes the
-*local* suggestions that listen mode captured into `state.json`, whereas
-`suggestion accept|reject <id>` decide a *server-side* ADR-019 suggestion by its
-server id. An agent may not accept its own proposal — the server answers
-`PERMISSION_DENIED`, which the command renders as a readable
-`ReqogniLoom error: …` instead of raising.
+Two deliberate limits: at most one capture every 45 s per install, and a hard cap
+of 20 queued suggestions (oldest dropped first). Duplicates are dropped by
+content hash. Diagnostics go to `$HERMES_HOME/reqogniloom/capture.log`; the
+worker writes nothing to stdout and never fails the turn it was spawned from.
 
 ## Memory capabilities
 
 ReqogniLoom exposes an AI long-term memory surface over its MCP server. The
-Hermes integration reaches it through four dotted tool names:
+plugin reaches it through the tool console (all 14 `memory.*` tools) and a
+staged flow in the *Write* view:
 
 | Tool | Direction | What it does |
 | --- | --- | --- |
 | `memory.query` | read | Semantic search over a `workspace`/`user`/`artifact` scope; returns `entries` plus `degraded`/`detail`. |
 | `memory.digest` | read | Prompt-ready summary of a scope (`digest`, `derivation_status`, `derived_count`). |
 | `memory.ask` | read | Natural-language answer (`answer`, `degraded`, `detail`). RBAC write-gated on the backend because it drives a generative LLM call, but it mutates nothing. |
-| `memory.write` | **write** | Persists one fact (`content`, `scope` ∈ `workspace\|user\|artifact`). The only memory tool that mutates state, and the only one gated behind an explicit user confirmation. |
+| `memory.write` | **write** | Persists one fact (`content`, `scope` ∈ `workspace\|user\|artifact`). Staged in the UI, issued only on an explicit confirm. |
 
 A read that legitimately returns no rows is reported **separately** from a
 backend that could not answer: `degraded=true` together with a `detail` cause is
@@ -221,138 +302,138 @@ backend that could not answer: `degraded=true` together with a `detail` cause is
 `degraded=false` is a genuine "nothing remembered". Clients must not collapse
 the two into one empty state.
 
-Writing is never automatic. Capture is a two-step, user-driven flow — an on/off
-**toggle** that enables the surface, then a **Review** step that stages the
-draft locally, and only an explicit **Confirm** issues `memory.write`; Cancel
-(or turning the toggle off) discards the draft. Nothing typed or toggled reaches
-the backend on its own, and no auto-submit path exists.
+## REST fallbacks (parity gaps)
 
-**Where this lives.** The shipped implementation of the surface above is the
-importable Hermes skill
-(`integrations/hermes-skill/reqogniloom/` — the `memory-query` /
-`memory-digest` / `memory-ask` / `memory-write` CLI subcommands, all backed by
-the `memory.*` MCP tools). This agent-plugin POC
-(`integrations/hermes-agent-plugin/`) is slash-command/dashboard-only and does
-**not** call the memory surface yet.
+The plugin is an MCP client. Every deviation from that is listed here, with its
+tracking issue — a REST-only capability is a *backend* backlog item, not a
+second client:
 
-**P4 boundary.** The follow-on stage "capture → `proposed` artifact → human
-accept" is deliberately **not** implemented. It is the proposal loop deferred to
-P4 of the bugfix-hub work plan
-(`docs/plans/2026-10-05-bugfix-hub-integrationen.md`, AP-B5.4). The capture gate
-described here only persists a memory fact via `memory.write`; it never proposes
-an artifact.
+| Call | Why | Issue |
+|---|---|---|
+| `GET /api/v1/version/` | public, no key needed, no MCP counterpart; used both for the footer and as the key-independent reachability probe | [#1362](https://github.com/Popoboxxo/ReqogniLoom/issues/1362) (REST↔MCP coverage is asymmetric in both directions) |
+
+When a write path exists on REST but not as an MCP tool, the tab reaches it
+through the same write gate and it is added to this table — the plugin never
+grows a parallel REST client.
 
 ## Files
 
 ```text
-plugin.yaml              # plugin manifest (name/version/description/hooks)
-__init__.py               # register(ctx) -> /reqogniloom command + pre_llm_call listen hook
-reqogniloom_client.py     # stdlib-only MCP client (REST only for GET /api/v1/version/),
-                          #   shared by the command and the dashboard
-reqogniloom_state.py      # state.json (interview, listen switch, suggestion queue) + lock
-_capture.py               # detached worker: one captured message -> one queued suggestion
+plugin.yaml                  # plugin manifest (name/version/description/hooks)
+__init__.py                  # register(ctx) -> /reqogniloom (incl. `server` group) + pre_llm_call hook
+reqogniloom_client.py        # MCP client (tools/call + tools/list), registry-aware target
+                             #   resolution, principal routing; REST only for the version call
+reqogniloom_registry.py      # servers.json: CRUD, migration, key resolution, health probes
+reqogniloom_tools.py         # tool catalogue (tools/list, cached) + read/compute/mutate
+                             #   classification + confirmation tokens + schema validation
+reqogniloom_state.py         # state.json (interview, listen switch, suggestion queue) + lock
+_capture.py                  # detached worker: one captured message -> one queued suggestion
 dashboard/
-├── manifest.json          # dashboard tab manifest (icon/position/entry/css/api)
-├── plugin_api.py          # FastAPI router, mounted under /api/plugins/reqogniloom/
+├── manifest.json            # dashboard tab manifest (icon/position/entry/css/api)
+├── plugin_api.py            # FastAPI router: reads, servers, catalogue, write gate
 └── dist/
-    ├── index.js            # dashboard tab UI (no build step — plain JS, host-injected React,
-    │                         # workspace picker + counters + open-interview rows, all via window.fetch)
+    ├── index.js             # the tab (no build step; five views, schema-driven forms)
     └── style.css
 tests/
-├── _loader.py               # shared helper to load __init__.py as a package (relative-import support)
-├── test_reqogniloom_client.py
-├── test_slash_command.py
-├── test_listen_mode.py     # listen switch, review queue, hook, capture worker
-├── test_suggestion_surface.py  # ADR-019 client surface, review pending, suggestion slash group
-└── test_plugin_api.py
+├── _loader.py                  # load __init__.py as a package (relative imports)
+├── conftest.py                 # per-test HERMES_HOME (state + registry isolation)
+├── test_reqogniloom_client.py  # MCP envelope, tool names, error shapes
+├── test_registry.py            # registry CRUD, migration, credentials, probes
+├── test_tools_catalog.py       # classification + the manifest guard
+├── test_plugin_api.py          # every route, the write gate, HTTP level
+├── test_slash_command.py       # command surface incl. the server group
+├── test_listen_mode.py         # listen switch, review queue, capture worker
+├── test_suggestion_surface.py  # ADR-019 client surface
+└── plugin_ui_smoke.mjs         # renders the bundle against a stub host SDK
 ```
 
 ## Development
 
 ```bash
-# from the repo root — the plugin tests pin the MCP envelope, tool names and
-# both error shapes, plus a guard that every tool name exists in
-# docs/agent-templates/tool-manifest.json
+# from the repo root
 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest integrations/hermes-agent-plugin/tests -q
-```
+python scripts/check_plugin_packages.py
 
-```bash
+# the bundle: syntax, then a real render against a stub host SDK
 node --check integrations/hermes-agent-plugin/dashboard/dist/index.js
+node integrations/hermes-agent-plugin/tests/plugin_ui_smoke.mjs
+node integrations/hermes-agent-plugin/tests/plugin_ui_flow.mjs
+
 python -m py_compile integrations/hermes-agent-plugin/__init__.py \
     integrations/hermes-agent-plugin/reqogniloom_client.py \
+    integrations/hermes-agent-plugin/reqogniloom_registry.py \
+    integrations/hermes-agent-plugin/reqogniloom_tools.py \
     integrations/hermes-agent-plugin/reqogniloom_state.py \
     integrations/hermes-agent-plugin/_capture.py \
     integrations/hermes-agent-plugin/dashboard/plugin_api.py
 ```
 
+`tests/plugin_ui_smoke.mjs` renders the bundle with a stub
+`window.__HERMES_PLUGIN_SDK__` and fails on an undefined component, a button
+without `data-testid`, a `fetch` during render, or a tool name the server does
+not publish. It needs node only; it is not wired into CI (the pipeline is
+defined outside this directory) — run it before opening the tab by hand.
+
+`tests/plugin_ui_flow.mjs` goes further: it *runs* the components (hook state,
+dependency arrays, event handlers) and asserts the request bodies the tab
+produces — that the create flow sends only what the operator stated, that an
+untouched optional field is absent rather than empty, and that a tool which
+declares no `workspace_id` never receives one. The static smoke test cannot see
+inside a component, which is how a defect that made 11 of 12 create flows
+unusable survived it.
+
 ### Verifying the dashboard tab
 
-`dist/index.js` is an unbuilt IIFE and this repo has no JS test harness for it,
-so the tab has no automated coverage of its own. The two checks that do exist,
-run from the repo root:
+The browser half is a manual check and the only one that exercises the host:
 
-```bash
-# syntax of the bundle — nothing more than that
-node --check integrations/hermes-agent-plugin/dashboard/dist/index.js
+1. `GET /api/dashboard/plugins` lists the plugin with `version: 1.0.0` and
+   `has_api: true`.
+2. Log in; the tab loads straight into the stat cards — no connect form, no
+   prompt. If it asks for a token, a token-handling path has been reintroduced
+   where it does not belong.
+3. *Servers*: add/select a server, watch the health dot and version/tool count;
+   toggle the write gate.
+4. *Tools*: search, pick a read tool, run it (executes directly), then a mutating
+   tool (confirmation panel) and a destructive one (typed confirmation).
+5. *Write*: create an artifact and confirm it appears in the review queue.
+6. Cross-check one value against an independent source — e.g. the tool count in
+   the tab against `tools/list` on that server, or the version against
+   `GET /api/v1/version/`. A tab that renders a cached constant is
+   indistinguishable from a working one until you compare it.
 
-# the server side: every route serves without any credential, and the
-# 200 + {"error": …} contract survives a backend failure
-pytest integrations/hermes-agent-plugin/tests -q
-```
+## Known gaps
 
-The browser half is a manual check, and it is the only one that exercises the
-host. The tab must load straight into the stat cards — no connect form, no
-prompt. Then verify the workspace picker, the three counters (Requirements,
-Test Cases, Open Interviews) and the open-interview detail rows. If it asks for
-a token, a token-handling path has been reintroduced where it does not belong.
-
-## Known gaps (POC scope)
-
+- **Per-tool UX is generic.** The curated flows pick *which* tool to open; the
+  fields come from the schema. A hand-crafted form for the most-used artifact
+  types would be nicer, and is a follow-up.
+- **No artifact drill-in.** The *Overview* shows counters; there is no
+  `/artifacts` route that lists and opens individual artifacts yet.
 - **Ambient capture → `proposed` artifact (#1156) — wired, M1 path.** The
-  capture → proposed → review-before-adoption loop is connected: `/reqogniloom
-  accept` creates the captured artifacts via `interview.formalize` under the
-  plugin's agent API-key context, so `workflow.services.initial_state_for` seeds
-  them as **`proposed`** and they appear in the server-side review queue
-  (`review.list_pending`, `ReviewQueueService`), which `/reqogniloom review
-  pending` surfaces. Nothing is silently adopted. The `minimal` preset has no
-  `proposed` state by design (ADR-019 O3), so there the artifact starts in the
-  preset's normal initial state instead; the ADR-019 `artifact_create` adapter
-  that would give `minimal` a proposal loop is dormant in the MVP. The existing
-  listen mode (`_capture.py`, `tests/test_listen_mode.py`) is left unchanged and
-  still only queues suggestions for `/reqogniloom review`.
+  capture → proposed → review-before-adoption loop is connected:
+  `/reqogniloom accept` creates the captured artifacts via `interview.formalize`
+  under the plugin's agent API-key context, so `workflow.services.initial_state_for`
+  seeds them as **`proposed`**. Nothing is silently adopted.
 - One hook, `pre_llm_call`, used only to capture the user's own messages while
-  listen mode is on. It returns `None` and injects no context; the interview flow
-  itself is still command/dashboard-driven.
-- The plugin cannot bind a socket or add middleware (it returns an
-  `APIRouter`, not an app), so "default-bind to loopback" is **not**
-  implementable from here, and the host contract (`plugin.yaml`,
-  `dashboard/manifest.json`) declares no `secrets`/`env`/port field. The
-  dashboard tab therefore has no plugin-level credential: it relies on the host
-  dashboard's own auth, which is unverifiable from inside the plugin.
-- `dist/index.js` issues its own `window.fetch` calls with no credential, rather
-  than the host's `SDK.fetchJSON` — that helper has no definition, shim or
-  vendored copy in this repo, so its contract is unverifiable.
-- Follow-up: a per-workspace artifact drill-in is not built. The tab shows the
-  counters and the open-interview detail rows only; there is no `/artifacts`
-  endpoint to drill into yet.
-- The dashboard tab has a workspace picker and `/reqogniloom stats [workspace_id]`
-  takes one, but the hand interview and listen mode still fall back to the first
-  visible workspace when none is given.
+  listen mode is on. It returns `None` and injects no context.
+- The plugin cannot bind a socket or add middleware (it returns an `APIRouter`,
+  not an app), so it cannot add its own inbound auth factor; the host dashboard's
+  auth is the gate. `REQOGNILOOM_API_KEY` remains an outbound credential and is
+  never a dashboard credential.
+- `dist/index.js` issues its own `window.fetch` calls rather than the host's
+  `SDK.fetchJSON` — that helper has no definition, shim or vendored copy in this
+  repo, so its contract (headers, POST) is unverifiable.
 - Listen mode depends on ReqogniLoom's multi-artifact chat turn, which drives an
   LLM server-side. On an instance whose chat provider is misconfigured the
-  capture round fails and is only logged (`capture.log`); the suggestion then
-  simply never appears — deliberately not surfaced as a broken turn.
+  capture round fails and is only logged (`capture.log`).
 - The proposal shape (`items`, `proposals`, or a bare list) is normalised
-  defensively in `_capture.proposal_items` and has not been observed against a
-  live *successful* multi-artifact chat turn.
-- The whole interview flow — including `interview.chat` (issue #1164) and the
-  `interview.propose` readout the ambient path depends on — is driven through
-  the MCP server, so there is no separate REST path to keep in sync. Upstream:
-  [#1201](https://github.com/Popoboxxo/ReqogniLoom/issues/1201).
+  defensively in `_capture.proposal_items` and in the review queue.
 - `chat`'s reply field is `reply`, confirmed against the backend contract:
-  `InterviewService.generate_chat_turn` returns `{"reply": <str>,
-  "state": {...}}` (`backend/application/interview_service.py:1986`) and the
-  MCP `interview.chat` tool returns that body unchanged
-  (`backend/mcp_server/tools/interview.py:_handle_chat`). The plugin reads
-  `result.get("reply") or result.get("message")` (`__init__.py:352`); `reply`
-  is the real field, `message` is only a defensive fallback.
+  `InterviewService.generate_chat_turn` returns `{"reply": <str>, "state": {...}}`
+  (`backend/application/interview_service.py:1986`); `message` is only a
+  defensive fallback.
+- Background findings the plugin works around rather than fixes: a `workspace_id`
+  the server accepts without declaring it
+  ([#1376](https://github.com/Popoboxxo/ReqogniLoom/issues/1376)) — the UI offers
+  declared parameters only; and `test.mark_reviewed`'s missing workspace fence
+  ([#1373](https://github.com/Popoboxxo/ReqogniLoom/issues/1373)) — running it
+  from the console on a foreign id can cross workspaces until that is fixed.
