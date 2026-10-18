@@ -3,6 +3,9 @@
     "title": "ReqogniLoom",
     "placeholder": "AI-native Requirements Management — implementation in progress."
   },
+  "a11y": {
+    "skipToContent": "Skip to main content"
+  },
   "adminOps": {
     "title": "Backup & Restore (Disaster Recovery)",
     "hint": "Instance-level backups. A restore overwrites current data — the confirmation text is required.",

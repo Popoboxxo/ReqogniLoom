@@ -3,6 +3,9 @@
     "title": "ReqogniLoom",
     "placeholder": "KI-natives Anforderungsmanagement — Implementierung in Bearbeitung."
   },
+  "a11y": {
+    "skipToContent": "Zum Hauptinhalt springen"
+  },
   "adminOps": {
     "title": "Sicherung & Wiederherstellung (Disaster Recovery)",
     "hint": "Instanzweite Sicherungen. Eine Wiederherstellung überschreibt die aktuellen Daten — der Bestätigungstext ist erforderlich.",

@@ -13,6 +13,27 @@
   min-height: 0;
 }
 
+/* Phase 6 (M-3, WCAG SC 2.4.1): the skip link is the shell's first tab stop
+   and stays off-screen until it receives focus, then appears at the top-left
+   corner. `btn-ghost` supplies the design-system chrome (the design-system
+   ratchet treats a click-handling link like a button), while `a.skipLink`
+   overrides only its palette and, together with `a.skipLink:focus`, takes it
+   out of flow so it never shifts the shell layout. */
+a.skipLink {
+  position: absolute;
+  top: var(--space-2);
+  left: var(--space-2);
+  z-index: 1;
+  transform: translateY(-300%);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  border-color: var(--color-border);
+}
+
+a.skipLink:focus {
+  transform: translateY(0);
+}
+
 /* Issue #876: the route host was the last inline `style={{...}}` in the shell
    (flex/padding/overflow). Moved here so the shell owns no inline layout. */
 .main {

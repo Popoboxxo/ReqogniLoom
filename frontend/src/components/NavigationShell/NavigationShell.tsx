@@ -21,7 +21,7 @@
  *   IF-RF-INT-003     → Artifact selection passed to editors via Router state
  */
 
-import { Suspense, lazy } from "react";
+import { Suspense, lazy, useRef } from "react";
 import { Routes, Route, Navigate, useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { ErrorBoundary } from "./ErrorBoundary";
@@ -118,13 +118,36 @@ const MemoryPage = lazy(() =>
 
 function AppShell(): JSX.Element {
   const { t } = useTranslation();
+  // Phase 6 (M-3, WCAG SC 2.4.1): the skip link is the shell's first tab
+  // stop. It moves focus to the main landmark directly instead of relying on
+  // the hash change alone — a fragment navigation does not reliably move
+  // focus across browsers, and `tabIndex={-1}` on <main> makes it a valid
+  // programmatic focus target without adding it to the tab order.
+  const mainRef = useRef<HTMLElement>(null);
 
   return (
     <div className={styles.shell}>
+      <a
+        href="#main-content"
+        className={`btn-ghost ${styles.skipLink}`}
+        data-testid="skip-link"
+        onClick={(event) => {
+          event.preventDefault();
+          mainRef.current?.focus();
+        }}
+      >
+        {t("a11y.skipToContent")}
+      </a>
       <BannerStack />
       <div className={styles.contentRow}>
       <SidebarNavigation />
-      <main className={styles.main} role="main">
+      <main
+        ref={mainRef}
+        id="main-content"
+        tabIndex={-1}
+        className={styles.main}
+        role="main"
+      >
         <ErrorBoundary
           errorTitle={t("errors.generic")}
           reloadLabel={t("actions.reload")}
