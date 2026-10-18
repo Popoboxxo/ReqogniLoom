@@ -8,6 +8,7 @@
  * `useArtifactFormState` + `ArtifactForm.tsx`.
  */
 
+import { useId } from "react";
 import { useTranslation } from "react-i18next";
 import { ChevronDown, ChevronRight } from "lucide-react";
 
@@ -64,6 +65,11 @@ export function ArtifactSections({
   update,
 }: ArtifactSectionsProps): JSX.Element {
   const { t, i18n } = useTranslation();
+  // Phase 6 (H-2, WCAG SC 1.3.1/2.4.6): a stable per-form id base so the
+  // section's accessible name (`aria-labelledby`) and its disclosure control
+  // (`aria-controls`) reference real, collision-free ids even if two artifact
+  // forms are mounted in the same document.
+  const idBase = useId();
 
   const spanClass = (columns: number): string =>
     styles[`span${spanClassSuffix(columns)}`] ?? styles.span12;
@@ -84,6 +90,10 @@ export function ArtifactSections({
         }
         const { section, layout } = entry;
         const open = isSectionOpen(section);
+        // H-2 (#a11y): the section is a named region — the toggle carries the
+        // id the section points at, and (in edit mode) controls the body panel.
+        const sectionToggleId = `${idBase}-section-toggle-${section.name}`;
+        const sectionBodyId = `${idBase}-section-body-${section.name}`;
         const fieldEntries = resolveAttributeFlow(
           sectionMeta.get(section.name),
           section.attributes
@@ -91,6 +101,7 @@ export function ArtifactSections({
         return (
           <section
             key={section.name}
+            aria-labelledby={sectionToggleId}
             data-testid={`artifact-section-${section.name}`}
             data-layout={layout}
             data-columns={sectionLayoutColumns(layout)}
@@ -102,36 +113,44 @@ export function ArtifactSections({
               // the header is a plain heading — a dead disclosure button would
               // otherwise be the focus trap's first Tab stop ahead of the
               // form's content (create-dialog focus contract, #800 class).
-              <span
-                className={styles.sectionHeader}
-                data-testid={`artifact-section-toggle-${section.name}`}
-                aria-current="false"
-              >
-                {t(`sections.${section.name}`, { defaultValue: section.name })}
-              </span>
+              <h3 className={styles.sectionHeading}>
+                <span
+                  id={sectionToggleId}
+                  className={styles.sectionHeader}
+                  data-testid={`artifact-section-toggle-${section.name}`}
+                  aria-current="false"
+                >
+                  {t(`sections.${section.name}`, { defaultValue: section.name })}
+                </span>
+              </h3>
             ) : (
-            <button
-              type="button"
-              className={styles.sectionHeader}
-              data-testid={`artifact-section-toggle-${section.name}`}
-              aria-expanded={open}
-              aria-label={t(
-                open ? "artifactForm.collapseSection" : "artifactForm.expandSection",
-                { section: t(`sections.${section.name}`, { defaultValue: section.name }) }
-              )}
-              onClick={() => onToggleSection(section, open)}
-            >
-              <span>{t(`sections.${section.name}`, { defaultValue: section.name })}</span>
-              {open ? (
-                <ChevronDown aria-hidden="true" size={16} />
-              ) : (
-                <ChevronRight aria-hidden="true" size={16} />
-              )}
-            </button>
+              <h3 className={styles.sectionHeading}>
+                <button
+                  type="button"
+                  id={sectionToggleId}
+                  className={styles.sectionHeader}
+                  data-testid={`artifact-section-toggle-${section.name}`}
+                  aria-expanded={open}
+                  aria-controls={sectionBodyId}
+                  aria-label={t(
+                    open ? "artifactForm.collapseSection" : "artifactForm.expandSection",
+                    { section: t(`sections.${section.name}`, { defaultValue: section.name }) }
+                  )}
+                  onClick={() => onToggleSection(section, open)}
+                >
+                  <span>{t(`sections.${section.name}`, { defaultValue: section.name })}</span>
+                  {open ? (
+                    <ChevronDown aria-hidden="true" size={16} />
+                  ) : (
+                    <ChevronRight aria-hidden="true" size={16} />
+                  )}
+                </button>
+              </h3>
             )}
 
             {open ? (
               <div
+                id={sectionBodyId}
                 className={styles.sectionBody}
                 data-testid={`artifact-section-body-${section.name}`}
               >

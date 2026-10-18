@@ -99,6 +99,14 @@
   padding: 0;
 }
 
+/* Phase 6 (H-2, WCAG SC 1.3.1/2.4.6): the section header is now a real
+   heading wrapping the disclosure control. Reset the user-agent heading
+   margin/typography so the existing visual styling is unchanged. */
+.sectionHeading {
+  margin: 0;
+  font: inherit;
+}
+
 .field {
   display: flex;
   flex-direction: column;
