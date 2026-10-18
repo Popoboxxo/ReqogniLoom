@@ -7,9 +7,10 @@
  * Search + status filter + sort remain in ListToolbar; WorkspaceTree
  * receives the already-filtered list and renders it as compact tree rows.
  */
-import { useState, useMemo, useRef, type RefObject } from 'react';
+import { useState, useMemo, useCallback, useRef, type RefObject } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
+import { useArtifactList } from '../../hooks/useArtifactList';
 import { ListToolbar } from '../shared/ListToolbar';
 import { EmptyState } from '../shared/EmptyState';
 import { Dialog } from '../shared/Dialog';
@@ -153,9 +154,12 @@ export function NeedList({
   // of relying on `autoFocus`.
   const newTitleInputRef = useRef<HTMLInputElement | null>(null);
 
-  const visibleNeeds = useMemo(() => {
-    const q = listSearch.trim().toLowerCase();
-    const filtered = needs.filter((need) => {
+  // Phase 3a (F-13): same derivation chain as every other editor list —
+  // see useArtifactList. No `getKey`: this list renders through the tree's
+  // own nodes (`needToNode` carries uid/badge) instead of a renderRow
+  // hydration lookup, so no byId map is built (plan §3.6).
+  const filter = useCallback(
+    (need: StakeholderNeed, q: string) => {
       if (
         q &&
         !need.title.toLowerCase().includes(q) &&
@@ -165,14 +169,18 @@ export function NeedList({
       }
       if (statusFilter && need.status !== statusFilter) return false;
       return true;
-    });
-    return sortNeeds(filtered, sortKey);
-  }, [needs, listSearch, statusFilter, sortKey]);
-
-  const treeNodes = useMemo(
-    () => visibleNeeds.map(needToNode),
-    [visibleNeeds],
+    },
+    [statusFilter],
   );
+
+  const { visible: visibleNeeds, treeNodes } = useArtifactList({
+    items: needs,
+    query: listSearch,
+    filter,
+    sortItems: sortNeeds,
+    sortKey,
+    toNode: needToNode,
+  });
 
   // GH-453: options are derived from the loaded items, so their values are
   // exactly what `need.status !== statusFilter` compares against — the shared

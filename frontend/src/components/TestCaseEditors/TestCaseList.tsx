@@ -14,8 +14,9 @@
  * `virtualize` costs one prop — every node is a root (`parentId: null`),
  * mirroring `NeedList`/`AdrList`/`RiskList`/`IssueList`.
  */
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useArtifactList, artifactId } from '../../hooks/useArtifactList';
 import { ListToolbar } from '../shared/ListToolbar';
 import { ArtifactRow } from '../shared/ArtifactRow';
 import { Badge } from '../shared/Badge';
@@ -75,25 +76,30 @@ export function TestCaseList({
   const [statusFilter, setStatusFilter] = useState('');
   const [sortKey, setSortKey] = useState<SortKey>('default');
 
-  const visible = useMemo(() => {
-    const q = listSearch.trim().toLowerCase();
-    const filtered = items.filter((it) => {
-      if (q && !it.title.toLowerCase().includes(q)) return false;
-      if (statusFilter && it.status !== statusFilter) return false;
+  // Phase 3a (F-13): same derivation chain as every other editor list —
+  // see useArtifactList. `useCallback` keeps the predicate's identity tied
+  // to its actual dependency, so the memoized chain only recomputes when
+  // the filter value really changes.
+  const filter = useCallback(
+    (testCase: TestCase, q: string) => {
+      if (q && !testCase.title.toLowerCase().includes(q)) return false;
+      if (statusFilter && testCase.status !== statusFilter) return false;
       return true;
-    });
-    return sortItems(filtered, sortKey);
-  }, [items, listSearch, statusFilter, sortKey]);
+    },
+    [statusFilter],
+  );
 
-  const treeNodes = useMemo(() => visible.map(testCaseToNode), [visible]);
-
-  // Task 4.4: lookup used by renderRow to hydrate <ArtifactRow> from the
-  // WorkspaceTreeNode id — mirrors RequirementList's reqById.
-  const testCaseById = useMemo(() => {
-    const map = new Map<string, TestCase>();
-    for (const tc of visible) map.set(tc.id, tc);
-    return map;
-  }, [visible]);
+  // Task 4.4: byId is the lookup used by renderRow to hydrate <ArtifactRow>
+  // from the WorkspaceTreeNode id — mirrors RequirementList's reqById.
+  const { visible, treeNodes, byId: testCaseById } = useArtifactList({
+    items,
+    query: listSearch,
+    filter,
+    sortItems,
+    sortKey,
+    toNode: testCaseToNode,
+    getKey: artifactId,
+  });
 
   // GH-453: derived from the loaded items, so the option values are exactly
   // the values `it.status !== statusFilter` compares against — for whichever
@@ -170,7 +176,7 @@ export function TestCaseList({
           emptyLabel={t('editor.empty', 'No items.')}
           noMatchesLabel={t('editor.noMatches', 'No matches found.')}
           renderRow={(node, { isSelected }) => {
-            const tc = testCaseById.get(node.id);
+            const tc = testCaseById?.get(node.id);
             if (!tc) return null;
             // #424/#402: provenance + scenario markers. `origin === "unknown"`
             // (legacy rows) is deliberately unbadged — it is neither manually

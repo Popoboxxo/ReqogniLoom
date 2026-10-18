@@ -13,8 +13,9 @@
  * mirror only appears on IcdDetail, fetched per-artifact) — rows render
  * without a status badge, which <ArtifactRow> supports since Task 5.1.
  */
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useArtifactList } from "../../hooks/useArtifactList";
 import { ListToolbar } from "../shared/ListToolbar";
 import { ArtifactRow } from "../shared/ArtifactRow";
 import { EmptyState } from "../shared/EmptyState";
@@ -44,16 +45,29 @@ function sortItems(list: Icd[], sortKey: SortKey): Icd[] {
   return sorted;
 }
 
+/**
+ * Module-scope predicate, stable across renders — search matches the ICD
+ * name only (there is no status field on the list payload, see file header).
+ */
+function matchesIcd(icd: Icd, q: string): boolean {
+  return !q || icd.name.toLowerCase().includes(q);
+}
+
 export function IcdList({ items, selectedId, onSelect, onCreateNew }: IcdListProps): JSX.Element {
   const { t } = useTranslation();
   const [listSearch, setListSearch] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("default");
 
-  const visible = useMemo(() => {
-    const q = listSearch.trim().toLowerCase();
-    const filtered = items.filter((it) => !q || it.name.toLowerCase().includes(q));
-    return sortItems(filtered, sortKey);
-  }, [items, listSearch, sortKey]);
+  // Phase 3a (F-13): shared `visible = filter → sortItems` chain — see
+  // useArtifactList. No `toNode`/`getKey`: this list renders bare
+  // <ArtifactRow>s, not a WorkspaceTree.
+  const { visible } = useArtifactList({
+    items,
+    query: listSearch,
+    filter: matchesIcd,
+    sortItems,
+    sortKey,
+  });
 
   const hasActiveListControls = Boolean(listSearch);
 

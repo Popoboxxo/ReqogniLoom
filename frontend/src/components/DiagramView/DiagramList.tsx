@@ -24,8 +24,9 @@
  * plain <section>/<h2> + rows, with no expand/collapse and no indentation, so
  * the list stays flat both semantically and visually.
  */
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useArtifactList } from "../../hooks/useArtifactList";
 import { ListToolbar } from "../shared/ListToolbar";
 import { ArtifactRow } from "../shared/ArtifactRow";
 import { EmptyState } from "../shared/EmptyState";
@@ -106,15 +107,25 @@ export function DiagramList({
   const [typeFilter, setTypeFilter] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("default");
 
-  const visible = useMemo(() => {
-    const q = listSearch.trim().toLowerCase();
-    const filtered = items.filter((it) => {
-      if (q && !it.name.toLowerCase().includes(q)) return false;
-      if (typeFilter && it.diagram_type !== typeFilter) return false;
+  // Phase 3a (F-13): shared `visible = filter → sortItems` chain — see
+  // useArtifactList. No `toNode`/`getKey`: this list renders grouped
+  // <ArtifactRow> sections, not a WorkspaceTree (see file header).
+  const filter = useCallback(
+    (diagram: Diagram, q: string) => {
+      if (q && !diagram.name.toLowerCase().includes(q)) return false;
+      if (typeFilter && diagram.diagram_type !== typeFilter) return false;
       return true;
-    });
-    return sortItems(filtered, sortKey);
-  }, [items, listSearch, typeFilter, sortKey]);
+    },
+    [typeFilter],
+  );
+
+  const { visible } = useArtifactList({
+    items,
+    query: listSearch,
+    filter,
+    sortItems,
+    sortKey,
+  });
 
   const groups = useMemo(() => groupByType(visible), [visible]);
 
