@@ -19,11 +19,12 @@
  * making delete unreachable from the UI (Systemaudit 2026-08-27 UI-05).
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { usePersistedListState } from '../../hooks/usePersistedListState';
 import { useHasRole } from '../../hooks/useHasRole';
 import { useWorkspace } from '../../context/WorkspaceContext';
+import { useArtifactList, artifactId } from '../../hooks/useArtifactList';
 import { ListToolbar } from '../shared/ListToolbar';
 import { WorkspaceTree, getTypeBadgeAbbreviation } from '../shared/WorkspaceTree';
 import type { WorkspaceTreeNode } from '../shared/WorkspaceTree';
@@ -245,39 +246,45 @@ export const RequirementList: React.FC<RequirementListProps> = ({
     { validate: isReqSortKey },
   );
 
-  const visibleRequirements = useMemo(() => {
-    const q = listSearch.trim().toLowerCase();
-    const filtered = requirements.filter((req) => {
+  // Phase 3a (F-13): same derivation chain as every other editor list —
+  // see useArtifactList. `useCallback` keeps each callback's identity tied
+  // to its actual dependencies, so the memoized chain only recomputes when
+  // the filter values / labels really change.
+  const filter = useCallback(
+    (req: Requirement, q: string) => {
       if (q && !req.title.toLowerCase().includes(q) && !req.id.toLowerCase().includes(q)) {
         return false;
       }
       if (categoryFilter && req.category !== categoryFilter) return false;
       if (statusFilter && req.status !== statusFilter) return false;
       return true;
-    });
-    return sortRequirements(filtered, sortKey);
-  }, [requirements, listSearch, categoryFilter, statusFilter, sortKey]);
-
-  const treeNodes = useMemo(
-    () =>
-      visibleRequirements.map((req) =>
-        reqToNode(
-          req,
-          req.type ? t(`reqType.${req.type}`) : undefined,
-          req.level != null ? t(`reqLevel.L${req.level}`) : undefined,
-          req.type ? t(`reqTypeShort.${req.type}`) : undefined,
-        ),
-      ),
-    [visibleRequirements, t],
+    },
+    [categoryFilter, statusFilter],
   );
 
-  // Task 3.1: lookup used by renderRow to hydrate <ArtifactRow> from the
-  // WorkspaceTreeNode id — avoids widening WorkspaceTreeNode's shape.
-  const reqById = useMemo(() => {
-    const map = new Map<string, Requirement>();
-    for (const req of visibleRequirements) map.set(req.id, req);
-    return map;
-  }, [visibleRequirements]);
+  const toNode = useCallback(
+    (req: Requirement) =>
+      reqToNode(
+        req,
+        req.type ? t(`reqType.${req.type}`) : undefined,
+        req.level != null ? t(`reqLevel.L${req.level}`) : undefined,
+        req.type ? t(`reqTypeShort.${req.type}`) : undefined,
+      ),
+    [t],
+  );
+
+  // Task 3.1: byId is the lookup used by renderRow to hydrate <ArtifactRow>
+  // from the WorkspaceTreeNode id — avoids widening WorkspaceTreeNode's
+  // shape.
+  const { visible: visibleRequirements, treeNodes, byId: reqById } = useArtifactList({
+    items: requirements,
+    query: listSearch,
+    filter,
+    sortItems: sortRequirements,
+    sortKey,
+    toNode,
+    getKey: artifactId,
+  });
 
   // GH-453: options are derived from the loaded items, so their values are
   // exactly what `req.status !== statusFilter` compares against. Requirement
@@ -490,7 +497,7 @@ export const RequirementList: React.FC<RequirementListProps> = ({
           emptyLabel={t('editor.empty')}
           noMatchesLabel={t('editor.noMatches')}
           renderRow={(node, { isSelected }) => {
-            const req = reqById.get(node.id);
+            const req = reqById?.get(node.id);
             if (!req) return null;
             // Issue #807: a concise, self-explaining type label ("System")
             // instead of the cryptic abbreviation ("SR"); the spelled-out

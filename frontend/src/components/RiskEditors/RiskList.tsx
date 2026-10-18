@@ -14,8 +14,9 @@
  * `virtualize` costs one prop — every node is a root (`parentId: null`),
  * mirroring `NeedList`/`AdrList`.
  */
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useArtifactList, artifactId } from '../../hooks/useArtifactList';
 import { ListToolbar } from '../shared/ListToolbar';
 import { ArtifactRow } from '../shared/ArtifactRow';
 import { EmptyState } from '../shared/EmptyState';
@@ -73,25 +74,30 @@ export function RiskList({
   const [statusFilter, setStatusFilter] = useState('');
   const [sortKey, setSortKey] = useState<SortKey>('default');
 
-  const visible = useMemo(() => {
-    const q = listSearch.trim().toLowerCase();
-    const filtered = items.filter((it) => {
-      if (q && !it.title.toLowerCase().includes(q)) return false;
-      if (statusFilter && it.status !== statusFilter) return false;
+  // Phase 3a (F-13): same derivation chain as every other editor list —
+  // see useArtifactList. `useCallback` keeps the predicate's identity tied
+  // to its actual dependency, so the memoized chain only recomputes when
+  // the filter value really changes.
+  const filter = useCallback(
+    (risk: Risk, q: string) => {
+      if (q && !risk.title.toLowerCase().includes(q)) return false;
+      if (statusFilter && risk.status !== statusFilter) return false;
       return true;
-    });
-    return sortItems(filtered, sortKey);
-  }, [items, listSearch, statusFilter, sortKey]);
+    },
+    [statusFilter],
+  );
 
-  const treeNodes = useMemo(() => visible.map(riskToNode), [visible]);
-
-  // Task 4.4: lookup used by renderRow to hydrate <ArtifactRow> from the
-  // WorkspaceTreeNode id — mirrors RequirementList's reqById.
-  const riskById = useMemo(() => {
-    const map = new Map<string, Risk>();
-    for (const risk of visible) map.set(risk.id, risk);
-    return map;
-  }, [visible]);
+  // Task 4.4: byId is the lookup used by renderRow to hydrate <ArtifactRow>
+  // from the WorkspaceTreeNode id — mirrors RequirementList's reqById.
+  const { visible, treeNodes, byId: riskById } = useArtifactList({
+    items,
+    query: listSearch,
+    filter,
+    sortItems,
+    sortKey,
+    toNode: riskToNode,
+    getKey: artifactId,
+  });
 
   // GH-453: options are derived from the loaded items, so their values are
   // exactly what `it.status !== statusFilter` compares against — the shared
@@ -176,7 +182,7 @@ export function RiskList({
           emptyLabel={t('editor.empty', 'No items.')}
           noMatchesLabel={t('editor.noMatches', 'No matches found.')}
           renderRow={(node, { isSelected }) => {
-            const risk = riskById.get(node.id);
+            const risk = riskById?.get(node.id);
             if (!risk) return null;
             return (
               <ArtifactRow

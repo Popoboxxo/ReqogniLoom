@@ -8,8 +8,9 @@
  * `InterviewSummary` has `artifact_type`/`status`, not a `title`) -- the
  * artifact type stands in as the row's identity.
  */
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useArtifactList, artifactId } from "../../hooks/useArtifactList";
 import { ListToolbar } from "../shared/ListToolbar";
 import { ArtifactRow } from "../shared/ArtifactRow";
 import { EmptyState } from "../shared/EmptyState";
@@ -63,28 +64,36 @@ export function InterviewList({
   const [statusFilter, setStatusFilter] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("default");
 
-  const visible = useMemo(() => {
-    const q = listSearch.trim().toLowerCase();
-    const filtered = items.filter((it) => {
-      if (q && !it.artifact_type.toLowerCase().includes(q) && !it.id.toLowerCase().includes(q)) {
+  // Phase 3a (F-13): shared derivation chain — see useArtifactList.
+  // `useCallback` keeps each callback's identity tied to its actual
+  // dependency (filter value / labels), so the memoized chain only
+  // recomputes when something really changed.
+  const filter = useCallback(
+    (session: InterviewSummary, q: string) => {
+      if (q && !session.artifact_type.toLowerCase().includes(q) && !session.id.toLowerCase().includes(q)) {
         return false;
       }
-      if (statusFilter && it.status !== statusFilter) return false;
+      if (statusFilter && session.status !== statusFilter) return false;
       return true;
-    });
-    return sortItems(filtered, sortKey);
-  }, [items, listSearch, statusFilter, sortKey]);
-
-  const treeNodes = useMemo(
-    () => visible.map((it) => interviewToNode(it, t(`interviews.forType.${it.artifact_type}`, it.artifact_type))),
-    [visible, t],
+    },
+    [statusFilter],
   );
 
-  const byId = useMemo(() => {
-    const map = new Map<string, InterviewSummary>();
-    for (const it of visible) map.set(it.id, it);
-    return map;
-  }, [visible]);
+  const toNode = useCallback(
+    (session: InterviewSummary) =>
+      interviewToNode(session, t(`interviews.forType.${session.artifact_type}`, session.artifact_type)),
+    [t],
+  );
+
+  const { visible, treeNodes, byId } = useArtifactList({
+    items,
+    query: listSearch,
+    filter,
+    sortItems,
+    sortKey,
+    toNode,
+    getKey: artifactId,
+  });
 
   const statusOptions = useMemo(() => buildStatusFilterOptions(items, statusFilter), [items, statusFilter]);
 
@@ -154,7 +163,7 @@ export function InterviewList({
           emptyLabel={t("editor.empty", "No items.")}
           noMatchesLabel={t("editor.noMatches", "No matches found.")}
           renderRow={(node, { isSelected }) => {
-            const session = byId.get(node.id);
+            const session = byId?.get(node.id);
             if (!session) return null;
             return (
               <ArtifactRow
