@@ -26,7 +26,7 @@
 
 import React from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent, act } from "@testing-library/react";
 import { AuthProvider } from "../context/AuthContext";
 import {
   WorkspaceProvider,
@@ -208,6 +208,15 @@ async function renderLoaded(): Promise<void> {
   await waitFor(() => {
     expect(screen.getByTestId("active-id").textContent).toBe("ws-1");
   });
+  // The per-user preference row loads asynchronously AFTER the workspace
+  // settles (its own effect + `preferencesApi.get`). Waiting only for
+  // `active-id` left a race: a mutator test could click while `userOverrides`
+  // was still the initial `null`, so the rollback restored `null` instead of
+  // the loaded overrides. Wait for the preference effect to have applied a
+  // real object before returning, so every test starts from settled state.
+  await waitFor(() => {
+    expect(screen.getByTestId("user-overrides").textContent).not.toBe("null");
+  });
 }
 
 beforeEach(() => {
@@ -341,8 +350,12 @@ describe("WorkspaceContext value characterization (Phase 5a)", () => {
     });
     expect(screen.getByTestId("overridden-risk").textContent).toBe("true");
 
-    // Failure → exact rollback to the previous override state.
-    rejectUpdate!(new Error("boom"));
+    // Failure → exact rollback to the previous override state. Reject inside
+    // `act` so the resulting state updates (rollback + error banner) flush
+    // deterministically instead of racing the assertion below.
+    await act(async () => {
+      rejectUpdate!(new Error("boom"));
+    });
     await waitFor(() => {
       expect(screen.getByTestId("error").textContent).toBe("risk-error");
     });
