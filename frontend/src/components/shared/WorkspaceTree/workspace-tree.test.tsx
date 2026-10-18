@@ -973,7 +973,7 @@ describe('WorkspaceTree — keyboard navigation', () => {
 // ---------------------------------------------------------------------------
 
 describe('WorkspaceTree — keyboard navigation in the virtualized path', () => {
-  const ROW_HEIGHT = 34; // VIRTUAL_ROW_HEIGHT in workspace-tree.tsx
+  const ROW_HEIGHT = 34; // VIRTUAL_ROW_HEIGHT in tree-virtualization.tsx
   const CONTAINER_HEIGHT = 340; // ~10 rows visible at once
 
   const LARGE_NODES: WorkspaceTreeNode[] = Array.from({ length: 150 }, (_, i) => ({
@@ -1622,6 +1622,43 @@ describe('WorkspaceTree — keyboard reparenting (H-1)', () => {
     expect(screen.getByTestId('workspace-tree-move-status')).toHaveTextContent(
       'editor.moveNodeDone',
     );
+  });
+
+  it('re-announces on the second move instead of keeping the first text (F-01)', () => {
+    // F-01 (SC 4.1.3): the announcement used to be the constant
+    // `t('editor.moveNodeDone')`, so the 2nd move set an identical string —
+    // React bailed out of the update, the live region never mutated again and a
+    // screen reader announced the first move only. Two consecutive moves of the
+    // SAME node must leave two different texts behind, which is why the
+    // announcement also names the new parent.
+    const onReparent = vi.fn();
+    renderTree({ nodes: TREE_NODES, onReparent });
+    const status = (): HTMLElement =>
+      screen.getByTestId('workspace-tree-move-status');
+
+    openMoveDialog('child1');
+    fireEvent.change(screen.getByTestId('workspace-tree-move-target'), {
+      target: { value: 'child2' },
+    });
+    fireEvent.click(screen.getByTestId('workspace-tree-move-confirm'));
+    const firstAnnouncement = status().textContent;
+
+    openMoveDialog('child1');
+    // `onReparent` is a stub, so the node's parent is still 'root' — moving it
+    // to the top level is a second, genuinely different destination.
+    fireEvent.change(screen.getByTestId('workspace-tree-move-target'), {
+      target: { value: '' },
+    });
+    fireEvent.click(screen.getByTestId('workspace-tree-move-confirm'));
+    const secondAnnouncement = status().textContent;
+
+    expect(onReparent).toHaveBeenNthCalledWith(1, 'child1', 'child2');
+    expect(onReparent).toHaveBeenNthCalledWith(2, 'child1', null);
+    expect(firstAnnouncement).toContain('L1 Subsystem A');
+    expect(firstAnnouncement).toContain('L1 Subsystem B');
+    expect(secondAnnouncement).toContain('L1 Subsystem A');
+    expect(secondAnnouncement).toContain('editor.moveNodeRoot');
+    expect(secondAnnouncement).not.toBe(firstAnnouncement);
   });
 
   it('moves a node to root level via the root option', () => {

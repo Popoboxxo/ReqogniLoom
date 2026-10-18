@@ -454,6 +454,33 @@ describe("SidebarNavigation — mobile drawer modality (M-1)", () => {
     await waitFor(() => expect(closeButton).toHaveFocus());
   });
 
+  // N10 (SC 2.4.3/2.4.7): below the breakpoint the closed drawer is only
+  // translated off-screen, so without `inert` every nav link stayed tabbable
+  // while invisible. Pin both halves: inert while closed, gone while open.
+  it("hides the closed mobile drawer from focus and AT with inert", async () => {
+    installViewport(true);
+    renderSidebar();
+
+    const burger = await screen.findByTestId("sidebar-burger");
+    const nav = document.querySelector("nav");
+    expect(nav).not.toBeNull();
+    expect(nav).toHaveAttribute("inert");
+
+    fireEvent.click(burger);
+
+    await waitFor(() => expect(document.querySelector("nav")).not.toHaveAttribute("inert"));
+  });
+
+  it("keeps the desktop rail interactive (no inert)", async () => {
+    installViewport(false);
+    renderSidebar();
+
+    await screen.findByTestId("sidebar-burger");
+    const nav = document.querySelector("nav");
+    expect(nav).not.toBeNull();
+    expect(nav).not.toHaveAttribute("inert");
+  });
+
   it("closes the modal drawer on Escape and returns focus to the burger", async () => {
     installViewport(true);
     renderSidebar();

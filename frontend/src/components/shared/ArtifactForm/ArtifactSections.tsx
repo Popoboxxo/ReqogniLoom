@@ -90,8 +90,17 @@ export function ArtifactSections({
         }
         const { section, layout } = entry;
         const open = isSectionOpen(section);
-        // H-2 (#a11y): the section is a named region — the toggle carries the
-        // id the section points at, and (in edit mode) controls the body panel.
+        // H-2 (a11y): the section is a named region. Its accessible name comes
+        // from the stable label text (`sectionLabelId`), NOT from the disclosure
+        // control: F-03/N4 (SC 1.3.1/2.4.6) — pointing `aria-labelledby` at the
+        // toggle made the region's name the toggle's `aria-label` ("Abschnitt X
+        // einklappen/erweitern"), i.e. an *action* that also flipped with the
+        // expanded state. The interactive control keeps its own id
+        // (`sectionToggleId`) as the `aria-controls` origin; the body panel id is
+        // only referenced while that panel actually exists (N3 — a collapsed
+        // section renders no body, and an `aria-controls` pointing at a missing
+        // id is a dangling IDREF).
+        const sectionLabelId = `${idBase}-section-label-${section.name}`;
         const sectionToggleId = `${idBase}-section-toggle-${section.name}`;
         const sectionBodyId = `${idBase}-section-body-${section.name}`;
         const fieldEntries = resolveAttributeFlow(
@@ -101,7 +110,7 @@ export function ArtifactSections({
         return (
           <section
             key={section.name}
-            aria-labelledby={sectionToggleId}
+            aria-labelledby={sectionLabelId}
             data-testid={`artifact-section-${section.name}`}
             data-layout={layout}
             data-columns={sectionLayoutColumns(layout)}
@@ -115,7 +124,7 @@ export function ArtifactSections({
               // form's content (create-dialog focus contract, #800 class).
               <h3 className={styles.sectionHeading}>
                 <span
-                  id={sectionToggleId}
+                  id={sectionLabelId}
                   className={styles.sectionHeader}
                   data-testid={`artifact-section-toggle-${section.name}`}
                   aria-current="false"
@@ -131,14 +140,14 @@ export function ArtifactSections({
                   className={styles.sectionHeader}
                   data-testid={`artifact-section-toggle-${section.name}`}
                   aria-expanded={open}
-                  aria-controls={sectionBodyId}
+                  aria-controls={open ? sectionBodyId : undefined}
                   aria-label={t(
                     open ? "artifactForm.collapseSection" : "artifactForm.expandSection",
                     { section: t(`sections.${section.name}`, { defaultValue: section.name }) }
                   )}
                   onClick={() => onToggleSection(section, open)}
                 >
-                  <span>{t(`sections.${section.name}`, { defaultValue: section.name })}</span>
+                  <span id={sectionLabelId}>{t(`sections.${section.name}`, { defaultValue: section.name })}</span>
                   {open ? (
                     <ChevronDown aria-hidden="true" size={16} />
                   ) : (

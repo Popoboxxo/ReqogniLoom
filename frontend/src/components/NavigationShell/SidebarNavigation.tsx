@@ -541,6 +541,15 @@ export function SidebarNavigation(): JSX.Element {
       role={isDrawerModal ? "dialog" : undefined}
       aria-modal={isDrawerModal ? true : undefined}
       tabIndex={isDrawerModal ? -1 : undefined}
+      // N10 (SC 2.4.3/2.4.7): below the breakpoint the drawer is only
+      // *translated* off-screen (`translateX(-100%)`), which leaves every nav
+      // link and control in the tab order — a keyboard user tabbing through the
+      // page walked through ~20 invisible stops before reaching the content.
+      // `inert` removes the whole closed drawer from the tab order and from the
+      // accessibility tree in one go. Applied only while the drawer is closed
+      // on a mobile viewport: the open drawer (a modal dialog, M-1) and the
+      // desktop rail must stay fully interactive.
+      inert={isMobileViewport && !isMobileNavOpen ? true : undefined}
       aria-label={t("nav.mainNavigation")}
       className={`${styles.sidebarNav} ${styles.navRoot} ${isMobileNavOpen ? styles.open : ""}`}
     >

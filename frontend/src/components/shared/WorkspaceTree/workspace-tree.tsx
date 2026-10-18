@@ -421,6 +421,20 @@ function flattenVisible(
 // WorkspaceTree
 // ---------------------------------------------------------------------------
 
+/**
+ * Human-readable name of a reparenting endpoint for the move announcement
+ * (H-1 / F-01). Mirrors the "identifier · name" form the move dialog's own
+ * options render, and falls back to the dialog's root label when there is no
+ * parent node (moving to top level).
+ */
+function describeMoveTarget(
+  node: WorkspaceTreeNode | null | undefined,
+  rootLabel: string,
+): string {
+  if (!node) return rootLabel;
+  return node.identifier ? `${node.identifier} · ${node.name}` : node.name;
+}
+
 export function WorkspaceTree({
   nodes,
   selectedId,
@@ -839,15 +853,32 @@ export function WorkspaceTree({
   // H-1: the keyboard path shares `reparent` with the drop handler, so the
   // cycle/no-op guards are identical. A forwarded move is announced through the
   // single polite live region below (the tree's only live region).
+  //
+  // F-01 (SC 4.1.3, Phase 6 review): the announcement has to be a *different*
+  // string for every move. Assigning the constant `t('editor.moveNodeDone')`
+  // produced no DOM mutation on the 2nd+ move — React bails out of a state
+  // update whose value is identical — so the live region never changed again
+  // and a screen reader announced the first move only. Naming the moved element
+  // and its new parent makes consecutive announcements distinct; an identical
+  // repeat is impossible because moving a node to the parent it already has is
+  // a no-op that never reaches this branch.
   const handleMoveConfirm = useCallback(
     (newParentId: string | null): void => {
       if (moveNodeId === null) return;
       if (reparent(moveNodeId, newParentId)) {
-        setMoveAnnouncement(t('editor.moveNodeDone'));
+        const moved = nodes.find((n) => n.id === moveNodeId);
+        const parent =
+          newParentId === null ? null : nodes.find((n) => n.id === newParentId);
+        setMoveAnnouncement(
+          `${t('editor.moveNodeDone')} ${describeMoveTarget(
+            moved,
+            t('editor.moveNodeRoot'),
+          )} → ${describeMoveTarget(parent, t('editor.moveNodeRoot'))}`,
+        );
       }
       setMoveNodeId(null);
     },
-    [moveNodeId, reparent, t],
+    [moveNodeId, nodes, reparent, t],
   );
   const moveNode = useMemo(
     () => nodes.find((n) => n.id === moveNodeId) ?? null,
@@ -989,12 +1020,15 @@ export function WorkspaceTree({
         </ul>
       )}
 
-      {/* H-1: the tree's single polite live region. Announcing a keyboard
-          reparent here (rather than adding a second region) keeps the tree to
-          one status channel. */}
+      {/* H-1/F-01: the tree's single polite live region, announcing every
+          keyboard reparent. This region is introduced by H-1 itself (there was
+          no earlier region to reuse — F-08 corrected that comment); `role=
+          "status"` already carries the implicit `aria-live="polite"` (ARIA 1.2),
+          so the explicit attribute was redundant and was dropped (F-08). The
+          announced text names the moved element and its new parent so a second
+          move actually mutates the region (see handleMoveConfirm). */}
       <p
         role="status"
-        aria-live="polite"
         className={styles.visuallyHidden}
         data-testid={`${testId}-move-status`}
       >
