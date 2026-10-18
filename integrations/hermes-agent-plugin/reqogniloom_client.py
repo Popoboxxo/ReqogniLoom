@@ -187,14 +187,41 @@ def _validate_base_url(value: str) -> None:
     An empty or non-http(s) value is a configuration mistake: failing here
     names the variable and the offending value at construction, instead of
     surfacing later as a puzzling transport error against a malformed URL.
+
+    The host itself is checked too, and here rather than only when an entry is
+    written: every request sends the resolved API key as ``X-API-Key`` to this
+    URL, and the URL can come from the registry *file*. A target in the link-local
+    / cloud-metadata range is refused at the point of use, whatever path put it
+    into the configuration.
     """
     if value and value.startswith(("http://", "https://")):
+        reason = _forbidden_target(value)
+        if reason:
+            raise ReqogniLoomError(
+                f"refusing base URL {value!r}: {reason} — this plugin does not send "
+                f"an API key to that host"
+            )
         _warn_if_cleartext_remote(value)
         return
     raise ReqogniLoomError(
         f"invalid REQOGNILOOM_BASE_URL {value!r}: expected an http:// or https:// URL, "
         f"e.g. REQOGNILOOM_BASE_URL=http://localhost:8001"
     )
+
+
+def _forbidden_target(value: str) -> str:
+    """Why this URL must not carry a key, or ``""``.
+
+    Implemented in the registry (the module that owns the rule for stored
+    entries); this twin covers the env/default path so one rule holds for every
+    way a base URL can enter the process.
+    """
+    try:  # pragma: no cover - the registry module is always importable here
+        from reqogniloom_registry import forbidden_host_reason
+
+        return forbidden_host_reason(value)
+    except Exception:
+        return ""
 
 
 def _warn_if_cleartext_remote(value: str) -> None:

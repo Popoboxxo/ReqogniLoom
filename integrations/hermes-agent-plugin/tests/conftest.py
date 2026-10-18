@@ -39,25 +39,6 @@ def _tools_module_names() -> Iterator[str]:
             yield name
 
 
-@pytest.fixture(autouse=True)
-def reset_process_memoisation() -> Iterator[None]:
-    """Empty the tool catalogue caches and the issued-token stores around a test."""
-
-    def clear() -> None:
-        for name in _tools_module_names():
-            module = sys.modules.get(name)
-            if module is None:
-                continue
-            invalidate = getattr(module, "invalidate", None)
-            reset = getattr(module, "reset_issued_tokens", None)
-            if callable(invalidate):
-                invalidate()
-            if callable(reset):
-                reset()
-
-    clear()
-    yield
-    clear()
 
 
 @pytest.fixture(autouse=True)

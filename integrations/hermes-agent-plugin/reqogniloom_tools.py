@@ -58,6 +58,9 @@ MUTATE_VERBS = frozenset(
         "replay", "deprecate", "reorder", "forget", "commit", "restore", "generate", "derive",
         "decompose", "seed", "publish", "finalize", "assign", "grant", "rename", "merge",
         "split", "archive", "reply", "clear", "answer", "chat", "consolidate",
+        # destructive verbs that were missing: an unrecognised verb falls back to
+        # "read", which would have run a wipe without a dialog or a gate.
+        "purge", "wipe", "destroy", "erase",
         # compound verbs — the verb segment as a whole, not a single word
         "report_results", "run_create", "run_complete", "run_report_results", "mark_reviewed",
         "derive_requirements", "derive_from_requirement", "create_version", "create_manual",
@@ -153,6 +156,7 @@ HUMAN_TOOLS = frozenset(
         "suggestion.accept",
         "suggestion.reject",
         "main_goal.approve",
+        "goal.transition",
     }
 )
 
@@ -227,14 +231,24 @@ def classify_tool(tool: Dict[str, Any]) -> str:
     does, that is authoritative and beats the name heuristic — otherwise this
     plugin would keep overriding a fact it can be told, which is how a heuristic
     goes stale silently.
+
+    One exception, in one direction only: a name listed in :data:`MUTATE_EXACT` or
+    :data:`COMPUTE_EXACT` was verified by hand against the server's own tool
+    description, so a ``readOnlyHint`` may not downgrade a *persisting* tool out
+    of its confirmation dialog. Annotations may add a mutation signal, never
+    remove an explicit one.
     """
     name = str(tool.get("name") or "")
+    if name in MUTATE_EXACT:
+        return CLASS_MUTATE
+    if name in COMPUTE_EXACT:
+        return CLASS_COMPUTE
     annotations = tool.get("annotations")
     if isinstance(annotations, dict):
         if annotations.get("destructiveHint") is True:
             return CLASS_MUTATE
         if annotations.get("readOnlyHint") is True:
-            return CLASS_COMPUTE if name in COMPUTE_EXACT else CLASS_READ
+            return CLASS_READ
     return classify(name)
 
 
@@ -251,8 +265,32 @@ def requires_human(tool_name: str) -> bool:
     return tool_name in HUMAN_TOOLS
 
 
+#: Tool-name segments that mean the call destroys something. Matched per dot
+#: segment *and* on the first underscore part of a segment, so both spellings the
+#: catalogue uses are covered: ``workspace.delete`` and
+#: ``memory.delete_workspace`` / ``attribute_definition.delete_workspace`` — the
+#: latter two are a GDPR wipe of every memory tier a workspace owns, and a
+#: ``.delete``-suffix test missed them, leaving them with a plain yes/no
+#: confirmation. Verified against the 248-tool manifest: 12 names match, all of
+#: them hard deletes or resets.
+DESTRUCTIVE_SEGMENTS = frozenset({"delete", "purge", "destroy", "wipe", "reset", "drop"})
+
+
+def _name_looks_destructive(tool_name: str) -> bool:
+    for segment in tool_name.split("."):
+        if segment in DESTRUCTIVE_SEGMENTS:
+            return True
+        if segment.split("_")[0] in DESTRUCTIVE_SEGMENTS:
+            return True
+    return False
+
+
 def is_destructive(tool_name: str) -> bool:
-    return tool_name in DESTRUCTIVE_TOOLS or tool_name.endswith(DESTRUCTIVE_SUFFIX)
+    if tool_name in DESTRUCTIVE_TOOLS:
+        return True
+    if tool_name.endswith(DESTRUCTIVE_SUFFIX):
+        return True
+    return _name_looks_destructive(tool_name)
 
 
 def risk_class(tool_name: str) -> str:

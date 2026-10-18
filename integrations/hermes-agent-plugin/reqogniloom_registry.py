@@ -51,12 +51,14 @@ dashboard API serialises entries with :func:`public_server`, which reports only
 """
 from __future__ import annotations
 
+import ipaddress
 import json
 import logging
 import os
 import re
 import threading
 import time
+import urllib.parse
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple
@@ -159,7 +161,18 @@ def save_registry(registry: Dict[str, Any]) -> None:
         # Create the temp file already restrictive: this file holds every
         # server's keys, and a world-readable window between write and chmod is
         # exactly the exposure the mode is there to prevent.
-        fd = os.open(str(tmp), os.O_CREAT | os.O_EXCL | os.O_WRONLY, FILE_MODE)
+        try:
+            fd = os.open(str(tmp), os.O_CREAT | os.O_EXCL | os.O_WRONLY, FILE_MODE)
+        except FileExistsError:
+            # A leftover from a process that died between create and replace
+            # (same pid+thread after a restart) would otherwise block every write
+            # forever. O_EXCL still protects the concurrent case: two *live*
+            # writers never share this name because it carries pid and thread id.
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
+            fd = os.open(str(tmp), os.O_CREAT | os.O_EXCL | os.O_WRONLY, FILE_MODE)
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             handle.write(json.dumps(registry, indent=2, sort_keys=True))
         os.replace(tmp, path)
@@ -255,14 +268,61 @@ def validate_server_id(server_id: str) -> str:
 
 
 def validate_base_url(value: str) -> str:
-    """Return the normalised base URL (no trailing slash), or raise."""
+    """Return the normalised base URL (no trailing slash), or raise.
+
+    The scheme check is not enough: every call to an entry sends that entry's API
+    key as ``X-API-Key`` to the URL stored here, so a URL that can reach a cloud
+    metadata service or a link-local address turns "add a server" into a
+    credential-egress primitive. Private ranges stay allowed on purpose — a
+    ReqogniLoom install on a LAN (the normal case) reaches its server over
+    ``http://172.x``/``http://10.x`` and refusing that would make the plugin
+    unusable. Anything that is *not* a ReqogniLoom server by construction
+    (metadata, link-local, unspecified) is refused.
+    """
     candidate = (value or "").strip()
     if not candidate.startswith(("http://", "https://")):
         raise RegistryError(
             f"invalid base URL {value!r}: expected an http:// or https:// URL, "
             f"e.g. http://localhost:8001"
         )
-    return candidate.rstrip("/")
+    candidate = candidate.rstrip("/")
+    reason = forbidden_host_reason(candidate)
+    if reason:
+        raise RegistryError(f"refusing base URL {value!r}: {reason}")
+    return candidate
+
+
+#: Host names that exist to hand out (or harvest) credentials.
+FORBIDDEN_HOST_NAMES = frozenset(
+    {"metadata.google.internal", "metadata", "instance-data", "metadata.azure.com"}
+)
+
+
+def forbidden_host_reason(url: str) -> str:
+    """Why this URL must not be contacted with a key, or ``""``.
+
+    Split out of :func:`validate_base_url` so a *stored* URL can be re-checked at
+    call time: the file is editable by whoever can reach it, and the rule has to
+    hold for the request, not only for the moment the entry was created.
+    """
+    try:
+        parsed = urllib.parse.urlsplit(url)
+    except ValueError:
+        return "unparseable URL"
+    host = (parsed.hostname or "").strip().lower()
+    if not host:
+        return "no host in the URL"
+    if host in FORBIDDEN_HOST_NAMES:
+        return "that host serves cloud instance metadata, not an API"
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return ""
+    if address.is_link_local:
+        return f"link-local address {host} (cloud metadata range)"
+    if address.is_unspecified:
+        return f"unspecified address {host}"
+    return ""
 
 
 def _trim(value: Any) -> Optional[str]:
@@ -291,6 +351,20 @@ def validate_key_env(value: Optional[str]) -> Optional[str]:
             f"{' or '.join(ALLOWED_KEY_ENV_PREFIXES)} may hold a server credential"
         )
     return name
+
+
+def permitted_key_env(value: Optional[str]) -> Optional[str]:
+    """Like :func:`validate_key_env`, but never raises — for *reading* paths.
+
+    A hand-edited ``servers.json`` can name a foreign variable; the request path
+    must then simply find no credential instead of failing with an exception
+    (which would turn a config mistake into an unreachable server).
+    """
+    try:
+        return validate_key_env(value)
+    except RegistryError:
+        logger.warning("reqogniloom registry: ignoring disallowed api_key_env %r", value)
+        return None
 
 
 # --------------------------------------------------------------------------
@@ -395,12 +469,12 @@ def resolve_credentials(entry: Optional[Dict[str, Any]]) -> Tuple[Optional[str],
         return None, None
     api_key: Optional[str] = None
     if entry.get("api_key_source") == "env":
-        api_key = _trim(os.environ.get(_trim(entry.get("api_key_env")) or ""))
+        api_key = _trim(os.environ.get(permitted_key_env(entry.get("api_key_env")) or ""))
     else:
         api_key = _trim(entry.get("api_key"))
     user_key: Optional[str] = None
     if entry.get("user_api_key_source") == "env":
-        user_key = _trim(os.environ.get(_trim(entry.get("user_api_key_env")) or ""))
+        user_key = _trim(os.environ.get(permitted_key_env(entry.get("user_api_key_env")) or ""))
     else:
         user_key = _trim(entry.get("user_api_key"))
     return api_key, user_key
@@ -570,6 +644,12 @@ def update_server(server_id: str, **fields: Any) -> Dict[str, Any]:
     Recognised fields: ``name``, ``base_url``, ``api_key``, ``api_key_env``,
     ``user_api_key``, ``user_api_key_env``, ``default_workspace_id``. Setting a
     key clears the other key source (a value or a variable, never both).
+
+    Changing ``base_url`` **clears both keys**. Every request sends the entry's
+    key as ``X-API-Key`` to whatever host is stored here, so re-pointing an entry
+    while keeping its credential would hand that credential to the new host
+    without anybody confirming it. Clearing forces the operator to re-enter the
+    key for the host it belongs to.
     """
     sid = validate_server_id(server_id)
 
@@ -581,7 +661,17 @@ def update_server(server_id: str, **fields: Any) -> Dict[str, Any]:
         if fields.get("name") is not None:
             updated["name"] = _trim(fields["name"]) or sid
         if fields.get("base_url") is not None:
-            updated["base_url"] = validate_base_url(str(fields["base_url"]))
+            new_url = validate_base_url(str(fields["base_url"]))
+            if new_url != entry.get("base_url"):
+                for field_name, source_name in (
+                    ("api_key", "api_key_source"),
+                    ("user_api_key", "user_api_key_source"),
+                ):
+                    if updated.get(field_name) or updated.get(source_name) not in (None, "none"):
+                        updated[field_name] = None
+                        updated[source_name] = "none"
+                        updated[field_name + "_env"] = None
+            updated["base_url"] = new_url
         if fields.get("default_workspace_id") is not None:
             updated["default_workspace_id"] = _trim(fields["default_workspace_id"])
         if fields.get("api_key_env") is not None:

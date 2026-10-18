@@ -791,3 +791,61 @@ class SchemaContractTests(_CatalogueTestBase):
 if __name__ == "__main__":
     unittest.main()
 
+class HardeningRouteTests(unittest.TestCase):
+    """The route-level behaviour the second review round demanded."""
+
+    def test_write_gate_on_an_unwritable_registry_is_an_error_body_not_a_500(self) -> None:
+        with patch.object(
+            plugin_api.registry, "save_registry", side_effect=plugin_api.registry.RegistryError("cannot write")
+        ):
+            result = plugin_api.set_write_gate({"enabled": False})
+        self.assertIn("error", result)
+        self.assertNotIn("write_gate", result)
+
+    def test_the_catalogue_cache_key_is_the_normalised_server_id(self) -> None:
+        # GET /tools?server_id=QS and ?server_id=qs address the same server, so
+        # they must share one cache entry (the registry lower-cases on the way in).
+        self.assertEqual(plugin_api._server_key(None, "QS-Test"), "qs-test")
+        self.assertEqual(plugin_api._server_key(None, "qs"), "qs")
+
+    def test_workspace_selected_remembers_the_choice(self) -> None:
+        plugin_api.registry.add_server("qs", "http://qs.test:8001")
+        result = plugin_api.workspace_selected({"server_id": "qs", "workspace_id": _WORKSPACE_UUID})
+        self.assertEqual(result["workspace_id"], _WORKSPACE_UUID)
+        self.assertEqual(
+            plugin_api.registry.get_server("qs")["last_workspace_id"], _WORKSPACE_UUID
+        )
+
+    def test_reading_the_stats_does_not_write_the_workspace_memory(self) -> None:
+        # A GET with a side effect is not a GET: the memory is written by
+        # POST /workspace-selected, and only there.
+        plugin_api.registry.add_server("qs", "http://qs.test:8001")
+        fake = _catalogue_client()
+        with patch.object(plugin_api, "ReqogniLoomClient", return_value=fake):
+            plugin_api.stats(workspace_id=_WORKSPACE_UUID)
+        self.assertIsNone(plugin_api.registry.get_server("qs")["last_workspace_id"])
+
+    def test_a_metadata_target_cannot_be_added(self) -> None:
+        for bad in ("http://169.254.169.254", "http://metadata.google.internal"):
+            with self.subTest(url=bad):
+                result = plugin_api.add_server({"id": "evil", "base_url": bad})
+                self.assertIn("error", result)
+
+    def test_a_stored_metadata_target_is_refused_at_use(self) -> None:
+        # The file is editable; the refusal has to hold when a request is made,
+        # not only when the entry was written.
+        entry = dict(plugin_api.registry._new_entry("evil", "evil", base_url="http://169.254.169.254"))
+        plugin_api.registry.save_registry(
+            {"registry_version": 1, "active": "evil", "write_gate": True, "servers": [entry]}
+        )
+        self.assertIn("error", plugin_api.stats())
+        self.assertIn("error", plugin_api.tool_catalogue())
+
+    def test_changing_the_url_answers_with_a_note_about_the_cleared_keys(self) -> None:
+        plugin_api.registry.add_server("qs", "http://qs.test:8001", api_key="reqlo_agent")
+        result = plugin_api.update_server("qs", {"base_url": "http://other.test:8001"})
+        self.assertIn("note", result)
+        self.assertIsNone(plugin_api.registry.get_server("qs")["api_key"])
+
+    def test_probing_an_unknown_server_is_an_error_body(self) -> None:
+        self.assertIn("error", plugin_api.test_server("ghost"))

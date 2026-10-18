@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import sys
 import unittest
 from unittest import mock
 from pathlib import Path
@@ -29,10 +30,21 @@ _REPO_ROOT = _PLUGIN_ROOT.parent.parent
 
 
 def _load(module_name: str, file_path: Path):
+    """Load a module copy and register it in ``sys.modules``.
+
+    Registering is what makes the conftest fixture able to clear this copy's
+    catalogue cache and token store; without the entry it is invisible to the
+    isolation fixture, and state leaks into the following test.
+    """
     spec = importlib.util.spec_from_file_location(module_name, file_path)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    sys.modules[module_name] = module
+    try:
+        spec.loader.exec_module(module)
+    except Exception:
+        sys.modules.pop(module_name, None)
+        raise
     return module
 
 
@@ -444,3 +456,99 @@ class CatalogueCacheTests(unittest.TestCase):
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
+
+class ManifestWriteInvariantTests(unittest.TestCase):
+    """Every tool the server itself calls a write must be gated by this plugin.
+
+    The previous guard only forbade ``read``. ``compute`` drops the confirmation
+    dialog just as effectively (``/write`` gates ``mutate`` only), so a persisting
+    tool could hide in the compute table unnoticed — which is exactly what
+    happened to nine tools. The rule is now: a manifest write is either ``mutate``
+    or it is on COMPUTE_EXACT *with* a justification a reviewer can check.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        manifest_path = _REPO_ROOT / "docs" / "agent-templates" / "tool-manifest.json"
+        if not manifest_path.exists():
+            raise unittest.SkipTest("tool manifest not available")
+        cls.tools_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))["tools"]
+
+    def test_no_manifest_write_is_read(self) -> None:
+        offenders = [
+            tool["name"]
+            for tool in self.tools_manifest
+            if tool.get("is_write") and tools.classify(tool["name"]) == tools.CLASS_READ
+        ]
+        self.assertEqual(offenders, [], f"these writes would run without a gate: {offenders}")
+
+    def test_a_manifest_write_is_mutate_or_explicitly_justified(self) -> None:
+        unjustified = [
+            tool["name"]
+            for tool in self.tools_manifest
+            if tool.get("is_write")
+            and tools.classify(tool["name"]) == tools.CLASS_COMPUTE
+            and tool["name"] not in tools.COMPUTE_JUSTIFICATIONS
+        ]
+        self.assertEqual(
+            unjustified,
+            [],
+            "these tools are writes for the server and compute for this plugin "
+            f"without a stated reason: {unjustified}",
+        )
+
+    def test_no_manifest_read_is_classified_write(self) -> None:
+        offenders = [
+            tool["name"]
+            for tool in self.tools_manifest
+            if not tool.get("is_write") and tools.classify(tool["name"]) != tools.CLASS_READ
+        ]
+        self.assertEqual(offenders, [], f"these reads would demand a confirmation: {offenders}")
+
+
+class AnnotationPrecedenceTests(unittest.TestCase):
+    """Annotations may add a mutation signal, never remove an explicit one."""
+
+    def test_a_read_only_hint_cannot_downgrade_a_hand_verified_mutation(self) -> None:
+        # A server publishing readOnlyHint for a persisting tool must not talk it
+        # out of its confirmation dialog.
+        entry = {"name": "traceability.suggest_links", "annotations": {"readOnlyHint": True}}
+        self.assertEqual(tools.classify_tool(entry), tools.CLASS_MUTATE)
+
+    def test_a_destructive_hint_upgrades_an_unknown_tool(self) -> None:
+        entry = {"name": "requirement.frobnicate", "annotations": {"destructiveHint": True}}
+        self.assertEqual(tools.classify_tool(entry), tools.CLASS_MUTATE)
+
+    def test_a_read_only_hint_applies_to_unknown_tools(self) -> None:
+        entry = {"name": "requirement.frobnicate", "annotations": {"readOnlyHint": True}}
+        self.assertEqual(tools.classify_tool(entry), tools.CLASS_READ)
+
+    def test_hints_are_ignored_when_absent_or_malformed(self) -> None:
+        self.assertEqual(tools.classify_tool({"name": "requirement.get"}), tools.CLASS_READ)
+        self.assertEqual(tools.classify_tool({"name": "requirement.get", "annotations": "yes"}), tools.CLASS_READ)
+
+
+class DestructiveDetectionTests(unittest.TestCase):
+    def test_workspace_wipes_are_destructive(self) -> None:
+        # A GDPR wipe of every memory tier of a workspace is the most destructive
+        # call in the catalogue; a `.delete`-suffix test missed both of these and
+        # left them with a plain yes/no confirmation.
+        for name in (
+            "memory.delete_workspace",
+            "attribute_definition.delete_workspace",
+            "workspace.delete",
+            "user.purge",
+        ):
+            with self.subTest(name=name):
+                self.assertTrue(tools.is_destructive(name))
+                self.assertEqual(tools.classify(name), tools.CLASS_MUTATE)
+
+    def test_ordinary_mutations_are_not_destructive(self) -> None:
+        for name in ("requirement.create", "memory.write", "traceability.create_link"):
+            with self.subTest(name=name):
+                self.assertFalse(tools.is_destructive(name))
+
+    def test_approval_transitions_need_the_human_key(self) -> None:
+        self.assertTrue(tools.requires_human("review.approve"))
+        self.assertTrue(tools.requires_human("goal.transition"))
+        self.assertFalse(tools.requires_human("requirement.create"))

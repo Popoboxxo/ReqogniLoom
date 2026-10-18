@@ -392,6 +392,12 @@ textarea.reqlo-input {
   cursor: pointer;
 }
 
+.reqlo-dialog-actions button.reqlo-danger,
+.reqlo-table td button.reqlo-danger {
+  color: var(--reqlo-danger);
+  border-color: currentColor;
+}
+
 .reqlo-dialog-actions button:disabled {
   opacity: 0.5;
   cursor: default;

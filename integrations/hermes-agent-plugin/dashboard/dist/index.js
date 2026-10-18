@@ -83,6 +83,10 @@
     { label: "Goal", tool: TOOL.goalCreate }
   ];
 
+  //: How many proposals the review queue renders. The count of the full list is
+  //: shown next to it, so truncation is visible instead of implied.
+  var REVIEW_ROW_LIMIT = 50;
+
   var VIEWS = [
     { id: "overview", label: "Overview" },
     { id: "write", label: "Write" },
@@ -129,10 +133,42 @@
     return parts.length ? "?" + parts.join("&") : "";
   }
 
-  // The transport is window.fetch: SDK.fetchJSON has no definition anywhere in
-  // the repo, so its contract (headers? POST?) is unverifiable. Same-origin, no
-  // credential, exactly like the read-only revision of this tab did.
+  // The transport delegates to the host SDK's ``fetchJSON``. Hand-rolling fetch
+  // worked only because this dashboard runs in the cookie-gated mode: on a
+  // loopback dashboard (``auth_required: false``) every call must carry the
+  // ``X-Hermes-Session-Token`` header, which the SDK supplies and a hand-rolled
+  // request does not — the tab would 401 completely. The host plugin
+  // ``hermes-achievements`` solves it the same way.
   function request(method, path, body) {
+    var options = { method: method };
+    if (body !== undefined) {
+      options.headers = { "Content-Type": "application/json" };
+      options.body = JSON.stringify(body);
+    }
+    if (typeof SDK.fetchJSON === "function") {
+      return Promise.resolve()
+        .then(function () {
+          return SDK.fetchJSON(API + path, options);
+        })
+        .catch(function (err) {
+          // fetchJSON rejects with Error("<status>: <body>") on non-2xx.
+          var text = err && err.message ? String(err.message) : String(err);
+          var match = /^(\d{3})\s*:?/.exec(text);
+          if (!match) throw networkError();
+          var detail = text.slice(match[0].length).trim();
+          try {
+            var parsed = JSON.parse(detail);
+            detail = (parsed && (parsed.detail || parsed.error)) || detail;
+          } catch (ignored) {
+            /* not JSON — keep the raw text */
+          }
+          throw httpError(Number(match[1]), detail);
+        });
+    }
+    return legacyRequest(method, path, body);
+  }
+
+  function legacyRequest(method, path, body) {
     var options = { method: method, credentials: "same-origin" };
     if (body !== undefined) {
       options.headers = { "Content-Type": "application/json" };
@@ -212,8 +248,31 @@
     return h("span", { className: "reqlo-badge " + tone }, toolClass);
   }
 
+  // The gate's state is unknown until /servers answers. Reporting it as "open"
+  // before that would contradict a registry that says otherwise — and the
+  // checkbox would appear ticked while writes are in fact locked.
+  function gateState(registry) {
+    if (!registry) return "unknown";
+    return registry.write_gate === false ? "locked" : "open";
+  }
+
   function gateIsOpen(registry) {
-    return !registry || registry.write_gate !== false;
+    return gateState(registry) === "open";
+  }
+
+  // The workspace this server was last used with, straight from the registry
+  // payload — the UI must not invent a default that then gets persisted as the
+  // operator's choice. Takes the payload as an argument rather than reading a
+  // module cell: the caller already has it, and a cell set during a render would
+  // be stale for a chain that resolves several awaits later.
+  function rememberedWorkspaceId(registryPayload) {
+    var servers = (registryPayload && registryPayload.servers) || [];
+    for (var index = 0; index < servers.length; index += 1) {
+      var server = servers[index] || {};
+      if (!server.active) continue;
+      return server.last_workspace_id || server.default_workspace_id || "";
+    }
+    return "";
   }
 
   function findTool(catalogue, name) {
@@ -267,31 +326,32 @@
   // schema-driven form
   // ------------------------------------------------------------------------
 
+  // Seeds only what the tool itself declares as a default.
+  //
+  // The earlier revision seeded *every* declared property with "" — which made
+  // 11 of the 12 create flows unusable: a text field implies the string type, so
+  // an empty string for an integer/object/array property is a type error and the
+  // preview refused the call ("parameter 'level' expects an integer"). An
+  // unset optional parameter has to be *absent*, not empty.
   function initialValues(schema) {
     var values = {};
     var properties = (schema && schema.properties) || {};
     Object.keys(properties).forEach(function (name) {
       var spec = properties[name] || {};
       if (spec.default !== undefined) values[name] = spec.default;
-      // An enum deliberately starts empty: pre-selecting enum[0] would record a
-      // choice the author never made (requirement.create's verification_method
-      // would silently become "Test").
-      else if (spec.enum && spec.enum.length) values[name] = "";
-      else if (spec.type === "boolean") values[name] = false;
-      else values[name] = "";
     });
     return values;
   }
 
   function coerceField(spec, raw) {
     if (spec.type === "integer" || spec.type === "number") {
-      if (raw === "" || raw === null || raw === undefined) return "";
+      if (raw === "" || raw === null || raw === undefined) return undefined;
       var num = Number(raw);
       return isNaN(num) ? raw : num;
     }
     if (spec.type === "array" || spec.type === "object") {
       var text = String(raw || "").trim();
-      if (!text) return spec.type === "array" ? [] : {};
+      if (!text) return undefined;
       try {
         return JSON.parse(text);
       } catch (err) {
@@ -299,6 +359,26 @@
       }
     }
     return raw;
+  }
+
+  // Drops everything the operator did not actually state. `false`, `0`, `[]` and
+  // `{}` are statements and survive; `undefined`, `""`, `null` and `NaN` are not.
+  function pruneEmpty(values) {
+    var next = {};
+    Object.keys(values || {}).forEach(function (name) {
+      var value = values[name];
+      if (value === undefined || value === null) return;
+      if (typeof value === "string" && value === "") return;
+      if (typeof value === "number" && isNaN(value)) return;
+      next[name] = value;
+    });
+    return next;
+  }
+
+  // The one place a tool call's arguments are assembled: the operator's own
+  // entries, pruned, plus the selected workspace when the tool declares it.
+  function buildArguments(entry, values) {
+    return withWorkspace(entry, pruneEmpty(values));
   }
 
   // Renders exactly the properties the tool declares (see rule 2 above).
@@ -325,7 +405,10 @@
       };
       var common = {
         id: fieldId,
-        "data-testid": "reqlo-field-" + name,
+        // Scoped by the form: two forms can render the same field name (the create
+        // flow and the link flow both show `source_id`), and one test id has to
+        // identify one control.
+        "data-testid": "reqlo-field-" + props.scope + "-" + name,
         "aria-required": isRequired ? "true" : undefined,
         disabled: props.disabled,
         onChange: function (event) {
@@ -347,7 +430,7 @@
         control = h("input", {
           id: fieldId,
           type: "checkbox",
-          "data-testid": "reqlo-field-" + name,
+          "data-testid": "reqlo-field-" + props.scope + "-" + name,
           disabled: props.disabled,
           checked: value === true,
           onChange: function (event) {
@@ -426,6 +509,16 @@
             preview.human_key_available
               ? "Runs with the human principal (this decides a proposal)."
               : "Needs the human API key of this server — set it under Servers → Keys."
+          )
+        : null,
+      // The workspace is injected into the arguments at preview time, and the
+      // dialog is where the operator has to be able to see it: switching the
+      // workspace in the bar afterwards changes nothing about this pending call.
+      props.targetWorkspace
+        ? h(
+            "p",
+            { className: "reqlo-hint", "data-testid": "reqlo-confirm-workspace" },
+            "Target workspace: " + props.targetWorkspace
           )
         : null,
       preview.blocked
@@ -529,12 +622,16 @@
     var [selected, setSelected] = hooks.useState(props.initialTool || "");
     var [values, setValues] = hooks.useState({});
 
+    var seededTool = hooks.useRef ? hooks.useRef("") : { current: "" };
     hooks.useEffect(
       function () {
         if (!props.initialTool) return;
         var tool = findTool(props.catalogue, props.initialTool);
+        if (!tool) return;
         setSelected(props.initialTool);
-        setValues(initialValues(tool && tool.input_schema));
+        if (seededTool.current === props.initialTool) return; // keep typed values
+        seededTool.current = props.initialTool;
+        setValues(initialValues(tool.input_schema));
       },
       [props.initialTool, props.catalogue]
     );
@@ -670,7 +767,7 @@
           { className: "reqlo-table-wrap", tabIndex: 0, role: "region", "aria-label": "Tool catalogue" },
           h(
             "table",
-            { className: "reqlo-table reqlo-tool-table", "data-testid": "reqlo-tool-table" },
+            { className: "reqlo-table", "data-testid": "reqlo-tool-table" },
             h(
               "thead",
               null,
@@ -724,7 +821,7 @@
                   {
                     type: "button",
                     onClick: function () {
-                      props.onRun(entry, values);
+                      props.onRun(entry, pruneEmpty(values));
                     },
                     disabled: props.busy,
                     "data-testid": "reqlo-tool-run"
@@ -757,11 +854,16 @@
     var entry = findTool(props.catalogue, tool);
     var [values, setValues] = hooks.useState(initialValues(entry && entry.input_schema));
 
+    var seededTool = hooks.useRef ? hooks.useRef("") : { current: "" };
     hooks.useEffect(
       function () {
-        // Depends on the catalogue too: mounting before /tools resolves must not
-        // leave the form permanently empty.
-        setValues(initialValues(entry && entry.input_schema));
+        // Seed when the tool changes — or when the catalogue arrives after the
+        // first render. Not on every catalogue refresh: that would wipe what the
+        // operator already typed.
+        if (seededTool.current === tool) return;
+        if (!entry) return;
+        seededTool.current = tool;
+        setValues(initialValues(entry.input_schema));
       },
       [tool, props.catalogue]
     );
@@ -809,7 +911,7 @@
             disabled: props.busy || !entry,
             "data-testid": "reqlo-create-run",
             onClick: function () {
-              props.onRun(entry, withWorkspace(entry, values || {}));
+              props.onRun(entry, buildArguments(entry, values || {}));
             }
           },
           "Preview & create…"
@@ -835,7 +937,7 @@
         // Link types load once the catalogue is there (not on mount: the
         // catalogue arrives after the first render).
         props
-          .runRead(TOOL.linkTypes, {})
+          .runRead(TOOL.linkTypes, buildArguments(findTool(props.catalogue, TOOL.linkTypes), {}))
           .then(function (result) {
             var payload = result && result.result;
             var list = (payload && (payload.link_types || payload.linkTypes || payload.items)) || [];
@@ -884,7 +986,7 @@
             "data-testid": "reqlo-link-run",
             onClick: function () {
               // No workspace injection: create_link declares none.
-              props.onRun(entry, values || {});
+              props.onRun(entry, buildArguments(entry, values || {}));
             }
           },
           "Preview & link…"
@@ -904,12 +1006,20 @@
         setBusy(true);
         var entry = findTool(props.catalogue, TOOL.reviewPending);
         props
-          .runRead(TOOL.reviewPending, withWorkspace(entry, {}))
+          .runRead(TOOL.reviewPending, buildArguments(entry, {}))
           .then(function (result) {
-            if (alive) setPending(result || null);
+            if (!alive) return;
+            // Failure must not fall through to the empty state: an unreadable
+            // queue and an empty queue look identical to a reviewer, and only one
+            // of them is safe to ignore.
+            setPending(result || null);
+            setNote(result ? null : "The review queue could not be loaded — see the message above.");
           })
           .catch(function (err) {
-            if (alive) setNote("Could not load the queue: " + messageOf(err));
+            if (alive) {
+              setPending(null);
+              setNote("The review queue could not be loaded: " + messageOf(err));
+            }
           })
           .finally(function () {
             if (alive) setBusy(false);
@@ -943,7 +1053,7 @@
         if (type) args.item_type = type;
       }
       setNote(null);
-      props.onRun(entry, withWorkspace(entry, args), true);
+      props.onRun(entry, buildArguments(entry, args), true);
     }
 
     return h(
@@ -974,7 +1084,7 @@
         ? h(
             "p",
             { className: "reqlo-empty", "data-testid": "reqlo-review-empty" },
-            busy ? "Loading…" : "Nothing waiting for review."
+            busy ? "Loading…" : note ? "Queue unknown — see the note above." : "Nothing waiting for review."
           )
         : h(
             "div",
@@ -990,7 +1100,7 @@
               h(
                 "tbody",
                 null,
-                items.slice(0, 50).map(function (item, index) {
+                items.slice(0, REVIEW_ROW_LIMIT).map(function (item, index) {
                   var id = item.item_id || item.id || item.artifact_id || String(index);
                   return h(
                     "tr",
@@ -1043,7 +1153,19 @@
               )
             )
           ),
-      payload && payload.error ? h("p", { className: "reqlo-error" }, payload.error) : null
+      payload && payload.error ? h("p", { className: "reqlo-error" }, payload.error) : null,
+      // A truncation the operator cannot see reads as "this is all there is".
+      items.length > REVIEW_ROW_LIMIT
+        ? h(
+            "p",
+            { className: "reqlo-hint", "data-testid": "reqlo-review-truncated" },
+            "Showing the first " +
+              REVIEW_ROW_LIMIT +
+              " of " +
+              (payload && payload.count ? payload.count : items.length) +
+              " proposals — decide these, then reload."
+          )
+        : null
     );
   }
 
@@ -1129,7 +1251,7 @@
             disabled: props.busy || !entry || !values.content,
             "data-testid": "reqlo-memory-stage",
             onClick: function () {
-              props.onRun(entry, withWorkspace(entry, Object.assign({}, values)));
+              props.onRun(entry, buildArguments(entry, values));
             }
           },
           "Stage & confirm…"
@@ -1158,9 +1280,11 @@
     var options = props.interviews || [];
     var chatEntry = findTool(props.catalogue, TOOL.interviewChat);
 
-    function args(extra) {
+    // Whether a tool takes ``session_id`` is asked per tool, not once: the three
+    // interview calls declare different parameter sets.
+    function argsFor(entry, extra) {
       var base = {};
-      if (Object.prototype.hasOwnProperty.call(declaredProperties(chatEntry), "session_id")) {
+      if (Object.prototype.hasOwnProperty.call(declaredProperties(entry), "session_id")) {
         base.session_id = session;
       }
       return Object.assign(base, extra || {});
@@ -1192,11 +1316,7 @@
                 return h(
                   "option",
                   { key: String(id), value: id },
-                  shortId(id) +
-                    " · " +
-                    (item.artifact_type || item.session_kind || "?") +
-                    " · " +
-                    (item.phase || "?")
+                  shortId(id) + " · " + (item.artifact_type || "?") + " · " + (item.status || "?")
                 );
               })
             )
@@ -1228,7 +1348,7 @@
             disabled: props.busy || !session || !message,
             "data-testid": "reqlo-interview-chat",
             onClick: function () {
-              props.onRun(chatEntry, args({ message: message }));
+              props.onRun(chatEntry, buildArguments(chatEntry, argsFor(chatEntry, { message: message })));
             }
           },
           "Send chat turn…"
@@ -1243,7 +1363,8 @@
               // Formalize without a confirmed proposal: the server uses the draft
               // it built, which may differ from what the operator reviewed. Said
               // plainly here rather than implied.
-              props.onRun(findTool(props.catalogue, TOOL.interviewFormalize), args({}));
+              var formalizeEntry = findTool(props.catalogue, TOOL.interviewFormalize);
+              props.onRun(formalizeEntry, buildArguments(formalizeEntry, argsFor(formalizeEntry, {})));
             }
           },
           "Formalize…"
@@ -1255,7 +1376,8 @@
             disabled: props.busy || !session,
             "data-testid": "reqlo-interview-abandon",
             onClick: function () {
-              props.onRun(findTool(props.catalogue, TOOL.interviewAbandon), args({}));
+              var abandonEntry = findTool(props.catalogue, TOOL.interviewAbandon);
+              props.onRun(abandonEntry, buildArguments(abandonEntry, argsFor(abandonEntry, {})));
             }
           },
           "Abandon…"
@@ -1298,7 +1420,7 @@
             disabled: props.busy || !entry,
             "data-testid": "reqlo-baseline-create",
             onClick: function () {
-              props.onRun(entry, withWorkspace(entry, values || {}));
+              props.onRun(entry, buildArguments(entry, values || {}));
             }
           },
           "Preview & snapshot…"
@@ -1315,6 +1437,7 @@
     var registry = props.registry || { servers: [] };
     var [form, setForm] = hooks.useState({ id: "", name: "", base_url: "", api_key: "", user_api_key: "" });
     var [edit, setEdit] = hooks.useState({ id: "", api_key: "", user_api_key: "" });
+    var [confirmRemove, setConfirmRemove] = hooks.useState("");
 
     function setField(key, value) {
       var next = Object.assign({}, form);
@@ -1387,8 +1510,23 @@
           ),
           h(
             "button",
-            { type: "button", disabled: props.busy, "data-testid": "reqlo-server-delete", onClick: function () { props.onDelete(server.id); } },
-            "Remove"
+            {
+              type: "button",
+              disabled: props.busy,
+              className: confirmRemove === server.id ? "reqlo-danger" : "",
+              "data-testid": "reqlo-server-delete",
+              onClick: function () {
+                // Two steps: removing an entry also removes its keys, which is not
+                // less destructive than a tool call that passes a confirmation.
+                if (confirmRemove === server.id) {
+                  setConfirmRemove("");
+                  props.onDelete(server.id);
+                } else {
+                  setConfirmRemove(server.id);
+                }
+              }
+            },
+            confirmRemove === server.id ? "Confirm removal" : "Remove"
           )
         )
       );
@@ -1442,7 +1580,7 @@
             id: "reqlo-write-gate",
             type: "checkbox",
             checked: gateIsOpen(registry),
-            disabled: props.busy,
+            disabled: props.busy || gateState(registry) === "unknown",
             "data-testid": "reqlo-write-gate",
             onChange: function (event) {
               props.onGate(event.target.checked);
@@ -1480,7 +1618,11 @@
               "aria-describedby": "reqlo-server-add-hint",
               "data-testid": "reqlo-server-add-button",
               onClick: function () {
-                props.onAdd(form);
+                props.onAdd(form).then(function (ok) {
+                  // The entered keys are not kept in the form state after they were
+                  // accepted — a second click would otherwise resend them.
+                  if (ok) setForm({ id: "", name: "", base_url: "", api_key: "", user_api_key: "" });
+                });
               }
             },
             "Add & test"
@@ -1528,6 +1670,7 @@
                 {
                   type: "button",
                   disabled: props.busy,
+                  "data-testid": "reqlo-server-edit-close",
                   onClick: function () {
                     setEdit({ id: "", api_key: "", user_api_key: "" });
                   }
@@ -1663,20 +1806,29 @@
       setBusy(true);
       setMessage(null);
       return loadServers()
-        .then(function () {
-          return apiGet("/version");
+        .then(function (registryPayload) {
+          return apiGet("/version").then(function (versionResult) {
+            setVersion(versionResult);
+            return registryPayload;
+          });
         })
-        .then(function (versionResult) {
-          setVersion(versionResult);
-          return apiGet("/workspaces");
+        .then(function (registryPayload) {
+          return apiGet("/workspaces").then(function (workspaceResult) {
+            return { registry: registryPayload, workspaces: workspaceResult };
+          });
         })
-        .then(function (workspaceResult) {
+        .then(function (loaded) {
+          var workspaceResult = loaded.workspaces;
           var list = (workspaceResult && workspaceResult.workspaces) || [];
           setWorkspaces(list);
           var preferred = "";
           for (var index = 0; index < list.length; index += 1) {
             if (list[index] && list[index].id === workspaceId) preferred = workspaceId;
           }
+          // The registry remembers the workspace last used per server; taking
+          // list[0] instead would overwrite that memory on every page load (and
+          // persist the overwrite through /workspace-selected).
+          if (!preferred) preferred = rememberedWorkspaceId(loaded.registry) || "";
           if (!preferred && list.length) preferred = list[0].id || "";
           return list.length ? loadWorkspaceScope(preferred) : null;
         })
@@ -1729,7 +1881,10 @@
           return payload;
         })
         .catch(function (err) {
+          // Without this the panel kept the *previous* run's "— ok" label, which
+          // reads as the result of the call that just failed.
           failure(messageOf(err));
+          setResult({ tool: entry.name, error: messageOf(err) });
         })
         .finally(function () {
           setBusy(false);
@@ -1745,6 +1900,7 @@
       }
       setBusy(true);
       setMessage(null);
+      setResult(null);
       return apiPost("/write/preview", { tool: entry.name, arguments: argumentsObject })
         .then(function (payload) {
           setBusy(false);
@@ -1782,21 +1938,32 @@
       return apiPost("/write/preview", { tool: toolName, arguments: argumentsObject })
         .then(function (payload) {
           if (!payload || payload.error) {
-            failure((payload && payload.error) || "preview failed");
+            var problem = (payload && payload.error) || "preview failed";
+            failure(problem);
+            setResult({ tool: toolName, error: problem });
             return null;
           }
           if (problemsOf(payload).length) {
-            failure(problemsOf(payload).join("; "));
+            var joined = problemsOf(payload).join("; ");
+            failure("The server rejects these arguments: " + joined);
+            setResult({ tool: toolName, error: joined });
             return null;
           }
           return apiPost("/write", {
             tool: toolName,
             arguments: argumentsObject,
             confirm_token: payload.confirm_token
+          }).then(function (written) {
+            // The result panel is where a read's answer becomes visible. Without
+            // this the payload existed only inside the caller's promise, so
+            // "Show overview" ran a call and showed nothing anywhere.
+            setResult(Object.assign({ tool: toolName }, written || {}));
+            return written;
           });
         })
         .catch(function (err) {
           failure(messageOf(err));
+          setResult({ tool: toolName, error: messageOf(err) });
           return null;
         });
     }
@@ -1809,7 +1976,7 @@
     function onServerAdd(form) {
       setBusy(true);
       setMessage(null);
-      apiPost("/servers", {
+      return apiPost("/servers", {
         id: form.id,
         name: form.name,
         base_url: form.base_url,
@@ -1823,10 +1990,14 @@
           } else {
             info("Server added and probed.");
           }
-          return Promise.all([loadServers(), loadCatalogue(true)]);
+          var ok = !(payload && payload.error);
+          return Promise.all([loadServers(), loadCatalogue(true)]).then(function () {
+            return ok;
+          });
         })
         .catch(function (err) {
           failure(messageOf(err));
+          return false;
         })
         .finally(function () {
           setBusy(false);
@@ -1861,6 +2032,7 @@
       setVersion(null);
       setWorkspaceId("");
       selectedWorkspaceId = "";
+      clearPending();
       apiPost("/active", { server_id: id })
         .then(function (payload) {
           if (payload && payload.error) failure(payload.error);
@@ -1938,10 +2110,21 @@
         });
     }
 
+    // A pending confirmation captured its arguments — including the workspace and
+    // the server — when the preview issued its token. Retargeting either one has
+    // to drop it instead of quietly re-pointing the call.
+    function clearPending() {
+      setPreview(null);
+      setPendingRun(null);
+      setTyped("");
+      setResult(null);
+    }
+
     function onSelectWorkspace(event) {
       var selected = event.target.value;
       setBusy(true);
       setMessage(null);
+      clearPending();
       loadWorkspaceScope(selected)
         .catch(function (err) {
           failure(messageOf(err));
@@ -2079,9 +2262,7 @@
                 null,
                 h("th", null, "Session"),
                 h("th", null, "Type"),
-                h("th", null, "Phase"),
-                h("th", null, "Status"),
-                h("th", null, "Updated")
+                h("th", null, "State")
               )
             ),
             h(
@@ -2092,11 +2273,12 @@
                 return h(
                   "tr",
                   { key: String(id) },
+                  // interview.list publishes exactly id, workspace_id,
+                  // artifact_type and status — rendering anything else (phase,
+                  // updated_at) produced permanent em-dashes.
                   h("td", { className: "reqlo-mono" }, shortId(id)),
-                  h("td", null, displayValue(session.artifact_type || session.session_kind)),
-                  h("td", null, displayValue(session.phase)),
-                  h("td", null, displayValue(session.status)),
-                  h("td", null, displayValue(session.updated_at || session.created_at))
+                  h("td", null, displayValue(session.artifact_type)),
+                  h("td", null, displayValue(session.status))
                 );
               })
             )
@@ -2220,6 +2402,8 @@
         preview: preview,
         typed: typed,
         busy: busy,
+        targetWorkspace:
+          pendingRun && pendingRun.arguments ? pendingRun.arguments.workspace_id : "",
         confirmRef: confirmRef,
         onTyped: setTyped,
         onConfirm: confirmRun,

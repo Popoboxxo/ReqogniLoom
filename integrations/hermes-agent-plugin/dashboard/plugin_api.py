@@ -83,13 +83,24 @@ def _client_for(server_id: Optional[str] = None) -> ReqogniLoomClient:
     An explicit ``server_id`` yields a client bound to exactly that entry
     (explicit target + explicit credentials), so a request naming server B can
     never borrow server A's key from the environment.
+
+    The entry's URL is re-checked here, not only when it was written: the key of
+    this entry is about to be sent to that host, and ``servers.json`` is an
+    editable file. A URL pointing at a metadata service or a link-local address is
+    refused at the moment of use.
     """
     if not server_id:
         return ReqogniLoomClient()
     entry = registry.get_server(server_id)
+    base_url = str(entry.get("base_url") or "")
+    reason = registry.forbidden_host_reason(base_url)
+    if reason:
+        raise registry.RegistryError(
+            f"server {server_id!r} points at {base_url!r}: {reason} — refusing to send its key"
+        )
     api_key, user_api_key = registry.resolve_credentials(entry)
     return ReqogniLoomClient(
-        base_url=str(entry.get("base_url") or ""),
+        base_url=base_url,
         api_key=api_key,
         user_api_key=user_api_key,
         server_id=str(entry.get("id") or ""),
@@ -97,12 +108,22 @@ def _client_for(server_id: Optional[str] = None) -> ReqogniLoomClient:
 
 
 def _server_key(client: ReqogniLoomClient, server_id: Optional[str] = None) -> str:
-    """Cache key / registry id of the resolved target."""
-    return str(server_id or getattr(client, "server_id", None) or client.base_url)
+    """The catalogue cache key for one target — always the normalised id.
+
+    ``GET /tools?server_id=QS`` and ``?server_id=qs`` are the same server, so they
+    have to hit the same cache entry; the registry lower-cases on the way in, and
+    the cache key has to agree with it.
+    """
+    if server_id:
+        try:
+            return registry.validate_server_id(server_id)
+        except registry.RegistryError:
+            return server_id
+    return str(getattr(client, "server_id", "") or getattr(client, "base_url", "") or "default")
 
 
 def _error(exc: Exception) -> Dict[str, Any]:
-    """One failure shape for the whole surface: message + optional code/hint."""
+    """One failure shape for the whole surface: message + optional code/retryable."""
     payload: Dict[str, Any] = {"error": str(exc)}
     code = getattr(exc, "code", None)
     if code is not None:
@@ -130,11 +151,17 @@ def _tool_entry(client: ReqogniLoomClient, server_id: Optional[str], tool_name: 
 
 
 def _probe_and_record(server_id: str) -> Dict[str, Any]:
-    """Probe one entry and store the outcome on it (best effort)."""
+    """Probe one entry and store the outcome on it (best effort).
+
+    The probe asks the server for its tool list, so it is also the moment the
+    catalogue may have changed (server upgrade): the cache is dropped afterwards,
+    otherwise "Test" and the Tools view disagree for up to the cache TTL.
+    """
     try:
         entry = registry.get_server(server_id)
         verify = registry.probe_server(_client_for(server_id), entry)
         registry.record_verify(server_id, verify)
+        tools.invalidate()
         return verify
     except (registry.RegistryError, ReqogniLoomError) as exc:
         return {"reachable": False, "auth_ok": False, "error": str(exc)}
@@ -293,7 +320,16 @@ def update_server(server_id: str, payload: Optional[Dict[str, Any]] = None) -> D
         updated = registry.update_server(server_id, **fields)
     except registry.RegistryError as exc:
         return _error(exc)
-    return {"registry": registry.public_registry(updated)}
+    response: Dict[str, Any] = {"registry": registry.public_registry(updated)}
+    if "base_url" in fields:
+        # The catalogue belongs to the URL, so a changed URL invalidates it; and
+        # the registry dropped the entry's keys on purpose (see update_server).
+        tools.invalidate()
+        response["note"] = (
+            "base_url changed — the tool catalogue was reloaded and the stored keys "
+            "were cleared. Enter the key for the new host."
+        )
+    return response
 
 
 @router.post("/workspace-selected")
@@ -371,7 +407,13 @@ def set_write_gate(payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     enabled = data.get("enabled")
     if not isinstance(enabled, bool):
         return {"error": "'enabled' must be true or false"}
-    updated = registry.set_write_gate(enabled)
+    try:
+        updated = registry.set_write_gate(enabled)
+    except registry.RegistryError as exc:
+        # An unwritable registry must read as a domain failure, not as a 500:
+        # the tab renders this message, and on a read-only $HERMES_HOME the
+        # operator otherwise sees a traceback for a toggle.
+        return _error(exc)
     return {"write_gate": bool(updated.get("write_gate", True))}
 
 

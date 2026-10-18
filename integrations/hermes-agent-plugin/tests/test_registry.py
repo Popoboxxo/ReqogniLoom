@@ -8,6 +8,7 @@ import importlib.util
 import json
 import os
 import stat
+import threading
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -321,3 +322,122 @@ class FormatTests(unittest.TestCase):
         active_line = [line for line in text.splitlines() if line.strip().startswith("*")]
         self.assertEqual(len(active_line), 1)
         self.assertIn("prod", active_line[0])
+
+class KeyEnvPolicyTests(unittest.TestCase):
+    """Credentials are only ever read from variables the plugin owns.
+
+    Without this rule the server panel becomes an environment-variable
+    exfiltration channel: an entry names ``AWS_SECRET_ACCESS_KEY`` as its
+    ``api_key_env`` and the next health probe sends that value as ``X-API-Key``
+    to whatever ``base_url`` the same request supplied.
+    """
+
+    def test_a_foreign_variable_is_refused_when_writing(self) -> None:
+        for bad in ("AWS_SECRET_ACCESS_KEY", "PATH", "REQOGNILOOM_BASE_URL", "reqogniloom_api_key"):
+            with self.subTest(name=bad):
+                with self.assertRaises(registry.RegistryError):
+                    registry.add_server("qs", "http://qs.test:8001", api_key_env=bad)
+
+    def test_a_foreign_variable_is_refused_on_update(self) -> None:
+        registry.add_server("qs", "http://qs.test:8001")
+        with self.assertRaises(registry.RegistryError):
+            registry.update_server("qs", user_api_key_env="PATH")
+
+    def test_own_variables_are_accepted(self) -> None:
+        self.assertEqual(registry.validate_key_env("REQOGNILOOM_API_KEY_QS"), "REQOGNILOOM_API_KEY_QS")
+        self.assertEqual(registry.validate_key_env("REQOGNILOOM_USER_API_KEY"), "REQOGNILOOM_USER_API_KEY")
+        self.assertIsNone(registry.validate_key_env(""))
+
+    def test_a_hand_edited_file_with_a_foreign_name_yields_no_credential(self) -> None:
+        # The file is editable by whoever can reach it, so the reading path has to
+        # apply the same rule — without raising, which would turn a config mistake
+        # into "server unreachable".
+        entry = {
+            "id": "qs",
+            "base_url": "http://qs.test:8001",
+            "api_key_source": "env",
+            "api_key_env": "AWS_SECRET_ACCESS_KEY",
+        }
+        os.environ["AWS_SECRET_ACCESS_KEY"] = "TOP-EXFIL"
+        self.addCleanup(os.environ.pop, "AWS_SECRET_ACCESS_KEY", None)
+        self.assertEqual(registry.resolve_credentials(entry), (None, None))
+
+
+class FileModeTests(unittest.TestCase):
+    """The directory and the file that hold every credential."""
+
+    def test_registry_directory_is_private_and_file_is_0600(self) -> None:
+        registry.add_server("qs", "http://qs.test:8001", api_key="reqlo_agent")
+        path = registry.registry_path()
+        self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
+        self.assertEqual(stat.S_IMODE(path.parent.stat().st_mode), 0o700)
+
+    def test_no_temp_file_survives_a_write(self) -> None:
+        registry.add_server("qs", "http://qs.test:8001")
+        leftovers = [item.name for item in registry.registry_path().parent.glob("*.tmp")]
+        self.assertEqual(leftovers, [])
+
+    def test_a_stale_temp_file_does_not_block_the_next_write(self) -> None:
+        # A writer that died between create and replace leaves a file whose name
+        # carries its pid+thread; without cleanup every later write would fail.
+        registry.add_server("qs", "http://qs.test:8001")
+        path = registry.registry_path()
+        stale = path.with_name(f"{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+        stale.write_text("{}", encoding="utf-8")
+        registry.add_server("prod", "http://prod.test:8001")
+        self.assertEqual([s["id"] for s in registry.public_registry()["servers"]], ["qs", "prod"])
+
+
+class BaseUrlPolicyTests(unittest.TestCase):
+    """A URL is where a credential goes, so it is checked as such."""
+
+    def test_metadata_and_link_local_targets_are_refused(self) -> None:
+        for bad in (
+            "http://169.254.169.254",
+            "http://metadata.google.internal",
+            "http://0.0.0.0:8001",
+        ):
+            with self.subTest(url=bad):
+                with self.assertRaises(registry.RegistryError):
+                    registry.add_server("qs", bad)
+
+    def test_private_lan_targets_stay_allowed(self) -> None:
+        # The normal case for this plugin: a ReqogniLoom install on a LAN.
+        for index, good in enumerate(
+            ("http://172.20.5.120:8001", "http://10.0.0.5:8001", "http://localhost:8001")
+        ):
+            with self.subTest(url=good):
+                registry.add_server(f"lan{index}", good)
+        self.assertEqual(len(registry.public_registry()["servers"]), 3)
+
+    def test_changing_the_url_clears_the_keys_of_that_entry(self) -> None:
+        registry.add_server("qs", "http://qs.test:8001", api_key="reqlo_agent", user_api_key="reqlo_human")
+        registry.update_server("qs", base_url="http://other.test:8001")
+        entry = registry.get_server("qs")
+        self.assertIsNone(entry["api_key"])
+        self.assertIsNone(entry["user_api_key"])
+        self.assertEqual(entry["api_key_source"], "none")
+        self.assertEqual(registry.resolve_credentials(entry), (None, None))
+
+    def test_rewriting_the_same_url_keeps_the_keys(self) -> None:
+        registry.add_server("qs", "http://qs.test:8001", api_key="reqlo_agent")
+        registry.update_server("qs", base_url="http://qs.test:8001/")
+        self.assertEqual(registry.get_server("qs")["api_key"], "reqlo_agent")
+
+
+class ActiveFlagTests(unittest.TestCase):
+    def test_the_only_server_counts_as_active_even_without_a_pointer(self) -> None:
+        # A hand-written or restored registry has no `active` pointer; the resolver
+        # still commits to that single server, so the UI must show it as active.
+        entry = dict(registry._new_entry("qs", "qs", base_url="http://qs.test:8001"))
+        registry.save_registry(
+            {
+                "registry_version": 1,
+                "active": None,
+                "write_gate": True,
+                "servers": [entry],
+            }
+        )
+        view = registry.public_registry()["servers"][0]
+        self.assertTrue(view["active"])
+        self.assertEqual(registry.active_server()["id"], "qs")
