@@ -11,17 +11,7 @@
 import type { CustomFields, GlossaryReferenceMode, ISODateTime, SystemFieldValues, UUID } from "./common";
 
 export * from "./common";
-
-// ---------------------------------------------------------------------------
-// Auth
-// ---------------------------------------------------------------------------
-
-export interface User {
-  id: UUID;
-  username: string;
-  email: string;
-  is_staff: boolean;
-}
+export * from "./auth";
 
 // ---------------------------------------------------------------------------
 // Workspace (not yet in backend API — see ESCALATION notes)
