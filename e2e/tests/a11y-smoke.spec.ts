@@ -38,12 +38,17 @@ import { loginAsAdmin, setWorkspaceId, SEEDED_WORKSPACE_ID } from '../helpers/au
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
 /**
- * WCAG tag set chosen to mirror `e2e/a11y-followup.js` (`AXE_TAGS`) exactly, so
- * automated and manual runs stay comparable: WCAG 2.0 A + AA and WCAG 2.1 AA.
+ * WCAG tag set: WCAG 2.0 A + AA, WCAG 2.1 AA and WCAG 2.2 AA. The first three
+ * mirror `e2e/a11y-followup.js` (`AXE_TAGS`) exactly, so automated and manual
+ * runs stay comparable; `wcag22aa` is deliberately *wider* than the manual
+ * script (N12, Phase 6 review) so the automated gate also covers the WCAG 2.2
+ * success criteria the audit reviewed — most notably 2.4.11 Focus Not
+ * Obscured, the criterion the skip-link regression (N2) violated — instead of
+ * silently staying on the older level.
  * `best-practice` is deliberately excluded — this is a WCAG conformance gate,
  * not a style linter.
  */
-const AXE_TAGS = ['wcag2a', 'wcag2aa', 'wcag21aa'];
+const AXE_TAGS = ['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa'];
 
 /** axe impact levels this gate treats as release-blocking. */
 const BLOCKING_IMPACTS = new Set(['serious', 'critical']);
@@ -150,8 +155,33 @@ test.describe('[REQ-056] Automated axe gate (Phase 6.8)', () => {
     // with the navigation and the landing content beneath it.
     await page.goto(`${FRONTEND_URL}/`, { waitUntil: 'domcontentloaded' });
     await settle(page);
-    await expect(page.locator('[data-testid="skip-link"]')).toBeAttached();
+    const skipLink = page.locator('[data-testid="skip-link"]');
+    await expect(skipLink).toBeAttached();
     await expect(page.locator('main#main-content')).toBeVisible();
+
+    // N2/N13 (SC 2.4.11 Focus Not Obscured): focus is what reveals the skip
+    // link, so assert it is then genuinely *visible and on top* — not merely
+    // present in the DOM. `toBeAttached()` alone passed while the focused link
+    // was completely painted over by the 220px sidebar rail (z-index
+    // regression, N2); only focusing it can catch that.
+    await skipLink.focus();
+    await expect(skipLink).toBeVisible();
+    const skipLinkBox = await skipLink.boundingBox();
+    expect(skipLinkBox).not.toBeNull();
+    expect(skipLinkBox!.x).toBeGreaterThanOrEqual(0);
+    expect(skipLinkBox!.y).toBeGreaterThanOrEqual(0);
+    // `toBeVisible` does not detect occlusion; the topmost element at the
+    // link's own centre must be the link itself (or a descendant), otherwise
+    // shell chrome such as the rail/burger is still painting over it.
+    const skipLinkUnobscured = await skipLink.evaluate((el) => {
+      const rect = el.getBoundingClientRect();
+      const topmost = document.elementFromPoint(
+        rect.left + rect.width / 2,
+        rect.top + rect.height / 2
+      );
+      return topmost === el || (topmost !== null && el.contains(topmost));
+    });
+    expect(skipLinkUnobscured).toBe(true);
 
     await expectNoBlockingViolations(page, testInfo, 'navigation-shell');
   });
