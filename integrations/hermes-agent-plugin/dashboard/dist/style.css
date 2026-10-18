@@ -101,3 +101,315 @@
   opacity: 0.7;
   margin: 0;
 }
+
+/* ---------------------------------------------------------------------------
+ * Multi-server bar, view navigation, badges, dialogs, forms.
+ * Sizes are relative and colours come from the host's own components where
+ * possible (rgba overlays + currentColor), so the tab follows the active theme.
+ * ------------------------------------------------------------------------- */
+
+.reqlo-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin: 12px 0;
+  font-size: 13px;
+}
+
+.reqlo-inline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.reqlo-bar select {
+  min-width: 180px;
+}
+
+.reqlo-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  border-bottom: 1px solid rgba(128, 128, 128, 0.25);
+  margin-bottom: 12px;
+}
+
+.reqlo-nav button {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  padding: 6px 10px;
+  font-size: 13px;
+  cursor: pointer;
+  color: inherit;
+  opacity: 0.7;
+}
+
+.reqlo-nav button.reqlo-nav-active {
+  opacity: 1;
+  font-weight: 600;
+  border-bottom-color: currentColor;
+}
+
+.reqlo-views {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.reqlo-card {
+  border: 1px solid rgba(128, 128, 128, 0.25);
+  border-radius: 8px;
+  padding: 12px 14px;
+}
+
+.reqlo-card h3 {
+  margin: 0 0 8px;
+  font-size: 14px;
+}
+
+.reqlo-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.reqlo-hint {
+  font-size: 12px;
+  opacity: 0.7;
+  margin: 4px 0 8px;
+}
+
+.reqlo-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 10px;
+  font-size: 11px;
+  border: 1px solid currentColor;
+}
+
+.reqlo-badge-read {
+  opacity: 0.6;
+}
+
+.reqlo-badge-compute {
+  color: #b58900;
+}
+
+.reqlo-badge-mutate {
+  color: #cb4b16;
+}
+
+.reqlo-badge-human {
+  color: #268bd2;
+  margin-left: 4px;
+}
+
+.reqlo-badge-destructive {
+  color: #d33;
+  margin-left: 4px;
+}
+
+.reqlo-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 6px;
+  background: currentColor;
+}
+
+.reqlo-dot-ok {
+  color: #2aa198;
+}
+
+.reqlo-dot-bad {
+  color: #d33;
+}
+
+.reqlo-dot-unknown {
+  color: rgba(128, 128, 128, 0.6);
+}
+
+.reqlo-split {
+  display: grid;
+  grid-template-columns: minmax(320px, 1.2fr) minmax(280px, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .reqlo-split {
+    grid-template-columns: 1fr;
+  }
+}
+
+.reqlo-split-left,
+.reqlo-split-right {
+  min-width: 0;
+}
+
+.reqlo-split-right {
+  border: 1px solid rgba(128, 128, 128, 0.25);
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.reqlo-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.reqlo-input {
+  background: transparent;
+  border: 1px solid rgba(128, 128, 128, 0.35);
+  border-radius: 6px;
+  padding: 4px 6px;
+  font-size: 13px;
+  color: inherit;
+  min-width: 120px;
+}
+
+textarea.reqlo-input {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.reqlo-tool-table {
+  max-height: 420px;
+  display: block;
+  overflow-y: auto;
+}
+
+.reqlo-tool-table tbody tr {
+  cursor: pointer;
+}
+
+.reqlo-row-selected {
+  background: rgba(128, 128, 128, 0.15);
+}
+
+.reqlo-desc {
+  opacity: 0.75;
+  font-size: 12px;
+}
+
+.reqlo-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 8px 0;
+}
+
+.reqlo-form-inline {
+  flex-direction: row;
+  flex-wrap: wrap;
+}
+
+.reqlo-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+}
+
+.reqlo-field-label {
+  font-weight: 600;
+  opacity: 0.8;
+}
+
+.reqlo-required {
+  color: #d33;
+}
+
+.reqlo-gate {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.reqlo-dialog {
+  position: sticky;
+  bottom: 0;
+  margin-top: 16px;
+  border: 2px solid #cb4b16;
+  border-radius: 8px;
+  padding: 12px 14px;
+  background: inherit;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.25);
+}
+
+.reqlo-dialog h4 {
+  margin: 0 0 6px;
+  font-size: 14px;
+}
+
+.reqlo-dialog-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.reqlo-dialog-actions button {
+  border: 1px solid rgba(128, 128, 128, 0.35);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 13px;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+
+.reqlo-dialog-actions button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.reqlo-table td .reqlo-dialog-actions {
+  margin-top: 0;
+}
+
+.reqlo-table td button {
+  margin-right: 4px;
+}
+
+.reqlo-problems {
+  margin: 4px 0 8px 18px;
+  font-size: 12px;
+  color: #d33;
+}
+
+.reqlo-result-panel {
+  margin-top: 16px;
+  border-top: 1px solid rgba(128, 128, 128, 0.25);
+  padding-top: 8px;
+}
+
+.reqlo-result-head {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  margin-bottom: 4px;
+  font-size: 13px;
+}
+
+.reqlo-result {
+  max-height: 320px;
+  overflow: auto;
+  font-size: 12px;
+  background: rgba(128, 128, 128, 0.1);
+  border-radius: 6px;
+  padding: 8px;
+}
+
+.reqlo-admin-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+  border-bottom: 1px solid rgba(128, 128, 128, 0.15);
+}
