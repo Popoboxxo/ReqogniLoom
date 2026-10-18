@@ -36,11 +36,8 @@ import { useTranslation } from 'react-i18next';
 import { Badge } from '../Badge';
 import { LevelBadge } from '../LevelBadge';
 import { useWorkspaceTreeState } from '../../../context/WorkspaceTreeStateContext';
-import {
-  useTreeDisplayFields,
-  useTreeDisplayFieldsLoader,
-} from '../../../hooks/useTreeDisplayFields';
 import { TreeDisplayFieldsProvider } from './tree-display-fields-context';
+import { useTreeDisplayFieldsSelection } from './tree-display-fields';
 import { collectAncestorIds } from './tree-hierarchy';
 import {
   ROOT_DROP_TARGET,
@@ -79,8 +76,47 @@ import styles from './workspace-tree.module.css';
 // Type badge abbreviation map — REQ-007
 // ---------------------------------------------------------------------------
 
+/**
+ * Known artifact type / architecture element-type strings the type badge
+ * abbreviates.
+ *
+ * Deliberately a closed union rather than `string`: `TYPE_BADGE_ABBREVIATION`
+ * is then exhaustive by construction, so adding a type to the catalog without
+ * an abbreviation becomes a compile error instead of a silently un-abbreviated
+ * badge. `getTypeBadgeAbbreviation` still accepts any `string` (callers pass
+ * the raw API value) and falls back to the input for unknown types.
+ */
+export type WorkspaceTreeNodeType =
+  // Requirement types (backend values)
+  | 'SyReq'
+  | 'UseCase'
+  | 'FeatureReq'
+  // Legacy requirement types, kept so historical rows still render a badge.
+  | 'SWReq'
+  | 'HWReq'
+  // Requirement types (long-form display names)
+  | 'SysRec'
+  | 'Stakeholder'
+  | 'Hardware'
+  | 'Software'
+  | 'Interface'
+  | 'Performance'
+  | 'Safety'
+  | 'Security'
+  // Architecture element types (backend values)
+  | 'component'
+  | 'interface'
+  | 'subsystem'
+  | 'layer'
+  | 'module'
+  // Architecture element types (display names)
+  | 'System'
+  | 'Subsystem'
+  | 'Component'
+  | 'Function';
+
 /** Maps verbose type/element strings to short badge labels (REQ-007). */
-const TYPE_BADGE_ABBREVIATION: Readonly<Record<string, string>> = {
+const TYPE_BADGE_ABBREVIATION: Readonly<Record<WorkspaceTreeNodeType, string>> = {
   // Requirement types (backend values)
   SyReq: 'SR',
   UseCase: 'UC',
@@ -411,23 +447,14 @@ export function WorkspaceTree({
   const { t } = useTranslation();
 
   // Issue #1257: the configured field selection for this artifact type. The
-  // loader performs at most one request per (itemType, workspace) and degrades
-  // to the pre-#1257 combination when nothing is configured or the load fails;
-  // the selector is synchronous, so no row ever waits on it.
-  //
-  // Both `itemType` and `workspaceId` are required for a load: the workspace is
-  // what enters the resolution at all (the request goes to the workspace route,
-  // which checks membership), so a tree that does not know its workspace must
-  // not invent one — it falls back to the personal + tenant-wide levels via the
+  // resolution (one load per `(itemType, workspace)`, default fallback and the
+  // per-field gate) lives in `tree-display-fields.ts`. Both `itemType` and
+  // `workspaceId` are required for a load: the workspace is what enters the
+  // resolution at all, so a tree that does not know its workspace keeps the
   // store default rather than showing another workspace's configuration.
-  useTreeDisplayFieldsLoader(itemType, workspaceId ?? null);
-  const displayFields = useTreeDisplayFields(itemType);
-  // FE-07: `displayFields` is a tiny, referentially stable store value, so a
-  // plain `includes` lookup replaces the premature `new Set(...)` memo without
-  // tripping react-hooks/exhaustive-deps over a per-render Set.
-  const showsField = useCallback(
-    (key: string): boolean => displayFields.includes(key),
-    [displayFields]
+  const { displayFields, showsField } = useTreeDisplayFieldsSelection(
+    itemType,
+    workspaceId,
   );
   const searchPlaceholderLabel =
     searchPlaceholder ?? t('editor.searchPlaceholder');
