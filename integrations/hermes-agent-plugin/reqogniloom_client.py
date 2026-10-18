@@ -17,6 +17,20 @@ so callers keep receiving plain Python objects. Tool-execution failures arrive
 as HTTP 200 with ``result.isError == true``; protocol/auth failures arrive as
 JSON-RPC error frames with a non-2xx status.
 
+Tools are addressed two ways: the typed helpers below (interviews, suggestions,
+counts — the flows this plugin drives itself) and :meth:`ReqogniLoomClient.call_tool`,
+the generic door onto **every** tool the server publishes, used by the dashboard's
+tool console and write gate. :meth:`ReqogniLoomClient.tools_list` reads the live
+``tools/list`` catalogue.
+
+Which server a client talks to is resolved in this order: an explicit
+``base_url``/``api_key`` argument, then the active entry of the multi-server
+registry (``reqogniloom_registry``, ``$HERMES_HOME/reqogniloom/servers.json``),
+then ``REQOGNILOOM_BASE_URL``/``REQOGNILOOM_API_KEY``, then the local default.
+A per-server ``user_api_key`` travels only when a caller asks for the human
+principal (:meth:`call_tool` with ``principal="user"``) — needed for the
+approval-class tools, which the server refuses for an agent principal.
+
 POC scope: no retries, no connection pooling, stdlib ``urllib`` only so the
 plugin has zero extra dependencies beyond what Hermes itself ships.
 """
@@ -27,11 +41,39 @@ import logging
 import os
 import urllib.error
 import urllib.request
-from typing import Any
+from typing import Any, Dict, List, Optional
 from urllib.parse import urlsplit
 from uuid import UUID
 
 logger = logging.getLogger(__name__)
+
+
+_REGISTRY_MODULE: Any = None
+_REGISTRY_RESOLVED = False
+
+
+def _registry_module() -> Any:
+    """Import ``reqogniloom_registry`` once, in either import mode.
+
+    The plugin is imported as a package (``__init__.py``) and flat
+    (``dashboard/plugin_api.py``, which puts the plugin root on ``sys.path``),
+    so a single import style cannot serve both. ``None`` is returned when the
+    module is genuinely unavailable — a client then simply has no registry and
+    falls back to the environment, which is the pre-registry behaviour.
+    """
+    global _REGISTRY_MODULE, _REGISTRY_RESOLVED
+    if not _REGISTRY_RESOLVED:
+        _REGISTRY_RESOLVED = True
+        try:
+            from . import reqogniloom_registry as registry  # type: ignore[import-not-found]
+        except ImportError:
+            try:
+                import reqogniloom_registry as registry  # type: ignore[no-redef]
+            except ImportError:
+                registry = None  # type: ignore[assignment]
+        _REGISTRY_MODULE = registry
+    return _REGISTRY_MODULE
+
 
 #: Per-request socket timeout. This bounds each socket operation, not the
 #: whole response: a slow-drip backend can still exceed it in total.
@@ -352,9 +394,43 @@ class ReqogniLoomClient:
     ``URLError`` alone.
     """
 
-    def __init__(self, base_url: str | None = None, api_key: str | None = None) -> None:
+    def __init__(
+        self,
+        base_url: str | None = None,
+        api_key: str | None = None,
+        *,
+        user_api_key: str | None = None,
+        server_id: str | None = None,
+    ) -> None:
+        """Resolve a target: explicit args, then the active registry server, then env.
+
+        The registry step is what makes multi-server work without a second code
+        path: with a configured registry the active entry *is* the target, and
+        every existing call site (``ReqogniLoomClient()``) picks it up unchanged.
+        Without one — an install that only ever set environment variables — the
+        behaviour is exactly the pre-registry one, including the actionable
+        "REQOGNILOOM_BASE_URL is not set" hint on a transport failure.
+        """
+        entry: dict[str, Any] | None = None
+        registry_api_key: str | None = None
+        registry_user_key: str | None = None
+        if base_url is None and api_key is None:
+            registry = _registry_module()
+            if registry is not None:
+                try:
+                    entry = registry.active_server()
+                except Exception as exc:  # a broken registry must not break the client
+                    logger.warning("reqogniloom registry unusable (%s); using environment", exc)
+                    entry = None
+            if entry is not None:
+                registry_api_key, registry_user_key = registry.resolve_credentials(entry)
+                server_id = server_id or str(entry.get("id") or "") or None
+
         if base_url is not None:
             configured = base_url.strip()
+            self._using_default_base_url = False
+        elif entry is not None and entry.get("base_url"):
+            configured = str(entry["base_url"]).strip()
             self._using_default_base_url = False
         else:
             env_value = os.environ.get("REQOGNILOOM_BASE_URL")
@@ -366,7 +442,29 @@ class ReqogniLoomClient:
                 self._using_default_base_url = False
         self.base_url = configured.rstrip("/")
         _validate_base_url(self.base_url)
-        self.api_key = api_key or _env("REQOGNILOOM_API_KEY")
+        self.server_id = server_id
+        self.from_registry = entry is not None
+        # An explicit *target* (base_url + server_id) means explicit
+        # credentials: probing server B must never silently borrow server A's
+        # key from the environment. Without the pair, the documented fallbacks
+        # apply — that keeps every pre-registry call site unchanged.
+        explicit_target = base_url is not None and server_id is not None
+        if explicit_target:
+            self.api_key = api_key or None
+            self.user_api_key = user_api_key or None
+        else:
+            self.api_key = api_key or registry_api_key or _env("REQOGNILOOM_API_KEY")
+            self.user_api_key = user_api_key or registry_user_key or None
+
+    def has_user_api_key(self) -> bool:
+        """True when an approval-class call has a human credential available."""
+        return bool(self.user_api_key)
+
+    def principal_key(self, principal: str) -> str | None:
+        """The key for ``principal`` — ``"user"`` or anything else (agent)."""
+        if principal == "user":
+            return self.user_api_key
+        return self.api_key
 
     def _unconfigured_target_hint(self) -> str:
         """Actionable suffix for a transport failure when no base URL was
@@ -462,8 +560,14 @@ class ReqogniLoomClient:
             _raise_for_error_payload(payload)
         return payload
 
-    def _mcp_call(self, tool: str, arguments: dict[str, Any] | None = None) -> Any:
+    def _mcp_call(
+        self, tool: str, arguments: dict[str, Any] | None = None, *, api_key: str | None = None
+    ) -> Any:
         """Call one MCP tool and return its decoded JSON result.
+
+        ``api_key`` overrides the client's own key for this one call — the hook
+        the dashboard's write gate uses to reach a human-principal-only tool
+        (approvals) without a second client.
 
         Raises:
             _AuthError: no key configured, or the server rejected the key.
@@ -477,7 +581,11 @@ class ReqogniLoomClient:
             "params": {"name": tool, "arguments": arguments or {}},
         }
         payload = self._request(
-            "POST", MCP_PATH, frame, api_key=self.api_key, requires_api_key=True
+            "POST",
+            MCP_PATH,
+            frame,
+            api_key=api_key if api_key is not None else self.api_key,
+            requires_api_key=True,
         )
         if not isinstance(payload, dict):
             raise ReqogniLoomError(f"unexpected MCP response for {tool}: not a JSON object")
@@ -490,6 +598,57 @@ class ReqogniLoomClient:
         if not isinstance(result, dict):
             raise ReqogniLoomError(f"unexpected MCP result for {tool}: not an object")
         return _decode_content(result, tool)
+
+    def call_tool(
+        self,
+        tool: str,
+        arguments: dict[str, Any] | None = None,
+        *,
+        principal: str = "agent",
+        api_key: str | None = None,
+    ) -> Any:
+        """Generic door onto any tool of the server (the whole 248-tool surface).
+
+        ``principal`` picks the credential: ``"agent"`` (default, writes are born
+        as ``proposed`` artifacts) or ``"user"`` — required by the approval-class
+        tools, which the server refuses for an agent. A caller that asks for the
+        user principal while no user key is configured gets a
+        :class:`ReqogniLoomError` naming the field instead of the server's opaque
+        ``PERMISSION_DENIED``.
+        """
+        if not tool:
+            raise ReqogniLoomError("no tool name given")
+        key = api_key if api_key is not None else self.principal_key(principal)
+        if principal == "user" and not key:
+            raise ReqogniLoomError(
+                "this operation needs the human API key of the server "
+                "(user_api_key) — an agent may not decide its own proposal"
+            )
+        return self._mcp_call(tool, arguments, api_key=key)
+
+    def tools_list(self, *, api_key: str | None = None) -> list[dict[str, Any]]:
+        """``tools/list`` — every tool the server publishes, with its schema.
+
+        Read at runtime rather than vendored: the dashboard's tool console must
+        show a tool the server added after this plugin was released.
+        """
+        frame = {"jsonrpc": "2.0", "id": 1, "method": "tools/list"}
+        payload = self._request(
+            "POST",
+            MCP_PATH,
+            frame,
+            api_key=api_key if api_key is not None else self.api_key,
+            requires_api_key=True,
+        )
+        if not isinstance(payload, dict):
+            raise ReqogniLoomError("unexpected tools/list response: not a JSON object")
+        result = payload.get("result")
+        if not isinstance(result, dict):
+            raise ReqogniLoomError("unexpected tools/list response: no 'result' object")
+        tools = result.get("tools")
+        if not isinstance(tools, list):
+            raise ReqogniLoomError("unexpected tools/list response: no 'tools' list")
+        return [tool for tool in tools if isinstance(tool, dict)]
 
     def _rest_get(self, path: str) -> Any:
         """Unauthenticated GET (used only for the public version endpoint)."""
