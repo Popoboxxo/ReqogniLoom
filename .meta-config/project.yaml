@@ -597,6 +597,9 @@ plugins:
     enabled: true
   headroom:
     enabled: false
+external-skills:
+  awesome-claude-code:
+    enabled: false
 # Repo-Containment ('Gefängnis-Modus'): confines agent WRITE access to the project root (plus the tmp-sink). Opt-out: enabled: false.
 repo_containment:
   enabled: true
