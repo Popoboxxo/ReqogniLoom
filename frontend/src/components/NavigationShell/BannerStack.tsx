@@ -17,6 +17,7 @@ import { useTranslation } from "react-i18next";
 import ReactMarkdown from "react-markdown";
 import { bannersApi, type Banner } from "../../api/banners";
 import { useWorkspace } from "../../context/WorkspaceContext";
+import { safeSessionStorage } from "../../utils/safeStorage";
 import styles from "./BannerStack.module.css";
 
 function dismissKey(scope: string, banner: Banner): string {
@@ -24,7 +25,7 @@ function dismissKey(scope: string, banner: Banner): string {
 }
 
 function isDismissed(scope: string, banner: Banner): boolean {
-  return window.sessionStorage.getItem(dismissKey(scope, banner)) === "1";
+  return safeSessionStorage.getItem(dismissKey(scope, banner)) === "1";
 }
 
 function BannerRow({
@@ -39,7 +40,7 @@ function BannerRow({
   const { t } = useTranslation();
 
   const handleDismiss = (): void => {
-    window.sessionStorage.setItem(dismissKey(scope, banner), "1");
+    safeSessionStorage.setItem(dismissKey(scope, banner), "1");
     onDismiss();
   };
 

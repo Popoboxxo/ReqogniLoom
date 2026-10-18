@@ -46,6 +46,7 @@ import { extractErrorMessage } from "../../api/client";
 import type { WorkspacePreset } from "../../types";
 import { useAuth } from "../../context/AuthContext";
 import { useWorkspace } from "../../context/WorkspaceContext";
+import { safeLocalStorage } from "../../utils/safeStorage";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
 import { PageHeader } from "../shared/PageHeader";
 import { useToast } from "../shared/Toast/useToast";
@@ -112,13 +113,9 @@ type ViewMode = "list" | "table";
 const VIEW_MODE_STORAGE_KEY = "attributeEditor.viewMode";
 
 function loadViewMode(): ViewMode {
-  try {
-    return localStorage.getItem(VIEW_MODE_STORAGE_KEY) === "table" ? "table" : "list";
-  } catch {
-    // Private browsing / storage disabled — default silently, this is a
-    // per-viewer convenience, never load-bearing.
-    return "list";
-  }
+  // Private browsing / storage disabled is absorbed by the defensive wrapper
+  // (utils/safeStorage) — this is a per-viewer convenience, never load-bearing.
+  return safeLocalStorage.getItem(VIEW_MODE_STORAGE_KEY) === "table" ? "table" : "list";
 }
 
 function itemTypeFromSlug(slug: string | undefined): AttributeItemType | null {
@@ -202,11 +199,8 @@ export function AttributeEditorPage({
 
   const handleSetViewMode = useCallback((mode: ViewMode): void => {
     setViewMode(mode);
-    try {
-      localStorage.setItem(VIEW_MODE_STORAGE_KEY, mode);
-    } catch {
-      // Same non-load-bearing fallback as loadViewMode above.
-    }
+    // Same non-load-bearing contract as loadViewMode above.
+    safeLocalStorage.setItem(VIEW_MODE_STORAGE_KEY, mode);
   }, []);
 
   /**

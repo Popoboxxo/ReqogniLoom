@@ -44,6 +44,7 @@ import {
   type OptionalArtifactFeature,
 } from "../api/preferences";
 import { useAuth } from "./AuthContext";
+import { safeSessionStorage } from "../utils/safeStorage";
 // Theme Presets: WorkspaceContext no longer seeds a workspace `theme` into
 // the theme system — ThemeContext resolves (paletteKey, mode) itself from
 // user preference > tenant default > fallback. Workspace.theme stays a
@@ -123,10 +124,7 @@ export interface WorkspaceState {
 
 // Allow E2E tests (and future workspace bootstrap) to override the workspace ID
 // by storing a real UUID in sessionStorage under "reqflow_workspace_id".
-const _storedWorkspaceId =
-  typeof sessionStorage !== "undefined"
-    ? sessionStorage.getItem("reqflow_workspace_id")
-    : null;
+const _storedWorkspaceId = safeSessionStorage.getItem("reqflow_workspace_id");
 
 // Exported (not just module-local) so callers outside this file — e.g. the
 // sidebar language toggle (F-04) — can reliably detect "no real workspace
@@ -216,8 +214,8 @@ export function WorkspaceProvider({
     // should now follow the (new) workspace's persisted value" is exactly
     // right — clear any override left over from the previous workspace.
     setHasLocalLanguageOverride(false);
-    if (ws && typeof sessionStorage !== "undefined") {
-      sessionStorage.setItem("reqflow_workspace_id", ws.id);
+    if (ws) {
+      safeSessionStorage.setItem("reqflow_workspace_id", ws.id);
     }
   }, []);
 
@@ -235,17 +233,12 @@ export function WorkspaceProvider({
         const list = all.map(normalizePreset);
         setWorkspaces(list);
         if (list.length > 0) {
-          const storedId =
-            typeof sessionStorage !== "undefined"
-              ? sessionStorage.getItem("reqflow_workspace_id")
-              : null;
+          const storedId = safeSessionStorage.getItem("reqflow_workspace_id");
           const preferredId = selectId ?? storedId;
           const selected =
             (preferredId && list.find((w) => w.id === preferredId)) || list[0];
           setActiveWorkspaceState(selected);
-          if (typeof sessionStorage !== "undefined") {
-            sessionStorage.setItem("reqflow_workspace_id", selected.id);
-          }
+          safeSessionStorage.setItem("reqflow_workspace_id", selected.id);
         } else {
           setActiveWorkspaceState(DEFAULT_WORKSPACE);
         }

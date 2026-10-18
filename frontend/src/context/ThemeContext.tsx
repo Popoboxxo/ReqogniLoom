@@ -37,6 +37,7 @@ import {
 } from "react";
 
 import { themePalettesApi, type ThemeMode, type ThemePalette } from "../api/themePalettes";
+import { safeLocalStorage } from "../utils/safeStorage";
 import { AuthContext } from "./AuthContext";
 
 /** Palettes whose identity IS one specific look; used for the legacy
@@ -104,21 +105,9 @@ function applyPalette(
   root.dataset.themeMode = mode;
 }
 
-function readStored(key: string): string | null {
-  try {
-    return window.localStorage.getItem(key);
-  } catch {
-    return null;
-  }
-}
-
-function writeStored(key: string, value: string): void {
-  try {
-    window.localStorage.setItem(key, value);
-  } catch {
-    // Storage unavailable (private mode, disabled) — session-only preference.
-  }
-}
+// Cache reads/writes go through the shared defensive wrapper (issue #679, see
+// `utils/safeStorage`); a storage lockout just means the session falls back to
+// the server preference / built-in defaults.
 
 export function ThemeProvider({ children }: { children: ReactNode }): JSX.Element {
   // Fix (systemaudit 2026-08-29, Bug 3): all three endpoints below require
@@ -139,12 +128,15 @@ export function ThemeProvider({ children }: { children: ReactNode }): JSX.Elemen
   // overrides this once it arrives.
   const [palettes, setPalettes] = useState<ThemePalette[]>([]);
   const [paletteKey, setPaletteKey] = useState<string>(
-    () => readStored(STORAGE_KEY_PALETTE) || readStored(LEGACY_STORAGE_KEY) || FALLBACK_PALETTE
+    () =>
+      safeLocalStorage.getItem(STORAGE_KEY_PALETTE) ||
+      safeLocalStorage.getItem(LEGACY_STORAGE_KEY) ||
+      FALLBACK_PALETTE
   );
   const [mode, setMode] = useState<ThemeMode>(() => {
-    const stored = readStored(STORAGE_KEY_MODE);
+    const stored = safeLocalStorage.getItem(STORAGE_KEY_MODE);
     if (stored === "light" || stored === "dark") return stored;
-    const legacy = readStored(LEGACY_STORAGE_KEY);
+    const legacy = safeLocalStorage.getItem(LEGACY_STORAGE_KEY);
     if (legacy === "light") return "light";
     return resolveFallbackMode();
   });
@@ -183,8 +175,8 @@ export function ThemeProvider({ children }: { children: ReactNode }): JSX.Elemen
   useEffect(() => {
     const palette = palettes.find((p) => p.key === paletteKey);
     applyPalette(palette, mode, paletteKey);
-    writeStored(STORAGE_KEY_PALETTE, paletteKey);
-    writeStored(STORAGE_KEY_MODE, mode);
+    safeLocalStorage.setItem(STORAGE_KEY_PALETTE, paletteKey);
+    safeLocalStorage.setItem(STORAGE_KEY_MODE, mode);
   }, [palettes, paletteKey, mode]);
 
   const setPreference = useCallback((newPaletteKey: string, newMode: ThemeMode): void => {

@@ -30,6 +30,7 @@ import type {
   WorkflowStateType,
   WorkflowTransition,
 } from "../../api/workflows";
+import { safeLocalStorage } from "../../utils/safeStorage";
 import type { Selection } from "./constants";
 import styles from "./WorkflowEditor.module.css";
 
@@ -47,15 +48,10 @@ const TYPE_BADGE_CLASS: Record<WorkflowStateType, string> = {
 };
 
 function readWidth(): number {
-  if (typeof window === "undefined") return DEFAULT_WIDTH_PX;
-  try {
-    const raw = window.localStorage.getItem(WIDTH_KEY);
-    if (raw !== null) {
-      const n = parseInt(raw, 10);
-      if (Number.isFinite(n)) return Math.min(MAX_WIDTH_PX, Math.max(MIN_WIDTH_PX, n));
-    }
-  } catch {
-    /* localStorage may be disabled */
+  const raw = safeLocalStorage.getItem(WIDTH_KEY);
+  if (raw !== null) {
+    const n = parseInt(raw, 10);
+    if (Number.isFinite(n)) return Math.min(MAX_WIDTH_PX, Math.max(MIN_WIDTH_PX, n));
   }
   return DEFAULT_WIDTH_PX;
 }
@@ -88,11 +84,7 @@ export function InspectorPanel({
   const [width, setWidth] = useState<number>(readWidth);
 
   useEffect(() => {
-    try {
-      window.localStorage.setItem(WIDTH_KEY, String(width));
-    } catch {
-      /* ignore */
-    }
+    safeLocalStorage.setItem(WIDTH_KEY, String(width));
   }, [width]);
 
   // ---- resize (handle on the left edge; dragging left widens) -------------

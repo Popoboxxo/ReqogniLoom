@@ -17,6 +17,7 @@ import { useAuth } from "../../context/AuthContext";
 import { versionApi, type VersionInfo } from "../../api/version";
 import { bannersApi, type LoginBanner } from "../../api/banners";
 import { APP_NAME } from "../../config/app-name";
+import { safeSessionStorage } from "../../utils/safeStorage";
 import styles from "./LoginPage.module.css";
 
 const LOGIN_BANNER_CLASS: Record<LoginBanner["level"], string> = {
@@ -44,7 +45,7 @@ function loginDismissKey(banner: LoginBanner): string {
 }
 
 function isLoginBannerDismissed(banner: LoginBanner): boolean {
-  return window.sessionStorage.getItem(loginDismissKey(banner)) === "1";
+  return safeSessionStorage.getItem(loginDismissKey(banner)) === "1";
 }
 
 export function LoginPage(): JSX.Element {
@@ -167,7 +168,7 @@ export function LoginPage(): JSX.Element {
               data-testid="login-page-banner-dismiss"
               aria-label={t("banners.dismiss", "Dismiss")}
               onClick={() => {
-                window.sessionStorage.setItem(loginDismissKey(loginBanner), "1");
+                safeSessionStorage.setItem(loginDismissKey(loginBanner), "1");
                 setBannerDismissed(true);
               }}
             >

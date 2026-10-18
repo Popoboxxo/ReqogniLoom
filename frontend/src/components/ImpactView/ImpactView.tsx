@@ -45,6 +45,7 @@ import { searchApi } from "../../api/search";
 import type { SearchHit } from "../../api/search";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { getLinkTypeLabel } from "../../constants/traceLinkLabels";
+import { safeSessionStorage } from "../../utils/safeStorage";
 import { PageHeader } from "../shared/PageHeader";
 import { IMPACT_PRESET_STORAGE_KEY } from "./impact-preset";
 import {
@@ -353,9 +354,9 @@ export function ImpactView(): JSX.Element {
   // /impact always starts from the normal search flow.
   useEffect(() => {
     try {
-      const raw = sessionStorage.getItem(IMPACT_PRESET_STORAGE_KEY);
+      const raw = safeSessionStorage.getItem(IMPACT_PRESET_STORAGE_KEY);
       if (!raw) return;
-      sessionStorage.removeItem(IMPACT_PRESET_STORAGE_KEY);
+      safeSessionStorage.removeItem(IMPACT_PRESET_STORAGE_KEY);
       const preset = JSON.parse(raw) as { id?: string; title?: string; artifactType?: string };
       // #415: only the id is mandatory. Requiring title+type meant a handoff
       // whose title could not be resolved was dropped entirely; the node now
