@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "recordedAt": "2026-10-13",
+  "recordedAt": "2026-10-18",
   "recordedBy": "DESIGN_SYSTEM_REBASELINE=1 npx vitest run src/test/design-system-ratchet.test.ts",
   "checks": {
     "button-missing-design-system-class": {
@@ -237,7 +237,7 @@
         "button-missing-design-system-class::components/canvas/CanvasEditor.tsx::button[data-testid=canvas-zoom-in]",
         "button-missing-design-system-class::components/canvas/CanvasEditor.tsx::button[data-testid=canvas-zoom-out]",
         "button-missing-design-system-class::components/mermaid/MermaidEditor.tsx::button[data-testid=mermaid-save-btn]",
-        "button-missing-design-system-class::components/shared/ArtifactForm/ArtifactForm.tsx::button[data-testid=artifact-section-toggle-${section.name}]",
+        "button-missing-design-system-class::components/shared/ArtifactForm/ArtifactSections.tsx::button[data-testid=artifact-section-toggle-${section.name}]",
         "button-missing-design-system-class::components/shared/ArtifactForm/fields/ActorPicker.tsx::button[data-testid=${testId}-chip-remove]",
         "button-missing-design-system-class::components/shared/ArtifactForm/fields/ActorPicker.tsx::button[data-testid=${testId}-clear]",
         "button-missing-design-system-class::components/shared/ArtifactForm/fields/ActorPicker.tsx::button[data-testid=${testId}-create-external]",
