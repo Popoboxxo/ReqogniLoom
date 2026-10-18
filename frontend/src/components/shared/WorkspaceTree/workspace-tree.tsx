@@ -24,7 +24,6 @@
 
 import {
   type CSSProperties,
-  type DragEvent as ReactDragEvent,
   type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
   useCallback,
@@ -43,7 +42,12 @@ import {
   useTreeDisplayFieldsLoader,
 } from '../../../hooks/useTreeDisplayFields';
 import { TreeDisplayFieldsProvider } from './tree-display-fields-context';
-import { collectAncestorIds, collectSelfAndDescendantIds } from './tree-hierarchy';
+import { collectAncestorIds } from './tree-hierarchy';
+import {
+  ROOT_DROP_TARGET,
+  useTreeDrag,
+  type TreeRowDragProps,
+} from './tree-drag';
 import styles from './workspace-tree.module.css';
 
 // ---------------------------------------------------------------------------
@@ -301,12 +305,6 @@ export interface WorkspaceTreeProps {
   stateKey?: string;
   'data-testid'?: string;
 }
-
-/**
- * Sentinel drop-target id for the root dropzone. Not a node id — node ids come
- * from the API, so a reserved non-UUID string cannot collide with one.
- */
-const ROOT_DROP_TARGET = '__root__';
 
 // REQ-091: virtualization threshold 100 items
 const VIRTUALIZE_THRESHOLD = 100;
@@ -793,102 +791,11 @@ export function WorkspaceTree({
 
   // -------------------------------------------------------------------
   // Drag & drop reparenting (opt-in via onReparent) — native HTML5 D&D.
+  // The state machine lives in `tree-drag.ts`; the row and root-dropzone JSX
+  // stays here so the design-system ratchet baseline keeps its anchors.
   // -------------------------------------------------------------------
-  const dndEnabled = Boolean(onReparent);
-  const [draggingId, setDraggingId] = useState<string | null>(null);
-  // Current drop target; ROOT_DROP_TARGET marks the root dropzone.
-  const [dropTargetId, setDropTargetId] = useState<string | null>(null);
-
-  const parentById = useMemo((): Map<string, string | null> => {
-    const map = new Map<string, string | null>();
-    for (const n of nodes) map.set(n.id, n.parentId ?? null);
-    return map;
-  }, [nodes]);
-
-  const resetDrag = useCallback((): void => {
-    setDraggingId(null);
-    setDropTargetId(null);
-  }, []);
-
-  /**
-   * Ids the in-flight node may not be dropped on: itself and its own subtree.
-   * Recomputed per drag, not per dragover, so hovering a long list stays cheap.
-   */
-  const forbiddenDropTargetIds = useMemo((): Set<string> => {
-    if (!draggingId) return new Set<string>();
-    return collectSelfAndDescendantIds(nodes, draggingId);
-  }, [nodes, draggingId]);
-
-  const handleDragStart = useCallback(
-    (e: ReactDragEvent, id: string): void => {
-      e.dataTransfer?.setData('text/plain', id);
-      if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
-      setDraggingId(id);
-    },
-    [],
-  );
-
-  const handleDragOverTarget = useCallback(
-    (e: ReactDragEvent, targetId: string): void => {
-      // Not a drag we started, the row being dragged itself, or a row inside
-      // its own subtree: leaving preventDefault() unset is what tells the
-      // browser "not a drop target" (no highlight, no-drop cursor).
-      if (!draggingId || forbiddenDropTargetIds.has(targetId)) return;
-      e.preventDefault();
-      if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
-      setDropTargetId((prev) => (prev === targetId ? prev : targetId));
-    },
-    [draggingId, forbiddenDropTargetIds],
-  );
-
-  const handleDragLeaveTarget = useCallback(
-    (e: ReactDragEvent, targetId: string): void => {
-      // Native D&D fires dragleave when the pointer crosses onto a nested
-      // child of the same row (chevron, label, badge) even though it is still
-      // logically over that row — ignoring those keeps the drop-target
-      // highlight from flickering through the whole drag.
-      const related = e.relatedTarget as Node | null;
-      if (related && e.currentTarget.contains(related)) return;
-      setDropTargetId((prev) => (prev === targetId ? null : prev));
-    },
-    [],
-  );
-
-  const handleDrop = useCallback(
-    (e: ReactDragEvent, newParentId: string | null): void => {
-      e.preventDefault();
-      e.stopPropagation();
-      const draggedId = e.dataTransfer?.getData('text/plain') || draggingId;
-      resetDrag();
-      if (!draggedId || !onReparent) return;
-      // Dropping onto the parent it already has moves nothing.
-      if ((parentById.get(draggedId) ?? null) === newParentId) return;
-      // Dropping a node on itself or into its own subtree would close a cycle.
-      // Recomputed from the id that actually arrived rather than reusing
-      // `forbiddenDropTargetIds`, which is keyed on the drag we started.
-      // Detaching to root (newParentId === null) can never be a cycle.
-      if (
-        newParentId !== null &&
-        collectSelfAndDescendantIds(nodes, draggedId).has(newParentId)
-      ) {
-        return;
-      }
-      onReparent(draggedId, newParentId);
-    },
-    [draggingId, nodes, parentById, resetDrag, onReparent],
-  );
-
-  const rowDragProps = dndEnabled
-    ? {
-        draggingId,
-        dropTargetId,
-        onDragStartRow: handleDragStart,
-        onDragOverRow: handleDragOverTarget,
-        onDragLeaveRow: handleDragLeaveTarget,
-        onDropRow: handleDrop,
-        onDragEndRow: resetDrag,
-      }
-    : undefined;
+  const drag = useTreeDrag(nodes, onReparent);
+  const { dndEnabled, draggingId, dropTargetId, rowDragProps } = drag;
 
   // Issue #876 (Etappe 5): the virtualized list's height is a measured pixel
   // value (`getTotalSize()`), so it stays on the `style` prop as a computed
@@ -927,19 +834,9 @@ export function WorkspaceTree({
           className={`${styles.rootDropzone}${
             dropTargetId === ROOT_DROP_TARGET ? ` ${styles.rootDropzoneActive}` : ''
           }`}
-          onDragOver={(e) => {
-            e.preventDefault();
-            if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
-            setDropTargetId((prev) =>
-              prev === ROOT_DROP_TARGET ? prev : ROOT_DROP_TARGET,
-            );
-          }}
-          onDragLeave={(e) => {
-            const related = e.relatedTarget as Node | null;
-            if (related && e.currentTarget.contains(related)) return;
-            setDropTargetId((prev) => (prev === ROOT_DROP_TARGET ? null : prev));
-          }}
-          onDrop={(e) => handleDrop(e, null)}
+          onDragOver={drag.onRootDragOver}
+          onDragLeave={drag.onRootDragLeave}
+          onDrop={drag.onRootDrop}
         >
           {dropzoneLabel}
         </div>
@@ -1116,17 +1013,6 @@ interface TreeRowLabels {
   containsSelection: string;
   /** Label of the outdated/deprecated marker badge (outdated visibility). */
   outdated: string;
-}
-
-/** Drag & drop wiring handed down from WorkspaceTree to each row. */
-interface TreeRowDragProps {
-  draggingId: string | null;
-  dropTargetId: string | null;
-  onDragStartRow: (e: ReactDragEvent, id: string) => void;
-  onDragOverRow: (e: ReactDragEvent, id: string) => void;
-  onDragLeaveRow: (e: ReactDragEvent, id: string) => void;
-  onDropRow: (e: ReactDragEvent, newParentId: string | null) => void;
-  onDragEndRow: () => void;
 }
 
 function TreeRow({
