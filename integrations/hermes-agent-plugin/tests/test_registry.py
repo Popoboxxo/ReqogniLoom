@@ -256,7 +256,9 @@ class WorkspaceMemoryTests(unittest.TestCase):
 class ProbeTests(unittest.TestCase):
     def test_healthy_server_reports_version_and_tool_count(self) -> None:
         client = FakeClient()
-        verify = registry.probe_server(client, {"id": "qs", "base_url": "http://qs.test:8001"})
+        verify = registry.probe_server(
+            client, {"id": "qs", "base_url": "http://qs.test:8001", "api_key": "reqlo_agent"}
+        )
         self.assertTrue(verify["reachable"])
         self.assertTrue(verify["auth_ok"])
         self.assertEqual(verify["app_version"], "1.8.0-beta.21")
@@ -264,7 +266,8 @@ class ProbeTests(unittest.TestCase):
 
     def test_unreachable_server_is_reported_as_such(self) -> None:
         verify = registry.probe_server(
-            FakeClient(version_ok=False), {"id": "qs", "base_url": "http://qs.test:8001"}
+            FakeClient(version_ok=False),
+            {"id": "qs", "base_url": "http://qs.test:8001", "api_key": "reqlo_agent"},
         )
         self.assertFalse(verify["reachable"])
         self.assertFalse(verify["auth_ok"])
@@ -272,11 +275,23 @@ class ProbeTests(unittest.TestCase):
 
     def test_bad_key_is_distinguished_from_down_server(self) -> None:
         verify = registry.probe_server(
-            FakeClient(tools_ok=False), {"id": "qs", "base_url": "http://qs.test:8001"}
+            FakeClient(tools_ok=False),
+            {"id": "qs", "base_url": "http://qs.test:8001", "api_key": "reqlo_agent"},
         )
         self.assertTrue(verify["reachable"], "reachability comes from the public version call")
         self.assertFalse(verify["auth_ok"])
         self.assertIn("PERMISSION_DENIED", verify["error"])
+
+    def test_missing_key_names_the_entry_not_the_global_variable(self) -> None:
+        # Without a credential of its own, the probe must not forward the client's
+        # global message ("export REQOGNILOOM_API_KEY") — on a multi-server install
+        # that names the wrong lever and hides the real gap.
+        client = FakeClient()
+        verify = registry.probe_server(client, {"id": "qs", "base_url": "http://qs.test:8001"})
+        self.assertTrue(verify["reachable"])
+        self.assertFalse(verify["auth_ok"])
+        self.assertIn("no credential configured for server 'qs'", verify["error"])
+        self.assertEqual(client.api_key_seen, [], "no tools/list call without a credential")
 
     def test_probe_uses_the_entry_key(self) -> None:
         client = FakeClient()

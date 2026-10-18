@@ -221,6 +221,7 @@ class InboundGateRemovedTests(unittest.TestCase):
                 ("DELETE", "/servers/{server_id}"),
                 ("POST", "/servers/{server_id}/test"),
                 ("POST", "/active"),
+                ("POST", "/workspace-selected"),
                 ("GET", "/write-gate"),
                 ("POST", "/write-gate"),
                 ("POST", "/write/preview"),
@@ -309,6 +310,17 @@ _CATALOGUE = [
         "name": "workspace.delete",
         "description": "Delete a workspace.",
         "inputSchema": {"type": "object", "properties": {"id": {"type": "string"}}, "required": ["id"]},
+    },
+    {
+        # Declares no workspace_id — the case that made "inject only declared
+        # parameters" a rule in the UI (finding #1376).
+        "name": "traceability.create_link",
+        "description": "Link two artifacts.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"source_id": {"type": "string"}, "target_id": {"type": "string"}},
+            "required": ["source_id", "target_id"],
+        },
     },
 ]
 
@@ -527,8 +539,46 @@ class WriteExecutionTests(_CatalogueTestBase):
         self.fake_client.call_tool.assert_not_called()
 
     def test_write_refuses_a_skipped_preview(self) -> None:
+        # No token at all: the digest would be computable, but the backend keeps
+        # issued tokens in a store, so a never-previewed call cannot pass.
+        result = plugin_api.write(
+            {
+                "tool": "requirement.create",
+                "arguments": {"workspace_id": _WORKSPACE_UUID, "title": "T"},
+            }
+        )
+        self.assertIn("preview again", result["error"])
+        self.fake_client.call_tool.assert_not_called()
+
+    def test_write_refuses_invalid_arguments_before_checking_the_token(self) -> None:
+        # Order matters for the message the operator sees: a call that is missing
+        # required fields is reported as such, not as a confirmation problem.
         result = plugin_api.write({"tool": "requirement.create", "arguments": {}})
-        self.assertIn("confirmation mismatch", result["error"])
+        self.assertIn("missing required parameter", result["error"])
+        self.fake_client.call_tool.assert_not_called()
+
+    def test_write_refuses_a_replayed_token(self) -> None:
+        # The single-use rule, proven end to end: the same (tool, arguments,
+        # token) triple must work exactly once, otherwise a double-click in the
+        # UI files the same artifact twice.
+        arguments = {"workspace_id": _WORKSPACE_UUID, "title": "T"}
+        token = self._token("requirement.create", arguments)
+        first = plugin_api.write(
+            {"tool": "requirement.create", "arguments": arguments, "confirm_token": token}
+        )
+        self.assertTrue(first["ok"])
+        second = plugin_api.write(
+            {"tool": "requirement.create", "arguments": arguments, "confirm_token": token}
+        )
+        self.assertIn("preview again", second["error"])
+        self.assertEqual(self.fake_client.call_tool.call_count, 1)
+
+    def test_write_refuses_non_object_arguments(self) -> None:
+        # Silently coercing to {} would run the *wrong* call (an empty argument
+        # set) and report success.
+        result = plugin_api.write({"tool": "requirement.create", "arguments": [1, 2]})
+        self.assertIn("JSON object", result["error"])
+        self.fake_client.call_tool.assert_not_called()
 
     def test_write_refuses_while_the_gate_is_closed(self) -> None:
         arguments = {"workspace_id": _WORKSPACE_UUID, "title": "T"}
@@ -666,6 +716,76 @@ class WriteApiHttpTests(unittest.TestCase):
         response = self.client.get("/api/plugins/reqogniloom/tool/requirement.create")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["tool"]["name"], "requirement.create")
+
+
+class ServerApiHardeningTests(unittest.TestCase):
+    """The refusals that the review round asked for, one test each."""
+
+    def test_add_normalises_a_mixed_case_id_and_answers_with_that_id(self) -> None:
+        # The response used to be built from the *request* value while the registry
+        # stored the normalised one, so the UI showed an id that did not exist.
+        fake = _catalogue_client()
+        with patch.object(plugin_api, "ReqogniLoomClient", return_value=fake):
+            result = plugin_api.add_server({"id": "QS-Test", "base_url": "http://qs.test:8001"})
+        self.assertEqual(result["server"]["id"], "qs-test")
+        self.assertEqual(plugin_api.registry.get_server("qs-test")["id"], "qs-test")
+
+    def test_add_never_returns_the_key_it_stored(self) -> None:
+        fake = _catalogue_client()
+        with patch.object(plugin_api, "ReqogniLoomClient", return_value=fake):
+            result = plugin_api.add_server(
+                {"id": "qs", "base_url": "http://qs.test:8001", "api_key": "reqlo_secret"}
+            )
+        self.assertNotIn("reqlo_secret", json.dumps(result))
+        self.assertTrue(result["server"]["has_api_key"])
+        self.assertEqual(result["server"]["api_key_source"], "file")
+
+    def test_write_gate_refuses_a_non_boolean(self) -> None:
+        # "false" as a string, or a truncated body, must not read as *open*: this
+        # is the single switch in front of every mutating tool.
+        plugin_api.registry.set_write_gate(True)
+        for bad in ("false", 0, None, "yes", []):
+            with self.subTest(value=bad):
+                result = plugin_api.set_write_gate({"enabled": bad})
+                self.assertIn("must be true or false", result["error"])
+        self.assertTrue(plugin_api.registry.write_gate_enabled(), "the gate must be unchanged")
+
+    def test_write_gate_accepts_a_real_boolean(self) -> None:
+        self.assertFalse(plugin_api.set_write_gate({"enabled": False})["write_gate"])
+        self.assertFalse(plugin_api.registry.write_gate_enabled())
+
+    def test_unknown_server_id_is_an_error_body_not_an_exception(self) -> None:
+        for call in (
+            lambda: plugin_api.delete_server("ghost"),
+            lambda: plugin_api.update_server("ghost", {"name": "x"}),
+            lambda: plugin_api.test_server("ghost"),
+            lambda: plugin_api.set_active_server({"server_id": "ghost"}),
+        ):
+            with self.subTest(call=call):
+                self.assertIn("error", call())
+
+    def test_remember_workspace_rejects_an_unknown_server(self) -> None:
+        result = plugin_api.workspace_selected({"server_id": "ghost", "workspace_id": "w-1"})
+        self.assertIn("error", result)
+
+
+class SchemaContractTests(_CatalogueTestBase):
+    """The plugin must not teach its callers to send undeclared parameters."""
+
+    def test_catalogue_entries_carry_the_declared_property_names(self) -> None:
+        result = plugin_api.tool_catalogue()
+        entry = [tool for tool in result["tools"] if tool["name"] == "requirement.create"][0]
+        self.assertIn("workspace_id", entry["input_schema"]["properties"])
+        self.assertIn("title", entry["input_schema"]["properties"])
+
+    def test_traceability_create_link_declares_no_workspace(self) -> None:
+        # The UI injects the selected workspace only into tools that declare it;
+        # this is the tool that made that rule necessary.
+        result = plugin_api.tool_catalogue()
+        entry = [tool for tool in result["tools"] if tool["name"] == "traceability.create_link"]
+        if not entry:
+            raise unittest.SkipTest("traceability.create_link not in the fixture catalogue")
+        self.assertNotIn("workspace_id", entry[0]["input_schema"].get("properties", {}))
 
 
 if __name__ == "__main__":

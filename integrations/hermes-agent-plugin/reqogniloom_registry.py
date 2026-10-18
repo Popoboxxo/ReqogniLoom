@@ -55,6 +55,7 @@ import json
 import logging
 import os
 import re
+import threading
 import time
 from contextlib import contextmanager
 from pathlib import Path
@@ -152,15 +153,41 @@ def load_registry() -> Dict[str, Any]:
 def save_registry(registry: Dict[str, Any]) -> None:
     """Replace the registry atomically, mode ``0600``, directory ``0700``."""
     path = registry_path()
-    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    tmp = path.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(registry, indent=2, sort_keys=True), encoding="utf-8")
-    os.chmod(tmp, FILE_MODE)
-    os.replace(tmp, path)
-    try:  # a pre-existing file keeps its old mode across os.replace
+    _ensure_registry_dir()
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+    try:
+        # Create the temp file already restrictive: this file holds every
+        # server's keys, and a world-readable window between write and chmod is
+        # exactly the exposure the mode is there to prevent.
+        fd = os.open(str(tmp), os.O_CREAT | os.O_EXCL | os.O_WRONLY, FILE_MODE)
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(json.dumps(registry, indent=2, sort_keys=True))
+        os.replace(tmp, path)
         os.chmod(path, FILE_MODE)
+    except OSError as exc:
+        # An unwritable home is a configuration problem, not a crash: the
+        # dashboard renders RegistryError as a readable message instead of a 500.
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+        raise RegistryError(f"cannot write {path}: {exc}") from exc
+
+
+def _ensure_registry_dir(path: Optional[Path] = None) -> Path:
+    """The registry directory, created (and kept) mode ``0700``.
+
+    Every writer goes through here: the file that holds the credentials must not
+    sit in a world-traversable directory, and `mkdir(exist_ok=True, mode=...)`
+    alone does not fix a directory some other writer created first.
+    """
+    directory = (path or registry_path()).parent
+    directory.mkdir(parents=True, exist_ok=True)
+    try:
+        os.chmod(directory, 0o700)
     except OSError:
         pass
+    return directory
 
 
 @contextmanager
@@ -173,7 +200,7 @@ def registry_lock(timeout: float = LOCK_TIMEOUT_SECONDS) -> Iterator[bool]:
     entries.
     """
     lock_path = registry_path().with_suffix(".json.lock")
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    _ensure_registry_dir(lock_path)
     deadline = time.monotonic() + timeout
     fd: Optional[int] = None
     while fd is None:
@@ -245,6 +272,27 @@ def _trim(value: Any) -> Optional[str]:
     return text or None
 
 
+#: Credentials are only ever read from variables the plugin owns. An arbitrary
+#: name would turn the server panel into an environment-variable exfiltration
+#: channel: a new entry could name ``AWS_SECRET_ACCESS_KEY``, and the very next
+#: health probe would send that value as ``X-API-Key`` to whatever ``base_url``
+#: the same request supplied.
+ALLOWED_KEY_ENV_PREFIXES = ("REQOGNILOOM_API_KEY", "REQOGNILOOM_USER_API_KEY")
+
+
+def validate_key_env(value: Optional[str]) -> Optional[str]:
+    """Return a permitted environment variable name, or ``None``."""
+    name = _trim(value)
+    if name is None:
+        return None
+    if not re.match(r"^[A-Z][A-Z0-9_]*$", name) or not name.startswith(ALLOWED_KEY_ENV_PREFIXES):
+        raise RegistryError(
+            f"refusing environment variable {value!r}: only names starting with "
+            f"{' or '.join(ALLOWED_KEY_ENV_PREFIXES)} may hold a server credential"
+        )
+    return name
+
+
 # --------------------------------------------------------------------------
 # entry construction / lookup
 # --------------------------------------------------------------------------
@@ -278,13 +326,13 @@ def _new_entry(
     }
     if api_key_env:
         entry["api_key_source"] = "env"
-        entry["api_key_env"] = _trim(api_key_env)
+        entry["api_key_env"] = validate_key_env(api_key_env)
     elif api_key:
         entry["api_key_source"] = "file"
         entry["api_key"] = api_key
     if user_api_key_env:
         entry["user_api_key_source"] = "env"
-        entry["user_api_key_env"] = _trim(user_api_key_env)
+        entry["user_api_key_env"] = validate_key_env(user_api_key_env)
     elif user_api_key:
         entry["user_api_key_source"] = "file"
         entry["user_api_key"] = user_api_key
@@ -369,14 +417,21 @@ def public_server(entry: Dict[str, Any], registry: Optional[Dict[str, Any]] = No
     Reports only *whether* each credential resolves and *where it comes from*,
     which is what the dashboard needs to render "key: env REQOGNILOOM_API_KEY_x"
     or "no key configured" without ever handing a secret to the browser.
+
+    ``active`` comes from the resolver (:func:`active_server`), not from a
+    literal comparison with the stored pointer: a registry with exactly one
+    server and no explicit ``active`` is used by every call, so the UI has to
+    mark that server — otherwise the tab shows "no server selected" while all
+    traffic goes to it.
     """
     reg = registry if registry is not None else load_registry()
+    current = active_server(dict(reg, active=reg.get("active")))
     api_key, user_key = resolve_credentials(entry)
     return {
         "id": entry.get("id"),
         "name": entry.get("name"),
         "base_url": entry.get("base_url"),
-        "active": str(reg.get("active") or "") == str(entry.get("id") or ""),
+        "active": current is not None and str(current.get("id")) == str(entry.get("id")),
         "has_api_key": bool(api_key),
         "api_key_source": entry.get("api_key_source") or "none",
         "api_key_env": entry.get("api_key_env"),
@@ -429,7 +484,7 @@ def ensure_migrated() -> Dict[str, Any]:
 
     env_base = _trim(os.environ.get(ENV_BASE_URL))
     env_key = _trim(os.environ.get(ENV_API_KEY))
-    registry = _empty_registry()
+    entry: Optional[Dict[str, Any]] = None
     if env_base:
         try:
             base_url = validate_base_url(env_base)
@@ -443,10 +498,22 @@ def ensure_migrated() -> Dict[str, Any]:
                 base_url=base_url,
                 api_key_env=ENV_API_KEY if env_key else None,
             )
-            registry["servers"] = [entry]
-            registry["active"] = DEFAULT_SERVER_ID
-    save_registry(registry)
-    return registry
+
+    def mutate(reg: Dict[str, Any]) -> Dict[str, Any]:
+        # Re-checked inside the lock: two first-run requests (an env-only install
+        # opening the tab while a slash command migrates) must not both create the
+        # entry, and a fixed temp name would let them interleave on one file.
+        if reg.get("servers"):
+            return reg
+        if entry is None:
+            return reg
+        return {**reg, "servers": [entry], "active": DEFAULT_SERVER_ID}
+
+    try:
+        return update_registry(mutate)
+    except RegistryError as exc:  # e.g. an unwritable home
+        logger.warning("could not create the registry: %s", exc)
+        return load_registry()
 
 
 def set_write_gate(enabled: bool) -> Dict[str, Any]:
@@ -518,7 +585,7 @@ def update_server(server_id: str, **fields: Any) -> Dict[str, Any]:
         if fields.get("default_workspace_id") is not None:
             updated["default_workspace_id"] = _trim(fields["default_workspace_id"])
         if fields.get("api_key_env") is not None:
-            env_name = _trim(fields["api_key_env"])
+            env_name = validate_key_env(fields["api_key_env"])
             updated["api_key_source"] = "env" if env_name else "none"
             updated["api_key_env"] = env_name
             updated["api_key"] = None
@@ -528,7 +595,7 @@ def update_server(server_id: str, **fields: Any) -> Dict[str, Any]:
             updated["api_key"] = value
             updated["api_key_env"] = None
         if fields.get("user_api_key_env") is not None:
-            env_name = _trim(fields["user_api_key_env"])
+            env_name = validate_key_env(fields["user_api_key_env"])
             updated["user_api_key_source"] = "env" if env_name else "none"
             updated["user_api_key_env"] = env_name
             updated["user_api_key"] = None
@@ -618,7 +685,9 @@ def remember_workspace(server_id: str, workspace_id: str) -> None:
 
     try:
         update_registry(mutate)
-    except RegistryError:
+    except (RegistryError, OSError):
+        # OSError too: this runs after a successful mutation on the write path,
+        # and a full disk must not turn a landed write into a reported failure.
         return
 
 
@@ -663,10 +732,6 @@ def format_servers(registry: Optional[Dict[str, Any]] = None) -> str:
     return "\n".join(lines)
 
 
-class VerifyResult(dict):
-    """Typed dict of one health probe (documentation only)."""
-
-
 def probe_server(client: Any, entry: Dict[str, Any]) -> Dict[str, Any]:
     """Health-probe one server through a client and store the outcome.
 
@@ -693,6 +758,16 @@ def probe_server(client: Any, entry: Dict[str, Any]) -> Dict[str, Any]:
         result["reachable"] = True
     except Exception as exc:  # ReqogniLoomError or transport — both are "unreachable"
         result["error"] = str(exc)
+        result["latency_ms"] = int((time.monotonic() - started) * 1000)
+        return result
+    if not api_key:
+        # No credential *for this entry* — say so instead of forwarding the
+        # client's global message ("export REQOGNILOOM_API_KEY"), which names the
+        # wrong variable on a multi-server install.
+        result["error"] = (
+            f"no credential configured for server {entry.get('id')!r} "
+            f"— set its api_key or api_key_env in the server panel"
+        )
         result["latency_ms"] = int((time.monotonic() - started) * 1000)
         return result
     try:

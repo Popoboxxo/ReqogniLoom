@@ -63,7 +63,6 @@ def _registry_module() -> Any:
     """
     global _REGISTRY_MODULE, _REGISTRY_RESOLVED
     if not _REGISTRY_RESOLVED:
-        _REGISTRY_RESOLVED = True
         try:
             from . import reqogniloom_registry as registry  # type: ignore[import-not-found]
         except ImportError:
@@ -71,7 +70,11 @@ def _registry_module() -> Any:
                 import reqogniloom_registry as registry  # type: ignore[no-redef]
             except ImportError:
                 registry = None  # type: ignore[assignment]
+        # Publish the value *before* the flag: a second thread entering while the
+        # first is still importing must not read a half-set pair (it would treat
+        # the registry as unavailable and silently resolve the environment).
         _REGISTRY_MODULE = registry
+        _REGISTRY_RESOLVED = True
     return _REGISTRY_MODULE
 
 
@@ -136,7 +139,25 @@ _PERMISSION_ERROR_NAMES = frozenset({"PERMISSION_DENIED"})
 
 
 class ReqogniLoomError(RuntimeError):
-    """Raised for any server-reported error or transport failure."""
+    """Raised for any server-reported error or transport failure.
+
+    Carries the backend's machine-readable code when there is one (JSON-RPC
+    ``-32602``, ``-32004``, ``-32013`` … or the HTTP status), so a UI can tell
+    "fix your input" from "the backend is degraded, retry". ``retryable`` marks
+    the class the server itself calls retryable (LLM timeouts/unavailability,
+    rate limits, 5xx).
+    """
+
+    def __init__(self, message: str, *, code: Any = None, retryable: bool = False) -> None:
+        super().__init__(message)
+        self.code = code
+        self.retryable = retryable
+
+
+#: JSON-RPC codes whose own message says "retry later" (LLM_TIMEOUT,
+#: LLM_UNAVAILABLE, LLM_OUTPUT_INVALID, RATE_LIMITED).
+_RETRYABLE_CODES = frozenset({-32007, -32013, -32014, -32015})
+_RETRYABLE_STATUS = frozenset({429, 502, 503, 504})
 
 
 class _AuthError(ReqogniLoomError):
@@ -287,11 +308,23 @@ def _raise_for_error_payload(payload: Any, *, http_status: int | None = None) ->
     """
     error = _error_object(payload)
     codes = _error_code_candidates(error) if error is not None else (None,)
+    code = next((c for c in codes if c is not None), None)
+    retryable = bool(
+        (http_status in _RETRYABLE_STATUS)
+        or any(c in _RETRYABLE_CODES for c in codes if not isinstance(c, bool))
+    )
     if http_status == _PERMISSION_STATUS_CODE or any(_is_permission_code(c) for c in codes):
-        raise _PermissionError(normalize_error(payload) or "permission denied")
+        raise _PermissionError(normalize_error(payload) or "permission denied", code=code)
     if http_status == _AUTH_STATUS_CODE or any(_is_auth_code(c) for c in codes):
-        raise _AuthError(normalize_error(payload) or "authentication failed")
-    raise_for_error(payload)
+        raise _AuthError(normalize_error(payload) or "authentication failed", code=code)
+    try:
+        raise_for_error(payload)
+    except ReqogniLoomError as exc:
+        # Annotate rather than re-wrap: the human-readable message stays exactly
+        # as before, the machine-readable code and the retry hint are added.
+        exc.code = exc.code or code
+        exc.retryable = retryable or exc.retryable
+        raise
 
 
 def _mcp_error_text(result: dict[str, Any]) -> str:
@@ -452,9 +485,16 @@ class ReqogniLoomClient:
         if explicit_target:
             self.api_key = api_key or None
             self.user_api_key = user_api_key or None
-        else:
-            self.api_key = api_key or registry_api_key or _env("REQOGNILOOM_API_KEY")
+        elif entry is not None:
+            # A registry target uses *its own* credentials only. Falling back to
+            # the global REQOGNILOOM_API_KEY here would send a key that belongs to
+            # no configured server to whichever server happens to be active —
+            # exactly the cross-talk this resolution order exists to prevent.
+            self.api_key = api_key or registry_api_key or None
             self.user_api_key = user_api_key or registry_user_key or None
+        else:
+            self.api_key = api_key or _env("REQOGNILOOM_API_KEY")
+            self.user_api_key = user_api_key or None
 
     def has_user_api_key(self) -> bool:
         """True when an approval-class call has a human credential available."""

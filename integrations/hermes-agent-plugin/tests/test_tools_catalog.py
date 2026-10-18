@@ -21,6 +21,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import unittest
+from unittest import mock
 from pathlib import Path
 
 _PLUGIN_ROOT = Path(__file__).resolve().parent.parent
@@ -60,12 +61,57 @@ class ClassificationTests(unittest.TestCase):
             "requirement.validate",
             "traceability.coverage",
             "memory.ask",
-            "ai_derivation.derive_glossary_from_workspace",
             "attribute_migration.dry_run",
+            "context.related",
         ):
             with self.subTest(name=name):
                 self.assertEqual(tools.classify(name), tools.CLASS_COMPUTE)
                 self.assertEqual(tools.risk_class(name), tools.RISK_NONE)
+
+    def test_persisting_tools_are_mutate_even_without_a_write_verb(self) -> None:
+        # The regression this pins: these tools persist something (a suggestion, a
+        # derivation, a memory fact) but their name contains no write verb, so a
+        # name-only heuristic classified them "compute" — no confirmation dialog
+        # and no write gate.
+        for name in (
+            "traceability.suggest_links",
+            "requirement.decompose",
+            "requirement.suggest_level",
+            "ai_derivation.derive_requirements_from_need",
+            "ai_derivation.decompose_requirement_next_level",
+        ):
+            with self.subTest(name=name):
+                self.assertEqual(tools.classify(name), tools.CLASS_MUTATE)
+                self.assertEqual(tools.risk_class(name), tools.RISK_NORMAL)
+
+    def test_compute_class_never_contains_a_write_of_the_manifest(self) -> None:
+        # COMPUTE_EXACT is the one place a misclassification would hide, so every
+        # entry has to carry a stated reason and that map must match the set —
+        # a new member cannot slip in without a justification a reviewer can check
+        # against the tool's own description.
+        self.assertEqual(
+            sorted(tools.COMPUTE_JUSTIFICATIONS),
+            sorted(tools.COMPUTE_EXACT),
+            "every compute-class tool needs a one-line justification",
+        )
+        for name, reason in tools.COMPUTE_JUSTIFICATIONS.items():
+            with self.subTest(name=name):
+                self.assertTrue(reason.strip(), "the justification must not be empty")
+                self.assertNotIn("persist", reason.lower().replace("no persistence", "").replace("persists no", ""))
+
+    def test_compute_and_mutate_tables_are_disjoint(self) -> None:
+        overlap = sorted(set(tools.COMPUTE_EXACT) & set(tools.MUTATE_EXACT))
+        self.assertEqual(overlap, [], f"a tool may not be in both tables: {overlap}")
+
+    def test_server_annotations_win_over_the_name_heuristic(self) -> None:
+        # If the backend ever publishes the MCP standard hints, they are
+        # authoritative — otherwise the plugin would keep overriding a fact it can
+        # be told, which is how a heuristic goes stale silently.
+        read_only = {"name": "requirement.frobnicate", "annotations": {"readOnlyHint": True}}
+        destructive = {"name": "requirement.get", "annotations": {"destructiveHint": True}}
+        self.assertEqual(tools.classify_tool(read_only), tools.CLASS_READ)
+        self.assertEqual(tools.classify_tool(destructive), tools.CLASS_MUTATE)
+        self.assertEqual(tools.classify_tool({"name": "requirement.get"}), tools.CLASS_READ)
 
     def test_plain_reads_are_read(self) -> None:
         for name in (
@@ -182,6 +228,14 @@ class ArgumentTests(unittest.TestCase):
         self.assertIn("parameter 'count' expects an integer", problems)
         self.assertIn("parameter 'dry_run' expects true/false", problems)
 
+    def test_boolean_is_not_an_integer(self) -> None:
+        # bool is an int subclass in Python, so `True` would slip through a naive
+        # isinstance check and reach the server as a wrong type.
+        problems = tools.validate_arguments(
+            {"type": "object", "properties": {"count": {"type": "integer"}}}, {"count": True}
+        )
+        self.assertEqual(problems, ["parameter 'count' expects an integer"])
+
     def test_valid_arguments_produce_no_problems(self) -> None:
         self.assertEqual(
             tools.validate_arguments(
@@ -225,6 +279,47 @@ class ConfirmTokenTests(unittest.TestCase):
         token = tools.confirm_token("qs", "requirement.create", {})
         self.assertEqual(len(token), 64)
         int(token, 16)  # raises if not hex
+
+
+class ConfirmTokenLifecycleTests(unittest.TestCase):
+    """Issued → consumed once → refused afterwards."""
+
+    def setUp(self) -> None:
+        tools.reset_issued_tokens()
+
+    def tearDown(self) -> None:
+        tools.reset_issued_tokens()
+
+    def test_issued_token_can_be_consumed_once(self) -> None:
+        token = tools.issue_confirm_token("qs", "requirement.create", {"title": "A"})
+        ok, reason = tools.consume_confirm_token("qs", "requirement.create", {"title": "A"}, token)
+        self.assertTrue(ok, reason)
+        again, reason = tools.consume_confirm_token("qs", "requirement.create", {"title": "A"}, token)
+        self.assertFalse(again, "a token must not be usable twice")
+        self.assertIn("already used", reason)
+
+    def test_unissued_token_is_refused(self) -> None:
+        # Skipping the preview means the token was never issued: the digest alone
+        # is computable, so verification cannot be a pure hash comparison.
+        token = tools.confirm_token("qs", "requirement.create", {"title": "A"})
+        ok, reason = tools.consume_confirm_token("qs", "requirement.create", {"title": "A"}, token)
+        self.assertFalse(ok)
+        self.assertIn("already used", reason)
+
+    def test_token_bound_to_other_arguments_is_refused(self) -> None:
+        token = tools.issue_confirm_token("qs", "requirement.create", {"title": "A"})
+        ok, reason = tools.consume_confirm_token("qs", "requirement.create", {"title": "B"}, token)
+        self.assertFalse(ok)
+        self.assertIn("mismatch", reason)
+
+    def test_expired_token_is_refused(self) -> None:
+        token = tools.issue_confirm_token("qs", "requirement.create", {})
+        with mock.patch.object(
+            tools.time, "monotonic", return_value=tools.time.monotonic() + tools.CONFIRM_TOKEN_TTL_SECONDS + 1
+        ):
+            ok, reason = tools.consume_confirm_token("qs", "requirement.create", {}, token)
+        self.assertFalse(ok)
+        self.assertIn("expired", reason)
 
 
 class CatalogueTests(unittest.TestCase):
@@ -316,7 +411,7 @@ class CatalogueCacheTests(unittest.TestCase):
         tools.fetch_catalogue(client, server_key="prod")
         self.assertEqual(client.calls, 3)
 
-    def test_cache_key_falls_back_to_the_client(self) -> None:
+    def test_cache_tolerates_another_instance_of_the_same_client(self) -> None:
         class Keyed:
             server_id = "qs"
             base_url = "http://qs.test:8001"
@@ -328,11 +423,23 @@ class CatalogueCacheTests(unittest.TestCase):
                 self.calls += 1
                 return CatalogueTests.RAW
 
-        client = Keyed()
-        tools.fetch_catalogue(client)
-        tools.fetch_catalogue(client)
-        self.assertEqual(client.calls, 1)
-        self.assertEqual(client.calls, 1)
+        first = Keyed()
+        second = Keyed()
+        tools.fetch_catalogue(first)
+        tools.fetch_catalogue(second)
+        self.assertEqual(first.calls, 1)
+        self.assertEqual(second.calls, 0, "the cache key is the server, not the client object")
+
+    def test_ttl_expiry_refetches(self) -> None:
+        client = self.FakeClient()
+        with mock.patch.object(tools.time, "monotonic", return_value=1000.0):
+            tools.fetch_catalogue(client, server_key="qs")
+        with mock.patch.object(
+            tools.time, "monotonic", return_value=1000.0 + tools.CATALOGUE_TTL_SECONDS + 1
+        ):
+            refreshed = tools.fetch_catalogue(client, server_key="qs")
+        self.assertFalse(refreshed["cached"])
+        self.assertEqual(client.calls, 2)
 
 
 if __name__ == "__main__":  # pragma: no cover

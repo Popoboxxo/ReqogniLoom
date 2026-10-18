@@ -102,7 +102,14 @@ def _server_key(client: ReqogniLoomClient, server_id: Optional[str] = None) -> s
 
 
 def _error(exc: Exception) -> Dict[str, Any]:
-    return {"error": str(exc)}
+    """One failure shape for the whole surface: message + optional code/hint."""
+    payload: Dict[str, Any] = {"error": str(exc)}
+    code = getattr(exc, "code", None)
+    if code is not None:
+        payload["code"] = code
+    if getattr(exc, "retryable", False):
+        payload["retryable"] = True
+    return payload
 
 
 def _payload_dict(payload: Optional[Dict[str, Any]]) -> Dict[str, Any]:
@@ -140,11 +147,15 @@ def _probe_and_record(server_id: str) -> Dict[str, Any]:
 
 @router.get("/stats")
 def stats(workspace_id: str = "", server_id: str = "") -> Dict[str, Any]:
-    """Counts for the resolved workspace; backend failures stay 200+error."""
+    """Counts for the resolved workspace; backend failures stay 200+error.
+
+    Read-only: the remembered workspace is written by ``/workspace-selected`` and
+    by ``/write``, never by a GET. A GET that mutates shared state is not
+    cacheable, not idempotent and reachable by any prefetch.
+    """
     try:
         client = _client_for(server_id or None)
         ws_id = resolve_workspace_id(client, workspace_id or None)
-        registry.remember_workspace(_server_key(client, server_id or None), ws_id)
         return client.stats(ws_id)
     except (ReqogniLoomError, registry.RegistryError) as exc:
         return _error(exc)
@@ -182,7 +193,6 @@ def interviews(workspace_id: str = "", status: str = "in_progress", server_id: s
     try:
         client = _client_for(server_id or None)
         ws_id = resolve_workspace_id(client, workspace_id or None)
-        registry.remember_workspace(_server_key(client, server_id or None), ws_id)
         return {"workspace_id": ws_id, "interviews": client.list_interviews(ws_id, status or None)}
     except (ReqogniLoomError, registry.RegistryError) as exc:
         return _error(exc)
@@ -252,8 +262,14 @@ def add_server(payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         return _error(exc)
     verify = _probe_and_record(server_id)
     view = registry.public_registry(updated)
-    entry = next((item for item in view["servers"] if item["id"] == server_id), None)
-    return {"server": entry, "verify": verify, "registry": view}
+    # Look the entry up through the registry, not by comparing the *request* id:
+    # validate_server_id normalises to lower case, so a request for "QS" would
+    # otherwise come back with server: null even though it was created.
+    try:
+        created = registry.public_server(registry.get_server(server_id, updated), updated)
+    except registry.RegistryError:
+        created = None
+    return {"server": created, "verify": verify, "registry": view}
 
 
 @router.patch("/servers/{server_id}")
@@ -278,6 +294,26 @@ def update_server(server_id: str, payload: Optional[Dict[str, Any]] = None) -> D
     except registry.RegistryError as exc:
         return _error(exc)
     return {"registry": registry.public_registry(updated)}
+
+
+@router.post("/workspace-selected")
+def workspace_selected(payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Remember the workspace the operator picked, per server.
+
+    Its own POST instead of a GET side effect: the tab selects a workspace for
+    convenience, and that memory (``last_workspace_id``) is shared state on disk.
+    """
+    data = _payload_dict(payload)
+    server_id = str(data.get("server_id") or "") or None
+    workspace_id = str(data.get("workspace_id") or "")
+    if not workspace_id:
+        return {"error": "missing 'workspace_id'"}
+    try:
+        client = _client_for(server_id)
+    except (ReqogniLoomError, registry.RegistryError) as exc:
+        return _error(exc)
+    registry.remember_workspace(_server_key(client, server_id), workspace_id)
+    return {"server": _server_key(client, server_id), "workspace_id": workspace_id}
 
 
 @router.delete("/servers/{server_id}")
@@ -324,9 +360,18 @@ def read_write_gate() -> Dict[str, Any]:
 
 @router.post("/write-gate")
 def set_write_gate(payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """Open or close the global write switch (reads are never gated)."""
+    """Open or close the global write switch (reads are never gated).
+
+    The value must be a real boolean. A missing or malformed ``enabled`` used to
+    be coerced with ``bool(...)`` — which turned a truncated body, or the string
+    ``"false"``, into *open*: the one switch that guards every mutating tool must
+    fail closed, not optimistically.
+    """
     data = _payload_dict(payload)
-    updated = registry.set_write_gate(bool(data.get("enabled", True)))
+    enabled = data.get("enabled")
+    if not isinstance(enabled, bool):
+        return {"error": "'enabled' must be true or false"}
+    updated = registry.set_write_gate(enabled)
     return {"write_gate": bool(updated.get("write_gate", True))}
 
 
@@ -347,7 +392,11 @@ def write_preview(payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     data = _payload_dict(payload)
     tool_name = str(data.get("tool") or "")
     raw_arguments = data.get("arguments")
-    arguments: Dict[str, Any] = raw_arguments if isinstance(raw_arguments, dict) else {}
+    if raw_arguments is not None and not isinstance(raw_arguments, dict):
+        # Silently coercing to {} would execute the *wrong* call (an empty
+        # argument set) and report success, which is worse than a refusal.
+        return {"error": "'arguments' must be a JSON object"}
+    arguments: Dict[str, Any] = raw_arguments or {}
     server_id = str(data.get("server_id") or "") or None
     if not tool_name:
         return {"error": "missing 'tool'"}
@@ -372,7 +421,10 @@ def write_preview(payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         "problems": tools.validate_arguments(entry.get("input_schema"), arguments),
         "write_gate": registry.write_gate_enabled(),
         "blocked": bool(entry["class"] == tools.CLASS_MUTATE and not registry.write_gate_enabled()),
-        "confirm_token": tools.confirm_token(resolved_server, tool_name, arguments),
+        # Issued here, consumed by /write: a token has to come from a preview and
+        # can be used once, so a retried or double-submitted mutating call cannot
+        # execute twice.
+        "confirm_token": tools.issue_confirm_token(resolved_server, tool_name, arguments),
         "typed_confirmation": tool_name if risk == tools.RISK_DESTRUCTIVE else None,
     }
 
@@ -389,7 +441,9 @@ def write(payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     data = _payload_dict(payload)
     tool_name = str(data.get("tool") or "")
     raw_arguments = data.get("arguments")
-    arguments: Dict[str, Any] = raw_arguments if isinstance(raw_arguments, dict) else {}
+    if raw_arguments is not None and not isinstance(raw_arguments, dict):
+        return {"error": "'arguments' must be a JSON object"}
+    arguments: Dict[str, Any] = raw_arguments or {}
     server_id = str(data.get("server_id") or "") or None
     token = str(data.get("confirm_token") or "")
     typed = data.get("typed")
@@ -406,19 +460,11 @@ def write(payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     risk = entry["risk"]
     if tool_class == tools.CLASS_MUTATE and not registry.write_gate_enabled():
         return {"error": "the write gate is closed for this install — open it in the server panel"}
-    if token != tools.confirm_token(resolved_server, tool_name, arguments):
-        return {
-            "error": (
-                "confirmation mismatch: the arguments changed since the preview "
-                "(or the preview was skipped) — preview again"
-            )
-        }
     if risk == tools.RISK_DESTRUCTIVE and str(typed or "") != tool_name:
         return {"error": f"destructive call: type '{tool_name}' to confirm"}
     problems = tools.validate_arguments(entry.get("input_schema"), arguments)
     if problems:
         return {"error": "; ".join(problems), "problems": problems}
-
     human = bool(entry["requires_human"])
     principal = "user" if human else "agent"
     if human and not client.has_user_api_key():
@@ -430,6 +476,13 @@ def write(payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
             "requires_human": True,
             "human_key_available": False,
         }
+    # Consumed last, so a failed keystroke (wrong typed name, a validation
+    # problem, a missing human key) does not burn the confirmation — but the
+    # moment the call is about to go out, the token is gone and a replay of the
+    # same body cannot execute twice.
+    ok, reason = tools.consume_confirm_token(resolved_server, tool_name, arguments, token)
+    if not ok:
+        return {"error": reason}
     try:
         result = client.call_tool(tool_name, arguments, principal=principal)
     except (ReqogniLoomError, registry.RegistryError) as exc:

@@ -1,12 +1,39 @@
 .reqlo-page {
   padding: 16px;
+  /* Theme-relative accents: the host is themed, so every colour that carries
+     meaning is expressed against the current text colour and only the status
+     colours are literal — each of them dark enough for a light surface and
+     overridden for a dark one. */
+  --reqlo-danger: #b3261e;
+  --reqlo-warn: #8a5a00;
+  --reqlo-info: #1f5fa8;
+  --reqlo-ok: #146c5f;
+  --reqlo-muted: #6b6b6b;
+  --reqlo-surface: Canvas;
+  --reqlo-border: rgba(128, 128, 128, 0.3);
+}
+
+@media (prefers-color-scheme: dark) {
+  .reqlo-page {
+    --reqlo-danger: #ff8a80;
+    --reqlo-warn: #e0b25e;
+    --reqlo-info: #8ab4f8;
+    --reqlo-ok: #6fd0c0;
+    --reqlo-muted: #a0a0a0;
+    --reqlo-border: rgba(200, 200, 200, 0.25);
+  }
 }
 
 .reqlo-header {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   justify-content: space-between;
+  gap: 12px;
   margin-bottom: 12px;
+}
+
+.reqlo-header h2 {
+  margin: 0;
 }
 
 .reqlo-grid {
@@ -20,92 +47,72 @@
 }
 
 .reqlo-stat-value {
-  font-size: 28px;
+  font-size: 1.75rem;
   font-weight: 600;
 }
 
 .reqlo-stat-label {
-  font-size: 12px;
+  font-size: 0.75rem;
   opacity: 0.7;
   margin-top: 4px;
 }
 
 .reqlo-error {
-  color: #d33;
+  color: var(--reqlo-danger);
   margin-bottom: 12px;
-  font-size: 13px;
+  font-size: 0.8125rem;
 }
 
-.reqlo-footer {
-  margin-top: 16px;
-  font-size: 11px;
-  opacity: 0.6;
-}
-
-/* Workspace picker + open-interview table (the tab used to show counts only). */
-.reqlo-workspace {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 12px 0;
-  font-size: 13px;
-}
-
-.reqlo-workspace select {
-  min-width: 240px;
+.reqlo-note {
+  margin-bottom: 12px;
+  font-size: 0.8125rem;
+  opacity: 0.85;
 }
 
 .reqlo-section {
   margin: 20px 0 8px;
-  font-size: 14px;
+  font-size: 0.875rem;
 }
 
 .reqlo-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 13px;
+  font-size: 0.8125rem;
 }
 
 .reqlo-table th,
 .reqlo-table td {
   text-align: left;
   padding: 6px 8px;
-  border-bottom: 1px solid rgba(128, 128, 128, 0.25);
+  border-bottom: 1px solid var(--reqlo-border);
+  vertical-align: top;
 }
 
 .reqlo-table th {
   font-weight: 600;
   opacity: 0.7;
+  white-space: nowrap;
+}
+
+/* A scroll container must be reachable and named for keyboard users; the table
+   stays a table (display: block on a <table> breaks the header/body alignment). */
+.reqlo-table-wrap {
+  max-height: 420px;
+  overflow: auto;
 }
 
 .reqlo-mono {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  overflow-wrap: anywhere;
 }
 
-.reqlo-empty,
-.reqlo-subtle {
-  font-size: 13px;
+.reqlo-empty {
+  font-size: 0.8125rem;
   opacity: 0.7;
-}
-
-/* The connect form is now the exception (server demands a token), not the entry screen. */
-.reqlo-connect-form {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  max-width: 420px;
-}
-
-.reqlo-connect-hint {
-  font-size: 12px;
-  opacity: 0.7;
-  margin: 0;
 }
 
 /* ---------------------------------------------------------------------------
  * Multi-server bar, view navigation, badges, dialogs, forms.
- * Sizes are relative and colours come from the host's own components where
- * possible (rgba overlays + currentColor), so the tab follows the active theme.
  * ------------------------------------------------------------------------- */
 
 .reqlo-bar {
@@ -114,7 +121,7 @@
   align-items: center;
   gap: 12px;
   margin: 12px 0;
-  font-size: 13px;
+  font-size: 0.8125rem;
 }
 
 .reqlo-inline {
@@ -124,14 +131,14 @@
 }
 
 .reqlo-bar select {
-  min-width: 180px;
+  min-width: 160px;
 }
 
 .reqlo-nav {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
-  border-bottom: 1px solid rgba(128, 128, 128, 0.25);
+  border-bottom: 1px solid var(--reqlo-border);
   margin-bottom: 12px;
 }
 
@@ -140,7 +147,7 @@
   border: none;
   border-bottom: 2px solid transparent;
   padding: 6px 10px;
-  font-size: 13px;
+  font-size: 0.8125rem;
   cursor: pointer;
   color: inherit;
   opacity: 0.7;
@@ -152,6 +159,15 @@
   border-bottom-color: currentColor;
 }
 
+.reqlo-nav button:focus-visible,
+.reqlo-tool-pick:focus-visible,
+.reqlo-dialog-actions button:focus-visible,
+.reqlo-table-wrap:focus-visible,
+.reqlo-input:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
 .reqlo-views {
   display: flex;
   flex-direction: column;
@@ -159,90 +175,94 @@
 }
 
 .reqlo-card {
-  border: 1px solid rgba(128, 128, 128, 0.25);
+  border: 1px solid var(--reqlo-border);
   border-radius: 8px;
   padding: 12px 14px;
 }
 
 .reqlo-card h3 {
   margin: 0 0 8px;
-  font-size: 14px;
+  font-size: 0.875rem;
 }
 
 .reqlo-card-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
 }
 
 .reqlo-hint {
-  font-size: 12px;
-  opacity: 0.7;
+  font-size: 0.75rem;
+  opacity: 0.75;
   margin: 4px 0 8px;
+}
+
+.reqlo-clamp {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .reqlo-badge {
   display: inline-block;
   padding: 1px 6px;
   border-radius: 10px;
-  font-size: 11px;
+  font-size: 0.6875rem;
   border: 1px solid currentColor;
 }
 
 .reqlo-badge-read {
-  opacity: 0.6;
+  opacity: 0.7;
 }
 
 .reqlo-badge-compute {
-  color: #b58900;
+  color: var(--reqlo-warn);
 }
 
 .reqlo-badge-mutate {
-  color: #cb4b16;
+  color: var(--reqlo-danger);
 }
 
 .reqlo-badge-human {
-  color: #268bd2;
+  color: var(--reqlo-info);
   margin-left: 4px;
 }
 
 .reqlo-badge-destructive {
-  color: #d33;
+  color: var(--reqlo-danger);
   margin-left: 4px;
 }
 
 .reqlo-dot {
   display: inline-block;
-  width: 8px;
-  height: 8px;
+  width: 0.55em;
+  height: 0.55em;
   border-radius: 50%;
   margin-right: 6px;
   background: currentColor;
 }
 
 .reqlo-dot-ok {
-  color: #2aa198;
+  color: var(--reqlo-ok);
 }
 
 .reqlo-dot-bad {
-  color: #d33;
+  color: var(--reqlo-danger);
 }
 
 .reqlo-dot-unknown {
-  color: rgba(128, 128, 128, 0.6);
+  color: var(--reqlo-muted);
 }
 
 .reqlo-split {
   display: grid;
-  grid-template-columns: minmax(320px, 1.2fr) minmax(280px, 1fr);
+  /* Container-relative so the tab also stacks when it is docked into a narrow
+     pane of a wide window (a viewport media query would not fire there). */
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
   gap: 16px;
   align-items: start;
-}
-
-@media (max-width: 900px) {
-  .reqlo-split {
-    grid-template-columns: 1fr;
-  }
 }
 
 .reqlo-split-left,
@@ -251,7 +271,7 @@
 }
 
 .reqlo-split-right {
-  border: 1px solid rgba(128, 128, 128, 0.25);
+  border: 1px solid var(--reqlo-border);
   border-radius: 8px;
   padding: 12px;
 }
@@ -259,16 +279,17 @@
 .reqlo-filters {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 8px;
   margin-bottom: 8px;
 }
 
 .reqlo-input {
   background: transparent;
-  border: 1px solid rgba(128, 128, 128, 0.35);
+  border: 1px solid var(--reqlo-border);
   border-radius: 6px;
   padding: 4px 6px;
-  font-size: 13px;
+  font-size: 0.8125rem;
   color: inherit;
   min-width: 120px;
 }
@@ -278,14 +299,14 @@ textarea.reqlo-input {
   box-sizing: border-box;
 }
 
-.reqlo-tool-table {
-  max-height: 420px;
-  display: block;
-  overflow-y: auto;
-}
-
-.reqlo-tool-table tbody tr {
+.reqlo-tool-pick {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
   cursor: pointer;
+  text-align: left;
 }
 
 .reqlo-row-selected {
@@ -293,8 +314,10 @@ textarea.reqlo-input {
 }
 
 .reqlo-desc {
-  opacity: 0.75;
-  font-size: 12px;
+  opacity: 0.8;
+  font-size: 0.75rem;
+  overflow-wrap: anywhere;
+  max-width: 42ch;
 }
 
 .reqlo-form {
@@ -313,16 +336,18 @@ textarea.reqlo-input {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  font-size: 12px;
+  font-size: 0.75rem;
+  margin-bottom: 6px;
 }
 
 .reqlo-field-label {
   font-weight: 600;
-  opacity: 0.8;
+  opacity: 0.85;
 }
 
 .reqlo-required {
-  color: #d33;
+  color: var(--reqlo-danger);
+  font-weight: 400;
 }
 
 .reqlo-gate {
@@ -336,29 +361,32 @@ textarea.reqlo-input {
   position: sticky;
   bottom: 0;
   margin-top: 16px;
-  border: 2px solid #cb4b16;
+  border: 2px solid var(--reqlo-danger);
   border-radius: 8px;
   padding: 12px 14px;
-  background: inherit;
-  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.25);
+  /* Opaque on purpose: a sticky panel over a scrolling table must not let the
+     rows show through the very text the user has to read. */
+  background: var(--reqlo-surface);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
 }
 
 .reqlo-dialog h4 {
   margin: 0 0 6px;
-  font-size: 14px;
+  font-size: 0.875rem;
 }
 
 .reqlo-dialog-actions {
   display: flex;
+  align-items: center;
   gap: 8px;
   margin-top: 8px;
 }
 
 .reqlo-dialog-actions button {
-  border: 1px solid rgba(128, 128, 128, 0.35);
+  border: 1px solid var(--reqlo-border);
   border-radius: 6px;
   padding: 4px 10px;
-  font-size: 13px;
+  font-size: 0.8125rem;
   background: none;
   color: inherit;
   cursor: pointer;
@@ -379,13 +407,13 @@ textarea.reqlo-input {
 
 .reqlo-problems {
   margin: 4px 0 8px 18px;
-  font-size: 12px;
-  color: #d33;
+  font-size: 0.75rem;
+  color: var(--reqlo-danger);
 }
 
 .reqlo-result-panel {
   margin-top: 16px;
-  border-top: 1px solid rgba(128, 128, 128, 0.25);
+  border-top: 1px solid var(--reqlo-border);
   padding-top: 8px;
 }
 
@@ -394,13 +422,13 @@ textarea.reqlo-input {
   gap: 8px;
   align-items: baseline;
   margin-bottom: 4px;
-  font-size: 13px;
+  font-size: 0.8125rem;
 }
 
 .reqlo-result {
   max-height: 320px;
   overflow: auto;
-  font-size: 12px;
+  font-size: 0.75rem;
   background: rgba(128, 128, 128, 0.1);
   border-radius: 6px;
   padding: 8px;
@@ -408,8 +436,13 @@ textarea.reqlo-input {
 
 .reqlo-admin-row {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 10px;
   padding: 6px 0;
-  border-bottom: 1px solid rgba(128, 128, 128, 0.15);
+  border-bottom: 1px solid var(--reqlo-border);
+}
+
+.reqlo-admin-row .reqlo-hint {
+  flex: 1;
+  margin: 0;
 }

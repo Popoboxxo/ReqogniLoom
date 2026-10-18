@@ -226,6 +226,7 @@ class ServerGroupTests(unittest.TestCase):
 
     def test_server_test_reports_reachability(self) -> None:
         _slash_server_add("qs", "http://qs.test:8001")
+        plugin._registry.update_server("qs", api_key="reqlo_agent")
 
         class FakeProbeClient:
             def version(self):
@@ -242,6 +243,7 @@ class ServerGroupTests(unittest.TestCase):
 
     def test_server_test_stores_the_outcome_for_the_listing(self) -> None:
         _slash_server_add("qs", "http://qs.test:8001")
+        plugin._registry.update_server("qs", api_key="reqlo_agent")
 
         class FakeProbeClient:
             def version(self):

@@ -65,30 +65,21 @@ MUTATE_VERBS = frozenset(
     }
 )
 
-#: State-changing tools whose verb does not say so.
+#: State-changing tools whose verb does not say so — because the tool *persists*
+#: something (an open suggestion, a decomposition draft, a memory fact) without
+#: a verb this table knows. Getting one of these wrong means running a mutation
+#: with no confirmation dialog and past a closed write gate, so the default for
+#: a persisting tool is `mutate`.
 MUTATE_EXACT = frozenset(
     {
         "requirement.acceptance_criteria.check",  # sets fulfilled/text (#1288)
+        "requirement.decompose",  # AI decomposition, persists derived requirements
+        "requirement.suggest_level",  # persists an open suggestion
         "comment.resolve",
         "memory.forget",  # deletes a memory entry
-    }
-)
-
-#: Non-mutating tools the server nevertheless gates like writes — because they
-#: drive an LLM call, are admin-only, or produce a suggestion. They get a spinner
-#: and a note in the UI, never a "this changes data" confirmation.
-COMPUTE_EXACT = frozenset(
-    {
-        "memory.ask", "memory.overview", "memory.settings", "memory.projection",
-        "memory.export",
-        "requirement.validate", "requirement.check_consistency_status",
-        "requirement.suggest_level", "requirement.decompose",
-        "traceability.coverage", "traceability.vcrm", "traceability.suggest_links",
-        "context.related", "attribute_definition.count_usages", "audit.se_audit",
-        "interview.grounding_context", "attribute_migration.dry_run",
-        "attribute_definition.export", "attribute_definition.export_workspace",
-        "ai_derivation.decompose_requirement_next_level",
-        "ai_derivation.suggest_architecture_for_requirement",
+        "traceability.suggest_links",  # persists the top candidate + an inbox receipt
+        "ai_derivation.decompose_requirement_next_level",  # mode='write' persists drafts
+        "ai_derivation.suggest_architecture_for_requirement",  # mode='write' persists
         "ai_derivation.derive_adr_from_decision",
         "ai_derivation.derive_glossary_from_workspace",
         "ai_derivation.derive_requirements_from_need",
@@ -96,8 +87,59 @@ COMPUTE_EXACT = frozenset(
     }
 )
 
-#: Reads whose verb would otherwise read as a write.
-READ_EXACT = frozenset({"workspace.resolve_references", "attribute_migration.plan"})
+#: Non-mutating tools that are nevertheless expensive or admin-only, so the UI
+#: shows a spinner and a note instead of nothing. **Every entry must persist
+#: nothing** — that is the whole point of the class. A tool that writes belongs
+#: in :data:`MUTATE_EXACT`, and ``tests/test_tools_catalog.py`` pins both the
+#: membership of this set against the manifest's write flag and its persist-free
+#: character, so a persisting tool cannot hide in here unnoticed.
+COMPUTE_EXACT = frozenset(
+    {
+        "memory.ask",  # generative answer, mutates nothing
+        "memory.overview",  # admin read
+        "memory.settings",  # admin read
+        "memory.projection",  # admin read (PCA of embeddings)
+        "memory.export",  # produces a bundle
+        "requirement.validate",  # LLM validation, MCP-only (#1362d)
+        "requirement.check_consistency_status",  # poll a dispatched task
+        "traceability.coverage",  # computes the coverage table
+        "traceability.vcrm",  # computes the VCRM export
+        "context.related",  # machine-derived edges, never TraceLinks
+        "attribute_definition.count_usages",  # admin counter
+        "audit.se_audit",  # returns findings directly, no persistence
+        "interview.grounding_context",  # structural duplicate check
+        "attribute_migration.dry_run",  # preview of a migration
+        "attribute_definition.export",
+        "attribute_definition.export_workspace",
+    }
+)
+
+#: Seconds a confirm token stays valid. Issued by ``/write/preview``, consumed by
+#: the following ``/write`` — see :func:`issue_confirm_token`.
+CONFIRM_TOKEN_TTL_SECONDS = 300
+
+#: Why each compute-class entry is *not* a mutation. The dict must cover
+#: COMPUTE_EXACT exactly (asserted in the tests): this is the place a persisting
+#: tool would hide, so every entry states its justification and a reviewer can
+#: check the claim against the tool's own description.
+COMPUTE_JUSTIFICATIONS: Dict[str, str] = {
+    "memory.ask": "generative answer, mutates nothing",
+    "memory.overview": "admin read of per-workspace counts",
+    "memory.settings": "admin read of the effective configuration",
+    "memory.projection": "admin read: PCA of the embeddings",
+    "memory.export": "produces a bundle, stores nothing",
+    "requirement.validate": "LLM validation, MCP-only (#1362d), no persistence",
+    "requirement.check_consistency_status": "polls a task dispatched elsewhere",
+    "traceability.coverage": "computes the coverage table",
+    "traceability.vcrm": "computes the VCRM export",
+    "context.related": "machine-derived edges, never TraceLinks",
+    "attribute_definition.count_usages": "admin counter, call-before-delete",
+    "audit.se_audit": "returns findings directly, persists no audit run",
+    "interview.grounding_context": "structural duplicate check of a session title",
+    "attribute_migration.dry_run": "preview of a migration, commits nothing",
+    "attribute_definition.export": "produces an export bundle",
+    "attribute_definition.export_workspace": "produces an export bundle",
+}
 
 #: Tools that decide a *human* question — a proposal, a review, an approval.
 #: The server refuses these for an agent principal (``PERMISSION_DENIED``: an
@@ -168,8 +210,6 @@ def group_of(tool_name: str) -> str:
 
 def classify(tool_name: str) -> str:
     """``read`` | ``compute`` | ``mutate`` — see the module docstring."""
-    if tool_name in READ_EXACT:
-        return CLASS_READ
     if tool_name in COMPUTE_EXACT:
         return CLASS_COMPUTE
     if tool_name in MUTATE_EXACT:
@@ -177,6 +217,25 @@ def classify(tool_name: str) -> str:
     verb = verb_of(tool_name).replace(".", "_")
     candidates = {verb} | set(verb.split("_"))
     return CLASS_MUTATE if candidates & MUTATE_VERBS else CLASS_READ
+
+
+def classify_tool(tool: Dict[str, Any]) -> str:
+    """Prefer the server's own hint when the tool carries one.
+
+    The MCP wire format has no ``is_write`` flag, but a server *may* publish the
+    standard MCP ``annotations`` (``readOnlyHint`` / ``destructiveHint``). When it
+    does, that is authoritative and beats the name heuristic — otherwise this
+    plugin would keep overriding a fact it can be told, which is how a heuristic
+    goes stale silently.
+    """
+    name = str(tool.get("name") or "")
+    annotations = tool.get("annotations")
+    if isinstance(annotations, dict):
+        if annotations.get("destructiveHint") is True:
+            return CLASS_MUTATE
+        if annotations.get("readOnlyHint") is True:
+            return CLASS_COMPUTE if name in COMPUTE_EXACT else CLASS_READ
+    return classify(name)
 
 
 def is_mutating(tool_name: str) -> bool:
@@ -222,9 +281,65 @@ def confirm_token(server_id: str, tool_name: str, arguments: Optional[Dict[str, 
     backend (not in the browser) so the UI cannot skip the preview step by
     accident: an argument set that changed between preview and execution
     invalidates the token.
+
+    On its own the digest is deterministic and therefore replayable by anyone
+    who can call ``/write`` twice; :func:`issue_confirm_token` /
+    :func:`consume_confirm_token` add the missing half — a token has to have been
+    issued by a preview and can be used exactly once.
     """
     material = f"{server_id}|{tool_name}|{canonical_arguments(arguments)}"
     return hashlib.sha256(material.encode("utf-8")).hexdigest()
+
+
+#: Issued-but-unconsumed tokens: token -> monotonic issue time. Process-local on
+#: purpose: the preview and the execution of one human interaction hit the same
+#: process, and a restart should invalidate unspent tokens rather than keep them.
+_ISSUED_TOKENS: Dict[str, float] = {}
+
+
+def reset_issued_tokens() -> None:
+    """Drop every issued token (tests, and a deliberate fresh start)."""
+    _ISSUED_TOKENS.clear()
+
+
+def issue_confirm_token(
+    server_id: str, tool_name: str, arguments: Optional[Dict[str, Any]]
+) -> str:
+    """Record a freshly previewed call and return its token."""
+    token = confirm_token(server_id, tool_name, arguments)
+    now = time.monotonic()
+    expired = [
+        stored
+        for stored, issued_at in _ISSUED_TOKENS.items()
+        if now - issued_at > CONFIRM_TOKEN_TTL_SECONDS
+    ]
+    for stored in expired:
+        _ISSUED_TOKENS.pop(stored, None)
+    _ISSUED_TOKENS[token] = now
+    return token
+
+
+def consume_confirm_token(
+    server_id: str, tool_name: str, arguments: Optional[Dict[str, Any]], token: str
+) -> Tuple[bool, str]:
+    """Validate one token for execution: ``(ok, reason)``.
+
+    Three refusals, each with its own message: the arguments no longer match the
+    token, the token was never issued (the preview was skipped) or was already
+    used (a replay or a double submit), or it has expired.
+    """
+    expected = confirm_token(server_id, tool_name, arguments)
+    if not token or token != expected:
+        return False, (
+            "confirmation mismatch: the arguments changed since the preview "
+            "(or the preview was skipped) — preview again"
+        )
+    issued_at = _ISSUED_TOKENS.pop(token, None)
+    if issued_at is None:
+        return False, "no preview issued this confirmation (or it was already used) — preview again"
+    if time.monotonic() - issued_at > CONFIRM_TOKEN_TTL_SECONDS:
+        return False, f"this confirmation expired after {CONFIRM_TOKEN_TTL_SECONDS}s — preview again"
+    return True, ""
 
 
 def declared_properties(input_schema: Optional[Dict[str, Any]]) -> Dict[str, Any]:
@@ -276,9 +391,10 @@ def validate_arguments(
             problems.append(f"parameter '{name}' expects a string")
         elif expected == "boolean" and not isinstance(value, bool):
             problems.append(f"parameter '{name}' expects true/false")
-        elif expected == "integer" and not isinstance(value, int):
+        elif expected == "integer" and (isinstance(value, bool) or not isinstance(value, int)):
+            # bool is an int subclass in Python; a JSON true is not an integer.
             problems.append(f"parameter '{name}' expects an integer")
-        elif expected == "number" and not isinstance(value, (int, float)):
+        elif expected == "number" and (isinstance(value, bool) or not isinstance(value, (int, float))):
             problems.append(f"parameter '{name}' expects a number")
         elif expected == "array" and not isinstance(value, list):
             problems.append(f"parameter '{name}' expects a list")
@@ -336,13 +452,20 @@ def describe_tool(tool: Dict[str, Any]) -> Dict[str, Any]:
     """One catalogue entry as the dashboard consumes it."""
     name = str(tool.get("name") or "")
     schema = tool.get("inputSchema") if isinstance(tool.get("inputSchema"), dict) else {}
-    tool_class = classify(name)
+    tool_class = classify_tool(tool)
+    risk = (
+        RISK_DESTRUCTIVE
+        if tool_class == CLASS_MUTATE and is_destructive(name)
+        else RISK_NORMAL
+        if tool_class == CLASS_MUTATE
+        else RISK_NONE
+    )
     return {
         "name": name,
         "group": group_of(name),
         "description": str(tool.get("description") or ""),
         "class": tool_class,
-        "risk": risk_class(name),
+        "risk": risk,
         "requires_human": requires_human(name),
         "destructive": is_destructive(name),
         "required": required_parameters(schema),
