@@ -7,10 +7,9 @@
  * display, dirty warning and delete all live in ArtifactForm.
  */
 
-import { useMemo } from "react";
-
 import { risksApi } from "../../api/risks";
 import { workflowTransitionsApi } from "../../api/workflow-transitions";
+import { useInitialFormValues } from "../../hooks/useInitialFormValues";
 import type { Risk } from "../../types";
 import { ArtifactForm, type ArtifactFormValues } from "../shared/ArtifactForm";
 
@@ -90,7 +89,7 @@ export function RiskArtifactForm({
   onDeleted,
   onDirtyChange,
 }: RiskArtifactFormProps): JSX.Element {
-  const initialValues = useMemo(() => riskToFormValues(risk), [risk]);
+  const initialValues = useInitialFormValues(risk, riskToFormValues);
 
   return (
     <ArtifactForm

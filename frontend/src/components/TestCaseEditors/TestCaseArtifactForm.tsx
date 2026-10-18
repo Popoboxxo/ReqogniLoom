@@ -49,7 +49,7 @@
  *   ride along on a PATCH.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { extractErrorMessage } from "../../api/client";
@@ -58,6 +58,7 @@ import { workflowTransitionsApi } from "../../api/workflow-transitions";
 import type { ScenarioKind } from "../../api/testcases";
 import type { TestCase } from "../../types";
 import { useEntityReset } from "../../hooks/use-entity-reset";
+import { useInitialFormValues } from "../../hooks/useInitialFormValues";
 import { ArtifactForm, type ArtifactFormValues } from "../shared/ArtifactForm";
 import { Badge } from "../shared/Badge";
 import styles from "./TestCaseArtifactForm.module.css";
@@ -192,7 +193,7 @@ export function TestCaseArtifactForm({
     }
   }, [onReviewed, reviewSaving, t, testCase.id]);
 
-  const initialValues = useMemo(() => testCaseToFormValues(testCase), [testCase]);
+  const initialValues = useInitialFormValues(testCase, testCaseToFormValues);
   const isReviewed = testCase.reviewed === true;
 
   const headerActions = (

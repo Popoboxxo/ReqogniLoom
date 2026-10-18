@@ -25,12 +25,11 @@
  * keys).
  */
 
-import { useMemo } from "react";
-
 import type { AttributeSpec } from "../../api/attribute-definitions";
 import { requirementsApi } from "../../api/requirements";
 import { workflowTransitionsApi } from "../../api/workflow-transitions";
 import { useWorkspace } from "../../context/WorkspaceContext";
+import { useInitialFormValues } from "../../hooks/useInitialFormValues";
 import { REQ_CATEGORY_OPTIONS, type Requirement } from "../../types";
 import { ArtifactForm, type ArtifactFormValues } from "../shared/ArtifactForm";
 
@@ -144,10 +143,7 @@ export function RequirementArtifactForm({
   customFields,
 }: RequirementArtifactFormProps): JSX.Element {
   const { activeWorkspace } = useWorkspace();
-  const initialValues = useMemo(
-    () => requirementToFormValues(requirement),
-    [requirement]
-  );
+  const initialValues = useInitialFormValues(requirement, requirementToFormValues);
 
   return (
     <ArtifactForm
