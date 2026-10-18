@@ -13,6 +13,14 @@
  * one as active.  Falls back to DEFAULT_WORKSPACE only if the API call
  * fails or returns no workspaces (legacy / offline mode).
  *
+ * plan Phase 5a (docs/plans/2026-10-15-frontend-audit-fixes.md, §5 bullet 5a;
+ * FE-01/F-03): this file used to be a 588-LOC God-Component carrying three
+ * unrelated concerns. It now orchestrates two focused hooks —
+ * `useWorkspaceLanguage` (language override + i18next restore) and
+ * `useWorkspacePreferences` (per-user visibility overrides) — and keeps only
+ * workspace *selection*, the terminology lookup and the Context value. The
+ * public `WorkspaceState` API is unchanged 1:1.
+ *
  * Visibility resolution order for ``isFeatureVisible``:
  *   1. hideAllOptional master switch (if feature is one of the 6 optional
  *      artifact types) → return false.
@@ -27,7 +35,6 @@ import { createContext,
   useCallback,
   useEffect,
   useMemo,
-  useRef,
   type ReactNode,
 } from "react";
 import type {
@@ -35,31 +42,20 @@ import type {
   WorkspacePreset,
   TerminologyProfile,
 } from "../types";
-import { PRESET_VISIBILITY, TERMINOLOGY_LABELS } from "../types";
+import { TERMINOLOGY_LABELS } from "../types";
 import { workspacesApi } from "../api/workspaces";
 import {
-  preferencesApi,
-  OPTIONAL_FEATURES,
   type FeatureOverrides,
   type OptionalArtifactFeature,
 } from "../api/preferences";
 import { useAuth } from "./AuthContext";
 import { safeSessionStorage } from "../utils/safeStorage";
+import { useWorkspaceLanguage } from "../hooks/useWorkspaceLanguage";
+import { useWorkspacePreferences } from "../hooks/useWorkspacePreferences";
 // Theme Presets: WorkspaceContext no longer seeds a workspace `theme` into
 // the theme system — ThemeContext resolves (paletteKey, mode) itself from
 // user preference > tenant default > fallback. Workspace.theme stays a
 // backend field but is functionally superseded (see design spec).
-// Code-review F-01 (BLOCKER): import the raw `i18next` singleton, NOT
-// `../i18n/index` — that barrel eagerly runs `.use(initReactI18next)` at
-// module load (a side effect of importing `react-i18next`). WorkspaceContext
-// is a root provider transitively imported by nearly every component test;
-// pulling that side effect in broke every test file that partially mocks
-// `react-i18next` without exporting `initReactI18next` (import-time crash,
-// "0 tests collected" — 19 test files, ~154 tests). `i18next` itself has no
-// such dependency, and it is the very same singleton instance `../i18n/index`
-// configures (module resolution dedupes it), so reading/writing `.language`
-// here observes the identical state.
-import i18next from "i18next";
 
 // Normalize preset field: backend may return {name: "extended"}, {tier: "minimal", language, terminology_profile}, or "extended"
 function normalizePreset(ws: Workspace): Workspace {
@@ -110,10 +106,10 @@ export interface WorkspaceState {
   // Code-review F-04-Residual: a language choice that is NOT (yet, or ever
   // going to be) reflected in `activeWorkspace.language` — a non-admin's
   // session-local toggle, or an admin PATCH that failed. While active, the
-  // language-restore effect below must not overwrite `i18next.language`
-  // from `activeWorkspace.language` on some unrelated `reloadWorkspaces()`
-  // call (workspace switch aside — that one explicitly clears it via
-  // `setActiveWorkspace`).
+  // language-restore effect owned by `useWorkspaceLanguage` must not
+  // overwrite `i18next.language` from `activeWorkspace.language` on some
+  // unrelated `reloadWorkspaces()` call (workspace switch aside — that one
+  // explicitly clears it via `setActiveWorkspace`).
   markLanguageOverrideActive: () => void;
   clearLanguageOverride: () => void;
 }
@@ -128,8 +124,8 @@ const _storedWorkspaceId = safeSessionStorage.getItem("reqflow_workspace_id");
 
 // Exported (not just module-local) so callers outside this file — e.g. the
 // sidebar language toggle (F-04) — can reliably detect "no real workspace
-// loaded yet" via reference equality, the same way the effect above does,
-// instead of PATCHing the placeholder's fake UUID and swallowing the
+// loaded yet" via reference equality, the same way the language hook's effect
+// does, instead of PATCHing the placeholder's fake UUID and swallowing the
 // resulting 404.
 export const DEFAULT_WORKSPACE: Workspace = {
   id: _storedWorkspaceId ?? "00000000-0000-0000-0000-000000000000",
@@ -173,51 +169,27 @@ export function WorkspaceProvider({
   // so we don't burn an API call for the DEFAULT_WORKSPACE placeholder.
   const [isWorkspaceReady, setIsWorkspaceReady] = useState<boolean>(false);
 
-  // Per-user visibility overrides (REQ-L1-027).
-  // null = no preference row exists (or fetch failed) → use preset defaults.
-  // Sparse: only the keys the user has actually set are present.
-  const [userOverrides, setUserOverrides] = useState<FeatureOverrides | null>(
-    null
+  // Language override + i18next restore (F-04-Residual, BUG-01/REQ-133).
+  const { markLanguageOverrideActive, clearLanguageOverride } =
+    useWorkspaceLanguage({
+      isWorkspaceReady,
+      activeWorkspace,
+      defaultWorkspace: DEFAULT_WORKSPACE,
+    });
+
+  const setActiveWorkspace = useCallback(
+    (ws: Workspace | null) => {
+      setActiveWorkspaceState(ws);
+      // An explicit workspace switch is the one case where "the language
+      // should now follow the (new) workspace's persisted value" is exactly
+      // right — clear any override left over from the previous workspace.
+      clearLanguageOverride();
+      if (ws) {
+        safeSessionStorage.setItem("reqflow_workspace_id", ws.id);
+      }
+    },
+    [clearLanguageOverride]
   );
-  const [hideAllOptional, setHideAllOptionalState] = useState<boolean>(false);
-
-  // Track which keys the user has explicitly set, so the UI can show a
-  // "Reset to preset" button only for features that are actually overridden.
-  // Stored separately from userOverrides so that load-time defaults don't
-  // get flagged as "user-set".
-  const [overriddenKeys, setOverriddenKeys] = useState<
-    Set<OptionalArtifactFeature>
-  >(new Set());
-  // Refs let async callbacks read the latest state without re-creating
-  // the callbacks (which would re-trigger the fetch effect).
-  const userOverridesRef = useRef<FeatureOverrides | null>(null);
-  const hideAllOptionalRef = useRef<boolean>(false);
-  const overriddenKeysRef = useRef<Set<OptionalArtifactFeature>>(new Set());
-
-  // Code-review F-04-Residual (see `WorkspaceState.markLanguageOverrideActive`
-  // doc comment above): tracks an unpersisted/local-only language choice so
-  // the restore effect below can skip overwriting it on an unrelated
-  // `reloadWorkspaces()` call. Deliberately state (not just a ref) — its
-  // truthiness is read inside the restore effect's dependency array.
-  const [hasLocalLanguageOverride, setHasLocalLanguageOverride] =
-    useState<boolean>(false);
-  const markLanguageOverrideActive = useCallback((): void => {
-    setHasLocalLanguageOverride(true);
-  }, []);
-  const clearLanguageOverride = useCallback((): void => {
-    setHasLocalLanguageOverride(false);
-  }, []);
-
-  const setActiveWorkspace = useCallback((ws: Workspace | null) => {
-    setActiveWorkspaceState(ws);
-    // An explicit workspace switch is the one case where "the language
-    // should now follow the (new) workspace's persisted value" is exactly
-    // right — clear any override left over from the previous workspace.
-    setHasLocalLanguageOverride(false);
-    if (ws) {
-      safeSessionStorage.setItem("reqflow_workspace_id", ws.id);
-    }
-  }, []);
 
   // Reusable loader so callers can refresh workspaces (e.g. after create).
   const reloadWorkspaces = useCallback(
@@ -265,7 +237,7 @@ export function WorkspaceProvider({
       // (e.g. a non-admin's session-local toggle) survived a logout and
       // silently overrode the *next* user's own persisted workspace
       // language on the very same tab.
-      setHasLocalLanguageOverride(false);
+      clearLanguageOverride();
       // #568 final-review fix (2 rounds): the naive `!isAuthenticated`
       // guard is TRUE both during the transient "restoring" phase (every
       // fresh mount starts here, before the session check resolves — see
@@ -284,152 +256,26 @@ export function WorkspaceProvider({
     return () => {
       cancelled = true;
     };
-  }, [isAuthenticated, authStatus, reloadWorkspaces]);
-
-  // Restore the persisted UI language from the active workspace (BUG-01,
-  // REQ-133). `i18n/index.ts` only seeds the initial language from the
-  // browser locale — nothing re-applied the value already saved via
-  // `PATCH /workspaces/{id}/` after that. Without this, any language choice
-  // (whether made here or via the sidebar quick-toggle) survived only until
-  // the next real navigation/reload, which reset `i18n.language` back to
-  // the browser default — exactly the "falls back to German" symptom.
-  //
-  // Code-review F-03 (Medium): `isWorkspaceReady` alone is NOT sufficient to
-  // guard against the DEFAULT_WORKSPACE placeholder — `reloadWorkspaces`
-  // sets `isWorkspaceReady = true` in its `finally` block on *every* path,
-  // including the empty-list and network-failure branches that fall back to
-  // `DEFAULT_WORKSPACE` (whose `language` is hardcoded `"en"`). Without this
-  // extra check, a German-browser user whose `GET /workspaces/` fails (or
-  // who has no workspaces yet) would have their UI silently forced to
-  // English — a regression on the error path this fix must not introduce.
-  // `activeWorkspace === DEFAULT_WORKSPACE` is a reference-equality check on
-  // purpose: `reloadWorkspaces` assigns that exact object (not a copy) on
-  // both fallback branches, so this reliably distinguishes "no real
-  // workspace loaded" from "a real workspace whose id happens to match".
-  //
-  // Code-review F-04-Residual: this effect's dependency array includes
-  // `activeWorkspace`, and `reloadWorkspaces` assigns a *new* object on
-  // every call — including calls that have nothing to do with language
-  // (preset change, name save, per-user visibility toggle, switching to a
-  // *different* workspace's own settings tab, ...; see the various
-  // `reloadWorkspaces()` call sites in `WorkspaceSettings.tsx` and
-  // `WorkspaceAdminSection.tsx`). Before the `hasLocalLanguageOverride`
-  // guard, any of those unrelated reloads re-ran this effect and silently
-  // snapped `i18next.language` back to the persisted `activeWorkspace
-  // .language` — overwriting a non-admin's session-local toggle (F-02) or
-  // re-applying a value an admin's PATCH had actually failed to save (F-04)
-  // with zero indication to the user. That is BUG-01's original symptom
-  // class, reproduced by this fix itself in a new scenario.
-  useEffect(() => {
-    if (!isWorkspaceReady) return;
-    if (activeWorkspace === DEFAULT_WORKSPACE) return;
-    if (hasLocalLanguageOverride) return;
-    // `i18next.init()` (called once, from `i18n/index.ts`, at app bootstrap
-    // before anything renders) has not necessarily run in every test that
-    // mounts WorkspaceProvider without also loading that bootstrap module —
-    // `changeLanguage` on an uninitialized instance throws internally
-    // (`hasLanguageSomeTranslations` on an undefined resource store). In the
-    // real app this is always true by the time this effect can fire.
-    if (!i18next.isInitialized) return;
-    const lang = activeWorkspace?.language;
-    if (!lang || i18next.language === lang) return;
-    void i18next.changeLanguage(lang);
-    if (typeof document !== "undefined") {
-      document.documentElement.lang = lang;
-    }
-  }, [isWorkspaceReady, activeWorkspace, hasLocalLanguageOverride]);
+  }, [isAuthenticated, authStatus, reloadWorkspaces, clearLanguageOverride]);
 
   // Theme Presets: the workspace-default-theme restore effect was removed —
   // ThemeContext now owns theme resolution end to end (server-side user
   // preference + tenant default), so a workspace row can no longer override it.
 
-  // Fetch per-user preferences whenever the active workspace changes (REQ-L1-027).
-  // Gated on ``isWorkspaceReady`` so we don't burn an API call for the
-  // DEFAULT_WORKSPACE placeholder on first render.
-  useEffect(() => {
-    if (!isAuthenticated || !activeWorkspace || !isWorkspaceReady) {
-      setUserOverrides(null);
-      setHideAllOptionalState(false);
-      setOverriddenKeys(new Set());
-      userOverridesRef.current = null;
-      hideAllOptionalRef.current = false;
-      overriddenKeysRef.current = new Set();
-      return;
-    }
-    const workspaceId = activeWorkspace.id;
-    let cancelled = false;
-    void (async () => {
-      try {
-        const pref = await preferencesApi.get(workspaceId);
-        if (cancelled) return;
-        if (pref === null) {
-          setUserOverrides(null);
-          setHideAllOptionalState(false);
-          setOverriddenKeys(new Set());
-          userOverridesRef.current = null;
-          hideAllOptionalRef.current = false;
-          overriddenKeysRef.current = new Set();
-        } else {
-          setUserOverrides(pref.overrides);
-          setHideAllOptionalState(pref.hideAllOptional);
-          userOverridesRef.current = pref.overrides;
-          hideAllOptionalRef.current = pref.hideAllOptional;
-          // Only keys that differ from the preset get marked as "user-overridden".
-          // ``pref.overrides`` is sparse — a feature the user never touched
-          // is simply absent (``undefined``), not "explicitly set to the
-          // opposite of the preset". Without the presence check below,
-          // every untouched feature (`undefined`) compared against a
-          // `true` preset default reads as "differs" and gets wrongly
-          // marked overridden — reproducing BUG-16 on every page reload
-          // (docs/SYSTEMAUDIT_2026-08-18.md §4, review finding F-01).
-          const preset: WorkspacePreset = activeWorkspace.preset ?? "standard";
-          const overridden = new Set<OptionalArtifactFeature>();
-          for (const f of OPTIONAL_FEATURES) {
-            const stored = pref.overrides[f];
-            if (stored !== undefined && PRESET_VISIBILITY[preset][f] !== stored) {
-              overridden.add(f);
-            }
-          }
-          setOverriddenKeys(overridden);
-          overriddenKeysRef.current = overridden;
-        }
-      } catch {
-        // Network / unexpected error → fall back to preset defaults silently.
-        if (cancelled) return;
-        setUserOverrides(null);
-        setHideAllOptionalState(false);
-        setOverriddenKeys(new Set());
-        userOverridesRef.current = null;
-        hideAllOptionalRef.current = false;
-        overriddenKeysRef.current = new Set();
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [isAuthenticated, activeWorkspace, isWorkspaceReady]);
-
-  // Feature visibility with override resolution (REQ-L1-027 + REQ-L2-RF-007).
-  // 1) hideAllOptional wins for the 6 optional artifact features.
-  // 2) userOverrides[feature] wins ONLY when the user has set that key
-  //    (override is "defined" — the map is sparse by design).
-  // 3) Otherwise fall through to the preset default.
-  // 4) Final fallback: visible.
-  const isFeatureVisible = useCallback(
-    (feature: string): boolean => {
-      const isOptional = (OPTIONAL_FEATURES as readonly string[]).includes(
-        feature
-      );
-      if (isOptional && hideAllOptional) return false;
-      if (isOptional && userOverrides) {
-        const override = userOverrides[feature as OptionalArtifactFeature];
-        if (override !== undefined) return override;
-      }
-      const preset: WorkspacePreset = activeWorkspace?.preset ?? "standard";
-      return PRESET_VISIBILITY[preset][feature] ?? true;
-    },
-    [activeWorkspace, userOverrides, hideAllOptional]
-  );
+  // Per-user preferences: owned by `useWorkspacePreferences` (REQ-L1-027).
+  const {
+    userOverrides,
+    hideAllOptional,
+    isFeatureVisible,
+    setFeatureVisible,
+    setHideAllOptional,
+    resetFeatureOverride,
+    isFeatureOverridden,
+  } = useWorkspacePreferences({
+    isAuthenticated,
+    isWorkspaceReady,
+    activeWorkspace,
+  });
 
   // Terminology label lookup (REQ-L2-RF-008)
   const terminologyLabel = useCallback(
@@ -440,93 +286,6 @@ export function WorkspaceProvider({
       return (labels as Record<string, string>)[key] ?? key;
     },
     [activeWorkspace]
-  );
-
-  // ---- Per-user visibility mutators (REQ-L1-027) ------------------------
-
-  const setFeatureVisible = useCallback(
-    async (
-      feature: OptionalArtifactFeature,
-      value: boolean
-    ): Promise<void> => {
-      const workspaceId = activeWorkspace?.id;
-      if (!workspaceId) return;
-      // "Overridden" means the effective value differs from the preset
-      // default — mirrors the load-time computation below (BUG-16 fix).
-      // Previously this unconditionally added the feature to
-      // ``overriddenKeys``, so ``resetFeatureOverride`` (which calls this
-      // with the preset's own value) could never actually clear the
-      // override flag and the reset button stayed permanently active.
-      const preset: WorkspacePreset = activeWorkspace?.preset ?? "standard";
-      const presetValue = PRESET_VISIBILITY[preset][feature] === true;
-      // Optimistic local update — keep overrides sparse.
-      const prev = userOverridesRef.current;
-      const prevOverriddenKeys = overriddenKeysRef.current;
-      const next: FeatureOverrides = { ...(prev ?? {}), [feature]: value };
-      setUserOverrides(next);
-      userOverridesRef.current = next;
-      const nextKeys = new Set(prevOverriddenKeys);
-      if (value !== presetValue) {
-        nextKeys.add(feature);
-      } else {
-        nextKeys.delete(feature);
-      }
-      setOverriddenKeys(nextKeys);
-      overriddenKeysRef.current = nextKeys;
-      try {
-        await preferencesApi.update(workspaceId, { [feature]: value });
-      } catch (err) {
-        // Rollback on failure — restore the exact previous overridden state
-        // instead of assuming the feature was never overridden.
-        setUserOverrides(prev);
-        userOverridesRef.current = prev;
-        setOverriddenKeys(prevOverriddenKeys);
-        overriddenKeysRef.current = prevOverriddenKeys;
-        throw err;
-      }
-    },
-    [activeWorkspace]
-  );
-
-  const resetFeatureOverride = useCallback(
-    async (feature: OptionalArtifactFeature): Promise<void> => {
-      const workspaceId = activeWorkspace?.id;
-      if (!workspaceId) return;
-      // "Reset to preset" = set the override back to the preset value.
-      const preset: WorkspacePreset = activeWorkspace?.preset ?? "standard";
-      const presetValue = PRESET_VISIBILITY[preset][feature] === true;
-      await setFeatureVisible(feature, presetValue);
-    },
-    [activeWorkspace, setFeatureVisible]
-  );
-
-  const setHideAllOptional = useCallback(
-    async (value: boolean): Promise<void> => {
-      const workspaceId = activeWorkspace?.id;
-      if (!workspaceId) {
-        setHideAllOptionalState(value);
-        hideAllOptionalRef.current = value;
-        return;
-      }
-      setHideAllOptionalState(value);
-      hideAllOptionalRef.current = value;
-      try {
-        await preferencesApi.update(workspaceId, {
-          _hide_all_optional: value,
-        });
-      } catch (err) {
-        setHideAllOptionalState(!value);
-        hideAllOptionalRef.current = !value;
-        throw err;
-      }
-    },
-    [activeWorkspace]
-  );
-
-  const isFeatureOverridden = useCallback(
-    (feature: OptionalArtifactFeature): boolean =>
-      overriddenKeys.has(feature),
-    [overriddenKeys]
   );
 
   const value = useMemo<WorkspaceState>(
