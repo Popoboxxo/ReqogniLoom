@@ -213,6 +213,40 @@ in the test suite instead of silently dropping a confirmation dialog.
 (`requirement.validate`, `traceability.coverage`, …): a spinner, not a
 confirmation.
 
+The `compute` class is the one place such a misclassification could hide — it
+drops the confirmation dialog just as `read` does — so every member needs a line
+in `COMPUTE_JUSTIFICATIONS` and the test asserts the map covers the set exactly.
+Nine tools the manifest calls writes were sitting in `compute` (the
+`ai_derivation.*` family, `requirement.decompose`, `requirement.suggest_level`,
+`traceability.suggest_links`); they are `mutate` now.
+
+If a server ever publishes the standard MCP `annotations`, those win over the
+name heuristics — with one exception: an entry in `MUTATE_EXACT` stands, because a
+`readOnlyHint` must not talk a persisting tool out of its dialog. Annotations may
+add a mutation signal, never remove an explicit one.
+
+### Destructive calls
+
+`is_destructive()` matches name *segments* (`delete`, `purge`, `destroy`, `wipe`,
+`reset`, `drop`), not a `.delete` suffix: `memory.delete_workspace` and
+`attribute_definition.delete_workspace` are a GDPR wipe of every memory tier a
+workspace owns, and the suffix test let them through with a plain yes/no. Verified
+against all 248 manifest tools (12 matches, all hard deletes or resets).
+
+### What a server URL may be
+
+Every request sends the entry's key as `X-API-Key` to that entry's `base_url`, so
+the URL is checked the way a credential destination has to be:
+
+- a target in the link-local / cloud-metadata range, or an unspecified address, is
+  refused when it is written **and** when it is used (the registry file is
+  editable, and the environment can carry a URL too);
+- private ranges are allowed on purpose — a ReqogniLoom install on a LAN is the
+  normal case here;
+- changing the `base_url` of an existing entry **clears its keys**, so a
+  re-pointed entry cannot hand the previous host's key to a new one; the response
+  says so.
+
 ## Listen mode ("hear along")
 
 Opt-in, off by default, and it never creates anything by itself:
@@ -323,6 +357,7 @@ python scripts/check_plugin_packages.py
 # the bundle: syntax, then a real render against a stub host SDK
 node --check integrations/hermes-agent-plugin/dashboard/dist/index.js
 node integrations/hermes-agent-plugin/tests/plugin_ui_smoke.mjs
+node integrations/hermes-agent-plugin/tests/plugin_ui_flow.mjs
 
 python -m py_compile integrations/hermes-agent-plugin/__init__.py \
     integrations/hermes-agent-plugin/reqogniloom_client.py \
@@ -338,6 +373,14 @@ python -m py_compile integrations/hermes-agent-plugin/__init__.py \
 without `data-testid`, a `fetch` during render, or a tool name the server does
 not publish. It needs node only; it is not wired into CI (the pipeline is
 defined outside this directory) — run it before opening the tab by hand.
+
+`tests/plugin_ui_flow.mjs` goes further: it *runs* the components (hook state,
+dependency arrays, event handlers) and asserts the request bodies the tab
+produces — that the create flow sends only what the operator stated, that an
+untouched optional field is absent rather than empty, and that a tool which
+declares no `workspace_id` never receives one. The static smoke test cannot see
+inside a component, which is how a defect that made 11 of 12 create flows
+unusable survived it.
 
 ### Verifying the dashboard tab
 
