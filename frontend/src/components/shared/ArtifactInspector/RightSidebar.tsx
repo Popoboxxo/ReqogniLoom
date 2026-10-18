@@ -33,6 +33,7 @@ import { VersionPanel } from "./VersionPanel";
 import { DiffPanel } from "./DiffPanel";
 import { TracePanel } from "./TracePanel";
 import { CommentPanel } from "./CommentPanel";
+import { safeLocalStorage } from "../../../utils/safeStorage";
 import type { ArtifactKind, VersionRef } from "./types";
 import styles from "./RightSidebar.module.css";
 
@@ -88,15 +89,14 @@ const DEFAULT_COLLAPSE_BREAKPOINT_PX = 1600;
 // Helpers
 // ---------------------------------------------------------------------------
 
+// All reads/writes below go through the shared defensive wrapper (issue #679,
+// see utils/safeStorage): a storage lockout degrades to the given fallback
+// instead of breaking the inspector.
+
 function readBool(key: string, fallback: boolean): boolean {
-  if (typeof window === "undefined") return fallback;
-  try {
-    const raw = window.localStorage.getItem(key);
-    if (raw === "true") return true;
-    if (raw === "false") return false;
-  } catch {
-    /* localStorage may be disabled (private mode, etc.) */
-  }
+  const raw = safeLocalStorage.getItem(key);
+  if (raw === "true") return true;
+  if (raw === "false") return false;
   return fallback;
 }
 
@@ -107,46 +107,29 @@ function readBool(key: string, fallback: boolean): boolean {
  * stored "true"/"false") always wins over this heuristic.
  */
 function readCollapsedDefault(key: string): boolean {
+  // The `window` guard stays: the fallback below reads `window.innerWidth`,
+  // not just storage.
   if (typeof window === "undefined") return false;
-  try {
-    const raw = window.localStorage.getItem(key);
-    if (raw === "true") return true;
-    if (raw === "false") return false;
-  } catch {
-    /* localStorage may be disabled (private mode, etc.) */
-  }
+  const raw = safeLocalStorage.getItem(key);
+  if (raw === "true") return true;
+  if (raw === "false") return false;
   return window.innerWidth < DEFAULT_COLLAPSE_BREAKPOINT_PX;
 }
 
 function writeBool(key: string, value: boolean): void {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(key, value ? "true" : "false");
-  } catch {
-    /* ignore */
-  }
+  safeLocalStorage.setItem(key, value ? "true" : "false");
 }
 
 function readNumber(key: string, fallback: number): number {
-  if (typeof window === "undefined") return fallback;
-  try {
-    const raw = window.localStorage.getItem(key);
-    if (raw === null) return fallback;
-    const n = parseInt(raw, 10);
-    if (Number.isFinite(n)) return n;
-  } catch {
-    /* ignore */
-  }
+  const raw = safeLocalStorage.getItem(key);
+  if (raw === null) return fallback;
+  const n = parseInt(raw, 10);
+  if (Number.isFinite(n)) return n;
   return fallback;
 }
 
 function writeNumber(key: string, value: number): void {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(key, String(value));
-  } catch {
-    /* ignore */
-  }
+  safeLocalStorage.setItem(key, String(value));
 }
 
 // ---------------------------------------------------------------------------

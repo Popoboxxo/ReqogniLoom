@@ -100,6 +100,32 @@ describe("RequirementList filter persistence (BUG-19)", () => {
     expect(categorySelectAfterRemount.value).toBe("data");
   });
 
+  it("falls back to the default sort for a foreign stored sort string", () => {
+    // G1 (audit follow-up): a stored JSON *string* passes the hook's derived
+    // shallow shape check no matter its value — only the call site's
+    // `validate` guard narrows it to ReqSortKey. Without that guard a foreign
+    // string (e.g. left over from an older build with a renamed sort option)
+    // is treated as a sort key the list does not support.
+    const sortStorageKey = "reqlo:list-state:requirements:ws-a:sort";
+    window.sessionStorage.setItem(sortStorageKey, JSON.stringify("last-modified"));
+
+    renderList();
+
+    const sortSelect = screen.getByTestId(
+      "req-list-sort-select"
+    ) as HTMLSelectElement;
+    expect(sortSelect.value).toBe("default");
+    // The persistence effect mirrors the effective state back into storage on
+    // mount, so the stored value after render proves the *fallback* actually
+    // happened (JSDOM normalizes an unmatched select value to the first
+    // option, which alone cannot distinguish the two states): with only the
+    // shallow shape check the foreign string round-trips unchanged; with the
+    // `validate` guard it is replaced by "default".
+    expect(window.sessionStorage.getItem(sortStorageKey)).toBe(
+      JSON.stringify("default")
+    );
+  });
+
   it("keeps the sort selection across an unmount/remount cycle", () => {
     renderList();
 

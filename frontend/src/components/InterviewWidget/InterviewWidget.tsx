@@ -51,6 +51,7 @@ import { useNavigate } from "react-router-dom";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { useNotificationFeed } from "../../hooks/useNotificationFeed";
 import { INTERVIEW_ARTIFACT_TYPES, MULTI_START_PARAM } from "../../constants/interviewArtifactTypes";
+import { safeLocalStorage } from "../../utils/safeStorage";
 import { NotificationFeed } from "./NotificationFeed";
 import styles from "./InterviewWidget.module.css";
 
@@ -61,30 +62,8 @@ type WidgetTab = "start" | "notifications";
 
 const TAB_ORDER: readonly WidgetTab[] = ["start", "notifications"];
 
-/**
- * Defensive localStorage wrapper (issue #679) — direct `window.localStorage`
- * access throws in third-party-cookie-restricted browsers, private-browsing
- * storage lockouts, and JSDOM test environments where the property is
- * unavailable/mocked out (`TypeError: Cannot read properties of undefined`,
- * or a `SecurityError`). The toggle-open state persisted here is a
- * nice-to-have, never worth freezing the widget over.
- */
-export const safeLocalStorage = {
-  getItem: (key: string): string | null => {
-    try {
-      return window.localStorage.getItem(key);
-    } catch {
-      return null;
-    }
-  },
-  setItem: (key: string, value: string): void => {
-    try {
-      window.localStorage.setItem(key, value);
-    } catch {
-      // Storage unavailable (private browsing, disabled cookies, etc.) — silently no-op.
-    }
-  },
-};
+// The toggle-open state persists through the shared defensive wrapper
+// (issue #679, see `utils/safeStorage`) — never worth freezing the widget over.
 
 export function InterviewWidget(): JSX.Element {
   const { activeWorkspace } = useWorkspace();

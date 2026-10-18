@@ -36,6 +36,7 @@ import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { getArtifactRoute } from "../../utils/artifactRoutes";
+import { safeSessionStorage } from "../../utils/safeStorage";
 import { tracelinksApi } from "../../api/tracelinks";
 import { traceabilityApi } from "../../api/traceability";
 import { requirementsApi } from "../../api/requirements";
@@ -871,11 +872,14 @@ export default function TraceabilityView(): JSX.Element {
       title: state.titles[impactArtifact] ?? "",
       artifactType: artifact?.artifact_type ?? state.types[impactArtifact] ?? "",
     };
+    // Storage goes through the defensive wrapper (see utils/safeStorage): in a
+    // private-mode lockout the handoff is silently dropped and ImpactView
+    // falls back to its normal search flow — no functionality lost.
     try {
-      sessionStorage.setItem(IMPACT_PRESET_STORAGE_KEY, JSON.stringify(preset));
+      safeSessionStorage.setItem(IMPACT_PRESET_STORAGE_KEY, JSON.stringify(preset));
     } catch {
-      // sessionStorage unavailable (e.g. private mode) — ImpactView falls
-      // back to its normal search flow, no functionality lost.
+      // `JSON.stringify` is the only remaining throwing surface here (the
+      // wrapper absorbs lockout/quota) — same fallback as a lockout.
     }
     window.location.assign("/impact");
   }

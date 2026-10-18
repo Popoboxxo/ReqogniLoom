@@ -52,6 +52,7 @@
 
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
+import { safeLocalStorage } from '../../utils/safeStorage';
 
 /**
  * Props for the generic SplitView component.
@@ -391,10 +392,7 @@ const LegacySplitView = React.forwardRef<HTMLDivElement, LegacySplitViewProps>(
       }
 
       // 2. localStorage (persisted from previous session)
-      const stored =
-        typeof window !== "undefined" && window.localStorage
-          ? window.localStorage.getItem(storageKey)
-          : null;
+      const stored = safeLocalStorage.getItem(storageKey);
       if (stored) {
         const parsed = parseInt(stored, 10);
         if (!isNaN(parsed) && parsed >= leftMinWidth) {
@@ -452,7 +450,7 @@ const LegacySplitView = React.forwardRef<HTMLDivElement, LegacySplitViewProps>(
     );
 
     const persistWidth = useCallback((width: number): void => {
-      localStorage.setItem(storageKey, String(width));
+      safeLocalStorage.setItem(storageKey, String(width));
       onDividerMove?.(width);
     }, [storageKey, onDividerMove]);
 

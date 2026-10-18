@@ -11,6 +11,8 @@
  * back to their computed position.
  */
 
+import { safeLocalStorage } from "../../utils/safeStorage";
+
 export interface XY {
   x: number;
   y: number;
@@ -26,14 +28,13 @@ export function loadPositions(
   workspaceId: string,
   entityType: string
 ): PositionMap {
-  if (typeof window === "undefined") return {};
   try {
-    const raw = window.localStorage.getItem(key(workspaceId, entityType));
+    const raw = safeLocalStorage.getItem(key(workspaceId, entityType));
     if (!raw) return {};
     const parsed = JSON.parse(raw) as unknown;
     if (parsed && typeof parsed === "object") return parsed as PositionMap;
   } catch {
-    /* ignore malformed / disabled storage */
+    /* malformed stored payload — fall back to the computed (dagre) layout */
   }
   return {};
 }
@@ -43,13 +44,9 @@ export function savePositions(
   entityType: string,
   positions: PositionMap
 ): void {
-  if (typeof window === "undefined") return;
   try {
-    window.localStorage.setItem(
-      key(workspaceId, entityType),
-      JSON.stringify(positions)
-    );
+    safeLocalStorage.setItem(key(workspaceId, entityType), JSON.stringify(positions));
   } catch {
-    /* ignore quota / disabled storage */
+    /* unserializable payload — layout persistence is best-effort */
   }
 }

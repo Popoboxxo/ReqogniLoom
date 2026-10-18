@@ -35,6 +35,8 @@
 
 import { useCallback, useSyncExternalStore } from "react";
 
+import { safeLocalStorage } from "../utils/safeStorage";
+
 /**
  * localStorage key for the first-render cache (issue #1096). `reqflow-` prefix
  * matches the other persisted view state. The server value wins once it arrives;
@@ -46,34 +48,17 @@ export const READABLE_IDS_STORAGE_KEY = "reqflow-display-readable-ids";
 /** Readable ids are shown unless the user says otherwise. */
 export const READABLE_IDS_VISIBLE_DEFAULT = true;
 
-/**
- * Defensive localStorage access (same reasoning as `InterviewWidget`'s
- * `safeLocalStorage`, issue #679): the property is absent in some jsdom
- * environments and throws a `SecurityError` in private-browsing mode. A display
- * preference is never worth breaking a render over.
- */
-function readStorage(): string | null {
-  try {
-    return window.localStorage.getItem(READABLE_IDS_STORAGE_KEY);
-  } catch {
-    return null;
-  }
-}
-
-function writeStorage(value: string): void {
-  try {
-    window.localStorage.setItem(READABLE_IDS_STORAGE_KEY, value);
-  } catch {
-    /* storage unavailable — the in-memory value below still applies */
-  }
-}
+// Storage access goes through the shared defensive wrapper (issue #679, see
+// `utils/safeStorage`): the property is absent in some jsdom environments and
+// throws a `SecurityError` in private-browsing mode. A display preference is
+// never worth breaking a render over.
 
 function normalize(raw: string | null): boolean {
   if (raw === null) return READABLE_IDS_VISIBLE_DEFAULT;
   return raw !== "false";
 }
 
-let snapshot: boolean = normalize(typeof window === "undefined" ? null : readStorage());
+let snapshot: boolean = normalize(safeLocalStorage.getItem(READABLE_IDS_STORAGE_KEY));
 const listeners = new Set<() => void>();
 let storageBound = false;
 
@@ -83,7 +68,7 @@ function notify(): void {
 }
 
 function emit(): void {
-  snapshot = normalize(readStorage());
+  snapshot = normalize(safeLocalStorage.getItem(READABLE_IDS_STORAGE_KEY));
   notify();
 }
 
@@ -130,9 +115,9 @@ export function getReadableIdsVisible(): boolean {
  * the `storage` event only fires in *other* tabs.
  */
 export function setReadableIdsVisible(next: boolean): void {
-  writeStorage(String(next));
+  safeLocalStorage.setItem(READABLE_IDS_STORAGE_KEY, String(next));
   // FR-U3-01: the in-memory value is authoritative. Re-deriving the snapshot
-  // from `readStorage()` here (as this setter used to via `emit()`) silently
+  // from storage here (as this setter used to via `emit()`) silently
   // reverted a freshly-set `false` back to the default `true` whenever storage
   // was unavailable (private browsing, quota): `readStorage()` returns `null`,
   // `normalize(null)` is the default. The value the user just chose vanished
