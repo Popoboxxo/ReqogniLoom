@@ -40,6 +40,8 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from .reqogniloom_client import ReqogniLoomClient, ReqogniLoomError, resolve_workspace_id
 from .reqogniloom_state import load_state as _state_load, save_state as _state_save
+from . import reqogniloom_registry as _registry
+from . import reqogniloom_tools as _tools
 
 logger = logging.getLogger(__name__)
 
@@ -110,6 +112,16 @@ Server-side suggestions (ADR-019 — decided one at a time, by id, never automat
 
   `suggestion accept/reject` decide a server-side ADR-019 suggestion by id;
   `accept <index|all>` only formalizes suggestions captured locally by listen mode.
+
+Servers (multi-server: every other subcommand uses the ACTIVE server):
+  server list                            Show the configured servers and their health.
+  server use <id>                        Switch the active server (dashboard shares this).
+  server add <id> <base_url>             Add a server. Its key is read from the
+                                         environment variable REQOGNILOOM_API_KEY_<ID>
+                                         (and REQOGNILOOM_USER_API_KEY_<ID> for the
+                                         human principal) — set those in ~/.hermes/.env.
+  server test [id]                       Probe reachability, version and key (active by default).
+  server rm <id>                         Remove a server.
 
   help                                   Show this text.
 """
@@ -395,11 +407,18 @@ def _handle_slash(raw_args: str) -> Optional[str]:
         if sub == "suggestion":
             return _handle_suggestion(client, state, rest)
 
+        if sub == "server":
+            return _handle_server(rest)
+
         if sub in ("accept", "dismiss"):
             return _handle_review_action(client, state, sub, rest)
 
     except ReqogniLoomError as exc:
         return f"ReqogniLoom error: {exc}"
+    except _registry.RegistryError as exc:
+        # A server-management mistake is a configuration error, not a plugin bug:
+        # name it as such instead of falling through to the generic handler.
+        return f"Server configuration error: {exc}"
     except Exception as exc:  # noqa: BLE001 — _handle_slash promises never to raise
         logger.warning("Unexpected error handling /reqogniloom %s: %s", sub, exc)
         return f"ReqogniLoom plugin error: {exc}"
@@ -636,6 +655,122 @@ def _handle_suggestion(
     verb = "accepted" if action == "accept" else "rejected"
     detail = f"{kind}, " if kind else ""
     return f"Suggestion {args[0]} {verb} ({detail}status {status})."
+
+
+#: Shared usage line for the ``server`` group.
+_SERVER_USAGE = (
+    "Usage: /reqogniloom server list | use <id> | add <id> <base_url> | test [id] | rm <id>"
+)
+
+
+def _env_var_for(server_id: str, prefix: str) -> str:
+    """The environment variable that holds one server's key.
+
+    Keys are never typed on the command line (that would put a secret into the
+    shell history and the transcript) — ``server add`` points at a variable
+    instead, and the user sets it in ``~/.hermes/.env``.
+    """
+    return f"{prefix}{server_id.upper().replace('-', '_')}"
+
+
+def _server_action_client(entry: Dict[str, Any]) -> ReqogniLoomClient:
+    """A client bound to exactly one registry entry (explicit target + keys)."""
+    api_key, user_api_key = _registry.resolve_credentials(entry)
+    return ReqogniLoomClient(
+        base_url=str(entry.get("base_url") or ""),
+        api_key=api_key,
+        user_api_key=user_api_key,
+        server_id=str(entry.get("id") or ""),
+    )
+
+
+def _fmt_verify(server_id: str, verify: Dict[str, Any]) -> str:
+    if verify.get("reachable"):
+        lines = [
+            f"server {server_id}: reachable",
+            f"  version:    {verify.get('app_version') or '?'}",
+            f"  key:        {'ok' if verify.get('auth_ok') else 'failed'}",
+            f"  tools:      {verify.get('tool_count') if verify.get('tool_count') is not None else '?'}",
+            f"  latency:    {verify.get('latency_ms')} ms",
+        ]
+    else:
+        lines = [f"server {server_id}: UNREACHABLE", f"  reason: {verify.get('error') or 'unknown'}"]
+    return "\n".join(lines)
+
+
+def _handle_server(rest: Sequence[str]) -> str:
+    """The ``server`` group: list / use / add / rm / test.
+
+    Server *management* lives here and in the dashboard; every other subcommand
+    simply follows the active entry (the client resolves it). Reading is never
+    gated on this group — an install that only uses environment variables keeps
+    working without ever creating a registry file.
+    """
+    action = rest[0].lower() if rest else "list"
+    args = list(rest[1:])
+
+    if action == "list":
+        _registry.ensure_migrated()
+        return _registry.format_servers()
+
+    if action == "use":
+        if not args:
+            return _SERVER_USAGE
+        _registry.ensure_migrated()
+        updated = _registry.set_active(args[0])
+        # The tool catalogue is a property of the server, not of the plugin:
+        # switching servers must not leave the previous catalogue cached.
+        _tools.invalidate()
+        return f"Active server is now {updated.get('active')}.\n\n" + _registry.format_servers(updated)
+
+    if action == "add":
+        if len(args) < 2:
+            return _SERVER_USAGE
+        server_id, base_url = args[0], args[1]
+        _registry.ensure_migrated()
+        api_env = _env_var_for(server_id, "REQOGNILOOM_API_KEY_")
+        user_env = _env_var_for(server_id, "REQOGNILOOM_USER_API_KEY_")
+        updated = _registry.add_server(
+            server_id,
+            base_url,
+            api_key_env=api_env,
+            user_api_key_env=user_env,
+        )
+        present = [name for name in (api_env, user_env) if os.environ.get(name)]
+        lines = [
+            f"Added server {server_id} ({base_url}); active: {updated.get('active')}.",
+            f"  agent key:  ${api_env}"
+            + ("" if api_env in present else "  (not set yet — export it in ~/.hermes/.env)"),
+            f"  human key:  ${user_env}"
+            + ("" if user_env in present else "  (optional; set it to approve proposals from the dashboard)"),
+            "Check it with `/reqogniloom server test "
+            + str(server_id)
+            + "`.",
+        ]
+        return "\n".join(lines)
+
+    if action == "rm":
+        if not args:
+            return _SERVER_USAGE
+        _registry.ensure_migrated()
+        updated = _registry.remove_server(args[0])
+        _tools.invalidate()
+        return f"Removed server {args[0]}.\n\n" + _registry.format_servers(updated)
+
+    if action == "test":
+        _registry.ensure_migrated()
+        if args:
+            entry = _registry.get_server(args[0])
+        else:
+            entry = _registry.active_server()
+            if entry is None:
+                return _registry.env_seed_note()
+        server_id = str(entry.get("id"))
+        verify = _registry.probe_server(_server_action_client(entry), entry)
+        _registry.record_verify(server_id, verify)
+        return _fmt_verify(server_id, verify)
+
+    return _SERVER_USAGE
 
 
 def register(ctx: Any) -> None:
