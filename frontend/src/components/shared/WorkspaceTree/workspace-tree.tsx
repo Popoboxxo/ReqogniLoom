@@ -32,7 +32,6 @@ import {
   useRef,
   useState,
 } from 'react';
-import { useVirtualizer } from '@tanstack/react-virtual';
 import { useTranslation } from 'react-i18next';
 import { Badge } from '../Badge';
 import { LevelBadge } from '../LevelBadge';
@@ -48,6 +47,7 @@ import {
   useTreeDrag,
   type TreeRowDragProps,
 } from './tree-drag';
+import { useTreeVirtualization } from './tree-virtualization';
 import styles from './workspace-tree.module.css';
 
 // ---------------------------------------------------------------------------
@@ -305,11 +305,6 @@ export interface WorkspaceTreeProps {
   stateKey?: string;
   'data-testid'?: string;
 }
-
-// REQ-091: virtualization threshold 100 items
-const VIRTUALIZE_THRESHOLD = 100;
-// REQ-091: fixed row height estimate — TreeRow minHeight 32px + 2px list gap.
-const VIRTUAL_ROW_HEIGHT = 34;
 
 // ---------------------------------------------------------------------------
 // Internal tree model
@@ -590,14 +585,13 @@ export function WorkspaceTree({
   }, [onToggle]);
 
   // REQ-091: virtualize only when opted in and the visible list is large.
-  const parentRef = useRef<HTMLDivElement>(null);
-  const useVirtual = virtualize && visibleRows.length > VIRTUALIZE_THRESHOLD;
-  const rowVirtualizer = useVirtualizer({
-    count: visibleRows.length,
-    getScrollElement: () => parentRef.current,
-    estimateSize: () => virtualRowHeight ?? VIRTUAL_ROW_HEIGHT,
-    overscan: 12,
-  });
+  // The harness lives in `tree-virtualization.tsx`.
+  const { parentRef, useVirtual, rowVirtualizer, virtualListStyle, rowPositionStyle } =
+    useTreeVirtualization({
+      virtualize,
+      rowCount: visibleRows.length,
+      virtualRowHeight,
+    });
 
   // -------------------------------------------------------------------
   // Task 4.1: ARIA treeview keyboard navigation (roving tabindex).
@@ -797,13 +791,6 @@ export function WorkspaceTree({
   const drag = useTreeDrag(nodes, onReparent);
   const { dndEnabled, draggingId, dropTargetId, rowDragProps } = drag;
 
-  // Issue #876 (Etappe 5): the virtualized list's height is a measured pixel
-  // value (`getTotalSize()`), so it stays on the `style` prop as a computed
-  // identifier rather than a class — see the module header.
-  const virtualListStyle = {
-    height: `${rowVirtualizer.getTotalSize()}px`,
-  } as CSSProperties;
-
   return (
     <TreeDisplayFieldsProvider fields={displayFields}>
       <div
@@ -896,13 +883,7 @@ export function WorkspaceTree({
                   onFocusRow={setFocusedId}
                   dragProps={rowDragProps}
                   labels={rowLabels}
-                  rowStyle={{
-                    position: 'absolute',
-                    top: 0,
-                    left: 0,
-                    width: '100%',
-                    transform: `translateY(${virtualRow.start}px)`,
-                  }}
+                  rowStyle={rowPositionStyle(virtualRow.start)}
                 />
               );
             })}
