@@ -131,6 +131,20 @@ function formatUpdatedAt(iso: string): string {
 
 type ReqSortKey = 'default' | 'title' | 'status' | 'updated';
 
+/**
+ * Persistence guard for the session-stored sort key (`usePersistedListState`'s
+ * `options.validate`): a stored JSON string passes the hook's derived `typeof`
+ * shape check no matter its value, so a foreign string (e.g. left over from an
+ * older build with a renamed sort option) would be adopted as the active sort
+ * key — matching no option in the sort select. The union above is the domain
+ * contract; anything outside it falls back to the "default" initial value.
+ */
+function isReqSortKey(value: unknown): value is ReqSortKey {
+  return (
+    value === 'default' || value === 'title' || value === 'status' || value === 'updated'
+  );
+}
+
 function sortRequirements(list: Requirement[], sortKey: ReqSortKey): Requirement[] {
   const sorted = [...list];
   switch (sortKey) {
@@ -222,9 +236,13 @@ export const RequirementList: React.FC<RequirementListProps> = ({
     `reqlo:list-state:requirements:${workspaceScope}:status`,
     '',
   );
+  // G1 (audit follow-up): the stored sort key is a string union — the derived
+  // shape check is too shallow for it, so `validate` narrows it explicitly
+  // (see isReqSortKey).
   const [sortKey, setSortKey] = usePersistedListState<ReqSortKey>(
     `reqlo:list-state:requirements:${workspaceScope}:sort`,
     'default',
+    { validate: isReqSortKey },
   );
 
   const visibleRequirements = useMemo(() => {
