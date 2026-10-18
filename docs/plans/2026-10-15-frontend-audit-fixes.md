@@ -5,7 +5,7 @@ scope: "frontend/src (React 19, TS 5.5+, Vite 8, Vitest)"
 status: in Umsetzung
 date: 2026-10-15
 status_updated: 2026-10-18
-progress_base: "origin/main = 6d87b172"
+progress_base: "origin/main = 480ef346"
 base_head: b6159d6b
 target_branch: fix/audit-frontend-findings
 author_agent: planner
@@ -24,7 +24,7 @@ language: de
 
 | Feld | Wert |
 |---|---|
-| **Status** | **In Umsetzung** — Phasen 0–4 gemergt, Phase 5 (5a/5b) als PR offen; Phasen 5c/6–8 offen. Vier Entscheidungen bestätigt (siehe „Entscheidungen (bestätigt)"). Fortschreibung siehe „Umsetzungsstand" oben. |
+| **Status** | **In Umsetzung** — Phasen 0–5 (5a/5b) gemergt; Phasen 5c/6–8 offen. Vier Entscheidungen bestätigt (siehe „Entscheidungen (bestätigt)"). Fortschreibung siehe „Umsetzungsstand" oben. |
 | **Datum** | 2026-10-15 (Stand aktualisiert: 2026-10-18) |
 | **Bezug** | System-Audit `frontend/src` 2026-10-15 · Frontend-Fach-Audit (16 Findings, Score 57) · UI-Audit (Score 68) · Code-Qualitäts-Audit (C+ 7.0/10) · Accessibility-Audit (78/100) · `frontend/src/test/design-system-ratchet.baseline.json` (#954, #797, #1091, #1093, #1092) · #1193 |
 | **Grundlage** | Verifizierter Arbeitsbaum-Stand bei Basis-HEAD `b6159d6b`; graphify-Wissensgraph `graphify-out/graph.json` (bei `b6159d6b` gebaut; 50.289 Nodes, 4.035 Nodes unter `frontend/src/`); read-only Code-/A11y-/Ratchet-Evidenz-Inventare |
@@ -41,7 +41,7 @@ language: de
 >
 > Lokaler (gitignorierter) Session-Checkpoint als Zusatz: `.meta-viz/checkpoint-20261017-frontend-audit.json`.
 
-- **Basis (`origin/main` zum Fortschreibungszeitpunkt):** `6d87b172`
+- **Basis (`origin/main` zum Fortschreibungszeitpunkt):** `480ef346`
 - **Branch-Konvention (Abweichung vom Plan):** je Phase ein eigener Branch `fix/audit-frontend-phaseN` statt eines Sammel-Branches `fix/audit-frontend-findings`. Jede Phase wird als eigener PR gemergt.
 - **Verifikations-Baseline (Phase 0):** `npm run lint` 0 errors / **231** warnings · `tsc` exit 0 · `vitest` 296 Files / 2808 pass + 1 env-Flake `mermaidSanitizeRoundtrip` (isoliert grün) · Ratchet-Ceilings **278 / 26 / 3** (27 Exemptions). Baseline post-hoc gemessen.
 - **Regel für Folgephasen:** nur **neue** Fails blockieren (Delta gegen Baseline); Ratchet-Ceilings dürfen **nie** erhöht werden; Lint-Warnungen liegen exakt bei 231/231 → **kein Puffer** für neue Warnungen.
@@ -56,8 +56,8 @@ language: de
 | 3a `useArtifactList` | ✅ gemergt | `fix/audit-frontend-phase3a` | #1428 → `e99020d6` | `df670f46`, `ac23f549` (F-13) | 9 Listen migriert |
 | 3b `useInitialFormValues` + `EditorPageShell` | ✅ gemergt | `fix/audit-frontend-phase3b` | #1429 → `2079e35e` | `d25e6c10` (F-14, F-15) | vitest 299/2837/0 |
 | 4 Type-Barrel-Split | ✅ gemergt | `fix/audit-frontend-phase4` | #1430 → `6d87b172` | 12 × `1f2cd9f3`..`15417b24` (F-16) | tsc 0 je Commit; Barrel 1162 → 21 LOC; Exporte 96 = 96 |
-| 5a WorkspaceContext | ✅ (PR offen) | `fix/audit-frontend-phase5` | #1431 (offen) | `0ff7f7d4`, `079e7c85` (FE-01, F-03) | 581 → 319 LOC; API 1:1 |
-| 5b ArtifactForm | ✅ (PR offen) | `fix/audit-frontend-phase5` | #1431 (offen) | `d3ec31fe`, `b202967e`, `8493b068` (FE-01, F-01) | 1359 → 226 LOC; Props/8 Renderstellen unverändert |
+| 5a WorkspaceContext | ✅ gemergt | `fix/audit-frontend-phase5` | #1431 → `480ef346` | `0ff7f7d4`, `079e7c85` (FE-01, F-03) | 581 → 319 LOC; API 1:1 |
+| 5b ArtifactForm | ✅ gemergt | `fix/audit-frontend-phase5` | #1431 → `480ef346` | `d3ec31fe`, `b202967e`, `8493b068` (FE-01, F-01) | 1359 → 226 LOC; Props/8 Renderstellen unverändert |
 | 5c WorkspaceTree | ⬜ offen — **gebündelt mit Phase 6** | `fix/audit-frontend-phase6` (geplant) | — | — | H-1 Keyboard-Reparenting |
 | 6 Accessibility | ⬜ offen | `fix/audit-frontend-phase6` (geplant) | — | — | Skip-Link, Drawer-Modal, `useMediaQuery`, Sections, M-2/M-4/L-2, axe-Gate |
 | 7 Ratchet-Abbau | ⬜ offen | `fix/audit-frontend-phase7` (geplant) | — | — | Ceilings < 278/26/3 senken |
@@ -67,9 +67,10 @@ language: de
 
 ### Wiederaufnahme (nächster Schritt)
 
-1. **PR #1431 mergen** (`fix/audit-frontend-phase5` → `main`). Erst danach Phase 6 starten.
-2. **Phase 6** auf neuem Branch `fix/audit-frontend-phase6` (Basis = aktueller `origin/main`), **inklusive 5c** (WorkspaceTree-Zerlegung + H-1 Keyboard-Reparenting, da beides dasselbe Modul schneidet).
-3. Danach Phase 7 (Ratchet-Abbau) und Phase 8 (Final-DoD) wie im Plan-Text ab §Phase 6/7/8.
+**Nächster Schritt:** Phase 6 (Phasen 0–5 sind gemergt, `origin/main` = `480ef346`).
+
+1. **Phase 6** auf neuem Branch `fix/audit-frontend-phase6` (Basis `origin/main` = `480ef346`), **inklusive 5c** (WorkspaceTree-Zerlegung + H-1 Keyboard-Reparenting, da beides dasselbe Modul schneidet): Skip-Link, mobiler Modal-Drawer + `useMediaQuery`, ArtifactForm-Sections (H-2), M-2/M-4/L-2, `@axe-core/playwright`-Gate.
+2. Danach Phase 7 (Ratchet-Abbau, Ceilings < 278/26/3) und Phase 8 (Final-DoD) wie im Plan-Text ab §Phase 6/7/8.
 
 ### Abweichungen / Erkenntnisse (fortgeschrieben)
 
