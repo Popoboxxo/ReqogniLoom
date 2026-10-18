@@ -10,7 +10,7 @@
  * rather than the generic preset-visibility system.
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
@@ -376,5 +376,113 @@ describe("SidebarNavigation — scroll region contains all nav items (#449/#720)
       // region and stay permanently clipped.
       expect(scrollContent.contains(link)).toBe(true);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Mobile drawer modality (M-1, plan Phase 6 step 4).
+//
+// The drawer is an off-canvas overlay below the tablet breakpoint: there it
+// must behave as a modal dialog (`role="dialog"` + `aria-modal`, focus trap,
+// initial focus into the panel, Escape/close control, focus return to the
+// burger). Above the breakpoint the same element is the static desktop rail
+// and MUST stay non-modal.
+// ---------------------------------------------------------------------------
+
+describe("SidebarNavigation — mobile drawer modality (M-1)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    installLocalStorageStub();
+    sessionStorage.clear();
+    stubAuthFetch(["admin"]);
+    setListWorkspace(true);
+  });
+
+  afterEach(() => {
+    // Drop the own descriptor so the environment's own `matchMedia` (if any)
+    // is visible again for the other suites in this file.
+    Reflect.deleteProperty(window, "matchMedia");
+  });
+
+  /** Pin the viewport query the drawer's modality is derived from. */
+  function installViewport(mobile: boolean): void {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      writable: true,
+      value: vi.fn(() => ({
+        matches: mobile,
+        media: "",
+        onchange: null,
+        addEventListener: () => {},
+        removeEventListener: () => {},
+        addListener: () => {},
+        removeListener: () => {},
+        dispatchEvent: () => true,
+      })),
+    });
+  }
+
+  it("keeps the desktop rail non-modal when the burger opens it", async () => {
+    installViewport(false);
+    renderSidebar();
+
+    const burger = await screen.findByTestId("sidebar-burger");
+    fireEvent.click(burger);
+
+    const nav = document.querySelector("nav");
+    expect(nav).not.toBeNull();
+    expect(nav).not.toHaveAttribute("role");
+    expect(nav).not.toHaveAttribute("aria-modal");
+    expect(screen.queryByTestId("sidebar-drawer-close")).not.toBeInTheDocument();
+    // The pointer affordance is unchanged on the desktop path.
+    expect(screen.getByTestId("sidebar-overlay")).toBeInTheDocument();
+  });
+
+  it("makes the open drawer a modal dialog on a mobile viewport", async () => {
+    installViewport(true);
+    renderSidebar();
+
+    const burger = await screen.findByTestId("sidebar-burger");
+    fireEvent.click(burger);
+
+    const nav = document.querySelector("nav");
+    expect(nav).toHaveAttribute("role", "dialog");
+    expect(nav).toHaveAttribute("aria-modal", "true");
+
+    // Initial focus moves into the drawer, onto its close control.
+    const closeButton = screen.getByTestId("sidebar-drawer-close");
+    await waitFor(() => expect(closeButton).toHaveFocus());
+  });
+
+  it("closes the modal drawer on Escape and returns focus to the burger", async () => {
+    installViewport(true);
+    renderSidebar();
+
+    const burger = await screen.findByTestId("sidebar-burger");
+    fireEvent.click(burger);
+    await screen.findByTestId("sidebar-drawer-close");
+
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    await waitFor(() => {
+      expect(document.querySelector("nav")).not.toHaveAttribute("role");
+    });
+    expect(burger).toHaveFocus();
+  });
+
+  it("closes the modal drawer from its own close control (keyboard-reachable)", async () => {
+    installViewport(true);
+    renderSidebar();
+
+    const burger = await screen.findByTestId("sidebar-burger");
+    fireEvent.click(burger);
+    const closeButton = await screen.findByTestId("sidebar-drawer-close");
+
+    fireEvent.click(closeButton);
+
+    await waitFor(() => {
+      expect(screen.queryByTestId("sidebar-drawer-close")).not.toBeInTheDocument();
+    });
+    expect(burger).toHaveFocus();
   });
 });
