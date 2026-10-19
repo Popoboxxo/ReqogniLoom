@@ -327,6 +327,7 @@ export function WorkflowStatusEditor({
                   defaultValue: `Change status from ${currentState} to ${tr.target_state}`,
                 })}
                 className={
+                  'btn-ghost ' +
                   styles.menuItem +
                   ' ' +
                   (idx === activeIndex

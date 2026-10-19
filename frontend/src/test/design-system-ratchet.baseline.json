@@ -4,9 +4,8 @@
   "recordedBy": "DESIGN_SYSTEM_REBASELINE=1 npx vitest run src/test/design-system-ratchet.test.ts",
   "checks": {
     "button-missing-design-system-class": {
-      "maxViolations": 20,
+      "maxViolations": 18,
       "known": [
-        "button-missing-design-system-class::components/Reviews/ReviewsView.tsx::button[data-testid=review-list-item-${r.id}]",
         "button-missing-design-system-class::components/SystemSettings/BannerSection.tsx::button[data-testid=banner-save-button]",
         "button-missing-design-system-class::components/SystemSettings/EnforcementFlipDialog.tsx::button[data-testid=flip-view-mismatches]",
         "button-missing-design-system-class::components/SystemSettings/EnforcementModePanel.tsx::button[data-testid=enforcement-flip-btn]",
@@ -24,8 +23,7 @@
         "button-missing-design-system-class::components/SystemSettings/SystemSettings.tsx::button[data-testid=system-settings-tab-${tab.id}]",
         "button-missing-design-system-class::components/SystemSettings/WorkspaceAdminSection.tsx::button[data-testid=close-workspace-btn]",
         "button-missing-design-system-class::components/SystemSettings/WorkspaceAdminSection.tsx::button[data-testid=delete-workspace-btn]",
-        "button-missing-design-system-class::components/SystemSettings/WorkspaceAdminSection.tsx::button[data-testid=reactivate-workspace-btn]",
-        "button-missing-design-system-class::components/WorkflowStatusEditor/WorkflowStatusEditor.tsx::button[data-testid=workflow-transition-option-${tr.target_state}]"
+        "button-missing-design-system-class::components/SystemSettings/WorkspaceAdminSection.tsx::button[data-testid=reactivate-workspace-btn]"
       ],
       "issue": "#954, #797, #1091, #1093",
       "note": "Interactive elements with no btn-* chrome class. Fix by adding the correct variant (btn-primary / btn-secondary / btn-danger / btn-ghost / btn-tab) and deleting the ad-hoc fill; do not raise this ceiling to silence a new button."

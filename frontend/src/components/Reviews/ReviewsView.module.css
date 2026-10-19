@@ -77,6 +77,12 @@
 }
 
 .reviewItem {
+  /* `btn-ghost` (styles/global.css) supplies the design-system colour, hit
+   * area and hover feedback. The row keeps its own block layout so the title,
+   * uid and badge still stack vertically instead of inheriting the button
+   * default `inline-flex`. */
+  display: block;
+  color: var(--color-text);
   width: 100%;
   flex: 1 1 0;
   min-width: 0;

@@ -986,7 +986,7 @@ export default function ReviewsView({
               type="button"
               data-testid={`review-list-item-${r.id}`}
               onClick={() => handleSelect(r.id)}
-              className={`${styles.reviewItem} ${
+              className={`btn-ghost ${styles.reviewItem} ${
                 r.id === selectedId
                   ? styles.reviewItemSelected
                   : styles.reviewItemUnselected
