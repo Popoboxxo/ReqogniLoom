@@ -306,7 +306,7 @@ export default function BaselinesView(): JSX.Element {
     return (
       <div data-testid="baselines-view" role="alert" className={styles.errorPanel}>
         <p className={styles.errorText}>{state.error}</p>
-        <button onClick={() => void refreshList()} className={styles.reloadBtn}>
+        <button onClick={() => void refreshList()} className={`btn-primary ${styles.reloadBtn}`}>
           {t("actions.reload")}
         </button>
       </div>

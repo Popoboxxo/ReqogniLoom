@@ -810,6 +810,7 @@ export default function ReviewsView({
       {queueMode === "proposals" && selectedIds.length > 0 && (
         <button
           type="button"
+          className="btn-primary"
           data-testid="reviews-bulk-confirm-btn"
           disabled={isActing}
           onClick={async () => {

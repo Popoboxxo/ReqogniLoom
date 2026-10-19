@@ -291,7 +291,7 @@ export function UserManagement(): JSX.Element {
                       type="button"
                       data-testid={`user-management-toggle-active-${u.id}`}
                       onClick={() => requestToggleActive(u)}
-                      className={styles.actionButton}
+                      className={`btn-secondary ${styles.actionButton}`}
                     >
                       {u.is_active ? t("settings.userManagement.deactivate") : t("settings.userManagement.activate")}
                     </button>
@@ -299,7 +299,7 @@ export function UserManagement(): JSX.Element {
                       type="button"
                       data-testid={`user-management-toggle-admin-${u.id}`}
                       onClick={() => requestToggleTenantAdmin(u)}
-                      className={styles.actionButton}
+                      className={`btn-secondary ${styles.actionButton}`}
                     >
                       {u.is_tenant_admin
                         ? t("settings.userManagement.revokeTenantAdmin")

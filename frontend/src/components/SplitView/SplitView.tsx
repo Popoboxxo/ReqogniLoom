@@ -203,15 +203,11 @@ const MOBILE_TAB_ROW_STYLE: React.CSSProperties = {
   padding: 0,
 };
 
-/** Shared geometry of the two mobile tab buttons (font weight 600). */
+/** Layout the shared mobile tab buttons keep for themselves: the `btn-tab`
+ *  chrome carries padding, border, colour and type scale, so only the equal
+ *  width share of the tab row stays here. */
 const MOBILE_TAB_BASE_STYLE: React.CSSProperties = {
   flex: 1,
-  padding: 'var(--space-3)',
-  border: 'none',
-  background: 'transparent',
-  cursor: 'pointer',
-  fontSize: 'var(--font-size-sm)',
-  fontWeight: 600,
 };
 
 /** Active ("List") mobile tab: primary underline + full-contrast text. */
@@ -552,15 +548,21 @@ const LegacySplitView = React.forwardRef<HTMLDivElement, LegacySplitViewProps>(
           className={containerClassName}
           style={MOBILE_ROOT_STYLE}
         >
-          {/* Mobile: tab-like toggle between left and right panels */}
+          {/* Mobile: tab-like toggle between left and right panels.
+              The buttons carry `btn-tab` (styles/global.css) for fill,
+              border and type scale; what stays inline is only what the
+              shared class does not express — the `flex: 1` share of the
+              row and the active-tab underline. */}
           <div style={MOBILE_TAB_ROW_STYLE}>
             <button
+              className="btn-tab"
               onClick={() => setIsResponsiveCollapsed(true)}
               style={MOBILE_TAB_ACTIVE_STYLE}
             >
               List
             </button>
             <button
+              className="btn-tab"
               onClick={() => setIsResponsiveCollapsed(false)}
               style={MOBILE_TAB_INACTIVE_STYLE}
             >

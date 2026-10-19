@@ -252,7 +252,7 @@ export function BaselineComparePanel({
           data-testid="compare-run-btn"
           onClick={onCompare}
           disabled={disabled}
-          className={`${styles.compareRunBtn} ${disabled ? styles.compareRunBtnDisabled : styles.compareRunBtnEnabled}`}
+          className="btn-primary"
         >
           {loading
             ? t("baselines.comparing")
