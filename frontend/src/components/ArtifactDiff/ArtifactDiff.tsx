@@ -477,7 +477,7 @@ export function ArtifactDiff({
         <button
           data-testid="diff-close-btn"
           onClick={onClose}
-          className={styles.closeBtn}
+          className={`btn-secondary ${styles.closeBtn}`}
         >
           Close
         </button>

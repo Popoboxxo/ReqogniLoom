@@ -555,7 +555,7 @@ export default function ArchitectureEditors(): JSX.Element {
         <p className={styles.errorText}>{error}</p>
         <button
           onClick={refresh}
-          className={styles.reloadButton}
+          className={`btn-primary ${styles.reloadButton}`}
         >
           {t("actions.reload")}
         </button>

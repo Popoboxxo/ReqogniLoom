@@ -240,7 +240,7 @@ export function VersionPanel({
         </span>
         <button
           type="button"
-          className={styles.retryButton}
+          className={`btn-secondary ${styles.retryButton}`}
           data-testid="version-retry"
           onClick={(): void => void load()}
         >
@@ -308,7 +308,7 @@ export function VersionPanel({
         <div className={styles.rowActions} ref={openMenuFor === entry.version ? menuRef : null}>
           <button
             type="button"
-            className={styles.overflowButton}
+            className={`btn-icon ${styles.overflowButton}`}
             aria-haspopup="menu"
             aria-expanded={openMenuFor === entry.version}
             // #741: the label named the row ("Version v3") but not the
@@ -336,7 +336,7 @@ export function VersionPanel({
                 <button
                   type="button"
                   role="menuitem"
-                  className={styles.menuItem}
+                  className={`btn-ghost ${styles.menuItem}`}
                   disabled={!canSwitch}
                   title={
                     !hasContent
@@ -359,7 +359,7 @@ export function VersionPanel({
                 <button
                   type="button"
                   role="menuitem"
-                  className={styles.menuItem}
+                  className={`btn-ghost ${styles.menuItem}`}
                   disabled={!canCompare}
                   onClick={(): void => {
                     setOpenMenuFor(null);

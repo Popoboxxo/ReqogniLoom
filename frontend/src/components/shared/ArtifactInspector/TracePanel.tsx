@@ -314,7 +314,7 @@ export function TracePanel({ artifactId }: TracePanelProps): JSX.Element {
               data-chip="true"
               data-value={lt}
               data-testid={`trace-filter-chip-${lt}`}
-              className={`${styles.chip} ${active ? styles.chipActive : ""}`}
+              className={`btn-ghost ${styles.chip} ${active ? styles.chipActive : ""}`}
               onClick={(): void => toggleFilter(lt)}
               onKeyDown={(e): void => onChipKeyDown(e, idx)}
             >
@@ -324,7 +324,7 @@ export function TracePanel({ artifactId }: TracePanelProps): JSX.Element {
         })}
         <button
           type="button"
-          className={styles.clearButton}
+          className={`btn-ghost ${styles.clearButton}`}
           data-testid="trace-filter-toggle-all"
           onClick={allSelected ? clearFilters : selectAllFilters}
         >
@@ -341,7 +341,7 @@ export function TracePanel({ artifactId }: TracePanelProps): JSX.Element {
       <li key={link.id} className={styles.row} data-testid={`trace-row-${link.id}`}>
         <button
           type="button"
-          className={styles.rowButton}
+          className={`btn-ghost ${styles.rowButton}`}
           data-testid={`trace-row-open-${link.id}`}
           // #261: react-router 7's navigate() returns void | Promise<void>
           // (async view-transition support) — an explicit `: void` return
@@ -398,7 +398,7 @@ export function TracePanel({ artifactId }: TracePanelProps): JSX.Element {
         </span>
         <button
           type="button"
-          className={styles.retryButton}
+          className={`btn-secondary ${styles.retryButton}`}
           data-testid="trace-retry"
           onClick={(): void => void load()}
         >

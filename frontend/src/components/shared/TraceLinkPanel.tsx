@@ -200,7 +200,7 @@ export function TraceLinkPanel({
              type="button"
              data-testid={`trace-link-open-${trace.id}`}
              onClick={() => navigate(route)}
-             className={styles.linkButton}
+             className={`btn-ghost ${styles.linkButton}`}
           >
             {label}
           </button>
@@ -210,7 +210,7 @@ export function TraceLinkPanel({
         <button
           data-testid={`trace-link-delete-${trace.id}`}
           onClick={() => setPendingDeleteLinkId(trace.id)}
-          className={styles.deleteButton}
+          className={`btn-icon ${styles.deleteButton}`}
           title={t("actions.delete")}
           // #741: `title` alone is only the last-resort fallback in the
           // accessible-name computation and is never surfaced on touch —

@@ -137,7 +137,7 @@ export function ArtifactSections({
                 <button
                   type="button"
                   id={sectionToggleId}
-                  className={styles.sectionHeader}
+                  className={`btn-ghost ${styles.sectionHeader}`}
                   data-testid={`artifact-section-toggle-${section.name}`}
                   aria-expanded={open}
                   aria-controls={open ? sectionBodyId : undefined}

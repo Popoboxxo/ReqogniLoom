@@ -199,7 +199,7 @@ export const CustomFieldsEditor: React.FC<CustomFieldsEditorProps> = ({
             title={t('customFields.remove')}
             disabled={disabled}
             onClick={() => removeRow(row.id)}
-            className={`${styles.removeBtn} ${disabled ? styles.removeBtnDisabled : ''}`}
+            className={`btn-icon ${styles.removeBtn} ${disabled ? styles.removeBtnDisabled : ''}`}
           >
             ×
           </button>

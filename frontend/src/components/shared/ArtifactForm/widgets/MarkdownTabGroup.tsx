@@ -42,7 +42,7 @@ export function MarkdownTabGroup({
             aria-selected={active === field}
             aria-controls={`${testId}-panel-${field}`}
             tabIndex={tabRovingTabIndex(field, active)}
-            className={`${styles.tab} ${active === field ? styles.tabActive : ""}`}
+            className={`btn-tab ${styles.tab} ${active === field ? styles.tabActive : ""}`}
             onClick={() => setActive(field)}
           >
             {t(`artifactForm.field.${field}`, { defaultValue: field })}

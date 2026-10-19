@@ -195,6 +195,7 @@ function ElementPicker({
               // without changing the interaction model.
               aria-pressed={typeFilter === key}
               className={
+                'btn-tab ' +
                 styles.typeTab +
                 ' ' +
                 (typeFilter === key ? styles.typeTabActive : styles.typeTabInactive)
@@ -239,6 +240,7 @@ function ElementPicker({
                     // of toggle-style buttons.
                     aria-pressed={isSelected}
                     className={
+                      'btn-ghost ' +
                       styles.elementButton +
                       ' ' +
                       (isSelected

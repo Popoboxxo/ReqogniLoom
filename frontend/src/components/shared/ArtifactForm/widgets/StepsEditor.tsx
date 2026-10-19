@@ -96,6 +96,7 @@ export function StepsEditor({
             disabled={disabled}
             aria-label={t("testcases.removeStep", { index: index + 1 })}
             onClick={() => write(steps.filter((_, i) => i !== index))}
+            className="btn-icon"
           >
             <Trash2 aria-hidden="true" size={16} />
           </button>
@@ -106,6 +107,7 @@ export function StepsEditor({
         data-testid={`${testId}-add`}
         disabled={disabled}
         onClick={() => write([...steps, { step: "", expected_result: "" }])}
+        className="btn-secondary"
       >
         <Plus aria-hidden="true" size={16} />
         {t("testcases.addStep")}

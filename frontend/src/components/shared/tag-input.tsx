@@ -101,7 +101,7 @@ export function TagInput({
               e.stopPropagation();
               removeTag(i);
             }}
-            className={`${styles.removeBtn} ${disabled ? styles.removeBtnDisabled : ''}`}
+            className={`btn-icon ${styles.removeBtn} ${disabled ? styles.removeBtnDisabled : ''}`}
             aria-label={t('actions.removeTag', { tag })}
           >
             &times;

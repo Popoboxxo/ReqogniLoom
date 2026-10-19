@@ -435,6 +435,7 @@ export function LinkTypeListbox({
           else openAt(selectedIndex());
         }}
         onKeyDown={handleTriggerKeyDown}
+        className="btn-secondary"
         style={triggerStyle}
       >
         <span id={valueId} data-testid={`${optionTestIdPrefix}-value`} style={triggerLabelStyle}>

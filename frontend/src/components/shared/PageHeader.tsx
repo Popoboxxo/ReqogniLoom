@@ -254,7 +254,7 @@ export function PageHeader({
                       closeMenu(true);
                       action.onClick();
                     }}
-                    className={`${styles.menuItem} ${action.disabled ? styles.menuItemDisabled : ""}`}
+                    className={`btn-ghost ${styles.menuItem} ${action.disabled ? styles.menuItemDisabled : ""}`}
                   >
                     {action.label}
                   </button>
