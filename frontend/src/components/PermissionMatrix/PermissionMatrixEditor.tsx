@@ -147,6 +147,7 @@ export function PermissionMatrixEditor({
           onClick={() => void onSave(draft)}
           disabled={saving || !dirty}
           className={
+            "btn-primary " +
             styles.primaryButton +
             " " +
             (saving || !dirty ? styles.primaryDisabled : styles.primaryEnabled)
@@ -160,7 +161,7 @@ export function PermissionMatrixEditor({
             data-testid={`${testIdPrefix}-cancel`}
             onClick={onCancel}
             disabled={saving}
-            className={styles.cancelButton}
+            className={`btn-secondary ${styles.cancelButton}`}
           >
             {t("actions.cancel")}
           </button>

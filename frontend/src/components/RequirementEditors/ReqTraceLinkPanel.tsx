@@ -493,7 +493,7 @@ export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
                       data-testid="req-allocation-title"
                       onClick={() => navigate(node.route)}
                       title={node.displayTitle}
-                      className={styles.titleButton}
+                      className={`btn-ghost ${styles.titleButton}`}
                     >
                       {node.displayTitle}
                     </button>
@@ -502,7 +502,7 @@ export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
                     <button
                       data-testid="req-allocation-remove-btn"
                       onClick={() => setPendingDeleteLinkId(link.id)}
-                      className={styles.removeButton}
+                      className={`btn-icon ${styles.removeButton}`}
                       title={t('allocation.remove', 'Zuordnung entfernen')}
                       aria-label={t('allocation.remove', 'Zuordnung entfernen')}
                     >
@@ -638,7 +638,7 @@ export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
                             type="button"
                             data-testid="req-tracelink-arch-title"
                             onClick={() => navigate(route)}
-                            className={styles.titleButton}
+                            className={`btn-ghost ${styles.titleButton}`}
                             title={displayTitle}
                           >
                             {displayTitle}
@@ -648,7 +648,7 @@ export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
                           <button
                             data-testid="req-tracelink-delete-btn"
                             onClick={() => setPendingDeleteLinkId(link.id)}
-                            className={styles.removeButton}
+                            className={`btn-icon ${styles.removeButton}`}
                             title={t('actions.delete')}
                             // #741: title alone is only the last-resort fallback in
                             // the accessible-name computation and is never surfaced on
@@ -702,7 +702,7 @@ export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
                             type="button"
                             data-testid="req-tracelink-title"
                             onClick={() => navigate(route)}
-                            className={styles.titleButton}
+                            className={`btn-ghost ${styles.titleButton}`}
                             title={displayTitle}
                           >
                             {displayTitle}
@@ -712,7 +712,7 @@ export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
                           <button
                             data-testid="req-tracelink-delete-btn"
                             onClick={() => setPendingDeleteLinkId(link.id)}
-                            className={styles.removeButton}
+                            className={`btn-icon ${styles.removeButton}`}
                             title={t('actions.delete')}
                             // #741: title alone is only the last-resort fallback in
                             // the accessible-name computation and is never surfaced on

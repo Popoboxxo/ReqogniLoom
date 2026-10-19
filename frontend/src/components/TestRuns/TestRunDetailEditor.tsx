@@ -349,7 +349,7 @@ export function TestRunDetailEditor({
               type="button"
               data-testid="testrun-close-btn"
               onClick={() => setConfirmClose(true)}
-              className={styles.btnPrimary}
+              className={`btn-primary ${styles.btnPrimary}`}
             >
               {t("testRuns.closeRun", "Close Run")}
             </button>
@@ -372,7 +372,7 @@ export function TestRunDetailEditor({
                 data-testid="testrun-confirm-close-btn"
                 onClick={() => void handleClose()}
                 disabled={isClosing}
-                className={`${styles.btnPrimary} ${isClosing ? styles.btnPrimaryDisabled : styles.btnPrimaryEnabled}`}
+                className={`btn-primary ${styles.btnPrimary} ${isClosing ? styles.btnPrimaryDisabled : styles.btnPrimaryEnabled}`}
               >
                 {isClosing
                   ? t("actions.closing", "Closing...")
@@ -383,7 +383,7 @@ export function TestRunDetailEditor({
                 data-testid="testrun-cancel-close-btn"
                 onClick={() => setConfirmClose(false)}
                 disabled={isClosing}
-                className={`${styles.btnSecondary} ${isClosing ? styles.btnSecondaryDisabled : styles.btnSecondaryEnabled}`}
+                className={`btn-secondary ${styles.btnSecondary} ${isClosing ? styles.btnSecondaryDisabled : styles.btnSecondaryEnabled}`}
               >
                 {t("actions.cancel")}
               </button>
@@ -393,7 +393,7 @@ export function TestRunDetailEditor({
           type="button"
           data-testid="testrun-detail-close-btn"
           onClick={onClose}
-          className={styles.btnSecondary}
+          className={`btn-secondary ${styles.btnSecondary}`}
         >
           {t("actions.back", "Back")}
         </button>

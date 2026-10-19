@@ -60,7 +60,7 @@ function LinkItem({ link, linkedId, title, route }: LinkItemProps): JSX.Element 
         // aria-label the accessible name is literally "→". Names the target,
         // not the glyph, so a screen-reader user can tell the rows apart.
         aria-label={`${t("traceability.openLinked", "Verknüpftes Artefakt öffnen")}: ${title}`}
-        className={styles.openButton}
+        className={`btn-icon ${styles.openButton}`}
       >
         <span aria-hidden="true">→</span>
       </button>

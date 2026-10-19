@@ -218,7 +218,7 @@ function EndpointCell({
       <button
         type="button"
         data-testid={testId}
-        className={`${styles.endpoint} ${styles.endpointButton}`}
+        className={`btn-ghost ${styles.endpoint} ${styles.endpointButton}`}
         onClick={() => onOpen(artifactType, entityId)}
       >
         {content}
@@ -773,7 +773,7 @@ function ImpactDetailPanel({
           data-testid="impact-run-btn"
           onClick={onOpen}
           disabled={!impactArtifact}
-          className={`${styles.impactRunBtn} ${
+          className={`btn-primary ${styles.impactRunBtn} ${
             !impactArtifact ? styles.impactRunBtnDisabled : styles.impactRunBtnEnabled
           }`}
         >
