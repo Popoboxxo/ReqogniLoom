@@ -279,6 +279,14 @@ jobs:
   # a live dialectic engine, or the end-to-end Celery queue (the backend
   # consolidation E2E test never runs a consuming worker either) -- those stay
   # real-provider/live-deployment territory.
+  #
+  # The dashboard bundle (dashboard/dist/index.js) is plain ES with no build
+  # step, and two node-only checks guard it: plugin_ui_smoke.mjs (render with a
+  # stub host SDK, test ids, curated tool names against the manifest) and
+  # plugin_ui_flow.mjs (runs the components for real and asserts the request
+  # bodies). They were documented in the plugin README but called by no job, so
+  # a change that broke the tab would have passed CI; the second check is what
+  # caught a defect that made 11 of the 12 create flows unusable.
   hermes-plugin-test:
     name: "Hermes Agent Plugin (integrations/hermes-agent-plugin)"
     runs-on: ubuntu-latest
@@ -291,6 +299,14 @@ jobs:
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: '3.12'
+
+      - name: Set up Node
+        # Same pinned action and version as the frontend job. No npm cache: the
+        # plugin has no package.json -- the checks are scripts with no
+        # dependencies, run directly by node.
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: '22'
 
       - name: Install test dependency
         # pytest is the only requirement: the plugin tests stub the MCP
@@ -308,6 +324,21 @@ jobs:
         env:
           PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
         run: python -m pytest integrations/hermes-agent-plugin/tests -q
+
+      - name: Syntax-check the dashboard bundle
+        run: node --check integrations/hermes-agent-plugin/dashboard/dist/index.js
+
+      - name: Render the dashboard bundle against a stub host SDK
+        # Fails on an undefined component, a control without data-testid, a
+        # fetch during render, or a curated tool name the server does not
+        # publish any more.
+        run: node integrations/hermes-agent-plugin/tests/plugin_ui_smoke.mjs
+
+      - name: Drive the dashboard components and assert the request bodies
+        # Runs the components for real (hook state, dependency arrays, event
+        # handlers) and checks the arguments the tab builds: only declared
+        # parameters, and untouched optional fields absent rather than empty.
+        run: node integrations/hermes-agent-plugin/tests/plugin_ui_flow.mjs
 
   frontend-test:
     runs-on: ubuntu-latest
