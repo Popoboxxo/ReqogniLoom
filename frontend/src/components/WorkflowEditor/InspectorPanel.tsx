@@ -356,7 +356,10 @@ function TransitionRow({
         {showSource ? transition.from_state : transition.to_state}
       </span>
       {transition.change_reason_required && (
+        /* Icon-only indicator: `role="img"` is required before `aria-label`
+         * is permitted (ARIA 1.2 prohibits it on the `generic` role). */
         <span
+          role="img"
           aria-label={t("workflow.inspector.requiresChangeReason")}
           title={t("workflow.inspector.requiresChangeReason")}
         >
