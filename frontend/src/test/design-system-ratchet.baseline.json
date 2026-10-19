@@ -35,12 +35,8 @@
       "note": "Emoji standing in for a design-system icon. Fix by swapping in a monochrome currentColor icon from the existing icon set."
     },
     "ambiguous-button-label": {
-      "maxViolations": 3,
-      "known": [
-        "ambiguous-button-label::components/AttributeEditor/AttributeEditorPage.tsx::button[data-testid=attribute-editor-export]",
-        "ambiguous-button-label::components/AttributeEditor/AttributeEditorPage.tsx::button[data-testid=attribute-editor-import]",
-        "ambiguous-button-label::components/WorkflowEditor/WorkflowEditorHeader.tsx::button[data-testid=workflow-export-button]"
-      ],
+      "maxViolations": 0,
+      "known": [],
       "issue": "#1093",
       "note": "Buttons whose whole label is a bare action verb that is used more than once in the component tree, so the object is unstated. Fix by naming the object in the label (i18n key + both locales)."
     }

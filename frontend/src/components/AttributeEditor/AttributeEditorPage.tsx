@@ -889,7 +889,7 @@ export function AttributeEditorPage({
           disabled={!isAdmin}
           onClick={() => void handleExport()}
         >
-          {t("actions.export")}
+          {t("actions.exportAttributes")}
         </button>
         <button
           type="button"
@@ -898,7 +898,7 @@ export function AttributeEditorPage({
           disabled={!isAdmin}
           onClick={() => fileInputRef.current?.click()}
         >
-          {t("actions.import")}
+          {t("actions.importAttributes")}
         </button>
         <input
           ref={fileInputRef}

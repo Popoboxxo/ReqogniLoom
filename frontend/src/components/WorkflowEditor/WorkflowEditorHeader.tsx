@@ -112,7 +112,7 @@ export function WorkflowEditorHeader({
           data-testid="workflow-export-button"
         >
           <Upload size={14} />
-          {t("workflow.header.export")}
+          {t("actions.exportWorkflow")}
           <ChevronDown size={14} />
         </button>
         {open && (
