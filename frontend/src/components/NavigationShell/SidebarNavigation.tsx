@@ -504,7 +504,7 @@ export function SidebarNavigation(): JSX.Element {
     <button
       type="button"
       ref={burgerRef}
-      className={styles.burgerButton}
+      className={`btn-icon ${styles.burgerButton}`}
       data-testid="sidebar-burger"
       aria-label={isMobileNavOpen ? t("nav.closeMenu") : t("nav.openMenu")}
       aria-expanded={isMobileNavOpen}
@@ -620,7 +620,7 @@ export function SidebarNavigation(): JSX.Element {
                     aria-selected={false}
                     data-testid="global-search-result"
                     onClick={() => handleHitClick(hit)}
-                    className={styles.searchResultButton}
+                    className={`btn-ghost ${styles.searchResultButton}`}
                   >
                     <span className={styles.searchResultTitle} title={hit.title}>
                       {hit.title}
@@ -675,7 +675,7 @@ export function SidebarNavigation(): JSX.Element {
             ? t("nav.showOptionalArtifacts")
             : t("nav.hideOptionalArtifacts")
         }
-        className={styles.optionalToggleBtn}
+        className={`btn-ghost ${styles.optionalToggleBtn}`}
       >
         <span>{t("nav.optionalArtifacts", "Optional-Artefakte")}</span>
         <span
@@ -699,7 +699,7 @@ export function SidebarNavigation(): JSX.Element {
             aria-haspopup="listbox"
             aria-expanded={isSwitcherOpen}
             onClick={() => setIsSwitcherOpen((open) => !open)}
-            className={styles.switcherToggleBtn}
+            className={`btn-secondary ${styles.switcherToggleBtn}`}
           >
             <span className={styles.switcherLabel} title={activeWorkspace.name}>
               {activeWorkspace.name}
@@ -723,7 +723,7 @@ export function SidebarNavigation(): JSX.Element {
             type="button"
             data-testid="create-workspace-btn"
             onClick={() => setShowCreateWorkspace(true)}
-            className={styles.createWorkspaceBtn}
+            className={`btn-primary ${styles.createWorkspaceBtn}`}
           >
             {t("workspaceCreate.button")}
           </button>
@@ -750,7 +750,7 @@ export function SidebarNavigation(): JSX.Element {
                           setActiveWorkspace(ws);
                           setIsSwitcherOpen(false);
                         }}
-                        className={isActive ? styles.workspaceOptionActive : styles.workspaceOption}
+                        className={`btn-ghost ${isActive ? styles.workspaceOptionActive : styles.workspaceOption}`}
                       >
                         <span className={styles.workspaceOptionLabel} title={ws.name}>
                           {ws.name}
@@ -811,7 +811,7 @@ export function SidebarNavigation(): JSX.Element {
               ? t("nav.languageToggleTitleAdmin")
               : t("nav.languageToggleTitleMember")
           }
-          className={styles.footerBtn}
+          className={`btn-ghost ${styles.footerBtn}`}
         >
           {i18n.language.startsWith("de") ? "EN" : "DE"}
         </button>
@@ -832,7 +832,7 @@ export function SidebarNavigation(): JSX.Element {
           data-testid="sidebar-theme-mode-toggle"
           onClick={() => setPreference(paletteKey, mode === "dark" ? "light" : "dark")}
           title={t("nav.toggleTheme")}
-          className={styles.footerBtn}
+          className={`btn-ghost ${styles.footerBtn}`}
         >
           {mode === "dark" ? t("nav.lightMode") : t("nav.darkMode")}
         </button>
@@ -847,11 +847,11 @@ export function SidebarNavigation(): JSX.Element {
         <button
           data-testid="nav-profile"
           onClick={() => navigate("/profile")}
-          className={location.pathname === "/profile" ? `${styles.footerBtn} ${styles.footerBtnActive}` : styles.footerBtn}
+          className={location.pathname === "/profile" ? `btn-ghost ${styles.footerBtn} ${styles.footerBtnActive}` : `btn-ghost ${styles.footerBtn}`}
         >
           {t("nav.profile")}
         </button>
-        <button data-testid="nav-logout" onClick={logout} className={styles.footerBtn}>
+        <button data-testid="nav-logout" onClick={logout} className={`btn-ghost ${styles.footerBtn}`}>
           {t("nav.logout")}
         </button>
         {versionInfo && (

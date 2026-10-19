@@ -576,7 +576,7 @@ export default function MetricsDashboard(): JSX.Element {
               : t("metrics.showHelp", "Show help")
           }
           aria-pressed={helpMode}
-          className={styles.helpToggle}
+          className={`btn-icon ${styles.helpToggle}`}
           style={helpToggleStyle}
         >
           ?
@@ -588,6 +588,7 @@ export default function MetricsDashboard(): JSX.Element {
           onClick={() => void load()}
           disabled={isLoading}
           className={
+            'btn-primary ' +
             styles.refreshButton +
             ' ' +
             (isLoading ? styles.refreshDisabled : styles.refreshEnabled)

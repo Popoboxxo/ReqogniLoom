@@ -68,7 +68,7 @@ export function SimilarIcdsPanel({
         </h4>
         <button
           type="button"
-          className={styles.findButton}
+          className={`btn-primary ${styles.findButton}`}
           data-testid="find-similar-icds-btn"
           onClick={() => void handleFindSimilar()}
           disabled={state.status === "loading"}
@@ -127,7 +127,7 @@ export function SimilarIcdsPanel({
                 type="button"
                 data-testid={`similar-icd-result-${hit.icd_id}`}
                 onClick={() => onSelect(hit.icd_id)}
-                className={styles.resultButton}
+                className={`btn-ghost ${styles.resultButton}`}
               >
                 <span className={styles.resultName}>
                   {hit.name}

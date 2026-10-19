@@ -57,7 +57,7 @@ function BannerRow({
       {banner.dismissible && (
         <button
           type="button"
-          className={styles.dismissButton}
+          className={`btn-icon ${styles.dismissButton}`}
           data-testid={`banner-${scope}-dismiss`}
           aria-label={t("banners.dismiss", "Dismiss")}
           onClick={handleDismiss}

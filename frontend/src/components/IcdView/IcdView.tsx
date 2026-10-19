@@ -280,7 +280,7 @@ export default function IcdView(): JSX.Element {
         <p className={styles.errorPanelText}>{error}</p>
         <button
           onClick={() => navigate(0)}
-          className={styles.reloadButton}
+          className={`btn-secondary ${styles.reloadButton}`}
         >
           {t("actions.reload")}
         </button>

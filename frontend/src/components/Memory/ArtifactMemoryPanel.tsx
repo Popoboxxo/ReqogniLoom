@@ -276,7 +276,7 @@ export function ArtifactMemoryPanel({
                 {hasRole("admin") && (
                   <button
                     type="button"
-                    className={styles.forgetBtn}
+                    className={`btn-danger ${styles.forgetBtn}`}
                     data-testid={`artifact-memory-forget-${entry.entry_id}`}
                     disabled={isBusy}
                     onClick={() => {

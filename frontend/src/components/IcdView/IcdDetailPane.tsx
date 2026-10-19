@@ -118,7 +118,7 @@ export function IcdDetailPane({
           type="button"
           data-testid="icd-new-version-btn"
           onClick={() => setShowNewVersion((v) => !v)}
-          className={styles.newVersionBtn}
+          className={`btn-secondary ${styles.newVersionBtn}`}
         >
           {showNewVersion ? t("actions.cancel") : `+ ${t("icds.newVersion")}`}
         </button>
@@ -161,7 +161,7 @@ export function IcdDetailPane({
               data-testid="icd-new-version-submit"
               onClick={onNewVersion}
               disabled={isSaving}
-              className={`${styles.submitBtn} ${isSaving ? styles.submitBtnDisabled : styles.submitBtnEnabled}`}
+              className={`btn-primary ${styles.submitBtn} ${isSaving ? styles.submitBtnDisabled : styles.submitBtnEnabled}`}
             >
               {isSaving ? t("actions.saving") : t("actions.save")}
             </button>
@@ -172,7 +172,7 @@ export function IcdDetailPane({
                 setShowNewVersion(false);
                 setFormError(null);
               }}
-              className={styles.cancelBtn}
+              className={`btn-secondary ${styles.cancelBtn}`}
             >
               {t("actions.cancel")}
             </button>

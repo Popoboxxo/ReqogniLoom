@@ -256,7 +256,7 @@ function ArtifactTreeNode({
                 ? t("impact.maxDepthReached", "Maximale Tiefe erreicht")
                 : undefined
           }
-          className={`${styles.nodeToggle} ${
+          className={`btn-icon ${styles.nodeToggle} ${
             toggleDisabled ? styles.nodeToggleDisabled : styles.nodeToggleEnabled
           }`}
         >
@@ -461,7 +461,7 @@ export function ImpactView(): JSX.Element {
                   data-testid="impact-search-btn"
                   onClick={() => void runSearch()}
                   disabled={!query.trim() || searching}
-                  className={`${styles.searchButton} ${
+                  className={`btn-primary ${styles.searchButton} ${
                     !query.trim() || searching
                       ? styles.searchButtonDisabled
                       : styles.searchButtonEnabled
@@ -495,7 +495,7 @@ export function ImpactView(): JSX.Element {
                       type="button"
                       data-testid="impact-search-result"
                       onClick={() => selectHit(hit)}
-                      className={styles.searchResult}
+                      className={`btn-ghost ${styles.searchResult}`}
                     >
                       <span className={styles.typeBadge}>
                         {hit.artifact_type}

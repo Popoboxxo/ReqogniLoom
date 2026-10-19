@@ -153,7 +153,7 @@ export default function InterviewEditors(): JSX.Element {
                 key={type}
                 type="button"
                 ref={i === 0 ? firstTypeButtonRef : undefined}
-                className={styles.typeButton}
+                className={`btn-secondary ${styles.typeButton}`}
                 data-testid={`interview-start-${type}`}
                 disabled={startingType !== null}
                 onClick={() => void handleStart(type)}
@@ -166,7 +166,7 @@ export default function InterviewEditors(): JSX.Element {
                 its own is the complete surface. */}
             <button
               type="button"
-              className={styles.typeButton}
+              className={`btn-secondary ${styles.typeButton}`}
               data-testid={`interview-start-${MULTI_START_PARAM}`}
               disabled={startingType !== null}
               onClick={() => void handleStart(MULTI_START_PARAM)}
