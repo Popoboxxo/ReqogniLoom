@@ -83,6 +83,9 @@
    * default `inline-flex`. */
   display: block;
   color: var(--color-text);
+  /* Reset the `btn-ghost` 600 weight (styles/global.css): only the title is
+   * semibold, the uid and proposal badge must not compete with it. */
+  font-weight: var(--weight-regular);
   width: 100%;
   flex: 1 1 0;
   min-width: 0;
@@ -95,6 +98,14 @@
 }
 
 .reviewItemSelected {
+  background: var(--color-card-active-bg);
+}
+
+/* The global `.btn-ghost:hover:not(:disabled)` has the same specificity and
+ * would repaint a hovered row with the neutral hover surface, erasing the
+ * selection tint. This file is injected after global.css, so the equal-
+ * specificity rule here wins. */
+.reviewItemSelected:hover:not(:disabled) {
   background: var(--color-card-active-bg);
 }
 
