@@ -854,6 +854,7 @@ export function AttributeEditorPage({
         <span className={styles.toolbarField} role="group" aria-label={t("attributes.viewMode.list")}>
           <button
             type="button"
+            className="btn-tab"
             data-testid="attribute-editor-view-list"
             aria-pressed={viewMode === "list"}
             disabled={viewMode === "list"}
@@ -863,6 +864,7 @@ export function AttributeEditorPage({
           </button>
           <button
             type="button"
+            className="btn-tab"
             data-testid="attribute-editor-view-table"
             aria-pressed={viewMode === "table"}
             disabled={viewMode === "table"}
@@ -873,6 +875,7 @@ export function AttributeEditorPage({
         </span>
         <button
           type="button"
+          className="btn-secondary"
           data-testid="attribute-editor-layout-toggle"
           aria-pressed={showLayout}
           onClick={() => setShowLayout((current) => !current)}
@@ -881,6 +884,7 @@ export function AttributeEditorPage({
         </button>
         <button
           type="button"
+          className="btn-secondary"
           data-testid="attribute-editor-export"
           disabled={!isAdmin}
           onClick={() => void handleExport()}
@@ -889,6 +893,7 @@ export function AttributeEditorPage({
         </button>
         <button
           type="button"
+          className="btn-secondary"
           data-testid="attribute-editor-import"
           disabled={!isAdmin}
           onClick={() => fileInputRef.current?.click()}
@@ -909,6 +914,7 @@ export function AttributeEditorPage({
         {isAdmin ? (
           <button
             type="button"
+            className="btn-secondary"
             data-testid="attribute-editor-add-from-catalog"
             onClick={() => setShowCatalog(true)}
           >
@@ -918,6 +924,7 @@ export function AttributeEditorPage({
         {newSection === null ? (
           <button
             type="button"
+            className="btn-secondary"
             data-testid="attribute-editor-add-section"
             disabled={!isAdmin}
             onClick={() => setNewSection("")}
@@ -943,6 +950,7 @@ export function AttributeEditorPage({
         {!isGlobal && isCustomized ? (
           <button
             type="button"
+            className="btn-danger"
             data-testid="attribute-editor-reset"
             disabled={!isAdmin}
             onClick={() => setConfirmReset(true)}
@@ -952,6 +960,7 @@ export function AttributeEditorPage({
         ) : null}
         <button
           type="button"
+          className="btn-primary"
           data-testid="attribute-editor-save"
           disabled={!isAdmin || saving || !isDirty}
           onClick={() => void handleSave()}

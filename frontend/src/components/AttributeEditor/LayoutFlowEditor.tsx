@@ -118,6 +118,7 @@ export function LayoutFlowEditor({
               <span className={styles.badges}>
                 <button
                   type="button"
+                  className="btn-icon"
                   disabled={readOnly || index === 0}
                   data-testid={`section-flow-token-${index}-up`}
                   aria-label={t("attributes.layout.moveUp")}
@@ -127,6 +128,7 @@ export function LayoutFlowEditor({
                 </button>
                 <button
                   type="button"
+                  className="btn-icon"
                   disabled={readOnly || index === normalizedSectionFlow.length - 1}
                   data-testid={`section-flow-token-${index}-down`}
                   aria-label={t("attributes.layout.moveDown")}
@@ -137,6 +139,7 @@ export function LayoutFlowEditor({
                 {token.kind === "spacer" ? (
                   <button
                     type="button"
+                    className="btn-icon"
                     disabled={readOnly}
                     data-testid={`section-flow-token-${index}-remove`}
                     aria-label={t("attributes.layout.remove")}
@@ -153,6 +156,7 @@ export function LayoutFlowEditor({
         </ol>
         <button
           type="button"
+          className="btn-secondary"
           disabled={readOnly}
           data-testid="section-flow-add-spacer"
           onClick={() =>
@@ -248,6 +252,7 @@ export function LayoutFlowEditor({
                   <span className={styles.badges}>
                     <button
                       type="button"
+                      className="btn-icon"
                       disabled={readOnly || index === 0}
                       data-testid={`attribute-flow-${name}-token-${index}-up`}
                       aria-label={t("attributes.layout.moveUp")}
@@ -257,6 +262,7 @@ export function LayoutFlowEditor({
                     </button>
                     <button
                       type="button"
+                      className="btn-icon"
                       disabled={readOnly || index === tokens.length - 1}
                       data-testid={`attribute-flow-${name}-token-${index}-down`}
                       aria-label={t("attributes.layout.moveDown")}
@@ -267,6 +273,7 @@ export function LayoutFlowEditor({
                     {token.kind === "spacer" ? (
                       <button
                         type="button"
+                        className="btn-icon"
                         disabled={readOnly}
                         data-testid={`attribute-flow-${name}-token-${index}-remove`}
                         aria-label={t("attributes.layout.remove")}
@@ -283,6 +290,7 @@ export function LayoutFlowEditor({
             </ol>
             <button
               type="button"
+              className="btn-secondary"
               disabled={readOnly}
               data-testid={`attribute-flow-${name}-add-spacer`}
               onClick={() =>
