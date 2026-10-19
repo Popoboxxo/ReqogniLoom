@@ -87,7 +87,7 @@ export function GlossaryTermForm({
           type="button"
           data-testid="glossary-form-cancel"
           onClick={onClose}
-          className={`${styles.btn} ${styles.btnOutline}`}
+          className={`btn-secondary ${styles.btn} ${styles.btnOutline}`}
         >
           {t("actions.cancel", "Cancel")}
         </button>

@@ -106,7 +106,7 @@ export function GraphInspectorPanel({
       {(selectedNode || selectedEdge) && (
         <button
           type="button"
-          className={styles.inspectorClearSelection}
+          className={`btn-secondary ${styles.inspectorClearSelection}`}
           onClick={() => onSelect({ kind: "none" })}
           data-testid="graph-inspector-clear-selection"
         >
@@ -213,7 +213,7 @@ function NodeInspector({
         <div className={styles.editActions} data-testid="graph-inspector-node-actions">
           <button
             type="button"
-            className={`${styles.editActionButton} ${styles.editActionDanger}`}
+            className={`btn-danger ${styles.editActionButton} ${styles.editActionDanger}`}
             onClick={onDelete}
             data-testid="graph-inspector-delete-node"
           >
@@ -316,7 +316,7 @@ function ArtifactRefPicker({
         {node.artifact_ref ? (
           <button
             type="button"
-            className={styles.editActionButton}
+            className={`btn-secondary ${styles.editActionButton}`}
             disabled={!editMode}
             onClick={() => {
               setDraftEntityType(GRAPH_ARTIFACT_ENTITY_TYPES[0]);
@@ -435,7 +435,7 @@ function EdgeInspector({
         <div className={styles.editActions} data-testid="graph-inspector-edge-actions">
           <button
             type="button"
-            className={`${styles.editActionButton} ${styles.editActionDanger}`}
+            className={`btn-danger ${styles.editActionButton} ${styles.editActionDanger}`}
             onClick={onDelete}
             data-testid="graph-inspector-delete-edge"
           >

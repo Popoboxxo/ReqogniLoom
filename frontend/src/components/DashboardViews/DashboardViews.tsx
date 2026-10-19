@@ -93,7 +93,7 @@ export default function DashboardViews(): JSX.Element {
         </p>
         <button
           onClick={() => window.location.reload()}
-          className={styles.reloadBtn}
+          className={`btn-secondary ${styles.reloadBtn}`}
         >
           {t("actions.reload")}
         </button>

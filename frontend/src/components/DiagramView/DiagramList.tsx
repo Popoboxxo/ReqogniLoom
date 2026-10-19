@@ -212,7 +212,7 @@ export function DiagramList({
                       </div>
                       <button
                         type="button"
-                        className={styles.deleteButton}
+                        className={`btn-icon ${styles.deleteButton}`}
                         data-testid={`diagram-delete-${item.id}`}
                         onClick={(e) => {
                           e.stopPropagation();
