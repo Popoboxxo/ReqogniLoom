@@ -243,7 +243,7 @@ export function BackupRestoreSection(): JSX.Element {
                           setConfirmationText("");
                           setRestoreResult(null);
                         }}
-                        className={styles.restoreLinkButton}
+                        className={`btn-ghost ${styles.restoreLinkButton}`}
                       >
                         {restoreTargetId === backup.id
                           ? t("actions.cancel", "Cancel")

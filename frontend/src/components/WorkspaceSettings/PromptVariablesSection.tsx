@@ -107,27 +107,6 @@ const selectStyle: CSSProperties = {
   fontSize: "var(--font-size-sm)",
 };
 
-const primaryButtonStyle: CSSProperties = {
-  background: "var(--color-primary)",
-  color: "var(--color-on-primary)",
-  border: "none",
-  borderRadius: "var(--radius-md)",
-  padding: "var(--space-1) var(--space-3)",
-  fontSize: "var(--font-size-sm)",
-  fontWeight: 600,
-  cursor: "pointer",
-};
-
-const secondaryButtonStyle: CSSProperties = {
-  background: "transparent",
-  color: "var(--color-text-muted)",
-  border: "1px solid var(--color-border)",
-  borderRadius: "var(--radius-md)",
-  padding: "var(--space-1) var(--space-3)",
-  fontSize: "var(--font-size-sm)",
-  cursor: "pointer",
-};
-
 const badgeStyle: CSSProperties = {
   display: "inline-block",
   padding: "0 var(--space-2)",
@@ -502,7 +481,7 @@ export function PromptVariablesSection({
                   data-testid={`prompt-variable-${variable.name}-save`}
                   onClick={() => void handleSave(variable)}
                   disabled={isBusy}
-                  style={primaryButtonStyle}
+                  className="btn-primary"
                 >
                   {t("actions.save")}
                 </button>
@@ -511,7 +490,7 @@ export function PromptVariablesSection({
                   data-testid={`prompt-variable-${variable.name}-reset`}
                   onClick={() => void handleReset(variable)}
                   disabled={isBusy || origin !== scope}
-                  style={secondaryButtonStyle}
+                  className="btn-secondary"
                 >
                   {t("settings.promptTemplates.resetToGlobal", "Override entfernen")}
                 </button>
@@ -598,7 +577,7 @@ export function PromptVariablesSection({
           data-testid="prompt-variable-new-save"
           onClick={() => void handleCreate()}
           disabled={busyName !== null}
-          style={primaryButtonStyle}
+          className="btn-primary"
         >
           {t("actions.create")}
         </button>

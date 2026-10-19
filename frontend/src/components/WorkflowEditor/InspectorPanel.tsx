@@ -175,7 +175,7 @@ export function InspectorPanel({
         <div className={styles.inspectorCollapsed}>
           <button
             type="button"
-            className={styles.iconButton}
+            className={`btn-icon ${styles.iconButton}`}
             aria-label={t("workflow.inspector.expand")}
             title={t("workflow.inspector.expand")}
             onClick={() => setCollapsed(false)}
@@ -212,7 +212,7 @@ export function InspectorPanel({
         <span className={styles.inspectorTitle}>{t("workflow.inspector.title")}</span>
         <button
           type="button"
-          className={styles.iconButton}
+          className={`btn-icon ${styles.iconButton}`}
           aria-label={t("workflow.inspector.collapse")}
           title={t("workflow.inspector.collapse")}
           onClick={() => setCollapsed(true)}
@@ -311,7 +311,7 @@ function StateInspector({
         <div className={styles.editActions} data-testid="workflow-inspector-state-actions">
           <button
             type="button"
-            className={styles.editActionButton}
+            className={`btn-secondary ${styles.editActionButton}`}
             onClick={() => edit.onEditState(state.id)}
             data-testid="workflow-inspector-edit-state"
           >
@@ -320,7 +320,7 @@ function StateInspector({
           </button>
           <button
             type="button"
-            className={`${styles.editActionButton} ${styles.editActionDanger}`}
+            className={`btn-danger ${styles.editActionButton} ${styles.editActionDanger}`}
             onClick={() => edit.onDeleteState(state.id)}
             data-testid="workflow-inspector-delete-state"
           >
@@ -346,7 +346,7 @@ function TransitionRow({
   return (
     <button
       type="button"
-      className={styles.transitionRow}
+      className={`btn-ghost ${styles.transitionRow}`}
       onClick={() => onSelect({ kind: "transition", id: transition.id })}
       data-testid={`workflow-inspector-transition-${transition.id}`}
     >
@@ -422,7 +422,7 @@ function TransitionInspector({
         >
           <button
             type="button"
-            className={styles.editActionButton}
+            className={`btn-secondary ${styles.editActionButton}`}
             onClick={() =>
               edit.onEditTransition(transition.from_state, transition.to_state)
             }
@@ -433,7 +433,7 @@ function TransitionInspector({
           </button>
           <button
             type="button"
-            className={`${styles.editActionButton} ${styles.editActionDanger}`}
+            className={`btn-danger ${styles.editActionButton} ${styles.editActionDanger}`}
             onClick={() =>
               edit.onDeleteTransition(transition.from_state, transition.to_state)
             }

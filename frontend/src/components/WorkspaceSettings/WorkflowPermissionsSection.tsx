@@ -269,7 +269,7 @@ export function WorkflowPermissionsSection({
                   <td className={styles.tdRight}>
                     <button
                       type="button"
-                      className={styles.linkButton}
+                      className={`btn-ghost ${styles.linkButton}`}
                       onClick={() => navigate(`/workflows/${e.type}`)}
                       data-testid={`workflow-config-open-${e.type}`}
                     >
@@ -346,7 +346,7 @@ export function WorkflowPermissionsSection({
                     setMatrixSavedOk(false);
                     setEditingMatrix((v) => !v);
                   }}
-                  className={`${styles.linkButton} ${styles.linkButtonAuto}`}
+                  className={`btn-ghost ${styles.linkButton} ${styles.linkButtonAuto}`}
                 >
                   {editingMatrix
                     ? t("actions.cancel", "Cancel")

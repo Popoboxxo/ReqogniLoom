@@ -168,7 +168,7 @@ export function WorkspaceBannerSection({ workspaceId }: Props): JSX.Element {
         <button
           type="button"
           data-testid="workspace-banner-save-button"
-          className={styles.saveButton}
+          className={`btn-primary ${styles.saveButton}`}
           disabled={isSaving}
           onClick={() => void handleSave()}
         >

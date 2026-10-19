@@ -51,7 +51,7 @@ export function CanvasToolbar({
     >
       <button
         type="button"
-        className={styles.toolbarButton}
+        className={`btn-icon ${styles.toolbarButton}`}
         onClick={() => zoomIn({ duration: 200 })}
         aria-label={t("workflow.toolbar.zoomIn")}
         title={t("workflow.toolbar.zoomIn")}
@@ -61,7 +61,7 @@ export function CanvasToolbar({
       </button>
       <button
         type="button"
-        className={styles.toolbarButton}
+        className={`btn-icon ${styles.toolbarButton}`}
         onClick={() => zoomOut({ duration: 200 })}
         aria-label={t("workflow.toolbar.zoomOut")}
         title={t("workflow.toolbar.zoomOut")}
@@ -71,7 +71,7 @@ export function CanvasToolbar({
       </button>
       <button
         type="button"
-        className={styles.toolbarButton}
+        className={`btn-icon ${styles.toolbarButton}`}
         onClick={handleFit}
         aria-label={t("workflow.toolbar.fitToView")}
         title={t("workflow.toolbar.fitToViewTitle")}
@@ -84,7 +84,7 @@ export function CanvasToolbar({
 
       <button
         type="button"
-        className={`${styles.toolbarButton} ${
+        className={`btn-icon ${styles.toolbarButton} ${
           gridVisible ? styles.toolbarButtonActive : ""
         }`}
         onClick={onToggleGrid}
@@ -97,7 +97,7 @@ export function CanvasToolbar({
       </button>
       <button
         type="button"
-        className={styles.toolbarButton}
+        className={`btn-icon ${styles.toolbarButton}`}
         onClick={onCopyMermaid}
         aria-label={t("workflow.toolbar.copyMermaidDiagram")}
         title={t("workflow.header.copyAsMermaid")}
@@ -111,7 +111,7 @@ export function CanvasToolbar({
 
       <button
         type="button"
-        className={`${styles.toolbarButton} ${
+        className={`btn-icon ${styles.toolbarButton} ${
           helpOpen ? styles.toolbarButtonActive : ""
         }`}
         onClick={onToggleHelp}

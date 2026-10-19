@@ -44,7 +44,7 @@ export function PresetSegmentedControl({
             tabIndex={tabRovingTabIndex(preset, value)}
             data-testid={`workflow-preset-option-${preset}`}
             onClick={() => onChange(preset)}
-            className={styles.tab}
+            className={`btn-tab ${styles.tab}`}
           >
             {preset}
           </button>

@@ -176,6 +176,7 @@ export default function UserProfileSettings(): JSX.Element {
                   onClick={() => void handleResetFeature(feature)}
                   disabled={isPending || !overridden}
                   className={
+                    "btn-secondary " +
                     styles.resetButton +
                     (overridden ? "" : " " + styles.resetButtonInactive)
                   }

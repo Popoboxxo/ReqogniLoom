@@ -295,7 +295,7 @@ export default function WorkspaceSettings(): JSX.Element {
               aria-controls={`settings-panel-${tab.id}`}
               tabIndex={tabRovingTabIndex(tab.id, activeTab)}
               onClick={() => setActiveTab(tab.id)}
-              className={styles.tab}
+              className={`btn-tab ${styles.tab}`}
             >
               {tab.label}
             </button>
@@ -501,7 +501,7 @@ export default function WorkspaceSettings(): JSX.Element {
                   <button
                     key={p.key}
                     type="button"
-                    className={styles.paletteOption}
+                    className={`btn-ghost ${styles.paletteOption}`}
                     data-testid={`theme-palette-option-${p.key}`}
                     aria-pressed={p.key === paletteKey}
                     onClick={() => setPreference(p.key, mode)}

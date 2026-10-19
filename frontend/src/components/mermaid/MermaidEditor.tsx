@@ -405,7 +405,7 @@ export function MermaidEditor({
               data-testid="mermaid-save-btn"
               onClick={handleManualSave}
               disabled={!isDirty || saveStatus === "saving"}
-              className={`${styles.saveButton} ${isDirty ? "" : styles.saveButtonDisabled}`}
+              className={`btn-primary ${styles.saveButton} ${isDirty ? "" : styles.saveButtonDisabled}`}
             >
               {saveStatus === "saving"
                 ? t("actions.saving", "Saving...")

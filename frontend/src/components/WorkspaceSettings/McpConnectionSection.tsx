@@ -110,18 +110,6 @@ const multilineValueStyle: React.CSSProperties = {
   whiteSpace: "pre",
 };
 
-const copyButtonStyle: React.CSSProperties = {
-  appearance: "none",
-  border: "1px solid var(--color-border)",
-  background: "var(--color-surface)",
-  color: "var(--color-text)",
-  borderRadius: "var(--radius-md)",
-  padding: "var(--space-2) var(--space-3)",
-  fontSize: "var(--font-size-sm)",
-  cursor: "pointer",
-  whiteSpace: "nowrap",
-};
-
 const linkStyle: React.CSSProperties = {
   fontSize: "var(--font-size-sm)",
   color: "var(--color-primary)",
@@ -206,7 +194,7 @@ function CopyableValue({
           onClick={handleCopy}
           aria-label={copyLabel}
           title={copyLabel}
-          style={copyButtonStyle}
+          className="btn-secondary"
         >
           {copied
             ? t("settings.mcp.copied", "Kopiert")

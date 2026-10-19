@@ -72,7 +72,7 @@ export function WorkflowEditorHeader({
       {/* Edit-mode toggle (REQ-177) — admin-gated. */}
       <button
         type="button"
-        className={styles.toggleButton}
+        className={`btn-ghost ${styles.toggleButton}`}
         role="switch"
         aria-checked={editMode}
         disabled={!canEdit}
@@ -105,7 +105,7 @@ export function WorkflowEditorHeader({
       <div className={styles.dropdownWrap} ref={wrapRef}>
         <button
           type="button"
-          className={`${styles.iconButton} ${styles.iconButtonPrimary}`}
+          className={`btn-primary ${styles.iconButton} ${styles.iconButtonPrimary}`}
           aria-haspopup="menu"
           aria-expanded={open}
           onClick={() => setOpen((v) => !v)}
@@ -119,7 +119,7 @@ export function WorkflowEditorHeader({
           <div className={styles.dropdownMenu} role="menu">
             <button
               type="button"
-              className={styles.dropdownItem}
+              className={`btn-ghost ${styles.dropdownItem}`}
               role="menuitem"
               disabled={!canExport}
               onClick={() => {
@@ -133,7 +133,7 @@ export function WorkflowEditorHeader({
             </button>
             <button
               type="button"
-              className={styles.dropdownItem}
+              className={`btn-ghost ${styles.dropdownItem}`}
               role="menuitem"
               disabled
               title={t("workflow.header.comingSoon")}
@@ -143,7 +143,7 @@ export function WorkflowEditorHeader({
             </button>
             <button
               type="button"
-              className={styles.dropdownItem}
+              className={`btn-ghost ${styles.dropdownItem}`}
               role="menuitem"
               disabled
               title={t("workflow.header.comingSoon")}
