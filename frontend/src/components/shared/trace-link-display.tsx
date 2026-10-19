@@ -122,7 +122,7 @@ export function TraceLinkDisplay({
           type="button"
           data-testid={`${testIdPrefix}-title`}
           onClick={() => navigate(route)}
-          className={styles.linkButton}
+          className={`btn-ghost ${styles.linkButton}`}
           title={title}
         >
           {title}
@@ -142,7 +142,7 @@ export function TraceLinkDisplay({
           type="button"
           data-testid={`${testIdPrefix}-delete`}
           onClick={() => onDelete(link.id)}
-          className={styles.deleteButton}
+          className={`btn-icon ${styles.deleteButton}`}
           title={t("actions.delete")}
           aria-label={t("actions.delete")}
         >

@@ -289,7 +289,7 @@ export function TestRunResultEntryGrid({
           </select>
           <button
             type="button"
-            className={styles.button}
+            className={`btn-secondary ${styles.button}`}
             data-testid="testrun-results-bulk-apply"
             disabled={isBusy || selectedIds.length === 0}
             onClick={() => applyStatusTo(selectedIds, bulkStatus)}
@@ -299,7 +299,7 @@ export function TestRunResultEntryGrid({
           </button>
           <button
             type="button"
-            className={styles.button}
+            className={`btn-secondary ${styles.button}`}
             data-testid="testrun-results-mark-remaining-passed"
             disabled={isBusy || remainingCount === 0}
             onClick={() =>
@@ -318,7 +318,7 @@ export function TestRunResultEntryGrid({
           <span className={styles.toolbarSpacer} />
           <button
             type="button"
-            className={`${styles.button} ${styles.buttonPrimary}`}
+            className={`btn-primary ${styles.button} ${styles.buttonPrimary}`}
             data-testid="testrun-results-save-all"
             disabled={isBusy || dirtyResults.length === 0}
             onClick={() => void handleSaveAll()}
@@ -495,7 +495,7 @@ export function TestRunResultEntryGrid({
                     <td className={`${styles.td} ${styles.cellActions}`}>
                       <button
                         type="button"
-                        className={styles.button}
+                        className={`btn-primary ${styles.button}`}
                         data-testid={`testrun-result-save-${result.id}`}
                         disabled={isBusy || !writable || !dirty}
                         onClick={() => void handleSaveRow(result)}

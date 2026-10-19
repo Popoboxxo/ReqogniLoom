@@ -100,14 +100,10 @@
   margin: 0;
 }
 
+/* `btn-primary` (styles/global.css) owns the fill, geometry and disabled
+ * state; the module keeps only the spacing of the error panel. */
 .reloadBtn {
   margin-top: var(--space-4);
-  background-color: var(--color-primary);
-  color: var(--color-surface);
-  border: none;
-  border-radius: var(--radius-md);
-  padding: var(--space-2) var(--space-4);
-  cursor: pointer;
 }
 
 /* --- Baseline list ----------------------------------------------------- */

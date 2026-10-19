@@ -159,7 +159,7 @@ export function ContextGraphSettingsSection({ workspaceId }: Props): JSX.Element
 
       <button
         type="button"
-        className={styles.rebuildButton}
+        className={`btn-secondary ${styles.rebuildButton}`}
         data-testid="context-graph-rebuild-button"
         onClick={handleRebuild}
         disabled={isRebuilding}

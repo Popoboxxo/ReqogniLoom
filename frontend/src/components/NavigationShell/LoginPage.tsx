@@ -164,7 +164,7 @@ export function LoginPage(): JSX.Element {
           {loginBanner.dismissible && (
             <button
               type="button"
-              className={styles.bannerDismiss}
+              className={`btn-icon ${styles.bannerDismiss}`}
               data-testid="login-page-banner-dismiss"
               aria-label={t("banners.dismiss", "Dismiss")}
               onClick={() => {

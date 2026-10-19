@@ -45,7 +45,7 @@ export function MultiEnum({
               key={option.value}
               type="button"
               data-testid={`${testId}-option-${option.value}`}
-              className={`${styles.optionChip} ${isOn ? styles.optionChipSelected : ""}`}
+              className={`btn-ghost ${styles.optionChip} ${isOn ? styles.optionChipSelected : ""}`}
               disabled={disabled}
               aria-pressed={isOn}
               onClick={() =>

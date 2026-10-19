@@ -144,7 +144,7 @@ export function SimilarRequirementsPanel({
               <button
                 data-testid={`similar-result-${hit.id}`}
                 onClick={() => onSelect(hit.id)}
-                className={styles.resultButton}
+                className={`btn-ghost ${styles.resultButton}`}
               >
                 <span className={styles.resultName}>
                   {hit.uid ? `${hit.uid} · ` : ''}

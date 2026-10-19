@@ -213,6 +213,7 @@ export const RequirementTreeNode: React.FC<RequirementTreeNodeProps> = ({
           aria-label={expanded ? t('editor.collapseNode', 'Collapse') : t('editor.expandNode', 'Expand')}
           title={isCycle ? t('traceability.cycleNode') : undefined}
           className={
+            'btn-icon ' +
             styles.toggle +
             ' ' +
             (toggleDisabled ? styles.toggleDisabled : styles.toggleEnabled)
@@ -253,7 +254,7 @@ export const RequirementTreeNode: React.FC<RequirementTreeNodeProps> = ({
             type="button"
             onClick={handleTitleClick}
             data-testid="req-tree-title"
-            className={styles.titleButton}
+            className={`btn-ghost ${styles.titleButton}`}
             title={displayTitle}
           >
             {displayTitle}
@@ -277,7 +278,7 @@ export const RequirementTreeNode: React.FC<RequirementTreeNodeProps> = ({
                 data-testid="req-tree-retry"
                 onClick={() => void loadChildren()}
                 disabled={loading}
-                className={styles.retryButton}
+                className={`btn-secondary ${styles.retryButton}`}
               >
                 {t('editor.retryLoadChildren')}
               </button>

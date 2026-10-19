@@ -235,6 +235,7 @@ export function DeriveRequirementsPanel({
           onClick={() => void handleAccept()}
           disabled={isAccepting || selectedCount === 0}
           data-testid="derive-requirements-accept"
+          className="btn-primary"
         >
           {isAccepting ? (
             <Spinner label={t("deriveRequirements.accepting")} />
@@ -247,6 +248,7 @@ export function DeriveRequirementsPanel({
           onClick={onDiscard}
           disabled={isAccepting}
           data-testid="derive-requirements-discard"
+          className="btn-secondary"
         >
           {t("deriveRequirements.discard")}
         </button>

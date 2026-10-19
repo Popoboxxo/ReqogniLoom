@@ -848,8 +848,13 @@ describe('CreateTraceLinkDialog accessible link-type dropdown (#318)', () => {
       'false',
     );
     // Finding #5: the selected row is visibly marked, the other one is not.
-    expect(screen.getByTestId('create-trace-link-type-option-derives-from')).toHaveTextContent('✓');
-    expect(screen.getByTestId('create-trace-link-type-option-decomposes')).not.toHaveTextContent('✓');
+    // #1092: the marker is a decorative monochrome icon, not a text glyph.
+    expect(
+      screen.getByTestId('create-trace-link-type-option-derives-from').querySelector('svg'),
+    ).not.toBeNull();
+    expect(
+      screen.getByTestId('create-trace-link-type-option-decomposes').querySelector('svg'),
+    ).toBeNull();
   });
 
   it('drives selection with ArrowDown + Enter and submits the chosen type', async () => {

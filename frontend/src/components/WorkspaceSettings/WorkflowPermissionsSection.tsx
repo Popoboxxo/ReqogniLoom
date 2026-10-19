@@ -17,6 +17,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
+import { Check } from "lucide-react";
 import { workflowsApi, type WorkflowEntityType } from "../../api/workflows";
 import {
   permissionDefaultsApi,
@@ -269,7 +270,7 @@ export function WorkflowPermissionsSection({
                   <td className={styles.tdRight}>
                     <button
                       type="button"
-                      className={styles.linkButton}
+                      className={`btn-ghost ${styles.linkButton}`}
                       onClick={() => navigate(`/workflows/${e.type}`)}
                       data-testid={`workflow-config-open-${e.type}`}
                     >
@@ -346,7 +347,7 @@ export function WorkflowPermissionsSection({
                     setMatrixSavedOk(false);
                     setEditingMatrix((v) => !v);
                   }}
-                  className={`${styles.linkButton} ${styles.linkButtonAuto}`}
+                  className={`btn-ghost ${styles.linkButton} ${styles.linkButtonAuto}`}
                 >
                   {editingMatrix
                     ? t("actions.cancel", "Cancel")
@@ -450,7 +451,7 @@ function ReadOnlyMatrix({ matrix }: { matrix: PermissionMatrix }): JSX.Element {
                     cap
                   )} ${matrix[role][cap] ? t("permissionMatrix.allowed") : t("permissionMatrix.denied")}`}
                 >
-                  {matrix[role][cap] ? "✓" : "—"}
+                  {matrix[role][cap] ? <Check aria-hidden="true" size={14} /> : "—"}
                 </td>
               ))}
             </tr>

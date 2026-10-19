@@ -73,7 +73,7 @@ export function GlossaryTermList({
                   e.stopPropagation();
                   onEdit(term);
                 }}
-                className={`${styles.iconBtn} ${styles.iconBtnMuted}`}
+                className={`btn-icon ${styles.iconBtn} ${styles.iconBtnMuted}`}
                 // #741: icon-only row action — was an untranslated,
                 // aria-label-less `title`, i.e. no reliable accessible
                 // name at all. Names the term so the per-row buttons are
@@ -90,7 +90,7 @@ export function GlossaryTermList({
                   e.stopPropagation();
                   onDelete(term.id);
                 }}
-                className={`${styles.iconBtn} ${styles.iconBtnDanger}`}
+                className={`btn-icon ${styles.iconBtn} ${styles.iconBtnDanger}`}
                 title={t("actions.delete")}
                 aria-label={`${t("actions.delete")}: ${term.term}`}
                 data-testid={`glossary-delete-${term.id}`}

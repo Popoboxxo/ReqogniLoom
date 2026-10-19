@@ -205,6 +205,7 @@ export function AttributeInspector({
               />
               <button
                 type="button"
+                className="btn-icon"
                 disabled={readOnly || index === 0}
                 aria-label={t("attributes.moveUp")}
                 data-testid={`attribute-inspector-option-${index}-up`}
@@ -214,6 +215,7 @@ export function AttributeInspector({
               </button>
               <button
                 type="button"
+                className="btn-icon"
                 disabled={readOnly || index === attribute.options.length - 1}
                 aria-label={t("attributes.moveDown")}
                 data-testid={`attribute-inspector-option-${index}-down`}
@@ -223,6 +225,7 @@ export function AttributeInspector({
               </button>
               <button
                 type="button"
+                className="btn-icon"
                 disabled={readOnly}
                 aria-label={t("attributes.options.remove")}
                 data-testid={`attribute-inspector-option-${index}-remove`}
@@ -234,6 +237,7 @@ export function AttributeInspector({
           ))}
           <button
             type="button"
+            className="btn-secondary"
             disabled={readOnly}
             data-testid="attribute-inspector-option-add"
             onClick={() =>

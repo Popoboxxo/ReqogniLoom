@@ -155,6 +155,7 @@ export function InterviewChatPane({
           <ProposalPreviewGraph proposal={pendingProposal} />
           <button
             type="button"
+            className="btn-primary"
             data-testid="interview-multi-confirm"
             onClick={() => void confirmProposal()}
             disabled={creating}
@@ -198,6 +199,7 @@ export function InterviewChatPane({
         />
         <button
           type="button"
+          className="btn-primary"
           data-testid="interview-chat-send"
           onClick={() => void send()}
           disabled={sending}

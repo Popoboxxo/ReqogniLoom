@@ -403,7 +403,7 @@ export function MemoryPage(): JSX.Element {
           {canForget && (
             <button
               type="button"
-              className={styles.forgetBtn}
+              className={`btn-danger ${styles.forgetBtn}`}
               data-testid={`memory-forget-${entry.entry_id}`}
               disabled={isBusy}
               onClick={() => {
@@ -473,7 +473,7 @@ export function MemoryPage(): JSX.Element {
             role="tab"
             aria-selected={activeTab === tab}
             data-testid={`memory-tab-${tab}`}
-            className={activeTab === tab ? styles.tabActive : styles.tab}
+            className={`btn-tab ${activeTab === tab ? styles.tabActive : styles.tab}`}
             onClick={() => setActiveTab(tab)}
           >
             {t(TAB_LABEL_KEYS[tab], tab)}
@@ -624,7 +624,7 @@ export function MemoryPage(): JSX.Element {
           {isShowingSearch && (
             <button
               type="button"
-              className={styles.linkBtn}
+              className={`btn-ghost ${styles.linkBtn}`}
               data-testid="memory-search-clear"
               onClick={clearSearch}
             >
@@ -780,7 +780,7 @@ export function MemoryPage(): JSX.Element {
             <div className={styles.pagination}>
               <button
                 type="button"
-                className={styles.pageButton}
+                className={`btn-secondary ${styles.pageButton}`}
                 data-testid="memory-page-prev"
                 disabled={page <= 1 || isLoading}
                 onClick={() => loadEntries(page - 1)}
@@ -795,7 +795,7 @@ export function MemoryPage(): JSX.Element {
               </span>
               <button
                 type="button"
-                className={styles.pageButton}
+                className={`btn-secondary ${styles.pageButton}`}
                 data-testid="memory-page-next"
                 disabled={page >= totalPages || isLoading}
                 onClick={() => loadEntries(page + 1)}

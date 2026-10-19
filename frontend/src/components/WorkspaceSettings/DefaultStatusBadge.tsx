@@ -87,7 +87,7 @@ export function ResetToDefaultButton({
       aria-label={ariaLabel}
       title={title}
       data-testid={testId}
-      className={styles.resetButton}
+      className={`btn-secondary ${styles.resetButton}`}
     >
       {busy ? (
         <Spinner label={t("actions.saving")} />

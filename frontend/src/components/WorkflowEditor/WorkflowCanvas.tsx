@@ -342,7 +342,7 @@ export function WorkflowCanvas(props: WorkflowCanvasProps): JSX.Element {
           {editMode && (
             <button
               type="button"
-              className={styles.initializeButton}
+              className={`btn-primary ${styles.initializeButton}`}
               onClick={onInitialize}
               disabled={initializing}
               data-testid="workflow-initialize-button"

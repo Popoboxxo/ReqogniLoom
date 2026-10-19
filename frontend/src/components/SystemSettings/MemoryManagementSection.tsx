@@ -5,6 +5,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { Check } from "lucide-react";
 import {
   memoryApi,
   type WorkspaceMemoryOverviewRow,
@@ -113,7 +114,9 @@ export function MemoryManagementSection(): JSX.Element {
             {rows.map((row) => (
               <tr key={row.workspace_id} data-testid={`memory-row-${row.workspace_id}`}>
                 <td>{row.workspace_name}</td>
-                <td>{row.enabled ? "✓" : "—"}</td>
+                <td aria-label={row.enabled ? t("common.yes", "Yes") : t("common.no", "No")}>
+                  {row.enabled ? <Check aria-hidden="true" size={14} /> : "—"}
+                </td>
                 <td>{row.workspace_entry_count}</td>
                 <td>{row.user_entry_count}</td>
                 <td data-testid={`memory-artifact-count-${row.workspace_id}`}>

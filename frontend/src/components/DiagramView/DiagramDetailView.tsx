@@ -338,7 +338,7 @@ export function DiagramDetailView({
               type="button"
               data-testid="diagram-open-editor-btn"
               onClick={() => navigate(editorRoute)}
-              className={styles.formPrimaryButton}
+              className={`btn-primary ${styles.formPrimaryButton}`}
             >
               {t("diagrams.openEditor", "Open editor")}
             </button>
@@ -350,7 +350,7 @@ export function DiagramDetailView({
                 setIsEditing(true);
                 setViewMode("code");
               }}
-              className={styles.formPrimaryButton}
+              className={`btn-primary ${styles.formPrimaryButton}`}
             >
               {t("diagrams.edit", "Edit Source")}
             </button>
@@ -361,7 +361,7 @@ export function DiagramDetailView({
                 data-testid="diagram-save-btn"
                 onClick={() => void handleSave()}
                 disabled={isSaving}
-                className={`${styles.formPrimaryButton} ${
+                className={`btn-primary ${styles.formPrimaryButton} ${
                   isSaving
                     ? styles.formPrimaryButtonDisabled
                     : styles.formPrimaryButtonEnabled
@@ -376,7 +376,7 @@ export function DiagramDetailView({
                   setEditContent(detail.content ?? "");
                   resetSaveError();
                 }}
-                className={styles.formCancelButton}
+                className={`btn-secondary ${styles.formCancelButton}`}
               >
                 {t("actions.cancel", "Cancel")}
               </button>
@@ -386,7 +386,7 @@ export function DiagramDetailView({
             type="button"
             data-testid="diagram-delete-btn"
             onClick={() => setShowDeleteConfirm(true)}
-            className={styles.formDangerButton}
+            className={`btn-danger ${styles.formDangerButton}`}
           >
             {t("diagrams.delete", "Delete")}
           </button>
@@ -468,7 +468,7 @@ export function DiagramDetailView({
                 data-testid="diagram-viewmode-code-btn"
                 aria-pressed={viewMode === "code"}
                 onClick={() => setViewMode("code")}
-                className={`${styles.viewModeButton} ${
+                className={`btn-tab ${styles.viewModeButton} ${
                   viewMode === "code"
                     ? styles.viewModeButtonActive
                     : styles.viewModeButtonInactive
@@ -481,7 +481,7 @@ export function DiagramDetailView({
                 data-testid="diagram-viewmode-visual-btn"
                 aria-pressed={viewMode === "visual"}
                 onClick={() => setViewMode("visual")}
-                className={`${styles.viewModeButton} ${
+                className={`btn-tab ${styles.viewModeButton} ${
                   viewMode === "visual"
                     ? styles.viewModeButtonActive
                     : styles.viewModeButtonInactive

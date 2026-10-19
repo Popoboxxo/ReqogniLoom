@@ -196,7 +196,7 @@ export function InterviewWidget(): JSX.Element {
             key={type}
             type="button"
             data-testid={`interview-widget-start-${type}`}
-            className={styles.startButton}
+            className={`btn-secondary ${styles.startButton}`}
             onClick={() => goToInterview(type)}
           >
             {t(`interview.start.${type}`)}
@@ -208,7 +208,7 @@ export function InterviewWidget(): JSX.Element {
         <button
           type="button"
           data-testid={`interview-widget-start-${MULTI_START_PARAM}`}
-          className={styles.startButton}
+          className={`btn-secondary ${styles.startButton}`}
           onClick={() => goToInterview(MULTI_START_PARAM)}
         >
           {t("interview.multiEntry")}
@@ -242,7 +242,7 @@ export function InterviewWidget(): JSX.Element {
         <button
           type="button"
           data-testid="interview-widget-toggle"
-          className={styles.toggle}
+          className={`btn-icon ${styles.toggle}`}
           onClick={() => setOpenPersisted(!open)}
           // #741: the FAB renders nothing but the 💬 glyph, so the label IS the
           // whole accessible name. It used to be a hardcoded English string —

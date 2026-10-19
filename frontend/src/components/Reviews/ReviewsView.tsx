@@ -810,6 +810,7 @@ export default function ReviewsView({
       {queueMode === "proposals" && selectedIds.length > 0 && (
         <button
           type="button"
+          className="btn-primary"
           data-testid="reviews-bulk-confirm-btn"
           disabled={isActing}
           onClick={async () => {
@@ -985,7 +986,7 @@ export default function ReviewsView({
               type="button"
               data-testid={`review-list-item-${r.id}`}
               onClick={() => handleSelect(r.id)}
-              className={`${styles.reviewItem} ${
+              className={`btn-ghost ${styles.reviewItem} ${
                 r.id === selectedId
                   ? styles.reviewItemSelected
                   : styles.reviewItemUnselected

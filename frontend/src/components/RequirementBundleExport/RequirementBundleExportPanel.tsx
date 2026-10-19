@@ -259,6 +259,7 @@ export function RequirementBundleExportPanel({
               disabled={busy}
               onClick={() => setMode("raw")}
               data-testid="arch-bundle-export-mode-raw"
+              className="btn-tab"
             >
               {t("bundleExport.modeRaw", "Raw")}
             </button>
@@ -268,6 +269,7 @@ export function RequirementBundleExportPanel({
               disabled={busy}
               onClick={() => setMode("compressed")}
               data-testid="arch-bundle-export-mode-compressed"
+              className="btn-tab"
             >
               {t("bundleExport.modeCompressed", "AI-compressed")}
             </button>
@@ -292,6 +294,7 @@ export function RequirementBundleExportPanel({
           onClick={handleSubmit}
           disabled={busy}
           data-testid="arch-bundle-export-submit"
+          className="btn-primary"
         >
           {phase === "exporting" ? t("bundleExport.exporting", "Exporting...") : t("bundleExport.export", "Export")}
         </button>

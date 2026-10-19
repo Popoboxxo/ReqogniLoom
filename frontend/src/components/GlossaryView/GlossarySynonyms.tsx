@@ -73,7 +73,7 @@ export function GlossarySynonyms({
                 data-testid={`glossary-synonym-link-${term.id}-${idx}`}
                 onClick={() => onEditLinked(linked)}
                 title={t("glossary.synonymLinkedTooltip", "Zu verlinktem Eintrag springen")}
-                className={styles.synonymLinkedBtn}
+                className={`btn-ghost ${styles.synonymLinkedBtn}`}
               >
                 <Link2 size={12} />
                 {syn}
@@ -87,7 +87,7 @@ export function GlossarySynonyms({
                   onClick={() => onToggleLinking(term.id, idx)}
                   title={t("glossary.linkSynonym", "Mit bestehendem Eintrag verlinken")}
                   aria-label={`${t("glossary.linkSynonym", "Mit bestehendem Eintrag verlinken")}: ${syn}`}
-                  className={styles.synonymLinkBtn}
+                  className={`btn-icon ${styles.synonymLinkBtn}`}
                 >
                   <Link2 size={12} />
                 </button>
@@ -110,7 +110,7 @@ export function GlossarySynonyms({
                       type="button"
                       data-testid={`glossary-synonym-option-${term.id}-${idx}-${candidate.id}`}
                       onClick={() => onLinkSynonym(term, idx, candidate)}
-                      className={styles.synonymPickerOption}
+                      className={`btn-ghost ${styles.synonymPickerOption}`}
                     >
                       {candidate.term}
                     </button>
@@ -125,7 +125,7 @@ export function GlossarySynonyms({
                   type="button"
                   data-testid={`glossary-synonym-cancel-${term.id}-${idx}`}
                   onClick={onCancelLinking}
-                  className={styles.synonymPickerCancel}
+                  className={`btn-secondary ${styles.synonymPickerCancel}`}
                 >
                   {t("actions.cancel", "Cancel")}
                 </button>

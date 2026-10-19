@@ -413,7 +413,7 @@ function ImportResultPanel({
                   type="button"
                   data-testid="csv-import-toggle-errors"
                   onClick={onToggleShowAllErrors}
-                  className={styles.linkBtn}
+                  className={`btn-ghost ${styles.linkBtn}`}
                   aria-expanded={showAllErrors}
                 >
                   {showAllErrors
@@ -571,7 +571,7 @@ function ReqifImportSection({
             data-testid="reqif-import-btn"
             onClick={() => void onImport()}
             disabled={!selectedFile || isImporting}
-            className={styles.primaryBtn}
+            className={`btn-primary ${styles.primaryBtn}`}
           >
             {isImporting ? (
               <Spinner label={t("import.uploading")} />
@@ -586,7 +586,7 @@ function ReqifImportSection({
               type="button"
               data-testid="reqif-import-reset"
               onClick={onReset}
-              className={styles.resetBtn}
+              className={`btn-secondary ${styles.resetBtn}`}
             >
               {t("actions.reset")}
             </button>
@@ -741,7 +741,7 @@ function CsvExportSection({
             data-testid="csv-export-btn"
             onClick={() => void onExport()}
             disabled={isExporting}
-            className={styles.primaryBtn}
+            className={`btn-primary ${styles.primaryBtn}`}
           >
             {isExporting ? (
               <Spinner label={t("export.downloading")} />
@@ -761,7 +761,7 @@ function CsvExportSection({
               "export.reqifHint",
               "Exports the whole workspace (Needs, Requirements, TraceLinks) as ReqIF 1.2 for DOORS/Polarion"
             )}
-            className={styles.secondaryBtn}
+            className={`btn-secondary ${styles.secondaryBtn}`}
           >
             {isExportingReqif ? (
               <Spinner label={t("export.downloading")} />
@@ -1089,7 +1089,7 @@ export function CsvImport(): JSX.Element {
           data-testid="csv-import-btn"
           onClick={() => void handleUpload()}
           disabled={!selectedFile || isUploading}
-          className={styles.primaryBtn}
+          className={`btn-primary ${styles.primaryBtn}`}
         >
           {isUploading ? (
             <Spinner label={t("import.uploading")} />
@@ -1102,7 +1102,7 @@ export function CsvImport(): JSX.Element {
             type="button"
             data-testid="csv-import-reset"
             onClick={handleReset}
-            className={styles.resetBtn}
+            className={`btn-secondary ${styles.resetBtn}`}
           >
             {t("actions.reset")}
           </button>

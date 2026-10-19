@@ -416,7 +416,7 @@ export function PermissionsSection({
                               data-testid={`workspace-member-reactivate-${m.user_id}-${role}`}
                               onClick={() => void handleReactivateRole(m, role)}
                               disabled={isPending}
-                              className={`${styles.roleActionBase} ${
+                              className={`btn-secondary ${styles.roleActionBase} ${
                                 isPending
                                   ? styles.reactivateActionPending
                                   : styles.reactivateAction
@@ -430,7 +430,7 @@ export function PermissionsSection({
                               data-testid={`workspace-member-suspend-${m.user_id}-${role}`}
                               onClick={() => requestSuspendRole(m, role)}
                               disabled={isPending}
-                              className={`${styles.roleActionBase} ${
+                              className={`btn-danger ${styles.roleActionBase} ${
                                 isPending ? styles.suspendActionPending : styles.suspendAction
                               }`}
                             >
@@ -537,7 +537,7 @@ export function PermissionsSection({
           data-testid="permission-load-btn"
           onClick={() => void loadPermissions(filterUserId)}
           disabled={isLoading || !filterUserId.trim()}
-          className={styles.outlineButton}
+          className={`btn-secondary ${styles.outlineButton}`}
         >
           {isLoading ? "…" : t("permissions.load", "Load rules")}
         </button>
@@ -599,7 +599,7 @@ export function PermissionsSection({
                     data-testid={`permission-revoke-${perm.id}`}
                     onClick={() => setPendingRevokeId(perm.id)}
                     disabled={revokingId === perm.id}
-                    className={styles.revokeButton}
+                    className={`btn-danger ${styles.revokeButton}`}
                   >
                     {t("permissions.revoke", "Revoke")}
                   </button>

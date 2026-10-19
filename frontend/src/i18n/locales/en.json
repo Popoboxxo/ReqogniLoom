@@ -213,7 +213,9 @@
   },
   "loading": "Loading...",
   "common": {
-    "close": "Close"
+    "close": "Close",
+    "yes": "Yes",
+    "no": "No"
   },
   "actions": {
     "add": "Add",
@@ -235,6 +237,9 @@
     "creating": "Creating...",
     "import": "Import",
     "export": "Export",
+    "exportAttributes": "Export attributes",
+    "importAttributes": "Import attributes",
+    "exportWorkflow": "Export workflow",
     "copy": "Copy",
     "dismiss": "Dismiss",
     "clear": "Clear",
@@ -347,6 +352,7 @@
     "showDeleted": "Show deleted",
     "showOutdated": "Show outdated",
     "outdatedBadge": "Outdated",
+    "suspectBadge": "Suspect",
     "sortLabel": "Sort by",
     "sortDefault": "Default order",
     "sortTitleAsc": "Title (A–Z)",

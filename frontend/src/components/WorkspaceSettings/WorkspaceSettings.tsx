@@ -31,6 +31,7 @@
 import { useState, useCallback, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
+import { Check, X } from "lucide-react";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { useAuth } from "../../context/AuthContext";
 import { useTheme } from "../../context/ThemeContext";
@@ -295,7 +296,7 @@ export default function WorkspaceSettings(): JSX.Element {
               aria-controls={`settings-panel-${tab.id}`}
               tabIndex={tabRovingTabIndex(tab.id, activeTab)}
               onClick={() => setActiveTab(tab.id)}
-              className={styles.tab}
+              className={`btn-tab ${styles.tab}`}
             >
               {tab.label}
             </button>
@@ -361,13 +362,36 @@ export default function WorkspaceSettings(): JSX.Element {
                           data-testid={`preset-features-${preset}`}
                           className={styles.optionMeta}
                         >
-                          <div>{features.baselines ? "✓" : "✗"} {t("settings.presets.baselines", "Baselines")}</div>
                           <div>
-                            {features.changeReason === "required" ? "✓" : "✗"}{" "}
+                            <span
+                              role="img"
+                              aria-label={
+                                features.baselines
+                                  ? t("common.yes", "Yes")
+                                  : t("common.no", "No")
+                              }
+                            >
+                              {features.baselines ? (
+                                <Check aria-hidden="true" size={14} />
+                              ) : (
+                                <X aria-hidden="true" size={14} />
+                              )}
+                            </span>{" "}
+                            {t("settings.presets.baselines", "Baselines")}
+                          </div>
+                          <div>
+                            {features.changeReason === "required" ? (
+                              <Check aria-hidden="true" size={14} />
+                            ) : (
+                              <X aria-hidden="true" size={14} />
+                            )}{" "}
                             {t("settings.presets.changeReason", "Change Reason")}{" "}
                             ({features.changeReason === "required" ? t("settings.presets.required", "required") : t("settings.presets.optional", "optional")})
                           </div>
-                          <div>✓ {t("settings.presets.workflow", "Workflow")}: {features.workflow}</div>
+                          <div>
+                            <Check aria-hidden="true" size={14} />{" "}
+                            {t("settings.presets.workflow", "Workflow")}: {features.workflow}
+                          </div>
                         </div>
                       </div>
                     </label>
@@ -501,7 +525,7 @@ export default function WorkspaceSettings(): JSX.Element {
                   <button
                     key={p.key}
                     type="button"
-                    className={styles.paletteOption}
+                    className={`btn-ghost ${styles.paletteOption}`}
                     data-testid={`theme-palette-option-${p.key}`}
                     aria-pressed={p.key === paletteKey}
                     onClick={() => setPreference(p.key, mode)}

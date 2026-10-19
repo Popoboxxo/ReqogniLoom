@@ -38,6 +38,7 @@ export function InterviewArtifactPane({
       )}
       <button
         type="button"
+        className="btn-primary"
         data-testid="interview-artifact-formalize"
         // `missing_fields` is a single-mode concept and absent from multi-mode
         // state payloads (see InterviewState) -- optional-safe so this pane

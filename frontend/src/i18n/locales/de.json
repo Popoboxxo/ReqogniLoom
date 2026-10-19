@@ -213,7 +213,9 @@
   },
   "loading": "Laden...",
   "common": {
-    "close": "Schließen"
+    "close": "Schließen",
+    "yes": "Ja",
+    "no": "Nein"
   },
   "actions": {
     "add": "Hinzufügen",
@@ -237,6 +239,9 @@
     "confirm": "Bestätigen",
     "import": "Importieren",
     "export": "Exportieren",
+    "exportAttributes": "Attribute exportieren",
+    "importAttributes": "Attribute importieren",
+    "exportWorkflow": "Workflow exportieren",
     "copy": "Kopieren",
     "dismiss": "Verwerfen",
     "clear": "Zurücksetzen",
@@ -347,6 +352,7 @@
     "showDeleted": "Gelöschte anzeigen",
     "showOutdated": "Veraltete anzeigen",
     "outdatedBadge": "Veraltet",
+    "suspectBadge": "Verdächtig",
     "sortLabel": "Sortieren nach",
     "sortDefault": "Standardreihenfolge",
     "sortTitleAsc": "Titel (A–Z)",

@@ -144,7 +144,7 @@ export function WorkspaceCard({
           e.stopPropagation();
           onOpenSettings(workspace);
         }}
-        className={styles.presetBadge}
+        className={`btn-ghost ${styles.presetBadge}`}
       >
         {workspace.preset}
       </button>

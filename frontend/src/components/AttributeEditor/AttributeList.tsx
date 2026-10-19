@@ -134,6 +134,7 @@ export function AttributeList({
               <span className={styles.badges}>
                 <button
                   type="button"
+                  className="btn-icon"
                   disabled={readOnly}
                   data-testid={`attribute-section-${section}-rename`}
                   aria-label={t("attributes.renameSection")}
@@ -165,6 +166,7 @@ export function AttributeList({
                 </select>
                 <button
                   type="button"
+                  className="btn-icon"
                   disabled={readOnly || sectionIndex === 0}
                   data-testid={`attribute-section-${section}-up`}
                   aria-label={t("attributes.moveSectionUp")}
@@ -174,6 +176,7 @@ export function AttributeList({
                 </button>
                 <button
                   type="button"
+                  className="btn-icon"
                   disabled={readOnly || sectionIndex === allSections.length - 1}
                   data-testid={`attribute-section-${section}-down`}
                   aria-label={t("attributes.moveSectionDown")}
@@ -183,6 +186,7 @@ export function AttributeList({
                 </button>
                 <button
                   type="button"
+                  className="btn-icon"
                   disabled={readOnly}
                   data-testid={`attribute-section-${section}-delete`}
                   aria-label={t("attributes.deleteSection")}
@@ -192,6 +196,7 @@ export function AttributeList({
                 </button>
                 <button
                   type="button"
+                  className="btn-secondary"
                   disabled={readOnly}
                   data-testid={`attribute-section-${section}-add`}
                   onClick={() => onAddAttribute(section)}
@@ -278,6 +283,7 @@ export function AttributeList({
                   )}
                   <button
                     type="button"
+                    className="btn-icon"
                     disabled={readOnly || index === 0}
                     aria-label={t("attributes.moveUp")}
                     data-testid={`attribute-row-${attribute.name}-up`}
@@ -290,6 +296,7 @@ export function AttributeList({
                   </button>
                   <button
                     type="button"
+                    className="btn-icon"
                     disabled={readOnly || index === rows.length - 1}
                     aria-label={t("attributes.moveDown")}
                     data-testid={`attribute-row-${attribute.name}-down`}
@@ -326,6 +333,7 @@ export function AttributeList({
                   {attribute.kind === "extended" ? (
                     <button
                       type="button"
+                      className="btn-icon"
                       disabled={readOnly}
                       aria-label={t("attributes.deleteAttribute.action")}
                       data-testid={`attribute-row-${attribute.name}-delete`}

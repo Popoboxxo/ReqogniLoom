@@ -19,6 +19,7 @@ import {
 import { useTranslation } from "react-i18next";
 import {
   ArrowRight,
+  Lock,
   MousePointerClick,
   Pencil,
   Trash2,
@@ -175,7 +176,7 @@ export function InspectorPanel({
         <div className={styles.inspectorCollapsed}>
           <button
             type="button"
-            className={styles.iconButton}
+            className={`btn-icon ${styles.iconButton}`}
             aria-label={t("workflow.inspector.expand")}
             title={t("workflow.inspector.expand")}
             onClick={() => setCollapsed(false)}
@@ -212,7 +213,7 @@ export function InspectorPanel({
         <span className={styles.inspectorTitle}>{t("workflow.inspector.title")}</span>
         <button
           type="button"
-          className={styles.iconButton}
+          className={`btn-icon ${styles.iconButton}`}
           aria-label={t("workflow.inspector.collapse")}
           title={t("workflow.inspector.collapse")}
           onClick={() => setCollapsed(true)}
@@ -311,7 +312,7 @@ function StateInspector({
         <div className={styles.editActions} data-testid="workflow-inspector-state-actions">
           <button
             type="button"
-            className={styles.editActionButton}
+            className={`btn-secondary ${styles.editActionButton}`}
             onClick={() => edit.onEditState(state.id)}
             data-testid="workflow-inspector-edit-state"
           >
@@ -320,7 +321,7 @@ function StateInspector({
           </button>
           <button
             type="button"
-            className={`${styles.editActionButton} ${styles.editActionDanger}`}
+            className={`btn-danger ${styles.editActionButton} ${styles.editActionDanger}`}
             onClick={() => edit.onDeleteState(state.id)}
             data-testid="workflow-inspector-delete-state"
           >
@@ -346,7 +347,7 @@ function TransitionRow({
   return (
     <button
       type="button"
-      className={styles.transitionRow}
+      className={`btn-ghost ${styles.transitionRow}`}
       onClick={() => onSelect({ kind: "transition", id: transition.id })}
       data-testid={`workflow-inspector-transition-${transition.id}`}
     >
@@ -355,11 +356,14 @@ function TransitionRow({
         {showSource ? transition.from_state : transition.to_state}
       </span>
       {transition.change_reason_required && (
+        /* Icon-only indicator: `role="img"` is required before `aria-label`
+         * is permitted (ARIA 1.2 prohibits it on the `generic` role). */
         <span
+          role="img"
           aria-label={t("workflow.inspector.requiresChangeReason")}
           title={t("workflow.inspector.requiresChangeReason")}
         >
-          🔒
+          <Lock aria-hidden="true" size={14} />
         </span>
       )}
     </button>
@@ -403,7 +407,9 @@ function TransitionInspector({
           {transition.change_reason_required ? (
             <>
               {t("workflow.inspector.required")}
-              <span aria-hidden="true">🔒</span>
+              <span aria-hidden="true">
+                <Lock size={14} />
+              </span>
             </>
           ) : (
             t("workflow.inspector.optional")
@@ -422,7 +428,7 @@ function TransitionInspector({
         >
           <button
             type="button"
-            className={styles.editActionButton}
+            className={`btn-secondary ${styles.editActionButton}`}
             onClick={() =>
               edit.onEditTransition(transition.from_state, transition.to_state)
             }
@@ -433,7 +439,7 @@ function TransitionInspector({
           </button>
           <button
             type="button"
-            className={`${styles.editActionButton} ${styles.editActionDanger}`}
+            className={`btn-danger ${styles.editActionButton} ${styles.editActionDanger}`}
             onClick={() =>
               edit.onDeleteTransition(transition.from_state, transition.to_state)
             }

@@ -850,9 +850,7 @@ export function AuditDashboard(): JSX.Element {
           data-testid="audit-refresh-btn"
           onClick={() => void load()}
           disabled={isLoading}
-          className={`${styles.refreshButton} ${
-            isLoading ? styles.refreshButtonDisabled : styles.refreshButtonEnabled
-          }`}
+          className="btn-primary"
         >
           {isLoading ? t("audit.refreshing", "Refreshing...") : t("audit.refresh", "Refresh")}
         </button>
@@ -1385,11 +1383,7 @@ function FindingRow({
             onClick={() => onAdopt(finding)}
             disabled={isPending || isSuppressed}
             title={finding.remediation.reason}
-            className={`${styles.adoptButton} ${
-              isPending || isSuppressed
-                ? styles.adoptButtonDisabled
-                : styles.adoptButtonEnabled
-            }`}
+            className="btn-primary"
           >
             {isPending ? t("audit.adopting", "Adopting...") : t("audit.adopt", "Adopt")}
           </button>
@@ -1411,7 +1405,7 @@ function FindingRow({
                   "audit.modifyHint",
                   "Open the affected artifact to correct it manually.",
                 )}
-                className={styles.modifyButton}
+                className={`btn-secondary ${styles.modifyButton}`}
               >
                 {t("audit.modify", "Modify")}
               </button>
@@ -1443,7 +1437,7 @@ function FindingRow({
             data-testid={`audit-waive-${finding.index}`}
             onClick={() => onWaive(finding)}
             title={t("audit.waiveTitle", "Waive finding")}
-            className={styles.waiveButton}
+            className="btn-secondary"
           >
             {t("audit.waive", "Waive")}
           </button>

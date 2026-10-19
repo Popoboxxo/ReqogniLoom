@@ -39,6 +39,7 @@
  */
 
 import { useTranslation } from "react-i18next";
+import { TriangleAlert } from "lucide-react";
 
 import { IdChip } from "../IdChip";
 import { LevelBadge } from "../LevelBadge";
@@ -113,6 +114,14 @@ export interface ArtifactRowProps {
   /** Marks the artifact as outdated/deprecated (hidden from the active list). */
   outdated?: boolean;
   /**
+   * Issue #1092: an upstream change flagged this artifact for re-derivation
+   * (the `suspect` flag the trace engine propagates). Rendered as a
+   * monochrome warning marker in front of the title — previously an emoji
+   * prefix baked into the title string, which had no size/colour contract
+   * with the icons around it.
+   */
+  suspect?: boolean;
+  /**
    * Compact SE attributes (issue #804). Rendered as a labelled chip line
    * below the identifier; empty values are skipped.
    */
@@ -137,6 +146,7 @@ export function ArtifactRow({
   version,
   versionIsCurrent = true,
   outdated = false,
+  suspect = false,
   attributes,
   selected = false,
   onClick,
@@ -204,6 +214,17 @@ export function ArtifactRow({
           not. Status/version stay top-right, outside the shrinking title. */}
       <div className={styles.topLine}>
         <div className={styles.title} title={title}>
+          {suspect && (
+            <span
+              className={styles.suspect}
+              data-testid={`${testId}-suspect`}
+              role="img"
+              aria-label={t("editor.suspectBadge", "Suspect")}
+              title={t("editor.suspectBadge", "Suspect")}
+            >
+              <TriangleAlert aria-hidden="true" size={14} />
+            </span>
+          )}
           {title}
         </div>
         <div className={styles.meta}>

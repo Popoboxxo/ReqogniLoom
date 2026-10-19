@@ -227,7 +227,7 @@ export function RevealValue({
       {revealControlled && (
         <button
           type="button"
-          className={styles.iconButton}
+          className={`btn-icon ${styles.iconButton}`}
           data-testid={`${testId}-reveal`}
           aria-pressed={revealed}
           aria-label={
@@ -255,7 +255,7 @@ export function RevealValue({
       {copyAllowed && (
         <button
           type="button"
-          className={styles.iconButton}
+          className={`btn-icon ${styles.iconButton}`}
           data-testid={`${testId}-copy`}
           aria-label={copyAriaLabel}
           title={copyAriaLabel}

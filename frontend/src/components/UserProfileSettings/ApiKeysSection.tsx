@@ -137,7 +137,7 @@ export function ApiKeysSection(): JSX.Element {
             data-testid="api-key-create-btn"
             onClick={() => void handleCreate()}
             disabled={isCreating || !newKeyName.trim()}
-            className={`${styles.primaryButton} ${
+            className={`btn-primary ${styles.primaryButton} ${
               isCreating || !newKeyName.trim()
                 ? styles.primaryButtonDisabled
                 : styles.primaryButtonEnabled
@@ -174,7 +174,7 @@ export function ApiKeysSection(): JSX.Element {
               onClick={() => {
                 void navigator.clipboard?.writeText(createdKey.plaintext);
               }}
-              className={styles.copyButton}
+              className={`btn-secondary ${styles.copyButton}`}
             >
               {t("actions.copy", "Copy")}
             </button>
@@ -182,7 +182,7 @@ export function ApiKeysSection(): JSX.Element {
               type="button"
               data-testid="api-key-dismiss"
               onClick={() => setCreatedKey(null)}
-              className={styles.dismissButton}
+              className={`btn-ghost ${styles.dismissButton}`}
             >
               {t("actions.dismiss", "Dismiss")}
             </button>
@@ -258,7 +258,7 @@ export function ApiKeysSection(): JSX.Element {
                     data-testid={`api-key-revoke-${key.id}`}
                     onClick={() => setPendingRevokeId(key.id)}
                     disabled={revokingId === key.id}
-                    className={`${styles.dangerButton} ${
+                    className={`btn-danger ${styles.dangerButton} ${
                       revokingId === key.id
                         ? styles.dangerButtonDisabled
                         : styles.dangerButtonEnabled

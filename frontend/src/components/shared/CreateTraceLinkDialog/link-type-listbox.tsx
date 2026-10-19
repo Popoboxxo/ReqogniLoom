@@ -69,6 +69,7 @@
  */
 
 import React, { useEffect, useId, useRef } from 'react';
+import { Check } from 'lucide-react';
 
 export interface ListboxOption {
   /** Stable value submitted to the API. */
@@ -435,6 +436,7 @@ export function LinkTypeListbox({
           else openAt(selectedIndex());
         }}
         onKeyDown={handleTriggerKeyDown}
+        className="btn-secondary"
         style={triggerStyle}
       >
         <span id={valueId} data-testid={`${optionTestIdPrefix}-value`} style={triggerLabelStyle}>
@@ -484,7 +486,7 @@ export function LinkTypeListbox({
                     already carries the semantics. */}
                 {isSelected && (
                   <span aria-hidden="true" style={optionCheckStyle}>
-                    ✓
+                    <Check size={16} />
                   </span>
                 )}
               </li>

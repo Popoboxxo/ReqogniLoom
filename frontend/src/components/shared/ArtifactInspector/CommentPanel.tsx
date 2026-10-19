@@ -131,7 +131,7 @@ export function CommentPanel({ kind, artifactId }: CommentPanelProps): JSX.Eleme
                 {!comment.resolved && (
                   <button
                     type="button"
-                    className={styles.actionBtn}
+                    className={`btn-ghost ${styles.actionBtn}`}
                     disabled={busy}
                     onClick={() => void handleResolve(comment)}
                     data-testid={`comment-panel-resolve-${comment.id}`}
@@ -141,7 +141,7 @@ export function CommentPanel({ kind, artifactId }: CommentPanelProps): JSX.Eleme
                 )}
                 <button
                   type="button"
-                  className={styles.actionBtn}
+                  className={`btn-danger ${styles.actionBtn}`}
                   disabled={busy}
                   onClick={() => setPendingDelete(comment)}
                   data-testid={`comment-panel-delete-${comment.id}`}
@@ -165,7 +165,7 @@ export function CommentPanel({ kind, artifactId }: CommentPanelProps): JSX.Eleme
         />
         <button
           type="button"
-          className={styles.actionBtn}
+          className={`btn-primary ${styles.actionBtn}`}
           disabled={busy || draft.trim().length === 0}
           onClick={() => void handleSubmit()}
           data-testid="comment-panel-submit"

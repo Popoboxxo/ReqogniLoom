@@ -54,7 +54,7 @@ function EntityTypeItem({
     <li>
       <button
         type="button"
-        className={`${styles.entityItem} ${active ? styles.entityItemActive : ""}`}
+        className={`btn-ghost ${styles.entityItem} ${active ? styles.entityItemActive : ""}`}
         aria-current={active ? "true" : undefined}
         onClick={() => onSelect(type)}
         data-testid={`workflow-entity-${type}`}

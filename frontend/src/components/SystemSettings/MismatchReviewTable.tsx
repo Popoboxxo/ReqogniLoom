@@ -9,6 +9,7 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
+import { Check, TriangleAlert, X } from "lucide-react";
 import {
   permissionDefaultsApi,
   CAPABILITY_KEYS,
@@ -33,8 +34,17 @@ function fmtTime(iso: string): string {
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
 }
 
-function decision(value: boolean): string {
-  return value ? "✓" : "✗";
+/**
+ * #1092: the legacy/new decision marker. Was a bare "✓"/"✗" text glyph; now a
+ * monochrome lucide icon. The cell that renders it carries the accessible
+ * name ("allowed" / "denied"), so the icon itself stays decorative.
+ */
+function DecisionMark({ value }: { value: boolean }): JSX.Element {
+  return value ? (
+    <Check aria-hidden="true" size={14} />
+  ) : (
+    <X aria-hidden="true" size={14} />
+  );
 }
 
 export function MismatchReviewTable(): JSX.Element {
@@ -177,7 +187,7 @@ export function MismatchReviewTable(): JSX.Element {
                 >
                   <td className={styles.td}>
                     <span aria-hidden="true" className={styles.warnGlyph}>
-                      ⚠
+                      <TriangleAlert size={14} />
                     </span>
                     {fmtTime(m.created_at)}
                   </td>
@@ -194,8 +204,12 @@ export function MismatchReviewTable(): JSX.Element {
                   <td className={styles.td + ' ' + styles.tdMono}>
                     {m.artifact_id ? `${m.artifact_id.slice(0, 8)}…` : "—"}
                   </td>
-                  <td className={styles.td}>{decision(m.legacy_decision)}</td>
-                  <td className={styles.td}>{decision(m.new_decision)}</td>
+                  <td className={styles.td} aria-label={m.legacy_decision ? "allowed" : "denied"}>
+                    <DecisionMark value={m.legacy_decision} />
+                  </td>
+                  <td className={styles.td} aria-label={m.new_decision ? "allowed" : "denied"}>
+                    <DecisionMark value={m.new_decision} />
+                  </td>
                 </tr>
               ))}
             </tbody>

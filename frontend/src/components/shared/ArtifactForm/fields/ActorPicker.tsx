@@ -271,7 +271,7 @@ export function ActorPicker({
                   <span className={styles.chipLabel}>{label}</span>
                   <button
                     type="button"
-                    className={styles.chipRemove}
+                    className={`btn-icon ${styles.chipRemove}`}
                     data-testid={`${testId}-chip-remove`}
                     aria-label={t("artifactForm.actorRemove", { name: label })}
                     onClick={() => removeActor(actor)}
@@ -356,7 +356,7 @@ export function ActorPicker({
                       id={`${testId}-option-${index}`}
                       role="option"
                       aria-selected={active}
-                      className={`${styles.option} ${active ? styles.optionActive : ""}`}
+                      className={`btn-ghost ${styles.option} ${active ? styles.optionActive : ""}`}
                       data-testid={`${testId}-option-${candidate.id}`}
                       onClick={() => addActor({ kind: "user", id: candidate.id })}
                     >
@@ -376,7 +376,7 @@ export function ActorPicker({
                   id={`${testId}-option-${externalIndex}`}
                   role="option"
                   aria-selected={activeIndex === externalIndex}
-                  className={`${styles.option} ${styles.optionCreate} ${
+                  className={`btn-ghost ${styles.option} ${styles.optionCreate} ${
                     activeIndex === externalIndex ? styles.optionActive : ""
                   }`}
                   data-testid={`${testId}-create-external`}
@@ -395,7 +395,7 @@ export function ActorPicker({
                   id={`${testId}-option-${clearIndex}`}
                   role="option"
                   aria-selected={activeIndex === clearIndex}
-                  className={styles.option}
+                  className={`btn-ghost ${styles.option}`}
                   data-testid={`${testId}-clear`}
                   onClick={clearAll}
                 >

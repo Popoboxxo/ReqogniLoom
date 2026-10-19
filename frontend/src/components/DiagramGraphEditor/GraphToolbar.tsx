@@ -44,7 +44,7 @@ export function GraphToolbar({
         <>
           <button
             type="button"
-            className={styles.toolbarButton}
+            className={`btn-icon ${styles.toolbarButton}`}
             onClick={onAddNode}
             aria-label={t("diagramGraph.toolbar.addNode")}
             title={t("diagramGraph.toolbar.addNode")}
@@ -54,7 +54,7 @@ export function GraphToolbar({
           </button>
           <button
             type="button"
-            className={styles.toolbarButton}
+            className={`btn-icon ${styles.toolbarButton}`}
             onClick={onAutoLayout}
             disabled={disabled}
             aria-label={t("diagramGraph.toolbar.autoLayout")}
@@ -69,7 +69,7 @@ export function GraphToolbar({
 
       <button
         type="button"
-        className={styles.toolbarButton}
+        className={`btn-icon ${styles.toolbarButton}`}
         onClick={() => zoomIn({ duration: 200 })}
         aria-label={t("diagramGraph.toolbar.zoomIn")}
         title={t("diagramGraph.toolbar.zoomIn")}
@@ -79,7 +79,7 @@ export function GraphToolbar({
       </button>
       <button
         type="button"
-        className={styles.toolbarButton}
+        className={`btn-icon ${styles.toolbarButton}`}
         onClick={() => zoomOut({ duration: 200 })}
         aria-label={t("diagramGraph.toolbar.zoomOut")}
         title={t("diagramGraph.toolbar.zoomOut")}
@@ -89,7 +89,7 @@ export function GraphToolbar({
       </button>
       <button
         type="button"
-        className={styles.toolbarButton}
+        className={`btn-icon ${styles.toolbarButton}`}
         onClick={handleFit}
         aria-label={t("diagramGraph.toolbar.fitToView")}
         title={t("diagramGraph.toolbar.fitToView")}
@@ -102,7 +102,7 @@ export function GraphToolbar({
 
       <button
         type="button"
-        className={`${styles.toolbarButton} ${gridVisible ? styles.toolbarButtonActive : ""}`}
+        className={`btn-icon ${styles.toolbarButton} ${gridVisible ? styles.toolbarButtonActive : ""}`}
         onClick={onToggleGrid}
         aria-label={t("diagramGraph.toolbar.toggleGrid")}
         aria-pressed={gridVisible}

@@ -122,7 +122,9 @@ function ActionButton({
   return (
     <button
       type="button"
-      className={variant === "primary" ? styles.primaryButton : styles.secondaryButton}
+      className={`${
+        variant === "primary" ? "btn-primary" : "btn-secondary"
+      } ${variant === "primary" ? styles.primaryButton : styles.secondaryButton}`}
       data-testid={testId}
       aria-label={action.ariaLabel}
       onClick={action.onClick}
@@ -205,7 +207,7 @@ export function EmptyState(props: EmptyStateProps): JSX.Element | null {
         <div className={styles.actions}>
           <button
             type="button"
-            className={styles.primaryButton}
+            className={`btn-primary ${styles.primaryButton}`}
             data-testid={`${props.testId ?? testId}-reset-filters`}
             onClick={props.onResetFilters}
           >
@@ -224,7 +226,7 @@ export function EmptyState(props: EmptyStateProps): JSX.Element | null {
         <div className={styles.actions}>
           <button
             type="button"
-            className={styles.primaryButton}
+            className={`btn-primary ${styles.primaryButton}`}
             data-testid={`${props.testId ?? testId}-retry`}
             onClick={props.onRetry}
           >

@@ -361,7 +361,7 @@ export function DiagramGraphEditorPage(): JSX.Element {
       <header className={styles.header} data-testid="graph-editor-header">
         <button
           type="button"
-          className={styles.iconButton}
+          className={`btn-icon ${styles.iconButton}`}
           onClick={() => navigate(`/diagrams/${diagramId}`)}
           aria-label={t("diagramGraph.header.back")}
           data-testid="graph-editor-back"
@@ -380,7 +380,7 @@ export function DiagramGraphEditorPage(): JSX.Element {
             type="button"
             data-testid="graph-viewmode-visual-btn"
             aria-pressed={viewMode === "visual"}
-            className={`${styles.iconButton} ${viewMode === "visual" ? styles.iconButtonPrimary : ""}`}
+            className={`btn-tab ${styles.iconButton} ${viewMode === "visual" ? styles.iconButtonPrimary : ""}`}
             onClick={() => setViewMode("visual")}
           >
             {t("diagramGraph.header.viewModeLabels.visual")}
@@ -389,7 +389,7 @@ export function DiagramGraphEditorPage(): JSX.Element {
             type="button"
             data-testid="graph-viewmode-code-btn"
             aria-pressed={viewMode === "code"}
-            className={`${styles.iconButton} ${viewMode === "code" ? styles.iconButtonPrimary : ""}`}
+            className={`btn-tab ${styles.iconButton} ${viewMode === "code" ? styles.iconButtonPrimary : ""}`}
             onClick={() => setViewMode("code")}
           >
             {t("diagramGraph.header.viewModeLabels.code")}
@@ -398,7 +398,7 @@ export function DiagramGraphEditorPage(): JSX.Element {
 
         <button
           type="button"
-          className={styles.toggleButton}
+          className={`btn-ghost ${styles.toggleButton}`}
           role="switch"
           aria-checked={editMode}
           onClick={toggleEditMode}
@@ -433,7 +433,7 @@ export function DiagramGraphEditorPage(): JSX.Element {
 
         <button
           type="button"
-          className={`${styles.iconButton} ${styles.iconButtonPrimary}`}
+          className={`btn-primary ${styles.iconButton} ${styles.iconButtonPrimary}`}
           onClick={() => void handleSave()}
           disabled={isSaving || isLoading}
           data-testid="graph-editor-save"
@@ -493,7 +493,7 @@ export function DiagramGraphEditorPage(): JSX.Element {
           {saveError}
           <button
             type="button"
-            className={styles.modalClose}
+            className={`btn-icon ${styles.modalClose}`}
             onClick={resetSaveError}
             aria-label={t("diagramGraph.header.dismissError")}
             data-testid="graph-editor-error-dismiss"

@@ -120,7 +120,7 @@ export function ProfileSection(): JSX.Element {
             type="button"
             data-testid="profile-edit-button"
             onClick={startEdit}
-            className={styles.secondaryButton}
+            className={`btn-secondary ${styles.secondaryButton}`}
           >
             {t("profile.edit")}
           </button>
@@ -163,7 +163,7 @@ export function ProfileSection(): JSX.Element {
               data-testid="profile-save-button"
               onClick={() => void handleSave()}
               disabled={isSaving}
-              className={styles.primaryButton}
+              className={`btn-primary ${styles.primaryButton}`}
               // Issue #1087: the shortcut this button also answers to. See the
               // ArtifactForm save button for why it is announced here rather
               // than in a shortcuts overview.
@@ -177,7 +177,7 @@ export function ProfileSection(): JSX.Element {
               data-testid="profile-cancel-button"
               onClick={cancelEdit}
               disabled={isSaving}
-              className={styles.secondaryButton}
+              className={`btn-secondary ${styles.secondaryButton}`}
             >
               {t("profile.cancel")}
             </button>

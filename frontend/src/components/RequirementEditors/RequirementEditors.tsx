@@ -533,7 +533,11 @@ export default function RequirementEditors(): JSX.Element {
     return (
       <div role="alert">
         <p className={styles.errorText}>{error}</p>
-        <button data-testid="requirements-reload-btn" onClick={refresh}>
+        <button
+          data-testid="requirements-reload-btn"
+          onClick={refresh}
+          className="btn-secondary"
+        >
           {t('actions.reload')}
         </button>
       </div>

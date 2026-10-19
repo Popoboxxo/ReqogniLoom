@@ -1246,6 +1246,7 @@ function TreeRow({
             onToggle(node.id);
           }}
           className={
+            'btn-icon ' +
             styles.toggle +
             ' ' +
             (containsSelection ? styles.toggleActive : styles.toggleInactive) +
@@ -1363,7 +1364,7 @@ function TreeRow({
             e.stopPropagation();
             onAddChild(node.id);
           }}
-          className={styles.addChildButton}
+          className={`btn-icon ${styles.addChildButton}`}
         >
           +
         </button>

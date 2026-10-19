@@ -13,6 +13,7 @@
  */
 
 import { useTranslation } from "react-i18next";
+import { Lock } from "lucide-react";
 import type { WorkflowHistoryEntry } from "../../api/requirements";
 import styles from "./ReviewHistoryPanel.module.css";
 
@@ -87,6 +88,12 @@ export function ReviewHistoryPanel({
                 ? t("reviews.historySealed", "Signed")
                 : t("reviews.historyUnsealed", "Unsigned")
             }
+            /* The seal is icon-only (Lock) or a bare dash, so the visible
+             * content carries no accessible name. `role="img"` is required
+             * before `aria-label` is permitted (ARIA 1.2: `aria-label` is
+             * prohibited on the `generic` role) — same pattern as
+             * TraceSpine/ArtifactRow status badges. */
+            role="img"
             aria-label={
               entry.sealed
                 ? t("reviews.historySealed", "Signed")
@@ -94,7 +101,7 @@ export function ReviewHistoryPanel({
             }
             className={styles.sealIcon}
           >
-            {entry.sealed ? "🔒" : "—"}
+            {entry.sealed ? <Lock aria-hidden="true" size={14} /> : "—"}
           </span>
         </li>
       ))}

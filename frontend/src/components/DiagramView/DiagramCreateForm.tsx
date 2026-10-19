@@ -185,7 +185,7 @@ export function DiagramCreateForm({
               setError(null);
               onCancel();
             }}
-            className={styles.cancelBtn}
+            className={`btn-secondary ${styles.cancelBtn}`}
           >
             {t("actions.cancel", "Cancel")}
           </button>
@@ -194,7 +194,7 @@ export function DiagramCreateForm({
             data-testid="diagram-save-btn"
             onClick={() => void handleCreate()}
             disabled={submitDisabled}
-            className={`${styles.submitBtn} ${submitDisabled ? styles.submitBtnDisabled : ""}`}
+            className={`btn-primary ${styles.submitBtn} ${submitDisabled ? styles.submitBtnDisabled : ""}`}
           >
             {isSaving ? t("actions.saving", "Saving...") : t("actions.save", "Save")}
           </button>

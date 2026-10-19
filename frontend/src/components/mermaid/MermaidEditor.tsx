@@ -22,6 +22,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { TriangleAlert } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { diagramsApi } from "../../api/diagrams";
 import { diagramKeys } from "../DiagramView/useDiagramData";
@@ -405,7 +406,7 @@ export function MermaidEditor({
               data-testid="mermaid-save-btn"
               onClick={handleManualSave}
               disabled={!isDirty || saveStatus === "saving"}
-              className={`${styles.saveButton} ${isDirty ? "" : styles.saveButtonDisabled}`}
+              className={`btn-primary ${styles.saveButton} ${isDirty ? "" : styles.saveButtonDisabled}`}
             >
               {saveStatus === "saving"
                 ? t("actions.saving", "Saving...")
@@ -458,7 +459,7 @@ export function MermaidEditor({
       {/* Error banner */}
       {validationError && (
         <div className={styles.errorBanner} data-testid="mermaid-error" role="alert">
-          <span className={styles.errorIcon}>⚠</span>
+          <TriangleAlert aria-hidden="true" size={16} className={styles.errorIcon} />
           <span>{validationError}</span>
         </div>
       )}

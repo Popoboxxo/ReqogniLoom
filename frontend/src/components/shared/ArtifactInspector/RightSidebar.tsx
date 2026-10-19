@@ -28,6 +28,7 @@ import {
   type CSSProperties,
 } from "react";
 import { useTranslation } from "react-i18next";
+import { Link2, Pin } from "lucide-react";
 import { InterviewProvenanceBadge } from "../InterviewProvenanceBadge";
 import { VersionPanel } from "./VersionPanel";
 import { DiffPanel } from "./DiffPanel";
@@ -315,7 +316,7 @@ export function RightSidebar({
       <div className={styles.collapsed} data-testid="artifact-inspector-collapsed">
         <button
           type="button"
-          className={styles.collapsedButton}
+          className={`btn-icon ${styles.collapsedButton}`}
           aria-label={t("sidebar.inspector.expand", "Open sidebar")}
           title={t("sidebar.inspector.expand", "Open sidebar")}
           onClick={(): void => setCollapsed(false)}
@@ -335,7 +336,7 @@ export function RightSidebar({
             ui-ux-designer, not an a11y-only pass. */}
         <button
           type="button"
-          className={styles.collapsedIconButton}
+          className={`btn-icon ${styles.collapsedIconButton}`}
           aria-label={t("sidebar.version.title", "Version")}
           title={t("sidebar.version.title", "Version")}
           onClick={(): void => setCollapsed(false)}
@@ -344,7 +345,7 @@ export function RightSidebar({
         </button>
         <button
           type="button"
-          className={styles.collapsedIconButton}
+          className={`btn-icon ${styles.collapsedIconButton}`}
           aria-label={t("sidebar.diff.title", "Diff")}
           title={t("sidebar.diff.title", "Diff")}
           onClick={(): void => setCollapsed(false)}
@@ -354,12 +355,12 @@ export function RightSidebar({
         {!hideTraceLinks && (
           <button
             type="button"
-            className={styles.collapsedIconButton}
+            className={`btn-icon ${styles.collapsedIconButton}`}
             aria-label={t("sidebar.trace.title", "Trace Links")}
             title={t("sidebar.trace.title", "Trace Links")}
             onClick={(): void => setCollapsed(false)}
           >
-            🔗
+            <Link2 aria-hidden="true" size={18} />
           </button>
         )}
       </div>
@@ -375,7 +376,7 @@ export function RightSidebar({
         <div className={styles.headerActions}>
           <button
             type="button"
-            className={styles.headerButton}
+            className={`btn-icon ${styles.headerButton}`}
             aria-label={
               pinned
                 ? t("sidebar.inspector.unpin", "Unpin sidebar")
@@ -390,11 +391,11 @@ export function RightSidebar({
             onClick={(): void => setPinned((v) => !v)}
             data-testid="artifact-inspector-pin"
           >
-            📌
+            <Pin aria-hidden="true" size={16} />
           </button>
           <button
             type="button"
-            className={styles.headerButton}
+            className={`btn-icon ${styles.headerButton}`}
             aria-label={t("sidebar.inspector.collapse", "Collapse sidebar")}
             title={t("sidebar.inspector.collapse", "Collapse sidebar")}
             onClick={(): void => setCollapsed(true)}

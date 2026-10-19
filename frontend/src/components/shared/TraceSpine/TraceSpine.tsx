@@ -24,6 +24,7 @@
 
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { TriangleAlert } from "lucide-react";
 import { ArtifactId } from "../ArtifactId";
 import { LevelBadge } from "../LevelBadge";
 import {
@@ -149,7 +150,7 @@ export function TraceSpine({
 
                 <button
                   type="button"
-                  className={styles.stationButton}
+                  className={`btn-ghost ${styles.stationButton}`}
                   data-testid={`${testId}-station-button`}
                   disabled={linkCount === 0}
                   aria-expanded={
@@ -215,7 +216,7 @@ export function TraceSpine({
                       role="img"
                       aria-label={t("traceSpine.noCoverage", "Keine Abdeckung")}
                     >
-                      ⚠
+                      <TriangleAlert aria-hidden="true" size={14} />
                     </span>
                   )}
 
@@ -225,9 +226,9 @@ export function TraceSpine({
                     station.artifactType === ARTIFACT_TYPE_ARCHITECTURE) && (
                     <button
                       type="button"
-                      className={
+                      className={`btn-ghost ${
                         verificationCount > 0 ? styles.verification : styles.verificationEmpty
-                      }
+                      }`}
                       data-testid={`${testId}-verification`}
                       disabled={verificationCount === 0}
                       aria-expanded={
@@ -289,7 +290,7 @@ export function TraceSpine({
                 <li key={artifact.id} className={styles.panelItem}>
                   <button
                     type="button"
-                    className={styles.panelItemButton}
+                    className={`btn-ghost ${styles.panelItemButton}`}
                     data-testid={`${testId}-panel-item`}
                     disabled={isOpenable ? !isOpenable(artifact) : !onOpenArtifact}
                     onClick={() => onOpenArtifact?.(artifact)}

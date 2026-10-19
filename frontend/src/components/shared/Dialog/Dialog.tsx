@@ -203,7 +203,7 @@ export function Dialog({
           {showCloseButton && (
             <button
               type="button"
-              className={styles.close}
+              className={`btn-icon ${styles.close}`}
               data-testid={`${testId}-close`}
               onClick={onClose}
               aria-label={t("dialog.closeLabel", "Dialog schließen")}

@@ -1193,7 +1193,7 @@ export function CanvasEditor({
     <button
       type="button"
       data-testid={`canvas-tool-${tool}`}
-      className={`${styles.toolButton} ${extraClass} ${activeTool === tool ? styles.toolButtonActive : ""}`}
+      className={`btn-icon ${styles.toolButton} ${extraClass} ${activeTool === tool ? styles.toolButtonActive : ""}`}
       onClick={() => setActiveTool(tool)}
       title={label}
       aria-label={label}
@@ -1231,7 +1231,7 @@ export function CanvasEditor({
           <button
             type="button"
             data-testid="canvas-line-style"
-            className={styles.toolButton}
+            className={`btn-icon ${styles.toolButton}`}
             onClick={() => setLineStyle((s) => (s === "solid" ? "dashed" : "solid"))}
             title={t("canvas.toolbar.lineStyle")}
             aria-label={t("canvas.toolbar.lineStyle")}
@@ -1257,7 +1257,7 @@ export function CanvasEditor({
               key={c}
               type="button"
               data-testid={`canvas-color-${c.replace("#", "")}`}
-              className={`${styles.swatch} ${color === c ? styles.swatchActive : ""}`}
+              className={`btn-icon ${styles.swatch} ${color === c ? styles.swatchActive : ""}`}
               style={swatchStyle(c)}
               onClick={() => setColor(c)}
               title={`Stroke ${c}`}
@@ -1273,7 +1273,7 @@ export function CanvasEditor({
               key={c}
               type="button"
               data-testid={`canvas-fill-${c.replace("#", "")}`}
-              className={`${styles.swatch} ${c === "transparent" ? styles.swatchTransparent : ""} ${
+              className={`btn-icon ${styles.swatch} ${c === "transparent" ? styles.swatchTransparent : ""} ${
                 fillColor === c ? styles.swatchActive : ""
               }`}
               style={c === "transparent" ? undefined : { background: c }}
@@ -1307,7 +1307,7 @@ export function CanvasEditor({
           <button
             type="button"
             data-testid="canvas-snap-toggle"
-            className={`${styles.toolButton} ${snapEnabled ? styles.toolButtonActive : ""}`}
+            className={`btn-icon ${styles.toolButton} ${snapEnabled ? styles.toolButtonActive : ""}`}
             onClick={() => setSnapEnabled((v) => !v)}
             title={t("canvas.toolbar.snap")}
             aria-label={t("canvas.toolbar.snap")}
@@ -1318,7 +1318,7 @@ export function CanvasEditor({
           <button
             type="button"
             data-testid="canvas-zoom-out"
-            className={styles.toolButton}
+            className={`btn-icon ${styles.toolButton}`}
             onClick={handleZoomOut}
             title={t("canvas.toolbar.zoomOut")}
             aria-label={t("canvas.toolbar.zoomOut")}
@@ -1331,7 +1331,7 @@ export function CanvasEditor({
           <button
             type="button"
             data-testid="canvas-zoom-in"
-            className={styles.toolButton}
+            className={`btn-icon ${styles.toolButton}`}
             onClick={handleZoomIn}
             title={t("canvas.toolbar.zoomIn")}
             aria-label={t("canvas.toolbar.zoomIn")}
@@ -1341,7 +1341,7 @@ export function CanvasEditor({
           <button
             type="button"
             data-testid="canvas-zoom-fit"
-            className={styles.toolButton}
+            className={`btn-icon ${styles.toolButton}`}
             onClick={handleZoomFit}
             title={t("canvas.toolbar.zoomFit")}
             aria-label={t("canvas.toolbar.zoomFit")}
@@ -1355,7 +1355,7 @@ export function CanvasEditor({
           <button
             type="button"
             data-testid="canvas-undo"
-            className={styles.toolButton}
+            className={`btn-icon ${styles.toolButton}`}
             onClick={handleUndo}
             disabled={!canUndo}
             title={t("canvas.toolbar.undo", "Undo (Ctrl+Z)")}
@@ -1366,7 +1366,7 @@ export function CanvasEditor({
           <button
             type="button"
             data-testid="canvas-redo"
-            className={styles.toolButton}
+            className={`btn-icon ${styles.toolButton}`}
             onClick={handleRedo}
             disabled={!canRedo}
             title={t("canvas.toolbar.redo", "Redo (Ctrl+Y)")}
@@ -1380,7 +1380,7 @@ export function CanvasEditor({
         <button
           type="button"
           data-testid="canvas-save-btn"
-          className={styles.saveButton}
+          className={`btn-primary ${styles.saveButton}`}
           onClick={() => void performAutoSave()}
           disabled={!isDirty || saveStatus === "saving"}
           title={t("canvas.toolbar.save", "Save")}

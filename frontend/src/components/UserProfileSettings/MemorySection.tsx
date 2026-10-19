@@ -143,7 +143,7 @@ export function MemorySection(): JSX.Element {
               data-testid="memory-self-service-delete-btn"
               onClick={() => setShowDeleteConfirm(true)}
               disabled={entryCount === 0 || isDeleting}
-              className={styles.deleteBtn}
+              className={`btn-danger ${styles.deleteBtn}`}
             >
               {isDeleting ? "…" : t("memorySelfService.deleteButton", "Mein Memory löschen")}
             </button>
@@ -168,7 +168,7 @@ export function MemorySection(): JSX.Element {
                     data-testid={`memory-self-service-forget-${entry.entry_id}`}
                     onClick={() => setPendingForget(entry)}
                     disabled={busyId === entry.entry_id}
-                    className={styles.forgetBtn}
+                    className={`btn-danger ${styles.forgetBtn}`}
                   >
                     {t("memorySelfService.forgetButton", "Vergessen")}
                   </button>

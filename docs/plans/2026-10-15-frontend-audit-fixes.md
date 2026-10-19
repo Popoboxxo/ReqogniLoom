@@ -24,8 +24,8 @@ language: de
 
 | Feld | Wert |
 |---|---|
-| **Status** | **In Umsetzung** — Phasen 0–5 (5a/5b) gemergt; Phasen 5c/6–8 offen. Vier Entscheidungen bestätigt (siehe „Entscheidungen (bestätigt)"). Fortschreibung siehe „Umsetzungsstand" oben. |
-| **Datum** | 2026-10-15 (Stand aktualisiert: 2026-10-18) |
+| **Status** | **In Umsetzung** — Phasen 0–7 gemergt bzw. abgeschlossen (Phase 7 auf `fix/audit-frontend-phase7`, PR offen); Phase 8 lokal verifiziert, E2E + axe-Gate CI-verifiziert ausstehend. Vier Entscheidungen bestätigt (siehe „Entscheidungen (bestätigt)"). Fortschreibung siehe „Umsetzungsstand" oben. |
+| **Datum** | 2026-10-15 (Stand aktualisiert: 2026-10-19) |
 | **Bezug** | System-Audit `frontend/src` 2026-10-15 · Frontend-Fach-Audit (16 Findings, Score 57) · UI-Audit (Score 68) · Code-Qualitäts-Audit (C+ 7.0/10) · Accessibility-Audit (78/100) · `frontend/src/test/design-system-ratchet.baseline.json` (#954, #797, #1091, #1093, #1092) · #1193 |
 | **Grundlage** | Verifizierter Arbeitsbaum-Stand bei Basis-HEAD `b6159d6b`; graphify-Wissensgraph `graphify-out/graph.json` (bei `b6159d6b` gebaut; 50.289 Nodes, 4.035 Nodes unter `frontend/src/`); read-only Code-/A11y-/Ratchet-Evidenz-Inventare |
 | **Geltung / Scope** | Ausschließlich `frontend/src` (plus `frontend/src/test` und `e2e/`). Reuse-Refactors, Storage-DRY, Timer-Cleanups, God-Component-Zerlegung, A11y-Rest, Design-System-Ratchet-Abbau |
@@ -33,7 +33,7 @@ language: de
 
 ---
 
-## Umsetzungsstand (fortgeschrieben 2026-10-18)
+## Umsetzungsstand (fortgeschrieben 2026-10-19)
 
 > **Persistenter Projektstand** — fortlaufend gepflegt, damit die Bearbeitung an
 > beliebiger Stelle fortgesetzt werden kann. Ursprünglicher Plan-Text ab §0 ist
@@ -41,7 +41,7 @@ language: de
 >
 > Lokaler (gitignorierter) Session-Checkpoint als Zusatz: `.meta-viz/checkpoint-20261017-frontend-audit.json`.
 
-- **Basis (`origin/main` zum Fortschreibungszeitpunkt):** `480ef346`
+- **Basis (`origin/main` zum Fortschreibungszeitpunkt):** `aa665cb9` (Phase 6 / 5c gemergt)
 - **Branch-Konvention (Abweichung vom Plan):** je Phase ein eigener Branch `fix/audit-frontend-phaseN` statt eines Sammel-Branches `fix/audit-frontend-findings`. Jede Phase wird als eigener PR gemergt.
 - **Verifikations-Baseline (Phase 0):** `npm run lint` 0 errors / **231** warnings · `tsc` exit 0 · `vitest` 296 Files / 2808 pass + 1 env-Flake `mermaidSanitizeRoundtrip` (isoliert grün) · Ratchet-Ceilings **278 / 26 / 3** (27 Exemptions). Baseline post-hoc gemessen.
 - **Regel für Folgephasen:** nur **neue** Fails blockieren (Delta gegen Baseline); Ratchet-Ceilings dürfen **nie** erhöht werden; Lint-Warnungen liegen exakt bei 231/231 → **kein Puffer** für neue Warnungen.
@@ -58,19 +58,32 @@ language: de
 | 4 Type-Barrel-Split | ✅ gemergt | `fix/audit-frontend-phase4` | #1430 → `6d87b172` | 12 × `1f2cd9f3`..`15417b24` (F-16) | tsc 0 je Commit; Barrel 1162 → 21 LOC; Exporte 96 = 96 |
 | 5a WorkspaceContext | ✅ gemergt | `fix/audit-frontend-phase5` | #1431 → `480ef346` | `0ff7f7d4`, `079e7c85` (FE-01, F-03) | 581 → 319 LOC; API 1:1 |
 | 5b ArtifactForm | ✅ gemergt | `fix/audit-frontend-phase5` | #1431 → `480ef346` | `d3ec31fe`, `b202967e`, `8493b068` (FE-01, F-01) | 1359 → 226 LOC; Props/8 Renderstellen unverändert |
-| 5c WorkspaceTree | ⬜ offen — **gebündelt mit Phase 6** | `fix/audit-frontend-phase6` (geplant) | — | — | H-1 Keyboard-Reparenting |
-| 6 Accessibility | ⬜ offen | `fix/audit-frontend-phase6` (geplant) | — | — | Skip-Link, Drawer-Modal, `useMediaQuery`, Sections, M-2/M-4/L-2, axe-Gate |
-| 7 Ratchet-Abbau | ⬜ offen | `fix/audit-frontend-phase7` (geplant) | — | — | Ceilings < 278/26/3 senken |
-| 8 Final-Verifikation & DoD | ⬜ offen | `fix/audit-frontend-phase8` (geplant) | — | — | lint/build/vitest/e2e/axe |
+| 5c WorkspaceTree | ✅ gemergt (mit Phase 6) | `fix/audit-frontend-phase6` | #1440 → `aa665cb9` | `e5f6f4b5`, `b4ca27ff`, `e8c0c2a3` (FE-01), `6f4c1b85`, `7408788e` (H-1) | WorkspaceTree in 3 Module zerlegt; Keyboard-Reparenting grün |
+| 6 Accessibility | ✅ gemergt | `fix/audit-frontend-phase6` | #1440 → `aa665cb9` | `9dbd4841` (M-3), `36489e16` (H-2), `d9e120c5` (M-2/M-4), `0a034230` (L-2), `936a76f5` (M-1), `81a08b7a` (axe-Gate), `b24a67fb`, `91af1f9f` | Skip-Link, Drawer-Modal, Sections, M-2/M-4/L-2, axe-Smoke-Spec |
+| 7 Ratchet-Abbau | ✅ done — PR offen | `fix/audit-frontend-phase7` | — | `a36eeef3` … `6ca436e8` (10), Review-Fixes `c81e1d1`, `b83c29d`, finaler Verifikations-Commit | Ceilings **278/26/3 → 18/0/0**; 27 Exemptions unverändert; 18 Rest-Einträge = `SystemSettings/*` (#1258) |
+| 8 Final-Verifikation & DoD | 🟡 lokal grün — CI-Gate ausstehend | `fix/audit-frontend-phase7` | — | s. Baseline-Delta unten | lint 0 Err/231 Warn; tsc exit 0; build grün; vitest 302/2875 grün (8 Worker); E2E + axe in CI |
 
 **Phase 5 (5a+5b) Verifikationsdetails:** `tsc` exit 0 je Commit · `vitest` **301 Files / 2853 pass / 0 fail** (Delta +2 Files/+16 Tests, 0 neue Fails) · lint 0 Err/231 Warn · 4 Ratchets grün, Ceilings 278/26/3 unverändert.
 
+**Phase 7 Verifikationsdetails:** Ratchet-Ceilings **278/26/3 → 18/0/0** in Monotonie-Schritten (ein Batch = ein Commit); Exemptions **27 unverändert**. Die 18 verbleibenden `button-missing-design-system-class`-Einträge liegen ausschließlich unter `components/SystemSettings/*` und sind als Follow-up **#1258** ausgespart (nicht Teil dieses Plans). `design-system-ratchet.test.ts` 21/21 grün. Review-Nachbesserungen (A11y-Namen für Seal-/Gate-Indikator, Hover-Erhalt der Selektions-Tönung, `font-weight`-Reset der Review-Zeile) in `c81e1d1` und `b83c29d`.
+
+**Phase 8 Verifikationsdetails (lokal, 2026-10-19, Branch `fix/audit-frontend-phase7`):**
+- `npm run lint`: **0 errors / 231 warnings** (unverändert am 231er-Deckel).
+- `npx tsc --noEmit -p tsconfig.build.json`: **exit 0**.
+- `npm run build` (tsc + vite): **grün**, 4799 Module.
+- `npx vitest run` (Default-Worker = 63 auf diesem 64-vCPU-Host): 302 Files / 2875 Tests, **85 Fails** — ausschließlich Parallel-Contention (Flaky-Artefakt: 74 `Test timed out in 5000ms`, 3 assertion, 8 runtime, alle in von diesem Branch nicht berührten Dateien). Derselbe Lauf mit `--maxWorkers=8`: **302/302 Files, 2875/2875 Tests grün, 0 Fails**. Keine echte Assertion-Regression.
+- `npx vitest run src/test/design-system-ratchet.test.ts`: **21/21 grün**.
+- **E2E (`npx playwright test`) + `@axe-core/playwright`-Gate: CI-verifiziert ausstehend** — der Host hat keine Chromium-Runtime-Libs (`libatk-1.0.so.0` u. a.); die Specs sind mit Phase 6 angelegt (`e2e/tests/a11y-smoke.spec.ts`) und laufen im CI.
+
+**Baseline-Delta (Phase 0 → Endstand):** lint 0 Err / **231 Warn** (231 → 231, unverändert) · `tsc` exit 0 (unverändert) · vitest **296 Files / 2808 Tests → 302 Files / 2875 Tests**, **0** Assertion-Failures (der Phase-0-Env-Flake `mermaidSanitizeRoundtrip` ist isoliert grün) · Ratchet-Ceilings **278 / 26 / 3 → 18 / 0 / 0** · Exemptions **27 → 27** · Branch-Delta: **10** Ratchet-Migrations-Commits + **2** Review-Fix-Commits + **1** Verifikations-Commit.
+
 ### Wiederaufnahme (nächster Schritt)
 
-**Nächster Schritt:** Phase 6 (Phasen 0–5 sind gemergt, `origin/main` = `480ef346`).
+**Nächster Schritt:** Phase 7 als PR gegen `main` einreichen (Branch `fix/audit-frontend-phase7`, letzter Commit = finaler Verifikations-Commit); danach Phase 8 abschließen, sobald CI die E2E-Shards und das axe-Gate bestätigt.
 
-1. **Phase 6** auf neuem Branch `fix/audit-frontend-phase6` (Basis `origin/main` = `480ef346`), **inklusive 5c** (WorkspaceTree-Zerlegung + H-1 Keyboard-Reparenting, da beides dasselbe Modul schneidet): Skip-Link, mobiler Modal-Drawer + `useMediaQuery`, ArtifactForm-Sections (H-2), M-2/M-4/L-2, `@axe-core/playwright`-Gate.
-2. Danach Phase 7 (Ratchet-Abbau, Ceilings < 278/26/3) und Phase 8 (Final-DoD) wie im Plan-Text ab §Phase 6/7/8.
+1. PR für `fix/audit-frontend-phase7` → `main` (Push/PR über die `git`-Rolle). PR-Text referenziert den Audit-Befund (§1) und diesen Plan.
+2. CI-Auswertung: `e2e`-Shards + `@axe-core/playwright`-Gate aus `e2e/tests/a11y-smoke.spec.ts`; bei grünem Lauf Phase 8 in der Tabelle auf ✅ setzen (PR-Nummer dann nachtragen).
+3. **#1258** (18 `SystemSettings`-Button-Migrationen) bleibt explizit außerhalb dieses Plans.
 
 ### Abweichungen / Erkenntnisse (fortgeschrieben)
 
