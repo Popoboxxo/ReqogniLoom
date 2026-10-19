@@ -34,6 +34,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
+import { Check, TriangleAlert } from "lucide-react";
 import type { TFunction } from "i18next";
 import { getArtifactRoute } from "../../utils/artifactRoutes";
 import { safeSessionStorage } from "../../utils/safeStorage";
@@ -207,7 +208,15 @@ function EndpointCell({
           data-covered={isVerified ? "true" : "false"}
           className={`${styles.coverageBadge} ${isVerified ? styles.covered : styles.uncovered}`}
         >
-          {isVerified ? `✓ ${coveredLabel}` : `⚠ ${uncoveredLabel}`}
+          {isVerified ? (
+            <>
+              <Check aria-hidden="true" size={14} /> {coveredLabel}
+            </>
+          ) : (
+            <>
+              <TriangleAlert aria-hidden="true" size={14} /> {uncoveredLabel}
+            </>
+          )}
         </span>
       )}
     </>
@@ -517,7 +526,7 @@ function CycleWarningPanel({
       className={styles.cycleWarning}
     >
       <strong className={styles.cycleWarningTitle}>
-        ⚠ {t("traceability.cycleWarning")} ({cycles.length})
+        <TriangleAlert aria-hidden="true" size={14} /> {t("traceability.cycleWarning")} ({cycles.length})
       </strong>
       <ul className={styles.cycleList}>
         {cycles.map((cycle, i) => (
@@ -702,7 +711,7 @@ function UncoveredRequirementsPanel({
                 className={`${styles.coverageBadge} ${styles.uncovered}`}
                 data-testid="uncovered-requirement-badge"
               >
-                ⚠ {t("traceability.notVerified", "kein Test")}
+                <TriangleAlert aria-hidden="true" size={14} /> {t("traceability.notVerified", "kein Test")}
               </span>
             </li>
           ))}

@@ -19,6 +19,7 @@ import {
 import { useTranslation } from "react-i18next";
 import {
   ArrowRight,
+  Lock,
   MousePointerClick,
   Pencil,
   Trash2,
@@ -359,7 +360,7 @@ function TransitionRow({
           aria-label={t("workflow.inspector.requiresChangeReason")}
           title={t("workflow.inspector.requiresChangeReason")}
         >
-          🔒
+          <Lock aria-hidden="true" size={14} />
         </span>
       )}
     </button>
@@ -403,7 +404,9 @@ function TransitionInspector({
           {transition.change_reason_required ? (
             <>
               {t("workflow.inspector.required")}
-              <span aria-hidden="true">🔒</span>
+              <span aria-hidden="true">
+                <Lock size={14} />
+              </span>
             </>
           ) : (
             t("workflow.inspector.optional")

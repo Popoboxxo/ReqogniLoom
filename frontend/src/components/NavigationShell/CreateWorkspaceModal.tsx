@@ -12,6 +12,7 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { TriangleAlert } from "lucide-react";
 import { workspacesApi } from "../../api/workspaces";
 import { Dialog } from "../shared/Dialog";
 import type { TerminologyProfile, Workspace, WorkspacePreset } from "../../types";
@@ -240,7 +241,7 @@ export function CreateWorkspaceModal({
               data-testid="new-workspace-name-field-error"
               className={fieldHints.fieldError}
             >
-              <span aria-hidden="true">⚠</span>
+              <TriangleAlert aria-hidden="true" size={14} />
               {t("workspaceCreate.errorRequired") || "Name is required"}
             </p>
           )}

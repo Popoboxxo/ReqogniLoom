@@ -339,10 +339,12 @@ describe("WorkspaceSettings tabs (REQ-015)", () => {
     expect(screen.getByTestId("workspace-name-save")).toBeDisabled();
   });
 
-  it("renders preset features with a consistent symbol-prefixed format", () => {
+  it("renders preset features with a consistent icon-prefixed format", () => {
     render(<WorkspaceSettings />);
     const summary = screen.getByTestId("preset-features-extended");
     expect(summary).not.toHaveTextContent("change_reason:");
-    expect(summary.textContent).toMatch(/✓ Baselines/);
+    // #1092: the feature markers are monochrome icons, not text glyphs. The
+    // enabled baselines marker exposes its state through the accessible name.
+    expect(summary.querySelector('[role="img"]')).toHaveAttribute("aria-label", "Yes");
   });
 });

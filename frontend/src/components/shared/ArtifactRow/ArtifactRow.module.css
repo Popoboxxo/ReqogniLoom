@@ -82,6 +82,17 @@
   white-space: nowrap;
 }
 
+/* Issue #1092: the `suspect` marker — a monochrome lucide icon in the
+   warning colour, in front of the title. Replaces the emoji prefix that used
+   to be concatenated into the title string. */
+.suspect {
+  display: inline-flex;
+  align-items: center;
+  vertical-align: text-bottom;
+  margin-right: var(--space-1);
+  color: var(--color-warning);
+}
+
 /* Issue #804: compact SE-attribute line. A single, clipped line (rather than
    a wrapping one) keeps the row height bounded for the virtualized lists that
    estimate it — see the component docstring. */

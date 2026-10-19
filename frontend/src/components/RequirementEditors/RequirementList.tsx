@@ -21,6 +21,7 @@
 
 import React, { useState, useMemo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
+import { X } from 'lucide-react';
 import { usePersistedListState } from '../../hooks/usePersistedListState';
 import { useHasRole } from '../../hooks/useHasRole';
 import { useWorkspace } from '../../context/WorkspaceContext';
@@ -114,7 +115,11 @@ function reqToNode(
     : undefined;
   return {
     id: req.id,
-    name: (req.suspect ? '⚠ ' : '') + (req.title || 'Untitled'),
+    // The suspect flag is not part of the tree-label contract: this tree is
+    // always rendered through `renderRow` (see below), so `name` is used only
+    // for search matching. The visible suspect marker lives on the row itself
+    // (<ArtifactRow suspect>, #1092), never as an emoji in this string.
+    name: req.title || 'Untitled',
     parentId: req.parent_id ?? null,
     badge,
   };
@@ -562,7 +567,8 @@ export const RequirementList: React.FC<RequirementListProps> = ({
                           : t(`reqType.${req.type}`)
                         : undefined
                     }
-                    title={(req.suspect ? '⚠ ' : '') + (req.title || t('editor.untitled'))}
+                    title={req.title || t('editor.untitled')}
+                    suspect={req.suspect}
                     status={req.status}
                     statusLabel={getWorkflowStatusLabel(req.status)}
                     version={req.version}
@@ -591,7 +597,7 @@ export const RequirementList: React.FC<RequirementListProps> = ({
                     }}
                     className={styles.deleteButton}
                   >
-                    ✕
+                    <X aria-hidden="true" size={14} />
                   </button>
                 )}
               </div>

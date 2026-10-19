@@ -17,6 +17,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
+import { Check } from "lucide-react";
 import { workflowsApi, type WorkflowEntityType } from "../../api/workflows";
 import {
   permissionDefaultsApi,
@@ -450,7 +451,7 @@ function ReadOnlyMatrix({ matrix }: { matrix: PermissionMatrix }): JSX.Element {
                     cap
                   )} ${matrix[role][cap] ? t("permissionMatrix.allowed") : t("permissionMatrix.denied")}`}
                 >
-                  {matrix[role][cap] ? "✓" : "—"}
+                  {matrix[role][cap] ? <Check aria-hidden="true" size={14} /> : "—"}
                 </td>
               ))}
             </tr>

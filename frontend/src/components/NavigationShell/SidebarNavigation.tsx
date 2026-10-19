@@ -14,7 +14,7 @@
 import React from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { ChevronDown, X } from "lucide-react";
+import { Check, ChevronDown, Menu, X } from "lucide-react";
 import { APP_NAME } from "../../config/app-name";
 import { useWorkspace, DEFAULT_WORKSPACE } from "../../context/WorkspaceContext";
 import { useAuth } from "../../context/AuthContext";
@@ -510,7 +510,11 @@ export function SidebarNavigation(): JSX.Element {
       aria-expanded={isMobileNavOpen}
       onClick={() => setIsMobileNavOpen((open) => !open)}
     >
-      {isMobileNavOpen ? "✕" : "☰"}
+      {isMobileNavOpen ? (
+        <X aria-hidden="true" size={20} />
+      ) : (
+        <Menu aria-hidden="true" size={20} />
+      )}
     </button>
     {isMobileNavOpen && (
       // Backdrop only — deliberately not focusable and without a role: it sits
@@ -757,7 +761,7 @@ export function SidebarNavigation(): JSX.Element {
                         </span>
                         {isActive && (
                           <span aria-hidden="true" className={styles.workspaceOptionCheck}>
-                            ✓
+                            <Check size={14} />
                           </span>
                         )}
                       </button>

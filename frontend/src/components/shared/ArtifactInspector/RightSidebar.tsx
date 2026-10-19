@@ -28,6 +28,7 @@ import {
   type CSSProperties,
 } from "react";
 import { useTranslation } from "react-i18next";
+import { Link2, Pin } from "lucide-react";
 import { InterviewProvenanceBadge } from "../InterviewProvenanceBadge";
 import { VersionPanel } from "./VersionPanel";
 import { DiffPanel } from "./DiffPanel";
@@ -359,7 +360,7 @@ export function RightSidebar({
             title={t("sidebar.trace.title", "Trace Links")}
             onClick={(): void => setCollapsed(false)}
           >
-            🔗
+            <Link2 aria-hidden="true" size={18} />
           </button>
         )}
       </div>
@@ -390,7 +391,7 @@ export function RightSidebar({
             onClick={(): void => setPinned((v) => !v)}
             data-testid="artifact-inspector-pin"
           >
-            📌
+            <Pin aria-hidden="true" size={16} />
           </button>
           <button
             type="button"

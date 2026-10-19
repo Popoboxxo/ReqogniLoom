@@ -13,6 +13,7 @@
  */
 
 import { useTranslation } from "react-i18next";
+import { Lock } from "lucide-react";
 import type { WorkflowHistoryEntry } from "../../api/requirements";
 import styles from "./ReviewHistoryPanel.module.css";
 
@@ -94,7 +95,7 @@ export function ReviewHistoryPanel({
             }
             className={styles.sealIcon}
           >
-            {entry.sealed ? "🔒" : "—"}
+            {entry.sealed ? <Lock aria-hidden="true" size={14} /> : "—"}
           </span>
         </li>
       ))}

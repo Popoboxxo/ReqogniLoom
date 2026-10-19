@@ -213,7 +213,9 @@
   },
   "loading": "Loading...",
   "common": {
-    "close": "Close"
+    "close": "Close",
+    "yes": "Yes",
+    "no": "No"
   },
   "actions": {
     "add": "Add",
@@ -347,6 +349,7 @@
     "showDeleted": "Show deleted",
     "showOutdated": "Show outdated",
     "outdatedBadge": "Outdated",
+    "suspectBadge": "Suspect",
     "sortLabel": "Sort by",
     "sortDefault": "Default order",
     "sortTitleAsc": "Title (A–Z)",

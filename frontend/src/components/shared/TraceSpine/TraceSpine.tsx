@@ -24,6 +24,7 @@
 
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { TriangleAlert } from "lucide-react";
 import { ArtifactId } from "../ArtifactId";
 import { LevelBadge } from "../LevelBadge";
 import {
@@ -215,7 +216,7 @@ export function TraceSpine({
                       role="img"
                       aria-label={t("traceSpine.noCoverage", "Keine Abdeckung")}
                     >
-                      ⚠
+                      <TriangleAlert aria-hidden="true" size={14} />
                     </span>
                   )}
 

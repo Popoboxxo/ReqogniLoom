@@ -43,6 +43,7 @@
  */
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
+import { Check } from "lucide-react";
 import { useAuth } from "../../../context/AuthContext";
 import { usersApi, type ManagedUser } from "../../../api/users";
 import { ConfirmDialog } from "../../shared/ConfirmDialog";
@@ -285,7 +286,12 @@ export function UserManagement(): JSX.Element {
                   <td className={styles.td}>
                     {u.is_active ? t("settings.userManagement.active") : t("settings.userManagement.inactive")}
                   </td>
-                  <td className={styles.td}>{u.is_tenant_admin ? "✓" : "—"}</td>
+                  <td
+                    className={styles.td}
+                    aria-label={u.is_tenant_admin ? t("common.yes", "Yes") : t("common.no", "No")}
+                  >
+                    {u.is_tenant_admin ? <Check aria-hidden="true" size={14} /> : "—"}
+                  </td>
                   <td className={styles.tdActions}>
                     <button
                       type="button"

@@ -213,7 +213,9 @@
   },
   "loading": "Laden...",
   "common": {
-    "close": "Schließen"
+    "close": "Schließen",
+    "yes": "Ja",
+    "no": "Nein"
   },
   "actions": {
     "add": "Hinzufügen",
@@ -347,6 +349,7 @@
     "showDeleted": "Gelöschte anzeigen",
     "showOutdated": "Veraltete anzeigen",
     "outdatedBadge": "Veraltet",
+    "suspectBadge": "Verdächtig",
     "sortLabel": "Sortieren nach",
     "sortDefault": "Standardreihenfolge",
     "sortTitleAsc": "Titel (A–Z)",

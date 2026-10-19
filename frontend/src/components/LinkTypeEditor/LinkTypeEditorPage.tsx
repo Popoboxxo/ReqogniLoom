@@ -19,6 +19,7 @@
 
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { Lock } from "lucide-react";
 import { linkTypesApi } from "../../api/link-types";
 import type {
   GlobalLinkType,
@@ -600,7 +601,7 @@ export function LinkTypeEditorPage({ scope }: LinkTypeEditorPageProps): JSX.Elem
                 <span style={rowKeyStyle}>{row.key}</span>
                 {locked ? (
                   <span data-testid={`link-type-lock-${row.key}`} style={lockIconStyle}>
-                    <span aria-hidden="true">🔒</span> {t("linkType.locked")}
+                    <Lock aria-hidden="true" size={14} /> {t("linkType.locked")}
                   </span>
                 ) : (
                   <div style={rowActionsStyle}>
