@@ -3,6 +3,9 @@
     "title": "ReqogniLoom",
     "placeholder": "KI-natives Anforderungsmanagement — Implementierung in Bearbeitung."
   },
+  "a11y": {
+    "skipToContent": "Zum Hauptinhalt springen"
+  },
   "adminOps": {
     "title": "Sicherung & Wiederherstellung (Disaster Recovery)",
     "hint": "Instanzweite Sicherungen. Eine Wiederherstellung überschreibt die aktuellen Daten — der Bestätigungstext ist erforderlich.",
@@ -308,6 +311,14 @@
     "addChild": "Untergeordnetes Element hinzufügen",
     "treeDropRoot": "Hier ablegen, um auf oberste Ebene zu verschieben",
     "treeContainsSelection": "Enthält die aktuelle Auswahl",
+    "moveNode": "Verschieben…",
+    "moveNodeTitle": "Element verschieben",
+    "moveNodeDescription": "Ziel-Elternelement auswählen, unter das das Element verschoben wird.",
+    "moveNodeTarget": "Neues Elternelement",
+    "moveNodeRoot": "Oberste Ebene (kein Elternelement)",
+    "moveNodeConfirm": "Verschieben",
+    "moveNodeCancel": "Abbrechen",
+    "moveNodeDone": "Element verschoben.",
     "title": "Titel",
     "name": "Name",
     "description": "Beschreibung",

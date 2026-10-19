@@ -180,6 +180,27 @@
   letter-spacing: 0.01em;
 }
 
+/* Modal drawer close control (M-1). `btn-icon` (styles/global.css) supplies
+   the design-system geometry/hover contract; the two rules below re-point its
+   colours at the sidebar's own chrome tokens, because the shared `.btn-icon`
+   colours are tuned for --color-surface rather than the nav's permanently-dark
+   background. Absolutely positioned against the drawer (which is `position:
+   fixed` in the mobile media query), so it stays put while the nav list
+   scrolls. Rendered only while the drawer is modal (mobile + open), so the
+   desktop rail never shows it. */
+.sidebarNav .drawerClose {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  z-index: 1;
+  color: var(--color-nav-text);
+}
+
+.sidebarNav .drawerClose:hover:not(:disabled) {
+  background: var(--color-nav-hover-bg);
+  color: var(--color-nav-text);
+}
+
 .searchWrapper {
   position: relative;
   margin-bottom: var(--space-4);

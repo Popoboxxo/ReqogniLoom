@@ -7,7 +7,7 @@
  *          REQ-L3-RF002-003 (Navigation von Dashboard zu Workspace-Detail)
  */
 
-import { useState } from "react";
+import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { WorkspaceWithMetrics } from "../../types";
 import { useWorkspace } from "../../context/WorkspaceContext";
@@ -35,6 +35,11 @@ export function WorkspaceCard({
   const { t } = useTranslation();
   const { terminologyLabel } = useWorkspace();
   const [isHovered, setIsHovered] = useState(false);
+  // L-2 (WCAG SC 4.1.2): the whole card body is a role="button" region, so it
+  // needs an accessible name. It is labelled by its own title heading rather
+  // than a duplicated aria-label, keeping the name in sync with the visible
+  // text and with the terminology profile.
+  const titleId = useId();
 
   // Use terminology-profile-aware label (REQ-L3-RF002-002)
   const reqLabel = terminologyLabel("requirements");
@@ -64,6 +69,7 @@ export function WorkspaceCard({
         data-testid="workspace-card-clickable-region"
         role="button"
         tabIndex={0}
+        aria-labelledby={titleId}
         onClick={() => onSelect(workspace)}
         onKeyDown={(e) => {
           // WCAG 2.1.1 (Keyboard): a role="button" element must respond to
@@ -84,7 +90,7 @@ export function WorkspaceCard({
       >
         <div>
           <div className={styles.titleRow}>
-            <h3 className={styles.title}>
+            <h3 id={titleId} className={styles.title}>
               <span title={workspace.name} className={styles.nameTruncate}>
                 {workspace.name}
               </span>

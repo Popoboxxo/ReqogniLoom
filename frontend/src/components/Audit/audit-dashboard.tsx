@@ -69,7 +69,7 @@
  * has been loaded.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { useWorkspace } from "../../context/WorkspaceContext";
@@ -1154,6 +1154,7 @@ interface RuleInfoPopoverProps {
 function RuleInfoPopover({ ruleId, info }: RuleInfoPopoverProps): JSX.Element {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
+  const popoverId = useId();
 
   return (
     <span className={styles.ruleInfoWrap}>
@@ -1162,14 +1163,27 @@ function RuleInfoPopover({ ruleId, info }: RuleInfoPopoverProps): JSX.Element {
         data-testid={`audit-rule-info-${ruleId}`}
         className={styles.groupRuleId}
         aria-expanded={open}
+        // M-2 (SC 4.1.2): the popover is non-modal, read-only metadata — it
+        // contains no interactive content, so `role="tooltip"` with a
+        // `aria-describedby` relationship is the correct semantics (not a
+        // dialog). Only reference it while it is actually mounted.
+        aria-describedby={open ? popoverId : undefined}
         title={info?.title ?? ruleId}
+        onKeyDown={(event) => {
+          // Escape dismisses the popover while its trigger has focus.
+          if (event.key === "Escape" && open) {
+            event.stopPropagation();
+            setOpen(false);
+          }
+        }}
         onClick={() => setOpen((v) => !v)}
       >
         {ruleId}
       </button>
       {open && (
         <div
-          role="dialog"
+          id={popoverId}
+          role="tooltip"
           data-testid={`audit-rule-popover-${ruleId}`}
           className={styles.rulePopover}
         >

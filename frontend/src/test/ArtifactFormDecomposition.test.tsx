@@ -315,6 +315,52 @@ describe("ArtifactForm decomposition — create-vs-edit section collapse", () =>
     expect(screen.getByTestId("artifact-section-body-advanced")).toBeInTheDocument();
     expect(toggle).toHaveAttribute("aria-expanded", "true");
   });
+
+  it("names the section by its stable label and never dangles aria-controls (F-03/N4, N3)", async () => {
+    // F-03/N4 (SC 1.3.1/2.4.6): `aria-labelledby` used to point at the toggle
+    // button, whose accessible name is its `aria-label` ("Abschnitt X
+    // einklappen/erweitern") — so the region's name was an *action*, flipping
+    // with the expanded state. It must resolve to the stable inner label text.
+    // N3 (SC 4.1.2): a collapsed section renders no body, so `aria-controls`
+    // must not reference the id of a panel that does not exist.
+    mockDefinition([
+      spec({ name: "title", section: "general" }),
+      spec({ name: "deep", section: "advanced", audience: "expert" }),
+    ]);
+    render(
+      <ArtifactForm
+        itemType="Risk"
+        artifactId="r-1"
+        initialValues={{ title: "T", deep: "x" }}
+        onSave={vi.fn()}
+      />
+    );
+    await screen.findByTestId("artifact-field-title");
+
+    const toggle = screen.getByTestId("artifact-section-toggle-advanced");
+    const section = toggle.closest("section");
+    expect(section).not.toBeNull();
+    const labelledBy = section!.getAttribute("aria-labelledby");
+    expect(labelledBy).toBeTruthy();
+    const labelEl = document.getElementById(labelledBy!);
+    expect(labelEl).not.toBeNull();
+    // The name comes from the label text inside the toggle, not from the
+    // toggle (action) itself.
+    expect(labelEl).not.toBe(toggle);
+    expect(toggle.contains(labelEl!)).toBe(true);
+
+    // Collapsed: no body panel in the DOM, therefore no dangling IDREF.
+    expect(toggle).not.toHaveAttribute("aria-controls");
+
+    await userEvent.click(toggle);
+
+    // Expanded: aria-controls now resolves to the rendered body panel.
+    const controlsId = toggle.getAttribute("aria-controls");
+    expect(controlsId).toBeTruthy();
+    expect(document.getElementById(controlsId!)).toBe(
+      screen.getByTestId("artifact-section-body-advanced")
+    );
+  });
 });
 
 describe("ArtifactForm decomposition — save payload & change-reason gate", () => {

@@ -973,7 +973,7 @@ describe('WorkspaceTree — keyboard navigation', () => {
 // ---------------------------------------------------------------------------
 
 describe('WorkspaceTree — keyboard navigation in the virtualized path', () => {
-  const ROW_HEIGHT = 34; // VIRTUAL_ROW_HEIGHT in workspace-tree.tsx
+  const ROW_HEIGHT = 34; // VIRTUAL_ROW_HEIGHT in tree-virtualization.tsx
   const CONTAINER_HEIGHT = 340; // ~10 rows visible at once
 
   const LARGE_NODES: WorkspaceTreeNode[] = Array.from({ length: 150 }, (_, i) => ({
@@ -1546,5 +1546,158 @@ describe('WorkspaceTree — drag & drop reparenting', () => {
       offsetHeightSpy.mockRestore();
       offsetWidthSpy.mockRestore();
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// H-1 (SC 2.1.1 / SC 2.5.7): keyboard-accessible reparenting
+// ---------------------------------------------------------------------------
+
+describe('WorkspaceTree — keyboard reparenting (H-1)', () => {
+  const moveButton = (id: string): HTMLElement =>
+    screen.getByTestId(`workspace-tree-move-${id}`);
+
+  function openMoveDialog(id: string): HTMLElement {
+    fireEvent.click(moveButton(id));
+    return screen.getByTestId('workspace-tree-move-dialog');
+  }
+
+  it('renders a visible move control with aria-haspopup when reparenting is opted in', () => {
+    renderTree({ nodes: TREE_NODES, onReparent: vi.fn() });
+    expect(moveButton('child1')).toHaveAttribute('aria-haspopup', 'dialog');
+    // React escapes the ellipsis; assert the translated key the mock echoes.
+    expect(moveButton('child1')).toHaveAttribute('aria-label', 'editor.moveNode');
+  });
+
+  it('renders no move control when onReparent is omitted', () => {
+    renderTree({ nodes: TREE_NODES });
+    expect(
+      screen.queryByTestId('workspace-tree-move-child1'),
+    ).not.toBeInTheDocument();
+  });
+
+  it('puts only the focused row move control in the tab order', () => {
+    renderTree({ nodes: TREE_NODES, onReparent: vi.fn() });
+    // `root` is the effective focused row on mount (roving tabindex).
+    expect(moveButton('root')).toHaveAttribute('tabindex', '0');
+    expect(moveButton('child1')).toHaveAttribute('tabindex', '-1');
+  });
+
+  it('opens the shared dialog from the move control', () => {
+    renderTree({ nodes: TREE_NODES, onReparent: vi.fn() });
+    expect(openMoveDialog('child1')).toHaveAttribute('role', 'dialog');
+  });
+
+  it('activates the move control with the Enter key (SC 2.1.1)', async () => {
+    // N1 (Phase 6 review): the delegated tree keydown handler on the <ul> used
+    // to claim Enter (calling onSelect) without checking `e.target`, so Enter
+    // on the new visible Move control never opened the dialog — the control
+    // was reachable but not operable. Only a real keyboard activation can
+    // catch that; the mouse-only `fireEvent.click` tests above stay green
+    // either way.
+    const onSelect = vi.fn();
+    renderTree({ nodes: TREE_NODES, onReparent: vi.fn(), onSelect });
+
+    const button = moveButton('child1');
+    button.focus();
+    await userEvent.keyboard('{Enter}');
+
+    expect(screen.getByTestId('workspace-tree-move-dialog')).toBeInTheDocument();
+    // The tree must not have read the keypress as row activation.
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it('reparents to the chosen parent and announces the result', () => {
+    const onReparent = vi.fn();
+    renderTree({ nodes: TREE_NODES, onReparent });
+    openMoveDialog('child1');
+
+    fireEvent.change(screen.getByTestId('workspace-tree-move-target'), {
+      target: { value: 'child2' },
+    });
+    fireEvent.click(screen.getByTestId('workspace-tree-move-confirm'));
+
+    expect(onReparent).toHaveBeenCalledTimes(1);
+    expect(onReparent).toHaveBeenCalledWith('child1', 'child2');
+    expect(screen.getByTestId('workspace-tree-move-status')).toHaveTextContent(
+      'editor.moveNodeDone',
+    );
+  });
+
+  it('re-announces on the second move instead of keeping the first text (F-01)', () => {
+    // F-01 (SC 4.1.3): the announcement used to be the constant
+    // `t('editor.moveNodeDone')`, so the 2nd move set an identical string —
+    // React bailed out of the update, the live region never mutated again and a
+    // screen reader announced the first move only. Two consecutive moves of the
+    // SAME node must leave two different texts behind, which is why the
+    // announcement also names the new parent.
+    const onReparent = vi.fn();
+    renderTree({ nodes: TREE_NODES, onReparent });
+    const status = (): HTMLElement =>
+      screen.getByTestId('workspace-tree-move-status');
+
+    openMoveDialog('child1');
+    fireEvent.change(screen.getByTestId('workspace-tree-move-target'), {
+      target: { value: 'child2' },
+    });
+    fireEvent.click(screen.getByTestId('workspace-tree-move-confirm'));
+    const firstAnnouncement = status().textContent;
+
+    openMoveDialog('child1');
+    // `onReparent` is a stub, so the node's parent is still 'root' — moving it
+    // to the top level is a second, genuinely different destination.
+    fireEvent.change(screen.getByTestId('workspace-tree-move-target'), {
+      target: { value: '' },
+    });
+    fireEvent.click(screen.getByTestId('workspace-tree-move-confirm'));
+    const secondAnnouncement = status().textContent;
+
+    expect(onReparent).toHaveBeenNthCalledWith(1, 'child1', 'child2');
+    expect(onReparent).toHaveBeenNthCalledWith(2, 'child1', null);
+    expect(firstAnnouncement).toContain('L1 Subsystem A');
+    expect(firstAnnouncement).toContain('L1 Subsystem B');
+    expect(secondAnnouncement).toContain('L1 Subsystem A');
+    expect(secondAnnouncement).toContain('editor.moveNodeRoot');
+    expect(secondAnnouncement).not.toBe(firstAnnouncement);
+  });
+
+  it('moves a node to root level via the root option', () => {
+    const onReparent = vi.fn();
+    renderTree({ nodes: TREE_NODES, onReparent });
+    openMoveDialog('child2');
+
+    fireEvent.change(screen.getByTestId('workspace-tree-move-target'), {
+      target: { value: '' },
+    });
+    fireEvent.click(screen.getByTestId('workspace-tree-move-confirm'));
+
+    expect(onReparent).toHaveBeenCalledWith('child2', null);
+  });
+
+  it('does not offer the node itself or its own subtree as a target', () => {
+    renderTree({ nodes: TREE_NODES, onReparent: vi.fn() });
+    // child1 has descendant `grandchild`; neither may be a target.
+    openMoveDialog('child1');
+
+    const values = Array.from(
+      screen.getByTestId('workspace-tree-move-target').querySelectorAll('option'),
+    ).map((option) => option.getAttribute('value'));
+
+    expect(values).not.toContain('child1');
+    expect(values).not.toContain('grandchild');
+    expect(values).toContain('child2');
+  });
+
+  it('closes without reparenting on cancel', () => {
+    const onReparent = vi.fn();
+    renderTree({ nodes: TREE_NODES, onReparent });
+    openMoveDialog('child1');
+
+    fireEvent.click(screen.getByTestId('workspace-tree-move-cancel'));
+
+    expect(onReparent).not.toHaveBeenCalled();
+    expect(
+      screen.queryByTestId('workspace-tree-move-dialog'),
+    ).not.toBeInTheDocument();
   });
 });

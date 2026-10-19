@@ -13,6 +13,35 @@
   min-height: 0;
 }
 
+/* Phase 6 (M-3, WCAG SC 2.4.1): the skip link is the shell's first tab stop
+   and stays off-screen until it receives focus, then appears at the top-left
+   corner. `btn-ghost` supplies the design-system chrome (the design-system
+   ratchet treats a click-handling link like a button), while `a.skipLink`
+   overrides only its palette and, together with `a.skipLink:focus`, takes it
+   out of flow so it never shifts the shell layout.
+
+   N2 (SC 2.4.11/2.4.7, Phase 6 review): a focused element is not necessarily a
+   *visible* one. The shell chrome paints above this link unless the link's own
+   stacking wins: `.sidebarNav` is `position: sticky; z-index: 60` (with the
+   opaque `--color-nav-bg`) and the mobile burger is `z-index: 70`, so the
+   previous `z-index: 1` left the focused link fully covered by the 220px rail
+   on desktop — focusable, but invisible. 80 clears both, so wherever the link
+   lands (over the rail, over the burger, over a banner) it paints on top. */
+a.skipLink {
+  position: absolute;
+  top: var(--space-2);
+  left: var(--space-2);
+  z-index: 80;
+  transform: translateY(-300%);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  border-color: var(--color-border);
+}
+
+a.skipLink:focus {
+  transform: translateY(0);
+}
+
 /* Issue #876: the route host was the last inline `style={{...}}` in the shell
    (flex/padding/overflow). Moved here so the shell owns no inline layout. */
 .main {

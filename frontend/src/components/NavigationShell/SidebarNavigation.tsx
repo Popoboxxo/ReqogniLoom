@@ -14,11 +14,13 @@
 import React from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, X } from "lucide-react";
 import { APP_NAME } from "../../config/app-name";
 import { useWorkspace, DEFAULT_WORKSPACE } from "../../context/WorkspaceContext";
 import { useAuth } from "../../context/AuthContext";
 import { useHasRole } from "../../hooks/useHasRole";
+import { useMediaQuery } from "../../hooks/useMediaQuery";
+import { useFocusTrap } from "../shared/Dialog";
 import { useTheme } from "../../context/ThemeContext";
 import { i18n } from "../../i18n/index";
 import { searchApi, type SearchHit } from "../../api/search";
@@ -142,6 +144,12 @@ const NAV_ITEMS: NavItem[] = [
   { path: "/user-management", labelKey: "nav.userManagement", feature: "dashboard", group: "admin" },
 ];
 
+// The drawer's breakpoint. CSS cannot share the literal with JS, so this is
+// kept in sync by hand with `@media (max-width: 1024px)` in
+// SidebarNavigation.module.css (issue #160). Only below it does the sidebar
+// become an off-canvas drawer that must behave modally (M-1).
+const MOBILE_DRAWER_QUERY = "(max-width: 1024px)";
+
 export function SidebarNavigation(): JSX.Element {
   const { t } = useTranslation();
   const {
@@ -182,6 +190,26 @@ export function SidebarNavigation(): JSX.Element {
   // (1024px) media query defined in SidebarNavigation.module.css (issue #160).
   const [isMobileNavOpen, setIsMobileNavOpen] = React.useState<boolean>(false);
   const switcherRef = React.useRef<HTMLDivElement | null>(null);
+
+  // ---- Mobile drawer modality (M-1) ---------------------------------------
+  // The drawer is a modal dialog only while it is both mobile and open; the
+  // desktop rail stays a plain navigation landmark with no role and no focus
+  // trap. The trap itself is the shared one from `shared/Dialog` (UI concept
+  // ch. 12.8) — spelled here rather than wrapping the whole nav in `<Dialog>`,
+  // because the drawer IS the nav chrome and must not move into a portal.
+  const isMobileViewport = useMediaQuery(MOBILE_DRAWER_QUERY);
+  const isDrawerModal = isMobileViewport && isMobileNavOpen;
+  const drawerRef = React.useRef<HTMLElement | null>(null);
+  const burgerRef = React.useRef<HTMLButtonElement | null>(null);
+  const drawerCloseRef = React.useRef<HTMLButtonElement | null>(null);
+
+  useFocusTrap({
+    containerRef: drawerRef,
+    enabled: isDrawerModal,
+    onEscape: () => setIsMobileNavOpen(false),
+    initialFocusRef: drawerCloseRef,
+    triggerRef: burgerRef,
+  });
 
   // ---- Global search state (REQ-L1-020) -----------------------------------
   const [searchQuery, setSearchQuery] = React.useState<string>("");
@@ -448,8 +476,10 @@ export function SidebarNavigation(): JSX.Element {
 
   // UI-27 (systemaudit 2026-08-27): the mobile drawer's backdrop only closed
   // on click, leaving no keyboard-operable way to dismiss it (WCAG 2.1.1
-  // Keyboard). Escape is the conventional dismiss key for this kind of
-  // non-modal overlay (same convention as the shared Dialog component).
+  // Keyboard). Escape is handled here for the closed/exiting edge (and by the
+  // drawer's focus trap while it is modal — M-1), and the drawer additionally
+  // renders a real close control inside the trap, so a keyboard user always
+  // has a non-pointer way out.
   React.useEffect(() => {
     if (!isMobileNavOpen) return;
     const handleKeyDown = (e: KeyboardEvent): void => {
@@ -473,6 +503,7 @@ export function SidebarNavigation(): JSX.Element {
         drawer (issue #160). */}
     <button
       type="button"
+      ref={burgerRef}
       className={styles.burgerButton}
       data-testid="sidebar-burger"
       aria-label={isMobileNavOpen ? t("nav.closeMenu") : t("nav.openMenu")}
@@ -482,10 +513,12 @@ export function SidebarNavigation(): JSX.Element {
       {isMobileNavOpen ? "✕" : "☰"}
     </button>
     {isMobileNavOpen && (
-      // Backdrop only — deliberately not focusable/role="button": a
-      // full-viewport overlay in the tab order would be a keyboard trap of
-      // its own. Keyboard dismissal is handled by the document-level Escape
-      // listener above (WCAG 2.1.1), not a handler on this element.
+      // Backdrop only — deliberately not focusable and without a role: it sits
+      // *outside* the modal drawer's focus trap (M-1), so giving it a tab stop
+      // would be futile — the trap's focusin safety net reclaims focus — and a
+      // full-viewport element in the tab order is a keyboard trap of its own.
+      // Keyboard dismissal is provided by the drawer's own close control inside
+      // the trap plus Escape (WCAG 2.1.1), not a handler on this element.
       // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions
       <div
         className={styles.overlay}
@@ -493,10 +526,52 @@ export function SidebarNavigation(): JSX.Element {
         onClick={() => setIsMobileNavOpen(false)}
       />
     )}
+    {/* The nav is the drawer. Its ARIA modality is set only while the drawer
+        is actually modal (mobile + open) — `role` and `aria-modal` therefore
+        have to be expressions, which the project's `no-restricted-syntax`
+        guard cannot statically prove to be a valid dialog pairing (it reports
+        any element that carries `aria-modal` without a literal
+        role="dialog"). The pairing is guaranteed here by construction; the
+        shared <Dialog> is not an option because the drawer must stay the nav
+        chrome (no portal). See docs/plans/2026-10-15-frontend-audit-fixes.md
+        Phase 6 step 4. */}
+    {/* eslint-disable-next-line no-restricted-syntax */}
     <nav
+      ref={drawerRef}
+      role={isDrawerModal ? "dialog" : undefined}
+      aria-modal={isDrawerModal ? true : undefined}
+      tabIndex={isDrawerModal ? -1 : undefined}
+      // N10 (SC 2.4.3/2.4.7): below the breakpoint the drawer is only
+      // *translated* off-screen (`translateX(-100%)`), which leaves every nav
+      // link and control in the tab order — a keyboard user tabbing through the
+      // page walked through ~20 invisible stops before reaching the content.
+      // `inert` removes the whole closed drawer from the tab order and from the
+      // accessibility tree in one go. Applied only while the drawer is closed
+      // on a mobile viewport: the open drawer (a modal dialog, M-1) and the
+      // desktop rail must stay fully interactive.
+      inert={isMobileViewport && !isMobileNavOpen ? true : undefined}
       aria-label={t("nav.mainNavigation")}
       className={`${styles.sidebarNav} ${styles.navRoot} ${isMobileNavOpen ? styles.open : ""}`}
     >
+      {/* Drawer close control (M-1): the pointer-free, tab-reachable way out
+          of the modal drawer, and its initial focus target. A direct child of
+          the nav (not of the scrollable content below) so it stays pinned
+          while the nav list scrolls; rendered only while the drawer is modal,
+          so the desktop rail is unchanged. It carries `btn-icon` for the
+          design-system chrome contract plus the module class that re-points
+          its colours at the nav's own tokens. */}
+      {isDrawerModal && (
+        <button
+          type="button"
+          ref={drawerCloseRef}
+          className={`btn-icon ${styles.drawerClose}`}
+          data-testid="sidebar-drawer-close"
+          aria-label={t("nav.closeMenu")}
+          onClick={() => setIsMobileNavOpen(false)}
+        >
+          <X size={18} aria-hidden="true" />
+        </button>
+      )}
       {/* Wraps the scrollable nav content so the fade-out scroll affordance
           (issue #168) can be positioned against its bottom edge, not the
           nav's own bottom (which is the pinned footer below). */}

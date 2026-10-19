@@ -24,7 +24,6 @@
 
 import {
   type CSSProperties,
-  type DragEvent as ReactDragEvent,
   type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
   useCallback,
@@ -33,17 +32,20 @@ import {
   useRef,
   useState,
 } from 'react';
-import { useVirtualizer } from '@tanstack/react-virtual';
 import { useTranslation } from 'react-i18next';
 import { Badge } from '../Badge';
 import { LevelBadge } from '../LevelBadge';
 import { useWorkspaceTreeState } from '../../../context/WorkspaceTreeStateContext';
-import {
-  useTreeDisplayFields,
-  useTreeDisplayFieldsLoader,
-} from '../../../hooks/useTreeDisplayFields';
 import { TreeDisplayFieldsProvider } from './tree-display-fields-context';
-import { collectAncestorIds, collectSelfAndDescendantIds } from './tree-hierarchy';
+import { useTreeDisplayFieldsSelection } from './tree-display-fields';
+import { collectAncestorIds } from './tree-hierarchy';
+import { TreeMoveDialog } from './tree-move-dialog';
+import {
+  ROOT_DROP_TARGET,
+  useTreeDrag,
+  type TreeRowDragProps,
+} from './tree-drag';
+import { useTreeVirtualization } from './tree-virtualization';
 import styles from './workspace-tree.module.css';
 
 // ---------------------------------------------------------------------------
@@ -75,8 +77,47 @@ import styles from './workspace-tree.module.css';
 // Type badge abbreviation map — REQ-007
 // ---------------------------------------------------------------------------
 
+/**
+ * Known artifact type / architecture element-type strings the type badge
+ * abbreviates.
+ *
+ * Deliberately a closed union rather than `string`: `TYPE_BADGE_ABBREVIATION`
+ * is then exhaustive by construction, so adding a type to the catalog without
+ * an abbreviation becomes a compile error instead of a silently un-abbreviated
+ * badge. `getTypeBadgeAbbreviation` still accepts any `string` (callers pass
+ * the raw API value) and falls back to the input for unknown types.
+ */
+export type WorkspaceTreeNodeType =
+  // Requirement types (backend values)
+  | 'SyReq'
+  | 'UseCase'
+  | 'FeatureReq'
+  // Legacy requirement types, kept so historical rows still render a badge.
+  | 'SWReq'
+  | 'HWReq'
+  // Requirement types (long-form display names)
+  | 'SysRec'
+  | 'Stakeholder'
+  | 'Hardware'
+  | 'Software'
+  | 'Interface'
+  | 'Performance'
+  | 'Safety'
+  | 'Security'
+  // Architecture element types (backend values)
+  | 'component'
+  | 'interface'
+  | 'subsystem'
+  | 'layer'
+  | 'module'
+  // Architecture element types (display names)
+  | 'System'
+  | 'Subsystem'
+  | 'Component'
+  | 'Function';
+
 /** Maps verbose type/element strings to short badge labels (REQ-007). */
-const TYPE_BADGE_ABBREVIATION: Readonly<Record<string, string>> = {
+const TYPE_BADGE_ABBREVIATION: Readonly<Record<WorkspaceTreeNodeType, string>> = {
   // Requirement types (backend values)
   SyReq: 'SR',
   UseCase: 'UC',
@@ -302,17 +343,6 @@ export interface WorkspaceTreeProps {
   'data-testid'?: string;
 }
 
-/**
- * Sentinel drop-target id for the root dropzone. Not a node id — node ids come
- * from the API, so a reserved non-UUID string cannot collide with one.
- */
-const ROOT_DROP_TARGET = '__root__';
-
-// REQ-091: virtualization threshold 100 items
-const VIRTUALIZE_THRESHOLD = 100;
-// REQ-091: fixed row height estimate — TreeRow minHeight 32px + 2px list gap.
-const VIRTUAL_ROW_HEIGHT = 34;
-
 // ---------------------------------------------------------------------------
 // Internal tree model
 // ---------------------------------------------------------------------------
@@ -391,6 +421,20 @@ function flattenVisible(
 // WorkspaceTree
 // ---------------------------------------------------------------------------
 
+/**
+ * Human-readable name of a reparenting endpoint for the move announcement
+ * (H-1 / F-01). Mirrors the "identifier · name" form the move dialog's own
+ * options render, and falls back to the dialog's root label when there is no
+ * parent node (moving to top level).
+ */
+function describeMoveTarget(
+  node: WorkspaceTreeNode | null | undefined,
+  rootLabel: string,
+): string {
+  if (!node) return rootLabel;
+  return node.identifier ? `${node.identifier} · ${node.name}` : node.name;
+}
+
 export function WorkspaceTree({
   nodes,
   selectedId,
@@ -418,23 +462,14 @@ export function WorkspaceTree({
   const { t } = useTranslation();
 
   // Issue #1257: the configured field selection for this artifact type. The
-  // loader performs at most one request per (itemType, workspace) and degrades
-  // to the pre-#1257 combination when nothing is configured or the load fails;
-  // the selector is synchronous, so no row ever waits on it.
-  //
-  // Both `itemType` and `workspaceId` are required for a load: the workspace is
-  // what enters the resolution at all (the request goes to the workspace route,
-  // which checks membership), so a tree that does not know its workspace must
-  // not invent one — it falls back to the personal + tenant-wide levels via the
+  // resolution (one load per `(itemType, workspace)`, default fallback and the
+  // per-field gate) lives in `tree-display-fields.ts`. Both `itemType` and
+  // `workspaceId` are required for a load: the workspace is what enters the
+  // resolution at all, so a tree that does not know its workspace keeps the
   // store default rather than showing another workspace's configuration.
-  useTreeDisplayFieldsLoader(itemType, workspaceId ?? null);
-  const displayFields = useTreeDisplayFields(itemType);
-  // FE-07: `displayFields` is a tiny, referentially stable store value, so a
-  // plain `includes` lookup replaces the premature `new Set(...)` memo without
-  // tripping react-hooks/exhaustive-deps over a per-render Set.
-  const showsField = useCallback(
-    (key: string): boolean => displayFields.includes(key),
-    [displayFields]
+  const { displayFields, showsField } = useTreeDisplayFieldsSelection(
+    itemType,
+    workspaceId,
   );
   const searchPlaceholderLabel =
     searchPlaceholder ?? t('editor.searchPlaceholder');
@@ -448,6 +483,7 @@ export function WorkspaceTree({
       addChild: t('editor.addChild'),
       containsSelection: t('editor.treeContainsSelection'),
       outdated: t('editor.outdatedBadge'),
+      moveNode: t('editor.moveNode'),
     }),
     [t],
   );
@@ -466,6 +502,10 @@ export function WorkspaceTree({
   );
   const [searchInput, setSearchInput] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  // H-1: the node whose keyboard "Move…" dialog is open, and the text of the
+  // polite live region that announces a successful keyboard reparent.
+  const [moveNodeId, setMoveNodeId] = useState<string | null>(null);
+  const [moveAnnouncement, setMoveAnnouncement] = useState('');
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const didInitRef = useRef(false);
 
@@ -592,14 +632,13 @@ export function WorkspaceTree({
   }, [onToggle]);
 
   // REQ-091: virtualize only when opted in and the visible list is large.
-  const parentRef = useRef<HTMLDivElement>(null);
-  const useVirtual = virtualize && visibleRows.length > VIRTUALIZE_THRESHOLD;
-  const rowVirtualizer = useVirtualizer({
-    count: visibleRows.length,
-    getScrollElement: () => parentRef.current,
-    estimateSize: () => virtualRowHeight ?? VIRTUAL_ROW_HEIGHT,
-    overscan: 12,
-  });
+  // The harness lives in `tree-virtualization.tsx`.
+  const { parentRef, useVirtual, rowVirtualizer, virtualListStyle, rowPositionStyle } =
+    useTreeVirtualization({
+      virtualize,
+      rowCount: visibleRows.length,
+      virtualRowHeight,
+    });
 
   // -------------------------------------------------------------------
   // Task 4.1: ARIA treeview keyboard navigation (roving tabindex).
@@ -701,6 +740,18 @@ export function WorkspaceTree({
 
   const handleTreeKeyDown = useCallback(
     (e: ReactKeyboardEvent<HTMLUListElement>): void => {
+      // N1 (SC 2.1.1, Phase 6 review): this handler is delegated on the <ul>,
+      // so it also sees keys pressed while one of a row's own native controls
+      // has focus — the "Move…" button, the expand toggle, a form control in a
+      // custom `renderRow`. Those controls own their keys: without this guard
+      // Enter on the Move button was swallowed by the case below (it called
+      // `onSelect` instead of activating the button, so the dialog never
+      // opened) and printable keys were swallowed by the letter-jump. Bail out
+      // before the switch, so the native activation wins. Rows themselves
+      // (`<li role="treeitem">`) are unaffected — keyboard navigation between
+      // rows still runs through the switch below.
+      const eventTarget = e.target as HTMLElement | null;
+      if (eventTarget?.closest('button, a, input, select, textarea')) return;
       if (visibleRows.length === 0) return;
       const currentId = focusedId ?? selectedId ?? visibleRows[0].internal.node.id;
       const currentIndex = visibleRows.findIndex((r) => r.internal.node.id === currentId);
@@ -793,109 +844,46 @@ export function WorkspaceTree({
 
   // -------------------------------------------------------------------
   // Drag & drop reparenting (opt-in via onReparent) — native HTML5 D&D.
+  // The state machine lives in `tree-drag.ts`; the row and root-dropzone JSX
+  // stays here so the design-system ratchet baseline keeps its anchors.
   // -------------------------------------------------------------------
-  const dndEnabled = Boolean(onReparent);
-  const [draggingId, setDraggingId] = useState<string | null>(null);
-  // Current drop target; ROOT_DROP_TARGET marks the root dropzone.
-  const [dropTargetId, setDropTargetId] = useState<string | null>(null);
+  const drag = useTreeDrag(nodes, onReparent);
+  const { dndEnabled, draggingId, dropTargetId, rowDragProps, reparent } = drag;
 
-  const parentById = useMemo((): Map<string, string | null> => {
-    const map = new Map<string, string | null>();
-    for (const n of nodes) map.set(n.id, n.parentId ?? null);
-    return map;
-  }, [nodes]);
-
-  const resetDrag = useCallback((): void => {
-    setDraggingId(null);
-    setDropTargetId(null);
-  }, []);
-
-  /**
-   * Ids the in-flight node may not be dropped on: itself and its own subtree.
-   * Recomputed per drag, not per dragover, so hovering a long list stays cheap.
-   */
-  const forbiddenDropTargetIds = useMemo((): Set<string> => {
-    if (!draggingId) return new Set<string>();
-    return collectSelfAndDescendantIds(nodes, draggingId);
-  }, [nodes, draggingId]);
-
-  const handleDragStart = useCallback(
-    (e: ReactDragEvent, id: string): void => {
-      e.dataTransfer?.setData('text/plain', id);
-      if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
-      setDraggingId(id);
-    },
-    [],
-  );
-
-  const handleDragOverTarget = useCallback(
-    (e: ReactDragEvent, targetId: string): void => {
-      // Not a drag we started, the row being dragged itself, or a row inside
-      // its own subtree: leaving preventDefault() unset is what tells the
-      // browser "not a drop target" (no highlight, no-drop cursor).
-      if (!draggingId || forbiddenDropTargetIds.has(targetId)) return;
-      e.preventDefault();
-      if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
-      setDropTargetId((prev) => (prev === targetId ? prev : targetId));
-    },
-    [draggingId, forbiddenDropTargetIds],
-  );
-
-  const handleDragLeaveTarget = useCallback(
-    (e: ReactDragEvent, targetId: string): void => {
-      // Native D&D fires dragleave when the pointer crosses onto a nested
-      // child of the same row (chevron, label, badge) even though it is still
-      // logically over that row — ignoring those keeps the drop-target
-      // highlight from flickering through the whole drag.
-      const related = e.relatedTarget as Node | null;
-      if (related && e.currentTarget.contains(related)) return;
-      setDropTargetId((prev) => (prev === targetId ? null : prev));
-    },
-    [],
-  );
-
-  const handleDrop = useCallback(
-    (e: ReactDragEvent, newParentId: string | null): void => {
-      e.preventDefault();
-      e.stopPropagation();
-      const draggedId = e.dataTransfer?.getData('text/plain') || draggingId;
-      resetDrag();
-      if (!draggedId || !onReparent) return;
-      // Dropping onto the parent it already has moves nothing.
-      if ((parentById.get(draggedId) ?? null) === newParentId) return;
-      // Dropping a node on itself or into its own subtree would close a cycle.
-      // Recomputed from the id that actually arrived rather than reusing
-      // `forbiddenDropTargetIds`, which is keyed on the drag we started.
-      // Detaching to root (newParentId === null) can never be a cycle.
-      if (
-        newParentId !== null &&
-        collectSelfAndDescendantIds(nodes, draggedId).has(newParentId)
-      ) {
-        return;
+  // H-1: the keyboard path shares `reparent` with the drop handler, so the
+  // cycle/no-op guards are identical. A forwarded move is announced through the
+  // single polite live region below (the tree's only live region).
+  //
+  // F-01 (SC 4.1.3, Phase 6 review): the announcement has to be a *different*
+  // string for every move. Assigning the constant `t('editor.moveNodeDone')`
+  // produced no DOM mutation on the 2nd+ move — React bails out of a state
+  // update whose value is identical — so the live region never changed again
+  // and a screen reader announced the first move only. Naming the moved element
+  // and its new parent makes consecutive announcements distinct; an identical
+  // repeat is impossible because moving a node to the parent it already has is
+  // a no-op that never reaches this branch.
+  const handleMoveConfirm = useCallback(
+    (newParentId: string | null): void => {
+      if (moveNodeId === null) return;
+      if (reparent(moveNodeId, newParentId)) {
+        const moved = nodes.find((n) => n.id === moveNodeId);
+        const parent =
+          newParentId === null ? null : nodes.find((n) => n.id === newParentId);
+        setMoveAnnouncement(
+          `${t('editor.moveNodeDone')} ${describeMoveTarget(
+            moved,
+            t('editor.moveNodeRoot'),
+          )} → ${describeMoveTarget(parent, t('editor.moveNodeRoot'))}`,
+        );
       }
-      onReparent(draggedId, newParentId);
+      setMoveNodeId(null);
     },
-    [draggingId, nodes, parentById, resetDrag, onReparent],
+    [moveNodeId, nodes, reparent, t],
   );
-
-  const rowDragProps = dndEnabled
-    ? {
-        draggingId,
-        dropTargetId,
-        onDragStartRow: handleDragStart,
-        onDragOverRow: handleDragOverTarget,
-        onDragLeaveRow: handleDragLeaveTarget,
-        onDropRow: handleDrop,
-        onDragEndRow: resetDrag,
-      }
-    : undefined;
-
-  // Issue #876 (Etappe 5): the virtualized list's height is a measured pixel
-  // value (`getTotalSize()`), so it stays on the `style` prop as a computed
-  // identifier rather than a class — see the module header.
-  const virtualListStyle = {
-    height: `${rowVirtualizer.getTotalSize()}px`,
-  } as CSSProperties;
+  const moveNode = useMemo(
+    () => nodes.find((n) => n.id === moveNodeId) ?? null,
+    [nodes, moveNodeId],
+  );
 
   return (
     <TreeDisplayFieldsProvider fields={displayFields}>
@@ -927,19 +915,9 @@ export function WorkspaceTree({
           className={`${styles.rootDropzone}${
             dropTargetId === ROOT_DROP_TARGET ? ` ${styles.rootDropzoneActive}` : ''
           }`}
-          onDragOver={(e) => {
-            e.preventDefault();
-            if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
-            setDropTargetId((prev) =>
-              prev === ROOT_DROP_TARGET ? prev : ROOT_DROP_TARGET,
-            );
-          }}
-          onDragLeave={(e) => {
-            const related = e.relatedTarget as Node | null;
-            if (related && e.currentTarget.contains(related)) return;
-            setDropTargetId((prev) => (prev === ROOT_DROP_TARGET ? null : prev));
-          }}
-          onDrop={(e) => handleDrop(e, null)}
+          onDragOver={drag.onRootDragOver}
+          onDragLeave={drag.onRootDragLeave}
+          onDrop={drag.onRootDrop}
         >
           {dropzoneLabel}
         </div>
@@ -999,13 +977,8 @@ export function WorkspaceTree({
                   onFocusRow={setFocusedId}
                   dragProps={rowDragProps}
                   labels={rowLabels}
-                  rowStyle={{
-                    position: 'absolute',
-                    top: 0,
-                    left: 0,
-                    width: '100%',
-                    transform: `translateY(${virtualRow.start}px)`,
-                  }}
+                  onRequestMove={dndEnabled ? setMoveNodeId : undefined}
+                  rowStyle={rowPositionStyle(virtualRow.start)}
                 />
               );
             })}
@@ -1041,9 +1014,35 @@ export function WorkspaceTree({
               onFocusRow={setFocusedId}
               dragProps={rowDragProps}
               labels={rowLabels}
+              onRequestMove={dndEnabled ? setMoveNodeId : undefined}
             />
           ))}
         </ul>
+      )}
+
+      {/* H-1/F-01: the tree's single polite live region, announcing every
+          keyboard reparent. This region is introduced by H-1 itself (there was
+          no earlier region to reuse — F-08 corrected that comment); `role=
+          "status"` already carries the implicit `aria-live="polite"` (ARIA 1.2),
+          so the explicit attribute was redundant and was dropped (F-08). The
+          announced text names the moved element and its new parent so a second
+          move actually mutates the region (see handleMoveConfirm). */}
+      <p
+        role="status"
+        className={styles.visuallyHidden}
+        data-testid={`${testId}-move-status`}
+      >
+        {moveAnnouncement}
+      </p>
+
+      {moveNode && (
+        <TreeMoveDialog
+          node={moveNode}
+          nodes={nodes}
+          testIdPrefix={testId}
+          onClose={() => setMoveNodeId(null)}
+          onConfirm={handleMoveConfirm}
+        />
       )}
       </div>
     </TreeDisplayFieldsProvider>
@@ -1097,6 +1096,12 @@ interface TreeRowProps {
    */
   dragProps?: TreeRowDragProps;
   /**
+   * H-1: opens the keyboard "Move…" dialog for this node. `undefined` when the
+   * consumer did not opt in via `onReparent`, so the affordance only exists
+   * where reparenting is actually possible.
+   */
+  onRequestMove?: (id: string) => void;
+  /**
    * Issue #676: translated labels for the row's icon-only controls. Resolved
    * once in `WorkspaceTree` and handed down rather than calling
    * `useTranslation()` per row — a large virtualized tree mounts hundreds of
@@ -1116,17 +1121,8 @@ interface TreeRowLabels {
   containsSelection: string;
   /** Label of the outdated/deprecated marker badge (outdated visibility). */
   outdated: string;
-}
-
-/** Drag & drop wiring handed down from WorkspaceTree to each row. */
-interface TreeRowDragProps {
-  draggingId: string | null;
-  dropTargetId: string | null;
-  onDragStartRow: (e: ReactDragEvent, id: string) => void;
-  onDragOverRow: (e: ReactDragEvent, id: string) => void;
-  onDragLeaveRow: (e: ReactDragEvent, id: string) => void;
-  onDropRow: (e: ReactDragEvent, newParentId: string | null) => void;
-  onDragEndRow: () => void;
+  /** H-1: accessible name of the visible keyboard reparenting button. */
+  moveNode: string;
 }
 
 function TreeRow({
@@ -1147,6 +1143,7 @@ function TreeRow({
   onRowRef,
   onFocusRow,
   dragProps,
+  onRequestMove,
   labels,
   rowStyle,
 }: TreeRowProps): JSX.Element {
@@ -1369,6 +1366,32 @@ function TreeRow({
           className={styles.addChildButton}
         >
           +
+        </button>
+      )}
+
+      {/* H-1 (SC 2.1.1/2.5.7): visible, keyboard-operable reparenting path.
+          Native drag & drop is pointer-only, so the row also offers a real
+          button. It is only rendered where reparenting is opted in
+          (`onRequestMove`). Unlike the chevron/"+" above — which are pointer
+          affordances for actions the treeitem itself handles via the keyboard —
+          this button IS the keyboard path, so it must be focusable. `tabIndex`
+          follows the roving tabindex: only the focused row's button joins the
+          tab order, keeping a 100-row tree at two stops instead of 101. */}
+      {onRequestMove && (
+        <button
+          type="button"
+          className="btn-icon"
+          data-testid={`${testIdPrefix}-move-${node.id}`}
+          aria-label={labels.moveNode}
+          title={labels.moveNode}
+          aria-haspopup="dialog"
+          tabIndex={isFocused ? 0 : -1}
+          onClick={(e) => {
+            e.stopPropagation();
+            onRequestMove(node.id);
+          }}
+        >
+          <span aria-hidden="true">⇅</span>
         </button>
       )}
     </li>

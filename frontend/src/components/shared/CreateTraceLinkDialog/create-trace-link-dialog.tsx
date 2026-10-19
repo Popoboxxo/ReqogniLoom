@@ -190,6 +190,10 @@ function ElementPicker({
               type="button"
               data-testid={`${testIdPrefix}-type-${key}`}
               onClick={() => setTypeFilter(key)}
+              // M-4 (SC 4.1.2): the filter tabs are toggle buttons in a
+              // `role="group"`, not a listbox — expose the selected state
+              // without changing the interaction model.
+              aria-pressed={typeFilter === key}
               className={
                 styles.typeTab +
                 ' ' +
@@ -213,6 +217,7 @@ function ElementPicker({
           </p>
         ) : filtered.length === 0 ? (
           <p
+            role="status"
             data-testid={`${testIdPrefix}-empty`}
             className={styles.listStatus}
           >
@@ -230,6 +235,9 @@ function ElementPicker({
                     type="button"
                     data-testid={`${testIdPrefix}-element-${el.id}`}
                     onClick={() => onSelect(el.id)}
+                    // M-4 (SC 4.1.2): selection state for a non-listbox list
+                    // of toggle-style buttons.
+                    aria-pressed={isSelected}
                     className={
                       styles.elementButton +
                       ' ' +

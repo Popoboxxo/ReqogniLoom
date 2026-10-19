@@ -8,6 +8,7 @@
  * `useArtifactFormState` + `ArtifactForm.tsx`.
  */
 
+import { useId } from "react";
 import { useTranslation } from "react-i18next";
 import { ChevronDown, ChevronRight } from "lucide-react";
 
@@ -64,6 +65,11 @@ export function ArtifactSections({
   update,
 }: ArtifactSectionsProps): JSX.Element {
   const { t, i18n } = useTranslation();
+  // Phase 6 (H-2, WCAG SC 1.3.1/2.4.6): a stable per-form id base so the
+  // section's accessible name (`aria-labelledby`) and its disclosure control
+  // (`aria-controls`) reference real, collision-free ids even if two artifact
+  // forms are mounted in the same document.
+  const idBase = useId();
 
   const spanClass = (columns: number): string =>
     styles[`span${spanClassSuffix(columns)}`] ?? styles.span12;
@@ -84,6 +90,19 @@ export function ArtifactSections({
         }
         const { section, layout } = entry;
         const open = isSectionOpen(section);
+        // H-2 (a11y): the section is a named region. Its accessible name comes
+        // from the stable label text (`sectionLabelId`), NOT from the disclosure
+        // control: F-03/N4 (SC 1.3.1/2.4.6) — pointing `aria-labelledby` at the
+        // toggle made the region's name the toggle's `aria-label` ("Abschnitt X
+        // einklappen/erweitern"), i.e. an *action* that also flipped with the
+        // expanded state. The interactive control keeps its own id
+        // (`sectionToggleId`) as the `aria-controls` origin; the body panel id is
+        // only referenced while that panel actually exists (N3 — a collapsed
+        // section renders no body, and an `aria-controls` pointing at a missing
+        // id is a dangling IDREF).
+        const sectionLabelId = `${idBase}-section-label-${section.name}`;
+        const sectionToggleId = `${idBase}-section-toggle-${section.name}`;
+        const sectionBodyId = `${idBase}-section-body-${section.name}`;
         const fieldEntries = resolveAttributeFlow(
           sectionMeta.get(section.name),
           section.attributes
@@ -91,6 +110,7 @@ export function ArtifactSections({
         return (
           <section
             key={section.name}
+            aria-labelledby={sectionLabelId}
             data-testid={`artifact-section-${section.name}`}
             data-layout={layout}
             data-columns={sectionLayoutColumns(layout)}
@@ -102,36 +122,44 @@ export function ArtifactSections({
               // the header is a plain heading — a dead disclosure button would
               // otherwise be the focus trap's first Tab stop ahead of the
               // form's content (create-dialog focus contract, #800 class).
-              <span
-                className={styles.sectionHeader}
-                data-testid={`artifact-section-toggle-${section.name}`}
-                aria-current="false"
-              >
-                {t(`sections.${section.name}`, { defaultValue: section.name })}
-              </span>
+              <h3 className={styles.sectionHeading}>
+                <span
+                  id={sectionLabelId}
+                  className={styles.sectionHeader}
+                  data-testid={`artifact-section-toggle-${section.name}`}
+                  aria-current="false"
+                >
+                  {t(`sections.${section.name}`, { defaultValue: section.name })}
+                </span>
+              </h3>
             ) : (
-            <button
-              type="button"
-              className={styles.sectionHeader}
-              data-testid={`artifact-section-toggle-${section.name}`}
-              aria-expanded={open}
-              aria-label={t(
-                open ? "artifactForm.collapseSection" : "artifactForm.expandSection",
-                { section: t(`sections.${section.name}`, { defaultValue: section.name }) }
-              )}
-              onClick={() => onToggleSection(section, open)}
-            >
-              <span>{t(`sections.${section.name}`, { defaultValue: section.name })}</span>
-              {open ? (
-                <ChevronDown aria-hidden="true" size={16} />
-              ) : (
-                <ChevronRight aria-hidden="true" size={16} />
-              )}
-            </button>
+              <h3 className={styles.sectionHeading}>
+                <button
+                  type="button"
+                  id={sectionToggleId}
+                  className={styles.sectionHeader}
+                  data-testid={`artifact-section-toggle-${section.name}`}
+                  aria-expanded={open}
+                  aria-controls={open ? sectionBodyId : undefined}
+                  aria-label={t(
+                    open ? "artifactForm.collapseSection" : "artifactForm.expandSection",
+                    { section: t(`sections.${section.name}`, { defaultValue: section.name }) }
+                  )}
+                  onClick={() => onToggleSection(section, open)}
+                >
+                  <span id={sectionLabelId}>{t(`sections.${section.name}`, { defaultValue: section.name })}</span>
+                  {open ? (
+                    <ChevronDown aria-hidden="true" size={16} />
+                  ) : (
+                    <ChevronRight aria-hidden="true" size={16} />
+                  )}
+                </button>
+              </h3>
             )}
 
             {open ? (
               <div
+                id={sectionBodyId}
                 className={styles.sectionBody}
                 data-testid={`artifact-section-body-${section.name}`}
               >
