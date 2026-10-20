@@ -83,13 +83,21 @@ export interface AuditFinding {
  */
 export interface AuditCounts {
   total: number;
+  /**
+   * Effective blocker count — waiver-aware (#1150). A waive (suppression) is
+   * recorded additively in `suppressed`/`suppressed_blockers` and does NOT
+   * remain here, on either object:
+   *   - in `AuditReport.counts` this is the full run's effective count, so a
+   *     waived blocker is already excluded;
+   *   - in `AuditReport.page_counts` the same semantics apply, scoped to the
+   *     returned window, so this is the raw number of blocker rows in that
+   *     window (it is the window/descriptive counter, not a gate verdict).
+   * Pre-#1150 the field was purely descriptive; the dashboard corrects a
+   * local waive on top of the last snapshot instead of relying on that.
+   */
   blockers: number;
   warnings: number;
-  /**
-   * #569 (additive, M5): suppressed findings. `blockers`/`warnings` stay
-   * descriptive and are NOT re-interpreted — a suppressed blocker still counts
-   * there.
-   */
+  /** #569 (additive): suppressed findings, counted additively to `total`. */
   suppressed: number;
   /** #569 (additive): of `suppressed`, the BLOCKER-severity ones. */
   suppressed_blockers: number;
@@ -109,8 +117,13 @@ export interface AuditReport {
    * #1383 (additive): the same five keys, but describing only the findings in
    * this response's window. Use it wherever the window size itself is shown
    * (e.g. "{{shown}} of {{total}}" with `counts.total` as the total).
+   *
+   * Optional because a backend that predates #1383 does not send it at all —
+   * its absence is the discriminator the dashboard uses for the legacy shape
+   * (there, `counts` is window-scoped and `total_*_available` carries the run
+   * total). `null` is accepted for the same reason.
    */
-  page_counts: AuditCounts;
+  page_counts?: AuditCounts | null;
   /**
    * Without `limit`: true when the backend capped the result set
    * (AuditService.MAX_REPORT_FINDINGS). With `limit` (#622/#596): true when
@@ -152,8 +165,11 @@ export interface AuditReport {
    * while `truncated` is true. `null` once the run has been fully paged.
    * Do NOT recompute this client-side (`offset + findings.length` is only the
    * old approximation and breaks as soon as the server skips findings).
+   *
+   * Optional because a backend that predates #1383 does not send it at all
+   * (same legacy discriminator as `page_counts`).
    */
-  next_offset: number | null;
+  next_offset?: number | null;
   findings: AuditFinding[];
 }
 

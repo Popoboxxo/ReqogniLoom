@@ -1907,6 +1907,8 @@
     "loadError": "Could not load audit findings.",
     "actionError": "The action failed. Please retry.",
     "empty": "No findings — the trace graph is consistent for this scope.",
+    "noFilterMatch": "No findings match the current filter.",
+    "loadedOnlyCountsHint": "Counts only the findings loaded so far, not the full run.",
     "noWorkspace": "Select a workspace to run the SE-Auditor.",
     "severity": {
       "blocker": "Blocker",
@@ -1925,6 +1927,7 @@
     "actionLegend": "Adopt applies the correction the auditor derived automatically. Modify opens the affected artifact so you can correct it yourself — findings are recomputed from the trace graph, so they disappear once the artifact is fixed. Waive records a justified exception: the finding stays visible but stops blocking baselines.",
     "truncated": "Showing {{shown}} of {{total}} findings — “Load more” mounts the rest.",
     "truncatedWithMounted": "Window: {{shown}} of {{total}} findings — {{mounted}} rows loaded. “Load more” mounts the rest.",
+    "pagingStalled": "The server reported more findings but did not advance the cursor — paging stopped. Refresh to re-run the audit.",
     "loadMore": "Load more findings",
     "loadingMore": "Loading more findings...",
     "showSuppressed": "Show suppressed",

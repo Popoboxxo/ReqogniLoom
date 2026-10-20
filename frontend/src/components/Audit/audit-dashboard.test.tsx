@@ -35,14 +35,18 @@ vi.mock("react-i18next", () => ({
     // — for keys that are fully translated (#1383) — `t(key, options)`. In the
     // second shape the options object is the *second* argument, exactly like
     // real i18next; the template then comes from the locale file instead of an
-    // inline default, so this mock resolves it from de.json.
+    // inline default, so this mock resolves it from de.json. `t(key)` alone
+    // resolves from de.json too, like i18next (a raw key would hide a missing
+    // translation behind the key itself).
     t: (
       key: string,
       fallback?: string | Record<string, unknown>,
       options?: Record<string, unknown>
     ) => {
       const optionsOnly = typeof fallback === "object" && fallback !== null;
-      const template = optionsOnly ? (resolveLocaleKey(key) ?? key) : (fallback ?? key);
+      const template = optionsOnly
+        ? (resolveLocaleKey(key) ?? key)
+        : (fallback ?? resolveLocaleKey(key) ?? key);
       const vars = optionsOnly ? fallback : options;
       if (!vars) return template;
       return Object.entries(vars).reduce(
@@ -260,7 +264,10 @@ function findingAt(index: number): AuditFinding {
     scope: "project",
     scope_artifact_id: null,
     index,
-    finding_key: `TRACE-P${index % 3}\x1f`,
+    // #569/#1383: the run-independent identity. Unique per finding — an empty
+    // artifact list would otherwise collapse every finding of a rule onto one
+    // key, which is exactly what the append dedupe must not do.
+    finding_key: `TRACE-P${index % 3}\x1fartifact-${index}`,
     suppressed: false,
     suppressed_until: null,
     suppression_reason: null,
@@ -396,13 +403,25 @@ describe("AuditDashboard (SysEng 2.0 Phase 3)", () => {
     expect(screen.getByTestId("audit-finding-severity-1").textContent).toMatch(/warning/i);
   });
 
-  it("shows total/blocker/warning count badges", async () => {
+  // Strengthened (#1382/#1383): the run totals and the mounted window
+  // deliberately differ here, so this cannot pass by comparing a number with
+  // itself (the old fixture had `counts === page_counts === findings.length`).
+  it("shows total/blocker/warning count badges from the run, not the window", async () => {
+    vi.mocked(auditApi.run).mockResolvedValue({
+      ...PROJECT_REPORT,
+      counts: { total: 9, blockers: 5, warnings: 4, suppressed: 0, suppressed_blockers: 0 },
+      page_counts: { total: 2, blockers: 1, warnings: 1, suppressed: 0, suppressed_blockers: 0 },
+      total_findings_available: 9,
+      total_blockers_available: 5,
+      total_warnings_available: 4,
+    });
+
     render(<AuditDashboard />);
 
     await screen.findByTestId("audit-finding-0");
-    expect(screen.getByTestId("audit-count-total").textContent).toContain("2");
-    expect(screen.getByTestId("audit-count-blockers").textContent).toContain("1");
-    expect(screen.getByTestId("audit-count-warnings").textContent).toContain("1");
+    expect(screen.getByTestId("audit-count-total").textContent).toContain("9");
+    expect(screen.getByTestId("audit-count-blockers").textContent).toContain("5");
+    expect(screen.getByTestId("audit-count-warnings").textContent).toContain("4");
   });
 
   it("shows an Adopt button for automatic findings and an enabled Modify button otherwise", async () => {
@@ -571,6 +590,62 @@ describe("AuditDashboard (SysEng 2.0 Phase 3)", () => {
     const banner = await screen.findByTestId("audit-truncated-banner");
     // 2 = page_counts.total (this response's window), 7 = counts.total (run).
     expect(banner.textContent).toMatch(/2 of 7/);
+  });
+
+  // #1382 (rolling deploy, both blocks present): `page_counts` is additive, so
+  // a backend can send it while `counts` still describes the returned window.
+  // When `counts.total` disagrees with `total_findings_available` the invariant
+  // `counts.total === total_findings_available` is broken, so the additive
+  // full-run fields win — otherwise a window becomes the run total again.
+  it("prefers total_findings_available when counts and page_counts disagree (#1382)", async () => {
+    vi.mocked(auditApi.run).mockResolvedValue({
+      ...PROJECT_REPORT,
+      // Pre-#1383 window-scoped `counts` next to an already-upgraded
+      // `page_counts` block — the shape a future backend could emit.
+      counts: { total: 2, blockers: 1, warnings: 1, suppressed: 0, suppressed_blockers: 0 },
+      page_counts: { total: 2, blockers: 1, warnings: 1, suppressed: 0, suppressed_blockers: 0 },
+      total_findings_available: 4440,
+      total_blockers_available: 4440,
+      total_warnings_available: 0,
+      total_suppressed_available: 0,
+      total_suppressed_blockers_available: 0,
+    });
+
+    render(<AuditDashboard />);
+
+    await screen.findByTestId("audit-finding-0");
+    expect(screen.getByTestId("audit-count-total").textContent).toContain("4440");
+    expect(screen.getByTestId("audit-count-blockers").textContent).toContain("4440");
+    expect(screen.getByTestId("audit-count-warnings").textContent).toContain("0");
+  });
+
+  // #1382: "the trace graph is consistent" is a statement about the RUN, so it
+  // may only be rendered when the run is empty. Deriving it from the mounted,
+  // filtered rows made a filter that hides everything read as a clean graph
+  // while the ground-truth badges still reported findings.
+  it("renders a neutral message when a filter hides every mounted finding (#1382)", async () => {
+    vi.mocked(auditApi.run).mockResolvedValue({
+      ...PROJECT_REPORT,
+      counts: { total: 7, blockers: 0, warnings: 7, suppressed: 0, suppressed_blockers: 0 },
+      page_counts: { total: 1, blockers: 0, warnings: 1, suppressed: 0, suppressed_blockers: 0 },
+      total_findings_available: 7,
+      total_blockers_available: 0,
+      total_warnings_available: 7,
+      // Only warning rows are mounted, so the severity filter hides all of them.
+      findings: [PROJECT_REPORT.findings[1]],
+    });
+
+    render(<AuditDashboard />);
+    await screen.findByTestId("audit-finding-1");
+
+    fireEvent.change(screen.getByTestId("audit-severity-filter"), {
+      target: { value: "blocker" },
+    });
+
+    const neutral = await screen.findByTestId("audit-no-filter-match");
+    expect(neutral.textContent).toBe(resolveLocaleKey("audit.noFilterMatch"));
+    expect(screen.queryByTestId("audit-empty")).not.toBeInTheDocument();
+    expect(screen.getByTestId("audit-count-total").textContent).toContain("7");
   });
 
   // ---- Failed run must never look like a clean run (GitHub #952) ----
@@ -798,6 +873,128 @@ describe("AuditDashboard — paged findings (#596)", () => {
     );
   });
 
+  // #1382: `truncated` without an advancing cursor must stop paging and say
+  // so. Fabricating `offset + findings.length` re-requested the same window
+  // forever (or silently hid the rest of the run) and masked the broken
+  // backend. `0` and `null` are both terminal on a modern backend, which is
+  // recognisable by the presence of `page_counts`.
+  it.each([
+    ["0", 0],
+    ["null", null],
+  ])(
+    "stops paging when truncated is true and next_offset is %s (#1383)",
+    async (_label, nextOffset) => {
+      vi.mocked(auditApi.run).mockResolvedValue({
+        ...windowReport(0, 100),
+        next_offset: nextOffset,
+      });
+
+      render(<AuditDashboard />);
+
+      const error = await screen.findByTestId("audit-load-error");
+      expect(error.textContent).toBe(resolveLocaleKey("audit.pagingStalled"));
+      expect(screen.queryByTestId("audit-load-more-btn")).not.toBeInTheDocument();
+      // No second request: the loop is stopped at the resolver, not by luck.
+      expect(auditApi.run).toHaveBeenCalledTimes(1);
+    }
+  );
+
+  // #1382: the local deltas mean "since the last snapshot". "Load more" adopts
+  // a fresh run snapshot, which already excludes the adopted finding, so the
+  // delta has to be dropped — otherwise the badge subtracts it twice
+  // (250 -> 249 locally, then 249 - 1 = 248 against the fresh snapshot).
+  it("applies a local adopt exactly once when Load more adopts a new snapshot (#1382)", async () => {
+    vi.mocked(auditApi.run)
+      .mockResolvedValueOnce({
+        ...PROJECT_REPORT,
+        counts: { total: 250, blockers: 250, warnings: 0, suppressed: 0, suppressed_blockers: 0 },
+        page_counts: { total: 2, blockers: 1, warnings: 1, suppressed: 0, suppressed_blockers: 0 },
+        truncated: true,
+        total_findings_available: 250,
+        total_blockers_available: 250,
+        total_effective_blockers: 250,
+        total_warnings_available: 0,
+        next_offset: 2,
+      })
+      // The next run: the Adopt removed one finding, so the snapshot is 249.
+      .mockResolvedValueOnce({
+        ...windowReport(2, 2),
+        counts: { total: 249, blockers: 249, warnings: 0, suppressed: 0, suppressed_blockers: 0 },
+        total_findings_available: 249,
+        total_blockers_available: 249,
+        total_effective_blockers: 249,
+        total_warnings_available: 0,
+        truncated: false,
+        next_offset: null,
+      });
+    vi.mocked(auditApi.remediate).mockResolvedValue({
+      applied: true,
+      finding_resolved: true,
+      created_link_id: "link-001",
+      proposal: PROJECT_REPORT.findings[0].remediation,
+    });
+
+    render(<AuditDashboard />);
+
+    fireEvent.click(await screen.findByTestId("audit-adopt-0"));
+    fireEvent.click(await screen.findByTestId("audit-adopt-confirm-confirm"));
+    await waitFor(() =>
+      expect(screen.getByTestId("audit-count-total").textContent).toContain("249")
+    );
+
+    fireEvent.click(screen.getByTestId("audit-load-more-btn"));
+    // The banner disappearing proves the fresh snapshot was committed.
+    await waitFor(() =>
+      expect(screen.queryByTestId("audit-truncated-banner")).not.toBeInTheDocument()
+    );
+    expect(screen.getByTestId("audit-count-total").textContent).toContain("249");
+    expect(screen.getByTestId("audit-count-total").textContent).not.toContain("248");
+  });
+
+  // #569/#1383: the append dedupe is keyed on `finding_key` + scope — every
+  // window is a fresh run, so `index` shifts once a finding was resolved. A
+  // re-reported finding must not be mounted twice under its new position, and
+  // a genuinely new finding whose index collides with an old one must survive.
+  it("dedupes an appended window by finding_key, not by positional index (#1383)", async () => {
+    const [first, second] = PROJECT_REPORT.findings;
+    vi.mocked(auditApi.run)
+      .mockResolvedValueOnce({
+        ...PROJECT_REPORT,
+        counts: { total: 3, blockers: 1, warnings: 2, suppressed: 0, suppressed_blockers: 0 },
+        page_counts: { total: 2, blockers: 1, warnings: 1, suppressed: 0, suppressed_blockers: 0 },
+        truncated: true,
+        total_findings_available: 3,
+        total_blockers_available: 1,
+        total_warnings_available: 2,
+        next_offset: 2,
+        findings: [first, second],
+      })
+      .mockResolvedValueOnce({
+        ...PROJECT_REPORT,
+        counts: { total: 3, blockers: 1, warnings: 2, suppressed: 0, suppressed_blockers: 0 },
+        page_counts: { total: 2, blockers: 2, warnings: 0, suppressed: 0, suppressed_blockers: 0 },
+        truncated: false,
+        total_findings_available: 3,
+        total_blockers_available: 1,
+        total_warnings_available: 2,
+        next_offset: null,
+        findings: [
+          // Already mounted — same finding, shifted position after the re-run.
+          { ...second, index: 7 },
+          // Genuinely new, distinct finding.
+          { ...first, index: 8, finding_key: "TRACE-P9\x1fartifact-8" },
+        ],
+      });
+
+    render(<AuditDashboard />);
+
+    fireEvent.click(await screen.findByTestId("audit-load-more-btn"));
+
+    expect(await screen.findByTestId("audit-finding-8")).toBeInTheDocument();
+    expect(screen.queryByTestId("audit-finding-7")).not.toBeInTheDocument();
+    expect(screen.getAllByText(second.message)).toHaveLength(1);
+  });
+
   // #1383: rolling deploy — a backend that predates `page_counts`/`next_offset`
   // still reports the full run through `total_*_available` and keeps the old
   // (window-scoped) `counts` semantics. That shape must be normalised, not
@@ -807,7 +1004,7 @@ describe("AuditDashboard — paged findings (#596)", () => {
     vi.mocked(auditApi.run).mockResolvedValue({
       ...legacy,
       counts: { total: 100, blockers: 100, warnings: 0, suppressed: 0, suppressed_blockers: 0 },
-    } as AuditReport);
+    });
 
     render(<AuditDashboard />);
 
@@ -912,6 +1109,29 @@ describe("AuditDashboard — waivers (#569)", () => {
       reason: WAIVE_REASON,
       scope: "project",
     });
+  });
+
+  // #1150/#1382: the server's `counts.blockers` is effective (waiver-aware), so
+  // a local waive must shrink the blocker badge — not only the additive
+  // "suppressed" counters. Before the fix the badge kept claiming the waived
+  // blocker still blocked a baseline.
+  it("shrinks the blocker badge when a blocker is waived (#1150/#1382)", async () => {
+    render(<AuditDashboard />);
+
+    await screen.findByTestId("audit-finding-0");
+    expect(screen.getByTestId("audit-count-blockers").textContent).toContain("1");
+
+    fireEvent.click(screen.getByTestId("audit-waive-0"));
+    fireEvent.change(screen.getByTestId("audit-waive-reason"), {
+      target: { value: WAIVE_REASON },
+    });
+    fireEvent.click(screen.getByTestId("audit-waive-confirm"));
+
+    await screen.findByTestId("audit-suppressed-badge-0");
+    expect(screen.getByTestId("audit-count-blockers").textContent).toContain("0");
+    // Still counted additively, so the decision stays visible.
+    expect(screen.getByTestId("audit-count-suppressed").textContent).toContain("1");
+    expect(screen.getByTestId("audit-count-suppressed-blockers").textContent).toContain("1");
   });
 
   it("hides suppressed findings when the filter is off and restores them when on", async () => {

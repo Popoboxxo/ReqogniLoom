@@ -1907,6 +1907,8 @@
     "loadError": "Audit-Findings konnten nicht geladen werden.",
     "actionError": "Die Aktion ist fehlgeschlagen. Bitte erneut versuchen.",
     "empty": "Keine Findings — der Trace-Graph ist für diesen Scope konsistent.",
+    "noFilterMatch": "Keine Findings entsprechen dem aktuellen Filter.",
+    "loadedOnlyCountsHint": "Zählt nur die bisher geladenen Findings, nicht den gesamten Lauf.",
     "noWorkspace": "Workspace auswählen, um den SE-Auditor auszuführen.",
     "severity": {
       "blocker": "Blocker",
@@ -1925,6 +1927,7 @@
     "actionLegend": "Übernehmen wendet die Korrektur an, die der Auditor automatisch abgeleitet hat. Anpassen öffnet das betroffene Artefakt zur manuellen Korrektur — Findings werden aus dem Trace-Graph neu berechnet und verschwinden, sobald das Artefakt korrigiert ist. Unterdrücken hinterlegt eine begründete Ausnahme: Das Finding bleibt sichtbar, blockiert aber keine Baselines mehr.",
     "truncated": "{{shown}} von {{total}} Findings werden angezeigt — mit „Mehr laden“ werden die restlichen eingebunden.",
     "truncatedWithMounted": "Fenster: {{shown}} von {{total}} Findings — {{mounted}} Zeilen geladen. Mit „Mehr laden“ kommen weitere.",
+    "pagingStalled": "Der Server meldet weitere Findings, hat den Cursor aber nicht fortgeschrieben — das Nachladen wurde gestoppt. Aktualisiere, um den Audit erneut auszuführen.",
     "loadMore": "Mehr Findings laden",
     "loadingMore": "Weitere Findings werden geladen...",
     "showSuppressed": "Unterdrückte anzeigen",
