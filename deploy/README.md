@@ -21,7 +21,7 @@ The base `docker-compose.yml` pins the frontend as a **registry image**:
 
 ```yaml
 frontend:
-  image: ghcr.io/popoboxxo/reqogniloom-frontend:${REQOGNILOOM_VERSION:-1.8.0-beta.21}
+  image: ghcr.io/popoboxxo/reqogniloom-frontend:${REQOGNILOOM_VERSION:-1.8.0-beta.22}
 ```
 
 Compose merges `image:` from the base unless the overlay **also sets `image:`**. An overlay that only
