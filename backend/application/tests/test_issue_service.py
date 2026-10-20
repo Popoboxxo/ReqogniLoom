@@ -456,6 +456,8 @@ class TestListIssuesExcludesOutdated:
         ):
             qs_mock = MagicMock()
             qs_mock.exclude.return_value = qs_mock
+            qs_mock.select_related.return_value = qs_mock
+            qs_mock.prefetch_related.return_value = qs_mock
             qs_mock.order_by.return_value = []
             mock_mgr.filter.return_value = qs_mock
 
@@ -473,6 +475,8 @@ class TestListIssuesExcludesOutdated:
             patch("application.issue_service.IssueService._set_tenant_context"),
         ):
             qs_mock = MagicMock()
+            qs_mock.select_related.return_value = qs_mock
+            qs_mock.prefetch_related.return_value = qs_mock
             qs_mock.order_by.return_value = []
             mock_mgr.filter.return_value = qs_mock
 

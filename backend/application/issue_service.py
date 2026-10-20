@@ -506,7 +506,13 @@ class IssueService(ServiceBase):
             from workflow.services import outdated_item_ids
 
             qs = qs.exclude(id__in=outdated_item_ids("Issue", tenant_id=ctx.tenant_id))
-        return qs.order_by("created_at")
+        # #1398: the REST DTO builder reads the backing Artifact (custom_fields
+        # + owner/reporter system fields) and the carrier-backed ``assignee``
+        # selection for every row. Without eager loading each of those is its
+        # own query per row, so a list response cost O(page_size) queries.
+        return qs.select_related(
+            "artifact", "artifact__owner", "artifact__reporter"
+        ).prefetch_related("assignee").order_by("created_at")
 
     def list_issues_by_status(
         self, workspace_id: UUID, status: str, ctx: AuthContext

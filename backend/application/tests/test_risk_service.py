@@ -598,6 +598,7 @@ class TestListRisksExcludesOutdated:
         ):
             qs_mock = MagicMock()
             qs_mock.exclude.return_value = qs_mock
+            qs_mock.select_related.return_value = qs_mock
             qs_mock.order_by.return_value = []
             mock_mgr.filter.return_value = qs_mock
 
@@ -615,6 +616,7 @@ class TestListRisksExcludesOutdated:
             patch("application.risk_service.RiskService._set_tenant_context"),
         ):
             qs_mock = MagicMock()
+            qs_mock.select_related.return_value = qs_mock
             qs_mock.order_by.return_value = []
             mock_mgr.filter.return_value = qs_mock
 

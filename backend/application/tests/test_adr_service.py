@@ -667,9 +667,12 @@ class TestGetAndListAdrs:
             patch("application.adr_service.Adr.objects") as mock_mgr,
             patch("application.adr_service.AdrService._set_tenant_context"),
         ):
-            # Chain: filter() → exclude() → order_by() → list()
+            # Chain: filter() → exclude() → select_related() →
+            # prefetch_related() → order_by() → list() (#1398)
             mock_qs = MagicMock()
             mock_qs.exclude.return_value = mock_qs
+            mock_qs.select_related.return_value = mock_qs
+            mock_qs.prefetch_related.return_value = mock_qs
             mock_qs.order_by.return_value = [adr1]
             mock_mgr.filter.return_value = mock_qs
             result = svc.list_adrs(WS_ID, ctx)
@@ -691,8 +694,11 @@ class TestGetAndListAdrs:
             patch("application.adr_service.Adr.objects") as mock_mgr,
             patch("application.adr_service.AdrService._set_tenant_context"),
         ):
-            # Chain: filter() → order_by() → list() (no exclude)
+            # Chain: filter() → select_related() → prefetch_related() →
+            # order_by() → list() (no exclude)
             mock_qs = MagicMock()
+            mock_qs.select_related.return_value = mock_qs
+            mock_qs.prefetch_related.return_value = mock_qs
             mock_qs.order_by.return_value = [MagicMock()]
             mock_mgr.filter.return_value = mock_qs
             svc.list_adrs(WS_ID, ctx, include_deleted=True)
@@ -710,9 +716,12 @@ class TestGetAndListAdrs:
             patch("application.adr_service.Adr.objects") as mock_mgr,
             patch("application.adr_service.AdrService._set_tenant_context"),
         ):
-            # REQ-006: chain is filter() → exclude() → order_by() → list()
+            # REQ-006: chain is filter() → exclude() → select_related() →
+            # prefetch_related() → order_by() → list() (#1398)
             mock_qs = MagicMock()
             mock_qs.exclude.return_value = mock_qs
+            mock_qs.select_related.return_value = mock_qs
+            mock_qs.prefetch_related.return_value = mock_qs
             mock_qs.order_by.return_value = []
             mock_mgr.filter.return_value = mock_qs
             svc.list_adrs(WS_ID, ctx_a)
