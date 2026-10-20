@@ -497,6 +497,31 @@ def _effective_qdrant_config() -> Any:
     return resolve_effective_qdrant_config()
 
 
+def _qdrant_selection_reason() -> str:
+    """Return the first gate that keeps Qdrant from serving, or ``""``.
+
+    The conditions are evaluated in the same order as :func:`_qdrant_selected`
+    (ADR-020 §4), so the diagnostic can never disagree with the selector. The
+    value is a stable, machine-readable token — never free text — because it is
+    exposed verbatim in the ``/health/`` advisory.
+    """
+    if _artifact_vector_backend() != _QDRANT_ARTIFACT_BACKEND:
+        # No explicit opt-in: pgvector is the requested backend, so this is not
+        # a fallback and there is no reason to report.
+        return ""
+    if not _qdrant_client_available():
+        return "qdrant_client_missing"
+    if _effective_memory_backend_name() != _QDRANT_ARTIFACT_BACKEND:
+        return "memory_backend_not_qdrant"
+    try:
+        config = _effective_qdrant_config()
+    except Exception:  # noqa: BLE001 - config problems degrade to pgvector
+        return "qdrant_config_error"
+    if not getattr(config, "base_url", "").strip():
+        return "qdrant_base_url_missing"
+    return ""
+
+
 def _qdrant_selected() -> bool:
     """Whether the Qdrant adapter should serve the artifact port.
 
@@ -506,21 +531,48 @@ def _qdrant_selected() -> bool:
     1. ``ARTIFACT_VECTOR_BACKEND=qdrant`` -- the explicit opt-in. The Qdrant
        artifact port is never selected as a side effect of ``MEMORY_BACKEND``
        or ``QDRANT_BASE_URL`` alone.
-    2. The effective memory backend is ``qdrant`` (DB override over env).
-    3. The optional ``qdrant_client`` package is importable.
+    2. The optional ``qdrant_client`` package is importable.
+    3. The effective memory backend is ``qdrant`` (DB override over env).
     4. An effective Qdrant base URL is configured (DB override over env).
     """
     if _artifact_vector_backend() != _QDRANT_ARTIFACT_BACKEND:
         return False
-    if not _qdrant_client_available():
-        return False
-    if _effective_memory_backend_name() != _QDRANT_ARTIFACT_BACKEND:
-        return False
-    try:
-        config = _effective_qdrant_config()
-    except Exception:  # noqa: BLE001 - config problems degrade to pgvector
-        return False
-    return bool(getattr(config, "base_url", "").strip())
+    return _qdrant_selection_reason() == ""
+
+
+def vector_backend_diagnostic() -> dict[str, str]:
+    """Return the requested/active artifact vector backend (issue #1437).
+
+    Read-only: it never selects or constructs an adapter and never changes the
+    behaviour of :func:`get_vector_port` (same gates, same order). The result
+    makes the documented silent fallback visible:
+
+    * ``requested`` -- the explicit ``ARTIFACT_VECTOR_BACKEND`` selector.
+    * ``active`` -- ``"qdrant"`` exactly when :func:`_qdrant_selected` is true,
+      else ``"pgvector"``.
+    * ``reason`` -- ``""`` when the request is honoured (or pgvector was
+      requested); otherwise the first failing gate:
+      ``unknown_artifact_vector_backend``, ``qdrant_client_missing``,
+      ``memory_backend_not_qdrant``, ``qdrant_config_error`` or
+      ``qdrant_base_url_missing``.
+    """
+    requested = _artifact_vector_backend()
+    if requested not in {DEFAULT_ARTIFACT_VECTOR_BACKEND, _QDRANT_ARTIFACT_BACKEND}:
+        # An unknown selector is also served by pgvector; naming it as a
+        # fallback is more useful than reporting a phantom "pgvector
+        # requested".
+        return {
+            "requested": requested,
+            "active": DEFAULT_ARTIFACT_VECTOR_BACKEND,
+            "reason": "unknown_artifact_vector_backend",
+        }
+    reason = _qdrant_selection_reason()
+    active = (
+        _QDRANT_ARTIFACT_BACKEND
+        if requested == _QDRANT_ARTIFACT_BACKEND and reason == ""
+        else DEFAULT_ARTIFACT_VECTOR_BACKEND
+    )
+    return {"requested": requested, "active": active, "reason": reason}
 
 
 __all__ = [
@@ -537,4 +589,5 @@ __all__ = [
     "VectorHit",
     "VectorPort",
     "get_vector_port",
+    "vector_backend_diagnostic",
 ]

@@ -435,6 +435,50 @@ def _collect_advisory(
                 "`@atomic_transaction` wrapper."
             )
 
+    # Artifact vector backend (#1437): ``ARTIFACT_VECTOR_BACKEND=qdrant`` is an
+    # explicit opt-in, but Qdrant only serves when ALL gate conditions hold
+    # (importable package, memory backend qdrant, configured base URL).
+    # Otherwise the port silently degrades to pgvector and an operator who set
+    # the opt-in still reads "ok". Publish the requested/active backend and the
+    # first failing gate so the documented silent fallback is visible — without
+    # changing any selection behaviour. Advisory (HTTP 200): pgvector is a fully
+    # functional fallback, so a mismatch escalates ``ok`` to ``warning`` and
+    # never causes degraded/503. Not gated on ``db_ok``: the gate is
+    # best-effort and falls back to the environment when the DB is unreachable.
+    try:
+        from application.vector_port import vector_backend_diagnostic
+
+        vector_backend = vector_backend_diagnostic()
+    except Exception as exc:  # noqa: BLE001 - health check must never crash
+        logger.warning(
+            "Health check: vector-backend diagnostic failed - %s", exc
+        )
+        warnings.append("vector-backend diagnostic failed")
+    else:
+        advisory["effective_vector_backend"] = vector_backend["active"]
+        advisory["vector_backend_requested"] = vector_backend["requested"]
+        advisory["vector_backend_active"] = vector_backend["active"]
+        if vector_backend["reason"]:
+            advisory["vector_backend_fallback_reason"] = vector_backend["reason"]
+            logger.warning(
+                "Health check: artifact vector backend requested=%s active=%s "
+                "reason=%s",
+                vector_backend["requested"],
+                vector_backend["active"],
+                vector_backend["reason"],
+            )
+            warnings.append(
+                f"ARTIFACT_VECTOR_BACKEND={vector_backend['requested']} is "
+                f"requested but the artifact vector port runs on "
+                f"{vector_backend['active']} (reason: "
+                f"{vector_backend['reason']}). Artifact ANN search therefore "
+                "queries pgvector, not Qdrant. The four gate conditions are: "
+                "ARTIFACT_VECTOR_BACKEND=qdrant, an importable qdrant_client "
+                "package, MEMORY_BACKEND=qdrant (or the SystemMemorySettings "
+                "override), and a configured QDRANT_BASE_URL. See "
+                "application/vector_port.py."
+            )
+
     # CSRF-cookie security check: AUTH_COOKIE_SECURE must match
     # CSRF_COOKIE_SECURE to avoid CSRF failures in deployments without a
     # TLS-terminating reverse proxy.
