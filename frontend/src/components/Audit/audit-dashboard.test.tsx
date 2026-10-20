@@ -798,6 +798,32 @@ describe("AuditDashboard — paged findings (#596)", () => {
     );
   });
 
+  // #1383: rolling deploy — a backend that predates `page_counts`/`next_offset`
+  // still reports the full run through `total_*_available` and keeps the old
+  // (window-scoped) `counts` semantics. That shape must be normalised, not
+  // rendered as the run total.
+  it("normalises a legacy response without page_counts or next_offset", async () => {
+    const { page_counts: _pageCounts, next_offset: _nextOffset, ...legacy } = windowReport(0, 100);
+    vi.mocked(auditApi.run).mockResolvedValue({
+      ...legacy,
+      counts: { total: 100, blockers: 100, warnings: 0, suppressed: 0, suppressed_blockers: 0 },
+    } as AuditReport);
+
+    render(<AuditDashboard />);
+
+    await screen.findByTestId("audit-load-more-btn");
+    expect(screen.getByTestId("audit-count-total").textContent).toContain("250");
+    expect(screen.getByTestId("audit-count-blockers").textContent).toContain("200");
+
+    fireEvent.click(screen.getByTestId("audit-load-more-btn"));
+    await waitFor(() =>
+      expect(auditApi.run).toHaveBeenLastCalledWith(
+        "ws-001",
+        expect.objectContaining({ offset: 100 })
+      )
+    );
+  });
+
   // #1383: once more than one window is mounted, "window" and "rows on screen"
   // are different numbers; the banner must name all three (window / mounted /
   // run) instead of presenting the mounted rows as the window.

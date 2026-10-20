@@ -218,6 +218,26 @@ function windowCounts(report: AuditReport): AuditCounts {
 }
 
 /**
+ * #1383: the ground truth over the full run.
+ *
+ * `counts` carries it on the current contract. A backend that predates #1383
+ * exposes it only through the individual `total_*_available` fields and uses
+ * `counts` for the returned window — normalising that shape here keeps the
+ * badges correct during a rolling deploy instead of showing window numbers as
+ * the run total (the #1382 symptom).
+ */
+function groundTruthCounts(report: AuditReport): AuditCounts {
+  if (report.page_counts) return report.counts;
+  return {
+    total: report.total_findings_available,
+    blockers: report.total_blockers_available,
+    warnings: report.total_warnings_available,
+    suppressed: report.total_suppressed_available,
+    suppressed_blockers: report.total_suppressed_blockers_available,
+  };
+}
+
+/**
  * #1383: the cursor for the next window. The server's `next_offset` is
  * authoritative (`null` once fully paged); the recomputed value only keeps an
  * older backend's windowed response usable.
@@ -363,7 +383,7 @@ export function AuditDashboard(): JSX.Element {
       // #1382/#1383: `counts` is the FULL-run ground truth, `page_counts` the
       // window just returned. Keeping them apart is what stops a partial
       // window from being rendered as the run total.
-      setReportCounts(report.counts);
+      setReportCounts(groundTruthCounts(report));
       setPageCounts(windowCounts(report));
       setLoadedWindows(1);
       // A new run re-snapshots the server counts, so local corrections from
@@ -463,7 +483,7 @@ export function AuditDashboard(): JSX.Element {
       // Every window reports the same full-run `counts`, but a later window is
       // the freshest snapshot — and `page_counts` becomes the size of *this*
       // window, which is what the "{{shown}} of {{total}}" display names.
-      setReportCounts(report.counts);
+      setReportCounts(groundTruthCounts(report));
       setPageCounts(windowCounts(report));
       setLoadedWindows((prev) => prev + 1);
     } catch (err) {
