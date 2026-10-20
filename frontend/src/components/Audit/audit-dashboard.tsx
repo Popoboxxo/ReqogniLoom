@@ -138,6 +138,16 @@ interface ActionState {
 }
 
 /**
+ * Per-finding action state, keyed by `findingIdentity` — never by `index`.
+ *
+ * NFA-2: `index` is a position in the run that produced a window, so a shifted
+ * window can hand a *different* finding the same index as a row that is
+ * already mounted. Keying this map on the index would then drive the new row's
+ * button state (pending/error) from another row's action.
+ */
+type ActionStateMap = Record<string, ActionState>;
+
+/**
  * Extract a human-readable message from any error a fetch call can throw.
  *
  * GitHub #952: the result must NEVER be an empty/whitespace-only string. A
@@ -364,7 +374,7 @@ export function AuditDashboard(): JSX.Element {
   // exactly like "no suppressions on file" (the empty key never rendered).
   const [waiversLoading, setWaiversLoading] = useState<boolean>(false);
   const [waiversError, setWaiversError] = useState<string | null>(null);
-  const [actionState, setActionState] = useState<Record<number, ActionState>>({});
+  const [actionState, setActionState] = useState<ActionStateMap>({});
   const [toast, setToast] = useState<string | null>(null);
   // UI-57: Adopt applies an automatic correction with no undo — interpose a
   // confirmation instead of firing the remediation call straight from the
@@ -611,7 +621,12 @@ export function AuditDashboard(): JSX.Element {
   const handleAdopt = useCallback(
     async (finding: AuditFinding): Promise<void> => {
       if (!activeWorkspace) return;
-      setActionState((prev) => ({ ...prev, [finding.index]: { status: "pending" } }));
+      // NFA-2: every local bookkeeping entry is addressed by the
+      // run-independent identity. `index` is only the row's position in the
+      // run that produced *its* window, so a shifted window can reuse the
+      // index of a row that is already mounted.
+      const identity = findingIdentity(finding);
+      setActionState((prev) => ({ ...prev, [identity]: { status: "pending" } }));
       try {
         await auditApi.remediate(activeWorkspace.id, {
           rule_id: finding.rule_id,
@@ -619,25 +634,25 @@ export function AuditDashboard(): JSX.Element {
           scope,
           scope_artifact_id: scope === "document" ? scopeArtifactId : undefined,
         });
-        setFindings((prev) => prev.filter((f) => f.index !== finding.index));
+        setFindings((prev) => prev.filter((f) => findingIdentity(f) !== identity));
         // #1383: the report's counts are a snapshot from the last run — record
         // the local resolution so the badges can still shrink (see `counts`).
         setAdoptedSinceRun((prev) => [...prev, finding]);
-        // NF-A: an Adopt removes the row from the run, so every finding behind
-        // it shifts down by one position. `nextOffset` is a server cursor and
-        // is honoured verbatim otherwise, but this LOCAL mutation invalidates
-        // it: paging from the old cursor would skip the finding that moved into
-        // the adopted row's slot (the row at old `index` is now at
-        // `index - 1`, which the cursor then never mounts again). A finding at
-        // or after the cursor cannot have been adopted yet, so it leaves the
-        // cursor untouched; the `> 0` guard keeps a repeated adopt from wrapping
-        // it negative.
-        setNextOffset((prev) =>
-          prev !== null && prev > 0 && finding.index < prev ? prev - 1 : prev
-        );
+        // NF-A/NFA-1: an Adopt removes one row from the run, so every finding
+        // behind it shifts down by one position. `nextOffset` is a server
+        // cursor and is honoured verbatim otherwise, but this LOCAL mutation
+        // invalidates it: paging from the old cursor would skip the finding
+        // that moved into the adopted row's slot. The adopted row is always a
+        // *mounted* row that the cursor already covers, so every successful
+        // Adopt moves the cursor by exactly one and no index comparison is
+        // needed — `finding.index` is a position in the stale snapshot and is
+        // not comparable with a cursor that an earlier adopt already
+        // decremented (that comparison under-decremented from the second
+        // adopt on the same page and skipped a finding permanently).
+        setNextOffset((prev) => (prev === null ? prev : Math.max(0, prev - 1)));
         setActionState((prev) => {
           const next = { ...prev };
-          delete next[finding.index];
+          delete next[identity];
           return next;
         });
         setToast(t("audit.adoptSuccess", "Resolved — the correction was applied."));
@@ -647,19 +662,19 @@ export function AuditDashboard(): JSX.Element {
           // manual "Modify" state in-place instead of leaving a dead button.
           setFindings((prev) =>
             prev.map((f) =>
-              f.index === finding.index
+              findingIdentity(f) === identity
                 ? { ...f, remediation: { ...f.remediation, automatic: false, reason: err.message } }
                 : f
             )
           );
           setActionState((prev) => ({
             ...prev,
-            [finding.index]: { status: "error", message: err.message },
+            [identity]: { status: "error", message: err.message },
           }));
         } else {
           setActionState((prev) => ({
             ...prev,
-            [finding.index]: {
+            [identity]: {
               status: "error",
               message: resolveErrorMessage(err, t("audit.actionError")),
             },
@@ -775,9 +790,13 @@ export function AuditDashboard(): JSX.Element {
       const view = await auditApi.waive(activeWorkspace.id, body);
       // Mark the finding in-place as suppressed — it is NOT removed, so the
       // suppression stays visible (Nachvollziehbarkeit statt Verstecken).
+      // NFA-2: matched by identity, not by `index` — after a shifted window a
+      // second, *different* row can carry the same numeric index, and keying on
+      // it would mark both as suppressed.
+      const identity = findingIdentity(finding);
       setFindings((prev) =>
         prev.map((f) =>
-          f.index === finding.index
+          findingIdentity(f) === identity
             ? {
                 ...f,
                 suppressed: true,
@@ -1438,7 +1457,7 @@ function RuleInfoPopover({ ruleId, info }: RuleInfoPopoverProps): JSX.Element {
 interface FindingGroupProps {
   ruleId: string;
   findings: AuditFinding[];
-  actionState: Record<number, ActionState>;
+  actionState: ActionStateMap;
   targets: FindingTargetMap;
   /** #1262: catalogue metadata for the rule-id popover (may be undefined). */
   ruleInfo?: AuditRuleInfo;
@@ -1487,7 +1506,7 @@ function FindingGroup({
           <FindingRow
             key={findingIdentity(finding)}
             finding={finding}
-            action={actionState[finding.index] ?? { status: "idle" }}
+            action={actionState[findingIdentity(finding)] ?? { status: "idle" }}
             target={primaryTarget(finding, targets)}
             onAdopt={onAdopt}
             onModify={onModify}

@@ -15,7 +15,7 @@
  *   - data-testid attributes present (E2E contract)
  */
 
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { AuditDashboard } from "./audit-dashboard";
 import { auditApi } from "../../api/audit";
@@ -329,6 +329,85 @@ function windowReport(offset: number, length: number): AuditReport {
     next_offset: end < total ? end : null,
     findings,
   };
+}
+
+/**
+ * A faithful post-adopt window (NFA-3).
+ *
+ * `identities` names the findings by their *pre-adopt* position — that is what
+ * their message and `finding_key` carry. `index` is the position in the
+ * **current** run, derived from `offset`, exactly like the server reports it.
+ * Because the run shrank, such a position can equal the stale index of a row
+ * that is already mounted — which is the NFA-2 case, not a fixture artefact.
+ * `adoptable` marks the identities whose remediation is automatic.
+ */
+function shiftedWindow({
+  offset,
+  identities,
+  nextOffset,
+  total,
+  blockers,
+  warnings,
+  adoptable = [],
+}: {
+  offset: number;
+  identities: number[];
+  nextOffset: number | null;
+  total: number;
+  blockers: number;
+  warnings: number;
+  adoptable?: number[];
+}): AuditReport {
+  const findings = identities.map((identity, i) => ({
+    ...(adoptable.includes(identity) ? adoptableFindingAt(identity) : findingAt(identity)),
+    index: offset + i,
+  }));
+  return {
+    tier: "extended",
+    scope: "project",
+    scope_artifact_id: null,
+    counts: { total, blockers, warnings, suppressed: 0, suppressed_blockers: 0 },
+    page_counts: {
+      total: findings.length,
+      blockers: findings.filter((f) => f.severity === "blocker").length,
+      warnings: findings.filter((f) => f.severity === "warning").length,
+      suppressed: 0,
+      suppressed_blockers: 0,
+    },
+    truncated: nextOffset !== null,
+    total_findings_available: total,
+    total_blockers_available: blockers,
+    total_effective_blockers: blockers,
+    total_warnings_available: warnings,
+    total_suppressed_available: 0,
+    total_suppressed_blockers_available: 0,
+    suppressed_filtered: 0,
+    offset,
+    next_offset: nextOffset,
+    findings,
+  };
+}
+
+/**
+ * Messages of every mounted finding row, sorted (NFA-3).
+ *
+ * `audit-finding-<index>` is the E2E contract and stays index-based, so once a
+ * shifted window reuses the stale index of a mounted row two rows carry the
+ * same `data-testid`. Identity-based assertions therefore read the finding's
+ * message instead of resolving a single testid.
+ */
+function mountedFindingMessages(): string[] {
+  return screen
+    .queryAllByTestId(/^audit-finding-\d+$/)
+    .map((row) => within(row).getByText(/^finding \d+$/).textContent ?? "")
+    .sort();
+}
+
+/** The `<li>` row of the finding whose message is exactly `finding <n>`. */
+function findingRow(message: string): HTMLElement {
+  const row = screen.getByText(message).closest("li");
+  if (!row) throw new Error(`no finding row for "${message}"`);
+  return row;
 }
 
 function setupDefaultMocks(): void {
@@ -986,19 +1065,21 @@ describe("AuditDashboard — paged findings (#596)", () => {
         });
       }
       // Post-adopt snapshot: 249 findings. Old index `i` now lives at new
-      // index `i - 1`, so this window starts at old index `offset + 1`.
-      return Promise.resolve({
-        ...windowReport(offset, 2),
-        counts: { total: 249, blockers: 199, warnings: 50, suppressed: 0, suppressed_blockers: 0 },
-        page_counts: { total: 2, blockers: 2, warnings: 0, suppressed: 0, suppressed_blockers: 0 },
-        truncated: false,
-        total_findings_available: 249,
-        total_blockers_available: 199,
-        total_effective_blockers: 199,
-        total_warnings_available: 50,
-        next_offset: null,
-        findings: [findingAt(offset + 1), findingAt(offset + 2)],
-      });
+      // index `i - 1`, so this window starts at old index `offset + 1` — and
+      // labels those findings with their *current-run* position `offset`,
+      // `offset + 1` (NFA-3). Old index 1 is still mounted under its stale
+      // index 1, so the two rows share `data-testid="audit-finding-1"`; the
+      // assertions below therefore compare mounted identities, not testids.
+      return Promise.resolve(
+        shiftedWindow({
+          offset,
+          identities: [offset + 1, offset + 2],
+          nextOffset: null,
+          total: 249,
+          blockers: 199,
+          warnings: 50,
+        })
+      );
     });
     vi.mocked(auditApi.remediate).mockResolvedValue({
       applied: true,
@@ -1024,12 +1105,226 @@ describe("AuditDashboard — paged findings (#596)", () => {
         expect.objectContaining({ offset: 1 })
       )
     );
-    // ...so the shifted window still mounts old index 2 (new index 1) — the
-    // row the stale cursor would have skipped — next to old index 3.
-    expect(await screen.findByTestId("audit-finding-2")).toBeInTheDocument();
-    expect(screen.getByTestId("audit-finding-3")).toBeInTheDocument();
-    // Nothing else was lost: old 0 was adopted, old 1..3 are mounted.
-    expect(screen.getByTestId("audit-finding-1")).toBeInTheDocument();
+    // ...so the shifted window still mounts old index 2 (the row the stale
+    // cursor would have skipped) next to old index 3. Nothing else was lost:
+    // old 0 was adopted, old 1..3 are mounted — asserted by identity because
+    // old 1 and old 2 now share the index 1 testid.
+    await waitFor(() =>
+      expect(mountedFindingMessages()).toEqual(["finding 1", "finding 2", "finding 3"])
+    );
+  });
+
+  // NFA-1 (BLOCKING): the old guard compared a *stale snapshot* index against
+  // an already-decremented cursor, so a second adopt on the same page did not
+  // decrement at all (2 -> 1, then index 1 < 1 is false). "Load more" then
+  // paged from 1 instead of 0 and the finding that moved into the second
+  // adopted slot was skipped permanently. The adopted row is always mounted
+  // and covered by the cursor, so every adopt decrements by exactly one.
+  it("decrements the cursor on every Adopt of the same page (NFA-1)", async () => {
+    let firstPageServed = false;
+    vi.mocked(auditApi.run).mockImplementation((_wsId, options) => {
+      const offset = options?.offset ?? 0;
+      if (offset === 0 && !firstPageServed) {
+        firstPageServed = true;
+        // A 6-finding run; the first page mounts two adoptable findings.
+        return Promise.resolve(
+          shiftedWindow({
+            offset: 0,
+            identities: [0, 1],
+            nextOffset: 2,
+            total: 6,
+            blockers: 6,
+            warnings: 0,
+            adoptable: [0, 1],
+          })
+        );
+      }
+      // Post-adopt run: old 2..5 now sit at positions 0..3.
+      if (offset === 0) {
+        return Promise.resolve(
+          shiftedWindow({
+            offset: 0,
+            identities: [2, 3],
+            nextOffset: 2,
+            total: 4,
+            blockers: 4,
+            warnings: 0,
+          })
+        );
+      }
+      return Promise.resolve(
+        shiftedWindow({
+          offset,
+          identities: [4, 5],
+          nextOffset: null,
+          total: 4,
+          blockers: 4,
+          warnings: 0,
+        })
+      );
+    });
+    vi.mocked(auditApi.remediate).mockResolvedValue({
+      applied: true,
+      finding_resolved: true,
+      created_link_id: "link-001",
+      proposal: adoptableFindingAt(0).remediation,
+    });
+
+    render(<AuditDashboard />);
+
+    // Two adopts on the first page: cursor 2 -> 1 -> 0.
+    fireEvent.click(await screen.findByTestId("audit-adopt-0"));
+    fireEvent.click(await screen.findByTestId("audit-adopt-confirm-confirm"));
+    await waitFor(() => expect(mountedFindingMessages()).toEqual(["finding 1"]));
+
+    fireEvent.click(screen.getByTestId("audit-adopt-1"));
+    fireEvent.click(await screen.findByTestId("audit-adopt-confirm-confirm"));
+    await waitFor(() => expect(mountedFindingMessages()).toEqual([]));
+
+    // Paging therefore starts at 0 — the stale 1 would skip old index 2.
+    fireEvent.click(screen.getByTestId("audit-load-more-btn"));
+    await waitFor(() =>
+      expect(auditApi.run).toHaveBeenLastCalledWith(
+        "ws-001",
+        expect.objectContaining({ offset: 0 })
+      )
+    );
+    await waitFor(() =>
+      expect(mountedFindingMessages()).toEqual(["finding 2", "finding 3"])
+    );
+
+    fireEvent.click(screen.getByTestId("audit-load-more-btn"));
+    await waitFor(() =>
+      expect(auditApi.run).toHaveBeenLastCalledWith(
+        "ws-001",
+        expect.objectContaining({ offset: 2 })
+      )
+    );
+    // Complete mounted set: the two adopted rows are gone, old 2..5 are
+    // mounted exactly once each — nothing was skipped.
+    await waitFor(() =>
+      expect(mountedFindingMessages()).toEqual([
+        "finding 2",
+        "finding 3",
+        "finding 4",
+        "finding 5",
+      ])
+    );
+  });
+
+  // NFA-2 (MEDIUM): a shifted window can hand a mounted row's stale `index` to
+  // a *different* finding. Removal by index would then drop both rows; the
+  // adopted row must be matched by its identity (`finding_key` + scope).
+  it("removes only the adopted row when a shifted window reuses its index (NFA-2)", async () => {
+    vi.mocked(auditApi.run).mockImplementation((_wsId, options) => {
+      const offset = options?.offset ?? 0;
+      if (offset === 0) {
+        return Promise.resolve({
+          ...windowReport(0, 2),
+          findings: [adoptableFindingAt(0), findingAt(1)],
+        });
+      }
+      // After adopting old index 0 the run shrank: the window at cursor 1
+      // labels old 2 and old 3 with their current-run positions 1 and 2, so
+      // old 2 collides with the still-mounted old 1.
+      return Promise.resolve(
+        shiftedWindow({
+          offset,
+          identities: [offset + 1, offset + 2],
+          nextOffset: null,
+          total: 249,
+          blockers: 199,
+          warnings: 50,
+          adoptable: [offset + 1],
+        })
+      );
+    });
+    vi.mocked(auditApi.remediate).mockResolvedValue({
+      applied: true,
+      finding_resolved: true,
+      created_link_id: "link-001",
+      proposal: adoptableFindingAt(0).remediation,
+    });
+
+    render(<AuditDashboard />);
+
+    fireEvent.click(await screen.findByTestId("audit-adopt-0"));
+    fireEvent.click(await screen.findByTestId("audit-adopt-confirm-confirm"));
+    await waitFor(() => expect(mountedFindingMessages()).toEqual(["finding 1"]));
+
+    fireEvent.click(screen.getByTestId("audit-load-more-btn"));
+    await waitFor(() =>
+      expect(mountedFindingMessages()).toEqual(["finding 1", "finding 2", "finding 3"])
+    );
+
+    // Both "finding 1" and "finding 2" carry `audit-adopt-1` now; address the
+    // new window's row through its identity.
+    fireEvent.click(within(findingRow("finding 2")).getByTestId("audit-adopt-1"));
+    fireEvent.click(await screen.findByTestId("audit-adopt-confirm-confirm"));
+
+    // Only old 2 was resolved — old 1, which shares the old numeric index, is
+    // still mounted.
+    await waitFor(() =>
+      expect(mountedFindingMessages()).toEqual(["finding 1", "finding 3"])
+    );
+  });
+
+  // NFA-2 (MEDIUM, waive half): the in-place suppression map was keyed on
+  // `index` too, so waiving one of two index-colliding rows marked both.
+  it("suppresses only the waived row when a shifted window reuses its index (NFA-2)", async () => {
+    vi.mocked(auditApi.run).mockImplementation((_wsId, options) => {
+      const offset = options?.offset ?? 0;
+      if (offset === 0) {
+        return Promise.resolve({
+          ...windowReport(0, 2),
+          findings: [adoptableFindingAt(0), findingAt(1)],
+        });
+      }
+      return Promise.resolve(
+        shiftedWindow({
+          offset,
+          identities: [offset + 1, offset + 2],
+          nextOffset: null,
+          total: 249,
+          blockers: 199,
+          warnings: 50,
+        })
+      );
+    });
+    vi.mocked(auditApi.remediate).mockResolvedValue({
+      applied: true,
+      finding_resolved: true,
+      created_link_id: "link-001",
+      proposal: adoptableFindingAt(0).remediation,
+    });
+
+    render(<AuditDashboard />);
+
+    fireEvent.click(await screen.findByTestId("audit-adopt-0"));
+    fireEvent.click(await screen.findByTestId("audit-adopt-confirm-confirm"));
+    await waitFor(() => expect(mountedFindingMessages()).toEqual(["finding 1"]));
+
+    fireEvent.click(screen.getByTestId("audit-load-more-btn"));
+    await waitFor(() =>
+      expect(mountedFindingMessages()).toEqual(["finding 1", "finding 2", "finding 3"])
+    );
+
+    fireEvent.click(within(findingRow("finding 2")).getByTestId("audit-waive-1"));
+    fireEvent.change(screen.getByTestId("audit-waive-reason"), {
+      target: { value: WAIVE_REASON },
+    });
+    fireEvent.click(screen.getByTestId("audit-waive-confirm"));
+
+    await waitFor(() =>
+      expect(within(findingRow("finding 2")).getByTestId("audit-suppressed-badge-1"))
+        .toBeInTheDocument()
+    );
+    // The other row that happened to carry index 1 stays untouched, and only
+    // one suppression is visible in total.
+    expect(
+      within(findingRow("finding 1")).queryByTestId("audit-suppressed-badge-1")
+    ).not.toBeInTheDocument();
+    expect(screen.getAllByTestId("audit-suppressed-badge-1")).toHaveLength(1);
   });
 
   // NF-A (waive half): a waive removes nothing, so it must NOT shift the
