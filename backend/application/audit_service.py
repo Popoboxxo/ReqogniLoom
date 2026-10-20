@@ -30,7 +30,7 @@ entry point, so audit + tenant scoping + SE-semantics validation all apply.
 from __future__ import annotations
 
 import logging
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from uuid import UUID
@@ -215,29 +215,50 @@ class AuditReport:
     all of them in one response risks multi-MB payloads.
     ``AuditService.run_audit`` caps the *returned* findings at
     :data:`AuditService.MAX_REPORT_FINDINGS`; these fields tell the caller a
-    cap was applied and how many findings/blockers/warnings exist in total,
-    without changing the meaning of any pre-existing field (``counts.total``
-    /``counts.blockers``/``counts.warnings`` still describe the *returned*
-    (possibly capped) findings — additive-only change, see
-    AuditService.run_audit docstring for the compatibility rationale).
+    cap was applied and how many findings/blockers/warnings exist in total.
 
-    Code review finding (BUG-15 follow-up M3): the dashboard's count badges
-    used to be computed client-side from the (possibly capped) findings
-    array, so a workspace with 4,440 real blockers showed "500" with no
-    indication that was a partial count. ``total_blockers_available`` /
-    ``total_warnings_available`` give the frontend the true totals to show
-    instead, while ``counts.blockers``/``counts.warnings`` keep describing
-    what is actually in ``findings`` (e.g. for the Adopt-workflow's live,
-    shrink-on-resolve badge behaviour when the run was not truncated).
+    Count semantics (#1382) — ``to_dict()`` exposes two distinct count blocks:
 
-    Issue #1150: ``total_blockers_available`` is now the *effective* blocker
+    * ``counts`` is the **ground truth** for the whole (pre-window, post-filter)
+      result set:
+      ``total`` = ``total_findings_available``, ``blockers`` =
+      ``total_blockers_available``, ``warnings`` =
+      ``total_warnings_available``, ``suppressed`` =
+      ``total_suppressed_available``, ``suppressed_blockers`` =
+      ``total_suppressed_blockers_available``. The values do not change when a
+      caller pages with ``limit``/``offset``.
+    * ``page_counts`` describes **only the returned window** (``self.findings``)
+      — the previous ``counts`` semantics, scoped to the page. Its ``blockers``
+      is *raw*: it counts every BLOCKER in ``findings``, **including** suppressed
+      ones (no waiver awareness). A client that needs the live,
+      shrink-on-resolve badge for the current page uses this block.
+
+    ``blockers + warnings`` need not equal ``counts.total``: ``counts.blockers``
+    is waiver-aware (#1150), while ``counts.warnings`` and ``counts.total`` are
+    raw, pre-waiver counts (nothing is hidden). The composition that does hold
+    on the ground-truth block is
+    ``counts.blockers + counts.warnings + counts.suppressed_blockers ==
+    counts.total`` — every excluded blocker is accounted for by
+    ``suppressed_blockers``, and ``warnings`` already includes suppressed
+    warnings. ``page_counts.blockers + page_counts.warnings ==
+    page_counts.total`` holds unconditionally — ``Severity`` has exactly two
+    members and that block is raw.
+
+    Issue #1150: ``total_blockers_available`` is the *effective* blocker
     count — a blocker matched by an active waiver is no longer blocking (see
     ``baseline_facade``), so it is excluded here too; after a waiver the
     counter drops by exactly one. ``total_effective_blockers`` is the same
     value under an explicit name; ``total_suppressed_blockers_available``
     keeps the suppressed subset visible. ``total_findings_available`` /
     ``total_warnings_available`` remain raw, pre-waiver counts (nothing is
-    hidden). ``counts.blockers`` stays descriptive of the returned window.
+    hidden).
+
+    ``next_offset`` (#1382) is the ``offset`` of the following window when the
+    caller walked the result set with an explicit page size and
+    ``truncated`` is set; otherwise ``None``. It is deliberately ``None`` for
+    the default (no ``page_size``/``limit``) branch: that branch applies a
+    BLOCKER-preferred cap, not a sequential walk, so a cursor would skip or
+    duplicate findings. Clients must send a page size to walk sequentially.
     """
 
     tier: str
@@ -257,28 +278,37 @@ class AuditReport:
     #: (O3 default ``True`` — nothing is hidden by default).
     include_suppressed: bool = True
     #: #569: number of suppressed findings in the full, uncapped run (additive;
-    #: ``counts.*`` stays descriptive of the returned window, M5).
+    #: ``counts.suppressed`` mirrors it since #1382, ``page_counts`` counts the
+    #: window, M5).
     total_suppressed_available: int = 0
     #: #569: of :attr:`total_suppressed_available`, the BLOCKER-severity ones.
     total_suppressed_blockers_available: int = 0
     #: #569: how many findings the ``include_suppressed=False`` filter removed
-    #: from the returned ``findings`` (0 when the filter is off). Explains the
-    #: ``counts.total`` vs ``total_findings_available`` difference (m7).
+    #: from the run (0 when the filter is off). On the *unpaged* run it
+    #: explains the ``page_counts.total`` vs ``counts.total`` gap; with an
+    #: explicit page size that gap is the window truncation plus this value
+    #: (m7/#1382).
     suppressed_filtered: int = 0
+    #: #1382: offset of the next window when this report is one page of a
+    #: sequential walk (explicit page size) and more findings exist; ``None``
+    #: otherwise — including every default (capped, BLOCKER-preferred) run,
+    #: whose ordering is not a sequential walk.
+    next_offset: int | None = None
 
     def to_dict(self) -> dict:
-        # All three descriptive counters come from the *same* ``self.findings``
-        # list, and ``Severity`` has exactly two members (BLOCKER/WARNING), so
-        # ``blockers + warnings == total`` is an unconditional identity — never
-        # assert an intra-counts inequality (#569/R3-01).
-        blockers = sum(
+        # Window counters come from the *same* ``self.findings`` list, and
+        # ``Severity`` has exactly two members (BLOCKER/WARNING), so
+        # ``blockers + warnings == total`` holds unconditionally here — never
+        # assert that identity on the ground-truth ``counts`` block (#569/R3-01,
+        # #1382).
+        page_blockers = sum(
             1 for fv in self.findings if fv.finding.severity is Severity.BLOCKER
         )
-        warnings = sum(
+        page_warnings = sum(
             1 for fv in self.findings if fv.finding.severity is Severity.WARNING
         )
-        suppressed = sum(1 for fv in self.findings if fv.suppressed)
-        suppressed_blockers = sum(
+        page_suppressed = sum(1 for fv in self.findings if fv.suppressed)
+        page_suppressed_blockers = sum(
             1
             for fv in self.findings
             if fv.suppressed and fv.finding.severity is Severity.BLOCKER
@@ -287,13 +317,24 @@ class AuditReport:
             "tier": self.tier,
             "scope": self.scope,
             "scope_artifact_id": self.scope_artifact_id,
+            # #1382: ground truth across the full (pre-window) result set. These
+            # do not shrink when a caller pages with limit/offset.
             "counts": {
+                "total": self.total_findings_available,
+                "blockers": self.total_blockers_available,
+                "warnings": self.total_warnings_available,
+                "suppressed": self.total_suppressed_available,
+                "suppressed_blockers": self.total_suppressed_blockers_available,
+            },
+            # #1382, additive: the previous `counts` semantics, scoped to the
+            # returned window (self.findings) for page-local UI state. Raw, not
+            # waiver-aware: `blockers` includes suppressed blockers here.
+            "page_counts": {
                 "total": len(self.findings),
-                "blockers": blockers,
-                "warnings": warnings,
-                # #569, additive: counts.* stays descriptive of `findings` (M5).
-                "suppressed": suppressed,
-                "suppressed_blockers": suppressed_blockers,
+                "blockers": page_blockers,
+                "warnings": page_warnings,
+                "suppressed": page_suppressed,
+                "suppressed_blockers": page_suppressed_blockers,
             },
             "truncated": self.truncated,
             "total_findings_available": self.total_findings_available,
@@ -309,6 +350,7 @@ class AuditReport:
             ),
             "suppressed_filtered": self.suppressed_filtered,
             "offset": self.offset,
+            "next_offset": self.next_offset,
             "findings": [fv.to_dict() for fv in self.findings],
         }
 
@@ -815,6 +857,7 @@ class AuditService(ServiceBase):
         include_suppressed: bool = True,
         now: datetime | None = None,
         include_proposal_links: bool = True,
+        finding_filter: Callable[[Finding], bool] | None = None,
     ) -> AuditReport:
         """Run the SE-Auditor for *workspace_id* and return findings + proposals.
 
@@ -836,18 +879,24 @@ class AuditService(ServiceBase):
                 ``MAX_REPORT_FINDINGS``'s docstring for why that single-shot,
                 grouped-by-rule shape is kept as the default. Capped at
                 ``MAX_REPORT_FINDINGS`` regardless of the requested value, for
-                the same payload-size reason.
+                the same payload-size reason. Internal callers must not pass
+                ``0``: the REST/MCP parsers reject a page size below 1, and an
+                empty window deliberately advertises no ``next_offset``
+                (#1382) so a caller cannot loop on a non-advancing cursor.
             offset: #622 — starting position within the full (pre-cap) run,
-                only meaningful when ``limit`` is given. Out-of-range values
-                (negative, or past the end) yield an empty ``findings`` list
-                rather than an error.
+                only meaningful when ``limit`` is given. Negative values are
+                clamped to ``0`` (the REST/MCP parsers reject them at the
+                boundary, so this is defence in depth); an offset past the end
+                yields an empty ``findings`` list rather than an error.
             include_suppressed: #569 (O3) — ``True`` (default) keeps suppressed
                 findings in ``findings`` and marks them with ``suppressed`` +
                 reason/expiry/id (nothing is hidden by default). ``False``
-                filters them out; ``counts.*`` then describes the filtered
-                window while ``total_*_available`` still describes the full,
-                unfiltered, uncapped run, and ``suppressed_filtered`` explains
-                the difference (m7).
+                filters them out; ``page_counts`` then describes the filtered
+                window, ``counts`` and ``total_*_available`` still describe the
+                full, unfiltered, uncapped run, and ``suppressed_filtered``
+                explains the ``counts.total`` vs ``page_counts.total`` gap of
+                the unpaged run (m7). With an explicit page size that gap is
+                the window truncation *plus* ``suppressed_filtered``.
             now: Injectable decision instant (#569/D3) for expiry evaluation of
                 persisted suppressions; ``None`` uses the current time.
             include_proposal_links: Forwarded to :meth:`RuleEngine.run`. ``True``
@@ -857,6 +906,19 @@ class AuditService(ServiceBase):
                 ``traceability.suggest_links`` producer so its own persisted
                 proposal link does not erase the missing-link finding on a
                 repeated run (O7 edge dedup).
+            finding_filter: #1382 — optional predicate applied to the
+                *enumerated engine result*, i.e. before any total, cap, window
+                or remediation proposal is computed. The transport builds it
+                from :func:`traceability.audit.finding_filters.finding_matches`
+                (``rule_id`` / ``severity`` / ``artifact_type``), so every
+                count in the report describes the filtered ground truth and a
+                match beyond :data:`MAX_REPORT_FINDINGS` stays reachable via
+                ``limit``/``offset``. Original ``index`` values are preserved
+                (the ``(index, finding)`` pairs are filtered, not
+                re-enumerated), so a finding's identity stays stable.
+                ``None`` (the default) leaves the previous behaviour byte for
+                byte for every existing caller (``audit.ai_review``,
+                ``traceability.suggest_links``, tests).
 
         Returns:
             :class:`AuditReport` with a remediation proposal attached to every
@@ -873,7 +935,11 @@ class AuditService(ServiceBase):
             across page-less re-runs. When ``limit`` is given, ``truncated``
             instead means "more findings exist past this window"
             (``offset + len(findings) < total_findings_available``), so a
-            client can tell whether to request the next window.
+            client can tell whether to request the next window;
+            ``next_offset`` carries that next window's ``offset`` (#1382).
+            ``next_offset`` is always ``None`` for the default (no ``limit``)
+            branch: its BLOCKER-preferred cap is not a sequential walk, so a
+            caller must supply a page size to page deterministically.
         """
         self._set_tenant_context(ctx)
         resolved_tier = tier or self.resolve_tier(workspace_id)
@@ -889,21 +955,37 @@ class AuditService(ServiceBase):
         )
 
         primary_scope = scopes[0] if scopes else None
-        total_findings = len(result.findings)
+
+        # #1382: narrow the enumerated engine result *first*, so every total,
+        # the cap/window and the remediation proposals below are computed over
+        # the filtered selection. Filtering after the cap (the pre-#1382 REST
+        # path) made a filter unable to reach matches past
+        # MAX_REPORT_FINDINGS and let `counts.total` read 0 while matches
+        # existed. Original `index` values are preserved because the pairs are
+        # filtered, not re-enumerated — identity stays stable across runs.
+        indexed = list(enumerate(result.findings))
+        if finding_filter is not None:
+            indexed = [
+                (index, finding)
+                for index, finding in indexed
+                if finding_filter(finding)
+            ]
+
+        total_findings = len(indexed)
         total_warnings = sum(
-            1 for f in result.findings if f.severity is Severity.WARNING
+            1 for _index, finding in indexed if finding.severity is Severity.WARNING
         )
 
         # #569: evaluate suppressions at decision time (D3) — no persisted state,
-        # no background job. The full (uncapped) run is the basis for both the
-        # marking and the absolute suppression totals.
+        # no background job. The full (uncapped, filtered) run is the basis for
+        # both the marking and the absolute suppression totals.
         suppression_records = load_suppressions(
             workspace_id, tenant_id, include_expired=True, now=now
         )
         suppression_by_index: dict[int, SuppressionRecord] = {}
         total_suppressed = 0
         total_suppressed_blockers = 0
-        for index, finding in enumerate(result.findings):
+        for index, finding in indexed:
             record = self._match_suppression(suppression_records, finding, now=now)
             if record is None:
                 continue
@@ -922,12 +1004,11 @@ class AuditService(ServiceBase):
         # so an expired waiver is not counted as effective there.
         total_blockers = sum(
             1
-            for index, finding in enumerate(result.findings)
+            for index, finding in indexed
             if finding.severity is Severity.BLOCKER
             and index not in suppression_by_index
         )
 
-        indexed = list(enumerate(result.findings))
         suppressed_filtered = 0
         if not include_suppressed:
             # Filter before cap/window so a caller hiding suppressed findings
@@ -941,6 +1022,7 @@ class AuditService(ServiceBase):
             indexed = kept
 
         report_offset = 0
+        report_next_offset: int | None = None
         visible_total = total_findings - suppressed_filtered
         if limit is not None:
             # #622: plain sequential window, engine order preserved — lets a
@@ -950,6 +1032,14 @@ class AuditService(ServiceBase):
             indexed = indexed[window_start : window_start + window_limit]
             truncated = (window_start + len(indexed)) < visible_total
             report_offset = window_start
+            # #1382: the cursor for the following window. Only the sequential
+            # (explicit page size) branch can offer one — see AuditReport. An
+            # empty window never advertises a cursor: `limit=0` is an internal
+            # misuse (REST/MCP reject a page size < 1) and would otherwise
+            # yield `next_offset == offset`, i.e. a non-advancing walk.
+            report_next_offset = (
+                window_start + len(indexed) if truncated and indexed else None
+            )
         else:
             truncated = len(indexed) > self.MAX_REPORT_FINDINGS
             if truncated:
@@ -976,6 +1066,7 @@ class AuditService(ServiceBase):
             total_suppressed_available=total_suppressed,
             total_suppressed_blockers_available=total_suppressed_blockers,
             suppressed_filtered=suppressed_filtered,
+            next_offset=report_next_offset,
         )
 
         for index, finding in indexed:

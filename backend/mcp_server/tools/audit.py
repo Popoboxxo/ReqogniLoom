@@ -141,7 +141,7 @@ from persistence.tenancy import TenantContext
 from persistence.transactions import TransactionContextManager
 from traceability.audit import AuditScope
 from traceability.audit.finding_filters import (
-    apply_report_filters,
+    finding_matches,
     normalize_rule_ids,
     normalize_severities,
     resolve_artifact_ids_for_type,
@@ -288,6 +288,61 @@ def _parse_suppression_expires_at(raw: Any) -> datetime | None:
         ) from exc
 
 
+def _parse_se_audit_int_param(params: dict[str, Any], name: str) -> int | None:
+    """Parse an optional integer pagination parameter for ``audit.se_audit``.
+
+    Mirrors the REST contract (#1382/FR-01): JSON integers and integer-valued
+    numeric strings (``"10"``) are accepted; booleans are **not** integers
+    here (``int(True) == 1``), floats are only accepted when integral
+    (``10.0``), and everything else raises :class:`ParameterError`, which the
+    handler maps to ``VALIDATION_ERROR``. ``None`` means "not given".
+    """
+    raw = params.get(name)
+    if raw is None:
+        return None
+    if isinstance(raw, bool):
+        raise ParameterError(f"Parameter '{name}' must be an integer.")
+    if isinstance(raw, int):
+        return raw
+    if isinstance(raw, float):
+        if raw.is_integer():
+            return int(raw)
+        raise ParameterError(f"Parameter '{name}' must be an integer.")
+    if isinstance(raw, str):
+        try:
+            return int(raw.strip())
+        except ValueError:
+            raise ParameterError(
+                f"Parameter '{name}' must be an integer."
+            ) from None
+    raise ParameterError(f"Parameter '{name}' must be an integer.")
+
+
+def _build_finding_filter(
+    *,
+    rule_ids: frozenset[str],
+    severities: frozenset[str],
+    artifact_type_ids: frozenset[str] | None,
+):
+    """#1382: bind the parsed filters into one ``Finding`` predicate.
+
+    Passed to ``AuditService.run_audit(finding_filter=...)`` so the service
+    filters *before* its totals/cap/window — the pre-#1382 REST/MCP path
+    applied filters after the cap, making matches past
+    ``MAX_REPORT_FINDINGS`` unreachable.
+    """
+
+    def _matches(finding: Any) -> bool:
+        return finding_matches(
+            finding,
+            rule_ids=rule_ids,
+            severities=severities,
+            artifact_type_ids=artifact_type_ids,
+        )
+
+    return _matches
+
+
 # ---------------------------------------------------------------------------
 # AuditToolGroup
 # ---------------------------------------------------------------------------
@@ -372,11 +427,32 @@ class AuditToolGroup(BaseToolGroup):
                 "Run the SE-Auditor for a workspace and return the findings "
                 "directly (issue #410) — no LLM wrapping, unlike audit.ai_review. "
                 "Rigor tier is resolved from the workspace preset unless "
-                "``tier`` is given. Response: result.tier, result.counts "
-                "{total, blockers, warnings}, result.truncated, "
-                "result.total_findings_available, result.findings "
-                "[{index, rule_id, severity, message, artifact_ids, remediation}]. "
-                "Findings are capped at 500; use ``limit``+``offset`` to page."
+                "``tier`` is given. ``rule_id``/``severity``/``artifact_type`` "
+                "narrow the RUN server-side (before the cap and before any "
+                "total is computed), so ``counts`` describes the filtered "
+                "ground truth. ``limit``/``offset`` page sequentially (limit is "
+                "an integer >= 1; values above 500 are capped, not rejected); "
+                "follow ``next_offset``. Response: result.tier, result.counts "
+                "{total, blockers, warnings, suppressed, suppressed_blockers} — "
+                "the GROUND TRUTH over the whole (pre-window, post-filter) run, "
+                "unaffected by limit/offset; ``blockers`` is waiver-aware, so "
+                "``blockers + warnings + suppressed_blockers == total``. "
+                "result.page_counts with the same keys — raw counters over only "
+                "the returned findings window (``blockers + warnings == total``, "
+                "suppressed blockers included). result.truncated, "
+                "result.total_findings_available, result.total_blockers_available "
+                "(waiver-aware), result.total_warnings_available, "
+                "result.total_suppressed_available, "
+                "result.total_suppressed_blockers_available, "
+                "result.suppressed_filtered, result.offset, result.next_offset "
+                "(cursor for the next window, null when done or when no limit "
+                "was given), result.findings — each entry carries at least "
+                "{index, finding_key, rule_id, severity, message, artifact_ids, "
+                "scope, scope_artifact_id, suppressed, suppressed_until, "
+                "suppression_reason, suppression_id, remediation}; that field "
+                "list is non-exhaustive (additive fields may appear). "
+                "Findings are capped at 500. Without a page size the default "
+                "BLOCKER-preferred cap applies and ``next_offset`` is null."
             ),
             "inputSchema": {
                 "type": "object",
@@ -395,11 +471,18 @@ class AuditToolGroup(BaseToolGroup):
                     },
                     "limit": {
                         "type": "integer",
-                        "description": "Optional page size (max 500) for walking past the cap.",
+                        "description": (
+                            "Optional page size (integer >= 1; max 500 — larger "
+                            "values are capped). Walk past the cap with "
+                            "limit+offset following next_offset."
+                        ),
                     },
                     "offset": {
                         "type": "integer",
-                        "description": "Optional start offset; only used together with limit.",
+                        "description": (
+                            "Optional start offset (integer >= 0). A positive "
+                            "offset requires limit."
+                        ),
                     },
                     "include_suppressed": {
                         "type": "boolean",
@@ -810,14 +893,25 @@ class AuditToolGroup(BaseToolGroup):
             workspace_id : UUID of the target workspace.
         Optional params:
             tier               : rigor tier override (minimal|standard|extended).
-            limit              : page size (max 500).
-            offset             : start offset (only with limit).
+            limit              : page size, an integer >= 1. Values above 500
+                                 are capped at 500 (not rejected). Absent ->
+                                 the default BLOCKER-preferred cap.
+            offset             : an integer >= 0. A positive offset requires
+                                 ``limit`` (same rule as REST, #1382).
             include_suppressed : #569 — keep suppressed findings in the report
                                  (default true; suppressed findings are marked).
+            rule_id / severity / artifact_type : #1262 finding filters. They
+                                 narrow the *run*, so every count describes the
+                                 filtered ground truth.
 
         No admin gate (mirrors audit.ai_review): it is a workspace-scoped,
         read-only audit run any workspace member may call; the required
         ``workspace_id`` narrows the read-scoping RBAC gate to that workspace.
+
+        Pagination validation mirrors the REST parser (#1382/FR-01): a
+        non-integer (including a bool), ``limit < 1``, ``offset < 0`` or
+        ``offset > 0`` without ``limit`` is a ``VALIDATION_ERROR``. The
+        resulting ``next_offset`` therefore always advances.
         """
         workspace_id = require_uuid(params, "workspace_id")
 
@@ -828,20 +922,27 @@ class AuditToolGroup(BaseToolGroup):
                 f"Parameter 'tier' must be one of {sorted(_VALID_SE_TIERS)}.",
             )
 
-        limit = params.get("limit")
-        if limit is not None:
-            try:
-                limit = int(limit)
-            except (TypeError, ValueError):
-                return ToolResult.error(
-                    "VALIDATION_ERROR", "Parameter 'limit' must be an integer."
-                )
-        offset = params.get("offset", 0)
+        # #1382/FR-01: strict pagination. Rejecting here (rather than clamping)
+        # keeps `next_offset` a monotonic cursor: limit=0 used to return a
+        # window with next_offset == offset, i.e. a non-advancing walk.
         try:
-            offset = int(offset)
-        except (TypeError, ValueError):
+            limit = _parse_se_audit_int_param(params, "limit")
+            offset = _parse_se_audit_int_param(params, "offset")
+        except ParameterError as exc:
+            return ToolResult.error("VALIDATION_ERROR", str(exc))
+        offset = offset or 0
+        if limit is not None and limit < 1:
             return ToolResult.error(
-                "VALIDATION_ERROR", "Parameter 'offset' must be an integer."
+                "VALIDATION_ERROR", "Parameter 'limit' must be >= 1."
+            )
+        if offset < 0:
+            return ToolResult.error(
+                "VALIDATION_ERROR", "Parameter 'offset' must be >= 0."
+            )
+        if offset > 0 and limit is None:
+            return ToolResult.error(
+                "VALIDATION_ERROR",
+                "Parameter 'offset' requires 'limit'.",
             )
 
         # #569/m2: strict parse — only true/false (case-insensitive); absent
@@ -881,18 +982,18 @@ class AuditToolGroup(BaseToolGroup):
 
         run_kwargs: dict[str, Any] = {
             "tier": tier,
-            # A filtered run is taken unfiltered (no window) and narrowed below,
-            # so limit/offset page over the *filtered* set (#1262).
-            "limit": None if has_filters else limit,
-            "offset": 0 if has_filters else offset,
+            "limit": limit,
+            "offset": offset,
         }
         if include_suppressed is not None:
             run_kwargs["include_suppressed"] = include_suppressed
 
         try:
-            report = AuditService().run_audit(
-                workspace_id, auth_context, **run_kwargs
-            )
+            # #1382: filter *inside* the service (before its totals/cap/window)
+            # instead of narrowing an already-capped report afterwards. The old
+            # path could report counts.total == 0 while a match existed beyond
+            # MAX_REPORT_FINDINGS, and reset `suppressed_filtered`.
+            finding_filter = None
             if has_filters:
                 artifact_type_ids = None
                 if artifact_type:
@@ -901,15 +1002,17 @@ class AuditToolGroup(BaseToolGroup):
                         tenant_id=auth_context.tenant_id,
                         workspace_id=workspace_id,
                     )
-                apply_report_filters(
-                    report,
+                finding_filter = _build_finding_filter(
                     rule_ids=rule_ids,
                     severities=severities,
                     artifact_type_ids=artifact_type_ids,
-                    limit=limit,
-                    offset=offset,
-                    max_findings=AuditService.MAX_REPORT_FINDINGS,
                 )
+            report = AuditService().run_audit(
+                workspace_id,
+                auth_context,
+                finding_filter=finding_filter,
+                **run_kwargs,
+            )
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
         except PermissionDeniedError as exc:

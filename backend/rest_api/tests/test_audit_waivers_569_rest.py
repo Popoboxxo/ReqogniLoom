@@ -782,9 +782,20 @@ class TestReportSuppressionExtension:
         assert marked["suppression_id"]
         assert marked["suppressed_until"] is None
         counts = resp.data["counts"]
-        assert counts["blockers"] + counts["warnings"] == counts["total"]
+        page_counts = resp.data["page_counts"]
+        # #1382: page_counts keeps the binary-severity identity; counts is the
+        # ground truth and its `blockers` is waiver-aware (#1150), so
+        # blockers + warnings < total once a blocker is suppressed.
+        assert (
+            page_counts["blockers"] + page_counts["warnings"]
+            == page_counts["total"]
+        )
+        assert counts["total"] == resp.data["total_findings_available"]
+        assert counts["blockers"] == resp.data["total_effective_blockers"]
+        assert counts["warnings"] == resp.data["total_warnings_available"]
         assert counts["suppressed"] >= 1
         assert counts["suppressed_blockers"] >= 1
+        assert counts["blockers"] + counts["warnings"] < counts["total"]
 
     def test_counts_stay_descriptive_and_totals_stay_absolute_when_filtered(self):
         _, workspace, user = _broken_extended_workspace()
@@ -803,19 +814,23 @@ class TestReportSuppressionExtension:
         assert filtered.status_code == 200, filtered.data
         assert all(not f["suppressed"] for f in filtered.data["findings"])
         counts = filtered.data["counts"]
-        # (i) unconditional identity — Severity is binary.
-        assert counts["blockers"] + counts["warnings"] == counts["total"]
-        assert counts["total"] == len(filtered.data["findings"])
-        # (ii) m7: the window is smaller than the full run, explained by the filter.
+        page_counts = filtered.data["page_counts"]
+        # (i) page_counts keeps the unconditional binary-severity identity.
+        assert (
+            page_counts["blockers"] + page_counts["warnings"]
+            == page_counts["total"]
+        )
+        assert page_counts["total"] == len(filtered.data["findings"])
+        # (ii) m7/#1382: counts is the full run's ground truth and therefore
+        # still includes the suppressed finding the filter removed.
+        assert counts["total"] == filtered.data["total_findings_available"]
         assert filtered.data["suppressed_filtered"] >= 1
         assert (
             filtered.data["total_findings_available"]
             == len(filtered.data["findings"])
             + filtered.data["suppressed_filtered"]
         )
-        assert (
-            counts["total"] != filtered.data["total_findings_available"]
-        )
+        assert counts["total"] != page_counts["total"]
 
     @pytest.mark.parametrize(
         ("query", "expected_status"),

@@ -99,3 +99,33 @@ def test_artifact_type_filter_selects_by_artifact(authed_client, tenant, workspa
     findings = resp.json()["findings"]
     assert findings
     assert all(f["rule_id"] == "IFC-001" for f in findings)
+
+
+def test_counts_are_ground_truth_totals_for_a_filtered_run(
+    authed_client, tenant, workspace
+) -> None:
+    """#1382: a filter narrows the *run*; ``counts`` describes every match.
+
+    The production path builds a predicate with ``finding_matches`` and passes
+    it to ``AuditService.run_audit(finding_filter=...)``, which applies it
+    *before* the cap, the totals and the window. ``counts`` therefore agrees
+    with ``total_*_available`` — and, on an unwindowed run, with the returned
+    ``findings``. (``apply_report_filters`` is the deprecated post-hoc helper,
+    not the path exercised here.)
+    """
+    _make_icd(tenant, workspace)
+
+    resp = authed_client.get(
+        f"/api/v1/workspaces/{workspace.id}/audit/?rule_id=IFC-001"
+    )
+    assert resp.status_code == 200, resp.content
+    body = resp.json()
+
+    assert body["counts"]["total"] == body["total_findings_available"]
+    assert body["counts"]["blockers"] == body["total_blockers_available"]
+    assert body["counts"]["warnings"] == body["total_warnings_available"]
+    assert body["counts"]["total"] == len(body["findings"])
+    page_counts = body["page_counts"]
+    assert page_counts["total"] == len(body["findings"])
+    assert page_counts["blockers"] + page_counts["warnings"] == page_counts["total"]
+    assert body["next_offset"] is None

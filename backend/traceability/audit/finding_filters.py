@@ -9,14 +9,20 @@ narrows a report's finding list by the caller's query parameters. It lives in
 ``traceability/audit`` (Layer 1) so both transports import the same predicate
 and cannot drift.
 
-Why filtering happens at the transport edge
--------------------------------------------
-The REST/MCP audit surfaces call ``AuditService.run_audit`` and then narrow the
-returned report with :func:`apply_report_filters`. When a filter is active the
-caller requests the *unwindowed* run (``limit=None``), so the filter is applied
-to the complete finding set before the window is taken — a filter combined with
-``limit``/``offset`` therefore pages over the *filtered* result, not over an
-unfiltered window that may contain no matches.
+Why filtering happens where it does
+-----------------------------------
+Preferred (#1382): the transport builds one predicate with
+:func:`finding_matches` and passes it to
+``AuditService.run_audit(..., finding_filter=...)``. The service applies it
+*before* computing any total, the ``MAX_REPORT_FINDINGS`` cap, the window or
+the remediation proposals, so ``counts`` is the filtered ground truth and a
+match beyond the cap is still reachable by paging.
+
+:func:`apply_report_filters` is the older, **deprecated** post-hoc path (kept
+for backward compatibility with existing callers/tests; it has no production
+caller any more). It narrows an already-capped report, so matches outside the
+cap are unreachable and every count it recomputes is only as complete as the
+report it was handed — prefer ``finding_filter`` for new code.
 """
 from __future__ import annotations
 
@@ -120,8 +126,16 @@ def apply_report_filters(
 ) -> None:
     """Narrow *report* in place to the selected findings and recompute counters.
 
-    Mutates an ``AuditService.AuditReport`` (duck-typed: it exposes
-    ``findings``, ``truncated``, ``offset`` and the ``total_*`` counters). Only
+    Deprecated: prefer ``AuditService.run_audit(finding_filter=...)`` for new
+    code (#1382) — it filters *before* the cap/totals, so ``counts`` is the
+    filtered ground truth. This helper filters an already-built report and
+    therefore cannot reach findings the cap removed. It is kept for
+    compatibility (existing callers/tests); it has no production caller on the
+    REST or MCP audit path any more. No ``DeprecationWarning`` is emitted —
+    that would spam every test run for a helper that is still exported.
+
+    Mutates an ``AuditReport`` (duck-typed: it exposes ``findings``,
+    ``truncated``, ``offset`` and the ``total_*`` counters). Only
     called when at least one filter is active, so the unfiltered path keeps its
     exact previous semantics.
 
@@ -130,6 +144,22 @@ def apply_report_filters(
     window start, matching the #622 contract the dashboard already uses.
     Counters describe the full filtered set (pre-window), so ``truncated`` means
     "more filtered findings exist past this window".
+
+    Fields mutated: ``findings``, ``truncated``, ``offset``, ``next_offset``,
+    ``total_findings_available``, ``total_blockers_available``,
+    ``total_warnings_available``, ``total_suppressed_available``,
+    ``total_suppressed_blockers_available``. ``suppressed_filtered`` is
+    deliberately **not** touched: it is computed by the service from
+    ``include_suppressed=False`` and explains the ``page_counts.total`` vs
+    ``counts.total`` gap of the *unpaged* run (with a page size that gap is the
+    window truncation plus ``suppressed_filtered``); resetting it here would
+    erase that explanation (#1382).
+
+    #1382: ``report.next_offset`` is the next window's offset when ``limit`` is
+    given, ``truncated`` is set and the window is non-empty; ``None``
+    otherwise — including the un-windowed branch, whose ``max_findings`` cap is
+    not a sequential walk, and an empty window (which would otherwise return a
+    non-advancing cursor).
     """
     selected = [
         view
@@ -149,10 +179,14 @@ def apply_report_filters(
         window = selected[start : start + window_limit]
         report.offset = start
         report.truncated = (start + len(window)) < total
+        report.next_offset = (
+            start + len(window) if report.truncated and window else None
+        )
     else:
         window = selected[:max_findings]
         report.offset = 0
         report.truncated = bool(report.truncated) or total > max_findings
+        report.next_offset = None
 
     report.findings = window
     report.total_findings_available = total
@@ -172,9 +206,9 @@ def apply_report_filters(
         for view in selected
         if view.suppressed and view.finding.severity is Severity.BLOCKER
     )
-    # ``include_suppressed`` filtering already ran inside the service; this
-    # window did not remove any suppressed finding itself.
-    report.suppressed_filtered = 0
+    # ``suppressed_filtered`` is intentionally left as the service computed it:
+    # this window removed no suppressed finding itself, and the counter explains
+    # the include_suppressed=False gap (#1382).
 
 
 __all__ = [

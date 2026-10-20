@@ -219,7 +219,8 @@ class SuggestLinksResult:
     ``AuditService.run_audit``, which caps at
     ``AuditService.MAX_REPORT_FINDINGS`` — so ``total_findings`` here is the
     *returned* (possibly capped) count, same convention as
-    ``AuditReport.counts.total``. Propagated straight from the underlying
+    ``AuditReport.page_counts.total`` (#1382; the ground-truth full-run count
+    is ``total_findings_available``). Propagated straight from the underlying
     ``AuditReport`` so an MCP/REST caller can tell a capped run apart from a
     genuinely complete one instead of the signal being dropped at this layer.
     """
