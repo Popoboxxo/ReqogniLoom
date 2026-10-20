@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.0-beta.22] — 2026-10-20
+
+### Added
+- feat(health): report the effective artifact vector backend (#1437, PR #1447)
+- feat(hermes): Hermes-Web-Plugin 1.0.0 with write operations, multi-server support and full MCP access (#1434)
+- feat(se): W12 AI-derivation and approval lifecycle (#1358, #1368, #1360, #1359, PR #1413)
+- feat(e2e): W16 E2E hardening (#1342–#1348, PR #1415)
+- feat(adr): round-5 decision preparation D5–D7 (#1417)
+- docs(concepts): document artifacts and WorkItem workflow (#1374, PR #1375)
+- docs(audit): code-quality audit 2026-10-15 (#1355) and bugfix round-5 plan (#1369)
+- ci(hermes): run the Hermes plugin dashboard bundle checks (#1435)
+
+### Changed
+- refactor(frontend): frontend audit phases 1–8 — untracked timeout cleanup and memo removal, centralized safe web-storage access, shared `useArtifactList`, `EditorPageShell`/`useInitialFormValues`, domain-split type barrel, decomposed `WorkspaceContext`/`ArtifactForm`, a11y rest and WorkspaceTree modules, plus phase 7/8 verification (#1426, #1427, #1428, #1429, #1430, #1431, #1440, #1441; status docs #1432, #1442)
+- refactor(frontend): W17 lint modernization — Ruff autofix, BLE001/S110/F811 hand review, frontend a11y/`exhaustive-deps`/`no-explicit-any` rules (#1419, #1420, #1422)
+- fix(security): W13c workspace-fence hardening (#1376, #1373, PR #1423)
+- chore(release): W15 client, release and deploy chain (#1349, #1350, #1351, #1352, #1353, #1354, #1315, PR #1414)
+- chore: initialize agent-meta v2.0.0-beta.1 setup (#1433)
+- chore(deps-dev): bump `@typescript-eslint/parser` from 8.67.0 to 8.71.2 (#1328)
+- docs(ui-audit): live UI audit on reuse, consistency and usability (#1445)
+
+### Fixed
+- fix(backend): bind outbox writes to the transaction and count unbound publishes (#1438, PR #1446)
+- fix(deploy): require `image:` in frontend-replacing overlays, restoring the Bluepencil overlay contract (#1436, PR #1448)
+- fix(ai): classify derive failures as 503/504/429 instead of a blanket 502 (#1416, PR #1424)
+- fix(a11y): replace `aria-selected` with `aria-pressed` and enable `role-supports-aria-props` (#1421, PR #1425)
+- fix(i18n): add 54 missing keys and lower the ratchets (#1363, PR #1370)
+- fix(mcp): resolve review state and contract drift (#1356, #1361, #1362, PR #1372)
+- fix(mcp): harden the workspace scope fence and parameter diagnostics (#1357, PR #1377)
+
 ## [1.8.0-beta.21] — 2026-10-15
 
 ### Added
