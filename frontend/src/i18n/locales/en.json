@@ -1924,6 +1924,7 @@
     "modifyNoTarget": "This finding references no artifact that can be opened — correct it via the affected artifacts listed above.",
     "actionLegend": "Adopt applies the correction the auditor derived automatically. Modify opens the affected artifact so you can correct it yourself — findings are recomputed from the trace graph, so they disappear once the artifact is fixed. Waive records a justified exception: the finding stays visible but stops blocking baselines.",
     "truncated": "Showing {{shown}} of {{total}} findings — “Load more” mounts the rest.",
+    "truncatedWithMounted": "Window: {{shown}} of {{total}} findings — {{mounted}} rows loaded. “Load more” mounts the rest.",
     "loadMore": "Load more findings",
     "loadingMore": "Loading more findings...",
     "showSuppressed": "Show suppressed",

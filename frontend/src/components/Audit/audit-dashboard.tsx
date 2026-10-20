@@ -64,9 +64,16 @@
  * #622 `?limit=&offset=` window — one bounded page of findings is mounted,
  * the rest is pulled in on demand through "Load more". `report.truncated`
  * keeps its meaning per window ("more findings exist past this one"), the
- * grouping-by-rule and the Adopt/Modify actions are unchanged, and the count
- * badges keep showing the backend's true pre-window totals until every page
- * has been loaded.
+ * grouping-by-rule and the Adopt/Modify actions are unchanged.
+ *
+ * Counts are ground truth (#1382/#1383)
+ * -------------------------------------
+ * `report.counts` describes the FULL run; `report.page_counts` describes only
+ * the window just returned. The badges are therefore fed from the server, not
+ * from `findings.length` — deriving them from the mounted rows made a partial
+ * window look like the run total (#1382). The window size is shown as
+ * "{{shown}} of {{total}}" (page_counts.total of counts.total), and
+ * "Load more" advances with the server's `report.next_offset` cursor.
  */
 
 import { useCallback, useEffect, useId, useMemo, useState } from "react";
@@ -75,7 +82,9 @@ import { useNavigate } from "react-router-dom";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { auditApi } from "../../api/audit";
 import type {
+  AuditCounts,
   AuditFinding,
+  AuditReport,
   AuditRuleInfo,
   AuditScopeKind,
   SuppressionView,
@@ -182,6 +191,41 @@ function formatExpiry(iso: string): string {
   return Number.isNaN(parsed.getTime()) ? iso : parsed.toLocaleDateString();
 }
 
+/** All-zero counts — the value before the first report arrives. */
+const EMPTY_COUNTS: AuditCounts = {
+  total: 0,
+  blockers: 0,
+  warnings: 0,
+  suppressed: 0,
+  suppressed_blockers: 0,
+};
+
+/** Counts never go below zero, even if a local action outruns the snapshot. */
+function decrement(value: number, by: number): number {
+  return Math.max(0, value - by);
+}
+
+/**
+ * #1383: the counts of the window a report just returned.
+ *
+ * `page_counts` is additive on the contract — a backend that predates the
+ * field (rolling deploy, older image) sends none. Falling back to `counts`
+ * keeps the window size readable instead of rendering "undefined"; the
+ * ground-truth badges read `counts` either way.
+ */
+function windowCounts(report: AuditReport): AuditCounts {
+  return report.page_counts ?? report.counts;
+}
+
+/**
+ * #1383: the cursor for the next window. The server's `next_offset` is
+ * authoritative (`null` once fully paged); the recomputed value only keeps an
+ * older backend's windowed response usable.
+ */
+function nextWindowOffset(report: AuditReport): number {
+  return report.next_offset ?? report.offset + report.findings.length;
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -201,23 +245,26 @@ export function AuditDashboard(): JSX.Element {
   const [loadError, setLoadError] = useState<string | null>(null);
   // #596: the findings list is mounted in bounded windows instead of all at
   // once. `hasMore` is the backend's per-window `truncated` flag ("more
-  // findings exist past this one"), `nextOffset` the start of the following
-  // window (`offset + len(findings)`, per the #622 contract).
+  // findings exist past this one"), `nextOffset` the server's cursor for the
+  // following window (#1383 `report.next_offset`).
   const [hasMore, setHasMore] = useState<boolean>(false);
   const [nextOffset, setNextOffset] = useState<number>(0);
   const [isLoadingMore, setIsLoadingMore] = useState<boolean>(false);
-  // BUG-15: the backend also reports how many findings the run produced in
-  // total (pre-window), so the count badges can show the real numbers instead
-  // of only counting the (possibly partial) loaded `findings` array — a
-  // workspace with 4,440 real blockers must not show "100" with no indication
-  // that count is partial.
-  const [totalFindingsAvailable, setTotalFindingsAvailable] = useState<number>(0);
-  const [totalBlockersAvailable, setTotalBlockersAvailable] = useState<number>(0);
-  const [totalWarningsAvailable, setTotalWarningsAvailable] = useState<number>(0);
-  // #569: absolute (pre-cap, pre-filter) suppression totals from the last run.
-  const [totalSuppressedAvailable, setTotalSuppressedAvailable] = useState<number>(0);
-  const [totalSuppressedBlockersAvailable, setTotalSuppressedBlockersAvailable] =
-    useState<number>(0);
+  // #1382/#1383: two different count sets. `reportCounts` is the ground truth
+  // over the FULL run and backs every badge; `pageCounts` describes only the
+  // last returned window and backs the "{{shown}} of {{total}}" display.
+  const [reportCounts, setReportCounts] = useState<AuditCounts | null>(null);
+  const [pageCounts, setPageCounts] = useState<AuditCounts | null>(null);
+  // How many windows are mounted. > 1 means `findings.length` (rows on screen)
+  // and `pageCounts.total` (size of the last window) diverge — the banner then
+  // names both so neither is mistaken for the run total.
+  const [loadedWindows, setLoadedWindows] = useState<number>(1);
+  // Findings adopted/waived *after* the last run. The server counts are a
+  // snapshot of that run, so these local actions are applied on top of it:
+  // shrink-on-resolve stays visible without ever deriving a badge from the
+  // mounted rows (which is the #1382 bug).
+  const [adoptedSinceRun, setAdoptedSinceRun] = useState<AuditFinding[]>([]);
+  const [waivedSinceRun, setWaivedSinceRun] = useState<AuditFinding[]>([]);
 
   const [severityFilter, setSeverityFilter] = useState<"all" | "blocker" | "warning">("all");
   // #1262: rule filter (client-side, with per-rule counters) and the
@@ -310,12 +357,19 @@ export function AuditDashboard(): JSX.Element {
       setTier(report.tier);
       setFindings(report.findings);
       setHasMore(report.truncated);
-      setNextOffset(report.offset + report.findings.length);
-      setTotalFindingsAvailable(report.total_findings_available);
-      setTotalBlockersAvailable(report.total_blockers_available);
-      setTotalWarningsAvailable(report.total_warnings_available);
-      setTotalSuppressedAvailable(report.total_suppressed_available);
-      setTotalSuppressedBlockersAvailable(report.total_suppressed_blockers_available);
+      // #1383: the server owns the cursor; recomputing `offset + len(findings)`
+      // client-side silently desynchronises as soon as the server skips a row.
+      setNextOffset(nextWindowOffset(report));
+      // #1382/#1383: `counts` is the FULL-run ground truth, `page_counts` the
+      // window just returned. Keeping them apart is what stops a partial
+      // window from being rendered as the run total.
+      setReportCounts(report.counts);
+      setPageCounts(windowCounts(report));
+      setLoadedWindows(1);
+      // A new run re-snapshots the server counts, so local corrections from
+      // the previous snapshot no longer apply.
+      setAdoptedSinceRun([]);
+      setWaivedSinceRun([]);
       setActionState({});
     } catch (err) {
       setLoadError(
@@ -403,7 +457,15 @@ export function AuditDashboard(): JSX.Element {
         return [...prev, ...report.findings.filter((f) => !seen.has(f.index))];
       });
       setHasMore(report.truncated);
-      setNextOffset(report.offset + report.findings.length);
+      // #1383: the next cursor comes from the server; `hasMore` stays the
+      // per-window `truncated` flag.
+      setNextOffset(nextWindowOffset(report));
+      // Every window reports the same full-run `counts`, but a later window is
+      // the freshest snapshot — and `page_counts` becomes the size of *this*
+      // window, which is what the "{{shown}} of {{total}}" display names.
+      setReportCounts(report.counts);
+      setPageCounts(windowCounts(report));
+      setLoadedWindows((prev) => prev + 1);
     } catch (err) {
       // The already-loaded findings stay readable (the error banner renders
       // above them) — a failed "Load more" must not discard the page the
@@ -461,6 +523,9 @@ export function AuditDashboard(): JSX.Element {
           scope_artifact_id: scope === "document" ? scopeArtifactId : undefined,
         });
         setFindings((prev) => prev.filter((f) => f.index !== finding.index));
+        // #1383: the report's counts are a snapshot from the last run — record
+        // the local resolution so the badges can still shrink (see `counts`).
+        setAdoptedSinceRun((prev) => [...prev, finding]);
         setActionState((prev) => {
           const next = { ...prev };
           delete next[finding.index];
@@ -615,6 +680,9 @@ export function AuditDashboard(): JSX.Element {
         )
       );
       setPendingWaive(null);
+      // #1383: the snapshot predates this waiver, so the suppressed badges
+      // would otherwise stay at their pre-waive value.
+      setWaivedSinceRun((prev) => [...prev, finding]);
       setToast(t("audit.waiveSuccess", "Suppression saved."));
       // UI-569-03: the trigger that opened the dialog is about to unmount.
       setFocusFindingIndex(finding.index);
@@ -665,49 +733,47 @@ export function AuditDashboard(): JSX.Element {
     return Array.from(counts.entries()).sort(([a], [b]) => a.localeCompare(b));
   }, [findings]);
 
-  // Counts are recomputed from the live findings list (not the initial
-  // report.counts) so the badges stay accurate after a finding is resolved —
-  // but only once every window has been loaded: while `hasMore` is true the
-  // client-side `findings` array holds just the mounted pages, so counting it
-  // directly would silently show "100" as if it were the true total (code
-  // review M3, #596). While more findings exist, show the backend's real
-  // pre-window totals instead; those are a snapshot from the last full
-  // run_audit() call and do not shrink live as findings are Adopted, but that
-  // is preferable to a badge that understates the real number of open
-  // findings.
+  // ---- Counts (#1382/#1383) ----
+  // The badges read the report's `counts`, which is the ground truth over the
+  // FULL run. They are never derived from `findings.length`: that list holds
+  // only the mounted windows, so counting it made a 100-finding window look
+  // like the run total (#1382). Client-side filters (severity/rule/suppressed)
+  // do not change these numbers either — they describe the run, not the view.
   //
-  // #569: `blockers`/`warnings` stay descriptive of the returned findings
-  // (M5) — a suppressed blocker still counts there. Suppression is counted
-  // additively via `suppressed`/`suppressedBlockers`.
-  const counts = useMemo(
-    () =>
-      hasMore
-        ? {
-            total: totalFindingsAvailable,
-            blockers: totalBlockersAvailable,
-            warnings: totalWarningsAvailable,
-            suppressed: totalSuppressedAvailable,
-            suppressedBlockers: totalSuppressedBlockersAvailable,
-          }
-        : {
-            total: findings.length,
-            blockers: findings.filter((f) => f.severity === "blocker").length,
-            warnings: findings.filter((f) => f.severity === "warning").length,
-            suppressed: findings.filter((f) => f.suppressed).length,
-            suppressedBlockers: findings.filter(
-              (f) => f.suppressed && f.severity === "blocker"
-            ).length,
-          },
-    [
-      findings,
-      hasMore,
-      totalFindingsAvailable,
-      totalBlockersAvailable,
-      totalWarningsAvailable,
-      totalSuppressedAvailable,
-      totalSuppressedBlockersAvailable,
-    ]
-  );
+  // Shrink-on-resolve trade-off: the server counts are a snapshot taken during
+  // the last run, so an Adopt or a Waive performed afterwards cannot change
+  // them. Rather than dropping the live feedback entirely, the findings acted
+  // on since that snapshot are applied on top of it (`adoptedSinceRun` /
+  // `waivedSinceRun`) — a bounded, explicit correction, not a recount of the
+  // DOM. The rest of the UI reacts on its own: the mounted rows and the
+  // window/"rows loaded" display in the truncation banner follow `findings`.
+  //
+  // #569: `blockers`/`warnings` stay descriptive (M5) — a suppressed blocker
+  // still counts there. Suppression is counted additively.
+  const counts = useMemo<AuditCounts>(() => {
+    if (!reportCounts) return EMPTY_COUNTS;
+    const adoptedBlockers = adoptedSinceRun.filter((f) => f.severity === "blocker").length;
+    const adoptedSuppressed = adoptedSinceRun.filter((f) => f.suppressed).length;
+    const adoptedSuppressedBlockers = adoptedSinceRun.filter(
+      (f) => f.suppressed && f.severity === "blocker"
+    ).length;
+    const waivedBlockers = waivedSinceRun.filter((f) => f.severity === "blocker").length;
+    return {
+      total: decrement(reportCounts.total, adoptedSinceRun.length),
+      blockers: decrement(reportCounts.blockers, adoptedBlockers),
+      // Every adopted finding removed exactly one row from the run, so the
+      // warnings are the adopted findings that were not blockers.
+      warnings: decrement(reportCounts.warnings, adoptedSinceRun.length - adoptedBlockers),
+      suppressed: Math.max(
+        0,
+        reportCounts.suppressed + waivedSinceRun.length - adoptedSuppressed
+      ),
+      suppressed_blockers: Math.max(
+        0,
+        reportCounts.suppressed_blockers + waivedBlockers - adoptedSuppressedBlockers
+      ),
+    };
+  }, [reportCounts, adoptedSinceRun, waivedSinceRun]);
 
   const grouped = useMemo(() => {
     const groups = new Map<string, AuditFinding[]>();
@@ -875,10 +941,10 @@ export function AuditDashboard(): JSX.Element {
         <Badge variant="neutral" testId="audit-count-suppressed">
           {t("audit.counts.suppressed", "Suppressed")}: {counts.suppressed}
         </Badge>
-        {counts.suppressedBlockers > 0 && (
+        {counts.suppressed_blockers > 0 && (
           <Badge variant="neutral" testId="audit-count-suppressed-blockers">
             {t("audit.counts.suppressedBlockers", "Suppressed blockers")}:{" "}
-            {counts.suppressedBlockers}
+            {counts.suppressed_blockers}
           </Badge>
         )}
         {tier && (
@@ -950,19 +1016,30 @@ export function AuditDashboard(): JSX.Element {
       </section>
 
       {/* #596: more findings exist than the page currently mounts — say so
-          explicitly (with the real totals) instead of showing a partial list
-          that looks complete, and offer the next window below the list. */}
+          explicitly instead of showing a partial list that looks complete, and
+          offer the next window below the list.
+          #1382/#1383: the total (Y) is the full-run ground truth
+          (`counts.total`), the window size (X) is `page_counts.total` for the
+          window just returned — NOT the mounted row count, which is only
+          named separately once several windows are on screen so "window" and
+          "rows loaded" cannot be confused. */}
       {hasMore && (
         <div
           role="status"
           data-testid="audit-truncated-banner"
           className={styles.truncatedBanner}
         >
-          {t(
-            "audit.truncated",
-            "Showing {{shown}} of {{total}} findings — use “Load more” to mount the rest.",
-            { shown: findings.length, total: totalFindingsAvailable },
-          )}
+          {loadedWindows > 1
+            ? t("audit.truncatedWithMounted", {
+                shown: pageCounts?.total ?? 0,
+                mounted: findings.length,
+                total: counts.total,
+              })
+            : t(
+                "audit.truncated",
+                "Showing {{shown}} of {{total}} findings — use “Load more” to mount the rest.",
+                { shown: pageCounts?.total ?? 0, total: counts.total },
+              )}
         </div>
       )}
 

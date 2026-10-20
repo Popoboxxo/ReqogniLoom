@@ -24,19 +24,32 @@ import { traceabilityApi } from "../../api/traceability";
 import { ForbiddenError, UnprocessableEntityError } from "../../api/errors";
 import type { AuditFinding, AuditReport, SuppressionView } from "../../api/audit";
 import type { Artifact, PaginatedResponse } from "../../types";
+import { resolveLocaleKey } from "../../test/i18n-test-helpers";
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
-    // Mimics i18next's {{placeholder}} interpolation for the `truncated`
-    // banner (the only call site in this component that passes options).
-    t: (key: string, fallback?: string, options?: Record<string, unknown>) => {
-      const text = fallback ?? key;
-      if (!options) return text;
-      return Object.entries(options).reduce(
+    // Mimics i18next's `{{placeholder}}` interpolation for the banners (the
+    // only call sites in this component that pass options).
+    //
+    // Two call shapes exist in the component: `t(key, "default", options)` and
+    // — for keys that are fully translated (#1383) — `t(key, options)`. In the
+    // second shape the options object is the *second* argument, exactly like
+    // real i18next; the template then comes from the locale file instead of an
+    // inline default, so this mock resolves it from de.json.
+    t: (
+      key: string,
+      fallback?: string | Record<string, unknown>,
+      options?: Record<string, unknown>
+    ) => {
+      const optionsOnly = typeof fallback === "object" && fallback !== null;
+      const template = optionsOnly ? (resolveLocaleKey(key) ?? key) : (fallback ?? key);
+      const vars = optionsOnly ? fallback : options;
+      if (!vars) return template;
+      return Object.entries(vars).reduce(
         // split/join instead of replaceAll: replaceAll is ES2021, but
         // tsconfig.json's `lib` is pinned to ES2020 (see frontend/tsconfig.json).
         (acc, [k, v]) => acc.split(`{{${k}}}`).join(String(v)),
-        text
+        template
       );
     },
   }),
@@ -65,7 +78,9 @@ const PROJECT_REPORT: AuditReport = {
   tier: "extended",
   scope: "project",
   scope_artifact_id: null,
+  // #1382/#1383: full-run ground truth. Here the run *is* the mounted window.
   counts: { total: 2, blockers: 1, warnings: 1, suppressed: 0, suppressed_blockers: 0 },
+  page_counts: { total: 2, blockers: 1, warnings: 1, suppressed: 0, suppressed_blockers: 0 },
   truncated: false,
   total_findings_available: 2,
   total_blockers_available: 1,
@@ -75,6 +90,7 @@ const PROJECT_REPORT: AuditReport = {
   total_suppressed_blockers_available: 0,
   suppressed_filtered: 0,
   offset: 0,
+  next_offset: null,
   findings: [
     {
       rule_id: "TRACE-P1",
@@ -136,6 +152,7 @@ const DANGLING_REPORT: AuditReport = {
   scope: "project",
   scope_artifact_id: null,
   counts: { total: 1, blockers: 1, warnings: 0, suppressed: 0, suppressed_blockers: 0 },
+  page_counts: { total: 1, blockers: 1, warnings: 0, suppressed: 0, suppressed_blockers: 0 },
   truncated: false,
   total_findings_available: 1,
   total_blockers_available: 1,
@@ -145,6 +162,7 @@ const DANGLING_REPORT: AuditReport = {
   total_suppressed_blockers_available: 0,
   suppressed_filtered: 0,
   offset: 0,
+  next_offset: null,
   findings: [
     {
       rule_id: "TRACE-P7",
@@ -176,6 +194,7 @@ const DOCUMENT_REPORT: AuditReport = {
   scope: "document",
   scope_artifact_id: "44444444-4444-4444-4444-444444444444",
   counts: { total: 0, blockers: 0, warnings: 0, suppressed: 0, suppressed_blockers: 0 },
+  page_counts: { total: 0, blockers: 0, warnings: 0, suppressed: 0, suppressed_blockers: 0 },
   truncated: false,
   total_findings_available: 0,
   total_blockers_available: 0,
@@ -185,19 +204,28 @@ const DOCUMENT_REPORT: AuditReport = {
   total_suppressed_blockers_available: 0,
   suppressed_filtered: 0,
   offset: 0,
+  next_offset: null,
   findings: [],
 };
 
 // BUG-15: reuse PROJECT_REPORT's 2 findings as the "shown" subset of a much
 // larger run. Mirrors the audit's 300-req stress scenario: 4,440 real
 // findings, all severity blocker.
+//
+// #1382/#1383: `counts` is the FULL-run ground truth (4,440) while the two
+// mounted findings are only the window the response returned — the regression
+// this fixture guards is that the badges used to show "2" (or "1" blocker)
+// when a partial window was mounted.
 const TRUNCATED_REPORT: AuditReport = {
   ...PROJECT_REPORT,
+  counts: { total: 4440, blockers: 4440, warnings: 0, suppressed: 0, suppressed_blockers: 0 },
+  page_counts: { total: 2, blockers: 1, warnings: 1, suppressed: 0, suppressed_blockers: 0 },
   truncated: true,
   total_findings_available: 4440,
   total_blockers_available: 4440,
   total_effective_blockers: 4440,
   total_warnings_available: 0,
+  next_offset: 2,
 };
 
 // #569: one persisted suppression (the POST .../audit/waivers/ response body).
@@ -257,7 +285,10 @@ function windowReport(offset: number, length: number): AuditReport {
     tier: "extended",
     scope: "project",
     scope_artifact_id: null,
-    counts: {
+    // #1382/#1383: `counts` is the whole run (identical for every window);
+    // `page_counts` is this window only.
+    counts: { total, blockers: 200, warnings: 50, suppressed: 0, suppressed_blockers: 0 },
+    page_counts: {
       total: findings.length,
       blockers: findings.filter((f) => f.severity === "blocker").length,
       warnings: findings.filter((f) => f.severity === "warning").length,
@@ -275,6 +306,8 @@ function windowReport(offset: number, length: number): AuditReport {
     total_suppressed_blockers_available: 0,
     suppressed_filtered: 0,
     offset,
+    // #1383: the server cursor. `null` once the last window has been returned.
+    next_offset: end < total ? end : null,
     findings,
   };
 }
@@ -494,6 +527,52 @@ describe("AuditDashboard (SysEng 2.0 Phase 3)", () => {
     expect(screen.getByTestId("audit-count-warnings").textContent).toContain("0");
   });
 
+  // #1382 regression: the badges are the report's `counts` (ground truth over
+  // the FULL run), not a recount of the mounted window. Before the fix a
+  // 2-row window of a 7-finding run rendered "Findings: 2".
+  it("renders the full-run counts while only a smaller window is mounted (#1382)", async () => {
+    vi.mocked(auditApi.run).mockResolvedValue({
+      ...PROJECT_REPORT,
+      counts: { total: 7, blockers: 4, warnings: 3, suppressed: 0, suppressed_blockers: 0 },
+      page_counts: { total: 2, blockers: 1, warnings: 1, suppressed: 0, suppressed_blockers: 0 },
+      truncated: true,
+      total_findings_available: 7,
+      total_blockers_available: 4,
+      total_effective_blockers: 4,
+      total_warnings_available: 3,
+      next_offset: 2,
+    });
+
+    render(<AuditDashboard />);
+
+    await screen.findByTestId("audit-truncated-banner");
+    expect(screen.getByTestId("audit-count-total").textContent).toContain("7");
+    expect(screen.getByTestId("audit-count-blockers").textContent).toContain("4");
+    expect(screen.getByTestId("audit-count-warnings").textContent).toContain("3");
+  });
+
+  // #1383: "X of Y" names the *window* (page_counts.total) against the *run*
+  // (counts.total) — the mounted row count is a third, separate number.
+  it("renders the window size from page_counts against counts.total (#1383)", async () => {
+    vi.mocked(auditApi.run).mockResolvedValue({
+      ...PROJECT_REPORT,
+      counts: { total: 7, blockers: 4, warnings: 3, suppressed: 0, suppressed_blockers: 0 },
+      page_counts: { total: 2, blockers: 1, warnings: 1, suppressed: 0, suppressed_blockers: 0 },
+      truncated: true,
+      total_findings_available: 7,
+      total_blockers_available: 4,
+      total_effective_blockers: 4,
+      total_warnings_available: 3,
+      next_offset: 2,
+    });
+
+    render(<AuditDashboard />);
+
+    const banner = await screen.findByTestId("audit-truncated-banner");
+    // 2 = page_counts.total (this response's window), 7 = counts.total (run).
+    expect(banner.textContent).toMatch(/2 of 7/);
+  });
+
   // ---- Failed run must never look like a clean run (GitHub #952) ----
 
   // Defensive hardening for the reported UI false-negative (the API reported
@@ -685,9 +764,54 @@ describe("AuditDashboard — paged findings (#596)", () => {
 
     await screen.findByTestId("audit-load-more-btn");
     // Only 100 of 250 findings are mounted, but the badges must not understate
-    // the run: they show the backend's pre-window totals (code review M3).
+    // the run: they show the full-run `counts` (#1382/#1383).
     expect(screen.getByTestId("audit-count-total").textContent).toContain("250");
     expect(screen.getByTestId("audit-count-blockers").textContent).toContain("200");
+  });
+
+  // #1383: a second call must continue from the server's `next_offset`, never
+  // from `offset + findings.length` — the two differ as soon as the server
+  // skips a finding, and the old recomputation then re-requests a wrong window.
+  it("uses the response's next_offset as the Load-more cursor (#1383)", async () => {
+    vi.mocked(auditApi.run)
+      .mockResolvedValueOnce({
+        ...PROJECT_REPORT,
+        counts: { total: 250, blockers: 200, warnings: 50, suppressed: 0, suppressed_blockers: 0 },
+        page_counts: { total: 2, blockers: 1, warnings: 1, suppressed: 0, suppressed_blockers: 0 },
+        truncated: true,
+        offset: 0,
+        // Deliberately not `offset + findings.length` (2).
+        next_offset: 60,
+      })
+      .mockResolvedValueOnce(windowReport(60, 100));
+
+    render(<AuditDashboard />);
+
+    await screen.findByTestId("audit-load-more-btn");
+    fireEvent.click(screen.getByTestId("audit-load-more-btn"));
+
+    await waitFor(() =>
+      expect(auditApi.run).toHaveBeenLastCalledWith(
+        "ws-001",
+        expect.objectContaining({ limit: 100, offset: 60 })
+      )
+    );
+  });
+
+  // #1383: once more than one window is mounted, "window" and "rows on screen"
+  // are different numbers; the banner must name all three (window / mounted /
+  // run) instead of presenting the mounted rows as the window.
+  it("names the window, the run total and the mounted rows once several windows are loaded", async () => {
+    render(<AuditDashboard />);
+
+    await screen.findByTestId("audit-load-more-btn");
+    fireEvent.click(screen.getByTestId("audit-load-more-btn"));
+    await screen.findByTestId("audit-finding-100");
+
+    const banner = screen.getByTestId("audit-truncated-banner");
+    expect(banner.textContent).toContain("100"); // page_counts.total — last window
+    expect(banner.textContent).toContain("250"); // counts.total — full run
+    expect(banner.textContent).toContain("200"); // findings.length — rows mounted
   });
 
   it("keeps the loaded findings readable when loading the next window fails", async () => {
