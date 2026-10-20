@@ -10,8 +10,14 @@ the view only translates HTTP <-> service call):
        Run the SE-Auditor for the workspace and return the findings (grouped by
        the frontend), each with a remediation proposal. The rigor tier is
        resolved from the workspace's active preset by the service. Optional
-       query params: ``scope`` (document|project|global, default: project) and
-       ``scope_artifact_id`` (required when scope=document).
+       query params: ``scope`` (document|project|global, default: project),
+       ``scope_artifact_id`` (required when scope=document), ``page_size`` /
+       ``limit`` (aliases, >= 1, capped at 500) + ``offset`` for a sequential
+       walk,
+       ``include_suppressed`` (default true), and the #1262 finding filters
+       ``rule_id`` / ``severity`` / ``artifact_type``. The 200 body carries
+       ``counts`` (ground truth over the full run), ``page_counts`` (the
+       returned window) and ``next_offset`` (the cursor, #1382).
 
   POST /api/v1/workspaces/<workspace_id>/audit/remediate/
        Apply the automatic remediation for a single finding (Adopt-Workflow).
@@ -56,9 +62,15 @@ Phase-3 plan's "views.py" is a rough placement hint, not a hard constraint.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from typing import Any
 
 from django.utils import timezone
+from drf_spectacular.utils import (
+    OpenApiParameter,
+    OpenApiResponse,
+    extend_schema,
+)
 from rest_framework import serializers, status
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -77,6 +89,7 @@ from application.base import (
 from baseline.exceptions import GovernanceAuthorityError
 from baseline.waivers import assert_gate_waiver_authority
 from rest_api.auth_enforcer import get_auth_context
+from rest_api.openapi import ErrorResponseSerializer
 from rest_api.serializers import (
     SanitizedCharField,
     UnknownFieldRejectionMixin,
@@ -85,7 +98,7 @@ from rest_api.serializers import (
 )
 from traceability.audit import AuditScope, get_rule_catalogue
 from traceability.audit.finding_filters import (
-    apply_report_filters,
+    finding_matches,
     normalize_rule_ids,
     normalize_severities,
     resolve_artifact_ids_for_type,
@@ -98,6 +111,268 @@ _VALID_SCOPES = frozenset({"document", "project", "global"})
 #: Suppression lifecycle states accepted by ``?state=`` on the waiver list
 #: (#569/m2). ``active`` is the default; anything else is a 400.
 _VALID_WAIVER_STATES = frozenset({"active", "expired", "all"})
+
+
+# ---------------------------------------------------------------------------
+# OpenAPI-only response schemas (#1383).
+#
+# The audit view returns ``AuditReport.to_dict()`` verbatim — these serializers
+# are never used to serialize a response. They exist so the generated document
+# states the report contract (and, before #1383, advertised no query parameters
+# and no response body at all). Keep them in sync with ``to_dict()``.
+# ---------------------------------------------------------------------------
+
+
+class AuditCountsSerializer(serializers.Serializer):
+    """Ground-truth count block (``counts``, #1382) over the full run.
+
+    Computed before the response window, so it is identical on every page of a
+    sequential walk (and on the default capped run). ``blockers`` is
+    **waiver-aware**: a blocker matched by an active suppression is excluded.
+    ``warnings`` and ``total`` are raw, so the composition that holds is
+    ``blockers + warnings + suppressed_blockers == total`` — not
+    ``blockers + warnings == total``. ``suppressed`` counts suppressed findings
+    of either severity.
+    """
+
+    total = serializers.IntegerField(
+        help_text=(
+            "Raw finding count over the full (pre-window) run; identical on "
+            "every page."
+        )
+    )
+    blockers = serializers.IntegerField(
+        help_text=(
+            "Effective (waiver-aware) BLOCKER count over the full run — a "
+            "blocker covered by an active suppression is excluded. Equals "
+            "total_blockers_available / total_effective_blockers."
+        )
+    )
+    warnings = serializers.IntegerField(
+        help_text=(
+            "Raw WARNING count over the full run. Includes suppressed "
+            "warnings (nothing is hidden)."
+        )
+    )
+    suppressed = serializers.IntegerField(
+        help_text=(
+            "Suppressed findings of either severity in the full run; equals "
+            "total_suppressed_available."
+        )
+    )
+    suppressed_blockers = serializers.IntegerField(
+        help_text=(
+            "Suppressed BLOCKERs in the full run — the subset excluded from "
+            "`blockers`. Equals total_suppressed_blockers_available."
+        )
+    )
+
+
+class AuditPageCountsSerializer(serializers.Serializer):
+    """Window count block (``page_counts``, #1382) over the returned ``findings``.
+
+    These are the raw, page-local counters (the pre-#1382 ``counts``
+    semantics): ``blockers`` includes suppressed blockers, so
+    ``blockers + warnings == total`` holds unconditionally (``Severity`` has
+    exactly two members). They shrink and grow with ``page_size`` /
+    ``offset`` — use ``counts`` for a stable total.
+    """
+
+    total = serializers.IntegerField(
+        help_text="Number of findings in this response (`len(findings)`)."
+    )
+    blockers = serializers.IntegerField(
+        help_text=(
+            "Raw BLOCKER count in this window — includes suppressed blockers "
+            "(unlike counts.blockers, which is waiver-aware)."
+        )
+    )
+    warnings = serializers.IntegerField(
+        help_text="Raw WARNING count in this window."
+    )
+    suppressed = serializers.IntegerField(
+        help_text="Suppressed findings in this window."
+    )
+    suppressed_blockers = serializers.IntegerField(
+        help_text="Suppressed BLOCKERs in this window."
+    )
+
+
+class AuditFindingSerializer(serializers.Serializer):
+    """Schema view of one returned finding (``AuditFindingView.to_dict()``)."""
+
+    index = serializers.IntegerField()
+    finding_key = serializers.CharField()
+    rule_id = serializers.CharField()
+    severity = serializers.CharField()
+    message = serializers.CharField()
+    artifact_ids = serializers.ListField(child=serializers.CharField())
+    scope = serializers.CharField(required=False, allow_null=True)
+    scope_artifact_id = serializers.CharField(required=False, allow_null=True)
+    suppressed = serializers.BooleanField(required=False)
+    suppressed_until = serializers.CharField(required=False, allow_null=True)
+    suppression_reason = serializers.CharField(required=False, allow_null=True)
+    suppression_id = serializers.CharField(required=False, allow_null=True)
+    remediation = serializers.DictField()
+
+
+class AuditReportSerializer(serializers.Serializer):
+    """200 body of ``GET .../audit/`` (#1382 semantics documented inline)."""
+
+    tier = serializers.CharField()
+    scope = serializers.CharField(allow_null=True)
+    scope_artifact_id = serializers.CharField(allow_null=True)
+    counts = AuditCountsSerializer(
+        help_text=(
+            "Ground truth over the full (pre-window, post-filter) result set; "
+            "independent of page_size/limit/offset. `counts.blockers` is "
+            "waiver-aware, so `blockers + warnings + suppressed_blockers == "
+            "total` (not `blockers + warnings == total`)."
+        )
+    )
+    page_counts = AuditPageCountsSerializer(
+        help_text=(
+            "Raw counters restricted to the returned `findings` window "
+            "(`blockers + warnings == total`, suppressed blockers included). "
+            "Use `counts` for the stable total."
+        )
+    )
+    truncated = serializers.BooleanField(
+        help_text=(
+            "With an explicit page size: more findings exist past this window. "
+            "Without one: the default BLOCKER-preferred cap was applied."
+        )
+    )
+    total_findings_available = serializers.IntegerField()
+    total_blockers_available = serializers.IntegerField(
+        help_text="Effective (waiver-aware) blockers in the full run."
+    )
+    total_effective_blockers = serializers.IntegerField(
+        help_text="Alias of total_blockers_available (issue #1150)."
+    )
+    total_warnings_available = serializers.IntegerField()
+    total_suppressed_available = serializers.IntegerField()
+    total_suppressed_blockers_available = serializers.IntegerField()
+    suppressed_filtered = serializers.IntegerField(
+        help_text=(
+            "Findings removed by include_suppressed=false. On the unpaged run "
+            "this explains the `page_counts.total` vs `counts.total` gap "
+            "(counts still describes the full run); with an explicit page size "
+            "that gap is the window truncation plus this value."
+        )
+    )
+    offset = serializers.IntegerField()
+    next_offset = serializers.IntegerField(
+        allow_null=True,
+        help_text=(
+            "Offset of the next window when paging with page_size/limit; null "
+            "otherwise (the default capped run is not a sequential walk)."
+        ),
+    )
+    findings = AuditFindingSerializer(many=True)
+
+
+_AUDIT_QUERY_PARAMETERS = [
+    OpenApiParameter(
+        name="page_size",
+        # drf-spectacular only accepts a basic type, a Serializer or a raw
+        # schema dict here — a serializers.IntegerField instance is skipped.
+        # Deliberately no `maximum`: the parser accepts larger values and
+        # `run_audit` caps the window at 500 (FR-08, #1382).
+        type={"type": "integer", "minimum": 1},
+        location=OpenApiParameter.QUERY,
+        required=False,
+        description=(
+            "Sequential page size (>= 1; values above 500 are capped at 500). "
+            "Walks the full result set in engine order; combine with `offset` / "
+            "`next_offset`. May be given at most once (a repeated parameter is "
+            "a 400)."
+        ),
+    ),
+    OpenApiParameter(
+        name="limit",
+        type={"type": "integer", "minimum": 1},
+        location=OpenApiParameter.QUERY,
+        required=False,
+        description=(
+            "Backward-compatible alias of `page_size` (#622; values above 500 "
+            "are capped at 500). When both are given they must be equal, "
+            "otherwise 400 VALIDATION_ERROR. May be given at most once."
+        ),
+    ),
+    OpenApiParameter(
+        name="offset",
+        type={"type": "integer", "minimum": 0},
+        location=OpenApiParameter.QUERY,
+        required=False,
+        description=(
+            "Start offset (>= 0) within the result set; requires page_size or "
+            "limit unless 0. May be given at most once."
+        ),
+    ),
+    OpenApiParameter(
+        name="include_suppressed",
+        type=bool,
+        location=OpenApiParameter.QUERY,
+        required=False,
+        default=True,
+        description=(
+            "Keep suppressed findings in the report, marked with "
+            "suppressed/reason/expiry (default true). Only the literals `true` "
+            "and `false` are accepted; matching is case-insensitive with "
+            "surrounding whitespace trimmed (`TRUE`, ` False ` are valid). Any "
+            "other value is a 400. May be given at most once (a repeated "
+            "parameter is a 400)."
+        ),
+    ),
+    OpenApiParameter(
+        name="scope",
+        type=str,
+        location=OpenApiParameter.QUERY,
+        required=False,
+        enum=["document", "project", "global"],
+        description="Baseline scope to audit (default: project).",
+    ),
+    OpenApiParameter(
+        name="scope_artifact_id",
+        type=str,
+        location=OpenApiParameter.QUERY,
+        required=False,
+        description="Document subtree root; required when scope=document.",
+    ),
+    OpenApiParameter(
+        name="rule_id",
+        type=str,
+        location=OpenApiParameter.QUERY,
+        required=False,
+        many=True,
+        description=(
+            "Filter by rule id; repeat the parameter or pass a "
+            "comma-separated list (e.g. 'TRACE-P1,TRACE-P2')."
+        ),
+    ),
+    OpenApiParameter(
+        name="severity",
+        type=str,
+        location=OpenApiParameter.QUERY,
+        required=False,
+        many=True,
+        description=(
+            "Filter by severity (blocker|warning); repeat the parameter or "
+            "pass a comma-separated list."
+        ),
+    ),
+    OpenApiParameter(
+        name="artifact_type",
+        type=str,
+        location=OpenApiParameter.QUERY,
+        required=False,
+        description=(
+            "Only findings that concern an artifact of this type (e.g. "
+            "'Requirement', 'ArchitectureElement')."
+        ),
+    ),
+]
 
 
 # ---------------------------------------------------------------------------
@@ -145,41 +420,116 @@ def _parse_scopes(request: Request) -> list[AuditScope] | None:
     return [AuditScope(scope, artifact_id=artifact_id)]
 
 
-def _parse_pagination(request: Request) -> tuple[int | None, int]:
-    """#622: optional ``?limit=&offset=`` to page past the findings cap.
+def _parse_page_size(raw: str, parameter: str) -> int:
+    """Parse one explicit page-size value (``page_size`` or its ``limit`` alias).
 
-    Absent ``limit`` -> ``(None, 0)``, preserving the default BLOCKER-
-    preferred truncation exactly as before this was added. A present but
-    invalid (non-integer) value raises ValueError, mapped to a 400 by the
-    caller — same pattern as ``_parse_scopes``.
+    Non-integer values (including an empty string and floats such as ``1.5``)
+    raise ValueError naming *parameter*, mapped to a 400 by the caller. A value
+    below 1 is rejected rather than clamped: silently turning ``page_size=0``
+    into "the default cap" would hide the caller's mistake. Deliberately no
+    upper bound here — :meth:`AuditService.run_audit` already caps the window at
+    :data:`AuditService.MAX_REPORT_FINDINGS`; the OpenAPI parameter description
+    states "values above 500 are capped at 500" (FR-08, #1382).
     """
-    raw_limit = request.query_params.get("limit")
-    if raw_limit is None:
-        return None, 0
     try:
-        limit = int(raw_limit)
-    except ValueError as exc:
-        raise ValueError("limit must be an integer.") from exc
-    raw_offset = request.query_params.get("offset", "0")
-    try:
-        offset = int(raw_offset)
-    except ValueError as exc:
-        raise ValueError("offset must be an integer.") from exc
-    return limit, offset
+        value = int(raw)
+    except (TypeError, ValueError):
+        raise ValueError(f"{parameter} must be an integer.") from None
+    if value < 1:
+        raise ValueError(f"{parameter} must be >= 1.")
+    return value
+
+
+def _parse_pagination(request: Request) -> tuple[int | None, int]:
+    """#622/#1383: optional ``?page_size=&offset=`` (``limit`` is an alias).
+
+    ``page_size`` and ``limit`` are aliases for the page size. When both are
+    present their parsed values must agree; conflicting values raise
+    ValueError (400 ``VALIDATION_ERROR``) instead of silently preferring one.
+    Only one present -> that one is used. Neither present -> ``(None, 0)``,
+    preserving the default BLOCKER-preferred truncation exactly as before #622.
+
+    An explicit page size must be ``>= 1`` and ``offset`` must be ``>= 0``;
+    invalid values (non-integers, out-of-range) raise ValueError rather than
+    being silently clamped — same pattern as ``_parse_scopes``. A positive
+    ``offset`` without a page size is also rejected ("offset requires
+    page_size or limit"): without a window the offset has no meaning and
+    silently ignoring it would return the wrong page. ``offset=0`` without a
+    page size is accepted and ignored.
+
+    #1382/FR-10: each of ``page_size``, ``limit`` and ``offset`` may be given
+    **at most once**; a repeated parameter is rejected with 400 instead of
+    silently using one of the values. ``rule_id`` / ``severity`` stay
+    repeatable by design (they are set-valued finding filters, see
+    ``_parse_finding_filters``).
+
+    Values above :data:`AuditService.MAX_REPORT_FINDINGS` are *capped*, not
+    rejected — ``run_audit`` clamps the window. The OpenAPI description states
+    that cap; there is deliberately no ``maximum`` in the schema (FR-08).
+    """
+    page_size_values = request.query_params.getlist("page_size")
+    limit_values = request.query_params.getlist("limit")
+    offset_values = request.query_params.getlist("offset")
+    if len(page_size_values) > 1:
+        raise ValueError("page_size may be given at most once.")
+    if len(limit_values) > 1:
+        raise ValueError("limit may be given at most once.")
+    if len(offset_values) > 1:
+        raise ValueError("offset may be given at most once.")
+
+    raw_page_size = page_size_values[0] if page_size_values else None
+    raw_limit = limit_values[0] if limit_values else None
+
+    page_size: int | None = None
+    if raw_page_size is not None and raw_limit is not None:
+        page_size_value = _parse_page_size(raw_page_size, "page_size")
+        limit_value = _parse_page_size(raw_limit, "limit")
+        if page_size_value != limit_value:
+            raise ValueError(
+                "page_size and limit are aliases; when both are given they "
+                f"must have the same value (got {page_size_value} and "
+                f"{limit_value})."
+            )
+        page_size = page_size_value
+    elif raw_page_size is not None:
+        page_size = _parse_page_size(raw_page_size, "page_size")
+    elif raw_limit is not None:
+        page_size = _parse_page_size(raw_limit, "limit")
+
+    offset = 0
+    raw_offset = offset_values[0] if offset_values else None
+    if raw_offset is not None:
+        try:
+            offset = int(raw_offset)
+        except (TypeError, ValueError):
+            raise ValueError("offset must be an integer.") from None
+        if offset < 0:
+            raise ValueError("offset must be >= 0.")
+    if offset > 0 and page_size is None:
+        raise ValueError("offset requires page_size or limit.")
+    return page_size, offset
 
 
 def _parse_include_suppressed(request: Request) -> bool:
     """#569/m2: parse ``?include_suppressed=true|false`` strictly.
 
     Absent -> ``True`` (O3: nothing is hidden by default). Only the literals
-    ``true``/``false`` (case-insensitive) are accepted; every other value
-    raises ValueError so the caller answers 400 ``VALIDATION_ERROR`` instead
-    of silently coercing a typo into a filter (spec E15/AC-569-22).
+    ``true``/``false`` are accepted, matched case-insensitively with
+    surrounding whitespace trimmed (``TRUE`` and `` False `` are valid); every
+    other value raises ValueError so the caller answers 400
+    ``VALIDATION_ERROR`` instead of silently coercing a typo into a filter
+    (spec E15/AC-569-22).
+
+    #1382/FR-10: the parameter may be given **at most once**, matching the
+    pagination parameters — a repeated value is ambiguous, so it is a 400
+    rather than a silent pick of one of the values.
     """
-    raw = request.query_params.get("include_suppressed")
-    if raw is None:
+    values = request.query_params.getlist("include_suppressed")
+    if len(values) > 1:
+        raise ValueError("include_suppressed may be given at most once.")
+    if not values:
         return True
-    lowered = str(raw).strip().lower()
+    lowered = str(values[0]).strip().lower()
     if lowered == "true":
         return True
     if lowered == "false":
@@ -226,6 +576,31 @@ def _parse_finding_filters(request: Request) -> dict[str, Any]:
         "artifact_type": artifact_type,
         "active": bool(rule_ids or severities or artifact_type),
     }
+
+
+def _build_finding_filter(
+    *,
+    rule_ids: frozenset[str],
+    severities: frozenset[str],
+    artifact_type_ids: frozenset[str] | None,
+) -> Callable[[Any], bool]:
+    """#1382: bind the parsed filters into one ``Finding`` predicate.
+
+    Passed to ``AuditService.run_audit(finding_filter=...)`` so filtering
+    happens *before* the service's totals/cap/window. Reuses
+    :func:`finding_matches` (the same predicate ``apply_report_filters``
+    uses) — no rule logic is duplicated or changed.
+    """
+
+    def _matches(finding: Any) -> bool:
+        return finding_matches(
+            finding,
+            rule_ids=rule_ids,
+            severities=severities,
+            artifact_type_ids=artifact_type_ids,
+        )
+
+    return _matches
 
 
 def _assert_workspace_in_tenant(workspace_id: Any, ctx: Any) -> None:
@@ -358,6 +733,26 @@ class WaiverCreateSerializer(
 class WorkspaceAuditView(APIView):
     """GET /api/v1/workspaces/<workspace_id>/audit/ — run the SE-Auditor."""
 
+    @extend_schema(
+        parameters=_AUDIT_QUERY_PARAMETERS,
+        responses={
+            200: OpenApiResponse(
+                response=AuditReportSerializer,
+                description=(
+                    "Audit report: `counts` is the ground truth over the full "
+                    "(pre-window) run, `page_counts` only the returned window."
+                ),
+            ),
+            400: OpenApiResponse(
+                response=ErrorResponseSerializer,
+                description=(
+                    "VALIDATION_ERROR — conflicting/invalid page_size/limit, "
+                    "negative offset, offset without a page size, or an "
+                    "invalid scope/filter value."
+                ),
+            ),
+        },
+    )
     def get(
         self, request: Request, workspace_id: str, *args: Any, **kwargs: Any
     ) -> Response:
@@ -375,17 +770,13 @@ class WorkspaceAuditView(APIView):
         try:
             ctx = get_auth_context(request)
             _assert_workspace_in_tenant(workspace_id, ctx)
+            # #1382: build the filter as a predicate and let the service apply
+            # it before its cap/totals, so `counts` is the filtered ground
+            # truth and a match beyond MAX_REPORT_FINDINGS is reachable. The
+            # old run-audit-then-filter path could not reach such a match and
+            # reported counts.total == 0 while matches existed.
+            finding_filter = None
             if filters["active"]:
-                # #1262: filter the *complete* run (no window), then window the
-                # filtered set — a filter combined with limit/offset must page
-                # over the matches, not over an unfiltered window that may
-                # contain none.
-                report = AuditService().run_audit(
-                    workspace_id,
-                    ctx,
-                    scopes=scopes,
-                    include_suppressed=include_suppressed,
-                )
                 artifact_type_ids = None
                 if filters["artifact_type"]:
                     artifact_type_ids = resolve_artifact_ids_for_type(
@@ -393,24 +784,20 @@ class WorkspaceAuditView(APIView):
                         tenant_id=ctx.tenant_id,
                         workspace_id=workspace_id,
                     )
-                apply_report_filters(
-                    report,
+                finding_filter = _build_finding_filter(
                     rule_ids=filters["rule_ids"],
                     severities=filters["severities"],
                     artifact_type_ids=artifact_type_ids,
-                    limit=limit,
-                    offset=offset,
-                    max_findings=AuditService.MAX_REPORT_FINDINGS,
                 )
-            else:
-                report = AuditService().run_audit(
-                    workspace_id,
-                    ctx,
-                    scopes=scopes,
-                    limit=limit,
-                    offset=offset,
-                    include_suppressed=include_suppressed,
-                )
+            report = AuditService().run_audit(
+                workspace_id,
+                ctx,
+                scopes=scopes,
+                limit=limit,
+                offset=offset,
+                include_suppressed=include_suppressed,
+                finding_filter=finding_filter,
+            )
             return Response(report.to_dict())
         except NotFoundError as exc:
             return Response(

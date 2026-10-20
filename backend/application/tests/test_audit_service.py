@@ -19,12 +19,16 @@ from __future__ import annotations
 
 import contextlib
 from collections.abc import Iterator
+from datetime import UTC, datetime
+from unittest.mock import patch
+from uuid import uuid4
 
 import pytest
 
 from application.audit_service import AuditService
 from application.base import ValidationError
 from auth_tenancy.context import AuthContext
+from baseline.waivers import SuppressionRecord, finding_key
 from persistence.models import (
     ArchitectureElement,
     Artifact,
@@ -38,6 +42,7 @@ from persistence.models import (
 from persistence.tenancy import TenantContext
 from persistence.tests.factories import make_workspace
 from traceability.audit import AuditResult, Finding, Severity
+from traceability.audit.finding_filters import finding_matches
 from traceability.audit.registry import TRACE_P1, TRACE_P2, TRACE_P4, TRACE_P5
 from traceability.types import LinkType
 
@@ -139,7 +144,9 @@ class TestRunAudit:
 
         data = report.to_dict()
         assert data["tier"] == "extended"
-        assert "counts" in data and data["counts"]["total"] == len(data["findings"])
+        # #1382: counts is the ground truth, page_counts the returned window.
+        assert data["counts"]["total"] == data["total_findings_available"]
+        assert data["page_counts"]["total"] == len(data["findings"])
         # every finding carries a remediation proposal
         for f in data["findings"]:
             assert "remediation" in f
@@ -211,13 +218,16 @@ class TestRunAuditTruncation:
         assert data["truncated"] is True
         assert data["total_findings_available"] == overflow_count
         assert len(data["findings"]) == AuditService.MAX_REPORT_FINDINGS
-        # counts.total must stay consistent with the actually-returned list
-        # (the dashboard's live-count badges derive from data["findings"]).
-        assert data["counts"]["total"] == AuditService.MAX_REPORT_FINDINGS
+        # #1382: counts is the ground truth across the full run (a badge must
+        # show the real total, not the cap) ...
+        assert data["counts"]["total"] == overflow_count
+        # ... while page_counts describes what is actually in `findings`.
+        assert data["page_counts"]["total"] == AuditService.MAX_REPORT_FINDINGS
         # BUG-15 follow-up M3: the *true* severity totals (pre-cap) must be
-        # exposed separately from counts.blockers/counts.warnings (which only
-        # describe the returned/capped subset) — every finding here is a
-        # BLOCKER, so this must reflect the full overflow count, not the cap.
+        # exposed separately from page_counts.blockers/page_counts.warnings
+        # (which only describe the returned/capped subset) — every finding here
+        # is a BLOCKER, so this must reflect the full overflow count, not the
+        # cap.
         assert data["total_blockers_available"] == overflow_count
         assert data["total_warnings_available"] == 0
 
@@ -438,6 +448,335 @@ class TestRunAuditPagination:
         data = report.to_dict()
         assert data["findings"] == []
         assert data["truncated"] is False
+
+
+# ---------------------------------------------------------------------------
+# #1382 — `counts` is the ground truth over the full run, `page_counts` the
+# returned window, `next_offset` the cursor for a sequential walk.
+# ---------------------------------------------------------------------------
+
+
+class TestRunAuditPaginationCounts:
+    """#1382 count semantics + cursor on a deliberately small cap.
+
+    ``MAX_REPORT_FINDINGS`` is monkeypatched to 5 so a 12-finding engine result
+    exercises multiple windows without large fixtures. ``TRACE-P4`` has no
+    registered remediation, so each finding is cheap to build.
+    """
+
+    WINDOW = 5
+    TOTAL = 12
+
+    def _findings(self, count: int) -> list:
+        return [
+            Finding(
+                rule_id=TRACE_P4,
+                severity=Severity.BLOCKER,
+                message=f"finding {i}",
+                artifact_ids=(),
+            )
+            for i in range(count)
+        ]
+
+    def _pages(
+        self, monkeypatch, tenant, workspace, ctx, *, offsets: tuple[int, ...]
+    ) -> list[dict]:
+        monkeypatch.setattr(AuditService, "MAX_REPORT_FINDINGS", self.WINDOW)
+        findings = self._findings(self.TOTAL)
+        with _active(tenant):
+            svc = AuditService(engine=_FixedEngine(findings))
+            return [
+                svc.run_audit(
+                    workspace.id,
+                    ctx,
+                    tier="extended",
+                    limit=self.WINDOW,
+                    offset=start,
+                ).to_dict()
+                for start in offsets
+            ]
+
+    def test_windows_are_disjoint_and_complete_with_a_cursor(
+        self, monkeypatch, tenant, workspace, ctx
+    ):
+        pages = self._pages(
+            monkeypatch, tenant, workspace, ctx, offsets=(0, 5, 10)
+        )
+
+        messages = [f["message"] for page in pages for f in page["findings"]]
+        assert messages == [f"finding {i}" for i in range(self.TOTAL)]
+        assert len(set(messages)) == self.TOTAL, "windows must not overlap"
+        assert [len(page["findings"]) for page in pages] == [5, 5, 2]
+        assert [page["next_offset"] for page in pages] == [5, 10, None]
+        assert [page["truncated"] for page in pages] == [True, True, False]
+
+    def test_counts_stay_ground_truth_across_every_window(
+        self, monkeypatch, tenant, workspace, ctx
+    ):
+        pages = self._pages(
+            monkeypatch, tenant, workspace, ctx, offsets=(0, 5, 10)
+        )
+
+        for page in pages:
+            counts = page["counts"]
+            assert counts["total"] == self.TOTAL
+            assert counts["total"] == page["total_findings_available"]
+            assert counts["blockers"] == self.TOTAL
+            assert counts["warnings"] == 0
+            assert counts["suppressed"] == 0
+            assert counts["suppressed_blockers"] == 0
+
+            page_counts = page["page_counts"]
+            assert page_counts["total"] == len(page["findings"])
+            assert page_counts["blockers"] == len(page["findings"])
+            # Window counters keep the unconditional binary-severity identity.
+            assert (
+                page_counts["blockers"] + page_counts["warnings"]
+                == page_counts["total"]
+            )
+
+    def test_default_cap_has_ground_truth_counts_but_no_cursor(
+        self, monkeypatch, tenant, workspace, ctx
+    ):
+        """The default BLOCKER-preferred cap is not a sequential walk.
+
+        ``counts`` must still describe the whole run (a client asking "how many
+        blockers exist?" must not see the cap), while ``next_offset`` stays
+        ``None`` because following it would skip/duplicate findings.
+        """
+        monkeypatch.setattr(AuditService, "MAX_REPORT_FINDINGS", self.WINDOW)
+        findings = self._findings(self.TOTAL)
+        with _active(tenant):
+            svc = AuditService(engine=_FixedEngine(findings))
+            data = svc.run_audit(workspace.id, ctx, tier="extended").to_dict()
+
+        assert data["truncated"] is True
+        assert data["next_offset"] is None
+        assert data["counts"]["total"] == self.TOTAL
+        assert data["page_counts"]["total"] == self.WINDOW
+
+
+class TestRunAuditFindingFilter:
+    """#1382/FR-02 — ``finding_filter`` narrows the run *before* cap + totals.
+
+    Regression: the REST/MCP surfaces used to run the audit unfiltered, cap it
+    at ``MAX_REPORT_FINDINGS`` and only then filter, so a match outside the cap
+    was unreachable and ``counts.total`` could read 0 while matches existed.
+    """
+
+    WINDOW = 2
+    BLOCKERS = 6
+    TARGETS = 3
+
+    def _findings(self) -> list:
+        # The target findings come last, so the default BLOCKER-preferred cap
+        # would drop every one of them.
+        blockers = [
+            Finding(
+                rule_id=TRACE_P4,
+                severity=Severity.BLOCKER,
+                message=f"blocker {i}",
+                artifact_ids=(),
+            )
+            for i in range(self.BLOCKERS)
+        ]
+        targets = [
+            Finding(
+                rule_id="IFC-001",
+                severity=Severity.WARNING,
+                message=f"target {i}",
+                artifact_ids=(),
+            )
+            for i in range(self.TARGETS)
+        ]
+        return blockers + targets
+
+    @staticmethod
+    def _is_target(finding: Finding) -> bool:
+        return finding.rule_id == "IFC-001"
+
+    def test_filter_is_applied_before_the_cap_and_the_totals(
+        self, monkeypatch, tenant, workspace, ctx
+    ):
+        monkeypatch.setattr(AuditService, "MAX_REPORT_FINDINGS", self.WINDOW)
+        with _active(tenant):
+            svc = AuditService(engine=_FixedEngine(self._findings()))
+            data = svc.run_audit(
+                workspace.id,
+                ctx,
+                tier="extended",
+                finding_filter=self._is_target,
+            ).to_dict()
+
+        # Ground truth is the *filtered* set — not the cap, not the raw run.
+        assert data["counts"]["total"] == self.TARGETS
+        assert data["counts"]["warnings"] == self.TARGETS
+        assert data["counts"]["blockers"] == 0
+        # The default branch still caps the *filtered* list at the window.
+        assert data["page_counts"]["total"] == self.WINDOW
+        assert len(data["findings"]) == self.WINDOW
+        assert {f["rule_id"] for f in data["findings"]} == {"IFC-001"}
+        # Original indices are preserved (the pairs were filtered, not
+        # re-enumerated): the targets are the last three engine findings.
+        assert [f["index"] for f in data["findings"]] == [
+            self.BLOCKERS + i for i in range(self.WINDOW)
+        ]
+        # MAX_REPORT_FINDINGS (2) < the filtered total (3), but the default
+        # branch caps without a cursor.
+        assert data["truncated"] is True
+        assert data["next_offset"] is None
+
+    def test_a_filtered_walk_reaches_matches_past_the_cap(
+        self, monkeypatch, tenant, workspace, ctx
+    ):
+        monkeypatch.setattr(AuditService, "MAX_REPORT_FINDINGS", self.WINDOW)
+        with _active(tenant):
+            svc = AuditService(engine=_FixedEngine(self._findings()))
+            first = svc.run_audit(
+                workspace.id,
+                ctx,
+                tier="extended",
+                limit=2,
+                offset=0,
+                finding_filter=self._is_target,
+            ).to_dict()
+            second = svc.run_audit(
+                workspace.id,
+                ctx,
+                tier="extended",
+                limit=2,
+                offset=2,
+                finding_filter=self._is_target,
+            ).to_dict()
+
+        # Every target is reachable, even though none of them would survive the
+        # pre-fix cap that was applied before filtering.
+        assert [f["message"] for f in first["findings"]] == ["target 0", "target 1"]
+        assert [f["message"] for f in second["findings"]] == ["target 2"]
+        assert first["next_offset"] == 2
+        assert second["next_offset"] is None
+        assert first["counts"]["total"] == self.TARGETS
+        assert second["counts"]["total"] == self.TARGETS
+
+    def test_zero_limit_window_advertises_no_cursor(
+        self, monkeypatch, tenant, workspace, ctx
+    ):
+        """``limit=0`` is internal misuse; it must not yield a looping cursor."""
+        monkeypatch.setattr(AuditService, "MAX_REPORT_FINDINGS", self.WINDOW)
+        with _active(tenant):
+            svc = AuditService(engine=_FixedEngine(self._findings()))
+            data = svc.run_audit(
+                workspace.id, ctx, tier="extended", limit=0, offset=0
+            ).to_dict()
+
+        assert data["findings"] == []
+        assert data["truncated"] is True
+        assert data["next_offset"] is None
+
+
+class TestRunAuditSuppressedAndFiltered:
+    """#1382/F-02 — ``include_suppressed=False`` composed with a finding filter.
+
+    The combination was untested: the filter narrows the run first, the
+    suppression totals are then computed over that *filtered* set, and
+    ``suppressed_filtered`` is subtracted from the visible total before the
+    window/cursor is derived. A regression here shows up as a wrong
+    ``counts.*`` block or a cursor pointing past the visible end.
+    """
+
+    BLOCKER_RULE = "TEST-SUPPRESSED-BLOCKER"
+    WARNING_RULE = "TEST-VISIBLE-WARNING"
+    EXCLUDED_RULE = "TEST-EXCLUDED"
+
+    def _findings(self) -> list[Finding]:
+        return [
+            Finding(
+                rule_id=self.BLOCKER_RULE,
+                severity=Severity.BLOCKER,
+                message="suppressed blocker",
+                artifact_ids=("art-blocker",),
+            ),
+            Finding(
+                rule_id=self.WARNING_RULE,
+                severity=Severity.WARNING,
+                message="visible warning",
+                artifact_ids=("art-warning",),
+            ),
+            # Same severity as the suppressed blocker but outside the rule
+            # filter: it must not contribute to any count.
+            Finding(
+                rule_id=self.EXCLUDED_RULE,
+                severity=Severity.BLOCKER,
+                message="excluded blocker",
+                artifact_ids=(),
+            ),
+        ]
+
+    def _suppression(self) -> SuppressionRecord:
+        return SuppressionRecord(
+            id=uuid4(),
+            finding_key=finding_key(self.BLOCKER_RULE, ("art-blocker",)),
+            rule_id=self.BLOCKER_RULE,
+            artifact_ids=("art-blocker",),
+            scope="",
+            scope_artifact_id="",
+            reason="accepted deviation",
+            granted_by="audit-test",
+            created_at=datetime(2026, 1, 1, tzinfo=UTC),
+            expires_at=None,
+        )
+
+    def test_counts_suppressed_filtered_and_cursor_compose(self, tenant, workspace, ctx):
+        selected_rules = frozenset({self.BLOCKER_RULE, self.WARNING_RULE})
+        with _active(tenant), patch(
+            "application.audit_service.load_suppressions",
+            return_value=[self._suppression()],
+        ):
+            svc = AuditService(engine=_FixedEngine(self._findings()))
+            data = svc.run_audit(
+                workspace.id,
+                ctx,
+                tier="extended",
+                limit=1,
+                offset=0,
+                include_suppressed=False,
+                finding_filter=lambda finding: finding_matches(
+                    finding, rule_ids=selected_rules
+                ),
+            ).to_dict()
+
+        # `counts` describes the filtered ground truth (2), not the raw run (3)
+        # and not the window (1). The suppressed blocker is excluded from
+        # `blockers` (waiver-aware) but accounted for by `suppressed_blockers`.
+        counts = data["counts"]
+        assert counts["total"] == 2
+        assert counts["blockers"] == 0
+        assert counts["warnings"] == 1
+        assert counts["suppressed"] == 1
+        assert counts["suppressed_blockers"] == 1
+        assert (
+            counts["blockers"] + counts["warnings"] + counts["suppressed_blockers"]
+            == counts["total"]
+        )
+
+        # The hidden finding was removed from the window, and the counter
+        # explains the page_counts vs counts gap.
+        assert data["suppressed_filtered"] == 1
+        assert data["page_counts"]["total"] == 1
+        assert data["page_counts"]["blockers"] == 0
+        assert data["page_counts"]["warnings"] == 1
+        assert [f["message"] for f in data["findings"]] == ["visible warning"]
+        # Original engine index is preserved (pairs were filtered, not
+        # re-enumerated).
+        assert [f["index"] for f in data["findings"]] == [1]
+
+        # The only visible finding is the whole visible set, so the walk is
+        # done: the cursor must be None, not `offset + window` (which would be
+        # the case if `visible_total` forgot `suppressed_filtered`).
+        assert data["offset"] == 0
+        assert data["truncated"] is False
+        assert data["next_offset"] is None
+
 
 
 # ---------------------------------------------------------------------------

@@ -27,17 +27,18 @@ def _view(rule_id, severity, artifact_ids=(), suppressed=False):
     )
 
 
-def _report(views):
+def _report(views, *, suppressed_filtered=0):
     return SimpleNamespace(
         findings=list(views),
         truncated=False,
         offset=0,
+        next_offset=None,
         total_findings_available=len(views),
         total_blockers_available=0,
         total_warnings_available=0,
         total_suppressed_available=0,
         total_suppressed_blockers_available=0,
-        suppressed_filtered=0,
+        suppressed_filtered=suppressed_filtered,
     )
 
 
@@ -105,7 +106,56 @@ class TestApplyReportFilters:
         assert len(report.findings) == 1
         assert report.offset == 1
         assert report.truncated is True
+        # #1382: the cursor for the following window (offsets 0..2 exist).
+        assert report.next_offset == 2
         assert report.total_findings_available == 3
+
+    def test_last_window_has_no_cursor(self):
+        report = _report(
+            [_view("IFC-001", Severity.WARNING, (str(i),)) for i in range(3)]
+        )
+
+        apply_report_filters(report, severities=frozenset({"warning"}), limit=5, offset=2)
+
+        assert report.truncated is False
+        assert report.next_offset is None
+
+    def test_unwindowed_branch_has_no_cursor(self):
+        report = _report(
+            [_view("IFC-001", Severity.WARNING, (str(i),)) for i in range(3)]
+        )
+
+        apply_report_filters(report, severities=frozenset({"warning"}))
+
+        assert report.next_offset is None
+
+    def test_empty_window_never_advertises_a_non_advancing_cursor(self):
+        report = _report(
+            [_view("IFC-001", Severity.WARNING, (str(i),)) for i in range(3)]
+        )
+
+        apply_report_filters(report, severities=frozenset({"warning"}), limit=0, offset=0)
+
+        assert report.findings == []
+        assert report.truncated is True
+        # Without this guard `next_offset` would equal `offset` (0) and a
+        # caller following the cursor would loop forever (#1382/FR-01).
+        assert report.next_offset is None
+
+    def test_preserves_the_service_computed_suppressed_filtered(self):
+        """#1382/FR-02: filtering must not erase the include_suppressed=False
+        explanation the service computed."""
+        report = _report(
+            [
+                _view("IFC-001", Severity.WARNING, ("a",)),
+                _view("IFC-001", Severity.WARNING, ("b",), suppressed=True),
+            ],
+            suppressed_filtered=1,
+        )
+
+        apply_report_filters(report, severities=frozenset({"warning"}))
+
+        assert report.suppressed_filtered == 1
 
 
 @pytest.mark.django_db

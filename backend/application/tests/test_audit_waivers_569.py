@@ -11,9 +11,10 @@ marking/filter contract and the L1 → L2 error remaps.
   finding, are handled precisely.
 * **AC-569-20 / AC-569-29 / AC-569-30** — shared authority choke point, the
   three L2 error types and the None-safe ``granted_by`` formula.
-* **AC-569-13 / AC-569-27** — descriptive ``counts`` vs absolute ``total_*``;
-  the ``include_suppressed=False`` window inequality (m7) and the unconditional
-  ``blockers + warnings == total`` identity (R3-01).
+* **AC-569-13 / AC-569-27** — descriptive ``page_counts`` vs absolute
+  ``counts``/``total_*`` (#1382); the ``include_suppressed=False`` window
+  inequality (m7) and the unconditional ``blockers + warnings == total``
+  identity on the window block (R3-01).
 * **AC-569-21 / AC-569-31** — expired-row 409, request-expiry 400 precedence and
   decision-time expiry via an injectable ``now``.
 
@@ -715,15 +716,25 @@ class TestRunAuditSuppression:
         assert by_rule["TRACE-P1"].suppression_id == row.id
         assert by_rule["VERIF-P8"].suppressed is False
 
-        counts = report.to_dict()["counts"]
+        payload = report.to_dict()
+        counts = payload["counts"]
+        page_counts = payload["page_counts"]
+        # #1382: counts is the ground truth over the full run; its `blockers` is
+        # waiver-aware (#1150), so it drops to 1 while page_counts keeps the
+        # window's raw two blockers.
         assert counts["total"] == 2
-        assert counts["blockers"] == 2
+        assert counts["blockers"] == 1
         assert counts["warnings"] == 0
         assert counts["suppressed"] == 1
         assert counts["suppressed_blockers"] == 1
-        # R3-01: the unconditional identity — never an intra-counts inequality.
-        assert counts["blockers"] + counts["warnings"] == counts["total"]
-        payload = report.to_dict()
+        # R3-01: page_counts keeps the unconditional binary-severity identity.
+        assert page_counts["total"] == 2
+        assert page_counts["blockers"] == 2
+        assert (
+            page_counts["blockers"] + page_counts["warnings"]
+            == page_counts["total"]
+        )
+        assert counts["blockers"] + counts["warnings"] < counts["total"]
         assert payload["total_suppressed_available"] == 1
         assert payload["total_suppressed_blockers_available"] == 1
         assert payload["suppressed_filtered"] == 0
@@ -734,10 +745,17 @@ class TestRunAuditSuppression:
         assert [fv.finding.rule_id for fv in filtered.findings] == ["VERIF-P8"]
         filtered_payload = filtered.to_dict()
         filtered_counts = filtered_payload["counts"]
-        assert filtered_counts["total"] == 1
-        assert filtered_counts["blockers"] + filtered_counts["warnings"] == filtered_counts["total"]
-        # m7: counts describe the window, total_* the full run.
-        assert filtered_counts["total"] != filtered_payload["total_findings_available"]
+        filtered_page_counts = filtered_payload["page_counts"]
+        # #1382/m7: counts describes the full run (the suppressed finding is
+        # still part of it); page_counts describes the filtered window.
+        assert filtered_counts["total"] == 2
+        assert filtered_counts["suppressed"] == 1
+        assert filtered_page_counts["total"] == 1
+        assert (
+            filtered_page_counts["blockers"] + filtered_page_counts["warnings"]
+            == filtered_page_counts["total"]
+        )
+        assert filtered_counts["total"] != filtered_page_counts["total"]
         assert filtered_payload["total_findings_available"] == len(
             filtered.findings
         ) + filtered_payload["suppressed_filtered"]
@@ -832,7 +850,7 @@ class TestWaiverDecrementsAvailableBlockers:
         Two blockers exist; waiving one leaves a single *effective* blocker.
         ``total_effective_blockers`` (the explicit alias) and ``to_dict()`` must
         both report the reduced value, while the raw ``suppressed_blockers``
-        counter keeps the waived one visible and ``counts.blockers`` stays
+        counter keeps the waived one visible and ``page_counts.blockers`` stays
         descriptive of the returned window.
         """
         matching = _blocker("TRACE-P1", ("art-1",))
@@ -857,7 +875,10 @@ class TestWaiverDecrementsAvailableBlockers:
         assert payload["total_blockers_available"] == 1
         assert payload["total_effective_blockers"] == 1
         # The waived blocker is still visible: descriptions do not hide it.
-        assert payload["counts"]["blockers"] == 2
+        # #1382: counts.blockers is the waiver-aware ground truth; the raw
+        # window count lives in page_counts.
+        assert payload["counts"]["blockers"] == 1
+        assert payload["page_counts"]["blockers"] == 2
         assert payload["total_suppressed_blockers_available"] == 1
 
     def test_expired_waiver_does_not_reduce_the_blocker_count(

@@ -95,6 +95,41 @@ WORKSPACE_UUID = UUID("00000000-0000-0000-0000-0000000000bb")
 ENTITY_UUID = UUID("00000000-0000-0000-0000-0000000000cc")
 
 
+def _real_audit_report():
+    """Build a real ``AuditReport`` (not a MagicMock) for shape assertions.
+
+    #1382/FR-04: mocking ``to_dict()`` let the MCP tests pass while the real
+    report shape drifted. This instance exercises ``AuditReport.to_dict()``
+    itself, so the counts/page_counts/next_offset contract is checked end to
+    end through the tool handler.
+    """
+    from application.audit_service import AuditFindingView, AuditReport
+    from traceability.audit import Finding, Severity
+    from traceability.audit.remediation import RemediationProposal
+
+    view = AuditFindingView(
+        index=0,
+        finding=Finding("TRACE-P1", Severity.BLOCKER, "blocked", ()),
+        remediation=RemediationProposal.manual("TRACE-P1", "fix by hand"),
+        suppressed=True,
+    )
+    return AuditReport(
+        tier="standard",
+        scope="project",
+        scope_artifact_id=None,
+        findings=[view],
+        truncated=True,
+        total_findings_available=6,
+        total_blockers_available=3,
+        total_warnings_available=2,
+        offset=0,
+        total_suppressed_available=1,
+        total_suppressed_blockers_available=1,
+        suppressed_filtered=1,
+        next_offset=1,
+    )
+
+
 def _mock_audit_entry(
     *,
     id_val: UUID = None,
@@ -743,7 +778,69 @@ class TestSeAuditTool:
                 auth_context=ADMIN_CTX,
                 api_key="k",
             )
-        assert run.call_args.kwargs == {"tier": "extended", "limit": 10, "offset": 5}
+        assert run.call_args.kwargs["tier"] == "extended"
+        assert run.call_args.kwargs["limit"] == 10
+        assert run.call_args.kwargs["offset"] == 5
+        # #1382: no filter named -> no predicate, previous behaviour intact.
+        assert run.call_args.kwargs["finding_filter"] is None
+
+    @pytest.mark.parametrize(
+        "params",
+        [
+            {"limit": 0},
+            {"limit": -1},
+            {"offset": -1},
+            # A positive offset without a window has no meaning (REST parity).
+            {"offset": 5},
+            {"limit": "abc"},
+            {"offset": "abc"},
+            {"limit": 1.5},
+            # bool is an int subclass in Python — must be rejected, not coerced.
+            {"limit": True},
+            {"offset": False},
+        ],
+    )
+    def test_rejects_invalid_pagination(self, params):
+        result = AuditToolGroup().execute_tool(
+            "audit.se_audit",
+            params={"workspace_id": str(uuid4()), **params},
+            auth_context=ADMIN_CTX,
+            api_key="k",
+        )
+        assert result.success is False
+        assert result.error_code == "VALIDATION_ERROR"
+
+    def test_limit_one_pages_and_surfaces_the_next_offset(self):
+        """#1382/FR-01: a page size of 1 is valid and the cursor advances."""
+        report = _real_audit_report()
+        with patch(
+            "application.audit_service.AuditService.run_audit", return_value=report
+        ) as run:
+            result = AuditToolGroup().execute_tool(
+                "audit.se_audit",
+                params={"workspace_id": str(uuid4()), "limit": 1, "offset": 0},
+                auth_context=ADMIN_CTX,
+                api_key="k",
+            )
+
+        assert run.call_args.kwargs["limit"] == 1
+        assert result.success is True
+        assert result.data["next_offset"] == 1 > result.data["offset"]
+
+    def test_does_not_reject_a_page_size_above_500(self):
+        """Values above the cap are capped by the service, not rejected (REST parity)."""
+        report = self._stub_report()
+        with patch(
+            "application.audit_service.AuditService.run_audit", return_value=report
+        ) as run:
+            result = AuditToolGroup().execute_tool(
+                "audit.se_audit",
+                params={"workspace_id": str(uuid4()), "limit": 5000},
+                auth_context=ADMIN_CTX,
+                api_key="k",
+            )
+        assert result.success is True
+        assert run.call_args.kwargs["limit"] == 5000
 
     def test_rejects_an_unknown_tier(self):
         result = AuditToolGroup().execute_tool(
@@ -775,6 +872,207 @@ class TestSeAuditTool:
             )
         assert result.success is False
         assert result.error_code == "NOT_FOUND"
+
+
+class TestSeAuditReportShape:
+    """#1382/FR-04 — the real ``AuditReport.to_dict()`` shape over MCP.
+
+    Uses an actual ``AuditReport`` (see :func:`_real_audit_report`) instead of
+    a MagicMock pass-through, so the two count blocks and the cursor are
+    asserted against the production serialiser.
+    """
+
+    def _call(self) -> dict:
+        with patch(
+            "application.audit_service.AuditService.run_audit",
+            return_value=_real_audit_report(),
+        ):
+            result = AuditToolGroup().execute_tool(
+                "audit.se_audit",
+                params={"workspace_id": str(uuid4())},
+                auth_context=ADMIN_CTX,
+                api_key="k",
+            )
+        assert result.success is True
+        return result.data
+
+    def test_counts_is_the_ground_truth_block(self):
+        counts = self._call()["counts"]
+
+        assert counts == {
+            "total": 6,
+            "blockers": 3,
+            "warnings": 2,
+            "suppressed": 1,
+            "suppressed_blockers": 1,
+        }
+        # Waiver-aware composition (#1382): blockers excludes the waived one,
+        # so it is not `blockers + warnings == total`.
+        assert (
+            counts["blockers"] + counts["warnings"] + counts["suppressed_blockers"]
+            == counts["total"]
+        )
+
+    def test_page_counts_is_the_raw_window_block(self):
+        data = self._call()
+        page_counts = data["page_counts"]
+
+        assert page_counts == {
+            "total": 1,
+            "blockers": 1,
+            "warnings": 0,
+            "suppressed": 1,
+            "suppressed_blockers": 1,
+        }
+        # Raw block: the suppressed blocker is still counted as a blocker.
+        assert (
+            page_counts["blockers"] + page_counts["warnings"]
+            == page_counts["total"]
+        )
+        assert page_counts["total"] == len(data["findings"])
+
+    def test_next_offset_and_window_metadata_are_exposed(self):
+        data = self._call()
+
+        assert data["next_offset"] == 1
+        assert data["offset"] == 0
+        assert data["truncated"] is True
+        assert data["suppressed_filtered"] == 1
+        assert data["findings"][0]["suppressed"] is True
+
+
+class TestSeAuditFindingFilterWiring:
+    """#1382/F-01 — the handler hands the service a predicate, not a post-filter.
+
+    The pre-#1382 path ran the audit unfiltered and narrowed the *capped*
+    report afterwards via ``apply_report_filters``. These tests drive the real
+    handler through the real ``AuditService.run_audit`` (only the RuleEngine
+    result, the tier lookup and the suppression lookup are stubbed), so
+    reverting to the run-then-filter path turns them red: the predicate would
+    be ``None`` and the excluded finding would still be in the report.
+    """
+
+    def _findings(self) -> list:
+        from traceability.audit import Finding, Severity
+
+        return [
+            Finding(
+                rule_id="TEST-BLOCKER",
+                severity=Severity.BLOCKER,
+                message="kept by the filter",
+                artifact_ids=("art-1",),
+            ),
+            Finding(
+                rule_id="TEST-WARNING",
+                severity=Severity.WARNING,
+                message="dropped by rule/severity filters",
+                artifact_ids=("art-2",),
+            ),
+        ]
+
+    def _run(self, params: dict) -> tuple[dict, dict]:
+        """Run ``audit.se_audit`` end to end; return (result data, captured call)."""
+        from application.audit_service import AuditService
+        from persistence.tenancy import TenantContext
+        from traceability.audit import AuditResult
+
+        captured: dict = {}
+        real_run_audit = AuditService.run_audit
+
+        def spy(service, *args, **kwargs):
+            captured["finding_filter"] = kwargs.get("finding_filter")
+            return real_run_audit(service, *args, **kwargs)
+
+        try:
+            with patch.object(AuditService, "run_audit", spy), patch(
+                "application.audit_service.RuleEngine.run",
+                return_value=AuditResult(tier="standard", findings=self._findings()),
+            ), patch.object(
+                AuditService, "resolve_tier", return_value="standard"
+            ), patch(
+                "application.audit_service.load_suppressions", return_value=[]
+            ):
+                result = AuditToolGroup().execute_tool(
+                    "audit.se_audit",
+                    params={"workspace_id": str(WORKSPACE_UUID), **params},
+                    auth_context=ADMIN_CTX,
+                    api_key=VALID_API_KEY,
+                )
+        finally:
+            TenantContext.clear_tenant()
+
+        assert result.success is True, result
+        return result.data, captured
+
+    def test_rule_id_reaches_the_service_as_a_predicate(self):
+        from traceability.audit import Finding, Severity
+
+        data, captured = self._run({"rule_id": "TEST-BLOCKER"})
+
+        predicate = captured["finding_filter"]
+        assert predicate is not None
+        # The predicate is the real filter, bound to the parsed rule set.
+        assert predicate(
+            Finding("TEST-BLOCKER", Severity.BLOCKER, "kept", ("art-1",))
+        ) is True
+        assert predicate(
+            Finding("TEST-WARNING", Severity.WARNING, "dropped", ("art-2",))
+        ) is False
+
+        # ... and the service actually applied it: counts describe the filtered
+        # ground truth, and the excluded finding is gone from the report.
+        assert [f["rule_id"] for f in data["findings"]] == ["TEST-BLOCKER"]
+        assert data["counts"]["total"] == 1
+        assert data["counts"]["blockers"] == 1
+
+    def test_severity_reaches_the_service_as_a_predicate(self):
+        from traceability.audit import Finding, Severity
+
+        data, captured = self._run({"severity": "warning"})
+
+        predicate = captured["finding_filter"]
+        assert predicate is not None
+        assert predicate(
+            Finding("TEST-WARNING", Severity.WARNING, "kept", ("art-2",))
+        ) is True
+        assert predicate(
+            Finding("TEST-BLOCKER", Severity.BLOCKER, "dropped", ("art-1",))
+        ) is False
+
+        assert [f["rule_id"] for f in data["findings"]] == ["TEST-WARNING"]
+        assert data["counts"]["warnings"] == 1
+        assert data["counts"]["blockers"] == 0
+
+    def test_artifact_type_resolves_ids_and_matches_only_findings_with_them(self):
+        from traceability.audit import Finding, Severity
+
+        with patch(
+            "mcp_server.tools.audit.resolve_artifact_ids_for_type",
+            return_value=frozenset({"art-1"}),
+        ) as resolve:
+            data, captured = self._run({"artifact_type": "Requirement"})
+
+        resolve.assert_called_once_with(
+            artifact_type="Requirement",
+            tenant_id=ADMIN_CTX.tenant_id,
+            workspace_id=WORKSPACE_UUID,
+        )
+
+        predicate = captured["finding_filter"]
+        assert predicate is not None
+        assert predicate(
+            Finding("TEST-BLOCKER", Severity.BLOCKER, "on the type", ("art-1",))
+        ) is True
+        assert predicate(
+            Finding("TEST-WARNING", Severity.WARNING, "other type", ("art-2",))
+        ) is False
+        # A finding without any artifact id cannot match a type filter.
+        assert predicate(
+            Finding("TEST-BLOCKER", Severity.BLOCKER, "graph-level", ())
+        ) is False
+
+        assert [f["rule_id"] for f in data["findings"]] == ["TEST-BLOCKER"]
+        assert data["counts"]["total"] == 1
 
 
 class TestAuditToolGroupWiring:

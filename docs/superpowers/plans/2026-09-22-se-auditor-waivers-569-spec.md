@@ -613,6 +613,11 @@ umzudeuten.
   **nie** innerhalb der `counts`-Summe. Eine `counts.total != counts.blockers + counts.warnings`-
   Ungleichung wäre arithmetisch unerreichbar und ist daher **nicht** Teil des Vertrags.
 
+> **Superseded by #1382** — Diese „Immer-Identität" gilt seit #1382 für `page_counts`
+> (das rohe Fenster) und nicht mehr für `counts`: `counts.blockers` ist waiver-aware,
+> `counts.warnings`/`counts.total` sind roh. Für `counts` gilt stattdessen
+> `counts.blockers + counts.warnings + counts.suppressed_blockers == counts.total`.
+
 `suppress_finding`-Semantik (Revision 3):
 
 1. `_set_tenant_context(ctx)`; `assert_gate_waiver_authority(ctx)` → fängt
@@ -1355,6 +1360,15 @@ d Mutationsprobe).
   deshalb **nicht** Teil des Vertrags (R3-01).
 - **Test:** `backend/rest_api/tests/test_audit_waivers_569_rest.py::test_report_marks_and_filters_suppressed`
   und `::test_counts_stay_descriptive_and_totals_stay_absolute_when_filtered`.
+
+> **Superseded by #1382** — Der Report trägt seit #1382 zwei Zählblöcke:
+> `page_counts` beschreibt das zurückgegebene Fenster (`findings`) roh — dort gilt die
+> obige Identität `blockers + warnings == total` weiterhin unbedingt (unterdrückte
+> Blocker inklusive). `counts` ist jetzt der **Ground Truth** über den ganzen
+> (vorgefensterten, gefilterten) Lauf und `counts.blockers` ist waiver-aware (#1150);
+> die neue Komposition lautet
+> `counts.blockers + counts.warnings + counts.suppressed_blockers == counts.total`.
+> `counts.total != total_findings_available` aus (ii) entfällt damit — beide sind gleich.
 
 ### AC-569-14 — UI: dritte Aktion + Filter
 

@@ -68,15 +68,38 @@ export interface AuditFinding {
   remediation: RemediationProposal;
 }
 
+/**
+ * One consistent set of audit counts.
+ *
+ * #1382/#1383: the *same* five keys appear twice in a report and the two
+ * objects mean different things:
+ *   - `AuditReport.counts`     — the ground truth over the FULL run, independent
+ *     of `limit`/`offset` (`counts.total === total_findings_available`).
+ *   - `AuditReport.page_counts` — the returned window only (additive).
+ *
+ * Before #1383 `counts` described only the returned window, which is exactly
+ * the bug behind #1382: the UI had to fall back to the `total_*_available`
+ * fields to avoid presenting a partial window as the run total.
+ */
 export interface AuditCounts {
   total: number;
+  /**
+   * Blocker count — two different semantics, one per block:
+   *   - `AuditReport.counts.blockers` is the *effective*, waiver-aware count
+   *     over the full run (#1150): a blocker matched by an active waiver is
+   *     already excluded here and is reported in `suppressed_blockers`
+   *     instead. This is the badge/baseline number.
+   *   - `AuditReport.page_counts.blockers` is a *raw* window counter: it
+   *     counts every BLOCKER row in the returned window, INCLUDING suppressed
+   *     ones, so `blockers + warnings === total` holds on that block. It is
+   *     descriptive only, never a gate verdict — use `counts` for the
+   *     waiver-aware number.
+   * The dashboard corrects a local waive/adopt on top of the last snapshot
+   * instead of deriving a badge from either block's window values.
+   */
   blockers: number;
   warnings: number;
-  /**
-   * #569 (additive, M5): how many of the returned findings are suppressed.
-   * `blockers`/`warnings` stay descriptive and are NOT re-interpreted — a
-   * suppressed blocker still counts there.
-   */
+  /** #569 (additive): suppressed findings, counted additively to `total`. */
   suppressed: number;
   /** #569 (additive): of `suppressed`, the BLOCKER-severity ones. */
   suppressed_blockers: number;
@@ -86,7 +109,23 @@ export interface AuditReport {
   tier: string;
   scope: AuditScopeKind | null;
   scope_artifact_id: string | null;
+  /**
+   * #1382/#1383: ground truth for the FULL run — NOT the returned window.
+   * `counts.total === total_findings_available`; use this for every
+   * "how many findings are there" badge/banner total, never `findings.length`.
+   */
   counts: AuditCounts;
+  /**
+   * #1383 (additive): the same five keys, but describing only the findings in
+   * this response's window. Use it wherever the window size itself is shown
+   * (e.g. "{{shown}} of {{total}}" with `counts.total` as the total).
+   *
+   * Optional because a backend that predates #1383 does not send it at all —
+   * its absence is the discriminator the dashboard uses for the legacy shape
+   * (there, `counts` is window-scoped and `total_*_available` carries the run
+   * total). `null` is accepted for the same reason.
+   */
+  page_counts?: AuditCounts | null;
   /**
    * Without `limit`: true when the backend capped the result set
    * (AuditService.MAX_REPORT_FINDINGS). With `limit` (#622/#596): true when
@@ -96,32 +135,43 @@ export interface AuditReport {
   truncated: boolean;
   /** Total findings the run actually produced, before any truncation/windowing. */
   total_findings_available: number;
-  /** True blocker count before truncation (code review M3 — counts.blockers only covers the returned/capped subset). Effective: waived blockers are excluded (#1150). */
+  /** True blocker count before truncation. Effective: waived blockers are excluded (#1150). */
   total_blockers_available: number;
   /** #1150: explicit alias of `total_blockers_available` (same effective, waiver-aware value). */
   total_effective_blockers: number;
   /** True warning count before truncation (see total_blockers_available). */
   total_warnings_available: number;
   /**
-   * #569 (additive): suppressed findings in the full, uncapped run. When the
-   * client filters (`include_suppressed=false`) or the run is capped, the
-   * `counts.*` describe the returned window while these describe the whole
-   * run — `counts.total != total_findings_available` is expected then.
+   * #569 (additive): suppressed findings in the full, uncapped run.
+   * #1383: identical to `counts.suppressed` now that `counts` describes the
+   * full run; kept because the field is part of the existing response
+   * contract. `counts.*` is the canonical source for the UI.
    */
   total_suppressed_available: number;
   /** #569 (additive): of `total_suppressed_available`, the BLOCKER ones. */
   total_suppressed_blockers_available: number;
   /**
    * #569 (additive, m7): how many findings the `include_suppressed=false`
-   * filter removed from `findings` (0 when the filter is off). Explains the
-   * `counts.total` vs `total_findings_available` difference.
+   * filter removed from `findings` (0 when the filter is off). With #1383 the
+   * full-run counts stay in `counts`, so this only explains the difference
+   * between `page_counts` (window) and the mounted rows.
    */
   suppressed_filtered: number;
   /**
    * #622: position of `findings[0]` within the full (pre-cap) run — always 0
-   * for a request without `limit`. Next window start: `offset + findings.length`.
+   * for a request without `limit`.
    */
   offset: number;
+  /**
+   * #1383: server cursor for the next window — the value to send as `offset`
+   * while `truncated` is true. `null` once the run has been fully paged.
+   * Do NOT recompute this client-side (`offset + findings.length` is only the
+   * old approximation and breaks as soon as the server skips findings).
+   *
+   * Optional because a backend that predates #1383 does not send it at all
+   * (same legacy discriminator as `page_counts`).
+   */
+  next_offset?: number | null;
   findings: AuditFinding[];
 }
 

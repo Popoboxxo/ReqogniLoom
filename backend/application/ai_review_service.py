@@ -182,7 +182,8 @@ class AiReviewResult:
     ``review()`` reads ``report.findings`` from ``AuditService.run_audit``,
     which caps at ``AuditService.MAX_REPORT_FINDINGS`` — so ``total_findings``
     here is the *returned* (possibly capped) count, same convention as
-    ``AuditReport.counts.total``. Without these two fields an MCP/REST
+    ``AuditReport.page_counts.total`` (#1382; the ground-truth full-run count
+    is ``total_findings_available``). Without these two fields an MCP/REST
     caller has no way to tell a genuinely-clean workspace apart from a
     workspace whose findings were silently capped before packaging —
     propagated straight from the underlying ``AuditReport`` so the signal
