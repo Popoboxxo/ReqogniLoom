@@ -31,7 +31,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - fix(backend): bind outbox writes to the transaction and count unbound publishes (#1438, PR #1446)
 - fix(deploy): require `image:` in frontend-replacing overlays, restoring the Bluepencil overlay contract (#1436, PR #1448)
-- fix(health): report the effective artifact vector backend instead of a stale configuration value (#1437, PR #1447)
 - fix(ai): classify derive failures as 503/504/429 instead of a blanket 502 (#1416, PR #1424)
 - fix(a11y): replace `aria-selected` with `aria-pressed` and enable `role-supports-aria-props` (#1421, PR #1425)
 - fix(i18n): add 54 missing keys and lower the ratchets (#1363, PR #1370)
