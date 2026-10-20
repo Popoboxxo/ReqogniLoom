@@ -18,8 +18,12 @@ Scope boundary (see §2.1):
 """
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import TypeVar
+
+_T = TypeVar("_T")
 
 
 class Severity(str, Enum):
@@ -118,6 +122,19 @@ class AuditContext:
     _scope_item_ids: frozenset[str] | None = field(
         default=None, repr=False, compare=False
     )
+    #: #1385 — run-scoped memo shared by every rule that runs against this
+    #: context (the engine reuses one context for all scope-agnostic rules and
+    #: one per baseline scope). Rules read the *same* workspace snapshot, so a
+    #: helper that several rules call (e.g. "the workspace's active
+    #: Requirements") does not have to re-query per rule. Keys are plain
+    #: strings, namespaced by the calling module.
+    _memo: dict[str, object] = field(
+        default_factory=dict, repr=False, compare=False
+    )
+    #: #1385 — the run's trace-link snapshot (see :meth:`iter_trace_links`).
+    _trace_links: tuple[dict[str, str], ...] | None = field(
+        default=None, repr=False, compare=False
+    )
 
     @property
     def scope_item_ids(self) -> frozenset[str]:
@@ -157,6 +174,31 @@ class AuditContext:
         self._scope_item_ids = frozenset(ids)
         return self._scope_item_ids
 
+    def memoize(self, key: str, factory: Callable[[], _T]) -> _T:
+        """Return the run-scoped memoised value of *factory* under *key*.
+
+        #1385: one audit run is one consistent, read-only snapshot of the
+        workspace, so a read helper that several rules share (the active
+        Requirements, the active TestCases, ...) is resolved once per context
+        instead of once per rule. The memo lives exactly as long as this
+        context (one engine run, or one engine run per baseline scope), so it
+        can never serve stale data across two audit runs.
+
+        Args:
+            key: Memo slot. Callers namespace it with their module name so two
+                modules with differently shaped projections of the same table
+                cannot collide.
+            factory: Zero-argument callable computing the value on a miss. It
+                must be read-only and deterministic for this context's
+                snapshot.
+        """
+        try:
+            return self._memo[key]  # type: ignore[return-value]
+        except KeyError:
+            value = factory()
+            self._memo[key] = value
+            return value
+
     def iter_trace_links(self):
         """Yield the tenant's trace links as lightweight dicts.
 
@@ -170,7 +212,20 @@ class AuditContext:
         yielded when :attr:`include_proposal_links` is set; a proposal is not
         a real trace edge yet, so a *completeness* audit run over the confirmed
         state must not count it (ADR-019 WP5 repeated-producer dedup).
+
+        #1385: the rows are read **once per context** and replayed from a
+        tuple on every further call. Before that, every call site (ten across
+        the rules and hierarchy helpers — thirteen calls in one extended-tier
+        run) issued its own full-tenant scan of ``pl_tracelink``. The tuple is
+        built lazily, so a run that never asks for links (minimal tier) still
+        pays nothing.
         """
+        if self._trace_links is None:
+            self._trace_links = tuple(self._load_trace_links())
+        yield from self._trace_links
+
+    def _load_trace_links(self):
+        """Load the tenant's trace links as dicts (one query, see above)."""
         from persistence.models import TraceLink
 
         rows = TraceLink.unscoped.filter(tenant_id=self.tenant_id)

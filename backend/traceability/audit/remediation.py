@@ -55,13 +55,18 @@ Adding a remediation for a new rule
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import Mapping
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import Any, TypeVar
 
 from traceability.audit.registry import TRACE_P1, TRACE_P2, TRACE_P5
 from traceability.audit.types import Finding
 from traceability.types import LinkType
+
+_T = TypeVar("_T")
 
 
 class RemediationActionKind(str, Enum):
@@ -211,6 +216,90 @@ def clear_remediation_registry() -> None:  # pragma: no cover — test/tooling h
 
 
 # ---------------------------------------------------------------------------
+# Run-scoped candidate memo (#1385)
+#
+# ``AuditService.run_audit`` analyses the remediation of *every* returned
+# finding, and the candidate-based remediations below (TRACE-P1, TRACE-P2) ask
+# the same workspace-level question once per finding: "how many active
+# StakeholderNeeds / ArchitectureElements exist here?". The answer cannot
+# change during one read-only audit run, but before #1385 it was re-queried per
+# finding — 50 identical scans of ``pl_architecture_element`` for a run with 50
+# unallocated Requirements, which dominated the whole run's query count.
+#
+# The memo is therefore scoped to exactly one run: the application layer opens
+# :func:`remediation_run_cache` around its per-finding proposal loop and the
+# helpers below serve every call inside it from one query. Deliberately NOT a
+# process-wide cache: a StakeholderNeed created between two runs must be
+# visible to the second run, so the memo's lifetime is a run, never a TTL.
+#
+# Mechanism note: a ``ContextVar`` (not an argument threaded through
+# ``Remediation.propose``) keeps the ``Remediation`` ABC unchanged for every
+# registered and third-party implementation, and is context-local, so
+# concurrent audits in different threads/async tasks cannot see each other's
+# candidates. It also degrades safely: with no active cache the helpers behave
+# exactly as before (one query per call).
+# ---------------------------------------------------------------------------
+
+
+class _RemediationRunCache:
+    """Workspace-level candidate memo for one audit run."""
+
+    __slots__ = ("tenant_id", "workspace_id", "entries")
+
+    def __init__(self, tenant_id: str, workspace_id: str) -> None:
+        self.tenant_id = str(tenant_id)
+        self.workspace_id = str(workspace_id)
+        self.entries: dict[str, Any] = {}
+
+
+_active_run_cache: ContextVar[_RemediationRunCache | None] = ContextVar(
+    "audit_remediation_run_cache", default=None
+)
+
+
+@contextmanager
+def remediation_run_cache(
+    tenant_id: str, workspace_id: str
+) -> Iterator[_RemediationRunCache]:
+    """Scope a candidate memo to one audit run (see the block comment above).
+
+    Args:
+        tenant_id: Tenant the run reads from.
+        workspace_id: Workspace the run reads from.
+
+    Yields:
+        The active :class:`_RemediationRunCache`. Nested use is a no-op: an
+        already-active cache for the same tenant+workspace is kept, so a caller
+        that wraps a single-finding ``propose_remediation`` inside a larger run
+        simply shares the run's candidates.
+    """
+    current = _active_run_cache.get()
+    if (
+        current is not None
+        and current.tenant_id == str(tenant_id)
+        and current.workspace_id == str(workspace_id)
+    ):
+        yield current
+        return
+    cache = _RemediationRunCache(tenant_id, workspace_id)
+    token = _active_run_cache.set(cache)
+    try:
+        yield cache
+    finally:
+        _active_run_cache.reset(token)
+
+
+def _memoized_candidates(key: str, factory: Callable[[], _T]) -> _T:
+    """Return *factory*'s value for the active run, or call it uncached."""
+    cache = _active_run_cache.get()
+    if cache is None:
+        return factory()
+    if key not in cache.entries:
+        cache.entries[key] = factory()
+    return cache.entries[key]
+
+
+# ---------------------------------------------------------------------------
 # Read-only candidate-search helpers (mirror the audit rules' data access:
 # tenant + workspace supplied explicitly, ``unscoped`` manager, exclude
 # soft-deleted rows). Return Artifact ids, because every TraceLink endpoint is
@@ -219,6 +308,19 @@ def clear_remediation_registry() -> None:  # pragma: no cover — test/tooling h
 
 
 def _stakeholder_need_artifact_ids(tenant_id: str, workspace_id: str) -> frozenset[str]:
+    """Return artifact ids of active StakeholderNeeds in the workspace.
+
+    Memoised per audit run (#1385) — see the block comment above.
+    """
+    return _memoized_candidates(
+        "stakeholder_need_artifact_ids",
+        lambda: _compute_stakeholder_need_artifact_ids(tenant_id, workspace_id),
+    )
+
+
+def _compute_stakeholder_need_artifact_ids(
+    tenant_id: str, workspace_id: str
+) -> frozenset[str]:
     """Return artifact ids of active StakeholderNeeds in the workspace.
 
     Datenmodell-Konsolidierung Phase 1: StakeholderNeed's soft-delete state
@@ -257,7 +359,19 @@ def _architecture_artifact_ids(tenant_id: str, workspace_id: str) -> frozenset[s
     ``WorkflowItemState`` (the dead ``lifecycle_status`` column is never
     touched), so "active" is computed against
     ``workflow.services.outdated_item_ids`` instead.
+
+    Memoised per audit run (#1385) — see the block comment above.
     """
+    return _memoized_candidates(
+        "architecture_artifact_ids",
+        lambda: _compute_architecture_artifact_ids(tenant_id, workspace_id),
+    )
+
+
+def _compute_architecture_artifact_ids(
+    tenant_id: str, workspace_id: str
+) -> frozenset[str]:
+    """Uncached query body of :func:`_architecture_artifact_ids`."""
     from persistence.models import ArchitectureElement
     from workflow.services import outdated_item_ids
 
@@ -423,4 +537,5 @@ __all__ = [
     "get_registered_remediations",
     "get_remediation",
     "register_remediation",
+    "remediation_run_cache",
 ]

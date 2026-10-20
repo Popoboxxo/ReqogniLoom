@@ -36,6 +36,18 @@ from workflow.services import outdated_item_ids
 def _active_requirements(context: AuditContext) -> dict[str, dict]:
     """Return ``{artifact_id: {"uid", "level"}}`` for the workspace's active rows.
 
+    Memoised on the audit context (#1385): CONS-P12 and CONS-P13 both project
+    the same rows, so the query runs once per engine context.
+    """
+    return context.memoize(
+        "level_consistency.active_requirements",
+        lambda: _compute_active_requirements(context),
+    )
+
+
+def _compute_active_requirements(context: AuditContext) -> dict[str, dict]:
+    """Uncached query body of :func:`_active_requirements`.
+
     "Active" excludes soft-deleted rows via ``workflow.services.outdated_item_ids``
     (the same convention ``rules/interface_coverage.py`` uses). Tenant/workspace
     are supplied explicitly by the engine, so this reads ``unscoped`` (audit

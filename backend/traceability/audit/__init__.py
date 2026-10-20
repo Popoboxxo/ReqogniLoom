@@ -36,6 +36,7 @@ from traceability.audit.remediation import (  # noqa: E402
     get_registered_remediations,
     get_remediation,
     register_remediation,
+    remediation_run_cache,
 )
 from traceability.audit.rule_engine import RuleEngine
 from traceability.audit.types import (
@@ -64,4 +65,5 @@ __all__ = [
     "get_rule_catalogue",
     "register_remediation",
     "register_rule",
+    "remediation_run_cache",
 ]
