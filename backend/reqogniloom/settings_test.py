@@ -113,6 +113,25 @@ CELERY_BROKER_URL = "memory://"
 CELERY_RESULT_BACKEND = "cache+memory://"
 
 # ---------------------------------------------------------------------------
+# Outbox — issue #1438
+# ---------------------------------------------------------------------------
+# The process-exit summary of the unbound-publish counter would fire during
+# the pytest shutdown and add a warning line to every test run's tail. Off.
+OUTBOX_UNBOUND_SUMMARY_ON_EXIT = False
+
+# The on-commit dispatch nudge is a latency optimisation for the worker. With
+# CELERY_TASK_ALWAYS_EAGER above the poller would run INLINE inside the
+# commit hook, so the suite keeps it off (it is the production default too).
+OUTBOX_DISPATCH_ON_COMMIT = False
+
+# The decay window of the unbound-publish counter is inherited from
+# reqogniloom.settings (24 h). It needs no test override: the cache is
+# LocMemCache (per-process), and the autouse fixture in backend/conftest.py
+# deletes the counter keys between tests, so the TTL cannot leak a count from
+# one test into the next. The TTL itself is pinned by the tests in
+# application/tests/test_outbox_transaction_binding_1438.py.
+
+# ---------------------------------------------------------------------------
 # LLM — always use the deterministic mock provider (ADR-02). Tests must never
 # reach a real external LLM endpoint regardless of the ambient environment.
 # ---------------------------------------------------------------------------

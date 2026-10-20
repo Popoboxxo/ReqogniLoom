@@ -159,13 +159,24 @@ def _trace_link_to_dict(link: Any) -> dict:
 class TraceLinkService(ServiceBase):
     """TraceLink CRUD and cascade-delete for COMP-AS-005.
 
-    ``create_trace_link``/``delete_trace_link`` wrap themselves in
-    ``@atomic_transaction`` so a failed domain-event outbox insert (SA-02)
-    rolls the mutation back instead of silently losing the event.
-    ``cascade_delete_trace_links`` is the one exception: per
+    Transaction binding (issue #1438): ``create_trace_link``,
+    ``delete_trace_link`` and ``allocate`` wrap themselves in
+    ``@atomic_transaction``, so the outbox row their domain event writes
+    (SA-02) is committed together with the link — a failed outbox insert
+    rolls the mutation back instead of silently losing the event, and a
+    rollback of the mutation takes the event with it.
+
+    Before #1438 ``create_trace_link`` (and ``allocate``, which deletes the
+    previous allocation and creates a new one) were the only event-producing
+    service methods without that wrapper. Their outbox row was therefore
+    autocommitted on its own — bound to no mutation — and every created link
+    logged a "publish() called outside a transaction" warning; the
+    ``seed_toothbrush`` run produced 1879 of them.
+
+    ``cascade_delete_trace_links`` is the one deliberate exception: per
     ADR-L3-AS005-02 it deliberately runs inside the *caller's* transaction
-    context (its only caller, ``ArtifactService.delete_artifact``, is
-    itself ``@atomic_transaction``-wrapped) rather than nesting its own —
+    context (its only production caller, ``ArtifactService.delete_artifact``,
+    is itself ``@atomic_transaction``-wrapped) rather than nesting its own —
     the ADR rejects an internal wrapper on complexity grounds (nested
     savepoints), not because atomicity is unwanted there.
     """
@@ -501,6 +512,7 @@ class TraceLinkService(ServiceBase):
                     "deleted (outdated). Reactivate it first."
                 )
 
+    @atomic_transaction
     def create_trace_link(
         self,
         source_id: UUID,
@@ -515,6 +527,12 @@ class TraceLinkService(ServiceBase):
         Accepts Artifact, Requirement or ArchitectureElement IDs for
         *source_id* and *target_id* and resolves them to Artifact IDs before
         delegating to the TraceabilityEngine.
+
+        Runs inside ``@atomic_transaction`` (issue #1438): the
+        ``TRACE_LINK_CREATED`` outbox row this method emits is written inline
+        (SA-02) and therefore shares the link's fate — a failing outbox
+        insert rolls the link back instead of committing a link whose event
+        was lost, and a rollback of the link takes the event with it.
 
         Args:
             source_id: UUID of the source artifact or derived entity.
@@ -1069,7 +1087,18 @@ class TraceLinkService(ServiceBase):
     ) -> int:
         """Delete all TraceLinks where source OR target is *entity_id*.
 
-        Runs in the caller's transaction context (ADR-L3-AS005-02).
+        Runs in the caller's transaction context (ADR-L3-AS005-02) and is the
+        one deliberate exception to this service's ``@atomic_transaction``
+        wrappers.
+
+        Precondition: this method MUST be called from inside a transaction.
+        Outside one, the ``TRACE_LINK_DELETED`` events it emits are not
+        atomically bound to the deletion — the outbox rows are autocommitted
+        on their own, and the bus reports every one of them as "publish()
+        called outside a transaction" (issue #1438). The only production
+        caller, ``ArtifactService.delete_artifact``, is ``@atomic_transaction``
+        -wrapped and therefore satisfies the precondition.
+
         Idempotent: deleting a non-existent entity's links is a no-op.
 
         Returns:
@@ -1220,6 +1249,7 @@ class TraceLinkService(ServiceBase):
             source_element=source_el, target_element=target_el
         )
 
+    @atomic_transaction
     def allocate(
         self,
         requirement_id: UUID,
@@ -1230,6 +1260,12 @@ class TraceLinkService(ServiceBase):
 
         REQ-L1-042: Creates or replaces the allocated-to link. Only one allocation
         per Requirement is allowed; if a previous allocation exists, it is deleted first.
+
+        Runs inside ``@atomic_transaction`` (issue #1438): the replacement is
+        two writes (delete the old link, create the new one) plus the
+        ``TRACE_LINK_CREATED`` outbox row, and they must share one fate — a
+        half-applied allocation or a committed allocation whose event was
+        lost are both worse than a clean rollback.
 
         Args:
             requirement_id: UUID of the Requirement to allocate.

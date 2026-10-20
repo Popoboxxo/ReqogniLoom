@@ -42,3 +42,28 @@ def _clear_tenant_context() -> Iterator[None]:
     TenantContext.clear_tenant()
     yield
     TenantContext.clear_tenant()
+
+
+@pytest.fixture(autouse=True)
+def _reset_unbound_publish_counters() -> Iterator[None]:
+    """Keep the outbox unbound-publish counter from leaking between tests (#1438).
+
+    The counter lives in the Django cache and is a decaying-window counter —
+    exactly what an operator wants in production, but a cross-test leak in the
+    suite: a test that publishes outside a transaction bumps the counter, and
+    every later test then reads a non-zero ``outbox_unbound_publishes`` in the
+    readiness payload, which escalates the readiness status from "ok" to
+    "warning" (ADR-010). The cache is per-process (LocMemCache under
+    ``settings_test``), so the window cannot be relied on to expire within a
+    test run — without this reset the leak would reach the health suites.
+
+    The module's process-local throttle latch and per-run tally are a separate
+    concern; tests that assert the "first warning per process" behaviour reset
+    them explicitly via
+    :func:`application.event_bus_metrics.reset_unbound_publish_state`.
+    """
+    from application.event_bus_metrics import reset_unbound_publish_counters
+
+    reset_unbound_publish_counters()
+    yield
+    reset_unbound_publish_counters()
