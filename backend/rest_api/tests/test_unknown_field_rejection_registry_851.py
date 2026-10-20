@@ -168,6 +168,15 @@ _EXEMPT_SERIALIZERS: dict[str, str] = {
     "NodeGraphPayloadSerializer": "OpenAPI documentation-only serializer",
     # --- other request modules ------------------------------------------
     "UserWorkspacePreferenceSerializer": "read-only response serializer",
+    # --- rest_api.audit_views -------------------------------------------
+    # #1382: schema-only serializers for the audit response; they describe the
+    # 200 body, never a request body, so there is nothing to reject.
+    "AuditCountsSerializer": "read-only response serializer (#1382)",
+    "AuditPageCountsSerializer": "read-only response serializer (#1382)",
+    "AuditFindingSerializer": "read-only response serializer",
+    "AuditReportSerializer": (
+        "read-only 200 body of GET .../audit/ (#1382); no request body to guard"
+    ),
 }
 
 #: Modules whose module-local ``*Serializer`` classes are part of the REST
