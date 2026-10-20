@@ -78,6 +78,12 @@ docker build -f frontend/Dockerfile --target production frontend \
   -t reqogniloom-frontend:bluepencil
 ```
 
+**The image tag alone is not enough in an overlay.** The base `deploy/docker-compose.yml` pins the
+frontend as the GHCR registry image; an overlay that only adds `build:`/`ports:` still starts that
+registry image (#1436), so the SPA never carries the re-vendored layer. Override `image:` too (and
+`ports: !override`), then verify with `bash deploy/verify-frontend-image.sh` — see
+`deploy/README.md` "Overlays that replace the frontend image (#1436)".
+
 `frontend/nginx.conf` proxies `/bluepencil/api/` to the sidecar
 (`http://bluepencil:8787`) with per-request DNS resolution, so it works both with
 and without the `bluepencil` profile running. The upstream must still be reachable
