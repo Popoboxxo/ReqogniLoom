@@ -623,6 +623,18 @@ export function AuditDashboard(): JSX.Element {
         // #1383: the report's counts are a snapshot from the last run — record
         // the local resolution so the badges can still shrink (see `counts`).
         setAdoptedSinceRun((prev) => [...prev, finding]);
+        // NF-A: an Adopt removes the row from the run, so every finding behind
+        // it shifts down by one position. `nextOffset` is a server cursor and
+        // is honoured verbatim otherwise, but this LOCAL mutation invalidates
+        // it: paging from the old cursor would skip the finding that moved into
+        // the adopted row's slot (the row at old `index` is now at
+        // `index - 1`, which the cursor then never mounts again). A finding at
+        // or after the cursor cannot have been adopted yet, so it leaves the
+        // cursor untouched; the `> 0` guard keeps a repeated adopt from wrapping
+        // it negative.
+        setNextOffset((prev) =>
+          prev !== null && prev > 0 && finding.index < prev ? prev - 1 : prev
+        );
         setActionState((prev) => {
           const next = { ...prev };
           delete next[finding.index];
@@ -1181,8 +1193,11 @@ export function AuditDashboard(): JSX.Element {
         </div>
       )}
 
-      {/* #1382: "consistent" is a statement about the RUN, so it may only be
-          shown when the run itself is empty (`counts.total === 0`). Deriving
+      {/* #1382/NF-B: "consistent" is a statement about the RUN, so it may only
+          be shown when the run itself is empty (`counts.total === 0`) AND no
+          server-side artifact-type filter is narrowing it. `counts.total` is
+          post-filter ground truth: with a filter selected a zero result says
+          "nothing of that type", not "the trace graph is consistent". Deriving
           the empty state from the mounted, filtered rows made a filter that
           hides every loaded row read as a clean trace graph while the ground-
           truth badges reported thousands of findings. A filter that hides all
@@ -1190,7 +1205,7 @@ export function AuditDashboard(): JSX.Element {
       {isLoading && findings.length === 0 && !loadFailed ? (
         <p data-testid="audit-loading">{t("audit.loading", "Loading...")}</p>
       ) : !loadFailed && grouped.length === 0 ? (
-        counts.total === 0 ? (
+        artifactTypeFilter === "all" && counts.total === 0 ? (
           <p data-testid="audit-empty" className={styles.mutedText}>
             {t("audit.empty", "No findings — the trace graph is consistent for this scope.")}
           </p>

@@ -84,16 +84,18 @@ export interface AuditFinding {
 export interface AuditCounts {
   total: number;
   /**
-   * Effective blocker count — waiver-aware (#1150). A waive (suppression) is
-   * recorded additively in `suppressed`/`suppressed_blockers` and does NOT
-   * remain here, on either object:
-   *   - in `AuditReport.counts` this is the full run's effective count, so a
-   *     waived blocker is already excluded;
-   *   - in `AuditReport.page_counts` the same semantics apply, scoped to the
-   *     returned window, so this is the raw number of blocker rows in that
-   *     window (it is the window/descriptive counter, not a gate verdict).
-   * Pre-#1150 the field was purely descriptive; the dashboard corrects a
-   * local waive on top of the last snapshot instead of relying on that.
+   * Blocker count — two different semantics, one per block:
+   *   - `AuditReport.counts.blockers` is the *effective*, waiver-aware count
+   *     over the full run (#1150): a blocker matched by an active waiver is
+   *     already excluded here and is reported in `suppressed_blockers`
+   *     instead. This is the badge/baseline number.
+   *   - `AuditReport.page_counts.blockers` is a *raw* window counter: it
+   *     counts every BLOCKER row in the returned window, INCLUDING suppressed
+   *     ones, so `blockers + warnings === total` holds on that block. It is
+   *     descriptive only, never a gate verdict — use `counts` for the
+   *     waiver-aware number.
+   * The dashboard corrects a local waive/adopt on top of the last snapshot
+   * instead of deriving a badge from either block's window values.
    */
   blockers: number;
   warnings: number;

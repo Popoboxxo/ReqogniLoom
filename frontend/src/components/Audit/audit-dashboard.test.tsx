@@ -283,6 +283,18 @@ function findingAt(index: number): AuditFinding {
   };
 }
 
+/**
+ * `findingAt` with an automatic remediation, so its row renders an Adopt
+ * button (NF-A: the adopt-then-paginate cursor shift).
+ */
+function adoptableFindingAt(index: number): AuditFinding {
+  const base = findingAt(index);
+  return {
+    ...base,
+    remediation: { ...base.remediation, automatic: true, action_kind: "create_trace_link" },
+  };
+}
+
 /** A window of `length` findings starting at `offset`, of a 250-finding run. */
 function windowReport(offset: number, length: number): AuditReport {
   const total = 250;
@@ -949,6 +961,144 @@ describe("AuditDashboard — paged findings (#596)", () => {
     );
     expect(screen.getByTestId("audit-count-total").textContent).toContain("249");
     expect(screen.getByTestId("audit-count-total").textContent).not.toContain("248");
+  });
+
+  // NF-A (BLOCKING): a local Adopt removes a row, so every finding behind it
+  // shifts one position down — the server cursor is only valid for the run
+  // that produced it. Adopting old index 0 of a 250-run must move the cursor
+  // from 2 to 1; paging from 2 would return old 3 and 4 and silently never
+  // mount old index 2 (which is new index 1) until Refresh.
+  it("shifts the Load-more cursor after an Adopt so no finding is skipped (NF-A)", async () => {
+    vi.mocked(auditApi.run).mockImplementation((_wsId, options) => {
+      const offset = options?.offset ?? 0;
+      if (offset === 0) {
+        return Promise.resolve({
+          ...windowReport(0, 2),
+          counts: { total: 250, blockers: 200, warnings: 50, suppressed: 0, suppressed_blockers: 0 },
+          page_counts: { total: 2, blockers: 2, warnings: 0, suppressed: 0, suppressed_blockers: 0 },
+          truncated: true,
+          total_findings_available: 250,
+          total_blockers_available: 200,
+          total_effective_blockers: 200,
+          total_warnings_available: 50,
+          next_offset: 2,
+          findings: [adoptableFindingAt(0), findingAt(1)],
+        });
+      }
+      // Post-adopt snapshot: 249 findings. Old index `i` now lives at new
+      // index `i - 1`, so this window starts at old index `offset + 1`.
+      return Promise.resolve({
+        ...windowReport(offset, 2),
+        counts: { total: 249, blockers: 199, warnings: 50, suppressed: 0, suppressed_blockers: 0 },
+        page_counts: { total: 2, blockers: 2, warnings: 0, suppressed: 0, suppressed_blockers: 0 },
+        truncated: false,
+        total_findings_available: 249,
+        total_blockers_available: 199,
+        total_effective_blockers: 199,
+        total_warnings_available: 50,
+        next_offset: null,
+        findings: [findingAt(offset + 1), findingAt(offset + 2)],
+      });
+    });
+    vi.mocked(auditApi.remediate).mockResolvedValue({
+      applied: true,
+      finding_resolved: true,
+      created_link_id: "link-001",
+      proposal: adoptableFindingAt(0).remediation,
+    });
+
+    render(<AuditDashboard />);
+
+    fireEvent.click(await screen.findByTestId("audit-adopt-0"));
+    fireEvent.click(await screen.findByTestId("audit-adopt-confirm-confirm"));
+    await waitFor(() =>
+      expect(screen.queryByTestId("audit-finding-0")).not.toBeInTheDocument()
+    );
+
+    fireEvent.click(screen.getByTestId("audit-load-more-btn"));
+
+    // The cursor followed the locally removed row: 2 -> 1, not the stale 2.
+    await waitFor(() =>
+      expect(auditApi.run).toHaveBeenLastCalledWith(
+        "ws-001",
+        expect.objectContaining({ offset: 1 })
+      )
+    );
+    // ...so the shifted window still mounts old index 2 (new index 1) — the
+    // row the stale cursor would have skipped — next to old index 3.
+    expect(await screen.findByTestId("audit-finding-2")).toBeInTheDocument();
+    expect(screen.getByTestId("audit-finding-3")).toBeInTheDocument();
+    // Nothing else was lost: old 0 was adopted, old 1..3 are mounted.
+    expect(screen.getByTestId("audit-finding-1")).toBeInTheDocument();
+  });
+
+  // NF-A (waive half): a waive removes nothing, so it must NOT shift the
+  // cursor — but "Load more" adopts a fresh snapshot that already counts the
+  // suppression. The badges must therefore show the snapshot's suppressed
+  // numbers, never snapshot + delta (which would double-count it).
+  it("does not double-count a waive when Load more adopts a new snapshot (NF-A)", async () => {
+    vi.mocked(auditApi.run)
+      .mockResolvedValueOnce({
+        ...windowReport(0, 2),
+        counts: { total: 250, blockers: 200, warnings: 50, suppressed: 0, suppressed_blockers: 0 },
+        page_counts: { total: 2, blockers: 2, warnings: 0, suppressed: 0, suppressed_blockers: 0 },
+        truncated: true,
+        total_findings_available: 250,
+        total_blockers_available: 200,
+        total_effective_blockers: 200,
+        total_warnings_available: 50,
+        next_offset: 2,
+        findings: [findingAt(0), findingAt(1)],
+      })
+      // Fresh snapshot: the same 250 raw findings, one blocker now suppressed
+      // (a waiver never changes `total` — nothing is hidden).
+      .mockResolvedValueOnce({
+        ...windowReport(2, 2),
+        counts: { total: 250, blockers: 199, warnings: 50, suppressed: 1, suppressed_blockers: 1 },
+        page_counts: { total: 2, blockers: 2, warnings: 0, suppressed: 0, suppressed_blockers: 0 },
+        truncated: false,
+        total_findings_available: 250,
+        total_blockers_available: 199,
+        total_effective_blockers: 199,
+        total_warnings_available: 50,
+        total_suppressed_available: 1,
+        total_suppressed_blockers_available: 1,
+        next_offset: null,
+        findings: [findingAt(2), findingAt(3)],
+      });
+
+    render(<AuditDashboard />);
+
+    fireEvent.click(await screen.findByTestId("audit-waive-0"));
+    fireEvent.change(screen.getByTestId("audit-waive-reason"), {
+      target: { value: WAIVE_REASON },
+    });
+    fireEvent.click(screen.getByTestId("audit-waive-confirm"));
+    await screen.findByTestId("audit-suppressed-badge-0");
+
+    // Local delta on top of the snapshot: 200 -> 199, 0 -> 1 suppressed.
+    expect(screen.getByTestId("audit-count-blockers").textContent).toContain("199");
+    expect(screen.getByTestId("audit-count-suppressed").textContent).toContain("1");
+    expect(screen.getByTestId("audit-count-suppressed-blockers").textContent).toContain("1");
+
+    // No row was removed, so the cursor stays on the server's 2.
+    fireEvent.click(screen.getByTestId("audit-load-more-btn"));
+    await waitFor(() =>
+      expect(auditApi.run).toHaveBeenLastCalledWith(
+        "ws-001",
+        expect.objectContaining({ offset: 2 })
+      )
+    );
+    await waitFor(() =>
+      expect(screen.queryByTestId("audit-truncated-banner")).not.toBeInTheDocument()
+    );
+
+    // Exactly the snapshot: the delta was reset, not applied a second time.
+    expect(screen.getByTestId("audit-count-total").textContent).toContain("250");
+    expect(screen.getByTestId("audit-count-blockers").textContent).toContain("199");
+    expect(screen.getByTestId("audit-count-blockers").textContent).not.toContain("198");
+    expect(screen.getByTestId("audit-count-suppressed").textContent).not.toContain("2");
+    expect(screen.getByTestId("audit-count-suppressed-blockers").textContent).not.toContain("2");
   });
 
   // #569/#1383: the append dedupe is keyed on `finding_key` + scope — every

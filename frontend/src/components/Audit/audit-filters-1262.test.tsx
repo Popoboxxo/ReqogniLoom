@@ -81,6 +81,22 @@ const REPORT: AuditReport = {
   ],
 };
 
+/**
+ * NF-B: a server-side artifact-type filter that matches nothing. `counts` is
+ * post-filter ground truth, so a zero total here means "no finding of that
+ * type", not "the trace graph is consistent".
+ */
+const EMPTY_FILTERED_REPORT: AuditReport = {
+  ...REPORT,
+  counts: { total: 0, blockers: 0, warnings: 0, suppressed: 0, suppressed_blockers: 0 },
+  page_counts: { total: 0, blockers: 0, warnings: 0, suppressed: 0, suppressed_blockers: 0 },
+  total_findings_available: 0,
+  total_blockers_available: 0,
+  total_effective_blockers: 0,
+  total_warnings_available: 0,
+  findings: [],
+};
+
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(auditApi.run).mockResolvedValue(REPORT);
@@ -173,6 +189,26 @@ describe("AuditDashboard — artifact-type filter (#1262)", () => {
         expect.objectContaining({ artifactType: "Icd" })
       );
     });
+  });
+
+  // NF-B: the green "consistent" copy is gated on a zero run *without* a
+  // narrowing filter. Once an artifact-type filter is selected, `counts.total
+  // === 0` only says that type has no findings — the neutral no-match message
+  // is the honest statement, not a clean-audit verdict.
+  it("does not claim a clean trace graph when an artifact-type filter yields nothing (NF-B)", async () => {
+    vi.mocked(auditApi.run).mockResolvedValue(EMPTY_FILTERED_REPORT);
+
+    render(<AuditDashboard />);
+
+    // No filter: the empty run really is consistent.
+    expect(await screen.findByTestId("audit-empty")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByTestId("audit-artifact-type-filter"), {
+      target: { value: "Icd" },
+    });
+
+    expect(await screen.findByTestId("audit-no-filter-match")).toBeInTheDocument();
+    expect(screen.queryByTestId("audit-empty")).not.toBeInTheDocument();
   });
 });
 
