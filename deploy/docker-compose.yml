@@ -1098,6 +1098,13 @@ services:
   # React Frontend — ARCH-L1-001 ReactFrontend
   # ─────────────────────────────────────────────────────────
   frontend:
+    # #1436: any overlay that REPLACES this service's image (e.g. a locally
+    # built frontend carrying the re-vendored Bluepencil layer) MUST also set
+    # `image:` in the overlay. The base value below otherwise wins and Compose
+    # starts the GHCR image — declaring only `build:`/`ports:`/limits is NOT
+    # enough (same trap as INFRA-02 in docker-compose.override.yml). `ports:`
+    # additionally needs `!override`; see the note below and deploy/README.md
+    # "Overlays that replace the frontend image (#1436)".
     image: ghcr.io/popoboxxo/reqogniloom-frontend:${REQOGNILOOM_VERSION:-1.8.0-beta.21}
     deploy:
       resources:

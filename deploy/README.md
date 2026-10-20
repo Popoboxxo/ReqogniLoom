@@ -15,6 +15,77 @@ combination), run it from the **repository root**, and the stack comes up.
 | `docker-compose.override.yml` | Dev overlay: hot-reload (`uvicorn --reload` / Vite dev server), source bind-mounts, weaker defaults. Auto-applied by `make up` (see repo-root `Makefile`). | Local development against the full stack only — **not** compatible with `docker-compose.minimal.yml` (it re-adds `celery`/`celery-beat`, defeating the point of minimal). |
 | `docker-compose.override.example.yml` | Documentation only — a commented-out template for optional local services (e.g. Ollama). **Never read by Compose itself** (wrong filename on purpose); copy it to `docker-compose.override.yml` and uncomment what you need. | Reference when wiring up an optional local service. |
 
+## Overlays that replace the frontend image (#1436)
+
+The base `docker-compose.yml` pins the frontend as a **registry image**:
+
+```yaml
+frontend:
+  image: ghcr.io/popoboxxo/reqogniloom-frontend:${REQOGNILOOM_VERSION:-1.8.0-beta.21}
+```
+
+Compose merges `image:` from the base unless the overlay **also sets `image:`**. An overlay that only
+overrides `ports:`, `deploy:` limits or `build:` therefore still starts the GHCR image. That is the
+#1436 failure mode: a locally built frontend with the re-vendored Bluepencil 0.5.0 layer was built,
+the stack reported `healthy`, and `/bluepencil/latest/latest.json` still served the repo default
+`0.1.0-alpha.2` because the overlay never overrode `image:`.
+
+A correct overlay that replaces the frontend:
+
+```yaml
+services:
+  frontend:
+    image: reqogniloom-frontend:bluepencil-${REQOGNILOOM_VERSION}
+    pull_policy: build        # or `never` for a prebuilt local image
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: production
+      args:
+        VITE_BLUEPENCIL_ENABLED: "1"
+        VITE_BLUEPENCIL_ENVIRONMENT: dev
+    ports: !override
+      - "5173:8080"
+```
+
+Rules:
+
+- `image:` is **mandatory** (and must be a different name/tag from the base registry image) whenever
+  an overlay replaces the frontend.
+- `pull_policy: build` (with `build:`) makes `up` rebuild instead of reusing a stale local tag;
+  `pull_policy: never` is correct for a pre-built local image.
+- `ports:` still needs `!override` (Compose appends port lists); see INFRA-01 in
+  `docker-compose.override.yml`.
+- The dev overlay already follows this pattern
+  (`image: ${COMPOSE_PROJECT_NAME:-reqogniloom}-frontend:dev`).
+
+### `docker compose pull` with a locally built frontend
+
+A plain `docker compose pull` tries to pull every `image:` — including the local
+`reqogniloom-frontend:bluepencil-…` tag, which has no registry entry — and aborts with
+`pull access denied for reqogniloom-frontend`. Pull only the registry-backed services:
+
+```bash
+docker compose -f deploy/docker-compose.yml --project-directory . \
+  pull postgres redis backend celery celery-beat migrate postgres-backup
+```
+
+If the overlay declares a `build:` section for the frontend, `pull --ignore-buildable` skips it
+instead.
+
+### Guard
+
+After `up`, when `BLUEPENCIL_ENABLED=1`, verify that the running container is actually the locally
+built image and serves the re-vendored layer:
+
+```bash
+bash deploy/verify-frontend-image.sh
+```
+
+It fails when the container runs a registry image, or when `BLUEPENCIL_IMAGE` names a different or
+older layer. Run it as part of the runbook gate (see
+[`docs/DEPLOY_RUNBOOK.md`](../docs/DEPLOY_RUNBOOK.md) §7).
+
 ## No frontend restart after a backend recreate (#1054)
 
 The frontend's nginx resolves its upstreams **per request** through Docker's embedded DNS

@@ -379,6 +379,26 @@ deploy/verify-restore.sh
 
 ---
 
+## 7. Bluepencil frontend image (#1436)
+
+`BLUEPENCIL_ENABLED=1` arms a loader that lives in the **SPA bundle**, which is baked at image build
+time. A locally built frontend image (the re-vendored 0.5.0 layer) only runs if the overlay also
+overrides `image:` — the base file pins the GHCR image, and the stack otherwise looks healthy while
+serving the repo-default layer.
+
+```bash
+# PASS: locally built image, served layer matches the expected one
+BLUEPENCIL_ENABLED=1 bash deploy/verify-frontend-image.sh
+# FAIL: registry image, a missing Bluepencil layer, or a layer that differs
+#       from BLUEPENCIL_IMAGE
+```
+
+The guard is a no-op (`SKIP`) when `BLUEPENCIL_ENABLED` is not `1`. It reads the value from the shell
+or `.env`, resolves `<project>-frontend-1`, and compares the served
+`/usr/share/nginx/html/bluepencil/latest/latest.json` with the repo default and with
+`BLUEPENCIL_IMAGE` when that is set. The overlay contract is in
+`deploy/README.md` "Overlays that replace the frontend image (#1436)".
+
 ## Gate summary
 
 | # | Check | PASS signal |
@@ -391,6 +411,7 @@ deploy/verify-restore.sh
 | #1054 | login through the frontend proxy after a backend recreate, no frontend restart | 401, never 502 |
 | #1052 | `honcho-deriver` running and logging `Running main loop` | both lines |
 | #1153/#1247 | 3a–3d green; Honcho dialectic wire is **not** observable in-repo → escalate per §3.1 | documented escalation + #1153 reopened |
+| #1436 | `bash deploy/verify-frontend-image.sh` with `BLUEPENCIL_ENABLED=1` | `OK`, never a registry image |
 
 ## Related issues
 
@@ -402,4 +423,6 @@ ADR-012 (sidecar is the single backup source; the dead `scripts/backup.sh` /
 `scripts/restore.sh` were removed; §6 is the atomic restore contract),
 #1153 (**must be reopened** — the Honcho header seam is vendor-internal; §3.1),
 #1247 (memory.ask regression: the wire proof stops at the vendor boundary),
-#1249 (Honcho restart policies — all runtime services keep-alive).
+#1249 (Honcho restart policies — all runtime services keep-alive),
+#1436 (a frontend overlay that did not override `image:` silently started the
+GHCR image without the locally re-vendored Bluepencil layer; §7 is the guard).
