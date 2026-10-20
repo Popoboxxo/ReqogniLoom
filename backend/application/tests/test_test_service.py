@@ -724,17 +724,18 @@ class TestGetTestCase:
         svc = TestService()
         ctx = _make_ctx()
         mock_list = [_make_test_case(), _make_test_case()]
+        mock_filtered_qs = MagicMock()
+        mock_filtered_qs.exclude.return_value = mock_filtered_qs
+        # #1390: the list queryset is explicitly ordered before it reaches the
+        # paginator, so the mocked chain has to keep returning itself.
+        mock_filtered_qs.order_by.return_value = mock_list
 
         with (
             patch("application.test_service.ServiceBase._set_tenant_context"),
             patch(
                 "application.test_service.TestCase.objects.select_related",
                 return_value=MagicMock(
-                    filter=MagicMock(
-                        return_value=MagicMock(
-                            exclude=MagicMock(return_value=mock_list)
-                        )
-                    )
+                    filter=MagicMock(return_value=mock_filtered_qs)
                 ),
             ),
         ):

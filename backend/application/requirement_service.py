@@ -1235,7 +1235,11 @@ class RequirementService(ServiceBase):
                 | Q(description__icontains=search)
                 | Q(uid__icontains=search)
             )
-        return qs
+        # Deterministic order for pagination (#1390): Requirement declares no
+        # Meta.ordering, so an unordered queryset let LIMIT/OFFSET pages
+        # overlap or skip rows (DRF's UnorderedObjectListWarning). Oldest
+        # first by creation, with the primary key as a unique tie-breaker.
+        return qs.order_by("created_at", "id")
 
     # ---------- Semantic similarity (REQ-L2-VS-004) ----------
 

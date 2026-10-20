@@ -787,7 +787,10 @@ class TestGetRequirement:
         ctx = _make_ctx()
         mock_reqs = [_make_requirement(), _make_requirement()]
         mock_filtered_qs = MagicMock()
-        mock_filtered_qs.exclude.return_value = mock_reqs
+        mock_filtered_qs.exclude.return_value = mock_filtered_qs
+        # #1390: the list queryset is explicitly ordered before it reaches the
+        # paginator, so the mocked chain has to keep returning itself.
+        mock_filtered_qs.order_by.return_value = mock_reqs
 
         with (
             patch("application.requirement_service.ServiceBase._set_tenant_context"),

@@ -643,7 +643,11 @@ class TestService(ServiceBase):
                 | Q(description__icontains=search)
                 | Q(uid__icontains=search)
             )
-        return qs
+        # Deterministic order for pagination (#1390): TestCase declares no
+        # Meta.ordering, so an unordered queryset let LIMIT/OFFSET pages
+        # overlap or skip rows (DRF's UnorderedObjectListWarning). Oldest
+        # first by creation, with the primary key as a unique tie-breaker.
+        return qs.order_by("created_at", "id")
 
     # ---------- Coverage (REQ-L2-AS-025) ----------
 

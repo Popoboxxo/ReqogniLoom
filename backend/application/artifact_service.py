@@ -456,8 +456,14 @@ class ArtifactService(ServiceBase):
         REQ-066: keeps the ORM access inside the service layer.
         """
         self._set_tenant_context(ctx)
-        return Artifact.unscoped.filter(workspace_id=workspace_id).values(
-            "id", "parent_id", "artifact_type"
+        # Deterministic order for pagination (#1390): Artifact declares no
+        # Meta.ordering, so an unordered queryset let LIMIT/OFFSET pages
+        # overlap or skip rows (DRF's UnorderedObjectListWarning). Oldest
+        # first by creation, with the primary key as a unique tie-breaker.
+        return (
+            Artifact.unscoped.filter(workspace_id=workspace_id)
+            .values("id", "parent_id", "artifact_type")
+            .order_by("created_at", "id")
         )
 
     def resolve_artifact_titles(
