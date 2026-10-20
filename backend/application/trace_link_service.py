@@ -1335,8 +1335,16 @@ class TraceLinkService(ServiceBase):
 
         Raises:
             NotFoundError: ArchitectureElement not found.
+
+        Issue #1384: the coverage set is resolved in two bulk queries (the
+        workspace's requirements plus the ``allocated-to`` links pointing at
+        this element). The previous implementation called
+        ``traceability.services.query(direction="downstream")`` once per
+        requirement, and that engine issues two SQL statements per call
+        (``SET LOCAL statement_timeout`` + ``SELECT``) — 2N+3 queries for N
+        requirements. The numbers and the response shape are unchanged.
         """
-        from persistence.models import ArchitectureElement, Requirement
+        from persistence.models import ArchitectureElement, Requirement, TraceLink
         from traceability.types import LinkType
 
         self._set_tenant_context(ctx)
@@ -1349,7 +1357,23 @@ class TraceLinkService(ServiceBase):
         # Child requirements are those in the same workspace
         workspace_id = arch_el.artifact.workspace_id
         all_reqs = list(
-            Requirement.objects.filter(artifact__workspace_id=workspace_id)
+            Requirement.objects.filter(artifact__workspace_id=workspace_id).values(
+                "id", "title", "artifact_id"
+            )
+        )
+
+        # Issue #1384: one bulk lookup for the allocation edges instead of one
+        # graph query per requirement. ``source_id``/``target_id`` are Artifact
+        # ids, so the requirement's ``artifact_id`` is the membership key. The
+        # queryset is tenant-scoped by ``TenantManager`` (as the per-row raw SQL
+        # was), and the FK join to the target artifact the raw query performed
+        # is implicit here because ``target_id`` is a non-null FK.
+        arch_el_artifact_id = arch_el.artifact_id
+        allocated_source_ids = set(
+            TraceLink.objects.filter(
+                target_id=arch_el_artifact_id,
+                link_type=LinkType.ALLOCATED_TO,
+            ).values_list("source_id", flat=True)
         )
 
         # Count how many are allocated to this element
@@ -1357,27 +1381,12 @@ class TraceLinkService(ServiceBase):
         unallocated_list = []
 
         for req in all_reqs:
-            # Check if this requirement has an allocated-to link to this arch_el
-            from traceability.services import query
-
-            req_artifact_id = UUID(str(req.artifact_id))
-            links = list(query(artifact_id=req_artifact_id, direction="downstream"))
-            allocated_to_ids = [
-                link.entity_id
-                for link in links
-                if getattr(link, "link_type", None) == LinkType.ALLOCATED_TO
-            ]
-
-            # Check if any of the allocated-to targets match this arch_el's artifact
-            arch_el_artifact_id = UUID(str(arch_el.artifact_id))
-            is_allocated_to_this = arch_el_artifact_id in allocated_to_ids
-
-            if is_allocated_to_this:
+            if req["artifact_id"] in allocated_source_ids:
                 allocated_count += 1
             else:
                 unallocated_list.append({
-                    "id": req.id,
-                    "title": req.title,
+                    "id": req["id"],
+                    "title": req["title"],
                 })
 
         # Calculate coverage ratio
