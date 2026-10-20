@@ -30,6 +30,15 @@ Two properties are load-bearing here and were both broken before SA-02/SA-04:
     worker behind it. Dispatch therefore happens between two short
     transactions: claim, dispatch, write back.
 
+Both properties only hold when the *caller* has a transaction open. A
+producer that publishes without one (a service method missing its
+``@atomic_transaction`` wrapper) autocommits its outbox row: the event
+survives, but it is bound to no mutation. That condition is counted as
+``outbox_unbound_publish_count`` (see :mod:`application.event_bus_metrics`)
+and reported once per process plus a periodic summary — issue #1438 turned
+the previous per-occurrence warning into a 1879-line log flood during
+``manage.py seed_toothbrush``.
+
 Interface contracts implemented:
   IF-AS-INT-009..017  — incoming event publications from domain services
   IF-AS-INT-013,014   — outgoing async subscriber dispatch
@@ -41,6 +50,7 @@ Architecture:
 """
 from __future__ import annotations
 
+import atexit
 import contextlib
 import logging
 import threading
@@ -57,6 +67,7 @@ from django.db import connection, transaction
 from django.db.models import Q
 from django.utils import timezone
 
+from application import event_bus_metrics
 from application.models import DomainEventDLQ, DomainEventOutbox
 from persistence.middleware import clear_request_tenant, set_request_tenant
 from persistence.tenancy import TenantContext
@@ -236,6 +247,295 @@ class SubscriberRegistry:
 
 
 # ---------------------------------------------------------------------------
+# Unbound-publish accounting and dispatch nudging (issue #1438)
+# ---------------------------------------------------------------------------
+
+#: The warning the bus emitted for every publish outside a transaction. Kept
+#: verbatim so existing log greps keep working; the throttle below only
+#: decides HOW OFTEN it is emitted, never what it says.
+UNBOUND_PUBLISH_WARNING = (
+    "DomainEventBus: publish() called outside a transaction "
+    "(event %s type=%s) — the outbox row is not atomically bound "
+    "to any mutation"
+)
+
+#: Appended to the first warning of a process: the reader has to know that
+#: the flood that used to follow is now counted instead of logged.
+UNBOUND_PUBLISH_WARNING_SUFFIX = (
+    " — further occurrences are counted, not logged "
+    "(see the outbox_unbound_publish_count metric)"
+)
+
+#: Cache key of the short-lived flag that rate-limits the on-commit dispatch
+#: nudge. ``cache.add`` returns True only when the key did not exist yet, so
+#: at most one Celery message is enqueued per interval — a bulk producer (the
+#: ``seed_toothbrush`` run creates ~1900 links) cannot flood the broker.
+OUTBOX_DISPATCH_NUDGE_KEY = "outbox:dispatch:nudge"
+
+#: Default suppression window of the dispatch nudge, in seconds. Mirrors the
+#: beat interval of ``application.dispatch_outbox_events`` (5 s), so the nudge
+#: can never enqueue more messages than the beat task would have run anyway.
+DEFAULT_DISPATCH_NUDGE_INTERVAL_SECONDS = 5
+
+#: Default number of unbound publishes between two compact summary lines.
+DEFAULT_UNBOUND_WARN_SUMMARY_INTERVAL = 1000
+
+#: Guards the "exit summary already registered" flag.
+_exit_summary_lock = threading.Lock()
+_exit_summary_registered = False
+
+
+def _unbound_summary_interval() -> int:
+    """Return how many unbound publishes pass between two summary lines.
+
+    ``0`` disables the periodic summary entirely (only the first warning and
+    the process-exit summary remain).
+    """
+    try:
+        return max(
+            0,
+            int(
+                getattr(
+                    settings,
+                    "OUTBOX_UNBOUND_WARN_SUMMARY_INTERVAL",
+                    DEFAULT_UNBOUND_WARN_SUMMARY_INTERVAL,
+                )
+            ),
+        )
+    except Exception:  # noqa: BLE001 - a config problem must not break a publish
+        logger.debug(
+            "DomainEventBus: unreadable OUTBOX_UNBOUND_WARN_SUMMARY_INTERVAL",
+            exc_info=True,
+        )
+        return DEFAULT_UNBOUND_WARN_SUMMARY_INTERVAL
+
+
+def _format_type_breakdown(counts: dict[str, int]) -> str:
+    """Render ``{event_type: count}`` as ``Type=12, Other=3`` (busiest first)."""
+    if not counts:
+        return "none"
+    ordered = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+    return ", ".join(f"{name}={count}" for name, count in ordered)
+
+
+def _window_phrase(window_seconds: int) -> str:
+    """Render the decay window of the counter for a human-readable log line.
+
+    The count is bounded by the window, so "so far" alone would be wrong: it
+    would imply the number can only grow. With the decay disabled (window 0)
+    the count really is monotonic, and the phrase says so.
+    """
+    if window_seconds <= 0:
+        return "so far (no decay window configured)"
+    return f"in the last {window_seconds} s"
+
+
+def _report_unbound_publish(event: DomainEvent) -> None:
+    """Count — and, throttled, log — a publish that ran outside a transaction.
+
+    Issue #1438: the bus used to emit one WARNING per occurrence. The
+    ``seed_toothbrush`` run created 1879 links and therefore produced 1879
+    identical warning lines, which buried every other message in the log.
+    Now:
+
+    * the FIRST unbound publish of a process is reported in full (the original
+      wording, plus a pointer to the counter),
+    * every Nth publish (N = ``OUTBOX_UNBOUND_WARN_SUMMARY_INTERVAL``) logs a
+      compact summary with the running count and the per-type breakdown,
+    * everything in between is a DEBUG line, i.e. invisible at the default
+      log level.
+
+    The count is bounded by the counter's decay window
+    (``OUTBOX_UNBOUND_COUNTER_TTL``), so every summary carries the window
+    length next to the number: a reader must be able to tell how long a
+    non-zero count stays relevant.
+
+    The "first occurrence" decision is process-local (see
+    ``application.event_bus_metrics``): the shared cache counter must not
+    decide whether THIS process has already spoken.
+    """
+    total = event_bus_metrics.increment_unbound_publish(event.event_type)
+    window = event_bus_metrics.counter_window_seconds()
+
+    if event_bus_metrics.mark_unbound_publish_reported():
+        _register_exit_summary()
+        logger.warning(
+            UNBOUND_PUBLISH_WARNING + UNBOUND_PUBLISH_WARNING_SUFFIX,
+            event.event_id,
+            event.event_type,
+        )
+        return
+
+    interval = _unbound_summary_interval()
+    if interval > 0 and total and total % interval == 0:
+        logger.warning(
+            "DomainEventBus: publish() outside transaction: %d events %s "
+            "(types: %s) — outbox_unbound_publish_count=%d "
+            "outbox_unbound_publish_window_seconds=%d",
+            total,
+            _window_phrase(window),
+            _format_type_breakdown(
+                event_bus_metrics.unbound_publish_counts_by_type()
+            ),
+            total,
+            window,
+        )
+        return
+
+    logger.debug(
+        "DomainEventBus: publish() called outside a transaction "
+        "(event %s type=%s) — counted, not logged "
+        "(outbox_unbound_publish_count=%d "
+        "outbox_unbound_publish_window_seconds=%d)",
+        event.event_id,
+        event.event_type,
+        total,
+        window,
+    )
+
+
+def _register_exit_summary() -> None:
+    """Register the process-exit summary hook (once per process)."""
+    global _exit_summary_registered
+    with _exit_summary_lock:
+        if _exit_summary_registered:
+            return
+        _exit_summary_registered = True
+    try:
+        atexit.register(_log_unbound_publish_exit_summary)
+    except Exception:  # noqa: BLE001 - a missing summary must not break a publish
+        logger.debug(
+            "DomainEventBus: could not register the exit summary hook",
+            exc_info=True,
+        )
+
+
+def _log_unbound_publish_exit_summary() -> None:
+    """Log one summary line for the unbound publishes seen in this process.
+
+    Never raises: this runs during interpreter shutdown, where the logging
+    machinery itself may already be torn down.
+    """
+    try:
+        if not getattr(settings, "OUTBOX_UNBOUND_SUMMARY_ON_EXIT", True):
+            return
+        run_count = event_bus_metrics.unbound_publish_run_count()
+        if not run_count:
+            return
+        window = event_bus_metrics.counter_window_seconds()
+        logger.warning(
+            "DomainEventBus: publish() outside transaction: %d events %s "
+            "(types: %s) — outbox_unbound_publish_count=%d "
+            "outbox_unbound_publish_window_seconds=%d",
+            run_count,
+            _window_phrase(window),
+            _format_type_breakdown(
+                event_bus_metrics.unbound_publish_run_counts_by_type()
+            ),
+            event_bus_metrics.unbound_publish_count(),
+            window,
+        )
+    except Exception:  # noqa: BLE001 - shutdown must never raise
+        # Logging can fail during interpreter shutdown, so there is nothing
+        # left to report here.
+        return
+
+
+def _dispatch_nudge_interval_seconds() -> int:
+    """Return the suppression window of the dispatch nudge, in seconds.
+
+    Derived from the beat schedule of ``application.dispatch_outbox_events``
+    so the nudge can never enqueue more messages than the beat task would
+    have run in the same window.
+    """
+    try:
+        entry = (getattr(settings, "CELERY_BEAT_SCHEDULE", {}) or {}).get(
+            "dispatch-outbox-events"
+        ) or {}
+        schedule = entry.get("schedule")
+        total_seconds = getattr(schedule, "total_seconds", None)
+        if callable(total_seconds):
+            return max(1, int(total_seconds()))
+    except Exception:  # noqa: BLE001 - a config problem must not break a commit
+        logger.debug(
+            "DomainEventBus: unreadable outbox beat schedule", exc_info=True
+        )
+    return DEFAULT_DISPATCH_NUDGE_INTERVAL_SECONDS
+
+
+def _claim_dispatch_nudge() -> bool:
+    """Return True when this caller may enqueue a dispatch nudge.
+
+    Uses the cache as a short-lived flag: ``cache.add`` returns True only
+    when the key did not exist yet, so at most one Celery message is enqueued
+    per interval. Fails OPEN (a cache outage still triggers the nudge): the
+    nudge is a pure latency optimisation, the beat task drains the outbox
+    anyway, and in the realistic outage (Redis down) the Celery broker is down
+    as well — so the trigger is harmless and the commit is never blocked.
+    """
+    try:
+        return bool(
+            cache.add(
+                OUTBOX_DISPATCH_NUDGE_KEY,
+                1,
+                timeout=_dispatch_nudge_interval_seconds(),
+            )
+        )
+    except Exception:  # noqa: BLE001 - fail open, see docstring
+        logger.debug(
+            "DomainEventBus: dispatch-nudge rate limiter unavailable",
+            exc_info=True,
+        )
+        return True
+
+
+def _nudge_outbox_dispatch() -> None:
+    """Ask the worker to drain the outbox right after the commit.
+
+    Never raises: a nudge failure must not break the caller's commit.
+    """
+    try:
+        if not _claim_dispatch_nudge():
+            return
+        from application.tasks import dispatch_outbox_events
+
+        dispatch_outbox_events.delay()
+    except Exception:  # noqa: BLE001 - a nudge failure must never break a commit
+        logger.warning(
+            "DomainEventBus: on-commit outbox dispatch nudge failed — the beat "
+            "task drains the outbox within its interval anyway",
+            exc_info=True,
+        )
+
+
+def _schedule_dispatch_nudge() -> None:
+    """Register the on-commit dispatch nudge (setting-gated, default OFF).
+
+    The outbox INSERT stays inline in the mutation's transaction (SA-02) and
+    the subscriber dispatch already happens strictly AFTER commit and outside
+    any transaction (SA-04: the poller claims in one transaction and dispatches
+    outside it). The hook is therefore a pure LATENCY optimisation — the ≤5 s
+    beat interval becomes ~0 s — and NOT an atomicity mechanism.
+
+    It is off by default because enabling it costs one Celery message per
+    mutating transaction, and with ``CELERY_TASK_ALWAYS_EAGER=True`` (the test
+    settings) the poller would run inline inside the commit hook.
+    """
+    if not getattr(settings, "OUTBOX_DISPATCH_ON_COMMIT", False):
+        return
+    try:
+        if not transaction.get_connection().in_atomic_block:
+            return
+        # Registered AFTER the outbox INSERT (never instead of it).
+        transaction.on_commit(_nudge_outbox_dispatch)
+    except Exception:  # noqa: BLE001 - a nudge failure must never break a commit
+        logger.debug(
+            "DomainEventBus: could not register the on-commit dispatch nudge",
+            exc_info=True,
+        )
+
+
+# ---------------------------------------------------------------------------
 # DomainEventBus Singleton
 # ---------------------------------------------------------------------------
 
@@ -302,13 +602,14 @@ class DomainEventBus:
             # thing the old on_commit path did outside an atomic block (Django
             # runs the callback immediately there). It does mean this particular
             # event is not atomically bound to anything, so it is worth seeing.
-            logger.warning(
-                "DomainEventBus: publish() called outside a transaction "
-                "(event %s type=%s) — the outbox row is not atomically bound "
-                "to any mutation",
-                event.event_id,
-                event.event_type,
-            )
+            #
+            # Issue #1438: the observation used to be one WARNING per
+            # occurrence, which a bulk producer (the seed creates ~1900 links)
+            # turned into a log flood. The condition is now counted
+            # (outbox_unbound_publish_count, bounded by the counter's decay
+            # window) and only reported once per process plus a periodic
+            # summary.
+            _report_unbound_publish(event)
 
         # DomainEventOutbox is imported at module level to allow test mocking.
         #
@@ -335,6 +636,12 @@ class DomainEventBus:
             payload=event.to_dict(),
             tenant_id=tenant_id,
         )
+
+        # Registered only AFTER the inline INSERT above: the hook is a
+        # latency optimisation for the worker, never a replacement for the
+        # transactional outbox write (SA-02). Default OFF — see
+        # _schedule_dispatch_nudge.
+        _schedule_dispatch_nudge()
 
     def register_subscriber(
         self, event_type: str, subscriber: Callable[[DomainEvent], None]
@@ -897,7 +1204,12 @@ def poll_and_dispatch(batch_size: int = POLL_BATCH_SIZE) -> int:
 
 
 __all__ = [
+    "DEFAULT_DISPATCH_NUDGE_INTERVAL_SECONDS",
+    "DEFAULT_UNBOUND_WARN_SUMMARY_INTERVAL",
+    "OUTBOX_DISPATCH_NUDGE_KEY",
     "SUBSCRIBER_DEDUP_TTL_SECONDS",
+    "UNBOUND_PUBLISH_WARNING",
+    "UNBOUND_PUBLISH_WARNING_SUFFIX",
     "DomainEvent",
     "DomainEventBus",
     "SubscriberRegistry",

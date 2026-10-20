@@ -984,6 +984,59 @@ CELERY_BEAT_SCHEDULE = {
 CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
 
 # ---------------------------------------------------------------------------
+# Outbox — transaction binding and unbound-publish reporting (issue #1438)
+# ---------------------------------------------------------------------------
+# The outbox INSERT is inline in the mutation's transaction (SA-02), so the
+# event and the mutation share one fate. That only holds when the *caller*
+# has a transaction open: a service method without an ``@atomic_transaction``
+# wrapper autocommits its outbox row, and the event is bound to no mutation.
+# The bus counts that condition as ``outbox_unbound_publish_count`` and
+# reports it once per process plus a periodic summary.
+
+# Register an on_commit hook that nudges the outbox poller right after a
+# mutating transaction commits. DEFAULT OFF: it is a pure LATENCY optimisation
+# (the ≤5 s beat interval becomes ~0 s), NOT an atomicity mechanism — the
+# INSERT stays inline (SA-02) and the subscriber dispatch already happens
+# strictly after commit (SA-04). Enabling it costs one Celery message per
+# mutating transaction, and with CELERY_TASK_ALWAYS_EAGER=True (the test
+# settings) the poller would run inline inside the commit hook.
+OUTBOX_DISPATCH_ON_COMMIT = False
+
+# Number of unbound publishes between two compact summary lines. The first
+# unbound publish of a process is always reported in full; every Nth one
+# afterwards adds a summary line with the running count and the per-event-type
+# breakdown. 0 disables the periodic summary (the first warning and the
+# process-exit summary remain).
+OUTBOX_UNBOUND_WARN_SUMMARY_INTERVAL = 1000
+
+# Log ONE summary line for the unbound publishes seen in a process when the
+# process exits. Without it a long-running worker would only ever show the
+# first warning — the count would live exclusively in the counter and in the
+# readiness payload.
+OUTBOX_UNBOUND_SUMMARY_ON_EXIT = True
+
+# Decay window of the unbound-publish counter, in seconds (default 24 h).
+#
+# The window is FIXED and starts at the FIRST increment: the counter key is
+# created with this TTL when the first unbound publish of the window arrives
+# and expires again TTL seconds later, so the count is forgotten even when no
+# further publish happens.
+#
+# WHY a window at all: a monotonic counter can never clear, so a SINGLE
+# pre-fix publish would keep ``/health/ready`` at ``status: "warning"``
+# FOREVER. The signal would decay into alert fatigue, an operator could no
+# longer tell "broken right now" from "broken once, weeks ago", and a
+# dev/staging Redis that saw one pre-fix seed would stay permanently
+# unhealthy. With a window a RESOLVED defect clears the readiness signal by
+# itself — no manual reset, no stale alert.
+#
+# 0 disables the decay: the counter is then monotonic forever (the pre-window
+# behaviour). The readiness advisory publishes the effective window as
+# ``outbox_unbound_publish_window_seconds`` so the number can always be read
+# in context.
+OUTBOX_UNBOUND_COUNTER_TTL = 86400
+
+# ---------------------------------------------------------------------------
 # Task Time Limits (P0 Fix: SYSTEMAUDIT_2026-08-27)
 # ---------------------------------------------------------------------------
 # Prevent hung LLM tasks from blocking the worker indefinitely. Read from

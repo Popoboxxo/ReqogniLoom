@@ -17,10 +17,11 @@ COMP-RA-006 HealthEndpoint — implements the split contract of ADR-010:
   (``deploy/docker-compose.yml``) goes red on a mandatory dependency outage.
 
 Advisory signals (``llm_provider_env``, ``embedding_dimensions``,
-``csrf_cookie_secure_matches_auth``, workflow-definition warnings) never affect
-the status code: they appear only in ``warnings``/``advisory`` and escalate an
-otherwise-healthy response to ``status:"warning"`` (still HTTP 200). They are
-never a ``checks`` entry and never produce ``degraded``/503.
+``csrf_cookie_secure_matches_auth``, ``outbox_unbound_publishes``,
+workflow-definition warnings) never affect the status code: they appear only
+in ``warnings``/``advisory`` and escalate an otherwise-healthy response to
+``status:"warning"`` (still HTTP 200). They are never a ``checks`` entry and
+never produce ``degraded``/503.
 
 The mandatory probes are reused from :mod:`admin_ops.health_rest`
 (ADR-010 §7); the admin dashboard ``GET /api/v1/admin/health/`` stays the
@@ -373,6 +374,65 @@ def _collect_advisory(
                 "and restart the process. The value is treated as a "
                 "credential and is never echoed here. Reported by "
                 "`manage.py check` as llm_adapter.W003."
+            )
+
+    # Outbox transaction-binding counter (#1438): a domain event published
+    # outside a transaction is autocommitted on its own, i.e. it is not bound
+    # to the mutation that produced it (SA-02). The bus counts every such
+    # publish as ``outbox_unbound_publish_count``; a non-zero value means
+    # some producer is missing its transaction wrapper. Advisory (HTTP 200):
+    # the events are still delivered — they are merely not atomic with their
+    # mutation — so this escalates ``ok`` to ``warning`` and never causes
+    # degraded/503. The count is always published, so an operator can read it
+    # even while it is zero.
+    #
+    # The count is bounded by a DECAY WINDOW (the counter key expires after
+    # ``OUTBOX_UNBOUND_COUNTER_TTL`` seconds), so a resolved defect clears
+    # this signal by itself — a monotonic counter could never clear and would
+    # turn one historic occurrence into a permanent "warning". The window is
+    # published alongside the count so the number is never read out of
+    # context; "0" means the decay is disabled and the count is monotonic.
+    try:
+        from application.event_bus_metrics import (
+            counter_window_seconds,
+            unbound_publish_count,
+        )
+
+        unbound_publishes = unbound_publish_count()
+        unbound_window = counter_window_seconds()
+    except Exception as exc:  # noqa: BLE001 - health check must never crash
+        logger.warning(
+            "Health check: outbox-unbound-publish counter failed - %s", exc
+        )
+        warnings.append("outbox-unbound-publish counter unavailable")
+    else:
+        advisory["outbox_unbound_publishes"] = str(unbound_publishes)
+        advisory["outbox_unbound_publish_window_seconds"] = str(unbound_window)
+        if unbound_publishes:
+            logger.warning(
+                "Health check: %d domain event(s) were published outside a "
+                "transaction within the last %d s — their outbox rows are "
+                "not atomically bound to a mutation",
+                unbound_publishes,
+                unbound_window,
+            )
+            warnings.append(
+                f"{unbound_publishes} domain event(s) were published outside a "
+                "transaction within the last "
+                f"{unbound_window} s (metric outbox_unbound_publish_count, "
+                "window outbox_unbound_publish_window_seconds) — the outbox "
+                "row of such an event is not atomically bound to the mutation "
+                "that produced it, so a rollback of the mutation cannot take "
+                "the event with it. The count is bounded by the window and "
+                "therefore clears by itself once the defect is resolved and "
+                "the window expires; it is NOT a running total that can only "
+                "grow. The count is reported as `application.event_bus` "
+                "warnings: the first unbound publish of a process is logged in "
+                "full, every OUTBOX_UNBOUND_WARN_SUMMARY_INTERVAL-th one adds "
+                "a compact summary, and the per-event-type breakdown is "
+                "available from the counter. The producers to look at are the "
+                "service methods that emit a domain event without an "
+                "`@atomic_transaction` wrapper."
             )
 
     # CSRF-cookie security check: AUTH_COOKIE_SECURE must match

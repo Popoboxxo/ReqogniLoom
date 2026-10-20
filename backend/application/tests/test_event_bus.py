@@ -279,7 +279,19 @@ class TestPublish:
                 bus.publish(event)
 
     def test_publish_outside_transaction_warns(self):
-        """Publishing with no atomic block open is a contract violation."""
+        """Publishing with no atomic block open is a contract violation.
+
+        The warning is THROTTLED (issue #1438): the first unbound publish of a
+        process is reported in full, every later one is only counted (the
+        counter is asserted in ``test_outbox_transaction_binding_1438.py``).
+        The process-local throttle state is therefore reset first, so this
+        test does not depend on whether an earlier test already reported one
+        — and the situation is still asserted to be reported, not swallowed.
+        """
+        from application import event_bus_metrics
+
+        event_bus_metrics.reset_unbound_publish_state()
+
         bus = DomainEventBus()
         event = DomainEvent(
             event_type="RequirementCreated",
@@ -301,6 +313,10 @@ class TestPublish:
             bus.publish(event)
 
         mock_logger.warning.assert_called_once()
+        # The situation is reported, not silently dropped.
+        reported = mock_logger.warning.call_args.args[0]
+        assert "publish() called outside a transaction" in reported
+        assert "not atomically bound to any mutation" in reported
 
 
 @pytest.mark.django_db(transaction=True)
