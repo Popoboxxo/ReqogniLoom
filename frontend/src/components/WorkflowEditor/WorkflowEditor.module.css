@@ -1217,10 +1217,14 @@
   background: var(--color-card-active-bg);
 }
 
+/* GitHub #1394: a wrapping `<label>` around a checkbox, so it owns the 24x24
+   WCAG 2.2 SC 2.5.8 floor. The glyph keeps its native size. */
 .checkboxRow {
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
+  min-height: var(--space-6);
+  min-width: var(--space-6);
   font-size: var(--font-size-sm);
   color: var(--color-text);
   cursor: pointer;

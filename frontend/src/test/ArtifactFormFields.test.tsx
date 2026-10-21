@@ -189,6 +189,24 @@ describe("ArtifactForm field library", () => {
     expect(onChange).toHaveBeenCalledWith(true);
   });
 
+  // B2 (#1394): the 24x24 floor in `.checkboxRow` only enlarges a clickable box
+  // if the checkbox is wrapped in a real `<label>`. `CriteriaList` had this
+  // DOM-level assertion; `BooleanToggle` was only CSS-guarded, so a `<span>`
+  // wrapper would have silently kept the 13px glyph as the click target.
+  it("wraps the boolean checkbox in a real <label> (B2 #1394)", () => {
+    render(
+      <BooleanToggle
+        attribute={spec({ type: "boolean", name: "suspect" })}
+        value={false}
+        onChange={vi.fn()}
+        disabled={false}
+        testId="artifact-field-suspect"
+      />
+    );
+    const checkbox = screen.getByTestId("artifact-field-suspect");
+    expect(checkbox.closest("label")).not.toBeNull();
+  });
+
   it("keeps an unknown enum value instead of silently coercing to option 0", () => {
     // #274: a <select> shows option[0] for an unknown value, so Save would
     // downgrade a working configuration. The unknown value stays selectable.
@@ -242,7 +260,12 @@ describe("ArtifactForm field library", () => {
   // canonical case is `acceptance_criteria`/`stakeholder`). The group must
   // announce the *effective* flag — FieldShell/EnumSelect already do; the old
   // manual `attribute.required` on this group did not.
-  it("announces a gate-required multi-enum as required", () => {
+  //
+  // H2 (#1393 review): `aria-required` on `role="group"` is NOT supported by
+  // ARIA 1.2 — AT ignores it, so the previous assertion was pinning an
+  // announcement nobody hears. The flag now rides in the group's accessible
+  // NAME (a visually-hidden "required" word referenced by `aria-labelledby`).
+  it("announces a gate-required multi-enum as required through its accessible name", () => {
     render(
       <MultiEnum
         attribute={spec({
@@ -250,6 +273,7 @@ describe("ArtifactForm field library", () => {
           name: "stakeholder",
           required: false,
           is_required: true,
+          label: { de: "Stakeholder", en: "Stakeholder" },
           options: [
             { value: "customer", label_de: "Kunde", label_en: "Customer" },
           ],
@@ -260,10 +284,25 @@ describe("ArtifactForm field library", () => {
         testId="artifact-field-stakeholder"
       />
     );
-    expect(screen.getByTestId("artifact-field-stakeholder")).toHaveAttribute(
-      "aria-required",
-      "true"
+    const group = screen.getByTestId("artifact-field-stakeholder");
+    // The unsupported attribute is gone…
+    expect(group).not.toHaveAttribute("aria-required");
+    // …and both label + required word are part of the name.
+    expect(group).toHaveAttribute(
+      "aria-labelledby",
+      "artifact-field-stakeholder-label artifact-field-stakeholder-required"
     );
+    const requiredWord = document.getElementById("artifact-field-stakeholder-required");
+    expect(requiredWord).toHaveTextContent("Pflichtfeld");
+    expect(document.getElementById("artifact-field-stakeholder-label")).toHaveTextContent(
+      "Stakeholder"
+    );
+
+    // SC 1.3.1/4.1.2 (A11Y minor): sibling, not group content — inside the
+    // container the word was announced twice (once as name, once as content).
+    expect(group.contains(requiredWord)).toBe(false);
+    // The computed accessible name still carries it (de).
+    expect(group).toHaveAccessibleName("Stakeholder Pflichtfeld");
   });
 
   it("keeps a definition-optional, non-gated multi-enum announced as not required", () => {
@@ -281,10 +320,11 @@ describe("ArtifactForm field library", () => {
         testId="artifact-field-tags"
       />
     );
-    expect(screen.getByTestId("artifact-field-tags")).toHaveAttribute(
-      "aria-required",
-      "false"
-    );
+    const group = screen.getByTestId("artifact-field-tags");
+    expect(group).not.toHaveAttribute("aria-required");
+    expect(group).toHaveAttribute("aria-labelledby", "artifact-field-tags-label");
+    // No required word for an optional field.
+    expect(document.getElementById("artifact-field-tags-required")).toBeNull();
   });
 
   it("links a multi-enum group to its validation error via aria-describedby", () => {

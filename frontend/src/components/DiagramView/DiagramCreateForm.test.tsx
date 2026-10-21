@@ -11,17 +11,28 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { resolveLocaleKey } from "../../test/i18n-test-helpers";
 
+// The labels are asserted against the REAL German locale (the app's default):
+// #1393 removed the English fallback literals from
+// `DiagramCreateForm.tsx`, so a key-returning mock would have nothing to
+// resolve and would only prove that a `t()` call exists. Resolving the
+// resource proves the user-visible copy comes from i18n.
 vi.mock("react-i18next", () => {
   const t = (
     key: string,
     fallbackOrOptions?: string | Record<string, unknown>,
-  ): string => (typeof fallbackOrOptions === "string" ? fallbackOrOptions : key);
+  ): string =>
+    resolveLocaleKey(key) ??
+    (typeof fallbackOrOptions === "string" ? fallbackOrOptions : key);
   return { useTranslation: () => ({ t }) };
 });
 
 vi.mock("../../context/WorkspaceContext", () => ({
   useWorkspace: () => ({
+    activeWorkspace: { id: "ws-001", name: "Test Workspace" },
+  }),
+  useOptionalWorkspace: () => ({
     activeWorkspace: { id: "ws-001", name: "Test Workspace" },
   }),
 }));
@@ -76,7 +87,7 @@ describe("DiagramCreateForm", () => {
     expect(options).toContain("plantuml");
   });
 
-  it("labels canvas_stroke as 'Freehand Sketch'", () => {
+  it("labels canvas_stroke from the locale resource", () => {
     render(
       <DiagramCreateForm onCreated={vi.fn()} onCancel={vi.fn()} />,
     );
@@ -86,10 +97,10 @@ describe("DiagramCreateForm", () => {
       (opt) => opt.value === "canvas_stroke",
     );
 
-    expect(canvasStrokeOption?.textContent).toBe("Freehand Sketch");
+    expect(canvasStrokeOption?.textContent).toBe("Freihand-Skizze");
   });
 
-  it("labels node_graph as 'Structured Graph'", () => {
+  it("labels node_graph from the locale resource", () => {
     render(
       <DiagramCreateForm onCreated={vi.fn()} onCancel={vi.fn()} />,
     );
@@ -99,7 +110,23 @@ describe("DiagramCreateForm", () => {
       (opt) => opt.value === "node_graph",
     );
 
-    expect(nodeGraphOption?.textContent).toBe("Structured Graph");
+    expect(nodeGraphOption?.textContent).toBe("Strukturierter Graph");
+  });
+
+  it("labels the payload-format select as the source FORMAT, not the generic source", () => {
+    // #1393: both controls used to be labelled `diagrams.source` ("Quelle"),
+    // so the format picker and the content textarea had the same accessible
+    // name. They are two different fields and now resolve two different keys.
+    render(
+      <DiagramCreateForm onCreated={vi.fn()} onCancel={vi.fn()} />,
+    );
+
+    expect(screen.getByLabelText("Quellformat")).toBe(
+      screen.getByTestId("diagram-format-select")
+    );
+    expect(screen.getByLabelText("Quelle")).toBe(
+      screen.getByTestId("diagram-source-textarea")
+    );
   });
 
   it("produces correct default payload when node_graph is selected", async () => {

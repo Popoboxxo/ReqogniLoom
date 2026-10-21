@@ -71,6 +71,11 @@ vi.mock("../context/WorkspaceContext", () => ({
     workspaces: [{ id: "ws-001", name: "WS" }],
     isLoadingWorkspace: false,
   }),
+  useOptionalWorkspace: () => ({
+    activeWorkspace: { id: "ws-001", name: "WS" },
+    workspaces: [{ id: "ws-001", name: "WS" }],
+    isLoadingWorkspace: false,
+  }),
   WorkspaceProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 

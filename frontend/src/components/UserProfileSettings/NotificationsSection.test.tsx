@@ -63,6 +63,13 @@ vi.mock("../../context/WorkspaceContext", () => ({
     resetFeatureOverride: vi.fn(),
     isFeatureOverridden: () => false,
   }),
+  useOptionalWorkspace: () => ({
+    activeWorkspace: null,
+    isFeatureVisible: () => false,
+    setFeatureVisible: vi.fn(),
+    resetFeatureOverride: vi.fn(),
+    isFeatureOverridden: () => false,
+  }),
 }));
 
 vi.mock("../../context/AuthContext", () => ({

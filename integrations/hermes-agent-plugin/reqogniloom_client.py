@@ -146,12 +146,25 @@ class ReqogniLoomError(RuntimeError):
     "fix your input" from "the backend is degraded, retry". ``retryable`` marks
     the class the server itself calls retryable (LLM timeouts/unavailability,
     rate limits, 5xx).
+
+    ``status`` is the HTTP status the server answered with, and ``None`` for a
+    pure transport failure. It is what separates "403 — this key may not do
+    that" from "500 — the backend is broken" in a UI that would otherwise only
+    have the message to go on (issue #1443).
     """
 
-    def __init__(self, message: str, *, code: Any = None, retryable: bool = False) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: Any = None,
+        retryable: bool = False,
+        status: int | None = None,
+    ) -> None:
         super().__init__(message)
         self.code = code
         self.retryable = retryable
+        self.status = status
 
 
 #: JSON-RPC codes whose own message says "retry later" (LLM_TIMEOUT,
@@ -341,16 +354,22 @@ def _raise_for_error_payload(payload: Any, *, http_status: int | None = None) ->
         or any(c in _RETRYABLE_CODES for c in codes if not isinstance(c, bool))
     )
     if http_status == _PERMISSION_STATUS_CODE or any(_is_permission_code(c) for c in codes):
-        raise _PermissionError(normalize_error(payload) or "permission denied", code=code)
+        raise _PermissionError(
+            normalize_error(payload) or "permission denied", code=code, status=http_status
+        )
     if http_status == _AUTH_STATUS_CODE or any(_is_auth_code(c) for c in codes):
-        raise _AuthError(normalize_error(payload) or "authentication failed", code=code)
+        raise _AuthError(
+            normalize_error(payload) or "authentication failed", code=code, status=http_status
+        )
     try:
         raise_for_error(payload)
     except ReqogniLoomError as exc:
         # Annotate rather than re-wrap: the human-readable message stays exactly
-        # as before, the machine-readable code and the retry hint are added.
+        # as before, the machine-readable code, the retry hint and the HTTP
+        # status are added.
         exc.code = exc.code or code
         exc.retryable = retryable or exc.retryable
+        exc.status = exc.status or http_status
         raise
 
 
@@ -599,10 +618,10 @@ class ReqogniLoomClient:
             snippet = body_text.strip()[:200] or exc.reason
             message = f"HTTP {exc.code}: {snippet}"
             if exc.code == _PERMISSION_STATUS_CODE:
-                raise _PermissionError(message) from exc
+                raise _PermissionError(message, status=exc.code) from exc
             if exc.code == _AUTH_STATUS_CODE:
-                raise _AuthError(message) from exc
-            raise ReqogniLoomError(message) from exc
+                raise _AuthError(message, status=exc.code) from exc
+            raise ReqogniLoomError(message, status=exc.code) from exc
         except urllib.error.URLError as exc:
             raise ReqogniLoomError(
                 f"could not reach {url}: {exc.reason}{self._unconfigured_target_hint()}"

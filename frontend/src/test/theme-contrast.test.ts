@@ -370,6 +370,19 @@ function measure(
   return Math.round(contrastRatio(fg, bg) * 100) / 100;
 }
 
+/**
+ * First declaration block of the given selector in a CSS-module source.
+ *
+ * Shared by the call-site ratchets below (#1280's primary-as-text sites and
+ * #1379's review-row title): each reads the component's REAL module CSS, so a
+ * rule that stops declaring the token fails here instead of only at runtime.
+ */
+function rulesFor(css: string, selector: string): string {
+  const match = new RegExp(`${selector.replace(/\./g, "\\.")}\\s*\\{([^}]*)\\}`).exec(css);
+  if (match === null) throw new Error(`no rule for ${selector}`);
+  return match[1];
+}
+
 describe("WCAG AA contrast per theme (theming phase 3, Task 3, #568)", () => {
   it("resolves a var() chain down to the literal primitive value", () => {
     // Sanity check on the resolver itself: a 3-link chain, an alpha
@@ -484,13 +497,6 @@ describe("primary-as-text readability ratchet (#1280)", () => {
     }
   });
 
-  /** First declaration block of the given selector in a CSS-module source. */
-  function rulesFor(css: string, selector: string): string {
-    const match = new RegExp(`${selector.replace(/\./g, "\\.")}\\s*\\{([^}]*)\\}`).exec(css);
-    if (match === null) throw new Error(`no rule for ${selector}`);
-    return match[1];
-  }
-
   it("paints the dashboard KPI numbers with the readable primary token", () => {
     const css = readFileSync(
       join(resolve(__dirname, ".."), "components", "DashboardViews", "WorkspaceCard.module.css"),
@@ -509,6 +515,93 @@ describe("primary-as-text readability ratchet (#1280)", () => {
     const rule = rulesFor(css, ".modifyButton");
     expect(rule).toMatch(/color:\s*var\(--color-primary-text\)/);
     expect(rule).not.toMatch(/color:\s*var\(--color-primary\)\s*;/);
+  });
+});
+
+/* ==========================================================================
+ * #1379 — review-row title readability ratchet
+ *
+ * The row is a `<button>`, and form controls do NOT inherit `color` from
+ * `body` (the UA stylesheet gives them `color: buttontext`). Before the fix,
+ * neither `.reviewItem` (the button) nor `.reviewItemTitle` (the `<div>`
+ * inside it) declared a colour, so the title inherited the UA default
+ * `rgb(0, 0, 0)` while every other text node on /reviews inherited
+ * `--color-text` from `body`. On the review row's card background that is
+ * 1.18:1 in `dark` and 1.34:1 in `nordic` — far below AA.
+ *
+ * `.reviewItem` gained a `color: var(--color-text)` declaration in a later
+ * refactor, which masks the bug by accident: the title still declares no
+ * colour of its own, so any future change to the button's class list (exactly
+ * what happened here) silently drops the title back to UA black. This block
+ * pins the declaration on the title itself and holds the resulting colour to
+ * AA on BOTH row backgrounds (selected/unselected), for every theme.
+ * ========================================================================== */
+describe("review-row title readability ratchet (#1379)", () => {
+  const css = readFileSync(
+    join(resolve(__dirname, ".."), "components", "Reviews", "ReviewsView.module.css"),
+    "utf-8",
+  );
+
+  /** The colour token a rule references, or a loud failure. */
+  function colorTokenOf(selector: string): string {
+    const rule = rulesFor(css, selector);
+    const match = /color:\s*var\((--[a-zA-Z0-9-]+)\)/.exec(rule);
+    if (match === null) {
+      throw new Error(
+        `${selector} declares no colour token — a missing declaration falls back to the UA ` +
+          `button colour (rgb(0,0,0)) and re-opens #1379`,
+      );
+    }
+    return match[1];
+  }
+
+  /** The background token a rule references, or a loud failure. */
+  function backgroundTokenOf(selector: string): string {
+    const rule = rulesFor(css, selector);
+    const match = /background:\s*var\((--[a-zA-Z0-9-]+)\)/.exec(rule);
+    if (match === null) throw new Error(`${selector} declares no background token`);
+    return match[1];
+  }
+
+  it("reproduces the defect: an undeclared title colour is UA black and fails AA in dark/nordic", () => {
+    // Exactly the ratio the issue reports for /reviews (1.18:1). Pinned so
+    // the reproduction stays executable, not just prose in a comment: if a
+    // palette change makes UA black readable on the dark surface, the
+    // rationale below the assertion needs revisiting.
+    expect(measure("dark", "--palette-black", "--color-surface")).toBe(1.18);
+    for (const themeId of ["dark", "nordic"] as const) {
+      expect(
+        measure(themeId, "--palette-black", "--color-surface"),
+        `theme '${themeId}': UA black on --color-surface is AA-safe, so the #1379 ` +
+          `guard logic (why the title must declare its own colour) is stale`,
+      ).toBeLessThan(AA_MIN_RATIO);
+    }
+  });
+
+  it("paints the review-row title with the theme text token", () => {
+    expect(colorTokenOf(".reviewItemTitle")).toBe("--color-text");
+  });
+
+  it("keeps the review-row title at or above the AA floor on both row backgrounds", () => {
+    const fgToken = colorTokenOf(".reviewItemTitle");
+    // The two backgrounds the row itself paints: unselected = page surface,
+    // selected = the translucent accent tint composited over that surface.
+    // Read from the module instead of hardcoding the token names, so the
+    // measured pair cannot drift away from what renders.
+    const backgrounds = [
+      backgroundTokenOf(".reviewItemUnselected"),
+      backgroundTokenOf(".reviewItemSelected"),
+    ];
+    for (const themeId of THEME_IDS) {
+      for (const bgToken of backgrounds) {
+        const ratio = measure(themeId, fgToken, bgToken);
+        expect(
+          ratio,
+          `theme '${themeId}': ${fgToken} on ${bgToken} measures ${ratio}:1, below the ` +
+            `WCAG AA minimum of ${AA_MIN_RATIO}:1 (review-row title, #1379)`,
+        ).toBeGreaterThanOrEqual(AA_MIN_RATIO);
+      }
+    }
   });
 });
 

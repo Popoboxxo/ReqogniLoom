@@ -8,10 +8,14 @@
   gap: var(--space-3);
 }
 
+/* GitHub #1394: wrapping label of a checkbox — 24x24 WCAG 2.2 SC 2.5.8 floor
+   on the CLICKABLE element, native glyph size untouched. */
 .checkboxLabel {
   display: flex;
   align-items: center;
   gap: var(--space-2);
+  min-height: var(--space-6);
+  min-width: var(--space-6);
   font-size: var(--font-size-sm);
   color: var(--color-text-muted);
 }
@@ -98,7 +102,13 @@
   border-radius: var(--radius-sm);
 }
 
+/* GitHub #1394: wrapping label of a radio — 24x24 floor on the CLICKABLE
+   element, `flex-start` so a wrapped label keeps the glyph on the first line. */
 .radioLabel {
-  display: block;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  min-height: var(--space-6);
+  min-width: var(--space-6);
   padding-block: var(--space-1);
 }

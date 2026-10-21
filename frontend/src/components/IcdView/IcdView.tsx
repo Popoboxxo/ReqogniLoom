@@ -35,6 +35,9 @@ import type { ArchitectureElement } from "../../types";
 import { SplitView } from "../SplitView/SplitView";
 import { PageHeader } from "../shared/PageHeader";
 import { Dialog } from "../shared/Dialog";
+import { FormField } from "../shared/FormField";
+import { fieldErrorsFromException } from "../shared/ArtifactForm/field-errors";
+import { useFieldContract } from "../../hooks/useFieldContract";
 import { IcdDetailPane } from "./IcdDetailPane";
 import { IcdList } from "./IcdList";
 import { useIcdData } from "./useIcdData";
@@ -70,6 +73,13 @@ export default function IcdView(): JSX.Element {
   const [showNewVersion, setShowNewVersion] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  // GitHub #1392: per-field half of a rejected create (`details[].field`), so
+  // the message appears under the control instead of only in the banner.
+  const [formFieldErrors, setFormFieldErrors] = useState<Record<string, string[]>>({});
+  // GitHub #1393/#1392: required + `maxLength` from the workspace's own
+  // configuration (`Icd.name` is required, 500 characters; the two endpoint
+  // selections are required too).
+  const { field } = useFieldContract('Icd', { enabled: showCreate });
 
   // Create form fields
   const [formName, setFormName] = useState("");
@@ -118,6 +128,7 @@ export default function IcdView(): JSX.Element {
     setFormPost("");
     setFormInv("");
     setFormError(null);
+    setFormFieldErrors({});
   };
 
   const handleSelectIcd = (icd: Icd): void => {
@@ -130,6 +141,7 @@ export default function IcdView(): JSX.Element {
     setShowCreate(true);
     setShowNewVersion(false);
     setFormError(null);
+    setFormFieldErrors({});
   }, []);
 
   // F-08 (Dialog migration): Escape / backdrop click / × must discard the
@@ -153,23 +165,28 @@ export default function IcdView(): JSX.Element {
   const handleCreate = useCallback(async (): Promise<void> => {
     if (!formName.trim()) {
       setFormError(t("icds.nameRequired"));
+      setFormFieldErrors({ name: [t("icds.nameRequired")] });
       return;
     }
     if (!formSource) {
       setFormError(t("icds.sourceRequired"));
+      setFormFieldErrors({ source_element_id: [t("icds.sourceRequired")] });
       return;
     }
     if (!formTarget) {
       setFormError(t("icds.targetRequired"));
+      setFormFieldErrors({ target_element_id: [t("icds.targetRequired")] });
       return;
     }
     if (formSource === formTarget) {
       setFormError(t("traceability.sameEndpoints"));
+      setFormFieldErrors({ target_element_id: [t("traceability.sameEndpoints")] });
       return;
     }
 
     setIsSaving(true);
     setFormError(null);
+    setFormFieldErrors({});
     const payload: Omit<CreateIcdPayload, "workspace_id"> = {
       name: formName.trim(),
       source_element_id: formSource,
@@ -187,7 +204,9 @@ export default function IcdView(): JSX.Element {
       resetCreateForm();
       navigate(`/icds/${created.id}`);
     } catch (err) {
-      setFormError(extractErrorMessage(err, t("icds.createFailed")));
+      const message = extractErrorMessage(err, t("icds.createFailed"));
+      setFormError(message);
+      setFormFieldErrors(fieldErrorsFromException(err, message));
     } finally {
       setIsSaving(false);
     }
@@ -348,65 +367,87 @@ export default function IcdView(): JSX.Element {
               </p>
             )}
 
-            <label htmlFor="icd-name" className={styles.fieldLabel}>
-              {t("icds.nameLabel")}
-            </label>
-            <input
-              id="icd-name"
-              data-testid="icd-name-input"
-              ref={icdNameInputRef}
-              type="text"
-              value={formName}
-              onChange={(e) => setFormName(e.target.value)}
-              placeholder={t("icds.namePlaceholder")}
-              className={styles.fieldInput}
-            />
-
-            <label htmlFor="icd-source" className={styles.fieldLabel}>
-              {t("icds.source")}
-            </label>
-            <select
-              id="icd-source"
-              data-testid="icd-source-select"
-              value={formSource}
-              onChange={(e) => setFormSource(e.target.value)}
-              disabled={isLoadingArch && architectureElements.length === 0}
-              className={styles.fieldInput}
+            {/* #1393: all three are required on the server (the view returns
+                `400 … "name, workspace_id, source_element_id,
+                target_element_id are required"`); #1392 adds the name's own
+                500-character bound. */}
+            <FormField
+              htmlFor="icd-name"
+              label={t("icds.nameLabel")}
+              required={field("name").required}
+              error={formFieldErrors.name?.join(", ")}
+              labelClassName={styles.fieldLabel}
             >
-              <option value="">
-                {isLoadingArch && architectureElements.length === 0
-                  ? t("loading")
-                  : t("icds.selectSource")}
-              </option>
-              {architectureElements.map((el) => (
-                <option key={el.id} value={el.id}>
-                  {el.title} ({el.element_type})
-                </option>
-              ))}
-            </select>
+              <input
+                id="icd-name"
+                data-testid="icd-name-input"
+                ref={icdNameInputRef}
+                type="text"
+                value={formName}
+                onChange={(e) => setFormName(e.target.value)}
+                placeholder={t("icds.namePlaceholder")}
+                className={styles.fieldInput}
+                {...field("name").controlProps}
+              />
+            </FormField>
 
-            <label htmlFor="icd-target" className={styles.fieldLabel}>
-              {t("icds.target")}
-            </label>
-            <select
-              id="icd-target"
-              data-testid="icd-target-select"
-              value={formTarget}
-              onChange={(e) => setFormTarget(e.target.value)}
-              disabled={isLoadingArch && architectureElements.length === 0}
-              className={styles.fieldInput}
+            <FormField
+              htmlFor="icd-source"
+              label={t("icds.source")}
+              required={field("source_element_id").required}
+              error={formFieldErrors.source_element_id?.join(", ")}
+              labelClassName={styles.fieldLabel}
             >
-              <option value="">
-                {isLoadingArch && architectureElements.length === 0
-                  ? t("loading")
-                  : t("icds.selectTarget")}
-              </option>
-              {architectureElements.map((el) => (
-                <option key={el.id} value={el.id}>
-                  {el.title} ({el.element_type})
+              <select
+                id="icd-source"
+                data-testid="icd-source-select"
+                value={formSource}
+                onChange={(e) => setFormSource(e.target.value)}
+                disabled={isLoadingArch && architectureElements.length === 0}
+                className={styles.fieldInput}
+                {...field("source_element_id").selectProps}
+              >
+                <option value="">
+                  {isLoadingArch && architectureElements.length === 0
+                    ? t("loading")
+                    : t("icds.selectSource")}
                 </option>
-              ))}
-            </select>
+                {architectureElements.map((el) => (
+                  <option key={el.id} value={el.id}>
+                    {el.title} ({el.element_type})
+                  </option>
+                ))}
+              </select>
+            </FormField>
+
+            <FormField
+              htmlFor="icd-target"
+              label={t("icds.target")}
+              required={field("target_element_id").required}
+              error={formFieldErrors.target_element_id?.join(", ")}
+              labelClassName={styles.fieldLabel}
+            >
+              <select
+                id="icd-target"
+                data-testid="icd-target-select"
+                value={formTarget}
+                onChange={(e) => setFormTarget(e.target.value)}
+                disabled={isLoadingArch && architectureElements.length === 0}
+                className={styles.fieldInput}
+                {...field("target_element_id").selectProps}
+              >
+                <option value="">
+                  {isLoadingArch && architectureElements.length === 0
+                    ? t("loading")
+                    : t("icds.selectTarget")}
+                </option>
+                {architectureElements.map((el) => (
+                  <option key={el.id} value={el.id}>
+                    {el.title} ({el.element_type})
+                  </option>
+                ))}
+              </select>
+            </FormField>
 
             <label htmlFor="icd-direction" className={styles.fieldLabel}>
               {t("icds.direction")}

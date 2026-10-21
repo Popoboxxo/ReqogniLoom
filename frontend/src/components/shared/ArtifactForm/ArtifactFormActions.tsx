@@ -14,6 +14,7 @@ import { useTranslation } from "react-i18next";
 import type { WorkflowAllowedTransition } from "../../../api/workflow-transitions";
 import { SAVE_SHORTCUT_ARIA } from "../../../hooks/useSaveShortcut";
 import { ConfirmDialog } from "../ConfirmDialog";
+import { RequiredMark } from "../FormField";
 import styles from "./ArtifactForm.module.css";
 
 export interface ArtifactFormActionsProps {
@@ -71,15 +72,27 @@ export function ArtifactFormActions({
     <>
       {changeReasonNeeded ? (
         <label className={styles.field}>
-          <span className={`${styles.label} ${styles.required}`}>
+          {/* #1393: the marker is a DOM node (`RequiredMark`), not the CSS
+              `::after` this label used to rely on — a pseudo-element is
+              invisible to `textContent` and to any measurement tool, which is
+              exactly how "no visible marker" survived the earlier review. */}
+          <span className={styles.label}>
             {t("artifactForm.changeReason")}
+            <RequiredMark />
           </span>
+          {/* #1393: the server refuses both the save and the DELETE without a
+              reason once the workspace policy is mandatory (`400 …
+              "change_reason is required by preset policy."`), so the control
+              itself has to SAY it is required. `required` + `aria-required`;
+              the enclosing form is `noValidate`, so the #977 inline-error flow
+              still owns the actual refusal. */}
           <input
             className={`${styles.control} ${changeReasonInvalid ? styles.controlInvalid : ""}`}
             data-testid="artifact-form-change-reason"
             type="text"
             value={changeReason}
             ref={changeReasonRef}
+            required
             aria-required="true"
             aria-invalid={changeReasonInvalid || undefined}
             aria-describedby={changeReasonInvalid ? changeReasonErrorId : undefined}
@@ -154,13 +167,18 @@ export function ArtifactFormActions({
         >
           {deprecateReasonNeeded ? (
             <label className={styles.field}>
-              <span className={`${styles.label} ${styles.required}`}>
+              <span className={styles.label}>
                 {t("artifactForm.deprecateReason")}
+                <RequiredMark />
               </span>
               <textarea
                 className={styles.control}
                 data-testid="artifact-form-deprecate-reason"
                 value={deprecateReason}
+                // Same contract as the change-reason input above: the marker
+                // alone is not machine-readable, so `required` + `aria-required`
+                // both carry the flag.
+                required
                 aria-required="true"
                 onChange={(event) => onChangeDeprecateReason(event.target.value)}
               />

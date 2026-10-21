@@ -537,6 +537,41 @@ class ErrorShapeTests(unittest.TestCase):
         ):
             _client().list_workspaces()
 
+    def test_http_status_is_carried_on_the_exception(self) -> None:
+        # Issue #1443: the dashboard could only show the message, so a 403 (the
+        # key may not list workspaces) read like a 500 (the backend is broken).
+        # The status is additive; message, code and retryable are unchanged.
+        error = _http_error(
+            403,
+            json.dumps(
+                {"error": {"code": "PERMISSION_DENIED", "message": "RBAC denied: no active role permits 'read'"}}
+            ).encode("utf-8"),
+        )
+        router = _McpRouter(errors={"workspace.list": error})
+        with patch("urllib.request.urlopen", router), self.assertRaises(
+            client_mod._PermissionError
+        ) as ctx:
+            _client().list_workspaces()
+        self.assertEqual(ctx.exception.status, 403)
+        self.assertEqual(ctx.exception.code, "PERMISSION_DENIED")
+        self.assertEqual(ctx.exception.retryable, False)
+
+        server_error = _http_error(500, b"")
+        router = _McpRouter(errors={"workspace.list": server_error})
+        with patch("urllib.request.urlopen", router), self.assertRaises(
+            client_mod.ReqogniLoomError
+        ) as ctx:
+            _client().list_workspaces()
+        self.assertEqual(ctx.exception.status, 500)
+
+    def test_transport_failure_has_no_http_status(self) -> None:
+        # Only a real HTTP answer sets the status; a refused connection must not
+        # invent one, or the UI would report an HTTP refusal that never happened.
+        with patch("urllib.request.urlopen", side_effect=urllib.error.URLError("connection refused")):
+            with self.assertRaises(client_mod.ReqogniLoomError) as ctx:
+                _client().list_workspaces()
+        self.assertIsNone(ctx.exception.status)
+
     def test_nested_error_code_string_permission_denied_is_permission_error(self) -> None:
         body = json.dumps(
             {"jsonrpc": "2.0", "id": 1, "error": {"error_code": "PERMISSION_DENIED", "message": "denied"}}

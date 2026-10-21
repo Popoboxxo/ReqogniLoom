@@ -31,6 +31,7 @@ vi.mock("react-i18next", () => ({
 
 vi.mock("../context/WorkspaceContext", () => ({
   useWorkspace: () => ({ activeWorkspace: { id: "ws-1", preset: "standard" } }),
+  useOptionalWorkspace: () => ({ activeWorkspace: { id: "ws-1", preset: "standard" } }),
 }));
 
 vi.mock("../api/actors", () => ({

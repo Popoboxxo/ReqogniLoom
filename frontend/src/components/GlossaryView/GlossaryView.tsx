@@ -44,6 +44,7 @@ import {
 import { useHasRole } from "../../hooks/useHasRole";
 import { WorkflowStatusEditor } from "../WorkflowStatusEditor";
 import { extractErrorMessage } from "../../api/client";
+import { fieldErrorsFromException } from "../shared/ArtifactForm/field-errors";
 import styles from "./GlossaryView.module.css";
 import {
   GLOSSARY_LIFECYCLE_STATUSES,
@@ -68,6 +69,8 @@ export default function GlossaryView(): JSX.Element {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
+  // GitHub #1392: per-field half of a rejected save (`details[].field`).
+  const [formFieldErrors, setFormFieldErrors] = useState<Record<string, string[]>>({});
   const [rowError, setRowError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [filterMode, setFilterMode] = useState<FilterMode>("workspace");
@@ -222,6 +225,7 @@ export default function GlossaryView(): JSX.Element {
     if (!activeWorkspace) return;
 
     setFormError(null);
+    setFormFieldErrors({});
     try {
       const payload = {
         workspace_id: activeWorkspace.id,
@@ -246,7 +250,9 @@ export default function GlossaryView(): JSX.Element {
       console.error("Failed to save term", err);
       // Keep the form open on failure (UI standards §12.11) — the user's
       // input must not be lost and the form must not silently close.
-      setFormError(extractErrorMessage(err) || t("glossary.saveFailed"));
+      const message = extractErrorMessage(err) || t("glossary.saveFailed");
+      setFormError(message);
+      setFormFieldErrors(fieldErrorsFromException(err, message));
     }
   };
 
@@ -465,6 +471,7 @@ export default function GlossaryView(): JSX.Element {
           termInputRef={termInputRef}
           onSubmit={handleSubmit}
           onFieldChange={updateFormField}
+          fieldErrors={formFieldErrors}
           onClose={closeForm}
         />
       </Dialog>
@@ -479,6 +486,7 @@ export default function GlossaryView(): JSX.Element {
       termInputRef={termInputRef}
       onSubmit={handleSubmit}
       onFieldChange={updateFormField}
+      fieldErrors={formFieldErrors}
       onClose={closeForm}
     >
       {/* REQ-173: WorkflowEngine-driven status editor. Only for existing

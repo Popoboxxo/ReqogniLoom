@@ -158,6 +158,14 @@ export function ArtifactForm({
       className={styles.form}
       data-testid="artifact-form"
       data-version={values.version == null ? undefined : String(values.version)}
+      // Issue #1393: `required` now marks the change-reason input (the server
+      // rejects a save without it under a mandatory policy) so the field is
+      // programmatically required, not merely aria-required. Native constraint
+      // validation is deliberately OFF: the form's own gate runs first and it
+      // is what sets `aria-invalid`, renders the inline message and moves focus
+      // (#977). Without `noValidate` the browser bubble would pre-empt that
+      // flow and the user would lose the in-place explanation.
+      noValidate
       onSubmit={(event) => {
         event.preventDefault();
         void handleSave();

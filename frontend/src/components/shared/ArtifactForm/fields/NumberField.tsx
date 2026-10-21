@@ -1,7 +1,7 @@
 import { useTranslation } from "react-i18next";
 
 import styles from "../ArtifactForm.module.css";
-import { FieldShell, ariaProps, type FieldProps } from "./FieldShell";
+import { FieldShell, ariaProps, isEffectiveRequired, type FieldProps } from "./FieldShell";
 
 export function NumberField({
   attribute,
@@ -24,6 +24,7 @@ export function NumberField({
         data-testid={testId}
         className={`${styles.control} ${errors?.length ? styles.controlInvalid : ""}`}
         type="number"
+        required={isEffectiveRequired(attribute)}
         value={value ?? ""}
         disabled={disabled}
         min={attribute.validation.min}

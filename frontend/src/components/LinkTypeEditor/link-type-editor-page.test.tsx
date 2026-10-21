@@ -19,6 +19,7 @@ vi.mock("../../api/link-types", () => ({
 
 vi.mock("../../context/WorkspaceContext", () => ({
   useWorkspace: () => ({ activeWorkspace: { id: "ws-1" } }),
+  useOptionalWorkspace: () => ({ activeWorkspace: { id: "ws-1" } }),
 }));
 
 const definition = {

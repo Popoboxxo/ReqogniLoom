@@ -50,6 +50,7 @@ export function DisplayField({
       errors={errors}
       testId={testId}
       associateLabel={false}
+      readOnly
     >
       <RevealValue
         value={formatted.text}

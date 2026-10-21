@@ -112,6 +112,7 @@ vi.mock("../components/shared/ArtifactInspector", () => ({
 // Provide a fixed active workspace instead of the real fetch-driven provider.
 vi.mock("../context/WorkspaceContext", () => ({
   useWorkspace: () => ({ activeWorkspace: { id: "ws-001", name: "WS" }, isLoadingWorkspace: false }),
+  useOptionalWorkspace: () => ({ activeWorkspace: { id: "ws-001", name: "WS" }, isLoadingWorkspace: false }),
   WorkspaceProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 

@@ -14,6 +14,8 @@ import { useArtifactList } from '../../hooks/useArtifactList';
 import { ListToolbar } from '../shared/ListToolbar';
 import { EmptyState } from '../shared/EmptyState';
 import { Dialog } from '../shared/Dialog';
+import { FormField } from '../shared/FormField';
+import { useFieldContract } from '../../hooks/useFieldContract';
 import { SAVE_SHORTCUT_ARIA } from '../../hooks/useSaveShortcut';
 import { getStatusBadgeStyle } from '../../utils/statusBadge';
 import { WorkspaceTree } from '../shared/WorkspaceTree';
@@ -47,6 +49,8 @@ interface NeedListProps {
   setNewCategory?: (val: string) => void;
   onSubmitCreate?: () => void;
   createError?: string | null;
+  /** GitHub #1392: `details[].field` messages from the rejected create. */
+  createFieldErrors?: Record<string, string[]>;
   /** #1100: a create is in flight — the submit control reflects it. */
   isCreating?: boolean;
   onCreateClick?: () => void;
@@ -136,6 +140,7 @@ export function NeedList({
   setNewCategory,
   onSubmitCreate,
   createError,
+  createFieldErrors,
   isCreating,
   onCreateClick,
   createFormRef,
@@ -144,6 +149,12 @@ export function NeedList({
   workspaceId,
 }: NeedListProps): JSX.Element {
   const { t } = useTranslation();
+  // GitHub #1393/#1392: required + `maxLength` from the workspace's own
+  // configuration — `StakeholderNeed.title` is required and 500 characters.
+  const { field } = useFieldContract('StakeholderNeed', {
+    enabled: !!showCreateForm,
+  });
+  const creationErrors = createFieldErrors ?? {};
   const navigate = useNavigate();
   const [listSearch, setListSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
@@ -249,24 +260,34 @@ export function NeedList({
           <form
             data-testid="need-create-form"
             ref={createFormRef}
+            // Native `required` on the controls (via `field(...).controlProps`)
+            // carries the `:required` semantics; `noValidate` keeps the browser
+            // bubble from pre-empting the app's own field-level error flow.
+            noValidate
             onSubmit={(e) => {
               e.preventDefault();
               onSubmitCreate();
             }}
           >
-            <label htmlFor="need-new-title" className={fieldHints.createLabel}>
-              {t('editor.title', 'Title')}
-            </label>
-            <input
-              id="need-new-title"
-              type="text"
-              data-testid="need-new-title-input"
-              ref={newTitleInputRef}
-              value={newTitle}
-              onChange={(e) => setNewTitle(e.target.value)}
-              placeholder={t('editor.newNeedTitle')}
-              className={fieldHints.createInput}
-            />
+            <FormField
+              htmlFor="need-new-title"
+              label={t('editor.title', 'Title')}
+              required={field('title').required}
+              error={creationErrors.title?.join(', ')}
+              labelClassName={fieldHints.createLabel}
+            >
+              <input
+                id="need-new-title"
+                type="text"
+                data-testid="need-new-title-input"
+                ref={newTitleInputRef}
+                value={newTitle}
+                onChange={(e) => setNewTitle(e.target.value)}
+                placeholder={t('editor.newNeedTitle')}
+                className={fieldHints.createInput}
+                {...field('title').controlProps}
+              />
+            </FormField>
 
             {/* BUG-11: description/category — ordinary
                 stakeholderNeedApi.create() fields the backend already accepts,
@@ -276,39 +297,63 @@ export function NeedList({
                 {/* F-05 (code review, 2026-08-19): every other one of the 6
                     create-form fields added this round pairs label/input via
                     htmlFor/id — this one was the odd one out. */}
-                <label htmlFor="need-new-description" className={fieldHints.createLabel}>
-                  {t('editor.description', 'Description')}
-                </label>
-                <textarea
-                  id="need-new-description"
-                  data-testid="need-new-description-input"
-                  value={newDescription || ''}
-                  onChange={(e) => setNewDescription(e.target.value)}
-                  rows={3}
-                  className={fieldHints.createInput}
-                />
+                <FormField
+                  htmlFor="need-new-description"
+                  label={t('editor.description', 'Description')}
+                  required={field('description').required}
+                  error={creationErrors.description?.join(', ')}
+                  labelClassName={fieldHints.createLabel}
+                >
+                  <textarea
+                    id="need-new-description"
+                    data-testid="need-new-description-input"
+                    value={newDescription || ''}
+                    onChange={(e) => setNewDescription(e.target.value)}
+                    rows={3}
+                    className={fieldHints.createInput}
+                    {...field('description').controlProps}
+                  />
+                </FormField>
               </>
             )}
             {setNewCategory && (
               <>
-                <label htmlFor="need-new-category" className={fieldHints.createLabel}>
-                  {t('editor.category', 'Category')}
-                </label>
-                <input
-                  id="need-new-category"
-                  type="text"
-                  data-testid="need-new-category-input"
-                  value={newCategory || ''}
-                  onChange={(e) => setNewCategory(e.target.value)}
-                  className={fieldHints.createInput}
-                />
+                <FormField
+                  htmlFor="need-new-category"
+                  label={t('editor.category', 'Category')}
+                  required={field('category').required}
+                  error={creationErrors.category?.join(', ')}
+                  labelClassName={fieldHints.createLabel}
+                >
+                  <input
+                    id="need-new-category"
+                    type="text"
+                    data-testid="need-new-category-input"
+                    value={newCategory || ''}
+                    onChange={(e) => setNewCategory(e.target.value)}
+                    className={fieldHints.createInput}
+                    // N1 (#1392 regression): a text input must spread
+                    // `controlProps` — `selectProps` deliberately omits
+                    // `maxLength` (a `<select>` cannot carry one), so this
+                    // field silently lost `StakeholderNeed.category`'s
+                    // 64-character server cap. Sibling title/description above
+                    // already use `controlProps`.
+                    {...field('category').controlProps}
+                  />
+                </FormField>
               </>
             )}
 
             {/* BUG-08: the shared field-error styling (`fieldHints.fieldError`)
                 instead of a per-component inline literal. */}
             {createError && (
-              <p role="alert" data-testid="need-create-error" className={fieldHints.fieldError}>
+              <p
+                role="alert"
+                data-testid="need-create-error"
+                // `.fieldErrorBlock` restores the separation the UA <p> margin
+                // used to give in this non-gap form (see FieldHints.module.css).
+                className={`${fieldHints.fieldError} ${fieldHints.fieldErrorBlock}`}
+              >
                 {createError}
               </p>
             )}

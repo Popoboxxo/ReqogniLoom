@@ -24,6 +24,7 @@ vi.mock("../../../api/attribute-definitions", () => ({
 
 vi.mock("../../../context/WorkspaceContext", () => ({
   useWorkspace: vi.fn(),
+  useOptionalWorkspace: vi.fn(),
 }));
 
 import { useWorkspace } from "../../../context/WorkspaceContext";

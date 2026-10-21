@@ -63,6 +63,7 @@ vi.mock("../../api/interviews", () => ({
 
 vi.mock("../../context/WorkspaceContext", () => ({
   useWorkspace: () => ({ activeWorkspace: { id: "ws-001", name: "WS" }, isLoadingWorkspace: false }),
+  useOptionalWorkspace: () => ({ activeWorkspace: { id: "ws-001", name: "WS" }, isLoadingWorkspace: false }),
 }));
 
 // Isolated from these two panes' own coverage (InterviewChatPane.test.tsx /

@@ -104,10 +104,16 @@
   color: var(--color-text);
 }
 
+/* GitHub #1394: the label is the real click target of the checkbox, so it
+   carries the 24x24 WCAG 2.2 SC 2.5.8 floor (the 13px glyph stays native —
+   never size the input). Two of these sit in every field row
+   (Visibility/Required) on /settings and /system-settings. */
 .checkboxLabel {
   display: inline-flex;
   align-items: center;
   gap: 2px;
+  min-height: var(--space-6);
+  min-width: var(--space-6);
   font-size: var(--font-size-xs);
   color: var(--color-text-muted);
 }

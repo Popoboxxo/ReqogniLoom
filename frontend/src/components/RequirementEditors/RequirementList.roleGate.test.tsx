@@ -17,6 +17,7 @@ import type { Requirement } from "../../types";
 vi.mock("../../context/AuthContext");
 vi.mock("../../context/WorkspaceContext", () => ({
   useWorkspace: () => ({ activeWorkspace: { id: "ws-a" } }),
+  useOptionalWorkspace: () => ({ activeWorkspace: { id: "ws-a" } }),
 }));
 // Avoids a "NO_I18NEXT_INSTANCE" warning: this focused unit test never
 // exercises a translated string, so a real i18next instance is unnecessary

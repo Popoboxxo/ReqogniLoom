@@ -123,13 +123,25 @@ def _server_key(client: ReqogniLoomClient, server_id: Optional[str] = None) -> s
 
 
 def _error(exc: Exception) -> Dict[str, Any]:
-    """One failure shape for the whole surface: message + optional code/retryable."""
+    """One failure shape for the whole surface: message + optional code/retryable.
+
+    ``status`` is the HTTP status the *ReqogniLoom backend* answered with, when
+    the failure came from a request at all (403 for a key that lacks scope, 5xx
+    for a degraded backend, ``None`` for a registry/validation refusal here).
+    It is additive — ``error``/``code``/``retryable`` keep their meaning, so an
+    existing consumer is unaffected — and it is what lets the tab say "permission
+    denied (HTTP 403)" instead of only echoing a message that used to be dropped
+    as an empty list (issue #1443).
+    """
     payload: Dict[str, Any] = {"error": str(exc)}
     code = getattr(exc, "code", None)
     if code is not None:
         payload["code"] = code
     if getattr(exc, "retryable", False):
         payload["retryable"] = True
+    status = getattr(exc, "status", None)
+    if isinstance(status, int) and not isinstance(status, bool):
+        payload["status"] = status
     return payload
 
 

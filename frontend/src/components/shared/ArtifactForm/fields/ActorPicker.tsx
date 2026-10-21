@@ -8,7 +8,7 @@ import { extractErrorMessage } from "../../../../api/client";
 import { useWorkspace } from "../../../../context/WorkspaceContext";
 import formStyles from "../ArtifactForm.module.css";
 import styles from "./ActorPicker.module.css";
-import { FieldShell, ariaProps, type FieldProps } from "./FieldShell";
+import { FieldShell, ariaProps, isEffectiveRequired, type FieldProps } from "./FieldShell";
 
 /** The `actor` attribute's value: one entry, or the `multiple` wrapper. */
 export type ActorFieldValue = ActorValue | { multiple: true; items: ActorValue[] } | null;
@@ -308,6 +308,7 @@ export function ActorPicker({
               : t("artifactForm.actorSearchPlaceholder")
           }
           value={query}
+          required={isEffectiveRequired(attribute)}
           onChange={(event) => {
             setQuery(event.target.value);
             setOpen(true);

@@ -160,7 +160,15 @@ const CATALOGUE = [
   },
 ];
 
+// Routes whose answer a later scenario pins. The tab talks to several endpoints
+// at once, so a scenario that needs one of them to fail has to be able to replace
+// exactly that answer without disturbing the rest.
+const overrides = new Map();
+
 function canned(pathname) {
+  for (const [prefix, payload] of overrides) {
+    if (pathname.startsWith(prefix)) return payload;
+  }
   if (pathname.endsWith("/servers")) {
     return {
       registry_version: 1,
@@ -346,6 +354,44 @@ async function drive(handler) {
   return render();
 }
 
+// A fresh mount: clearing hook state makes the page run its load effect again,
+// which is what a scenario that changes an endpoint's answer needs. The existing
+// scenarios deliberately drive one continuous session and must not call this.
+async function freshMount() {
+  hookState.clear();
+  rerenderRequested = false;
+  cleanups.forEach((cleanup) => cleanup());
+  cleanups = [];
+  render();
+  // The load effect chains several requests; render after each drain so the tree
+  // is read from the settled state, not from the first intermediate payload.
+  for (let round = 0; round < 6; round += 1) {
+    await settle();
+    render();
+  }
+  return render();
+}
+
+// Every text node anywhere in a rendered tree. flatten() keeps only elements (a
+// text node is not an element), so the strings are read off the element children.
+function textOf(nodes) {
+  const parts = [];
+  const walk = (node) => {
+    if (node === null || node === undefined || node === false || node === true) return;
+    if (Array.isArray(node)) {
+      node.forEach(walk);
+      return;
+    }
+    if (typeof node !== "object") {
+      parts.push(String(node));
+      return;
+    }
+    if (node.props && node.props.children !== undefined) walk(node.props.children);
+  };
+  walk(nodes);
+  return parts.join(" ");
+}
+
 // The tab issues reads through the same /write/preview route, so the arguments of
 // a specific action are found by tool name and by the calls made after it started.
 function previewArgumentsFor(tool, fromIndex) {
@@ -477,6 +523,60 @@ if (fs.existsSync(manifestPath)) {
 } else {
   failures.push("docs/agent-templates/tool-manifest.json missing — the tool-name guard did not run");
 }
+
+// --------------------------------------------------------------------------
+// scenario 5: an error envelope is not an empty workspace list (issue #1443)
+// --------------------------------------------------------------------------
+
+// The server answers a refused list with HTTP 200 and {"error": …, "code": …,
+// "status": 403} — there is no "workspaces" key. Reading that as an empty list is
+// what rendered "none visible": a permission verdict the tab had never received.
+overrides.set("/workspaces", {
+  error: "PERMISSION_DENIED: RBAC denied: no active role permits 'read'",
+  code: "PERMISSION_DENIED",
+  status: 403,
+});
+const deniedTree = await freshMount();
+const deniedText = textOf(deniedTree);
+if (process.env.REQLO_UI_DEBUG) {
+  // The operator-visible text of the workspace bar, which is what the issue is
+  // about — printed on demand so a failure can be read without a browser.
+  console.log("workspace bar (403):", deniedText.slice(0, 600));
+}
+check(
+  !deniedText.includes("none visible"),
+  `a refused workspace list must not render "none visible" (saw: ${deniedText})`
+);
+check(
+  deniedText.includes("RBAC denied") && deniedText.includes("HTTP 403"),
+  `the refusal must surface the server's message and the HTTP status (saw: ${deniedText})`
+);
+check(
+  /agent key/i.test(deniedText),
+  `a PERMISSION_DENIED must name the missing read permission of the configured key (saw: ${deniedText})`
+);
+check(
+  findByTestId(deniedTree, "reqlo-workspace-select").length === 1,
+  "the workspace select should still render — the control stays, only the false verdict goes"
+);
+
+// The other half of the same defect: a list that really is empty must say so, and
+// must not repeat the permission wording — the two states need to be told apart.
+overrides.set("/workspaces", { workspaces: [] });
+const emptyTree = await freshMount();
+const emptyText = textOf(emptyTree);
+if (process.env.REQLO_UI_DEBUG) {
+  console.log("workspace bar (empty):", emptyText.slice(0, 300));
+}
+check(
+  /no workspaces/i.test(emptyText),
+  `an empty list must say the list is empty (saw: ${emptyText})`
+);
+check(
+  !/RBAC|HTTP 403|agent key/i.test(emptyText),
+  `an empty list must not claim a permission problem (saw: ${emptyText})`
+);
+overrides.clear();
 
 // --------------------------------------------------------------------------
 

@@ -43,6 +43,11 @@ vi.mock("../../context/WorkspaceContext", () => ({
     reloadWorkspaces: vi.fn(),
     isFeatureVisible: () => true,
   }),
+  useOptionalWorkspace: () => ({
+    activeWorkspace,
+    reloadWorkspaces: vi.fn(),
+    isFeatureVisible: () => true,
+  }),
 }));
 
 vi.mock("../../context/AuthContext", () => ({

@@ -275,6 +275,38 @@
     return "";
   }
 
+  // A list endpoint reports a failure as HTTP 200 + {"error": …} — there is no
+  // "workspaces" key on that body. Reading it with `|| []` is how a 403 became
+  // "none visible" (issue #1443): the tab showed a permission verdict nobody had
+  // passed. Returns the text to show, or "" when the payload really is a list.
+  function workspaceFailure(payload) {
+    if (!payload || !payload.error) return "";
+    var text = String(payload.error);
+    var code = payload.code === null || payload.code === undefined ? "" : String(payload.code);
+    // The client's own message already reads "CODE: message", so the code is only
+    // appended when it is not in there yet — never printed twice.
+    var reason = code && text.indexOf(code) === -1 ? " [" + code + "]" : "";
+    var status =
+      typeof payload.status === "number" && text.indexOf("HTTP " + payload.status) === -1
+        ? " (HTTP " + payload.status + ")"
+        : "";
+    var hint = "";
+    if (isPermissionCode(payload.code)) {
+      hint =
+        " The configured API key has no 'read' permission on this server — an agent key is bound to its own workspace and cannot list workspaces. Check the key's role and scopes in ReqogniLoom.";
+    }
+    return text + reason + status + hint;
+  }
+
+  // The backend emits PERMISSION_DENIED as the string name (REST) or as the
+  // JSON-RPC code -32001 (MCP); both mean the same refusal.
+  function isPermissionCode(code) {
+    if (code === null || code === undefined) return false;
+    if (typeof code === "number") return code === -32001;
+    var text = String(code).trim().toUpperCase();
+    return text === "PERMISSION_DENIED" || text === "-32001";
+  }
+
   function findTool(catalogue, name) {
     if (!catalogue || !catalogue.tools) return null;
     for (var index = 0; index < catalogue.tools.length; index += 1) {
@@ -1734,6 +1766,11 @@
     var [registry, setRegistry] = hooks.useState(null);
     var [workspaces, setWorkspaces] = hooks.useState([]);
     var [workspaceId, setWorkspaceId] = hooks.useState("");
+    // Why the workspace list could not be read, as its own state: the shared
+    // message banner is also written by the server/catalogue loads, which run in
+    // parallel and would otherwise overwrite the one failure that blocks
+    // everything downstream (issue #1443).
+    var [workspaceError, setWorkspaceError] = hooks.useState("");
     var [stats, setStats] = hooks.useState(null);
     var [interviews, setInterviews] = hooks.useState([]);
     var [version, setVersion] = hooks.useState(null);
@@ -1805,6 +1842,9 @@
     function loadAll() {
       setBusy(true);
       setMessage(null);
+      // A retry must not keep showing the previous attempt's verdict while the
+      // new one is in flight; the failure branch sets it again if it recurs.
+      setWorkspaceError("");
       return loadServers()
         .then(function (registryPayload) {
           return apiGet("/version").then(function (versionResult) {
@@ -1819,6 +1859,13 @@
         })
         .then(function (loaded) {
           var workspaceResult = loaded.workspaces;
+          // Error envelope first: `|| []` turned a refusal into "no results".
+          var loadFailure = workspaceFailure(workspaceResult);
+          if (loadFailure) {
+            setWorkspaces([]);
+            setWorkspaceError(loadFailure);
+            return null;
+          }
           var list = (workspaceResult && workspaceResult.workspaces) || [];
           setWorkspaces(list);
           var preferred = "";
@@ -2032,6 +2079,7 @@
       setVersion(null);
       setWorkspaceId("");
       selectedWorkspaceId = "";
+      setWorkspaceError("");
       clearPending();
       apiPost("/active", { server_id: id })
         .then(function (payload) {
@@ -2041,7 +2089,11 @@
         .then(function (results) {
           var workspaceResult = results[2];
           var versionResult = results[3];
-          var list = (workspaceResult && workspaceResult.workspaces) || [];
+          // Same rule as loadAll: an error envelope is a failure, not an empty
+          // list — this path used to repeat the "none visible" verdict.
+          var loadFailure = workspaceFailure(workspaceResult);
+          setWorkspaceError(loadFailure);
+          var list = loadFailure ? [] : (workspaceResult && workspaceResult.workspaces) || [];
           setWorkspaces(list);
           setVersion(versionResult);
           // Reload the scope for the *new* server: otherwise the Overview keeps
@@ -2188,9 +2240,29 @@
                   return h("option", { key: workspace.id, value: workspace.id }, workspace.name || workspace.id);
                 })
               )
-            : h("option", { value: "" }, "none visible")
+            : h(
+                "option",
+                { value: "" },
+                // An empty option must describe what is known: the list is empty,
+                // it could not be read, or it is still loading. "none visible" told
+                // the operator their key saw nothing when the request had failed.
+                workspaceError ? "unavailable — see error" : busy ? "loading…" : "no workspaces returned"
+              )
         )
       ),
+      // The refusal itself, next to the control that used to hide it. Its own
+      // state rather than the shared banner, so a parallel load cannot overwrite it.
+      workspaceError
+        ? h(
+            "span",
+            {
+              className: "reqlo-error",
+              role: "alert",
+              "data-testid": "reqlo-workspace-error"
+            },
+            workspaceError
+          )
+        : null,
       h(
         "span",
         { className: "reqlo-inline" },

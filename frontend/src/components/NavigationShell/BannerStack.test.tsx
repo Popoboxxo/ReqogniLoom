@@ -10,6 +10,7 @@ vi.mock("../../api/banners", () => ({
 
 vi.mock("../../context/WorkspaceContext", () => ({
   useWorkspace: vi.fn(),
+  useOptionalWorkspace: vi.fn(),
 }));
 
 vi.mock("react-i18next", () => ({

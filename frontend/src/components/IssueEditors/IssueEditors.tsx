@@ -6,6 +6,10 @@ import { PageHeader } from '../shared/PageHeader';
 import { useInterviewStartCta } from '../shared/useInterviewStartCta';
 import { IncludeDeletedToggle } from '../shared/IncludeDeletedToggle/IncludeDeletedToggle';
 import { EditorPageShell } from '../shared/EditorPageShell';
+import { FormField } from '../shared/FormField';
+import { fieldErrorsFromException } from '../shared/ArtifactForm/field-errors';
+import { useFieldContract } from '../../hooks/useFieldContract';
+import { extractApiErrorMessage } from '../../api/client';
 import { IssueList } from './IssueList';
 import { IssueArtifactForm } from './IssueArtifactForm';
 import { RightSidebar } from '../shared/ArtifactInspector';
@@ -41,8 +45,17 @@ export default function IssueEditors(): JSX.Element {
   const [newDescription, setNewDescription] = useState('');
   const [newCategory, setNewCategory] = useState('');
   const [createError, setCreateError] = useState<string | null>(null);
+  // GitHub #1392 (second half): a 400 names the offending field
+  // (`details[].field`) — that message belongs next to the control, not
+  // only in the dialog's generic banner.
+  const [createFieldErrors, setCreateFieldErrors] = useState<Record<string, string[]>>({});
   const [isCreating, setIsCreating] = useState(false);
   const titleInputRef = useRef<HTMLInputElement>(null);
+  // GitHub #1393/#1392: `required` and `maxLength` come from the
+  // workspace's own configuration (create-form definition first, the
+  // attribute definition as the documented fallback) — never from a
+  // constant in this file.
+  const { field } = useFieldContract('Issue', { enabled: showCreateDialog });
 
   // 12.1/14.2: named after the result ("New Issue"), not the gesture ("+ New");
   // also the dialog title, matching ch. 12.8 ("dialog title repeats the
@@ -51,6 +64,7 @@ export default function IssueEditors(): JSX.Element {
 
   const openCreateDialog = useCallback((): void => {
     setCreateError(null);
+    setCreateFieldErrors({});
     setNewTitle('');
     setNewDescription('');
     setNewCategory('');
@@ -60,6 +74,7 @@ export default function IssueEditors(): JSX.Element {
   const closeCreateDialog = useCallback((): void => {
     setShowCreateDialog(false);
     setCreateError(null);
+    setCreateFieldErrors({});
   }, []);
 
   const handleCreateNew = async (): Promise<void> => {
@@ -68,6 +83,7 @@ export default function IssueEditors(): JSX.Element {
     if (!activeWorkspace) return;
     if (!newTitle.trim()) return;
     setCreateError(null);
+    setCreateFieldErrors({});
     setIsCreating(true);
     try {
       const resp = await issuesApi.create({
@@ -85,8 +101,12 @@ export default function IssueEditors(): JSX.Element {
       navigate(`/issues/${resp.id}`);
     } catch (e) {
       console.error(e);
-      const msg = (e as { error?: { message?: string } })?.error?.message ?? t('issues.createFailed');
+      const msg = extractApiErrorMessage(e) ?? t('issues.createFailed');
+      // The banner keeps the overall reason (a failure with no field
+      // detail must stay visible); the per-field half renders under the
+      // control that was named.
       setCreateError(msg);
+      setCreateFieldErrors(fieldErrorsFromException(e, msg));
     } finally {
       setIsCreating(false);
     }
@@ -238,53 +258,70 @@ export default function IssueEditors(): JSX.Element {
         error={createError}
         errorClassName={styles.createError}
       >
-        <label
+        {/* #1393: required marker from the server contract; #1392: `maxLength`
+            from the same definition (the column's own 255-character bound). */}
+        <FormField
           htmlFor="issue-new-title"
-          className={styles.createLabel}
+          label={t('editor.title', 'Title')}
+          required={field('title').required}
+          error={createFieldErrors.title?.join(', ')}
+          labelClassName={styles.createLabel}
         >
-          {t('editor.title', 'Title')}
-        </label>
-        <input
-          ref={titleInputRef}
-          id="issue-new-title"
-          data-testid="issue-new-title-input"
-          type="text"
-          value={newTitle}
-          onChange={(e) => setNewTitle(e.target.value)}
-          placeholder={t('issues.titlePlaceholder', 'z. B. Login schlägt bei aktivem SSO fehl')}
-          className={styles.createInput}
-        />
+          <input
+            ref={titleInputRef}
+            id="issue-new-title"
+            data-testid="issue-new-title-input"
+            type="text"
+            value={newTitle}
+            onChange={(e) => setNewTitle(e.target.value)}
+            placeholder={t('issues.titlePlaceholder', 'z. B. Login schlägt bei aktivem SSO fehl')}
+            className={styles.createInput}
+            {...field('title').controlProps}
+          />
+        </FormField>
 
         {/* BUG-11: description/category — ordinary issuesApi.create()
             fields the backend already accepts, previously missing
             here. */}
-        <label htmlFor="issue-new-description" className={fieldHints.createLabel}>
-          {t('editor.description', 'Description')}
-        </label>
-        <textarea
-          id="issue-new-description"
-          data-testid="issue-new-description-input"
-          value={newDescription}
-          onChange={(e) => setNewDescription(e.target.value)}
-          rows={3}
-          className={fieldHints.createInput}
-        />
-
-        <label htmlFor="issue-new-category" className={fieldHints.createLabel}>
-          {t('editor.category', 'Category')}
-        </label>
-        <select
-          id="issue-new-category"
-          data-testid="issue-new-category-select"
-          value={newCategory}
-          onChange={(e) => setNewCategory(e.target.value)}
-          className={fieldHints.createInput}
+        <FormField
+          htmlFor="issue-new-description"
+          label={t('editor.description', 'Description')}
+          required={field('description').required}
+          error={createFieldErrors.description?.join(', ')}
+          labelClassName={fieldHints.createLabel}
         >
-          <option value="">{t('editor.categoryPlaceholder', 'Select')} --</option>
-          {CATEGORY_OPTIONS.map((o) => (
-            <option key={o} value={o}>{o}</option>
-          ))}
-        </select>
+          <textarea
+            id="issue-new-description"
+            data-testid="issue-new-description-input"
+            value={newDescription}
+            onChange={(e) => setNewDescription(e.target.value)}
+            rows={3}
+            className={fieldHints.createInput}
+            {...field('description').controlProps}
+          />
+        </FormField>
+
+        <FormField
+          htmlFor="issue-new-category"
+          label={t('editor.category', 'Category')}
+          required={field('category').required}
+          error={createFieldErrors.category?.join(', ')}
+          labelClassName={fieldHints.createLabel}
+        >
+          <select
+            id="issue-new-category"
+            data-testid="issue-new-category-select"
+            value={newCategory}
+            onChange={(e) => setNewCategory(e.target.value)}
+            className={fieldHints.createInput}
+            {...field('category').selectProps}
+          >
+            <option value="">{t('editor.categoryPlaceholder', 'Select')} --</option>
+            {CATEGORY_OPTIONS.map((o) => (
+              <option key={o} value={o}>{o}</option>
+            ))}
+          </select>
+        </FormField>
       </EditorPageShell>
     </div>
   );

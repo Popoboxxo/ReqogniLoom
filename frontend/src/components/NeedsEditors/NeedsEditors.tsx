@@ -45,7 +45,9 @@ import { useFormDirty } from '../../hooks/use-form-dirty';
 import { useSaveShortcut } from '../../hooks/useSaveShortcut';
 import { useNeedData } from './useNeedData';
 import { useWorkspace } from '../../context/WorkspaceContext';
+import { extractApiErrorMessage } from '../../api/client';
 import { stakeholderNeedApi } from '../../api/stakeholder-need';
+import { fieldErrorsFromException } from '../shared/ArtifactForm/field-errors';
 import type { DerivedRequirementDraft } from '../../api/stakeholder-need';
 import { requirementsApi } from '../../api/requirements';
 import { architectureApi } from '../../api/architecture';
@@ -70,6 +72,10 @@ export default function NeedsEditors(): JSX.Element {
   const [newDescription, setNewDescription] = useState('');
   const [newCategory, setNewCategory] = useState('');
   const [createError, setCreateError] = useState<string | null>(null);
+  // GitHub #1392 (second half): a 400 names the offending field
+  // (`details[].field`); the message renders under that control in
+  // `NeedList`'s create dialog, not only in its banner.
+  const [createFieldErrors, setCreateFieldErrors] = useState<Record<string, string[]>>({});
   // #1100: in-flight guard for the create form, so `Ctrl`/`Cmd`+`S` held down
   // cannot create the same need twice. The button is also disabled on it.
   const [isCreating, setIsCreating] = useState(false);
@@ -284,6 +290,7 @@ export default function NeedsEditors(): JSX.Element {
     if (!activeWorkspace || workspaces.length === 0) return;
     if (!newTitle.trim()) return;
     setCreateError(null);
+    setCreateFieldErrors({});
     setIsCreating(true);
     try {
       const resp = await stakeholderNeedApi.create(activeWorkspace.id, {
@@ -300,8 +307,9 @@ export default function NeedsEditors(): JSX.Element {
       navigate(`/needs/${resp.id}`);
     } catch (e) {
       console.error(e);
-      const msg = (e as { error?: { message?: string } })?.error?.message ?? t('needs.createFailed');
+      const msg = extractApiErrorMessage(e) ?? t('needs.createFailed');
       setCreateError(msg);
+      setCreateFieldErrors(fieldErrorsFromException(e, msg));
     } finally {
       setIsCreating(false);
     }
@@ -514,6 +522,7 @@ export default function NeedsEditors(): JSX.Element {
             setNewCategory={setNewCategory}
             onSubmitCreate={handleCreateNew}
             createError={createError}
+            createFieldErrors={createFieldErrors}
             isCreating={isCreating}
             onCreateClick={handleCreateNewClick}
             createFormRef={createFormRef}

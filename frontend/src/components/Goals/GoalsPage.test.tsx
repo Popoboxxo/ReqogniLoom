@@ -47,6 +47,11 @@ vi.mock("../../context/WorkspaceContext", () => ({
     workspaces: [],
     isLoadingWorkspace: false,
   }),
+  useOptionalWorkspace: () => ({
+    activeWorkspace,
+    workspaces: [],
+    isLoadingWorkspace: false,
+  }),
 }));
 
 const makeGoal = (overrides: Partial<Goal> = {}): Goal => ({

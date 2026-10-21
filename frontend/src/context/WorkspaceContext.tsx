@@ -338,3 +338,18 @@ export function useWorkspace(): WorkspaceState {
     throw new Error("useWorkspace must be used within WorkspaceProvider");
   return ctx;
 }
+
+/**
+ * Non-throwing reader — `null` when no `WorkspaceProvider` is mounted.
+ *
+ * Exists for the hooks that model "no workspace to resolve against" as an
+ * explicit state instead of an error (`useArtifactDefinition`,
+ * `useCreateFormFields`, `useFieldContract`). They used to reach it through a
+ * `try`/`catch` around `useWorkspace()`, which also swallowed any future throw
+ * from inside `useWorkspace` itself into a silent "no workspace" state.
+ * Everything else keeps using `useWorkspace()` and its loud failure.
+ */
+export function useOptionalWorkspace(): WorkspaceState | null {
+  return useContext(WorkspaceContext);
+}
+

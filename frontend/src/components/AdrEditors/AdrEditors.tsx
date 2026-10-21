@@ -10,7 +10,11 @@ import {
   type AiDerivationDraft,
 } from '../shared/AiDerivationDialog';
 import { EditorPageShell } from '../shared/EditorPageShell';
+import { FormField } from '../shared/FormField';
+import { fieldErrorsFromException } from '../shared/ArtifactForm/field-errors';
 import { useHasRole } from '../../hooks/useHasRole';
+import { useFieldContract } from '../../hooks/useFieldContract';
+import { extractApiErrorMessage } from '../../api/client';
 import { AdrList } from './AdrList';
 import { AdrArtifactForm } from './AdrArtifactForm';
 import { AdrSupersedePanel } from './AdrSupersedePanel';
@@ -48,8 +52,17 @@ export default function AdrEditors(): JSX.Element {
   // in this create dialog.
   const [newDescription, setNewDescription] = useState('');
   const [createError, setCreateError] = useState<string | null>(null);
+  // GitHub #1392 (second half): a 400 names the offending field
+  // (`details[].field`) — the message belongs next to that input, not only in
+  // the dialog's generic banner.
+  const [createFieldErrors, setCreateFieldErrors] = useState<Record<string, string[]>>({});
   const [isCreating, setIsCreating] = useState(false);
   const titleInputRef = useRef<HTMLInputElement>(null);
+  // GitHub #1393/#1392: `required` and `maxLength` come from the workspace's
+  // own configuration (create-form definition first, attribute definition as
+  // the documented fallback) — never from a constant in this file.
+  const { field } = useFieldContract('Adr', { enabled: showCreateDialog });
+  const titleField = field('title');
 
   // 12.1/14.2: named after the result ("New ADR"), not the gesture ("+ New");
   // also the dialog title, matching ch. 12.8 ("dialog title repeats the
@@ -143,6 +156,7 @@ export default function AdrEditors(): JSX.Element {
 
   const openCreateDialog = useCallback((): void => {
     setCreateError(null);
+    setCreateFieldErrors({});
     setNewTitle('');
     setNewDescription('');
     setShowCreateDialog(true);
@@ -157,6 +171,7 @@ export default function AdrEditors(): JSX.Element {
   const closeCreateDialog = useCallback((): void => {
     setShowCreateDialog(false);
     setCreateError(null);
+    setCreateFieldErrors({});
   }, []);
 
   const handleCreateNew = async (): Promise<void> => {
@@ -165,6 +180,7 @@ export default function AdrEditors(): JSX.Element {
     if (!activeWorkspace) return;
     if (!newTitle.trim()) return;
     setCreateError(null);
+    setCreateFieldErrors({});
     setIsCreating(true);
     try {
       const resp = await adrsApi.create({
@@ -180,8 +196,11 @@ export default function AdrEditors(): JSX.Element {
       navigate(`/adrs/${resp.id}`);
     } catch (e) {
       console.error(e);
-      const msg = (e as { error?: { message?: string } })?.error?.message ?? t('adrs.createFailed');
+      const msg = extractApiErrorMessage(e) ?? t('adrs.createFailed');
+      // The banner keeps the overall reason (so a failure with no field detail
+      // is still visible); the per-field half renders under the control.
       setCreateError(msg);
+      setCreateFieldErrors(fieldErrorsFromException(e, msg));
     } finally {
       setIsCreating(false);
     }
@@ -381,36 +400,50 @@ export default function AdrEditors(): JSX.Element {
         error={createError}
         errorClassName={styles.createError}
       >
-        <label
+        {/* #1393: required marker + #1392: `maxLength` straight off the
+            server contract (`Adr.title` is 200 characters on both the model and
+            the serializer). */}
+        <FormField
           htmlFor="adr-new-title"
-          className={styles.createLabel}
+          label={t('editor.title', 'Title')}
+          required={titleField.required}
+          error={createFieldErrors.title?.join(', ')}
+          labelClassName={styles.createLabel}
         >
-          {t('editor.title', 'Title')}
-        </label>
-        <input
-          ref={titleInputRef}
-          id="adr-new-title"
-          data-testid="adr-new-title-input"
-          type="text"
-          value={newTitle}
-          onChange={(e) => setNewTitle(e.target.value)}
-          placeholder={t('adr.newTitlePlaceholder', 'e.g. Use PostgreSQL as the primary datastore')}
-          className={styles.createInput}
-        />
+          <input
+            ref={titleInputRef}
+            id="adr-new-title"
+            data-testid="adr-new-title-input"
+            type="text"
+            value={newTitle}
+            onChange={(e) => setNewTitle(e.target.value)}
+            placeholder={t('adr.newTitlePlaceholder', 'e.g. Use PostgreSQL as the primary datastore')}
+            className={styles.createInput}
+            {...titleField.controlProps}
+          />
+        </FormField>
 
         {/* BUG-11: description — an ordinary adrsApi.create() field the
-            backend already accepts, previously missing here. */}
-        <label htmlFor="adr-new-description" className={fieldHints.createLabel}>
-          {t('editor.description', 'Description')}
-        </label>
-        <textarea
-          id="adr-new-description"
-          data-testid="adr-new-description-input"
-          value={newDescription}
-          onChange={(e) => setNewDescription(e.target.value)}
-          rows={3}
-          className={fieldHints.createInput}
-        />
+            backend already accepts, previously missing here. Optional on the
+            server, so no marker; a rejected description still gets a
+            field-bound message. */}
+        <FormField
+          htmlFor="adr-new-description"
+          label={t('editor.description', 'Description')}
+          required={field('description').required}
+          error={createFieldErrors.description?.join(', ')}
+          labelClassName={fieldHints.createLabel}
+        >
+          <textarea
+            id="adr-new-description"
+            data-testid="adr-new-description-input"
+            value={newDescription}
+            onChange={(e) => setNewDescription(e.target.value)}
+            rows={3}
+            className={fieldHints.createInput}
+            {...field('description').controlProps}
+          />
+        </FormField>
       </EditorPageShell>
 
       {/* #1358/#1360 (W12c): the shared AI review dialog. The decision text is

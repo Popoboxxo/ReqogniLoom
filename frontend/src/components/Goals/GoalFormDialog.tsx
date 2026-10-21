@@ -17,6 +17,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Dialog } from "../shared/Dialog";
+import { FormField } from "../shared/FormField";
+import { useFieldContract } from "../../hooks/useFieldContract";
 import type { Goal } from "../../types";
 import styles from "./Goals.module.css";
 
@@ -35,6 +37,8 @@ export interface GoalFormDialogProps {
   error?: string | null;
   /** Blocks double submits while the page's request is in flight. */
   isSubmitting?: boolean;
+  /** GitHub #1392: `details[].field` messages from the rejected save. */
+  fieldErrors?: Record<string, string[]>;
   onSubmit: (values: GoalFormValues) => void;
   onClose: () => void;
 }
@@ -46,10 +50,16 @@ export function GoalFormDialog({
   editing,
   error = null,
   isSubmitting = false,
+  fieldErrors,
   onSubmit,
   onClose,
 }: GoalFormDialogProps): JSX.Element {
   const { t } = useTranslation();
+  // GitHub #1393/#1392: required + `maxLength` from the workspace's own
+  // configuration (`Goal.title` is required and 255 characters). The dialog is
+  // only mounted while open, so the definition is fetched on demand.
+  const { field } = useFieldContract("Goal", { enabled: true });
+  const errors = fieldErrors ?? {};
   const [title, setTitle] = useState(editing?.title ?? "");
   const [description, setDescription] = useState(editing?.description ?? "");
   const titleInputRef = useRef<HTMLInputElement>(null);
@@ -103,6 +113,10 @@ export function GoalFormDialog({
         id={FORM_ID}
         data-testid="goal-form"
         className={styles.formGrid}
+        // Native `required` on the controls drives `:required` styling and the
+        // accessible flag; `noValidate` keeps the browser bubble out of the
+        // app's own `details[].field` error flow (same as `ArtifactForm`).
+        noValidate
         onSubmit={(e) => {
           e.preventDefault();
           if (!title.trim()) return;
@@ -118,30 +132,42 @@ export function GoalFormDialog({
           </p>
         )}
 
-        <label htmlFor="goal-title" className={styles.label}>
-          {t("goals.goalTitle", "Titel")}
-        </label>
-        <input
-          ref={titleInputRef}
-          id="goal-title"
-          type="text"
-          data-testid="goal-title-input"
-          className={styles.input}
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-        />
+        <FormField
+          htmlFor="goal-title"
+          label={t("goals.goalTitle", "Titel")}
+          required={field("title").required}
+          error={errors.title?.join(", ")}
+          labelClassName={styles.label}
+        >
+          <input
+            ref={titleInputRef}
+            id="goal-title"
+            type="text"
+            data-testid="goal-title-input"
+            className={styles.input}
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            {...field("title").controlProps}
+          />
+        </FormField>
 
-        <label htmlFor="goal-description" className={styles.label}>
-          {t("goals.goalDescription", "Beschreibung")}
-        </label>
-        <textarea
-          id="goal-description"
-          data-testid="goal-description-input"
-          className={styles.textarea}
-          rows={4}
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-        />
+        <FormField
+          htmlFor="goal-description"
+          label={t("goals.goalDescription", "Beschreibung")}
+          required={field("description").required}
+          error={errors.description?.join(", ")}
+          labelClassName={styles.label}
+        >
+          <textarea
+            id="goal-description"
+            data-testid="goal-description-input"
+            className={styles.textarea}
+            rows={4}
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            {...field("description").controlProps}
+          />
+        </FormField>
 
         {error && (
           <p role="alert" data-testid="goal-form-error" className={styles.error}>

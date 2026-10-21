@@ -25,6 +25,9 @@ vi.mock("../../context/WorkspaceContext", () => ({
   useWorkspace: () => ({
     activeWorkspace: { id: "ws-001", name: "Test Workspace", preset: "extended" },
   }),
+  useOptionalWorkspace: () => ({
+    activeWorkspace: { id: "ws-001", name: "Test Workspace", preset: "extended" },
+  }),
 }));
 
 vi.mock("../../api/audit");

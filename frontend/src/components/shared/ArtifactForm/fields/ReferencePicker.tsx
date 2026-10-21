@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 
 import { resolveArtifactRef, type ArtifactRef } from "../../../../api/artifactRefs";
 import styles from "../ArtifactForm.module.css";
-import { FieldShell, ariaProps, type FieldProps } from "./FieldShell";
+import { FieldShell, ariaProps, isEffectiveRequired, type FieldProps } from "./FieldShell";
 
 /**
  * Picks another artifact by id.
@@ -70,6 +70,7 @@ export function ReferencePicker({
         data-testid={testId}
         className={`${styles.control} ${errors?.length ? styles.controlInvalid : ""}`}
         type="text"
+        required={isEffectiveRequired(attribute)}
         value={value ?? ""}
         disabled={disabled}
         placeholder={t("artifactForm.referenceIdPlaceholder")}

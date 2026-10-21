@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 
 import { usersApi, type ManagedUser } from "../../../../api/users";
 import styles from "../ArtifactForm.module.css";
-import { FieldShell, ariaProps, type FieldProps } from "./FieldShell";
+import { FieldShell, ariaProps, isEffectiveRequired, type FieldProps } from "./FieldShell";
 
 /**
  * Picks a tenant user. The `user` attribute type exists so the
@@ -69,6 +69,7 @@ export function UserPicker({
         id={testId}
         data-testid={testId}
         className={`${styles.control} ${errors?.length ? styles.controlInvalid : ""}`}
+        required={isEffectiveRequired(attribute)}
         value={current}
         disabled={disabled}
         onChange={(event) => onChange(event.target.value || null)}

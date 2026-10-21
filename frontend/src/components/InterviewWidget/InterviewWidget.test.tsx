@@ -13,6 +13,7 @@ import enLocale from "../../i18n/locales/en.json";
 
 vi.mock("../../context/WorkspaceContext", () => ({
   useWorkspace: () => ({ activeWorkspace: { id: "ws-1", name: "WS" } }),
+  useOptionalWorkspace: () => ({ activeWorkspace: { id: "ws-1", name: "WS" } }),
 }));
 
 // Plan Task 13 pins English copy ("Architecture Element"), so resolve keys

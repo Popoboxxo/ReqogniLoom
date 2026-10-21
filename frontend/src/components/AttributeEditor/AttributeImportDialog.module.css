@@ -1,6 +1,13 @@
 /* AttributeImportDialog (Task 11, spec section 6). */
 
+/* GitHub #1394: wrapping label of a radio — 24x24 WCAG 2.2 SC 2.5.8 floor on
+   the CLICKABLE element (`flex-start` keeps a wrapped label's glyph on the
+   first line); the native glyph size is untouched. */
 .radioLabel {
-  display: block;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  min-height: var(--space-6);
+  min-width: var(--space-6);
   padding-block: var(--space-1);
 }

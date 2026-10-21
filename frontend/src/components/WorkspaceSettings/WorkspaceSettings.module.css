@@ -98,6 +98,10 @@
 .controlRow {
   display: flex;
   align-items: center;
+  /* GitHub #1394 (SC 2.5.8): the wrapping label is the hit area — floor it at
+     24x24 instead of inflating the checkbox glyph. */
+  min-height: var(--space-6);
+  min-width: var(--space-6);
   gap: var(--space-3);
   padding: var(--space-2) 0;
   cursor: pointer;
@@ -107,6 +111,10 @@
 .optionCard {
   display: flex;
   align-items: center;
+  /* GitHub #1394 (SC 2.5.8): see `.controlRow` — the card is already taller
+     than 24px, the floor only pins it against a future padding change. */
+  min-height: var(--space-6);
+  min-width: var(--space-6);
   gap: var(--space-3);
   padding: var(--space-3);
   border: var(--control-border-width) solid var(--color-border);

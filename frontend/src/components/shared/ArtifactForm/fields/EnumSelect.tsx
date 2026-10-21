@@ -1,7 +1,13 @@
 import { useTranslation } from "react-i18next";
 
 import styles from "../ArtifactForm.module.css";
-import { FieldShell, ariaProps, optionLabel, type FieldProps } from "./FieldShell";
+import {
+  FieldShell,
+  ariaProps,
+  isEffectiveRequired,
+  optionLabel,
+  type FieldProps,
+} from "./FieldShell";
 
 export function EnumSelect({
   attribute,
@@ -28,6 +34,7 @@ export function EnumSelect({
         id={testId}
         data-testid={testId}
         className={`${styles.control} ${errors?.length ? styles.controlInvalid : ""}`}
+        required={isEffectiveRequired(attribute)}
         value={current}
         disabled={disabled}
         onChange={(event) => onChange(event.target.value || null)}

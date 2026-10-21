@@ -14,6 +14,7 @@ vi.mock("../context/AuthContext", () => ({
 
 vi.mock("../context/WorkspaceContext", () => ({
   useWorkspace: () => ({ activeWorkspace: { id: "ws-a" } }),
+  useOptionalWorkspace: () => ({ activeWorkspace: { id: "ws-a" } }),
 }));
 
 import { AdrList } from "../components/AdrEditors/AdrList";

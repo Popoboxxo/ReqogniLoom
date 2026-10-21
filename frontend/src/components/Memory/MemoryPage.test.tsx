@@ -32,6 +32,7 @@ vi.mock("../../api/client", async (importOriginal) => {
 
 vi.mock("../../context/WorkspaceContext", () => ({
   useWorkspace: () => ({ activeWorkspace: { id: "ws-1", name: "Acme" } }),
+  useOptionalWorkspace: () => ({ activeWorkspace: { id: "ws-1", name: "Acme" } }),
 }));
 
 vi.mock("../../context/AuthContext", () => ({

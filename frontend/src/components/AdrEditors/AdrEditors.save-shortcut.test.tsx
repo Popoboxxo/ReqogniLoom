@@ -30,6 +30,7 @@ vi.mock("react-router-dom", () => ({
 const useWorkspaceMock = vi.fn();
 vi.mock("../../context/WorkspaceContext", () => ({
   useWorkspace: () => useWorkspaceMock(),
+  useOptionalWorkspace: () => useWorkspaceMock(),
 }));
 
 // #1360: the ADR derivation trigger needs the workspace-role hook — it is not

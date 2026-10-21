@@ -48,6 +48,11 @@
 .checkboxLabel {
   display: flex;
   align-items: center;
+  /* GitHub #1394 (WCAG 2.2 AA SC 2.5.8): the 7 radio/checkbox controls on
+     /system-settings all use this wrapping label, which is the real hit area —
+     floor it at 24x24 and leave the native glyph at its default size. */
+  min-height: var(--space-6);
+  min-width: var(--space-6);
   gap: var(--space-2);
   font-size: var(--font-size-sm);
   color: var(--color-text);
