@@ -33,6 +33,7 @@ vi.mock("../api/attribute-definitions", () => ({
 
 vi.mock("../context/WorkspaceContext", () => ({
   useWorkspace: () => ({ activeWorkspace: { id: "ws-1", preset: "standard" } }),
+  useOptionalWorkspace: () => ({ activeWorkspace: { id: "ws-1", preset: "standard" } }),
 }));
 
 // `api/users` exports exactly one runtime binding (`usersApi`); `ManagedUser`

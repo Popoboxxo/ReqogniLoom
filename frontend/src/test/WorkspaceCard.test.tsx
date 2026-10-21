@@ -18,6 +18,7 @@ import type { WorkspaceWithMetrics } from "../types";
 
 vi.mock("../context/WorkspaceContext", () => ({
   useWorkspace: () => ({ terminologyLabel: (key: string) => key }),
+  useOptionalWorkspace: () => ({ terminologyLabel: (key: string) => key }),
 }));
 
 function makeWorkspace(

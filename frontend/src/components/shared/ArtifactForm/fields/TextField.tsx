@@ -1,7 +1,7 @@
 import { useTranslation } from "react-i18next";
 
 import styles from "../ArtifactForm.module.css";
-import { FieldShell, ariaProps, type FieldProps } from "./FieldShell";
+import { FieldShell, ariaProps, isEffectiveRequired, type FieldProps } from "./FieldShell";
 import { LengthFeedback } from "./LengthFeedback";
 
 export function TextField({
@@ -27,6 +27,7 @@ export function TextField({
           attribute.display_format === "mono" ? styles.controlMono : ""
         } ${errors?.length ? styles.controlInvalid : ""}`}
         type="text"
+        required={isEffectiveRequired(attribute)}
         value={value ?? ""}
         disabled={disabled}
         maxLength={attribute.validation?.length}

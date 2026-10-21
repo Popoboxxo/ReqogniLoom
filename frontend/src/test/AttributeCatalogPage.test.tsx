@@ -40,6 +40,7 @@ vi.mock("../api/attributeCatalog", () => ({
 }));
 vi.mock("../context/WorkspaceContext", () => ({
   useWorkspace: () => ({ activeWorkspace: { id: "ws-1", preset: "standard" } }),
+  useOptionalWorkspace: () => ({ activeWorkspace: { id: "ws-1", preset: "standard" } }),
 }));
 vi.mock("../context/AuthContext", () => ({
   useAuth: () => ({ roles: authState.roles }),

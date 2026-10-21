@@ -33,6 +33,7 @@ import { ArtifactRow } from '../shared/ArtifactRow';
 import type { ArtifactRowAttribute } from '../shared/ArtifactRow';
 import { ConfirmDialog } from '../shared/ConfirmDialog';
 import { EmptyState } from '../shared/EmptyState';
+import { FormField } from '../shared/FormField';
 import { Requirement, RequirementType, UUID } from '../../types';
 import { REQ_CATEGORIES } from '../../types';
 import styles from './RequirementList.module.css';
@@ -413,34 +414,42 @@ export const RequirementList: React.FC<RequirementListProps> = ({
               for it — making delete unreachable from the UI for that preset. */}
           {isChangeReasonRequired && (
             <div className={styles.deleteReasonField}>
-              <label htmlFor="req-delete-change-reason" className={styles.deleteReasonLabel}>
-                {t('req.changeReason')} <span className={styles.requiredMarker}>*</span>
-              </label>
-              <textarea
-                id="req-delete-change-reason"
-                data-testid="req-delete-change-reason"
-                value={deleteChangeReason}
-                onChange={(e) => {
-                  setDeleteChangeReason(e.target.value);
-                  if (deleteAttempted) setDeleteAttempted(false);
-                }}
-                placeholder={t('req.changeReasonPlaceholder')}
-                disabled={isDeleting}
-                aria-invalid={deleteAttempted && !deleteChangeReason.trim()}
-                aria-describedby={deleteAttempted && !deleteChangeReason.trim() ? 'req-delete-change-reason-error' : undefined}
-                rows={2}
-                className={styles.deleteReasonInput}
-              />
-              {deleteAttempted && !deleteChangeReason.trim() && (
-                <p
-                  id="req-delete-change-reason-error"
-                  role="alert"
-                  data-testid="req-delete-change-reason-error"
-                  className={styles.deleteReasonError}
-                >
-                  {t('req.changeReasonRequired')}
-                </p>
-              )}
+              {/* #1393: the marker is the shared `<RequiredMark>` DOM node (not
+                  a hand-written `*` span) and the control carries `required` +
+                  `aria-required`, consistent with `ArtifactFormActions`. The
+                  refusal still comes from `handleConfirmDelete` (the confirm
+                  dialog renders no `<form>`, so nothing is browser-validated);
+                  the shared `FieldErrorText` renders the message under the
+                  control with the same `…-error` id the textarea describes. */}
+              <FormField
+                htmlFor="req-delete-change-reason"
+                label={t('req.changeReason')}
+                required
+                error={
+                  deleteAttempted && !deleteChangeReason.trim()
+                    ? t('req.changeReasonRequired')
+                    : null
+                }
+                labelClassName={styles.deleteReasonLabel}
+              >
+                <textarea
+                  id="req-delete-change-reason"
+                  data-testid="req-delete-change-reason"
+                  value={deleteChangeReason}
+                  onChange={(e) => {
+                    setDeleteChangeReason(e.target.value);
+                    if (deleteAttempted) setDeleteAttempted(false);
+                  }}
+                  placeholder={t('req.changeReasonPlaceholder')}
+                  disabled={isDeleting}
+                  required
+                  aria-required="true"
+                  aria-invalid={deleteAttempted && !deleteChangeReason.trim()}
+                  aria-describedby={deleteAttempted && !deleteChangeReason.trim() ? 'req-delete-change-reason-error' : undefined}
+                  rows={2}
+                  className={styles.deleteReasonInput}
+                />
+              </FormField>
             </div>
           )}
         </ConfirmDialog>

@@ -31,6 +31,7 @@ vi.mock("react-router-dom", () => ({
 const useWorkspaceMock = vi.fn();
 vi.mock("../../context/WorkspaceContext", () => ({
   useWorkspace: () => useWorkspaceMock(),
+  useOptionalWorkspace: () => useWorkspaceMock(),
 }));
 
 vi.mock("./useNeedData", () => ({

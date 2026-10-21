@@ -36,6 +36,7 @@ vi.mock("react-i18next", () => {
 
 vi.mock("../context/WorkspaceContext", () => ({
   useWorkspace: () => ({ activeWorkspace: { id: "ws-001", name: "WS" } }),
+  useOptionalWorkspace: () => ({ activeWorkspace: { id: "ws-001", name: "WS" } }),
 }));
 
 // #1360: the AI derivation trigger is gated by the shared workspace-role hook
@@ -104,8 +105,59 @@ vi.mock("../api/glossary", () => ({
   },
 }));
 
+// #1393: the create form no longer hardcodes its requiredness — it resolves it
+// from the attribute definition (and the #1263 create-form definition) through
+// `useFieldContract`. Resolve the real contract here instead of letting the
+// request fail, so the a11y test asserts what a user actually gets: `term` and
+// `definition` required (with the column's own 255-char bound on `term`),
+// `abbreviation`/`synonyms` optional.
+vi.mock("../api/attribute-definitions", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../api/attribute-definitions")>();
+  return {
+    ...actual,
+    attributeDefinitionsApi: {
+      ...actual.attributeDefinitionsApi,
+      getWorkspace: vi.fn(() =>
+        Promise.resolve({
+          item_type: "GlossaryTerm",
+          preset: "standard",
+          attributes: [
+            {
+              name: "term",
+              kind: "core",
+              type: "text",
+              required: true,
+              validation: { length: 255 },
+            },
+            {
+              name: "definition",
+              kind: "core",
+              type: "textarea",
+              required: true,
+            },
+            {
+              name: "abbreviation",
+              kind: "core",
+              type: "text",
+              required: false,
+            },
+            {
+              name: "synonyms",
+              kind: "extended",
+              type: "text",
+              required: false,
+            },
+          ],
+        })
+      ),
+    },
+  };
+});
+
 // Must import AFTER vi.mock calls.
 import GlossaryView from "../components/GlossaryView/GlossaryView";
+import { attributeDefinitionsApi } from "../api/attribute-definitions";
 import { glossaryApi } from "../api/glossary";
 
 function renderView(): ReturnType<typeof render> {
@@ -203,16 +255,60 @@ describe("GlossaryView — C9 trace links + C10 synonym linking (REQ-006)", () =
   // be queryable via its accessible name (First Rule of ARIA — a passing
   // getByLabelText query is direct proof the <label htmlFor> association
   // works, not just that a <label> text node happens to render nearby).
+  //
+  // #1393: the marker is now a real `<RequiredMark>` node inside the label and
+  // is `aria-hidden`, so the accessible name is the label text WITHOUT the
+  // asterisk — while the control itself carries `required`/`aria-required`.
+  // Assert both halves: the association AND the contract.
   it("a11y: create-form fields (term, abbreviation, definition, synonyms) are queryable by label", async () => {
     const user = userEvent.setup();
     renderView();
 
     await user.click(await screen.findByTestId("create-glossary-term-btn"));
 
-    expect(screen.getByLabelText("glossary.term *")).toBeInTheDocument();
-    expect(screen.getByLabelText("glossary.abbreviation")).toBeInTheDocument();
-    expect(screen.getByLabelText("glossary.definition *")).toBeInTheDocument();
+    const term = await screen.findByRole("textbox", { name: "glossary.term" });
+    expect(term).toBeRequired();
+    expect(term).toHaveAttribute("aria-required", "true");
+    expect(term).toHaveAttribute("maxlength", "255");
+
+    const definition = screen.getByRole("textbox", {
+      name: "glossary.definition",
+    });
+    expect(definition).toBeRequired();
+
+    // Optional fields keep their label association and must NOT be announced
+    // as required — the contract is per field, not per dialog.
+    expect(screen.getByLabelText("glossary.abbreviation")).not.toBeRequired();
     expect(screen.getByLabelText("glossary.synonyms")).toBeInTheDocument();
+
+    // The visible marker still renders exactly once per required field.
+    const termLabel = screen.getByText("glossary.term", { exact: false }).closest("label");
+    expect(termLabel).not.toBeNull();
+    expect(termLabel?.querySelector("[data-required-marker]")).not.toBeNull();
+  });
+
+  // GitHub #1393 review (H1): before the WIP, `term`/`definition` were
+  // hard-required with a marker. Moving requiredness to the server definition
+  // made it fail OPEN when that request fails — marker gone, no `required`, no
+  // `aria-required` on a field the create service rejects when empty. The
+  // static fallback must hold in exactly that branch.
+  it("keeps term/definition required when the definition request rejects", async () => {
+    vi.mocked(attributeDefinitionsApi.getWorkspace).mockRejectedValueOnce(
+      new Error("definition endpoint down")
+    );
+    const user = userEvent.setup();
+    renderView();
+
+    await user.click(await screen.findByTestId("create-glossary-term-btn"));
+
+    const term = await screen.findByRole("textbox", { name: "glossary.term" });
+    expect(term).toBeRequired();
+    expect(term).toHaveAttribute("aria-required", "true");
+    expect(term).toHaveAttribute("maxlength", "255");
+    expect(screen.getByRole("textbox", { name: "glossary.definition" })).toBeRequired();
+    // The visible marker is back too (it was the load-time gap).
+    const termLabel = screen.getByText("glossary.term", { exact: false }).closest("label");
+    expect(termLabel?.querySelector("[data-required-marker]")).not.toBeNull();
   });
 
   // -------------------------------------------------------------------

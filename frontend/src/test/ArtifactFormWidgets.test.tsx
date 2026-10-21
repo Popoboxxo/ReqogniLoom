@@ -29,6 +29,7 @@ vi.mock("react-i18next", () => ({
 // AdrEditors.test.tsx.
 vi.mock("../context/WorkspaceContext", () => ({
   useWorkspace: () => ({ activeWorkspace: { id: "ws-001", name: "WS" } }),
+  useOptionalWorkspace: () => ({ activeWorkspace: { id: "ws-001", name: "WS" } }),
 }));
 
 import {

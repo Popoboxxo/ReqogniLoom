@@ -26,6 +26,7 @@ vi.mock("../../context/AuthContext", () => ({
 let mockActiveWorkspace: { id: string } | null = { id: "ws-1" };
 vi.mock("../../context/WorkspaceContext", () => ({
   useWorkspace: () => ({ activeWorkspace: mockActiveWorkspace }),
+  useOptionalWorkspace: () => ({ activeWorkspace: mockActiveWorkspace }),
 }));
 
 vi.mock("react-i18next", () => ({

@@ -46,6 +46,7 @@ vi.mock("../api/workflow-transitions", () => ({
 const workspace = { current: { id: "ws-1", preset: "standard" } };
 vi.mock("../context/WorkspaceContext", () => ({
   useWorkspace: () => ({ activeWorkspace: workspace.current }),
+  useOptionalWorkspace: () => ({ activeWorkspace: workspace.current }),
 }));
 
 import { requirementsApi } from "../api/requirements";

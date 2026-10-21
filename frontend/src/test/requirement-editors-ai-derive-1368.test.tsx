@@ -55,6 +55,10 @@ vi.mock("../context/WorkspaceContext", () => ({
     activeWorkspace: { id: "ws-001", preset: "standard" },
     workspaces: [{ id: "ws-001" }],
   }),
+  useOptionalWorkspace: () => ({
+    activeWorkspace: { id: "ws-001", preset: "standard" },
+    workspaces: [{ id: "ws-001" }],
+  }),
 }));
 
 vi.mock("../hooks/useHasRole", () => ({

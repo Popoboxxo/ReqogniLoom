@@ -21,8 +21,23 @@ import { useTranslation } from "react-i18next";
 
 import { SAVE_SHORTCUT_ARIA, useSaveShortcut } from "../../hooks/useSaveShortcut";
 import { REQ_CATEGORIES } from "../../types";
+import { FormField } from "../shared/FormField";
 import fieldHints from "../shared/FieldHints.module.css";
 import styles from "./RequirementEditors.module.css";
+
+/**
+ * #1393: the title contract for the fallback path.
+ *
+ * This component renders precisely when the attribute definition could NOT be
+ * resolved, so `useFieldContract` has no server source to read here — but
+ * `title` is unconditionally required by the create service, and the column's
+ * own bound is statically known: `Requirement.title` is
+ * `CharField(max_length=500)` (`backend/persistence/models.py`), the same
+ * number `bootstrap_attribute_definitions._length_validation` publishes as
+ * `validation.length` on the definition-driven path. Kept as a local constant
+ * rather than a second hook call so the failure path issues no extra request.
+ */
+const FALLBACK_TITLE_CONTRACT = { required: true, maxLength: 500 } as const;
 
 export interface RequirementCreateFallbackFormProps {
   title: string;
@@ -70,26 +85,40 @@ export function RequirementCreateFallbackForm({
     <form
       ref={formRef}
       data-testid="create-req-form"
+      // Issue #1393: the title control now carries a native `required` flag;
+      // `noValidate` keeps the browser's bubble from pre-empting the app's own
+      // error flow (the same contract `ArtifactForm` uses).
+      noValidate
       onSubmit={(e) => {
         e.preventDefault();
         onSubmit();
       }}
       className={styles.createForm}
     >
-      <label htmlFor="new-req-title" className={styles.createLabel}>
-        {t('editor.title')}
-      </label>
-      <input
-        id="new-req-title"
-        data-testid="req-new-title-input"
-        ref={focusTitle}
-        type="text"
-        value={title}
-        onChange={(e) => onTitleChange(e.target.value)}
-        disabled={isCreating}
-        placeholder={t('editor.newRequirementTitle')}
-        className={styles.createInput}
-      />
+      {/* #1393: marker + native/ARIA required on the one field that is
+          unconditionally mandatory, even on the degraded path with no
+          definition. */}
+      <FormField
+        htmlFor="new-req-title"
+        label={t('editor.title')}
+        required={FALLBACK_TITLE_CONTRACT.required}
+        labelClassName={styles.createLabel}
+      >
+        <input
+          id="new-req-title"
+          data-testid="req-new-title-input"
+          ref={focusTitle}
+          type="text"
+          value={title}
+          onChange={(e) => onTitleChange(e.target.value)}
+          disabled={isCreating}
+          placeholder={t('editor.newRequirementTitle')}
+          className={styles.createInput}
+          required
+          aria-required="true"
+          maxLength={FALLBACK_TITLE_CONTRACT.maxLength}
+        />
+      </FormField>
 
       {/* BUG-11: description/category — ordinary create() fields the backend
           already accepts, previously missing from this form. */}

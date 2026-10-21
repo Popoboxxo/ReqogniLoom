@@ -1,7 +1,7 @@
 import { useTranslation } from "react-i18next";
 
 import styles from "../ArtifactForm.module.css";
-import { FieldShell, ariaProps, type FieldProps } from "./FieldShell";
+import { FieldShell, ariaProps, isEffectiveRequired, type FieldProps } from "./FieldShell";
 
 export function DateField({
   attribute,
@@ -26,6 +26,7 @@ export function DateField({
         data-testid={testId}
         className={`${styles.control} ${errors?.length ? styles.controlInvalid : ""}`}
         type="date"
+        required={isEffectiveRequired(attribute)}
         value={value ? String(value).slice(0, 10) : ""}
         disabled={disabled}
         onChange={(event) => onChange(event.target.value || null)}

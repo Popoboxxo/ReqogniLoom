@@ -1392,6 +1392,7 @@
     "deleteFailed": "Diagramm konnte nicht gelöscht werden.",
     "type": "Typ",
     "source": "Quelle",
+    "sourceFormat": "Quellformat",
     "description": "Beschreibung",
     "name": "Name",
     "nameRequired": "Bitte einen Namen angeben.",
@@ -2668,6 +2669,7 @@
     "noneOption": "Keine Auswahl",
     "unassignedOption": "Nicht zugewiesen",
     "referenceIdPlaceholder": "Artefakt-ID eingeben",
+    "requiredField": "Pflichtfeld",
     "field": {
       "description": "Beschreibung",
       "context": "Kontext",

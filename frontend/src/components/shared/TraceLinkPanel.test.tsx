@@ -36,6 +36,7 @@ vi.mock("../../api/artifactRefs", () => ({
 
 vi.mock("../../context/WorkspaceContext", () => ({
   useWorkspace: () => ({ activeWorkspace: { id: "ws-1", default_link_type: "derives-from" } }),
+  useOptionalWorkspace: () => ({ activeWorkspace: { id: "ws-1", default_link_type: "derives-from" } }),
 }));
 
 // Task 23: CreateTraceLinkDialog (rendered by TraceLinkPanel itself) now

@@ -9,6 +9,8 @@
 import type { ReactNode } from "react";
 
 import type { AttributeOption, AttributeSpec } from "../../../../api/attribute-definitions";
+import { isEffectiveRequired } from "../../../../utils/attributeRequired";
+import { FieldErrorText, RequiredMark } from "../../FormField";
 import styles from "../ArtifactForm.module.css";
 
 export interface FieldProps<T = unknown> {
@@ -107,6 +109,12 @@ interface FieldShellProps {
    * `aria-labelledby` instead.
    */
   associateLabel?: boolean;
+  /**
+   * `true` when no editable control follows (`DisplayField`'s read-only
+   * `<RevealValue>`). The `*` marker is then suppressed: it would announce a
+   * required state no control carries.
+   */
+  readOnly?: boolean;
   children: ReactNode;
 }
 
@@ -116,15 +124,17 @@ export function FieldShell({
   errors,
   testId,
   associateLabel = true,
+  readOnly = false,
   children,
 }: FieldShellProps): JSX.Element {
   const help = helpText(attribute, language);
-  // GitHub #1192: the marker/`aria-required` reflect the *effective* approval
-  // gate too — a field can be definition-`required: false` yet demanded by Rule
-  // 5 (e.g. `acceptance_criteria` under the standard/extended preset). Other
-  // `required`-driven behaviours (create-mode expansion, enum "none" option,
-  // ActorPicker clearing) intentionally stay definition-only.
-  const isRequired = attribute.required || attribute.is_required === true;
+  const isRequired = isEffectiveRequired(attribute);
+  // Issue #1393: the marker used to be `content: " *"` on `.required`, i.e. a
+  // CSS pseudo-element that no `textContent` and no measurement tool can see —
+  // which is how "no visible marker" stayed invisible. It is now the SAME
+  // `<RequiredMark>` node the hand-written create dialogs render. The
+  // `.required` class stays on the label as the styling/query hook it always
+  // was (`ArtifactForm.test.tsx` pins it); it no longer draws anything itself.
   const labelClassName = `${styles.label} ${isRequired ? styles.required : ""}`;
   // #1090 follow-up: when the label chain fell through to the data-error
   // marker, the raw field name is moved into the element's `title` — the
@@ -133,6 +143,9 @@ export function FieldShell({
   // being rendered as the visible label text.
   const labelGap = hasLabelDataGap(attribute, language);
   const labelText = attributeLabel(attribute, language);
+  // Only an editable control can carry required semantics; in the read-only
+  // path the marker would be a glyph with no programmatic counterpart.
+  const showRequiredMark = isRequired && !readOnly;
   const labelProps = labelGap
     ? { "data-label-gap": "true" as const, title: attribute.name }
     : {};
@@ -146,10 +159,12 @@ export function FieldShell({
           {...labelProps}
         >
           {labelText}
+          {showRequiredMark ? <RequiredMark /> : null}
         </label>
       ) : (
         <span className={labelClassName} id={`${testId}-label`} {...labelProps}>
           {labelText}
+          {showRequiredMark ? <RequiredMark /> : null}
         </span>
       )}
       {children}
@@ -162,31 +177,67 @@ export function FieldShell({
         // GitHub #677: server-side validation messages appear only after a
         // rejected save, i.e. purely dynamically. Assertive live region so the
         // reason a save was refused is announced instead of only turning red.
-        <span
+        // Issue #1393 (follow-up): the node itself is the shared
+        // `FieldErrorText` — one renderer for every field error in the app, so
+        // the `role="alert"` + `data-testid` + `id` contract cannot drift
+        // between `ArtifactForm` and the hand-written create dialogs.
+        <FieldErrorText
+          error={errors.join(", ")}
+          testId={`${testId}-error`}
           className={styles.errors}
-          id={`${testId}-error`}
-          role="alert"
-          aria-live="assertive"
-        >
-          {errors.join(", ")}
-        </span>
+        />
       ) : null}
     </div>
   );
 }
 
+/**
+ * The effective requiredness of one attribute.
+ *
+ * GitHub #1192: the marker/`aria-required` reflect the *effective* approval
+ * gate too — a field can be definition-`required: false` yet demanded by Rule 5
+ * (e.g. `acceptance_criteria` under the standard/extended preset). Other
+ * `required`-driven behaviours (create-mode expansion, enum "none" option,
+ * ActorPicker clearing) intentionally stay definition-only.
+ *
+ * Issue #1393 (follow-up): a native control must also carry the native
+ * `required` flag — `aria-required` alone is not what `:required` styling and
+ * the browser's own constraint state read. `ArtifactForm` is `noValidate`, so
+ * the flag adds the semantics without the browser bubble pre-empting the
+ * app's error flow.
+ *
+ * The predicate itself lives in `utils/attributeRequired` so
+ * `hooks/useFieldContract` (the create dialogs) uses the same one; re-exported
+ * here because every field widget imports it from the shell.
+ */
+export { isEffectiveRequired };
+
 /** ARIA wiring shared by every control inside a `FieldShell`. */
+export interface AriaPropsOptions {
+  /**
+   * `true` for a `role="group"` container. ARIA 1.2 does not support
+   * `aria-required` on `group` (AT ignores it), so the flag is left off there
+   * and the required state is carried by the group's accessible name instead —
+   * see `MultiEnum`/`CriteriaList`, which add a visually-hidden
+   * `"${testId}-required"` word to `aria-labelledby`.
+   */
+  groupContainer?: boolean;
+}
+
 export function ariaProps(
   attribute: AttributeSpec,
   testId: string,
-  errors?: string[]
+  errors?: string[],
+  options: AriaPropsOptions = {}
 ): Record<string, string | boolean | undefined> {
   const described = [
     helpText(attribute, "en") || helpText(attribute, "de") ? `${testId}-help` : null,
     errors?.length ? `${testId}-error` : null,
   ].filter(Boolean);
   return {
-    "aria-required": attribute.required || attribute.is_required === true,
+    "aria-required": options.groupContainer
+      ? undefined
+      : isEffectiveRequired(attribute),
     "aria-invalid": Boolean(errors?.length),
     "aria-describedby": described.length ? described.join(" ") : undefined,
   };

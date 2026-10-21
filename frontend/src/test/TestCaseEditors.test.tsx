@@ -97,6 +97,7 @@ vi.mock("../components/shared/ArtifactInspector", () => ({
 const ACTIVE_WORKSPACE = { id: "ws-001", name: "WS" };
 vi.mock("../context/WorkspaceContext", () => ({
   useWorkspace: () => ({ activeWorkspace: ACTIVE_WORKSPACE, isLoadingWorkspace: false }),
+  useOptionalWorkspace: () => ({ activeWorkspace: ACTIVE_WORKSPACE, isLoadingWorkspace: false }),
   WorkspaceProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 

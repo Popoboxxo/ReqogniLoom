@@ -7,8 +7,12 @@
  * cross-cutting styles belong in a module like this one, not inline).
  */
 
+/* Rendered by the shared <RequiredMark> (components/shared/FormField.tsx).
+   The leading gap used to come from a literal space in a CSS `::after`; it is
+   a token here so the marker keeps its spacing in every context. */
 .requiredMarker {
   color: var(--color-danger);
+  margin-inline-start: var(--space-1);
 }
 
 .hint {
@@ -66,6 +70,16 @@
   resize: vertical;
 }
 
+/* Disabled create-dialog controls (e.g. the locked `term` input while editing
+ * a glossary entry, GlossaryTermForm) used to look identical to enabled ones;
+ * `ArtifactForm` already styles this state, so mirror it with the same tokens
+ * instead of leaving the reader to guess whether the field is usable. */
+.createInput:disabled {
+  background: var(--color-surface-muted);
+  color: var(--color-text-muted);
+  cursor: not-allowed;
+}
+
 /*
  * BUG-08 (Systemaudit 2026-08-18, §4): field-level validation error state.
  * `!important` deliberately wins over any inline `style` on the same
@@ -77,10 +91,26 @@
   border-color: var(--color-danger) !important;
 }
 
+/* `margin: 0` because this is rendered on a <p> (the UA gives it a ~1em block
+ * margin). The owner supplies the spacing: every create dialog either sits in a
+ * flex/grid column with `gap` (e.g. `DiagramCreateForm`'s `.fieldCell`) or its
+ * label/input carry their own margins — so the UA margin only added a stray
+ * extra line above and below the message. Same reasoning as
+ * `ArtifactForm.module.css`'s `.errors`. */
 .fieldError {
   display: flex;
   align-items: center;
   gap: var(--space-1);
+  margin: 0;
   color: var(--color-danger);
   font-size: var(--font-size-sm);
+}
+
+/* Companion for `.fieldError` in a BLOCK-flow stack whose owner supplies no
+ * `gap` (CreateWorkspaceModal's field wrapper, NeedList's create <form>): the
+ * `margin: 0` above removes the UA paragraph margin that used to be the only
+ * separation from the control. Stacks that space children with flex/grid `gap`
+ * (every `FormField` cell) must NOT add this class. */
+.fieldErrorBlock {
+  margin-top: var(--space-1);
 }

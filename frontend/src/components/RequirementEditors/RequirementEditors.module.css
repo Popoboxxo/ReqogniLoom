@@ -15,16 +15,6 @@
 }
 
 /*
- * #412: preset-driven "required" marker / hint for a field that has no
- * dedicated <AttributeVisibilityConfig> row (e.g. acceptance_criteria),
- * kept as classes (not inline style={{ ) to stay under the UI-concept
- * inline-style ratchet (src/test/ui-ratchet.test.ts).
- */
-.requiredMarker {
-  color: var(--color-danger);
-}
-
-/*
  * #339/#340: server-rejection banners for the list panel. Classes (not
  * `style={{ }}`) because `src/test/ui-ratchet.test.ts` freezes the number of
  * inline styles under `src/components` at an exact count.

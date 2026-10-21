@@ -239,7 +239,7 @@ export function CreateWorkspaceModal({
               id="new-workspace-name-error"
               role="alert"
               data-testid="new-workspace-name-field-error"
-              className={fieldHints.fieldError}
+              className={`${fieldHints.fieldError} ${fieldHints.fieldErrorBlock}`}
             >
               <TriangleAlert aria-hidden="true" size={14} />
               {t("workspaceCreate.errorRequired") || "Name is required"}

@@ -34,6 +34,7 @@ function setMockActiveWorkspaceId(id: string): void {
 
 vi.mock("../context/WorkspaceContext", () => ({
   useWorkspace: () => ({ activeWorkspace: { id: mockActiveWorkspaceId } }),
+  useOptionalWorkspace: () => ({ activeWorkspace: { id: mockActiveWorkspaceId } }),
 }));
 
 // R2/T1 (systemaudit 2026-09-02): RequirementList now reads roles via

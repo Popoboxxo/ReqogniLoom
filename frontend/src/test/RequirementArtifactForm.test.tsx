@@ -50,6 +50,7 @@ vi.mock("../api/attribute-definitions", () => ({
 }));
 vi.mock("../context/WorkspaceContext", () => ({
   useWorkspace: () => ({ activeWorkspace: workspace.current }),
+  useOptionalWorkspace: () => ({ activeWorkspace: workspace.current }),
 }));
 
 const REQUIREMENT = {

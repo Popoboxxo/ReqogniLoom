@@ -56,6 +56,9 @@ import type {
 import styles from "./ArchitectureEditors.module.css";
 // F-04 (code review, 2026-08-19): shared create-form field styles.
 import fieldHints from "../shared/FieldHints.module.css";
+import { FormField } from "../shared/FormField";
+import { fieldErrorsFromException } from "../shared/ArtifactForm/field-errors";
+import { useFieldContract } from "../../hooks/useFieldContract";
 
 // (Style helpers and dialog moved to ArchitectureForm component)
 
@@ -140,6 +143,13 @@ export default function ArchitectureEditors(): JSX.Element {
   // leaving the list unchanged and the user without any reason. One banner in
   // the list panel serves both — they are the only two list-level writes.
   const [listActionError, setListActionError] = useState<string | null>(null);
+  // GitHub #1392: per-field half of a rejected create (`details[].field`).
+  const [createFieldErrors, setCreateFieldErrors] = useState<Record<string, string[]>>({});
+  // GitHub #1393/#1392: required + `maxLength` from the workspace's own
+  // configuration (`ArchitectureElement.title` is required, 500 characters).
+  const { field } = useFieldContract('ArchitectureElement', {
+    enabled: showCreateForm,
+  });
 
   // "Ableiten": create a Requirement allocated to the selected element
   // (SE: Req --allocated-to--> ArchitectureElement).
@@ -299,6 +309,7 @@ export default function ArchitectureEditors(): JSX.Element {
     async (parentId?: string, customTitle?: string, customDescription?: string): Promise<void> => {
       if (!activeWorkspace) return;
       setListActionError(null);
+      setCreateFieldErrors({});
       setIsCreating(true);
       try {
         const created = await architectureApi.create({
@@ -318,7 +329,11 @@ export default function ArchitectureEditors(): JSX.Element {
         // #340 (same defect class as RequirementEditors): the server rejects
         // markup in a title with a 400 naming the field. Logging that to the
         // console only made a rejected create look like a silent no-op.
-        setListActionError(extractApiErrorMessage(err) ?? t("arch.createFailed"));
+        // GitHub #1392: when the 400 names a field, the reason also lands
+        // under that control inside the dialog.
+        const message = extractApiErrorMessage(err) ?? t("arch.createFailed");
+        setListActionError(message);
+        setCreateFieldErrors(fieldErrorsFromException(err, message));
       } finally {
         setIsCreating(false);
       }
@@ -620,6 +635,10 @@ export default function ArchitectureEditors(): JSX.Element {
         >
         <form
           ref={createFormRef}
+          // Native `required` on the controls (via `field(...).controlProps`)
+          // carries the `:required` semantics; `noValidate` keeps the browser
+          // bubble from pre-empting the app's own `details[].field` error flow.
+          noValidate
           onSubmit={(e) => { e.preventDefault(); void handleInlineCreate(); }}
           className={styles.createForm}
         >
@@ -627,33 +646,44 @@ export default function ArchitectureEditors(): JSX.Element {
               no `htmlFor`, so the field had no accessible name — only a
               placeholder. Mirrors the description field's `htmlFor`/`id` pair
               right below. */}
-          <label
+          {/* #1393: required marker + #1392: `maxLength` from the server
+              contract (`ArchitectureElement.title` is 500 characters). */}
+          <FormField
             htmlFor="arch-new-title"
-            className={styles.createTitleLabel}
+            label={t('editor.title', 'Title')}
+            required={field('title').required}
+            error={createFieldErrors.title?.join(', ')}
+            labelClassName={styles.createTitleLabel}
           >
-            {t('editor.title', 'Title')}
-          </label>
-          <input
-            id="arch-new-title"
-            data-testid="arch-new-title-input"
-            ref={newTitleInputRef}
-            type="text" value={newTitle} onChange={(e) => setNewTitle(e.target.value)}
-            placeholder={t('arch.newElementTitle')}
-            className={styles.createTitleInput}
-          />
+            <input
+              id="arch-new-title"
+              data-testid="arch-new-title-input"
+              ref={newTitleInputRef}
+              type="text" value={newTitle} onChange={(e) => setNewTitle(e.target.value)}
+              placeholder={t('arch.newElementTitle')}
+              className={styles.createTitleInput}
+              {...field('title').controlProps}
+            />
+          </FormField>
           {/* BUG-11: description — an ordinary architectureApi.create() field
               the backend already accepts, previously missing here. */}
-          <label htmlFor="arch-new-description" className={fieldHints.createLabelInline}>
-            {t('editor.description')}
-          </label>
-          <textarea
-            id="arch-new-description"
-            data-testid="arch-new-description-input"
-            value={newDescription}
-            onChange={(e) => setNewDescription(e.target.value)}
-            rows={3}
-            className={fieldHints.createInput}
-          />
+          <FormField
+            htmlFor="arch-new-description"
+            label={t('editor.description')}
+            required={field('description').required}
+            error={createFieldErrors.description?.join(', ')}
+            labelClassName={fieldHints.createLabelInline}
+          >
+            <textarea
+              id="arch-new-description"
+              data-testid="arch-new-description-input"
+              value={newDescription}
+              onChange={(e) => setNewDescription(e.target.value)}
+              rows={3}
+              className={fieldHints.createInput}
+              {...field('description').controlProps}
+            />
+          </FormField>
 
           <div className={styles.createActions}>
             {/* issue #719: shared btn-secondary/btn-primary pair, same as the

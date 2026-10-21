@@ -1392,6 +1392,7 @@
     "deleteFailed": "Failed to delete diagram.",
     "type": "Type",
     "source": "Source",
+    "sourceFormat": "Source format",
     "description": "Description",
     "name": "Name",
     "nameRequired": "Please enter a name.",
@@ -2668,6 +2669,7 @@
     "noneOption": "None",
     "unassignedOption": "Unassigned",
     "referenceIdPlaceholder": "Enter artifact id",
+    "requiredField": "required",
     "field": {
       "description": "Description",
       "context": "Context",

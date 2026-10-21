@@ -48,6 +48,7 @@ vi.mock("../../../../api/actors", () => ({
 
 vi.mock("../../../../context/WorkspaceContext", () => ({
   useWorkspace: () => ({ activeWorkspace: { id: "ws-1" } }),
+  useOptionalWorkspace: () => ({ activeWorkspace: { id: "ws-1" } }),
 }));
 
 import { ActorPicker } from "./ActorPicker";

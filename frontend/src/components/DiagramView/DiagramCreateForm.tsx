@@ -12,6 +12,8 @@
 import { useState, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
 import { useWorkspace } from "../../context/WorkspaceContext";
+import { FormField } from "../shared/FormField";
+import { useFieldContract } from "../../hooks/useFieldContract";
 import { useCreateDiagram } from "./useDiagramData";
 import {
   DEFAULT_CONTENT,
@@ -36,6 +38,21 @@ export interface DiagramCreateFormProps {
   nameInputRef?: RefObject<HTMLInputElement | null>;
 }
 
+/**
+ * GitHub #1393/#1392: `Diagram` is NOT an attribute-catalogue item type (no
+ * artifact lineage, so no definition to resolve), which is exactly what the
+ * `staticContracts` slot is for — the contract is declared once here instead
+ * of hand-writing `required` on the input. Both numbers are the model column's
+ * own (`diagram/models.py`: `name = CharField(max_length=500)`).
+ *
+ * Module scope, not an inline literal: an inline object would be a new identity
+ * on every render and would invalidate `useFieldContract`'s `field` callback on
+ * every render, contradicting its documented stability.
+ */
+const DIAGRAM_STATIC_CONTRACTS = {
+  name: { required: true, maxLength: 500 },
+} as const;
+
 export function DiagramCreateForm({
   onCreated,
   onCancel,
@@ -46,11 +63,18 @@ export function DiagramCreateForm({
   const { createDiagram, isSaving } = useCreateDiagram();
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [error, setError] = useState<string | null>(null);
+  // `staticContracts` is a module-scope constant (see above) so `field` keeps
+  // its documented identity across renders. `enabled: false` because `Diagram`
+  // has no definition to fetch.
+  const { field } = useFieldContract(null, {
+    enabled: false,
+    staticContracts: DIAGRAM_STATIC_CONTRACTS,
+  });
 
   const handleCreate = async (): Promise<void> => {
     if (!activeWorkspace) return;
     if (!form.name.trim()) {
-      setError(t("diagrams.nameRequired", "Name is required."));
+      setError(t("diagrams.nameRequired"));
       return;
     }
     setError(null);
@@ -78,23 +102,37 @@ export function DiagramCreateForm({
   return (
     <div data-testid="diagram-create-form">
       <h3 className={styles.heading}>
-        + {t("diagrams.create", "New Diagram")}
+        + {t("diagrams.create")}
       </h3>
       <div className={styles.grid}>
-        <label className={styles.label}>
-          {t("diagrams.name", "Name")}
-          <input
-            data-testid="diagram-name-input"
-            ref={nameInputRef}
-            type="text"
-            value={form.name}
-            onChange={(e) => setForm({ ...form, name: e.target.value })}
-            className={styles.input}
-          />
-        </label>
+        {/* `FormField` renders a FRAGMENT (label + control + error), so in this
+            2-column grid its label would land in r1c1 and its control in r1c2 —
+            label detached from control, and every following field shifted one
+            cell. `.fieldCell` is the single grid cell that keeps the three
+            nodes stacked, i.e. the same `<label class="label">` layout the
+            four hand-written fields below use. */}
+        <div className={styles.fieldCell}>
+          <FormField
+            htmlFor="diagram-name-input"
+            label={t("diagrams.name")}
+            required={field("name").required}
+            labelClassName={styles.label}
+          >
+            <input
+              id="diagram-name-input"
+              data-testid="diagram-name-input"
+              ref={nameInputRef}
+              type="text"
+              value={form.name}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+              className={styles.input}
+              {...field("name").controlProps}
+            />
+          </FormField>
+        </div>
 
         <label className={styles.label}>
-          {t("diagrams.type", "Type")}
+          {t("diagrams.type")}
           <select
             data-testid="diagram-type-select"
             value={form.diagram_type}
@@ -105,14 +143,14 @@ export function DiagramCreateForm({
           >
             {DIAGRAM_TYPES.map((tp) => (
               <option key={tp} value={tp}>
-                {t(`diagrams.typeLabels.${tp}`, tp)}
+                {t(`diagrams.typeLabels.${tp}`)}
               </option>
             ))}
           </select>
         </label>
 
         <label className={styles.label}>
-          {t("diagrams.source", "Source Format")}
+          {t("diagrams.sourceFormat")}
           <select
             data-testid="diagram-format-select"
             value={form.payload_format}
@@ -130,10 +168,10 @@ export function DiagramCreateForm({
                 keep canvas_stroke (freehand sketch) and mermaid/plantuml text formats. */}
             {PAYLOAD_FORMATS.filter((fmt) => fmt !== "json").map((fmt) => {
               const labels: Record<PayloadFormat, string> = {
-                node_graph: t("diagrams.formatLabels.nodeGraph", "Structured Graph"),
-                mermaid: t("diagrams.formatLabels.mermaid", "Mermaid Diagram"),
-                plantuml: t("diagrams.formatLabels.plantuml", "PlantUML"),
-                canvas_stroke: t("diagrams.formatLabels.canvasStroke", "Freehand Sketch"),
+                node_graph: t("diagrams.formatLabels.nodeGraph"),
+                mermaid: t("diagrams.formatLabels.mermaid"),
+                plantuml: t("diagrams.formatLabels.plantuml"),
+                canvas_stroke: t("diagrams.formatLabels.canvasStroke"),
                 json: "JSON", // filtered out but kept for type safety
               };
               return (
@@ -146,7 +184,7 @@ export function DiagramCreateForm({
         </label>
 
         <label className={styles.label}>
-          {t("diagrams.description", "Description")}
+          {t("diagrams.description")}
           <input
             data-testid="diagram-description-input"
             type="text"
@@ -157,7 +195,7 @@ export function DiagramCreateForm({
         </label>
 
         <label className={`${styles.label} ${styles.labelFull}`}>
-          {t("diagrams.source", "Source")}
+          {t("diagrams.source")}
           <textarea
             data-testid="diagram-source-textarea"
             value={form.content}
@@ -187,7 +225,7 @@ export function DiagramCreateForm({
             }}
             className={`btn-secondary ${styles.cancelBtn}`}
           >
-            {t("actions.cancel", "Cancel")}
+            {t("actions.cancel")}
           </button>
           <button
             type="button"
@@ -196,7 +234,7 @@ export function DiagramCreateForm({
             disabled={submitDisabled}
             className={`btn-primary ${styles.submitBtn} ${submitDisabled ? styles.submitBtnDisabled : ""}`}
           >
-            {isSaving ? t("actions.saving", "Saving...") : t("actions.save", "Save")}
+            {isSaving ? t("actions.saving") : t("actions.save")}
           </button>
         </div>
       </div>

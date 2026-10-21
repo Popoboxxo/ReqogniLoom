@@ -44,6 +44,7 @@ vi.mock("react-router-dom", async (importOriginal) => ({
 
 vi.mock("../../context/WorkspaceContext", () => ({
   useWorkspace: () => ({ activeWorkspace: { id: "ws-1", name: "WS" } }),
+  useOptionalWorkspace: () => ({ activeWorkspace: { id: "ws-1", name: "WS" } }),
 }));
 
 /** i18next-shaped `t`: resolves against en.json, pluralises on `count`, and

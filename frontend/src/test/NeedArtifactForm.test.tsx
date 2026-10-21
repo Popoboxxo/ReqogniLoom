@@ -50,6 +50,7 @@ vi.mock("../api/attribute-definitions", () => ({
 const useWorkspaceMock = vi.fn();
 vi.mock("../context/WorkspaceContext", () => ({
   useWorkspace: () => useWorkspaceMock(),
+  useOptionalWorkspace: () => useWorkspaceMock(),
 }));
 
 const NEED = {

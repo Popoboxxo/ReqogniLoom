@@ -27,6 +27,12 @@ vi.mock("../../context/WorkspaceContext", () => ({
       name: "Test Workspace",
     },
   }),
+  useOptionalWorkspace: () => ({
+    activeWorkspace: {
+      id: "test-workspace-id",
+      name: "Test Workspace",
+    },
+  }),
 }));
 
 vi.mock("../../api/metrics", async () => {

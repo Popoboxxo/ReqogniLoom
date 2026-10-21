@@ -16,10 +16,6 @@
   margin-bottom: var(--space-1);
 }
 
-.requiredMarker {
-  color: var(--color-danger);
-}
-
 .deleteReasonInput {
   width: 100%;
   box-sizing: border-box;
@@ -31,12 +27,6 @@
   color: var(--color-text);
   background: var(--color-surface);
   resize: vertical;
-}
-
-.deleteReasonError {
-  margin-top: var(--space-1);
-  color: var(--color-danger);
-  font-size: var(--font-size-sm);
 }
 
 /*

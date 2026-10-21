@@ -43,6 +43,10 @@ vi.mock("../context/WorkspaceContext", () => ({
     activeWorkspace: { id: "ws-001", preset: "standard" },
     workspaces: [{ id: "ws-001" }],
   }),
+  useOptionalWorkspace: () => ({
+    activeWorkspace: { id: "ws-001", preset: "standard" },
+    workspaces: [{ id: "ws-001" }],
+  }),
 }));
 
 // RequirementEditors gates several write actions behind useHasRole (R2/T1) —

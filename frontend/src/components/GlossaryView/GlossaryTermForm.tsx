@@ -10,6 +10,8 @@
  */
 import type { RefObject } from "react";
 import { useTranslation } from "react-i18next";
+import { FormField } from "../shared/FormField";
+import { useFieldContract } from "../../hooks/useFieldContract";
 import styles from "./GlossaryView.module.css";
 
 export interface GlossaryFormData {
@@ -18,6 +20,21 @@ export interface GlossaryFormData {
   synonyms: string;
   abbreviation: string;
 }
+
+/**
+ * GitHub #1393 regression guard: `term` and `definition` are REQUIRED by the
+ * model/create service, and the form must say so even while the server
+ * definition is still loading — and permanently if that request fails. The
+ * resolved definition (when it arrives) still wins, because `useFieldContract`
+ * prefers a server answer over `staticContracts`; this only replaces the
+ * fail-OPEN `required: false` default. `term` is bounded at 255 by
+ * `GlossaryTerm.term = CharField(max_length=255)` (`persistence/models.py`),
+ * the same number the definition publishes as `validation.length`.
+ */
+const GLOSSARY_STATIC_CONTRACTS = {
+  term: { required: true, maxLength: 255 },
+  definition: { required: true },
+} as const;
 
 interface GlossaryTermFormProps {
   formData: GlossaryFormData;
@@ -28,6 +45,8 @@ interface GlossaryTermFormProps {
   onSubmit: (e: React.FormEvent) => void;
   onFieldChange: (field: keyof GlossaryFormData, value: string) => void;
   onClose: () => void;
+  /** GitHub #1392: `details[].field` messages from the rejected save. */
+  fieldErrors?: Record<string, string[]>;
   children?: React.ReactNode;
 }
 
@@ -40,31 +59,77 @@ export function GlossaryTermForm({
   onSubmit,
   onFieldChange,
   onClose,
+  fieldErrors,
   children,
 }: GlossaryTermFormProps): JSX.Element {
   const { t } = useTranslation();
+  // GitHub #1393/#1392: `term` and `definition` are required and `term` is
+  // bounded at 255 characters by the model. The form is only mounted while the
+  // create dialog or the edit pane is open, so the definition is fetched then.
+  // The static fallback keeps both facts true before/without a server answer.
+  const { field } = useFieldContract("GlossaryTerm", {
+    enabled: true,
+    staticContracts: GLOSSARY_STATIC_CONTRACTS,
+  });
+  const errors = fieldErrors ?? {};
 
   return (
-    <form onSubmit={onSubmit} data-testid="glossary-form">
+    <form onSubmit={onSubmit} data-testid="glossary-form" noValidate>
       {heading && <h2 className={styles.formHeading}>{heading}</h2>}
       <div className={styles.formGrid}>
         <div>
-          <label className={styles.fieldLabel} htmlFor="glossary-term-input">
-            {t("glossary.term")} *
-          </label>
-          <input id="glossary-term-input" required className={styles.input} value={formData.term} onChange={(e) => onFieldChange("term", e.target.value)} disabled={!!editingId} ref={termInputRef} />
+          <FormField
+            htmlFor="glossary-term-input"
+            label={t("glossary.term")}
+            required={field("term").required}
+            error={errors.term?.join(", ")}
+            labelClassName={styles.fieldLabel}
+          >
+            <input
+              id="glossary-term-input"
+              className={styles.input}
+              value={formData.term}
+              onChange={(e) => onFieldChange("term", e.target.value)}
+              disabled={!!editingId}
+              ref={termInputRef}
+              {...field("term").controlProps}
+            />
+          </FormField>
         </div>
         <div>
-          <label className={styles.fieldLabel} htmlFor="glossary-abbreviation-input">
-            {t("glossary.abbreviation")}
-          </label>
-          <input id="glossary-abbreviation-input" className={styles.input} value={formData.abbreviation} onChange={(e) => onFieldChange("abbreviation", e.target.value)} />
+          <FormField
+            htmlFor="glossary-abbreviation-input"
+            label={t("glossary.abbreviation")}
+            required={field("abbreviation").required}
+            error={errors.abbreviation?.join(", ")}
+            labelClassName={styles.fieldLabel}
+          >
+            <input
+              id="glossary-abbreviation-input"
+              className={styles.input}
+              value={formData.abbreviation}
+              onChange={(e) => onFieldChange("abbreviation", e.target.value)}
+              {...field("abbreviation").controlProps}
+            />
+          </FormField>
         </div>
         <div className={styles.formGridFullRow}>
-          <label className={styles.fieldLabel} htmlFor="glossary-definition-input">
-            {t("glossary.definition")} *
-          </label>
-          <textarea id="glossary-definition-input" required rows={3} className={`${styles.input} ${styles.textareaResize}`} value={formData.definition} onChange={(e) => onFieldChange("definition", e.target.value)} />
+          <FormField
+            htmlFor="glossary-definition-input"
+            label={t("glossary.definition")}
+            required={field("definition").required}
+            error={errors.definition?.join(", ")}
+            labelClassName={styles.fieldLabel}
+          >
+            <textarea
+              id="glossary-definition-input"
+              rows={3}
+              className={`${styles.input} ${styles.textareaResize}`}
+              value={formData.definition}
+              onChange={(e) => onFieldChange("definition", e.target.value)}
+              {...field("definition").controlProps}
+            />
+          </FormField>
         </div>
         <div className={styles.formGridFullRow}>
           <label className={styles.fieldLabel} htmlFor="glossary-synonyms-input">

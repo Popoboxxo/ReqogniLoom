@@ -7,6 +7,10 @@ import { useInterviewStartCta } from '../shared/useInterviewStartCta';
 import { IncludeDeletedToggle } from '../shared/IncludeDeletedToggle/IncludeDeletedToggle';
 import { ConfirmDialog } from '../shared/ConfirmDialog';
 import { EditorPageShell } from '../shared/EditorPageShell';
+import { FormField } from '../shared/FormField';
+import { fieldErrorsFromException } from '../shared/ArtifactForm/field-errors';
+import { useFieldContract } from '../../hooks/useFieldContract';
+import { extractApiErrorMessage } from '../../api/client';
 import { TestCaseList } from './TestCaseList';
 import { TestCaseArtifactForm } from './TestCaseArtifactForm';
 import { CustomFieldsEditor } from '../shared/CustomFieldsEditor';
@@ -69,8 +73,17 @@ export default function TestCaseEditors(): JSX.Element {
   // documented default; empty string = "Not specified" (column left NULL).
   const [newTestType, setNewTestType] = useState<TestCaseType | ''>(DEFAULT_TEST_TYPE);
   const [createError, setCreateError] = useState<string | null>(null);
+  // GitHub #1392 (second half): a 400 names the offending field
+  // (`details[].field`) — that message belongs next to the control, not
+  // only in the dialog's generic banner.
+  const [createFieldErrors, setCreateFieldErrors] = useState<Record<string, string[]>>({});
   const [isCreating, setIsCreating] = useState(false);
   const titleInputRef = useRef<HTMLInputElement>(null);
+  // GitHub #1393/#1392: `required` and `maxLength` come from the
+  // workspace's own configuration (create-form definition first, the
+  // attribute definition as the documented fallback) — never from a
+  // constant in this file.
+  const { field } = useFieldContract('TestCase', { enabled: showCreateDialog });
 
   // Systemaudit 2026-08-27 UI-07: does the currently-open TestCaseForm have
   // unsaved local edits? Reported by the form itself via onDirtyChange.
@@ -109,6 +122,7 @@ export default function TestCaseEditors(): JSX.Element {
 
   const openCreateDialog = useCallback((): void => {
     setCreateError(null);
+    setCreateFieldErrors({});
     setNewTitle('');
     setNewDescription('');
     // #953: every newly opened dialog starts on the documented default again.
@@ -125,6 +139,7 @@ export default function TestCaseEditors(): JSX.Element {
   const closeCreateDialog = useCallback((): void => {
     setShowCreateDialog(false);
     setCreateError(null);
+    setCreateFieldErrors({});
   }, []);
 
   const handleCreateNew = async (): Promise<void> => {
@@ -133,6 +148,7 @@ export default function TestCaseEditors(): JSX.Element {
     if (!activeWorkspace) return;
     if (!newTitle.trim()) return;
     setCreateError(null);
+    setCreateFieldErrors({});
     setIsCreating(true);
     try {
       const resp = await testcasesApi.create({
@@ -151,8 +167,12 @@ export default function TestCaseEditors(): JSX.Element {
       navigate(`/testcases/${resp.id}`);
     } catch (e) {
       console.error(e);
-      const msg = (e as { error?: { message?: string } })?.error?.message ?? t('testcases.createFailed');
+      const msg = extractApiErrorMessage(e) ?? t('testcases.createFailed');
+      // The banner keeps the overall reason (a failure with no field
+      // detail must stay visible); the per-field half renders under the
+      // control that was named.
       setCreateError(msg);
+      setCreateFieldErrors(fieldErrorsFromException(e, msg));
     } finally {
       setIsCreating(false);
     }
@@ -390,50 +410,66 @@ export default function TestCaseEditors(): JSX.Element {
         error={createError}
         errorClassName={styles.createError}
       >
-        <label
+        {/* #1393: required marker from the server contract; #1392: `maxLength`
+            from the same definition (`TestCase.title` is 500 characters). */}
+        <FormField
           htmlFor="tc-new-title"
-          className={styles.createLabel}
+          label={t('editor.title', 'Title')}
+          required={field('title').required}
+          error={createFieldErrors.title?.join(', ')}
+          labelClassName={styles.createLabel}
         >
-          {t('editor.title', 'Title')}
-        </label>
-        <input
-          ref={titleInputRef}
-          id="tc-new-title"
-          data-testid="tc-new-title-input"
-          type="text"
-          value={newTitle}
-          onChange={(e) => setNewTitle(e.target.value)}
-          placeholder={t('testcases.titlePlaceholder')}
-          className={styles.createInput}
-        />
+          <input
+            ref={titleInputRef}
+            id="tc-new-title"
+            data-testid="tc-new-title-input"
+            type="text"
+            value={newTitle}
+            onChange={(e) => setNewTitle(e.target.value)}
+            placeholder={t('testcases.titlePlaceholder')}
+            className={styles.createInput}
+            {...field('title').controlProps}
+          />
+        </FormField>
 
         {/* BUG-11: description — an ordinary testcasesApi.create() field
             the backend already accepts, previously missing here. */}
-        <label htmlFor="tc-new-description" className={fieldHints.createLabel}>
-          {t('editor.description', 'Description')}
-        </label>
-        <textarea
-          id="tc-new-description"
-          data-testid="tc-new-description-input"
-          value={newDescription}
-          onChange={(e) => setNewDescription(e.target.value)}
-          rows={3}
-          className={fieldHints.createInput}
-        />
+        <FormField
+          htmlFor="tc-new-description"
+          label={t('editor.description', 'Description')}
+          required={field('description').required}
+          error={createFieldErrors.description?.join(', ')}
+          labelClassName={fieldHints.createLabel}
+        >
+          <textarea
+            id="tc-new-description"
+            data-testid="tc-new-description-input"
+            value={newDescription}
+            onChange={(e) => setNewDescription(e.target.value)}
+            rows={3}
+            className={fieldHints.createInput}
+            {...field('description').controlProps}
+          />
+        </FormField>
 
         {/* #864: real `TestCase.test_type` column — the create contract
             accepts it. #953: preselected to the documented default
             (`unit`); "Not specified" remains an explicit user choice that
             leaves the column NULL. */}
-        <label htmlFor="tc-new-test-type" className={fieldHints.createLabel}>
-          {t('testcases.testType.label', 'Test Type')}
-        </label>
+        <FormField
+          htmlFor="tc-new-test-type"
+          label={t('testcases.testType.label', 'Test Type')}
+          required={field('test_type').required}
+          error={createFieldErrors.test_type?.join(', ')}
+          labelClassName={fieldHints.createLabel}
+        >
         <select
           id="tc-new-test-type"
           data-testid="tc-new-test-type-select"
           value={newTestType}
           onChange={(e) => setNewTestType(e.target.value as TestCaseType | '')}
           className={fieldHints.createInput}
+          {...field('test_type').selectProps}
         >
           <option value="">{t('testcases.testType.none', 'Not specified')}</option>
           {TEST_TYPE_OPTIONS.map((type) => (
@@ -442,6 +478,7 @@ export default function TestCaseEditors(): JSX.Element {
             </option>
           ))}
         </select>
+        </FormField>
       </EditorPageShell>
     </div>
   );

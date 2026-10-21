@@ -16,6 +16,7 @@ import enLocale from "../../i18n/locales/en.json";
 
 vi.mock("../../context/WorkspaceContext", () => ({
   useWorkspace: () => ({ activeWorkspace: { id: "ws-001", name: "WS" } }),
+  useOptionalWorkspace: () => ({ activeWorkspace: { id: "ws-001", name: "WS" } }),
 }));
 
 vi.mock("react-i18next", () => ({

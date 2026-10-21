@@ -190,6 +190,12 @@ export function EditorPageShell({
       <form
         id={formId}
         ref={formRef}
+        // The controls carry a native `required` attribute (via
+        // `useFieldContract`'s `controlProps`) for `:required` styling and the
+        // accessible flag. `noValidate` keeps the browser's validation bubble
+        // from pre-empting the app's own error flow — the `details[].field`
+        // messages rendered per field, exactly as `ArtifactForm` already does.
+        noValidate
         onSubmit={(event) => {
           event.preventDefault();
           void submit();

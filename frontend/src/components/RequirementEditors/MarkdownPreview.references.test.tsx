@@ -19,6 +19,9 @@ vi.mock("../../context/WorkspaceContext", () => ({
   useWorkspace: () => ({
     activeWorkspace: { id: "ws-1", name: "WS", glossary_reference_mode: workspaceMode },
   }),
+  useOptionalWorkspace: () => ({
+    activeWorkspace: { id: "ws-1", name: "WS", glossary_reference_mode: workspaceMode },
+  }),
 }));
 
 vi.mock("../../api/glossary", () => ({
