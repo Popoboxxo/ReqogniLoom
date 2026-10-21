@@ -41,6 +41,11 @@ def _load(module_name: str, file_path: Path):
 # reqogniloom_client.py), so no extra package-loading trick is needed here.
 plugin_api = _load("reqogniloom_plugin_api_under_test", _PLUGIN_ROOT / "dashboard" / "plugin_api.py")
 
+# The *same* client module plugin_api imported (flat name, sys.path already
+# prepared above). A second copy would define a second ReqogniLoomError class and
+# the handlers' except clause would not catch its exceptions.
+import reqogniloom_client as client_module  # noqa: E402
+
 _WORKSPACE_ID = "11111111-1111-1111-1111-111111111111"
 _WORKSPACE_NAME = "Confidential Workspace"
 _COUNTS = {"requirements": 42, "testcases": 7, "open_interviews": 3}
@@ -116,6 +121,39 @@ class DashboardApiTests(unittest.TestCase):
         with patch.object(plugin_api, "ReqogniLoomClient", return_value=fake_client):
             result = plugin_api.workspaces()
         self.assertIn("error", result)
+
+    def test_workspaces_endpoint_reports_permission_denial_with_its_status(self) -> None:
+        # Issue #1443: the tab rendered "none visible" for a 403, because an error
+        # envelope has no "workspaces" key and the UI read that as an empty list.
+        # The envelope therefore has to be distinguishable from an empty list and
+        # has to name the refusal — the HTTP status is what separates "this key
+        # may not list workspaces" (403) from "the backend broke" (5xx).
+        with self.assertRaises(client_module._PermissionError) as ctx:
+            # Exactly the server's answer from the issue: HTTP 403 plus a nested
+            # error object whose code is the string name.
+            client_module._raise_for_error_payload(
+                {"error": {"code": "PERMISSION_DENIED", "message": "RBAC denied: no active role permits 'read'"}},
+                http_status=403,
+            )
+        denial = ctx.exception
+        self.assertEqual(getattr(denial, "status", None), 403)
+
+        fake_client = MagicMock()
+        fake_client.list_workspaces.side_effect = denial
+        with patch.object(plugin_api, "ReqogniLoomClient", return_value=fake_client):
+            result = plugin_api.workspaces()
+        # No "workspaces" key: a caller must never mistake this for "none exist".
+        self.assertNotIn("workspaces", result)
+        self.assertIn("RBAC denied", result["error"])
+        self.assertEqual(result["code"], "PERMISSION_DENIED")
+        self.assertEqual(result["status"], 403)
+
+    def test_error_payload_keeps_its_shape_for_failures_without_a_status(self) -> None:
+        # The status key is additive: a failure that never touched HTTP (a
+        # registry refusal, a shape problem) keeps the exact former payload, so
+        # existing consumers see no change at all.
+        result = plugin_api._error(plugin_api.ReqogniLoomError("unexpected list response"))
+        self.assertEqual(result, {"error": "unexpected list response"})
 
     def test_version_endpoint(self) -> None:
         fake_client = MagicMock()
