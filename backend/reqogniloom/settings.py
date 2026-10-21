@@ -23,6 +23,14 @@ from celery.schedules import crontab
 from decouple import Csv, UndefinedValueError, config
 from django.core.exceptions import ImproperlyConfigured
 
+# #1397: the conditional-request paragraph of the published API description is
+# produced by the same module that lists the operations honouring ``If-Match``,
+# so the prose and the machine-readable allowlist cannot drift. Imported at
+# module level (not inside ``SPECTACULAR_SETTINGS``) so a broken import is a
+# startup error rather than a silently missing paragraph; the module is a
+# constants-only leaf with no Django imports, so importing it this early is safe.
+from rest_api.conditional_requests import CONDITIONAL_REQUESTS_DESCRIPTION
+
 
 def _get_required_secret(key: str) -> str:
     """
@@ -700,6 +708,8 @@ SPECTACULAR_SETTINGS = {
         "header, a Bearer token, or the session cookie — see the BearerAuth "
         "security scheme for the precedence and the fail-closed rule. "
         "Schema endpoints (/api/v1/schema/, /api/v1/schema/swagger-ui/) are public."
+        # #1397: which resources support conditional requests (and which do not).
+        "\n\n" + CONDITIONAL_REQUESTS_DESCRIPTION
     ),
     "VERSION": "0.1.0",
     "SERVE_INCLUDE_SCHEMA": False,

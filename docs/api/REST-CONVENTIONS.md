@@ -64,21 +64,31 @@ Two further rules the table implies:
 A `PATCH` with neither header nor body field is **last-writer-wins**. That is
 not an oversight: it is the behaviour for callers that do not track versions.
 
-### Which resources
+### Which resources — conditional requests are opt-in
 
-| Resource | `ETag` on GET/PATCH | `If-Match` | `expected_version` |
-|----------|--------------------|------------|--------------------|
+Four resources support them:
+
+| Resource | `ETag` on GET/PATCH | `If-Match` on PATCH | `412` declared |
+|----------|--------------------|---------------------|----------------|
 | `/api/v1/requirements/{id}/` | yes | yes | yes |
-| `/api/v1/test-cases/{id}/` (alias `testcases`) | yes | yes | yes |
-| `/api/v1/architecture/{id}/` | — | — | yes |
-| `/api/v1/needs/{id}/` | — | — | yes |
-| `/api/v1/adrs/{id}/` | — | — | yes |
-| `/api/v1/risks/{id}/` | — | — | yes |
-| `/api/v1/issues/{id}/` | — | — | yes |
-| `/api/v1/change-requests/{id}/` | — | — | yes |
-| `/api/v1/glossary/{id}/` | — | — | yes |
+| `/api/v1/test-cases/{id}/` (legacy alias `testcases`) | yes | yes | yes (`testcases` too) |
 | `/api/v1/workspaces/{id}/` | yes | yes | yes |
-| `/api/v1/baselines/{id}/` | yes | yes (`412`) | n/a — baselines are immutable, PATCH answers `405` |
+| `/api/v1/baselines/{id}/` | yes — a `created_at` timestamp, not a counter | yes — evaluated *before* the `405` | yes |
+
+Everything below does **not** support conditional requests: it emits no `ETag`
+and ignores `If-Match`. Its `PATCH` still accepts the `expected_version` **body**
+field (stale → `409 CONFLICT`), which is the older, non-HTTP half of the same
+guarantee.
+
+| Resource | `ETag` | `If-Match` | `expected_version` |
+|----------|--------|------------|--------------------|
+| `/api/v1/architecture/{id}/` | — | ignored | yes |
+| `/api/v1/needs/{id}/` | — | ignored | yes |
+| `/api/v1/adrs/{id}/` | — | ignored | yes |
+| `/api/v1/risks/{id}/` | — | ignored | yes |
+| `/api/v1/issues/{id}/` | — | ignored | yes |
+| `/api/v1/change-requests/{id}/` | — | ignored | yes |
+| `/api/v1/glossary/{id}/` | — | ignored | yes |
 | `POST .../transitions/` | workflow revision in the response | yes, but means the **workflow** revision | yes, but means the **entity** version |
 | `goal`, `main-goal` | — | — | not enforced (lineage-versioned; updates append a version) |
 | `test-runs` | — | — | not declared — sending it is an unknown field (`400`) |
@@ -88,13 +98,41 @@ counter `expected_version` compares against, so the two can never disagree
 about which revision is current. Entities without a `version` counter fall back
 to a timestamp tag; that is the `Baseline` case.
 
-The generated OpenAPI document declares the `412` response on every
-ETag-enabled `PATCH` operation (workspace, requirement, test case, baseline), so
-a generated client can build the retry-on-precondition-failed path from the
-contract instead of discovering it at runtime (`#1244`). A `PATCH` on a workspace
-that changes nothing the user recognises still advances the counter: `version`
-is a concurrency token, not a content revision number (see the note on
-`AuditableModel.version`).
+A `PATCH` on a workspace that changes nothing the user recognises still advances
+the counter: `version` is a concurrency token, not a content revision number
+(see the note on `AuditableModel.version`).
+
+### No `412` without `If-Match` (`#1397`)
+
+The `412` a generated client retries on is only meaningful together with the
+request header that produces it, so the contract pairs them:
+
+* the OpenAPI document declares `412` on exactly the four `PATCH` operations
+  above — five path entries, because `TestCaseViewSet` is routed twice — and
+  declares an **optional** `If-Match` header parameter on exactly the same five;
+* no operation outside that set declares `412`, and no operation outside it
+  declares `If-Match`. Both directions are a contract bug: a `412` on a route
+  that ignores the header advertises a failure a client cannot avoid, and an
+  `If-Match` parameter on a route that ignores it advertises protection the
+  server does not give.
+
+The single source of truth is `backend/rest_api/conditional_requests.py`
+(`CONDITIONAL_REQUEST_OPERATIONS`, `UNSUPPORTED_CONDITIONAL_FAMILIES`); it also
+produces the conditional-request paragraph of the published schema description.
+`backend/rest_api/tests/test_conditional_request_contract_1397.py` regenerates
+the schema in-process and fails if the document and that module disagree. Adding
+an entry requires the route to actually evaluate the header
+(`ETagMixin.check_if_match` / `ETagMixin.resolve_expected_version`) **and** to
+emit the `ETag` its clients condition against.
+
+**Why only these four.** They are the only resources whose `ETag` derives from a
+monotonic `version` counter (or, for the immutable `Baseline`, a stable
+timestamp) that `expected_version` already compares against — an `ETag` and a
+body field therefore can never disagree about which revision is current.
+Retro-fitting `ETag`/`If-Match` onto the other six artifact families would add a
+write precondition to six ViewSets with no client demand: a stale header would
+start refusing writes that answered `200` before. That is a behaviour change,
+not a contract-honesty fix, so those families remain explicitly *not* conditional.
 
 ### `transitions/` is a different lock
 

@@ -220,12 +220,46 @@ from rest_api.serializers import (
 # GH-868/GH-923/#1244: the standard body for a stale ``If-Match``. Declared per
 # ETag-enabled PATCH operation (not injected globally) because only those routes
 # can answer it — a global 412 on every operation would advertise a precondition
-# two thirds of the surface does not enforce.
+# two thirds of the surface does not enforce. The machine-readable list of the
+# operations that declare it (and of the families that must not) lives in
+# ``rest_api.conditional_requests``; #1397's gate test asserts the generated
+# document against it in both directions.
 _PRECONDITION_FAILED_RESPONSE = OpenApiResponse(
     response=ErrorResponseSerializer,
     description=(
-        "Precondition failed: the ``If-Match`` entity-tag no longer matches the "
-        "current version of the resource. Re-read it and retry."
+        "Precondition failed: the ``If-Match`` precondition did not hold — no "
+        "strong entity-tag in the header matches the resource's current "
+        "``ETag`` (a stale tag, or a ``W/``-prefixed weak validator, which "
+        "``If-Match``'s strong comparison can never match). A stale body "
+        "``expected_version`` also lands here when an ``If-Match`` header is "
+        "present. Re-read the resource — ``ETag`` is returned by both GET and "
+        "PATCH — and retry with the fresh tag. Without an ``If-Match`` header "
+        "this status is never answered: a stale ``expected_version`` body "
+        "field is a 409 CONFLICT."
+    ),
+)
+
+# #1397: the request header every 412 above is actually about. Declared once and
+# referenced by all four ETag-enabled PATCH operations, so the document cannot
+# drift from ``_PRECONDITION_FAILED_RESPONSE`` — before this, the schema
+# advertised a 412 on those routes while declaring no header anywhere, leaving a
+# generated client unable to build the guarded request at all.
+_IF_MATCH_PARAMETER = OpenApiParameter(
+    name="If-Match",
+    type=str,
+    location=OpenApiParameter.HEADER,
+    required=False,
+    description=(
+        "Optional strong entity-tag precondition (RFC 9110 § 13.1.1). Send the "
+        "``ETag`` value a previous GET or PATCH of this resource returned, "
+        "quoted — e.g. ``\"7\"``. ``*`` matches any existing representation and "
+        "asserts no revision. Comparison is *strong*, so a weak validator "
+        "(``W/\"7\"``) never matches. A stale or weak tag answers 412 "
+        "PRECONDITION_FAILED; a malformed field-value (unquoted, unbalanced "
+        "quotes, blank, or a list containing a bad member) answers 400 "
+        "INVALID_IF_MATCH. Omitting the header falls back to the "
+        "``expected_version`` body field (stale -> 409 CONFLICT). When both are "
+        "sent the header wins."
     ),
 )
 
@@ -1447,10 +1481,12 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         )
 
     @extend_schema(
+        # #1397: the header the declared 412 is conditioned on.
+        parameters=[_IF_MATCH_PARAMETER],
         responses={
             200: RequirementSerializer,
             412: _PRECONDITION_FAILED_RESPONSE,
-        }
+        },
     )
     def partial_update(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """PATCH /api/v1/requirements/{pk}/ — update a requirement. Returns 200.
@@ -3623,10 +3659,14 @@ class TestCaseViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         )
 
     @extend_schema(
+        # #1397: the header the declared 412 is conditioned on. Both router
+        # spellings (``testcases`` and ``test-cases``) document it, because they
+        # are this same view.
+        parameters=[_IF_MATCH_PARAMETER],
         responses={
             200: TestCaseSerializer,
             412: _PRECONDITION_FAILED_RESPONSE,
-        }
+        },
     )
     def partial_update(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """PATCH /api/v1/testcases/{pk}/ — update a test case. Returns 200.
@@ -5078,6 +5118,10 @@ class BaselineViewSet(BaseEntityViewSet):
         return Response(BaselineDiffSerializer(payload).data)
 
     @extend_schema(
+        # #1397: the header the declared 412 is conditioned on. This is the one
+        # route whose ETag is a timestamp rather than a version counter (see
+        # ``ETagMixin.compute_etag``); it compares as an opaque tag either way.
+        parameters=[_IF_MATCH_PARAMETER],
         responses={
             405: OpenApiResponse(
                 response=ErrorResponseSerializer,
@@ -5087,7 +5131,7 @@ class BaselineViewSet(BaseEntityViewSet):
                 ),
             ),
             412: _PRECONDITION_FAILED_RESPONSE,
-        }
+        },
     )
     def partial_update(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """PATCH /api/v1/baselines/{pk}/ — always 405: baselines are immutable.
@@ -6492,10 +6536,12 @@ class WorkspaceViewSet(BaseEntityViewSet):
         )
 
     @extend_schema(
+        # #1397: the header the declared 412 is conditioned on.
+        parameters=[_IF_MATCH_PARAMETER],
         responses={
             200: WorkspaceSerializer,
             412: _PRECONDITION_FAILED_RESPONSE,
-        }
+        },
     )
     def partial_update(self, request: Request, pk: str = None, **kwargs: Any) -> Response:
         """PATCH /api/v1/workspaces/{pk}/ — update workspace metadata.
