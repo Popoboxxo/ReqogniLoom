@@ -175,3 +175,72 @@ def test_candidate_cache_is_per_workspace_and_restores_the_outer_run(
                 assert _architecture_artifact_ids(
                     tenant_a.id, workspace_a.id
                 ) == frozenset({str(element_a.id)})
+
+
+# ---------------------------------------------------------------------------
+# Review finding F5 — the candidate memo must be keyed by tenant + workspace
+# ---------------------------------------------------------------------------
+
+
+def test_candidate_cache_key_covers_tenant_and_workspace(
+    django_assert_max_num_queries, tenant_a, tenant_b, workspace_a, workspace_b_tenant_b
+):
+    """The *same* open run must not answer a different tenant/workspace.
+
+    ``_memoized_candidates`` used to key on the slot name alone while the cache
+    object carried the tenant/workspace it was opened for and never compared
+    them. Any caller that asked the same open run about a second
+    tenant/workspace (two workspaces audited inside one outer
+    ``remediation_run_cache``, or a reused context) therefore received the
+    first one's candidate set — which turns a TRACE-P1/P2 "exactly one
+    candidate" verdict into a wrong Adopt proposal. Both dimensions are part of
+    the slot key now, so the second question misses and re-queries.
+    """
+    with active_tenant(tenant_a):
+        workspace_2 = make_workspace(tenant_a, name="WS-1385-f5-same-tenant")
+        element_a = make_artifact(tenant_a, workspace_a, artifact_type="ArchitectureElement")
+        ArchitectureElement.objects.create(
+            tenant=tenant_a, artifact=element_a, title="Element A"
+        )
+        element_2 = make_artifact(tenant_a, workspace_2, artifact_type="ArchitectureElement")
+        ArchitectureElement.objects.create(
+            tenant=tenant_a, artifact=element_2, title="Element 2"
+        )
+
+    with active_tenant(tenant_b):
+        element_b = make_artifact(
+            tenant_b, workspace_b_tenant_b, artifact_type="ArchitectureElement"
+        )
+        ArchitectureElement.objects.create(
+            tenant=tenant_b, artifact=element_b, title="Element B"
+        )
+
+    # One run cache, opened for (tenant_a, workspace_a).
+    with remediation_run_cache(tenant_a.id, workspace_a.id):
+        assert _architecture_artifact_ids(tenant_a.id, workspace_a.id) == frozenset(
+            {str(element_a.id)}
+        )
+
+        # Same tenant, different workspace: must miss and query.
+        with django_assert_max_num_queries(1):
+            assert _architecture_artifact_ids(
+                tenant_a.id, workspace_2.id
+            ) == frozenset({str(element_2.id)})
+
+        # Different tenant, different workspace: must miss and query too.
+        with django_assert_max_num_queries(1):
+            assert _architecture_artifact_ids(
+                tenant_b.id, workspace_b_tenant_b.id
+            ) == frozenset({str(element_b.id)})
+
+        # All three answers stay memoised, each for its own scope.
+        with django_assert_max_num_queries(0):
+            assert _architecture_artifact_ids(
+                tenant_a.id, workspace_a.id
+            ) == frozenset({str(element_a.id)})
+            assert _architecture_artifact_ids(
+                tenant_a.id, workspace_2.id
+            ) == frozenset({str(element_2.id)})
+            assert _architecture_artifact_ids(
+                tenant_b.id, workspace_b_tenant_b.id
+            ) == frozenset({str(element_b.id)})

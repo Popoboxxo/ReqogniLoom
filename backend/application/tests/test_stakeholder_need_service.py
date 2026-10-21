@@ -516,12 +516,18 @@ class TestSoftDeleteStakeholderNeed:
         ) as mock_select:
             mock_qs = MagicMock()
             mock_qs.filter.return_value = mock_qs
-            mock_qs.exclude.return_value = []
+            # #1390: the queryset is ordered before it is materialised, so the
+            # order_by() link sits between exclude() and list().
+            mock_qs.exclude.return_value = mock_qs
+            mock_qs.order_by.return_value = []
             mock_select.return_value = mock_qs
 
             result = svc.list_by_workspace(ctx=ctx, workspace_id=WS_ID)
 
         mock_qs.exclude.assert_called_once()
+        # #1390: (created_at, id) — a deterministic order is required because
+        # the ViewSet paginates this in-memory list.
+        mock_qs.order_by.assert_called_once_with("created_at", "id")
         assert result == []
 
     def test_list_by_workspace_include_deleted_returns_all(self):
@@ -533,12 +539,16 @@ class TestSoftDeleteStakeholderNeed:
             "application.stakeholder_need_service.StakeholderNeed.objects.select_related"
         ) as mock_select:
             mock_qs = MagicMock()
-            mock_qs.filter.return_value = []
+            mock_qs.filter.return_value = mock_qs
+            mock_qs.order_by.return_value = []
             mock_select.return_value = mock_qs
 
             result = svc.list_by_workspace(ctx=ctx, workspace_id=WS_ID, include_deleted=True)
 
         mock_qs.exclude.assert_not_called()
+        # #1390: ordering applies on this branch too.
+        mock_qs.order_by.assert_called_once_with("created_at", "id")
+        assert result == []
 
 
 # ---------------------------------------------------------------------------

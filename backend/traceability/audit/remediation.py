@@ -221,16 +221,20 @@ def clear_remediation_registry() -> None:  # pragma: no cover — test/tooling h
 # ``AuditService.run_audit`` analyses the remediation of *every* returned
 # finding, and the candidate-based remediations below (TRACE-P1, TRACE-P2) ask
 # the same workspace-level question once per finding: "how many active
-# StakeholderNeeds / ArchitectureElements exist here?". The answer cannot
-# change during one read-only audit run, but before #1385 it was re-queried per
-# finding — 50 identical scans of ``pl_architecture_element`` for a run with 50
-# unallocated Requirements, which dominated the whole run's query count.
+# StakeholderNeeds / ArchitectureElements exist here?". Before #1385 that
+# answer was re-queried per finding — 50 identical scans of
+# ``pl_architecture_element`` for a run with 50 unallocated Requirements, which
+# dominated the whole run's query count.
 #
 # The memo is therefore scoped to exactly one run: the application layer opens
 # :func:`remediation_run_cache` around its per-finding proposal loop and the
 # helpers below serve every call inside it from one query. Deliberately NOT a
 # process-wide cache: a StakeholderNeed created between two runs must be
-# visible to the second run, so the memo's lifetime is a run, never a TTL.
+# visible to the second run, so the memo's lifetime is a run, never a TTL. The
+# guarantee is only "one read per run", **not** isolation: the reads run under
+# the default ``READ COMMITTED`` with no wrapping transaction
+# (``ATOMIC_REQUESTS`` is off), so a concurrent write committed mid-run is
+# visible to a later, not-yet-memoised question of the same run.
 #
 # Mechanism note: a ``ContextVar`` (not an argument threaded through
 # ``Remediation.propose``) keeps the ``Remediation`` ABC unchanged for every
@@ -289,14 +293,33 @@ def remediation_run_cache(
         _active_run_cache.reset(token)
 
 
-def _memoized_candidates(key: str, factory: Callable[[], _T]) -> _T:
-    """Return *factory*'s value for the active run, or call it uncached."""
+def _memoized_candidates(
+    key: str, factory: Callable[[], _T], *, tenant_id: str, workspace_id: str
+) -> _T:
+    """Return *factory*'s value for the active run, or call it uncached.
+
+    The cache slot is keyed by ``(tenant_id, workspace_id, key)``, not by *key*
+    alone (review finding F5): the memo is a process/context-local cache that a
+    caller can open for one run and then — in the same context — ask a question
+    about a *different* tenant or workspace (e.g. two workspaces audited
+    sequentially inside one outer ``remediation_run_cache``, or a test that
+    reuses a context). With a bare *key* the second call would silently receive
+    the first tenant's candidate set, which would turn a TRACE-P1/P2
+    "auto-fixable: exactly one candidate" verdict into a wrong Adopt proposal.
+
+    Args:
+        key: Caller-namespaced slot name (rule id scope).
+        factory: Zero-argument callable computing the value on a miss.
+        tenant_id: Tenant the value is derived from — part of the cache key.
+        workspace_id: Workspace the value is derived from — part of the cache key.
+    """
     cache = _active_run_cache.get()
     if cache is None:
         return factory()
-    if key not in cache.entries:
-        cache.entries[key] = factory()
-    return cache.entries[key]
+    slot = f"{tenant_id}:{workspace_id}:{key}"
+    if slot not in cache.entries:
+        cache.entries[slot] = factory()
+    return cache.entries[slot]
 
 
 # ---------------------------------------------------------------------------
@@ -315,6 +338,8 @@ def _stakeholder_need_artifact_ids(tenant_id: str, workspace_id: str) -> frozens
     return _memoized_candidates(
         "stakeholder_need_artifact_ids",
         lambda: _compute_stakeholder_need_artifact_ids(tenant_id, workspace_id),
+        tenant_id=tenant_id,
+        workspace_id=workspace_id,
     )
 
 
@@ -365,6 +390,8 @@ def _architecture_artifact_ids(tenant_id: str, workspace_id: str) -> frozenset[s
     return _memoized_candidates(
         "architecture_artifact_ids",
         lambda: _compute_architecture_artifact_ids(tenant_id, workspace_id),
+        tenant_id=tenant_id,
+        workspace_id=workspace_id,
     )
 
 

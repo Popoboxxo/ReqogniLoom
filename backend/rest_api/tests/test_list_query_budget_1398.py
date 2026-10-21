@@ -203,3 +203,102 @@ def test_governance_list_query_budget_without_attribution() -> None:
 
     for endpoint, count in counts.items():
         assert count <= 20, f"{endpoint} list costs {count} queries for 55 rows"
+
+
+# ---------------------------------------------------------------------------
+# Review finding F4 — architecture-element and test-case list DTOs
+#
+# ``_arch_to_dict`` / ``_test_to_dict`` merge ``artifact_system_fields()``, which
+# reads the *Artifact-level* ``owner``/``reporter`` relations. Both list
+# querysets eager loaded only ``artifact``, so each row with a non-null
+# owner/reporter paid two extra queries — invisible in a fixture whose
+# owner/reporter are NULL, because a NULL FK short-circuits without a query.
+# The fixtures below therefore set both relations on every row.
+# ---------------------------------------------------------------------------
+
+#: Routed prefixes of the two DTO-backed list endpoints. ``architecture`` is the
+#: only registered prefix for ``ArchitectureElementViewSet``; ``testcases`` is
+#: the first of its two (``test-cases`` is the legacy alias).
+_DTO_ENDPOINTS = ("architecture", "testcases")
+
+
+def _seed_dto_relations(
+    tenant: Tenant, workspace: Workspace, *, per_type: int
+) -> None:
+    """Create *per_type* ArchitectureElements and TestCases, all attributed.
+
+    Every backing Artifact gets a non-null ``owner`` and ``reporter`` — the
+    relations the DTO builder actually reads, and the ones a NULL-FK fixture
+    silently skips.
+    """
+    from persistence.models import ArchitectureElement, TestCase
+
+    set_request_tenant(tenant.id)
+    try:
+        owner, _ = Actor.objects.get_or_create(
+            tenant=tenant, kind="external", display_name="Owner"
+        )
+        reporter, _ = Actor.objects.get_or_create(
+            tenant=tenant, kind="external", display_name="Reporter"
+        )
+        for index in range(per_type):
+            for item_type in ("ArchitectureElement", "TestCase"):
+                artifact = Artifact.objects.create(
+                    tenant=tenant,
+                    workspace=workspace,
+                    artifact_type=item_type,
+                    owner=owner,
+                    reporter=reporter,
+                )
+                if item_type == "ArchitectureElement":
+                    ArchitectureElement.objects.create(
+                        tenant=tenant,
+                        artifact=artifact,
+                        title=f"Element {index}",
+                    )
+                else:
+                    TestCase.objects.create(
+                        tenant=tenant,
+                        artifact=artifact,
+                        title=f"Test {index}",
+                    )
+    finally:
+        clear_request_tenant()
+
+
+def _measure_dto(
+    client: APIClient, workspace: Workspace, *, expected_rows: int
+) -> dict[str, int]:
+    """Query count per DTO endpoint for one full page (after a warm-up call)."""
+    for endpoint in _DTO_ENDPOINTS:
+        assert client.get(_url(endpoint, workspace)).status_code == 200
+    counts: dict[str, int] = {}
+    for endpoint in _DTO_ENDPOINTS:
+        with CaptureQueriesContext(connection) as captured:
+            response = client.get(_url(endpoint, workspace))
+        assert response.status_code == 200, response.content
+        # Non-vacuous: the fix under test must not shorten the page (an empty
+        # or filtered result set would make the count comparison meaningless).
+        results = response.json()["results"]
+        assert len(results) == expected_rows, (endpoint, len(results))
+        counts[endpoint] = len(captured)
+    return counts
+
+
+def test_dto_list_query_count_is_independent_of_row_count() -> None:
+    """Architecture/TestCase lists must not scale queries with the row count."""
+    tenant, user, workspace = _scenario()
+    client = _client(user)
+
+    _seed_dto_relations(tenant, workspace, per_type=10)
+    small = _measure_dto(client, workspace, expected_rows=10)
+
+    _seed_dto_relations(tenant, workspace, per_type=10)
+    large = _measure_dto(client, workspace, expected_rows=20)
+
+    assert large == small, (
+        f"list query counts grew with the row count: {small} for 10 rows vs "
+        f"{large} for 20 rows — a per-row accessor is back (#1398/F4)"
+    )
+    for endpoint, count in large.items():
+        assert count <= 20, f"{endpoint} list costs {count} queries for 20 rows"

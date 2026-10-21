@@ -277,7 +277,17 @@ class TestAllocationCoverageReport:
     """Test allocation coverage reporting."""
 
     def test_coverage_report_all_allocated(self, auth_context, workspace):
-        """Test coverage report when all child requirements are allocated."""
+        """Coverage is per-element: allocations on the *child* do not roll up.
+
+        Review finding F8 replaced the tautology that used to sit here
+        (``allocated_count >= 0``, which could never fail). The assertions now
+        pin the actual — unchanged — semantics of
+        ``TraceLinkService.get_allocation_coverage``: membership is decided only
+        by ``allocated-to`` links whose target is *this* element's artifact, so
+        the parent reports 0 even though all three requirements are allocated to
+        its child. ``coverage_ratio`` is therefore 0 of the workspace's 3
+        requirements.
+        """
         req_svc = RequirementService()
         arch_svc = ArchitectureService()
         link_svc = TraceLinkService()
@@ -317,9 +327,18 @@ class TestAllocationCoverageReport:
         )
 
         assert report is not None
-        assert report["allocated_count"] >= 0
-        assert report["coverage_ratio"] >= 0
-        assert "unallocated_requirements" in report
+        assert report["allocated_count"] == 0
+        assert report["coverage_ratio"] == 0
+        assert len(report["unallocated_requirements"]) == 3
+
+        # ... while the child itself reports the three allocations.
+        child_report = link_svc.get_allocation_coverage(
+            architecture_element_id=child_arch.id,
+            ctx=auth_context,
+        )
+        assert child_report["allocated_count"] == 3
+        assert child_report["coverage_ratio"] == 100.0
+        assert child_report["unallocated_requirements"] == []
 
     def test_coverage_report_partial_allocation(self, auth_context, workspace):
         """Test coverage report with partially allocated child requirements."""
@@ -350,11 +369,14 @@ class TestAllocationCoverageReport:
             allocated_reqs.append(req)
 
         # Create unallocated requirements
+        unallocated_reqs = []
         for i in range(2):
-            req_svc.create_requirement(
-                workspace_id=workspace.id,
-                title=f"Unallocated Requirement {i}",
-                ctx=auth_context,
+            unallocated_reqs.append(
+                req_svc.create_requirement(
+                    workspace_id=workspace.id,
+                    title=f"Unallocated Requirement {i}",
+                    ctx=auth_context,
+                )
             )
 
         # Get coverage report
@@ -364,8 +386,16 @@ class TestAllocationCoverageReport:
         )
 
         assert report is not None
-        assert report["allocated_count"] >= 2
-        assert len(report["unallocated_requirements"]) >= 2
+        # F8: exact counts — the workspace holds exactly these four
+        # requirements and two of them carry an ``allocated-to`` link to
+        # *arch_el*. ``>=`` here would pass even if the link lookup silently
+        # returned nothing.
+        assert report["allocated_count"] == 2
+        assert report["coverage_ratio"] == 50.0
+        assert len(report["unallocated_requirements"]) == 2
+        assert {entry["id"] for entry in report["unallocated_requirements"]} == {
+            req.id for req in unallocated_reqs
+        }
 
     def test_coverage_report_no_requirements(self, auth_context, workspace):
         """Test coverage report for ArchitectureElement with no child requirements."""

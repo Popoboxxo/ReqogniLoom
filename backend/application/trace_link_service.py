@@ -1320,8 +1320,17 @@ class TraceLinkService(ServiceBase):
     ) -> dict:
         """Get allocation coverage metrics for an ArchitectureElement.
 
-        REQ-L1-042: Returns metrics on how many child requirements are allocated
-        to this ArchitectureElement and its descendants.
+        REQ-L1-042: Returns metrics on how many Requirements are allocated to
+        **this** ArchitectureElement.
+
+        Semantics (review finding F8 — the docstring used to promise "and its
+        descendants", which the implementation never did and still does not):
+        membership is decided solely by the ``allocated-to`` TraceLinks whose
+        *target* is this element's Artifact. A Requirement allocated to a child
+        element does **not** count towards the parent — the allocation lives on
+        the child's own coverage report. ``all_reqs`` is every Requirement in the
+        element's workspace, so ``coverage_ratio`` is "share of the workspace's
+        Requirements that point at this element", not a subtree metric.
 
         Args:
             architecture_element_id: UUID of the ArchitectureElement to analyze.
@@ -1329,9 +1338,11 @@ class TraceLinkService(ServiceBase):
 
         Returns:
             Dict with keys:
-              - allocated_count: Number of allocated Requirements.
-              - coverage_ratio: Percentage (0-100) of allocated vs total child requirements.
-              - unallocated_requirements: List of unallocated child requirement IDs and titles.
+              - allocated_count: Requirements allocated directly to this element.
+              - coverage_ratio: Percentage (0-100) of ``allocated_count`` over
+                every Requirement in the element's workspace.
+              - unallocated_requirements: List of ``{id, title}`` for the
+                workspace Requirements not allocated to this element.
 
         Raises:
             NotFoundError: ArchitectureElement not found.
@@ -1343,38 +1354,60 @@ class TraceLinkService(ServiceBase):
         requirement, and that engine issues two SQL statements per call
         (``SET LOCAL statement_timeout`` + ``SELECT``) — 2N+3 queries for N
         requirements. The numbers and the response shape are unchanged.
+
+        F9: the per-requirement path used to inherit that engine's
+        ``SET LOCAL statement_timeout = 5000`` (REQ-L2-TE-012). The two bulk
+        SELECTs below now run inside
+        :class:`persistence.transactions.TransactionContextManager` with the
+        same ``GRAPH_QUERY_TIMEOUT_S`` budget, so the timeout guarantee is kept
+        rather than silently dropped with the per-row queries.
         """
         from persistence.models import ArchitectureElement, Requirement, TraceLink
+        from persistence.transactions import TransactionContextManager
+        from traceability.query_engine import GRAPH_QUERY_TIMEOUT_S
         from traceability.types import LinkType
 
         self._set_tenant_context(ctx)
 
-        arch_el = ArchitectureElement.objects.filter(id=architecture_element_id).first()
+        # F10: select_related("artifact") — ``arch_el.artifact.workspace_id``
+        # below would otherwise cost a second query.
+        arch_el = (
+            ArchitectureElement.objects.select_related("artifact")
+            .filter(id=architecture_element_id)
+            .first()
+        )
         if arch_el is None:
             raise NotFoundError(f"ArchitectureElement {architecture_element_id} not found")
 
         # Get all child requirements in the workspace
         # Child requirements are those in the same workspace
         workspace_id = arch_el.artifact.workspace_id
-        all_reqs = list(
-            Requirement.objects.filter(artifact__workspace_id=workspace_id).values(
-                "id", "title", "artifact_id"
-            )
-        )
-
-        # Issue #1384: one bulk lookup for the allocation edges instead of one
-        # graph query per requirement. ``source_id``/``target_id`` are Artifact
-        # ids, so the requirement's ``artifact_id`` is the membership key. The
-        # queryset is tenant-scoped by ``TenantManager`` (as the per-row raw SQL
-        # was), and the FK join to the target artifact the raw query performed
-        # is implicit here because ``target_id`` is a non-null FK.
         arch_el_artifact_id = arch_el.artifact_id
-        allocated_source_ids = set(
-            TraceLink.objects.filter(
-                target_id=arch_el_artifact_id,
-                link_type=LinkType.ALLOCATED_TO,
-            ).values_list("source_id", flat=True)
-        )
+
+        # F9/REQ-L2-TE-012: keep the statement timeout the per-row engine used
+        # to enforce. ``SET LOCAL`` is transaction-scoped, hence the explicit
+        # atomic block — outside one it would be reverted with its own
+        # statement and never apply to the SELECTs.
+        with TransactionContextManager(timeout_seconds=GRAPH_QUERY_TIMEOUT_S):
+            all_reqs = list(
+                Requirement.objects.filter(
+                    artifact__workspace_id=workspace_id
+                ).values("id", "title", "artifact_id")
+            )
+
+            # Issue #1384: one bulk lookup for the allocation edges instead of
+            # one graph query per requirement. ``source_id``/``target_id`` are
+            # Artifact ids, so the requirement's ``artifact_id`` is the
+            # membership key. The queryset is tenant-scoped by ``TenantManager``
+            # (as the per-row raw SQL was), and the FK join to the target
+            # artifact the raw query performed is implicit here because
+            # ``target_id`` is a non-null FK.
+            allocated_source_ids = set(
+                TraceLink.objects.filter(
+                    target_id=arch_el_artifact_id,
+                    link_type=LinkType.ALLOCATED_TO,
+                ).values_list("source_id", flat=True)
+            )
 
         # Count how many are allocated to this element
         allocated_count = 0

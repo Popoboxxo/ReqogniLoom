@@ -471,9 +471,12 @@ class AdrService(ServiceBase):
         # + owner/reporter system fields) and the carrier-backed ``deciders``
         # selection for every row. Without eager loading each of those is its
         # own query per row, so a list response cost O(page_size) queries.
+        # #1390/F2: ``created_at`` is not unique (a batch-created set shares
+        # one timestamp), so the page windows of this paginated list need the
+        # primary key as a unique tie-breaker.
         return qs.select_related(
             "artifact", "artifact__owner", "artifact__reporter"
-        ).prefetch_related("deciders").order_by("created_at")
+        ).prefetch_related("deciders").order_by("created_at", "id")
 
     def list_adrs_by_status(
         self, workspace_id: UUID, status: str, ctx: AuthContext

@@ -550,9 +550,12 @@ class RiskService(ServiceBase):
         # + owner/reporter system fields) and the relation of ``owner_user`` for
         # every row. Without eager loading each of those is its own query per
         # row, so a list response cost O(page_size) queries.
+        # #1390/F2: ``risk_score`` is far from unique (it is a small-range
+        # product), so equal keys would leave the paginator's LIMIT/OFFSET
+        # windows unstable. The primary key is the unique tie-breaker.
         return qs.select_related(
             "artifact", "artifact__owner", "artifact__reporter", "owner_user"
-        ).order_by("-risk_score")
+        ).order_by("-risk_score", "-id")
 
     def list_risks_by_status(
         self, workspace_id: UUID, status: str, ctx: AuthContext

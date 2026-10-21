@@ -550,7 +550,11 @@ class ChangeRequestService(ServiceBase):
             qs = qs.exclude(
                 id__in=outdated_item_ids("ChangeRequest", tenant_id=ctx.tenant_id)
             )
-        return qs.order_by("created_at")
+        # #1390/F2: ``created_at`` is not unique — a batch-created set of
+        # rows shares one timestamp, and equal sort keys make the
+        # paginator's LIMIT/OFFSET windows unstable. The primary key is the
+        # unique tie-breaker.
+        return qs.order_by("created_at", "id")
 
     # ---------- Status Transition (REQ-157, IF-AS-INT-003) ----------
 

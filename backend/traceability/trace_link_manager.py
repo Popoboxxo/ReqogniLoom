@@ -257,11 +257,21 @@ class TraceLinkManager:
         Eager (materializes the full result set) — callers that need graph
         traversal or cycle detection over the whole set. Paginated REST
         listings must use :meth:`get_trace_links_queryset` instead (#571).
+
+        #1390: the rows are ordered by ``(created_at, id)`` — the same order
+        :meth:`get_trace_links_queryset` pins for the workspace-level listing.
+        This method backs the ``GET /api/v1/tracelinks/?artifact_id=...``
+        branch too, which merges two of these results (upstream + downstream)
+        into one in-memory list that DRF then slices: without an ORDER BY the
+        page windows of that listing were only accidentally stable, and no
+        ``UnorderedObjectListWarning`` can fire for a Python sequence.
         """
         qs = self._filtered_queryset(
             workspace_id=workspace_id, filters=filters, link_type=link_type
         )
-        return list(qs.select_related("source", "target"))
+        return list(
+            qs.select_related("source", "target").order_by("created_at", "id")
+        )
 
     # Fix #571: lazy variant for paginated listing endpoints.
     def get_trace_links_queryset(

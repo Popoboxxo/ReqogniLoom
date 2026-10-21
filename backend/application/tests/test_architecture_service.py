@@ -607,7 +607,10 @@ class TestGetArchitectureElement:
 
         mock_qs = MagicMock()
         mock_qs.filter.return_value = mock_qs
-        mock_qs.exclude.return_value = mock_elements
+        # #1390: the queryset is ordered *before* it is materialised, so the
+        # order_by() link sits between exclude() and list().
+        mock_qs.exclude.return_value = mock_qs
+        mock_qs.order_by.return_value = mock_elements
 
         with (
             patch("application.architecture_service.ServiceBase._set_tenant_context"),
@@ -629,6 +632,9 @@ class TestGetArchitectureElement:
         # "outdated" (id__in=<outdated ids>), instead of a lifecycle_status field.
         mock_qs.exclude.assert_called_once()
         assert "id__in" in mock_qs.exclude.call_args.kwargs
+        # #1390: deterministic (created_at, id) order — a paginated list backed
+        # by an in-memory sequence gets no UnorderedObjectListWarning.
+        mock_qs.order_by.assert_called_once_with("created_at", "id")
         assert result == mock_elements
 
     def test_list_include_deleted_skips_exclude(self):
@@ -638,7 +644,8 @@ class TestGetArchitectureElement:
         mock_elements = [_make_arch_el()]
 
         mock_qs = MagicMock()
-        mock_qs.filter.return_value = mock_elements
+        mock_qs.filter.return_value = mock_qs
+        mock_qs.order_by.return_value = mock_elements
 
         with (
             patch("application.architecture_service.ServiceBase._set_tenant_context"),
@@ -651,6 +658,9 @@ class TestGetArchitectureElement:
 
         # .exclude() must NOT be called when include_deleted=True
         mock_qs.exclude.assert_not_called()
+        # ... but the (#1390) ordering still applies on this branch.
+        mock_qs.order_by.assert_called_once_with("created_at", "id")
+        assert result == mock_elements
 
 
 # ---------------------------------------------------------------------------

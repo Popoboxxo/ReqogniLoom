@@ -264,7 +264,12 @@ class StakeholderNeedService(ServiceBase):
         # WorkflowItemState falls back to the "draft" preset initial state
         # instead (documented, reviewed data-loss tradeoff, see Task 12
         # report Finding 2).
-        needs = list(needs)
+        # #1390: order *before* materialising. The result is a Python list that
+        # the paginating ViewSet slices in memory, so DRF's
+        # ``UnorderedObjectListWarning`` cannot fire here — an unordered row
+        # order would silently let the page windows overlap or skip rows.
+        # ``created_at`` is not unique, so the primary key is the tie-breaker.
+        needs = list(needs.order_by("created_at", "id"))
         status_map = state_reader.current_states(
             "StakeholderNeed", [n.id for n in needs]
         )

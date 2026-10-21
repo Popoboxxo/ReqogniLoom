@@ -622,7 +622,13 @@ class TestService(ServiceBase):
         ``"TestCase:<Type>"`` ``artifact_type`` tag, which no longer exists.
         """
         self._set_tenant_context(ctx)
-        qs = TestCase.objects.select_related("artifact").filter(
+        # #1398: ``_test_to_dict`` reads the backing Artifact (workspace_id,
+        # custom_fields) and its Artifact-level owner/reporter system fields via
+        # ``artifact_system_fields()`` — eager load all three, as
+        # ``requirement_service.list_requirements`` does.
+        qs = TestCase.objects.select_related(
+            "artifact", "artifact__owner", "artifact__reporter"
+        ).filter(
             artifact__workspace_id=workspace_id
         )
         if not include_deleted:
