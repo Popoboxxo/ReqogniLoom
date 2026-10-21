@@ -57,10 +57,17 @@
   min-width: 0;
 }
 
+/* Issue #1395: the per-row delete trigger was a fixed 22x22 box, under the
+   24x24 minimum of WCAG 2.2 SC 2.5.8. `--space-6` is 24px; both axes are
+   floored so the square shape survives a change of the 14px glyph, and the
+   icon is centred in the larger hit area instead of being shrunk to fit. */
 .deleteButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
-  width: 22px;
-  height: 22px;
+  min-width: var(--space-6);
+  min-height: var(--space-6);
   padding: 0;
   border: none;
   background: transparent;

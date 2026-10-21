@@ -26,9 +26,17 @@
 
 /* The design-system `btn-ghost`/`btn-sm` classes carry the chrome (this file
    only tightens the geometry so a chip-sized control does not inflate a list
-   row); nothing here re-declares a fill or a colour. */
+   row); nothing here re-declares a fill or a colour.
+
+   Issue #1395: `--space-5` (20px) made this a 24x20 target, under the 24x24
+   minimum of WCAG 2.2 SC 2.5.8. The `.btn-sm` 32px `min-height` from
+   global.css is overridden by this rule (equal specificity, later in the
+   cascade), so the floor has to be stated here: `--space-6` is 24px. Both
+   axes are floored so a smaller glyph or padding change cannot drop the box
+   below the minimum again. */
 .copyButton {
-  min-height: var(--space-5);
+  min-height: var(--space-6);
+  min-width: var(--space-6);
   padding: 0 var(--space-1);
   font-weight: 400;
 }
