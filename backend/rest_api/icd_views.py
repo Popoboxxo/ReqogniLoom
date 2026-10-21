@@ -42,6 +42,7 @@ import logging
 from typing import Any
 from uuid import UUID
 
+from drf_spectacular.utils import extend_schema
 from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.request import Request
@@ -592,6 +593,10 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
 
     # -- list --------------------------------------------------------------
 
+    @extend_schema(
+        operation_id="icds_list",
+        description="List ICDs, filtered by ``workspace_id``. Explicit list id (#1388).",
+    )
     def list(self, request: Request, **kwargs: Any) -> Response:
         """GET /api/v1/icds/ — list ICDs, filtered by workspace_id."""
         lang = detect_lang(request)

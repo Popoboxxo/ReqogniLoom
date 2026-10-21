@@ -21,6 +21,7 @@ from urllib.parse import unquote
 from uuid import UUID
 
 from django.utils.dateparse import parse_datetime
+from drf_spectacular.utils import extend_schema
 from rest_framework import status
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -222,6 +223,13 @@ def _serialize_global_graph(
 class GlobalWorkflowDefinitionListView(APIView):
     """GET /workflow-defaults/ — list tenant global workflow definitions."""
 
+    @extend_schema(
+        operation_id="workflow_defaults_list",
+        description=(
+            "List tenant-wide global workflow definitions. Explicit list id to "
+            "keep it distinct from the {item_type}/{preset} detail route (#1388)."
+        ),
+    )
     def get(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         gate = _require_admin(request)
         if isinstance(gate, Response):

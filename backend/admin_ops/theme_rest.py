@@ -23,6 +23,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import status
 from rest_framework.exceptions import NotAuthenticated
 from rest_framework.request import Request
@@ -37,6 +38,14 @@ from admin_ops.models import (
     TenantThemeDefault,
     ThemePalette,
     UserThemePreference,
+)
+from admin_ops.schema_serializers import (
+    TenantThemeDefaultWriteSerializer,
+    ThemePaletteListSerializer,
+    ThemePaletteSerializer,
+    ThemePaletteWriteSerializer,
+    ThemeSelectionSerializer,
+    UserThemePreferenceWriteSerializer,
 )
 from admin_ops.services.theme_service import ThemeService
 from auth_tenancy.rest import HasOperationPermission
@@ -96,6 +105,7 @@ class ThemePaletteListView(APIView):
 
     permission_classes = [HasOperationPermission]
 
+    @extend_schema(responses=ThemePaletteListSerializer)
     def get(self, request: Request, **kwargs: Any) -> Response:
         lang = detect_lang(request)
         try:
@@ -109,6 +119,10 @@ class ThemePaletteListView(APIView):
         palettes = ThemePalette.objects.all().order_by("key")
         return Response({"results": [_palette_to_dict(p) for p in palettes]})
 
+    @extend_schema(
+        request=ThemePaletteWriteSerializer,
+        responses={201: ThemePaletteSerializer},
+    )
     def post(self, request: Request, **kwargs: Any) -> Response:
         """Import a custom palette. System-Admin only; never importable as
         a system palette."""
@@ -162,6 +176,12 @@ class ThemePaletteDetailView(APIView):
 
     permission_classes = [HasOperationPermission]
 
+    @extend_schema(
+        responses={
+            204: OpenApiResponse(description="Palette deleted (no content)."),
+            403: OpenApiResponse(description="System palettes are read-only."),
+        }
+    )
     def delete(self, request: Request, key: str, **kwargs: Any) -> Response:
         lang = detect_lang(request)
         try:
@@ -191,6 +211,7 @@ class ThemePaletteExportView(APIView):
 
     permission_classes = [HasOperationPermission]
 
+    @extend_schema(responses={200: ThemePaletteSerializer})
     def get(self, request: Request, key: str, **kwargs: Any) -> Response:
         lang = detect_lang(request)
         try:
@@ -229,6 +250,7 @@ class UserThemePreferenceView(APIView):
 
     permission_classes = [HasOperationPermission]
 
+    @extend_schema(responses={200: ThemeSelectionSerializer})
     def get(self, request: Request, **kwargs: Any) -> Response:
         lang = detect_lang(request)
         try:
@@ -244,6 +266,10 @@ class UserThemePreferenceView(APIView):
             }
         )
 
+    @extend_schema(
+        request=UserThemePreferenceWriteSerializer,
+        responses={200: ThemeSelectionSerializer},
+    )
     def put(self, request: Request, **kwargs: Any) -> Response:
         lang = detect_lang(request)
         try:
@@ -279,6 +305,7 @@ class TenantThemeDefaultView(APIView):
 
     permission_classes = [HasOperationPermission]
 
+    @extend_schema(responses={200: ThemeSelectionSerializer})
     def get(self, request: Request, **kwargs: Any) -> Response:
         lang = detect_lang(request)
         try:
@@ -294,6 +321,10 @@ class TenantThemeDefaultView(APIView):
             }
         )
 
+    @extend_schema(
+        request=TenantThemeDefaultWriteSerializer,
+        responses={200: ThemeSelectionSerializer},
+    )
     def put(self, request: Request, **kwargs: Any) -> Response:
         lang = detect_lang(request)
         try:

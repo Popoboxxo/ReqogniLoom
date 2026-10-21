@@ -40,7 +40,6 @@ from django.core.exceptions import ObjectDoesNotExist
 from django.db.models import ProtectedError
 from django.http import Http404, HttpResponse
 from django.utils import timezone
-from drf_spectacular.openapi import AutoSchema
 from drf_spectacular.utils import (
     OpenApiParameter,
     OpenApiRequest,
@@ -175,6 +174,7 @@ from rest_api.query_params import (
     parse_workspace_id,
     require_non_empty_param,
 )
+from rest_api.schema import ReqLoAutoSchema
 from rest_api.serializers import (
     AdrSerializer,
     ArchitectureElementSerializer,
@@ -1670,6 +1670,14 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 extra[key] = data[key]
         return extra
 
+    @extend_schema(
+        operation_id="requirements_acceptance_criteria_list",
+        description=(
+            "List the ordered structured acceptance criteria of a requirement. "
+            "Explicit list id to keep it distinct from the by-index detail "
+            "route (#1388)."
+        ),
+    )
     @action(detail=True, methods=["get"], url_path="acceptance-criteria")
     def acceptance_criteria(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """GET /api/v1/requirements/{pk}/acceptance-criteria/ (#1288).
@@ -4711,7 +4719,7 @@ class TraceabilityViewSet(viewsets.GenericViewSet):
 # ---------------------------------------------------------------------------
 
 
-class _BaselineAutoSchema(AutoSchema):
+class _BaselineAutoSchema(ReqLoAutoSchema):
     """#1380: keep the shared ``list`` schema honest for both of its routes.
 
     ``BaselineViewSet.list`` serves the flat ``/api/v1/baselines/`` route *and*
@@ -4936,7 +4944,13 @@ class BaselineViewSet(BaseEntityViewSet):
 
     @extend_schema(
         parameters=[_BASELINE_WORKSPACE_ID_PARAMETER],
-        responses={404: _BASELINE_PRESET_404},
+        # #1388: declaring the 404 must not erase the success shape — an
+        # operation that documents only failures tells a generated client
+        # nothing about what a 200 contains.
+        responses={
+            200: BaselineSummarySerializer(many=True),
+            404: _BASELINE_PRESET_404,
+        },
     )
     def list(self, request: Request, **kwargs: Any) -> Response:
         """GET /api/v1/baselines/?workspace_id=<id> or /api/v1/workspaces/<workspace_id>/baselines/ — list workspace baselines.
@@ -4983,7 +4997,12 @@ class BaselineViewSet(BaseEntityViewSet):
             lambda item: BaselineSummarySerializer(_baseline_to_dict(item)).data,
         )
 
-    @extend_schema(responses={404: _BASELINE_PRESET_404})
+    @extend_schema(
+        responses={
+            200: BaselineSerializer,
+            404: _BASELINE_PRESET_404,
+        }
+    )
     def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """GET /api/v1/baselines/<pk>/ — full baseline detail incl. entries.
 
@@ -5017,7 +5036,12 @@ class BaselineViewSet(BaseEntityViewSet):
         self._check_preset(request, workspace_id=str(item.workspace_id))
         return self.with_etag(Response(BaselineSerializer(_baseline_to_dict(item)).data), item)
 
-    @extend_schema(responses={404: _BASELINE_PRESET_404})
+    @extend_schema(
+        responses={
+            201: BaselineSerializer,
+            404: _BASELINE_PRESET_404,
+        }
+    )
     def create(self, request: Request, **kwargs: Any) -> Response:
         """POST /api/v1/baselines/ (flat) or /api/v1/workspaces/<workspace_id>/baselines/ (nested) — create baseline.
 

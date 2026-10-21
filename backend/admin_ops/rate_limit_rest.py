@@ -31,12 +31,17 @@ from __future__ import annotations
 from typing import Any
 
 from django.utils import timezone
+from drf_spectacular.utils import extend_schema
 from rest_framework import status
 from rest_framework.exceptions import ValidationError as DrfValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from admin_ops.schema_serializers import (
+    RateLimitEffectiveResponseSerializer,
+    RateLimitOverridesWriteSerializer,
+)
 from admin_ops.services.rate_limit_service import RateLimitService
 from application.base import ValidationError as DomainValidationError
 from auth_tenancy.rest import HasOperationPermission
@@ -87,11 +92,16 @@ class RateLimitsView(AdminScopeRequiredMixin, APIView):
 
     permission_classes = [HasOperationPermission]
 
+    @extend_schema(responses=RateLimitEffectiveResponseSerializer)
     def get(self, request: Request, **kwargs: Any) -> Response:
         ctx = get_auth_context(request)
         TenantContext.set_tenant(ctx.tenant_id)
         return Response(_payload(ctx, RateLimitService.get_effective(ctx.tenant_id)))
 
+    @extend_schema(
+        request=RateLimitOverridesWriteSerializer,
+        responses=RateLimitEffectiveResponseSerializer,
+    )
     def put(self, request: Request, **kwargs: Any) -> Response:
         ctx = get_auth_context(request)
         if not _is_admin(ctx):
@@ -109,6 +119,10 @@ class RateLimitsView(AdminScopeRequiredMixin, APIView):
             raise DrfValidationError({"overrides": str(exc)}) from exc
         return Response(_payload(ctx, scopes))
 
+    # DELETE answers 200 with the refreshed map (not 204), so the response is
+    # declared through an explicit status map — a bare serializer would let the
+    # base class collapse it to "204 No response body".
+    @extend_schema(responses={200: RateLimitEffectiveResponseSerializer})
     def delete(self, request: Request, **kwargs: Any) -> Response:
         ctx = get_auth_context(request)
         if not _is_admin(ctx):
@@ -128,6 +142,7 @@ class GlobalRateLimitsView(AdminScopeRequiredMixin, APIView):
 
     permission_classes = [HasOperationPermission]
 
+    @extend_schema(responses=RateLimitEffectiveResponseSerializer)
     def get(self, request: Request, **kwargs: Any) -> Response:
         ctx = get_auth_context(request)
         if not _is_admin(ctx):
@@ -138,6 +153,10 @@ class GlobalRateLimitsView(AdminScopeRequiredMixin, APIView):
         TenantContext.set_tenant(ctx.tenant_id)
         return Response(_payload(ctx, RateLimitService.get_effective(None)))
 
+    @extend_schema(
+        request=RateLimitOverridesWriteSerializer,
+        responses=RateLimitEffectiveResponseSerializer,
+    )
     def put(self, request: Request, **kwargs: Any) -> Response:
         ctx = get_auth_context(request)
         if not _is_admin(ctx):
@@ -155,6 +174,7 @@ class GlobalRateLimitsView(AdminScopeRequiredMixin, APIView):
             raise DrfValidationError({"overrides": str(exc)}) from exc
         return Response(_payload(ctx, scopes))
 
+    @extend_schema(responses={200: RateLimitEffectiveResponseSerializer})
     def delete(self, request: Request, **kwargs: Any) -> Response:
         ctx = get_auth_context(request)
         if not _is_admin(ctx):

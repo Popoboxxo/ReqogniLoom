@@ -36,6 +36,7 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import status
 from rest_framework.permissions import AllowAny
 from rest_framework.request import Request
@@ -43,6 +44,11 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from admin_ops.models import Banner, BannerLevel
+from admin_ops.schema_serializers import (
+    BannerSerializer,
+    BannerWriteSerializer,
+    LoginBannerSerializer,
+)
 from admin_ops.services.banner_service import BannerService
 from application.base import NotFoundError, PermissionDeniedError, ValidationError
 from auth_tenancy.context import AuthContext
@@ -167,6 +173,12 @@ class GlobalBannerView(APIView):
         self._service = BannerService()
         self._authz = AuthorizationService()
 
+    @extend_schema(
+        responses={
+            200: BannerSerializer,
+            204: OpenApiResponse(description="No global banner configured."),
+        }
+    )
     def get(self, request: Request, **kwargs: Any) -> Response:
         try:
             ctx = _auth_context(request)
@@ -177,6 +189,10 @@ class GlobalBannerView(APIView):
             return Response(status=status.HTTP_204_NO_CONTENT)
         return Response(_banner_to_dict(banner), status=status.HTTP_200_OK)
 
+    @extend_schema(
+        request=BannerWriteSerializer,
+        responses={200: BannerSerializer},
+    )
     def put(self, request: Request, **kwargs: Any) -> Response:
         try:
             ctx = _auth_context(request)
@@ -268,6 +284,12 @@ class WorkspaceBannerView(APIView):
         except (ValueError, TypeError):
             raise ValidationError(f"Invalid workspace_id: {ws_raw!r}")
 
+    @extend_schema(
+        responses={
+            200: BannerSerializer,
+            204: OpenApiResponse(description="No banner configured for this workspace."),
+        }
+    )
     def get(self, request: Request, **kwargs: Any) -> Response:
         try:
             ctx = _auth_context(request)
@@ -282,6 +304,10 @@ class WorkspaceBannerView(APIView):
             return Response(status=status.HTTP_204_NO_CONTENT)
         return Response(_banner_to_dict(banner), status=status.HTTP_200_OK)
 
+    @extend_schema(
+        request=BannerWriteSerializer,
+        responses={200: BannerSerializer},
+    )
     def put(self, request: Request, **kwargs: Any) -> Response:
         try:
             ctx = _auth_context(request)
@@ -333,6 +359,14 @@ class PublicLoginBannerView(APIView):
         super().__init__(**kwargs)
         self._service = BannerService()
 
+    @extend_schema(
+        responses={
+            200: LoginBannerSerializer,
+            204: OpenApiResponse(
+                description="No enabled login-page banner for this deployment."
+            ),
+        }
+    )
     def get(self, request: Request, **kwargs: Any) -> Response:
         """Return the login-page banner, or 204 for every "nothing to show" case.
 

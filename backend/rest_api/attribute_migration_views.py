@@ -24,6 +24,7 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
+from drf_spectacular.utils import extend_schema
 from rest_framework import status
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -132,6 +133,13 @@ class AttributeMigrationApplyView(AdminScopeRequiredMixin, APIView):
 class AttributeMigrationRunListView(APIView):
     """GET /attribute-migration/runs/ — list runs of the active tenant."""
 
+    @extend_schema(
+        operation_id="attribute_migration_runs_list",
+        description=(
+            "List migration runs of the active tenant. Explicit list id to keep "
+            "it distinct from the run-detail retrieve (#1388)."
+        ),
+    )
     def get(self, request: Request) -> Response:
         gate = _require_admin(request)
         if isinstance(gate, Response):

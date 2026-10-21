@@ -678,3 +678,73 @@ accumulates DRF's per-field errors *and* the agent-key cross-field rules
 message rule lives. The agent rules themselves are imported from
 `auth_tenancy.services.authentication` (shared with the service, so the two
 layers cannot drift); the service keeps its own check as defence in depth.
+
+---
+
+## 13. Views without a serializer — the marked fallback and its allowlist
+
+drf-spectacular can only describe an operation when the view (or a decorator)
+exposes a serializer. For a plain `APIView`/`ViewSet` without one, the stock
+`AutoSchema` logs `unable to guess serializer … Ignoring view for now` and
+emits `200: {"description": "No response body"}` — the path stays, but the
+contract is empty. That is the defect
+[#1388](https://github.com/Popoboxxo/ReqogniLoom/issues/1388) fixed: **124
+views** were published that way (123 after #1439 typed `ApiKeyViewSet`).
+
+### The policy — a permissive schema is honest, a missing path is a lie
+
+`rest_api.schema.ReqLoAutoSchema` (registered as DRF's
+`DEFAULT_SCHEMA_CLASS`) replaces the empty body with an explicit fallback:
+
+```
+type: object
+additionalProperties: true
+x-reqlo-untyped: true
+```
+
+The operation keeps its real path, method, parameters, security, tags and the
+common error responses. The fallback says only what is true: "any JSON object".
+It does **not** claim the endpoint has no body, and it does not invent fields.
+
+The same schema class supplies the missing `string` type for path parameters
+whose converter and model cannot be introspected (`{id}` on a `ViewSet` without
+`queryset`), so `could not derive type of path parameter` is not emitted.
+
+### The allowlist is the gate
+
+Every view that legitimately reaches the fallback must be listed — with a
+reason — in `rest_api.schema.UNTYPED_VIEW_ALLOWLIST`. The pair is bidirectional:
+`rest_api/tests/test_schema_completeness_1388.py` fails when
+
+* a view used the fallback but is not listed (a new untyped view slipped in),
+* a listed view no longer falls back (a serializer was added — remove the
+  entry), or
+* an entry has no non-empty reason.
+
+Typed by #1388 itself: `SystemHealthView`, the theme-palette/preference views,
+the global/workspace/login banners, the tenant/global rate-limit views and the
+workspace memory-search endpoint. They publish real serializers and must stay
+out of the allowlist.
+
+### Rule for a new endpoint
+
+**A view without a serializer must be added to the allowlist deliberately.**
+In order of preference:
+
+1. Ship a DRF serializer or an explicit `@extend_schema(request=…,
+   responses=…)`; nothing else to do.
+2. If the payload genuinely has no static shape (hand-built service dict,
+   streaming/file response, protocol document), add the view to
+   `UNTYPED_VIEW_ALLOWLIST` with a one-line reason and let the fallback apply.
+
+Never silence a serializer-guess error by dropping the operation: a client
+cannot call a path that is absent from the document.
+
+### Known limits
+
+* The fallback does not learn the exact success status. A `POST` on a plain
+  `APIView` is documented as `200` even where the view answers `201`; type the
+  view (step 1) if the status matters to a generated client.
+* `DELETE` on a fallback view keeps the conventional `204` (no body).
+* `PATCH /api/v1/baselines/{id}/` is the one operation without a 2xx: baselines
+  are immutable and the route always answers `405` by design.

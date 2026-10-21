@@ -15,6 +15,7 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
+from drf_spectacular.utils import extend_schema
 from rest_framework import status
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -104,6 +105,15 @@ def _handle_common(exc: Exception, lang: str) -> Response | None:
 class AttributeCatalogListView(AdminScopeRequiredMixin, APIView):
     """GET/POST /attribute-catalog/ — list or create catalog entries."""
 
+    @extend_schema(
+        operation_id="attribute_catalog_list",
+        description=(
+            "List attribute-catalog entries. The collection and the detail "
+            "route both resolve to ``attribute_catalog_retrieve`` by default; "
+            "the explicit list id keeps generated client methods distinct "
+            "(#1388)."
+        ),
+    )
     def get(self, request: Request) -> Response:
         gate = _require_admin(request)
         if isinstance(gate, Response):
