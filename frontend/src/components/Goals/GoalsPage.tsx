@@ -41,6 +41,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { extractErrorMessage } from "../../api/client";
+import { fieldErrorsFromException } from "../shared/ArtifactForm/field-errors";
 import { goalsApi } from "../../api/goals";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { PageHeader } from "../shared/PageHeader";
@@ -85,6 +86,9 @@ export default function GoalsPage(): JSX.Element {
   const [selectedId, setSelectedId] = useState<string>(MAIN_GOAL_NODE_ID);
   const [form, setForm] = useState<FormState | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // GitHub #1392: per-field half of a rejected create/version save, keyed by
+  // the attribute name the server named in `details[].field`.
+  const [formFieldErrors, setFormFieldErrors] = useState<Record<string, string[]>>({});
   const [pendingArchive, setPendingArchive] = useState<PendingTransition | null>(null);
   // Issue #219: the MainGoal the panel currently shows, so the inspector can
   // be mounted beside it. Reported upwards because the inspector is a sibling
@@ -161,11 +165,13 @@ export default function GoalsPage(): JSX.Element {
 
   const openCreateDialog = useCallback((): void => {
     setError(null);
+    setFormFieldErrors({});
     setForm({ editing: null });
   }, []);
 
   const closeFormDialog = useCallback((): void => {
     setError(null);
+    setFormFieldErrors({});
     setForm(null);
   }, []);
 
@@ -173,6 +179,7 @@ export default function GoalsPage(): JSX.Element {
     async (values: GoalFormValues): Promise<void> => {
       if (!workspaceId) return;
       setError(null);
+      setFormFieldErrors({});
       setIsSubmitting(true);
       const editing = form?.editing ?? null;
       try {
@@ -194,8 +201,12 @@ export default function GoalsPage(): JSX.Element {
         setForm(null);
       } catch (err) {
         // ch. 12.12: a failed action keeps the dialog open and states the
-        // cause inside it, where the action was triggered.
-        setError(extractErrorMessage(err));
+        // cause inside it, where the action was triggered. GitHub #1392: the
+        // per-field half (when the 400 names a field) renders under the
+        // control instead of leaving the user to guess which one.
+        const message = extractErrorMessage(err);
+        setError(message);
+        setFormFieldErrors(fieldErrorsFromException(err, message));
       } finally {
         setIsSubmitting(false);
       }
@@ -394,6 +405,7 @@ export default function GoalsPage(): JSX.Element {
         <GoalFormDialog
           editing={form.editing}
           error={error}
+          fieldErrors={formFieldErrors}
           isSubmitting={isSubmitting}
           onSubmit={(values) => void handleSubmit(values)}
           onClose={closeFormDialog}
