@@ -115,6 +115,15 @@
 
 .reviewItemTitle {
   font-weight: var(--weight-semibold);
+  /* GitHub #1379: the row is a <button>, and form controls do NOT inherit
+   * `color` from `body` — the UA stylesheet gives them `color: buttontext`
+   * (rgb(0,0,0)). Relying on `.reviewItem`'s colour therefore left the title
+   * at 1.18:1 on the dark card background as soon as that declaration moved.
+   * Declaring the theme text token on the title itself makes the title
+   * readable independently of the button's class list. Measured on both row
+   * backgrounds (surface and selected tint) in all five themes by
+   * `src/test/theme-contrast.test.ts`; lowest is 10.64:1. */
+  color: var(--color-text);
 }
 
 .reviewItemUid {
