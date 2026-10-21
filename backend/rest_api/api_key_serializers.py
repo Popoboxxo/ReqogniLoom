@@ -27,7 +27,16 @@ Backward compatibility (the contract pinned by the #865/#916/#917 tests):
   ``"Request validation failed."`` and one ``details`` entry per problem, in
   declaration order (``FIELD_ORDER``; unknown keys first, alphabetically);
 * a lone unknown field keeps its historical ``Unknown field '<key>'.`` body
-  (including the ``{"field", "errors"}`` detail shape).
+  (including the bare ``{"field", "errors"}`` detail shape).
+
+Every *other* detail entry is an additive superset of the project-wide
+``{"field", "errors"}`` shape: it carries ``field``, ``code``, ``message`` and
+``errors`` (a list holding the same single message). Generic clients read
+``error.details[i].errors[0]`` (``frontend/src/api/client.ts``) and skip entries
+without an ``errors`` list (``ArtifactForm/field-errors.ts``), so dropping
+``errors`` would degrade every multi-problem response to the generic
+"Request validation failed." text in the UI. Both published variants are
+declared in :class:`ApiKeyValidationErrorSerializer`.
 
 The one-vs-many decision lives in exactly one place:
 :func:`build_api_key_create_error_response`.
@@ -39,6 +48,8 @@ from datetime import datetime
 from typing import Any
 
 from django.utils.dateparse import parse_datetime
+from drf_spectacular.extensions import OpenApiSerializerExtension
+from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema_field
 from rest_framework import serializers
 from rest_framework.fields import empty
 
@@ -73,6 +84,11 @@ EXPIRES_AT_INVALID_MESSAGE = "Field 'expires_at' must be an ISO-8601 datetime."
 
 #: Message used when two or more problems are reported at once.
 MULTI_FIELD_MESSAGE = "Request validation failed."
+
+#: Machine-readable reason of one ``details`` entry. Published as an enum
+#: (``ApiKeyValidationErrorDetailSerializer.code``) so the contract is not just
+#: prose in a ``help_text`` (#1439 review, F11).
+API_KEY_ERROR_CODES: tuple[str, ...] = ("required", "invalid", "unknown_field")
 
 #: Deterministic detail order for a multi-problem response. Unknown keys are
 #: rendered before these (and sorted among themselves).
@@ -117,6 +133,12 @@ class Iso8601DateTimeField(serializers.DateTimeField):
     }
 
     def to_internal_value(self, value: Any) -> datetime | None:
+        # The pre-serializer view guarded with ``if raw_expires_at:``, so an
+        # empty string meant "not supplied" rather than "malformed" (#1439
+        # review, F10). This field is nullable by definition, so map it to
+        # ``None`` — a whitespace-only value stays an error, exactly as before.
+        if value == "":
+            return None
         parsed = _parse_iso8601(value)
         if parsed is None:
             self.fail("invalid")
@@ -146,6 +168,22 @@ class CoercedTextField(serializers.CharField):
         return str(data)
 
 
+class StrictNameField(serializers.CharField):
+    """``CharField`` that refuses non-string input instead of coercing it.
+
+    DRF's ``CharField`` stringifies ``int``/``float`` input, so a check inside
+    ``validate_name`` cannot see ``{"name": 123}`` — it already arrives as
+    ``"123"``. The pre-serializer view required a real ``str`` (``isinstance``
+    check) and answered 400 for anything else; restoring that needs the check
+    before coercion (#1439 review, F10).
+    """
+
+    def to_internal_value(self, data: Any) -> str:
+        if not isinstance(data, str):
+            self.fail("invalid")
+        return super().to_internal_value(data)
+
+
 # ---------------------------------------------------------------------------
 # Request serializer
 # ---------------------------------------------------------------------------
@@ -161,7 +199,7 @@ class ApiKeyCreateSerializer(serializers.Serializer):
     envelope.
     """
 
-    name = serializers.CharField(
+    name = StrictNameField(
         required=True,
         allow_blank=True,
         allow_null=True,
@@ -287,15 +325,13 @@ class ApiKeyCreateSerializer(serializers.Serializer):
         raw: Any,
         unknown: list[str],
         field_errors: dict[str, Any],
-    ) -> list[dict[str, str]]:
-        details: dict[str, dict[str, str]] = {}
+    ) -> list[dict[str, Any]]:
+        details: dict[str, dict[str, Any]] = {}
 
         for field in unknown:
-            details[field] = {
-                "field": field,
-                "code": "unknown_field",
-                "message": f"Unknown field '{field}'.",
-            }
+            details[field] = _validation_detail(
+                field, "unknown_field", f"Unknown field '{field}'."
+            )
 
         for field in field_errors:
             details.setdefault(field, _field_error_detail(field))
@@ -314,47 +350,41 @@ class ApiKeyCreateSerializer(serializers.Serializer):
 
     def _cross_field_errors(
         self, raw: Any, blocked: set[str]
-    ) -> dict[str, dict[str, str]]:
+    ) -> dict[str, dict[str, Any]]:
         """Agent-key lifecycle rules, accumulated rather than raised (#1439)."""
         if not isinstance(raw, Mapping):
             return {}
         if raw.get("principal_type", PRINCIPAL_TYPE_USER) != PRINCIPAL_TYPE_AGENT:
             return {}
 
-        errors: dict[str, dict[str, str]] = {}
+        errors: dict[str, dict[str, Any]] = {}
 
         if "scope" not in blocked and normalize_api_key_scope(raw.get("scope")) is None:
-            errors["scope"] = {
-                "field": "scope",
-                "code": "required",
-                "message": AGENT_SCOPE_REQUIRED_MESSAGE,
-            }
+            errors["scope"] = _validation_detail(
+                "scope", "required", AGENT_SCOPE_REQUIRED_MESSAGE
+            )
 
         if (
             "workspace_ids" not in blocked
             and canonical_workspace_ids(raw.get("workspace_ids")) is None
         ):
-            errors["workspace_ids"] = {
-                "field": "workspace_ids",
-                "code": "required",
-                "message": AGENT_WORKSPACE_FENCE_REQUIRED_MESSAGE,
-            }
+            errors["workspace_ids"] = _validation_detail(
+                "workspace_ids", "required", AGENT_WORKSPACE_FENCE_REQUIRED_MESSAGE
+            )
 
         if "expires_at" not in blocked:
             raw_expiry = raw.get("expires_at")
             parsed = _parse_iso8601(raw_expiry)
             if parsed is None:
-                errors["expires_at"] = {
-                    "field": "expires_at",
-                    "code": "required" if not raw_expiry else "invalid",
-                    "message": AGENT_EXPIRY_REQUIRED_MESSAGE,
-                }
+                errors["expires_at"] = _validation_detail(
+                    "expires_at",
+                    "required" if not raw_expiry else "invalid",
+                    AGENT_EXPIRY_REQUIRED_MESSAGE,
+                )
             elif not is_future_timezone_aware(parsed):
-                errors["expires_at"] = {
-                    "field": "expires_at",
-                    "code": "invalid",
-                    "message": AGENT_EXPIRY_REQUIRED_MESSAGE,
-                }
+                errors["expires_at"] = _validation_detail(
+                    "expires_at", "invalid", AGENT_EXPIRY_REQUIRED_MESSAGE
+                )
 
         return errors
 
@@ -365,34 +395,41 @@ class ApiKeyCreateSerializer(serializers.Serializer):
         )
 
 
-def _field_error_detail(field: str) -> dict[str, str]:
-    """Canonical ``{field, code, message}`` for a declared field's failure."""
+def _validation_detail(field: str, code: str, message: str) -> dict[str, Any]:
+    """One ``details`` entry: the additive superset of ``{field, errors}``.
+
+    ``errors`` holds the same single message as ``message`` because the
+    project-wide detail shape is ``{field, errors: [...]}`` and generic clients
+    read exactly that (see the module docstring).
+    """
+    return {
+        "field": field,
+        "code": code,
+        "message": message,
+        "errors": [message],
+    }
+
+
+def _field_error_detail(field: str) -> dict[str, Any]:
+    """Canonical detail entry for a declared field's failure."""
     if field == "name":
-        return {"field": field, "code": "required", "message": NAME_REQUIRED_MESSAGE}
+        return _validation_detail(field, "required", NAME_REQUIRED_MESSAGE)
     if field == "principal_type":
-        return {
-            "field": field,
-            "code": "invalid",
-            "message": PRINCIPAL_TYPE_INVALID_MESSAGE,
-        }
+        return _validation_detail(field, "invalid", PRINCIPAL_TYPE_INVALID_MESSAGE)
     if field == "scope":
-        return {"field": field, "code": "invalid", "message": SCOPE_INVALID_MESSAGE}
+        return _validation_detail(field, "invalid", SCOPE_INVALID_MESSAGE)
     if field == "workspace_ids":
-        return {
-            "field": field,
-            "code": "invalid",
-            "message": WORKSPACE_IDS_INVALID_MESSAGE,
-        }
+        return _validation_detail(field, "invalid", WORKSPACE_IDS_INVALID_MESSAGE)
     if field == "expires_at":
-        return {"field": field, "code": "invalid", "message": EXPIRES_AT_INVALID_MESSAGE}
-    return {"field": field, "code": "invalid", "message": "Invalid value."}
+        return _validation_detail(field, "invalid", EXPIRES_AT_INVALID_MESSAGE)
+    return _validation_detail(field, "invalid", "Invalid value.")
 
 
-def build_api_key_create_error_response(details: list[dict[str, str]]) -> dict[str, Any]:
+def build_api_key_create_error_response(details: list[dict[str, Any]]) -> dict[str, Any]:
     """Apply the one-error-vs-many-error contract (#1439).
 
     * one unknown field -> the historical ``Unknown field '<key>'.`` body,
-      including its ``{"field", "errors"}`` detail entry;
+      including its bare ``{"field", "errors"}`` detail entry;
     * one problem of any other kind -> that problem's historical message;
     * two or more -> ``"Request validation failed."`` plus every detail.
 
@@ -401,7 +438,9 @@ def build_api_key_create_error_response(details: list[dict[str, str]]) -> dict[s
     """
     if len(details) == 1 and details[0]["code"] == "unknown_field":
         field = details[0]["field"]
-        message = f"Unknown field '{field}'."
+        # Read the already-built message instead of re-deriving it: the detail
+        # carries exactly the historical wording (#1439 review, n2).
+        message = details[0]["message"]
         return build_error_response(
             code="VALIDATION_ERROR",
             message=message,
@@ -466,17 +505,87 @@ class ApiKeyMetadataSerializer(serializers.Serializer):
 
 
 class ApiKeyValidationErrorDetailSerializer(serializers.Serializer):
-    """One field problem inside a multi-problem 400 (#1439)."""
+    """One field problem inside a multi-problem 400 (#1439).
+
+    Additive superset of the project-wide ``{"field", "errors"}`` detail shape:
+    ``errors`` carries the same single message as ``message`` so generic
+    clients that read ``details[i].errors[0]`` keep working.
+    """
 
     field = serializers.CharField(help_text="The offending request field.")
-    code = serializers.CharField(
-        help_text="'required', 'invalid' or 'unknown_field'."
+    code = serializers.ChoiceField(
+        choices=API_KEY_ERROR_CODES,
+        help_text="'required', 'invalid' or 'unknown_field'.",
     )
     message = serializers.CharField(help_text="Human-readable reason.")
+    errors = serializers.ListField(
+        child=serializers.CharField(),
+        help_text=(
+            "The same single message as 'message', in the project-wide "
+            "{field, errors} detail shape."
+        ),
+    )
+
+
+class ApiKeyLegacyValidationErrorDetailSerializer(serializers.Serializer):
+    """The historical ``{field, errors}`` entry emitted for a lone unknown field."""
+
+    field = serializers.CharField(help_text="The offending request field.")
+    errors = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="One entry: \"Unknown field '<key>'.\"",
+    )
+
+
+class ApiKeyLegacyValidationErrorDetailExtension(OpenApiSerializerExtension):
+    """Publish the legacy entry as a *closed* object.
+
+    ``oneOf`` accepts a value matching exactly one branch, so the two detail
+    variants must be disjoint. An open ``{field, errors}`` schema would also
+    accept every additive ``{field, code, message, errors}`` entry (extra keys
+    are allowed by default), making each real body match *both* branches and
+    therefore fail its own published contract. The body of a lone unknown field
+    is exactly ``{field, errors}`` (#1439 review, F1), so closing the schema is
+    accurate rather than cosmetic.
+    """
+
+    target_class = ApiKeyLegacyValidationErrorDetailSerializer
+
+    def map_serializer(self, auto_schema: Any, direction: Any) -> dict[str, Any]:
+        schema = super().map_serializer(auto_schema, direction)
+        schema["additionalProperties"] = False
+        return schema
+
+
+@extend_schema_field(
+    PolymorphicProxySerializer(
+        component_name="ApiKeyValidationErrorDetailItem",
+        serializers=[
+            ApiKeyValidationErrorDetailSerializer,
+            ApiKeyLegacyValidationErrorDetailSerializer,
+        ],
+        resource_type_field_name=None,
+    )
+)
+class ApiKeyValidationErrorDetailItemField(serializers.Field):
+    """Documentation-only field: one ``details`` entry, either variant.
+
+    The runtime body has two legitimate item shapes (#1439 review, F1): the
+    additive ``{field, code, message, errors}`` entry for every ordinary
+    problem, and the byte-identical historical ``{field, errors}`` entry for a
+    lone unknown request field. The published schema has to accept both.
+    """
 
 
 class ApiKeyValidationErrorSerializer(serializers.Serializer):
-    """Inner error object of a ``POST /api/v1/api-keys/`` 400."""
+    """Inner error object of a ``POST /api/v1/api-keys/`` 400.
+
+    Structurally a superset of the canonical envelope body
+    (:class:`rest_api.openapi.ErrorBodySerializer`: ``code``, ``message``,
+    ``details``, ``request_id``); the runtime body of this route carries no
+    ``request_id`` — ``build_error_response`` does not add one — so the
+    property is optional and nullable, exactly like the canonical declaration.
+    """
 
     code = serializers.CharField(help_text="Always 'VALIDATION_ERROR'.")
     message = serializers.CharField(
@@ -485,7 +594,21 @@ class ApiKeyValidationErrorSerializer(serializers.Serializer):
             "'Request validation failed.'"
         )
     )
-    details = ApiKeyValidationErrorDetailSerializer(many=True)
+    details = serializers.ListField(
+        child=ApiKeyValidationErrorDetailItemField(),
+        help_text=(
+            "One entry per problem, in declaration order (unknown request "
+            "keys first, alphabetically)."
+        ),
+    )
+    request_id = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Correlation id mirrored from the X-Request-ID header "
+            "(ADR-014 §1); omitted by this route's error body."
+        ),
+    )
 
 
 class ApiKeyErrorResponseSerializer(serializers.Serializer):

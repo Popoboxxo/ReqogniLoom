@@ -584,7 +584,13 @@ class WorkspaceService(ServiceBase):
     # ---------- Lifecycle API (REQ-L1-042) ----------
 
     @atomic_transaction
-    def close_workspace(self, workspace_id: UUID, ctx: AuthContext) -> Workspace:
+    def close_workspace(
+        self,
+        workspace_id: UUID,
+        ctx: AuthContext,
+        *,
+        expected_version: int | None = None,
+    ) -> Workspace:
         """Soft-delete a workspace (REQ-L1-042).
 
         Sets ``is_active=False``, ``closed_at=now``, ``closed_by=ctx.user_id``.
@@ -592,21 +598,42 @@ class WorkspaceService(ServiceBase):
 
         Requires ``admin`` role (COMP-AT-002).
 
+        Args:
+            workspace_id: Workspace to close.
+            ctx: Resolved AuthContext.
+            expected_version: Client's last-seen ``version`` (``If-Match`` or
+                the ``expected_version`` body field). ``None`` keeps the
+                unchanged last-writer-wins behaviour; a value is compared inside
+                this transaction's row lock (GH-1396 review finding B1), so a
+                conditional lifecycle toggle cannot land on a stale revision.
+
         Raises:
             NotFoundError: workspace does not exist.
             PermissionDeniedError: user lacks admin role.
+            OptimisticLockError: ``expected_version`` no longer matches.
         """
         self._set_tenant_context(ctx)
         self._assert_permission(ctx, "admin")
 
-        workspace = Workspace.objects.filter(id=workspace_id).first()
+        workspace = lock_for_version_check(
+            Workspace.objects.filter(id=workspace_id), expected_version
+        ).first()
         if workspace is None:
             raise NotFoundError(f"Workspace {workspace_id} not found")
+        assert_expected_version(workspace, expected_version, entity_type="Workspace")
 
         workspace.is_active = False
         workspace.closed_at = timezone.now()
         workspace.closed_by_id = ctx.user_id
-        workspace.save(update_fields=["is_active", "closed_at", "closed_by"])
+        # GH-1396 review finding B2: the representation changes, so the ``ETag``
+        # (derived from ``version``) must change too — otherwise a client could
+        # repeat the same conditional ``is_active`` write with the same tag
+        # forever. Same pattern as ``update_metadata``.
+        workspace.version = F("version") + 1
+        workspace.save(
+            update_fields=["is_active", "closed_at", "closed_by", "version"]
+        )
+        workspace.refresh_from_db(fields=["version"])
 
         self._audit(
             ctx=ctx,
@@ -619,28 +646,49 @@ class WorkspaceService(ServiceBase):
         return workspace
 
     @atomic_transaction
-    def reactivate_workspace(self, workspace_id: UUID, ctx: AuthContext) -> Workspace:
+    def reactivate_workspace(
+        self,
+        workspace_id: UUID,
+        ctx: AuthContext,
+        *,
+        expected_version: int | None = None,
+    ) -> Workspace:
         """Undo a workspace close (REQ-L1-042).
 
         Sets ``is_active=True``, ``closed_at=None``, ``closed_by=None``.
 
         Requires ``admin`` role (COMP-AT-002).
 
+        Args:
+            workspace_id: Workspace to reactivate.
+            ctx: Resolved AuthContext.
+            expected_version: Client's last-seen ``version`` — see
+                :meth:`close_workspace` (GH-1396 review finding B1).
+
         Raises:
             NotFoundError: workspace does not exist.
             PermissionDeniedError: user lacks admin role.
+            OptimisticLockError: ``expected_version`` no longer matches.
         """
         self._set_tenant_context(ctx)
         self._assert_permission(ctx, "admin")
 
-        workspace = Workspace.objects.filter(id=workspace_id).first()
+        workspace = lock_for_version_check(
+            Workspace.objects.filter(id=workspace_id), expected_version
+        ).first()
         if workspace is None:
             raise NotFoundError(f"Workspace {workspace_id} not found")
+        assert_expected_version(workspace, expected_version, entity_type="Workspace")
 
         workspace.is_active = True
         workspace.closed_at = None
         workspace.closed_by = None
-        workspace.save(update_fields=["is_active", "closed_at", "closed_by"])
+        # GH-1396 review finding B2: bump the tag alongside the representation.
+        workspace.version = F("version") + 1
+        workspace.save(
+            update_fields=["is_active", "closed_at", "closed_by", "version"]
+        )
+        workspace.refresh_from_db(fields=["version"])
 
         self._audit(
             ctx=ctx,

@@ -54,14 +54,23 @@ present but empty / whitespace   400 ``INVALID_IF_MATCH`` (malformed)
                                  no revision comparison
 single strong tag matching      200
 single strong tag not matching  412 ``PRECONDITION_FAILED``
-weak validator (``W/"6"``)      syntactically valid, but ``If-Match`` requires
-                                *strong* comparison (RFC 9110 § 13.1.1) → a weak
-                                tag can never match → 412
+weak validator (``W/"6"``,      syntactically valid, but ``If-Match`` requires
+``w/"6"``)                       *strong* comparison (RFC 9110 § 13.1.1) → a weak
+                                 tag can never match → 412
 missing/unbalanced quotes       400 ``INVALID_IF_MATCH`` (malformed)
+a tag containing a comma        one opaque tag, not a list separator: ``"a,b"``
+(``"a,b"``)                      is a single strong tag (``etagc`` covers
+                                 ``0x23``–``0x7E``) and therefore compares as a
+                                 whole
+non-ASCII ``obs-text`` tag       one opaque tag: ``etagc`` also covers
+(``0x80``–``0xFF``)              ``0x80``–``0xFF``, so such a tag is *not*
+                                 malformed
 list of tags (``"1", "6"``)     valid grammar → 200 when ANY strong tag equals
-                                the current ``ETag``, else 412; weak entries
-                                in the list never match
+                                 the current ``ETag``, else 412; weak entries
+                                 in the list never match
 list with a malformed entry     400 ``INVALID_IF_MATCH`` (malformed)
+lone comma / only separators     400 ``INVALID_IF_MATCH`` — a documented
+                                 deviation, see below
 ===============================  ==============================================
 
 The split between 400 and 412 is deliberate: **400 means the header is not a
@@ -70,9 +79,20 @@ precondition at all; 412 means it was evaluated and does not hold.** A parser
 that answered 412 for ``garbage`` would tell the client "your cached copy is
 stale — re-read and retry", which is advice that can never succeed; a parser
 that answered 200 would silently drop the client's write protection. Hence the
-strict rejection. Two values are rejected although RFC 9110 § 5.6.1 tolerates
-them as list padding: an empty list element is skipped as the ABNF requires,
-but a header that reduces to *zero* tags is malformed.
+strict rejection.
+
+**Documented deviation from RFC 9110 § 5.6.1:** empty list elements are skipped
+as the ABNF requires (``"1",,"6"`` is two tags), but a field-value that reduces
+to *zero* tags — a lone ``,``, ``, ,`` or a present-but-blank header — is
+rejected as malformed. The RFC makes an empty list valid (it matches nothing, so
+the precondition simply fails with 412); this server answers 400 instead,
+because "I sent ``If-Match``" with no tag at all is a client bug, and 400 tells
+the caller to fix the request rather than to re-read a representation that can
+never satisfy it. Clients must not rely on the RFC's empty-list form here.
+
+The field-value is scanned, not split: a comma inside a quoted entity-tag is
+part of that tag's opaque value, so ``If-Match: "a,b"`` is one tag. A
+``split(",")`` would cut it in half and report a legal header as malformed.
 
 Workflow transitions are the one exception on the status side: there the same
 header guards the ``WorkflowItemState`` revision, not the entity tag, and a
@@ -89,6 +109,7 @@ import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from enum import Enum
+from functools import cached_property
 from typing import Any
 
 from rest_framework import status
@@ -107,12 +128,17 @@ __all__ = [
     "parse_if_match_version",
 ]
 
-#: RFC 9110 entity-tag: optional weak prefix plus a quoted opaque value. The
-#: quoted value may not contain ``"`` or whitespace, so an unquoted, embedded-
-#: quote or trailing-garbage field-value is rejected as malformed rather than
-#: being read as a tag that would then compare unequal and produce a misleading
-#: 412.
-_ENTITY_TAG_RE = re.compile(r'^(W/)?"([^"\s]*)"$')
+#: RFC 9110 entity-tag: optional (case-insensitive) weak prefix plus a quoted
+#: opaque value. The opaque value is the RFC's ``etagc``: ``0x21``, the range
+#: ``0x23``–``0x7E`` and ``obs-text`` ``0x80``–``0xFF`` — so ``"`` (0x22) and
+#: whitespace terminate it, while a comma or a non-ASCII byte is legal *inside*
+#: it. Deliberately unanchored: :func:`parse_if_match` scans the field-value and
+#: matches at a position, which is what keeps a quoted comma from being read as
+#: a list separator. ABNF literals are case-insensitive, hence ``[Ww]/``.
+_ENTITY_TAG_RE = re.compile(r'([Ww]/)?"([\x21\x23-\x7e\x80-\xff]*)"')
+
+#: Optional whitespace inside the field-value (RFC 9110 § 5.6.3).
+_OWS = " \t"
 
 #: Header field name, spelled once (RFC 9110 § 13.1.1).
 _IF_MATCH = "If-Match"
@@ -190,7 +216,7 @@ class IfMatch:
     tags: tuple[EntityTag, ...] = ()
     reason: str = ""
 
-    @property
+    @cached_property
     def strong_tags(self) -> tuple[EntityTag, ...]:
         """The tags usable for ``If-Match``'s strong comparison."""
         return tuple(tag for tag in self.tags if not tag.weak)
@@ -199,10 +225,18 @@ class IfMatch:
 def parse_if_match(header: str | None) -> IfMatch:
     """Parse an ``If-Match`` field-value into an explicit :class:`IfMatch`.
 
+    The value is *scanned* left to right, not ``split(",")``: an entity-tag's
+    opaque value may legally contain a comma, so only a comma **outside** the
+    quotes separates list elements. Each element is matched with
+    :data:`_ENTITY_TAG_RE`, which accepts RFC 9110's ``etagc`` (including
+    ``obs-text``) and a case-insensitive ``W/`` prefix.
+
     Grammar (RFC 9110 § 13.1.1): ``"*" / #entity-tag``. Empty list elements are
     skipped as § 5.6.1 requires; a header that survives to zero tags — including
-    a present-but-blank header — is :attr:`IfMatchKind.MALFORMED`, because "I
-    sent If-Match" with no tag at all is a client bug, not "no assertion".
+    a present-but-blank header and a lone comma — is
+    :attr:`IfMatchKind.MALFORMED`. That last choice deliberately deviates from
+    the RFC (an empty list would be valid and simply match nothing); see the
+    module docstring for the reason.
 
     Args:
         header: Raw ``If-Match`` field-value, or ``None`` when absent.
@@ -213,22 +247,43 @@ def parse_if_match(header: str | None) -> IfMatch:
     """
     if header is None:
         return IfMatch(IfMatchKind.ABSENT)
-    if header.strip() == "*":
+    if header.strip(_OWS) == "*":
         return IfMatch(IfMatchKind.ANY)
 
     tags: list[EntityTag] = []
-    for raw in header.split(","):
-        part = raw.strip()
-        if not part:
+    position = 0
+    length = len(header)
+    while position < length:
+        # Optional whitespace between elements.
+        while position < length and header[position] in _OWS:
+            position += 1
+        if position >= length:
+            break
+        if header[position] == ",":
             # RFC 9110 § 5.6.1: empty list elements are legal padding.
+            position += 1
             continue
-        match = _ENTITY_TAG_RE.match(part)
+        match = _ENTITY_TAG_RE.match(header, position)
         if match is None:
             return IfMatch(
                 IfMatchKind.MALFORMED,
-                reason=f"{part!r} is not a quoted entity-tag",
+                reason=f"{header[position:]!r} is not a quoted entity-tag",
             )
-        tags.append(EntityTag(value=match.group(2), weak=match.group(1) is not None))
+        tags.append(
+            EntityTag(value=match.group(2), weak=match.group(1) is not None)
+        )
+        position = match.end()
+        # Two entity-tags must be comma-separated; OWS alone is not a separator
+        # (``"6" "9"`` is malformed, not two tags).
+        while position < length and header[position] in _OWS:
+            position += 1
+        if position < length and header[position] != ",":
+            return IfMatch(
+                IfMatchKind.MALFORMED,
+                reason=(
+                    f"{header[position:]!r} follows an entity-tag without a comma"
+                ),
+            )
     if not tags:
         return IfMatch(IfMatchKind.MALFORMED, reason="the header carries no entity-tag")
     return IfMatch(IfMatchKind.TAGS, tags=tuple(tags))
@@ -369,10 +424,20 @@ class ETagMixin:
         ``InvalidIfMatch`` → 400, ``IfMatchMismatch`` → 412. Used by the
         ``ETag`` endpoints; ``transitions/`` maps the same mismatch to 409
         itself, because there the header guards the workflow revision.
+
+        Any *other* exception is re-raised (GH-1396 review finding m4). The
+        previous implementation answered 412 for everything that was not an
+        ``InvalidIfMatch``, which turned a programming error — a ``TypeError``
+        in the resolver, a broken ``current`` loader — into "your cached copy
+        is stale, re-read and retry": advice that can never succeed and that
+        hides the defect from monitoring. A 412 is only ever an *evaluated*
+        precondition, so only ``IfMatchMismatch`` may produce one.
         """
         if isinstance(exc, InvalidIfMatch):
             return self.invalid_if_match(request, exc.reason)
-        return self.precondition_failed(request)
+        if isinstance(exc, IfMatchMismatch):
+            return self.precondition_failed(request)
+        raise exc
 
     def resolve_expected_version(
         self,
@@ -395,7 +460,11 @@ class ETagMixin:
            intermediary can reason about).
         3. A tag list whose strong members are compared against the resource's
            current ``ETag``; the matching tag's version is forwarded, so the
-           authoritative compare stays inside the service's row lock.
+           authoritative compare stays inside the service's row lock. The
+           matching tag must encode a *numeric* revision: a non-numeric tag
+           (the ISO timestamp a Baseline emits) has nothing to forward, so it
+           raises ``IfMatchMismatch`` instead of degrading to an unguarded
+           write.
         4. Otherwise the legacy ``expected_version`` body field, unchanged —
            including ``None``, which keeps the current last-writer-wins
            behaviour for callers that do not track versions.
@@ -451,9 +520,24 @@ class ETagMixin:
             raise IfMatchMismatch("the resource carries no ETag")
         for tag in strong:
             if tag.quoted == etag:
-                # A matching timestamp tag yields None — the comparison above is
-                # the guarantee; there is no integer for the service to compare.
-                return _version_of(tag)
+                version = _version_of(tag)
+                # Invariant (GH-1396 review finding m3): every caller of this
+                # method forwards the return value as the service's
+                # ``expected_version``, so a *non-numeric* matching tag cannot be
+                # honoured — returning ``None`` would tell the service "the
+                # caller tracks no version" and the row-locked compare would be
+                # skipped, silently reopening the exact TOCTOU window this
+                # method exists to close. The only non-numeric tag this stack
+                # emits is a Baseline's ISO timestamp, and the Baseline PATCH is
+                # immutable (405) and uses ``check_if_match`` instead. A route
+                # that ever forwards a timestamp tag here must therefore be
+                # rejected as a mismatch rather than silently unguarded.
+                if version is None:
+                    raise IfMatchMismatch(
+                        "the matching If-Match tag is not a numeric revision and "
+                        "cannot be forwarded as expected_version"
+                    )
+                return version
         raise IfMatchMismatch("no If-Match tag matches the current ETag")
 
     def check_if_match(self, request: Request, entity: Any) -> Response | None:

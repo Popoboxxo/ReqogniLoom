@@ -113,6 +113,8 @@ def test_agent_with_only_principal_type_reports_all_four_missing_fields(env):
     assert error["message"] == MULTI_FIELD_MESSAGE
     assert _fields(error) == ["name", "scope", "workspace_ids", "expires_at"]
     assert {detail["code"] for detail in error["details"]} == {"required"}
+    assert all(detail["errors"] == [detail["message"]] for detail in error["details"])
+
     assert {detail["message"] for detail in error["details"]} == {
         NAME_REQUIRED_MESSAGE,
         "Agent API keys require an explicit valid scope.",
@@ -129,7 +131,12 @@ def test_empty_body_reports_every_applicable_problem(env):
 
     assert error["message"] == NAME_REQUIRED_MESSAGE
     assert error["details"] == [
-        {"field": "name", "code": "required", "message": NAME_REQUIRED_MESSAGE}
+        {
+            "field": "name",
+            "code": "required",
+            "message": NAME_REQUIRED_MESSAGE,
+            "errors": [NAME_REQUIRED_MESSAGE],
+        }
     ]
 
 
@@ -155,7 +162,12 @@ def test_single_name_problem_keeps_the_legacy_message(env):
 
     assert error["message"] == "Field 'name' is required."
     assert error["details"] == [
-        {"field": "name", "code": "required", "message": NAME_REQUIRED_MESSAGE}
+        {
+            "field": "name",
+            "code": "required",
+            "message": NAME_REQUIRED_MESSAGE,
+            "errors": [NAME_REQUIRED_MESSAGE],
+        }
     ]
 
 
@@ -170,6 +182,7 @@ def test_single_principal_type_problem_keeps_the_legacy_message(env):
             "field": "principal_type",
             "code": "invalid",
             "message": PRINCIPAL_TYPE_INVALID_MESSAGE,
+            "errors": [PRINCIPAL_TYPE_INVALID_MESSAGE],
         }
     ]
 
@@ -251,7 +264,9 @@ def test_individual_invalid_field_is_reported(
     error = _error(_post(_client(), payload))
 
     assert error["message"] == message
-    assert error["details"] == [{"field": field, "code": code, "message": message}]
+    assert error["details"] == [
+        {"field": field, "code": code, "message": message, "errors": [message]}
+    ]
 
 
 @override_settings(**_JWT_OVERRIDES)
@@ -273,6 +288,7 @@ def test_agent_past_expiry_is_reported_as_the_agent_rule(env):
             "field": "expires_at",
             "code": "invalid",
             "message": AGENT_EXPIRY_REQUIRED_MESSAGE,
+            "errors": [AGENT_EXPIRY_REQUIRED_MESSAGE],
         }
     ]
 

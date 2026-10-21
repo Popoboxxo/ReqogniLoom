@@ -31,12 +31,16 @@ Empirical proof of the runtime behaviour (measured with the tests below,
 | ``GET /api/v1/baselines/{id}/`` (enabled workspace)  | extended | 200    | baseline detail incl. ``entries``                                            |
 | ``POST /api/v1/baselines/`` (no ``workspace_id``)    | any      | 404    | same opaque envelope, answered before serializer validation                  |
 
-The 404 body is the *same* envelope ``handler404`` renders for an unrouted path
-(:data:`rest_api.not_found.ROUTE_NOT_FOUND_MESSAGE`): a hidden endpoint, an
-unknown/missing workspace and an unknown baseline id are deliberately
-indistinguishable, so no probe can tell "hidden by preset" from "does not
-exist". Both resolvers share that body by design and this change must not
-alter it.
+The 404 status, the ``NOT_FOUND`` error code and the envelope shape are shared
+with the body ``handler404`` renders for an unrouted path
+(:data:`rest_api.not_found.ROUTE_NOT_FOUND_MESSAGE`): the preset gate (1) and an
+unknown/missing workspace (2) are indistinguishable from "no such route", so no
+probe tells "hidden by preset" from "route does not exist". That is true of
+(1)/(2) only. An unknown baseline id (3) keeps the same status/code/envelope but
+answers the message ``"Baseline not found"`` (``BaselineNotFoundError`` via
+``_service_error_response``), so it *is* distinguishable from (1)/(2). The
+schema description says exactly this, and no change may alter the runtime bodies
+(the shared route-miss message is deliberate, GH-443-adjacent contract).
 """
 from __future__ import annotations
 
@@ -278,6 +282,26 @@ class TestBaselinePresetGateSchema:
             ]
         }
         assert len(descriptions) == 1
+
+    def test_404_description_does_not_over_promise_non_disclosure(
+        self, baseline_openapi: dict
+    ) -> None:
+        """F7: the same status/code/envelope does not mean the same *message*.
+
+        Cause (3) answers ``"Baseline not found"`` while (1)/(2) use the
+        route-miss text, so a claim that the route "does not disclose which
+        condition applied" is false. The description must state the real
+        contract: 404 means "not available here", never "does not exist".
+        """
+        description = _operation(
+            baseline_openapi, _DETAIL_PATH, "get"
+        )["responses"]["404"]["description"].lower()
+
+        assert "baseline not found" in description
+        assert "requested api endpoint does not exist" in description
+        assert "not available here" in description
+        assert "does not disclose" not in description
+        assert "opaque body" not in description
 
     def test_list_requires_workspace_id_query_parameter(
         self, baseline_openapi: dict

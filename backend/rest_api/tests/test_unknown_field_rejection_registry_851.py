@@ -119,6 +119,20 @@ _GUARDED_WRITE_SERIALIZERS: tuple[type, ...] = (
     WaiverCreateSerializer,
 )
 
+#: Write serializers that reject unknown request keys with their *own*,
+#: deliberately different accumulation logic instead of
+#: :class:`UnknownFieldRejectionMixin`. Keyed by ``module.ClassName`` with the
+#: reason the shared mixin is not used; the discovery guard treats them as
+#: classified (guarded), and the behaviour itself is pinned separately.
+_BESPOKE_GUARDED_SERIALIZERS: dict[str, str] = {
+    "rest_api.api_key_serializers.ApiKeyCreateSerializer": (
+        "bespoke cumulative validation in run_validation (#1439): it reports "
+        "every unknown key together with every field problem under the "
+        "historical wording, and the mixin would additionally re-admit the "
+        "always-allowed PATCH keys this create-only route rejects"
+    ),
+}
+
 #: Every serializer in :data:`_SERIALIZER_MODULES` that legitimately carries no
 #: guard, each with the reason it is exempt. The discovery guard fails on any
 #: module-local ``*Serializer`` that appears in neither registry.
@@ -177,6 +191,27 @@ _EXEMPT_SERIALIZERS: dict[str, str] = {
     "AuditReportSerializer": (
         "read-only 200 body of GET .../audit/ (#1382); no request body to guard"
     ),
+    # --- rest_api.api_key_serializers (M4, #1439 review) ------------------
+    # The create request serializer is the bespoke-guarded entry above; every
+    # other class in that module only describes a response body.
+    "ApiKeyCreateResponseSerializer": "read-only 201 response serializer",
+    "ApiKeyMetadataSerializer": "read-only list/retrieve response serializer",
+    "ApiKeyValidationErrorDetailSerializer": (
+        "OpenAPI documentation-only serializer: one 400 detail entry, never a "
+        "request body"
+    ),
+    "ApiKeyLegacyValidationErrorDetailSerializer": (
+        "OpenAPI documentation-only serializer: the historical 400 detail "
+        "entry, never a request body"
+    ),
+    "ApiKeyValidationErrorSerializer": (
+        "OpenAPI documentation-only serializer: the 400 inner error object, "
+        "never a request body"
+    ),
+    "ApiKeyErrorResponseSerializer": (
+        "OpenAPI documentation-only serializer: the 400 envelope, never a "
+        "request body"
+    ),
 }
 
 #: Modules whose module-local ``*Serializer`` classes are part of the REST
@@ -190,6 +225,7 @@ _SERIALIZER_MODULES: tuple[str, ...] = (
     "rest_api.prompt_variable_views",
     "rest_api.audit_views",
     "rest_api.architecture_decompose_views",
+    "rest_api.api_key_serializers",
 )
 
 #: A complete, valid payload for every serializer newly covered by this pass.
@@ -349,6 +385,9 @@ def test_every_serializer_is_classified() -> None:
     guarded = {
         f"{cls.__module__}.{cls.__name__}" for cls in _GUARDED_WRITE_SERIALIZERS
     }
+    # Bespoke guards are registered by module-qualified key (they deliberately
+    # do not inherit the shared mixin) — see _BESPOKE_GUARDED_SERIALIZERS.
+    bespoke = set(_BESPOKE_GUARDED_SERIALIZERS)
     # _EXEMPT_SERIALIZERS is keyed by bare class name; resolve each to its
     # module-qualified key so a typo cannot silently exempt nothing.
     exempt = {
@@ -356,7 +395,7 @@ def test_every_serializer_is_classified() -> None:
         for name, reason in _EXEMPT_SERIALIZERS.items()
     }
 
-    classified = guarded | set(exempt)
+    classified = guarded | bespoke | set(exempt)
     unclassified = sorted(set(discovered) - classified)
     assert not unclassified, (
         "Unclassified serializers — add UnknownFieldRejectionMixin or an "
@@ -386,6 +425,22 @@ def test_guarded_serializer_carries_the_mixin(serializer_cls: type) -> None:
     assert issubclass(serializer_cls, UnknownFieldRejectionMixin), (
         f"{serializer_cls.__name__} must inherit UnknownFieldRejectionMixin"
     )
+
+
+def test_bespoke_guarded_api_key_serializer_rejects_unknown_keys() -> None:
+    """The bespoke-guarded entry is guarded in behaviour, not only on paper.
+
+    ``ApiKeyCreateSerializer`` deliberately keeps its own accumulation (#1439)
+    instead of :class:`UnknownFieldRejectionMixin`; this pins that the
+    classification above still describes a serializer that answers an unknown
+    request key with an error rather than dropping it.
+    """
+    from rest_api.api_key_serializers import ApiKeyCreateSerializer
+
+    serializer = ApiKeyCreateSerializer(data={"name": "ok", "totally_unknown": 1})
+
+    assert not serializer.is_valid()
+    assert serializer.errors["totally_unknown"] == ["Unknown field 'totally_unknown'."]
 
 
 # ---------------------------------------------------------------------------

@@ -47,9 +47,13 @@ was evaluated and does not hold.
 | single strong tag equal to the current `ETag` | `200` |
 | single strong tag not equal | `412 PRECONDITION_FAILED` |
 | `W/"7"` (weak validator) | `412` — `If-Match` uses *strong* comparison (RFC 9110 § 13.1.1), so a weak tag can never match |
+| `w/"7"` (lowercase prefix) | same as `W/"7"` — ABNF literals are case-insensitive, so this is a weak tag → `412`, not `400` |
 | unquoted / unbalanced / garbage (`7`, `"7`, `garbage`) | `400 INVALID_IF_MATCH` |
+| `"a,b"` (comma inside the quotes) | one opaque tag — the field is scanned, not split on commas — so a numeric `ETag` makes it a `412`, never a `400` |
+| non-ASCII `obs-text` (`0x80`–`0xFF`) inside a tag | legal `etagc`, so still one tag rather than `400` |
 | list (`"7", "8"`) | `200` when **any** strong tag equals the current `ETag`, else `412`; weak entries never match |
 | list with a malformed entry | `400 INVALID_IF_MATCH` |
+| `,` (a value that reduces to zero tags) | `400 INVALID_IF_MATCH` — a documented deviation, see below |
 
 Two further rules the table implies:
 
@@ -59,6 +63,15 @@ Two further rules the table implies:
   the authoritative compare stays inside the service's row lock.
 * Tags compare as opaque strings: `"07"` is not `"7"` and does not match it.
 
+**One documented deviation.** RFC 9110 § 5.6.1 makes an *empty list* valid; here
+a field-value that reduces to zero tags — a lone `,`, `,,`, or a blank header —
+answers `400 INVALID_IF_MATCH` instead of acting as an empty list that matches
+nothing (`412`). Empty *elements* remain legal padding (`"7",,"8"` is two tags);
+only a value with no tag at all is rejected. The reason is client-side: `400`
+tells the caller the header is useless, where `412` would advise re-reading a
+representation that can never satisfy it. Do not rely on the RFC's empty-list
+form against this API.
+
 ### Omitting both
 
 A `PATCH` with neither header nor body field is **last-writer-wins**. That is
@@ -66,7 +79,7 @@ not an oversight: it is the behaviour for callers that do not track versions.
 
 ### Which resources — conditional requests are opt-in
 
-Four resources support them:
+Four resources support them **on `PATCH`**:
 
 | Resource | `ETag` on GET/PATCH | `If-Match` on PATCH | `412` declared |
 |----------|--------------------|---------------------|----------------|
@@ -75,23 +88,26 @@ Four resources support them:
 | `/api/v1/workspaces/{id}/` | yes | yes | yes |
 | `/api/v1/baselines/{id}/` | yes — a `created_at` timestamp, not a counter | yes — evaluated *before* the `405` | yes |
 
-Everything below does **not** support conditional requests: it emits no `ETag`
-and ignores `If-Match`. Its `PATCH` still accepts the `expected_version` **body**
-field (stale → `409 CONFLICT`), which is the older, non-HTTP half of the same
-guarantee.
+**On `PATCH`**, the six core artifact families below do not support conditional
+requests: their `PATCH` emits no `ETag` and ignores `If-Match`. It still accepts
+the `expected_version` **body** field (stale → `409 CONFLICT`), which is the
+older, non-HTTP half of the same guarantee. Glossary terms and the legacy
+`changerequests` spelling behave the same way. This is a statement about
+`PATCH` only — the `POST` actions in the next subsection *do* evaluate
+`If-Match`.
 
-| Resource | `ETag` | `If-Match` | `expected_version` |
-|----------|--------|------------|--------------------|
+| Resource | `ETag` | `If-Match` on `PATCH` | `expected_version` |
+|----------|--------|-----------------------|--------------------|
 | `/api/v1/architecture/{id}/` | — | ignored | yes |
 | `/api/v1/needs/{id}/` | — | ignored | yes |
 | `/api/v1/adrs/{id}/` | — | ignored | yes |
 | `/api/v1/risks/{id}/` | — | ignored | yes |
 | `/api/v1/issues/{id}/` | — | ignored | yes |
-| `/api/v1/change-requests/{id}/` | — | ignored | yes |
+| `/api/v1/change-requests/{id}/` (alias `/changerequests/{id}/`) | — | ignored | yes |
 | `/api/v1/glossary/{id}/` | — | ignored | yes |
 | `POST .../transitions/` | workflow revision in the response | yes, but means the **workflow** revision | yes, but means the **entity** version |
-| `goal`, `main-goal` | — | — | not enforced (lineage-versioned; updates append a version) |
-| `test-runs` | — | — | not declared — sending it is an unknown field (`400`) |
+| `goal`, `main-goal` | — | see the action table below | not enforced (lineage-versioned; updates append a version) |
+| `test-runs` | — | not declared — sending it is an unknown field (`400`) | — |
 
 The `ETag` value is the entity's `version` counter, quoted (`"7"`) — the very
 counter `expected_version` compares against, so the two can never disagree
@@ -102,6 +118,34 @@ A `PATCH` on a workspace that changes nothing the user recognises still advances
 the counter: `version` is a concurrency token, not a content revision number
 (see the note on `AuditableModel.version`).
 
+### `POST` actions that evaluate `If-Match` (400/409 — never `412`)
+
+Five `POST` actions evaluate the header even though their resource's `PATCH` is
+not conditional. They guard the **workflow** revision, not the entity `ETag`, so
+their answers differ from the `412` above:
+
+| Action | `If-Match` | malformed value | lost precondition | `412` |
+|--------|-----------|-----------------|-------------------|-------|
+| `POST /api/v1/adrs/{id}/supersede/` | optional | `400 INVALID_IF_MATCH` | `409 CONFLICT` | never declared |
+| `POST /api/v1/goals/{id}/outdate/` | optional | `400 INVALID_IF_MATCH` | `409 CONFLICT` | never declared |
+| `POST /api/v1/goals/{id}/reactivate/` | optional | `400 INVALID_IF_MATCH` | `409 CONFLICT` | never declared |
+| `POST /api/v1/main-goals/{id}/approve/` | optional | `400 INVALID_IF_MATCH` | `409 CONFLICT` | never declared |
+| `POST /api/v1/change-requests/{id}/transition/` (alias `/changerequests/{id}/transition/`) | optional | `400 INVALID_IF_MATCH` | `409 CONFLICT` | never declared |
+
+They emit no `ETag`: the guarded value is the `WorkflowItemState` revision,
+which is only discoverable from the `version` key of that resource's
+`transitions/` GET/POST response (see [`transitions/` is a different
+lock](#transitions-is-a-different-lock)). Same header name as `PATCH`, different
+lock, different status.
+
+The single source of truth is `backend/rest_api/conditional_requests.py`:
+`CONDITIONAL_REQUEST_OPERATIONS` for the `PATCH` contract and
+`CONDITIONAL_ACTION_OPERATIONS` for these actions. The gate test
+(`test_conditional_request_contract_1397.py`) asserts that every one of these
+action paths declares **no** `412`, and that it either declares an `If-Match`
+parameter or is explicitly named in that map — no silent middle ground. That is
+why none of them declares `412`: the runtime never answers it on these routes.
+
 ### No `412` without `If-Match` (`#1397`)
 
 The `412` a generated client retries on is only meaningful together with the
@@ -110,29 +154,38 @@ request header that produces it, so the contract pairs them:
 * the OpenAPI document declares `412` on exactly the four `PATCH` operations
   above — five path entries, because `TestCaseViewSet` is routed twice — and
   declares an **optional** `If-Match` header parameter on exactly the same five;
-* no operation outside that set declares `412`, and no operation outside it
+* no operation outside that set declares `412`, and no other `PATCH` operation
   declares `If-Match`. Both directions are a contract bug: a `412` on a route
   that ignores the header advertises a failure a client cannot avoid, and an
-  `If-Match` parameter on a route that ignores it advertises protection the
-  server does not give.
+  `If-Match` parameter on a `PATCH` that ignores it advertises protection the
+  server does not give. The five `POST` actions documented above are the
+  deliberate exception on the *input* side: they read `If-Match` (workflow
+  revision) but answer `409`, so they are named in `CONDITIONAL_ACTION_OPERATIONS`
+  and must never declare `412`.
 
 The single source of truth is `backend/rest_api/conditional_requests.py`
-(`CONDITIONAL_REQUEST_OPERATIONS`, `UNSUPPORTED_CONDITIONAL_FAMILIES`); it also
-produces the conditional-request paragraph of the published schema description.
+(`CONDITIONAL_REQUEST_OPERATIONS`, `CONDITIONAL_ACTION_OPERATIONS`,
+`UNSUPPORTED_CONDITIONAL_FAMILIES`); it also produces the conditional-request
+paragraph of the published schema description.
 `backend/rest_api/tests/test_conditional_request_contract_1397.py` regenerates
 the schema in-process and fails if the document and that module disagree. Adding
-an entry requires the route to actually evaluate the header
-(`ETagMixin.check_if_match` / `ETagMixin.resolve_expected_version`) **and** to
-emit the `ETag` its clients condition against.
+an entry to `CONDITIONAL_REQUEST_OPERATIONS` requires the route to actually
+evaluate the header (`ETagMixin.check_if_match` /
+`ETagMixin.resolve_expected_version`) **and** to emit the `ETag` its clients
+condition against.
 
 **Why only these four.** They are the only resources whose `ETag` derives from a
 monotonic `version` counter (or, for the immutable `Baseline`, a stable
 timestamp) that `expected_version` already compares against — an `ETag` and a
 body field therefore can never disagree about which revision is current.
-Retro-fitting `ETag`/`If-Match` onto the other six artifact families would add a
+Retro-fitting `ETag`/`If-Match` onto the six core artifact families would add a
 write precondition to six ViewSets with no client demand: a stale header would
 start refusing writes that answered `200` before. That is a behaviour change,
-not a contract-honesty fix, so those families remain explicitly *not* conditional.
+not a contract-honesty fix, so those families remain explicitly *not*
+conditional. For the same reason `UNSUPPORTED_CONDITIONAL_FAMILIES` enumerates
+those six families (plus glossary terms and the `changerequests` alias) and
+makes **no** claim about the whole API: 36 other `PATCH` operations declare
+neither `412` nor `If-Match` and are covered by the inverse gate instead.
 
 ### `transitions/` is a different lock
 
@@ -257,12 +310,23 @@ worked example:
 | `extended` | on | `200` |
 
 A preset-disabled route answers **`404`**, not `403` — the endpoint does not
-exist for that workspace, so its absence must not be distinguishable from an
-unknown route or an unknown id. Baselines, an unknown/foreign workspace and an
-unknown baseline id all render the same opaque `NOT_FOUND` body
-(`rest_api/not_found.py`), which is deliberate. The flat collection route adds
-one more cause: a missing `workspace_id` makes the gate fall back to the
-caller's tenant id, resolves no workspace, and therefore answers `404` in
+exist for that workspace, so its absence must share the status, the `NOT_FOUND`
+error code and the envelope shape of an unknown route or unknown id. It does
+share those three things, but **not** the same `message`:
+
+* the preset gate (1), an unknown/foreign workspace (2) and the flat route's
+  missing `workspace_id` answer the generic route-miss text — *"The requested
+  API endpoint does not exist."* (`rest_api/not_found.py`, GH-443);
+* an unknown baseline id (3) answers *"Baseline not found"*
+  (`BaselineNotFoundError`, forwarded by `_service_error_response`).
+
+So the response is *not* byte-identical across the causes, and a 404 here means
+**"not available here"**, never **"does not exist"**: the same baseline id can
+answer 404 under `minimal` and resolve under `standard`, or 404 for a foreign
+tenant and resolve for its owner. Do not treat a 404 as proof of absence and do
+not rely on the message being the same for all three causes. The flat collection
+route adds one more cause: a missing `workspace_id` makes the gate fall back to
+the caller's tenant id, resolves no workspace, and therefore answers `404` in
 **every** preset (see above).
 
 Two rules follow:
@@ -491,6 +555,34 @@ The `Content-Type` is set on both renderers, so a strict client (one that refuse
 to parse a body whose media type it does not recognise) can consume the document
 without a special case.
 
+### `operationId` renames (`#1388`)
+
+drf-spectacular derives an `operationId` from the path tokens plus the action;
+path variables are stripped, so a collection route and its detail route tokenise
+to the same prefix and both fell back to `retrieve`. The collision resolver then
+appended `_2` to whichever path sorted **second** — an order-dependent artefact,
+not a stable identifier. Eight collection operations now carry an explicit,
+method-shaped id:
+
+| Old (colliding, order-dependent) | New (stable) | Operation |
+|---|---|---|
+| `attribute_catalog_retrieve` / `attribute_catalog_retrieve_2` | `attribute_catalog_list` | `GET /api/v1/attribute-catalog/` |
+| `attribute_defaults_retrieve` / `attribute_defaults_retrieve_2` | `attribute_defaults_list` | `GET /api/v1/attribute-defaults/` |
+| `attribute_migration_runs_retrieve` / `attribute_migration_runs_retrieve_2` | `attribute_migration_runs_list` | `GET /api/v1/attribute-migration/runs/` |
+| `diagrams_retrieve` / `diagrams_retrieve_2` | `diagrams_list` | `GET /api/v1/diagrams/` |
+| `icds_retrieve` / `icds_retrieve_2` | `icds_list` | `GET /api/v1/icds/` |
+| `interviews_retrieve` / `interviews_retrieve_2` | `interviews_list` | `GET /api/v1/interviews/` |
+| `requirements_acceptance_criteria_retrieve` / `requirements_acceptance_criteria_retrieve_2` | `requirements_acceptance_criteria_list` | `GET /api/v1/requirements/{id}/acceptance-criteria/` |
+| `workflow_defaults_retrieve` / `workflow_defaults_retrieve_2` | `workflow_defaults_list` | `GET /api/v1/workflow-defaults/` |
+
+The left column is the whole old pair, not two names a client could rely on: the
+un-suffixed id belonged to the collection only because of sort order, and `_2`
+belonged to the detail for the same reason. No deliberately assigned identifier
+broke — the only thing that changed is that the collection method now says
+`list` (what it always did) and the detail keeps the un-suffixed `retrieve`.
+Generated clients that pinned a `_2` name should re-generate; the table maps
+both sides.
+
 ---
 
 ## 9. `memory.ask` on REST — a write-gated read with an explicit degradation state
@@ -642,11 +734,16 @@ client (and test) depends on stay stable:
 | exactly **one** | that problem's historical message, byte-identical | one entry for it |
 | **two or more** | `"Request validation failed."` | one entry per problem, ordered deterministically |
 
-`error.code` is `VALIDATION_ERROR` in both cases. The envelope itself is
-unchanged (§2, REQ-L2-RA-009).
+`error.code` is `VALIDATION_ERROR` in both cases. The envelope keys are
+unchanged (§2, REQ-L2-RA-009): `{"error": {"code", "message", "details"}}`,
+with `details` a list. This route's error body does not add the optional
+`request_id` the canonical schema declares (ADR-014 §1) — the published
+`ApiKeyValidationError` component declares it nullable for structural parity
+with `ErrorBody`, but the runtime body omits it.
 
-Each multi-problem detail names the field, a machine-readable reason and the
-human-readable message:
+Each multi-problem detail names the field, a machine-readable reason, the
+human-readable message — and carries `errors`, the project-wide detail shape
+that generic clients actually read (`details[i].errors[0]`):
 
 ```json
 {
@@ -654,22 +751,29 @@ human-readable message:
     "code": "VALIDATION_ERROR",
     "message": "Request validation failed.",
     "details": [
-      {"field": "name", "code": "required", "message": "Field 'name' is required."},
-      {"field": "scope", "code": "required", "message": "Agent API keys require an explicit valid scope."},
-      {"field": "workspace_ids", "code": "required", "message": "Agent API keys require at least one canonical workspace UUID."},
-      {"field": "expires_at", "code": "required", "message": "Agent API keys require a strictly future timezone-aware expires_at."}
+      {"field": "name", "code": "required", "message": "Field 'name' is required.", "errors": ["Field 'name' is required."]},
+      {"field": "scope", "code": "required", "message": "Agent API keys require an explicit valid scope.", "errors": ["Agent API keys require an explicit valid scope."]},
+      {"field": "workspace_ids", "code": "required", "message": "Agent API keys require at least one canonical workspace UUID.", "errors": ["Agent API keys require at least one canonical workspace UUID."]},
+      {"field": "expires_at", "code": "required", "message": "Agent API keys require a strictly future timezone-aware expires_at.", "errors": ["Agent API keys require a strictly future timezone-aware expires_at."]}
     ]
   }
 }
 ```
 
-`code` is one of `required`, `invalid` or `unknown_field`. Detail order is the
-request field's declaration order (`name`, `principal_type`, `scope`,
-`workspace_ids`, `expires_at`, `agent_label`); unknown request keys come first,
-alphabetically. A lone unknown field keeps its historical body
-`{"message": "Unknown field '<key>'.", "details": [{"field": "<key>",
-"errors": ["Unknown field '<key>'."]}]}` — including the `errors` key — while a
-mixed response renders it as an ordinary `{"field", "code", "message"}` entry.
+`code` is one of `required`, `invalid` or `unknown_field` (an enum in the
+published schema). Detail order is the request field's declaration order
+(`name`, `principal_type`, `scope`, `workspace_ids`, `expires_at`,
+`agent_label`); unknown request keys come first, alphabetically.
+
+**Two published detail variants.** A lone unknown field keeps its historical
+body `{"message": "Unknown field '<key>'.", "details": [{"field": "<key>",
+"errors": ["Unknown field '<key>'."]}]}` — a bare `{field, errors}` entry with
+no `code`/`message`. A mixed response renders it as an ordinary additive
+`{field, code, message, errors}` entry. The 400 schema therefore declares
+`details.items` as a `oneOf` of `ApiKeyValidationErrorDetail` (all four
+properties required) and `ApiKeyLegacyValidationErrorDetail` (`field` and
+`errors` only) — one route, one status, two legitimate item shapes, both
+documented.
 
 Implementation: `rest_api.api_key_serializers.ApiKeyCreateSerializer`
 accumulates DRF's per-field errors *and* the agent-key cross-field rules

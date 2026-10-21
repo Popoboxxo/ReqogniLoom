@@ -20,11 +20,15 @@ present but empty / whitespace   400 ``INVALID_IF_MATCH``
 ``*``                            200, no revision comparison
 matching strong tag              200
 stale strong tag                 412 ``PRECONDITION_FAILED``
-weak validator (``W/"6"``)       412 — strong comparison can never hold
+weak validator (``W/"6"``,      412 — strong comparison can never hold
+``w/"6"``)
 unquoted / unbalanced quotes     400 ``INVALID_IF_MATCH``
+comma inside a quoted tag        one opaque tag: ``"a,b"`` is a single tag, not
+(``"a,b"``)                      a list (412 against a numeric ETag, not 400)
 tag list, one strong tag matches 200
 tag list, no strong tag matches  412
 tag list with a malformed entry  400 ``INVALID_IF_MATCH``
+lone comma                      400 — documented RFC 9110 § 5.6.1 deviation
 ===============================  ==============================================
 """
 from __future__ import annotations
@@ -132,9 +136,23 @@ _PARSE_MATRIX: list[tuple[str | None, IfMatchKind, tuple[EntityTag, ...]]] = [
     ('  "6"  ', IfMatchKind.TAGS, (EntityTag("6"),)),
     ('"1"', IfMatchKind.TAGS, (EntityTag("1"),)),
     ('"abc"', IfMatchKind.TAGS, (EntityTag("abc"),)),
-    # weak validators are syntactically valid, just never a strong match
+    # weak validators are syntactically valid, just never a strong match;
+    # ABNF literals are case-insensitive, so ``w/`` is the same weak prefix
     ('W/"6"', IfMatchKind.TAGS, (EntityTag("6", weak=True),)),
     ('W/"1"', IfMatchKind.TAGS, (EntityTag("1", weak=True),)),
+    ('w/"6"', IfMatchKind.TAGS, (EntityTag("6", weak=True),)),
+    ('w/"1"', IfMatchKind.TAGS, (EntityTag("1", weak=True),)),
+    # a comma inside the quotes is part of the opaque value (``etagc``), not a
+    # list separator — a ``split(",")`` reported this legal tag as malformed
+    ('"a,b"', IfMatchKind.TAGS, (EntityTag("a,b"),)),
+    ('"a,b", "6"', IfMatchKind.TAGS, (EntityTag("a,b"), EntityTag("6"))),
+    ('"a,b", "c,d"', IfMatchKind.TAGS, (EntityTag("a,b"), EntityTag("c,d"))),
+    # ``etagc`` also covers ``obs-text`` (0x80-0xFF). ``\xa0``/``\x85`` are the
+    # interesting ones: Python's ``\s`` treats them as whitespace, so the old
+    # ``[^"\s]`` class rejected legal tags.
+    ('"\x80\xff"', IfMatchKind.TAGS, (EntityTag("\x80\xff"),)),
+    ('"\xa0"', IfMatchKind.TAGS, (EntityTag("\xa0"),)),
+    ('"\x85"', IfMatchKind.TAGS, (EntityTag("\x85"),)),
     # malformed: unquoted, unbalanced quotes, bare quote, plain words
     ("6", IfMatchKind.MALFORMED, ()),
     ('"6', IfMatchKind.MALFORMED, ()),
@@ -297,6 +315,89 @@ def test_weak_tag_matching_the_current_etag_is_412_not_200(if_match_env):
     # Nothing was written.
     fresh = client.get(f"/api/v1/requirements/{item['id']}/")
     assert fresh.json()["description"] != "weak write", fresh.content
+
+
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
+def test_lowercase_weak_prefix_is_412_not_400(if_match_env):
+    """ABNF literals are case-insensitive: ``w/`` is the same weak prefix."""
+    client = _client()
+    item = _requirement(client, if_match_env)
+
+    resp = client.patch(
+        f"/api/v1/requirements/{item['id']}/",
+        {"description": "lowercase weak write"},
+        format="json",
+        HTTP_IF_MATCH=f'w/"{item["version"]}"',
+    )
+
+    assert resp.status_code == 412, resp.content
+    assert resp.json()["error"]["code"] == "PRECONDITION_FAILED", resp.content
+    assert client.get(f"/api/v1/requirements/{item['id']}/").json()["description"] != (
+        "lowercase weak write"
+    )
+
+
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
+def test_comma_inside_a_tag_is_one_tag_and_a_412_mismatch(if_match_env):
+    """``"a,b"`` is one opaque strong tag, not a two-element list.
+
+    The old ``split(",")`` parser cut it into ``"a`` and ``b"`` and answered
+    400; the value is legal ``etagc`` and simply does not match, so it is a
+    precondition failure (412).
+    """
+    client = _client()
+    item = _requirement(client, if_match_env)
+
+    resp = client.patch(
+        f"/api/v1/requirements/{item['id']}/",
+        {"description": "comma tag write"},
+        format="json",
+        HTTP_IF_MATCH='"a,b"',
+    )
+
+    assert resp.status_code == 412, resp.content
+    assert resp.json()["error"]["code"] == "PRECONDITION_FAILED", resp.content
+
+
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
+def test_comma_tag_in_a_list_does_not_swallow_the_matching_tag(if_match_env):
+    """The comma tag stays ONE entry, so the second tag still matches."""
+    client = _client()
+    item = _requirement(client, if_match_env)
+
+    resp = client.patch(
+        f"/api/v1/requirements/{item['id']}/",
+        {"description": "comma list write"},
+        format="json",
+        HTTP_IF_MATCH=f'"a,b", "{item["version"]}"',
+    )
+
+    assert resp.status_code == 200, resp.content
+    assert resp.json()["description"] == "comma list write", resp.content
+
+
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
+def test_lone_comma_is_400_not_an_empty_list(if_match_env):
+    """Documented RFC 9110 § 5.6.1 deviation: empty list -> 400, not 412."""
+    client = _client()
+    item = _requirement(client, if_match_env)
+
+    resp = client.patch(
+        f"/api/v1/requirements/{item['id']}/",
+        {"description": "empty list write"},
+        format="json",
+        HTTP_IF_MATCH=",",
+    )
+
+    assert resp.status_code == 400, resp.content
+    assert resp.json()["error"]["code"] == "INVALID_IF_MATCH", resp.content
+    assert client.get(f"/api/v1/requirements/{item['id']}/").json()["description"] != (
+        "empty list write"
+    )
 
 
 @override_settings(**_JWT_OVERRIDES)
