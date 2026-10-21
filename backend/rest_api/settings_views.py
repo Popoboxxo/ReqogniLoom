@@ -20,6 +20,7 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
+from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, status
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -133,6 +134,7 @@ class LlmSettingsView(AdminScopeRequiredMixin, APIView):
 
     # ---- GET ----------------------------------------------------------
 
+    @extend_schema(responses={200: LlmSettingsSerializer})
     def get(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         lang = detect_lang(request)
         ctx = get_auth_context(request)
@@ -145,9 +147,17 @@ class LlmSettingsView(AdminScopeRequiredMixin, APIView):
 
     # ---- PUT / PATCH --------------------------------------------------
 
+    @extend_schema(
+        request=LlmSettingsSerializer,
+        responses={200: LlmSettingsSerializer},
+    )
     def put(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         return self._update(request, partial=False)
 
+    @extend_schema(
+        request=LlmSettingsSerializer,
+        responses={200: LlmSettingsSerializer},
+    )
     def patch(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         return self._update(request, partial=True)
 
@@ -251,6 +261,7 @@ class PromptTemplateView(AdminScopeRequiredMixin, APIView):
 
     # ---- GET ----------------------------------------------------------
 
+    @extend_schema(responses={200: PromptTemplateSerializer})
     def get(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         lang = detect_lang(request)
         ctx = get_auth_context(request)
@@ -261,9 +272,17 @@ class PromptTemplateView(AdminScopeRequiredMixin, APIView):
 
     # ---- PUT / PATCH --------------------------------------------------
 
+    @extend_schema(
+        request=PromptTemplateSerializer,
+        responses={200: PromptTemplateSerializer},
+    )
     def put(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         return self._update(request, partial=False)
 
+    @extend_schema(
+        request=PromptTemplateSerializer,
+        responses={200: PromptTemplateSerializer},
+    )
     def patch(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         return self._update(request, partial=True)
 
@@ -575,6 +594,7 @@ class ReviewPolicyView(AdminScopeRequiredMixin, APIView):
 
     # ---- GET ------------------------------------------------------------
 
+    @extend_schema(responses={200: ReviewPolicySerializer})
     def get(self, request: Request, workspace_id: str, *args: Any, **kwargs: Any) -> Response:
         lang = detect_lang(request)
         ctx = get_auth_context(request)
@@ -585,6 +605,10 @@ class ReviewPolicyView(AdminScopeRequiredMixin, APIView):
 
     # ---- PUT --------------------------------------------------------------
 
+    @extend_schema(
+        request=ReviewPolicySerializer,
+        responses={200: ReviewPolicySerializer},
+    )
     def put(self, request: Request, workspace_id: str, *args: Any, **kwargs: Any) -> Response:
         lang = detect_lang(request)
         ctx = get_auth_context(request)
@@ -668,6 +692,7 @@ class ContextGraphSettingsView(AdminScopeRequiredMixin, APIView):
             status=status.HTTP_403_FORBIDDEN,
         )
 
+    @extend_schema(responses={200: ContextGraphSettingsSerializer})
     def get(self, request: Request, workspace_id: str, *args: Any, **kwargs: Any) -> Response:
         from application import context_service
 
@@ -678,6 +703,10 @@ class ContextGraphSettingsView(AdminScopeRequiredMixin, APIView):
         dto = context_service.get_settings(workspace_id, ctx)
         return Response(ContextGraphSettingsSerializer(dto).data)
 
+    @extend_schema(
+        request=ContextGraphSettingsSerializer,
+        responses={200: ContextGraphSettingsSerializer},
+    )
     def put(self, request: Request, workspace_id: str, *args: Any, **kwargs: Any) -> Response:
         from application import context_service
 

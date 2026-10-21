@@ -18,6 +18,8 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from drf_spectacular.utils import extend_schema, inline_serializer
+from rest_framework import serializers
 from rest_framework.permissions import AllowAny
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -137,6 +139,23 @@ class VersionView(APIView):
     authentication_classes: list = []
     permission_classes = [AllowAny]
 
+    @extend_schema(
+        # The body is two fixed strings — small enough to state honestly
+        # instead of publishing the permissive fallback.
+        responses={
+            200: inline_serializer(
+                name="VersionResponse",
+                fields={
+                    "app_version": serializers.CharField(
+                        help_text="Human release version (APP_VERSION or VERSION file)."
+                    ),
+                    "commit_short": serializers.CharField(
+                        help_text="Truncated 7-character commit SHA, or 'unknown'."
+                    ),
+                },
+            )
+        },
+    )
     def get(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Return the app version and a truncated (7-char) commit SHA only."""
         commit = _resolve_commit_sha()

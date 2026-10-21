@@ -13,6 +13,7 @@ import logging
 from typing import Any
 from uuid import UUID
 
+from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
@@ -59,8 +60,28 @@ class ArtifactCommentsView(APIView):
     unhandled 500 on *every* real request to this endpoint (the unit tests
     called the view with a plain string through ``APIRequestFactory``, so the
     gap was invisible); found while adding the #820 comment regression tests.
+
+    The class is a plain ``APIView``, so it has no ``serializer_class`` for
+    drf-spectacular to discover — the shapes are therefore declared explicitly
+    on each handler. Both handlers do run :class:`CommentSerializer`, so there
+    was never a reason for this view to sit on the untyped allowlist.
     """
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="include_resolved",
+                type=bool,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Include resolved comments (default true). Pass ``false`` "
+                    "to list only the open ones."
+                ),
+            ),
+        ],
+        responses={200: CommentSerializer(many=True)},
+    )
     def get(self, request: Request, artifact_id: str, **kwargs: Any) -> Response:
         """List an artifact's comments, oldest first."""
         lang = detect_lang(request)
@@ -75,6 +96,10 @@ class ArtifactCommentsView(APIView):
             logger.exception("ArtifactCommentsView.get: unhandled exception")
             return _service_error_response(exc, lang)
 
+    @extend_schema(
+        request=CommentSerializer,
+        responses={201: CommentSerializer},
+    )
     def post(self, request: Request, artifact_id: str, **kwargs: Any) -> Response:
         """Create a comment on the artifact."""
         lang = detect_lang(request)

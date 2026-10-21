@@ -31,6 +31,7 @@ no view's real schema changes.
 """
 from __future__ import annotations
 
+import threading
 from typing import Any, Optional
 
 import uritemplate
@@ -55,12 +56,20 @@ __all__ = [
     "ReqLoAutoSchema",
     "UNTYPED_VIEW_ALLOWLIST",
     "reset_untyped_view_usage",
+    "untyped_operation_count",
+    "untyped_operations_used",
     "untyped_views_used",
 ]
 
 
 #: One-line, true reasons for each view that legitimately reaches the
 #: permissive fallback. Populated from a real generation run — never guessed.
+#:
+#: Keys are **fully qualified** (``<module>.<qualname>``), not bare class
+#: names: two modules may legitimately define a ``VersionView``-like class, and
+#: a bare key would let the unrelated class silently satisfy the allowlist
+#: (review finding m6 on #1388). ``untyped_views_used()`` records the same
+#: form, so the gate compares like with like.
 #:
 #: Rules:
 #: * a view that ships a serializer must NOT be listed here;
@@ -69,421 +78,438 @@ __all__ = [
 #: * the gate asserts ``set(allowlist) == untyped_views_used()`` in both
 #:   directions, so adding a view without a reason is a build failure.
 UNTYPED_VIEW_ALLOWLIST: dict[str, str] = {
-    "AdminRestoreView": (
+    "admin_ops.rest.AdminRestoreView": (
         "Admin operational endpoint returning a hand-built status/payload dict; "
         "no model serializer exists."
     ),
-    "ArtifactCommentsView": (
-        "Collaboration comment list assembled from service dicts; no DRF "
-        "serializer."
-    ),
-    "ArtifactMemoryDigestView": (
+    "memory.memory_rest.ArtifactMemoryDigestView": (
         "Memory payload assembled by MemoryEntryService (`_view`/digest); no DRF "
         "serializer exists."
     ),
-    "ArtifactMemoryView": (
+    "memory.memory_rest.ArtifactMemoryView": (
         "Memory payload assembled by MemoryEntryService (`_view`/digest); no DRF "
         "serializer exists."
     ),
-    "AttributeCatalogAddToDefinitionView": (
+    "rest_api.attribute_catalog_views.AttributeCatalogAddToDefinitionView": (
         "Admin attribute-catalog configuration; entries are JSON documents built "
         "by AttributeCatalogService."
     ),
-    "AttributeCatalogDeprecateView": (
+    "rest_api.attribute_catalog_views.AttributeCatalogDeprecateView": (
         "Admin attribute-catalog configuration; entries are JSON documents built "
         "by AttributeCatalogService."
     ),
-    "AttributeCatalogDetailView": (
+    "rest_api.attribute_catalog_views.AttributeCatalogDetailView": (
         "Admin attribute-catalog configuration; entries are JSON documents built "
         "by AttributeCatalogService."
     ),
-    "AttributeCatalogExportView": (
+    "rest_api.attribute_catalog_views.AttributeCatalogExportView": (
         "Admin attribute-catalog configuration; entries are JSON documents built "
         "by AttributeCatalogService."
     ),
-    "AttributeCatalogImportView": (
+    "rest_api.attribute_catalog_views.AttributeCatalogImportView": (
         "Admin attribute-catalog configuration; entries are JSON documents built "
         "by AttributeCatalogService."
     ),
-    "AttributeCatalogListView": (
+    "rest_api.attribute_catalog_views.AttributeCatalogListView": (
         "Admin attribute-catalog configuration; entries are JSON documents built "
         "by AttributeCatalogService."
     ),
-    "AttributeCatalogSearchView": (
+    "rest_api.attribute_catalog_views.AttributeCatalogSearchView": (
         "Admin attribute-catalog configuration; entries are JSON documents built "
         "by AttributeCatalogService."
     ),
-    "AttributeDefaultsDetailView": (
+    "rest_api.attribute_definition_views.AttributeDefaultsDetailView": (
         "Attribute-definition document (JSON-schema-like configuration) resolved "
         "per workspace/preset."
     ),
-    "AttributeDefaultsExportView": (
+    "rest_api.attribute_definition_views.AttributeDefaultsExportView": (
         "Attribute-definition document (JSON-schema-like configuration) resolved "
         "per workspace/preset."
     ),
-    "AttributeDefaultsImportView": (
+    "rest_api.attribute_definition_views.AttributeDefaultsImportView": (
         "Attribute-definition document (JSON-schema-like configuration) resolved "
         "per workspace/preset."
     ),
-    "AttributeDefaultsListView": (
+    "rest_api.attribute_definition_views.AttributeDefaultsListView": (
         "Attribute-definition document (JSON-schema-like configuration) resolved "
         "per workspace/preset."
     ),
-    "AttributeDefaultsReorderView": (
+    "rest_api.attribute_definition_views.AttributeDefaultsReorderView": (
         "Attribute-definition document (JSON-schema-like configuration) resolved "
         "per workspace/preset."
     ),
-    "AttributeMigrationApplyView": (
+    "rest_api.attribute_migration_views.AttributeMigrationApplyView": (
         "Declarative attribute-migration plan/report document (nested, "
         "user-supplied shape)."
     ),
-    "AttributeMigrationPlanView": (
+    "rest_api.attribute_migration_views.AttributeMigrationPlanView": (
         "Declarative attribute-migration plan/report document (nested, "
         "user-supplied shape)."
     ),
-    "AttributeMigrationRollbackView": (
+    "rest_api.attribute_migration_views.AttributeMigrationRollbackView": (
         "Declarative attribute-migration plan/report document (nested, "
         "user-supplied shape)."
     ),
-    "AttributeMigrationRunDetailView": (
+    "rest_api.attribute_migration_views.AttributeMigrationRunDetailView": (
         "Declarative attribute-migration plan/report document (nested, "
         "user-supplied shape)."
     ),
-    "AttributeMigrationRunListView": (
+    "rest_api.attribute_migration_views.AttributeMigrationRunListView": (
         "Declarative attribute-migration plan/report document (nested, "
         "user-supplied shape)."
     ),
-    "AttributeSchemaView": (
+    "rest_api.views.AttributeSchemaView": (
         "Resolved attribute schema document; its shape is dynamic per workspace "
         "and rigor preset."
     ),
-    "AttributeUsageView": (
+    "rest_api.attribute_definition_views.AttributeUsageView": (
         "Usage-count report over custom attributes (aggregated, dynamic keys)."
     ),
-    "AuditRuleCatalogView": (
+    "rest_api.audit_views.AuditRuleCatalogView": (
         "Static SE-Auditor rule catalog list; no model backs the rows."
     ),
-    "BackupListCreateView": (
+    "admin_ops.rest.BackupListCreateView": (
         "Admin operational endpoint returning a hand-built status/payload dict; "
         "no model serializer exists."
     ),
-    "BundleCompressionStatusView": (
+    "rest_api.views.BundleCompressionStatusView": (
         "Async Celery task-status envelope keyed by arbitrary task id."
     ),
-    "ConsistencyStatusView": (
+    "rest_api.views.ConsistencyStatusView": (
         "Async Celery task-status envelope keyed by arbitrary task id."
     ),
-    "ContextGraphRebuildView": (
+    "rest_api.settings_views.ContextGraphRebuildView": (
         "Context-graph rebuild status payload (configuration + counters)."
     ),
-    "ContextGraphSettingsView": (
-        "Context-graph settings document (free-form configuration map)."
-    ),
-    "CreateFormConfigGlobalView": (
+    "rest_api.create_form_config_views.CreateFormConfigGlobalView": (
         "Create-dialog form-definition document (ordered, dynamic field list)."
     ),
-    "CreateFormConfigUserView": (
+    "rest_api.create_form_config_views.CreateFormConfigUserView": (
         "Create-dialog form-definition document (ordered, dynamic field list)."
     ),
-    "CreateFormConfigWorkspaceView": (
+    "rest_api.create_form_config_views.CreateFormConfigWorkspaceView": (
         "Create-dialog form-definition document (ordered, dynamic field list)."
     ),
-    "CsvExportView": (
-        "Streaming CSV file response (Content-Disposition attachment); there is "
-        "no JSON body to model."
-    ),
-    "CsvImportView": (
-        "Multipart CSV upload with a hand-built import report; the request is a "
-        "file, not JSON."
-    ),
-    "DiagramViewSet": (
+    "rest_api.diagram_views.DiagramViewSet": (
         "Diagram CRUD deliberately has no serializer_class (DTO-built fields); "
         "response dicts are assembled in the view."
     ),
-    "DisplayPreferenceView": (
+    "rest_api.display_preference_views.DisplayPreferenceView": (
         "Per-user display-preference map (free-form keys)."
     ),
-    "EnforcementFlipView": (
+    "rest_api.global_default_views.EnforcementFlipView": (
         "Permission-enforcement toggle payload (configuration state)."
     ),
-    "EnforcementStatusView": (
+    "rest_api.global_default_views.EnforcementStatusView": (
         "Permission-enforcement status payload (configuration state)."
     ),
-    "GlobalPermissionDefinitionView": (
+    "rest_api.global_default_views.GlobalPermissionDefinitionView": (
         "Permission-matrix document (RBAC configuration)."
     ),
-    "GlobalWorkflowDefinitionDetailView": (
+    "rest_api.global_default_views.GlobalWorkflowDefinitionDetailView": (
         "Workflow-definition graph document (states + transitions)."
     ),
-    "GlobalWorkflowDefinitionListView": (
+    "rest_api.global_default_views.GlobalWorkflowDefinitionListView": (
         "Workflow-definition graph document (states + transitions)."
     ),
-    "GlobalWorkflowInitializeView": (
+    "rest_api.global_default_views.GlobalWorkflowInitializeView": (
         "Workflow-definition graph document (states + transitions)."
     ),
-    "GlobalWorkflowStateDetailView": (
+    "rest_api.global_default_views.GlobalWorkflowStateDetailView": (
         "Workflow-definition graph document (states + transitions)."
     ),
-    "GlobalWorkflowStatesView": (
+    "rest_api.global_default_views.GlobalWorkflowStatesView": (
         "Workflow-definition graph document (states + transitions)."
     ),
-    "GlobalWorkflowTransitionDetailView": (
+    "rest_api.global_default_views.GlobalWorkflowTransitionDetailView": (
         "Workflow-definition graph document (states + transitions)."
     ),
-    "GlobalWorkflowTransitionsView": (
+    "rest_api.global_default_views.GlobalWorkflowTransitionsView": (
         "Workflow-definition graph document (states + transitions)."
     ),
-    "IcdViewSet": (
+    "rest_api.icd_views.IcdViewSet": (
         "ICD CRUD deliberately has no serializer_class (DTO-built fields); "
         "response dicts are assembled in the view."
     ),
-    "InterviewViewSet": (
+    "rest_api.interview_views.InterviewViewSet": (
         "Interview protocol payload (session state / artifact proposals) built "
         "by InterviewService."
     ),
-    "ItemPermissionViewSet": (
+    "auth_tenancy.rest_item_permission.ItemPermissionViewSet": (
         "Item-level permission rules; dicts built by the permission service."
     ),
-    "LinkTypeDefaultsDetailView": (
+    "rest_api.link_type_views.LinkTypeDefaultsDetailView": (
         "Link-type catalog definition document (tenant-extensible JSON "
         "catalogue)."
     ),
-    "LinkTypeDefaultsListView": (
+    "rest_api.link_type_views.LinkTypeDefaultsListView": (
         "Link-type catalog definition document (tenant-extensible JSON "
         "catalogue)."
     ),
-    "LlmSettingsView": (
-        "LLM settings view with a masked/encrypted API-key payload; never a "
-        "model serializer."
-    ),
-    "LoginView": (
+    "rest_api.auth_views.LoginView": (
         "Authentication/session endpoint returning a credential or identity "
         "payload built in the view."
     ),
-    "LogoutView": (
+    "rest_api.auth_views.LogoutView": (
         "Authentication/session endpoint returning a hand-built confirmation "
         "payload."
     ),
-    "MeView": (
+    "rest_api.auth_views.MeView": (
         "Authentication/session endpoint returning the caller's identity/role "
         "payload."
     ),
-    "MemoryEntryDetailView": (
+    "memory.memory_rest.MemoryEntryDetailView": (
         "Memory payload assembled by MemoryEntryService (`_view`/digest); no DRF "
         "serializer exists."
     ),
-    "MemoryEntryPromoteView": (
+    "memory.memory_rest.MemoryEntryPromoteView": (
         "Memory payload assembled by MemoryEntryService (`_view`/digest); no DRF "
         "serializer exists."
     ),
-    "MemorySelfServiceView": (
+    "memory.memory_rest.MemorySelfServiceView": (
         "Memory payload assembled by MemoryEntryService (`_view`/digest); no DRF "
         "serializer exists."
     ),
-    "MetricsViewSet": (
+    "rest_api.metrics_views.MetricsViewSet": (
         "Metrics/KPI map computed by the se_metrics read model (dynamic metric "
         "keys)."
     ),
-    "NotificationPreferenceView": (
+    "rest_api.notification_preference_views.NotificationPreferenceView": (
         "Per-user notification-preference map (free-form keys)."
     ),
-    "PermissionMismatchListView": (
+    "rest_api.global_default_views.PermissionMismatchListView": (
         "Permission-mismatch log rows (read-only audit entries)."
     ),
-    "PromptTemplateResetView": (
+    "rest_api.settings_views.PromptTemplateResetView": (
         "Prompt-template registry entry/content payload."
     ),
-    "PromptTemplateSlotDetailView": (
+    "rest_api.settings_views.PromptTemplateSlotDetailView": (
         "Prompt-template registry entry/content payload."
     ),
-    "PromptTemplateSlotListView": (
+    "rest_api.settings_views.PromptTemplateSlotListView": (
         "Prompt-template registry entry/content payload."
     ),
-    "PromptTemplateView": (
-        "Prompt-template registry entry/content payload."
-    ),
-    "PromptVariableDetailView": (
+    "rest_api.prompt_variable_views.PromptVariableDetailView": (
         "Prompt-variable catalog entry/configuration payload."
     ),
-    "PromptVariableListView": (
+    "rest_api.prompt_variable_views.PromptVariableListView": (
         "Prompt-variable catalog entry/configuration payload."
     ),
-    "RefreshView": (
+    "rest_api.auth_views.RefreshView": (
         "Authentication/session endpoint returning a refreshed credential "
         "payload."
     ),
-    "RequirementHistoryView": (
+    "rest_api.views.RequirementHistoryView": (
         "Artifact history rows assembled by the history service (field-level "
         "changes)."
     ),
-    "ReviewPolicyView": (
-        "Review-policy configuration document."
-    ),
-    "ReviewsPendingView": (
+    "rest_api.review_views.ReviewsPendingView": (
         "Review-queue rows assembled from workflow state (dynamic item types)."
     ),
-    "SearchViewSet": (
+    "rest_api.views.SearchViewSet": (
         "Full-text search results assembled by SearchService (heterogeneous "
         "artifact rows)."
     ),
-    "SuggestionAcceptView": (
-        "Durable suggestion-inbox proposal document (polymorphic payload)."
-    ),
-    "SuggestionListView": (
-        "Durable suggestion-inbox proposal document (polymorphic payload)."
-    ),
-    "SuggestionRejectView": (
-        "Durable suggestion-inbox proposal document (polymorphic payload)."
-    ),
-    "SystemMemoryEntriesExportView": (
+    "memory.memory_rest.SystemMemoryEntriesExportView": (
         "Memory admin export: JSON document or CSV file streamed by "
         "MemoryAdminService."
     ),
-    "SystemMemoryEntriesListView": (
+    "memory.memory_rest.SystemMemoryEntriesListView": (
         "Memory admin list payload assembled by MemoryAdminService."
     ),
-    "SystemMemoryProjectionView": (
+    "memory.memory_rest.SystemMemoryProjectionView": (
         "Memory admin PCA-projection payload (computed coordinates + clusters)."
     ),
-    "SystemMemorySettingsResetView": (
+    "memory.memory_rest.SystemMemorySettingsResetView": (
         "Deployment-global memory configuration map (env fallback per field)."
     ),
-    "SystemMemorySettingsView": (
+    "memory.memory_rest.SystemMemorySettingsView": (
         "Deployment-global memory configuration map (env fallback per field)."
     ),
-    "SystemMemoryWorkspaceDeleteView": (
+    "memory.memory_rest.SystemMemoryWorkspaceDeleteView": (
         "Memory admin deletion report (per-tier counters)."
     ),
-    "SystemMemoryWorkspaceOverviewView": (
+    "memory.memory_rest.SystemMemoryWorkspaceOverviewView": (
         "Memory admin per-workspace overview rows."
     ),
-    "TraceabilitySuggestLinksStatusView": (
+    "rest_api.traceability_suggest_views.TraceabilitySuggestLinksStatusView": (
         "Async Celery task-status envelope keyed by arbitrary task id."
     ),
-    "TreeDisplayConfigGlobalView": (
+    "rest_api.tree_display_config_views.TreeDisplayConfigGlobalView": (
         "Tree display config document (ordered, dynamic field selection)."
     ),
-    "TreeDisplayConfigUserView": (
+    "rest_api.tree_display_config_views.TreeDisplayConfigUserView": (
         "Tree display config document (ordered, dynamic field selection)."
     ),
-    "TreeDisplayConfigWorkspaceView": (
+    "rest_api.tree_display_config_views.TreeDisplayConfigWorkspaceView": (
         "Tree display config document (ordered, dynamic field selection)."
     ),
-    "UserPreferenceView": (
+    "rest_api.preference_views.UserPreferenceView": (
         "Per-user preference map (free-form keys)."
     ),
-    "UserViewSet": (
-        "Tenant-admin user lifecycle; list/create payloads are hand-built and "
-        "include computed roles."
-    ),
-    "VersionView": (
-        "Static build/version metadata; no request and a fixed hand-built body."
-    ),
-    "WorkspaceArchitectureDecomposeCommitView": (
+    "rest_api.architecture_decompose_views.WorkspaceArchitectureDecomposeCommitView": (
         "Decomposition draft/commit payload (nested elements + derived "
         "requirements)."
     ),
-    "WorkspaceArchitectureDecomposeView": (
+    "rest_api.architecture_decompose_views.WorkspaceArchitectureDecomposeView": (
         "Decomposition draft/commit payload (nested elements + derived "
         "requirements)."
     ),
-    "WorkspaceAttributeDefinitionExportView": (
+    "rest_api.attribute_definition_views.WorkspaceAttributeDefinitionExportView": (
         "Workspace attribute-definition document (JSON configuration)."
     ),
-    "WorkspaceAttributeDefinitionImportView": (
+    "rest_api.attribute_definition_views.WorkspaceAttributeDefinitionImportView": (
         "Workspace attribute-definition document (JSON configuration)."
     ),
-    "WorkspaceAttributeDefinitionReorderView": (
+    "rest_api.attribute_definition_views.WorkspaceAttributeDefinitionReorderView": (
         "Workspace attribute-definition document (JSON configuration)."
     ),
-    "WorkspaceAttributeDefinitionResetView": (
+    "rest_api.attribute_definition_views.WorkspaceAttributeDefinitionResetView": (
         "Workspace attribute-definition document (JSON configuration)."
     ),
-    "WorkspaceAttributeDefinitionView": (
+    "rest_api.attribute_definition_views.WorkspaceAttributeDefinitionView": (
         "Workspace attribute-definition document (JSON configuration)."
     ),
-    "WorkspaceAuditAiReviewView": (
+    "rest_api.audit_views.WorkspaceAuditAiReviewView": (
         "SE-Auditor report payload with dynamic finding rows and refactoring "
         "packages."
     ),
-    "WorkspaceAuditRemediateView": (
+    "rest_api.audit_views.WorkspaceAuditRemediateView": (
         "SE-Auditor remediation payload (dynamic finding references)."
     ),
-    "WorkspaceAuditWaiverView": (
+    "rest_api.audit_views.WorkspaceAuditWaiverView": (
         "Waiver record payload with server-set metadata."
     ),
-    "WorkspaceLinkTypeDetailView": (
+    "rest_api.link_type_views.WorkspaceLinkTypeDetailView": (
         "Link-type catalog definition document (tenant-extensible JSON "
         "catalogue)."
     ),
-    "WorkspaceLinkTypeListView": (
+    "rest_api.link_type_views.WorkspaceLinkTypeListView": (
         "Link-type catalog definition document (tenant-extensible JSON "
         "catalogue)."
     ),
-    "WorkspaceLinkTypeResetView": (
+    "rest_api.link_type_views.WorkspaceLinkTypeResetView": (
         "Link-type catalog definition document (tenant-extensible JSON "
         "catalogue)."
     ),
-    "WorkspaceMemberRoleTransitionView": (
+    "auth_tenancy.rest_workspace_members.WorkspaceMemberRoleTransitionView": (
         "Workspace membership payload assembled from role rows."
     ),
-    "WorkspaceMembersView": (
+    "auth_tenancy.rest_workspace_members.WorkspaceMembersView": (
         "Workspace membership list assembled from role rows."
     ),
-    "WorkspaceMemoryAskView": (
+    "memory.memory_rest.WorkspaceMemoryAskView": (
         "Memory payload assembled by MemoryEntryService (`ask` result + "
         "envelope)."
     ),
-    "WorkspaceMemoryDigestView": (
+    "memory.memory_rest.WorkspaceMemoryDigestView": (
         "Memory payload assembled by MemoryEntryService (`_view`/digest); no DRF "
         "serializer exists."
     ),
-    "WorkspaceMemoryEntriesView": (
+    "memory.memory_rest.WorkspaceMemoryEntriesView": (
         "Memory payload assembled by MemoryEntryService (`_view`/digest); no DRF "
         "serializer exists."
     ),
-    "WorkspaceMemorySettingsView": (
+    "memory.memory_rest.WorkspaceMemorySettingsView": (
         "Workspace memory settings map (feature toggle configuration)."
     ),
-    "WorkspacePermissionDefinitionView": (
+    "rest_api.global_default_views.WorkspacePermissionDefinitionView": (
         "Permission-matrix document (RBAC configuration)."
     ),
-    "WorkspacePermissionResetView": (
+    "rest_api.global_default_views.WorkspacePermissionResetView": (
         "Permission-matrix document (RBAC configuration)."
     ),
-    "WorkspaceReviewsPendingView": (
+    "rest_api.review_views.WorkspaceReviewsPendingView": (
         "Review-queue rows assembled from workflow state (dynamic item types)."
     ),
-    "WorkspaceTraceabilitySuggestLinksView": (
+    "rest_api.traceability_suggest_views.WorkspaceTraceabilitySuggestLinksView": (
         "Async suggestion run: task id or the suggestion-inbox proposal payload."
     ),
-    "scope_preview": (
-        "Baseline scope-preview function view returning a computed, dynamic diff "
-        "preview."
-    ),
+
 }
 
 
-#: Views that actually used the fallback during the current build. A
-#: preprocessing hook clears it at the start of every generation so the gate
-#: observes exactly the operations of *this* document.
-_used_untyped_views: set[str] = set()
+#: Operations that actually used the fallback during a generation, keyed by
+#: the **fully qualified** view class (``<module>.<qualname>``) and mapped to
+#: the ``(METHOD, path)`` pairs that reached it.
+#:
+#: The record is **per generation**, not process-global (review finding m6 on
+#: #1388): drf-spectacular runs ``PREPROCESSING_HOOKS`` and the view inspection
+#: synchronously on the requesting thread, so a thread-keyed bucket isolates
+#: two concurrent ``/api/v1/schema/`` requests from each other. Before this, the
+#: single module-level set was cleared by whichever request started last, so
+#: one call's ``unable to guess`` diagnostics could be wiped by another's — and
+#: the gate's "exactly this document" claim was only true single-threaded.
+#:
+#: A bucket starts empty in :func:`reset_untyped_view_usage`; a record without
+#: a preceding reset (a generator invoked directly) transparently creates one.
+_usage_by_thread: dict[int, dict[str, set[tuple[str, str]]]] = {}
+_usage_lock = threading.Lock()
+
+
+def _view_key(view: Any) -> str:
+    """Return the module-qualified key used by the allowlist (finding m6)."""
+    cls = view.__class__
+    return f"{cls.__module__}.{cls.__qualname__}"
+
+
+def _empty_view_operations() -> dict[str, set[tuple[str, str]]]:
+    """A fresh per-view operation record."""
+    return {}
 
 
 def reset_untyped_view_usage(endpoints: Any, **kwargs: Any) -> Any:
-    """``PREPROCESSING_HOOKS`` entry point: clear the per-build usage record.
+    """``PREPROCESSING_HOOKS`` entry point: start a fresh per-build record.
 
     drf-spectacular calls preprocessing hooks once per generation with the
     endpoint list, before any view is inspected. Returning the endpoints
     unchanged keeps the hook side-effect-free for discovery.
     """
-    _used_untyped_views.clear()
+    with _usage_lock:
+        _usage_by_thread[threading.get_ident()] = _empty_view_operations()
     return endpoints
 
 
+def _read_view_operations() -> dict[str, set[tuple[str, str]]]:
+    """Snapshot of the current thread's record, or of every record merged.
+
+    The merge only applies when the calling thread never generated a document
+    itself (a diagnostic read from another thread); the gate reads on the
+    thread that generated the document and therefore always sees exactly one
+    generation.
+    """
+    with _usage_lock:
+        own = _usage_by_thread.get(threading.get_ident())
+        if own is not None:
+            return {view: set(operations) for view, operations in own.items()}
+        merged: dict[str, set[tuple[str, str]]] = {}
+        for bucket in _usage_by_thread.values():
+            for view, operations in bucket.items():
+                merged.setdefault(view, set()).update(operations)
+        return merged
+
+
 def untyped_views_used() -> frozenset[str]:
-    """The view class names that used the permissive fallback in this build."""
-    return frozenset(_used_untyped_views)
+    """The module-qualified view keys that used the fallback in this build."""
+    return frozenset(_read_view_operations())
+
+
+def untyped_operations_used() -> dict[str, frozenset[str]]:
+    """Snapshot of the fallback usage per view, for diagnostics and the gate.
+
+    Each value is a set of ``"<METHOD> <path>"`` strings in the same form the
+    document publishes (``/api/v1/...``), so a diagnostic can be compared with
+    ``paths`` directly.
+    """
+    return {
+        view: frozenset(f"{method.upper()} {path}" for method, path in operations)
+        for view, operations in _read_view_operations().items()
+    }
+
+
+def untyped_operation_count() -> int:
+    """Number of distinct operations that used the fallback in this build."""
+    return sum(len(operations) for operations in _read_view_operations().values())
 
 
 def _fallback_schema() -> dict[str, Any]:
@@ -508,10 +534,11 @@ class ReqLoAutoSchema(AutoSchema):
     Two behaviours change relative to the base class, both additive:
 
     1. A view for which no serializer can be resolved returns a marked
-       permissive object schema (request: media-type map; response:
-       ``OpenApiResponse``) instead of ``None`` + an ``unable to guess
-       serializer`` error. ``DELETE`` keeps its conventional 204 because an
-       ``OpenApiResponse`` still routes through the base ``DELETE`` handling.
+       permissive object schema (request: media-type map; response: a
+       status-keyed map of ``OpenApiResponse``) instead of ``None`` + an
+       ``unable to guess serializer`` error. An untyped write publishes every
+       success status the view may answer (``POST``: 200 and 201, ``DELETE``:
+       200 and 204) rather than one guess derived from the view's class shape.
     2. Path parameters whose type cannot be derived (no converter, no model —
        e.g. a plain ``ViewSet`` without ``queryset``) are declared explicitly
        as strings. This silences ``could not derive type of path parameter``
@@ -567,7 +594,13 @@ class ReqLoAutoSchema(AutoSchema):
         return self._reqlo_resolved_serializer
 
     def _record_untyped(self) -> None:
-        _used_untyped_views.add(self.view.__class__.__name__)
+        view_key = _view_key(self.view)
+        operation = (self.method.lower(), self.path)
+        with _usage_lock:
+            bucket = _usage_by_thread.setdefault(
+                threading.get_ident(), _empty_view_operations()
+            )
+            bucket.setdefault(view_key, set()).add(operation)
 
     def get_auth(self) -> list[Any]:
         """Deduplicate security requirements emitted for one operation.
@@ -611,20 +644,55 @@ class ReqLoAutoSchema(AutoSchema):
         return {"application/json": _fallback_schema()}
 
     def get_response_serializers(self) -> Any:
-        """Return the resolved serializer or a marked permissive response body."""
+        """Return the resolved serializer or the marked permissive status set."""
         serializer = self._serializer()
         if serializer is not None:
             return serializer
         self._record_untyped()
-        # ``OpenApiResponse`` keeps the base class' ``DELETE -> 204`` rule and
-        # its create (201) / read (200) status selection intact.
-        return OpenApiResponse(
-            response=_fallback_schema(),
-            description=(
-                "Permissive fallback response (#1388): the view declares no DRF "
-                "serializer, so the concrete body is not described."
-            ),
-        )
+        return self._fallback_responses()
+
+    #: Success statuses an *untyped* operation may answer. The base class picks
+    #: exactly one (200, 201 for a create, 204 for DELETE) from the view's
+    #: class shape, which is wrong for a plain hand-written ``APIView``: a
+    #: ``POST`` that answers 201 was published as 200-only, so a generated
+    #: client rejected the real response (review finding F4 on #1388).
+    #:
+    #: Publishing both statuses is the honest statement — the concrete code is
+    #: decided by the view body, which the schema cannot see. It replaces a
+    #: single possibly-wrong claim with the actual set of documented outcomes;
+    #: no body is invented, and both entries point at the same permissive
+    #: schema rather than a fabricated shape.
+    _FALLBACK_SUCCESS_STATUSES: dict[str, tuple[int, ...]] = {
+        "POST": (200, 201),
+        "DELETE": (200, 204),
+    }
+
+    def _fallback_responses(self) -> dict[int, OpenApiResponse]:
+        """Status-keyed fallback responses for one untyped operation."""
+        statuses = self._FALLBACK_SUCCESS_STATUSES.get(self.method.upper(), (200,))
+        allowed = "/".join(str(status) for status in statuses)
+        responses: dict[int, OpenApiResponse] = {}
+        for code in statuses:
+            if code == 204:
+                responses[code] = OpenApiResponse(
+                    response=None,
+                    description=(
+                        "No response body. This untyped operation may answer "
+                        f"{allowed}; the concrete success status is view-defined "
+                        "(#1388)."
+                    ),
+                )
+                continue
+            responses[code] = OpenApiResponse(
+                response=_fallback_schema(),
+                description=(
+                    "Permissive fallback response (#1388): the view declares no "
+                    "DRF serializer, so the concrete body is not described. This "
+                    f"untyped operation may answer {allowed}; the concrete "
+                    "success status is view-defined."
+                ),
+            )
+        return responses
 
     # -- path parameter types -------------------------------------------------
 

@@ -62,7 +62,12 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from rest_framework import status
+from drf_spectacular.utils import (
+    OpenApiParameter,
+    extend_schema,
+    inline_serializer,
+)
+from rest_framework import serializers, status
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -79,6 +84,7 @@ from rest_api.auth_enforcer import get_auth_context
 from rest_api.query_params import parse_workspace_id
 from rest_api.serializers import (
     StandardPagination,
+    SuggestionSerializer,
     build_error_response,
     detect_lang,
 )
@@ -145,8 +151,30 @@ class SuggestionListView(APIView):
     results`` envelope; 400 on a missing/malformed ``workspace_id``; 403
     without at least the ``viewer`` role. A foreign tenant's workspace answers
     an empty page, not a 404 — the tenant-scoped read simply cannot see it.
+
+    Pagination and the row shape are declared, not inferred (#1388/F6): the
+    class is a plain ``APIView``, so ``pagination_class`` alone would not make
+    drf-spectacular emit the envelope. The ``many=True`` response serializer
+    is what turns the paginator into the published envelope; ``page``/
+    ``page_size`` are then contributed by ``StandardPagination`` itself
+    (``get_schema_operation_parameters``), exactly like every other paginated
+    route.
     """
 
+    pagination_class = StandardPagination
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="workspace_id",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="Workspace UUID whose open suggestion inbox is read.",
+            ),
+        ],
+        responses={200: SuggestionSerializer(many=True)},
+    )
     def get(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         lang = detect_lang(request)
         workspace_id, error = parse_workspace_id(
@@ -162,7 +190,7 @@ class SuggestionListView(APIView):
         except Exception as exc:  # noqa: BLE001 — mapped in _suggestion_error
             return _suggestion_error(exc, lang)
 
-        paginator = StandardPagination()
+        paginator = self.pagination_class()
         page = paginator.paginate_queryset(items, request, view=None)
         results = page if page is not None else items
         if page is None:
@@ -187,6 +215,7 @@ class SuggestionAcceptView(APIView):
     suggestion that does not exist in this tenant.
     """
 
+    @extend_schema(request=None, responses={200: SuggestionSerializer})
     def post(
         self, request: Request, suggestion_id: str, *args: Any, **kwargs: Any
     ) -> Response:
@@ -214,6 +243,31 @@ class SuggestionRejectView(APIView):
     suggestion.
     """
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="reason",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Optional rejection reason. The JSON body's ``reason`` wins "
+                    "when both are supplied."
+                ),
+            ),
+        ],
+        request=inline_serializer(
+            name="SuggestionRejectBody",
+            fields={
+                "reason": serializers.CharField(
+                    required=False,
+                    allow_blank=True,
+                    help_text="Stored as the audit change_reason.",
+                )
+            },
+        ),
+        responses={200: SuggestionSerializer},
+    )
     def post(
         self, request: Request, suggestion_id: str, *args: Any, **kwargs: Any
     ) -> Response:
