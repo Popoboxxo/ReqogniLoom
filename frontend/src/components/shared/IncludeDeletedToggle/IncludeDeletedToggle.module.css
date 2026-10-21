@@ -1,6 +1,10 @@
 .toggle {
   display: flex;
   align-items: center;
+  /* GitHub #1394 (WCAG 2.2 AA SC 2.5.8): the native checkbox stays its default
+     13x13 px; the LABEL is the click target and carries the 24x24 floor. */
+  min-height: var(--space-6);
+  min-width: var(--space-6);
   gap: var(--space-2);
   margin-bottom: var(--space-2);
   font-size: var(--font-size-sm);

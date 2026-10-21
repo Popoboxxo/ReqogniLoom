@@ -118,9 +118,16 @@
   color: var(--color-text-muted);
 }
 
-.required::after {
-  content: " *";
-  color: var(--color-danger);
+/* Issue #1393: `.required::after` lived here and drew the marker. The marker is
+   now the shared `<RequiredMark>` DOM node (components/shared/FormField.tsx),
+   rendered by both `FieldShell` and the hand-written create dialogs — a CSS
+   pseudo-element is invisible to `textContent` and to measurement tooling,
+   which is exactly how "no visible marker" stayed undetected on 9 of 11 routes.
+   `.required` itself stays as the label-level marker hook and keeps exactly one
+   neutral declaration (`color: inherit`) so the class remains a real,
+   non-empty rule the tests can keep querying. */
+.required {
+  color: inherit;
 }
 
 .control {
@@ -155,6 +162,10 @@
 }
 
 .errors {
+  /* `margin: 0` because the shared `FieldErrorText` renders a <p> (the UA
+     margin would otherwise shift the field stack); the inline <span> users of
+     this class are unaffected. */
+  margin: 0;
   font-size: var(--font-size-xs);
   color: var(--color-danger);
 }
@@ -173,10 +184,16 @@
   color: var(--color-danger);
 }
 
+/* GitHub #1394: this is the CLICKABLE label around a lone checkbox
+   (`BooleanToggle`) and around the per-criterion "fulfilled" checkbox
+   (`CriteriaList`), so the 24x24 WCAG 2.2 SC 2.5.8 floor belongs here. The
+   glyph itself stays native — no `width`/`height` on the input. */
 .checkboxRow {
   display: flex;
   align-items: center;
   gap: var(--space-2);
+  min-height: var(--space-6);
+  min-width: var(--space-6);
 }
 
 .optionList {
@@ -289,4 +306,19 @@
 .stepIndex {
   min-width: var(--space-6);
   color: var(--color-text-muted);
+}
+
+/* Screen-reader-only text (same recipe as `RevealValue.module.css`). Used by
+   the group widgets to put the "required" word into the group's accessible
+   NAME instead of the invalid `aria-required` (see MultiEnum/CriteriaList). */
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
