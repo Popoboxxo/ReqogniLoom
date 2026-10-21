@@ -623,3 +623,58 @@ An agent may not accept or reject **its own** proposal: that answers
 `WRITE` operation (editor/approver/admin); reading the inbox is `READ`
 (viewer included).
 
+---
+
+## 12. Multi-field validation errors — one problem speaks, many problems list
+
+An endpoint that validates several fields at once must never force a caller
+into one round trip per mistake. `POST /api/v1/api-keys/` is the reference
+implementation
+([#1439](https://github.com/Popoboxxo/ReqogniLoom/issues/1439)): it used to
+answer the *next* missing field each time, so `{"principal_type": "agent"}`
+took three requests to enumerate.
+
+The rule is deliberately two-sided, so the single-error messages every existing
+client (and test) depends on stay stable:
+
+| Problems found | `error.message` | `error.details` |
+|----------------|-----------------|-----------------|
+| exactly **one** | that problem's historical message, byte-identical | one entry for it |
+| **two or more** | `"Request validation failed."` | one entry per problem, ordered deterministically |
+
+`error.code` is `VALIDATION_ERROR` in both cases. The envelope itself is
+unchanged (§2, REQ-L2-RA-009).
+
+Each multi-problem detail names the field, a machine-readable reason and the
+human-readable message:
+
+```json
+{
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "message": "Request validation failed.",
+    "details": [
+      {"field": "name", "code": "required", "message": "Field 'name' is required."},
+      {"field": "scope", "code": "required", "message": "Agent API keys require an explicit valid scope."},
+      {"field": "workspace_ids", "code": "required", "message": "Agent API keys require at least one canonical workspace UUID."},
+      {"field": "expires_at", "code": "required", "message": "Agent API keys require a strictly future timezone-aware expires_at."}
+    ]
+  }
+}
+```
+
+`code` is one of `required`, `invalid` or `unknown_field`. Detail order is the
+request field's declaration order (`name`, `principal_type`, `scope`,
+`workspace_ids`, `expires_at`, `agent_label`); unknown request keys come first,
+alphabetically. A lone unknown field keeps its historical body
+`{"message": "Unknown field '<key>'.", "details": [{"field": "<key>",
+"errors": ["Unknown field '<key>'."]}]}` — including the `errors` key — while a
+mixed response renders it as an ordinary `{"field", "code", "message"}` entry.
+
+Implementation: `rest_api.api_key_serializers.ApiKeyCreateSerializer`
+accumulates DRF's per-field errors *and* the agent-key cross-field rules
+(scope, workspace fence, future timezone-aware expiry), and
+`build_api_key_create_error_response` is the single place the one-vs-many
+message rule lives. The agent rules themselves are imported from
+`auth_tenancy.services.authentication` (shared with the service, so the two
+layers cannot drift); the service keeps its own check as defence in depth.
