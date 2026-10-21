@@ -148,6 +148,21 @@ _ERROR_MESSAGES: dict[str, dict[str, str]] = {
             "erneut und wiederholen Sie den Vorgang."
         ),
     },
+    # GH-1396: the ``If-Match`` header was present but is not a valid
+    # field-value (blank, unquoted, unbalanced quote, garbage inside a list).
+    # Kept distinct from PRECONDITION_FAILED on purpose: 412 tells the client
+    # "your copy is stale, re-read and retry", which can never help when the
+    # header never parsed. A malformed header is a request defect → 400.
+    "INVALID_IF_MATCH": {
+        "en": (
+            "The If-Match header is not a valid entity-tag (expected a quoted "
+            'value such as "3", a weak validator, or *).'
+        ),
+        "de": (
+            "Der If-Match-Header ist kein gültiger Entity-Tag (erwartet wird ein "
+            'quotierter Wert wie "3", ein Weak-Validator oder *).'
+        ),
+    },
     "PRESET_FIELD_REQUIRED": {
         "en": "This field is required by the active workspace preset.",
         "de": "Dieses Feld ist durch das aktive Workspace-Preset erforderlich.",

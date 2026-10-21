@@ -20,7 +20,7 @@ nowhere else; both must be known to use the feature correctly.
 
 | Path | Where | Accepted shape | Stale answer |
 |------|-------|----------------|--------------|
-| **HTTP precondition** | `If-Match` request header | a single **strong** entity-tag, e.g. `If-Match: "7"` | `412 PRECONDITION_FAILED` |
+| **HTTP precondition** | `If-Match` request header | `*` or one or more **strong** entity-tags, e.g. `If-Match: "7"` / `"7", "8"` | `412 PRECONDITION_FAILED` |
 | **Body field** | `expected_version` in the JSON body | integer ≥ 1 | `409 CONFLICT` |
 
 ### Precedence
@@ -32,19 +32,32 @@ inside the service's row-locked transaction. Supplying a body
 `expected_version` that contradicts the header is a client bug that the server
 resolves in the header's favour rather than failing on.
 
-`If-Match` is only honoured as a *single strong tag*:
+### `If-Match` decision matrix (GH-1396)
 
-* `W/"7"` — a weak tag never satisfies `If-Match` (RFC 9110 § 13.1.1 strong
-  comparison), and is treated as "no precondition given".
-* `*` — an existence check, not a revision check. The row was already loaded,
-  so it always passes. `tools/call` / no-op.
-* `"7", "8"` — a multi-tag list is out of scope. Matching "any of N revisions"
-  would need a `version IN (...)` compare in the service, which no `update_*`
-  offers, so the header is ignored and the body field applies.
-* A non-numeric tag is ignored by the header path and falls through to
-  `expected_version`. (The immutable-`Baseline` PATCH route compares the tag
-  directly rather than parsing it, which is what lets it accept a timestamp
-  tag.)
+The header is parsed into an explicit result; there is no "unparseable, so
+pretend it was absent" fallback. **400** means the field-value is not a valid
+`If-Match`, so the precondition could not be evaluated at all. **412** means it
+was evaluated and does not hold.
+
+| Header value | Answer |
+|---|---|
+| absent | no assertion — the body `expected_version` fallback applies |
+| present but blank / whitespace | `400 INVALID_IF_MATCH` |
+| `*` | `200` — existence check; no revision comparison, body field ignored |
+| single strong tag equal to the current `ETag` | `200` |
+| single strong tag not equal | `412 PRECONDITION_FAILED` |
+| `W/"7"` (weak validator) | `412` — `If-Match` uses *strong* comparison (RFC 9110 § 13.1.1), so a weak tag can never match |
+| unquoted / unbalanced / garbage (`7`, `"7`, `garbage`) | `400 INVALID_IF_MATCH` |
+| list (`"7", "8"`) | `200` when **any** strong tag equals the current `ETag`, else `412`; weak entries never match |
+| list with a malformed entry | `400 INVALID_IF_MATCH` |
+
+Two further rules the table implies:
+
+* The comparison is against the resource's own current `ETag`, not against a
+  re-parsed integer — so the `Baseline` route's ISO-timestamp tag compares
+  correctly. When a list matches, the matching revision is still forwarded so
+  the authoritative compare stays inside the service's row lock.
+* Tags compare as opaque strings: `"07"` is not `"7"` and does not match it.
 
 ### Omitting both
 
@@ -93,6 +106,14 @@ value answers **`409 CONFLICT`**, deliberately different from the `412` a
 stale `If-Match` on `PATCH` answers — same header, two different things, two
 different status codes, on two routes of the same resource. An intermediary
 that normalises 412 to 409 (or vice versa) will mis-handle one of them.
+
+The header is parsed by the same parser as on `PATCH`, with the same
+`400 INVALID_IF_MATCH` for a blank/malformed value; only the *mismatch* answer
+differs (409 here, 412 there). A tag list is compared against the workflow
+revision on this route. The dedicated special routes (`/adrs/{pk}/supersede/`,
+`/change-requests/{pk}/transition/`, …) share that mapping but cannot resolve
+the current workflow revision up front, so they treat a tag list as a
+mismatch.
 
 Two further traps on that route:
 
@@ -181,7 +202,8 @@ is finished by creating a new one. Its `ETag` is a `created_at` timestamp
 rather than a version counter, for that reason — and the `If-Match` precondition
 is evaluated *before* the immutability answer, so a stale tag on a baseline
 `PATCH` answers `412` (the resource changed under the client) while a current
-tag or no header answers `405`.
+tag or no header answers `405`. A malformed header is the same
+`400 INVALID_IF_MATCH` as everywhere else.
 
 ---
 

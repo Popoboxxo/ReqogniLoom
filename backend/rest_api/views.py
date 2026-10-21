@@ -157,6 +157,8 @@ from rest_api.auth_enforcer import get_auth_context
 from rest_api.mixins import (
     ETagMixin,
     FreeTextSanitizationMixin,
+    IfMatchMismatch,
+    InvalidIfMatch,
     WorkflowTransitionsMixin,
 )
 from rest_api.not_found import ROUTE_NOT_FOUND_MESSAGE
@@ -276,6 +278,13 @@ _EXC_TO_HTTP: dict[type, int] = {
     BaselineImmutabilityError: status.HTTP_409_CONFLICT,
     NotFoundError: status.HTTP_404_NOT_FOUND,
     OptimisticLockError: status.HTTP_409_CONFLICT,
+    # GH-1396: shared safety net for routes that do not map the header
+    # themselves (the workflow-transition special routes). A malformed
+    # ``If-Match`` is a request defect (400); a header whose strong tags cannot
+    # match is a lost precondition, and on the transition routes that is the
+    # CR-08 conflict (409) — never 412, which those routes reserve for nothing.
+    InvalidIfMatch: status.HTTP_400_BAD_REQUEST,
+    IfMatchMismatch: status.HTTP_409_CONFLICT,
     # #1240: the LLM answered, but its content could not be parsed (non-JSON,
     # empty completion, wrong shape) — an upstream/response fault, not a server
     # defect. 502 (Bad Gateway), alongside LLM_TIMEOUT (504) and LLM_UNAVAILABLE
@@ -313,6 +322,11 @@ _EXC_TO_CODE: dict[type, str] = {
     BaselineImmutabilityError: "CONFLICT",
     NotFoundError: "NOT_FOUND",
     OptimisticLockError: "CONFLICT",
+    # GH-1396: see _EXC_TO_HTTP. INVALID_IF_MATCH is its own code so a client
+    # can tell "your header did not parse" (fix the request) from
+    # PRECONDITION_FAILED ("re-read and retry").
+    InvalidIfMatch: "INVALID_IF_MATCH",
+    IfMatchMismatch: "CONFLICT",
     LlmResponseError: "LLM_OUTPUT_INVALID",
     # #1416: cause-specific codes for the derive flows (see _EXC_TO_HTTP).
     LlmProviderTimeoutError: "LLM_TIMEOUT",
@@ -1463,6 +1477,11 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
           re-parent.
         """
         lang = detect_lang(request)
+        # GH-1396: a malformed If-Match is a request defect (400) and is
+        # refused before the payload guards below run any read.
+        invalid = self.if_match_parse_error(request)
+        if invalid is not None:
+            return invalid
         current_level = self._current_requirement_level(request, pk)
         invalid = self._reject_derived_level(request, lang, current=current_level)
         if invalid is not None:
@@ -1531,7 +1550,15 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 # that asserted version, so the standard HTTP precondition is
                 # enforced by the same in-transaction compare (and answers 412
                 # below rather than 409).
-                expected_version=self.resolve_expected_version(request, data),
+                #
+                # GH-1396: the loader is only called for the header shapes that
+                # need a real ETag comparison (a tag list, a non-numeric tag);
+                # a single strong integer tag stays read-free and race-free.
+                expected_version=self.resolve_expected_version(
+                    request,
+                    data,
+                    current=lambda: self._svc().get_requirement(UUID(pk), ctx),
+                ),
                 # uid is read-only via REST: never forward from PATCH data
                 # (would overwrite stored uid with None). Set only via service/MCP.
                 **extra_kwargs,
@@ -1548,6 +1575,11 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                     None if override is None else int(override),
                     change_reason=data.get("change_reason"),
                 )
+        except (InvalidIfMatch, IfMatchMismatch) as exc:
+            # GH-1396: a malformed header is a 400 INVALID_IF_MATCH; a header
+            # whose strong tags cannot match is 412 — the body field below keeps
+            # its 409 CONFLICT contract.
+            return self.if_match_error(request, exc)
         except OptimisticLockError as exc:
             # GH-868: a failed If-Match is a precondition failure (412); the
             # body field keeps its existing 409 CONFLICT contract.
@@ -3604,6 +3636,10 @@ class TestCaseViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         ``expected_version`` keeps answering 409 CONFLICT unchanged.
         """
         lang = detect_lang(request)
+        # GH-1396: malformed header → 400 before the payload guards read anything.
+        invalid = self.if_match_parse_error(request)
+        if invalid is not None:
+            return invalid
         invalid = self._validate_patch_payload(
             request,
             lang,
@@ -3650,17 +3686,26 @@ class TestCaseViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             # Optimistic locking (SYSTEMAUDIT_2026-08-29, REST finding 1):
             # stale expected_version → OptimisticLockError → 409 CONFLICT.
             # GH-868: an If-Match header takes precedence (see RequirementViewSet).
+            # GH-1396: the lazy loader runs only for header shapes that need a
+            # real ETag comparison; a single strong integer tag stays read-free.
             item = self._svc().update_test_case(
                 test_case_id=UUID(pk),
                 ctx=ctx,
                 title=data.get("title"),
                 description=data.get("description"),
                 change_reason=data.get("change_reason"),
-                expected_version=self.resolve_expected_version(request, data),
+                expected_version=self.resolve_expected_version(
+                    request,
+                    data,
+                    current=lambda: self._svc().get_test_case(UUID(pk), ctx),
+                ),
                 **extra_kwargs,
             )
             # Attribut v3 WS2 (#936): owner/reporter/priority live on Artifact.
             self._apply_artifact_system_fields(request, "TestCase", item, ctx)
+        except (InvalidIfMatch, IfMatchMismatch) as exc:
+            # GH-1396: malformed → 400 INVALID_IF_MATCH, unmatchable → 412.
+            return self.if_match_error(request, exc)
         except OptimisticLockError as exc:
             # GH-868: a failed If-Match is a precondition failure (412); the
             # body field keeps its existing 409 CONFLICT contract.
@@ -6466,6 +6511,11 @@ class WorkspaceViewSet(BaseEntityViewSet):
         response carries the new ``ETag``.
         """
         lang = detect_lang(request)
+        # GH-1396: a malformed If-Match must not be discovered after the
+        # close/reactivate branch below has already written.
+        invalid = self.if_match_parse_error(request)
+        if invalid is not None:
+            return invalid
         try:
             ctx = get_auth_context(request)
             ws = None
@@ -6534,17 +6584,24 @@ class WorkspaceViewSet(BaseEntityViewSet):
                 # #1244: an If-Match header wins over the expected_version body
                 # field; the resolved value is compared inside the service's
                 # row-locked transaction, so the check is race-free.
+                # GH-1396: the lazy loader runs only for header shapes that need
+                # a real ETag comparison (tag list, non-numeric tag).
                 ws = self._svc().update_metadata(
                     ctx,
                     UUID(pk),
                     expected_version=self.resolve_expected_version(
-                        request, patch_ser.validated_data
+                        request,
+                        patch_ser.validated_data,
+                        current=lambda: self._svc().get_workspace(UUID(pk), ctx),
                     ),
                     **fields,
                 )
             elif ws is None:
                 # No recognized field supplied — return current state unchanged.
                 ws = self._svc().get_workspace(UUID(pk), ctx)
+        except (InvalidIfMatch, IfMatchMismatch) as exc:
+            # GH-1396: malformed → 400 INVALID_IF_MATCH, unmatchable → 412.
+            return self.if_match_error(request, exc)
         except OptimisticLockError as exc:
             # #1244: a failed If-Match is a precondition failure (412); the body
             # field keeps the existing 409 CONFLICT contract (same split as the
