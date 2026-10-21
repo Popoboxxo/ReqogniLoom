@@ -243,6 +243,43 @@ is evaluated *before* the immutability answer, so a stale tag on a baseline
 tag or no header answers `405`. A malformed header is the same
 `400 INVALID_IF_MATCH` as everywhere else.
 
+### Preset-gated endpoints — documented, never silently opened
+
+Some routes exist only where the workspace's active **rigor preset** enables
+their feature key. The runtime check is `PresetGateMixin` +
+`preset_endpoint_key`; baselines (`preset_endpoint_key = "baselines"`) are the
+worked example:
+
+| Preset | `baselines` | `GET /api/v1/baselines/?workspace_id=…` |
+|--------|-------------|------------------------------------------|
+| `minimal` | off | `404` |
+| `standard` | on | `200` |
+| `extended` | on | `200` |
+
+A preset-disabled route answers **`404`**, not `403` — the endpoint does not
+exist for that workspace, so its absence must not be distinguishable from an
+unknown route or an unknown id. Baselines, an unknown/foreign workspace and an
+unknown baseline id all render the same opaque `NOT_FOUND` body
+(`rest_api/not_found.py`), which is deliberate. The flat collection route adds
+one more cause: a missing `workspace_id` makes the gate fall back to the
+caller's tenant id, resolves no workspace, and therefore answers `404` in
+**every** preset (see above).
+
+Two rules follow:
+
+* **The schema states the gate.** Since #1380 the generated OpenAPI description
+  of `/api/v1/baselines/` (`GET` and `POST`) and `/api/v1/baselines/{id}/`
+  (`GET`) names the preset condition and carries a dedicated `404` response
+  describing all three causes; `GET /api/v1/baselines/` declares
+  `workspace_id` as a **required** query parameter. A generated client can
+  therefore see that the call may legitimately 404 without the resource being
+  absent, and can supply the parameter the gate needs.
+* **A gate is never silently opened to make the schema true.** The honest fix
+  for "the document advertises an endpoint that 404s" is to document the
+  condition, not to remove the gate. Changing a preset gate is a product
+  decision that goes through the preset registry (`presets/registry.py`), never
+  a side effect of an API-contract change.
+
 ---
 
 ## 4. TraceLink endpoints: which UUID `source_id` / `target_id` expects

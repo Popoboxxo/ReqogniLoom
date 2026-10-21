@@ -40,6 +40,7 @@ from django.core.exceptions import ObjectDoesNotExist
 from django.db.models import ProtectedError
 from django.http import Http404, HttpResponse
 from django.utils import timezone
+from drf_spectacular.openapi import AutoSchema
 from drf_spectacular.utils import (
     OpenApiParameter,
     OpenApiRequest,
@@ -4710,6 +4711,93 @@ class TraceabilityViewSet(viewsets.GenericViewSet):
 # ---------------------------------------------------------------------------
 
 
+class _BaselineAutoSchema(AutoSchema):
+    """#1380: keep the shared ``list`` schema honest for both of its routes.
+
+    ``BaselineViewSet.list`` serves the flat ``/api/v1/baselines/`` route *and*
+    the nested ``/api/v1/workspaces/{workspace_pk}/baselines/`` route (issue
+    #49). Only the flat one needs ``?workspace_id=`` — without it the preset
+    gate falls back to the tenant id and answers 404 in every preset — while
+    the nested route takes the workspace from its path and ignores the query
+    value. The parameter is declared once on the handler, so the nested
+    operation must not publish it as a requirement it does not have.
+
+    A drf-spectacular ``AutoSchema`` sees ``self.path``/``self.method`` (set in
+    ``get_operation`` before the parameters are assembled), which is the only
+    place where the two routes can still be told apart for a shared handler.
+    """
+
+    def _get_parameters(self) -> list[dict[str, Any]]:
+        parameters = super()._get_parameters()
+        # ``getattr`` rather than plain access: both attributes are set by
+        # ``AutoSchema.get_operation`` before this hook runs, but a defensive
+        # read keeps an upstream refactor from crashing schema generation for
+        # the whole API over a documentation-only concern.
+        if getattr(self, "method", "") == "GET" and "/workspaces/" in getattr(
+            self, "path", ""
+        ):
+            return [
+                parameter
+                for parameter in parameters
+                if parameter.get("name") != "workspace_id"
+            ]
+        return parameters
+
+
+# #1380: the collection and detail routes were advertised unconditionally while
+# ``PresetGateMixin._guard_preset`` answers a bare ``Http404`` (rendered as the
+# opaque route-miss envelope by ``handler404``) whenever the workspace's active
+# preset does not enable ``preset_endpoint_key = "baselines"``. Every
+# ``list``/``retrieve``/``create`` declaration therefore carries this one
+# response instead of the generic "Resource not found." blanket the
+# postprocessing hook injects: a generated client can now see that a 404 here
+# is a *visibility* answer, not a missing-row answer. The three causes share
+# the same body on purpose — see ``rest_api/not_found.py`` — so naming them in
+# the description is the only honest way to publish the condition without
+# letting callers probe which one applied.
+_BASELINE_PRESET_404 = OpenApiResponse(
+    response=ErrorResponseSerializer,
+    description=(
+        "Not found — three causes deliberately answer with this one opaque body. "
+        "(1) **Preset gate**: baselines are only available where the workspace's "
+        "active rigor preset enables the feature key ``baselines``; under the "
+        "``minimal`` preset the endpoint does not exist and answers 404 without "
+        "revealing whether the resource would have. (2) **Workspace missing or "
+        "not visible**: the workspace is unknown, or outside the caller's "
+        "tenant. On ``list`` and ``create`` this also covers an omitted or "
+        "empty ``workspace_id``, because the gate then falls back to the "
+        "caller's *tenant* id, which resolves to no workspace and therefore to "
+        "404. (3) **Baseline unknown**: the requested baseline id does not "
+        "exist, or belongs to another tenant. All three render the same "
+        "``NOT_FOUND`` envelope — the route does not disclose which condition "
+        "applied."
+    ),
+)
+
+# #1380: the flat collection route has no workspace in its path, so the query
+# parameter is what makes the gate resolvable at all: without it the gate falls
+# back to the tenant id and answers 404 in *every* preset (the preset cannot
+# even be looked up for a tenant id). Declared required for the flat route.
+# ``_BaselineAutoSchema`` strips it from the nested
+# ``/api/v1/workspaces/{workspace_pk}/baselines/`` operation, which takes the
+# workspace from its path; publishing it there would be the mirror image of the
+# defect this issue fixes.
+_BASELINE_WORKSPACE_ID_PARAMETER = OpenApiParameter(
+    name="workspace_id",
+    type=OpenApiTypes.UUID,
+    location=OpenApiParameter.QUERY,
+    required=True,
+    description=(
+        "Workspace whose baselines to list. **Required** on this flat route: "
+        "omitted (or empty), the preset gate falls back to the caller's tenant "
+        "id, resolves no workspace, and answers 404 in every preset. The value "
+        "must belong to the caller's tenant; a foreign id also answers 404. Use "
+        "``/api/v1/workspaces/{workspace_pk}/baselines/`` to supply the "
+        "workspace in the path instead."
+    ),
+)
+
+
 def _resolve_baseline_diff_ids(
     request: Request, lang: str
 ) -> tuple[tuple[UUID, UUID] | None, Response | None]:
@@ -4800,6 +4888,12 @@ class BaselineViewSet(BaseEntityViewSet):
 
     serializer_class = BaselineSerializer
     preset_endpoint_key = "baselines"
+    # #1380: the flat and nested collection routes share ``list``; the nested
+    # one must not be documented with the flat route's required query param.
+    # An *instance* (not the class): DRF's ``schema`` is a ``ViewInspector``
+    # descriptor, and only an instance participates in the ``view`` binding
+    # ``@extend_schema`` relies on.
+    schema = _BaselineAutoSchema()
 
     def get_serializer_class(self) -> type:
         """#1078: the list response has no ``entries`` field, by contract.
@@ -4840,6 +4934,10 @@ class BaselineViewSet(BaseEntityViewSet):
         self.request = request
         self._guard_preset(workspace_id_override=workspace_id)
 
+    @extend_schema(
+        parameters=[_BASELINE_WORKSPACE_ID_PARAMETER],
+        responses={404: _BASELINE_PRESET_404},
+    )
     def list(self, request: Request, **kwargs: Any) -> Response:
         """GET /api/v1/baselines/?workspace_id=<id> or /api/v1/workspaces/<workspace_id>/baselines/ — list workspace baselines.
 
@@ -4853,6 +4951,14 @@ class BaselineViewSet(BaseEntityViewSet):
         ``get_serializer_class``), so a row has no ``entries`` key at all
         instead of an empty one — the list must not claim a baseline captured
         nothing.
+
+        Preset gate (#1380): this endpoint only exists where the workspace's
+        active rigor preset enables the ``baselines`` feature. Under the
+        ``minimal`` preset it answers **404** — the same opaque body as an
+        unknown workspace or a missing route — without exposing whether the
+        baseline would have existed. The flat route also **requires**
+        ``?workspace_id=``: without it the gate falls back to the caller's
+        tenant id, resolves no workspace, and answers 404 in *every* preset.
         """
         workspace_id_str = kwargs.get("workspace_pk") or request.query_params.get("workspace_id")
         # The preset gate deliberately still runs on the raw value and before
@@ -4877,6 +4983,7 @@ class BaselineViewSet(BaseEntityViewSet):
             lambda item: BaselineSummarySerializer(_baseline_to_dict(item)).data,
         )
 
+    @extend_schema(responses={404: _BASELINE_PRESET_404})
     def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """GET /api/v1/baselines/<pk>/ — full baseline detail incl. entries.
 
@@ -4892,6 +4999,12 @@ class BaselineViewSet(BaseEntityViewSet):
         service is tenant-scoped and raises NotFoundError for foreign
         baselines) and the gate is then applied to the *real* workspace. Both
         orders answer 404 to an unauthorised caller, so nothing is leaked.
+
+        Preset gate (#1380): the gate still applies to the resolved baseline's
+        workspace, so detail GET answers **404** where the active preset does
+        not enable ``baselines`` (``minimal``). That 404 is indistinguishable
+        from "no such baseline" — neither the preset nor the existence of a
+        hidden row is disclosed.
         """
         lang = detect_lang(request)
         try:
@@ -4904,6 +5017,7 @@ class BaselineViewSet(BaseEntityViewSet):
         self._check_preset(request, workspace_id=str(item.workspace_id))
         return self.with_etag(Response(BaselineSerializer(_baseline_to_dict(item)).data), item)
 
+    @extend_schema(responses={404: _BASELINE_PRESET_404})
     def create(self, request: Request, **kwargs: Any) -> Response:
         """POST /api/v1/baselines/ (flat) or /api/v1/workspaces/<workspace_id>/baselines/ (nested) — create baseline.
 
@@ -4931,6 +5045,14 @@ class BaselineViewSet(BaseEntityViewSet):
 
         #1079: the 201 carries the same ``ETag`` as the detail GET, so a client
         can start a conditional write against the freshly created baseline.
+
+        Preset gate (#1380): creation only exists where the workspace's active
+        rigor preset enables the ``baselines`` feature (``preset_endpoint_key =
+        "baselines"``); under ``minimal`` the route answers **404** before the
+        body is even validated. On the flat route the workspace comes from the
+        body ``workspace_id``, so an omitted value makes the gate fall back to
+        the tenant id and answer 404 as well — the same opaque body as an
+        unknown workspace.
         """
         workspace_pk = kwargs.get("workspace_pk")
         self._check_preset(request, workspace_id=workspace_pk)
