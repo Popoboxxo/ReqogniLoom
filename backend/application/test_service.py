@@ -622,7 +622,13 @@ class TestService(ServiceBase):
         ``"TestCase:<Type>"`` ``artifact_type`` tag, which no longer exists.
         """
         self._set_tenant_context(ctx)
-        qs = TestCase.objects.select_related("artifact").filter(
+        # #1398: ``_test_to_dict`` reads the backing Artifact (workspace_id,
+        # custom_fields) and its Artifact-level owner/reporter system fields via
+        # ``artifact_system_fields()`` — eager load all three, as
+        # ``requirement_service.list_requirements`` does.
+        qs = TestCase.objects.select_related(
+            "artifact", "artifact__owner", "artifact__reporter"
+        ).filter(
             artifact__workspace_id=workspace_id
         )
         if not include_deleted:
@@ -643,7 +649,11 @@ class TestService(ServiceBase):
                 | Q(description__icontains=search)
                 | Q(uid__icontains=search)
             )
-        return qs
+        # Deterministic order for pagination (#1390): TestCase declares no
+        # Meta.ordering, so an unordered queryset let LIMIT/OFFSET pages
+        # overlap or skip rows (DRF's UnorderedObjectListWarning). Oldest
+        # first by creation, with the primary key as a unique tie-breaker.
+        return qs.order_by("created_at", "id")
 
     # ---------- Coverage (REQ-L2-AS-025) ----------
 

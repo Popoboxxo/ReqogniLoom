@@ -314,7 +314,9 @@ class BaselineStore:
             qs = qs.filter(tenant_id=tenant_id)
         if scope is not None:
             qs = qs.filter(scope=scope)
-        qs = qs.order_by("-created_at")
+        # #1390/F2: newest first; ``created_at`` is not unique, so the primary
+        # key is the tie-breaker that keeps this paginated listing stable.
+        qs = qs.order_by("-created_at", "-id")
 
         return [
             BaselineSummary(

@@ -15,9 +15,12 @@ in ``baseline.services.resolve_scope_item_ids``), so the fixtures set
 """
 from __future__ import annotations
 
+import re
+import uuid
+
 import pytest
 
-from persistence.models import Artifact
+from persistence.models import Artifact, TraceLink
 from traceability.audit import AuditScope, RuleEngine
 from traceability.audit.registry import TRACE_P7
 from traceability.tests.conftest import active_tenant, make_artifact, make_trace_link
@@ -164,3 +167,76 @@ class TestTraceP7:
             )
 
         assert _p7_findings(result) == []
+
+
+#: One link per finding, and the finding message embeds the link's own id:
+#: ``"[TRACE-P7] Trace link <uuid> (<type>) leaks out of ..."`
+_P7_LINK_ID_RE = re.compile(r"\[TRACE-P7\] Trace link (\S+) ")
+
+
+class TestTraceP7DeterministicFindingOrder:
+    """Review finding F7: per-link findings follow a stable row order.
+
+    ``AuditContext._load_trace_links`` used to read the tenant's links with no
+    ``ORDER BY``, so the order of the one-finding-per-leaking-link output was
+    whatever the heap happened to return. That leaks into ``offset``/``limit``
+    paging of the audit report and into any message-hash baseline. The rows are
+    now ordered by primary key; the links below are created in *descending* id
+    order, so an accidental match of insertion order is excluded by
+    construction.
+    """
+
+    def test_findings_are_ordered_by_link_id(self, tenant_a, workspace_a):
+        link_ids = sorted(
+            uuid.uuid5(uuid.NAMESPACE_URL, f"trace-p7-order-{index:02d}")
+            for index in range(6)
+        )
+        # One document subtree (root -> child) plus one project-only sibling
+        # per link, so *every* link below straddles that scope. Insertion order
+        # is descending id, i.e. the exact reverse of the contract; an
+        # unordered read would very likely replay this order.
+        with active_tenant(tenant_a):
+            root = _artifact(tenant_a, workspace_a)
+            for link_id in reversed(link_ids):
+                child = _artifact(tenant_a, workspace_a, parent=root)
+                sibling = _artifact(tenant_a, workspace_a)
+                TraceLink.objects.create(
+                    id=link_id,
+                    tenant=tenant_a,
+                    source=child,
+                    target=sibling,
+                    link_type="allocated-to",
+                )
+
+        with active_tenant(tenant_a):
+            result = RuleEngine().run(
+                tier="extended",
+                workspace_id=str(workspace_a.id),
+                tenant_id=str(tenant_a.id),
+                scopes=[AuditScope("document", artifact_id=str(root.id))],
+            )
+
+        findings = _p7_findings(result)
+        assert len(findings) == len(link_ids), [f.message for f in findings]
+
+        seen = []
+        for finding in findings:
+            match = _P7_LINK_ID_RE.search(finding.message)
+            assert match, finding.message
+            seen.append(match.group(1))
+
+        assert seen == [str(link_id) for link_id in link_ids], (
+            "TRACE-P7 findings are not in a deterministic link order (F7)"
+        )
+
+        # Repeating the run must reproduce the same order byte for byte.
+        with active_tenant(tenant_a):
+            again = RuleEngine().run(
+                tier="extended",
+                workspace_id=str(workspace_a.id),
+                tenant_id=str(tenant_a.id),
+                scopes=[AuditScope("document", artifact_id=str(root.id))],
+            )
+        assert [f.message for f in _p7_findings(again)] == [
+            f.message for f in findings
+        ]

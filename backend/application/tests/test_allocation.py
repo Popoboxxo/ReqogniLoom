@@ -9,14 +9,88 @@ import uuid
 from uuid import UUID
 
 import pytest
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 
 from application.architecture_service import ArchitectureService
 from application.requirement_service import RequirementService
 from application.trace_link_service import TraceLinkService
 from auth_tenancy.context import AuthContext
-from persistence.models import ArchitectureElement, Requirement, Tenant, TraceLink, User
+from persistence.models import Artifact, ArchitectureElement, Requirement, Tenant, TraceLink, User
 from persistence.models import Workspace as PersistenceWorkspace
+from persistence.tenancy import TenantContext
 from traceability.types import LinkType
+
+
+def _seed_coverage_dataset(
+    tenant: Tenant, workspace: PersistenceWorkspace, n: int, tag: str
+) -> UUID:
+    """Create *n* requirements, every second one allocated to one element.
+
+    Issue #1384: bulk ORM writes (not the services) so the fixture stays cheap
+    enough for a 100 vs 400 row scale comparison. UUIDs are derived from the
+    tag, so two datasets in one test cannot collide.
+    """
+
+    def det(name: str, i: int) -> uuid.UUID:
+        return uuid.uuid5(uuid.NAMESPACE_URL, f"coverage-1384-{tag}-{name}-{i:06d}")
+
+    Artifact.objects.bulk_create(
+        [
+            Artifact(
+                id=det("req-art", i),
+                tenant_id=tenant.id,
+                workspace_id=workspace.id,
+                artifact_type="Requirement",
+            )
+            for i in range(n)
+        ]
+    )
+    Requirement.objects.bulk_create(
+        [
+            Requirement(
+                id=det("req", i),
+                tenant_id=tenant.id,
+                workspace_id=workspace.id,
+                artifact_id=det("req-art", i),
+                title=f"Requirement {i:04d}",
+                type="SyReq",
+            )
+            for i in range(n)
+        ]
+    )
+
+    arch_artifact_id = det("arch-art", 0)
+    Artifact.objects.bulk_create(
+        [
+            Artifact(
+                id=arch_artifact_id,
+                tenant_id=tenant.id,
+                workspace_id=workspace.id,
+                artifact_type="ArchitectureElement",
+            )
+        ]
+    )
+    arch = ArchitectureElement.objects.create(
+        id=det("arch", 0),
+        tenant_id=tenant.id,
+        artifact_id=arch_artifact_id,
+        title="Coverage Target",
+    )
+
+    TraceLink.objects.bulk_create(
+        [
+            TraceLink(
+                id=det("link", i),
+                tenant_id=tenant.id,
+                source_id=det("req-art", i),
+                target_id=arch_artifact_id,
+                link_type=LinkType.ALLOCATED_TO,
+            )
+            for i in range(0, n, 2)
+        ]
+    )
+    return arch.id
 
 
 @pytest.fixture
@@ -203,7 +277,17 @@ class TestAllocationCoverageReport:
     """Test allocation coverage reporting."""
 
     def test_coverage_report_all_allocated(self, auth_context, workspace):
-        """Test coverage report when all child requirements are allocated."""
+        """Coverage is per-element: allocations on the *child* do not roll up.
+
+        Review finding F8 replaced the tautology that used to sit here
+        (``allocated_count >= 0``, which could never fail). The assertions now
+        pin the actual — unchanged — semantics of
+        ``TraceLinkService.get_allocation_coverage``: membership is decided only
+        by ``allocated-to`` links whose target is *this* element's artifact, so
+        the parent reports 0 even though all three requirements are allocated to
+        its child. ``coverage_ratio`` is therefore 0 of the workspace's 3
+        requirements.
+        """
         req_svc = RequirementService()
         arch_svc = ArchitectureService()
         link_svc = TraceLinkService()
@@ -243,9 +327,18 @@ class TestAllocationCoverageReport:
         )
 
         assert report is not None
-        assert report["allocated_count"] >= 0
-        assert report["coverage_ratio"] >= 0
-        assert "unallocated_requirements" in report
+        assert report["allocated_count"] == 0
+        assert report["coverage_ratio"] == 0
+        assert len(report["unallocated_requirements"]) == 3
+
+        # ... while the child itself reports the three allocations.
+        child_report = link_svc.get_allocation_coverage(
+            architecture_element_id=child_arch.id,
+            ctx=auth_context,
+        )
+        assert child_report["allocated_count"] == 3
+        assert child_report["coverage_ratio"] == 100.0
+        assert child_report["unallocated_requirements"] == []
 
     def test_coverage_report_partial_allocation(self, auth_context, workspace):
         """Test coverage report with partially allocated child requirements."""
@@ -276,11 +369,14 @@ class TestAllocationCoverageReport:
             allocated_reqs.append(req)
 
         # Create unallocated requirements
+        unallocated_reqs = []
         for i in range(2):
-            req_svc.create_requirement(
-                workspace_id=workspace.id,
-                title=f"Unallocated Requirement {i}",
-                ctx=auth_context,
+            unallocated_reqs.append(
+                req_svc.create_requirement(
+                    workspace_id=workspace.id,
+                    title=f"Unallocated Requirement {i}",
+                    ctx=auth_context,
+                )
             )
 
         # Get coverage report
@@ -290,8 +386,16 @@ class TestAllocationCoverageReport:
         )
 
         assert report is not None
-        assert report["allocated_count"] >= 2
-        assert len(report["unallocated_requirements"]) >= 2
+        # F8: exact counts — the workspace holds exactly these four
+        # requirements and two of them carry an ``allocated-to`` link to
+        # *arch_el*. ``>=`` here would pass even if the link lookup silently
+        # returned nothing.
+        assert report["allocated_count"] == 2
+        assert report["coverage_ratio"] == 50.0
+        assert len(report["unallocated_requirements"]) == 2
+        assert {entry["id"] for entry in report["unallocated_requirements"]} == {
+            req.id for req in unallocated_reqs
+        }
 
     def test_coverage_report_no_requirements(self, auth_context, workspace):
         """Test coverage report for ArchitectureElement with no child requirements."""
@@ -313,6 +417,64 @@ class TestAllocationCoverageReport:
         assert report["allocated_count"] == 0
         assert report["coverage_ratio"] == 0
         assert len(report["unallocated_requirements"]) == 0
+
+
+@pytest.mark.django_db
+class TestAllocationCoverageQueryCount:
+    """Issue #1384: coverage reporting must not issue per-requirement queries.
+
+    The previous implementation ran ``traceability.services.query(...)`` once
+    per requirement; that engine issues two SQL statements per call
+    (``SET LOCAL statement_timeout`` + ``SELECT``), so the endpoint grew at
+    ~2N+3 queries. The numbers below are the same for both dataset sizes.
+    """
+
+    @staticmethod
+    def _measure(
+        arch_id: UUID,
+        ctx: AuthContext,
+        max_queries: int,
+        django_assert_max_num_queries,
+    ) -> tuple[int, dict]:
+        with django_assert_max_num_queries(max_queries):
+            with CaptureQueriesContext(connection) as captured:
+                report = TraceLinkService().get_allocation_coverage(
+                    architecture_element_id=arch_id,
+                    ctx=ctx,
+                )
+        return len(captured.captured_queries), report
+
+    def test_query_count_does_not_scale_with_requirement_count(
+        self, tenant, auth_context, django_assert_max_num_queries
+    ):
+        TenantContext.set_tenant(tenant.id)
+        try:
+            counts: dict[int, int] = {}
+            reports: dict[int, dict] = {}
+            for n in (100, 400):
+                workspace = PersistenceWorkspace.objects.create(
+                    tenant=tenant, name=f"coverage-scale-{n}"
+                )
+                arch_id = _seed_coverage_dataset(tenant, workspace, n, tag=f"scale-{n}")
+                counts[n], reports[n] = self._measure(
+                    arch_id, auth_context, 10, django_assert_max_num_queries
+                )
+
+            # Same query count for 100 and for 400 requirements.
+            assert counts[100] == counts[400]
+
+            # ... and the reported numbers are unchanged.
+            assert reports[100]["allocated_count"] == 50
+            assert reports[400]["allocated_count"] == 200
+            assert reports[100]["coverage_ratio"] == 50.0
+            assert reports[400]["coverage_ratio"] == 50.0
+            assert len(reports[400]["unallocated_requirements"]) == 200
+            assert all(
+                set(entry) == {"id", "title"}
+                for entry in reports[400]["unallocated_requirements"]
+            )
+        finally:
+            TenantContext.clear_tenant()
 
 
 @pytest.mark.django_db

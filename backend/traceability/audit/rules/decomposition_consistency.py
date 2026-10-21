@@ -132,7 +132,20 @@ def _fetch_architecture_elements(context: AuditContext) -> dict[str, dict[str, s
     Both are needed here: TRACE-P4 only uses ``parent_id``; ARCH-003 also needs
     ``artifact_id`` to correlate ``allocated-to`` TraceLinks (which point at
     Artifact ids) back to a tree position.
+
+    Memoised on the audit context (#1385): TRACE-P4 and ARCH-003 need the same
+    rows.
     """
+    return context.memoize(
+        "decomposition_consistency.architecture_elements",
+        lambda: _compute_architecture_elements(context),
+    )
+
+
+def _compute_architecture_elements(
+    context: AuditContext,
+) -> dict[str, dict[str, str | None]]:
+    """Uncached query body of :func:`_fetch_architecture_elements`."""
     # ArchitectureElement has no status mirror — outdate() writes only
     # WorkflowItemState (dead lifecycle_status column for this type), so
     # "non-deleted" is computed against that table instead.
@@ -166,7 +179,18 @@ def _fetch_requirement_levels(context: AuditContext) -> dict[str, int | None]:
     never wired into one falls back to the "draft" preset initial state
     instead (documented, reviewed data-loss tradeoff, see Task 12 report
     Finding 2).
+
+    Memoised on the audit context (#1385): TRACE-P5 and ARCH-003 both need the
+    level map.
     """
+    return context.memoize(
+        "decomposition_consistency.requirement_levels",
+        lambda: _compute_requirement_levels(context),
+    )
+
+
+def _compute_requirement_levels(context: AuditContext) -> dict[str, int | None]:
+    """Uncached query body of :func:`_fetch_requirement_levels`."""
     from persistence.models import Requirement
 
     rows = list(

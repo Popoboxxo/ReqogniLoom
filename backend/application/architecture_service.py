@@ -447,9 +447,15 @@ class ArchitectureService(ServiceBase):
         resolve ancestors correctly) rather than as a queryset filter.
         """
         self._set_tenant_context(ctx)
-        # select_related("artifact") avoids one query per element when the
-        # serializer reads ``element.artifact`` (workspace_id, custom_fields).
-        qs = ArchitectureElement.objects.select_related("artifact").filter(
+        # #1398: the REST DTO builder (``_arch_to_dict``) reads the backing
+        # Artifact (workspace_id, custom_fields) *and* the Artifact-level
+        # owner/reporter system fields via ``artifact_system_fields()``, so all
+        # three relations are eager loaded here — mirroring
+        # ``requirement_service.list_requirements``. Without the owner/reporter
+        # joins each row paid its own query.
+        qs = ArchitectureElement.objects.select_related(
+            "artifact", "artifact__owner", "artifact__reporter"
+        ).filter(
             artifact__workspace_id=workspace_id
         )
         if not include_deleted:
@@ -461,6 +467,13 @@ class ArchitectureService(ServiceBase):
             from workflow.services import outdated_item_ids
 
             qs = qs.exclude(id__in=outdated_item_ids("ArchitectureElement"))
+        # #1390: order *before* materialising. ``list_architecture_elements``
+        # hands a Python list to the paginating ViewSet, so DRF slices an
+        # in-memory sequence — its ``UnorderedObjectListWarning`` cannot fire
+        # and an unordered row order would silently make LIMIT/OFFSET windows
+        # (the paginator's slicing) overlap or skip rows. ``created_at`` is not
+        # unique, so the primary key is the tie-breaker.
+        qs = qs.order_by("created_at", "id")
         elements = list(qs)
         # REQ-L2-RA-013 / REQ-070: eliminate N+1 on tree depth. The ``level``
         # property recurses into the DB (one query per ancestor per element)

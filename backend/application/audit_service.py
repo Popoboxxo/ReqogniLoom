@@ -68,6 +68,7 @@ from traceability.audit import (
     RuleEngine,
     Severity,
     get_remediation,
+    remediation_run_cache,
 )
 
 logger = logging.getLogger(__name__)
@@ -380,8 +381,11 @@ class AuditService(ServiceBase):
     #: SYSTEMAUDIT_2026-08-18 §4/§8). A workspace with many untraced
     #: artifacts can produce a four-figure finding count (4,440 findings /
     #: ~2.5 MB in the audit's 300-requirement stress scenario) — this bounds
-    #: both the JSON payload and the per-finding remediation-analysis cost
-    #: (one extra query pass per finding, see blocking_findings' docstring).
+    #: both the JSON payload and the per-finding remediation-analysis cost.
+    #: Since #1385 the candidate lookups behind that analysis are memoised for
+    #: the duration of one run (``remediation_run_cache``), so the analysis is
+    #: no longer one *query* pass per finding — the cap still bounds the work
+    #: and the payload, not the query count.
     #:
     #: Deliberately NOT DRF PageNumberPagination: the REST/MCP consumers of
     #: this report (AuditDashboard.tsx, audit.ai_review) both need the *whole*
@@ -1069,20 +1073,29 @@ class AuditService(ServiceBase):
             next_offset=report_next_offset,
         )
 
-        for index, finding in indexed:
-            proposal = self._propose_for_finding(finding, tenant_id, ws_id)
-            record = suppression_by_index.get(index)
-            report.findings.append(
-                AuditFindingView(
-                    index=index,
-                    finding=finding,
-                    remediation=proposal,
-                    suppressed=record is not None,
-                    suppressed_until=record.expires_at if record else None,
-                    suppression_reason=record.reason if record else None,
-                    suppression_id=record.id if record else None,
+        # #1385: the remediation analysis asks the same workspace-level
+        # question for every finding (TRACE-P1: "which StakeholderNeeds
+        # exist?", TRACE-P2: "which ArchitectureElements exist?"). Those
+        # answers are constant for this read-only run, so the candidate
+        # lookups are memoised for the duration of the loop instead of being
+        # re-queried once per finding. The memo is scoped to this block — not
+        # to the process — so a workspace change between two runs is still
+        # picked up by the second run.
+        with remediation_run_cache(tenant_id, ws_id):
+            for index, finding in indexed:
+                proposal = self._propose_for_finding(finding, tenant_id, ws_id)
+                record = suppression_by_index.get(index)
+                report.findings.append(
+                    AuditFindingView(
+                        index=index,
+                        finding=finding,
+                        remediation=proposal,
+                        suppressed=record is not None,
+                        suppressed_until=record.expires_at if record else None,
+                        suppression_reason=record.reason if record else None,
+                        suppression_id=record.id if record else None,
+                    )
                 )
-            )
         return report
 
     # ---------- Remediation analysis ----------

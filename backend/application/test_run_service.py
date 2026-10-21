@@ -372,8 +372,11 @@ class TestRunService(ServiceBase):
         (REQ-034) slices with LIMIT/OFFSET instead of materialising all rows.
         """
         self._set_tenant_context(ctx)
+        # #1390/F2: newest first, with the primary key as a unique tie-breaker —
+        # ``created_at`` alone is not unique, which makes the paginator's
+        # LIMIT/OFFSET windows unstable.
         return TestRun.objects.filter(workspace_id=workspace_id).order_by(
-            "-created_at"
+            "-created_at", "-id"
         )
 
     # ---------- Helpers ----------

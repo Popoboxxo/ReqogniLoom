@@ -121,6 +121,20 @@ from workflow.services import outdated_item_ids
 def _active_requirements(context: AuditContext) -> dict[str, str]:
     """Return ``{artifact_id: title}`` for active, non-L4 Requirements.
 
+    Memoised on the audit context (#1385): TRACE-P1, TRACE-P1b and TRACE-P2
+    each need exactly this projection of the same workspace snapshot, so the
+    query (plus its workflow-state overlay) runs once per engine context
+    instead of once per rule.
+    """
+    return context.memoize(
+        "trace_derivation_allocation.active_requirements",
+        lambda: _compute_active_requirements(context),
+    )
+
+
+def _compute_active_requirements(context: AuditContext) -> dict[str, str]:
+    """Uncached query body of :func:`_active_requirements`.
+
     Datenmodell-Konsolidierung Phase 1: "active" is resolved through
     ``WorkflowItemState`` (batched) — Requirement has no backfill-migration
     guarantee. Task 12: the ``status`` column is dropped, so a Requirement
@@ -157,6 +171,18 @@ def _active_requirements(context: AuditContext) -> dict[str, str]:
 def _active_stakeholder_need_ids(context: AuditContext) -> frozenset[str]:
     """Return the artifact-id set of active StakeholderNeeds (L0).
 
+    Memoised on the audit context (#1385) — TRACE-P1 and TRACE-P1b ask for it
+    independently.
+    """
+    return context.memoize(
+        "trace_derivation_allocation.active_stakeholder_need_ids",
+        lambda: _compute_active_stakeholder_need_ids(context),
+    )
+
+
+def _compute_active_stakeholder_need_ids(context: AuditContext) -> frozenset[str]:
+    """Uncached query body of :func:`_active_stakeholder_need_ids`.
+
     Datenmodell-Konsolidierung Phase 1: StakeholderNeed's soft-delete state
     (``workflow.services.outdate()``, called from its ``delete()`` path) is
     resolved through ``WorkflowItemState`` (batched) — the same fallback
@@ -186,7 +212,18 @@ def _active_stakeholder_need_ids(context: AuditContext) -> frozenset[str]:
 
 
 def _active_architecture_elements(context: AuditContext) -> dict[str, str]:
-    """Return ``{artifact_id: title}`` for active ArchitectureElements."""
+    """Return ``{artifact_id: title}`` for active ArchitectureElements.
+
+    Memoised on the audit context (#1385).
+    """
+    return context.memoize(
+        "trace_derivation_allocation.active_architecture_elements",
+        lambda: _compute_active_architecture_elements(context),
+    )
+
+
+def _compute_active_architecture_elements(context: AuditContext) -> dict[str, str]:
+    """Uncached query body of :func:`_active_architecture_elements`."""
     qs = ArchitectureElement.unscoped.filter(
         tenant_id=context.tenant_id,
         artifact__workspace_id=context.workspace_id,

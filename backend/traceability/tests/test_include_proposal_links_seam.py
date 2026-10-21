@@ -101,3 +101,50 @@ def test_rule_engine_forwards_include_proposal_links_to_every_context():
 
     assert seen, "the engine must construct at least one AuditContext for 'standard'"
     assert all(flag is False for flag in seen)
+
+
+def test_flipping_the_flag_after_a_read_does_not_replay_the_old_snapshot(
+    tenant_a, workspace_a
+):
+    """Review finding F6: the snapshot is keyed by the flag.
+
+    ``include_proposal_links`` is a plain (mutable) dataclass attribute while
+    ``iter_trace_links`` snapshots the rows on first use. With a single
+    snapshot slot, flipping the flag afterwards kept serving the rows fetched
+    under the *old* value — a confirmed-only replay would then silently include
+    the unconfirmed proposals it was built to exclude. Keying the snapshot by
+    the flag makes the cached rows inseparable from the filter they were read
+    with.
+    """
+    with active_tenant(tenant_a):
+        a1 = make_artifact(tenant_a, workspace_a, artifact_type="Requirement")
+        a2 = make_artifact(tenant_a, workspace_a, artifact_type="Requirement")
+        a3 = make_artifact(tenant_a, workspace_a, artifact_type="Requirement")
+        confirmed = _link(tenant_a, a1, a2, proposed=False)
+        proposal = _link(tenant_a, a2, a3, proposed=True)
+
+    context = AuditContext(
+        tier="standard",
+        workspace_id=str(workspace_a.id),
+        tenant_id=str(tenant_a.id),
+        include_proposal_links=True,
+    )
+    # First read with proposals enabled.
+    ids_with_proposals = {row["id"] for row in context.iter_trace_links()}
+    assert ids_with_proposals == {str(confirmed.id), str(proposal.id)}
+
+    # Flip the flag on the same context, then read again.
+    context.include_proposal_links = False
+    ids_after_flip = {row["id"] for row in context.iter_trace_links()}
+    assert ids_after_flip == {str(confirmed.id)}, (
+        "the snapshot was replayed although include_proposal_links changed — "
+        "the cache entry must be keyed by the flag"
+    )
+
+    # Flipping back must still honour the filter (either by reusing the
+    # original entry or by re-reading; what matters is the content).
+    context.include_proposal_links = True
+    assert {row["id"] for row in context.iter_trace_links()} == {
+        str(confirmed.id),
+        str(proposal.id),
+    }
