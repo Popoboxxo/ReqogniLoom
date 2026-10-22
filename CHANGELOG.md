@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- fix(api)!: `GET` on a soft-deleted architecture element now answers 200 with `status="outdated"` instead of 404, matching every other artifact type (GH-443, #1381).
+
+### Fixed
+- fix(api): accept `change_reason` as a `DELETE` query parameter (body still wins) on the soft-deleting endpoints (#1407).
+
 ## [1.8.0-beta.22] — 2026-10-20
 
 ### Added
