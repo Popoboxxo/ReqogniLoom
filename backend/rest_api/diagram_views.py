@@ -28,6 +28,7 @@ import logging
 from typing import Any
 from uuid import UUID
 
+from drf_spectacular.utils import extend_schema
 from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.request import Request
@@ -147,6 +148,10 @@ class DiagramViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
 
     # -- list --------------------------------------------------------------
 
+    @extend_schema(
+        operation_id="diagrams_list",
+        description="List diagrams, filtered by ``workspace_id``. Explicit list id (#1388).",
+    )
     def list(self, request: Request, **kwargs: Any) -> Response:
         """GET /api/v1/diagrams/ — list diagrams, filtered by workspace_id."""
         lang = detect_lang(request)

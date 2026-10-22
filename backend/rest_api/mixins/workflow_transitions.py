@@ -19,6 +19,7 @@ share one implementation and one response contract.
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
@@ -34,6 +35,7 @@ from application.services import (
     WorkflowFacade,
 )
 from rest_api.auth_enforcer import get_auth_context
+from rest_api.mixins.etag import IfMatchMismatch, InvalidIfMatch
 
 #: Keys that are never writable through PATCH on any entity, whether or not the
 #: serializer happens to declare them (#269, finding 5). ``workspace_id`` is a
@@ -164,6 +166,19 @@ def resolve_proposed_by(
     return _latest_proposal_actor(item_id, item_type, workspace_id)
 
 
+@dataclass(frozen=True)
+class _WorkflowRevision:
+    """Minimal entity shape ``compute_etag`` reads: only ``.version``.
+
+    GH-1396: on ``transitions/`` the ``If-Match`` tag denotes the
+    ``WorkflowItemState`` revision, not the entity ETag. Wrapping that number in
+    the shape ``compute_etag`` already understands lets the tag-list comparison
+    stay in one place instead of growing a second ETag dialect.
+    """
+
+    version: int | None
+
+
 def _coerce_expected_version(value: Any) -> int | None:
     """Normalise a client-asserted revision to an int, or ``None`` for "unset".
 
@@ -231,6 +246,16 @@ class WorkflowTransitionsMixin:
 
         Raises:
             ValueError: The asserted revision is present but not an integer.
+            InvalidIfMatch: The ``If-Match`` header is not a valid field-value
+                (GH-1396); the view layer answers 400 ``INVALID_IF_MATCH``.
+            IfMatchMismatch: No strong tag can match the workflow revision
+                (GH-1396); the view layer answers 409 ``CONFLICT`` (CR-08).
+
+        GH-1396 note: these routes cannot resolve the current workflow revision
+        here (they do not all know the workspace yet), so a *tag list* is a
+        mismatch rather than an "any tag matches" comparison. The generic
+        ``transitions/`` POST does pass a loader and therefore matches a list
+        properly.
         """
         return _coerce_expected_version(
             self.resolve_expected_version(request, data)
@@ -402,7 +427,10 @@ class WorkflowTransitionsMixin:
         Omitting both stays supported and is last-writer-wins: a caller that
         asserts no revision is never rejected for a lost race, it just
         overwrites whatever the winner committed. Sending a non-numeric revision
-        is a 400, not a permanent 409.
+        is a 400, not a permanent 409. A *malformed* ``If-Match`` (blank,
+        unquoted, unbalanced quotes, garbage inside a list) is likewise a 400
+        ``INVALID_IF_MATCH`` on both routes — the header never parsed, so the
+        precondition was never evaluated (GH-1396).
         """
         # Imported lazily to avoid a circular import: rest_api.serializers now
         # imports WorkflowStateSerializerMixin from this package at module
@@ -491,7 +519,36 @@ class WorkflowTransitionsMixin:
         # went through as if the client had never asserted a revision.
         try:
             expected_version = _coerce_expected_version(
-                self.resolve_expected_version(request, request.data)
+                self.resolve_expected_version(
+                    request,
+                    request.data,
+                    # GH-1396: a tag list has to be compared against the revision
+                    # this route actually guards — the WorkflowItemState
+                    # revision, not the entity ETag.
+                    current=lambda: _WorkflowRevision(
+                        resolve_workflow_version(
+                            item_id, self.workflow_item_type, workspace_id
+                        )
+                    ),
+                )
+            )
+        except InvalidIfMatch as exc:
+            # GH-1396: malformed header → 400. Evaluated preconditions keep the
+            # CR-08 conflict below; only the parse failure is a request defect.
+            return Response(
+                build_error_response(
+                    "INVALID_IF_MATCH",
+                    lang,
+                    details=[{"reason": exc.reason}] if exc.reason else None,
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except IfMatchMismatch:
+            # CR-08: on this route a lost precondition is a 409 CONFLICT, never
+            # the 412 the ETag endpoints answer for the same header.
+            return Response(
+                build_error_response("CONFLICT", lang),
+                status=status.HTTP_409_CONFLICT,
             )
         except ValueError as exc:
             return Response(

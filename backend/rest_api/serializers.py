@@ -28,7 +28,7 @@ Design:
 """
 from __future__ import annotations
 
-from collections.abc import Container
+from collections.abc import Container, Mapping
 from typing import Any
 
 from django.utils import translation
@@ -146,6 +146,21 @@ _ERROR_MESSAGES: dict[str, dict[str, str]] = {
         "de": (
             "Die Ressource wurde seit dem letzten Lesen geändert; lesen Sie sie "
             "erneut und wiederholen Sie den Vorgang."
+        ),
+    },
+    # GH-1396: the ``If-Match`` header was present but is not a valid
+    # field-value (blank, unquoted, unbalanced quote, garbage inside a list).
+    # Kept distinct from PRECONDITION_FAILED on purpose: 412 tells the client
+    # "your copy is stale, re-read and retry", which can never help when the
+    # header never parsed. A malformed header is a request defect → 400.
+    "INVALID_IF_MATCH": {
+        "en": (
+            "The If-Match header is not a valid entity-tag (expected a quoted "
+            'value such as "3", a weak validator, or *).'
+        ),
+        "de": (
+            "Der If-Match-Header ist kein gültiger Entity-Tag (erwartet wird ein "
+            'quotierter Wert wie "3", ein Weak-Validator oder *).'
         ),
     },
     "PRESET_FIELD_REQUIRED": {
@@ -1996,6 +2011,28 @@ class WorkspaceSerializer(
         data["preset"] = normalize_preset_blob(data.get("preset"))
         return data
 
+    def to_internal_value(self, data: Any) -> dict[str, Any]:
+        """Reject a non-string ``name`` instead of silently coercing it.
+
+        DRF's ``CharField`` turns a JSON number into text, so ``{"name": 123}``
+        used to validate and persist ``"123"`` — a client-side type bug stored
+        as if it were a name. ``WorkspaceViewSet.partial_update`` validates the
+        payload before its lifecycle branch (GH-1396 review finding B1: an
+        invalid payload must write nothing), and ``{"is_active": false,
+        "name": 123}`` is the case that pins it, so the field has to actually
+        reject the value for that ordering to be observable.
+
+        Only the *type* is tightened; every string value keeps the previous
+        free-text validation. Raising here (rather than in ``validate_name``,
+        which only sees the already-coerced ``"123"``) is what preserves the
+        distinction between ``123`` and ``"123"``.
+        """
+        if isinstance(data, Mapping):
+            raw_name = data.get("name")
+            if raw_name is not None and not isinstance(raw_name, str):
+                raise serializers.ValidationError({"name": ["Must be a string."]})
+        return super().to_internal_value(data)
+
 
 class AdrSerializer(
     ClientUidRejectionMixin,
@@ -2767,6 +2804,90 @@ class NotificationSerializer(serializers.Serializer):
     created_at = serializers.DateTimeField(read_only=True)
 
 
+class CsvImportCountsSerializer(serializers.Serializer):
+    """ADR-014 §1 result counters (``ImportResult.counts``)."""
+
+    succeeded = serializers.IntegerField()
+    skipped = serializers.IntegerField()
+    failed = serializers.IntegerField()
+    total = serializers.IntegerField()
+
+
+class CsvImportItemCauseSerializer(serializers.Serializer):
+    """Machine-readable cause of one non-succeeded import row."""
+
+    code = serializers.CharField()
+    message = serializers.CharField()
+
+
+class CsvImportItemSerializer(serializers.Serializer):
+    """One structured per-row outcome of a contract-v2 CSV import."""
+
+    row = serializers.IntegerField()
+    identifier = serializers.CharField(allow_null=True, allow_blank=True)
+    kind = serializers.CharField()
+    status = serializers.CharField()
+    cause = CsvImportItemCauseSerializer()
+
+
+class CsvImportRowErrorSerializer(serializers.Serializer):
+    """One validation/persistence error row (``ImportRowError``)."""
+
+    row_number = serializers.IntegerField()
+    field = serializers.CharField(allow_blank=True)
+    message = serializers.CharField()
+
+
+class CsvImportReportSerializer(serializers.Serializer):
+    """``POST /workspaces/{id}/import/csv/`` report, contract v2 (ADR-014 §2).
+
+    Mirrors ``application.import_service.ImportResult.to_dict`` exactly — no
+    field is invented and none is omitted (#1388/M3). The deprecated legacy
+    envelope (``IMPORT_CONTRACT_V2=false``) answers the same success statuses
+    with a reduced shape and ``Deprecation``/``Sunset`` headers; it is a
+    rollback path for consumers that have not migrated, not the documented
+    contract.
+    """
+
+    success = serializers.BooleanField()
+    contract = serializers.CharField()
+    dry_run = serializers.BooleanField()
+    counts = CsvImportCountsSerializer()
+    items = CsvImportItemSerializer(many=True)
+    warnings = serializers.ListField(child=serializers.CharField())
+    idempotent_replay = serializers.BooleanField()
+    request_id = serializers.CharField(allow_blank=True)
+    # Legacy additive keys (unchanged meaning, still always present).
+    imported_count = serializers.IntegerField()
+    skipped_count = serializers.IntegerField()
+    status = serializers.CharField()
+    errors = CsvImportRowErrorSerializer(many=True)
+
+
+class SuggestionSerializer(serializers.Serializer):
+    """Wire format for one ADR-019 suggestion-inbox row (#1388/F6).
+
+    Mirrors ``SuggestionService._serialize`` exactly — the dict every
+    ``suggestion.*`` REST handler already returns. ``payload`` stays a free-form
+    object on purpose: its shape is owned by the per-kind adapter and is not
+    statically describable here.
+    """
+
+    id = serializers.UUIDField(read_only=True)
+    kind = serializers.CharField(read_only=True)
+    status = serializers.CharField(read_only=True)
+    producer = serializers.CharField(read_only=True)
+    proposed_by = serializers.UUIDField(read_only=True, allow_null=True)
+    proposed_at = serializers.DateTimeField(read_only=True)
+    decided_by = serializers.UUIDField(read_only=True, allow_null=True)
+    decided_at = serializers.DateTimeField(read_only=True, allow_null=True)
+    target_item_type = serializers.CharField(read_only=True, allow_blank=True)
+    target_item_id = serializers.UUIDField(read_only=True, allow_null=True)
+    payload = serializers.DictField(read_only=True)
+    workspace_id = serializers.UUIDField(read_only=True)
+    created_at = serializers.DateTimeField(read_only=True, allow_null=True)
+
+
 __all__ = [
     "QUERYSET_OPTIMIZATIONS",
     "AdrSerializer",
@@ -2777,6 +2898,11 @@ __all__ = [
     "BaselineSerializer",
     "BaselineSummarySerializer",
     "CommentSerializer",
+    "CsvImportCountsSerializer",
+    "CsvImportItemCauseSerializer",
+    "CsvImportItemSerializer",
+    "CsvImportReportSerializer",
+    "CsvImportRowErrorSerializer",
     "CustomFieldsSerializerMixin",
     "DiffItemSerializer",
     "FieldChangeSerializer",
@@ -2788,6 +2914,7 @@ __all__ = [
     "RiskSerializer",
     "StakeholderNeedSerializer",
     "StandardPagination",
+    "SuggestionSerializer",
     "TestCaseSerializer",
     "TestRunResultBulkSerializer",
     "TestRunResultSerializer",

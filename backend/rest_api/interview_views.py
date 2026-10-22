@@ -12,6 +12,7 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
+from drf_spectacular.utils import extend_schema
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
@@ -191,6 +192,13 @@ class InterviewViewSet(FreeTextSanitizationMixin, viewsets.ViewSet):
             return _service_error_response(exc, lang)
         return Response(result, status=status.HTTP_201_CREATED)
 
+    @extend_schema(
+        operation_id="interviews_list",
+        description=(
+            "List interview sessions for a workspace. Explicit list id to keep "
+            "it distinct from the session retrieve (#1388)."
+        ),
+    )
     def list(self, request: Request, **kwargs: Any) -> Response:
         """GET /api/v1/interviews/?workspace_id=...[&status=...] -- list sessions."""
         lang = detect_lang(request)

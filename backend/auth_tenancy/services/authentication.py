@@ -101,6 +101,46 @@ class ApiKeyLookupRow(NamedTuple):
     user_is_active: bool
 
 
+#: Agent-key lifecycle rule messages (REQ-L3-AT001-003). Public so the REST
+#: request serializer (``rest_api.api_key_serializers``) reports the very same
+#: text the service raises — one rule, one wording, whichever layer answers
+#: first (#1439).
+AGENT_SCOPE_REQUIRED_MESSAGE = "Agent API keys require an explicit valid scope."
+AGENT_WORKSPACE_FENCE_REQUIRED_MESSAGE = (
+    "Agent API keys require at least one canonical workspace UUID."
+)
+AGENT_EXPIRY_REQUIRED_MESSAGE = (
+    "Agent API keys require a strictly future timezone-aware expires_at."
+)
+
+
+def canonical_workspace_ids(workspace_ids: object) -> list[str] | None:
+    """Return the canonical UUID strings of an agent workspace fence.
+
+    ``None`` means the fence is unusable: empty, not a list/tuple, or containing
+    an element that is not a UUID. This is the *single* implementation of the
+    "canonical workspace UUID" rule: :meth:`AuthenticationService.create_api_key`
+    and the REST request serializer both call it, so the two layers cannot drift
+    apart (#1439).
+    """
+    if not isinstance(workspace_ids, (list, tuple)) or not workspace_ids:
+        return None
+    try:
+        return [str(UUID(str(workspace_id))) for workspace_id in workspace_ids]
+    except (ValueError, TypeError, AttributeError):
+        return None
+
+
+def is_future_timezone_aware(expires_at: object) -> bool:
+    """True iff *expires_at* is a strictly future, timezone-aware datetime."""
+    return (
+        isinstance(expires_at, datetime)
+        and expires_at.tzinfo is not None
+        and expires_at.utcoffset() is not None
+        and expires_at > datetime.now(UTC)
+    )
+
+
 def _api_key_pepper() -> str:
     """Return the configured server-side pepper, or ``""`` when unset."""
     return (getattr(settings, "API_KEY_PEPPER", "") or "").strip()
@@ -687,31 +727,18 @@ class AuthenticationService:
         if principal_type == PRINCIPAL_TYPE_AGENT:
             normalized_scope = normalize_api_key_scope(scope)
             if normalized_scope is None:
-                raise ValueError("Agent API keys require an explicit valid scope.")
+                raise ValueError(AGENT_SCOPE_REQUIRED_MESSAGE)
             effective_scope = normalized_scope
 
-            if not isinstance(workspace_ids, (list, tuple)) or not workspace_ids:
-                raise ValueError(
-                    "Agent API keys require at least one canonical workspace UUID."
-                )
-            try:
-                effective_workspace_ids = [
-                    str(UUID(str(workspace_id))) for workspace_id in workspace_ids
-                ]
-            except (ValueError, TypeError, AttributeError) as exc:
-                raise ValueError(
-                    "Agent API keys require at least one canonical workspace UUID."
-                ) from exc
+            # ``canonical_workspace_ids`` is shared with the REST request
+            # serializer (#1439), so the fence rule exists exactly once.
+            canonical_ids = canonical_workspace_ids(workspace_ids)
+            if canonical_ids is None:
+                raise ValueError(AGENT_WORKSPACE_FENCE_REQUIRED_MESSAGE)
+            effective_workspace_ids = canonical_ids
 
-            if (
-                not isinstance(expires_at, datetime)
-                or expires_at.tzinfo is None
-                or expires_at.utcoffset() is None
-                or expires_at <= datetime.now(UTC)
-            ):
-                raise ValueError(
-                    "Agent API keys require a strictly future timezone-aware expires_at."
-                )
+            if not is_future_timezone_aware(expires_at):
+                raise ValueError(AGENT_EXPIRY_REQUIRED_MESSAGE)
         else:
             effective_workspace_ids = list(workspace_ids or [])
 

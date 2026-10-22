@@ -37,11 +37,13 @@ from typing import Any
 
 from django.conf import settings
 from django.db import connection
+from drf_spectacular.utils import extend_schema
 from rest_framework import status
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from admin_ops.schema_serializers import SystemHealthResponseSerializer
 from application.base import PermissionDeniedError
 from audit.models import AuditEntry
 from auth_tenancy.context import AuthContext
@@ -676,6 +678,7 @@ class SystemHealthView(APIView):
             raise PermissionDeniedError("Authentication required.")
         return ctx
 
+    @extend_schema(responses=SystemHealthResponseSerializer)
     def get(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Run all component checks and return the aggregated snapshot."""
         # DRF's HasOperationPermission already enforces the admin gate before

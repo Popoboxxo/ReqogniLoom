@@ -14,6 +14,7 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
+from drf_spectacular.utils import extend_schema
 from rest_framework import status
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -169,6 +170,13 @@ def _read_reorder_body(
 class AttributeDefaultsListView(APIView):
     """GET /attribute-defaults/ — list the tenant's global attribute defaults."""
 
+    @extend_schema(
+        operation_id="attribute_defaults_list",
+        description=(
+            "List the tenant-wide global attribute defaults. Explicit list id "
+            "to keep it distinct from the detail route's retrieve (#1388)."
+        ),
+    )
     def get(self, request: Request) -> Response:
         gate = _require_admin(request)
         if isinstance(gate, Response):

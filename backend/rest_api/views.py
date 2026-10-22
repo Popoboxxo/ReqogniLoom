@@ -157,6 +157,8 @@ from rest_api.auth_enforcer import get_auth_context
 from rest_api.mixins import (
     ETagMixin,
     FreeTextSanitizationMixin,
+    IfMatchMismatch,
+    InvalidIfMatch,
     WorkflowTransitionsMixin,
 )
 from rest_api.not_found import ROUTE_NOT_FOUND_MESSAGE
@@ -172,6 +174,7 @@ from rest_api.query_params import (
     parse_workspace_id,
     require_non_empty_param,
 )
+from rest_api.schema import ReqLoAutoSchema
 from rest_api.serializers import (
     AdrSerializer,
     ArchitectureElementSerializer,
@@ -180,6 +183,7 @@ from rest_api.serializers import (
     BaselineSerializer,
     BaselineSummarySerializer,
     ChangeRequestSerializer,
+    CsvImportReportSerializer,
     GlossaryTermSerializer,
     GoalSerializer,
     ImpactNodeSerializer,
@@ -218,12 +222,78 @@ from rest_api.serializers import (
 # GH-868/GH-923/#1244: the standard body for a stale ``If-Match``. Declared per
 # ETag-enabled PATCH operation (not injected globally) because only those routes
 # can answer it — a global 412 on every operation would advertise a precondition
-# two thirds of the surface does not enforce.
+# two thirds of the surface does not enforce. The machine-readable list of the
+# operations that declare it (and of the families that must not) lives in
+# ``rest_api.conditional_requests``; #1397's gate test asserts the generated
+# document against it in both directions.
 _PRECONDITION_FAILED_RESPONSE = OpenApiResponse(
     response=ErrorResponseSerializer,
     description=(
-        "Precondition failed: the ``If-Match`` entity-tag no longer matches the "
-        "current version of the resource. Re-read it and retry."
+        "Precondition failed: the ``If-Match`` precondition did not hold — no "
+        "strong entity-tag in the header matches the resource's current "
+        "``ETag`` (a stale tag, or a ``W/``-prefixed weak validator, which "
+        "``If-Match``'s strong comparison can never match). A stale body "
+        "``expected_version`` also lands here when an ``If-Match`` header is "
+        "present. Re-read the resource — ``ETag`` is returned by both GET and "
+        "PATCH — and retry with the fresh tag. Without an ``If-Match`` header "
+        "this status is never answered: a stale ``expected_version`` body "
+        "field is a 409 CONFLICT."
+    ),
+)
+
+# #1397: the request header every 412 above is actually about. Declared once and
+# referenced by all four ETag-enabled PATCH operations, so the document cannot
+# drift from ``_PRECONDITION_FAILED_RESPONSE`` — before this, the schema
+# advertised a 412 on those routes while declaring no header anywhere, leaving a
+# generated client unable to build the guarded request at all.
+_IF_MATCH_PARAMETER = OpenApiParameter(
+    name="If-Match",
+    type=str,
+    location=OpenApiParameter.HEADER,
+    required=False,
+    description=(
+        "Optional strong entity-tag precondition (RFC 9110 § 13.1.1). Send the "
+        "``ETag`` value a previous GET or PATCH of this resource returned, "
+        "quoted — e.g. ``\"7\"``. ``*`` matches any existing representation and "
+        "asserts no revision. Comparison is *strong*, so a weak validator "
+        "(``W/\"7\"`` or ``w/\"7\"`` — the prefix is case-insensitive) never "
+        "matches. A stale or weak tag answers 412 PRECONDITION_FAILED; a "
+        "malformed field-value (unquoted, unbalanced quotes, blank, or a list "
+        "containing a bad member) answers 400 INVALID_IF_MATCH. The field-value "
+        "is scanned rather than split on commas, so a comma *inside* the quotes "
+        "belongs to the tag (``\"a,b\"`` is one tag) and non-ASCII ``obs-text`` "
+        "bytes (0x80-0xFF) are legal inside one. One deliberate deviation from "
+        "RFC 9110 § 5.6.1: a value that reduces to zero tags — a lone comma, or "
+        "only separators and whitespace — answers 400 INVALID_IF_MATCH rather "
+        "than acting as an empty list that matches nothing (412). Omitting the "
+        "header falls back to the ``expected_version`` body field (stale -> 409 "
+        "CONFLICT). When both are sent the header wins."
+    ),
+)
+
+# #1388/F3: the response half of the same contract. Declaring only the
+# ``If-Match`` request header left a generated client with no way to learn
+# where the tag it must send comes from — the 412 description says "``ETag`` is
+# returned by both GET and PATCH" while no response in the whole document
+# declared the header.
+#
+# drf-spectacular 0.30 publishes a *response* header through an
+# ``OpenApiParameter`` whose ``response`` names the status codes it applies to
+# (``OpenApiResponse(headers=...)`` is accepted by the type but ignored by
+# ``_get_response_for_code`` in this version — verified against the installed
+# source). Declaring it once here and referencing the constant from every
+# ETag-enabled operation is the same single-source treatment
+# ``_IF_MATCH_PARAMETER`` gets, so the two halves of the contract cannot drift.
+_ETAG_RESPONSE_HEADER = OpenApiParameter(
+    name="ETag",
+    type=str,
+    location=OpenApiParameter.HEADER,
+    response=[200, 201],
+    description=(
+        "Strong entity-tag of the returned representation (RFC 9110 § 8.8.3), "
+        "quoted — e.g. ``\"7\"``. Send it back verbatim as ``If-Match`` to make "
+        "a subsequent PATCH conditional; a stale or weak tag answers 412 "
+        "PRECONDITION_FAILED. Additive header only — the body is unchanged."
     ),
 )
 
@@ -276,6 +346,13 @@ _EXC_TO_HTTP: dict[type, int] = {
     BaselineImmutabilityError: status.HTTP_409_CONFLICT,
     NotFoundError: status.HTTP_404_NOT_FOUND,
     OptimisticLockError: status.HTTP_409_CONFLICT,
+    # GH-1396: shared safety net for routes that do not map the header
+    # themselves (the workflow-transition special routes). A malformed
+    # ``If-Match`` is a request defect (400); a header whose strong tags cannot
+    # match is a lost precondition, and on the transition routes that is the
+    # CR-08 conflict (409) — never 412, which those routes reserve for nothing.
+    InvalidIfMatch: status.HTTP_400_BAD_REQUEST,
+    IfMatchMismatch: status.HTTP_409_CONFLICT,
     # #1240: the LLM answered, but its content could not be parsed (non-JSON,
     # empty completion, wrong shape) — an upstream/response fault, not a server
     # defect. 502 (Bad Gateway), alongside LLM_TIMEOUT (504) and LLM_UNAVAILABLE
@@ -313,6 +390,11 @@ _EXC_TO_CODE: dict[type, str] = {
     BaselineImmutabilityError: "CONFLICT",
     NotFoundError: "NOT_FOUND",
     OptimisticLockError: "CONFLICT",
+    # GH-1396: see _EXC_TO_HTTP. INVALID_IF_MATCH is its own code so a client
+    # can tell "your header did not parse" (fix the request) from
+    # PRECONDITION_FAILED ("re-read and retry").
+    InvalidIfMatch: "INVALID_IF_MATCH",
+    IfMatchMismatch: "CONFLICT",
     LlmResponseError: "LLM_OUTPUT_INVALID",
     # #1416: cause-specific codes for the derive flows (see _EXC_TO_HTTP).
     LlmProviderTimeoutError: "LLM_TIMEOUT",
@@ -399,6 +481,38 @@ def _service_error_response(exc: Exception, lang: str = "en") -> Response:
 _DERIVATION_MODES = ("preview", "write")
 #: Accepted values of the ``policy`` key on the AI-derivation actions.
 _DERIVATION_POLICIES = ("manual", "auto")
+
+
+def _special_route_if_match_error(exc: Exception, lang: str = "en") -> Response:
+    """Map an ``If-Match`` resolver failure on a CR-08 special route.
+
+    The ``ETag`` PATCH routes answer **412** for a lost precondition; the
+    special routes (``goals/{pk}/outdate|reactivate``, ``adrs/{pk}/supersede``,
+    ``main-goals/{pk}/approve``, ``change-requests/{pk}/transition``) guard the
+    ``WorkflowItemState`` revision instead, so a mismatch is the **409**
+    ``CONFLICT`` CR-08 defines — the same split
+    ``WorkflowTransitionsMixin.transitions`` applies to the generic route
+    (GH-1396 review finding B3).
+
+    A malformed header is a request defect on every route: 400
+    ``INVALID_IF_MATCH``. Any other exception is a bug and is re-raised, never
+    disguised as an HTTP answer.
+    """
+    if isinstance(exc, InvalidIfMatch):
+        return Response(
+            build_error_response(
+                "INVALID_IF_MATCH",
+                lang,
+                details=[{"reason": exc.reason}] if exc.reason else None,
+            ),
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    if isinstance(exc, IfMatchMismatch):
+        return Response(
+            build_error_response("CONFLICT", lang),
+            status=status.HTTP_409_CONFLICT,
+        )
+    raise exc
 
 
 def _parse_derivation_mode_policy(
@@ -1319,6 +1433,7 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             ).data,
         )
 
+    @extend_schema(parameters=[_ETAG_RESPONSE_HEADER])
     def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """GET /api/v1/requirements/{pk}/ — retrieve single requirement.
 
@@ -1433,10 +1548,13 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         )
 
     @extend_schema(
+        # #1397: the header the declared 412 is conditioned on.
+        # #1388/F3: and the response header that supplies the next tag.
+        parameters=[_IF_MATCH_PARAMETER, _ETAG_RESPONSE_HEADER],
         responses={
             200: RequirementSerializer,
             412: _PRECONDITION_FAILED_RESPONSE,
-        }
+        },
     )
     def partial_update(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """PATCH /api/v1/requirements/{pk}/ — update a requirement. Returns 200.
@@ -1463,6 +1581,11 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
           re-parent.
         """
         lang = detect_lang(request)
+        # GH-1396: a malformed If-Match is a request defect (400) and is
+        # refused before the payload guards below run any read.
+        invalid = self.if_match_parse_error(request)
+        if invalid is not None:
+            return invalid
         current_level = self._current_requirement_level(request, pk)
         invalid = self._reject_derived_level(request, lang, current=current_level)
         if invalid is not None:
@@ -1531,7 +1654,15 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 # that asserted version, so the standard HTTP precondition is
                 # enforced by the same in-transaction compare (and answers 412
                 # below rather than 409).
-                expected_version=self.resolve_expected_version(request, data),
+                #
+                # GH-1396: the loader is only called for the header shapes that
+                # need a real ETag comparison (a tag list, a non-numeric tag);
+                # a single strong integer tag stays read-free and race-free.
+                expected_version=self.resolve_expected_version(
+                    request,
+                    data,
+                    current=lambda: self._svc().get_requirement(UUID(pk), ctx),
+                ),
                 # uid is read-only via REST: never forward from PATCH data
                 # (would overwrite stored uid with None). Set only via service/MCP.
                 **extra_kwargs,
@@ -1548,6 +1679,11 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                     None if override is None else int(override),
                     change_reason=data.get("change_reason"),
                 )
+        except (InvalidIfMatch, IfMatchMismatch) as exc:
+            # GH-1396: a malformed header is a 400 INVALID_IF_MATCH; a header
+            # whose strong tags cannot match is 412 — the body field below keeps
+            # its 409 CONFLICT contract.
+            return self.if_match_error(request, exc)
         except OptimisticLockError as exc:
             # GH-868: a failed If-Match is a precondition failure (412); the
             # body field keeps its existing 409 CONFLICT contract.
@@ -1601,6 +1737,14 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 extra[key] = data[key]
         return extra
 
+    @extend_schema(
+        operation_id="requirements_acceptance_criteria_list",
+        description=(
+            "List the ordered structured acceptance criteria of a requirement. "
+            "Explicit list id to keep it distinct from the by-index detail "
+            "route (#1388)."
+        ),
+    )
     @action(detail=True, methods=["get"], url_path="acceptance-criteria")
     def acceptance_criteria(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """GET /api/v1/requirements/{pk}/acceptance-criteria/ (#1288).
@@ -3478,6 +3622,7 @@ class TestCaseViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             ).data,
         )
 
+    @extend_schema(parameters=[_ETAG_RESPONSE_HEADER])
     def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """GET /api/v1/testcases/{pk}/ — retrieve a single test case.
 
@@ -3591,10 +3736,15 @@ class TestCaseViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         )
 
     @extend_schema(
+        # #1397: the header the declared 412 is conditioned on. Both router
+        # spellings (``testcases`` and ``test-cases``) document it, because they
+        # are this same view.
+        # #1388/F3: and the response header that supplies the next tag.
+        parameters=[_IF_MATCH_PARAMETER, _ETAG_RESPONSE_HEADER],
         responses={
             200: TestCaseSerializer,
             412: _PRECONDITION_FAILED_RESPONSE,
-        }
+        },
     )
     def partial_update(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """PATCH /api/v1/testcases/{pk}/ — update a test case. Returns 200.
@@ -3604,6 +3754,10 @@ class TestCaseViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         ``expected_version`` keeps answering 409 CONFLICT unchanged.
         """
         lang = detect_lang(request)
+        # GH-1396: malformed header → 400 before the payload guards read anything.
+        invalid = self.if_match_parse_error(request)
+        if invalid is not None:
+            return invalid
         invalid = self._validate_patch_payload(
             request,
             lang,
@@ -3650,17 +3804,26 @@ class TestCaseViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             # Optimistic locking (SYSTEMAUDIT_2026-08-29, REST finding 1):
             # stale expected_version → OptimisticLockError → 409 CONFLICT.
             # GH-868: an If-Match header takes precedence (see RequirementViewSet).
+            # GH-1396: the lazy loader runs only for header shapes that need a
+            # real ETag comparison; a single strong integer tag stays read-free.
             item = self._svc().update_test_case(
                 test_case_id=UUID(pk),
                 ctx=ctx,
                 title=data.get("title"),
                 description=data.get("description"),
                 change_reason=data.get("change_reason"),
-                expected_version=self.resolve_expected_version(request, data),
+                expected_version=self.resolve_expected_version(
+                    request,
+                    data,
+                    current=lambda: self._svc().get_test_case(UUID(pk), ctx),
+                ),
                 **extra_kwargs,
             )
             # Attribut v3 WS2 (#936): owner/reporter/priority live on Artifact.
             self._apply_artifact_system_fields(request, "TestCase", item, ctx)
+        except (InvalidIfMatch, IfMatchMismatch) as exc:
+            # GH-1396: malformed → 400 INVALID_IF_MATCH, unmatchable → 412.
+            return self.if_match_error(request, exc)
         except OptimisticLockError as exc:
             # GH-868: a failed If-Match is a precondition failure (412); the
             # body field keeps its existing 409 CONFLICT contract.
@@ -4625,6 +4788,113 @@ class TraceabilityViewSet(viewsets.GenericViewSet):
 # ---------------------------------------------------------------------------
 
 
+class _BaselineAutoSchema(ReqLoAutoSchema):
+    """#1380: keep the shared ``list`` schema honest for both of its routes.
+
+    ``BaselineViewSet.list`` serves the flat ``/api/v1/baselines/`` route *and*
+    the nested ``/api/v1/workspaces/{workspace_pk}/baselines/`` route (issue
+    #49). Only the flat one needs ``?workspace_id=`` — without it the preset
+    gate falls back to the tenant id and answers 404 in every preset — while
+    the nested route takes the workspace from its path and ignores the query
+    value. The parameter is declared once on the handler, so the nested
+    operation must not publish it as a requirement it does not have.
+
+    A drf-spectacular ``AutoSchema`` sees ``self.path``/``self.method`` (set in
+    ``get_operation`` before the parameters are assembled), which is the only
+    place where the two routes can still be told apart for a shared handler.
+    """
+
+    def _get_parameters(self) -> list[dict[str, Any]]:
+        parameters = super()._get_parameters()
+        # ``getattr`` rather than plain access: both attributes are set by
+        # ``AutoSchema.get_operation`` before this hook runs, but a defensive
+        # read keeps an upstream refactor from crashing schema generation for
+        # the whole API over a documentation-only concern.
+        if getattr(self, "method", "") == "GET" and "/workspaces/" in getattr(
+            self, "path", ""
+        ):
+            # GH-1396 review finding F8: drop the *query* requirement only. The
+            # nested route carries the workspace in its path as
+            # ``{workspace_pk}``; a future route reusing the name
+            # ``workspace_id`` as a PATH parameter would otherwise lose its
+            # required path segment from the document (a generated client
+            # would then build a request to a different, incomplete URL).
+            # ``.get`` keeps a parameter dict without an ``in`` key — such an
+            # entry is not a query parameter, so it must be kept.
+            return [
+                parameter
+                for parameter in parameters
+                if not (
+                    parameter.get("in") == "query"
+                    and parameter.get("name") == "workspace_id"
+                )
+            ]
+        return parameters
+
+
+# #1380: the collection and detail routes were advertised unconditionally while
+# ``PresetGateMixin._guard_preset`` answers a bare ``Http404`` (rendered as the
+# opaque route-miss envelope by ``handler404``) whenever the workspace's active
+# preset does not enable ``preset_endpoint_key = "baselines"``. Every
+# ``list``/``retrieve``/``create`` declaration therefore carries this one
+# response instead of the generic "Resource not found." blanket the
+# postprocessing hook injects: a generated client can now see that a 404 here
+# is a *visibility* answer, not a missing-row answer. Status, error code and
+# envelope shape are shared by all three causes on purpose — see
+# ``rest_api/not_found.py`` — but the ``message`` is not identical, and the
+# description below says so rather than claiming non-disclosure.
+_BASELINE_PRESET_404 = OpenApiResponse(
+    response=ErrorResponseSerializer,
+    description=(
+        "Not found — three causes answer with the same 404 status, the same "
+        "``NOT_FOUND`` error code and the same envelope shape, but not the same "
+        "``message``. (1) **Preset gate**: baselines are only available where "
+        "the workspace's active rigor preset enables the feature key "
+        "``baselines``; under the ``minimal`` preset the endpoint does not exist "
+        "and answers 404 without revealing whether the resource would have. "
+        "(2) **Workspace missing or not visible**: the workspace is unknown, or "
+        "outside the caller's tenant. On ``list`` and ``create`` this also "
+        "covers an omitted or empty ``workspace_id``, because the gate then "
+        "falls back to the caller's *tenant* id, which resolves to no workspace "
+        "and therefore to 404. Causes (1) and (2) share the generic route-miss "
+        "message (\"The requested API endpoint does not exist.\"), so they are "
+        "indistinguishable from each other and from an unknown route. (3) "
+        "**Baseline unknown**: the requested baseline id does not exist, or "
+        "belongs to another tenant; this cause keeps the same envelope but its "
+        "message is \"Baseline not found\" (``_service_error_response`` "
+        "forwarding ``BaselineNotFoundError``), so it is distinguishable from "
+        "(1)/(2). Practical consequence: a 404 here means **not available "
+        "here**, never \"does not exist\" — the same baseline id can answer 404 "
+        "under one preset, workspace or tenant and resolve under another. Do "
+        "not treat this response as proof of absence, and do not rely on the "
+        "message being byte-identical across the three causes."
+    ),
+)
+
+# #1380: the flat collection route has no workspace in its path, so the query
+# parameter is what makes the gate resolvable at all: without it the gate falls
+# back to the tenant id and answers 404 in *every* preset (the preset cannot
+# even be looked up for a tenant id). Declared required for the flat route.
+# ``_BaselineAutoSchema`` strips it from the nested
+# ``/api/v1/workspaces/{workspace_pk}/baselines/`` operation, which takes the
+# workspace from its path; publishing it there would be the mirror image of the
+# defect this issue fixes.
+_BASELINE_WORKSPACE_ID_PARAMETER = OpenApiParameter(
+    name="workspace_id",
+    type=OpenApiTypes.UUID,
+    location=OpenApiParameter.QUERY,
+    required=True,
+    description=(
+        "Workspace whose baselines to list. **Required** on this flat route: "
+        "omitted (or empty), the preset gate falls back to the caller's tenant "
+        "id, resolves no workspace, and answers 404 in every preset. The value "
+        "must belong to the caller's tenant; a foreign id also answers 404. Use "
+        "``/api/v1/workspaces/{workspace_pk}/baselines/`` to supply the "
+        "workspace in the path instead."
+    ),
+)
+
+
 def _resolve_baseline_diff_ids(
     request: Request, lang: str
 ) -> tuple[tuple[UUID, UUID] | None, Response | None]:
@@ -4715,6 +4985,12 @@ class BaselineViewSet(BaseEntityViewSet):
 
     serializer_class = BaselineSerializer
     preset_endpoint_key = "baselines"
+    # #1380: the flat and nested collection routes share ``list``; the nested
+    # one must not be documented with the flat route's required query param.
+    # An *instance* (not the class): DRF's ``schema`` is a ``ViewInspector``
+    # descriptor, and only an instance participates in the ``view`` binding
+    # ``@extend_schema`` relies on.
+    schema = _BaselineAutoSchema()
 
     def get_serializer_class(self) -> type:
         """#1078: the list response has no ``entries`` field, by contract.
@@ -4755,6 +5031,16 @@ class BaselineViewSet(BaseEntityViewSet):
         self.request = request
         self._guard_preset(workspace_id_override=workspace_id)
 
+    @extend_schema(
+        parameters=[_BASELINE_WORKSPACE_ID_PARAMETER],
+        # #1388: declaring the 404 must not erase the success shape — an
+        # operation that documents only failures tells a generated client
+        # nothing about what a 200 contains.
+        responses={
+            200: BaselineSummarySerializer(many=True),
+            404: _BASELINE_PRESET_404,
+        },
+    )
     def list(self, request: Request, **kwargs: Any) -> Response:
         """GET /api/v1/baselines/?workspace_id=<id> or /api/v1/workspaces/<workspace_id>/baselines/ — list workspace baselines.
 
@@ -4768,6 +5054,14 @@ class BaselineViewSet(BaseEntityViewSet):
         ``get_serializer_class``), so a row has no ``entries`` key at all
         instead of an empty one — the list must not claim a baseline captured
         nothing.
+
+        Preset gate (#1380): this endpoint only exists where the workspace's
+        active rigor preset enables the ``baselines`` feature. Under the
+        ``minimal`` preset it answers **404** — the same opaque body as an
+        unknown workspace or a missing route — without exposing whether the
+        baseline would have existed. The flat route also **requires**
+        ``?workspace_id=``: without it the gate falls back to the caller's
+        tenant id, resolves no workspace, and answers 404 in *every* preset.
         """
         workspace_id_str = kwargs.get("workspace_pk") or request.query_params.get("workspace_id")
         # The preset gate deliberately still runs on the raw value and before
@@ -4792,6 +5086,13 @@ class BaselineViewSet(BaseEntityViewSet):
             lambda item: BaselineSummarySerializer(_baseline_to_dict(item)).data,
         )
 
+    @extend_schema(
+        parameters=[_ETAG_RESPONSE_HEADER],
+        responses={
+            200: BaselineSerializer,
+            404: _BASELINE_PRESET_404,
+        }
+    )
     def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """GET /api/v1/baselines/<pk>/ — full baseline detail incl. entries.
 
@@ -4807,6 +5108,12 @@ class BaselineViewSet(BaseEntityViewSet):
         service is tenant-scoped and raises NotFoundError for foreign
         baselines) and the gate is then applied to the *real* workspace. Both
         orders answer 404 to an unauthorised caller, so nothing is leaked.
+
+        Preset gate (#1380): the gate still applies to the resolved baseline's
+        workspace, so detail GET answers **404** where the active preset does
+        not enable ``baselines`` (``minimal``). That 404 is indistinguishable
+        from "no such baseline" — neither the preset nor the existence of a
+        hidden row is disclosed.
         """
         lang = detect_lang(request)
         try:
@@ -4819,6 +5126,13 @@ class BaselineViewSet(BaseEntityViewSet):
         self._check_preset(request, workspace_id=str(item.workspace_id))
         return self.with_etag(Response(BaselineSerializer(_baseline_to_dict(item)).data), item)
 
+    @extend_schema(
+        parameters=[_ETAG_RESPONSE_HEADER],
+        responses={
+            201: BaselineSerializer,
+            404: _BASELINE_PRESET_404,
+        }
+    )
     def create(self, request: Request, **kwargs: Any) -> Response:
         """POST /api/v1/baselines/ (flat) or /api/v1/workspaces/<workspace_id>/baselines/ (nested) — create baseline.
 
@@ -4846,6 +5160,14 @@ class BaselineViewSet(BaseEntityViewSet):
 
         #1079: the 201 carries the same ``ETag`` as the detail GET, so a client
         can start a conditional write against the freshly created baseline.
+
+        Preset gate (#1380): creation only exists where the workspace's active
+        rigor preset enables the ``baselines`` feature (``preset_endpoint_key =
+        "baselines"``); under ``minimal`` the route answers **404** before the
+        body is even validated. On the flat route the workspace comes from the
+        body ``workspace_id``, so an omitted value makes the gate fall back to
+        the tenant id and answer 404 as well — the same opaque body as an
+        unknown workspace.
         """
         workspace_pk = kwargs.get("workspace_pk")
         self._check_preset(request, workspace_id=workspace_pk)
@@ -5033,6 +5355,10 @@ class BaselineViewSet(BaseEntityViewSet):
         return Response(BaselineDiffSerializer(payload).data)
 
     @extend_schema(
+        # #1397: the header the declared 412 is conditioned on. This is the one
+        # route whose ETag is a timestamp rather than a version counter (see
+        # ``ETagMixin.compute_etag``); it compares as an opaque tag either way.
+        parameters=[_IF_MATCH_PARAMETER],
         responses={
             405: OpenApiResponse(
                 response=ErrorResponseSerializer,
@@ -5042,7 +5368,7 @@ class BaselineViewSet(BaseEntityViewSet):
                 ),
             ),
             412: _PRECONDITION_FAILED_RESPONSE,
-        }
+        },
     )
     def partial_update(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """PATCH /api/v1/baselines/{pk}/ — always 405: baselines are immutable.
@@ -5051,10 +5377,17 @@ class BaselineViewSet(BaseEntityViewSet):
         ``If-Match``. That precondition is evaluated *before* the immutability
         answer — a stale tag is a 412 (the resource changed under the client),
         which is the standard ordering, while a current tag or no header at all
-        still gets the 405 below. The row is loaded only when the header is
-        present, and any load failure falls through to 405, so no existing
-        request changes status because of this branch.
+        still gets the 405 below. Any load failure falls through to 405, so no
+        existing request changes status because of this branch.
         """
+        # GH-1396 review finding F9: the published contract says a malformed
+        # If-Match is 400. Parsing it only *after* the row load meant an
+        # unknown/foreign baseline id plus a malformed header answered 405 (the
+        # immutable-route fallback) — the same request that is a 400 on every
+        # other ETag route. The syntactic check needs no row, so it runs first.
+        invalid = self.if_match_parse_error(request)
+        if invalid is not None:
+            return invalid
         if self.uses_if_match(request):
             try:
                 current = self._svc().get_baseline(pk, get_auth_context(request))
@@ -6329,6 +6662,7 @@ class WorkspaceViewSet(BaseEntityViewSet):
             request, items, lambda item: WorkspaceSerializer(_workspace_to_dict(item)).data
         )
 
+    @extend_schema(parameters=[_ETAG_RESPONSE_HEADER])
     def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """GET /api/v1/workspaces/{pk}/ — fetch a single workspace by id.
 
@@ -6447,10 +6781,13 @@ class WorkspaceViewSet(BaseEntityViewSet):
         )
 
     @extend_schema(
+        # #1397: the header the declared 412 is conditioned on.
+        # #1388/F3: and the response header that supplies the next tag.
+        parameters=[_IF_MATCH_PARAMETER, _ETAG_RESPONSE_HEADER],
         responses={
             200: WorkspaceSerializer,
             412: _PRECONDITION_FAILED_RESPONSE,
-        }
+        },
     )
     def partial_update(self, request: Request, pk: str = None, **kwargs: Any) -> Response:
         """PATCH /api/v1/workspaces/{pk}/ — update workspace metadata.
@@ -6466,54 +6803,88 @@ class WorkspaceViewSet(BaseEntityViewSet):
         response carries the new ``ETag``.
         """
         lang = detect_lang(request)
+        # GH-1396: a malformed If-Match must not be discovered after the
+        # close/reactivate branch below has already written.
+        invalid = self.if_match_parse_error(request)
+        if invalid is not None:
+            return invalid
+
+        # GH-1396 review finding B1: validate the payload *before* the lifecycle
+        # branch runs. It used to run after it, so ``{"is_active": false,
+        # "name": 123}`` closed the workspace and only then answered 400.
+        patch_ser = WorkspaceSerializer(data=request.data, partial=True)
+        if not patch_ser.is_valid():
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    details=[
+                        {"field": k, "errors": v}
+                        for k, v in patch_ser.errors.items()
+                    ],
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ``is_active`` is read-only on the serializer, so it never reaches
+        # ``validated_data`` — coerce it here, still before any write.
+        desired_active: bool | None = None
+        if "is_active" in request.data:
+            try:
+                desired_active = _coerce_bool(request.data["is_active"])
+            except ValueError:
+                return Response(
+                    build_error_response(
+                        "VALIDATION_ERROR",
+                        lang,
+                        message="is_active must be a boolean",
+                    ),
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
         try:
             ctx = get_auth_context(request)
             ws = None
+
+            # GH-1396 review finding B1: resolve the precondition once, *before*
+            # either write branch. It used to be resolved only when a metadata
+            # field was present, so a conditional lifecycle toggle (all
+            # ``_patchable`` fields absent -> ``resolve_expected_version`` never
+            # called) closed the workspace whatever ``If-Match`` said. The value
+            # is forwarded into the service, which compares it inside its own
+            # row-locked transaction.
+            expected_version = self.resolve_expected_version(
+                request,
+                patch_ser.validated_data,
+                current=lambda: self._svc().get_workspace(UUID(pk), ctx),
+            )
 
             # Lifecycle toggle: a client-sent ``is_active`` must not be silently
             # dropped. Route it to the dedicated close/reactivate service methods
             # (admin-gated, set closed_at/closed_by, emit distinct audit ops) so
             # the lifecycle logic is not duplicated or bypassed here (REQ-L1-042).
-            if "is_active" in request.data:
-                try:
-                    desired_active = _coerce_bool(request.data["is_active"])
-                except ValueError:
-                    return Response(
-                        build_error_response(
-                            "VALIDATION_ERROR",
-                            lang,
-                            message="is_active must be a boolean",
-                        ),
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
+            lifecycle_written = False
+            if desired_active is not None:
                 if desired_active:
                     ws = self._svc().reactivate_workspace(
-                        workspace_id=UUID(pk), ctx=ctx
+                        workspace_id=UUID(pk),
+                        ctx=ctx,
+                        expected_version=expected_version,
                     )
                 else:
                     ws = self._svc().close_workspace(
-                        workspace_id=UUID(pk), ctx=ctx
+                        workspace_id=UUID(pk),
+                        ctx=ctx,
+                        expected_version=expected_version,
                     )
+                lifecycle_written = True
 
-            # SA-25: validate the supplied fields through the declared
-            # serializer (partial=True — DRF's partial mode only validates and
-            # returns keys actually present in the body, so this preserves the
-            # original "forward only fields the client actually supplied"
-            # PATCH semantics while adding real validation/sanitization,
-            # notably for ``name`` (SanitizedCharField)).
-            patch_ser = WorkspaceSerializer(data=request.data, partial=True)
-            if not patch_ser.is_valid():
-                return Response(
-                    build_error_response(
-                        "VALIDATION_ERROR",
-                        lang,
-                        details=[
-                            {"field": k, "errors": v}
-                            for k, v in patch_ser.errors.items()
-                        ],
-                    ),
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
+            # SA-25: the serializer above already validated/sanitized the
+            # supplied fields (partial=True — DRF's partial mode only validates
+            # and returns keys actually present in the body, so this preserves
+            # the original "forward only fields the client actually supplied"
+            # PATCH semantics while adding real validation, notably for ``name``
+            # (SanitizedCharField)).
             _patchable = (
                 "name",
                 "language",
@@ -6534,17 +6905,27 @@ class WorkspaceViewSet(BaseEntityViewSet):
                 # #1244: an If-Match header wins over the expected_version body
                 # field; the resolved value is compared inside the service's
                 # row-locked transaction, so the check is race-free.
+                # GH-1396: the lazy loader runs only for header shapes that need
+                # a real ETag comparison (tag list, non-numeric tag).
+                # When the lifecycle branch already applied the precondition,
+                # the version it left behind is the new baseline — forwarding
+                # the *old* expected version to this second write would make
+                # every combined ``{"is_active": ..., "name": ...}`` request
+                # conflict with its own earlier write.
                 ws = self._svc().update_metadata(
                     ctx,
                     UUID(pk),
-                    expected_version=self.resolve_expected_version(
-                        request, patch_ser.validated_data
+                    expected_version=(
+                        None if lifecycle_written else expected_version
                     ),
                     **fields,
                 )
             elif ws is None:
                 # No recognized field supplied — return current state unchanged.
                 ws = self._svc().get_workspace(UUID(pk), ctx)
+        except (InvalidIfMatch, IfMatchMismatch) as exc:
+            # GH-1396: malformed → 400 INVALID_IF_MATCH, unmatchable → 412.
+            return self.if_match_error(request, exc)
         except OptimisticLockError as exc:
             # #1244: a failed If-Match is a precondition failure (412); the body
             # field keeps the existing 409 CONFLICT contract (same split as the
@@ -8015,10 +8396,19 @@ class GoalViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         # AUD-2026-09-282: forward the client's If-Match/expected_version so
         # this special route is CAS-protected like the generic one; a stale
         # revision answers 409 instead of last-writer-wins.
+        # GH-1396 review finding B3: ``InvalidIfMatch``/``IfMatchMismatch`` are
+        # deliberately not ``ValueError`` subclasses, so the old single handler
+        # let them escape the whole method — past the second ``try`` as well —
+        # and ``reqogniloom_exception_handler`` turned both into HTTP 500. They
+        # are mapped here exactly like ``transitions/``: malformed -> 400, a lost
+        # precondition -> 409 (CR-08, this route's revision is the
+        # WorkflowItemState revision, so never 412).
         try:
             expected_version = self.resolve_expected_version_int(
                 request, request.data
             )
+        except (InvalidIfMatch, IfMatchMismatch) as exc:
+            return _special_route_if_match_error(exc, lang)
         except ValueError as exc:
             return Response(
                 build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
@@ -8069,10 +8459,14 @@ class GoalViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             else None
         )
         # AUD-2026-09-282: see outdate() above — same CAS precondition.
+        # GH-1396 review finding B3: same 400/409 mapping as outdate(); without
+        # it the non-ValueError resolver exceptions escaped as HTTP 500.
         try:
             expected_version = self.resolve_expected_version_int(
                 request, request.data
             )
+        except (InvalidIfMatch, IfMatchMismatch) as exc:
+            return _special_route_if_match_error(exc, lang)
         except ValueError as exc:
             return Response(
                 build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
@@ -9676,11 +10070,14 @@ class CsvImportView(APIView):
         )
 
     @extend_schema(
-        # INT-06 finding 078: the import reads request.FILES/request.data. The
-        # schema used to be inferred from the method body; that parsing now
-        # lives in _parse_csv_upload, so the request body is declared here.
-        request=OpenApiRequest(
-            request=inline_serializer(
+        # INT-06 finding 078 + #1388/M3: the import reads request.FILES, so the
+        # only media type the runtime accepts is multipart/form-data. Declaring
+        # the serializer alone let drf-spectacular enumerate every configured
+        # parser (JSON and urlencoded too), advertising two request encodings
+        # the view answers 400 for. The dict form keys the body by media type,
+        # so exactly one encoding is published — schema-only, no parser change.
+        request={
+            "multipart/form-data": inline_serializer(
                 name="CsvImportUpload",
                 fields={
                     "file": serializers.FileField(
@@ -9694,16 +10091,16 @@ class CsvImportView(APIView):
                     ),
                 },
             ),
-            # The view reads request.FILES, i.e. multipart/form-data only.
-        ),
-        parameters=[
-            OpenApiParameter(
-                name="id",
-                type=str,
-                location=OpenApiParameter.PATH,
-                description="Workspace UUID.",
-            ),
-        ],
+        },
+        # ADR-014 §2 status mapping: 201 all-succeeded, 200 duplicate-only,
+        # 207 partial success, 422 every row failed. The concrete code is
+        # derived from the row counts, and all four carry the same report.
+        responses={
+            200: CsvImportReportSerializer,
+            201: CsvImportReportSerializer,
+            207: CsvImportReportSerializer,
+            422: CsvImportReportSerializer,
+        },
     )
     def post(self, request: Request, pk: str = None, **kwargs: Any) -> Response:
         """Handle CSV import POST request."""
@@ -9841,6 +10238,25 @@ class CsvExportView(APIView):
         "TestCase",
     }
 
+    @extend_schema(
+        # #1388/M3: the runtime answers a text/csv attachment, not JSON. The
+        # undiscovered serializer used to publish the permissive JSON object,
+        # so a generated client parsed the file as JSON. ``entity_type`` is the
+        # only query parameter the handler reads.
+        parameters=[
+            OpenApiParameter(
+                name="entity_type",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description=(
+                    "Entity type to export: Requirement, StakeholderNeed, "
+                    "ArchitectureElement or TestCase."
+                ),
+            ),
+        ],
+        responses={(200, "text/csv"): OpenApiTypes.STR},
+    )
     def get(self, request: Request, pk: str = None, **kwargs: Any) -> HttpResponse | Response:
         """Handle CSV export GET request."""
         lang = detect_lang(request)

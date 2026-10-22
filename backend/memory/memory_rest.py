@@ -96,7 +96,7 @@ from uuid import UUID
 
 from django.db.models import Count, Max
 from django.http import HttpResponse
-from drf_spectacular.utils import OpenApiResponse, extend_schema
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import serializers, status
 from rest_framework.exceptions import NotAuthenticated
 from rest_framework.request import Request
@@ -105,12 +105,14 @@ from rest_framework.views import APIView
 
 from application.base import NotFoundError, PermissionDeniedError, ValidationError
 from application.memory_admin_service import MemoryAdminService
-from application.memory_entry_service import MemoryEntryService
+from application.memory_entry_service import MAX_PAGE_SIZE as MEMORY_MAX_PAGE_SIZE
+from application.memory_entry_service import VALID_SCOPES, MemoryEntryService
 from application.memory_settings_service import MemorySettingsService
 from auth_tenancy.rest import HasOperationPermission
 from auth_tenancy.services import AuthorizationService
 from memory.health import envelope
 from memory.models import MemoryEntry, WorkspaceMemorySettings
+from memory.schema_serializers import MemorySearchResponseSerializer
 from memory.ratelimit import MemoryWriteRateLimitExceeded
 from persistence.models import User
 from persistence.qdrant_config import (
@@ -1017,6 +1019,49 @@ class WorkspaceMemorySearchView(APIView):
     member may read; the service applies the full ``MemoryPolicy`` matrix.
     """
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "q",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="Natural-language search query (must be non-blank).",
+            ),
+            OpenApiParameter(
+                "scope",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                enum=list(VALID_SCOPES),
+                description="A single scope to search.",
+            ),
+            OpenApiParameter(
+                "scopes",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                description=(
+                    "Comma-separated list of scopes; takes precedence over "
+                    "``scope``."
+                ),
+            ),
+            OpenApiParameter(
+                "artifact_id",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                description="Optional artifact UUID that aims the search at that artifact.",
+            ),
+            OpenApiParameter(
+                "top_k",
+                type=int,
+                location=OpenApiParameter.QUERY,
+                default=5,
+                description=(
+                    f"Maximum number of hits (clamped to 1..{MEMORY_MAX_PAGE_SIZE})."
+                ),
+            ),
+        ],
+        responses={200: MemorySearchResponseSerializer},
+    )
     def get(self, request: Request, workspace_id: UUID, *args: Any, **kwargs: Any) -> Response:
         lang = detect_lang(request)
         ctx = _auth_or_401(request, lang)

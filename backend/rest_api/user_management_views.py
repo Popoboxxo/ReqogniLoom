@@ -19,7 +19,8 @@ from typing import Any
 from uuid import UUID
 
 from django.core.exceptions import ObjectDoesNotExist
-from rest_framework import status
+from drf_spectacular.utils import extend_schema, inline_serializer
+from rest_framework import serializers, status
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.viewsets import ViewSet
@@ -51,6 +52,30 @@ def _user_to_dict(user: Any, *, is_tenant_admin: bool = False) -> dict[str, Any]
         "is_active": user.is_active,
         "is_tenant_admin": is_tenant_admin,
     }
+
+
+class TenantUserSerializer(serializers.Serializer):
+    """Row shape returned by every :class:`UserViewSet` action (#1388/F5).
+
+    Mirrors :func:`_user_to_dict` exactly — the five columns the view emits,
+    including the computed ``is_tenant_admin`` flag. Declared here (not as a
+    view ``serializer_class``) because the create body has a different shape;
+    both are wired per handler with ``@extend_schema``.
+    """
+
+    id = serializers.UUIDField(read_only=True)
+    username = serializers.CharField(read_only=True)
+    email = serializers.EmailField(read_only=True)
+    is_active = serializers.BooleanField(read_only=True)
+    is_tenant_admin = serializers.BooleanField(read_only=True)
+
+
+class TenantUserCreateSerializer(serializers.Serializer):
+    """Request body for ``POST /api/v1/users/`` (tenant-admin only)."""
+
+    username = serializers.CharField()
+    email = serializers.EmailField()
+    password = serializers.CharField(write_only=True, min_length=8)
 
 
 def _err(code: str, message: str, http_status: int) -> Response:
@@ -106,6 +131,7 @@ class UserViewSet(ViewSet):
     def _auth_context(request: Request) -> AuthContext | None:
         return getattr(request, "auth_context", None)
 
+    @extend_schema(responses={200: TenantUserSerializer(many=True)})
     def list(self, request: Request, **kwargs: Any) -> Response:
         ctx = self._auth_context(request)
         if ctx is None:
@@ -149,6 +175,10 @@ class UserViewSet(ViewSet):
             status=status.HTTP_200_OK,
         )
 
+    @extend_schema(
+        request=TenantUserCreateSerializer,
+        responses={201: TenantUserSerializer},
+    )
     def create(self, request: Request, **kwargs: Any) -> Response:
         ctx = self._auth_context(request)
         if ctx is None:
@@ -213,6 +243,7 @@ class UserViewSet(ViewSet):
         except (ValueError, AttributeError, TypeError):
             return None
 
+    @extend_schema(request=None, responses={200: TenantUserSerializer})
     def activate(self, request: Request, pk: str | None = None, **kwargs: Any) -> Response:
         ctx = self._auth_context(request)
         if ctx is None:
@@ -244,6 +275,7 @@ class UserViewSet(ViewSet):
         target_is_admin = self._authz.is_tenant_admin(user_id=target_id, tenant_id=ctx.tenant_id)
         return Response(_user_to_dict(user, is_tenant_admin=target_is_admin), status=status.HTTP_200_OK)
 
+    @extend_schema(request=None, responses={200: TenantUserSerializer})
     def deactivate(self, request: Request, pk: str | None = None, **kwargs: Any) -> Response:
         ctx = self._auth_context(request)
         if ctx is None:
@@ -277,6 +309,26 @@ class UserViewSet(ViewSet):
         target_is_admin = self._authz.is_tenant_admin(user_id=target_id, tenant_id=ctx.tenant_id)
         return Response(_user_to_dict(user, is_tenant_admin=target_is_admin), status=status.HTTP_200_OK)
 
+    @extend_schema(
+        methods=["POST"],
+        request=None,
+        responses={
+            200: inline_serializer(
+                name="TenantAdminGrantResponse",
+                fields={"granted": serializers.BooleanField()},
+            )
+        },
+    )
+    @extend_schema(
+        methods=["DELETE"],
+        request=None,
+        responses={
+            200: inline_serializer(
+                name="TenantAdminRevokeResponse",
+                fields={"revoked": serializers.BooleanField()},
+            )
+        },
+    )
     def tenant_admin(self, request: Request, pk: str | None = None, **kwargs: Any) -> Response:
         """Combined handler for POST (grant) / DELETE (revoke), routed as
         one action since both share the same URL (see urls.py)."""

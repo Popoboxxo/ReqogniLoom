@@ -41,6 +41,7 @@ import uuid
 from collections.abc import Mapping
 from typing import Any
 
+from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import status
 from rest_framework.decorators import api_view
 from rest_framework.request import Request
@@ -136,6 +137,39 @@ def _parse_uuid(value: Any, field_name: str) -> uuid.UUID | None:
         return None
 
 
+@extend_schema(
+    # The view is a bare ``@api_view`` function with no ``serializer_class``,
+    # so drf-spectacular could not discover the very serializer the handler
+    # runs. Both halves are declared explicitly instead.
+    parameters=[
+        OpenApiParameter(
+            name="scope",
+            type=str,
+            location=OpenApiParameter.QUERY,
+            required=True,
+            enum=list(VALID_SCOPES),
+            description="Scope to preview: document, project or global.",
+        ),
+        OpenApiParameter(
+            name="workspace_id",
+            type=str,
+            location=OpenApiParameter.QUERY,
+            required=True,
+            description="Workspace UUID the preview is computed for.",
+        ),
+        OpenApiParameter(
+            name="artifact_id",
+            type=str,
+            location=OpenApiParameter.QUERY,
+            required=False,
+            description=(
+                "Artifact UUID that roots the preview. Required when "
+                "``scope=document``; ignored otherwise."
+            ),
+        ),
+    ],
+    responses={200: ScopePreviewSerializer},
+)
 @api_view(["GET"])
 def scope_preview(request: Request) -> Response:
     """Read-only preview of items that would be included in a Baseline.

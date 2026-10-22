@@ -23,6 +23,14 @@ from celery.schedules import crontab
 from decouple import Csv, UndefinedValueError, config
 from django.core.exceptions import ImproperlyConfigured
 
+# #1397: the conditional-request paragraph of the published API description is
+# produced by the same module that lists the operations honouring ``If-Match``,
+# so the prose and the machine-readable allowlist cannot drift. Imported at
+# module level (not inside ``SPECTACULAR_SETTINGS``) so a broken import is a
+# startup error rather than a silently missing paragraph; the module is a
+# constants-only leaf with no Django imports, so importing it this early is safe.
+from rest_api.conditional_requests import CONDITIONAL_REQUESTS_DESCRIPTION
+
 
 def _get_required_secret(key: str) -> str:
     """
@@ -619,7 +627,12 @@ REST_FRAMEWORK = {
         # COMP-RA-003: RBAC enforcement before ApplicationService delegation
         "rest_api.auth_enforcer.RbacPermission",
     ],
-    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+    # #1388: a view without a serializer must still publish a real operation.
+    # The base AutoSchema answers ``None`` (→ "No response body" + the
+    # "unable to guess serializer" error); ReqLoAutoSchema publishes a marked
+    # permissive fallback instead. This is DRF's setting, which is what
+    # drf-spectacular 0.30 (and ``@extend_schema``) actually read.
+    "DEFAULT_SCHEMA_CLASS": "rest_api.schema.ReqLoAutoSchema",
     # REQ-071: unify all DRF errors into {"error": {"code", "message", "details"}}
     "EXCEPTION_HANDLER": "rest_api.error_envelope.reqogniloom_exception_handler",
     # COMP-RA-002: Pagination — default 25, max 100 (REQ-L3-RA002-003).
@@ -700,9 +713,21 @@ SPECTACULAR_SETTINGS = {
         "header, a Bearer token, or the session cookie — see the BearerAuth "
         "security scheme for the precedence and the fail-closed rule. "
         "Schema endpoints (/api/v1/schema/, /api/v1/schema/swagger-ui/) are public."
+        # #1397: which resources support conditional requests (and which do not).
+        "\n\n" + CONDITIONAL_REQUESTS_DESCRIPTION
     ),
     "VERSION": "0.1.0",
     "SERVE_INCLUDE_SCHEMA": False,
+    # #1388: clear the per-build record of views that used the fallback before
+    # the endpoints are inspected, so the completeness gate observes exactly
+    # this document's fallbacks (not a previous test's).
+    #
+    # NOTE: the schema class itself is NOT configured here. drf-spectacular
+    # 0.30 reads ``api_settings.DEFAULT_SCHEMA_CLASS`` (DRF's own setting), not
+    # a ``SPECTACULAR_SETTINGS`` key — see the REST_FRAMEWORK block below.
+    "PREPROCESSING_HOOKS": [
+        "rest_api.schema.reset_untyped_view_usage",
+    ],
     # REQ-L3-RA005-001: Bearer token security scheme
     "SECURITY": [{"BearerAuth": []}],
     "COMPONENT_SPLIT_REQUEST": True,
