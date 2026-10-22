@@ -40,6 +40,7 @@ from rest_api.serializers import build_error_response
 __all__ = [
     "INVALID_UUID_TEMPLATE",
     "MISSING_TEMPLATE",
+    "parse_change_reason",
     "parse_include_deleted",
     "parse_uuid_param",
     "parse_workspace_id",
@@ -128,6 +129,31 @@ def parse_include_deleted(query_params: Any) -> bool:
     """
     raw = query_params.get("include_deleted", "")
     return str(raw).strip().lower() in {"true", "1", "yes"}
+
+
+def parse_change_reason(request: Any) -> str:
+    """Resolve the ``change_reason`` of a soft-delete request (G1.5 / #1407).
+
+    The request body stays authoritative; the query string is only a fallback
+    for clients that cannot attach a body to ``DELETE`` (browsers, ``fetch``
+    based clients, proxies that drop DELETE bodies). Both carriers satisfy the
+    same preset gate — without the fallback the gate was simply unreachable for
+    those clients, so an Extended-preset workspace answered 400 for a request
+    that did carry a reason.
+
+    Returns ``""`` (never ``None``) so the services' ``if not change_reason``
+    gate keeps behaving exactly as it did with the body-only read. A non-string
+    body value (number, boolean, list) is not a reason and falls through to the
+    query string, keeping the ``-> str`` contract.
+
+    A reason taken from the query string is visible in access logs, so clients
+    must not put anything sensitive there.
+    """
+    data = getattr(request, "data", None)
+    body_reason = data.get("change_reason", "") if isinstance(data, dict) else ""
+    if isinstance(body_reason, str) and body_reason:
+        return body_reason
+    return request.query_params.get("change_reason") or ""
 
 
 def require_non_empty_param(

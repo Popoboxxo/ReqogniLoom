@@ -315,7 +315,9 @@ class GlossaryService(ServiceBase):
         return GlossaryTermDTO.from_orm(gt)
 
     @atomic_transaction
-    def delete(self, ctx: AuthContext, term_id: UUID) -> None:
+    def delete(
+        self, ctx: AuthContext, term_id: UUID, change_reason: str = ""
+    ) -> None:
         """Soft-delete GlossaryTerm by routing it through the workflow engine
         (``status`` becomes "outdated", REQ-006).
 
@@ -335,5 +337,5 @@ class GlossaryService(ServiceBase):
             item_type="GlossaryTerm",
             workspace_id=gt.workspace_id,
             ctx=ctx,
-            reason="deleted via glossary.delete",
+            reason=change_reason or "deleted via glossary.delete",
         )

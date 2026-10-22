@@ -366,7 +366,9 @@ class ArchitectureService(ServiceBase):
         return arch_el
 
     @atomic_transaction
-    def delete_architecture_element(self, arch_el_id: UUID, ctx: AuthContext) -> None:
+    def delete_architecture_element(
+        self, arch_el_id: UUID, ctx: AuthContext, change_reason: str = ""
+    ) -> None:
         """Soft-delete ArchitectureElement by setting lifecycle_status to 'deleted' (REQ-006).
 
         Physical deletion is intentionally avoided for end-user operations.
@@ -393,7 +395,7 @@ class ArchitectureService(ServiceBase):
             item_type="ArchitectureElement",
             workspace_id=workspace_id,
             ctx=ctx,
-            reason="deleted via architecture.delete",
+            reason=change_reason or "deleted via architecture.delete",
         )
 
         self._audit(ctx=ctx, operation="delete", entity_type="ArchitectureElement", entity_id=arch_el_id)

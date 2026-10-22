@@ -542,7 +542,9 @@ class TestService(ServiceBase):
         return test_case
 
     @atomic_transaction
-    def delete_test_case(self, test_case_id: UUID, ctx: AuthContext) -> None:
+    def delete_test_case(
+        self, test_case_id: UUID, ctx: AuthContext, change_reason: str = ""
+    ) -> None:
         """Soft-delete a TestCase via the workflow engine (IF-AS-INT-005).
 
         GH-484: TraceLinks are no longer hard-deleted on soft-delete — they
@@ -573,7 +575,7 @@ class TestService(ServiceBase):
             item_type="TestCase",
             workspace_id=workspace_id,
             ctx=ctx,
-            reason="deleted via test.delete",
+            reason=change_reason or "deleted via test.delete",
         )
 
         self._audit(ctx=ctx, operation="delete", entity_type="TestCase", entity_id=test_case_id)
