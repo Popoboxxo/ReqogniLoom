@@ -31,6 +31,25 @@ davon 21 als ⚠ KONFLIKT markiert. Dazu 6 Nutzer-Gates (Handlungen ohne Options
 
 ---
 
+## 0. Entschieden am 2026-10-22 (Nutzer)
+
+Diese vier Welle-0-Blocker sind entschieden. Die Angabe „Vorläufig: nein“ in den
+betreffenden Abschnitten ist damit überholt; maßgeblich ist diese Tabelle.
+
+| ID | Frage | Gewählt | Folge |
+|---|---|---|---|
+| ENT-X1 | `.env.bak-*` je geteilt? | **A — nie geteilt** | Keine Rotation; `.gitignore` härten (`.env*`, `!.env.example`). Die Backup-Dateien sind nicht mehr im Arbeitsbaum. |
+| ENT-G1 | Soft-Delete-Vertrag | **A — `GET` 200 + `status:"outdated"` für alle Typen** | ArchitectureElement von 404 auf 200 angleichen (GH-443-Vertrag). G1.5/PR 5 startet. |
+| ENT-G2 | Definitions-Waisen | **A+ — Archiv + FK** | `*_orphan_archive` vor Löschung, Reverse stellt wieder her, Cleanup nur mit BYPASSRLS und `--confirm-count` (QR-S16). G1.4/PR 4 startet. |
+| ENT-G3 | Outbox-Waisen | **A — O-2 bleibt, keine FK** | Keine FK, keine Löschung auf `application`-Outbox-Zeilen. G1.4/PR 4 startet. |
+
+Damit sind Welle 0 sowie die Migrationsketten `persistence 0116/0117`,
+`link_types 0010` und `attribute_definitions 0010` freigegeben. Weiterhin offen
+und startblockierend für ihre jeweiligen WPs: alle übrigen `ENT-*` mit
+„Vorläufig: nein“.
+
+---
+
 ## 1. Blockiert Welle 0 (vor Start klären)
 
 ### ENT-X1 — Schlüsselrotation nach `.env.bak-*`-Fund (QR-S03)
