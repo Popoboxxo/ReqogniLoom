@@ -9,8 +9,22 @@
 # below bake that in so you never have to type it.
 #
 # Test targets build dedicated, source-mounted `backend-test`/`frontend-test`
-# services (testing/docker-compose.test.yml) against postgres/redis from the
-# running dev stack. Start it first with: make up
+# services (testing/docker-compose.test.yml). That file is a STANDALONE Compose
+# project with its own `name:` (`<project>-test`) and its own ephemeral
+# `postgres-test`/`redis-test` services (#1387): the suite therefore does NOT
+# need `make up` and can never reconcile or mutate the containers of the
+# running dev/production stack (a shared project name plus a different file set
+# was exactly what relabelled postgres/redis and pointed them at this
+# checkout). The test containers stay up between runs for inspection — drop
+# them with: make test-down
+#
+# The project name is PINNED with a CLI `-p` (TEST_PROJECT below), because that
+# is the only level that outranks everything else. Compose precedence is
+# `-p` > `COMPOSE_PROJECT_NAME` (process env or .env) > `name:` in the file >
+# directory basename. Without the `-p`, an exported
+# `COMPOSE_PROJECT_NAME=reqogniloom` would resolve `make test-down` to the
+# PRODUCTION project and run `down --volumes --remove-orphans` against it —
+# exactly the blast radius #1387 exists to close.
 #
 # WHY NOT `exec` INTO backend/frontend DIRECTLY: those services may be
 # running a prebuilt registry image with no source mount (see
@@ -26,9 +40,20 @@
 COMPOSE ?= docker-compose
 DEV_COMPOSE := $(COMPOSE) -f deploy/docker-compose.yml -f deploy/docker-compose.override.yml --project-directory .
 MINIMAL_COMPOSE := $(COMPOSE) -f deploy/docker-compose.minimal.yml --project-directory .
-TEST_COMPOSE := $(COMPOSE) -f deploy/docker-compose.yml -f testing/docker-compose.test.yml --project-directory .
+# Standalone: the test stack must NOT load deploy/docker-compose.yml (#1387).
+# Loading it made Compose resolve the same project name with a different file
+# set, which reconciled (relabelled/recreated) the running stack's
+# postgres/redis. `--project-directory .` keeps paths/env lookup at the repo
+# root.
+#
+# `-p` is mandatory, not cosmetic: it is the only precedence level above
+# COMPOSE_PROJECT_NAME (see header), so it guarantees the test stack can never
+# be redirected onto the dev/production project. Keep it in sync with the
+# file's `name:` fallback (`<project>-test`).
+TEST_PROJECT := $(if $(COMPOSE_PROJECT_NAME),$(COMPOSE_PROJECT_NAME)-test,reqogniloom-test)
+TEST_COMPOSE := $(COMPOSE) -p $(TEST_PROJECT) -f testing/docker-compose.test.yml --project-directory .
 
-.PHONY: up down minimal minimal-down honcho qdrant qdrant-down bluepencil bluepencil-down build release-bump test test-backend test-frontend test-e2e test-e2e-reseed help
+.PHONY: up down minimal minimal-down honcho qdrant qdrant-down bluepencil bluepencil-down build release-bump test test-backend test-frontend test-down test-e2e test-e2e-reseed help
 
 ## up: Start the full dev stack (hot-reload override applied)
 up:
@@ -84,6 +109,10 @@ test-backend:
 ## test-frontend: Run frontend unit tests (vitest)
 test-frontend:
 	$(TEST_COMPOSE) run --rm frontend-test
+
+## test-down: Remove the isolated test stack (postgres-test/redis-test + test containers)
+test-down:
+	$(TEST_COMPOSE) down --volumes --remove-orphans
 
 # ---------------------------------------------------------------------------
 # E2E (Playwright) — see README.md "End-to-End Tests (Playwright)"

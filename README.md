@@ -525,13 +525,17 @@ ReqogniLoom has **1,400+ tests** across 4 layers. Run them based on what you nee
 
 ### Quick Reference (Makefile)
 
-The root `Makefile` provides single-command targets that run against the **running dev stack**
-(`make up` first). This is the primary entry point for the normal development loop.
+The root `Makefile` provides single-command targets. `make test`/`make test-backend`/
+`make test-frontend` run in their **own isolated Compose project** (`reqogniloom-test`) with
+dedicated, disposable `postgres-test`/`redis-test` services — they do **not** need `make up` and
+never touch a running dev/production stack (see #1387). Drop the test containers afterwards with
+`make test-down`.
 
 ```bash
 make test            # Backend (pytest) + Frontend (vitest) — the standard dev check. NO E2E.
 make test-backend    # Backend unit + integration tests only (pytest)
 make test-frontend   # Frontend unit tests only (vitest)
+make test-down       # Remove the isolated test stack (postgres-test/redis-test)
 make test-e2e        # Playwright E2E — SEPARATE, MANUAL ONLY (see warning below)
 ```
 
