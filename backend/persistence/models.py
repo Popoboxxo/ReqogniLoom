@@ -1499,6 +1499,18 @@ class StakeholderNeed(TenantScopedModel):
     artifact = models.OneToOneField(
         Artifact, on_delete=models.CASCADE, related_name="stakeholder_need"
     )
+    workspace = models.ForeignKey(
+        Workspace,
+        on_delete=models.CASCADE,
+        related_name="+",
+        null=True,
+        blank=True,
+        help_text=(
+            "G1.3/#1402: denormalized copy of artifact.workspace_id, backfilled "
+            "by persistence/0117_entity_workspace_fk_backfill and filled on every "
+            "create path by application.local_uid.assign_local_uid."
+        ),
+    )
     title = models.CharField(max_length=500)
     description = models.TextField(blank=True)
     category = models.CharField(max_length=64, blank=True)
@@ -1526,6 +1538,16 @@ class StakeholderNeed(TenantScopedModel):
 
     class Meta:
         db_table = "pl_stakeholder_need"
+        constraints = [
+            # G1.3/#1402: same partial, workspace-scoped uid uniqueness as
+            # Requirement (uq_requirement_workspace_uid) — ReqIF import may
+            # legitimately reuse an identifier in another workspace.
+            models.UniqueConstraint(
+                fields=["workspace", "uid"],
+                condition=~models.Q(uid=None) & ~models.Q(uid=""),
+                name="uq_stakeholder_need_workspace_uid",
+            ),
+        ]
 
     def __str__(self) -> str:
         return self.title
@@ -1748,6 +1770,18 @@ class ArchitectureElement(TenantScopedModel):
     artifact = models.OneToOneField(
         Artifact, on_delete=models.CASCADE, related_name="architecture_element"
     )
+    workspace = models.ForeignKey(
+        Workspace,
+        on_delete=models.CASCADE,
+        related_name="+",
+        null=True,
+        blank=True,
+        help_text=(
+            "G1.3/#1402: denormalized copy of artifact.workspace_id, backfilled "
+            "by persistence/0117_entity_workspace_fk_backfill and filled on every "
+            "create path by application.local_uid.assign_local_uid."
+        ),
+    )
     title = models.CharField(max_length=500)
     description = models.TextField(blank=True)
     # REQ-006 (D5): free-form field — the ElementType enum no longer
@@ -1802,6 +1836,14 @@ class ArchitectureElement(TenantScopedModel):
             # REQ-039: composite indexes for dominant list-filter combinations.
             models.Index(
                 fields=["tenant", "element_type"], name="idx_archelem_tnt_type"
+            ),
+        ]
+        constraints = [
+            # G1.3/#1402: see uq_stakeholder_need_workspace_uid.
+            models.UniqueConstraint(
+                fields=["workspace", "uid"],
+                condition=~models.Q(uid=None) & ~models.Q(uid=""),
+                name="uq_architecture_element_workspace_uid",
             ),
         ]
 
@@ -2176,6 +2218,18 @@ class TestCase(TenantScopedModel):
     artifact = models.OneToOneField(
         Artifact, on_delete=models.CASCADE, related_name="test_case"
     )
+    workspace = models.ForeignKey(
+        Workspace,
+        on_delete=models.CASCADE,
+        related_name="+",
+        null=True,
+        blank=True,
+        help_text=(
+            "G1.3/#1402: denormalized copy of artifact.workspace_id, backfilled "
+            "by persistence/0117_entity_workspace_fk_backfill and filled on every "
+            "create path by application.local_uid.assign_local_uid."
+        ),
+    )
     title = models.CharField(max_length=500)
     description = models.TextField(blank=True)
     steps = models.JSONField(default=list, blank=True)
@@ -2236,6 +2290,14 @@ class TestCase(TenantScopedModel):
         db_table = "pl_testcase"
         indexes = [
             models.Index(fields=["uid"], name="idx_testcase_uid_btree"),
+        ]
+        constraints = [
+            # G1.3/#1402: see uq_stakeholder_need_workspace_uid.
+            models.UniqueConstraint(
+                fields=["workspace", "uid"],
+                condition=~models.Q(uid=None) & ~models.Q(uid=""),
+                name="uq_testcase_workspace_uid",
+            ),
         ]
 
     def __str__(self) -> str:
@@ -2385,6 +2447,15 @@ class TestRun(TenantScopedModel):
             models.Index(fields=["tenant", "workspace"], name="idx_testrun_tnt_ws"),
             models.Index(
                 fields=["tenant", "status"], name="idx_testrun_tnt_status"
+            ),
+        ]
+        constraints = [
+            # G1.3/#1402: TestRun.workspace is already a non-null FK; the uid
+            # uniqueness was simply never enforced at the DB level.
+            models.UniqueConstraint(
+                fields=["workspace", "uid"],
+                condition=~models.Q(uid=None) & ~models.Q(uid=""),
+                name="uq_test_run_workspace_uid",
             ),
         ]
 
@@ -3270,6 +3341,15 @@ class Adr(TenantScopedModel):
             models.Index(fields=["tenant", "workspace_id"], name="idx_adr_tenant_ws"),
             models.Index(fields=["uid"], name="idx_adr_uid_btree"),
         ]
+        constraints = [
+            # G1.3/#1402: per-workspace uid uniqueness (workspace_id is the
+            # plain UUID column here, not a FK to Workspace).
+            models.UniqueConstraint(
+                fields=["workspace_id", "uid"],
+                condition=~models.Q(uid=None) & ~models.Q(uid=""),
+                name="uq_adr_workspace_uid",
+            ),
+        ]
 
     def __str__(self) -> str:
         return f"ADR:{self.id}:{self.title[:40]}"
@@ -3415,6 +3495,14 @@ class Risk(TenantScopedModel):
             models.Index(fields=["workspace_id", "severity"], name="idx_risk_ws_severity"),
             models.Index(fields=["workspace_id", "risk_score"], name="idx_risk_ws_score"),
             models.Index(fields=["uid"], name="idx_risk_uid_btree"),
+        ]
+        constraints = [
+            # G1.3/#1402: see uq_adr_workspace_uid.
+            models.UniqueConstraint(
+                fields=["workspace_id", "uid"],
+                condition=~models.Q(uid=None) & ~models.Q(uid=""),
+                name="uq_risk_workspace_uid",
+            ),
         ]
 
     def compute_score(self) -> int:
@@ -3695,6 +3783,14 @@ class Issue(TenantScopedModel):
                 fields=["workspace_id", "assignee_id"], name="idx_issue_ws_assignee"
             ),
             models.Index(fields=["uid"], name="idx_issue_uid_btree"),
+        ]
+        constraints = [
+            # G1.3/#1402: see uq_adr_workspace_uid.
+            models.UniqueConstraint(
+                fields=["workspace_id", "uid"],
+                condition=~models.Q(uid=None) & ~models.Q(uid=""),
+                name="uq_issue_workspace_uid",
+            ),
         ]
 
     def __str__(self) -> str:

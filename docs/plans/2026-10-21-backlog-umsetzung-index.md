@@ -349,6 +349,9 @@ läuft die gezielten Tests erneut und darf erst dann mergen. Kein Force-Merge ü
 memory **0008** (`0008_system_memory_qdrant_settings`), application **0035** (`0035_alter_domaineventoutbox_event_type`),
 baseline **0011** (`0011_baseline_admin_delete_trigger`), workflow **0023** (`0023_we_item_state_workspace_fk_cascade`),
 audit **0015** (`0015_alter_auditentry_op`), icd **0013** (`0013_drop_icd_version`).
+Nachtrag 2026-10-22 (G P1, PR 3): auf `main` liegt zusätzlich
+`persistence/0116_index_hygiene_1411` (Issue #1411) als Leaf. Damit verschiebt sich die
+persistence-Kette dieses Index um **+1**; Tabelle unten ist angepasst (Regel 1).
 Abgleich 2026-10-22: Alle Migrationsnamen in den Plänen A–G stimmen mit den Tabellen unten überein; Abweichungen
 gibt es nur bei den hier als „bedingt“ markierten Zeilen (memory-Contract, baseline-help_text, application bei ENT-G3 = B).
 
@@ -372,20 +375,20 @@ gibt es nur bei den hier als „bedingt“ markierten Zeilen (memory-Contract, b
 
 | Nr. | Name | Plan/WP | Welle | Merge-Bedingung |
 |---|---|---|---|---|
-| 0116 | `0116_entity_workspace_fk_backfill` | G / G1.3 (PR 3) | 0 | nach G PR 1 |
-| 0117 | `0117_uid_workspace_unique_constraints` | G / G1.3 (PR 3) | 0 | mit 0116 |
-| 0118 | `0118_embedding_model_columns` | A / T-A0-5 (PR-A3) | 1 | nach G PR 3; sonst max+1 und G rebased |
-| 0119 | `0119_requirement_list_index` (`atomic=False`) | G / G2.2 (PR 7) | 2 | nach PR-A3 und G PR 6 |
-| 0120 | `0120_quality_assessment` | B / B5-T1 (PR-B14) | 3 | nach G PR 7 |
-| 0121 | `0121_quality_assessment_rls_policy` | B / B5-T1 (PR-B14) | 3 | mit 0120 (Regel 5) |
-| 0122 | `0122_document` | F / F2-T1 (PR-F14) | 4 | nach PR-B14 |
-| 0123 | `0123_document_rls_policy` | F / F2-T1 (PR-F14) | 4 | mit 0122 |
-| 0124 | `0124_work_item` | F / F3-T1 (PR-F22) | 4 | nach PR-F14 |
-| 0125 | `0125_work_item_rls_policy` | F / F3-T1 (PR-F22) | 4 | mit 0124 |
-| 0126 | `0126_inline_anchor` | F / F3-T7 (PR-F25) | 4 | nach PR-F22 |
-| 0127 | `0127_inline_anchor_rls_policy` | F / F3-T7 (PR-F25) | 4 | mit 0126 |
-| 0128 | `0128_milestone` | B / B6-T1 (PR-B19) | 4 | nur bei ENT-B2 = a/b; nach den F-Migrationen, sonst max+1 |
-| 0129 | `0129_milestone_rls_policy` | B / B6-T1 (PR-B19) | 4 | mit 0128 |
+| 0117 | `0117_entity_workspace_fk_backfill` | G / G1.3 (PR 3) | 0 | nach G PR 1; +1 wegen `0116_index_hygiene_1411` auf `main` |
+| 0118 | `0118_uid_workspace_unique_constraints` | G / G1.3 (PR 3) | 0 | mit 0117 |
+| 0119 | `0119_embedding_model_columns` | A / T-A0-5 (PR-A3) | 1 | nach G PR 3; sonst max+1 und G rebased |
+| 0120 | `0120_requirement_list_index` (`atomic=False`) | G / G2.2 (PR 7) | 2 | nach PR-A3 und G PR 6 |
+| 0121 | `0121_quality_assessment` | B / B5-T1 (PR-B14) | 3 | nach G PR 7 |
+| 0122 | `0122_quality_assessment_rls_policy` | B / B5-T1 (PR-B14) | 3 | mit 0121 (Regel 5) |
+| 0123 | `0123_document` | F / F2-T1 (PR-F14) | 4 | nach PR-B14 |
+| 0124 | `0124_document_rls_policy` | F / F2-T1 (PR-F14) | 4 | mit 0123 |
+| 0125 | `0125_work_item` | F / F3-T1 (PR-F22) | 4 | nach PR-F14 |
+| 0126 | `0126_work_item_rls_policy` | F / F3-T1 (PR-F22) | 4 | mit 0125 |
+| 0127 | `0127_inline_anchor` | F / F3-T7 (PR-F25) | 4 | nach PR-F22 |
+| 0128 | `0128_inline_anchor_rls_policy` | F / F3-T7 (PR-F25) | 4 | mit 0127 |
+| 0129 | `0129_milestone` | B / B6-T1 (PR-B19) | 4 | nur bei ENT-B2 = a/b; nach den F-Migrationen, sonst max+1 |
+| 0130 | `0130_milestone_rls_policy` | B / B6-T1 (PR-B19) | 4 | mit 0129 |
 
 Begründung der Reihenfolge in Welle 4: Planbasis §3 nennt F2, F3 vor B6; B6 ist an ENT-B2 gebunden.
 Ein späteres F5 (Projektion, ENT-F5) nimmt max+1.
