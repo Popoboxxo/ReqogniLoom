@@ -71,6 +71,19 @@ ENGINE_DEFINITION_TABLE = "we_engine_definition"
 #: Deletion order — see the module docstring, "Ordering is load-bearing".
 TABLES_IN_DELETE_ORDER: tuple[str, ...] = (ITEM_STATE_TABLE, ENGINE_DEFINITION_TABLE)
 
+#: Type-definition tables that gained a workspace FK in Plan G G1.4 (#1403).
+#: Unlike the ``we_*`` tables their orphans are *archived* before deletion, so
+#: a reverse migration can restore them (ENT-G2 = A+, QR-S16).
+DEFINITION_TABLES: tuple[str, ...] = (
+    "lt_workspace_definition",
+    "ad_workspace_definition",
+)
+
+
+def archive_table_name(table: str) -> str:
+    """Return the archive table paired with *table* (``<table>_orphan_archive``)."""
+    return f"{table}_orphan_archive"
+
 
 def _table_exists(cursor: Any, table: str) -> bool:
     """True when *table* is visible in the connection's current schema.
@@ -101,21 +114,23 @@ def _orphan_predicate() -> str:
     )
 
 
-def count_workspace_orphans(connection: Any) -> dict[str, int]:
+def count_workspace_orphans(
+    connection: Any, tables: tuple[str, ...] = TABLES_IN_DELETE_ORDER
+) -> dict[str, int]:
     """Count the orphans :func:`delete_workspace_orphans` would remove.
 
     Read-only counterpart for the command's ``--dry-run`` and for operators
     who want the number before deciding. Same transaction/RLS scoping rules as
     :func:`delete_workspace_orphans`.
     """
-    counts: dict[str, int] = {table: 0 for table in TABLES_IN_DELETE_ORDER}
+    counts: dict[str, int] = {table: 0 for table in tables}
 
     with connection.cursor() as cursor:
         if not _table_exists(cursor, WORKSPACE_TABLE):
             return counts
 
         cursor.execute("SET LOCAL row_security = off")
-        for table in TABLES_IN_DELETE_ORDER:
+        for table in tables:
             if not _table_exists(cursor, table):
                 continue
             cursor.execute(
@@ -127,8 +142,10 @@ def count_workspace_orphans(connection: Any) -> dict[str, int]:
     return counts
 
 
-def delete_workspace_orphans(connection: Any) -> dict[str, int]:
-    """Delete workspace orphans from the ``we_*`` tables; return per-table counts.
+def delete_workspace_orphans(
+    connection: Any, tables: tuple[str, ...] = TABLES_IN_DELETE_ORDER
+) -> dict[str, int]:
+    """Delete workspace orphans from *tables*; return per-table counts.
 
     Runs in the caller's transaction — the caller is responsible for wrapping
     this in ``transaction.atomic()`` (the management command) or for relying on
@@ -138,7 +155,7 @@ def delete_workspace_orphans(connection: Any) -> dict[str, int]:
     Returns a mapping ``{table_name: deleted_row_count}``; missing tables yield
     ``0`` rather than an error.
     """
-    deleted: dict[str, int] = {table: 0 for table in TABLES_IN_DELETE_ORDER}
+    deleted: dict[str, int] = {table: 0 for table in tables}
 
     with connection.cursor() as cursor:
         if not _table_exists(cursor, WORKSPACE_TABLE):
@@ -149,7 +166,7 @@ def delete_workspace_orphans(connection: Any) -> dict[str, int]:
         # both DELETEs would silently match zero rows.
         cursor.execute("SET LOCAL row_security = off")
 
-        for table in TABLES_IN_DELETE_ORDER:
+        for table in tables:
             if not _table_exists(cursor, table):
                 continue
             cursor.execute(
@@ -158,3 +175,83 @@ def delete_workspace_orphans(connection: Any) -> dict[str, int]:
             deleted[table] = cursor.rowcount
 
     return deleted
+
+
+def archive_and_delete_workspace_orphans(
+    connection: Any, tables: tuple[str, ...] = DEFINITION_TABLES
+) -> dict[str, int]:
+    """Copy orphans into ``<table>_orphan_archive``, then delete them.
+
+    ENT-G2 = A+ (QR-S16): deletion is reversible. The copy and the delete are
+    one statement per table (``WITH moved AS (DELETE … RETURNING *) INSERT INTO
+    archive SELECT …``), so a failure can never leave an archived-but-not-deleted
+    or deleted-but-not-archived row behind.
+
+    The archive tables are created by the G1.4 migrations; a missing archive is
+    treated as a programming error on the caller's side and skipped here only
+    for tables that do not exist at all (fresh database). Runs in the caller's
+    transaction (``SET LOCAL row_security = off``).
+    """
+    archived: dict[str, int] = {table: 0 for table in tables}
+
+    with connection.cursor() as cursor:
+        if not _table_exists(cursor, WORKSPACE_TABLE):
+            return archived
+
+        cursor.execute("SET LOCAL row_security = off")
+        for table in tables:
+            archive = archive_table_name(table)
+            if not _table_exists(cursor, table) or not _table_exists(cursor, archive):
+                continue
+            cursor.execute(
+                f'WITH moved AS (DELETE FROM "{table}" AS orphan '
+                f"WHERE {_orphan_predicate()} RETURNING *) "
+                f'INSERT INTO "{archive}" SELECT moved.*, now() FROM moved'
+            )
+            archived[table] = cursor.rowcount
+
+    return archived
+
+
+def restore_archived_orphans(
+    connection: Any, tables: tuple[str, ...] = DEFINITION_TABLES
+) -> dict[str, int]:
+    """Copy archived orphans back into their source table and empty the archive.
+
+    The reverse of :func:`archive_and_delete_workspace_orphans`. Called by the
+    reverse ``RunPython`` of the G1.4 migrations *after* the FK has been dropped
+    again (Django reverses operations in order), so the workspace-less rows can
+    be re-inserted.
+    """
+    restored: dict[str, int] = {table: 0 for table in tables}
+
+    with connection.cursor() as cursor:
+        if not _table_exists(cursor, WORKSPACE_TABLE):
+            return restored
+
+        cursor.execute("SET LOCAL row_security = off")
+        for table in tables:
+            archive = archive_table_name(table)
+            if not _table_exists(cursor, table) or not _table_exists(cursor, archive):
+                continue
+
+            # The archive carries the source columns in their original order
+            # plus ``archived_at``; an explicit list keeps that trailing column
+            # out of the INSERT.
+            cursor.execute(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_schema = current_schema() AND table_name = %s "
+                "ORDER BY ordinal_position",
+                [table],
+            )
+            columns = [row[0] for row in cursor.fetchall()]
+            column_list = ", ".join(f'"{column}"' for column in columns)
+            cursor.execute(
+                f'INSERT INTO "{table}" ({column_list}) '
+                f'SELECT {column_list} FROM "{archive}"'
+            )
+            restored[table] = cursor.rowcount
+            cursor.execute(f'DELETE FROM "{archive}"')
+
+    return restored
+
