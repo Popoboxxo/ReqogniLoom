@@ -18,7 +18,8 @@ COMP-RA-006 HealthEndpoint — implements the split contract of ADR-010:
 
 Advisory signals (``llm_provider_env``, ``embedding_dimensions``,
 ``csrf_cookie_secure_matches_auth``, ``outbox_unbound_publishes``,
-workflow-definition warnings) never affect the status code: they appear only
+``outbox_pending`` / ``outbox_dlq`` queue gauges, workflow-definition warnings)
+never affect the status code: they appear only
 in ``warnings``/``advisory`` and escalate an otherwise-healthy response to
 ``status:"warning"`` (still HTTP 200). They are never a ``checks`` entry and
 never produce ``degraded``/503.
@@ -434,6 +435,34 @@ def _collect_advisory(
                 "service methods that emit a domain event without an "
                 "`@atomic_transaction` wrapper."
             )
+
+    # Outbox queue depths (#1389): the poller reports backlog/DLQ in the log
+    # only when the observation CHANGES, so a constant or stuck backlog would
+    # be invisible after the first cycle. The poller therefore writes both
+    # numbers to cache-backed gauges every cycle and this reads them — no
+    # extra DB query per readiness call. The gauges carry a short TTL
+    # (QUEUE_GAUGE_TTL_SECONDS), so a poller that stopped reports "unknown"
+    # instead of a stale number. Advisory (HTTP 200): a non-zero backlog or
+    # DLQ is an operator signal, never a mandatory-dependency failure — this
+    # publishes the values without adding a warning, because a transient
+    # backlog is normal operation. Never allowed to raise: a cache outage is
+    # swallowed inside queue_depths(), which returns (None, None) — the gauges
+    # then show "unknown" with NO warning; only an unexpected exception
+    # (import/patch failure) here appends "outbox queue gauges unavailable".
+    try:
+        from application.event_bus_metrics import queue_depths
+
+        outbox_backlog, outbox_dlq = queue_depths()
+    except Exception as exc:  # noqa: BLE001 - health check must never crash
+        logger.warning("Health check: outbox queue gauges failed - %s", exc)
+        warnings.append("outbox queue gauges unavailable")
+    else:
+        advisory["outbox_pending"] = (
+            "unknown" if outbox_backlog is None else str(outbox_backlog)
+        )
+        advisory["outbox_dlq"] = (
+            "unknown" if outbox_dlq is None else str(outbox_dlq)
+        )
 
     # Artifact vector backend (#1437): ``ARTIFACT_VECTOR_BACKEND=qdrant`` is an
     # explicit opt-in, but Qdrant only serves when ALL gate conditions hold

@@ -16,10 +16,15 @@ Coverage:
     (graceful degradation REQ-L3-DEB-008), timeout warning logged
   - poll_and_dispatch: claims, dispatches outside the claim TX (SA-04), marks
     records published, moves to DLQ after MAX_RETRIES
+  - poll_and_dispatch monitoring log volume (REQ-069, #1389): the three
+    original INFO lines on a state change, DEBUG only for an unchanged idle
+    cycle, orphan notice stays at WARNING, and the cache-backed queue gauges
+    stay live even while the log is silent
   - Outbox: mutation and event commit or roll back together (real COMMIT test)
 """
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import timedelta
 from unittest.mock import MagicMock, patch
@@ -28,12 +33,14 @@ import pytest
 from django.db import transaction as django_transaction
 from django.utils import timezone
 
+from application import event_bus_metrics
 from application.event_bus import (
     CLAIM_TIMEOUT_SECONDS,
     MAX_RETRIES,
     DomainEvent,
     DomainEventBus,
     SubscriberRegistry,
+    _reset_poll_observation_state,
     get_event_bus,
     poll_and_dispatch,
 )
@@ -830,3 +837,275 @@ class TestPollAndDispatchDlq:
 
         assert not DomainEventOutbox.objects.filter(pk=row.pk).exists()
         assert DomainEventDLQ.objects.filter(event_id=row.event_id).count() == 1
+
+
+# ---------------------------------------------------------------------------
+# poll_and_dispatch — outbox monitoring log volume (REQ-069, issue #1389)
+# ---------------------------------------------------------------------------
+
+
+class TestPollObservationLogging:
+    """REQ-069 / #1389: report the outbox observation on *change*, not per cycle.
+
+    The poller runs every 5 s. Reporting ``dispatched``/``backlog``/``dlq`` as
+    three unconditional INFO lines produced 17,280 cycles/day × 3 = 51,840
+    identical lines/day, which buries the one thing the lines exist to show:
+    a backlog that *moves*. These tests pin the new contract — on a change the
+    THREE ORIGINAL INFO lines are emitted verbatim (so every existing prefixed
+    grep keeps matching), on a repeat there is DEBUG only.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _isolated_poll_observation(self):
+        """Give every test a fresh per-process observation (issue #1389)."""
+        _reset_poll_observation_state()
+        yield
+        _reset_poll_observation_state()
+
+    @staticmethod
+    def _records(caplog, level):
+        """Records this module's logger emitted at *level* (no foreign noise)."""
+        return [
+            record
+            for record in caplog.records
+            if record.name == "application.event_bus" and record.levelno == level
+        ]
+
+    def _poll(self):
+        """Poll with an empty outbox: the idle cycle the beat schedule repeats."""
+        with patch("application.event_bus._list_candidate_pks", return_value=[]):
+            return poll_and_dispatch()
+
+    def test_first_cycle_reports_the_observation_once(self, caplog):
+        """(a) The first cycle of a process logs all three facts, verbatim."""
+        with caplog.at_level(logging.DEBUG, logger="application.event_bus"):
+            self._poll()
+
+        info = self._records(caplog, logging.INFO)
+        assert len(info) == 3, "the first poll cycle must report all three facts"
+        assert [record.getMessage() for record in info] == [
+            "DomainEventBus: dispatched 0 event(s) this cycle",
+            "DomainEventBus: outbox backlog is 0 pending event(s)",
+            "DomainEventBus: dead-letter queue holds 0 event(s)",
+        ]
+
+    def test_unchanged_idle_cycle_emits_no_info(self, caplog):
+        """(b) The idle steady state is silent at INFO — the actual bug."""
+        with caplog.at_level(logging.DEBUG, logger="application.event_bus"):
+            self._poll()  # first cycle: reports once
+            caplog.clear()
+            self._poll()  # identical observation: must stay quiet
+
+        assert self._records(caplog, logging.INFO) == [], (
+            "an unchanged idle cycle still writes INFO — the #1389 log flood"
+        )
+        # ...but the cycle stays observable when DEBUG logging is enabled.
+        debug = self._records(caplog, logging.DEBUG)
+        assert len(debug) == 1
+        assert "outbox backlog is 0 pending event(s)" in debug[0].getMessage()
+
+    def test_changed_backlog_reports_the_numbers(self, caplog):
+        """(c1) A backlog/DLQ change is reported with its current numbers."""
+        with (
+            patch("application.event_bus._worker_backlog", return_value=(5, 2, 0)),
+            caplog.at_level(logging.INFO, logger="application.event_bus"),
+        ):
+            processed = self._poll()
+
+        assert processed == 0
+        info = self._records(caplog, logging.INFO)
+        assert len(info) == 3
+        messages = [record.getMessage() for record in info]
+        assert "DomainEventBus: dispatched 0 event(s) this cycle" in messages
+        assert "DomainEventBus: outbox backlog is 5 pending event(s)" in messages
+        assert "DomainEventBus: dead-letter queue holds 2 event(s)" in messages
+
+    def test_dispatch_and_return_to_idle_are_reported(self, caplog):
+        """(c2) Dispatch > 0 and the following return to idle both report."""
+        with caplog.at_level(logging.INFO, logger="application.event_bus"):
+            self._poll()  # (0, 0, 0) — baseline
+            caplog.clear()
+
+            bus = get_event_bus()
+            row = _make_outbox_row()
+            with patch.object(
+                bus, "dispatch_to_subscribers", return_value=[]
+            ) as mock_dispatch:
+                assert poll_and_dispatch() == 1
+
+            dispatched = self._records(caplog, logging.INFO)
+            assert len(dispatched) == 3
+            messages = [record.getMessage() for record in dispatched]
+            assert "DomainEventBus: dispatched 1 event(s) this cycle" in messages
+            # The row really is the thing that was dispatched — not just some
+            # row that happens to carry a UUID.
+            dispatched_event = mock_dispatch.call_args.args[0]
+            assert dispatched_event.event_id == row.event_id
+            caplog.clear()
+
+            self._poll()  # (0, 0, 0) again — a *change* from (1, 0, 0)
+
+        back_to_idle = self._records(caplog, logging.INFO)
+        assert len(back_to_idle) == 3, (
+            "the transition back to idle must be visible after activity"
+        )
+        assert (
+            "DomainEventBus: dispatched 0 event(s) this cycle"
+            in [record.getMessage() for record in back_to_idle]
+        )
+
+    def test_orphan_warning_stays_at_warning(self, caplog):
+        """(d) The fail-closed orphan notice keeps its WARNING level."""
+        with (
+            patch("application.event_bus._worker_backlog", return_value=(3, 0, 2)),
+            caplog.at_level(logging.DEBUG, logger="application.event_bus"),
+        ):
+            self._poll()
+
+        warnings = self._records(caplog, logging.WARNING)
+        assert len(warnings) == 1
+        assert "orphaned outbox event" in warnings[0].getMessage()
+        assert warnings[0].levelno == logging.WARNING
+
+
+class TestQueueDepthGauges:
+    """#1389: the cache-backed gauges are the always-visible outlet.
+
+    The poll log is change-only, so a constant/stuck backlog would be silent.
+    These gauges are refreshed on EVERY cycle (independent of the log) and are
+    read by ``/health/ready`` without an extra DB query.
+    """
+
+    def test_record_and_read_round_trip(self):
+        """The poller's numbers come back unchanged."""
+        event_bus_metrics.record_queue_depths(7, 2)
+
+        assert event_bus_metrics.queue_depths() == (7, 2)
+
+    def test_unwritten_gauges_read_as_unknown(self):
+        """No value is ``None`` (unknown), never a fake zero."""
+        from django.core.cache import cache
+
+        cache.delete(event_bus_metrics.OUTBOX_BACKLOG_KEY)
+        cache.delete(event_bus_metrics.OUTBOX_DLQ_KEY)
+
+        assert event_bus_metrics.queue_depths() == (None, None)
+
+    def test_a_cache_error_fails_open(self):
+        """A cache outage only costs the gauge — neither call raises."""
+        with patch(
+            "application.event_bus_metrics.cache.set",
+            side_effect=RuntimeError("redis down"),
+        ):
+            event_bus_metrics.record_queue_depths(1, 0)
+
+        with patch(
+            "application.event_bus_metrics.cache.get",
+            side_effect=RuntimeError("redis down"),
+        ):
+            assert event_bus_metrics.queue_depths() == (None, None)
+
+    def test_a_cache_outage_warns_once_then_drops_to_debug(self, caplog):
+        """#1389: a cache outage must not become a per-cycle log flood.
+
+        ``record_queue_depths`` runs every beat tick (~5 s). Two consecutive
+        failures must therefore produce exactly one WARNING (with traceback)
+        and one DEBUG — and neither call may raise.
+        """
+        event_bus_metrics.reset_unbound_publish_state()
+
+        with (
+            patch(
+                "application.event_bus_metrics.cache.set",
+                side_effect=RuntimeError("redis down"),
+            ),
+            caplog.at_level(logging.DEBUG, logger="application.event_bus_metrics"),
+        ):
+            event_bus_metrics.record_queue_depths(1, 0)  # first: WARNING
+            event_bus_metrics.record_queue_depths(1, 0)  # repeat: DEBUG only
+
+        records = [
+            record
+            for record in caplog.records
+            if record.name == "application.event_bus_metrics"
+        ]
+        warnings = [r for r in records if r.levelno == logging.WARNING]
+        debugs = [r for r in records if r.levelno == logging.DEBUG]
+
+        assert len(warnings) == 1, [r.getMessage() for r in warnings]
+        assert "could not record the queue-depth gauges" in warnings[0].getMessage()
+        assert warnings[0].exc_info is not None
+        assert len(debugs) == 1, [r.getMessage() for r in debugs]
+        assert "could not record the queue-depth gauges" in debugs[0].getMessage()
+
+    def test_reset_state_lets_the_next_gauge_failure_warn_again(self, caplog):
+        """The once-per-process latch is part of the resettable test state."""
+        event_bus_metrics.reset_unbound_publish_state()
+
+        with (
+            patch(
+                "application.event_bus_metrics.cache.set",
+                side_effect=RuntimeError("redis down"),
+            ),
+            caplog.at_level(logging.DEBUG, logger="application.event_bus_metrics"),
+        ):
+            event_bus_metrics.record_queue_depths(1, 0)
+            event_bus_metrics.record_queue_depths(1, 0)
+
+        assert (
+            len(
+                [
+                    r
+                    for r in caplog.records
+                    if r.name == "application.event_bus_metrics"
+                    and r.levelno == logging.WARNING
+                ]
+            )
+            == 1
+        )
+
+        event_bus_metrics.reset_unbound_publish_state()
+        caplog.clear()
+
+        with (
+            patch(
+                "application.event_bus_metrics.cache.set",
+                side_effect=RuntimeError("redis down"),
+            ),
+            caplog.at_level(logging.DEBUG, logger="application.event_bus_metrics"),
+        ):
+            event_bus_metrics.record_queue_depths(1, 0)
+
+        assert (
+            len(
+                [
+                    r
+                    for r in caplog.records
+                    if r.name == "application.event_bus_metrics"
+                    and r.levelno == logging.WARNING
+                ]
+            )
+            == 1
+        )
+
+    def test_every_poll_cycle_refreshes_the_gauges(self, caplog):
+        """Even the unchanged, log-silent cycle keeps the gauge current."""
+        _reset_poll_observation_state()
+        with (
+            patch("application.event_bus._list_candidate_pks", return_value=[]),
+            patch("application.event_bus._worker_backlog", return_value=(4, 1, 0)),
+            caplog.at_level(logging.DEBUG, logger="application.event_bus"),
+        ):
+            poll_and_dispatch()  # first cycle: reports
+            caplog.clear()
+            poll_and_dispatch()  # unchanged: no INFO...
+
+            assert event_bus_metrics.queue_depths() == (4, 1)
+
+        # ...while the gauges remain the visible outlet.
+        assert not [
+            record
+            for record in caplog.records
+            if record.name == "application.event_bus"
+            and record.levelno == logging.INFO
+        ]

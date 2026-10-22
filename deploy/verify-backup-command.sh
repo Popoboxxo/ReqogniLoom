@@ -9,7 +9,8 @@
 #   because nothing ever executes it in CI. This script is that missing
 #   executor: it EXTRACTS the real command block out of the compose file (so it
 #   can never drift from what actually runs), executes it in a real
-#   pgvector/pgvector:pg16 container against a real throwaway Postgres, and
+#   pgvector/pgvector:pg16 (digest-pinned, see PG_IMAGE below) container
+#   against a real throwaway Postgres, and
 #   asserts the failure semantics that #1074 was about.
 #
 #   The old bug: `if pg_dump … | gzip > "$outfile"; then echo "wrote …"; fi`
@@ -41,7 +42,7 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 COMPOSE_FILE="${REPO_ROOT}/deploy/docker-compose.yml"
-PG_IMAGE="pgvector/pgvector:pg16"
+PG_IMAGE="pgvector/pgvector:pg16@sha256:7b822b0aac60967beb1ea5e576b8602c94c300a157d187f385ae3e0da199b90a"
 NETWORK="reqlo-backup-selftest-$$"
 PG_CONTAINER="reqlo-backup-selftest-pg-$$"
 WORK="$(mktemp -d)"

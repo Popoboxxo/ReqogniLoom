@@ -123,10 +123,17 @@ python manage.py inventory_api_keys --tenant-id 9b1f0e2c-...
 Against the test stack:
 
 ```bash
-docker compose -p reqlo-audit-w1-test --project-directory . \
-  -f deploy/docker-compose.yml -f testing/docker-compose.test.yml \
+docker compose -p reqogniloom-test -f testing/docker-compose.test.yml --project-directory . \
   run --rm backend-test python manage.py inventory_api_keys --format json
 ```
+
+> **Run serially — do not run this concurrently with `make test-backend`.**
+> Both use the shared `reqogniloom-test` project and therefore the same
+> `postgres-test` server and `test_reqogniloom` database; concurrent pytest
+> runs collide on `CREATE`/`DROP DATABASE` and role changes. Wait for the test
+> target to finish first. Pass `-p` explicitly (as above) so an exported
+> `COMPOSE_PROJECT_NAME` cannot redirect this command onto the production
+> project — never use `reqogniloom` as the project name here.
 
 ### Flags
 
@@ -305,8 +312,9 @@ because it predates the rule date. Note `[1]`: it satisfies scope and fence, and
 Run them:
 
 ```bash
-docker compose -p reqlo-audit-w1-test --project-directory . \
-  -f deploy/docker-compose.yml -f testing/docker-compose.test.yml \
+# Serial only: shares the reqogniloom-test project (postgres-test /
+# test_reqogniloom) with make test-backend — do not run both at once.
+docker compose -p reqogniloom-test -f testing/docker-compose.test.yml --project-directory . \
   run --rm backend-test pytest -q --create-db \
   auth_tenancy/tests/test_inventory_api_keys_command.py
 ```

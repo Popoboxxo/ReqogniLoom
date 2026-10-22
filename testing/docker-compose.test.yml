@@ -1,28 +1,123 @@
-# ReqogniLoom — Test overlay (Compose)
+# ReqogniLoom — Test stack (Compose)
 #
-# WHY THIS FILE EXISTS: `docker-compose.yml`'s `backend`/`frontend` services
-# may resolve to a prebuilt registry image (no source, and `.dockerignore`
-# strips `tests/` from what *is* built) instead of a local build context —
-# e.g. when `docker-compose.override.yml` is absent (its own header says:
-# "For production, delete docker-compose.override.yml"). `docker compose exec
-# backend pytest` then collects 0 tests (pytest exit code 5) and `npm test`
-# has no vitest/testing-library devDependencies to run against.
+# WHY THIS FILE IS STANDALONE AND HAS ITS OWN PROJECT NAME (#1387)
 #
-# This overlay defines standalone `backend-test`/`frontend-test` services
-# that always build from source with the repo bind-mounted over the image,
-# independent of how the base `backend`/`frontend` services are configured —
-# so `make test-backend`/`make test-frontend` keep working regardless of
-# whether the base stack is running dev (build+mount) or prod (registry
-# image) services. Requires `postgres`/`redis` from the base stack already
-# running (`docker-compose up -d`).
+# It used to be an overlay loaded ON TOP of deploy/docker-compose.yml without a
+# project name of its own: `docker compose -f deploy/docker-compose.yml -f
+# testing/docker-compose.test.yml --project-directory .`. Compose derives the
+# project name from `--project-directory` (basename `reqogniloom`), so the test
+# command and the running dev/production stack resolved to the SAME project.
+# `backend-test` declared `depends_on: [postgres, redis]`, so `run` started
+# those BASE services inside that shared project — and because the loaded file
+# set differed from the one the running containers were created with, Compose
+# recreated `reqogniloom-postgres-1`/`-redis-1` with new
+# `com.docker.compose.project.config_files` labels and a new working_dir. The
+# symptom: postgres/redis became the only containers pointing at this checkout
+# while every other container still pointed at the deployment that actually
+# started them.
 #
-# Usage (also see Makefile test-backend / test-frontend):
-#   docker compose -f docker-compose.yml -f docker-compose.test.yml \
-#     run --rm backend-test
-#   docker compose -f docker-compose.yml -f docker-compose.test.yml \
-#     run --rm frontend-test
+# The fix is structural, not cosmetic:
+#   * the test stack is a project of its own and
+#   * it declares its own ephemeral `postgres-test`/`redis-test` services and
+#     *never* loads deploy/docker-compose.yml.
+# A different project name means a different container/network/volume
+# namespace, so nothing this file runs can even address the dev/production
+# containers — reconciliation of those is impossible, not merely unlikely.
+#
+# PROJECT-NAME PRECEDENCE (important): Compose resolves the project name as
+#   `-p` > `COMPOSE_PROJECT_NAME` (process env or .env) > `name:` below
+#   > directory basename.
+# `name:` alone is therefore NOT sufficient: an exported
+# `COMPOSE_PROJECT_NAME=reqogniloom` would silently redirect this file onto the
+# production project. The Makefile test targets (`test-backend`,
+# `test-frontend`, `test-down`) pin the name explicitly with `-p <project>-test`,
+# which outranks the env var. Invoke the file directly only with an explicit
+# `-p` too, e.g. `-p reqogniloom-test`; the `name:` fallback below covers the
+# no-env case and is kept in sync with the Makefile's TEST_PROJECT.
+#
+# TRADE-OFF (deliberately chosen): tests no longer read the already-migrated
+# dev database. pytest-django always creates and migrates its own ephemeral
+# `test_<DB_NAME>` database anyway, so the migration cost was already paid per
+# run; the only change is that the disposable server is now owned by the test
+# project instead of being the long-lived dev one. In exchange, `make test` no
+# longer needs `make up` and can never mutate a running stack.
+#
+# WHY NO NAMED VOLUMES: the test database is created and dropped within one
+# `pytest` run. Anything that survives the run is not a test artifact — it is
+# leaked state. Both services write to the container layer, so `down -v`
+# (or `make test-down`) removes everything.
+#
+# USAGE (also see Makefile test-backend / test-frontend / test-down):
+#   docker compose -p reqogniloom-test -f testing/docker-compose.test.yml \
+#     --project-directory . run --rm backend-test
+#   docker compose -p reqogniloom-test -f testing/docker-compose.test.yml \
+#     --project-directory . run --rm frontend-test
+#   docker compose -p reqogniloom-test -f testing/docker-compose.test.yml \
+#     --project-directory . down --volumes --remove-orphans
+#
+# `--project-directory .` is REQUIRED: it pins relative paths (`build.context:
+# ./backend`, `env_file: .env`, `./backend:/app`) to the repo root instead of
+# testing/. The project name is pinned by `-p` (see precedence above); `name:`
+# is only the fallback for invocations that omit `-p`.
+
+name: ${COMPOSE_PROJECT_NAME:-reqogniloom}-test
 
 services:
+  # Ephemeral PostgreSQL for backend-test. Deliberately NOT the base `postgres`
+  # service: reusing it is exactly the coupling that caused #1387.
+  postgres-test:
+    # Digest-pinned to the same multi-arch manifest list used in deploy/ so the
+    # test stack and the deployed stack run byte-identical images (#1391).
+    image: pgvector/pgvector:pg16@sha256:7b822b0aac60967beb1ea5e576b8602c94c300a157d187f385ae3e0da199b90a
+    environment:
+      POSTGRES_DB: ${DB_NAME:-reqogniloom}
+      # Superuser, not DB_APP_USER: pytest-django creates/drops the test
+      # database and the RLS fixtures manipulate roles, both of which need
+      # superuser (see README.md "pgvector" note).
+      POSTGRES_USER: ${DB_USER:-reqogniloom}
+      # Test-only credential with its own default, so running the suite does
+      # not depend on (or require) the operator's DB_PASSWORD secret.
+      POSTGRES_PASSWORD: ${TEST_DB_PASSWORD:-reqogniloom-test}
+    # No volume: one disposable cluster per test project (see header).
+    restart: "no"
+    healthcheck:
+      # `-h 127.0.0.1` is deliberate: without it pg_isready probes the Unix
+      # socket, which the entrypoint's initdb phase can answer before the TCP
+      # listener exists — while backend-test always connects over TCP
+      # (DB_HOST: postgres-test). start_period absorbs that init window.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U ${DB_USER:-reqogniloom} -d ${DB_NAME:-reqogniloom}"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+      start_period: 5s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Ephemeral Redis for backend-test. settings_test uses LocMemCache and
+  # eager Celery, so nothing writes here today; it stays declared because
+  # backend-test exports CELERY_BROKER_URL/CELERY_RESULT_BACKEND and a test
+  # that resolves them must not fall back to the dev stack's redis.
+  redis-test:
+    # Digest-pinned to the same multi-arch manifest list used in deploy/ (#1391).
+    image: redis:7-alpine@sha256:892022f9f18c26c92c30e15194d132f90044af87b94a491a75429bbc3982eab1
+    # No password and no persistence: the instance is private to this project
+    # and to the lifetime of one test run.
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    restart: "no"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
   backend-test:
     build:
       context: ./backend
@@ -38,12 +133,12 @@ services:
       # et al.) run `ALTER ROLE "reqogniloom_app" ...`, which the
       # least-privilege app role cannot do to itself.
       DB_USER: ${DB_USER:-reqogniloom}
-      DB_PASSWORD: ${DB_PASSWORD}
-      DB_HOST: postgres
+      DB_PASSWORD: ${TEST_DB_PASSWORD:-reqogniloom-test}
+      DB_HOST: postgres-test
       DB_PORT: 5432
-      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
-      CELERY_BROKER_URL: redis://:${REDIS_PASSWORD:-}@redis:6379/0
-      CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD:-}@redis:6379/0
+      # Matches redis-test (no auth); deliberately not the dev stack's redis.
+      CELERY_BROKER_URL: redis://redis-test:6379/0
+      CELERY_RESULT_BACKEND: redis://redis-test:6379/0
       LLM_PROVIDER: ${LLM_PROVIDER:-mock}
       DEFAULT_TENANT_ID: ${DEFAULT_TENANT_ID:-1}
     volumes:
@@ -52,8 +147,10 @@ services:
       - ./backend:/app
       - ./docs:/app/docs:ro
     depends_on:
-      - postgres
-      - redis
+      postgres-test:
+        condition: service_healthy
+      redis-test:
+        condition: service_healthy
     entrypoint: []
     command: ["pytest", "-q"]
 

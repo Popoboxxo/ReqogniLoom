@@ -136,6 +136,96 @@ check is conditional: mock/anthropic/openai/ollama/azure deployments are unaffec
 > A Honcho deployment can still answer incorrectly if the `honcho` image drifts off its verified
 > tag/digest — see `## Troubleshooting: Stale Honcho image (#1153)` below.
 
+## Base images are pinned tag + digest (#1391)
+
+Every third-party base image used by the Dockerfiles and the Compose files documented in the table
+below is referenced as `IMAGE:TAG@sha256:<manifest-list-digest>`. The tag stays human-readable; the
+digest makes the reference immutable, so a re-push of a moving tag (`python:3.12-slim`,
+`redis:7-alpine`, `pg16`, …) can no longer change what we build or run without a commit.
+
+| File | Reference |
+|---|---|
+| `backend/Dockerfile` (builder + runtime) | `python:3.12-slim@sha256:cb33f7f7…` |
+| `frontend/Dockerfile` | `node:22.17.0-slim@sha256:b04ce4ae…`, `nginx:1.27-alpine@sha256:65645c7b…` |
+| `deploy/docker-compose.yml` | `pgvector/pgvector:pg16@sha256:7b822b0a…` (×3), `redis:7-alpine@sha256:892022f9…` (×2), `node:22-slim@sha256:de170b39…` (bluepencil sidecar) |
+| `deploy/docker-compose.yml` (optional profiles) | `ghcr.io/plastic-labs/honcho:v3.3.0@sha256:5bb8cf7a…` (×3), `qdrant/qdrant:v1.19.2@sha256:b7b0444c…` |
+| `deploy/docker-compose.minimal.yml` | `pgvector/pgvector:pg16@sha256:7b822b0a…`, `redis:7-alpine@sha256:892022f9…` |
+| `testing/docker-compose.test.yml` | `pgvector/pgvector:pg16@sha256:7b822b0a…`, `redis:7-alpine@sha256:892022f9…` |
+
+Deliberately **not** digest-pinned: the `ghcr.io/popoboxxo/reqogniloom-{backend,frontend}` images,
+which follow the release version-tag convention (`${REQOGNILOOM_VERSION}`) so a deployment can pick a
+release by tag. The optional Honcho and Qdrant images are pinned too — see their own sections.
+
+**Not covered yet (follow-up).** The claim above is scoped to the table. These still reference moving
+tags and are **not** pinned by #1391:
+
+- `.woodpecker.yml` — several, including an untagged `woodpeckerci/plugin-docker-buildx` and `alpine:latest`
+- `.github/workflows/ci.yml:71,85`
+- `.github/workflows/playwright.yml:27,40`
+
+The two shell-based operational helpers are pinned outside the tables above:
+`deploy/verify-restore.sh:50` and `deploy/verify-backup-command.sh:45` run
+`pgvector/pgvector:pg16@sha256:7b822b0a…` — the same digest the Compose services use, so a restore or
+backup self-check can never be validated against a different server build than production runs.
+`verify-restore.sh` keeps its `RESTORE_SMOKE_PG_IMAGE` override; its digest lives in the default.
+
+**Rule: pin the manifest list, never a platform manifest.** A multi-arch tag resolves to an *index*
+(manifest list) whose digest covers every platform; the per-architecture child manifests each have a
+different digest. Pinning a child digest makes the build fail on any other architecture
+(`no matching manifest for linux/arm64`).
+
+**Resolve or re-resolve a digest.** Take the top-level `Digest:` of the index. Note that the default
+output starts with `Name:` — do **not** take the first line, extract the `Digest:` line:
+
+```bash
+# Preferred (version-independent): prints the index digest directly (no pull, no daemon state)
+docker buildx imagetools inspect redis:7-alpine | sed -n 's/^Digest: *//p'
+#   sha256:892022f9f18c26c92c30e15194d132f90044af87b94a491a75429bbc3982eab1
+
+# Same value via --format (buildx ≥ 0.33 — exact template matching landed there):
+docker buildx imagetools inspect redis:7-alpine --format '{{.Manifest.Digest}}'
+#   On buildx ≤ 0.32.0 the template is prefix-matched, so this prints the whole human
+#   block instead of only the digest. Use the `sed` form above on those versions.
+```
+
+If the `buildx` plugin is not installed, use the registry API directly:
+
+```bash
+# Registry API: HEAD on the tag with the index media types -> Docker-Content-Digest.
+# This is exactly the value `docker buildx imagetools inspect` prints.
+tok=$(curl -s "https://auth.docker.io/token?service=registry.docker.io&scope=repository:library/redis:pull" | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')
+curl -sI -H "Authorization: Bearer $tok" \
+  -H "Accept: application/vnd.oci.image.index.v1+json" \
+  -H "Accept: application/vnd.docker.distribution.manifest.list.v2+json" \
+  https://registry-1.docker.io/v2/library/redis/manifests/7-alpine | grep -i docker-content-digest
+```
+
+> **Trap — `docker manifest inspect`.** Only the registry HEAD above (or `buildx imagetools
+> inspect`) yields the index digest. `docker manifest inspect -v` lists one entry **per platform**;
+> its `Ref:` / `Descriptor.digest:` values are the *child manifest* digests, not the index digest —
+> do not copy them. The non-verbose `docker manifest inspect <image>:<tag>` is **not** a substitute
+> either: it prints pretty-printed JSON assembled by the client, not the registry's raw manifest
+> bytes, so hashing its output does **not** reproduce the registry digest.
+
+**Verify a pin before committing** — the reference must resolve back to the same digest:
+
+```bash
+docker buildx imagetools inspect redis:7-alpine@sha256:892022f9f18c26c92c30e15194d132f90044af87b94a491a75429bbc3982eab1
+```
+
+**Automated bumps.** Dependabot's `docker` ecosystem owns this: `.github/dependabot.yml` lists one
+entry per directory that holds a Docker manifest (`/backend`, `/frontend`, `/deploy`, `/testing`), and
+it refreshes the digest while keeping the tag. Renovate, if used instead, needs its two `docker`
+managers (`dockerfile`, `docker-compose`) configured for those same four directories, with
+`pinDigests` enabled. Both only propose the change — review the diff and let the normal CI
+(build + Trivy scan) gate it.
+
+> **Digest pins and OS package patching are orthogonal.** Pinning freezes the *base layer*, but the
+> `apk upgrade` / `apt-get upgrade` steps in the Dockerfiles still pull current patches from the
+> rolling distro repo at build time. A digest bump is therefore a supply-chain refresh, not a
+> substitute for rebuilds — the Trivy `exit-code: 1` gate in `docker-publish.yml` stays the
+> authority on known CVEs.
+
 ## Optional profiles (off by default)
 
 
@@ -541,6 +631,10 @@ A capability that is gated off answers the distinct error code
 `pgvector` remains the **default** memory backend; Qdrant is an opt-in second operating mode, only
 available on the full stack (the minimal stack stays pgvector-only). Add `--profile qdrant`:
 
+> **Pinned.** The `qdrant` service runs `qdrant/qdrant:v1.19.2@sha256:b7b0444c…` (tag + manifest-list
+> digest, [rule above](#base-images-are-pinned-tag--digest-1391)) — the index layout and the payload
+> format are part of what the backend talks to, so a moving `v1.19.2` tag is not acceptable here.
+
 ```bash
 docker compose -f deploy/docker-compose.yml --project-directory . --profile qdrant up -d
 # or the wrapper: make qdrant
@@ -758,7 +852,9 @@ re-creates the container. If the pin changed *across a release*, run `honcho-mig
 version jump is a migration event (see **Upgrade** below).
 
 **Tag + digest pin.** All three services that run the Honcho image — `honcho`, `honcho-deriver` and
-`honcho-migrate` — are pinned to the verified immutable reference:
+`honcho-migrate` — are pinned to the verified immutable reference (an application of the general
+rule in [Base images are pinned tag + digest](#base-images-are-pinned-tag--digest-1391): use the
+manifest-list digest, not a platform digest):
 
 ```
 ghcr.io/plastic-labs/honcho:v3.3.0@sha256:5bb8cf7a60845e08f83fed66f01907afa0969dd1d02e414ed576102f3b12dfe8
