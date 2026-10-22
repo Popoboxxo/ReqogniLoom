@@ -17,12 +17,17 @@ Safety rails (all three are deliberate, fail-closed)
    and the command would claim a clean database. The check is
    ``rolbypassrls OR rolsuper`` on ``current_user``; run it through the
    ``migrate`` compose service (superuser), never the ``backend`` container.
-2. **Invisible-rows guard.** ``count(pl_workspace) = 0`` while definitions
-   exist means the connection cannot see workspaces (RLS misconfiguration),
-   not that every definition is an orphan — abort without changing anything.
+2. **Invisible-rows signal.** ``count(pl_workspace) = 0`` while definitions
+   exist *can* mean the connection cannot see workspaces. It is also the
+   legitimate state after every workspace was deleted, which is exactly the
+   orphan case this command exists for (#1403 QA: 209 orphans) — so it is
+   reported as a warning, not an abort. The hard protection against invisible
+   rows is rail 1: a BYPASSRLS/superuser role cannot have rows hidden by RLS.
 3. **``--confirm-count`` required.** The operator must pass the exact total the
    dry run reported; a differing count aborts before the first delete, so a
-   concurrent workspace delete cannot silently widen the blast radius.
+   concurrent workspace delete cannot silently widen the blast radius. This is
+   also what keeps a suspected visibility problem from deleting anything: the
+   operator has to confirm the very number the command counted.
 
 Usage::
 
@@ -31,6 +36,8 @@ Usage::
 """
 
 from __future__ import annotations
+
+from typing import Any
 
 from django.core.management.base import BaseCommand, CommandError
 from django.db import connection, transaction
@@ -50,6 +57,27 @@ def _current_role_can_bypass_rls() -> bool:
         )
         row = cursor.fetchone()
     return bool(row and row[0])
+
+
+def _validate_confirm_count(raw: Any) -> int | None:
+    """Validate ``--confirm-count`` without touching the database.
+
+    ``call_command`` forwards option values verbatim — the argparse
+    ``type=int`` coercion only runs for a real CLI invocation — so the value
+    can still be a string here. Validation happens before the first query so a
+    malformed count can never be masked by a later, unrelated failure.
+    """
+    if raw is None:
+        return None
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        raise CommandError(
+            f"--confirm-count must be an integer, got {raw!r}."
+        ) from None
+    if value < 0:
+        raise CommandError(f"--confirm-count must be >= 0, got {value}.")
+    return value
 
 
 def _workspace_count() -> int:
@@ -96,11 +124,18 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options) -> None:
+        # 1. Pure argument validation — no database access, so a malformed
+        #    invocation fails deterministically instead of being masked by a
+        #    later, unrelated database error.
+        confirm_count = _validate_confirm_count(options["confirm_count"])
+        dry_run: bool = options["dry_run"]
+
         if connection.vendor != "postgresql":
             raise CommandError(
                 "cleanup_workspace_orphans requires PostgreSQL (row-level security)."
             )
 
+        # 2. Capability check before the first row is counted (fail-closed).
         if not _current_role_can_bypass_rls():
             raise CommandError(
                 "cleanup_workspace_orphans must run under a role with BYPASSRLS "
@@ -108,20 +143,30 @@ class Command(BaseCommand):
                 "role it would count zero rows and report a clean database."
             )
 
+        # 3. Count, then compare the operator's confirmation, then mutate.
         with transaction.atomic():
             counts = count_workspace_orphans(connection, DEFINITION_TABLES)
             total = sum(counts.values())
 
             if total and _workspace_count() == 0:
-                raise CommandError(
-                    "Refusing to run: no pl_workspace row is visible but "
-                    f"{total} definition orphan(s) were counted. That is an RLS "
-                    "visibility problem, not a database full of orphans."
+                # Ambiguous but not fatal: an empty pl_workspace is either the
+                # legitimate post-delete orphan state (#1403) or an invisible
+                # row set. A BYPASSRLS/superuser role (checked above) cannot
+                # hide rows, so this cannot be treated as a hard error without
+                # blocking the very cleanup the command exists for. The exact
+                # --confirm-count below stays the fail-closed safeguard.
+                self.stderr.write(
+                    self.style.WARNING(
+                        f"WARNING: pl_workspace is empty while {total} definition "
+                        "orphan(s) were counted. If that is not the expected "
+                        "state, verify the connection's RLS visibility; nothing "
+                        "is deleted without a matching --confirm-count."
+                    )
                 )
 
             self.stdout.write(_format(counts))
 
-            if options["dry_run"]:
+            if dry_run:
                 self.stdout.write(
                     self.style.WARNING(
                         f"--dry-run: {total} row(s) would be archived and "
@@ -138,7 +183,6 @@ class Command(BaseCommand):
                 )
                 return
 
-            confirm_count = options["confirm_count"]
             if confirm_count is None:
                 raise CommandError(
                     "Refusing to delete without --confirm-count=<n>. Run "

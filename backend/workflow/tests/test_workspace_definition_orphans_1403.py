@@ -72,6 +72,20 @@ def _migrate(*targets) -> None:
     MigrationExecutor(connection).migrate(list(targets))
 
 
+def _clear_archives() -> None:
+    """Empty both archive tables (they exist at the migration leaf).
+
+    They are raw ``RunSQL`` tables without a Django model, so neither the
+    ``TransactionTestCase`` flush nor a fresh ``--reuse-db`` start truncates
+    them. A leftover row makes the absolute ``_count(LT_ARCHIVE)`` assertions
+    below meaningless — and worse, the next reverse migration would restore it
+    into a tenant the flush has already deleted (FK violation on ``tenant_id``).
+    """
+    with connection.cursor() as cursor:
+        cursor.execute(f'DELETE FROM "{LT_ARCHIVE}"')
+        cursor.execute(f'DELETE FROM "{AD_ARCHIVE}"')
+
+
 @pytest.mark.django_db
 def test_workspace_delete_cascades_definitions():
     """``WorkspaceService.delete_workspace`` leaves no definition rows."""
@@ -188,11 +202,15 @@ def test_orphan_delete_is_archived_and_reversible(transactional_db):
         )
         assert cursor.fetchone()[0] == 1
 
-    # 4. Leave the database at the leaf for every later test.
+    # 4. Leave the database at the leaf for every later test. The forward
+    #    migration archived the row it had just restored, so clear the archive:
+    #    the following test asserts an absolute archive count and a rerun's
+    #    reverse migration must not resurrect rows of a flushed tenant.
     _migrate(
         ("link_types", LT_CURRENT),
         ("attribute_definitions", AD_CURRENT),
     )
+    _clear_archives()
 
 
 @pytest.mark.django_db(transaction=True)
@@ -205,6 +223,10 @@ def test_cleanup_requires_matching_confirm_count(transactional_db):
     # (pre-migration database) can be reproduced, and re-add it afterwards.
     with connection.cursor() as cursor:
         cursor.execute(f'ALTER TABLE "{LT_TABLE}" DROP CONSTRAINT "{LT_FK}"')
+
+    # The archive is outside Django's flush (no model), and the assertion below
+    # counts its rows absolutely: start from the empty state it assumes.
+    _clear_archives()
 
     missing = uuid.uuid4()
     try:
@@ -241,6 +263,9 @@ def test_cleanup_requires_matching_confirm_count(transactional_db):
                 f'DELETE FROM "{LT_TABLE}" AS orphan WHERE NOT EXISTS '
                 f'(SELECT 1 FROM "pl_workspace" AS w WHERE w.id = orphan.workspace_id)'
             )
+            # Leave no archived row behind either: it would outlive the test
+            # (no model => no flush) and poison the next run's reverse migration.
+            _clear_archives()
             cursor.execute(
                 f'ALTER TABLE "{LT_TABLE}" ADD CONSTRAINT "{LT_FK}" '
                 'FOREIGN KEY ("workspace_id") REFERENCES "pl_workspace" ("id") '
