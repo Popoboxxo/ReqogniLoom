@@ -166,7 +166,7 @@ numpy>=2.5.4,<3.0
 # rather than being resolved silently by pip. honcho_backend.py is written
 # against 2.5.1's `honcho.conclusions.ConclusionsView` (2.4.0 renamed the former
 # `ConclusionScope`, which this backend no longer references).
-honcho-ai==2.5.1
+honcho-ai==2.6.0
 
 # Optional external vector backend (ADR-020, MEMORY_BACKEND=qdrant + the V2
 # vector port; memory/qdrant_backend.py). Imported LAZILY: pgvector stays the
