@@ -15,6 +15,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
+import type { RefObject } from "react";
 import { useTranslation } from "react-i18next";
 import { Dialog } from "../shared/Dialog";
 import { FormField } from "../shared/FormField";
@@ -39,6 +40,14 @@ export interface GoalFormDialogProps {
   isSubmitting?: boolean;
   /** GitHub #1392: `details[].field` messages from the rejected save. */
   fieldErrors?: Record<string, string[]>;
+  /**
+   * Element that opened this dialog (issue #1405 / R1-07). The route owns the
+   * ref and hands it over here: the header CTA carries
+   * `disabled={Boolean(form)}`, so the browser blurs it in the same commit
+   * that mounts the dialog and the focus trap's own `document.activeElement`
+   * snapshot would be `<body>`. See `<Dialog triggerRef>`.
+   */
+  triggerRef?: RefObject<HTMLElement | null>;
   onSubmit: (values: GoalFormValues) => void;
   onClose: () => void;
 }
@@ -51,6 +60,7 @@ export function GoalFormDialog({
   error = null,
   isSubmitting = false,
   fieldErrors,
+  triggerRef,
   onSubmit,
   onClose,
 }: GoalFormDialogProps): JSX.Element {
@@ -82,6 +92,7 @@ export function GoalFormDialog({
       onClose={onClose}
       testId="goal-form-dialog"
       initialFocusRef={titleInputRef}
+      triggerRef={triggerRef}
       footer={
         <>
           <button

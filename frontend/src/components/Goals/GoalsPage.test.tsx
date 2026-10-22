@@ -20,6 +20,7 @@
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import GoalsPage from "./GoalsPage";
 import * as goalsModule from "../../api/goals";
@@ -173,6 +174,37 @@ describe("GoalsPage", () => {
     await waitFor(() =>
       expect(screen.queryByTestId("goal-form-dialog")).not.toBeInTheDocument()
     );
+  });
+
+  // Issue #1405 / finding R1-07: the header CTA carries
+  // `disabled={Boolean(form)}`, so the browser blurs it in the same commit that
+  // mounts the dialog — `document.activeElement` is `<body>` by then. Without
+  // an explicit `triggerRef` the focus trap snapshotted that `<body>` and
+  // closing the dialog dropped a keyboard user at the top of the page instead
+  // of back on the button they came from. `fireEvent.click` (used throughout
+  // this file) is exactly that state: the button is clicked but is not the
+  // active element, so only a declared trigger can restore focus to it.
+  it("returns focus to the create button after the dialog closes (#1405)", async () => {
+    const user = userEvent.setup();
+    vi.mocked(goalsModule.goalsApi.list).mockResolvedValue([]);
+
+    render(<MemoryRouter><GoalsPage /></MemoryRouter>);
+
+    const createButton = await screen.findByTestId("create-goal-btn");
+    fireEvent.click(createButton);
+
+    // The trigger cannot hold focus while the dialog is open ...
+    expect(createButton).toBeDisabled();
+    expect(await screen.findByTestId("goal-form-dialog")).toBeInTheDocument();
+
+    await user.keyboard("{Escape}");
+
+    await waitFor(() =>
+      expect(screen.queryByTestId("goal-form-dialog")).not.toBeInTheDocument()
+    );
+    // ... and gets it back once the dialog is gone (ch. 12.8).
+    expect(createButton).not.toBeDisabled();
+    expect(document.activeElement).toBe(createButton);
   });
 
   it("cannot submit the create dialog without a title", async () => {
@@ -427,6 +459,42 @@ describe("GoalsPage", () => {
         description: "",
       })
     );
+  });
+
+  // R1-08 regression guard: the edit dialog must return focus to the
+  // `goal-edit-button` that opened it, never to the header create CTA.
+  //
+  // The two paths have different focus owners. On create the header CTA
+  // disables itself in the same commit that mounts the dialog, so the page has
+  // to declare the trigger (`triggerRef`). On edit the trigger stays enabled
+  // and holds focus, so the focus trap's own `document.activeElement` snapshot
+  // is the truthful owner — handing the dialog the create ref made it restore
+  // to a button the user never pressed.
+  //
+  // `userEvent.click` (not `fireEvent.click`, used elsewhere in this file) is
+  // required: `fireEvent` dispatches the event without moving focus in jsdom,
+  // so the snapshot would be `<body>` and the assertion could not distinguish
+  // the two behaviours at all.
+  it("returns focus to the edit button after the edit dialog closes (R1-08)", async () => {
+    const user = userEvent.setup();
+    vi.mocked(goalsModule.goalsApi.list).mockResolvedValue([makeGoal()]);
+
+    render(<MemoryRouter><GoalsPage /></MemoryRouter>);
+    await selectGoal("g1");
+
+    const editButton = await screen.findByTestId("goal-edit-button");
+    await user.click(editButton);
+
+    expect(await screen.findByTestId("goal-form-dialog")).toBeInTheDocument();
+    // Unlike the create CTA, the edit trigger never loses focus/ability.
+    expect(editButton).toBeEnabled();
+
+    await user.keyboard("{Escape}");
+
+    await waitFor(() =>
+      expect(screen.queryByTestId("goal-form-dialog")).not.toBeInTheDocument()
+    );
+    expect(document.activeElement).toBe(editButton);
   });
 
   it("surfaces a rejected create inside the dialog instead of leaving the promise unhandled", async () => {
