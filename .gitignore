@@ -39,6 +39,7 @@ graphify-out/
 AGENTS.personal.md
 CLAUDE.personal.md
 opencode.json
+opencode.jsonc
 sync.log
 # --- end agent-meta managed ---
 
