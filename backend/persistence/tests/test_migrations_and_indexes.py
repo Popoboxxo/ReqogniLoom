@@ -37,6 +37,71 @@ def _index_names() -> set[str]:
         return {row[0] for row in cursor.fetchall()}
 
 
+def _index_definitions(table: str) -> dict[str, str]:
+    """Map index name -> ``pg_get_indexdef`` text for one table.
+
+    The definition text ends with the key column list, e.g.
+    ``... USING btree (created_at, id)``, which lets a test distinguish a
+    single-column index from a composite one without joining ``pg_index`` /
+    ``pg_attribute``.
+    """
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT indexname, indexdef FROM pg_indexes "
+            "WHERE schemaname = 'public' AND tablename = %s",
+            [table],
+        )
+        return {name: ddl for name, ddl in cursor.fetchall()}
+
+
+@_pg_only
+def test_index_hygiene_1411():
+    """Issue #1411: one redundant index dropped, one missing sort index added.
+
+    Kept as a single assertion pair because both halves are the same
+    migration-level concern: which indexes the schema actually carries after
+    ``migrate``, read straight from the PostgreSQL catalog rather than from
+    Django state (which would agree with the model even if the migration never
+    ran). See ``_index_definitions`` for why the whole catalog, including
+    ``at_refresh_token``, is read here.
+    """
+    # --- R8-08: the TraceLink list sort key is now index-backed. -----------
+    tracelink = _index_definitions("pl_tracelink")
+    assert "idx_tracelink_created" in tracelink, (
+        "Issue #1411 (R8-08): TraceLinkManager.list() orders by "
+        "('created_at', 'id') but pl_tracelink has no index on that sort key. "
+        f"Existing indexes: {sorted(tracelink)}"
+    )
+    assert tracelink["idx_tracelink_created"].rstrip().endswith(
+        "(created_at, id)"
+    ), (
+        "idx_tracelink_created must cover both sort columns in order; "
+        f"got: {tracelink['idx_tracelink_created']}"
+    )
+    # REQ-L3-PL005-001: the graph index must survive #1411 untouched.
+    assert "idx_tracelink_graph" in tracelink
+
+    # --- R8-07(d): the redundant standalone session_id B-tree is gone. -----
+    refresh_token = _index_definitions("at_refresh_token")
+    single_column_session_id = [
+        name
+        for name, ddl in refresh_token.items()
+        if ddl.rstrip().endswith("(session_id)")
+    ]
+    assert not single_column_session_id, (
+        "Issue #1411 (R8-07(d)): a standalone btree on at_refresh_token"
+        "(session_id) is a strict prefix of the composite "
+        "idx_refresh_session_active(session_id, revoked_at) and must not "
+        f"exist. Found: {single_column_session_id}"
+    )
+    # The composite that replaces it — and that keeps the 0021 lookup/revoke
+    # functions index-covered — must still be present.
+    assert "idx_refresh_session_active" in refresh_token
+    assert refresh_token["idx_refresh_session_active"].rstrip().endswith(
+        "(session_id, revoked_at)"
+    )
+
+
 @_pg_only
 def test_btree_and_graph_indexes_exist():
     """REQ-L3-PL005-001: BTree (parent) and graph (source,target) indexes exist."""

@@ -2080,6 +2080,17 @@ class TraceLink(TenantScopedModel):
             models.Index(
                 fields=["source", "target"], name="idx_tracelink_graph"
             ),
+            # Issue #1411 (R8-08): TraceLinkManager.list() returns
+            # ``order_by("created_at", "id")`` (trace_link_manager.py:305) for
+            # every unfiltered link listing, but the table had no index on the
+            # sort key, so PostgreSQL fell back to a Seq Scan + Hash Join +
+            # top-N heapsort over the whole table — including for a first page
+            # that only needed the oldest few rows. ``id`` is the tiebreaker and
+            # makes the ordering a total order, so it belongs in the index to
+            # let the planner walk it as an index scan instead of sorting.
+            models.Index(
+                fields=["created_at", "id"], name="idx_tracelink_created"
+            ),
             # REQ-L2-VS-004: HNSW approximate-nearest-neighbour index for
             # cosine-distance similarity queries (embedding <=> query_vector).
             HnswIndex(
