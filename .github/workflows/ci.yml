@@ -262,7 +262,12 @@ jobs:
         run: pip install pytest pyyaml
 
       - name: Run pytest for docs/agent-templates and dist
-        run: pytest docs/agent-templates dist
+        # RB-D18: a bare scripts/test_*.py runs in no job by default, so both
+        # contract tests are listed explicitly (P1-3 adds the prompt-regression
+        # one, P1-4 the .gitignore/env one).
+        run: >-
+          pytest docs/agent-templates dist
+          scripts/test_gitignore_env.py
 
   # AUD-2026-09 (integrations stability, #1156): the Hermes agent plugin's
   # capture-queue suite (integrations/hermes-agent-plugin/tests) was fully
@@ -464,3 +469,33 @@ jobs:
 
       - name: Scan full git history (gitleaks git)
         run: gitleaks git . --config .gitleaks.toml --enable-rule reqlo-api-key --redact --exit-code 1
+
+      - name: Scan PR diff for env secrets
+        # Plan D / D2.6 (QR-S03, KA-D-03): third, BLOCKING gate. The two steps
+        # above only know the `reqlo_` key pattern, so a literal
+        # `SECRET_KEY=...` / `AUTH_JWT_SECRET=...` / `*_PASSWORD=...` line
+        # entering a commit stayed invisible. This step enables only the
+        # `env-secret-assignment` rule and scans the PR's diff, so historical
+        # fixtures and placeholder docs never turn it red. Runs on both triggers
+        # (no `if:`); the range below is chosen from the event.
+        env:
+          PR_BASE_REF: ${{ github.base_ref }}
+          PUSH_BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
+            git fetch --no-tags --prune origin \
+              "+refs/heads/${PR_BASE_REF}:refs/remotes/origin/${PR_BASE_REF}"
+            RANGE="origin/${PR_BASE_REF}..HEAD"
+          elif [ -n "${PUSH_BEFORE_SHA}" ] \
+            && [ "${PUSH_BEFORE_SHA}" != "0000000000000000000000000000000000000000" ]; then
+            RANGE="${PUSH_BEFORE_SHA}..HEAD"
+          else
+            # First push of a branch: `before` is the null SHA, so scan HEAD.
+            RANGE="HEAD"
+          fi
+          echo "Scanning ${RANGE} for literal env-secret assignments"
+          gitleaks git . --config .gitleaks.toml \
+            --enable-rule env-secret-assignment \
+            --log-opts="${RANGE}" \
+            --redact --exit-code 1
