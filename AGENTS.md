@@ -755,6 +755,18 @@ Die Knowledge Engine ist aktiviert. Domäne: **internal-docs**.
 
 Hier kannst du eigene, projektspezifische Notizen eintragen. Dieser Bereich wird von `agent-meta` nicht überschrieben!
 
+### Lokale Zusatz-Tools: Serena & RTK
+
+Beide sind **lokal** installiert (`~/.local/bin`), **nicht** im `plugin-catalog.yaml` (Submodul)
+registriert und daher manuell gepflegt. Details: `.opencode/skills/mcp-serena/SKILL.md` und
+`.opencode/skills/tool-rtk/SKILL.md`.
+
+- **Serena** (MCP, `oraios/serena`): symbolgenaue Code-Navigation/-Editierung per LSP.
+  Eingetragen in Repo-`opencode.jsonc` und `.mcp.json`. Erstaufruf `initial_instructions`.
+- **RTK** (`rtk-ai/rtk`, Rust Token Killer): komprimiert Shell-Output vor dem LLM-Kontext.
+  OpenCode-Plugin global `~/.config/opencode/plugins/rtk.ts` (`rtk init -g --opencode`),
+  rewritet Bash-Kommandos transparent. Built-in Tools (Read/Grep/Glob) laufen nicht darüber.
+
 <!-- agent-meta:bootstrap-begin:Gemini -->
 
 ## Agent Bootstrap — Session-Start Pflicht
