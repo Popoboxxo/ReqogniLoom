@@ -269,7 +269,7 @@ services:
   # PostgreSQL — ARCH-L1-010 PersistenceLayer
   # ─────────────────────────────────────────────────────────
   postgres:
-    image: pgvector/pgvector:pg16
+    image: pgvector/pgvector:pg16@sha256:7b822b0aac60967beb1ea5e576b8602c94c300a157d187f385ae3e0da199b90a
     deploy:
       resources:
         limits:
@@ -370,7 +370,7 @@ services:
   #    dump's own status; that is the operator-facing one-shot the runbook gate
   #    calls, so the gate gets a real non-zero exit code.
   postgres-backup:
-    image: pgvector/pgvector:pg16
+    image: pgvector/pgvector:pg16@sha256:7b822b0aac60967beb1ea5e576b8602c94c300a157d187f385ae3e0da199b90a
     restart: unless-stopped
     environment:
       POSTGRES_HOST: postgres
@@ -564,7 +564,7 @@ services:
   # without error. Noeviction fails loudly on OOM, and cgroup limit is doubled
   # (256mb→512M) to give AOF-rewrite headroom and prevent OOM-crash during rewrites.
   redis:
-    image: redis:7-alpine
+    image: redis:7-alpine@sha256:892022f9f18c26c92c30e15194d132f90044af87b94a491a75429bbc3982eab1
     deploy:
       resources:
         limits:
@@ -1196,7 +1196,7 @@ services:
   # alembic migrations), not a casual pull: smoke-test memory read/write after.
   # ═════════════════════════════════════════════════════════
   honcho-postgres:
-    image: pgvector/pgvector:pg16
+    image: pgvector/pgvector:pg16@sha256:7b822b0aac60967beb1ea5e576b8602c94c300a157d187f385ae3e0da199b90a
     profiles: ["honcho"]
     restart: unless-stopped
     environment:
@@ -1212,7 +1212,7 @@ services:
       retries: 10
 
   honcho-redis:
-    image: redis:7-alpine
+    image: redis:7-alpine@sha256:892022f9f18c26c92c30e15194d132f90044af87b94a491a75429bbc3982eab1
     profiles: ["honcho"]
     restart: unless-stopped
     volumes:
@@ -1573,7 +1573,7 @@ services:
   # internal.
   # ═════════════════════════════════════════════════════════
   bluepencil:
-    image: node:22-slim
+    image: node:22-slim@sha256:de170b39439eb0e5a3444ad7d60b015614a381e10fecae2e30ec9e735122f38d
     profiles: ["bluepencil"]
     restart: unless-stopped
     command: node /opt/bluepencil/server.js --store /data/notes.json --port 8787 --host 0.0.0.0 --base /bluepencil/api --environment ${BLUEPENCIL_ENVIRONMENT:-dev}

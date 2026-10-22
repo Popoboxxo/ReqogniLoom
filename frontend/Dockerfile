@@ -1,7 +1,7 @@
 # Frontend Dockerfile — ARCH-L1-001 ReactFrontend
 # ADR-08: Self-Hosted via Docker Compose (no Kubernetes in v1)
 
-FROM node:22.17.0-slim AS base
+FROM node:22.17.0-slim@sha256:b04ce4ae4e95b522112c2e5c52f781471a5cbc3b594527bcddedee9bc48c03a0 AS base
 
 WORKDIR /app
 
@@ -41,15 +41,15 @@ RUN VITE_API_BASE_URL=$VITE_API_BASE_URL \
     npm run build
 
 # Production serve stage (nginx)
-FROM nginx:1.27-alpine AS production
+FROM nginx:1.27-alpine@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10 AS production
 
-# The nginx:1.27-alpine tag is a floating base image: Alpine's rolling apk
-# repo ships security patches (e.g. openssl, c-ares) between the base
-# image's own rebuilds, so a pull can land CRITICAL/HIGH CVEs that are
-# already fixed upstream. Trivy's exit-code:1 gate in docker-publish.yml
-# caught this on 2026-08-30 (35 findings, all with a fixed version
-# available) — patch OS packages at build time so the gate stays green
-# regardless of how stale the upstream base rebuild is.
+# The digest above freezes the base image, but Alpine's rolling apk repo
+# still ships security patches (e.g. openssl, c-ares) between the base
+# image's own rebuilds, so even a pinned base can carry CRITICAL/HIGH CVEs
+# that are already fixed upstream. Trivy's exit-code:1 gate in
+# docker-publish.yml caught this on 2026-08-30 (35 findings, all with a
+# fixed version available) — patch OS packages at build time so the gate
+# stays green regardless of how stale the upstream base rebuild is.
 RUN apk update && apk upgrade --no-cache
 
 # Create non-root user for security
