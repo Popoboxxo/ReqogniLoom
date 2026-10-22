@@ -69,6 +69,24 @@ services:
     # Digest-pinned to the same multi-arch manifest list used in deploy/ so the
     # test stack and the deployed stack run byte-identical images (#1391).
     image: pgvector/pgvector:pg16@sha256:7b822b0aac60967beb1ea5e576b8602c94c300a157d187f385ae3e0da199b90a
+    # Fast-and-loose durability settings, pinned in the container COMMAND so
+    # they are part of the declared configuration instead of runtime state.
+    # They used to exist only as `ALTER SYSTEM` (== $PGDATA/postgresql.auto.conf)
+    # done by hand in a running container, which `make test-down --volumes` or
+    # any other recreate silently threw away — the next run then paid full
+    # fsync/commit durability (TRUNCATE of 106 tables: 3.6 s instead of >300 s).
+    # Command-line `-c` options outrank postgresql.conf AND postgresql.auto.conf,
+    # so they also win over a leftover auto.conf in a reused container.
+    # Test-only and safe here: the cluster is disposable, private to the
+    # `reqogniloom-test` project, and never survives a run (see header).
+    command:
+      - postgres
+      - -c
+      - fsync=off
+      - -c
+      - synchronous_commit=off
+      - -c
+      - full_page_writes=off
     environment:
       POSTGRES_DB: ${DB_NAME:-reqogniloom}
       # Superuser, not DB_APP_USER: pytest-django creates/drops the test
