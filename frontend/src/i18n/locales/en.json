@@ -26,7 +26,9 @@
     "created": "Created",
     "restore": "Restore",
     "restoreCaptchaPrompt": "Type \"{{captcha}}\" to confirm — current data will be overwritten.",
-    "restoreConfirm": "Restore now"
+    "restoreConfirm": "Restore now",
+    "tableCaption": "Backups",
+    "columnActions": "Actions"
   },
   "customFields": {
     "section": "Custom Fields",

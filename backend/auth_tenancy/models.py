@@ -225,7 +225,17 @@ class RefreshToken(TenantScopedModel):
     #: ``jti`` claim of this specific token — the rotation unit.
     jti = models.UUIDField(unique=True, db_index=True)
     #: ``sid`` claim shared by every token rotated out of one login.
-    session_id = models.UUIDField(db_index=True)
+    #:
+    #: Deliberately NOT ``db_index=True`` (issue #1411, R8-07(d)). A standalone
+    #: B-tree on ``session_id`` is a strict prefix of the composite
+    #: ``(session_id, revoked_at)`` index declared in ``Meta.indexes`` below, so
+    #: PostgreSQL can serve ``session_id``-only lookups from the composite's
+    #: leading column. The only query on this column,
+    #: ``auth_revoke_refresh_family`` in migration 0021 (whose predicate is
+    #: ``WHERE session_id = $1 AND revoked_at IS NULL``), is served by the
+    #: composite directly. Keeping both means paying for two index writes and
+    #: two index entries on every insert for zero read benefit.
+    session_id = models.UUIDField(db_index=False)
     #: Mirrors the JWT ``exp``; lets the cleanup command purge dead rows.
     expires_at = models.DateTimeField()
     #: Set when this token was exchanged. A second exchange is reuse.

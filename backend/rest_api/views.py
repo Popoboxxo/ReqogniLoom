@@ -438,6 +438,37 @@ def _with_request_id(body: dict[str, Any]) -> dict[str, Any]:
     return body
 
 
+def _resolve_change_reason(request: Request) -> str:
+    """Resolve the ``change_reason`` of a DELETE request (issue #1407, R3-08).
+
+    The request body stays authoritative; the query string is only a fallback
+    for clients that cannot attach a body to ``DELETE`` (browsers, ``fetch``
+    based clients, proxies that drop DELETE bodies). Both the Requirement and
+    the StakeholderNeed destroy handlers enforce the workspace's
+    change-reason preset policy — without the fallback that gate was simply
+    unreachable for those clients, so an Extended-preset workspace answered
+    400 for a request that did carry a reason.
+
+    The resolved value satisfies that gate only; whether it reaches an audit
+    record is up to the service behind it (``RequirementService`` discards it
+    after the gate, ``StakeholderNeedService`` passes it on in the domain
+    event payload). A reason taken from the query string is visible in access
+    logs, so it must not carry anything sensitive.
+
+    Precedent for query-OR-body on a DELETE: ``memory/memory_rest.py``.
+    Returns ``""`` (never ``None``) so the services' ``if not change_reason``
+    gate keeps behaving exactly as it did with the body-only read. A non-string
+    body value (number, boolean, list) is not a reason and falls through to the
+    query string, keeping the ``-> str`` contract.
+    """
+    body_reason = (
+        request.data.get("change_reason", "") if isinstance(request.data, dict) else ""
+    )
+    if isinstance(body_reason, str) and body_reason:
+        return body_reason
+    return request.query_params.get("change_reason") or ""
+
+
 def _service_error_response(exc: Exception, lang: str = "en") -> Response:
     """Translate an ApplicationService exception into a standardised error Response.
 
@@ -1046,9 +1077,12 @@ class StakeholderNeedViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
 
         TraceLinks pointing at the record survive the delete, and traceability
         coverage ignores outdated records.
+
+        ``change_reason`` is accepted from the request body or from the
+        ``?change_reason=`` query parameter (body wins when both are sent).
         """
         lang = detect_lang(request)
-        change_reason = request.data.get("change_reason", "") if isinstance(request.data, dict) else ""
+        change_reason = _resolve_change_reason(request)
         try:
             self.service.delete(get_auth_context(request), kwargs["pk"], change_reason=change_reason)
             return Response(status=status.HTTP_204_NO_CONTENT)
@@ -1842,9 +1876,12 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         definition answers 400 ``VALIDATION_ERROR`` instead of a 500: the
         soft-delete routes through the workflow engine's ``outdate()``, which
         needs that definition to resolve the states.
+
+        ``change_reason`` is accepted from the request body or from the
+        ``?change_reason=`` query parameter (body wins when both are sent).
         """
         lang = detect_lang(request)
-        change_reason = request.data.get("change_reason", "") if isinstance(request.data, dict) else ""
+        change_reason = _resolve_change_reason(request)
         from workflow.services import WorkflowDefinitionError
 
         try:

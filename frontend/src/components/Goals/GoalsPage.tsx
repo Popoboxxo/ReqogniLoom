@@ -38,7 +38,7 @@
  * archiving are a self-contained flow on a different artifact type.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { extractErrorMessage } from "../../api/client";
 import { fieldErrorsFromException } from "../shared/ArtifactForm/field-errors";
@@ -94,6 +94,20 @@ export default function GoalsPage(): JSX.Element {
   // be mounted beside it. Reported upwards because the inspector is a sibling
   // of the whole detail column, not of the panel card.
   const [activeMainGoal, setActiveMainGoal] = useState<MainGoal | null>(null);
+  /**
+   * Issue #1405 / R1-07: where the CREATE dialog must return focus when it
+   * closes. The header create action carries it directly (its `triggerRef`)
+   * and `openCreateDialog` additionally snapshots the button the user actually
+   * clicked, so the second create path (`GoalsTree onCreateNew`) restores to
+   * its own button instead. See `openCreateDialog`.
+   *
+   * Deliberately create-only: the edit dialog is opened by `handleEdit`, whose
+   * trigger (`goal-edit-button`) stays enabled while the dialog is open, so the
+   * focus trap's own `document.activeElement` snapshot is the truthful owner
+   * there. Handing this ref to the edit dialog would restore focus to the
+   * header CTA instead — the button that did *not* open it (R1-08).
+   */
+  const dialogTriggerRef = useRef<HTMLButtonElement | null>(null);
 
   const loadGoals = useCallback(async (): Promise<void> => {
     if (!workspaceId) return;
@@ -164,6 +178,14 @@ export default function GoalsPage(): JSX.Element {
   }, []);
 
   const openCreateDialog = useCallback((): void => {
+    // #1405: snapshot the trigger that opened the dialog while it can still
+    // hold focus (the tree's own create button has no declared ref). The
+    // header CTA additionally carries `dialogTriggerRef` directly, so a click
+    // that did not focus a button must keep that declared value instead of
+    // replacing it with `null`.
+    if (document.activeElement instanceof HTMLButtonElement) {
+      dialogTriggerRef.current = document.activeElement;
+    }
     setError(null);
     setFormFieldErrors({});
     setForm({ editing: null });
@@ -375,6 +397,12 @@ export default function GoalsPage(): JSX.Element {
           onClick: openCreateDialog,
           disabled: Boolean(form),
           testId: "create-goal-btn",
+          // #1405: also carry the ref on the button itself. The
+          // `document.activeElement` capture in `openCreateDialog` only has
+          // the trigger while the click actually focused it — Safari does not
+          // focus a button on click — so the declared ref is what makes the
+          // restore reliable there (same shape as `ArchitectureEditors`).
+          triggerRef: dialogTriggerRef,
         }}
         // #797: the guided-interview start is a second *create path*, not a
         // variant of the primary one — as a visible secondary button it made
@@ -407,6 +435,16 @@ export default function GoalsPage(): JSX.Element {
           error={error}
           fieldErrors={formFieldErrors}
           isSubmitting={isSubmitting}
+          // R1-08: create and edit have different focus owners. On create the
+          // header CTA blurs itself the moment the dialog mounts (it is
+          // `disabled={Boolean(form)}`), so only this declared ref can restore
+          // focus to it — and `openCreateDialog` has filled in whichever button
+          // actually started the flow. On edit the trigger is the *enabled*
+          // `goal-edit-button` in the detail pane, which the focus trap still
+          // sees as `document.activeElement`; passing the ref here would send
+          // focus back to the header CTA instead of the button that opened the
+          // dialog, so the trap's own snapshot must win (`undefined`).
+          triggerRef={form.editing ? undefined : dialogTriggerRef}
           onSubmit={(values) => void handleSubmit(values)}
           onClose={closeFormDialog}
         />

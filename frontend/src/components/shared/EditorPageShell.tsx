@@ -37,8 +37,9 @@
  *     `<p role="alert" className={styles.createError}>` from their own CSS
  *     modules; to keep the rendered DOM byte-identical the class has to be
  *     passed in rather than hardcoded here.
- *   - `triggerRef` was DROPPED. Only `ArchitectureEditors` passes one, and that
- *     dialog is not a shell consumer (see below), so nothing uses it.
+ *   - `triggerRef` was DROPPED. The two non-shell consumers that pass one
+ *     (`ArchitectureEditors` and `GoalsPage`) render their dialogs outside this
+ *     shell (see below), so nothing here uses it.
  *   - `errorTestId` was DROPPED. None of the four consumers set a test id on the
  *     error paragraph; adding an unused prop would be dead API.
  *
