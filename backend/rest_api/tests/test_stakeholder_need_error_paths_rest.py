@@ -260,6 +260,34 @@ def test_destroy_with_change_reason_returns_204() -> None:
     assert resp.status_code == 204, resp.content
 
 
+def test_destroy_accepts_change_reason_from_the_query_string() -> None:
+    """#1407 / R3-08: the query string is an accepted fallback for the reason.
+
+    The Extended preset requires a change_reason on delete. Reading it from the
+    request body only made that gate unreachable for clients that cannot attach
+    a body to DELETE — they got 400 even when they did carry a reason.
+    """
+    _, user, workspace = _scenario()
+    client = _client(user)
+    need = _need(client, workspace)
+    _initialize_workflow(client, workspace)
+
+    resp = client.delete(f"/api/v1/needs/{need['id']}/?change_reason=query-only")
+    assert resp.status_code == 204, resp.content
+
+
+def test_destroy_without_any_change_reason_still_returns_400() -> None:
+    """The Extended-preset gate itself is unchanged: no reason anywhere -> 400."""
+    _, user, workspace = _scenario()
+    client = _client(user)
+    need = _need(client, workspace)
+    _initialize_workflow(client, workspace)
+
+    resp = client.delete(f"/api/v1/needs/{need['id']}/")
+    assert resp.status_code == 400, resp.content
+    assert resp.json()["error"]["code"] == "VALIDATION_ERROR"
+
+
 def test_destroy_service_failure_returns_500() -> None:
     _, user, workspace = _scenario()
     client = _client(user)

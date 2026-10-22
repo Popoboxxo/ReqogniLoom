@@ -117,6 +117,74 @@ def test_delete_returns_204_and_detail_get_still_resolves_as_outdated(
     assert detail.json()["status"] == "outdated"
 
 
+def test_delete_accepts_change_reason_from_the_query_string(authed_client, workspace):
+    """#1407 / R3-08: query fallback for clients that cannot send a DELETE body.
+
+    ``workspace`` runs the Extended preset, whose change-reason policy answers
+    400 when no reason arrives — so this 204 can only come from the query
+    string being read. The body-based cases in this module stay the primary
+    contract and must keep working.
+    """
+    req = _create_requirement(authed_client, workspace, "Query reason delete")
+
+    delete = authed_client.delete(
+        f"/api/v1/requirements/{req['id']}/?change_reason=query-only"
+    )
+    assert delete.status_code == 204, delete.content
+
+    detail = authed_client.get(f"/api/v1/requirements/{req['id']}/")
+    assert detail.status_code == 200, detail.content
+    assert detail.json()["status"] == "outdated"
+
+
+def test_change_reason_body_is_authoritative_over_the_query_string() -> None:
+    """Precedence is pinned directly on the resolver (#1407 / R3-08).
+
+    The change is a *fallback*: a body-based reason must keep winning, so the
+    existing body-only behaviour is preserved byte for byte. Asserted on the
+    view-level resolver because that is the only place both candidates meet —
+    the resolved value then satisfies the service's change-reason gate;
+    whether it reaches an audit record is up to the individual service
+    (``RequirementService`` discards it after the gate).
+    """
+    from rest_framework.parsers import JSONParser
+    from rest_framework.request import Request as DRFRequest
+    from rest_framework.test import APIRequestFactory
+
+    from rest_api.views import _resolve_change_reason
+
+    factory = APIRequestFactory()
+    parsers = [JSONParser()]
+
+    both = factory.delete(
+        "/api/v1/requirements/x/?change_reason=from-query",
+        {"change_reason": "from-body"},
+        format="json",
+    )
+    assert _resolve_change_reason(DRFRequest(both, parsers=parsers)) == "from-body"
+
+    query_only = factory.delete("/api/v1/requirements/x/?change_reason=from-query")
+    assert _resolve_change_reason(DRFRequest(query_only, parsers=parsers)) == "from-query"
+
+    neither = factory.delete("/api/v1/requirements/x/")
+    assert _resolve_change_reason(DRFRequest(neither, parsers=parsers)) == ""
+
+    # A JSON body can carry any type. A non-string is not a reason, so it must
+    # not escape the resolver's ``-> str`` contract — and must not shadow the
+    # query-string fallback either.
+    non_string = factory.delete(
+        "/api/v1/requirements/x/?change_reason=from-query",
+        {"change_reason": 123},
+        format="json",
+    )
+    assert _resolve_change_reason(DRFRequest(non_string, parsers=parsers)) == "from-query"
+
+    non_string_only = factory.delete(
+        "/api/v1/requirements/x/", {"change_reason": [1, 2]}, format="json"
+    )
+    assert _resolve_change_reason(DRFRequest(non_string_only, parsers=parsers)) == ""
+
+
 def test_unknown_requirement_id_still_404s(authed_client):
     """404 must keep meaning "no such record" — otherwise the 200 above is
     just noise and a client still cannot tell the two cases apart."""
@@ -228,7 +296,13 @@ def test_trace_links_survive_a_requirement_soft_delete(
     )
     assert link.status_code == 201, link.content
 
-    authed_client.delete(f"/api/v1/requirements/{target['id']}/")
+    delete = authed_client.delete(
+        f"/api/v1/requirements/{target['id']}/?change_reason=trace-link-survival"
+    )
+    # The ``workspace`` fixture runs the Extended preset, so a DELETE without a
+    # reason answers 400 and soft-deletes nothing — the survival assertion
+    # below would then hold for the wrong reason.
+    assert delete.status_code == 204, delete.content
 
     set_request_tenant(tenant.id)
     try:
