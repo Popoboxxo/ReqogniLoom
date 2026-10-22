@@ -1125,6 +1125,89 @@ def _process_one(pk: Any, bus: DomainEventBus) -> int:
     return 0
 
 
+#: Process-local observation of the last poll cycle, as
+#: ``(processed, backlog, dlq_count)``; ``None`` until the first cycle (#1389).
+_last_poll_observation: tuple[int, int, int] | None = None
+
+#: Guards :data:`_last_poll_observation`.
+_poll_observation_lock = threading.Lock()
+
+
+def _reset_poll_observation_state() -> None:
+    """Forget the last poll observation (test helper, #1389).
+
+    The next :func:`poll_and_dispatch` call then behaves like the first cycle
+    of a process and reports its observation at INFO level again.
+    """
+    global _last_poll_observation
+    with _poll_observation_lock:
+        _last_poll_observation = None
+
+
+def _log_poll_observation(processed: int, backlog: int, dlq_count: int) -> None:
+    """Report one poll cycle's observation — at INFO only when it changed (#1389).
+
+    REQ-069 wants the outbox backlog and the DLQ size observable. Emitting all
+    three facts unconditionally on every cycle does not deliver that: at the 5 s
+    beat interval it is 17,280 cycles/day, i.e. 51,840 lines/day of identical
+    INFO text, and the signal (a *growing* backlog) drowns in it. The poller is
+    idle most of the time, and an idle cycle has nothing new to say.
+
+    So the three facts are compared against the previous cycle of THIS process
+    and reported only when the tuple changes — the first cycle (no previous
+    observation), any backlog/DLQ/dispatch movement, and a return to idle after
+    activity. A changed cycle emits the THREE ORIGINAL INFO lines verbatim
+    (``DomainEventBus: dispatched …``, ``… outbox backlog is …``, ``…
+    dead-letter queue holds …``) so every existing prefixed grep keeps matching.
+    An unchanged cycle emits one DEBUG line, so ``--log-level=DEBUG`` still
+    shows every cycle.
+
+    "Silent when unchanged" is a change-only *log*, not a visibility gap: the
+    poller also writes the cache-backed queue gauges on every cycle
+    (``event_bus_metrics.record_queue_depths``) and ``/health/ready`` publishes
+    them as ``outbox_pending`` / ``outbox_dlq``, so a stable non-drained backlog
+    stays observable without a single extra INFO line.
+
+    Process-local on purpose: the counters in
+    :mod:`application.event_bus_metrics` are cache-backed and shared between
+    processes, and "did this cycle differ from the previous one?" is a question
+    only the process that ran both cycles can answer.
+
+    Beat does NOT guarantee a single worker: it enqueues one message per tick,
+    so overlapping runs are possible and safe — the claim path
+    (``SELECT … FOR UPDATE SKIP LOCKED`` + ``claimed_at``) already serialises
+    them per row. A change is therefore reported once per process that observes
+    it, which may be more than once per change across a multi-worker fleet.
+    This function's INFO output is also not the only line a cycle can add:
+    :func:`application.tasks.dispatch_outbox_events` logs its own INFO line when
+    ``processed`` is non-zero, so "one line per change" holds per function, not
+    per request.
+    """
+    global _last_poll_observation
+
+    observation = (processed, backlog, dlq_count)
+    with _poll_observation_lock:
+        changed = observation != _last_poll_observation
+        _last_poll_observation = observation
+
+    if not changed:
+        logger.debug(
+            "DomainEventBus: poll cycle unchanged — dispatched %d event(s) "
+            "this cycle; outbox backlog is %d pending event(s); dead-letter "
+            "queue holds %d event(s)",
+            processed,
+            backlog,
+            dlq_count,
+        )
+        return
+
+    # The three original lines, verbatim: existing greps on the individual
+    # prefixes kept working across the change-only fix.
+    logger.info("DomainEventBus: dispatched %d event(s) this cycle", processed)
+    logger.info("DomainEventBus: outbox backlog is %d pending event(s)", backlog)
+    logger.info("DomainEventBus: dead-letter queue holds %d event(s)", dlq_count)
+
+
 def poll_and_dispatch(batch_size: int = POLL_BATCH_SIZE) -> int:
     """Fetch unpublished events from the outbox and dispatch them.
 
@@ -1159,6 +1242,17 @@ def poll_and_dispatch(batch_size: int = POLL_BATCH_SIZE) -> int:
     ``_worker_backlog``. The in-loop NULL guard below is kept as a defensive
     backstop should a candidate ever arrive without a tenant.
 
+    Monitoring (REQ-069, issue #1389): each cycle reads the backlog, the DLQ
+    size and the orphan count. The orphan count is a WARNING (it needs operator
+    attention). Throughput/backlog/DLQ are reported at INFO only when they
+    differ from the previous cycle of this process; an unchanged cycle — the
+    idle steady state — is DEBUG only, so the 5 s schedule does not flood the
+    log with identical lines. Because that makes a *stable* backlog silent, the
+    same numbers are written to the cache-backed queue gauges every cycle
+    (``event_bus_metrics.record_queue_depths``) and exposed by ``/health/ready``
+    as ``outbox_pending`` / ``outbox_dlq`` — the always-visible outlet that
+    needs no log line.
+
     Returns:
         Number of events processed in this poll cycle.
     """
@@ -1188,7 +1282,15 @@ def poll_and_dispatch(batch_size: int = POLL_BATCH_SIZE) -> int:
 
     # Outbox monitoring (REQ-069): surface dispatch throughput and backlog so a
     # growing outbox or DLQ is observable without querying the DB manually.
+    # Change-only (issue #1389): an idle cycle repeats the previous observation
+    # verbatim and is therefore logged at DEBUG, not INFO — see
+    # _log_poll_observation for why the unconditional three-line report flooded
+    # the log at the 5 s beat interval.
     backlog, dlq_count, orphan_count = _worker_backlog()
+    # Always-visible outlet (issue #1389): the gauge is refreshed every cycle,
+    # before the change comparison, so it is live even when the change-only log
+    # is silent. Fail-open — a cache outage only costs the gauge.
+    event_bus_metrics.record_queue_depths(backlog, dlq_count)
     if orphan_count:
         logger.warning(
             "DomainEventBus: %d orphaned outbox event(s) have no tenant_id and "
@@ -1196,9 +1298,7 @@ def poll_and_dispatch(batch_size: int = POLL_BATCH_SIZE) -> int:
             "inspect them (O-2: never deleted)",
             orphan_count,
         )
-    logger.info("DomainEventBus: dispatched %d event(s) this cycle", processed)
-    logger.info("DomainEventBus: outbox backlog is %d pending event(s)", backlog)
-    logger.info("DomainEventBus: dead-letter queue holds %d event(s)", dlq_count)
+    _log_poll_observation(processed, backlog, dlq_count)
 
     return processed
 

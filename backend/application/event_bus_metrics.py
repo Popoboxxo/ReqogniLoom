@@ -56,12 +56,18 @@ A cache backend cannot list keys, so the per-type breakdown needs a registry
 of the event types seen so far — mirroring ``memory.metrics``'s
 ``SOURCE_REGISTRY_KEY``.
 
-Beside the shared counters this module keeps a small amount of
+Beside the counters this module keeps a small amount of
 **process-local** state: the "have I already warned about this?" latch that
 throttles the bus' warning flood, plus the per-run tally the process-exit
 summary reports. Both are deliberately *not* derived from the cache counter:
 the cache is shared between processes and outlives a restart, so "is this the
 first unbound publish in THIS process?" cannot be answered from it.
+
+It also owns the two queue-depth GAUGES (``outbox:queue:backlog`` and
+``outbox:queue:dlq``, #1389). They are written by every poll cycle and read by
+``/health/ready``, which gives a constant or stuck backlog an always-visible
+outlet even though the poll log is change-only. See
+:func:`record_queue_depths` / :func:`queue_depths`.
 
 The metric is intentionally named ``outbox_unbound_publish_count`` and
 exposed as JSON and as an advisory entry of the readiness payload: a future
@@ -91,6 +97,19 @@ TYPE_REGISTRY_KEY = "outbox:unbound_publish:types"
 #: Label used when a caller passes no event type (defensive; should not happen).
 UNKNOWN_EVENT_TYPE = "unknown"
 
+#: Cache key of the outbox backlog gauge (unpublished, undelivered events).
+OUTBOX_BACKLOG_KEY = "outbox:queue:backlog"
+
+#: Cache key of the dead-letter-queue depth gauge.
+OUTBOX_DLQ_KEY = "outbox:queue:dlq"
+
+#: TTL of the queue-depth gauges, in seconds (#1389). The poller refreshes
+#: them every beat tick (~5 s), so a stopped poller's values expire within
+#: this window and the readiness payload reports ``unknown`` instead of a
+#: stale number. Deliberately short: a gauge is a *current* value, not a
+#: measurement from an arbitrary point in the past.
+QUEUE_GAUGE_TTL_SECONDS = 120
+
 #: Default decay window of the counters, in seconds (24 h). Overridden by
 #: ``settings.OUTBOX_UNBOUND_COUNTER_TTL``; ``0`` means "no decay".
 DEFAULT_UNBOUND_COUNTER_TTL_SECONDS = 24 * 60 * 60
@@ -101,6 +120,12 @@ _process_lock = threading.Lock()
 #: Whether this process already reported the first unbound publish. Process
 #: local on purpose — see the module docstring.
 _first_report_done = False
+
+#: Whether this process already reported the first queue-gauge write failure.
+#: Process local on purpose: the poller refreshes the gauges every beat tick
+#: (~5 s), so a cache outage would otherwise emit one WARNING per cycle — the
+#: very log flood #1389 removes. Only the first failure speaks at WARNING.
+_gauge_error_reported = False
 
 #: Unbound publishes seen in THIS process, by event type.
 _run_counts: dict[str, int] = {}
@@ -280,6 +305,75 @@ def reset_unbound_publish_counters() -> None:
         )
 
 
+def record_queue_depths(backlog: int, dlq_count: int) -> None:
+    """Publish the current outbox/DLQ depths as cache-backed gauges (#1389).
+
+    The poll cycle reports its observation in the log only when it *changes*
+    (see ``application.event_bus._log_poll_observation``), so a constant or
+    stuck backlog would otherwise be invisible after the first cycle. These
+    gauges are the always-visible outlet: the poller writes them every cycle
+    and the readiness payload reads them from the cache — no extra DB query
+    per health check.
+
+    Fail-open, mirroring the rest of this module: a cache outage is logged and
+    otherwise ignored, because an observability aid must never break the poller
+    it observes.
+
+    The outage is reported at WARNING only ONCE per process; every later
+    failure drops to DEBUG. The poller calls this on every beat tick (~5 s), so
+    an unconditional WARNING would write ~17k warning lines a day with a
+    traceback each — a gauge must never flood the log it exists to protect.
+    Nothing is lost by throttling: the readiness ``cache`` required check
+    already signals the outage, and :func:`queue_depths` keeps returning
+    ``(None, None)`` (unknown, not a fake zero) throughout.
+    """
+    global _gauge_error_reported
+    try:
+        cache.set(
+            OUTBOX_BACKLOG_KEY, int(backlog), timeout=QUEUE_GAUGE_TTL_SECONDS
+        )
+        cache.set(OUTBOX_DLQ_KEY, int(dlq_count), timeout=QUEUE_GAUGE_TTL_SECONDS)
+    except Exception:  # noqa: BLE001 - a gauge must never break the poll cycle
+        with _process_lock:
+            first_failure = not _gauge_error_reported
+            _gauge_error_reported = True
+        message = (
+            "application.event_bus_metrics: could not record the queue-depth "
+            "gauges (further failures in this process log at DEBUG)"
+        )
+        if first_failure:
+            logger.warning(message, exc_info=True)
+        else:
+            logger.debug(message, exc_info=True)
+
+
+def queue_depths() -> tuple[int | None, int | None]:
+    """Return ``(outbox_backlog, dlq_depth)`` from the cache gauges (#1389).
+
+    ``None`` means "no trustworthy value": the gauge was never written (the
+    poller has not run since the cache was cleared), it expired (the poller
+    stopped — see ``QUEUE_GAUGE_TTL_SECONDS``), or the cache is unreachable.
+    Callers must render that as unknown rather than as zero, because "0" is a
+    real, healthy observation.
+
+    Never raises: a cache error yields ``(None, None)``.
+    """
+    try:
+        backlog = cache.get(OUTBOX_BACKLOG_KEY)
+        dlq_count = cache.get(OUTBOX_DLQ_KEY)
+        return (
+            None if backlog is None else int(backlog),
+            None if dlq_count is None else int(dlq_count),
+        )
+    except Exception:  # noqa: BLE001 - the health path must never crash
+        logger.debug(
+            "application.event_bus_metrics: could not read the queue-depth "
+            "gauges",
+            exc_info=True,
+        )
+        return None, None
+
+
 def mark_unbound_publish_reported() -> bool:
     """Return ``True`` exactly once per process, until the state is reset.
 
@@ -311,13 +405,15 @@ def unbound_publish_run_counts_by_type() -> dict[str, int]:
 def reset_unbound_publish_state(*, clear_counters: bool = False) -> None:
     """Clear the process-local throttle state (test helper).
 
-    Resets the "already reported" latch and this process' own tally, so a
-    test can assert the first-warning behaviour deterministically. The shared
-    cache counters are left alone unless *clear_counters* is set.
+    Resets the "already reported" lattices — the unbound-publish warning latch
+    and the queue-gauge failure latch — plus this process' own tally, so a test
+    can assert the first-warning behaviour deterministically. The shared cache
+    counters are left alone unless *clear_counters* is set.
     """
-    global _first_report_done, _run_total
+    global _first_report_done, _gauge_error_reported, _run_total
     with _process_lock:
         _first_report_done = False
+        _gauge_error_reported = False
         _run_total = 0
         _run_counts.clear()
     if clear_counters:
@@ -326,6 +422,9 @@ def reset_unbound_publish_state(*, clear_counters: bool = False) -> None:
 
 __all__ = [
     "DEFAULT_UNBOUND_COUNTER_TTL_SECONDS",
+    "OUTBOX_BACKLOG_KEY",
+    "OUTBOX_DLQ_KEY",
+    "QUEUE_GAUGE_TTL_SECONDS",
     "TOTAL_KEY",
     "TYPE_KEY_PREFIX",
     "TYPE_REGISTRY_KEY",
@@ -333,6 +432,8 @@ __all__ = [
     "counter_window_seconds",
     "increment_unbound_publish",
     "mark_unbound_publish_reported",
+    "queue_depths",
+    "record_queue_depths",
     "reset_unbound_publish_counters",
     "reset_unbound_publish_state",
     "unbound_publish_count",
