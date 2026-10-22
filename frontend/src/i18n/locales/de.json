@@ -26,7 +26,9 @@
     "created": "Erstellt",
     "restore": "Wiederherstellen",
     "restoreCaptchaPrompt": "\"{{captcha}}\" eingeben, um zu bestätigen — die aktuellen Daten werden überschrieben.",
-    "restoreConfirm": "Jetzt wiederherstellen"
+    "restoreConfirm": "Jetzt wiederherstellen",
+    "tableCaption": "Sicherungen",
+    "columnActions": "Aktionen"
   },
   "customFields": {
     "section": "Benutzerdefinierte Felder",

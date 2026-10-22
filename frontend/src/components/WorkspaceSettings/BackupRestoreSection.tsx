@@ -210,14 +210,31 @@ export function BackupRestoreSection(): JSX.Element {
         </p>
       ) : (
         <table data-testid="backups-table" className={styles.table}>
+          <caption className={styles.visuallyHidden}>
+            {t("adminOps.tableCaption")}
+          </caption>
           <thead>
             <tr>
-              <th className={styles.th}>{t("adminOps.id", "ID")}</th>
-              <th className={styles.th}>{t("adminOps.type", "Type")}</th>
-              <th className={styles.th}>{t("adminOps.status", "Status")}</th>
-              <th className={styles.th}>{t("adminOps.size", "Size")}</th>
-              <th className={styles.th}>{t("adminOps.created", "Created")}</th>
-              <th className={styles.th} />
+              <th scope="col" className={styles.th}>
+                {t("adminOps.id", "ID")}
+              </th>
+              <th scope="col" className={styles.th}>
+                {t("adminOps.type", "Type")}
+              </th>
+              <th scope="col" className={styles.th}>
+                {t("adminOps.status", "Status")}
+              </th>
+              <th scope="col" className={styles.th}>
+                {t("adminOps.size", "Size")}
+              </th>
+              <th scope="col" className={styles.th}>
+                {t("adminOps.created", "Created")}
+              </th>
+              <th scope="col" className={styles.th}>
+                <span className={styles.visuallyHidden}>
+                  {t("adminOps.columnActions")}
+                </span>
+              </th>
             </tr>
           </thead>
           <tbody>
