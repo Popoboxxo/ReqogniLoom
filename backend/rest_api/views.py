@@ -6681,6 +6681,9 @@ class WorkspaceViewSet(BaseEntityViewSet):
 
     serializer_class = WorkspaceSerializer
     preset_endpoint_key = ""  # Workspaces are always visible
+    # E1.2: a workspace-scoped API key's ``list`` is filtered to the workspaces
+    # it may see instead of being denied (it names no target workspace).
+    api_key_fence_mode = "filter"
 
     def _svc(self) -> WorkspaceService:
         return WorkspaceService()

@@ -99,15 +99,23 @@ from .workspace_scope import (
 logger = logging.getLogger(__name__)
 
 __all__ = [
+    "API_KEY_FENCE_FILTER",
+    "API_KEY_NO_OWNER_ROLE_IN_FENCE_DENIAL",
+    "API_KEY_NO_OWNER_ROLE_IN_WORKSPACE_DENIAL",
     "UNCLASSIFIED_DENIAL",
     "WORKSPACE_MEMBERSHIP_DENIAL",
     "WORKSPACE_TARGET_MISMATCH_DENIAL",
     "WORKSPACE_UNRESOLVABLE_DENIAL",
     "ResourceClassification",
     "ResourceScope",
+    "api_key_fence_precheck",
     "classify_class_name",
     "classify_view",
     "enforce_request_scope",
+    "fenced_collection_roles",
+    "fenced_rbac_denial",
+    "fenced_visible_workspace_ids",
+    "is_fence_filtered_list",
     "resolve_object_workspace_id",
     "resolve_target_workspace_id",
     "scope_enforcement_enabled",
@@ -174,6 +182,27 @@ WORKSPACE_TARGET_MISMATCH_DENIAL = (
     "Access denied: the workspace named in the URL/query does not match the "
     "workspace named in the request body. A create must name one consistent "
     "target workspace (ADR-013)."
+)
+
+#: View attribute selecting the *filtered* fence mode for a collection ``list``
+#: (E1.2/E1.3): instead of denying a fenced key's workspace-less list, the view
+#: filters its result to :func:`fenced_visible_workspace_ids`.
+API_KEY_FENCE_FILTER = "filter"
+
+#: RBAC denial for a fenced key whose owner holds no active role in the
+#: workspace the call targets. Names the fence as the cause instead of the
+#: generic "no active role permits ..." text.
+API_KEY_NO_OWNER_ROLE_IN_WORKSPACE_DENIAL = (
+    "RBAC denied: the API key owner holds no active role in workspace "
+    "{workspace_id} (the key is workspace-scoped)."
+)
+
+#: RBAC denial for a fenced key whose owner holds no active role in *any*
+#: workspace of the key's fence — the filtered list would otherwise be empty
+#: for a reason the caller cannot see.
+API_KEY_NO_OWNER_ROLE_IN_FENCE_DENIAL = (
+    "RBAC denied: the API key owner holds no active role in any workspace of "
+    "this key's scope."
 )
 
 
@@ -696,6 +725,176 @@ def workspace_fence_denial(
     )
 
 
+def _fence_workspace_uuids(auth_context: AuthContext) -> tuple[UUID, ...]:
+    """Return the key's fence as UUIDs, dropping malformed entries.
+
+    ``ApiKey.workspace_ids`` is validated on write, so a malformed entry can
+    only come from a drifted row; dropping it keeps the fence fail-closed
+    (the workspace is simply not visible) instead of raising inside a
+    permission check.
+    """
+    parsed: list[UUID] = []
+    for value in getattr(auth_context, "api_key_workspace_ids", ()) or ():
+        try:
+            parsed.append(UUID(str(value)))
+        except (TypeError, ValueError):
+            logger.warning(
+                "Ignoring malformed API-key fence workspace id %r for user=%s",
+                value,
+                auth_context.user_id,
+            )
+    return tuple(parsed)
+
+
+def fenced_visible_workspace_ids(auth_context: AuthContext) -> tuple[UUID, ...]:
+    """Return the workspaces a fenced key may see, in fence order.
+
+    Intersection of three sets (E1.1):
+
+    1. ``auth_context.api_key_workspace_ids`` — the key's own fence;
+    2. the workspaces of the caller's tenant (the tenant-scoped default manager
+       drops foreign UUIDs, so a fence entry can never leak a foreign
+       workspace);
+    3. the workspaces where the key **owner** holds a non-suspended role
+       (one ``UserRole`` query over the fence). A tenant-admin owner is
+       elevated exactly like :func:`_has_workspace_authority`: the role
+       condition drops, so every in-tenant fence workspace stays visible.
+
+    Only valid for a fenced key: an unfenced context has no fence to intersect
+    and would silently return an empty tuple, which a caller could mistake for
+    "sees nothing". The assertion makes that programming error loud.
+    """
+    raw = tuple(getattr(auth_context, "api_key_workspace_ids", ()) or ())
+    assert raw, (
+        "fenced_visible_workspace_ids() requires a fenced API-key context "
+        "(api_key_workspace_ids is empty)"
+    )
+
+    allowed = _fence_workspace_uuids(auth_context)
+    if not allowed:
+        return ()
+
+    from persistence.models import Workspace  # local import avoids circular dep
+
+    tenant_workspace_ids = set(
+        Workspace.objects.filter(id__in=allowed).values_list("id", flat=True)
+    )
+    if not tenant_workspace_ids:
+        return ()
+    if _is_tenant_admin(auth_context):
+        return tuple(ws for ws in allowed if ws in tenant_workspace_ids)
+
+    from .models import UserRole
+
+    member_workspace_ids = set(
+        UserRole.objects.filter(
+            user_id=auth_context.user_id,
+            workspace_id__in=tenant_workspace_ids,
+            suspended_at__isnull=True,
+        ).values_list("workspace_id", flat=True)
+    )
+    return tuple(ws for ws in allowed if ws in member_workspace_ids)
+
+
+def fenced_collection_roles(auth_context: AuthContext) -> tuple[str, ...]:
+    """Return the union of the key owner's roles over the visible fence set.
+
+    Used by the filtered ``list`` path (E1.2) instead of
+    ``auth_context.active_roles``: a workspace-less request builds the context
+    with ``active_roles=()`` for a fenced key (see
+    ``TenantContextService.build_auth_context``), so the collection's RBAC
+    decision must be derived from the workspaces the key may actually see.
+
+    A tenant-admin owner with no workspace-level role keeps the documented
+    elevation and is treated as ``admin`` — otherwise the visible set from
+    :func:`fenced_visible_workspace_ids` would be non-empty while every list
+    was denied.
+    """
+    visible = fenced_visible_workspace_ids(auth_context)
+    if not visible:
+        return ()
+
+    from .models import ROLE_ADMIN, UserRole
+
+    roles = set(
+        UserRole.objects.filter(
+            user_id=auth_context.user_id,
+            workspace_id__in=visible,
+            suspended_at__isnull=True,
+        ).values_list("role", flat=True)
+    )
+    if not roles and _is_tenant_admin(auth_context):
+        roles.add(ROLE_ADMIN)
+    return tuple(sorted(roles))
+
+
+def is_fence_filtered_list(view: Any) -> bool:
+    """Return whether *view* filters a fenced key's collection list.
+
+    Only an explicit ``api_key_fence_mode = API_KEY_FENCE_FILTER`` on a real
+    ``list`` action opts in. Every other action keeps the fail-closed fence
+    denial.
+    """
+    return (
+        getattr(view, "api_key_fence_mode", None) == API_KEY_FENCE_FILTER
+        and getattr(view, "action", None) == "list"
+    )
+
+
+def api_key_fence_precheck(
+    request: Any, view: Any, auth_context: AuthContext
+) -> str | None:
+    """Run the API-key workspace fence *before* the RBAC matrix.
+
+    Returns ``None`` when the call may proceed, else the fence denial text.
+    Unfenced keys and the documented rollback switch are untouched. A filtered
+    list is allowed through: it cannot name a target workspace, and its result
+    is narrowed by the service instead (``WorkspaceService.list_workspaces``).
+    """
+    if not getattr(auth_context, "api_key_workspace_ids", ()):
+        return None
+    if not _api_key_fence_enabled():
+        return None
+    if is_fence_filtered_list(view):
+        return None
+    return workspace_fence_denial(
+        auth_context.api_key_workspace_ids,
+        resolve_target_workspace_id(request, view),
+    )
+
+
+def fenced_rbac_denial(
+    request: Any,
+    view: Any,
+    auth_context: AuthContext,
+    decision_reason: str,
+) -> str:
+    """Return the RBAC denial text for a fenced key, naming the real cause.
+
+    The generic ``"RBAC denied: no active role permits ..."`` is misleading
+    for a workspace-scoped key: an empty role set usually means the key owner
+    holds no role in the target workspace (or in the whole fence), not that
+    the operation is unsupported. Both the target-workspace and the
+    whole-fence case get their own text; everything else keeps the generic
+    wording.
+    """
+    if is_fence_filtered_list(view):
+        return API_KEY_NO_OWNER_ROLE_IN_FENCE_DENIAL
+
+    target_workspace_id = resolve_target_workspace_id(request, view)
+    if target_workspace_id is None:
+        target_workspace_id = getattr(auth_context, "workspace_id", None)
+    if (
+        target_workspace_id is not None
+        and _workspace_in_active_tenant(target_workspace_id)
+        and not _has_active_role_in_workspace(auth_context, target_workspace_id)
+    ):
+        return API_KEY_NO_OWNER_ROLE_IN_WORKSPACE_DENIAL.format(
+            workspace_id=target_workspace_id
+        )
+    return f"RBAC denied: {decision_reason}"
+
+
 # ---------------------------------------------------------------------------
 # Enforcement seam
 # ---------------------------------------------------------------------------
@@ -886,7 +1085,10 @@ def enforce_request_scope(
     Two independent gates, in order:
 
     1. **API-key workspace fence** (SEC-03) — active for any key carrying a
-       non-empty ``workspace_ids``; unaffected for unfenced keys.
+       non-empty ``workspace_ids``; unaffected for unfenced keys. A collection
+       ``list`` that opted into ``API_KEY_FENCE_FILTER`` (E1.2) is exempt here:
+       it names no target workspace and the service narrows its result to
+       :func:`fenced_visible_workspace_ids` instead.
     2. **Resource-scope default-deny** (SEC-02/ADR-013) — only when
        ``AUTHZ_WORKSPACE_SCOPE_ENFORCED`` is on. Unclassified view classes are
        denied; workspace-scoped *object* routes are denied when the object
@@ -914,7 +1116,9 @@ def enforce_request_scope(
         request, view, classification
     )
 
-    if fence_applies:
+    if fence_applies and not is_fence_filtered_list(view):
+        # E1.2: an opted-in collection list is filtered by the service instead
+        # of denied here — it names no single target workspace.
         fence_denial = workspace_fence_denial(
             auth_context.api_key_workspace_ids,
             target_workspace_id,
