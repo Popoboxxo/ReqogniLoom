@@ -14,6 +14,12 @@ Index §e rule 4). At the time of writing the predecessor of
 ``0117_entity_workspace_fk_backfill`` is ``0116_index_hygiene_1411`` — the index
 table's expected 0116 was already taken on ``main``, so the whole G1.3 pair
 shifted by one (rule 1).
+
+The invariant is a *partial* ``UniqueConstraint``, and Django emits such a
+constraint as ``CREATE UNIQUE INDEX … WHERE …`` (schema editor
+``_create_unique_sql`` picks ``sql_create_unique_index`` whenever ``condition``
+is set). The objects therefore live in ``pg_indexes`` and can never appear in
+``pg_constraint`` — the catalog assertions below read ``pg_indexes``.
 """
 
 from __future__ import annotations
@@ -100,6 +106,50 @@ def _build(tenant, workspace, model_name: str, uid: str):
 
 
 _MODELS = ("TestCase", "ArchitectureElement", "StakeholderNeed", "TestRun", "Adr", "Risk", "Issue")
+
+#: The full per-workspace ``uid`` invariant: 0055 owns the Requirement index,
+#: ``_CONSTRAINTS`` owns the seven below.
+_UID_INDEXES = frozenset(
+    {
+        "uq_requirement_workspace_uid",
+        "uq_testcase_workspace_uid",
+        "uq_architecture_element_workspace_uid",
+        "uq_stakeholder_need_workspace_uid",
+        "uq_test_run_workspace_uid",
+        "uq_adr_workspace_uid",
+        "uq_risk_workspace_uid",
+        "uq_issue_workspace_uid",
+    }
+)
+
+#: The subset the ``0117``/``0118`` pair owns — everything but the 0055 index.
+_CONSTRAINT_INDEXES = _UID_INDEXES - {"uq_requirement_workspace_uid"}
+
+
+def _uid_index_names() -> set[str]:
+    """Partial unique indexes backing the per-workspace ``uid`` invariant.
+
+    Read from ``pg_indexes``, not ``pg_constraint``: a ``UniqueConstraint``
+    with a ``condition`` is a unique *index* (see the module docstring).
+    """
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT indexname FROM pg_indexes "
+            "WHERE indexname LIKE 'uq_%_workspace_uid'"
+        )
+        return {row[0] for row in cursor.fetchall()}
+
+
+def _assert_reversed_by_name() -> None:
+    """The reverse must drop exactly 0118's indexes and keep 0055's."""
+    after_reverse = _uid_index_names()
+    assert "uq_requirement_workspace_uid" in after_reverse, (
+        "Reversing 0118 must leave the 0055-owned index untouched"
+    )
+    leftover = after_reverse & _CONSTRAINT_INDEXES
+    assert not leftover, (
+        f"Reverse of {_CONSTRAINTS} left indexes behind: {sorted(leftover)}"
+    )
 
 
 @pytest.mark.parametrize("model_name", _MODELS)
@@ -227,32 +277,23 @@ def test_migration_dedupes_existing_collisions(transactional_db):
 
 @pytest.mark.django_db(transaction=True)
 def test_migration_reverse_roundtrip(transactional_db):
-    """``0117`` → ``0118`` → ``0117`` → ``0118`` is clean by name."""
+    """``0117`` → ``0118`` → ``0117`` → ``0118`` is clean by name.
+
+    The session starts at the leaf, so the first step is the reverse probe:
+    0118's seven indexes must disappear while 0055's survives. The final
+    forward pass must restore all eight.
+    """
     executor = MigrationExecutor(connection)
     executor.migrate([("persistence", _PREREQUISITE)])
+    _assert_reversed_by_name()
+
     executor = MigrationExecutor(connection)
     executor.migrate([("persistence", _CONSTRAINTS)])
+
     executor = MigrationExecutor(connection)
     executor.migrate([("persistence", _PREREQUISITE)])
+    _assert_reversed_by_name()
+
     executor = MigrationExecutor(connection)
     executor.migrate([("persistence", _CONSTRAINTS)])
-
-    # The constraint exists again after the final forward pass.
-    from django.db import connection as live_connection
-
-    with live_connection.cursor() as cursor:
-        cursor.execute(
-            "SELECT conname FROM pg_constraint WHERE conname LIKE 'uq_%_workspace_uid'"
-        )
-        names = {row[0] for row in cursor.fetchall()}
-
-    assert {
-        "uq_requirement_workspace_uid",
-        "uq_testcase_workspace_uid",
-        "uq_architecture_element_workspace_uid",
-        "uq_stakeholder_need_workspace_uid",
-        "uq_test_run_workspace_uid",
-        "uq_adr_workspace_uid",
-        "uq_risk_workspace_uid",
-        "uq_issue_workspace_uid",
-    } <= names
+    assert _UID_INDEXES <= _uid_index_names()

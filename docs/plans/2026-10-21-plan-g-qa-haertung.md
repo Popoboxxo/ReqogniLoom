@@ -265,11 +265,14 @@ Volle Suiten nie parallel. CI-Set-Zuordnung der Testpfade: Index §f.4.
   5. `…::test_migration_reverse_roundtrip` (Roundtrip `0117_uid_workspace_unique_constraints` → `0115_workspace_glossary_reference_mode`
      → `0117_uid_workspace_unique_constraints` per Namen ohne Fehler; Zielknoten über Namen bzw. `loader.graph.leaf_nodes()`, nie nackte Nummern).
 - **DoD:** Tests grün; `python manage.py makemigrations --check --dry-run` → `No changes detected` (lokal, alle Apps);
-  `python manage.py sqlmigrate persistence 0117_uid_workspace_unique_constraints` zeigt 7 `UNIQUE … WHERE`-Constraints;
+  `python manage.py sqlmigrate persistence 0117_uid_workspace_unique_constraints` zeigt 7 `CREATE UNIQUE INDEX … WHERE`-Statements;
   Rückwärts-Probe `migrate persistence 0115_workspace_glossary_reference_mode` → `migrate persistence` rund (Index §e Regel 4).
 - **Verifikation (SQL, Betreiber):**
-  `SELECT conname FROM pg_constraint WHERE conname LIKE 'uq_%workspace_uid';` → 8 Zeilen (Stand nach P1; die 8 Namen
-  aus G1.3 sind fachlich fix — kommen mit Plan F weitere `uid`-Modelle hinzu, wird auf Mengen-Zugehörigkeit der 8 Namen geprüft);
+  `SELECT indexname FROM pg_indexes WHERE indexname LIKE 'uq_%workspace_uid';` → 8 Zeilen (Stand nach P1; die 8 Namen
+  aus G1.3 sind fachlich fix — kommen mit Plan F weitere `uid`-Modelle hinzu, wird auf Mengen-Zugehörigkeit der 8 Namen geprüft).
+  Katalog-Hinweis: eine partielle `UniqueConstraint` (`condition` gesetzt) wird von Django als
+  `CREATE UNIQUE INDEX … WHERE …` angelegt und steht deshalb in `pg_indexes`, **nicht** in `pg_constraint` —
+  eine `pg_constraint`-Abfrage liefert hier immer 0 Zeilen;
   `SELECT count(*) FROM pl_testcase WHERE workspace_id IS NULL;` → `0`.
 
 #### G1.4 Workspace-FK für Typdefinitionen + Waisen (#1403)
