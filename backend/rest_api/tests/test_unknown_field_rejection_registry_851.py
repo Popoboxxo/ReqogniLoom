@@ -160,6 +160,30 @@ _EXEMPT_SERIALIZERS: dict[str, str] = {
     "FieldChangeSerializer": "read-only response serializer",
     "DiffItemSerializer": "read-only response serializer",
     "BaselineDiffSerializer": "read-only response serializer",
+    # #1388/M3 + F6: response shapes added for the OpenAPI contract. The CSV
+    # import's request body is the inline multipart ``CsvImportUpload`` and the
+    # suggestion accept/reject bodies are ``None``/``SuggestionRejectBody`` —
+    # never one of these classes.
+    "CsvImportReportSerializer": (
+        "read-only 200/201/207/422 CSV import report; the route's request body "
+        "is an inline multipart serializer, not this one"
+    ),
+    "CsvImportCountsSerializer": (
+        "nested read-only component of CsvImportReportSerializer"
+    ),
+    "CsvImportItemSerializer": (
+        "nested read-only component of CsvImportReportSerializer"
+    ),
+    "CsvImportItemCauseSerializer": (
+        "nested read-only component of CsvImportItemSerializer"
+    ),
+    "CsvImportRowErrorSerializer": (
+        "nested read-only component of CsvImportReportSerializer"
+    ),
+    "SuggestionSerializer": (
+        "read-only 200 receipt of the suggestion list/accept/reject routes; "
+        "accept sends no body and reject's body is inline SuggestionRejectBody"
+    ),
     # --- rest_api.serializers_diagram -----------------------------------
     "CanvasPointSerializer": "nested child of CanvasStrokeElementSerializer",
     "CanvasStrokeElementSerializer": (
