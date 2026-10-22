@@ -1,0 +1,8 @@
+{
+  "name": "reqogniloom-prompt-regression",
+  "private": true,
+  "description": "Pinned promptfoo toolchain for the CI prompt-regression gate (plan D / D2.4, #587). Installed with `npm ci --ignore-scripts --prefix promptfoo`; never invoked through npx.",
+  "devDependencies": {
+    "promptfoo": "0.124.1"
+  }
+}

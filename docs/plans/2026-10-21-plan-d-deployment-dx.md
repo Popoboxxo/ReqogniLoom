@@ -550,7 +550,8 @@ auf QS nur lesend. „TDD" = genannter Test zuerst, rot gegen `b175c970`.
     `promptfoo/generated` + `results.json`, `if: always()`. `timeout-minutes: 20`.
   - Kein `--fail-on-error` (existiert nicht, RB-D07); Promptfoo beendet mit **100** bei einem
     fehlgeschlagenen Test, 1 bei Fehlern → Job rot.
-  - Provider `echo` (vorläufig, ENT-D8 = A; bei ENT-D8 = B nur der Provider-Eintrag des Exporters geändert).
+  - Provider `echo` — **vorläufig (ENT-D8)**, LLM-frei (bei ENT-D8 = B nur der Provider-Eintrag
+    des Exporters geändert).
 - **TDD (Workflow-Vertrag, QR-S12):** neu `scripts/test_prompt_regression_workflow.py` (`yaml.safe_load` auf
   `.github/workflows/ci.yml`): Job `prompt-regression` existiert ohne `paths`-Filter, enthält im Text kein
   `secrets.`, hat `permissions == {"contents": "read"}`, Checkout mit `persist-credentials: false`, kein
