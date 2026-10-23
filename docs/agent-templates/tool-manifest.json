@@ -1,6 +1,6 @@
 {
   "generated_from": "reqogniloom==unknown",
-  "tool_count": 248,
+  "tool_count": 252,
   "tools": [
     {
       "name": "admin.backup_create",
@@ -5148,6 +5148,97 @@
           "workspace_id",
           "user_id",
           "permission_level"
+        ]
+      }
+    },
+    {
+      "name": "preference.get",
+      "prefix": "preference",
+      "is_write": false,
+      "description": "Read preference values. With the default scope ``effective`` it answers each key's resolved value plus the level that supplied it (user|workspace|global|default|merged) for the caller, optionally inside one workspace. Any other scope returns that level's *stored* values only (an absent key means 'inherit', never 'empty'). Identical to the REST GET .../preference-values/effective/ and level routes.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "enum": [
+              "effective",
+              "user",
+              "workspace",
+              "global"
+            ],
+            "description": "effective | user | workspace | global. Default: effective."
+          },
+          "workspace_id": {
+            "type": "string",
+            "description": "UUID of the workspace. Required for scope 'workspace'; for scope 'effective' it includes the workspace level. Omit for the account-wide view (user + global only)."
+          },
+          "keys": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Preference keys to answer (see preference.registry). Omit for every registered key for the effective scope, or every key set at that level otherwise."
+          }
+        }
+      }
+    },
+    {
+      "name": "preference.registry",
+      "prefix": "preference",
+      "is_write": false,
+      "description": "List every registered preference key (Plan C / Q1): for each the key, value type, default, allowed levels, combination mode (override|union), choices and the generic settings editor hint. Pure catalogue metadata — identical to the REST GET /api/v1/preference-values/registry/.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "preference.set",
+      "prefix": "preference",
+      "is_write": true,
+      "description": "Store (or reset) the caller's OWN user-level preference values. ``values`` maps preference keys to values; ``null`` resets a key at that level. Self-service: no user or workspace id is accepted — the caller's credential is the whole boundary. A workspace- or tenant-wide default is a governance write and lives on preference.set_default. Identical to the REST PATCH /api/v1/users/me/preference-values/.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "values": {
+            "type": "object",
+            "description": "Object mapping preference keys to values (see preference.registry). A null value resets that key at this level (inherit from below)."
+          }
+        },
+        "required": [
+          "values"
+        ]
+      }
+    },
+    {
+      "name": "preference.set_default",
+      "prefix": "preference",
+      "is_write": true,
+      "description": "Store (or reset) a workspace or tenant-wide preference default (ADMIN-tier governance write). ``scope='workspace'`` requires ``workspace_id`` and write authority for the workspace's configuration; ``scope='global'`` requires the admin role. ``values`` maps preference keys to values; ``null`` resets a key at that level. Identical to the REST PATCH /api/v1/workspaces/<id>/preference-values/ and /api/v1/system/preference-values/.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "enum": [
+              "workspace",
+              "global"
+            ],
+            "description": "workspace | global."
+          },
+          "workspace_id": {
+            "type": "string",
+            "description": "UUID of the workspace; required for scope 'workspace' and not accepted for scope 'global'."
+          },
+          "values": {
+            "type": "object",
+            "description": "Object mapping preference keys to values (see preference.registry). A null value resets that key at this level (inherit from below)."
+          }
+        },
+        "required": [
+          "scope",
+          "values"
         ]
       }
     },

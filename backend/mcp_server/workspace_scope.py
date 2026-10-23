@@ -373,6 +373,16 @@ TOOL_ENFORCED_WORKSPACE_SCOPE: frozenset[str] = frozenset(
 #:   reads only the caller's own definition and the tenant-wide default, and a
 #:   supplied ``workspace_id`` makes the dispatcher narrow the roles to it and
 #:   run the read gate.
+#: * ``preference.registry`` (Plan C / Q1) — the preference-key catalogue is
+#:   code, not a workspace resource: it carries no workspace and performs no DB
+#:   access, so there is nothing to scope to.
+#: * ``preference.get`` (Plan C / Q1) — the same shape as
+#:   ``tree_display_config.get``: without a ``workspace_id`` it resolves only
+#:   the caller's own user values and the tenant-wide default (plus the
+#:   registry defaults), neither of which is workspace data. A supplied
+#:   ``workspace_id`` is what makes the workspace level participate, and then
+#:   the dispatcher narrows the roles to it and runs the read gate — the
+#:   parameter *is* the target workspace, so ``_TOOL_TARGETS`` adds nothing.
 TENANT_SCOPED_READ_TOOLS: frozenset[str] = frozenset(
     {
         "admin.backup_list",
@@ -399,6 +409,8 @@ TENANT_SCOPED_READ_TOOLS: frozenset[str] = frozenset(
         "tree_display_config.get",
         "create_form_definition.get",
         "create_form_definition.export",
+        "preference.registry",
+        "preference.get",
     }
 )
 
