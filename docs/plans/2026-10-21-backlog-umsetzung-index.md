@@ -102,6 +102,11 @@ erlaubt (ENT-V1); Verschieben nach hinten nur mit Index-Update.
 | E | P1: P1-1 → P1-2 → P1-4 → P1-3 → P1-5 → P1-7; P1-6 frei | E2 Vertrag, E1 Key-Fence, OpenAPI-Ratchet | Plan E P1-Austritt |
 | G | P1: PR 1 → PR 2 → PR 3; PR 5a → PR 5b (in `views.py`-Queue, nach ENT-G1); PR 4 (nach ENT-G2/G3) | G1 Datenintegrität | Plan G P1-Austritt |
 
+**Korrektur Welle 0, E (Ist-Stand 2026-10-22, `origin/main`):** Die offene E-P1-Lücke war nur **P1-4**
+plus der **E2.3**-Rest; beides ist in Welle 0 umgesetzt. P1-1/P1-2/P1-3/P1-5/P1-6/P1-7 sind auf `main`
+erfüllt — abweichend, wo im Korrekturblock von Plan E vermerkt; E2.5 bleibt offen. Details:
+[Plan E](2026-10-21-plan-e-security-api.md#xiii-phasen-und-pr-grenzen) (Block „Korrektur nach Ist-Stand-Abgleich“).
+
 **Promptfoo-Gate (Q2) — Voraussetzung für jede A1-Task (T-A1-1 … T-A1-8):**
 - **G1** `python manage.py export_promptfoo_configs --check` → Exit 0, letzte Zeile
   `promptfoo export: <n>/<n> slots, 0 missing cases, 0 unresolved placeholders, memory slots covered <b>/<b>`,
@@ -257,7 +262,7 @@ graph LR
 | D2 (D2.1–D2.4) | ENT-D8 | Promptfoo-Gate → alle A1-Tasks |
 | D2.5 | D2.4 gemergt; Nutzerhandlung | Promptfoo-Gate G3 |
 | D1.0 | – | D1.2 |
-| E2 (E2.1–E2.7) | – | G1.5 (Queue `views.py`), F4.2/F4.4 (E2.1), B6-T2/F2-T5/F3-T5 (ETag-Vertrag), alle REST-PRs ab E2.7 (OpenAPI-Ratchet) |
+| E2 (E2.1–E2.7) | – | G1.5 (Queue `views.py`), F4.2/F4.4 (E2.1), B6-T2/F2-T5/F3-T5 (ETag-Vertrag), alle REST-PRs ab E2.7 (OpenAPI-Ratchet). **Ist 2026-10-22:** E2.1/E2.2/E2.3-Rest und der ETag-Vertrag sind auf `main` bereits ganz oder teilweise erfüllt; Welle-0-Beiträge sind E2.3 und P1-4, E2.5 bleibt offen |
 | E1 | – | G5.3 R3-08-Pin-Test 2 (nach E P1-4); D-D5-Folge-Issue |
 | E2.9 (P2-9) | E P1-7; G PR 6 (`views.py` W2); ENT-G1 (vorläufig A) | G PR 19 (`views.py` W2) |
 | G1.1 | – | G1.3, F2-T1, F3-T1 |
@@ -287,6 +292,10 @@ graph LR
 | B6 | ENT-B2; B5 (persistence-Kette); E2-Vertrag | – |
 | D3–D5 | Nutzer-Gates U-W* (D5) | – |
 
+**Korrektur §c (Ist-Stand 2026-10-22):** Der E2-Block auf **G1.5**, **F4.2/F4.4** und **B6** ist durch
+`main` plus **E2.3** und **P1-4** erfüllt (der Graph bleibt unverändert). Offen bleibt allein **E2.5**
+(`etag_supported`), das hier keine Kante trägt.
+
 ---
 
 ## d. Parallelisierungsmatrix und Konfliktdateien
@@ -315,7 +324,7 @@ läuft die gezielten Tests erneut und darf erst dann mergen. Kein Force-Merge ü
 
 | Datei / Artefakt | Beteiligte (Welle) | Merge-Reihenfolge / Regel |
 |---|---|---|
-| `backend/rest_api/views.py` | E P1-1, P1-2, P1-4, P1-3, P1-7 (W0); G PR 5a, PR 5b (W0); G PR 6, E P2-9, G PR 19 (W2); A PR-A7, PR-A20, PR-A21a, PR-A21b (W2); B PR-B9 (W3); F PR-F9, PR-F11b (W3) | **W0-Queue:** E P1-1 → E P1-2 → E P1-4 → G PR 5a → G PR 5b → E P1-3 → E P1-7 (QR-T14). **W2:** G PR 6 → E P2-9 → G PR 19; A-PRs danach rebasen. **W3:** F PR-F9 → F PR-F11b. |
+| `backend/rest_api/views.py` | E P1-1, P1-2, P1-4, P1-3, P1-7 (W0); G PR 5a, PR 5b (W0); G PR 6, E P2-9, G PR 19 (W2); A PR-A7, PR-A20, PR-A21a, PR-A21b (W2); B PR-B9 (W3); F PR-F9, PR-F11b (W3) | **W0-Queue:** E P1-1 → E P1-2 → E P1-4 → G PR 5a → G PR 5b → E P1-3 → E P1-7 (QR-T14). **W2:** G PR 6 → E P2-9 → G PR 19; A-PRs danach rebasen. **W3:** F PR-F9 → F PR-F11b. **Ist 2026-10-22:** P1-1/P1-2/P1-3/P1-7 sind auf `main` nicht mehr offen; die Welle-0-Beiträge an dieser Datei sind **E2.3** und **P1-4**. |
 | `backend/rest_api/urls.py` | E P1-1 (W0); C PR-C3 (W1); A PR-A12, PR-A26, PR-A28 (W2/3); E P3-3, P3-4 (W3); B PR-B16 (W3), PR-B20a (W4); F REST-PRs (W3/4, u. a. PR-F18a, PR-F24b) | seriell; neue Pfade je Plan in einem eigenen, alphabetisch sortierten Block. |
 | `backend/mcp_server/tool_registry.py`, `docs/agent-templates/tool-manifest.json` + Doku-Zähler (§f.1) | E P1-4 (W0, nur Beschreibung, Delta 0); C PR-C4 (W1); A PR-A7, PR-A13, PR-A16 (W2), PR-A25, PR-A26 (W3); B PR-B9, PR-B10, PR-B16 (W3), PR-B20a (W4); F PR-F3a, PR-F3b, PR-F9, PR-F11b (W3), PR-F18b, PR-F24b (W4) | **Eine globale Tool-Queue** über alle Pläne. Manifest und Zähler immer im letzten Rebase neu erzeugen. |
 | `backend/rest_api/tests/openapi_warning_baseline.json` (**entsteht erst mit E P1-7**) | alle REST-PRs ab E P1-7 (u. a. E2.8-Batches, E P2-9, G PR 14, G PR 19) | nur Shrink; seriell; PR aktualisiert die Baseline selbst (QR-T12). **Sonderfall G PR 5a/5b (Plan-G-Regel):** sie mergen in der W0-Queue **vor** E P1-7; die Baseline existiert dann noch nicht, G aktualisiert nichts, und E P1-7 misst den Stand inkl. PR 5. Merged E P1-7 abweichend früher, aktualisiert G PR 5 die Baseline selbst (nur Shrink). |
@@ -576,8 +585,9 @@ Frontend: `docker exec reqogniloom-frontend-1 sh -c 'cd /app && npx vitest run <
   entweder `var(--target-min)` als zulässige Höhe für Icon-Buttons oder Token `--btn-h-xs: 24px` in der Höhenskala;
   das E2E-Gate „≤ 3 Höhen“ zählt dann Icon-Buttons gesondert. G4.3 nutzt genau dieses Token. G-DoD „Ratchet unverändert grün“ gilt danach.
 - **`ui-ratchet.test.ts`** (`STYLE_BRACE_BASELINE`): nur Inline-Styles; kein Geometrie-Gate.
-- **OpenAPI-Ratchet** (ab E P1-7): jede neue View hat `serializer_class` oder `@extend_schema`; der PR aktualisiert
-  `openapi_warning_baseline.json` (nur Shrink); Merge seriell.
+- **OpenAPI-Ratchet** (ab E P1-7): jede neue View hat `serializer_class` oder `@extend_schema`; Merge seriell.
+  **Ist 2026-10-22:** Das Gate ist `test_schema_completeness_1388.py` (0 Warnings) plus
+  `tests/fixtures/openapi_operations_manifest.json`; ein `openapi_warning_baseline.json` gibt es **nicht**.
 - **Sortierte Listen:** G2.1 macht `UnorderedObjectListWarning` global zum Fehler; alle neuen Listen aus A/B/C/F sortieren deterministisch (DoD-Zeile).
 
 ### f.6 Belege `docs/test-reports/` (QR-T18)
@@ -596,7 +606,9 @@ Frontend: `docker exec reqogniloom-frontend-1 sh -c 'cd /app && npx vitest run <
 
 ### f.8 Weitere Querschnittsregeln
 - **Neuer Prompt-Slot ⇒ Case-Datei im selben PR** (§b).
-- **Neue REST-Route** ⇒ OpenAPI-Regel f.5, `urls.py`-Queue, ETag-Entscheidung nach E2.6 (`etag_supported` + `version`-Feld oder ehrliche 412-Zusage, QR-T13).
+- **Neue REST-Route** ⇒ OpenAPI-Regel f.5, `urls.py`-Queue, ETag-Entscheidung nach E2.6 (QR-T13).
+  **Ist 2026-10-22:** Ein Flag `etag_supported` existiert auf `main` **nicht** (E2.5 offen); `ETag`/412
+  werden nur dort deklariert, wo `If-Match` tatsächlich ausgewertet wird.
 - **Neue Tenant-Tabelle** ⇒ RLS im selben PR (Regel e.5).
 - **TenantContext** in kontextfreien Einstiegen per Kontextmanager mit Wiederherstellung im `finally` (QR-T26/QR-S14).
 - **`secret-scan`-Gate** deckt nur `reqlo_`-Keys ab; Pläne nennen das ehrlich, bis D P1-4 (D2.6, ehem. KA-D-03) gemergt ist (QR-S03).
