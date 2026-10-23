@@ -376,7 +376,7 @@ def test_reinitialize_on_a_missing_row_is_not_found(tenant, store) -> None:
 @pytest.mark.django_db
 def test_reinitialize_propagates_to_non_customized_workspace_rows(tenant, store) -> None:
     source = store.initialize(tenant.id, "Risk", "standard", [TITLE])
-    workspace_id = uuid.uuid4()
+    workspace_id = make_workspace_id(tenant.id)
     WorkspaceAttributeDefinition.unscoped.create(
         tenant_id=tenant.id, workspace_id=workspace_id, item_type="Risk",
         preset="standard", definition_json=dict(source.definition_json),
