@@ -26,11 +26,12 @@ from auth_tenancy.jwt_tokens import encode_hs256
 from auth_tenancy.models import ROLE_EDITOR, UserRole
 from auth_tenancy.resource_scope import (
     API_KEY_NO_OWNER_ROLE_IN_FENCE_DENIAL,
+    API_KEY_NO_OWNER_ROLE_IN_WORKSPACE_DENIAL,
     workspace_fence_denial,
 )
 from auth_tenancy.services.authentication import AuthenticationService
 from persistence.middleware import clear_request_tenant, set_request_tenant
-from persistence.models import Tenant, User, Workspace
+from persistence.models import Artifact, Requirement, Tenant, User, Workspace
 
 _SECRET = "e1-2-rest-fence-test-secret-not-a-real-key"
 _JWT_OVERRIDES = dict(
@@ -64,6 +65,23 @@ def _grant(tenant: Tenant, user: User, workspace: Workspace, role: str) -> None:
     try:
         UserRole.objects.create(
             tenant=tenant, user=user, workspace=workspace, role=role
+        )
+    finally:
+        clear_request_tenant()
+
+
+def _requirement_in(tenant: Tenant, workspace: Workspace) -> Requirement:
+    set_request_tenant(tenant.id)
+    try:
+        artifact = Artifact.objects.create(
+            tenant=tenant, workspace=workspace, artifact_type="Requirement"
+        )
+        return Requirement.objects.create(
+            tenant=tenant,
+            workspace=workspace,
+            artifact=artifact,
+            title=f"req-in-{workspace.name}",
+            description="e1-2 workspace-denial fixture",
         )
     finally:
         clear_request_tenant()
@@ -133,6 +151,32 @@ def test_fenced_key_without_owner_role_gets_specific_403() -> None:
     error = resp.json()["error"]
     assert error["code"] == "PERMISSION_DENIED"
     assert error["message"] == API_KEY_NO_OWNER_ROLE_IN_FENCE_DENIAL
+
+
+@pytest.mark.django_db
+def test_fenced_key_without_owner_role_in_target_workspace_names_that_workspace() -> None:
+    """ADR-013 review B1-4: the E1.2 workspace-specific denial text.
+
+    The key is fenced to workspace A, so A *is* inside the fence and the fence
+    precheck passes — but the owner holds no role in A, so A is not part of the
+    visible set and the RBAC matrix denies. The 403 must name A (with its UUID)
+    instead of the generic "no active role permits ..." text.
+    """
+    tenant, user, ws_a, ws_b = _tenant_with_two_workspaces()
+    # Role only in B: A stays in the fence but carries no owner role.
+    _grant(tenant, user, ws_b, ROLE_EDITOR)
+    req_a = _requirement_in(tenant, ws_a)
+    client = _fenced_key_client(tenant, user, [ws_a])
+
+    resp = client.get(f"/api/v1/requirements/{req_a.id}/")
+
+    assert resp.status_code == 403, resp.content
+    error = resp.json()["error"]
+    assert error["code"] == "PERMISSION_DENIED"
+    assert str(ws_a.id) in error["message"], error["message"]
+    assert error["message"] == API_KEY_NO_OWNER_ROLE_IN_WORKSPACE_DENIAL.format(
+        workspace_id=ws_a.id
+    )
 
 
 @pytest.mark.django_db

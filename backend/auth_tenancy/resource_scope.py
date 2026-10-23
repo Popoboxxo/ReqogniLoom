@@ -805,10 +805,14 @@ def fenced_collection_roles(auth_context: AuthContext) -> tuple[str, ...]:
     ``TenantContextService.build_auth_context``), so the collection's RBAC
     decision must be derived from the workspaces the key may actually see.
 
-    A tenant-admin owner with no workspace-level role keeps the documented
-    elevation and is treated as ``admin`` — otherwise the visible set from
+    A tenant-admin owner keeps the documented elevation and is treated as
+    ``admin`` — otherwise the visible set from
     :func:`fenced_visible_workspace_ids` would be non-empty while every list
-    was denied.
+    was denied. The elevation is unconditional (ADR-013 review B1-1): a
+    tenant-admin who *also* holds a lower role in a fence workspace (e.g.
+    ``viewer``) would otherwise be decided with that role alone. Adding
+    ``admin`` on top cannot widen the fence — the visible set is already
+    intersected with it, and this set only feeds ``decide_access``.
     """
     visible = fenced_visible_workspace_ids(auth_context)
     if not visible:
@@ -823,7 +827,7 @@ def fenced_collection_roles(auth_context: AuthContext) -> tuple[str, ...]:
             suspended_at__isnull=True,
         ).values_list("role", flat=True)
     )
-    if not roles and _is_tenant_admin(auth_context):
+    if _is_tenant_admin(auth_context):
         roles.add(ROLE_ADMIN)
     return tuple(sorted(roles))
 

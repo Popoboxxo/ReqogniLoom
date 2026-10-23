@@ -493,6 +493,10 @@ class HasOperationPermission(permissions.BasePermission):
         if fenced and is_fence_filtered_list(view):
             collection_roles = fenced_collection_roles(auth_context)
 
+        # ADR-013 review B1-3: every ``allow`` path must leave ``decision``
+        # bound — the ``operation is None`` shortcut below never consults the
+        # matrix, so the denial text must not reach for an unbound local.
+        decision = None
         if operation is None:
             # No operation declared: authenticated access is sufficient.
             allow = True
@@ -516,7 +520,14 @@ class HasOperationPermission(permissions.BasePermission):
             # E1.2: name the fence/workspace instead of the generic matrix text.
             raise exceptions.PermissionDenied(
                 detail=fenced_rbac_denial(
-                    request, view, auth_context, decision.decision_reason
+                    request,
+                    view,
+                    auth_context,
+                    (
+                        decision.decision_reason
+                        if decision is not None
+                        else "no RBAC operation declared"
+                    ),
                 )
             )
 

@@ -30,6 +30,7 @@ from auth_tenancy.jwt_tokens import encode_hs256
 from auth_tenancy.models import (
     ROLE_ADMIN,
     ROLE_EDITOR,
+    ROLE_VIEWER,
     TenantRole,
     UserRole,
 )
@@ -155,6 +156,36 @@ def test_tenant_admin_owner_sees_every_in_tenant_fence_workspace() -> None:
         assert fenced_collection_roles(ctx) == (ROLE_ADMIN,)
     finally:
         clear_request_tenant()
+
+
+# ---------------------------------------------------------------------------
+# (b2) tenant-admin owner WITH a lower workspace role -> elevation still applies
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_tenant_admin_owner_with_lower_role_still_gets_admin() -> None:
+    """ADR-013 review B1-1: the elevation must not depend on an empty role set.
+
+    A tenant-admin who holds ``viewer`` in a fence workspace used to be decided
+    with ``("viewer",)`` alone, silently demoting the tenant-wide override.
+    """
+    tenant, user = _tenant()
+    ws_a, ws_b = _workspace(tenant, "A"), _workspace(tenant, "B")
+    _grant_tenant_admin(tenant, user)
+    _grant(tenant, user, ws_a, ROLE_VIEWER)
+
+    ctx = _fenced_ctx(tenant, user, [ws_a, ws_b])
+
+    set_request_tenant(tenant.id)
+    try:
+        assert fenced_visible_workspace_ids(ctx) == (ws_a.id, ws_b.id)
+        roles = fenced_collection_roles(ctx)
+    finally:
+        clear_request_tenant()
+
+    assert ROLE_ADMIN in roles
+    assert roles == (ROLE_ADMIN, ROLE_VIEWER)
 
 
 # ---------------------------------------------------------------------------
