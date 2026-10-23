@@ -446,11 +446,17 @@ class IssueService(ServiceBase):
             item_type="Issue",
             workspace_id=workspace_id,
             ctx=ctx,
+            # inert since Phase 4 — outdate() writes no history entry; the
+            # reason is persisted on the AuditEntry below.
             reason=change_reason or "deleted via issue.delete",
         )
 
         self._audit(
-            ctx=ctx, operation="delete", entity_type="Issue", entity_id=issue_id
+            ctx=ctx,
+            operation="delete",
+            entity_type="Issue",
+            entity_id=issue_id,
+            change_reason=change_reason,
         )
         self._emit_event(
             self._make_event(

@@ -411,10 +411,18 @@ class AdrService(ServiceBase):
             item_type="Adr",
             workspace_id=workspace_id,
             ctx=ctx,
+            # inert since Phase 4 — outdate() writes no history entry; the
+            # reason is persisted on the AuditEntry below.
             reason=change_reason or "deleted via adr.delete",
         )
 
-        self._audit(ctx=ctx, operation="delete", entity_type="Adr", entity_id=adr_id)
+        self._audit(
+            ctx=ctx,
+            operation="delete",
+            entity_type="Adr",
+            entity_id=adr_id,
+            change_reason=change_reason,
+        )
         self._emit_event(
             self._make_event(
                 event_type=DomainEventOutbox.EventType.ADR_DELETED,
