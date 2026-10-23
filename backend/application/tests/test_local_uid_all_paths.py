@@ -42,6 +42,24 @@ from persistence.models import (
 pytestmark = pytest.mark.django_db
 
 
+@pytest.fixture(autouse=True)
+def mock_embedding_provider(monkeypatch):
+    """Pin the mock embedding provider so this module stays hermetic.
+
+    ``.env`` ships ``EMBEDDING_PROVIDER=sentence-transformers`` and the test
+    compose stack loads it through ``env_file``; ``settings_test`` pins
+    ``LLM_PROVIDER`` but not ``EMBEDDING_PROVIDER``. Without this pin
+    ``seed_toothbrush`` -> ``create_requirement`` ->
+    ``_generate_and_store_embedding`` runs a real CPU sentence-transformers
+    encode and the module takes minutes instead of seconds.
+
+    ``get_embedding_provider`` re-reads the environment on every call and holds
+    no cached provider instance, so setting the variable is sufficient — the
+    same pattern ``test_backfill_embeddings_command.py`` uses.
+    """
+    monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+
+
 def _ctx(tenant_id):
     ctx = MagicMock()
     ctx.tenant_id = tenant_id
