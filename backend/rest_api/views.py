@@ -2793,11 +2793,10 @@ class ArchitectureElementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
     def _resolve_workflow_target(self, pk: str, ctx: Any) -> tuple[UUID, UUID]:
         # GH-443: ``include_deleted=True`` so the workflow actions stay usable
         # on a soft-deleted element — without it ``POST .../reactivate/`` could
-        # never reach the one item it exists for. Unlike the other entity types
-        # ArchitectureElement has no denormalized status mirror (see
-        # workflow.lifecycle_manager._STATUS_MIRROR_MODELS), so ``retrieve()``
-        # keeps hiding outdated elements: a 200 there could not carry the
-        # "outdated" marker and would be indistinguishable from a live element.
+        # never reach the one item it exists for. ``retrieve()`` needs the same
+        # opt-in since G1.5/#1381: the wire status is projected from
+        # ``Artifact.lifecycle_status`` via ``workflow.state_reader``, so a
+        # soft-deleted element answers 200 + "outdated" like every other type.
         item = self._svc().get_architecture_element(
             UUID(pk), ctx, include_deleted=True
         )
