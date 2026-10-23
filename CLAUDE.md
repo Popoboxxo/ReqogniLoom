@@ -59,7 +59,7 @@ frontend/            # React 19 + TS 5.5+ SPA (Vite 8, Vitest 4, ESLint 10)
 e2e/                 # Playwright/Chromium E2E-Tests (54 Spec-Dateien, 4 CI-Shards)
 docs/                # Anforderungen, Architektur, SE-Kaskade (docs/se/), Release-Reports
 deploy/              # Deployment: docker-compose.yml (Basis), .override.yml (Dev), .minimal.yml, .env, README.md
-testing/             # docker-compose.test.yml (CI-/lokaler Test-Overlay, kein Deployment-File)
+testing/             # docker-compose.test.yml (Standalone-Test-Stack, kein Overlay, kein Deployment-File)
 scripts/             # build.sh, check-version-drift.sh, enable_pgvector.sh (backup/restore removed per ADR-012)
 .meta-config/        # agent-meta Konfiguration (project.yaml)
 .agent-meta/         # agent-meta Submodul (Templates, Scripts, Schemas)
@@ -84,7 +84,7 @@ scripts/             # build.sh, check-version-drift.sh, enable_pgvector.sh (bac
 make build
 
 # Tests
-pytest (Backend) + npm test (Frontend)
+make test-backend (isolierter Test-Stack, schnelle Läufe zusätzlich mit --reuse-db) + make test-frontend
 
 # Dev-Stack starten
 make up
