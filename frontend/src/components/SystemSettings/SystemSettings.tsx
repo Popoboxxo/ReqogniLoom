@@ -129,11 +129,7 @@ export default function SystemSettings(): JSX.Element {
               aria-controls={`system-settings-panel-${tab.id}`}
               tabIndex={tabRovingTabIndex(tab.id, activeTab)}
               onClick={() => setTab(tab.id)}
-              className={
-                styles.tab +
-                " " +
-                (isTabActive ? styles.tabActive : styles.tabInactive)
-              }
+              className="btn-tab"
             >
               {tab.label}
             </button>

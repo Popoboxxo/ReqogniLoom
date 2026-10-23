@@ -176,7 +176,7 @@ export function WorkspaceAdminSection(): JSX.Element {
             data-testid="close-workspace-btn"
             onClick={() => setShowCloseConfirm(true)}
             disabled={isClosing}
-            className={styles.solidAction + " " + styles.closeWorkspaceButton}
+            className={"btn-danger " + styles.actionSpacing}
           >
             {isClosing ? "…" : t("settings.closeWorkspace", "Close Workspace")}
           </button>
@@ -210,7 +210,7 @@ export function WorkspaceAdminSection(): JSX.Element {
             type="button"
             data-testid="reactivate-workspace-btn"
             onClick={() => void handleReactivateWorkspace()}
-            className={styles.solidAction + " " + styles.reactivateWorkspaceButton}
+            className={"btn-primary " + styles.actionSpacing}
           >
             {t("settings.reactivateWorkspace", "Reactivate Workspace")}
           </button>
@@ -220,7 +220,7 @@ export function WorkspaceAdminSection(): JSX.Element {
           type="button"
           data-testid="delete-workspace-btn"
           onClick={() => { setShowDeleteModal(true); setDeleteError(null); setDeleteConfirmation(""); }}
-          className={styles.solidAction + " " + styles.deleteWorkspaceButton}
+          className="btn-danger"
         >
           {t("settings.deleteWorkspace", "Delete Workspace")}
         </button>
@@ -246,7 +246,7 @@ export function WorkspaceAdminSection(): JSX.Element {
                   data-testid="delete-confirm-btn"
                   onClick={() => void handleDeleteWorkspace()}
                   disabled={isDeleting || deleteConfirmation !== activeWorkspace.name}
-                  className={styles.solidAction + " " + styles.deleteWorkspaceButton}
+                  className="btn-danger"
                 >
                   {isDeleting ? "…" : t("settings.deleteConfirmButton", "Permanently Delete")}
                 </button>

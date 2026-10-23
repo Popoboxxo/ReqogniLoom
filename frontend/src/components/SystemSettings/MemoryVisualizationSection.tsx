@@ -278,9 +278,8 @@ export function MemoryVisualizationSection(): JSX.Element {
           <button
             type="button"
             data-testid="memory-viz-scope-workspace"
-            className={
-              scope === "workspace" ? styles.switcherButtonActive : styles.switcherButton
-            }
+            className="btn-secondary btn-sm"
+            aria-pressed={scope === "workspace"}
             disabled={!workspaceId}
             onClick={() => handleScopeChange("workspace")}
           >
@@ -289,7 +288,8 @@ export function MemoryVisualizationSection(): JSX.Element {
           <button
             type="button"
             data-testid="memory-viz-scope-global"
-            className={scope === "global" ? styles.switcherButtonActive : styles.switcherButton}
+            className="btn-secondary btn-sm"
+            aria-pressed={scope === "global"}
             onClick={() => handleScopeChange("global")}
           >
             {t("systemSettings.memory.viz.scopeGlobal")}
@@ -300,7 +300,8 @@ export function MemoryVisualizationSection(): JSX.Element {
           <button
             type="button"
             data-testid="memory-viz-view-list"
-            className={view === "list" ? styles.switcherButtonActive : styles.switcherButton}
+            className="btn-secondary btn-sm"
+            aria-pressed={view === "list"}
             onClick={() => setView("list")}
           >
             {t("systemSettings.memory.viz.viewList")}
@@ -308,7 +309,8 @@ export function MemoryVisualizationSection(): JSX.Element {
           <button
             type="button"
             data-testid="memory-viz-view-cluster"
-            className={view === "cluster" ? styles.switcherButtonActive : styles.switcherButton}
+            className="btn-secondary btn-sm"
+            aria-pressed={view === "cluster"}
             onClick={() => setView("cluster")}
           >
             {t("systemSettings.memory.viz.viewCluster")}
@@ -316,7 +318,8 @@ export function MemoryVisualizationSection(): JSX.Element {
           <button
             type="button"
             data-testid="memory-viz-view-scatter"
-            className={view === "scatter" ? styles.switcherButtonActive : styles.switcherButton}
+            className="btn-secondary btn-sm"
+            aria-pressed={view === "scatter"}
             onClick={() => setView("scatter")}
           >
             {t("systemSettings.memory.viz.viewScatter")}
@@ -386,7 +389,7 @@ export function MemoryVisualizationSection(): JSX.Element {
                   <button
                     type="button"
                     data-testid="memory-viz-list-prev"
-                    className={styles.pageButton}
+                    className="btn-secondary btn-sm"
                     disabled={entriesPage <= 1 || entriesLoading}
                     onClick={() => loadEntries(entriesPage - 1)}
                   >
@@ -401,7 +404,7 @@ export function MemoryVisualizationSection(): JSX.Element {
                   <button
                     type="button"
                     data-testid="memory-viz-list-next"
-                    className={styles.pageButton}
+                    className="btn-secondary btn-sm"
                     disabled={entriesPage >= entriesTotalPages || entriesLoading}
                     onClick={() => loadEntries(entriesPage + 1)}
                   >

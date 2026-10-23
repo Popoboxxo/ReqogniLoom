@@ -816,9 +816,14 @@
    * tokens for the geometry instead of inventing padding.
    *
    * Like the `--palette-*` pool above, the size scale is declared in full
-   * (`sm`/`md`/`lg`) even where a level has no consumer yet — the scale
+   * (`xs`/`sm`/`md`/`lg`) even where a level has no consumer yet — the scale
    * documents the vocabulary, it is not a usage list.
+   *
+   * `--btn-h-xs` (24px) is the icon-button height (ENT-C6 = B): it is the same
+   * scale, not a separate `--target-min` alias, because WCAG 2.2 SC 2.5.8's
+   * 24px minimum target is a button metric like any other.
    */
+  --btn-h-xs: 24px;
   --btn-h-sm: 32px;
   --btn-h-md: 36px;
   --btn-h-lg: 44px;

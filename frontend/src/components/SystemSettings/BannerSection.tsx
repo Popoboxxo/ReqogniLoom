@@ -182,7 +182,7 @@ export function BannerSection(): JSX.Element {
         <button
           type="button"
           data-testid="banner-save-button"
-          className={styles.saveButton}
+          className="btn-primary"
           disabled={isSaving}
           onClick={() => void handleSave()}
         >

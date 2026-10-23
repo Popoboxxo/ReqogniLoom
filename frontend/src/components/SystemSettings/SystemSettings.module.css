@@ -6,9 +6,10 @@
  * `eslint-rules/legacy-static-inline-style-files.js`. Values are carried over
  * verbatim; colours and token-backed sizes come from `styles/tokens.css`.
  *
- * The tab bar and its active/inactive button variants use class composition
- * (`.tab` + `.tabActive` / `.tabInactive`), and the root's editor-vs-centred
- * geometry uses `.root` + `.rootEditor` / `.rootCentered`.
+ * The tab bar is the shared `.btn-tab` segmented control (issue #1258): the
+ * former `.tab` / `.tabActive` / `.tabInactive` rules re-derived the fill,
+ * border and geometry that `global.css` already owns, so only the layout
+ * container below stays local.
  */
 .adminOnly {
   padding: var(--space-6);
@@ -38,29 +39,6 @@
   gap: var(--space-1);
   border-bottom: 1px solid var(--color-border);
   margin-bottom: var(--space-5);
-}
-
-.tab {
-  appearance: none;
-  background: transparent;
-  border: none;
-  font-size: var(--font-size-sm);
-  padding: var(--space-3) var(--space-4);
-  margin-bottom: -1px;
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.tabActive {
-  border-bottom: 2px solid var(--color-primary);
-  color: var(--color-text);
-  font-weight: 600;
-}
-
-.tabInactive {
-  border-bottom: 2px solid transparent;
-  color: var(--color-text-muted);
-  font-weight: 500;
 }
 
 .editorHost {

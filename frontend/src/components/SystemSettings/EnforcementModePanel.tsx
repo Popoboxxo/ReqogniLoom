@@ -151,11 +151,7 @@ export function EnforcementModePanel(): JSX.Element {
                   data-testid="enforcement-rollback-btn"
                   onClick={() => setShowRollbackConfirm(true)}
                   disabled={rollingBack}
-                  className={
-                    styles.rollbackButton +
-                    " " +
-                    (rollingBack ? styles.rollbackDisabled : styles.rollbackEnabled)
-                  }
+                  className="btn-secondary"
                 >
                   {rollingBack ? "…" : t("systemSettings.enforcementMode.rollbackButton")}
                 </button>
@@ -164,7 +160,7 @@ export function EnforcementModePanel(): JSX.Element {
                   type="button"
                   data-testid="enforcement-flip-btn"
                   onClick={() => setShowFlipDialog(true)}
-                  className={styles.primaryButton}
+                  className="btn-primary"
                 >
                   {t("systemSettings.enforcementMode.flipButton")}
                 </button>

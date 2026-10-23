@@ -4,27 +4,8 @@
   "recordedBy": "DESIGN_SYSTEM_REBASELINE=1 npx vitest run src/test/design-system-ratchet.test.ts",
   "checks": {
     "button-missing-design-system-class": {
-      "maxViolations": 18,
-      "known": [
-        "button-missing-design-system-class::components/SystemSettings/BannerSection.tsx::button[data-testid=banner-save-button]",
-        "button-missing-design-system-class::components/SystemSettings/EnforcementFlipDialog.tsx::button[data-testid=flip-view-mismatches]",
-        "button-missing-design-system-class::components/SystemSettings/EnforcementModePanel.tsx::button[data-testid=enforcement-flip-btn]",
-        "button-missing-design-system-class::components/SystemSettings/EnforcementModePanel.tsx::button[data-testid=enforcement-rollback-btn]",
-        "button-missing-design-system-class::components/SystemSettings/MemoryManagementSection.tsx::button[data-testid=memory-delete-btn-${row.workspace_id}]",
-        "button-missing-design-system-class::components/SystemSettings/MemoryVisualizationSection.tsx::button[data-testid=memory-viz-list-next]",
-        "button-missing-design-system-class::components/SystemSettings/MemoryVisualizationSection.tsx::button[data-testid=memory-viz-list-prev]",
-        "button-missing-design-system-class::components/SystemSettings/MemoryVisualizationSection.tsx::button[data-testid=memory-viz-scope-global]",
-        "button-missing-design-system-class::components/SystemSettings/MemoryVisualizationSection.tsx::button[data-testid=memory-viz-scope-workspace]",
-        "button-missing-design-system-class::components/SystemSettings/MemoryVisualizationSection.tsx::button[data-testid=memory-viz-view-cluster]",
-        "button-missing-design-system-class::components/SystemSettings/MemoryVisualizationSection.tsx::button[data-testid=memory-viz-view-list]",
-        "button-missing-design-system-class::components/SystemSettings/MemoryVisualizationSection.tsx::button[data-testid=memory-viz-view-scatter]",
-        "button-missing-design-system-class::components/SystemSettings/MismatchReviewTable.tsx::button[data-testid=mismatch-next]",
-        "button-missing-design-system-class::components/SystemSettings/MismatchReviewTable.tsx::button[data-testid=mismatch-prev]",
-        "button-missing-design-system-class::components/SystemSettings/SystemSettings.tsx::button[data-testid=system-settings-tab-${tab.id}]",
-        "button-missing-design-system-class::components/SystemSettings/WorkspaceAdminSection.tsx::button[data-testid=close-workspace-btn]",
-        "button-missing-design-system-class::components/SystemSettings/WorkspaceAdminSection.tsx::button[data-testid=delete-workspace-btn]",
-        "button-missing-design-system-class::components/SystemSettings/WorkspaceAdminSection.tsx::button[data-testid=reactivate-workspace-btn]"
-      ],
+      "maxViolations": 0,
+      "known": [],
       "issue": "#954, #797, #1091, #1093",
       "note": "Interactive elements with no btn-* chrome class. Fix by adding the correct variant (btn-primary / btn-secondary / btn-danger / btn-ghost / btn-tab) and deleting the ad-hoc fill; do not raise this ceiling to silence a new button."
     },
@@ -41,7 +22,7 @@
       "note": "Buttons whose whole label is a bare action verb that is used more than once in the component tree, so the object is unstated. Fix by naming the object in the label (i18n key + both locales)."
     },
     "button-geometry-off-token": {
-      "maxViolations": 84,
+      "maxViolations": 82,
       "known": [
         "button-geometry-off-token::components/ArchitectureEditors/ArchitectureEditors.module.css::.reloadButton",
         "button-geometry-off-token::components/DiagramGraphEditor/DiagramGraphEditor.module.css::.editActionButton",
@@ -124,8 +105,6 @@
         "button-geometry-off-token::styles/components/CanvasEditor.module.css::.saveButton",
         "button-geometry-off-token::styles/components/CanvasEditor.module.css::.toolButton",
         "button-geometry-off-token::styles/components/MermaidEditor.module.css::.saveButton",
-        "button-geometry-off-token::styles/global.css::.btn-tab:first-child",
-        "button-geometry-off-token::styles/global.css::.btn-tab:last-child",
         "button-geometry-off-token::styles/global.css:::where(button, a, input, select, textarea, [tabindex]):focus-visible"
       ],
       "issue": "#1258",
