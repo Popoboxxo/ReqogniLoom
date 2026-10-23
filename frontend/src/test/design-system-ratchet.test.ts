@@ -767,7 +767,7 @@ function scanAmbiguousButtonLabels(): Violation[] {
  * corner radius from the button scale: `--btn-h-xs|sm|md|lg` for the height,
  * `--radius-btn` (or `--radius-full` for a deliberately round control) for the
  * radius. The reference measurement (C-L19) predicted ~78 one-off geometry
- * declarations across the CSS modules; this scanner found 79, and that measured
+ * declarations across the CSS modules; this scanner found 84, and that measured
  * value is what the baseline freezes. Which is why this is a ratchet and not a
  * one-time cleanup: the ceiling only moves down from the merge value.
  *
@@ -777,11 +777,12 @@ function scanAmbiguousButtonLabels(): Violation[] {
  * `border-radius: 12px`. The same rule applies to the plain `src/styles/**`
  * stylesheets, so the scanner walks every `.css` file under `src/`.
  *
- * Pseudo-class variants (`:first-child`, `:hover`, `:focus-visible`, …) are NOT
- * measured: they are state or position overrides of a base rule that is
- * measured on its own, and counting them would book the same control twice
- * while the base rule is where the token has to be used. Pseudo-elements
- * (`::before`) are excluded for the same reason.
+ * Pseudo-class variants (`:first-child`, `:hover`, `:focus-visible`, …) ARE
+ * measured, each under the selector text as written — the regex above is a
+ * base-name match, so it never has to enumerate `:hover`/`:first-child`/…
+ * itself. The follow-up task depends on it: T-C1-2 lowers this ceiling by
+ * exactly the two `.btn-tab:first-child`/`:last-child` radius fixes, which a
+ * gate that skipped pseudo-class selectors could never register.
  *
  * Fingerprint: `button-geometry-off-token::<file>::<selector>` — one entry per
  * selector, not per declaration, so a rule that is off-token in both height and
@@ -789,9 +790,6 @@ function scanAmbiguousButtonLabels(): Violation[] {
  */
 const BUTTON_SELECTOR_PATTERN =
   /(btn|button|Button|tab\b|Tab\b|toggle|Toggle|chip|Chip|pill|Pill|segment|Segment)/;
-
-/** Any pseudo-class or pseudo-element suffix — excluded from measurement. */
-const PSEUDO_SELECTOR_PATTERN = /::?[A-Za-z-]/;
 
 /** The only radii a button may use; `--radius-btn` is the scale's own alias. */
 const ACCEPTED_BUTTON_RADII: readonly string[] = [
@@ -915,6 +913,53 @@ function cssDeclarations(body: string, property: string): string[] {
 }
 
 /**
+ * Split a selector list on its top-level commas only.
+ *
+ * A plain `split(",")` breaks every functional pseudo-class that carries a
+ * selector list of its own: `:where(button, a, [role="button"])` becomes three
+ * "selectors", one of them the nonsense fragment `:where(button`, which then
+ * matches the base-name regex and freezes a fingerprint nobody can act on.
+ * Parentheses, square brackets and quotes are therefore tracked — attribute
+ * values and `:is(…)` lists can contain commas too.
+ */
+function splitSelectorList(selector: string): string[] {
+  const parts: string[] = [];
+  let current = "";
+  let depth = 0;
+  let quote: string | null = null;
+  for (const ch of selector) {
+    if (quote !== null) {
+      current += ch;
+      if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      current += ch;
+      continue;
+    }
+    if (ch === "(" || ch === "[") {
+      depth += 1;
+      current += ch;
+      continue;
+    }
+    if (ch === ")" || ch === "]") {
+      depth -= 1;
+      current += ch;
+      continue;
+    }
+    if (ch === "," && depth === 0) {
+      parts.push(current);
+      current = "";
+      continue;
+    }
+    current += ch;
+  }
+  parts.push(current);
+  return parts;
+}
+
+/**
  * Measure one stylesheet against the button geometry rule, for `rel` (the path
  * the fingerprint reports). Exposed as a pure function so the unit cases below
  * can pin the two directions — the accepted icon-button height and the rejected
@@ -925,10 +970,9 @@ function scanButtonGeometryInCss(rel: string, css: string): Violation[] {
   const out: Violation[] = [];
   const seen = new Set<string>();
   for (const rule of cssRules(source)) {
-    for (const part of rule.selector.split(",")) {
+    for (const part of splitSelectorList(rule.selector)) {
       const selector = part.trim().replace(/\s+/g, " ");
       if (selector === "") continue;
-      if (PSEUDO_SELECTOR_PATTERN.test(selector)) continue;
       if (!BUTTON_SELECTOR_PATTERN.test(selector)) continue;
 
       const offToken: string[] = [];
@@ -1487,7 +1531,11 @@ describe("button geometry scanner (#1258)", () => {
     ).toEqual([`button-geometry-off-token::${FILE}::.primaryButton`]);
   });
 
-  it("flags an off-token height and ignores pseudo-class variants", () => {
+  it("measures pseudo-class variants under the selector as written", () => {
+    // The base-name regex above deliberately does not enumerate `:hover` /
+    // `:first-child` / …, and the scanner must not skip those rules either:
+    // T-C1-2's ceiling drop of exactly 2 comes from the two
+    // `.btn-tab:first-child` / `:last-child` radius fixes in global.css.
     const css = [
       ".toolbarButton {",
       "  height: 32px;",
@@ -1500,8 +1548,39 @@ describe("button geometry scanner (#1258)", () => {
     const violations = scanButtonGeometryInCss(FILE, css);
     expect(violations.map((violation) => violation.key)).toEqual([
       `button-geometry-off-token::${FILE}::.toolbarButton`,
+      `button-geometry-off-token::${FILE}::.toolbarButton:hover`,
     ]);
     expect(violations[0].reason).toContain("height: 32px");
+  });
+
+  it("keeps a functional pseudo-class selector list intact", () => {
+    // The global focus-ring rule reads `:where(button, a, [role="button"])`.
+    // Splitting it on the inner commas would freeze the fragment
+    // `:where(button` as a fingerprint; the selector has to survive as written.
+    const css = [
+      ':where(button, a, [role="button"]):focus-visible {',
+      "  border-radius: inherit;",
+      "}",
+      "",
+    ].join("\n");
+    expect(
+      scanButtonGeometryInCss(FILE, css).map((violation) => violation.element),
+    ).toEqual([':where(button, a, [role="button"]):focus-visible']);
+  });
+
+  it("flags a .btn-tab:first-child rule with an off-token radius", () => {
+    // The exact regression T-C1-2 fixes: a pseudo-class rule whose radius is
+    // `--radius-md`. If the gate skipped it, the follow-up task could not lower
+    // the ceiling by the 2 it promises.
+    const css = [
+      ".btn-tab:first-child {",
+      "  border-radius: var(--radius-md) 0 0 var(--radius-md);",
+      "}",
+      "",
+    ].join("\n");
+    expect(
+      scanButtonGeometryInCss(FILE, css).map((violation) => violation.key),
+    ).toEqual([`button-geometry-off-token::${FILE}::.btn-tab:first-child`]);
   });
 });
 
