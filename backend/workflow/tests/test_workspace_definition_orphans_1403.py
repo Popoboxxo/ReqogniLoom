@@ -273,6 +273,83 @@ def test_cleanup_requires_matching_confirm_count(transactional_db):
             )
 
 
+@pytest.mark.django_db(transaction=True)
+def test_cleanup_aborts_when_orphan_set_moves_after_count(
+    transactional_db, monkeypatch
+):
+    """W0-05: an orphan created after the count aborts instead of being deleted.
+
+    ``transaction.atomic()`` does not pin a snapshot — under READ COMMITTED the
+    ``DELETE`` sees a newer one than the ``count``. The command therefore
+    compares the archived row count to ``--confirm-count`` and rolls back when a
+    concurrent workspace change widened the set between the two statements.
+    Here the count reports 1 while 2 orphans are deletable at DELETE time.
+    """
+    tenant = _tenant()
+
+    with connection.cursor() as cursor:
+        cursor.execute(f'ALTER TABLE "{LT_TABLE}" DROP CONSTRAINT "{LT_FK}"')
+
+    _clear_archives()
+    before = _count(LT_TABLE)
+
+    missing = uuid.uuid4()
+    try:
+        with connection.cursor() as cursor:
+            for _ in range(2):
+                cursor.execute(
+                    f'INSERT INTO "{LT_TABLE}" '
+                    "(id, tenant_id, workspace_id, key, definition_json, "
+                    "is_customized, version, created_at, modified_at) "
+                    "VALUES (%s, %s, %s, %s, '{}', false, 1, now(), now())",
+                    [
+                        uuid.uuid4(),
+                        tenant.id,
+                        missing,
+                        f"g14-{uuid.uuid4().hex[:8]}",
+                    ],
+                )
+
+        # Simulate the stale snapshot: the count an operator confirmed saw one
+        # orphan less than the DELETE below will see.
+        real_count = cleanup_command.count_workspace_orphans
+
+        def stale_count(conn, tables=cleanup_command.DEFINITION_TABLES):
+            counts = real_count(conn, tables)
+            return {table: max(value - 1, 0) for table, value in counts.items()}
+
+        stale_total = sum(stale_count(connection).values())
+        monkeypatch.setattr(
+            cleanup_command, "count_workspace_orphans", stale_count
+        )
+
+        with pytest.raises(CommandError) as excinfo:
+            call_command(
+                "cleanup_workspace_orphans",
+                "--confirm-count",
+                str(stale_total),
+                stdout=StringIO(),
+            )
+        assert "rolled back" in str(excinfo.value)
+
+        # The guard rolled the archive INSERT and both DELETEs back: the two
+        # orphans are still in the source table and nothing reached the archive.
+        assert _count(LT_TABLE) == before + 2
+        assert _count(LT_ARCHIVE) == 0
+    finally:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f'DELETE FROM "{LT_TABLE}" AS orphan WHERE NOT EXISTS '
+                f'(SELECT 1 FROM "pl_workspace" AS w WHERE w.id = orphan.workspace_id)'
+            )
+            _clear_archives()
+            cursor.execute(
+                f'ALTER TABLE "{LT_TABLE}" ADD CONSTRAINT "{LT_FK}" '
+                'FOREIGN KEY ("workspace_id") REFERENCES "pl_workspace" ("id") '
+                "ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED"
+            )
+
+
 @pytest.mark.django_db
 def test_cleanup_aborts_without_rls_bypass():
     """The command refuses under a NOSUPERUSER/NOBYPASSRLS role."""

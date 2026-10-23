@@ -10,7 +10,7 @@ ENT-G2 = A+ (decided 2026-10-22): deletion is **reversible**. The migration and
 this command copy every row into ``<table>_orphan_archive`` in the same
 statement that deletes it, and the migration's reverse copies it back.
 
-Safety rails (all three are deliberate, fail-closed)
+Safety rails (all four are deliberate, fail-closed)
 ----------------------------------------------------
 1. **BYPASSRLS role only.** The tables carry FORCE ROW LEVEL SECURITY, which
    applies to the table owner too. Under the app role ``count`` would report 0
@@ -24,10 +24,18 @@ Safety rails (all three are deliberate, fail-closed)
    reported as a warning, not an abort. The hard protection against invisible
    rows is rail 1: a BYPASSRLS/superuser role cannot have rows hidden by RLS.
 3. **``--confirm-count`` required.** The operator must pass the exact total the
-   dry run reported; a differing count aborts before the first delete, so a
-   concurrent workspace delete cannot silently widen the blast radius. This is
+   dry run reported; a differing count aborts before the first delete. This is
    also what keeps a suspected visibility problem from deleting anything: the
    operator has to confirm the very number the command counted.
+4. **Archived-count check.** ``--confirm-count`` alone is not enough: the
+   surrounding ``transaction.atomic()`` runs under READ COMMITTED, so every
+   statement takes a fresh snapshot. A workspace deleted between the count and
+   the ``DELETE`` makes *its* definitions orphans, and the ``DELETE … WHERE NOT
+   EXISTS`` would take them along — silently more than confirmed. The archive
+   insert carries exactly the rows the delete removed, so its row count is
+   compared to ``confirm_count`` afterwards; any difference raises
+   ``CommandError`` and rolls the archive and the delete back together. Nothing
+   is ever deleted outside the confirmed blast radius.
 
 Usage::
 
@@ -46,17 +54,8 @@ from workflow.workspace_orphans import (
     DEFINITION_TABLES,
     archive_and_delete_workspace_orphans,
     count_workspace_orphans,
+    current_role_can_bypass_rls,
 )
-
-
-def _current_role_can_bypass_rls() -> bool:
-    """True when ``current_user`` has ``BYPASSRLS`` or is a superuser."""
-    with connection.cursor() as cursor:
-        cursor.execute(
-            "SELECT rolbypassrls OR rolsuper FROM pg_roles WHERE rolname = current_user"
-        )
-        row = cursor.fetchone()
-    return bool(row and row[0])
 
 
 def _validate_confirm_count(raw: Any) -> int | None:
@@ -136,7 +135,7 @@ class Command(BaseCommand):
             )
 
         # 2. Capability check before the first row is counted (fail-closed).
-        if not _current_role_can_bypass_rls():
+        if not current_role_can_bypass_rls(connection):
             raise CommandError(
                 "cleanup_workspace_orphans must run under a role with BYPASSRLS "
                 "or superuser rights (the migrate service). Under an RLS-bound "
@@ -198,7 +197,24 @@ class Command(BaseCommand):
                 connection, DEFINITION_TABLES
             )
 
-        archived_total = sum(archived.values())
+            # 4. Blast-radius guard. ``atomic()`` does not pin a snapshot: under
+            #    READ COMMITTED the DELETE above runs on a newer snapshot than
+            #    the count, so a workspace deleted in between orphans its
+            #    definitions and the DELETE takes them along. The archive holds
+            #    exactly the rows the DELETE removed, so its row count must equal
+            #    what the operator confirmed. Raising inside the atomic block
+            #    rolls the archive INSERT and the DELETE back together: nothing
+            #    is lost and nothing outside the confirmed set is removed.
+            archived_total = sum(archived.values())
+            if archived_total != confirm_count:
+                raise CommandError(
+                    f"Refusing to delete: --confirm-count={confirm_count} but "
+                    f"{archived_total} row(s) would have been archived and "
+                    "deleted. A concurrent workspace change moved the orphan "
+                    "set after it was counted; the archive and the delete were "
+                    "rolled back, so nothing was changed. Re-run --dry-run."
+                )
+
         self.stdout.write(
             self.style.SUCCESS(
                 f"Archived and deleted {archived_total} definition orphan(s) "

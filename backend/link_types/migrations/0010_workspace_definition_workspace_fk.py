@@ -15,7 +15,9 @@ What this migration does
    therefore never copy tenant data across tenants.
 1. Archives every orphan into that table and deletes it in the *same*
    statement (``WITH moved AS (DELETE … RETURNING *) INSERT …``). The reverse
-   copies the archived rows back and empties the archive.
+   copies the archived rows back and empties the archive. Both data steps need a
+   role with ``BYPASSRLS`` or superuser rights (the ``migrate`` service) and
+   abort with a clear message otherwise — the tables carry FORCE RLS.
 2. Converts ``workspace_id`` from ``UUIDField`` to a ``ForeignKey`` with
    ``db_column="workspace_id"`` — the PK remains reachable as the FK attname,
    so every existing ``workspace_id=…`` filter keeps working.
@@ -41,6 +43,7 @@ from django.db import migrations, models
 
 from workflow.workspace_orphans import (
     archive_and_delete_workspace_orphans,
+    require_rls_bypass,
     restore_archived_orphans,
 )
 
@@ -78,6 +81,10 @@ DROP_FK_SQL = f'ALTER TABLE "{TABLE}" DROP CONSTRAINT IF EXISTS "{FK_NAME}";'
 
 
 def _archive_orphans(apps, schema_editor):
+    # FORCE RLS applies to the table owner too, so a role without BYPASSRLS (or
+    # superuser) cannot run the archive step at all. Fail with the actionable
+    # message instead of an ``insufficient_privilege`` halfway through migrate.
+    require_rls_bypass(schema_editor.connection, f"G1.4 archive of {TABLE} orphans")
     counts = archive_and_delete_workspace_orphans(schema_editor.connection, (TABLE,))
     if counts[TABLE]:
         logger.warning(
@@ -90,6 +97,7 @@ def _archive_orphans(apps, schema_editor):
 
 
 def _restore_orphans(apps, schema_editor):
+    require_rls_bypass(schema_editor.connection, f"G1.4 restore of {TABLE} orphans")
     counts = restore_archived_orphans(schema_editor.connection, (TABLE,))
     if counts[TABLE]:
         logger.warning(

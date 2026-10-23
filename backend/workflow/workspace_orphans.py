@@ -85,6 +85,40 @@ def archive_table_name(table: str) -> str:
     return f"{table}_orphan_archive"
 
 
+def current_role_can_bypass_rls(connection: Any) -> bool:
+    """True when ``current_user`` has ``BYPASSRLS`` or is a superuser.
+
+    The single implementation of the capability probe: the operator command and
+    the G1.4 migrations both need it before they touch a ``FORCE ROW LEVEL
+    SECURITY`` table (see :func:`require_rls_bypass`).
+    """
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT rolbypassrls OR rolsuper FROM pg_roles WHERE rolname = current_user"
+        )
+        row = cursor.fetchone()
+    return bool(row and row[0])
+
+
+def require_rls_bypass(connection: Any, operation: str) -> None:
+    """Abort with a diagnosable message unless the role can see past RLS.
+
+    Without ``BYPASSRLS``/superuser a ``SET LOCAL row_security = off`` + query on
+    a ``FORCE ROW LEVEL SECURITY`` table fails with a bare
+    ``insufficient_privilege`` — mid-deploy and without naming the cause. This
+    turns that into an actionable error. It never turns a passing run into a
+    failing one: such a role already fails at the first affected statement.
+    """
+    if current_role_can_bypass_rls(connection):
+        return
+    raise RuntimeError(
+        f"{operation} requires a role with BYPASSRLS or superuser rights "
+        "(the migrate service). Under an RLS-bound role the rows are either "
+        "invisible (a silent zero-row report) or the write raises "
+        "insufficient_privilege."
+    )
+
+
 def _table_exists(cursor: Any, table: str) -> bool:
     """True when *table* is visible in the connection's current schema.
 
