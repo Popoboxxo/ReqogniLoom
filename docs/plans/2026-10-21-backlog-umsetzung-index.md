@@ -66,7 +66,7 @@ Queue-Positionen gelten für den genannten Teil.
 |---|---|---|---|---|
 | A | PR-A21 | PR-A21a (T-A2-1 Entkopplung) · PR-A21b (T-A2-8 Workspace-Scope) | A21a → A21b | beide `views.py` W2 |
 | B | PR-B20 | PR-B20a (API/MCP) · PR-B20b (UI) | B20a → B20b | B20a: `urls.py`, Tool-Queue; B20b: `BaselinesView`, Ratchet |
-| C | PR-C7 | PR-C7a (Backend, `0030_backfill_show_readable_ids`) · PR-C7b (Frontend-Hydrator) | C7a → C7b | C7a: `auth_tenancy`-Kette (vor E P3-2) |
+| C | PR-C7 | PR-C7a (Backend, `0031_backfill_show_readable_ids`) · PR-C7b (Frontend-Hydrator) | C7a → C7b | C7a: `auth_tenancy`-Kette (vor E P3-2) |
 | F | PR-F3 | PR-F3a (additiv `artifact_id`) · PR-F3b (Breaking, Workspace-Pflicht) | F3a → F3b | beide Tool-Queue |
 | F | PR-F11 | PR-F11a (Service) · PR-F11b (REST/MCP) | F11a → F11b | F11b: `views.py` W3, Tool-Queue |
 | F | PR-F18 | PR-F18a (REST) · PR-F18b (MCP) | F18a → F18b | F18a: `urls.py`; F18b: Tool-Queue |
@@ -244,7 +244,7 @@ graph LR
   G1 -->|persistence 0116/0117| A0
   A0 -->|persistence 0118| G2
   G2 -->|persistence 0119| B15
-  Q1 -->|auth_tenancy 0028-0030| E3
+  Q1 -->|auth_tenancy 0029-0031| E3
   B15 --> B6
   D10 --> D1
   A0 -->|compose| D1 --> G3
@@ -344,7 +344,8 @@ läuft die gezielten Tests erneut und darf erst dann mergen. Kein Force-Merge ü
 ## e. Konsolidierte Migrationsvergabe (bindend)
 
 **Ist-Stand** (geprüft 2026-10-21, erneut 2026-10-22 unverändert, `ls backend/<app>/migrations`): persistence **0115**
-(`0115_workspace_glossary_reference_mode`), auth_tenancy **0027** (`0027_create_form_config`), link_types **0009**
+(`0115_workspace_glossary_reference_mode`), auth_tenancy **0028** (`0028_index_hygiene_1411`; PR-C3 nimmt deshalb
+max+1 = `0029_preferencevalue`/`0030_preferencevalue_rls`, Regel 1), link_types **0009**
 (`0009_backfill_need_satisfies_pair`), attribute_definitions **0009** (`0009_backfill_requirement_rationale_source`),
 memory **0008** (`0008_system_memory_qdrant_settings`), application **0035** (`0035_alter_domaineventoutbox_event_type`),
 baseline **0011** (`0011_baseline_admin_delete_trigger`), workflow **0023** (`0023_we_item_state_workspace_fk_cascade`),
@@ -394,11 +395,11 @@ Ein späteres F5 (Projektion, ENT-F5) nimmt max+1.
 
 | Nr. | Name | Plan/WP | Welle | Merge-Bedingung |
 |---|---|---|---|---|
-| 0028 | `0028_preferencevalue` | C / T-C2-1 (PR-C3) | 1 | – |
-| 0029 | `0029_preferencevalue_rls` | C / T-C2-1 (PR-C3) | 1 | mit 0028 |
-| 0030 | `0030_backfill_show_readable_ids` | C / T-C2-6 (PR-C7a) | 2 | nach PR-C3 |
-| 0031 | `0031_user_mfa` (inkl. Enrollment-Grant-Modell, ENT-E7 vorläufig A — **kein** eigener Migrationsname) | E / E3.1 (P3-2) | 3 | nach PR-C7a (KA-C-10); P3-2 erst nach ENT-E7 |
-| 0032 | `0032_drop_userdisplaypreference_show_readable_ids` | C / T-C2-9 (PR-C16, contract) | release-gebunden | ≥ 1 Release nach 0030; merged der Contract vor E3.1, tauschen 0031/0032 (Regel 1) |
+| 0029 | `0029_preferencevalue` | C / T-C2-1 (PR-C3) | 1 | nach `0028_index_hygiene_1411` (Regel 1) |
+| 0030 | `0030_preferencevalue_rls` | C / T-C2-1 (PR-C3) | 1 | mit 0029 |
+| 0031 | `0031_backfill_show_readable_ids` | C / T-C2-6 (PR-C7a) | 2 | nach PR-C3 |
+| 0032 | `0032_user_mfa` (inkl. Enrollment-Grant-Modell, ENT-E7 vorläufig A — **kein** eigener Migrationsname) | E / E3.1 (P3-2) | 3 | nach PR-C7a (KA-C-10); P3-2 erst nach ENT-E7 |
+| 0033 | `0033_drop_userdisplaypreference_show_readable_ids` | C / T-C2-9 (PR-C16, contract) | release-gebunden | ≥ 1 Release nach 0031; merged der Contract vor E3.1, tauschen 0032/0033 (Regel 1) |
 
 ### link_types (QR-T02 gelöst — Vorschlag des Reviewers geprüft und übernommen)
 
@@ -685,7 +686,7 @@ Keine Entscheidung der Planbasis und keine `ENT-*`-Entscheidung geändert. Beric
 | 21 | ADR-PR-Check `lint` ohne Wirkung auf ADRs | §g.2 |
 | 22 | memory-Contract-Nummer abhängig ENT-A5 (Plan A: vorläufig 0012) | §e memory, §b Release-gebunden |
 | 23 | mögliche `baseline`-`AlterField`-Migration aus G5.3 (PR 19) fehlte | §e baseline |
-| 24 | Enrollment-Grant-Modell (ENT-E7) ohne Migrationszuordnung | §e auth_tenancy 0031 |
+| 24 | Enrollment-Grant-Modell (ENT-E7) ohne Migrationszuordnung | §e auth_tenancy 0032 |
 | 25 | G PR 5 (vor E P1-7) vs. „PR aktualisiert die OpenAPI-Baseline“ | §d.2 Baseline-Zeile (Plan-G-Regel) |
 | 26 | ENT-G1 + G PR 5 als harter Eintritt für F4.4 fehlte (Plan F Stufe 2) | §b Welle 3, §c Graph und Tabelle |
 | 27 | D-Strang nannte „KA-D-03“ statt PR D P1-4 (D2.6) | §b, §d.1, §d.2, §f.8, §h |
