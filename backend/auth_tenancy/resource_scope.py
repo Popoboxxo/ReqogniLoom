@@ -304,6 +304,11 @@ _WORKSPACE_VIA_REQUEST = (
     # Issue #1263: the per-workspace create-dialog form definition — same URL
     # shape and therefore the same request-resolution.
     "CreateFormConfigWorkspaceView",
+    # Plan C T-C2-3: the per-workspace preference-value level (read/write) and
+    # its effective read — the workspace is carried in the URL, so the
+    # request-resolution supplies the target.
+    "WorkspacePreferenceLevelView",
+    "WorkspaceEffectivePreferenceView",
 )
 for _name in _WORKSPACE_VIA_REQUEST:
     _declare(
@@ -380,6 +385,14 @@ _TENANT_SCOPED = {
     # (global) level — the latter a tenant singleton, admin-gated on write.
     "CreateFormConfigUserView": "caller's own create-form configuration",
     "CreateFormConfigGlobalView": "tenant-wide create-form default",
+    # Plan C T-C2-3: the personal preference-value levels (self-service,
+    # ``ctx.user_id`` is the boundary), the tenant-wide (global) level and the
+    # key registry — tenant singletons every member may read. The global write
+    # is admin-gated in the service and by AdminScopeRequiredMixin.
+    "UserPreferenceLevelView": "caller's own preference values",
+    "UserEffectivePreferenceView": "caller's effective preference values",
+    "GlobalPreferenceLevelView": "tenant-wide preference-value default",
+    "PreferenceRegistryView": "tenant-wide preference-key registry",
     "NotificationViewSet": "caller's own notification feed",
     "MemorySelfServiceView": "caller's own user-scoped memory",
     # tenant-wide configuration / catalogs
