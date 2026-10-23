@@ -445,6 +445,12 @@ jobs:
     # Least privilege: the scan only reads the checked-out repository.
     permissions:
       contents: read
+    # Single source of truth for the rule ids: the canary step and every
+    # blocking scan below read the same variables, so the canary cannot drift
+    # away from what the gate actually enables (W0-04).
+    env:
+      REQLO_API_KEY_RULE: reqlo-api-key
+      ENV_SECRET_RULE: env-secret-assignment
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -464,11 +470,74 @@ jobs:
           sudo install -m 0755 /tmp/gitleaks /usr/local/bin/gitleaks
           gitleaks version
 
+      - name: "Canary: prove each --enable-rule id is live (W0-04)"
+        # A rule id that resolves to nothing makes every scan below exit 0
+        # (silently green). This step feeds each enabled id a value it MUST
+        # report, and then asserts the report actually names that rule — a
+        # non-zero exit alone is not proof, because gitleaks also exits
+        # non-zero when the id is unknown (FTL "not found in rules").
+        run: |
+          set -euo pipefail
+          work="$(mktemp -d)"
+          trap 'rm -rf "${work}"' EXIT
+
+          canary() {
+            rule="$1"
+            value="$2"
+            scan="${work}/scan-${rule}"
+            report="${work}/report-${rule}.json"
+            mkdir -p "${scan}"
+            printf '%s\n' "${value}" > "${scan}/canary.txt"
+
+            rc=0
+            gitleaks dir "${scan}" --config .gitleaks.toml \
+              --enable-rule "${rule}" --exit-code 1 --redact --no-banner \
+              --report-format json --report-path "${report}" || rc=$?
+
+            if [ "${rc}" -eq 0 ]; then
+              echo "::error::Rule '${rule}' did not report its canary (exit 0) -- the enabled rule is inert (fail-open)"
+              exit 1
+            fi
+            if ! python3 - "${report}" "${rule}" <<'PY'
+          import json
+          import sys
+
+          try:
+              findings = json.load(open(sys.argv[1]))
+          except (OSError, ValueError):
+              sys.exit(1)
+          sys.exit(0 if any(f.get("RuleID") == sys.argv[2] for f in findings) else 1)
+          PY
+            then
+              echo "::error::Rule '${rule}' exited ${rc} without a '${rule}' finding -- the id does not resolve to that rule"
+              exit 1
+            fi
+            echo "Canary OK: '${rule}' resolved and reported its canary"
+          }
+
+          # Both canary values are assembled at run time on purpose: a literal
+          # `reqlo_<40 alnum>` or `SECRET_KEY=<12+ chars>` in this file would
+          # be reported by the repository's own scans (dir / PR-diff gate).
+          #
+          # 40 alphanumerics after `reqlo_` (the rule's exact boundary). The
+          # pattern is mixed-case so the inherited default allowlist (which
+          # compares case-sensitively) cannot swallow the canary.
+          api_key_canary="reqlo_$(printf 'Zx9Qm2Lp7Rt4Wv8N%.0s' $(seq 1 3) | cut -c1-40)"
+          canary "${REQLO_API_KEY_RULE}" "${api_key_canary}"
+          # A value of 12+ non-whitespace chars under a secret-shaped name.
+          # It must be high-entropy: `useDefault = true` inherits gitleaks'
+          # global allowlist, whose stopwords (e.g. `aaaaaa`) suppress
+          # repeated-character dummies -- such a canary would exit 0 and be
+          # misread as an inert rule.
+          env_secret_var="SECRET_KEY"
+          env_secret_value="Zx9Qm2Lp7Rt4Wv8N"
+          canary "${ENV_SECRET_RULE}" "${env_secret_var}=${env_secret_value}"
+
       - name: Scan working tree (gitleaks dir)
-        run: gitleaks dir . --config .gitleaks.toml --enable-rule reqlo-api-key --redact --exit-code 1
+        run: gitleaks dir . --config .gitleaks.toml --enable-rule "$REQLO_API_KEY_RULE" --redact --exit-code 1
 
       - name: Scan full git history (gitleaks git)
-        run: gitleaks git . --config .gitleaks.toml --enable-rule reqlo-api-key --redact --exit-code 1
+        run: gitleaks git . --config .gitleaks.toml --enable-rule "$REQLO_API_KEY_RULE" --redact --exit-code 1
 
       - name: Scan PR diff for env secrets
         # Plan D / D2.6 (QR-S03, KA-D-03): third, BLOCKING gate. The two steps
@@ -496,6 +565,6 @@ jobs:
           fi
           echo "Scanning ${RANGE} for literal env-secret assignments"
           gitleaks git . --config .gitleaks.toml \
-            --enable-rule env-secret-assignment \
+            --enable-rule "${ENV_SECRET_RULE}" \
             --log-opts="${RANGE}" \
             --redact --exit-code 1
