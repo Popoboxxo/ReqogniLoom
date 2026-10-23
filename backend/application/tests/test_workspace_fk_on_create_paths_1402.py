@@ -36,6 +36,7 @@ from application.requirement_service import RequirementService
 from application.stakeholder_need_service import StakeholderNeedService
 from application.test_run_service import TestRunService
 from application.test_service import TestService
+from application.workspace_service import WorkspaceService
 from persistence.models import (
     ArchitectureElement,
     Artifact,
@@ -44,7 +45,13 @@ from persistence.models import (
     TestCase,
     TestRun,
 )
-from persistence.tests.factories import active_tenant, editor_ctx, make_workspace
+from persistence.tests.factories import (
+    active_tenant,
+    ctx_for_user,
+    editor_ctx,
+    make_user,
+    make_workspace,
+)
 
 pytestmark = pytest.mark.django_db
 
@@ -205,3 +212,36 @@ def test_create_with_a_foreign_artifact_cannot_leave_workspace_null(env):
 
     orphan._fill_workspace_from_artifact()
     assert orphan.workspace_id is None
+
+
+def test_workspace_clone_repoints_the_workspace_fk(env):
+    """``clone_workspace`` is a create path: the copy belongs to the clone.
+
+    G1.3/#1402 regression: the clone re-inserts the source row with a new PK and
+    a remapped artifact but kept the *source* workspace id — so the copy landed
+    in the wrong workspace and collided with the source row on
+    ``uq_<table>_workspace_uid`` (IntegrityError on any uid-bearing source).
+    """
+    tenant, source, _editor = env
+    admin_ctx = ctx_for_user(
+        tenant, make_user(tenant), workspace=source, roles=("admin",)
+    )
+
+    test_case = TestService().create_test_case(
+        workspace_id=source.id, title="Login", ctx=admin_ctx, uid="TC-CLONE-1"
+    )
+    ArchitectureService().create_architecture_element(
+        workspace_id=source.id, title="System", ctx=admin_ctx, uid="ARCH-CLONE-1"
+    )
+
+    with patch("application.workspace_service.ServiceBase._audit"):
+        target = WorkspaceService().clone_workspace(admin_ctx, source.id, "Cloned WS")
+
+    cloned_case = TestCase.objects.get(workspace=target, uid="TC-CLONE-1")
+    cloned_element = ArchitectureElement.objects.get(
+        workspace=target, uid="ARCH-CLONE-1"
+    )
+    assert cloned_case.id != test_case.id
+    assert cloned_element.workspace_id == target.id
+    # The source rows kept their own workspace.
+    assert TestCase.objects.get(pk=test_case.pk).workspace_id == source.id
