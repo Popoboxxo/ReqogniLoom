@@ -248,6 +248,10 @@ class TestService(ServiceBase):
         test_case = TestCase.objects.create(
             tenant=tenant,
             artifact=artifact,
+            # G1.3/#1402: denormalized workspace back-reference — a NULL here
+            # would silently exempt the row from uq_testcase_workspace_uid
+            # (NULLs are distinct under a UNIQUE index).
+            workspace=workspace,
             title=title,
             description=description,
             steps=steps or [],

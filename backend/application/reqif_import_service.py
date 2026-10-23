@@ -1369,11 +1369,13 @@ class ReqifImportService(ServiceBase):
                     custom_fields={},
                 )
         entity = (
-            # #133: workspace is denormalized onto Requirement to back the
-            # (workspace, uid) DB-level UniqueConstraint.
+            # #133/#1402: ``workspace`` is denormalized onto the Artifact-backed
+            # entity to back its (workspace, uid) partial UniqueConstraint. It
+            # is set for every kind, not just Requirement — a NULL would
+            # silently exempt the imported row from the constraint.
             Requirement(tenant=tenant, artifact=artifact, workspace=workspace)
             if kind == "Requirement"
-            else StakeholderNeed(tenant=tenant, artifact=artifact)
+            else StakeholderNeed(tenant=tenant, artifact=artifact, workspace=workspace)
         )
         return artifact, entity
 

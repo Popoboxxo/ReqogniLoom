@@ -261,7 +261,31 @@ def test_migration_dedupes_existing_collisions(transactional_db):
             version=1,
         )
 
-        # Step 2: forward again — the dedupe step must rename the later row.
+        # W0-02: a duplicate whose uid already fills the whole column. The old
+        # ``f"{uid} ({n})"[:64]`` form truncated the suffix back off, produced
+        # the base uid again (always present in ``taken``) and never left the
+        # ``while True`` loop. Two more artifacts carry that case.
+        full_length_uid = "X" * 64
+        expected_full_length_rename = "X" * 60 + " (2)"
+        for title in ("Full-length oldest", "Full-length later"):
+            full_artifact = uuid.uuid4()
+            OldArtifact.objects.create(
+                id=full_artifact,
+                tenant_id=tenant.id,
+                workspace_id=workspace.id,
+                artifact_type="TestCase",
+            )
+            OldTestCase.objects.create(
+                id=uuid.uuid4(),
+                tenant_id=tenant.id,
+                artifact_id=full_artifact,
+                workspace_id=workspace.id,
+                title=title,
+                uid=full_length_uid,
+                version=1,
+            )
+
+        # Step 2: forward again — the dedupe step must rename the later rows.
         executor = MigrationExecutor(connection)
         executor.migrate([("persistence", _CONSTRAINTS)])
 
@@ -270,7 +294,10 @@ def test_migration_dedupes_existing_collisions(transactional_db):
                 "uid", flat=True
             )
         )
-        assert uids == ["TC-001", "TC-001 (2)"]
+        assert uids == sorted(
+            ["TC-001", "TC-001 (2)", full_length_uid, expected_full_length_rename]
+        )
+        assert all(len(uid) <= 64 for uid in uids)
     finally:
         clear_request_tenant()
 
@@ -297,3 +324,33 @@ def test_migration_reverse_roundtrip(transactional_db):
     executor = MigrationExecutor(connection)
     executor.migrate([("persistence", _CONSTRAINTS)])
     assert _UID_INDEXES <= _uid_index_names()
+
+
+def _dedupe_module():
+    """Import the 0118 migration module (its name starts with a digit)."""
+    import importlib
+
+    return importlib.import_module(
+        "persistence.migrations.0118_uid_workspace_unique_constraints"
+    )
+
+
+def test_next_free_uid_keeps_the_suffix_at_max_length():
+    """W0-02: the suffix is reserved *before* truncation, so it always shows."""
+    module = _dedupe_module()
+    base = "A" * 64
+
+    candidate = module._next_free_uid(base, {base})
+
+    assert candidate == "A" * 60 + " (2)"
+    assert candidate != base
+    assert len(candidate) <= module.MAX_UID_LENGTH
+
+
+def test_next_free_uid_skips_taken_candidates():
+    """The candidate search still honours the incremental ``taken`` set."""
+    module = _dedupe_module()
+    base = "A" * 64
+    taken = {base, "A" * 60 + " (2)", "A" * 60 + " (3)"}
+
+    assert module._next_free_uid(base, taken) == "A" * 60 + " (4)"

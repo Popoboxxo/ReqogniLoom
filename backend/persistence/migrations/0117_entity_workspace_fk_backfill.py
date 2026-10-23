@@ -49,8 +49,9 @@ def _fk_field() -> models.ForeignKey:
         blank=True,
         help_text=(
             "G1.3/#1402: denormalized copy of artifact.workspace_id, backfilled "
-            "by persistence/0117_entity_workspace_fk_backfill and filled on every "
-            "create path by application.local_uid.assign_local_uid."
+            "by persistence/0117_entity_workspace_fk_backfill and kept in sync "
+            "on every save by ArtifactWorkspaceMirrorMixin (the creating "
+            "services also set it explicitly)."
         ),
     )
 

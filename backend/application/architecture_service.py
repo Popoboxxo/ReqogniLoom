@@ -168,6 +168,10 @@ class ArchitectureService(ServiceBase):
         arch_el = ArchitectureElement.objects.create(
             tenant=tenant,
             artifact=artifact,
+            # G1.3/#1402: denormalized workspace back-reference — a NULL here
+            # would silently exempt the row from
+            # uq_architecture_element_workspace_uid.
+            workspace=workspace,
             title=title,
             description=description,
             element_type=element_type,

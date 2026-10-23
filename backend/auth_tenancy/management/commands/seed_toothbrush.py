@@ -166,6 +166,9 @@ def _create_stakeholder_needs(
         n = StakeholderNeed.objects.create(
             artifact=artifact,
             tenant_id=tenant.id,
+            # G1.3/#1402: denormalized workspace back-reference; without it the
+            # seeded needs are exempt from uq_stakeholder_need_workspace_uid.
+            workspace_id=ws_id,
             title=title,
             description=details,
             moscow_priority=MoSCoWPriority.MUST,
