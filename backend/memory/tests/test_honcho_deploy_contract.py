@@ -39,6 +39,13 @@ It additionally pins one invariant that needs no compose file at all:
    lock still said 2.3.0 — which makes a CVE check against the lock able to
    clear a client version that is not the one deployed (ADR-023 AC-SDK).
 
+6. every Honcho service resolves its embedding model and width from ONE source:
+   an explicit ``HONCHO_EMBEDDING_*`` override, else the deployment-wide
+   ``EMBEDDING_MODEL_NAME`` / ``EMBEDDING_VECTOR_DIMENSIONS`` the app itself
+   embeds with. Two independent default sets let a provider switch leave Honcho
+   embedding at a different width than the app stores, which surfaces as
+   rejected or useless memory vectors rather than as a config error.
+
 It is deliberately Docker-free and Django-free so it runs on the host with::
 
     PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest \\
@@ -104,6 +111,36 @@ _HONCHO_SHIM_SERVICES = ("honcho", "honcho-deriver")
 #: migrations / the preflight probe in a loop, so they are excluded from the
 #: keep-alive contract below (#1249).
 _ONE_SHOT_SERVICES = frozenset({"migrate", "llm-preflight", "honcho-migrate"})
+
+#: Every service that runs the Honcho image and therefore resolves an embedding
+#: configuration. ``honcho`` and ``honcho-deriver`` share one definition through
+#: the ``x-honcho-env`` anchor, ``honcho-migrate`` declares its own block; all
+#: three must still resolve the SAME model and width, so the guard below checks
+#: each service mapping after YAML alias resolution rather than the source text.
+_HONCHO_EMBEDDING_SERVICES = ("honcho", "honcho-deriver", "honcho-migrate")
+
+#: Services that only read the *raw* Honcho embedding vars for the
+#: ``memory_backend`` health probe (#911). The width has to be visible on this
+#: side too: a probe that can see the model but not the dimension cannot tell a
+#: working setup from a width mismatch.
+_HONCHO_EMBEDDING_PROBE_SERVICES = ("backend", "celery")
+
+#: The one-source expressions. ``${HONCHO_EMBEDDING_X:-${EMBEDDING_X:-default}}``
+#: means: an explicit Honcho override wins, otherwise the deployment-wide
+#: embedding setting is inherited, otherwise Honcho's own default applies. Before
+#: this the two configurations were independent, so a provider switch silently
+#: left Honcho embedding into different vectors than the app stores.
+_HONCHO_MODEL_EXPR = (
+    "${HONCHO_EMBEDDING_MODEL:-${EMBEDDING_MODEL_NAME:-nomic-embed-text}}"
+)
+_HONCHO_DIMENSIONS_EXPR = (
+    "${HONCHO_EMBEDDING_VECTOR_DIMENSIONS:-${EMBEDDING_VECTOR_DIMENSIONS:-768}}"
+)
+#: The base URL is deliberately NOT nested: Honcho always needs the ``/v1``
+#: suffix, so inheriting the app's bare Ollama URL would break every write.
+_HONCHO_BASE_URL_EXPR = (
+    "${HONCHO_EMBEDDING_BASE_URL:-http://host.docker.internal:11434/v1}"
+)
 
 #: Policies that keep a long-running service alive across a crash / host reboot.
 #: ``unless-stopped`` is the project-wide default; the others are accepted so a
@@ -327,6 +364,79 @@ def test_one_shot_services_are_not_auto_restarted(service_name: str) -> None:
     assert policy == "no", (
         f"{service_name}: one-shot service has restart={policy!r}; it must stay "
         "'no' so it never re-runs migrations/preflight on exit (#1249)"
+    )
+
+
+def _service_env(compose: dict, service_name: str) -> dict:
+    """Return a service's ``environment`` mapping (``{}`` when it declares none).
+
+    PyYAML has already resolved the ``x-honcho-env`` alias here, so
+    ``honcho``/``honcho-deriver`` report the same keys as a service that spells
+    them out — which is what Compose ultimately renders, and what the guard is
+    about.
+    """
+    service = compose["services"][service_name]
+    env = service.get("environment")
+    if env is None:
+        return {}
+    if isinstance(env, list):
+        pairs = (item.split("=", 1) for item in env)
+        return {key: value for key, value in pairs}
+    return dict(env)
+
+
+def test_honcho_embedding_defaults_derive_from_embedding_vars() -> None:
+    """Honcho must inherit the app's embedding settings, not carry its own (#1471).
+
+    There is one embedding configuration per deployment. Before this guard the
+    Compose file had two: the backend read ``EMBEDDING_PROVIDER`` /
+    ``EMBEDDING_MODEL_NAME`` / ``EMBEDDING_VECTOR_DIMENSIONS`` while the Honcho
+    services read ``HONCHO_EMBEDDING_*``, with independent defaults. Switching to
+    a provider that embeds at a different width therefore left Honcho reading
+    one width and the app another — the failure shows up as rejected or useless
+    memory vectors, not as a config error.
+
+    The fix is a nested default: an explicit ``HONCHO_EMBEDDING_*`` override
+    still wins, otherwise the deployment-wide ``EMBEDDING_*`` value is
+    inherited. Checked per service, so forgetting one of the three Honcho
+    services (or one of the two probe consumers) fails here.
+    """
+    compose = _load_compose()
+    expected = {
+        "EMBEDDING_MODEL_CONFIG__MODEL": _HONCHO_MODEL_EXPR,
+        "EMBEDDING_VECTOR_DIMENSIONS": _HONCHO_DIMENSIONS_EXPR,
+        # Not nested on purpose: Honcho needs the /v1 suffix, the app does not
+        # use this URL at all. Pinned so a well-meant "unify everything" edit
+        # cannot quietly point every memory write at a URL without /v1.
+        "EMBEDDING_MODEL_CONFIG__OVERRIDES__BASE_URL": _HONCHO_BASE_URL_EXPR,
+    }
+    problems = []
+    for service_name in _HONCHO_EMBEDDING_SERVICES:
+        env = _service_env(compose, service_name)
+        for key, value in expected.items():
+            if env.get(key) != value:
+                problems.append(
+                    f"{service_name}.{key}={env.get(key)!r} (expected {value!r})"
+                )
+    assert problems == [], (
+        "Honcho embedding config does not derive from EMBEDDING_*: "
+        f"{problems!r} — an explicit HONCHO_EMBEDDING_* override must still win, "
+        "but the default has to fall through to EMBEDDING_MODEL_NAME / "
+        "EMBEDDING_VECTOR_DIMENSIONS so the app and Honcho cannot disagree"
+    )
+
+    probe_problems = [
+        f"{service_name}.HONCHO_EMBEDDING_VECTOR_DIMENSIONS="
+        f"{_service_env(compose, service_name).get('HONCHO_EMBEDDING_VECTOR_DIMENSIONS')!r}"
+        for service_name in _HONCHO_EMBEDDING_PROBE_SERVICES
+        if "HONCHO_EMBEDDING_VECTOR_DIMENSIONS"
+        not in _service_env(compose, service_name)
+    ]
+    assert probe_problems == [], (
+        "health-probe env is incomplete: "
+        f"{probe_problems!r} — the memory_backend probe already sees "
+        "HONCHO_EMBEDDING_MODEL, so it needs the width as well, or a dimension "
+        "mismatch between app and Honcho stays invisible (#911)"
     )
 
 

@@ -220,9 +220,17 @@ x-honcho-env: &honcho-env
   # WRITE still needs a reachable embedding endpoint; reads do not. The
   # `memory_backend` row of GET /api/v1/admin/health/ reports down when the
   # embedding endpoint is unreachable or unconfigured (#911).
-  EMBEDDING_VECTOR_DIMENSIONS: ${HONCHO_EMBEDDING_VECTOR_DIMENSIONS:-768}
+  # ONE embedding source: `HONCHO_EMBEDDING_*` is an OVERRIDE, not a second
+  # configuration. The nested default inherits the deployment-wide
+  # `EMBEDDING_MODEL_NAME` / `EMBEDDING_VECTOR_DIMENSIONS` the backend itself
+  # embeds with, so switching the app's provider cannot silently leave Honcho
+  # embedding at a different width than the app stores. Set the
+  # `HONCHO_EMBEDDING_*` pair only when Honcho must use an endpoint/model that
+  # differs from the app's. The base URL is deliberately NOT nested: Honcho
+  # always needs the `/v1` suffix, the app's own EMBEDDING_* block has no URL.
+  EMBEDDING_VECTOR_DIMENSIONS: ${HONCHO_EMBEDDING_VECTOR_DIMENSIONS:-${EMBEDDING_VECTOR_DIMENSIONS:-768}}
   EMBEDDING_MODEL_CONFIG__TRANSPORT: ${HONCHO_EMBEDDING_TRANSPORT:-openai}
-  EMBEDDING_MODEL_CONFIG__MODEL: ${HONCHO_EMBEDDING_MODEL:-nomic-embed-text}
+  EMBEDDING_MODEL_CONFIG__MODEL: ${HONCHO_EMBEDDING_MODEL:-${EMBEDDING_MODEL_NAME:-nomic-embed-text}}
   EMBEDDING_MODEL_CONFIG__OVERRIDES__BASE_URL: ${HONCHO_EMBEDDING_BASE_URL:-http://host.docker.internal:11434/v1}
   # PITFALL, verified live against a real ollama.nomic-embed-text setup:
   # the pgvector column's dimension is baked into the schema at MIGRATE
@@ -667,9 +675,14 @@ services:
       DEFAULT_TENANT_ID: ${DEFAULT_TENANT_ID:-1}
       # Raw Honcho embedding vars read by the memory backend's health probe
       # (#911); only used when MEMORY_BACKEND=honcho. `honcho`/`honcho-migrate`
-      # above consume the same values in EMBEDDING_MODEL_CONFIG__* form.
+      # above consume the same values in EMBEDDING_MODEL_CONFIG__* form. The
+      # dimension is passed for the same reason as the model: the probe has to
+      # be able to see a width mismatch between the app's EMBEDDING_* setting
+      # and what Honcho actually embeds with. Defaults mirror the Honcho
+      # services' nested defaults (`HONCHO_*` override, else `EMBEDDING_*`).
       HONCHO_EMBEDDING_BASE_URL: ${HONCHO_EMBEDDING_BASE_URL:-http://host.docker.internal:11434/v1}
-      HONCHO_EMBEDDING_MODEL: ${HONCHO_EMBEDDING_MODEL:-nomic-embed-text}
+      HONCHO_EMBEDDING_MODEL: ${HONCHO_EMBEDDING_MODEL:-${EMBEDDING_MODEL_NAME:-nomic-embed-text}}
+      HONCHO_EMBEDDING_VECTOR_DIMENSIONS: ${HONCHO_EMBEDDING_VECTOR_DIMENSIONS:-${EMBEDDING_VECTOR_DIMENSIONS:-768}}
       # #1166: HTTP request connections must NOT be pooled. Under ASGI each
       # request's sync stack runs in a thread created per request, and a Django
       # DB connection is thread-local — with a non-zero CONN_MAX_AGE the
@@ -947,9 +960,14 @@ services:
       LLM_OPENCODE_SESSION: ${LLM_OPENCODE_SESSION:-}
       # Raw Honcho embedding vars read by the memory backend's health probe
       # (#911); only used when MEMORY_BACKEND=honcho. `honcho`/`honcho-migrate`
-      # above consume the same values in EMBEDDING_MODEL_CONFIG__* form.
+      # above consume the same values in EMBEDDING_MODEL_CONFIG__* form. The
+      # dimension is passed for the same reason as the model: the probe has to
+      # be able to see a width mismatch between the app's EMBEDDING_* setting
+      # and what Honcho actually embeds with. Defaults mirror the Honcho
+      # services' nested defaults (`HONCHO_*` override, else `EMBEDDING_*`).
       HONCHO_EMBEDDING_BASE_URL: ${HONCHO_EMBEDDING_BASE_URL:-http://host.docker.internal:11434/v1}
-      HONCHO_EMBEDDING_MODEL: ${HONCHO_EMBEDDING_MODEL:-nomic-embed-text}
+      HONCHO_EMBEDDING_MODEL: ${HONCHO_EMBEDDING_MODEL:-${EMBEDDING_MODEL_NAME:-nomic-embed-text}}
+      HONCHO_EMBEDDING_VECTOR_DIMENSIONS: ${HONCHO_EMBEDDING_VECTOR_DIMENSIONS:-${EMBEDDING_VECTOR_DIMENSIONS:-768}}
     # Makes host.docker.internal resolve on Linux (built-in on Docker Desktop)
     # for the health probe's default base URL.
     extra_hosts:
@@ -1239,12 +1257,16 @@ services:
       # Embedding config is parameterized (HONCHO_EMBEDDING_*, see .env.example)
       # and MUST resolve to the SAME values here and on `honcho` BEFORE the first
       # migration against a fresh volume -- see the PITFALL note on the `honcho`
-      # service's EMBEDDING_MODEL_CONFIG block. The default base URL points at a
-      # host-run Ollama via host.docker.internal (extra_hosts below makes that
-      # name resolve on Linux too; it is built-in on Docker Desktop).
-      EMBEDDING_VECTOR_DIMENSIONS: ${HONCHO_EMBEDDING_VECTOR_DIMENSIONS:-768}
+      # service's EMBEDDING_MODEL_CONFIG block. Same nested defaults as the
+      # shared `x-honcho-env` anchor above: `HONCHO_EMBEDDING_*` overrides win,
+      # otherwise the deployment-wide `EMBEDDING_*` values are inherited, so the
+      # migration can never size the columns differently from what `honcho` and
+      # the backend embed with. The base URL points at a host-run Ollama via
+      # host.docker.internal (extra_hosts below makes that name resolve on Linux
+      # too; it is built-in on Docker Desktop).
+      EMBEDDING_VECTOR_DIMENSIONS: ${HONCHO_EMBEDDING_VECTOR_DIMENSIONS:-${EMBEDDING_VECTOR_DIMENSIONS:-768}}
       EMBEDDING_MODEL_CONFIG__TRANSPORT: ${HONCHO_EMBEDDING_TRANSPORT:-openai}
-      EMBEDDING_MODEL_CONFIG__MODEL: ${HONCHO_EMBEDDING_MODEL:-nomic-embed-text}
+      EMBEDDING_MODEL_CONFIG__MODEL: ${HONCHO_EMBEDDING_MODEL:-${EMBEDDING_MODEL_NAME:-nomic-embed-text}}
       EMBEDDING_MODEL_CONFIG__OVERRIDES__BASE_URL: ${HONCHO_EMBEDDING_BASE_URL:-http://host.docker.internal:11434/v1}
     extra_hosts:
       - "host.docker.internal:host-gateway"

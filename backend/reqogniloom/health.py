@@ -17,7 +17,8 @@ COMP-RA-006 HealthEndpoint — implements the split contract of ADR-010:
   (``deploy/docker-compose.yml``) goes red on a mandatory dependency outage.
 
 Advisory signals (``llm_provider_env``, ``embedding_dimensions``,
-``csrf_cookie_secure_matches_auth``, ``outbox_unbound_publishes``,
+``embedding_model_consistency``, ``csrf_cookie_secure_matches_auth``,
+``outbox_unbound_publishes``,
 ``outbox_pending`` / ``outbox_dlq`` queue gauges, workflow-definition warnings)
 never affect the status code: they appear only
 in ``warnings``/``advisory`` and escalate an otherwise-healthy response to
@@ -347,6 +348,55 @@ def _collect_advisory(
                     "width and discard the stored vectors — the mismatch "
                     "would remain."
                 )
+
+    # App <-> Honcho embedding coupling (T-A0-4, #1317 finding 2): the app and
+    # the Honcho memory backend embed through two independently configurable
+    # sets of variables (``EMBEDDING_*`` vs ``HONCHO_EMBEDDING_*``). Both write
+    # paths are best-effort, so a divergence raises nothing and logs nothing —
+    # it only makes the memory vectors and the artifact vectors incomparable,
+    # which silently degrades memory retrieval and semantic search. The same
+    # comparison is reported by ``manage.py check`` as ``memory.W001`` (model)
+    # and ``memory.W002`` (width); this is the watched half. Gated on ``db_ok``
+    # like the dimension check above and for the same reason: the effective
+    # backend and model can come from a ``SystemMemorySettings`` override, so
+    # without the DB the comparison would fall back to env-only and could
+    # contradict the stored override. Advisory (HTTP 200): everything still
+    # works, just not in one vector space.
+    if db_ok:
+        try:
+            from memory.checks import honcho_embedding_mismatches
+
+            embedding_inconsistencies = honcho_embedding_mismatches()
+        except Exception as exc:  # noqa: BLE001 - health check must never crash
+            logger.warning(
+                "Health check: embedding-consistency check failed - %s", exc
+            )
+            warnings.append("embedding-consistency check failed")
+        else:
+            detail = "; ".join(m.message for m in embedding_inconsistencies)
+            if embedding_inconsistencies:
+                advisory["embedding_model_consistency"] = f"mismatch: {detail}"
+                logger.warning(
+                    "Health check: app and Honcho embedding configuration "
+                    "differ - %s",
+                    detail,
+                )
+                warnings.append(
+                    "The app and the Honcho memory backend are configured with "
+                    f"different embedding settings ({detail}). Honcho embeds "
+                    "memory entries while the app embeds artifacts, so the two "
+                    "vector spaces are not comparable and memory retrieval and "
+                    "semantic search silently degrade. Fix the deployment so "
+                    "both resolve ONE model and width: leave "
+                    "HONCHO_EMBEDDING_MODEL / HONCHO_EMBEDDING_VECTOR_DIMENSIONS "
+                    "unset so they inherit EMBEDDING_MODEL_NAME / "
+                    "EMBEDDING_VECTOR_DIMENSIONS (deploy/docker-compose.yml), or "
+                    "set both sides to the same values. Reported by "
+                    "`manage.py check` as memory.W001 (model) / memory.W002 "
+                    "(width)."
+                )
+            else:
+                advisory["embedding_model_consistency"] = "ok"
 
     # Provider-required environment check (#1050): `opencode_go` is selected
     # but `LLM_OPENCODE_SESSION` is not set, so every LLM call fails with a
