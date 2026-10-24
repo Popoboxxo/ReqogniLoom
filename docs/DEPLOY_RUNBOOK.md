@@ -215,12 +215,22 @@ docker compose -f deploy/docker-compose.yml --project-directory . \
 (`memory.ask` still degraded; the header unobservable at the Honcho wire)
 contradicts the closed state. Track the vendor-side resolution there.
 
-**Related SDK drift (open, not fixed here).** `backend/requirements.txt` pins
-`honcho-ai==2.5.1` while `backend/requirements.lock` pins `honcho-ai==2.3.0`, and
-the compose pin rationale references the 2.3.0 client. The client SDK version
-decides which server API routes `memory/honcho_backend.py` can call, so confirm
-which version the running backend actually imports before diagnosing a
-`memory.ask` failure. Aligning the two is a follow-up.
+**Related SDK drift (resolved).** `backend/requirements.txt` and
+`backend/requirements.lock` now both pin `honcho-ai==2.5.1`; the lock previously
+still said `honcho-ai==2.3.0`, which made a CVE check against the lock answer for
+a client that was not deployed. The parity is guarded — the two files drifting
+apart again fails `test_honcho_sdk_lock_matches_requirements` in
+`backend/memory/tests/test_honcho_deploy_contract.py`, which reads both pins and
+runs in the `set-4-features` backend CI leg (`.github/workflows/ci.yml`) — that
+leg does not need a compose file. The client SDK version
+decides which server API routes `memory/honcho_backend.py` can call, so it is
+still worth confirming which version the running backend actually imports before
+diagnosing a `memory.ask` failure (`python -c "import importlib.metadata as m;
+print(m.version('honcho-ai'))"` inside the `backend` container). One stale
+reference remains: the image-pin comment in `deploy/docker-compose.yml` still
+describes v3.3.0 as carrying the routes of the 2.3.0 client. That file is not
+edited here; correct it together with the next compose change (T-A0-3) and do
+not treat it as the authoritative SDK version.
 
 ---
 
