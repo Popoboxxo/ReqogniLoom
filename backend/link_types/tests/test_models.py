@@ -10,6 +10,7 @@ from django.db import IntegrityError, transaction
 from link_types.models import GlobalLinkTypeDefinition, WorkspaceLinkTypeDefinition
 from persistence.models import Tenant
 from persistence.tenancy import TenantContext
+from persistence.tests.factories import make_workspace_id
 
 
 @pytest.fixture
@@ -30,7 +31,7 @@ def test_global_key_is_unique_per_tenant(tenant_id):
 
 @pytest.mark.django_db
 def test_workspace_key_is_unique_per_workspace(tenant_id):
-    ws = uuid.uuid4()
+    ws = make_workspace_id(tenant_id)
     WorkspaceLinkTypeDefinition.objects.create(
         workspace_id=ws, key="verifies", definition_json={}
     )
@@ -43,10 +44,10 @@ def test_workspace_key_is_unique_per_workspace(tenant_id):
 @pytest.mark.django_db
 def test_same_key_allowed_in_a_second_workspace(tenant_id):
     WorkspaceLinkTypeDefinition.objects.create(
-        workspace_id=uuid.uuid4(), key="verifies", definition_json={}
+        workspace_id=make_workspace_id(tenant_id), key="verifies", definition_json={}
     )
     obj = WorkspaceLinkTypeDefinition.objects.create(
-        workspace_id=uuid.uuid4(), key="verifies", definition_json={}
+        workspace_id=make_workspace_id(tenant_id), key="verifies", definition_json={}
     )
     assert obj.pk is not None
 
@@ -55,7 +56,7 @@ def test_same_key_allowed_in_a_second_workspace(tenant_id):
 def test_deleting_the_global_row_nulls_the_link_but_keeps_the_workspace_row(tenant_id):
     g = GlobalLinkTypeDefinition.objects.create(key="mitigates", definition_json={})
     w = WorkspaceLinkTypeDefinition.objects.create(
-        workspace_id=uuid.uuid4(),
+        workspace_id=make_workspace_id(tenant_id),
         key="mitigates",
         definition_json={},
         source_global=g,

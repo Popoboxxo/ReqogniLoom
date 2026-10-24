@@ -687,6 +687,132 @@ class TreeDisplayConfig(TenantScopedModel):
 
 
 # ---------------------------------------------------------------------------
+# Q1 preference service — one row per (level, key) (Plan C, issue #1094)
+# ---------------------------------------------------------------------------
+
+PREFERENCE_SCOPE_GLOBAL = "global"
+PREFERENCE_SCOPE_WORKSPACE = "workspace"
+PREFERENCE_SCOPE_USER = "user"
+PREFERENCE_SCOPE_CHOICES = (
+    (PREFERENCE_SCOPE_GLOBAL, "Global"),
+    (PREFERENCE_SCOPE_WORKSPACE, "Workspace"),
+    (PREFERENCE_SCOPE_USER, "User"),
+)
+
+
+class PreferenceValue(TenantScopedModel):
+    """One stored value of one registered preference key on one level (Q1).
+
+    Deliberately a row per (level, key) rather than one JSON document per level
+    (the ``TreeDisplayConfig`` shape): writing a single key is an upsert against
+    a partial unique index, so two concurrent writers of *different* keys never
+    overwrite each other (finding R7). An absent row means "inherit", never
+    "empty" — a reader must not create one as a side effect, and a value of
+    ``None`` is expressed by deleting the row, not by storing JSON ``null``.
+
+    Levels:
+
+    * ``scope="global"`` — one row per (tenant, key); the System-Settings
+      default every workspace inherits.
+    * ``scope="workspace"`` — one row per (tenant, workspace, key).
+    * ``scope="user"`` — one row per (tenant, user, key). The user level is
+      account-wide per tenant, not per workspace, so a personal switch applies
+      to every workspace the user works in.
+
+    ``key`` is a registered preference key (``<namespace>.<name>``); the
+    registry itself is code, not a database catalog, so ``key`` is a plain
+    ``CharField`` here. ``value`` stays a ``JSONField`` because the registered
+    value types (bool, enum, string list) are validated by the registry, not by
+    the schema.
+
+    Note for the writing service: workspace and global writes are audited via
+    ``ServiceBase._audit`` (``entity_type="preference_value"``); the user level
+    is self-service like ``display-preferences`` and carries no audit entry.
+    """
+
+    scope = models.CharField(max_length=16, choices=PREFERENCE_SCOPE_CHOICES)
+    workspace = models.ForeignKey(
+        "persistence.Workspace",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="preference_values",
+    )
+    user = models.ForeignKey(
+        "persistence.User",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="preference_values",
+    )
+    key = models.CharField(max_length=128)
+    value = models.JSONField()
+
+    class Meta:
+        db_table = "at_preference_value"
+        constraints = [
+            # One global row per (tenant, key).
+            models.UniqueConstraint(
+                fields=["tenant", "key"],
+                condition=models.Q(scope=PREFERENCE_SCOPE_GLOBAL),
+                name="uq_prefval_global",
+            ),
+            # One row per (tenant, workspace, key). The tenant column is part of
+            # the constraint so the uniqueness claim is expressible without a
+            # join and matches the RLS isolation boundary.
+            models.UniqueConstraint(
+                fields=["tenant", "workspace", "key"],
+                condition=models.Q(scope=PREFERENCE_SCOPE_WORKSPACE),
+                name="uq_prefval_workspace",
+            ),
+            # One row per (tenant, user, key) — the user level is account-wide
+            # per tenant, not per workspace.
+            models.UniqueConstraint(
+                fields=["tenant", "user", "key"],
+                condition=models.Q(scope=PREFERENCE_SCOPE_USER),
+                name="uq_prefval_user",
+            ),
+            # ``condition=`` (Django 5.1+ rename of the old ``check=``): the
+            # scope and the presence of its target must agree, so a "global"
+            # row can never carry a workspace/user and a "user" row can never
+            # carry a workspace.
+            models.CheckConstraint(
+                condition=(
+                    models.Q(
+                        scope=PREFERENCE_SCOPE_GLOBAL,
+                        workspace__isnull=True,
+                        user__isnull=True,
+                    )
+                    | models.Q(
+                        scope=PREFERENCE_SCOPE_WORKSPACE,
+                        workspace__isnull=False,
+                        user__isnull=True,
+                    )
+                    | models.Q(
+                        scope=PREFERENCE_SCOPE_USER,
+                        workspace__isnull=True,
+                        user__isnull=False,
+                    )
+                ),
+                name="ck_prefval_scope_target",
+            ),
+        ]
+        indexes = [
+            # Serves the resolver's one-query read (``key=… AND scope IN (…)``)
+            # and the ``key`` filter of the level endpoints; tenant first to
+            # match the RLS predicate.
+            models.Index(fields=["tenant", "key"], name="idx_prefval_tenant_key"),
+        ]
+
+    def __str__(self) -> str:  # pragma: no cover - debug helper
+        return (
+            f"PreferenceValue({self.scope}, key={self.key}, "
+            f"workspace={self.workspace_id}, user={self.user_id}, "
+            f"tenant={self.tenant_id})"
+        )
+
+
+# ---------------------------------------------------------------------------
 # REQ-181/REQ-182/REQ-183/REQ-186/REQ-187  Permissions default model + rollout
 # ---------------------------------------------------------------------------
 #
@@ -1019,6 +1145,10 @@ __all__ = [
     "ITEM_PERMISSION_READ",
     "ITEM_PERMISSION_WRITE",
     "MAX_ACTIVE_API_KEYS_PER_USER",
+    "PREFERENCE_SCOPE_CHOICES",
+    "PREFERENCE_SCOPE_GLOBAL",
+    "PREFERENCE_SCOPE_USER",
+    "PREFERENCE_SCOPE_WORKSPACE",
     "ROLE_ADMIN",
     "ROLE_APPROVER",
     "ROLE_CHOICES",
@@ -1032,6 +1162,7 @@ __all__ = [
     "GlobalPermissionDefinition",
     "ItemPermission",
     "PermissionDecisionMismatch",
+    "PreferenceValue",
     "RefreshToken",
     "TenantRole",
     "TreeDisplayConfig",

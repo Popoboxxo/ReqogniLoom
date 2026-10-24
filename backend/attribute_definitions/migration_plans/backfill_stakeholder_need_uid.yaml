@@ -1,0 +1,33 @@
+# AWMS plan (issue #932, Plan G G1.1): backfill the local readable uid on
+# existing StakeholderNeed rows.
+#
+# StakeholderNeed.uid has been allocated on create since #932, but rows created
+# before that (and every row seed_toothbrush wrote through the ORM) still carry
+# NULL. This plan pulls the next free NEED-NNN number per workspace — through
+# the same monotone, non-recycling allocator (`value_strategy: sequence` ->
+# application.local_uid).
+#
+# `only_if: target_is_empty` makes the run idempotent: already assigned numbers
+# stay untouched.
+version: 1
+id: 2026-10-need-uid-backfill
+description: >-
+  Fill empty StakeholderNeed.uid values with the next local identifier
+  (NEED-NNN) of the respective workspace.
+scope:
+  tenant: current
+  item_type: StakeholderNeed
+  preset: [minimal, standard, extended]
+  workspace: "*"
+mode: dry_run
+options:
+  idempotent: true
+  abort_on_error: true
+  audit: true
+steps:
+  - op: backfill_value
+    target: {target: model_field, name: uid}
+    value_strategy: sequence
+    only_if: "target_is_empty"
+  - op: verify
+    assertions: ["failed == 0"]

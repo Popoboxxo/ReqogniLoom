@@ -608,12 +608,13 @@ def test_tools_list_and_the_committed_manifest_agree_on_the_count() -> None:
         f"{live['tool_count']}"
     )
     groups = {tool["prefix"] for tool in live["tools"]}
-    assert len(groups) == 39, (
-        f"tool-group prefix count changed to {len(groups)} (expected 39 as of "
-        f"v1.8.0-beta.20 / #1263; ADR-019 WP3 added the 'suggestion' "
+    assert len(groups) == 40, (
+        f"tool-group prefix count changed to {len(groups)} (expected 40 as of "
+        f"Plan C T-C2-4; ADR-019 WP3 added the 'suggestion' "
         f"prefix, #1265 added the 'metrics' prefix, #1257 added the "
         f"'tree_display_config' prefix, #1263 added the "
-        f"'create_form_definition' prefix). "
+        f"'create_form_definition' prefix, and Plan C T-C2-4 added the "
+        f"'preference' prefix). "
         "If that is intended, update the number in docs/api/MCP-SURFACE.md "
         "together with the version and commit it was measured at."
     )

@@ -542,7 +542,9 @@ class CrossCuttingToolGroup(BaseToolGroup):
                 "List the workspaces visible to the caller's tenant. "
                 "Response: result.workspaces = [{id, name, description}], "
                 "result.count. Tenant-scoped (issue #362). Closed workspaces "
-                "(is_active=false) are excluded unless include_inactive=true."
+                "(is_active=false) are excluded unless include_inactive=true. "
+                "For a workspace-scoped API key: only the workspaces the key "
+                "is issued for and its owner holds a role in."
             ),
             "inputSchema": {
                 "type": "object",
