@@ -278,7 +278,7 @@ export function MemoryVisualizationSection(): JSX.Element {
           <button
             type="button"
             data-testid="memory-viz-scope-workspace"
-            className="btn-secondary btn-sm"
+            className={`btn-secondary btn-sm ${styles.switcherButton}`}
             aria-pressed={scope === "workspace"}
             disabled={!workspaceId}
             onClick={() => handleScopeChange("workspace")}
@@ -288,7 +288,7 @@ export function MemoryVisualizationSection(): JSX.Element {
           <button
             type="button"
             data-testid="memory-viz-scope-global"
-            className="btn-secondary btn-sm"
+            className={`btn-secondary btn-sm ${styles.switcherButton}`}
             aria-pressed={scope === "global"}
             onClick={() => handleScopeChange("global")}
           >
@@ -300,7 +300,7 @@ export function MemoryVisualizationSection(): JSX.Element {
           <button
             type="button"
             data-testid="memory-viz-view-list"
-            className="btn-secondary btn-sm"
+            className={`btn-secondary btn-sm ${styles.switcherButton}`}
             aria-pressed={view === "list"}
             onClick={() => setView("list")}
           >
@@ -309,7 +309,7 @@ export function MemoryVisualizationSection(): JSX.Element {
           <button
             type="button"
             data-testid="memory-viz-view-cluster"
-            className="btn-secondary btn-sm"
+            className={`btn-secondary btn-sm ${styles.switcherButton}`}
             aria-pressed={view === "cluster"}
             onClick={() => setView("cluster")}
           >
@@ -318,7 +318,7 @@ export function MemoryVisualizationSection(): JSX.Element {
           <button
             type="button"
             data-testid="memory-viz-view-scatter"
-            className="btn-secondary btn-sm"
+            className={`btn-secondary btn-sm ${styles.switcherButton}`}
             aria-pressed={view === "scatter"}
             onClick={() => setView("scatter")}
           >

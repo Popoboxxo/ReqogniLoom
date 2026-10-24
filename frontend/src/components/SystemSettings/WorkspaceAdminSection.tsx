@@ -176,7 +176,14 @@ export function WorkspaceAdminSection(): JSX.Element {
             data-testid="close-workspace-btn"
             onClick={() => setShowCloseConfirm(true)}
             disabled={isClosing}
-            className={"btn-danger " + styles.actionSpacing}
+            /* #1258: closing is REVERSIBLE — `reactivate-workspace-btn` sits
+             * directly below it and moves the workspace back. Painting it with
+             * `.btn-danger` made two adjacent actions look equally
+             * destructive, so the destructive weight is reserved for the
+             * irreversible delete below. No `.btn-warning` exists in
+             * `global.css`, and inventing one is a design-system decision, not
+             * a component one — so this uses the canonical secondary. */
+            className={"btn-secondary " + styles.actionSpacing}
           >
             {isClosing ? "…" : t("settings.closeWorkspace", "Close Workspace")}
           </button>

@@ -26,6 +26,23 @@
   gap: var(--space-1);
 }
 
+/* #1258: the active scope/view option was invisible. `aria-pressed` was
+ * already set correctly on these five toggle buttons, but nothing styled the
+ * pressed state, so the selected option rendered identically to the others.
+ * This follows the established settings-surface idiom
+ * (`WorkspaceSettings.module.css`'s `.modeButton[aria-pressed="true"]`): a
+ * local modifier layered on the canonical `.btn-secondary`. The label uses
+ * `--color-primary-text`, not `--color-primary` — #1280 established that
+ * `--color-primary` is a fill colour and measures ~2.76:1 as text on the dark
+ * surface, so painting it as a label would trade one readability bug for
+ * another. Geometry stays with `.btn-secondary`/`.btn-sm`; this rule only
+ * adds colour + weight, so the button-geometry ratchet is unaffected. */
+.switcherButton[aria-pressed="true"] {
+  border-color: var(--color-primary);
+  color: var(--color-primary-text);
+  font-weight: var(--weight-semibold);
+}
+
 .filterRow {
   display: flex;
   gap: var(--space-2);

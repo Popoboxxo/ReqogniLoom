@@ -206,9 +206,16 @@ input, select, textarea {
   color: var(--color-primary);
 }
 
+/* Outline danger (#1258). The border stays --color-danger (a non-text accent,
+ * only required to clear SC 1.4.11's 3:1), but the LABEL is text and must
+ * clear AA: --color-danger as text measured 3.89:1 on the raised card surface
+ * in dark and 3.13:1 in nordic. It therefore paints with the dedicated
+ * readable token, exactly the split --color-primary-text introduced in #1280.
+ * The hover state fills with --color-danger and switches to --color-on-primary,
+ * whose pair is already held to AA by src/test/theme-contrast.test.ts. */
 .btn-danger {
   background: transparent;
-  color: var(--color-danger);
+  color: var(--color-danger-text);
   border-color: var(--color-danger);
 }
 .btn-danger:hover:not(:disabled) {
@@ -299,6 +306,13 @@ input, select, textarea {
   border-radius: var(--radius-btn);
   border-top-left-radius: 0;
   border-bottom-left-radius: 0;
+}
+/* #1258: with the segments butted together (the tablist sets `gap: 0`), every
+ * button after the first would otherwise paint its own left border on top of
+ * its neighbour's right border — a 2px seam in a 1px construction. This is the
+ * general form of the `border-left: none` that used to live only on
+ * `:last-child`, and it drops out of the same one-border-per-joint rule. */
+.btn-tab + .btn-tab {
   border-left: none;
 }
 .btn-tab[aria-selected="true"] {
