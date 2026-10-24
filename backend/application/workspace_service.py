@@ -536,12 +536,20 @@ class WorkspaceService(ServiceBase):
         """Re-insert *rows* onto their CLONED artifact (pk=None + FK remap).
 
         Identical clone step for every one-artifact entity (Requirement,
-        TestCase): each source row keeps its field values, only the PK and
-        the ``artifact`` FK are replaced before the INSERT.
+        TestCase): each source row keeps its field values, only the PK, the
+        ``artifact`` FK and the denormalized ``workspace`` FK are replaced
+        before the INSERT.
+
+        G1.3/#1402: the workspace FK must be re-pointed at the CLONED
+        artifact's workspace. Copying the source row keeps the *source*
+        workspace id, which both puts the clone in the wrong workspace and
+        collides with the source row on ``uq_<table>_workspace_uid`` — the
+        clone would fail with an IntegrityError on any uid-bearing source.
         """
         for row in rows:
             row.pk = None
             row.artifact = old_to_new_artifact[row.artifact_id]
+            row.workspace_id = row.artifact.workspace_id
             row.save()
 
     @staticmethod
@@ -566,6 +574,9 @@ class WorkspaceService(ServiceBase):
             arch.pk = None
             arch.parent = None  # remapped in the second pass below
             arch.artifact = old_to_new_artifact[arch.artifact_id]
+            # G1.3/#1402: re-point the denormalized workspace FK at the clone's
+            # workspace — see _reassign_cloned_artifact.
+            arch.workspace_id = arch.artifact.workspace_id
             arch.save()
             old_to_new_arch[old_id] = arch
 

@@ -166,6 +166,9 @@ class StakeholderNeedService(ServiceBase):
         need = StakeholderNeed.objects.create(
             artifact=artifact,
             tenant_id=ctx.tenant_id,
+            # G1.3/#1402: denormalized workspace back-reference — a NULL here
+            # would silently exempt the row from uq_stakeholder_need_workspace_uid.
+            workspace=workspace,
             title=title,
             description=description,
             category=category,
