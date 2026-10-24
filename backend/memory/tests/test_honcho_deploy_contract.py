@@ -31,6 +31,14 @@ The guard therefore pins four invariants of ``deploy/docker-compose.yml``:
    NO policy at all, so a crash or host reboot left the optional memory backend
    silently down while ``up`` still reported the stack as started.
 
+It additionally pins one invariant that needs no compose file at all:
+
+5. ``honcho-ai`` carries the SAME exact pin in ``requirements.txt`` (what the
+   image installs) and ``requirements.lock`` (the documented resolved closure).
+   The two drifted apart silently — ``requirements.txt`` pinned 2.5.1 while the
+   lock still said 2.3.0 — which makes a CVE check against the lock able to
+   clear a client version that is not the one deployed (ADR-023 AC-SDK).
+
 It is deliberately Docker-free and Django-free so it runs on the host with::
 
     PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest \\
@@ -55,17 +63,27 @@ import yaml
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _DEPLOY_COMPOSE = _REPO_ROOT / "deploy" / "docker-compose.yml"
 
-# HOST-ONLY guard: the Django test suite runs inside the ``backend`` container,
-# where the repo's ``deploy/`` directory is NOT mounted into the image. There the
-# compose file is unreachable, and this module must SKIP rather than error (it
-# asserts on the host checkout, not on the deployed image). ``allow_module_level``
-# keeps the skip from being reported as a collection error.
-if not _DEPLOY_COMPOSE.is_file():
-    pytest.skip(
-        f"deploy/docker-compose.yml not found at {_DEPLOY_COMPOSE} — "
-        "host-only deploy-contract guard",
-        allow_module_level=True,
-    )
+#: The Django project root (``backend/``): ``parents[0]`` is ``tests/``,
+#: ``parents[1]`` ``memory/``, ``parents[2]`` ``backend/``. It resolves to
+#: ``/app`` inside the test container (only ``./backend`` is bind-mounted) and to
+#: ``<repo>/backend`` on the host, so the requirements pins below are readable in
+#: BOTH environments — unlike ``deploy/``, which exists only on a host checkout.
+_BACKEND_DIR = Path(__file__).resolve().parents[2]
+_REQUIREMENTS_TXT = _BACKEND_DIR / "requirements.txt"
+_REQUIREMENTS_LOCK = _BACKEND_DIR / "requirements.lock"
+
+#: The optional external-memory SDK whose pin must agree across both files.
+_SDK_NAME = "honcho-ai"
+_SDK_PIN_RE = re.compile(
+    rf"^\s*{re.escape(_SDK_NAME)}\s*==\s*([^\s;#]+)", re.MULTILINE
+)
+
+# ``deploy/`` is NOT mounted into the test container, so every compose-based
+# guard below SKIPS there rather than erroring (it asserts on the host checkout,
+# not on the deployed image). The skip is deliberately per-test via
+# ``_load_compose`` instead of ``allow_module_level``: a module-level skip would
+# also suppress the requirements-pin guard, which is readable in the container
+# and must therefore fail there — a skipped test is not a green test.
 
 #: The assignment that actually materialises one header env var in the shim.
 #: Matched whitespace-tolerantly so a reformat of the embedded Python block does
@@ -128,7 +146,15 @@ def _load_compose() -> dict:
     into the ``honcho`` / ``honcho-deriver`` service mappings exactly as Compose
     reads it, and ``dashed`` keys survive (Compose ignores ``x-`` fields as
     configuration but they are still plain YAML here).
+
+    Skips when the file is absent: the test container bind-mounts only
+    ``./backend`` and ``./docs``, so ``deploy/`` is a host-only artifact.
     """
+    if not _DEPLOY_COMPOSE.is_file():
+        pytest.skip(
+            f"deploy/docker-compose.yml not found at {_DEPLOY_COMPOSE} — "
+            "host-only deploy-contract guard"
+        )
     with _DEPLOY_COMPOSE.open(encoding="utf-8") as handle:
         return yaml.safe_load(handle)
 
@@ -301,6 +327,44 @@ def test_one_shot_services_are_not_auto_restarted(service_name: str) -> None:
     assert policy == "no", (
         f"{service_name}: one-shot service has restart={policy!r}; it must stay "
         "'no' so it never re-runs migrations/preflight on exit (#1249)"
+    )
+
+
+def _pinned_sdk_version(path: Path) -> str:
+    """Return the exact ``honcho-ai`` pin from ``path`` (no range allowed).
+
+    An exact pin is the point: the SDK is imported lazily through
+    ``memory/honcho_backend.py`` and every bump must be deliberate
+    (``SYSTEMAUDIT-2026-08-27 AP-6 L-2``), so a range or a missing line is a
+    contract violation, not a value to compare.
+    """
+    assert path.is_file(), f"{path} is missing — cannot verify the {_SDK_NAME} pin"
+    match = _SDK_PIN_RE.search(path.read_text(encoding="utf-8"))
+    assert match is not None, (
+        f"{path.name} pins no exact '{_SDK_NAME}==' version; found: "
+        f"{[ln for ln in path.read_text(encoding='utf-8').splitlines() if _SDK_NAME in ln]!r}"
+    )
+    return match.group(1)
+
+
+def test_honcho_sdk_lock_matches_requirements() -> None:
+    """``requirements.lock`` must document the SDK version that is installed.
+
+    ``requirements.txt`` is what ``backend/Dockerfile`` installs; the lock is the
+    documented resolved closure used to check a CVE advisory against transitive
+    packages *without* a build. When the two disagree, the lock answers for a
+    client that is not running: before this guard ``requirements.txt`` pinned
+    ``honcho-ai==2.5.1`` (``honcho_backend.py`` is written against 2.5.1's
+    ``honcho.conclusions.ConclusionsView``) while the lock still said 2.3.0.
+    That drift is exactly what ADR-023 AC-SDK closes (plan A, T-A0-1).
+    """
+    installed = _pinned_sdk_version(_REQUIREMENTS_TXT)
+    locked = _pinned_sdk_version(_REQUIREMENTS_LOCK)
+    assert locked == installed, (
+        f"{_SDK_NAME} pin drift: requirements.txt installs {installed} but "
+        f"requirements.lock documents {locked} — a CVE check against the lock "
+        "answers for a client that is not deployed. Re-align the single lock "
+        f"line to '{_SDK_NAME}=={installed}' (ADR-023 AC-SDK)"
     )
 
 
