@@ -1,0 +1,21 @@
+# Prompt-regression scenarios for the `sysreq_decompose_next_level` slot.
+# Case files are owned by plan D (backend/application/prompt_testing/cases.py).
+slot: sysreq_decompose_next_level
+scenarios:
+  - name: parent-requirement-without-memory
+    data:
+      req_title: "Mandantentrennung"
+      req_description: "Jeder Mandant sieht ausschliesslich eigene Daten."
+      arch_elements_json: '[{"id": "arch-rls", "name": "TenancyLayer", "description": "RLS"}]'
+      memory_context: ""
+    assert:
+      - {type: contains, value: "Mandantentrennung"}
+      - {type: contains, value: "TenancyLayer"}
+  - name: parent-requirement-with-memory
+    data:
+      req_title: "Mandantentrennung"
+      req_description: "Jeder Mandant sieht ausschliesslich eigene Daten."
+      arch_elements_json: '[{"id": "arch-rls", "name": "TenancyLayer", "description": "RLS"}]'
+      memory_context: "Memory: tenancy is enforced with row level security."
+    assert:
+      - {type: contains, value: "tenancy is enforced with row level security"}
