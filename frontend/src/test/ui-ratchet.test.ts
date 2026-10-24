@@ -1241,8 +1241,17 @@ const LOCAL_TOAST_BASELINE = 2;
 // `UserProfileSettings/ProfileSection.module.css`. Same rendered fill (each was
 // a solid fill with no competing `background` declaration), zero counter
 // movement. The ceiling is back at the measured 29 and no ratchet is raised.
+//
+// #1490 (system-settings button standard): the two ad-hoc primary fills in
+// `SystemSettings/BannerSection.module.css` and
+// `SystemSettings/MemoryVisualizationSection.module.css` were replaced by
+// `btn-primary`, so the ceiling drops 29 -> 26. Re-measured with this file's
+// own scanner over the branch tree: 26. That is TWO removals below the frozen
+// 29 but THREE below it net, because the frozen 29 was itself stale by one —
+// `origin/main` measures 28 with the same scanner. Measured, not inferred:
+// never raise this constant, and re-measure rather than subtracting.
 const PRIMARY_FILL_PATTERN = /background:\s*var\(--color-primary\)\s*;/g;
-const PRIMARY_FILL_BASELINE = 29;
+const PRIMARY_FILL_BASELINE = 26;
 
 describe("UI concept ratchet (Task 7.4)", () => {
   it("does not add new inline style={{ usages beyond the frozen baseline", () => {

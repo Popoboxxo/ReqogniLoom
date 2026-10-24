@@ -225,7 +225,7 @@ export function MismatchReviewTable(): JSX.Element {
             data-testid="mismatch-prev"
             disabled={page <= 1 || loading}
             onClick={() => void load(page - 1)}
-            className={styles.select + ' ' + (page <= 1 ? styles.pagerDisabled : styles.pagerEnabled)}
+            className="btn-secondary btn-sm"
           >
             Previous
           </button>
@@ -237,7 +237,7 @@ export function MismatchReviewTable(): JSX.Element {
             data-testid="mismatch-next"
             disabled={page >= totalPages || loading}
             onClick={() => void load(page + 1)}
-            className={styles.select + ' ' + (page >= totalPages ? styles.pagerDisabled : styles.pagerEnabled)}
+            className="btn-secondary btn-sm"
           >
             Next
           </button>

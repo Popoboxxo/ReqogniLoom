@@ -10,16 +10,6 @@
   margin: var(--space-3) 0;
 }
 
-.linkButton {
-  background: transparent;
-  color: var(--color-primary);
-  border: none;
-  padding: 0;
-  font-size: var(--font-size-sm);
-  text-decoration: underline;
-  cursor: pointer;
-}
-
 .ackLabel {
   display: flex;
   align-items: flex-start;

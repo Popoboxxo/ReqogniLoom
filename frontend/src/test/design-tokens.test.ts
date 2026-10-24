@@ -245,7 +245,13 @@ describe("shared button system tokens (#954)", () => {
   const tokensCss = readFileSync(TOKENS_FILE, "utf-8");
   const globalCss = readFileSync(join(SRC_DIR, "styles", "global.css"), "utf-8");
 
-  const BUTTON_METRIC_TOKENS = ["--btn-h-sm", "--btn-h-md", "--btn-h-lg", "--radius-btn"];
+  const BUTTON_METRIC_TOKENS = [
+    "--btn-h-xs",
+    "--btn-h-sm",
+    "--btn-h-md",
+    "--btn-h-lg",
+    "--radius-btn",
+  ];
 
   /**
    * The shared base rule that carries the height/radius for every variant.
@@ -263,6 +269,28 @@ describe("shared button system tokens (#954)", () => {
       missing,
       `styles/tokens.css is missing button metric token(s): ${missing.join(", ")}`,
     ).toEqual([]);
+  });
+
+  it("defines the icon-button height token --btn-h-xs as 24px", () => {
+    // ENT-C6 = B: the 24px icon-button target (WCAG 2.2 SC 2.5.8) joins the
+    // button height scale instead of being a separate `--target-min` alias.
+    expect(tokensCss).toMatch(/^\s*--btn-h-xs\s*:\s*24px\s*;/m);
+  });
+
+  it("routes .btn-tab through the shared height and radius tokens", () => {
+    const rule = /^\.btn-tab\s*\{([^}]*)\}/m.exec(globalCss);
+    expect(rule, "expected a `.btn-tab { ... }` rule in styles/global.css").not.toBeNull();
+    expect(rule![1]).toContain("min-height: var(--btn-h-sm)");
+
+    const first = /^\.btn-tab:first-child\s*\{([^}]*)\}/m.exec(globalCss);
+    const last = /^\.btn-tab:last-child\s*\{([^}]*)\}/m.exec(globalCss);
+    expect(first, "expected a `.btn-tab:first-child { ... }` rule").not.toBeNull();
+    expect(last, "expected a `.btn-tab:last-child { ... }` rule").not.toBeNull();
+    expect(first![1]).toContain("var(--radius-btn)");
+    expect(last![1]).toContain("var(--radius-btn)");
+
+    // No `.btn-tab` rule may fall back to the 12px `--radius-md` again.
+    expect(globalCss).not.toMatch(/^\.btn-tab[^{]*\{[^}]*--radius-md/m);
   });
 
   it("routes the base .btn-* rule through the shared metric tokens", () => {

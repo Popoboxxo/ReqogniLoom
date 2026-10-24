@@ -427,6 +427,14 @@
   --color-success: var(--palette-emerald-500);
   --color-warning: var(--palette-amber-500);
   --color-danger: var(--palette-red-500);
+  /* #1258: readable DANGER-AS-TEXT variant, mirroring --color-primary-text.
+     --color-danger is tuned as a *border/icon* accent; painting it as the
+     .btn-danger outline button's label text measured only 3.89:1 on the
+     raised card surface in dark (and 3.13:1 in nordic) — below WCAG AA's
+     4.5:1 normal-text floor. This token uses an existing ramp rung and
+     clears AA on BOTH surfaces the outline button is painted on:
+     9.41:1 on --color-surface / 7.71:1 on --color-surface-raised. Enforced by src/test/theme-contrast.test.ts. */
+  --color-danger-text: var(--palette-red-300);
   /* Darker danger shade for hover/active feedback (mirrors --color-primary/
      --color-primary-dark). Theming phase 2, checkpoint 2: was a hardcoded
      #dc2626 literal in WorkflowEditor.module.css's .btnDanger:hover, always
@@ -929,6 +937,15 @@
   --color-success: var(--palette-emerald-600);
   --color-warning: var(--palette-amber-700);
   --color-danger: var(--palette-red-600);
+  /* #1258: readable DANGER-AS-TEXT variant, mirroring --color-primary-text.
+     --color-danger is tuned as a *border/icon* accent; painting it as the
+     .btn-danger outline button's label text measured only 3.89:1 on the
+     raised card surface in dark (and 3.13:1 in nordic) — below WCAG AA's
+     4.5:1 normal-text floor. This token uses an existing ramp rung and
+     clears AA on BOTH surfaces the outline button is painted on:
+     4.62:1 on --color-surface / 4.83:1 on --color-surface-raised. Same rung as
+     --color-danger here (exactly like --color-primary-text below). Enforced by src/test/theme-contrast.test.ts. */
+  --color-danger-text: var(--palette-red-600);
   /* Same primitive as --color-danger in this theme — see the dark block's
      comment above for why (pre-existing hardcoded-hover quirk, preserved
      as-is). */
@@ -1128,6 +1145,15 @@
   --color-success: var(--palette-bauhaus-teal-500);
   --color-warning: var(--palette-bauhaus-amber-500);
   --color-danger: var(--palette-bauhaus-terracotta-650);
+  /* #1258: readable DANGER-AS-TEXT variant, mirroring --color-primary-text.
+     --color-danger is tuned as a *border/icon* accent; painting it as the
+     .btn-danger outline button's label text measured only 3.89:1 on the
+     raised card surface in dark (and 3.13:1 in nordic) — below WCAG AA's
+     4.5:1 normal-text floor. This token uses an existing ramp rung and
+     clears AA on BOTH surfaces the outline button is painted on:
+     4.59:1 on --color-surface / 5.06:1 on --color-surface-raised. Same rung as
+     --color-danger here. Enforced by src/test/theme-contrast.test.ts. */
+  --color-danger-text: var(--palette-bauhaus-terracotta-650);
   --color-danger-dark: var(--palette-bauhaus-terracotta-700);
   /* Same follow-up: teal-500/amber-500/the new terracotta-650 measure
      4.76:1/2.94:1/5.06:1 with white and 4.42:1/7.15:1/n.a. with black —
@@ -1291,6 +1317,14 @@
   --color-success: var(--palette-nordic-aurora-green-500);
   --color-warning: var(--palette-nordic-aurora-orange-500);
   --color-danger: var(--palette-nordic-aurora-red-500);
+  /* #1258: readable DANGER-AS-TEXT variant, mirroring --color-primary-text.
+     --color-danger is tuned as a *border/icon* accent; painting it as the
+     .btn-danger outline button's label text measured only 3.89:1 on the
+     raised card surface in dark (and 3.13:1 in nordic) — below WCAG AA's
+     4.5:1 normal-text floor. This token uses an existing ramp rung and
+     clears AA on BOTH surfaces the outline button is painted on:
+     7.90:1 on --color-surface / 6.47:1 on --color-surface-raised. Enforced by src/test/theme-contrast.test.ts. */
+  --color-danger-text: var(--palette-nordic-aurora-red-300);
   --color-danger-dark: var(--palette-nordic-aurora-red-400);
   /* Contrast-audit follow-up (#140/#161 blast-radius analysis): nordic's own
      aurora-green-500/-orange-500/-red-500 (all Nord-anchor pastels) measure
@@ -1461,6 +1495,15 @@
   --color-success: var(--palette-sepia-forest-500);
   --color-warning: var(--palette-sepia-gold-500);
   --color-danger: var(--palette-sepia-brick-500);
+  /* #1258: readable DANGER-AS-TEXT variant, mirroring --color-primary-text.
+     --color-danger is tuned as a *border/icon* accent; painting it as the
+     .btn-danger outline button's label text measured only 3.89:1 on the
+     raised card surface in dark (and 3.13:1 in nordic) — below WCAG AA's
+     4.5:1 normal-text floor. This token uses an existing ramp rung and
+     clears AA on BOTH surfaces the outline button is painted on:
+     5.89:1 on --color-surface / 6.63:1 on --color-surface-raised. Same rung as
+     --color-danger here. Enforced by src/test/theme-contrast.test.ts. */
+  --color-danger-text: var(--palette-sepia-brick-500);
   --color-danger-dark: var(--palette-sepia-brick-700);
   /* Contrast-audit follow-up (#140/#161 blast-radius analysis): sepia's own
      forest-500/gold-500/brick-500 measure 4.83:1/3.22:1/6.63:1 with white —
