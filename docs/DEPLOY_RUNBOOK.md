@@ -221,7 +221,8 @@ still said `honcho-ai==2.3.0`, which made a CVE check against the lock answer fo
 a client that was not deployed. The parity is guarded — the two files drifting
 apart again fails `test_honcho_sdk_lock_matches_requirements` in
 `backend/memory/tests/test_honcho_deploy_contract.py`, which reads both pins and
-runs on every backend CI job (no compose file needed). The client SDK version
+runs in the `set-4-features` backend CI leg (`.github/workflows/ci.yml`) — that
+leg does not need a compose file. The client SDK version
 decides which server API routes `memory/honcho_backend.py` can call, so it is
 still worth confirming which version the running backend actually imports before
 diagnosing a `memory.ask` failure (`python -c "import importlib.metadata as m;
