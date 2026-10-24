@@ -64,6 +64,6 @@
     "eslint-plugin-jsx-a11y": {
       "eslint": "$eslint"
     },
-    "undici": "^8.11.2"
+    "undici": "^8.12.3"
   }
 }
