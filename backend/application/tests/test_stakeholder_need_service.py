@@ -386,7 +386,12 @@ class TestDeleteStakeholderNeed:
             mock_select.return_value = mock_query
 
             # Call delete WITH change_reason
-            with patch("workflow.services.outdate") as mock_outdate:
+            # #1483: delete() now writes a delete AuditEntry, which needs an
+            # active tenant context this mock-only test does not set.
+            with (
+                patch("workflow.services.outdate") as mock_outdate,
+                patch.object(svc, "_audit"),
+            ):
                 svc.delete(
                     ctx=ctx,
                     need_id=NEED_ID,
@@ -427,7 +432,10 @@ class TestDeleteStakeholderNeed:
             mock_select.return_value = mock_query
 
             # Call delete WITHOUT change_reason (should succeed for optional preset)
-            with patch("workflow.services.outdate") as mock_outdate:
+            with (
+                patch("workflow.services.outdate") as mock_outdate,
+                patch.object(svc, "_audit"),
+            ):
                 svc.delete(
                     ctx=ctx,
                     need_id=NEED_ID,
@@ -464,7 +472,12 @@ class TestSoftDeleteStakeholderNeed:
             mock_query.get.return_value = need
             mock_select.return_value = mock_query
 
-            with patch("workflow.services.outdate") as mock_outdate:
+            # #1483: patch the new delete AuditEntry write — it needs an
+            # active tenant context this mock-only test does not set.
+            with (
+                patch("workflow.services.outdate") as mock_outdate,
+                patch.object(svc, "_audit"),
+            ):
                 svc.delete(ctx=ctx, need_id=NEED_ID)
 
         mock_outdate.assert_called_once_with(
@@ -494,7 +507,10 @@ class TestSoftDeleteStakeholderNeed:
             mock_query.get.return_value = need
             mock_select.return_value = mock_query
 
-            with patch("workflow.services.outdate"):
+            with (
+                patch("workflow.services.outdate"),
+                patch.object(svc, "_audit"),
+            ):
                 svc.delete(ctx=ctx, need_id=NEED_ID)
 
         artifact.delete.assert_not_called()
@@ -641,9 +657,12 @@ class TestDeleteCallsRealOutdate:
         from workflow.models import WorkflowItemState
 
         item_id, workspace_id = need_with_workflow
-        StakeholderNeedService(preset_policy_service=None).delete(
-            ctx=need_ctx, need_id=item_id
-        )
+        svc = StakeholderNeedService(preset_policy_service=None)
+        # #1483: delete() now writes a delete AuditEntry. Its tenant context is
+        # not active here (the fixture clears it after provisioning), and this
+        # test is about outdate(), so the audit write is mocked out.
+        with patch.object(svc, "_audit"):
+            svc.delete(ctx=need_ctx, need_id=item_id)
 
         artifact_id = StakeholderNeed.objects.values_list(
             "artifact_id", flat=True
@@ -658,7 +677,9 @@ class TestDeleteCallsRealOutdate:
         item_id, workspace_id = need_with_workflow
         svc = StakeholderNeedService(preset_policy_service=None)
 
-        svc.delete(ctx=need_ctx, need_id=item_id)
+        # #1483: see test_delete_calls_outdate_not_lifecycle_status.
+        with patch.object(svc, "_audit"):
+            svc.delete(ctx=need_ctx, need_id=item_id)
 
         results = svc.list_by_workspace(ctx=need_ctx, workspace_id=workspace_id)
         assert item_id not in [n.id for n in results]
@@ -842,7 +863,10 @@ class TestStakeholderNeedEventEmission:
             mock_select.return_value = mock_query
 
             # Must not raise AttributeError (the DomainEventOutbox bug).
-            with patch("workflow.services.outdate"):
+            with (
+                patch("workflow.services.outdate"),
+                patch.object(svc, "_audit"),
+            ):
                 svc.delete(ctx=ctx, need_id=NEED_ID)
 
         mock_event_bus.publish.assert_called_once()

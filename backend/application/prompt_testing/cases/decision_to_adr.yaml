@@ -1,0 +1,17 @@
+# Prompt-regression scenarios for the `decision_to_adr` slot.
+# Case files are owned by plan D (backend/application/prompt_testing/cases.py).
+slot: decision_to_adr
+scenarios:
+  - name: postgres-decision-without-memory
+    data:
+      decision_description: "We keep PostgreSQL instead of introducing a second datastore."
+      memory_context: ""
+    assert:
+      - {type: contains, value: "keep PostgreSQL"}
+      - {type: contains, value: "consequences"}
+  - name: postgres-decision-with-memory
+    data:
+      decision_description: "We keep PostgreSQL instead of introducing a second datastore."
+      memory_context: "Memory: the team has no operational capacity for a second datastore."
+    assert:
+      - {type: contains, value: "no operational capacity for a second datastore"}

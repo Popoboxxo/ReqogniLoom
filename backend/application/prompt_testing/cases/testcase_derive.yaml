@@ -1,0 +1,19 @@
+# Prompt-regression scenarios for the `testcase_derive` slot.
+# Case files are owned by plan D (backend/application/prompt_testing/cases.py).
+slot: testcase_derive
+scenarios:
+  - name: export-requirement-without-memory
+    data:
+      req_title: "CSV-Export"
+      req_description: "Der Export MUSS alle sichtbaren Zeilen enthalten."
+      memory_context: ""
+    assert:
+      - {type: contains, value: "CSV-Export"}
+      - {type: contains, value: "alle sichtbaren Zeilen"}
+  - name: export-requirement-with-memory
+    data:
+      req_title: "CSV-Export"
+      req_description: "Der Export MUSS alle sichtbaren Zeilen enthalten."
+      memory_context: "Memory: exports are validated against the visible row count."
+    assert:
+      - {type: contains, value: "validated against the visible row count"}

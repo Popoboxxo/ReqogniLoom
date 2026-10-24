@@ -373,6 +373,16 @@ TOOL_ENFORCED_WORKSPACE_SCOPE: frozenset[str] = frozenset(
 #:   reads only the caller's own definition and the tenant-wide default, and a
 #:   supplied ``workspace_id`` makes the dispatcher narrow the roles to it and
 #:   run the read gate.
+#: * ``preference.registry`` (Plan C / Q1) — the preference-key catalogue is
+#:   code, not a workspace resource: it carries no workspace and performs no DB
+#:   access, so there is nothing to scope to.
+#: * ``preference.get`` (Plan C / Q1) — the same shape as
+#:   ``tree_display_config.get``: without a ``workspace_id`` it resolves only
+#:   the caller's own user values and the tenant-wide default (plus the
+#:   registry defaults), neither of which is workspace data. A supplied
+#:   ``workspace_id`` is what makes the workspace level participate, and then
+#:   the dispatcher narrows the roles to it and runs the read gate — the
+#:   parameter *is* the target workspace, so ``_TOOL_TARGETS`` adds nothing.
 TENANT_SCOPED_READ_TOOLS: frozenset[str] = frozenset(
     {
         "admin.backup_list",
@@ -399,8 +409,19 @@ TENANT_SCOPED_READ_TOOLS: frozenset[str] = frozenset(
         "tree_display_config.get",
         "create_form_definition.get",
         "create_form_definition.export",
+        "preference.registry",
+        "preference.get",
     }
 )
+
+
+#: Tools that filter their own result to the API key's fence instead of being
+#: denied by the dispatcher (E1.3). Only honoured when the call names no
+#: workspace (``scope_workspace_id is None``): a workspace-less list cannot
+#: resolve a target, and the fail-closed fence would otherwise make the list
+#: unreachable for every fenced key. The tool must narrow its result itself —
+#: ``workspace.list`` does so through ``WorkspaceService.list_workspaces``.
+FENCE_FILTERED_TOOLS: frozenset[str] = frozenset({"workspace.list"})
 
 
 # ---------------------------------------------------------------------------
@@ -514,6 +535,7 @@ def target_param_error(tool_name: str, params: Mapping[str, Any]) -> str | None:
 
 
 __all__ = [
+    "FENCE_FILTERED_TOOLS",
     "TENANT_SCOPED_READ_TOOLS",
     "TOOL_ENFORCED_WORKSPACE_SCOPE",
     "resolve_target_workspace_id",
