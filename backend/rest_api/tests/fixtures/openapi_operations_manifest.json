@@ -1590,10 +1590,6 @@
    "get"
   ],
   [
-   "/api/v1/trace-links/{id}/",
-   "patch"
-  ],
-  [
    "/api/v1/trace-links/{id}/confirm/",
    "post"
   ],
@@ -1652,10 +1648,6 @@
   [
    "/api/v1/tracelinks/{id}/",
    "get"
-  ],
-  [
-   "/api/v1/tracelinks/{id}/",
-   "patch"
   ],
   [
    "/api/v1/tracelinks/{id}/confirm/",
