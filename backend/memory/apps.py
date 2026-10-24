@@ -57,6 +57,19 @@ class MemoryConfig(AppConfig):
     verbose_name = "AI Long-Term Memory"
 
     def ready(self) -> None:
+        # Startup system checks (T-A0-4, #1317 finding 2): the app and Honcho
+        # must embed into the same vector space. Registered unconditionally --
+        # including for the LLM preload-skip commands -- because
+        # ``manage.py check`` is exactly where an operator should learn that
+        # their deployment embeds into two spaces. The check itself never
+        # raises and treats an unresolvable config (no table during ``migrate``,
+        # DB unreachable) as "nothing to compare".
+        from django.core.checks import register
+
+        from memory.checks import check_honcho_embedding_consistency
+
+        register(check_honcho_embedding_consistency)
+
         from memory.projector import register_projector_on_event_bus
 
         register_projector_on_event_bus()

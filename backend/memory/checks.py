@@ -1,0 +1,249 @@
+"""Startup system checks for the app <-> Honcho embedding coupling (T-A0-4).
+
+Registered from :meth:`memory.apps.MemoryConfig.ready`, so ``manage.py check`` /
+``runserver`` / ``migrate`` surface the result, and published on ``/health/`` as
+the advisory ``embedding_model_consistency`` (``reqogniloom.health``).
+
+Why a check rather than a log line
+----------------------------------
+Two independent embedding configurations used to exist (#1317, finding 2): the
+app embedded with ``EMBEDDING_MODEL_NAME`` / ``EMBEDDING_VECTOR_DIMENSIONS``,
+while Honcho embedded with its own ``HONCHO_EMBEDDING_*`` values. Both sides are
+best-effort by design — a vector of the wrong width is silently skipped on the
+write side and the semantic pass short-circuits on the read side (see
+``llm_adapter.embedding_service``'s module docstring) — so a divergent pair does
+not fail anything. It only degrades recall: memory entries are embedded into a
+different vector space than the artifacts searched against them, and no error is
+ever raised. The mismatch is therefore invisible without an explicit check.
+
+T-A0-3 removed the *default* divergence: ``deploy/docker-compose.yml`` derives
+``HONCHO_EMBEDDING_MODEL`` / ``HONCHO_EMBEDDING_VECTOR_DIMENSIONS`` from
+``EMBEDDING_MODEL_NAME`` / ``EMBEDDING_VECTOR_DIMENSIONS``. The two variables
+remain *overrides*, though — a deliberate (or accidental) override re-opens the
+gap, which is exactly what this check reports. It never blocks ``migrate``: a
+``Warning``, not an ``Error``, and never a status-code change on ``/health/``.
+
+Scope
+-----
+The comparison only runs when the *effective* memory backend is ``honcho`` — the
+DB override in ``SystemMemorySettings`` wins over the ``MEMORY_BACKEND``
+environment variable, resolved by the same helper the backend lookup itself
+uses. With any other backend there is no Honcho embedding configuration to
+compare against, so there is nothing to report.
+
+Both sides are compared only when configured: an unset/blank model or width
+means "not configured" (Honcho's own default applies, and the compose nesting
+already guarantees inheritance), so it is not reported as a mismatch.
+"""
+from __future__ import annotations
+
+import logging
+import os
+from typing import Any, NamedTuple
+
+from django.core.checks import Warning as DjangoWarning
+
+from persistence.embedding_dimensions import (
+    EMBEDDING_VECTOR_DIMENSIONS,
+    EMBEDDING_VECTOR_DIMENSIONS_ENV_VAR,
+)
+
+logger = logging.getLogger(__name__)
+
+#: ``manage.py check`` id for "the app and Honcho embed with different models".
+EMBEDDING_MODEL_MISMATCH = "memory.W001"
+
+#: ``manage.py check`` id for "the app and Honcho embed with different widths".
+EMBEDDING_DIMENSION_MISMATCH = "memory.W002"
+
+#: The one memory backend that runs its own embedding service.
+HONCHO_MEMORY_BACKEND = "honcho"
+
+#: Honcho-side model id (read by ``memory.honcho_backend`` and its health probe).
+HONCHO_EMBEDDING_MODEL_ENV_VAR = "HONCHO_EMBEDDING_MODEL"
+
+#: Honcho-side vector width. Not read by the backend itself — it is the value
+#: Honcho's ``configure_embeddings`` step resizes its own pgvector columns to.
+HONCHO_EMBEDDING_DIMENSIONS_ENV_VAR = "HONCHO_EMBEDDING_VECTOR_DIMENSIONS"
+
+#: Backend name used when the effective backend cannot be resolved at all.
+_UNRESOLVED_BACKEND_FALLBACK = "pgvector"
+
+#: Operator-facing hint per check id. Kept next to the ids so the message, the
+#: hint and the test cannot drift apart on the remediation wording.
+_HINTS: dict[str, str] = {
+    EMBEDDING_MODEL_MISMATCH: (
+        "The app and Honcho must embed into the SAME vector space: Honcho embeds "
+        "memory entries, the app embeds artifacts, and a semantic query compares "
+        "the two. Otherwise memory retrieval silently returns worse (or no) "
+        "results. Fix the deployment so both sides resolve one model — leave "
+        f"{HONCHO_EMBEDDING_MODEL_ENV_VAR} unset so it inherits "
+        "EMBEDDING_MODEL_NAME (deploy/docker-compose.yml), or set both to the "
+        "same value. Publish on /health/ as "
+        "advisory.embedding_model_consistency."
+    ),
+    EMBEDDING_DIMENSION_MISMATCH: (
+        "The app and Honcho must embed at the SAME width; a width mismatch makes "
+        "the memory and artifact vectors incomparable (and Honcho's own pgvector "
+        "columns are resized to this value by honcho-migrate, so a later change "
+        "discards the vectors already stored). Leave "
+        f"{HONCHO_EMBEDDING_DIMENSIONS_ENV_VAR} unset so it inherits "
+        f"{EMBEDDING_VECTOR_DIMENSIONS_ENV_VAR} (deploy/docker-compose.yml), or "
+        "set both to the model's output width. Publish on /health/ as "
+        "advisory.embedding_model_consistency."
+    ),
+}
+
+
+class HonchoEmbeddingMismatch(NamedTuple):
+    """One effective-config divergence between the app and Honcho.
+
+    Attributes:
+        check_id: The ``manage.py check`` id (``memory.W001``/``memory.W002``).
+        message: ``manage.py check``-facing description (no values that are
+            secrets — model ids and widths only).
+    """
+
+    check_id: str
+    message: str
+
+
+def effective_memory_backend_name() -> str:
+    """Return the effective memory backend name (DB override over environment).
+
+    Reuses ``memory.backends._resolve_memory_backend_name`` — the resolver
+    ``get_memory_backend`` itself uses — so this check cannot disagree with the
+    backend that is actually instantiated. Best-effort: a DB/settings problem
+    (no table yet during ``migrate``, DB unreachable) degrades to the environment
+    value instead of raising.
+
+    Returns:
+        The lower-cased backend name, ``"pgvector"`` when nothing is configured.
+    """
+    try:
+        from memory.backends import _resolve_memory_backend_name
+
+        return _resolve_memory_backend_name()
+    except Exception as exc:  # noqa: BLE001 - check is best-effort; env is the fallback
+        logger.debug("Effective memory backend unresolved, using env: %s", exc)
+        return os.environ.get("MEMORY_BACKEND", _UNRESOLVED_BACKEND_FALLBACK).strip().lower()
+
+
+def _effective_embedding_model() -> str:
+    """Return the app's effective embedding model id, or ``""`` when unset.
+
+    ``_read_config`` is the single source the embedding providers are built
+    from, so it already applies the ``SystemMemorySettings`` override (Memory
+    Admin UI) on top of the environment — comparing against the raw env var
+    would report a mismatch for a model the app no longer uses.
+    """
+    try:
+        from llm_adapter.embedding_service import _read_config
+
+        return (_read_config().model_name or "").strip()
+    except Exception as exc:  # noqa: BLE001 - check is best-effort; skip on failure
+        logger.debug("Effective embedding model unresolved, skipping: %s", exc)
+        return ""
+
+
+def honcho_embedding_mismatches() -> list[HonchoEmbeddingMismatch]:
+    """Return every app/Honcho embedding divergence that is configured.
+
+    Shared by :func:`check_honcho_embedding_consistency` (``manage.py check``)
+    and ``reqogniloom.health._collect_advisory`` (``/health/``), so both surfaces
+    report exactly the same verdict.
+
+    Returns:
+        One entry per divergence, empty when Honcho is not the effective backend
+        or when the configured values already agree. An unset/blank value on
+        either side is treated as "not configured" and never reported.
+    """
+    if effective_memory_backend_name() != HONCHO_MEMORY_BACKEND:
+        return []
+
+    mismatches: list[HonchoEmbeddingMismatch] = []
+
+    app_model = _effective_embedding_model()
+    honcho_model = os.environ.get(HONCHO_EMBEDDING_MODEL_ENV_VAR, "").strip()
+    if app_model and honcho_model and app_model != honcho_model:
+        mismatches.append(
+            HonchoEmbeddingMismatch(
+                EMBEDDING_MODEL_MISMATCH,
+                f"The app embeds with model {app_model!r} but Honcho embeds with "
+                f"{honcho_model!r} ({HONCHO_EMBEDDING_MODEL_ENV_VAR}).",
+            )
+        )
+
+    raw_dimensions = os.environ.get(HONCHO_EMBEDDING_DIMENSIONS_ENV_VAR, "").strip()
+    if raw_dimensions:
+        try:
+            honcho_dimensions = int(raw_dimensions)
+        except (TypeError, ValueError):
+            # A non-integer width is Honcho's own configuration error; there is
+            # no number to compare against, so do not report a second, derived
+            # alarm here.
+            logger.debug(
+                "%s=%r is not an integer; embedding-width comparison skipped.",
+                HONCHO_EMBEDDING_DIMENSIONS_ENV_VAR,
+                raw_dimensions,
+            )
+        else:
+            if honcho_dimensions != EMBEDDING_VECTOR_DIMENSIONS:
+                mismatches.append(
+                    HonchoEmbeddingMismatch(
+                        EMBEDDING_DIMENSION_MISMATCH,
+                        f"The app embeds {EMBEDDING_VECTOR_DIMENSIONS}-dim vectors "
+                        f"({EMBEDDING_VECTOR_DIMENSIONS_ENV_VAR}) but Honcho embeds "
+                        f"{honcho_dimensions}-dim vectors "
+                        f"({HONCHO_EMBEDDING_DIMENSIONS_ENV_VAR}).",
+                    )
+                )
+
+    return mismatches
+
+
+def check_honcho_embedding_consistency(
+    app_configs: Any = None, **kwargs: Any
+) -> list[DjangoWarning]:
+    """Warn when the app and Honcho resolve different embedding configurations.
+
+    Both halves are silent by construction (see the module docstring), which is
+    why this needs a system check: nothing raises, nothing is logged, and the
+    only symptom is degraded memory/semantic search. Reported as a ``Warning``,
+    never an ``Error`` — the deployment still works, it just embeds into two
+    spaces — so ``migrate`` is never blocked by it.
+
+    ``app_configs``/``kwargs`` are Django's system-check calling convention and
+    are unused.
+
+    Never raises: a check that crashes would take ``migrate`` down with it.
+    """
+    try:
+        mismatches = honcho_embedding_mismatches()
+    except Exception as exc:  # noqa: BLE001 - a check must never break startup.
+        logger.debug("Honcho embedding consistency check skipped: %s", exc)
+        return []
+
+    return [
+        DjangoWarning(
+            mismatch.message,
+            # ``.get`` rather than ``[]``: a missing hint must never turn a
+            # warning into a startup-crashing KeyError (see "Never raises").
+            hint=_HINTS.get(mismatch.check_id, ""),
+            id=mismatch.check_id,
+        )
+        for mismatch in mismatches
+    ]
+
+
+__all__ = [
+    "EMBEDDING_DIMENSION_MISMATCH",
+    "EMBEDDING_MODEL_MISMATCH",
+    "HONCHO_EMBEDDING_DIMENSIONS_ENV_VAR",
+    "HONCHO_EMBEDDING_MODEL_ENV_VAR",
+    "HONCHO_MEMORY_BACKEND",
+    "HonchoEmbeddingMismatch",
+    "check_honcho_embedding_consistency",
+    "effective_memory_backend_name",
+    "honcho_embedding_mismatches",
+]

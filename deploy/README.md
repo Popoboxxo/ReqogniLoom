@@ -438,23 +438,34 @@ backend silently down while the stack still reports as started. The one-shot ser
 auto-restart would re-run migrations/preflight in a loop. The contract is regression-guarded by
 `backend/memory/tests/test_honcho_deploy_contract.py`.
 
-Honcho needs a reachable OpenAI-compatible embedding endpoint before it can write memories. The
-compose services read these four vars from `.env` (defaults shown). `honcho-migrate` and `honcho`
-both use them for the embedding config, and `backend`/`celery` read the first two for the `/health`
-`memory_backend` health probe (#911):
+Honcho needs a reachable OpenAI-compatible embedding endpoint before it can write memories.
+There is **one** embedding configuration per deployment, not two. `HONCHO_EMBEDDING_MODEL` and
+`HONCHO_EMBEDDING_VECTOR_DIMENSIONS` are **overrides**: unset, every Honcho service falls back to
+the deployment-wide `EMBEDDING_MODEL_NAME` / `EMBEDDING_VECTOR_DIMENSIONS` that `backend`/`celery`
+embed with, so switching the app's provider cannot silently leave Honcho at a different width. The
+compose services read these four vars from `.env` (defaults shown, `${…:-${…:-…}}` = "Honcho
+override, else deployment-wide EMBEDDING_*, else the literal default"). `honcho-migrate` and
+`honcho` both use them for the embedding config, and `backend`/`celery` read the raw vars for the
+`/health` `memory_backend` health probe (#911):
 
 | Variable | Default | Notes |
 |----------|---------|-------|
-| `HONCHO_EMBEDDING_BASE_URL` | `http://host.docker.internal:11434/v1` | Includes the `/v1` suffix. Targets a host-run Ollama; `extra_hosts` maps `host.docker.internal` so it resolves on Linux too (built-in on Docker Desktop). Use `http://ollama:11434/v1` for an in-stack `ollama` service. |
-| `HONCHO_EMBEDDING_MODEL` | `nomic-embed-text` | Any embedding model the endpoint serves. |
-| `HONCHO_EMBEDDING_VECTOR_DIMENSIONS` | `768` | Must match the model's output width — see the pitfall below. |
+| `HONCHO_EMBEDDING_BASE_URL` | `http://host.docker.internal:11434/v1` | Includes the `/v1` suffix. Deliberately **not** derived from the app's settings — Honcho always needs `/v1` and the app has no embedding URL. Targets a host-run Ollama; `extra_hosts` maps `host.docker.internal` so it resolves on Linux too (built-in on Docker Desktop). Use `http://ollama:11434/v1` for an in-stack `ollama` service. |
+| `HONCHO_EMBEDDING_MODEL` | *inherited from* `EMBEDDING_MODEL_NAME` (else `nomic-embed-text`) | Override only when Honcho must embed with a different model than the app. |
+| `HONCHO_EMBEDDING_VECTOR_DIMENSIONS` | *inherited from* `EMBEDDING_VECTOR_DIMENSIONS` (else `768`) | Must match the model's output width — see the pitfall below. |
 | `HONCHO_EMBEDDING_TRANSPORT` | `openai` | OpenAI-compatible transport. |
 
 Without a reachable endpoint, Honcho cannot embed and `/health`'s `memory_backend` row reports down.
 
-**Embedding-dimension pitfall:** `HONCHO_EMBEDDING_VECTOR_DIMENSIONS` decides the width of
-Honcho's own pgvector columns. `alembic upgrade head` alone would leave them at Honcho's baked-in
-default (`vector(1536)`), so the `honcho-migrate` service runs Honcho's own
+Switching `MEMORY_BACKEND` to `honcho` neither deletes nor migrates what is already stored: the
+existing memory rows stay in Postgres' `mem_memory_entry` table untouched and simply stop being
+read. Switch back to `pgvector` and they are visible again. Do not drop them to "clean up" — they
+are the only copy of those memories.
+
+**Embedding-dimension pitfall:** the resolved width (`HONCHO_EMBEDDING_VECTOR_DIMENSIONS`, else
+`EMBEDDING_VECTOR_DIMENSIONS`) decides the width of Honcho's own pgvector columns. `alembic
+upgrade head` alone would leave them at Honcho's baked-in default (`vector(1536)`), so the
+`honcho-migrate` service runs Honcho's own
 `scripts/configure_embeddings.py --yes` immediately afterwards — that step ALTERs the columns to
 this value, and is a no-op when they already match. Set the variable correctly *before* the first
 `--profile honcho` start against a fresh `honcho_postgres_data` volume: that is the supported,
