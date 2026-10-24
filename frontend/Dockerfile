@@ -1,7 +1,7 @@
 # Frontend Dockerfile — ARCH-L1-001 ReactFrontend
 # ADR-08: Self-Hosted via Docker Compose (no Kubernetes in v1)
 
-FROM node:22.17.0-slim@sha256:b04ce4ae4e95b522112c2e5c52f781471a5cbc3b594527bcddedee9bc48c03a0 AS base
+FROM node:26.11.1-slim@sha256:193fe51b64e77981119c98c2002c9e32a70e2f006fb4d25068ce0558998917f0 AS base
 
 WORKDIR /app
 
