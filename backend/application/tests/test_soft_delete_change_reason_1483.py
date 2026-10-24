@@ -352,3 +352,30 @@ def test_stakeholder_need_delete_change_reason_is_audited(sd_env):
         _delete_audit_reason(created["id"])
         == "covered by the merged stakeholder need"
     )
+
+
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
+def test_adr_delete_without_change_reason_leaves_the_field_empty(sd_env):
+    """Negative case: DELETE without ``change_reason`` still works and audits.
+
+    The forwarding fix must not make the reason mandatory where the preset does
+    not (the standard preset here): an omitted reason is legitimate, so the
+    delete succeeds and the audit row carries no reason — rather than crashing
+    or inventing one.
+    """
+    client = _client(sd_env)
+    created = _create(
+        client,
+        "/api/v1/adrs/",
+        {
+            "workspace_id": str(sd_env["workspace"].id),
+            "title": "ADR #1483 no reason",
+            "description": "soft-delete without a change_reason",
+        },
+    )
+
+    resp = client.delete(f"/api/v1/adrs/{created['id']}/")
+
+    assert resp.status_code == 204, resp.content
+    assert _delete_audit_reason(created["id"]) in (None, "")
