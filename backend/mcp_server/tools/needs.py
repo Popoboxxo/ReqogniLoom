@@ -472,9 +472,8 @@ class StakeholderNeedsToolGroup(BaseToolGroup):
             # was silently dropped. Soft-delete is audited as "delete" by every
             # sibling service (RequirementService.delete_requirement,
             # TestService, AdrService, ...), so the MCP tool follows that
-            # convention. NOTE: StakeholderNeedService.delete — the REST
-            # pendant — writes no audit entry at all today; that separate gap
-            # is out of #573's scope.
+            # convention. StakeholderNeedService.delete — the REST pendant —
+            # writes the same entry since #1483.
             operation="delete",
             entity_type="StakeholderNeed",
             entity_id=need_id,

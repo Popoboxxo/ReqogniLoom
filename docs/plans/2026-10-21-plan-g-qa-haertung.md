@@ -363,6 +363,11 @@ Volle Suiten nie parallel. CI-Set-Zuordnung der Testpfade: Index §f.4.
   → erwartete Zählung auf der QA-Sandbox ≈ `lt_workspace_definition=209 ad_workspace_definition=23`
   (Issue-Messung); nach `migrate`: `SELECT confdeltype FROM pg_constraint WHERE conrelid='lt_workspace_definition'::regclass AND contype='f';` → `c`;
   `SELECT count(*) FROM lt_workspace_definition_orphan_archive;` (als Superuser) = Dry-Run-Zahl.
+- **Korrektur nach Ist-Stand-Abgleich (2026-10-22), KA-G-09:** Das wörtliche „Abbruch bei
+  `count(pl_workspace)=0`, sobald Definitionen existieren“ ist mit TDD-5 (Dry-Run/Löschen ohne
+  Workspace-Fixture) nicht umsetzbar. Umgesetzt: `--confirm-count`-Prüfung vor jedem DB-Zugriff,
+  BYPASSRLS-/Superuser-Check fail-closed (Sicherheitsschiene, im Command-Docstring), `pl_workspace=0`
+  als WARNING, Mutation nur bei exakt passender Zahl; alle Typdefinitions-Tests nutzen echte `Workspace`-Zeilen (KA-G-10).
 
 #### G1.5 Soft-Delete-Vertrag vervollständigen (#1381, #1407 R3-07)
 

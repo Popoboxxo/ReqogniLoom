@@ -182,9 +182,19 @@ class WorkspaceService(ServiceBase):
 
         REQ-088: Returns a lazy ``QuerySet`` so the paginating ViewSet
         (REQ-034) slices with LIMIT/OFFSET instead of materialising all rows.
+
+        E1.2/E1.3: a workspace-scoped API key only sees the workspaces its
+        fence names **and** in which its owner holds an active role. The filter
+        lives here (not in the REST view) so the REST list and MCP
+        ``workspace.list`` return the same set.
         """
         self._set_tenant_context(ctx)
-        return Workspace.objects.all().order_by("-modified_at")
+        qs = Workspace.objects.all().order_by("-modified_at")
+        if getattr(ctx, "api_key_workspace_ids", ()):
+            from auth_tenancy.resource_scope import fenced_visible_workspace_ids
+
+            qs = qs.filter(id__in=fenced_visible_workspace_ids(ctx))
+        return qs
 
     def get_workspace(self, workspace_id: UUID, ctx: AuthContext) -> Workspace:
         """Return a single workspace by id, scoped to the active tenant.

@@ -489,7 +489,9 @@ auf QS nur lesend. „TDD" = genannter Test zuerst, rot gegen `b175c970`.
   (wiederholbar), `--check` (nichts schreiben, nur prüfen), `--deep` (zusätzlich `deep_assert`, Provider aus
   `--provider`, z. B. `anthropic:messages:<modell>`; nie in CI — **technisch erzwungen:** bei gesetzter
   Umgebungsvariable `CI` (`true`/`1`) bricht `--deep` mit `CommandError("--deep is refused in CI")` ab, QR-S12).
-  Provider im Export: `echo` (vorläufig, ENT-D8 = A).
+  Provider im Export: `echo` — **vorläufig (ENT-D8)**, LLM-frei. `echo` gibt den gerenderten
+  Prompt zurück; ENT-D8 ist „vorläufig: ja“, Empfehlung A ist damit umgesetzt. Bei ENT-D8 = B
+  ändert sich nur der Provider-Eintrag des Exporters, keine Fall-Datei.
 - Ablauf je Szenario: `TenantContext.set_tenant(UUID(int=0))` (`persistence/tenancy.py:52`), `ctx =
   AuthContext.system(tenant_id=UUID(int=0))`, `resolve_and_render(slot, ctx, None,
   config_overrides=scenario.config, **scenario.data)`; `finally: TenantContext.clear_tenant()`.

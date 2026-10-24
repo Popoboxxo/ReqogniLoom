@@ -759,6 +759,10 @@ class ReqifImportService(ServiceBase):
 
         with transaction.atomic():
             identifier_to_artifact: dict[str, Any] = {}
+            # Plan G G1.2 (#1386): requirements written by this import are
+            # embedded after commit. Collected here, dispatched below — the
+            # request thread must not wait for the provider.
+            requirement_ids: list[Any] = []
 
             for position, so in enumerate(spec_objects, start=1):
                 kind = self._spec_object_kind(so.spec_object_type)
@@ -831,6 +835,8 @@ class ReqifImportService(ServiceBase):
                     continue
 
                 identifier_to_artifact[so.identifier] = artifact
+                if kind == "Requirement" and not deduplicated:
+                    requirement_ids.append(artifact.requirement.id)
                 if created:
                     report.created += 1
                 elif deduplicated:
@@ -891,6 +897,32 @@ class ReqifImportService(ServiceBase):
                 # report reflects exactly what a real run would have done
                 # without persisting anything (REQ-147 dry_run).
                 transaction.set_rollback(True)
+
+            if not dry_run and requirement_ids:
+                # Plan G G1.2: embedding runs after the import commits, never on
+                # the request thread. A broker outage must not fail an
+                # otherwise-persisted import (fallback: the operator re-runs
+                # ``manage.py backfill_embeddings --model requirement``).
+                def _enqueue_embeddings(
+                    ids: tuple[Any, ...] = tuple(requirement_ids),
+                    tid: Any = tenant.id,
+                ) -> None:
+                    from application.tasks import embed_rows_task
+
+                    try:
+                        embed_rows_task.delay(
+                            "requirement", [str(row_id) for row_id in ids], str(tid)
+                        )
+                    except Exception:  # noqa: BLE001 — import is already durable
+                        logger.warning(
+                            "ReqifImportService: could not enqueue embedding for "
+                            "%d imported requirement(s); run backfill_embeddings "
+                            "--model requirement to catch up.",
+                            len(ids),
+                            exc_info=True,
+                        )
+
+                transaction.on_commit(_enqueue_embeddings)
 
         # AUD-2026-09-071 / ADR-014 §1: success is derived from the actual
         # per-object outcome, never hard-coded. Any object that failed to

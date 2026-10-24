@@ -473,11 +473,35 @@ class HasOperationPermission(permissions.BasePermission):
         if scope_error:
             raise exceptions.PermissionDenied(detail=scope_error)
 
+        # E1.2: the API-key workspace fence runs BEFORE the RBAC matrix (and
+        # before the "authenticated is enough" shortcut below), mirroring
+        # ``rest_api.auth_enforcer.RbacPermission``. Both permission classes
+        # must reach the same verdict for a fenced key.
+        from auth_tenancy.resource_scope import (
+            api_key_fence_precheck,
+            fenced_collection_roles,
+            fenced_rbac_denial,
+            is_fence_filtered_list,
+        )
+
+        fence_denial = api_key_fence_precheck(request, view, auth_context)
+        if fence_denial is not None:
+            raise exceptions.PermissionDenied(detail=fence_denial)
+
+        fenced = bool(getattr(auth_context, "api_key_workspace_ids", ()))
+        collection_roles = auth_context.active_roles
+        if fenced and is_fence_filtered_list(view):
+            collection_roles = fenced_collection_roles(auth_context)
+
+        # ADR-013 review B1-3: every ``allow`` path must leave ``decision``
+        # bound — the ``operation is None`` shortcut below never consults the
+        # matrix, so the denial text must not reach for an unbound local.
+        decision = None
         if operation is None:
             # No operation declared: authenticated access is sufficient.
             allow = True
         else:
-            decision = self._authz.decide_access(auth_context.active_roles, operation)
+            decision = self._authz.decide_access(collection_roles, operation)
 
             # REQ-186/187 shadow-verify seam (see rest_api.auth_enforcer.RbacPermission):
             # the new permission_json model governs only in ``authoritative`` mode; in
@@ -489,6 +513,22 @@ class HasOperationPermission(permissions.BasePermission):
                 legacy_decision=decision.allow,
                 ctx=auth_context,
                 operation=operation,
+                roles=collection_roles,
+            )
+
+        if not allow and fenced:
+            # E1.2: name the fence/workspace instead of the generic matrix text.
+            raise exceptions.PermissionDenied(
+                detail=fenced_rbac_denial(
+                    request,
+                    view,
+                    auth_context,
+                    (
+                        decision.decision_reason
+                        if decision is not None
+                        else "no RBAC operation declared"
+                    ),
+                )
             )
 
         if allow:

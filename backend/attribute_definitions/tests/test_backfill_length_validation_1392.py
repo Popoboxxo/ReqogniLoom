@@ -27,6 +27,7 @@ from attribute_definitions.workspace_definition_store import (
     WorkspaceAttributeDefinitionStore,
 )
 from persistence.models import Tenant
+from persistence.tests.factories import make_workspace_id
 
 
 @pytest.fixture
@@ -155,7 +156,7 @@ def test_backfill_propagates_to_a_non_customized_workspace_row(tenant) -> None:
     _strip_validation(_row(tenant))
 
     ws_store = WorkspaceAttributeDefinitionStore()
-    ws_id = uuid.uuid4()
+    ws_id = make_workspace_id(tenant.id)
     ws_row = ws_store.resolve(tenant.id, ws_id, "Risk", "standard")
     assert ws_row.is_customized is False
 

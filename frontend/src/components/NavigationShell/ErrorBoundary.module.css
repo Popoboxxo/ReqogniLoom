@@ -17,6 +17,16 @@
   margin-bottom: var(--space-6);
 }
 
+.reference {
+  color: var(--color-errorboundary-text);
+  margin-bottom: var(--space-6);
+  font-size: var(--font-size-sm);
+}
+
+.reference code {
+  font-family: var(--font-mono);
+}
+
 .actions {
   display: flex;
   gap: var(--space-4);

@@ -49,6 +49,49 @@ def dispatch_outbox_events() -> int:
         return 0
 
 
+@shared_task(name="application.embed_rows")
+def embed_rows_task(model_name: str, ids: list[str], tenant_id: str) -> int:
+    """Embed a known set of rows inside a Celery worker (Plan G G1.2).
+
+    The ReqIF importer runs synchronously; embedding every imported requirement
+    on the request thread would put provider latency into the HTTP response
+    (issue #1401's cold-start shape). It therefore registers
+    ``transaction.on_commit`` and dispatches this task instead.
+
+    Tenant isolation (ADR-03): only ``tenant_id``, the model key and the row ids
+    cross the queue boundary. The worker runs outside any request thread, so it
+    must re-arm both isolation layers (``set_request_tenant``: the ORM
+    thread-local **and** ``SET app.current_tenant`` for Postgres RLS) before the
+    first query — otherwise the least-privilege role sees an empty table.
+
+    Returns:
+        Number of rows whose embedding was written. Failures are logged and
+        skipped per row by ``embed_rows``; a whole-task failure is re-raised so
+        Celery records it.
+    """
+    from uuid import UUID
+
+    from application.embedding_backfill import embed_rows
+    from persistence.middleware import clear_request_tenant, set_request_tenant
+    from persistence.tenancy import TenantContext
+
+    tenant_was_set = TenantContext.is_set()
+    try:
+        set_request_tenant(tenant_id)
+        return embed_rows(model_name, [UUID(str(row_id)) for row_id in ids])
+    except Exception:  # noqa: BLE001 — re-raised so Celery records FAILURE
+        logger.exception(
+            "embed_rows_task failed for model=%s tenant=%s", model_name, tenant_id
+        )
+        raise
+    finally:
+        if not tenant_was_set and TenantContext.is_set():
+            try:
+                clear_request_tenant()
+            except Exception:  # noqa: BLE001 — teardown must not mask the cause
+                logger.exception("embed_rows_task could not reset the tenant context")
+
+
 @shared_task(name="application.run_traceability_suggest_links")
 def run_traceability_suggest_links(
     workspace_id: str,
