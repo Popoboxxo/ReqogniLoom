@@ -121,7 +121,10 @@ async function countScrollContainers(page: Page): Promise<number> {
  * C1 button-geometry standard (Plan C §1 Ziel 2 + §3.2, task T-C1-1,
  * issue #1258; ENT-C6 = B): at most 3 distinct button heights (the
  * `--btn-h-sm/md/lg` scale, i.e. 32/36/44 px) and at most 2 distinct radii
- * (`--radius-btn` = 6 px, `--radius-full` = 9999 px) per route.
+ * per route. The counted radii are the standard `--radius-btn` (6 px) plus
+ * `--radius-md` (12 px); a pill/full radius is a deliberate shape, not a
+ * second standard, so it is classified separately (see the Radius rule
+ * below) and does not count against MAX_BUTTON_RADII.
  *
  * Measurement rules (literal, per the task spec — rationale inline):
  *
@@ -140,7 +143,12 @@ async function countScrollContainers(page: Page): Promise<number> {
  *    and is classified SEPARATELY (ENT-C6 = B): it is reported in the
  *    assertion message but does not count against MAX_BUTTON_HEIGHTS.
  *  - Radius: computed `border-top-left-radius`, rounded (all four corners
- *    share one token by construction).
+ *    share one token by construction). A pill/full radius (`--radius-full`,
+ *    9999 px) is classified SEPARATELY — it is reported in the assertion
+ *    message but does not count against MAX_BUTTON_RADII. Pill shapes are a
+ *    deliberate full-round treatment (badges, toggles, pill buttons), not a
+ *    competing button standard; the two radii that are actually enforced are
+ *    `--radius-btn` (6 px) and `--radius-md` (12 px).
  *  - `networkidle` before measuring: lazy-loaded buttons and dialogs must not
  *    make the gate flaky (plan §9, "E2E-Gate flackert durch dynamische
  *    Buttons").
@@ -149,6 +157,8 @@ const MAX_BUTTON_HEIGHTS = 3;
 const MAX_BUTTON_RADII = 2;
 /** `--btn-h-xs` — icon buttons. Counted and reported, but not a standard height. */
 const ICON_BUTTON_HEIGHT_PX = 24;
+/** `--radius-full` — pill/full shape. Reported, but not a counted button radius. */
+const PILL_RADIUS_PX = 9999;
 
 /**
  * Routes that were still over the C1 target when this gate was introduced
@@ -189,44 +199,52 @@ interface ButtonGeometry {
   iconHeights: number[];
   /** Distinct rounded `border-top-left-radius` values, ascending. */
   radii: number[];
+  /** Distinct rounded radii classified as pill/full (9999 px), ascending. */
+  pillRadii: number[];
   /** Visible, non-excluded buttons the numbers were derived from. */
   measured: number;
 }
 
 async function measureButtonGeometry(page: Page): Promise<ButtonGeometry> {
-  return page.evaluate((iconButtonHeight) => {
-    const EXCLUDED_ANCESTORS = [
-      '[data-testid="workflow-canvas"]',
-      '.react-flow',
-      '[data-testid^="diagram-canvas"]',
-    ];
-    const TREES = '[data-testid$="-tree"]';
-    const heights = new Set<number>();
-    const iconHeights = new Set<number>();
-    const radii = new Set<number>();
-    let measured = 0;
+  return page.evaluate(
+    ({ iconButtonHeight, pillRadius }) => {
+      const EXCLUDED_ANCESTORS = [
+        '[data-testid="workflow-canvas"]',
+        '.react-flow',
+        '[data-testid^="diagram-canvas"]',
+      ];
+      const TREES = '[data-testid$="-tree"]';
+      const heights = new Set<number>();
+      const iconHeights = new Set<number>();
+      const radii = new Set<number>();
+      const pillRadii = new Set<number>();
+      let measured = 0;
 
-    const candidates = document.querySelectorAll<HTMLElement>('button, [role="button"]');
-    for (const el of candidates) {
-      if (el.offsetWidth === 0) continue;
-      if (EXCLUDED_ANCESTORS.some((selector) => el.closest(selector))) continue;
-      if (el.getAttribute('role') === 'button' && el.closest(TREES)) continue;
+      const candidates = document.querySelectorAll<HTMLElement>('button, [role="button"]');
+      for (const el of candidates) {
+        if (el.offsetWidth === 0) continue;
+        if (EXCLUDED_ANCESTORS.some((selector) => el.closest(selector))) continue;
+        if (el.getAttribute('role') === 'button' && el.closest(TREES)) continue;
 
-      const height = Math.round(el.getBoundingClientRect().height);
-      const radius = Math.round(parseFloat(getComputedStyle(el).borderTopLeftRadius) || 0);
-      measured++;
-      if (height === iconButtonHeight) iconHeights.add(height);
-      else heights.add(height);
-      radii.add(radius);
-    }
+        const height = Math.round(el.getBoundingClientRect().height);
+        const radius = Math.round(parseFloat(getComputedStyle(el).borderTopLeftRadius) || 0);
+        measured++;
+        if (height === iconButtonHeight) iconHeights.add(height);
+        else heights.add(height);
+        if (radius === pillRadius) pillRadii.add(radius);
+        else radii.add(radius);
+      }
 
-    return {
-      heights: [...heights].sort((a, b) => a - b),
-      iconHeights: [...iconHeights].sort((a, b) => a - b),
-      radii: [...radii].sort((a, b) => a - b),
-      measured,
-    };
-  }, ICON_BUTTON_HEIGHT_PX);
+      return {
+        heights: [...heights].sort((a, b) => a - b),
+        iconHeights: [...iconHeights].sort((a, b) => a - b),
+        radii: [...radii].sort((a, b) => a - b),
+        pillRadii: [...pillRadii].sort((a, b) => a - b),
+        measured,
+      };
+    },
+    { iconButtonHeight: ICON_BUTTON_HEIGHT_PX, pillRadius: PILL_RADIUS_PX },
+  );
 }
 
 /** One-line classification for the assertion message: what was counted, and how. */
@@ -234,10 +252,13 @@ function describeGeometry(geometry: ButtonGeometry): string {
   const icons = geometry.iconHeights.length
     ? `${geometry.iconHeights.join('/')} px icon button(s) excluded from the height count (--btn-h-xs, ENT-C6 = B)`
     : 'no 24 px icon buttons rendered';
+  const pills = geometry.pillRadii.length
+    ? `${geometry.pillRadii.join('/')} px pill radius/radii excluded from the radius count (--radius-full)`
+    : 'no pill-radius buttons rendered';
   return (
     `${geometry.heights.length} height(s) [${geometry.heights.join(', ')}], ` +
     `${geometry.radii.length} radius/radii [${geometry.radii.join(', ')}], ` +
-    `${icons} — from ${geometry.measured} visible button(s)`
+    `${icons}, ${pills} — from ${geometry.measured} visible button(s)`
   );
 }
 
