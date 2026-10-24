@@ -471,6 +471,8 @@ class ChangeRequestService(ServiceBase):
             item_type="ChangeRequest",
             workspace_id=workspace_id,
             ctx=ctx,
+            # inert since Phase 4 — outdate() writes no history entry; the
+            # reason is persisted on the AuditEntry below.
             reason=change_reason or "deleted via change_request.delete",
         )
 
@@ -479,6 +481,7 @@ class ChangeRequestService(ServiceBase):
             operation="delete",
             entity_type="ChangeRequest",
             entity_id=cr_id,
+            change_reason=change_reason,
         )
         self._emit_event(
             self._make_event(

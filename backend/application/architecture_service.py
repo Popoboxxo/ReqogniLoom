@@ -395,10 +395,18 @@ class ArchitectureService(ServiceBase):
             item_type="ArchitectureElement",
             workspace_id=workspace_id,
             ctx=ctx,
+            # inert since Phase 4 — outdate() writes no history entry; the
+            # reason is persisted on the AuditEntry below.
             reason=change_reason or "deleted via architecture.delete",
         )
 
-        self._audit(ctx=ctx, operation="delete", entity_type="ArchitectureElement", entity_id=arch_el_id)
+        self._audit(
+            ctx=ctx,
+            operation="delete",
+            entity_type="ArchitectureElement",
+            entity_id=arch_el_id,
+            change_reason=change_reason,
+        )
         self._emit_event(
             self._make_event(
                 event_type=DomainEventOutbox.EventType.ARCHITECTURE_ELEMENT_DELETED,

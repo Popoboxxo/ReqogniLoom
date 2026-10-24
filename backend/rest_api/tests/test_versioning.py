@@ -202,6 +202,8 @@ class TestIssueViewSetDestroy:
             with patch.object(view, "_svc", return_value=svc_mock):
                 response = view.destroy(req, pk=pk)
 
-        svc_mock.delete_issue.assert_called_once_with(uuid.UUID(pk), req.auth_context)
+        svc_mock.delete_issue.assert_called_once_with(
+            uuid.UUID(pk), req.auth_context, change_reason=""
+        )
         assert not svc_mock.delete_test_case.called
         assert response.status_code == 204

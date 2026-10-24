@@ -4068,6 +4068,14 @@ class TraceLinkViewSet(BaseEntityViewSet):
 
     serializer_class = TraceLinkSerializer
     preset_endpoint_key = ""
+    # Plan E E2.3: trace links are immutable (no update semantics in the
+    # spec), so the detail route publishes no PATCH at all. This is the single
+    # authority for that: deleting the old ``partial_update`` stub is not
+    # enough on its own — without the restriction DRF would answer 405 from a
+    # missing handler anyway, but the OpenAPI document would still advertise
+    # PATCH (it derives operations from the router's method map). With the
+    # route removed from ``http_method_names`` the schema and the runtime agree.
+    http_method_names = ["get", "post", "delete", "head", "options"]
     # Fix #571 (reopen): clients render the traceability graph from the *whole*
     # link set, so they walk every page. 500/page instead of the shared 100
     # turns ~1980 links from 20 serial round-trips into 4 — see
@@ -4283,9 +4291,43 @@ class TraceLinkViewSet(BaseEntityViewSet):
         )
 
     def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """GET /api/v1/tracelinks/{id}/ (and the ``trace-links`` alias).
+
+        Plan E E2.3: this handler used to answer an unconditional 404 because
+        the service layer had no read-by-id. It now resolves the link through
+        :meth:`TraceLinkService.get_trace_link` and renders the same dict the
+        list/create branches use.
+
+        QR-S20: the route is fenced on the link's **source** workspace
+        (ADR-011/``resource_scope``), so a caller may legitimately reach a link
+        whose target lives in a workspace they cannot read. The target title is
+        cross-workspace metadata and is therefore blanked to ``null`` unless
+        the caller holds READ on the target workspace; the target UID fields
+        (none exist on this endpoint today) follow the same rule and would be
+        rendered as ``"—"``.
+        """
         lang = detect_lang(request)
-        # TraceLinkService does not have get_by_id — list and filter
-        return Response(build_error_response("NOT_FOUND", lang), status=status.HTTP_404_NOT_FOUND)
+        try:
+            ctx = get_auth_context(request)
+            link = self._svc().get_trace_link(UUID(str(pk)), ctx)
+        except ValueError:
+            # Unreachable for HTTP traffic (``BaseEntityViewSet.initial``
+            # rejects malformed UUID path segments with a 400), kept for the
+            # direct-call shape used by unit tests — same idiom as ``destroy``.
+            return Response(
+                build_error_response("NOT_FOUND", lang),
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        except (NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
+            return _service_error_response(exc, lang)
+
+        titles = _resolve_artifact_titles([link.source_id, link.target_id])
+        payload = _tracelink_to_dict(link, titles=titles)
+        if not _caller_may_read_workspace(_workspace_of_artifact(link.target_id), ctx):
+            payload["target_title"] = None
+        return Response(TraceLinkSerializer(payload).data)
 
     def create(self, request: Request, **kwargs: Any) -> Response:
         lang = detect_lang(request)
@@ -4313,13 +4355,6 @@ class TraceLinkViewSet(BaseEntityViewSet):
         return Response(
             TraceLinkSerializer(_tracelink_to_dict(item, titles=titles)).data,
             status=status.HTTP_201_CREATED,
-        )
-
-    def partial_update(self, request: Request, pk: str, **kwargs: Any) -> Response:
-        # TraceLinks are immutable (no update semantics in spec)
-        return Response(
-            build_error_response("VALIDATION_ERROR", detect_lang(request), message="TraceLinks cannot be updated. Delete and recreate."),
-            status=status.HTTP_405_METHOD_NOT_ALLOWED,
         )
 
     def destroy(self, request: Request, pk: str, **kwargs: Any) -> Response:
@@ -6297,6 +6332,61 @@ def _resolve_artifact_titles(
     return ArtifactService().resolve_artifact_titles(artifact_ids)
 
 
+def _workspace_of_artifact(artifact_id: Any) -> UUID | None:
+    """Return the workspace owning *artifact_id*, or ``None`` (QR-S20).
+
+    REQ-066: the ORM traversal lives in ``application.workspace_lookup`` — the
+    same resolver the REST fence and the MCP dispatcher use — not in the view.
+    """
+    from application.workspace_lookup import resolve_owning_workspace_id
+
+    try:
+        return resolve_owning_workspace_id("artifact", UUID(str(artifact_id)))
+    except (TypeError, ValueError):
+        return None
+
+
+def _caller_may_read_workspace(workspace_id: Any, ctx: Any) -> bool:
+    """Return whether *ctx* holds READ in *workspace_id* (Plan E QR-S20).
+
+    The trace-link detail route is fenced on the link's **source** workspace,
+    so a caller can legitimately reach a link whose target lives in a workspace
+    they have no standing in. The target title is cross-workspace metadata:
+    ``TraceLinkViewSet.retrieve`` emits it only when this returns ``True``.
+
+    Fail-closed on every inconclusive path: an unresolvable workspace, an
+    API-key workspace fence that excludes it, or a failed role lookup all mean
+    "not readable" and keep the title hidden.
+
+    Args:
+        workspace_id: Target workspace id (a UUID or ``None``).
+        ctx: The request's :class:`~auth_tenancy.context.AuthContext`.
+    """
+    if workspace_id is None:
+        return False
+
+    from auth_tenancy.resource_scope import workspace_fence_denial
+    from auth_tenancy.services import AuthorizationService, Operation
+
+    fence = getattr(ctx, "api_key_workspace_ids", ())
+    if workspace_fence_denial(fence, workspace_id) is not None:
+        return False
+    try:
+        authz = AuthorizationService()
+        roles = authz.active_roles_for(
+            user_id=ctx.user_id, workspace_id=workspace_id
+        )
+    except Exception:  # noqa: BLE001 — hide metadata rather than leak it
+        logger.debug(
+            "QR-S20: role lookup failed for user=%s workspace=%s",
+            getattr(ctx, "user_id", None),
+            workspace_id,
+            exc_info=True,
+        )
+        return False
+    return authz.decide_access(roles, Operation.READ).allow
+
+
 def _tracelink_to_dict(tl: Any, titles: dict[str, dict[str, Any]] | None = None) -> dict[str, Any]:
     """Convert TraceLink ORM object to dict.
 
@@ -6706,6 +6796,9 @@ class WorkspaceViewSet(BaseEntityViewSet):
 
     serializer_class = WorkspaceSerializer
     preset_endpoint_key = ""  # Workspaces are always visible
+    # E1.2: a workspace-scoped API key's ``list`` is filtered to the workspaces
+    # it may see instead of being denied (it names no target workspace).
+    api_key_fence_mode = "filter"
 
     def _svc(self) -> WorkspaceService:
         return WorkspaceService()

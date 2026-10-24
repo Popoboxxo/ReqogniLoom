@@ -148,12 +148,20 @@ def parse_change_reason(request: Any) -> str:
 
     A reason taken from the query string is visible in access logs, so clients
     must not put anything sensitive there.
+
+    Accepts a plain Django request as well as a DRF one: the query string is
+    read from ``query_params`` when present, else from ``GET``.
     """
     data = getattr(request, "data", None)
     body_reason = data.get("change_reason", "") if isinstance(data, dict) else ""
     if isinstance(body_reason, str) and body_reason:
         return body_reason
-    return request.query_params.get("change_reason") or ""
+    # A raw Django request (e.g. a view called directly in a test) has no DRF
+    # ``query_params``; its ``GET`` carries the same query string.
+    params = getattr(request, "query_params", None)
+    if params is None:
+        params = getattr(request, "GET", {})
+    return params.get("change_reason") or ""
 
 
 def require_non_empty_param(
