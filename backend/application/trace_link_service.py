@@ -1156,6 +1156,36 @@ class TraceLinkService(ServiceBase):
             )
         return deleted
 
+    def get_trace_link(self, link_id: UUID, ctx: AuthContext) -> TraceLink:
+        """Return a single TraceLink by its own id (Plan E E2.3).
+
+        Backs ``GET /api/v1/tracelinks/{id}/`` and its ``trace-links`` alias.
+        Before this method the REST handler was a fixed 404 (there was no
+        read-by-id in the service layer), so the route was advertised in the
+        OpenAPI document without ever resolving a link.
+
+        The lookup runs on the tenant-scoped default manager after
+        :meth:`_set_tenant_context`, mirroring :meth:`delete_trace_link`: a row
+        owned by another tenant is therefore indistinguishable from a missing
+        one (REQ-L2-TE-011). The related endpoints are selected eagerly because
+        the REST layer renders both the link and its suspected/proposal
+        metadata in one response.
+
+        Raises:
+            NotFoundError: *link_id* does not exist in the active tenant.
+        """
+        from persistence.models import TraceLink
+
+        self._set_tenant_context(ctx)
+        link = (
+            TraceLink.objects.select_related("source", "target", "proposed_by")
+            .filter(id=link_id)
+            .first()
+        )
+        if link is None:
+            raise NotFoundError(f"TraceLink {link_id} not found")
+        return link
+
     @atomic_transaction
     def delete_trace_link(self, link_id: UUID, ctx: AuthContext) -> None:
         """Delete a single TraceLink by its own id (Codeberg #336).

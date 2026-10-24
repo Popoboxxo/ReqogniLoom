@@ -199,7 +199,9 @@
     "not_found": "Resource not found.",
     "unauthorized": "You are not authorized to perform this action.",
     "llm_not_configured": "LLM provider is not configured. AI features are unavailable.",
-    "unknown": "Unknown error"
+    "unknown": "Unknown error",
+    "boundaryHint": "Please reload the page. If the error persists, give support the reference.",
+    "reference": "Reference"
   },
   "login": {
     "title": "Sign In",
