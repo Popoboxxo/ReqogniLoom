@@ -16,6 +16,7 @@ from attribute_definitions.models import (
 )
 from attribute_definitions.schema import AttributeSchemaError
 from persistence.models import Tenant
+from persistence.tests.factories import make_workspace_id
 
 TITLE = {"name": "title", "kind": "core", "type": "text"}
 STATUS = {
@@ -150,12 +151,12 @@ def test_update_rejects_unlocking_a_locked_attribute(tenant, store) -> None:
 def test_update_propagates_into_non_customized_rows_of_the_same_preset(tenant, store) -> None:
     g = store.initialize(tenant.id, "Risk", "standard", [TITLE])
     on_default = WorkspaceAttributeDefinition.unscoped.create(
-        tenant_id=tenant.id, workspace_id=uuid.uuid4(), item_type="Risk",
+        tenant_id=tenant.id, workspace_id=make_workspace_id(tenant.id), item_type="Risk",
         preset="standard", definition_json={"attributes": []},
         source_global=g, is_customized=False,
     )
     customized = WorkspaceAttributeDefinition.unscoped.create(
-        tenant_id=tenant.id, workspace_id=uuid.uuid4(), item_type="Risk",
+        tenant_id=tenant.id, workspace_id=make_workspace_id(tenant.id), item_type="Risk",
         preset="standard", definition_json={"attributes": []},
         source_global=g, is_customized=True,
     )
@@ -174,7 +175,7 @@ def test_propagation_writes_a_deep_copy(tenant, store) -> None:
     workspace edit silently rewrite the tenant default."""
     g = store.initialize(tenant.id, "Risk", "standard", [TITLE])
     w = WorkspaceAttributeDefinition.unscoped.create(
-        tenant_id=tenant.id, workspace_id=uuid.uuid4(), item_type="Risk",
+        tenant_id=tenant.id, workspace_id=make_workspace_id(tenant.id), item_type="Risk",
         preset="standard", definition_json={"attributes": []},
         source_global=g, is_customized=False,
     )
@@ -193,7 +194,7 @@ def test_propagation_never_touches_a_different_tenants_row(tenant, store) -> Non
     other_tenant = Tenant.objects.create(name="other", slug=f"o-{uuid.uuid4().hex[:8]}")
     g = store.initialize(tenant.id, "Risk", "standard", [TITLE])
     foreign = WorkspaceAttributeDefinition.unscoped.create(
-        tenant_id=other_tenant.id, workspace_id=uuid.uuid4(), item_type="Risk",
+        tenant_id=other_tenant.id, workspace_id=make_workspace_id(other_tenant.id), item_type="Risk",
         preset="standard", definition_json={"attributes": []},
         source_global_id=g.id, is_customized=False,
     )
@@ -212,12 +213,12 @@ def test_list_derived_workspace_ids_never_leaks_another_tenants_row(tenant, stor
     other_tenant = Tenant.objects.create(name="other2", slug=f"o2-{uuid.uuid4().hex[:8]}")
     g = store.initialize(tenant.id, "Risk", "standard", [TITLE])
     own = WorkspaceAttributeDefinition.unscoped.create(
-        tenant_id=tenant.id, workspace_id=uuid.uuid4(), item_type="Risk",
+        tenant_id=tenant.id, workspace_id=make_workspace_id(tenant.id), item_type="Risk",
         preset="standard", definition_json={"attributes": []},
         source_global_id=g.id, is_customized=False,
     )
     foreign = WorkspaceAttributeDefinition.unscoped.create(
-        tenant_id=other_tenant.id, workspace_id=uuid.uuid4(), item_type="Risk",
+        tenant_id=other_tenant.id, workspace_id=make_workspace_id(other_tenant.id), item_type="Risk",
         preset="standard", definition_json={"attributes": []},
         source_global_id=g.id, is_customized=False,
     )
@@ -232,7 +233,7 @@ def test_propagation_bumps_version_and_modified_at(tenant, store) -> None:
     row's optimistic-lock counter stale."""
     g = store.initialize(tenant.id, "Risk", "standard", [TITLE])
     w = WorkspaceAttributeDefinition.unscoped.create(
-        tenant_id=tenant.id, workspace_id=uuid.uuid4(), item_type="Risk",
+        tenant_id=tenant.id, workspace_id=make_workspace_id(tenant.id), item_type="Risk",
         preset="standard", definition_json={"attributes": []},
         source_global=g, is_customized=False,
     )
@@ -292,7 +293,7 @@ def test_propagation_ignores_another_preset(tenant, store) -> None:
     g_std = store.initialize(tenant.id, "Risk", "standard", [TITLE])
     g_min = store.initialize(tenant.id, "Risk", "minimal", [TITLE])
     WorkspaceAttributeDefinition.unscoped.create(
-        tenant_id=tenant.id, workspace_id=uuid.uuid4(), item_type="Risk",
+        tenant_id=tenant.id, workspace_id=make_workspace_id(tenant.id), item_type="Risk",
         preset="minimal", definition_json={"attributes": []},
         source_global=g_min, is_customized=False,
     )
@@ -375,7 +376,7 @@ def test_reinitialize_on_a_missing_row_is_not_found(tenant, store) -> None:
 @pytest.mark.django_db
 def test_reinitialize_propagates_to_non_customized_workspace_rows(tenant, store) -> None:
     source = store.initialize(tenant.id, "Risk", "standard", [TITLE])
-    workspace_id = uuid.uuid4()
+    workspace_id = make_workspace_id(tenant.id)
     WorkspaceAttributeDefinition.unscoped.create(
         tenant_id=tenant.id, workspace_id=workspace_id, item_type="Risk",
         preset="standard", definition_json=dict(source.definition_json),

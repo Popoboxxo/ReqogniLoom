@@ -20,6 +20,7 @@ from attribute_definitions.models import (
     WorkspaceAttributeDefinition,
 )
 from persistence.models import Tenant
+from persistence.tests.factories import make_workspace_id
 
 migration = importlib.import_module(
     "attribute_definitions.migrations.0008_backfill_id_display_props"
@@ -93,7 +94,7 @@ def test_forwards_backfills_an_existing_global_and_workspace_row() -> None:
     )
     ws_row = WorkspaceAttributeDefinition.unscoped.create(
         tenant_id=tenant.id,
-        workspace_id=uuid.uuid4(),
+        workspace_id=make_workspace_id(tenant.id),
         item_type="Requirement",
         preset="standard",
         definition_json=_definition(),

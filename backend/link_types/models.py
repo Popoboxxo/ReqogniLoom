@@ -55,7 +55,16 @@ class WorkspaceLinkTypeDefinition(TenantScopedModel):
     becomes unknown.
     """
 
-    workspace_id = models.UUIDField(db_index=True)
+    # G1.4/#1403: was a bare UUIDField, so deleting a workspace left unreachable
+    # "orphan" definitions behind. The FK makes the database cascade (and the
+    # column keeps its name via db_column, so every existing
+    # ``workspace_id=...`` filter keeps working through the FK's attname).
+    workspace = models.ForeignKey(
+        "persistence.Workspace",
+        on_delete=models.CASCADE,
+        db_column="workspace_id",
+        related_name="+",
+    )
     key = models.CharField(max_length=64)
     definition_json = models.JSONField(default=dict)
     source_global = models.ForeignKey(
@@ -71,12 +80,12 @@ class WorkspaceLinkTypeDefinition(TenantScopedModel):
         db_table = "lt_workspace_definition"
         constraints = [
             models.UniqueConstraint(
-                fields=["tenant", "workspace_id", "key"],
+                fields=["tenant", "workspace", "key"],
                 name="uq_lt_ws_tenant_ws_key",
             )
         ]
         indexes = [
-            models.Index(fields=["workspace_id", "key"], name="idx_lt_ws_workspace_key")
+            models.Index(fields=["workspace", "key"], name="idx_lt_ws_workspace_key")
         ]
 
     def __str__(self) -> str:

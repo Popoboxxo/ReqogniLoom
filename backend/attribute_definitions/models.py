@@ -69,7 +69,15 @@ class WorkspaceAttributeDefinition(TenantScopedModel):
     deleting a global default never cascade-deletes a live override.
     """
 
-    workspace_id = models.UUIDField(db_index=True)
+    # G1.4/#1403: was a bare UUIDField; the FK cascades a workspace delete into
+    # its definitions instead of leaving orphan rows. db_column keeps the column
+    # name, so ``workspace_id=...`` filters keep working via the attname.
+    workspace = models.ForeignKey(
+        "persistence.Workspace",
+        on_delete=models.CASCADE,
+        db_column="workspace_id",
+        related_name="+",
+    )
     item_type = models.CharField(max_length=128)
     preset = models.CharField(max_length=32, choices=PRESET_CHOICES)
     definition_json = models.JSONField(default=dict)
@@ -86,13 +94,13 @@ class WorkspaceAttributeDefinition(TenantScopedModel):
         db_table = "ad_workspace_definition"
         constraints = [
             models.UniqueConstraint(
-                fields=["tenant", "workspace_id", "item_type"],
+                fields=["tenant", "workspace", "item_type"],
                 name="uq_ad_ws_def_tenant_ws_type",
             )
         ]
         indexes = [
             models.Index(
-                fields=["workspace_id", "item_type"],
+                fields=["workspace", "item_type"],
                 name="idx_ad_ws_def_ws_type",
             )
         ]
