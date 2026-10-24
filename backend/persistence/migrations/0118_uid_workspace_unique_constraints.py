@@ -24,6 +24,26 @@ De-duplication runs first, using the exact 0055 policy — deterministic
 is *renamed* with a `` (n)`` suffix (never deleted). The reverse of that step is
 a documented no-op: undoing the rename would reintroduce ambiguous duplicates.
 
+RLS guard on the scan
+---------------------
+Four of the seven tables (``pl_testcase``, ``pl_architecture_element``,
+``pl_stakeholder_need``, ``pl_test_run``) carry ``ENABLE`` + ``FORCE ROW LEVEL
+SECURITY`` (persistence/0003, 0067). The dedupe's ``SELECT`` is therefore
+subject to the tenant policy: on a connection whose role cannot bypass RLS —
+the table owner when FORCE is set, or any other non-``BYPASSRLS`` role — it
+matches **zero** rows unless row security is switched off for the transaction.
+That failure was silent: the rename loop did nothing, the migration "succeeded"
+and the ``ADD CONSTRAINT`` that follows aborted on the untouched duplicate.
+
+The scan therefore runs with ``SET LOCAL row_security = off``, the house pattern
+from ``0117_entity_workspace_fk_backfill`` (lines 63-64) and
+``auth_tenancy/management/commands/cleanup_revoked_api_keys.py``: ``SET LOCAL``
+on its own cursor inside this migration's atomic block, which is what scopes the
+setting to the transaction. On a role that already bypasses RLS it is a no-op;
+on a role that does not, PostgreSQL raises "query would be affected by
+row-level security policy" instead of returning an empty result — a loud abort
+instead of a silent no-op followed by a confusing unique violation.
+
 Filtering on a plain ``workspace_id`` attribute keeps the step uniform across
 the FK-backed (TestCase/ArchitectureElement/StakeholderNeed/TestRun) and the
 UUID-column models (Adr/Risk/Issue). ``workspace_id`` is NULL only for rows the
@@ -102,6 +122,16 @@ def _next_free_uid(base_uid: str, taken: set[str]) -> str:
 
 def _dedupe_uid_collisions(apps, schema_editor):
     """Rename later duplicates of an existing ``(workspace, uid)`` collision."""
+    # Four of the seven tables are FORCE ROW LEVEL SECURITY (persistence/0003,
+    # 0067), so the SELECTs below are subject to the tenant policy and would
+    # match zero rows on a role that cannot bypass RLS — leaving the duplicates
+    # in place for the AddConstraint that follows to trip over. Same guard, same
+    # cursor scope as 0117_entity_workspace_fk_backfill (lines 63-64): SET LOCAL
+    # on its own cursor inside this migration's atomic block, which is what
+    # scopes the setting to the transaction.
+    with schema_editor.connection.cursor() as cursor:
+        cursor.execute("SET LOCAL row_security = off")
+
     for model_name, _constraint_name in UID_CONSTRAINTS:
         model = apps.get_model("persistence", model_name)
         # ``workspace_id`` is the FK column on the three Artifact-backed models

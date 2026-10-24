@@ -27,8 +27,9 @@ from __future__ import annotations
 import uuid
 
 import pytest
-from django.db import IntegrityError, connection, transaction
+from django.db import DatabaseError, IntegrityError, connection, transaction
 from django.db.migrations.executor import MigrationExecutor
+from django.test.utils import CaptureQueriesContext
 
 from persistence.models import (
     Adr,
@@ -47,6 +48,9 @@ pytestmark = pytest.mark.django_db
 
 _PREREQUISITE = "0117_entity_workspace_fk_backfill"
 _CONSTRAINTS = "0118_uid_workspace_unique_constraints"
+
+_IS_POSTGRES = connection.vendor == "postgresql"
+_pg_only = pytest.mark.skipif(not _IS_POSTGRES, reason="PostgreSQL-only assertion")
 
 
 def _artifact(tenant, workspace, artifact_type: str) -> Artifact:
@@ -354,3 +358,138 @@ def test_next_free_uid_skips_taken_candidates():
     taken = {base, "A" * 60 + " (2)", "A" * 60 + " (3)"}
 
     assert module._next_free_uid(base, taken) == "A" * 60 + " (4)"
+
+
+# ---------------------------------------------------------------------------
+# RLS guard on the dedupe scan (PR #1482)
+# ---------------------------------------------------------------------------
+#
+# ``pl_testcase`` (and three of its six siblings) carries ENABLE + FORCE ROW
+# LEVEL SECURITY, so the dedupe's ``SELECT`` is filtered by the tenant policy.
+# Without the guard the scan matched zero rows on any role that cannot bypass
+# RLS, the rename loop did nothing, and the ``ADD CONSTRAINT`` that follows
+# aborted on the untouched duplicate. The two tests below pin both halves:
+# the guard really runs before the read, and a role that cannot bypass RLS can
+# no longer turn the scan into a silent no-op.
+
+
+def _historical_apps():
+    """The model registry a ``RunPython`` receives — plain, unscoped managers."""
+    return MigrationExecutor(connection).loader.project_state().apps
+
+
+def _set_app_role() -> None:
+    """Become the least-privilege application role (migration 0048).
+
+    Same ``SET ROLE`` pattern the project already uses to reproduce production
+    RLS conditions — ``persistence/tests/test_migrations_and_indexes.py::
+    test_rls_blocks_raw_query_without_set_local`` and
+    ``admin_ops/tests/test_banner_rls.py``. The test connection authenticates
+    as the superuser, which bypasses RLS unconditionally.
+    """
+    from persistence.db_roles import APP_DB_ROLE
+
+    with connection.cursor() as cursor:
+        cursor.execute(f'SET ROLE "{APP_DB_ROLE}"')
+
+
+def _reset_role() -> None:
+    with connection.cursor() as cursor:
+        cursor.execute("RESET ROLE")
+
+
+@_pg_only
+@pytest.mark.django_db(transaction=True)
+def test_dedupe_scan_fails_loudly_under_app_role(transactional_db):
+    """A non-BYPASSRLS role must never get a silent 0-row dedupe scan.
+
+    ``reqogniloom_app`` is NOSUPERUSER, owns none of the tables and is subject
+    to FORCE RLS, so its ``SELECT`` on ``pl_testcase`` returns nothing while
+    ``app.current_tenant`` is unarmed. Before the guard the dedupe simply
+    renamed nothing and reported success; with it, PostgreSQL refuses the read
+    outright ("query would be affected by row-level security policy") and the
+    migration stops instead of leaving duplicates behind for ``ADD CONSTRAINT``
+    to trip over. This test is red without the guard: ``pytest.raises`` gets no
+    exception because ``_dedupe_uid_collisions`` completes on zero rows.
+    """
+    with active_tenant() as tenant:
+        workspace = make_workspace(tenant)
+        _build(tenant, workspace, "TestCase", "RLS-DEDUPE-001")
+        workspace_id = workspace.id
+
+    # Written by the superuser connection, so the row really exists ...
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT count(*) FROM pl_testcase WHERE workspace_id = %s",
+            [workspace_id],
+        )
+        assert cursor.fetchone()[0] == 1, "fixture row was not created"
+
+    # ... and is invisible to the application role: FORCE RLS, no
+    # ``app.current_tenant`` armed (``active_tenant`` resets it on exit).
+    _set_app_role()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT count(*) FROM pl_testcase WHERE workspace_id = %s",
+                [workspace_id],
+            )
+            assert cursor.fetchone()[0] == 0, (
+                "the application role saw the row, so this test is not "
+                "exercising RLS at all"
+            )
+    finally:
+        _reset_role()
+
+    module = _dedupe_module()
+    apps = _historical_apps()
+    try:
+        with pytest.raises(DatabaseError, match="row-level security"):
+            with transaction.atomic(), connection.schema_editor() as schema_editor:
+                _set_app_role()
+                module._dedupe_uid_collisions(apps, schema_editor)
+    finally:
+        _reset_role()
+
+
+@_pg_only
+@pytest.mark.django_db(transaction=True)
+def test_dedupe_scan_disables_row_security_before_reading(transactional_db):
+    """The ``SET LOCAL`` must reach the same connection *before* the scan.
+
+    This is the positive half of the guard: the statement 0117 established
+    (``SET LOCAL row_security = off``, scoped to the atomic migration block) is
+    issued on the dedupe's own cursor, and every duplicate ``SELECT`` follows
+    it. Red without the guard, because no such statement is executed at all.
+    """
+    module = _dedupe_module()
+    apps = _historical_apps()
+
+    with transaction.atomic(), connection.schema_editor() as schema_editor:
+        with CaptureQueriesContext(connection) as captured:
+            module._dedupe_uid_collisions(apps, schema_editor)
+
+    statements = [query["sql"] for query in captured.captured_queries]
+    guard = [
+        index
+        for index, sql in enumerate(statements)
+        if "SET LOCAL row_security = off" in sql
+    ]
+    assert guard, (
+        "the dedupe scan ran without SET LOCAL row_security = off; on a "
+        f"non-BYPASSRLS connection it would silently see zero rows. "
+        f"Captured statements: {statements}"
+    )
+
+    reads = [
+        index
+        for index, sql in enumerate(statements)
+        # ``.iterator()`` streams through a server-side cursor, so the logged
+        # statement is ``DECLARE … FOR SELECT`` rather than a bare ``SELECT``.
+        if "SELECT" in sql.upper() and "pl_testcase" in sql
+    ]
+    assert reads, f"the dedupe never read pl_testcase: {statements}"
+    assert guard[0] < reads[0], (
+        "row security was disabled only after the duplicate scan had already "
+        f"run. Captured statements: {statements}"
+    )
