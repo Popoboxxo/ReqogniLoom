@@ -176,7 +176,14 @@ export function WorkspaceAdminSection(): JSX.Element {
             data-testid="close-workspace-btn"
             onClick={() => setShowCloseConfirm(true)}
             disabled={isClosing}
-            className={styles.solidAction + " " + styles.closeWorkspaceButton}
+            /* #1258: closing is REVERSIBLE — `reactivate-workspace-btn` sits
+             * directly below it and moves the workspace back. Painting it with
+             * `.btn-danger` made two adjacent actions look equally
+             * destructive, so the destructive weight is reserved for the
+             * irreversible delete below. No `.btn-warning` exists in
+             * `global.css`, and inventing one is a design-system decision, not
+             * a component one — so this uses the canonical secondary. */
+            className={"btn-secondary " + styles.actionSpacing}
           >
             {isClosing ? "…" : t("settings.closeWorkspace", "Close Workspace")}
           </button>
@@ -210,7 +217,7 @@ export function WorkspaceAdminSection(): JSX.Element {
             type="button"
             data-testid="reactivate-workspace-btn"
             onClick={() => void handleReactivateWorkspace()}
-            className={styles.solidAction + " " + styles.reactivateWorkspaceButton}
+            className={"btn-primary " + styles.actionSpacing}
           >
             {t("settings.reactivateWorkspace", "Reactivate Workspace")}
           </button>
@@ -220,7 +227,7 @@ export function WorkspaceAdminSection(): JSX.Element {
           type="button"
           data-testid="delete-workspace-btn"
           onClick={() => { setShowDeleteModal(true); setDeleteError(null); setDeleteConfirmation(""); }}
-          className={styles.solidAction + " " + styles.deleteWorkspaceButton}
+          className="btn-danger"
         >
           {t("settings.deleteWorkspace", "Delete Workspace")}
         </button>
@@ -246,7 +253,7 @@ export function WorkspaceAdminSection(): JSX.Element {
                   data-testid="delete-confirm-btn"
                   onClick={() => void handleDeleteWorkspace()}
                   disabled={isDeleting || deleteConfirmation !== activeWorkspace.name}
-                  className={styles.solidAction + " " + styles.deleteWorkspaceButton}
+                  className="btn-danger"
                 >
                   {isDeleting ? "…" : t("settings.deleteConfirmButton", "Permanently Delete")}
                 </button>

@@ -116,7 +116,7 @@ export function EnforcementFlipDialog({
           type="button"
           data-testid="flip-view-mismatches"
           onClick={handleViewMismatches}
-          className={styles.linkButton}
+          className="btn-ghost"
         >
           {t("systemSettings.enforcementFlip.viewMismatches", { count: count ?? 0 })}
         </button>

@@ -110,6 +110,15 @@ const CONTRAST_PAIRS: ReadonlyArray<readonly [fg: string, bg: string, backdrop: 
   // dedicated --color-primary-text token is the readable variant per theme and
   // must clear AA everywhere it is painted as text.
   ["--color-primary-text", "--color-surface", "--color-surface"],
+  // #1258 (WCAG 1.4.3): `.btn-danger` is an OUTLINE button — its label is
+  // painted on the page/card surface, NOT on --color-danger. --color-danger is
+  // tuned as a border/icon accent and measured only 3.89:1 as text on the dark
+  // raised card surface (3.13:1 on nordic's), so the label uses the dedicated
+  // --color-danger-text token instead. Both surfaces are asserted because the
+  // same button renders both on --color-surface (page background) and inside
+  // cards/rails on --color-surface-raised.
+  ["--color-danger-text", "--color-surface", "--color-surface"],
+  ["--color-danger-text", "--color-surface-raised", "--color-surface-raised"],
 ];
 
 /* ==========================================================================
@@ -515,6 +524,51 @@ describe("primary-as-text readability ratchet (#1280)", () => {
     const rule = rulesFor(css, ".modifyButton");
     expect(rule).toMatch(/color:\s*var\(--color-primary-text\)/);
     expect(rule).not.toMatch(/color:\s*var\(--color-primary\)\s*;/);
+  });
+});
+
+/* ==========================================================================
+ * #1258 — danger-as-text readability ratchet
+ *
+ * The token half of the fix lives in `CONTRAST_PAIRS` above; this suite is the
+ * *regression* half, mirroring the #1280 primary-as-text ratchet: it pins the
+ * outline `.btn-danger` rule to the readable token so a later edit cannot put
+ * `--color-danger` back as the label colour and silently reintroduce the
+ * 3.89:1 (dark) / 3.13:1 (nordic) shortfall.
+ * ========================================================================== */
+describe("danger-as-text readability ratchet (#1258)", () => {
+  const globalCss = readFileSync(join(resolve(__dirname, ".."), "styles", "global.css"), "utf-8");
+
+  it("paints the .btn-danger outline label with the readable danger token", () => {
+    const rule = rulesFor(globalCss, ".btn-danger");
+    expect(rule).toMatch(/color:\s*var\(--color-danger-text\)/);
+    // `--color-danger` may still drive the BORDER (SC 1.4.11, 3:1) — it must
+    // simply not be the label colour. The `(?:^|;)` anchor is load-bearing:
+    // a bare /color: var(--color-danger);/ also matches inside
+    // `border-color: var(--color-danger);`, which is exactly the declaration
+    // that must stay.
+    expect(rule).not.toMatch(/(?:^|;)\s*color:\s*var\(--color-danger\)\s*;/);
+  });
+
+  it("keeps --color-danger-text at or above the AA floor in every theme", () => {
+    for (const themeId of THEME_IDS) {
+      for (const backdrop of ["--color-surface", "--color-surface-raised"]) {
+        const ratio = measure(themeId, "--color-danger-text", backdrop, backdrop);
+        expect(
+          ratio,
+          `theme '${themeId}': --color-danger-text on ${backdrop} measures ${ratio}:1`,
+        ).toBeGreaterThanOrEqual(AA_MIN_RATIO);
+      }
+    }
+  });
+
+  it("every theme declares a resolvable --color-danger-text", () => {
+    for (const themeId of THEME_IDS) {
+      expect(
+        () => parseColor(resolveRawValue(themeMaps[themeId], "--color-danger-text")),
+        `theme '${themeId}' declares no resolvable --color-danger-text`,
+      ).not.toThrow();
+    }
   });
 });
 

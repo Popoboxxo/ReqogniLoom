@@ -26,29 +26,21 @@
   gap: var(--space-1);
 }
 
-.switcherButton {
-  appearance: none;
-  background: var(--color-surface-raised);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-btn);
-  color: var(--color-text-muted);
-  font-size: var(--font-size-sm);
-  font-weight: 500;
-  padding: var(--space-2) var(--space-3);
-  min-height: var(--btn-h-md);
-  cursor: pointer;
-}
-
-.switcherButton:disabled {
-  cursor: not-allowed;
-  opacity: 0.5;
-}
-
-.switcherButtonActive {
-  background: var(--color-primary);
+/* #1258: the active scope/view option was invisible. `aria-pressed` was
+ * already set correctly on these five toggle buttons, but nothing styled the
+ * pressed state, so the selected option rendered identically to the others.
+ * This follows the established settings-surface idiom
+ * (`WorkspaceSettings.module.css`'s `.modeButton[aria-pressed="true"]`): a
+ * local modifier layered on the canonical `.btn-secondary`. The label uses
+ * `--color-primary-text`, not `--color-primary` — #1280 established that
+ * `--color-primary` is a fill colour and measures ~2.76:1 as text on the dark
+ * surface, so painting it as a label would trade one readability bug for
+ * another. Geometry stays with `.btn-secondary`/`.btn-sm`; this rule only
+ * adds colour + weight, so the button-geometry ratchet is unaffected. */
+.switcherButton[aria-pressed="true"] {
   border-color: var(--color-primary);
-  color: var(--color-on-primary);
-  font-weight: 600;
+  color: var(--color-primary-text);
+  font-weight: var(--weight-semibold);
 }
 
 .filterRow {
@@ -100,22 +92,6 @@
   align-items: center;
   gap: var(--space-3);
   margin-top: var(--space-3);
-}
-
-.pageButton {
-  padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-btn);
-  border: 1px solid var(--color-border);
-  background: var(--color-surface-raised);
-  color: var(--color-text);
-  font-size: var(--font-size-sm);
-  min-height: var(--btn-h-md);
-  cursor: pointer;
-}
-
-.pageButton:disabled {
-  cursor: not-allowed;
-  opacity: 0.5;
 }
 
 .pageInfo {

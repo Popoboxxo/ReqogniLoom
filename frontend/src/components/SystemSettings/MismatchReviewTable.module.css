@@ -9,10 +9,10 @@
  * the `1px` border width, the `0.05em` letter-spacing) stay literal so the
  * rendered result is unchanged.
  *
- * Dynamic states follow the established class-composition pattern:
- *   - the pagination buttons' disabled cursor uses `...Enabled` / `...Disabled`
- *     composed onto the shared `.select` chrome,
- *   - the monospace subject/artifact cells use `.td` + `.tdMono`.
+ * Dynamic states follow the established class-composition pattern: the
+ * monospace subject/artifact cells use `.td` + `.tdMono`. The pagination
+ * buttons are the shared `.btn-secondary .btn-sm` pair (issue #1258) — their
+ * disabled cursor comes from the base `.btn-*` rule, not a local modifier.
  */
 
 .card {
@@ -110,12 +110,4 @@
 .pageIndicator {
   font-size: var(--font-size-sm);
   color: var(--color-text-muted);
-}
-
-.pagerEnabled {
-  cursor: pointer;
-}
-
-.pagerDisabled {
-  cursor: not-allowed;
 }

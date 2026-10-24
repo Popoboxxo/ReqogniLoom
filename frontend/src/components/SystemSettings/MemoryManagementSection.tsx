@@ -134,7 +134,7 @@ export function MemoryManagementSection(): JSX.Element {
                 <td>
                   <button
                     type="button"
-                    className={styles.deleteBtn}
+                    className="btn-danger"
                     data-testid={`memory-delete-btn-${row.workspace_id}`}
                     onClick={() => {
                       setDeleteError(null);
@@ -158,7 +158,11 @@ export function MemoryManagementSection(): JSX.Element {
           testId="memory-delete-confirm-dialog"
           footer={
             <div className={styles.dialogFooter}>
-              <button type="button" onClick={() => setPendingDelete(null)}>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => setPendingDelete(null)}
+              >
                 {t("actions.cancel", "Cancel")}
               </button>
               <button
@@ -166,7 +170,7 @@ export function MemoryManagementSection(): JSX.Element {
                 data-testid="memory-delete-confirm-btn"
                 disabled={isDeleting}
                 onClick={() => void handleDelete()}
-                className={styles.deleteBtn}
+                className="btn-danger"
               >
                 {isDeleting ? "…" : t("systemSettings.memory.deleteConfirmButton")}
               </button>
