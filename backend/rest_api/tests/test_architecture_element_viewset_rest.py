@@ -7,7 +7,8 @@ The MBSE container endpoint behind the architecture editor. This module drives
 the real middleware stack (JWT, RBAC, service layer, test database):
 
   - CRUD happy paths, including the deliberate soft-delete contract (DELETE ->
-    204, ``retrieve`` stays 404 afterwards, ``include_deleted=true`` re-lists);
+    204, ``retrieve`` answers 200 + ``status="outdated"``, ``include_deleted=true``
+    re-lists);
   - the ASIL / Make-or-Buy extension fields on create and the presence-checked
     field forwarding on PATCH (an omitted key must not NULL the column);
   - the client-``uid`` rejection (#932) — a system-owned identifier;
@@ -185,10 +186,14 @@ def test_full_crud_roundtrip_with_soft_delete() -> None:
     deleted = client.delete(f"{_BASE}{element_id}/")
     assert deleted.status_code == 204, deleted.content
 
-    # ArchitectureElement deliberately keeps 404ing after the soft delete (no
-    # status mirror), but the record re-appears behind include_deleted.
-    hidden = client.get(f"{_BASE}{element_id}/")
-    assert hidden.status_code == 404, hidden.content
+    # G1.5/GH-443: ArchitectureElement lost its 404 outlier — the wire status
+    # is projected from ``Artifact.lifecycle_status``, so a soft-deleted element
+    # answers 200 + "outdated" like every other type and re-appears behind
+    # include_deleted.
+    outdated = client.get(f"{_BASE}{element_id}/")
+    assert outdated.status_code == 200, outdated.content
+    assert outdated.json()["id"] == element_id
+    assert outdated.json()["status"] == "outdated"
 
     included = client.get(
         f"{_BASE}?workspace_id={workspace.id}&include_deleted=true&search=Roundtrip"

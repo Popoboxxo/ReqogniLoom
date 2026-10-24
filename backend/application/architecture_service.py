@@ -424,12 +424,14 @@ class ArchitectureService(ServiceBase):
     ) -> ArchitectureElement:
         """Fetch a single ArchitectureElement.
 
-        REQ-006: soft-deleted elements (outdate()'d, tracked only via
-        WorkflowItemState since ArchitectureElement has no mirrored status
-        column) are treated as not found by default, matching
-        list_architecture_elements(). Pass include_deleted=True for flows
-        that legitimately need to see an outdated item (e.g.
-        architecture.reactivate).
+        REQ-006: soft-deleted elements are treated as not found by default,
+        matching ``list_architecture_elements()``. Soft-delete is the
+        Datenmodell-Konsolidierung Phase-4 model: ``outdate()`` sets
+        ``Artifact.lifecycle_status = "outdated"`` (Decision D-3, the single
+        soft-delete flag) and ``workflow.services.outdated_item_ids()`` is how
+        this query asks whether an element is outdated — no per-type status
+        column is involved. Pass ``include_deleted=True`` for flows that
+        legitimately need to see an outdated item (e.g. ``architecture.reactivate``).
         """
         self._set_tenant_context(ctx)
         arch_el = ArchitectureElement.objects.select_related("artifact").filter(
@@ -452,8 +454,8 @@ class ArchitectureService(ServiceBase):
     ) -> list[ArchitectureElement]:
         """Return ArchitectureElements in *workspace_id*.
 
-        REQ-006: Excludes soft-deleted elements (lifecycle_status='deleted') by default.
-        Pass ``include_deleted=True`` for admin/audit access.
+        REQ-006: Excludes soft-deleted elements (``Artifact.lifecycle_status ==
+        "outdated"``) by default. Pass ``include_deleted=True`` for admin/audit access.
 
         Issue #267 (same root cause as RequirementService.list_requirements):
         ``search`` case-insensitively filters on title/description/uid. Applied
@@ -473,11 +475,12 @@ class ArchitectureService(ServiceBase):
             artifact__workspace_id=workspace_id
         )
         if not include_deleted:
-            # Phase 0: delete_architecture_element() routes soft-delete through
-            # workflow.services.outdate(). ArchitectureElement is NOT wired into
-            # _STATUS_MIRROR_MODELS (no mirrored status column), so the
-            # workflow state lives solely in WorkflowItemState — filter there
-            # instead of on the now-dead `lifecycle_status` column.
+            # Phase 0/Phase 4: delete_architecture_element() routes soft-delete
+            # through workflow.services.outdate(), which flips the single
+            # soft-delete flag ``Artifact.lifecycle_status`` to "outdated"
+            # (Decision D-3). ``outdated_item_ids()`` is the documented seam
+            # for "is it soft-deleted?" and reads that flag, so filter there
+            # rather than through WorkflowItemState.current_state.
             from workflow.services import outdated_item_ids
 
             qs = qs.exclude(id__in=outdated_item_ids("ArchitectureElement"))

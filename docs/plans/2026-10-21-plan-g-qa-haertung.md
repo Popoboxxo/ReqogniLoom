@@ -389,6 +389,10 @@ Volle Suiten nie parallel. CI-Set-Zuordnung der Testpfade: Index §f.4.
      plus 204-Beschreibung „soft-deleted; GET answers 200 with status=outdated".
   4. Docstrings „Its workflow state moves to "outdated"" korrigieren (Phase-4-Stand: Flag
      `Artifact.lifecycle_status`, `workflow/services.py:983-994`).
+- **Korrektur zur PR-Aufteilung (Stand der Umsetzung, abweichend von der Planung oben):** Ursprünglich sollte PR 5a den
+  Vertragstest mit dem ArchitectureElement-Fall als `xfail(strict=True)` mitbringen und PR 5b ihn umdrehen. Tatsächlich liegt
+  die komplette Datei `rest_api/tests/test_soft_delete_contract_1381.py` (11 Fälle, alle Typen inkl. ArchitectureElement) in
+  PR 5b, und PR 5b ist auf 5a gestapelt (`HEAD^` = 5a). Der Vertragstest ist damit reproduzierbar auf dem 5a+5b-Stack (11/11 grün), nicht schon auf 5a allein.
 - **Soft-Delete-Vertrag (bindend für Konsumenten; Plan F F4.4 hängt hart daran, ebenso F2-T5/F3-T5; vorläufig, ENT-G1 = A):**
 
   | # | Regel | Quelle |

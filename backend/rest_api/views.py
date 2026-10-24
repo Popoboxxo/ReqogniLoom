@@ -2793,11 +2793,10 @@ class ArchitectureElementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
     def _resolve_workflow_target(self, pk: str, ctx: Any) -> tuple[UUID, UUID]:
         # GH-443: ``include_deleted=True`` so the workflow actions stay usable
         # on a soft-deleted element — without it ``POST .../reactivate/`` could
-        # never reach the one item it exists for. Unlike the other entity types
-        # ArchitectureElement has no denormalized status mirror (see
-        # workflow.lifecycle_manager._STATUS_MIRROR_MODELS), so ``retrieve()``
-        # keeps hiding outdated elements: a 200 there could not carry the
-        # "outdated" marker and would be indistinguishable from a live element.
+        # never reach the one item it exists for. ``retrieve()`` needs the same
+        # opt-in since G1.5/#1381: the wire status is projected from
+        # ``Artifact.lifecycle_status`` via ``workflow.state_reader``, so a
+        # soft-deleted element answers 200 + "outdated" like every other type.
         item = self._svc().get_architecture_element(
             UUID(pk), ctx, include_deleted=True
         )
@@ -2852,7 +2851,9 @@ class ArchitectureElementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
-            item = self._svc().get_architecture_element(UUID(pk), ctx)
+            item = self._svc().get_architecture_element(
+                UUID(pk), ctx, include_deleted=True
+            )
         except (NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
         except ValueError:
@@ -3114,21 +3115,20 @@ class ArchitectureElementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
     def destroy(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """DELETE /api/v1/architecture/{pk}/ — soft-delete an element. Returns 204.
 
-        Soft-delete: returns 204, but the record is NOT removed. Its workflow
-        state moves to "outdated". List endpoints hide outdated elements by
+        Soft-delete: returns 204, but the record is NOT removed. The backing
+        Artifact's lifecycle_status moves to "outdated" (Phase 4: an Artifact
+        flag, not a workflow state). List endpoints hide outdated elements by
         default; pass ``?include_deleted=true`` to see them, and
         ``POST .../reactivate/`` to restore one. TraceLinks pointing at the
         element survive the delete, and traceability coverage ignores outdated
         elements.
 
-        ArchitectureElement is the one deliberate exception to the "GET after
-        DELETE still answers 200 with ``status='outdated'``" rule that the
-        other soft-deleting entities follow: it has no denormalized status
-        mirror (``workflow.lifecycle_manager._STATUS_MIRROR_MODELS``), so a 200
-        here could not carry the "outdated" marker and would be
-        indistinguishable from a live element. This URL therefore keeps
-        answering 404 after the delete; the soft-delete state stays observable
-        via ``GET .../workflow-history/`` and ``?include_deleted=true``.
+        A subsequent GET on this URL answers 200 with ``status="outdated"``,
+        identical to every other soft-deleting entity (G1.5/#1381, GH-443):
+        the wire status is resolved from ``Artifact.lifecycle_status`` via
+        ``workflow.state_reader``, so no per-type status column is needed. The
+        former 404 exception ("no status mirror") was based on the pre-Phase-4
+        model and no longer applies.
         """
         lang = detect_lang(request)
         change_reason = parse_change_reason(request)
