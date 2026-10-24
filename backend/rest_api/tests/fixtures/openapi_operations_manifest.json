@@ -1118,6 +1118,10 @@
    "get"
   ],
   [
+   "/api/v1/preference-values/registry/",
+   "get"
+  ],
+  [
    "/api/v1/prompt-templates/",
    "get"
   ],
@@ -1364,6 +1368,14 @@
   [
    "/api/v1/system/memory/workspaces/{workspace_id}/",
    "delete"
+  ],
+  [
+   "/api/v1/system/preference-values/",
+   "get"
+  ],
+  [
+   "/api/v1/system/preference-values/",
+   "patch"
   ],
   [
    "/api/v1/system/theme-default/",
@@ -1688,6 +1700,18 @@
   [
    "/api/v1/users/me/notification-preferences/",
    "patch"
+  ],
+  [
+   "/api/v1/users/me/preference-values/",
+   "get"
+  ],
+  [
+   "/api/v1/users/me/preference-values/",
+   "patch"
+  ],
+  [
+   "/api/v1/users/me/preference-values/effective/",
+   "get"
   ],
   [
    "/api/v1/users/me/preferences/",
@@ -2064,6 +2088,18 @@
   [
    "/api/v1/workspaces/{workspace_id}/permissions/",
    "post"
+  ],
+  [
+   "/api/v1/workspaces/{workspace_id}/preference-values/",
+   "get"
+  ],
+  [
+   "/api/v1/workspaces/{workspace_id}/preference-values/",
+   "patch"
+  ],
+  [
+   "/api/v1/workspaces/{workspace_id}/preference-values/effective/",
+   "get"
   ],
   [
    "/api/v1/workspaces/{workspace_id}/review-policy/",
