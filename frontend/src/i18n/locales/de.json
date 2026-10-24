@@ -199,7 +199,9 @@
     "not_found": "Ressource nicht gefunden.",
     "unauthorized": "Sie sind nicht berechtigt, diese Aktion auszuführen.",
     "llm_not_configured": "LLM-Provider ist nicht konfiguriert. KI-Features sind nicht verfügbar.",
-    "unknown": "Unbekannter Fehler"
+    "unknown": "Unbekannter Fehler",
+    "boundaryHint": "Bitte laden Sie die Seite neu. Bleibt der Fehler, nennen Sie dem Support die Referenz.",
+    "reference": "Referenz"
   },
   "login": {
     "title": "Anmelden",

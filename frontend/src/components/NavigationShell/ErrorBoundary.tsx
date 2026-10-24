@@ -4,8 +4,11 @@
  * leaf_id: COMP-RF-001 (NavigationShell)
  * req_id:  REQ-L3-RF001-003 (Top-Level Error Boundary)
  *
- * Catches unhandled React errors in child components.
- * Renders a translated error message with recovery options.
+ * Catches unhandled React errors in child components and renders a neutral,
+ * translated message plus a reference id. The thrown error's raw message is
+ * never rendered: it routinely carries internals (hosts, user names, driver
+ * output) that must not reach the UI (#598 W4a). The reference id correlates
+ * the screenshot with the console entry the same error produced.
  */
 
 import { Component, type ErrorInfo, type ReactNode } from "react";
@@ -19,14 +22,29 @@ interface ErrorBoundaryProps {
   backLabel?: string;
   /** Label for error title */
   errorTitle?: string;
-  /** Fallback text when the thrown value carries no message. */
-  unknownErrorLabel?: string;
+  /** Neutral guidance shown instead of the raw error message. */
+  hintLabel?: string;
+  /** Label in front of the reference id ("Referenz" / "Reference"). */
+  referenceLabel?: string;
 }
 
 interface ErrorBoundaryState {
   hasError: boolean;
-  error?: Error;
-  errorInfo?: ErrorInfo;
+  /** Correlates the rendered message with the console entry. */
+  referenceId?: string;
+}
+
+/**
+ * Build a collision-resistant, URL-safe reference id.
+ *
+ * Deliberately not `crypto.randomUUID`: that API is missing on non-secure
+ * origins, and the deployed QA stack is served over plain HTTP — the fallback
+ * would then throw inside the error boundary itself (review finding R2).
+ */
+function createReferenceId(): string {
+  return (
+    Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8)
+  );
 }
 
 export class ErrorBoundary extends Component<
@@ -38,14 +56,21 @@ export class ErrorBoundary extends Component<
     this.state = { hasError: false };
   }
 
-  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
-    return { hasError: true, error };
+  static getDerivedStateFromError(): ErrorBoundaryState {
+    // The error object is intentionally not kept in state — nothing rendered
+    // from it is safe to show, and holding it would tempt a future edit to
+    // render the raw message again.
+    return { hasError: true, referenceId: createReferenceId() };
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo): void {
-    // Log to console — no stack-trace leakage to user (REQ-L3-RF001-003)
-    console.error("[ErrorBoundary] Unhandled error:", error, errorInfo);
-    this.setState({ errorInfo });
+    // Diagnostics stay in the console, keyed by the id the user sees.
+    console.error(
+      "[ErrorBoundary] Unhandled error",
+      { referenceId: this.state.referenceId },
+      error,
+      errorInfo
+    );
   }
 
   private handleReload = (): void => {
@@ -53,12 +78,13 @@ export class ErrorBoundary extends Component<
   };
 
   private handleBack = (): void => {
-    this.setState({ hasError: false, error: undefined, errorInfo: undefined });
+    this.setState({ hasError: false, referenceId: undefined });
     window.history.back();
   };
 
   render(): ReactNode {
-    if (!this.state.hasError) {
+    const { hasError, referenceId } = this.state;
+    if (!hasError) {
       return this.props.children;
     }
 
@@ -66,14 +92,16 @@ export class ErrorBoundary extends Component<
       reloadLabel = "Reload",
       backLabel = "Back",
       errorTitle = "An unexpected error occurred.",
-      unknownErrorLabel = "Unknown error",
+      hintLabel = "Please reload the page. If the error persists, give support the reference.",
+      referenceLabel = "Reference",
     } = this.props;
 
     return (
       <div role="alert" className={styles.wrapper}>
         <h2>{errorTitle}</h2>
-        <p className={styles.message}>
-          {this.state.error?.message ?? unknownErrorLabel}
+        <p className={styles.message}>{hintLabel}</p>
+        <p className={styles.reference} data-testid="error-reference">
+          {referenceLabel}: <code>{referenceId}</code>
         </p>
         <div className={styles.actions}>
           <button className="btn-primary" onClick={this.handleReload} data-testid="error-reload-btn">{reloadLabel}</button>
