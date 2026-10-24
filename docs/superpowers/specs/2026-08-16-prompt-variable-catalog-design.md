@@ -250,6 +250,30 @@ aus. Regressions-Schutz: ein Prompt-Textänderung, die eine Assertion bricht,
 wird vor dem Merge sichtbar — dieselbe Philosophie wie der bestehende
 `ui-ratchet`/`dist`-Drift-Check.
 
+### 6.1 Nachtrag — Umsetzung (Plan D, Welle 0)
+
+Die Umsetzung weicht in vier belegten Punkten von der Erstfassung ab; die
+Kernentscheidung (Prompt wird **vor** promptfoo gerendert, nie dort) bleibt.
+
+1. **Provider `echo` statt Projekt-`mock`** (vorläufig, ENT-D8 = A). Der
+   ReqogniLoom-`MockLlmProvider` ignoriert den Prompt und liefert eine feste
+   Antwort; als promptfoo-Provider geprüft er damit nichts. `echo` gibt den
+   gerenderten Prompt zurück und macht genau die Render-Regression sichtbar,
+   um die es hier geht — LLM-frei.
+2. **Kein `--fail-on-error`.** Das Flag existiert in promptfoo nicht; die CLI
+   beendet bei einem fehlgeschlagenen Test mit `100`, bei Ausführungsfehlern
+   mit `1`. Der CI-Job wertet den Exit-Code aus.
+3. **Templating im Job aus.** `PROMPTFOO_DISABLE_TEMPLATING=true`, sonst
+   templatet promptfoo den bereits gerenderten String ein zweites Mal
+   (Nunjucks/Mustache) und JSON-Braces können kollidieren.
+4. **Fall-Schema.** `backend/application/prompt_testing/cases/<slot>.yaml` mit
+   `slot`, `scenarios[].data`, `.config`, `assert` (nur deterministische
+   Matcher) und `deep_assert` (nur dort `llm-rubric`; exportiert ausschließlich
+   mit `--deep`, das bei gesetztem `CI` abbricht). Besitz-/Erweiterungsregel:
+   Fall-Dateien gehören Plan D; ein neuer Slot bringt seine Datei im selben PR
+   mit, andere Pläne erweitern bestehende Dateien um Szenarien. In `main` wird
+   nie ein roter Fall gemergt.
+
 ## 7. Rollout-Phasen
 
 Drei unabhängig abnehmbare Phasen (für die anschließende Implementierungsplanung):

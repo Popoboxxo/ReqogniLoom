@@ -116,7 +116,30 @@ class RbacPermission(permissions.BasePermission):
         if scope_error:
             raise exceptions.PermissionDenied(detail=scope_error)
 
-        decision = self._authz.decide_access(auth_context.active_roles, operation)
+        # E1.2: the API-key workspace fence runs BEFORE the RBAC matrix. A
+        # fenced key's workspace-less call otherwise dies on the empty role
+        # tuple with the generic "no active role permits ..." text, which
+        # hides that the fence (not the role matrix) is the deciding gate.
+        from auth_tenancy.resource_scope import (
+            api_key_fence_precheck,
+            fenced_collection_roles,
+            fenced_rbac_denial,
+            is_fence_filtered_list,
+        )
+
+        fence_denial = api_key_fence_precheck(request, view, auth_context)
+        if fence_denial is not None:
+            raise exceptions.PermissionDenied(detail=fence_denial)
+
+        # E1.2: a fenced key's filtered collection list is decided with the
+        # roles the owner holds across the workspaces the key may see —
+        # ``active_roles`` is empty on the workspace-less path by design.
+        fenced = bool(getattr(auth_context, "api_key_workspace_ids", ()))
+        collection_roles = auth_context.active_roles
+        if fenced and is_fence_filtered_list(view):
+            collection_roles = fenced_collection_roles(auth_context)
+
+        decision = self._authz.decide_access(collection_roles, operation)
 
         # REQ-186/187 shadow-verify seam: run the new permission_json model in
         # parallel and let it govern ONLY when the tenant is flipped to
@@ -129,8 +152,15 @@ class RbacPermission(permissions.BasePermission):
             legacy_decision=decision.allow,
             ctx=auth_context,
             operation=operation,
+            roles=collection_roles,
         )
         if not allow:
+            if fenced:
+                raise exceptions.PermissionDenied(
+                    detail=fenced_rbac_denial(
+                        request, view, auth_context, decision.decision_reason
+                    )
+                )
             raise exceptions.PermissionDenied(
                 detail=f"RBAC denied: {decision.decision_reason}"
             )

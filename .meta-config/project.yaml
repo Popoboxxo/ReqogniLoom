@@ -90,7 +90,8 @@ gitignore:
   settings: true
   ignore-provider-dirs: true
   exceptions: []
-  custom_entries: []
+  custom_entries:
+    - opencode.jsonc
 context_file:
   mode: full
   max_lines: 250
@@ -128,13 +129,27 @@ variables:
   GIT_REMOTE_URL: https://github.com/Popoboxxo/ReqogniLoom.git
   GIT_MAIN_BRANCH: main
   BUILD_COMMAND: make build
-  TEST_COMMAND: pytest (Backend) + npm test (Frontend)
+  TEST_COMMAND: make test-backend (isolierter Test-Stack, schnelle Läufe zusätzlich mit --reuse-db) + make test-frontend
   DEV_COMMANDS: |
     make build
     make up
   TEST_COMMANDS: |
-    make test-backend
-    make test-frontend
+    make test-backend   # isolierter Test-Stack (run --rm backend-test); schnelle Läufe mit --reuse-db, nach Migrationsänderung --create-db --reuse-db
+    make test-frontend  # vitest im frontend-test-Container
+  TEST_ENV_NOTES: |
+    VERBINDLICH (gemessen 2026-10-22) — Tests laufen NUR im isolierten Test-Stack (make test-backend/-frontend),
+    nie per `docker exec` im Dev-Container: Dev-Postgres 384 MB, ohne `--reuse-db` pro Session Test-DB mit
+    300 Migrationen neu (1 trivialer Test = 315,6 s Setup / 0,01 s Test). Mit `--reuse-db` 1,3 s statt 317 s;
+    erster Lauf nach Schema-/Migrationsänderung `--create-db --reuse-db` (86,9 s); `--create-db` OHNE
+    `--reuse-db` löscht die DB am Sessionende → nächster Lauf zahlt wieder 87–315 s.
+    Hauptkostenursache fsync=on auf postgres-test: TRUNCATE von 106 Tabellen im pytest-django-Teardown
+    > 300 s vs. 3,6 s mit fsync/synchronous_commit/full_page_writes=off (test_reqif_import_embedding.py
+    172,5 s → 3,9 s); GUCs bisher nur per ALTER SYSTEM — nicht reproduzierbar, überleben
+    `make test-down --volumes` nicht.
+    Embedding-Falle Dev-Container: EMBEDDING_PROVIDER=ollama + EMBEDDING_VECTOR_DIMENSIONS=768 vs.
+    DB-Spalten 384 → "expected 384 dimensions, not 768"; der Test-Stack nutzt .env (384).
+    Nie verwaiste Läufe: immer `run --rm`. `transaction=True` nur für on_commit-Semantik (erzwingt
+    Full-Schema-TRUNCATE pro Test); sonst `django_capture_on_commit_callbacks` + normales `django_db`.
   BUILD_COMMANDS: make build
   DEV_STACK_START: make up
   DEV_STACK_RELOAD: make up (recreated Container bei geänderter Config/Env; reines
@@ -219,7 +234,7 @@ variables:
     e2e/                 # Playwright/Chromium E2E-Tests (54 Spec-Dateien, 4 CI-Shards)
     docs/                # Anforderungen, Architektur, SE-Kaskade (docs/se/), Release-Reports
     deploy/              # Deployment: docker-compose.yml (Basis), .override.yml (Dev), .minimal.yml, .env, README.md
-    testing/             # docker-compose.test.yml (CI-/lokaler Test-Overlay, kein Deployment-File)
+    testing/             # docker-compose.test.yml (Standalone-Test-Stack, kein Overlay, kein Deployment-File)
     scripts/             # build.sh, check-version-drift.sh, enable_pgvector.sh (backup/restore removed per ADR-012)
     .meta-config/        # agent-meta Konfiguration (project.yaml)
     .agent-meta/         # agent-meta Submodul (Templates, Scripts, Schemas)

@@ -415,6 +415,15 @@ TENANT_SCOPED_READ_TOOLS: frozenset[str] = frozenset(
 )
 
 
+#: Tools that filter their own result to the API key's fence instead of being
+#: denied by the dispatcher (E1.3). Only honoured when the call names no
+#: workspace (``scope_workspace_id is None``): a workspace-less list cannot
+#: resolve a target, and the fail-closed fence would otherwise make the list
+#: unreachable for every fenced key. The tool must narrow its result itself —
+#: ``workspace.list`` does so through ``WorkspaceService.list_workspaces``.
+FENCE_FILTERED_TOOLS: frozenset[str] = frozenset({"workspace.list"})
+
+
 # ---------------------------------------------------------------------------
 # Resolution
 # ---------------------------------------------------------------------------
@@ -526,6 +535,7 @@ def target_param_error(tool_name: str, params: Mapping[str, Any]) -> str | None:
 
 
 __all__ = [
+    "FENCE_FILTERED_TOOLS",
     "TENANT_SCOPED_READ_TOOLS",
     "TOOL_ENFORCED_WORKSPACE_SCOPE",
     "resolve_target_workspace_id",
