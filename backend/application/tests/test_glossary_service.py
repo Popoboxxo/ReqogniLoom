@@ -102,6 +102,9 @@ class TestGlossaryServiceSoftDelete:
         with (
             patch("application.glossary_service.GlossaryTerm.objects") as mock_mgr,
             patch("workflow.services.outdate") as mock_outdate,
+            # #1483: delete() now writes the AuditEntry its siblings always
+            # wrote; this test has no tenant/DB row behind the mocked term.
+            patch("application.glossary_service.GlossaryService._audit"),
         ):
             mock_mgr.filter.return_value.first.return_value = mock_term
             svc.delete(ctx, TERM_ID)

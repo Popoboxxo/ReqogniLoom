@@ -169,6 +169,7 @@ logger = logging.getLogger(__name__)
 from rest_api.openapi import ErrorResponseSerializer
 from rest_api.preset_guard import PresetError, PresetGateMixin
 from rest_api.query_params import (
+    parse_change_reason,
     parse_include_deleted,
     parse_uuid_param,
     parse_workspace_id,
@@ -439,34 +440,47 @@ def _with_request_id(body: dict[str, Any]) -> dict[str, Any]:
 
 
 def _resolve_change_reason(request: Request) -> str:
-    """Resolve the ``change_reason`` of a DELETE request (issue #1407, R3-08).
+    """Backwards-compatible alias for :func:`rest_api.query_params.parse_change_reason`.
 
-    The request body stays authoritative; the query string is only a fallback
-    for clients that cannot attach a body to ``DELETE`` (browsers, ``fetch``
-    based clients, proxies that drop DELETE bodies). Both the Requirement and
-    the StakeholderNeed destroy handlers enforce the workspace's
-    change-reason preset policy — without the fallback that gate was simply
-    unreachable for those clients, so an Extended-preset workspace answered
-    400 for a request that did carry a reason.
-
-    The resolved value satisfies that gate only; whether it reaches an audit
-    record is up to the service behind it (``RequirementService`` discards it
-    after the gate, ``StakeholderNeedService`` passes it on in the domain
-    event payload). A reason taken from the query string is visible in access
-    logs, so it must not carry anything sensitive.
-
-    Precedent for query-OR-body on a DELETE: ``memory/memory_rest.py``.
-    Returns ``""`` (never ``None``) so the services' ``if not change_reason``
-    gate keeps behaving exactly as it did with the body-only read. A non-string
-    body value (number, boolean, list) is not a reason and falls through to the
-    query string, keeping the ``-> str`` contract.
+    The resolver moved into ``query_params`` in G1.5 so it sits next to
+    ``parse_include_deleted`` and can be reused by every soft-deleting view.
+    Kept as a thin delegate because existing tests import it from here.
     """
-    body_reason = (
-        request.data.get("change_reason", "") if isinstance(request.data, dict) else ""
+    return parse_change_reason(request)
+
+
+#: Shared OpenAPI contract for soft-deleting ``destroy`` handlers (G1.5/#1381).
+_SOFT_DELETE_CHANGE_REASON_PARAMETER = OpenApiParameter(
+    name="change_reason",
+    type=str,
+    location=OpenApiParameter.QUERY,
+    required=False,
+    description=(
+        "Reason for the soft-delete. The JSON body's `change_reason` wins when "
+        "both are sent. Without either, a workspace whose preset mandates a "
+        "reason answers 400 VALIDATION_ERROR."
+    ),
+)
+
+
+def soft_delete_schema():
+    """``@extend_schema`` decorator for a soft-deleting ``destroy`` (G1.5).
+
+    Declares the ``change_reason`` query parameter and states the GH-443
+    response contract (204 now, 200 + ``status="outdated"`` on the next GET) so
+    the OpenAPI document stops omitting both.
+    """
+    return extend_schema(
+        parameters=[_SOFT_DELETE_CHANGE_REASON_PARAMETER],
+        responses={
+            204: OpenApiResponse(
+                description=(
+                    "Soft-deleted; the record is not removed. A subsequent GET "
+                    'on the same URL answers 200 with status="outdated".'
+                )
+            )
+        },
     )
-    if isinstance(body_reason, str) and body_reason:
-        return body_reason
-    return request.query_params.get("change_reason") or ""
 
 
 def _service_error_response(exc: Exception, lang: str = "en") -> Response:
@@ -1065,11 +1079,13 @@ class StakeholderNeedViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             logger.exception("StakeholderNeedViewSet.partial_update: unhandled exception")
             return _service_error_response(exc, lang)
 
+    @soft_delete_schema()
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """DELETE /api/v1/needs/<id>/ — soft-delete a stakeholder need. Returns 204.
 
-        Soft-delete: returns 204, but the record is NOT removed. Its workflow
-        state moves to "outdated" and a subsequent GET on this URL still
+        Soft-delete: returns 204, but the record is NOT removed. The backing
+        Artifact's lifecycle_status moves to "outdated" (Phase 4: an Artifact
+        flag, not a workflow state) and a subsequent GET on this URL still
         answers 200 with ``status="outdated"`` — 404 keeps meaning "no such
         record, and there never was one in this tenant". List endpoints hide
         outdated records by default; pass ``?include_deleted=true`` to see
@@ -1082,7 +1098,7 @@ class StakeholderNeedViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         ``?change_reason=`` query parameter (body wins when both are sent).
         """
         lang = detect_lang(request)
-        change_reason = _resolve_change_reason(request)
+        change_reason = parse_change_reason(request)
         try:
             self.service.delete(get_auth_context(request), kwargs["pk"], change_reason=change_reason)
             return Response(status=status.HTTP_204_NO_CONTENT)
@@ -1860,11 +1876,13 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 lang,
             )
 
+    @soft_delete_schema()
     def destroy(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """DELETE /api/v1/requirements/{pk}/ — soft-delete a requirement. Returns 204.
 
-        Soft-delete: returns 204, but the record is NOT removed. Its workflow
-        state moves to "outdated" and a subsequent GET on this URL still
+        Soft-delete: returns 204, but the record is NOT removed. The backing
+        Artifact's lifecycle_status moves to "outdated" (Phase 4: an Artifact
+        flag, not a workflow state) and a subsequent GET on this URL still
         answers 200 with ``status="outdated"`` — 404 keeps meaning "no such
         record, and there never was one in this tenant". List endpoints hide
         outdated records by default; pass ``?include_deleted=true`` (or
@@ -1881,7 +1899,7 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         ``?change_reason=`` query parameter (body wins when both are sent).
         """
         lang = detect_lang(request)
-        change_reason = _resolve_change_reason(request)
+        change_reason = parse_change_reason(request)
         from workflow.services import WorkflowDefinitionError
 
         try:
@@ -3092,6 +3110,7 @@ class ArchitectureElementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             return _service_error_response(exc, lang)
         return Response(ArchitectureElementSerializer(_arch_to_dict(item)).data)
 
+    @soft_delete_schema()
     def destroy(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """DELETE /api/v1/architecture/{pk}/ — soft-delete an element. Returns 204.
 
@@ -3112,9 +3131,12 @@ class ArchitectureElementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         via ``GET .../workflow-history/`` and ``?include_deleted=true``.
         """
         lang = detect_lang(request)
+        change_reason = parse_change_reason(request)
         try:
             ctx = get_auth_context(request)
-            self._svc().delete_architecture_element(UUID(pk), ctx)
+            self._svc().delete_architecture_element(
+                UUID(pk), ctx, change_reason=change_reason
+            )
         except (NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
         except Exception as exc:  # noqa: BLE001 — map any service error uniformly
@@ -3873,11 +3895,13 @@ class TestCaseViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             return _service_error_response(exc, lang)
         return self.with_etag(Response(TestCaseSerializer(_test_to_dict(item)).data), item)
 
+    @soft_delete_schema()
     def destroy(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """DELETE /api/v1/testcases/{pk}/ — soft-delete a test case. Returns 204.
 
-        Soft-delete: returns 204, but the record is NOT removed. Its workflow
-        state moves to "outdated" and a subsequent GET on this URL still
+        Soft-delete: returns 204, but the record is NOT removed. The backing
+        Artifact's lifecycle_status moves to "outdated" (Phase 4: an Artifact
+        flag, not a workflow state) and a subsequent GET on this URL still
         answers 200 with ``status="outdated"`` — 404 keeps meaning "no such
         record, and there never was one in this tenant". List endpoints hide
         outdated records by default; pass ``?include_deleted=true`` to see
@@ -3888,9 +3912,10 @@ class TestCaseViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         later reactivate brings the record back without its links.
         """
         lang = detect_lang(request)
+        change_reason = parse_change_reason(request)
         try:
             ctx = get_auth_context(request)
-            self._svc().delete_test_case(UUID(pk), ctx)
+            self._svc().delete_test_case(UUID(pk), ctx, change_reason=change_reason)
         except (NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
         except Exception as exc:  # noqa: BLE001 — map any service error uniformly
@@ -7718,11 +7743,13 @@ class AdrViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             return _service_error_response(exc, lang)
         return Response(AdrSerializer(_adr_to_dict(item)).data)
 
+    @soft_delete_schema()
     def destroy(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """DELETE /api/v1/adrs/{pk}/ — soft-delete an ADR. Returns 204.
 
-        Soft-delete: returns 204, but the record is NOT removed. Its workflow
-        state moves to "outdated" and a subsequent GET on this URL still
+        Soft-delete: returns 204, but the record is NOT removed. The backing
+        Artifact's lifecycle_status moves to "outdated" (Phase 4: an Artifact
+        flag, not a workflow state) and a subsequent GET on this URL still
         answers 200 with ``status="outdated"`` — 404 keeps meaning "no such
         record, and there never was one in this tenant". List endpoints hide
         outdated records by default; pass ``?include_deleted=true`` to see
@@ -7732,9 +7759,10 @@ class AdrViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         coverage ignores outdated records.
         """
         lang = detect_lang(request)
+        change_reason = parse_change_reason(request)
         try:
             ctx = get_auth_context(request)
-            self._svc().delete_adr(UUID(pk), ctx)
+            self._svc().delete_adr(UUID(pk), ctx, change_reason=change_reason)
         except (NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
         except Exception as exc:  # noqa: BLE001 — map any service error uniformly
@@ -8048,11 +8076,13 @@ class RiskViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             return _service_error_response(exc, lang)
         return Response(RiskSerializer(_risk_to_dict(item)).data)
 
+    @soft_delete_schema()
     def destroy(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """DELETE /api/v1/risks/{pk}/ — soft-delete a Risk. Returns 204.
 
-        Soft-delete: returns 204, but the record is NOT removed. Its workflow
-        state moves to "outdated" and a subsequent GET on this URL still
+        Soft-delete: returns 204, but the record is NOT removed. The backing
+        Artifact's lifecycle_status moves to "outdated" (Phase 4: an Artifact
+        flag, not a workflow state) and a subsequent GET on this URL still
         answers 200 with ``status="outdated"`` — 404 keeps meaning "no such
         record, and there never was one in this tenant". List endpoints hide
         outdated records by default; pass ``?include_deleted=true`` to see
@@ -8063,9 +8093,10 @@ class RiskViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         later reactivate brings the record back without its links.
         """
         lang = detect_lang(request)
+        change_reason = parse_change_reason(request)
         try:
             ctx = get_auth_context(request)
-            self._svc().delete_risk(UUID(pk), ctx)
+            self._svc().delete_risk(UUID(pk), ctx, change_reason=change_reason)
         except (NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
         except Exception as exc:  # noqa: BLE001 — map any service error uniformly
@@ -9148,11 +9179,13 @@ class IssueViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             return _service_error_response(exc, lang)
         return Response(result)
 
+    @soft_delete_schema()
     def destroy(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """DELETE /api/v1/issues/{pk}/ — soft-delete an Issue. Returns 204.
 
-        Soft-delete: returns 204, but the record is NOT removed. Its workflow
-        state moves to "outdated" and a subsequent GET on this URL still
+        Soft-delete: returns 204, but the record is NOT removed. The backing
+        Artifact's lifecycle_status moves to "outdated" (Phase 4: an Artifact
+        flag, not a workflow state) and a subsequent GET on this URL still
         answers 200 with ``status="outdated"`` — 404 keeps meaning "no such
         record, and there never was one in this tenant". List endpoints hide
         outdated records by default; pass ``?include_deleted=true`` to see
@@ -9163,9 +9196,10 @@ class IssueViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         later reactivate brings the record back without its links.
         """
         lang = detect_lang(request)
+        change_reason = parse_change_reason(request)
         try:
             ctx = get_auth_context(request)
-            self._svc().delete_issue(UUID(pk), ctx)
+            self._svc().delete_issue(UUID(pk), ctx, change_reason=change_reason)
         except (NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
         except Exception as exc:  # noqa: BLE001 — map any service error uniformly
@@ -9368,11 +9402,13 @@ class ChangeRequestViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             return _service_error_response(exc, lang)
         return Response(ChangeRequestSerializer(_cr_to_dict(item)).data)
 
+    @soft_delete_schema()
     def destroy(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """DELETE /api/v1/change-requests/{pk}/ — soft-delete a CR. Returns 204.
 
-        Soft-delete: returns 204, but the record is NOT removed. Its workflow
-        state moves to "outdated" and a subsequent GET on this URL still
+        Soft-delete: returns 204, but the record is NOT removed. The backing
+        Artifact's lifecycle_status moves to "outdated" (Phase 4: an Artifact
+        flag, not a workflow state) and a subsequent GET on this URL still
         answers 200 with ``status="outdated"`` — 404 keeps meaning "no such
         record, and there never was one in this tenant". List endpoints hide
         outdated records by default; pass ``?include_deleted=true`` to see
@@ -9380,11 +9416,17 @@ class ChangeRequestViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
 
         TraceLinks pointing at the record survive the delete, and traceability
         coverage ignores outdated records.
+
+        ``change_reason`` is accepted from the request body or from the
+        ``?change_reason=`` query parameter (body wins when both are sent).
         """
         lang = detect_lang(request)
+        change_reason = parse_change_reason(request)
         try:
             ctx = get_auth_context(request)
-            self._svc().delete_change_request(UUID(pk), ctx)
+            self._svc().delete_change_request(
+                UUID(pk), ctx, change_reason=change_reason
+            )
         except (NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
         except Exception as exc:  # noqa: BLE001 — map any service error uniformly
@@ -11213,11 +11255,13 @@ class GlossaryTermViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         except Exception as e:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(e, lang)
 
+    @soft_delete_schema()
     def destroy(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """DELETE /api/v1/glossary/{pk}/ — soft-delete a glossary term. Returns 204.
 
-        Soft-delete: returns 204, but the record is NOT removed. Its workflow
-        state moves to "outdated" and a subsequent GET on this URL still
+        Soft-delete: returns 204, but the record is NOT removed. The backing
+        Artifact's lifecycle_status moves to "outdated" (Phase 4: an Artifact
+        flag, not a workflow state) and a subsequent GET on this URL still
         answers 200 — 404 keeps meaning "no such record, and there never was
         one in this tenant". List endpoints hide outdated records by default;
         pass ``?include_deleted=true`` to see them, and
@@ -11232,9 +11276,10 @@ class GlossaryTermViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         """
         ctx = get_auth_context(request)
         lang = detect_lang(request)
+        change_reason = parse_change_reason(request)
         try:
             term_id = UUID(pk)
-            self._svc().delete(ctx, term_id)
+            self._svc().delete(ctx, term_id, change_reason=change_reason)
             return Response(status=status.HTTP_204_NO_CONTENT)
         except Exception as e:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(e, lang)

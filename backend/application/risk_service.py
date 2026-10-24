@@ -456,7 +456,9 @@ class RiskService(ServiceBase):
         return risk
 
     @atomic_transaction
-    def delete_risk(self, risk_id: UUID, ctx: AuthContext) -> None:
+    def delete_risk(
+        self, risk_id: UUID, ctx: AuthContext, change_reason: str = ""
+    ) -> None:
         """Soft-delete a Risk via the workflow engine (REQ-L3-RISK-004).
 
         GH-484: TraceLinks are no longer hard-deleted on soft-delete — they
@@ -486,10 +488,18 @@ class RiskService(ServiceBase):
             item_type="Risk",
             workspace_id=workspace_id,
             ctx=ctx,
-            reason="deleted via risk.delete",
+            # inert since Phase 4 — outdate() writes no history entry; the
+            # reason is persisted on the AuditEntry below.
+            reason=change_reason or "deleted via risk.delete",
         )
 
-        self._audit(ctx=ctx, operation="delete", entity_type="Risk", entity_id=risk_id)
+        self._audit(
+            ctx=ctx,
+            operation="delete",
+            entity_type="Risk",
+            entity_id=risk_id,
+            change_reason=change_reason,
+        )
         self._emit_event(
             self._make_event(
                 event_type=DomainEventOutbox.EventType.RISK_DELETED,
