@@ -315,7 +315,9 @@ class GlossaryService(ServiceBase):
         return GlossaryTermDTO.from_orm(gt)
 
     @atomic_transaction
-    def delete(self, ctx: AuthContext, term_id: UUID) -> None:
+    def delete(
+        self, ctx: AuthContext, term_id: UUID, change_reason: str = ""
+    ) -> None:
         """Soft-delete GlossaryTerm by routing it through the workflow engine
         (``status`` becomes "outdated", REQ-006).
 
@@ -335,5 +337,17 @@ class GlossaryService(ServiceBase):
             item_type="GlossaryTerm",
             workspace_id=gt.workspace_id,
             ctx=ctx,
-            reason="deleted via glossary.delete",
+            # inert since Phase 4 — outdate() writes no history entry; the
+            # reason is persisted on the AuditEntry below.
+            reason=change_reason or "deleted via glossary.delete",
+        )
+
+        # #1483: the delete path had no AuditEntry at all, so the caller's
+        # change_reason had nowhere to land (REQ-L2-AS-019).
+        self._audit(
+            ctx=ctx,
+            operation="delete",
+            entity_type="GlossaryTerm",
+            entity_id=term_id,
+            change_reason=change_reason,
         )

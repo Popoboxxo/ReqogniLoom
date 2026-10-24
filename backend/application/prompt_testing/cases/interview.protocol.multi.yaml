@@ -1,0 +1,33 @@
+# Prompt-regression scenarios for the `interview.protocol.multi` slot.
+# Unlike the per-type protocol slots this one IS rendered (it is the free-form
+# multi-artifact chat prompt), so it carries a filled memory scenario.
+# Case files are owned by plan D (backend/application/prompt_testing/cases.py).
+slot: interview.protocol.multi
+scenarios:
+  - name: discovery-without-memory
+    data:
+      artifact_type: "Requirement"
+      phase_name: "discovery"
+      collected_fields_json: "{}"
+      missing_fields_json: "[]"
+      grounding_snapshot_json: "[]"
+      memory_context: ""
+      available_link_types: "derives-from, verifies"
+      transcript: ""
+      user_message: "Wir brauchen Login und Audit-Logging."
+    assert:
+      - {type: contains, value: "Wir brauchen Login und Audit-Logging"}
+      - {type: contains, value: "derives-from, verifies"}
+  - name: discovery-with-memory
+    data:
+      artifact_type: "Requirement"
+      phase_name: "discovery"
+      collected_fields_json: "{}"
+      missing_fields_json: "[]"
+      grounding_snapshot_json: "[]"
+      memory_context: "Memory: login is implemented with JWT."
+      available_link_types: "derives-from, verifies"
+      transcript: ""
+      user_message: "Wir brauchen Login und Audit-Logging."
+    assert:
+      - {type: contains, value: "login is implemented with JWT"}

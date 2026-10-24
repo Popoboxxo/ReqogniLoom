@@ -414,7 +414,9 @@ class IssueService(ServiceBase):
         return issue
 
     @atomic_transaction
-    def delete_issue(self, issue_id: UUID, ctx: AuthContext) -> None:
+    def delete_issue(
+        self, issue_id: UUID, ctx: AuthContext, change_reason: str = ""
+    ) -> None:
         """Soft-delete an Issue via the workflow engine (REQ-L3-ISSUE-004).
 
         GH-484: TraceLinks are no longer hard-deleted on soft-delete — they
@@ -444,11 +446,17 @@ class IssueService(ServiceBase):
             item_type="Issue",
             workspace_id=workspace_id,
             ctx=ctx,
-            reason="deleted via issue.delete",
+            # inert since Phase 4 — outdate() writes no history entry; the
+            # reason is persisted on the AuditEntry below.
+            reason=change_reason or "deleted via issue.delete",
         )
 
         self._audit(
-            ctx=ctx, operation="delete", entity_type="Issue", entity_id=issue_id
+            ctx=ctx,
+            operation="delete",
+            entity_type="Issue",
+            entity_id=issue_id,
+            change_reason=change_reason,
         )
         self._emit_event(
             self._make_event(

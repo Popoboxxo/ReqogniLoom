@@ -167,6 +167,14 @@ from rest_api.link_type_views import (
 )
 from rest_api.metrics_views import MetricsViewSet
 from rest_api.notification_preference_views import NotificationPreferenceView
+from rest_api.preference_value_views import (
+    GlobalPreferenceLevelView,
+    PreferenceRegistryView,
+    UserEffectivePreferenceView,
+    UserPreferenceLevelView,
+    WorkspaceEffectivePreferenceView,
+    WorkspacePreferenceLevelView,
+)
 from rest_api.preference_views import UserPreferenceView
 from rest_api.prompt_variable_views import (
     PromptVariableDetailView,
@@ -543,6 +551,46 @@ urlpatterns = [
         "workspaces/<uuid:workspace_id>/create-form-config/",
         CreateFormConfigWorkspaceView.as_view(),
         name="workspace-create-form-config",
+    ),
+    # ---------------------------------------------------------------------
+    # Three-level preference values (Plan C, T-C2-3) — one self-contained
+    # block, sorted by path. The registry lists every known key; the two
+    # "effective" reads resolve user > workspace > global > default; the three
+    # level routes read/write ONE level (``null`` resets a key). Workspace
+    # reads need READ, workspace writes WORKSPACE_CONFIG (ENT-C3 = B), the
+    # global write the admin role plus the ADMIN-tier API-key capability.
+    # ---------------------------------------------------------------------
+    path(
+        "preference-values/registry/",
+        PreferenceRegistryView.as_view(),
+        name="preference-values-registry",
+    ),
+    path(
+        "system/preference-values/",
+        GlobalPreferenceLevelView.as_view(),
+        name="system-preference-values",
+    ),
+    # The ``effective/`` routes sit before their level sibling so the more
+    # specific path is unambiguous in the resolver listing.
+    path(
+        "users/me/preference-values/effective/",
+        UserEffectivePreferenceView.as_view(),
+        name="user-preference-values-effective",
+    ),
+    path(
+        "users/me/preference-values/",
+        UserPreferenceLevelView.as_view(),
+        name="user-preference-values",
+    ),
+    path(
+        "workspaces/<uuid:workspace_id>/preference-values/effective/",
+        WorkspaceEffectivePreferenceView.as_view(),
+        name="workspace-preference-values-effective",
+    ),
+    path(
+        "workspaces/<uuid:workspace_id>/preference-values/",
+        WorkspacePreferenceLevelView.as_view(),
+        name="workspace-preference-values",
     ),
     # Theme Presets — the caller's own theme choice (GET/PUT).
     # NOTE: must precede any other users/me/ pattern that could shadow it.

@@ -16,6 +16,7 @@ from link_types.workspace_store import (
 from persistence.errors import ValidationError
 from persistence.models import Tenant
 from persistence.tenancy import TenantContext
+from persistence.tests.factories import make_workspace_id
 
 
 @pytest.fixture
@@ -33,7 +34,7 @@ def store():
 
 @pytest.mark.django_db
 def test_provisioning_creates_all_builtin_types(tenant_id):
-    ws = uuid.uuid4()
+    ws = make_workspace_id(tenant_id)
     created = provision_workspace_link_types(workspace_id=ws, tenant_id=tenant_id)
     assert created == len(BUILTIN_LINK_TYPES)
     assert set(resolve_catalog(ws)) == set(BUILTIN_LINK_TYPES)
@@ -41,7 +42,7 @@ def test_provisioning_creates_all_builtin_types(tenant_id):
 
 @pytest.mark.django_db
 def test_provisioning_is_idempotent(tenant_id):
-    ws = uuid.uuid4()
+    ws = make_workspace_id(tenant_id)
     provision_workspace_link_types(workspace_id=ws, tenant_id=tenant_id)
     assert provision_workspace_link_types(workspace_id=ws, tenant_id=tenant_id) == 0
     assert (
@@ -52,7 +53,7 @@ def test_provisioning_is_idempotent(tenant_id):
 
 @pytest.mark.django_db
 def test_provisioning_never_overwrites_a_customized_row(tenant_id):
-    ws = uuid.uuid4()
+    ws = make_workspace_id(tenant_id)
     provision_workspace_link_types(workspace_id=ws, tenant_id=tenant_id)
     row = WorkspaceLinkTypeDefinition.objects.get(workspace_id=ws, key="mitigates")
     row.definition_json = {**row.definition_json, "impact_weight": 0.77}
@@ -66,7 +67,7 @@ def test_provisioning_never_overwrites_a_customized_row(tenant_id):
 
 @pytest.mark.django_db
 def test_provisioning_links_rows_back_to_the_global_template(tenant_id):
-    ws = uuid.uuid4()
+    ws = make_workspace_id(tenant_id)
     provision_workspace_link_types(workspace_id=ws, tenant_id=tenant_id)
     row = WorkspaceLinkTypeDefinition.objects.get(workspace_id=ws, key="verifies")
     assert row.source_global is not None
@@ -79,13 +80,15 @@ def test_provisioning_reuses_an_existing_global_template(tenant_id):
     GlobalLinkTypeDefinitionStore().create(
         tenant_id, "verifies", builtin_definition("verifies")
     )
-    provision_workspace_link_types(workspace_id=uuid.uuid4(), tenant_id=tenant_id)
+    provision_workspace_link_types(
+        workspace_id=make_workspace_id(tenant_id), tenant_id=tenant_id
+    )
     assert GlobalLinkTypeDefinition.objects.filter(key="verifies").count() == 1
 
 
 @pytest.mark.django_db
 def test_update_marks_the_row_customized_and_invalidates_the_cache(tenant_id, store):
-    ws = uuid.uuid4()
+    ws = make_workspace_id(tenant_id)
     provision_workspace_link_types(workspace_id=ws, tenant_id=tenant_id)
     assert resolve_catalog(ws)["mitigates"]["impact_weight"] == 0.5
 
@@ -100,7 +103,7 @@ def test_update_marks_the_row_customized_and_invalidates_the_cache(tenant_id, st
 
 @pytest.mark.django_db
 def test_reset_restores_the_global_definition_and_clears_the_flag(tenant_id, store):
-    ws = uuid.uuid4()
+    ws = make_workspace_id(tenant_id)
     provision_workspace_link_types(workspace_id=ws, tenant_id=tenant_id)
     changed = builtin_definition("mitigates")
     changed["impact_weight"] = 0.8
@@ -115,7 +118,7 @@ def test_reset_restores_the_global_definition_and_clears_the_flag(tenant_id, sto
 
 @pytest.mark.django_db
 def test_reset_falls_back_to_the_builtin_when_the_global_row_is_gone(tenant_id, store):
-    ws = uuid.uuid4()
+    ws = make_workspace_id(tenant_id)
     provision_workspace_link_types(workspace_id=ws, tenant_id=tenant_id)
     GlobalLinkTypeDefinition.objects.filter(key="mitigates").delete()
 
@@ -126,7 +129,7 @@ def test_reset_falls_back_to_the_builtin_when_the_global_row_is_gone(tenant_id, 
 
 @pytest.mark.django_db
 def test_reset_of_a_tenant_invented_type_without_a_global_row_raises(tenant_id, store):
-    ws = uuid.uuid4()
+    ws = make_workspace_id(tenant_id)
     definition = builtin_definition("mitigates")
     definition["built_in"] = False
     WorkspaceLinkTypeDefinition.objects.create(
@@ -140,13 +143,13 @@ def test_reset_of_a_tenant_invented_type_without_a_global_row_raises(tenant_id, 
 def test_update_of_a_missing_key_raises(tenant_id, store):
     with pytest.raises(ValidationError, match="not found"):
         store.update(
-            tenant_id, uuid.uuid4(), "mitigates", builtin_definition("mitigates")
+            tenant_id, make_workspace_id(tenant_id), "mitigates", builtin_definition("mitigates")
         )
 
 
 @pytest.mark.django_db
 def test_a_workspace_may_deactivate_a_type_without_deleting_it(tenant_id, store):
-    ws = uuid.uuid4()
+    ws = make_workspace_id(tenant_id)
     provision_workspace_link_types(workspace_id=ws, tenant_id=tenant_id)
     disabled = builtin_definition("mitigates")
     disabled["active"] = False

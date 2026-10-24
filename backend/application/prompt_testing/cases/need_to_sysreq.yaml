@@ -1,0 +1,24 @@
+# Prompt-regression scenarios for the `need_to_sysreq` slot.
+# Case files are owned by plan D (backend/application/prompt_testing/cases.py).
+slot: need_to_sysreq
+scenarios:
+  - name: payment-without-memory
+    data:
+      need_title: "Zahlung erfassen"
+      need_description: "Nutzer sollen Zahlungen in EUR erfassen koennen."
+      memory_context: ""
+    config:
+      max_requirements_per_need: 3
+    assert:
+      - {type: contains, value: "Zahlung erfassen"}
+      - {type: contains, value: "at most 3"}
+  - name: payment-with-memory
+    data:
+      need_title: "Zahlung erfassen"
+      need_description: "Nutzer sollen Zahlungen in EUR erfassen koennen."
+      memory_context: "Memory: payments are settled in EUR."
+    assert:
+      - {type: contains, value: "Zahlung erfassen"}
+      - {type: contains, value: "payments are settled in EUR"}
+    deep_assert:
+      - {type: llm-rubric, value: "Every requirement is specific, measurable and testable."}

@@ -91,20 +91,55 @@ def env():
 
 
 def _make_requirement(workspace, title, uid):
-    """Create a Requirement (plus backing Artifact) directly in *workspace*."""
+    """Create a Requirement (plus backing Artifact) directly in *workspace*.
+
+    A row requested with ``uid=None`` is written signal-free, on purpose.
+    Since G1.1 (#932/#1386) the ``pre_save`` receiver
+    ``application.local_uid.assign_local_uid`` allocates a ``REQ-NNN`` on every
+    ordinary ``save()``, so ``objects.create(uid=None)`` comes back carrying a
+    uid: the export then writes a non-empty ``uid`` column, the import takes
+    ``("uid", "REQ-NNN")`` as the natural key and the ``id``-derived identity
+    these tests exist to prove is never exercised. ``bulk_create`` sends no
+    model signals — exactly the state of a row written before the receiver
+    existed, or of a bulk-loaded one — so the "no uid" premise of the two
+    ``..._without_uid_...`` tests below stays real.
+    """
     artifact = Artifact.objects.create(
         tenant=workspace.tenant, workspace=workspace, artifact_type="Requirement"
     )
-    return Requirement.objects.create(
-        tenant=workspace.tenant,
-        artifact=artifact,
-        title=title,
-        description="migrated description",
-        category="functional",
-        type="SyReq",
-        level=1,
-        uid=uid,
+    if uid is not None:
+        return Requirement.objects.create(
+            tenant=workspace.tenant,
+            artifact=artifact,
+            title=title,
+            description="migrated description",
+            category="functional",
+            type="SyReq",
+            level=1,
+            uid=uid,
+        )
+
+    Requirement.objects.bulk_create(
+        [
+            Requirement(
+                tenant=workspace.tenant,
+                workspace=workspace,
+                artifact=artifact,
+                title=title,
+                description="migrated description",
+                category="functional",
+                type="SyReq",
+                level=1,
+                uid=None,
+            )
+        ]
     )
+    # Guard the fixture's own premise: if a future writer path starts assigning
+    # uids to bulk-loaded rows too, this must fail loudly here instead of
+    # silently degrading both id-fallback tests into uid-natural-key tests.
+    stored = Requirement.unscoped.get(artifact=artifact)
+    assert stored.uid is None, f"uid-less fixture row got uid={stored.uid!r}"
+    return stored
 
 
 def _export_csv(workspace, ctx):
@@ -170,7 +205,14 @@ class TestExportImportIdentityCollision:
         copy = Requirement.objects.get(artifact__workspace_id=env["b"].id)
         assert copy.id != source.id
         assert copy.artifact_id != source.artifact_id
-        assert not copy.uid
+        # The source row deliberately carries no uid (guarded in
+        # ``_make_requirement``), so this is not merely "the copy has *some*
+        # uid": the importing workspace must mint a fresh local uid that
+        # differs from the source's value instead of adopting it from the file
+        # or leaving it empty.
+        assert source.uid is None
+        assert copy.uid
+        assert copy.uid != source.uid
 
     def test_same_workspace_reimport_is_duplicate_skip(self, env):
         """(b) export(A) -> import(A): idempotent DUPLICATE, not a rollback."""

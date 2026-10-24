@@ -1,0 +1,22 @@
+# Prompt-regression scenarios for the `memory.extract` slot.
+# Deliberately memory-free: feeding retrieved memory back into the extractor
+# that writes memory would be a feedback loop, not context (prompt_slots.py).
+# Case files are owned by plan D (backend/application/prompt_testing/cases.py).
+slot: memory.extract
+scenarios:
+  - name: workspace-fact
+    data:
+      interaction_text: "The team settled all invoices in EUR."
+      artifact_context: ""
+      language: "en"
+    assert:
+      - {type: contains, value: "The team settled all invoices in EUR"}
+      - {type: contains, value: "en"}
+  - name: artifact-fact
+    data:
+      interaction_text: "REQ-42 is verified by the login test."
+      artifact_context: "artifact 9f1c, type Requirement"
+      language: "en"
+    assert:
+      - {type: contains, value: "artifact 9f1c, type Requirement"}
+      - {type: contains, value: "scope"}

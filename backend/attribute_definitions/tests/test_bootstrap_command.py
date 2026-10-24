@@ -27,6 +27,7 @@ from attribute_definitions.workspace_definition_store import (
     WorkspaceAttributeDefinitionStore,
 )
 from persistence.models import Tenant
+from persistence.tests.factories import make_workspace_id
 
 
 @pytest.fixture
@@ -358,7 +359,7 @@ def test_sync_new_fields_propagates_to_non_customized_workspace_rows(tenant) -> 
     row.save(update_fields=["definition_json"])
 
     ws_store = WorkspaceAttributeDefinitionStore()
-    ws_id = uuid.uuid4()
+    ws_id = make_workspace_id(tenant.id)
     ws_row = ws_store.resolve(tenant.id, ws_id, "Risk", "standard")
     assert "detection" not in {a["name"] for a in ws_row.definition_json["attributes"]}
 
@@ -387,7 +388,7 @@ def test_sync_new_fields_invalidates_the_cache_for_propagated_workspaces(
     row.save(update_fields=["definition_json"])
 
     ws_store = WorkspaceAttributeDefinitionStore()
-    ws_id = uuid.uuid4()
+    ws_id = make_workspace_id(tenant.id)
     ws_store.resolve(tenant.id, ws_id, "Risk", "standard")
 
     calls: list[str] = []
@@ -952,13 +953,13 @@ def test_reconcile_field_kinds_propagates_but_spares_customized_workspaces(
     _legacy_stakeholder(global_row)
 
     ws_store = WorkspaceAttributeDefinitionStore()
-    mirrored_id = uuid.uuid4()
+    mirrored_id = make_workspace_id(tenant.id)
     mirrored = ws_store.resolve(
         tenant.id, mirrored_id, "StakeholderNeed", "standard"
     )
     assert mirrored.is_customized is False
 
-    customized_id = uuid.uuid4()
+    customized_id = make_workspace_id(tenant.id)
     customized = ws_store.resolve(
         tenant.id, customized_id, "StakeholderNeed", "standard"
     )

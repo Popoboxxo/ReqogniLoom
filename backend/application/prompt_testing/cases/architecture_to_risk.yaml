@@ -1,0 +1,19 @@
+# Prompt-regression scenarios for the `architecture_to_risk` slot.
+# Case files are owned by plan D (backend/application/prompt_testing/cases.py).
+slot: architecture_to_risk
+scenarios:
+  - name: auth-component-without-memory
+    data:
+      ae_title: "AuthService"
+      ae_description: "Stellt Login und Token-Ausstellung bereit."
+      memory_context: ""
+    assert:
+      - {type: contains, value: "AuthService"}
+      - {type: contains, value: "probability"}
+  - name: auth-component-with-memory
+    data:
+      ae_title: "AuthService"
+      ae_description: "Stellt Login und Token-Ausstellung bereit."
+      memory_context: "Memory: the AuthService has no rate limiting yet."
+    assert:
+      - {type: contains, value: "no rate limiting yet"}
