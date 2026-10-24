@@ -767,9 +767,12 @@ function scanAmbiguousButtonLabels(): Violation[] {
  * corner radius from the button scale: `--btn-h-xs|sm|md|lg` for the height,
  * `--radius-btn` (or `--radius-full` for a deliberately round control) for the
  * radius. The reference measurement (C-L19) predicted ~78 one-off geometry
- * declarations across the CSS modules; this scanner found 84, and that measured
+ * declarations across the CSS modules; the scanner found 84, and that measured
  * value is what the baseline freezes. Which is why this is a ratchet and not a
- * one-time cleanup: the ceiling only moves down from the merge value.
+ * one-time cleanup: the ceiling only moves down from the merge value. The
+ * scoped selector below (#1258 review) freezes 72 of those 84 — the twelve it
+ * no longer selects are switch primitives and disclosure toggles, which are
+ * not button geometry (see the scope note on the pattern).
  *
  * Why a stylesheet scan rather than the JSX scanner above: the geometry lives
  * in `*.module.css`, and a class name says nothing about it — `.primaryButton`
@@ -778,18 +781,157 @@ function scanAmbiguousButtonLabels(): Violation[] {
  * stylesheets, so the scanner walks every `.css` file under `src/`.
  *
  * Pseudo-class variants (`:first-child`, `:hover`, `:focus-visible`, …) ARE
- * measured, each under the selector text as written — the regex above is a
- * base-name match, so it never has to enumerate `:hover`/`:first-child`/…
- * itself. The follow-up task depends on it: T-C1-2 lowers this ceiling by
- * exactly the two `.btn-tab:first-child`/`:last-child` radius fixes, which a
- * gate that skipped pseudo-class selectors could never register.
+ * measured, each under the selector text as written — the regex below is a
+ * token match on the base name, so it never has to enumerate
+ * `:hover`/`:first-child`/… itself. The follow-up task depends on it: T-C1-2
+ * lowers this ceiling by exactly the two `.btn-tab:first-child`/`:last-child`
+ * radius fixes, which a gate that skipped pseudo-class selectors could never
+ * register.
  *
  * Fingerprint: `button-geometry-off-token::<file>::<selector>` — one entry per
  * selector, not per declaration, so a rule that is off-token in both height and
  * radius is still a single thing to fix.
+ *
+ * Scope: the button FAMILY only (#1258 review). The scanner selects `btn`,
+ * `button`, `tab`, `chip`, `pill` and `segment` as name tokens. It deliberately
+ * does NOT select `toggle`/`switch`: a switch primitive is sized by its own
+ * contract (track and thumb dimensions, a label row that carries the 24px
+ * target floor from #1394), so freezing it as button geometry made every
+ * legitimate switch change raise the button ceiling — the one move the ratchet
+ * forbids. Switch primitives and disclosure toggles are recorded in
+ * `NON_BUTTON_SELECTOR_ALLOWLIST` below with the reason each one is not a
+ * button, and the exclusion is asserted in both directions.
+ *
+ * Token boundaries: a token starts at the string edge or after a non-alphanumeric
+ * character, and it ends at the string edge, before a non-alphanumeric
+ * character, or at a camelCase transition. Hence `.btn`, `.btn-primary`,
+ * `.btn-tab:first-child`, `.btnPrimary`, `.primaryButton`, `[role="button"]`
+ * and `:where(button, a, …)` are selected, while `.table` (`tab` + lowercase
+ * `le`), `[tabindex]`, `.chips` and `.btngroup` are not — a substring hit would
+ * freeze geometry nobody can attribute to a button.
+ *
+ * The two spellings are deliberately NOT symmetric, because the family only
+ * ever recognised one of them: the full word `button` may be a camelCase
+ * suffix (`.primaryButton`), while the abbreviation `btn` must be delimited
+ * (`.btn`, `.btn-primary`, `.btnPrimary`). A capitalised `*Btn` suffix
+ * (`.closeBtn`, `.optionalToggleBtn`) does not select, exactly as before: the
+ * 24 such rules with off-token geometry that this selector still leaves out
+ * would push the ceiling from 84 to 98 if they were pulled in — a widening,
+ * which is its own change and cannot ride along with this narrowing.
  */
-const BUTTON_SELECTOR_PATTERN =
-  /(btn|button|Button|tab\b|Tab\b|toggle|Toggle|chip|Chip|pill|Pill|segment|Segment)/;
+const BUTTON_SELECTOR_PATTERN = new RegExp(
+  [
+    // `.btn`, `.btn-primary`, `.btn-tab:first-child`, `.btnPrimary` — not `.btngroup`.
+    "(?<![A-Za-z0-9])[Bb]tn(?![a-z])",
+    // `.button`, `.primaryButton`, `[role="button"]`, `:where(button, a, …)`.
+    "(?<![A-Z0-9])[Bb]utton(?![a-z])",
+    // `.tab`, `.btn-tab:first-child`, `.tab-active` — the word must stand as a
+    // whole name token, because `tab` compounds into non-button nouns the gate
+    // must not freeze: `.tabPanel`, `.tabRow`, `.tabList`, `.table`,
+    // `[tabindex]`. `.typeTab` still reads through `Tab` + token end.
+    "(?<![A-Z0-9])[Tt]ab(?![A-Za-z])",
+    // `.chip`, `.optionChip`, `.chipRemove`, `.skeletonChip` — never `.chips`.
+    "(?<![A-Z0-9])[Cc]hip(?![a-z])",
+    // `.pill`, `.pillToggle`.
+    "(?<![A-Z0-9])[Pp]ill(?![a-z])",
+    // `.segment`, `.segmentButton`; `.segmentedControl` is the wrapper, not a button.
+    "(?<![A-Z0-9])[Ss]egment(?![a-z])",
+  ].join("|"),
+);
+
+/**
+ * Selectors that look like button geometry but are not buttons (#1258 review).
+ *
+ * Each entry is a switch primitive or a disclosure toggle: something whose
+ * height is decided by the primitive it draws (a track, a thumb, a circular
+ * affordance, a label that only carries the checkbox target floor) rather than
+ * by the `--btn-h-*` scale. They are listed here instead of being frozen in the
+ * baseline because an exemption in the baseline would still be *selected* — the
+ * trap this list exists to close: the day a switch legitimately changes size,
+ * its button-baseline entry would have to rise, which the ratchet refuses.
+ *
+ * This is an allow-list of exclusions, not a widened gate: two assertions below
+ * hold it in place — every entry must stay OUT of `BUTTON_SELECTOR_PATTERN`, and
+ * every entry must still describe a selector that exists in its stylesheet, so
+ * the list cannot rot into a set of stale names nobody can attribute.
+ */
+const NON_BUTTON_SELECTOR_ALLOWLIST: readonly {
+  /** Stylesheet, as the scanner reports it (relative to `src/`). */
+  file: string;
+  /** Selector exactly as the scanner normalises it. */
+  selector: string;
+  /** Why this is a switch primitive / disclosure toggle, not a button. */
+  reason: string;
+}[] = [
+  {
+    file: "components/DiagramGraphEditor/DiagramGraphEditor.module.css",
+    selector: ".toggleTrack",
+    reason:
+      "the switch's rail (34x18, --radius-full): a primitive's own size, " +
+      "not one of the --btn-h-* button heights",
+  },
+  {
+    file: "components/DiagramGraphEditor/DiagramGraphEditor.module.css",
+    selector: ".toggleThumb",
+    reason:
+      "the switch's thumb (14x14 dot) positioned inside .toggleTrack — a " +
+      "primitive part, never a click target of its own",
+  },
+  {
+    file: "components/WorkflowEditor/WorkflowEditor.module.css",
+    selector: ".toggleTrack",
+    reason:
+      "the same switch rail in the workflow editor; sized by the primitive, " +
+      "not by the button scale",
+  },
+  {
+    file: "components/WorkflowEditor/WorkflowEditor.module.css",
+    selector: ".toggleThumb",
+    reason: "the same switch thumb in the workflow editor",
+  },
+  {
+    file: "components/InterviewWidget/InterviewWidget.module.css",
+    selector: ".toggle",
+    reason:
+      "the widget's expand/collapse disclosure: a 40x40 circular affordance " +
+      "whose box IS the control, not a text/icon button height",
+  },
+  {
+    file: "components/MetricsDashboard/MetricsDashboard.module.css",
+    selector: ".helpToggle",
+    reason:
+      "the '?' disclosure that opens the help popover — a 28x28 round " +
+      "affordance, not a button-family control",
+  },
+  {
+    file: "components/WorkspaceSettings/ContextGraphSettingsSection.module.css",
+    selector: ".toggleLabel",
+    reason:
+      "a <label> wrapping a native checkbox; its min-height is the 24px " +
+      "target floor from #1394, not a button height",
+  },
+  {
+    file: "components/WorkspaceSettings/MemorySettingsSection.module.css",
+    selector: ".toggleLabel",
+    reason:
+      "the same checkbox label in the memory section: target floor from " +
+      "#1394, no button geometry",
+  },
+  {
+    file: "components/shared/IncludeDeletedToggle/IncludeDeletedToggle.module.css",
+    selector: ".toggle",
+    reason:
+      "a <label> wrapping a native checkbox (target floor from #1394); the " +
+      "checkbox glyph keeps its own size",
+  },
+  {
+    file: "components/shared/WorkspaceTree/workspace-tree.module.css",
+    selector: ".toggle",
+    reason:
+      "the tree's 16x16 disclosure twisty: borderless, sized with the row " +
+      "glyph, and not part of the button family",
+  },
+];
 
 /** The only radii a button may use; `--radius-btn` is the scale's own alias. */
 const ACCEPTED_BUTTON_RADII: readonly string[] = [
@@ -1581,6 +1723,55 @@ describe("button geometry scanner (#1258)", () => {
     expect(
       scanButtonGeometryInCss(FILE, css).map((violation) => violation.key),
     ).toEqual([`button-geometry-off-token::${FILE}::.btn-tab:first-child`]);
+  });
+
+  it("keeps switch primitives and disclosure toggles out of the button family", () => {
+    // The review blocker this list closes (#1258): a `toggle`-matching selector
+    // froze switch tracks and thumbs as button geometry, so a legitimate switch
+    // change could only pass by raising the button ceiling — the one move the
+    // ratchet forbids. Every entry names what it is and has to stay unselected.
+    const regressions = NON_BUTTON_SELECTOR_ALLOWLIST.filter((entry) =>
+      BUTTON_SELECTOR_PATTERN.test(entry.selector),
+    );
+    expect(
+      regressions.map((entry) => `${entry.file}  <${entry.selector}>`),
+      [
+        "selector(s) that are not buttons are selected by BUTTON_SELECTOR_PATTERN:",
+        ...regressions.map((entry) => `  <${entry.selector}> — ${entry.reason}`),
+        "",
+        "A switch primitive or a disclosure toggle inside the button family",
+        "freezes geometry that is not button geometry: every legitimate change",
+        "to it would have to raise the button ceiling, which the ratchet refuses.",
+      ].join("\n"),
+    ).toEqual([]);
+  });
+
+  it("names only excluded selectors that still exist in the stylesheets", () => {
+    // Rot guard, the counterpart of the stale-exemption check: an allow-list
+    // entry that no longer describes a real rule documents nothing and quietly
+    // widens the family selector the day that name is reused.
+    const missing: string[] = [];
+    for (const entry of NON_BUTTON_SELECTOR_ALLOWLIST) {
+      const source = blankOutCssComments(
+        readFileSync(join(SRC_DIR, entry.file), "utf-8"),
+      );
+      const present = cssRules(source).some((rule) =>
+        splitSelectorList(rule.selector).some(
+          (part) => part.trim().replace(/\s+/g, " ") === entry.selector,
+        ),
+      );
+      if (!present) missing.push(`  ${entry.file}  <${entry.selector}>`);
+    }
+    expect(
+      missing,
+      [
+        "excluded selector(s) that no longer exist in their stylesheet:",
+        ...missing,
+        "",
+        "Drop the entry (the primitive was renamed or removed) — a name-only",
+        "allow-list is exactly the rot this check prevents.",
+      ].join("\n"),
+    ).toEqual([]);
   });
 });
 
