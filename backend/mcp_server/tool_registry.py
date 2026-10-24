@@ -601,6 +601,15 @@ _READ_ONLY_TOOL_NAMES: frozenset[str] = frozenset(
         # WRITE-gated, ``.export`` is a read of the same level ``.get`` reads.
         "create_form_definition.get",
         "create_form_definition.export",
+        # Plan C / Q1 (#T-C2-4): the three-level preference surface.
+        # preference.registry is pure catalogue metadata and preference.get
+        # reads the caller's own values / one level (or one workspace's level
+        # when a workspace_id is supplied, which the dispatcher gates). Neither
+        # ends on ".read"/".query", so both are listed explicitly;
+        # preference.set / preference.set_default stay fail-closed WRITE-gated
+        # (the latter additionally lifted to the ADMIN tier below).
+        "preference.registry",
+        "preference.get",
     }
 )
 
@@ -706,6 +715,15 @@ _GOVERNANCE_TOOL_NAMES: frozenset[str] = frozenset(
         "memory.export",
         "memory.settings",
         "memory.delete_workspace",
+        # Plan C / Q1 (#T-C2-4): a workspace- or tenant-wide preference default
+        # is governance configuration (ENT-C3 = B), so it must not be reachable
+        # with an AUTHOR-tier key whose owner happens to hold the admin role —
+        # the same R6 class of hole the tool split exists to close. The
+        # "preference" namespace stays mixed: preference.set is the caller's own
+        # user-level self-service write and remains AUTHOR-tier. The service
+        # re-asserts the per-level rule (workspace config / admin role); this
+        # tier gate can only ever narrow further.
+        "preference.set_default",
     }
 )
 
@@ -1001,6 +1019,7 @@ class ToolRegistry:
         from mcp_server.tools.metrics import MetricsToolGroup
         from mcp_server.tools.needs import StakeholderNeedsToolGroup
         from mcp_server.tools.permissions import PermissionsToolGroup
+        from mcp_server.tools.preference import PreferenceToolGroup
         from mcp_server.tools.prompt_template import PromptTemplateToolGroup
         from mcp_server.tools.prompt_variable import PromptVariableToolGroup
         from mcp_server.tools.requirement_bundle import RequirementBundleToolGroup
@@ -1113,6 +1132,13 @@ class ToolRegistry:
             # fail-closed write-gated, and the service re-asserts the role
             # boundary per level.
             "create_form_definition": CreateFormConfigToolGroup(),
+            # Plan C / Q1 (#T-C2-4): the generic three-level preference service
+            # (user > workspace > global). preference.registry/.get are
+            # read-exempt below; preference.set is the caller's own self-service
+            # write (AUTHOR tier) and preference.set_default is the governance
+            # write (named in _GOVERNANCE_TOOL_NAMES, ADMIN tier). The service
+            # re-asserts the RBAC rule per level.
+            "preference": PreferenceToolGroup(),
         })
 
     def list_tools(
@@ -1512,8 +1538,21 @@ class ToolRegistry:
         # via ``TenantContextService.build_auth_context``; MCP constructs
         # the context itself (see ``_validate_api_key``/``_resolve_roles``)
         # and therefore never inherited the fence.
-        fence_error = self._check_workspace_fence(
-            context.gate_ctx, context.scope_workspace_id
+        # E1.3: a workspace-less call to an opted-in list tool is not denied
+        # here — the tool narrows its own result to the key's fence. Every
+        # other call keeps the fail-closed denial.
+        from mcp_server.workspace_scope import FENCE_FILTERED_TOOLS
+
+        fence_filtered = (
+            tool_name in FENCE_FILTERED_TOOLS
+            and context.scope_workspace_id is None
+        )
+        fence_error = (
+            None
+            if fence_filtered
+            else self._check_workspace_fence(
+                context.gate_ctx, context.scope_workspace_id
+            )
         )
         if fence_error:
             # #1357: the fence stays fail-closed — the call below never runs.

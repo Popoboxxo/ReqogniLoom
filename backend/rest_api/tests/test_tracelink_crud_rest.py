@@ -9,23 +9,33 @@ of the same ViewSet through the real middleware stack:
 
   - ``list`` both branches — workspace-level pagination and the
     ``?artifact_id=`` up/downstream listing (#264/#512 endpoint-echo);
-  - ``create`` happy path + serializer 400, the always-404 ``retrieve`` and the
-    immutability 405 on PATCH;
+  - ``create`` happy path + serializer 400, the real ``retrieve`` (Plan E
+    E2.3, including its QR-S20 cross-workspace title rule) and the immutability
+    405 on PATCH;
   - ``destroy`` and the proposal lifecycle ``confirm``/``discard``;
   - ``similar`` validation guards against the pgvector similarity search.
 """
 from __future__ import annotations
 
 import uuid
+from datetime import timedelta
 
 import pytest
 from django.utils import timezone
 from rest_framework.test import APIClient
 
 from auth_tenancy.models import ROLE_ADMIN, UserRole
+from auth_tenancy.services import AuthenticationService
 from link_types.workspace_store import provision_workspace_link_types
 from persistence.middleware import clear_request_tenant, set_request_tenant
-from persistence.models import Artifact, Tenant, TraceLink, User, Workspace
+from persistence.models import (
+    Artifact,
+    Requirement,
+    Tenant,
+    TraceLink,
+    User,
+    Workspace,
+)
 from traceability.types import LinkType
 
 pytestmark = pytest.mark.django_db
@@ -83,6 +93,53 @@ def _artifact(
             artifact_type=artifact_type,
             custom_fields={"name": name},
         )
+    finally:
+        clear_request_tenant()
+
+
+def _two_workspace_scenario() -> tuple[Tenant, User, Workspace, Workspace]:
+    """Tenant with two workspaces; the user is admin only in the first one."""
+    suffix = uuid.uuid4().hex[:8]
+    tenant = Tenant.objects.create(
+        name=f"T2-{suffix}", slug=f"tl2-{suffix}", is_active=True
+    )
+    user = User.objects.create(
+        username=f"tl2-{suffix}", email=f"tl2-{suffix}@t.test", tenant=tenant
+    )
+    user.set_password(_PASSWORD)
+    user.save(update_fields=["password"])
+
+    set_request_tenant(tenant.id)
+    try:
+        ws_a = Workspace.objects.create(
+            tenant=tenant, name="WS A", preset={"name": "extended"}
+        )
+        ws_b = Workspace.objects.create(
+            tenant=tenant, name="WS B", preset={"name": "extended"}
+        )
+        UserRole.objects.create(
+            tenant=tenant, user=user, workspace=ws_a, role=ROLE_ADMIN
+        )
+    finally:
+        clear_request_tenant()
+    return tenant, user, ws_a, ws_b
+
+
+def _requirement(tenant: Tenant, workspace: Workspace, title: str) -> Artifact:
+    """Artifact backed by a Requirement row, so title resolution has content."""
+    set_request_tenant(tenant.id)
+    try:
+        artifact = Artifact.objects.create(
+            tenant=tenant, workspace=workspace, artifact_type="Requirement"
+        )
+        Requirement.objects.create(
+            tenant=tenant,
+            workspace=workspace,
+            artifact=artifact,
+            title=title,
+            description="retrieve fixture",
+        )
+        return artifact
     finally:
         clear_request_tenant()
 
@@ -147,16 +204,118 @@ def test_create_with_missing_fields_returns_400() -> None:
     assert {"source_id", "target_id"} <= fields
 
 
-def test_retrieve_is_not_supported_and_returns_404() -> None:
-    """TraceLinkService exposes no get-by-id — the handler is a fixed 404."""
+def test_retrieve_returns_the_link() -> None:
+    """Plan E E2.3: the detail route resolves the link on both spellings."""
+    tenant, user, workspace = _scenario()
+    source = _requirement(tenant, workspace, "Source")
+    target = _requirement(tenant, workspace, "Target")
+    link = _link(tenant, source, target)
+    client = _client(user)
+
+    resp = client.get(f"/api/v1/tracelinks/{link.id}/")
+    assert resp.status_code == 200, resp.content
+    body = resp.json()
+    assert body["id"] == str(link.id)
+    assert body["source_id"] == str(source.id)
+    assert body["target_id"] == str(target.id)
+    assert body["link_type"] == _LINK
+    assert body["source_title"] == "Source"
+    assert body["target_title"] == "Target"
+
+    alias = client.get(f"/api/v1/trace-links/{link.id}/")
+    assert alias.status_code == 200, alias.content
+    assert alias.json()["id"] == str(link.id)
+
+
+def test_retrieve_unknown_link_is_404() -> None:
+    """The old fixed 404 stays correct for a well-formed but unknown id."""
     _, user, _ = _scenario()
     resp = _client(user).get(f"/api/v1/tracelinks/{uuid.uuid4()}/")
     assert resp.status_code == 404, resp.content
     assert resp.json()["error"]["code"] == "NOT_FOUND"
 
 
+def test_retrieve_foreign_tenant_is_404() -> None:
+    """A link of another tenant is indistinguishable from a missing one."""
+    _tenant, user, _workspace = _scenario()
+    foreign_tenant, _foreign_user, foreign_ws = _scenario()
+    link = _link(
+        foreign_tenant,
+        _artifact(foreign_tenant, foreign_ws),
+        _artifact(foreign_tenant, foreign_ws),
+    )
+
+    resp = _client(user).get(f"/api/v1/tracelinks/{link.id}/")
+
+    assert resp.status_code == 404, resp.content
+    assert resp.json()["error"]["code"] == "NOT_FOUND"
+
+
+def test_retrieve_roleless_workspace_is_403_or_404() -> None:
+    """No role in the owning workspace: the object gate denies, never 200."""
+    tenant, user, workspace = _scenario()
+    link = _link(
+        tenant,
+        _artifact(tenant, workspace),
+        _artifact(tenant, workspace),
+    )
+    set_request_tenant(tenant.id)
+    try:
+        UserRole.objects.filter(user=user).delete()
+    finally:
+        clear_request_tenant()
+
+    resp = _client(user).get(f"/api/v1/tracelinks/{link.id}/")
+
+    assert resp.status_code in (403, 404), resp.content
+
+
+def test_retrieve_hides_target_title_of_unreadable_workspace() -> None:
+    """QR-S20: target metadata is emitted only with READ on its workspace."""
+    tenant, user, ws_a, ws_b = _two_workspace_scenario()
+    source = _requirement(tenant, ws_a, "Readable source")
+    target = _requirement(tenant, ws_b, "Secret target")
+    link = _link(tenant, source, target)
+
+    resp = _client(user).get(f"/api/v1/tracelinks/{link.id}/")
+
+    assert resp.status_code == 200, resp.content
+    body = resp.json()
+    assert body["source_title"] == "Readable source"
+    # The link itself stays readable (its source is in the fenced workspace);
+    # only the cross-workspace target label is withheld.
+    assert body["target_id"] == str(target.id)
+    assert body["target_title"] is None
+
+
+def test_retrieve_fenced_key_foreign_workspace_link_is_403() -> None:
+    """A key fenced to WS A cannot read a link owned by WS B (source end)."""
+    tenant, user, ws_a, ws_b = _two_workspace_scenario()
+    key = AuthenticationService().create_api_key(
+        user_id=user.id,
+        tenant_id=tenant.id,
+        name="fenced-retrieve",
+        principal_type="agent",
+        scope="write",
+        workspace_ids=[str(ws_a.id)],
+        expires_at=timezone.now() + timedelta(days=1),
+    )
+    link = _link(
+        tenant,
+        _requirement(tenant, ws_b, "B source"),
+        _requirement(tenant, ws_b, "B target"),
+    )
+
+    client = APIClient()
+    client.credentials(HTTP_X_API_KEY=key.plaintext)
+    resp = client.get(f"/api/v1/tracelinks/{link.id}/")
+
+    assert resp.status_code == 403, resp.content
+    assert resp.json()["error"]["code"] == "PERMISSION_DENIED"
+
+
 def test_patch_is_refused_with_405() -> None:
-    """TraceLinks are immutable: PATCH is a 405, not a silent no-op."""
+    """TraceLinks are immutable: PATCH is a 405 from ``http_method_names``."""
     tenant, user, workspace = _scenario()
     source = _artifact(tenant, workspace)
     target = _artifact(tenant, workspace)
@@ -167,7 +326,12 @@ def test_patch_is_refused_with_405() -> None:
     )
 
     assert resp.status_code == 405, resp.content
-    assert "cannot be updated" in resp.json()["error"]["message"]
+    # DRF's method gate, not the removed view-level stub: the envelope's code
+    # is the shared METHOD_NOT_ALLOWED one and the Allow header offers no PATCH.
+    body = resp.json()["error"]
+    assert body["code"] == "METHOD_NOT_ALLOWED"
+    assert "PATCH" in body["message"]
+    assert "patch" not in resp.headers.get("Allow", "").lower()
 
 
 # ---------------------------------------------------------------------------

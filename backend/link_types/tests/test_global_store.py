@@ -12,6 +12,7 @@ from link_types.models import GlobalLinkTypeDefinition, WorkspaceLinkTypeDefinit
 from persistence.errors import ValidationError
 from persistence.models import Tenant
 from persistence.tenancy import TenantContext
+from persistence.tests.factories import make_workspace_id
 
 
 @pytest.fixture
@@ -34,7 +35,7 @@ def store():
 
 def _derived(tenant_id, global_row, *, customized: bool):
     return WorkspaceLinkTypeDefinition.objects.create(
-        workspace_id=uuid.uuid4(),
+        workspace_id=make_workspace_id(tenant_id),
         key=global_row.key,
         definition_json=dict(global_row.definition_json),
         source_global=global_row,

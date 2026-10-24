@@ -1,0 +1,17 @@
+# Prompt-regression scenarios for the `workspace_to_glossary` slot.
+# Case files are owned by plan D (backend/application/prompt_testing/cases.py).
+slot: workspace_to_glossary
+scenarios:
+  - name: tenancy-workspace-without-memory
+    data:
+      workspace_text: "Requirement: Mandantentrennung. Architecture: TenancyLayer."
+      memory_context: ""
+    assert:
+      - {type: contains, value: "Mandantentrennung"}
+      - {type: contains, value: "TenancyLayer"}
+  - name: tenancy-workspace-with-memory
+    data:
+      workspace_text: "Requirement: Mandantentrennung. Architecture: TenancyLayer."
+      memory_context: "Memory: a tenant is a billing boundary."
+    assert:
+      - {type: contains, value: "a tenant is a billing boundary"}

@@ -1117,6 +1117,22 @@ Schema-Auswertung wie E-L7 → `ops declaring If-Match ≥ 11`.
 | P1-6 | `fix/hermes-plugin-workspace-error-1443` | `fix(plugin): show why the workspace list failed` | E1.6 | beliebig | `hermes-plugin-test` | Revert | ≈60 | code-reviewer |
 | P1-7 | `chore/openapi-warning-ratchet-1388` | `chore(openapi): ratchet schema generator warnings` | E2.7 | `views.py`-Queue 6 (nach P1-1, P1-3, P1-5) | `set-2-api` | Revert | ≈120 + Baseline-JSON | code-reviewer |
 
+**Korrektur nach Ist-Stand-Abgleich (2026-10-22, gegen `origin/main`).** Verifizierter Abgleich des
+P1-Stands; der Plan-Text bleibt als Soll, §0 bleibt bindend, es entstehen **keine** neuen `ENT-*`.
+
+| PR | Ist-Stand auf `main` |
+|---|---|
+| P1-1 | teilweise: E2.2 ehrlich als **405** mit Verweis auf `/artifacts/<id>/comments/` (nicht 404); E2.1 nur im Schema deklariert (`workspace_id` als Pflicht-Query-Parameter), die Laufzeit behält den Tenant-Fallback und antwortet opak **404** (test-gepinnt); E2.3 halb (PATCH → 405 vorhanden, `GET /tracelinks/<id>/` harter 404). |
+| P1-2 | teilweise und strenger: E2.4 über `parse_if_match`/`IfMatch`, `400 INVALID_IF_MATCH`, 412 nur bei Mismatch, je View verdrahtet; E2.5 (`etag_supported`) existiert auf `main` nicht — **offen/deferred**. |
+| P1-3 | anders: kein `declare_conditional_requests`; Deklaration über die Allowlist `rest_api/conditional_requests.py` plus `test_conditional_request_contract_1397.py`. |
+| P1-4 | auf `main` vollständig abwesend, in dieser Welle umgesetzt: gemeinsame Fence-Helfer, Fence vor RBAC, service-seitig gefilterte Workspace-Liste (REST + MCP), MCP `workspace.list`, Prinzipals-Matrix; Tool-Delta 0. |
+| P1-5, P1-6 | auf `main` erledigt (API-Key-Serializer, Plugin-Fehleranzeige). |
+| P1-7 | anders und strenger: **kein** `openapi_warning_baseline.json`; Gate ist `test_schema_completeness_1388.py` (0 Warnings) plus `tests/fixtures/openapi_operations_manifest.json`. |
+| E2.3 | in Welle 0 nachgezogen: echtes TraceLink-GET, PATCH über `http_method_names` entfernt, QR-S20-Ziel-Sichtbarkeit; der alte 404-Stub-Test ist durch retrieve-/foreign-/visibility-Tests ersetzt. |
+
+**Konflikte (Plan-Text korrigiert, `main`-Verhalten bleibt):** E2.1 will 400, `main` pinnt 404; E2.2
+will 404, `main` pinnt 405. **E2.5 bleibt offen** und wird nicht als implementiert geführt.
+
 **P2 — Schema-Burn-down (Welle 2).** Eintritt: P1-7 gemergt; ENT-E1 vorläufig A. Austritt: Baseline
 `unable_to_guess_serializer` leer (Verifikation: `pytest rest_api/tests/test_openapi_generation_warnings_1388.py` grün mit leerer Liste).
 PRs `chore/openapi-serializers-<batch>-1388` (B1 `memory`, B2 `admin-ops`, B3 `auth-misc`,
