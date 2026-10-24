@@ -13,10 +13,10 @@ run. These tests must observe the *committed* import, like production.
 from __future__ import annotations
 
 import uuid
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
-from django.db import OperationalError
+from django.db import OperationalError, transaction
 
 from application.reqif_export_service import ReqifExportService
 from application.reqif_import_service import ReqifImportService
@@ -97,6 +97,66 @@ def test_import_enqueues_embedding_after_commit(workspaces):
     assert not imported.filter(embedding__isnull=True).exists(), (
         "ReqIF import must embed its requirements via the after-commit task"
     )
+
+
+@pytest.mark.django_db(transaction=True)
+def test_rollback_does_not_enqueue_embedding(workspaces):
+    """A rolled-back import must not leave embedding jobs behind.
+
+    The enqueue sits in ``transaction.on_commit`` exactly so a discarded
+    import cannot dispatch work for rows that never persisted:
+    ``ReqifImportService.import_reqif`` registers it at
+    ``backend/application/reqif_import_service.py:925``, inside the
+    outermost ``transaction.atomic()`` opened at line 760. Django drops
+    pending ``on_commit`` callbacks when that block rolls back, so
+    ``embed_rows_task.delay`` has no way to fire here — that is precisely
+    what ``assert_not_called`` pins down.
+
+    ``transaction=True`` (module-level ``pytestmark``) is load-bearing: in
+    the default rolled-back test transaction ``on_commit`` never runs at
+    all, so a *passing* ``assert_not_called`` would prove nothing.
+    """
+    tenant, source, target = workspaces
+
+    with patch.object(embed_rows_task, "delay") as delay:
+        with transaction.atomic():
+            result = _export_and_import(source, target, tenant.id)
+
+            assert result.success
+            assert Requirement.objects.filter(
+                artifact__workspace_id=target.id
+            ).exists(), "the import itself must have written rows pre-rollback"
+            assert delay.call_count == 0, "delay must not fire inside the transaction"
+
+            transaction.set_rollback(True)
+
+        # The transaction is gone: neither the rows nor the job trigger survive.
+        assert delay.call_count == 0, (
+            "a rolled-back ReqIF import must not enqueue embedding work"
+        )
+        assert not Requirement.objects.filter(
+            artifact__workspace_id=target.id
+        ).exists(), "rolled-back requirements must not persist"
+        assert not Artifact.objects.filter(workspace_id=target.id).exists(), (
+            "rolled-back artifacts must not persist"
+        )
+
+    # Control: the very same patch point *does* fire when the import commits,
+    # so the assertions above cannot pass merely because nothing is wired up.
+    # The rolled-back target is empty again, so this is a fresh import.
+    with patch.object(embed_rows_task, "delay") as delay_on_commit:
+        committed = _export_and_import(source, target, tenant.id)
+
+    assert committed.success
+    assert delay_on_commit.call_count == 1, (
+        "the after-commit callback batches every imported requirement into one "
+        "embed_rows_task.delay call"
+    )
+    model_name, row_ids, dispatch_tenant = delay_on_commit.call_args.args
+    assert model_name == "requirement"
+    assert row_ids, "the batch must carry the imported requirement ids"
+    assert all(isinstance(row_id, str) for row_id in row_ids)
+    assert dispatch_tenant == str(tenant.id)
 
 
 def test_import_survives_broker_failure(workspaces, monkeypatch, caplog):
