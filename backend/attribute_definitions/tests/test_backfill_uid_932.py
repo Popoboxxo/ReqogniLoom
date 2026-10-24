@@ -16,7 +16,13 @@ from application.attribute_migration_service import AttributeMigrationService
 from attribute_definitions.migration_plan import load_plan_file
 from attribute_definitions.plans import plan_path
 from auth_tenancy.context import AuthContext, AuthMethod
-from persistence.models import Artifact, Requirement, Tenant, Workspace
+from persistence.models import (
+    Artifact,
+    Requirement,
+    Tenant,
+    UidSequence,
+    Workspace,
+)
 from persistence.tenancy import TenantContext
 
 pytestmark = pytest.mark.django_db
@@ -60,17 +66,37 @@ def service() -> AttributeMigrationService:
 
 
 def _legacy_requirement(tenant: Tenant, workspace: Workspace, title: str) -> Requirement:
-    """A Requirement as it existed before #932: no local uid."""
+    """A Requirement as it existed before #932: no local uid.
+
+    ``bulk_create`` is deliberate, not a shortcut. Since G1.1 (#1386/#1402) the
+    ``pre_save`` receiver ``application.local_uid.assign_local_uid`` allocates a
+    ``REQ-NNN`` on *every* ordinary ``save()``, so ``objects.create(uid=None)``
+    comes back carrying a uid — and the backfill, which by design only fills rows
+    that genuinely lack one (``only_if: target_is_empty``), then has nothing to
+    do. ``bulk_create`` sends no model signals, which is exactly the state of a
+    row written before the receiver existed, or of a bulk-loaded one.
+    """
     artifact = Artifact.objects.create(
         tenant_id=tenant.id, workspace=workspace, artifact_type="Requirement"
     )
-    return Requirement.objects.create(
-        tenant_id=tenant.id,
-        workspace=workspace,
-        artifact=artifact,
-        title=title,
-        uid=None,
+    Requirement.objects.bulk_create(
+        [
+            Requirement(
+                tenant_id=tenant.id,
+                workspace=workspace,
+                artifact=artifact,
+                title=title,
+                uid=None,
+            )
+        ]
     )
+
+    # Guard the fixture's own premise: if a future writer path ever starts
+    # assigning uids to bulk-loaded rows too, this test must fail loudly here
+    # instead of silently testing a backfill that has nothing left to allocate.
+    stored = Requirement.unscoped.get(artifact=artifact)
+    assert stored.uid is None, f"legacy fixture row got uid={stored.uid!r}"
+    return stored
 
 
 def _plan(steps: list[dict]) -> dict:
@@ -125,6 +151,14 @@ def test_backfill_allocates_uids_and_is_idempotent(service, admin_ctx, tenant, w
     again = service.apply(admin_ctx, plan)
     assert again["summary"]["changed"] == 0
     assert again["summary"]["skipped"] == 2
+
+    # ... and it does not even consume sequence numbers: the allocator is only
+    # reached after ``only_if`` passed, so the next create still gets REQ-003
+    # rather than skipping two numbers for rows it left untouched.
+    sequence = UidSequence.unscoped.get(
+        workspace_id=workspace.id, item_type="Requirement"
+    )
+    assert sequence.last_value == 2
 
 
 def test_sequence_strategy_fails_closed_on_a_non_uid_target(

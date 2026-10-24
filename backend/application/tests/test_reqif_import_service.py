@@ -21,6 +21,7 @@ import uuid
 from unittest.mock import MagicMock
 
 import pytest
+from reqif.parser import ReqIFParser
 
 from application.base import ValidationError
 from application.reqif_export_service import ReqifExportService
@@ -1016,6 +1017,17 @@ def empty_uid_source_workspace():
     The existing ``source_workspace`` fixture sets ``uid="NEED-001"`` etc., so
     the export carries a non-empty ATTR-UID and the identifier-based identity is
     never exercised — exactly the blind spot #1242 describes.
+
+    ``bulk_create`` is deliberate, not a shortcut. Since G1.1 (#932/#1386) the
+    ``pre_save`` receiver ``application.local_uid.assign_local_uid`` allocates a
+    ``NEED-NNN``/``REQ-NNN`` on *every* ordinary ``save()``, so
+    ``objects.create(uid=None)`` comes back carrying a uid. The exporter uses
+    ``external_uid or need.uid or ""`` (``reqif_export_service``), so a
+    signal-allocated local uid is written into ATTR-UID and the importer takes
+    the ``reqif_uid`` match instead of the #1242 ``reqif_identifier`` fallback —
+    the very path this fixture exists to reach. ``bulk_create`` sends no model
+    signals, which is exactly the state of a row written before the receiver
+    existed, or of a bulk-loaded one.
     """
     tenant = Tenant.objects.create(
         name="Reqif-1242-Src-T", slug="reqif-1242-src-t", is_active=True
@@ -1028,28 +1040,44 @@ def empty_uid_source_workspace():
         need_art = Artifact.objects.create(
             tenant=tenant, workspace=workspace, artifact_type="StakeholderNeed"
         )
-        need = StakeholderNeed.objects.create(
-            tenant=tenant,
-            artifact=need_art,
-            title="Needs No UID",
-            description="empty external uid",
-            category="functional",
-            uid=None,
+        StakeholderNeed.objects.bulk_create(
+            [
+                StakeholderNeed(
+                    tenant=tenant,
+                    artifact=need_art,
+                    title="Needs No UID",
+                    description="empty external uid",
+                    category="functional",
+                    uid=None,
+                )
+            ]
         )
+        need = StakeholderNeed.unscoped.get(artifact=need_art)
         req_art = Artifact.objects.create(
             tenant=tenant,
             workspace=workspace,
             artifact_type="Requirement",
             parent=need_art,
         )
-        req = Requirement.objects.create(
-            tenant=tenant,
-            artifact=req_art,
-            title="Requires No UID",
-            description="empty external uid",
-            category="functional",
-            uid=None,
+        Requirement.objects.bulk_create(
+            [
+                Requirement(
+                    tenant=tenant,
+                    workspace=workspace,
+                    artifact=req_art,
+                    title="Requires No UID",
+                    description="empty external uid",
+                    category="functional",
+                    uid=None,
+                )
+            ]
         )
+        req = Requirement.unscoped.get(artifact=req_art)
+        # Guard the fixture's own premise: if bulk-loaded rows ever start
+        # receiving uids too, this must fail loudly here instead of silently
+        # turning the #1242 tests into reqif_uid-match tests again.
+        assert need.uid is None, f"empty-uid fixture Need got uid={need.uid!r}"
+        assert req.uid is None, f"empty-uid fixture Requirement got uid={req.uid!r}"
         link = TraceLink.objects.create(
             tenant=tenant, source=req_art, target=need_art, link_type="derives-from"
         )
@@ -1092,8 +1120,16 @@ class TestReqifReimportIdentity1242:
         target = empty_uid_target_workspace
         reqif_text = _export(empty_uid_source_workspace["workspace"].id, tenant.id)
 
-        # Blind-spot precondition: the document carries no external UID value.
-        assert "ATTR-UID" in reqif_text
+        # Blind-spot precondition: every SPEC-OBJECT carries an EMPTY ATTR-UID
+        # (the fixture rows are uid-less, see ``empty_uid_source_workspace``),
+        # so the importer cannot match on ``reqif_uid`` and must fall back to
+        # the #1242 ``reqif_identifier`` identity.
+        bundle = ReqIFParser.parse_from_string(reqif_text)
+        spec_objects = bundle.core_content.req_if_content.spec_objects
+        assert spec_objects
+        assert all(
+            not so.attribute_map["ATTR-UID"].value for so in spec_objects
+        ), [so.attribute_map["ATTR-UID"].value for so in spec_objects]
         assert 'THE-VALUE="Needs No UID"' in reqif_text
         internal_identifier = f"_{empty_uid_source_workspace['need'].artifact.id}"
         assert f'IDENTIFIER="{internal_identifier}"' in reqif_text
@@ -1103,6 +1139,12 @@ class TestReqifReimportIdentity1242:
         assert first.needs.created == 1
         assert first.requirements.created == 1
         assert first.relations.created == 1
+        # The fallback really ran: the imported artifact kept the source's
+        # ``_<uuid>`` as ``reqif_identifier`` and has no ``reqif_uid`` — that
+        # pair is exactly what the second import matches, not a local uid.
+        imported_need = StakeholderNeed.objects.get(artifact__workspace=target)
+        assert imported_need.artifact.reqif_uid in (None, "")
+        assert imported_need.artifact.reqif_identifier == internal_identifier
 
         second = _import(reqif_text, target.id, tenant.id)
         assert second.success is True

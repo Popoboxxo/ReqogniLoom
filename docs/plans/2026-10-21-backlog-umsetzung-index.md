@@ -66,7 +66,7 @@ Queue-Positionen gelten für den genannten Teil.
 |---|---|---|---|---|
 | A | PR-A21 | PR-A21a (T-A2-1 Entkopplung) · PR-A21b (T-A2-8 Workspace-Scope) | A21a → A21b | beide `views.py` W2 |
 | B | PR-B20 | PR-B20a (API/MCP) · PR-B20b (UI) | B20a → B20b | B20a: `urls.py`, Tool-Queue; B20b: `BaselinesView`, Ratchet |
-| C | PR-C7 | PR-C7a (Backend, `0030_backfill_show_readable_ids`) · PR-C7b (Frontend-Hydrator) | C7a → C7b | C7a: `auth_tenancy`-Kette (vor E P3-2) |
+| C | PR-C7 | PR-C7a (Backend, `0031_backfill_show_readable_ids`) · PR-C7b (Frontend-Hydrator) | C7a → C7b | C7a: `auth_tenancy`-Kette (vor E P3-2) |
 | F | PR-F3 | PR-F3a (additiv `artifact_id`) · PR-F3b (Breaking, Workspace-Pflicht) | F3a → F3b | beide Tool-Queue |
 | F | PR-F11 | PR-F11a (Service) · PR-F11b (REST/MCP) | F11a → F11b | F11b: `views.py` W3, Tool-Queue |
 | F | PR-F18 | PR-F18a (REST) · PR-F18b (MCP) | F18a → F18b | F18a: `urls.py`; F18b: Tool-Queue |
@@ -101,6 +101,11 @@ erlaubt (ENT-V1); Verschieben nach hinten nur mit Index-Update.
 | D | P1-4 (D2.6, ehem. KA-D-03) | `secret-scan` deckt Env-Geheimnisse ab (QR-S03 CI-Teil); Eintritt Sofortmaßnahme §h + ENT-X1 | dritter, blockierender gitleaks-Schritt über den PR-Diff rot bei Testgeheimnis |
 | E | P1: P1-1 → P1-2 → P1-4 → P1-3 → P1-5 → P1-7; P1-6 frei | E2 Vertrag, E1 Key-Fence, OpenAPI-Ratchet | Plan E P1-Austritt |
 | G | P1: PR 1 → PR 2 → PR 3; PR 5a → PR 5b (in `views.py`-Queue, nach ENT-G1); PR 4 (nach ENT-G2/G3) | G1 Datenintegrität | Plan G P1-Austritt |
+
+**Korrektur Welle 0, E (Ist-Stand 2026-10-22, `origin/main`):** Die offene E-P1-Lücke war nur **P1-4**
+plus der **E2.3**-Rest; beides ist in Welle 0 umgesetzt. P1-1/P1-2/P1-3/P1-5/P1-6/P1-7 sind auf `main`
+erfüllt — abweichend, wo im Korrekturblock von Plan E vermerkt; E2.5 bleibt offen. Details:
+[Plan E](2026-10-21-plan-e-security-api.md#xiii-phasen-und-pr-grenzen) (Block „Korrektur nach Ist-Stand-Abgleich“).
 
 **Promptfoo-Gate (Q2) — Voraussetzung für jede A1-Task (T-A1-1 … T-A1-8):**
 - **G1** `python manage.py export_promptfoo_configs --check` → Exit 0, letzte Zeile
@@ -244,7 +249,7 @@ graph LR
   G1 -->|persistence 0116/0117| A0
   A0 -->|persistence 0118| G2
   G2 -->|persistence 0119| B15
-  Q1 -->|auth_tenancy 0028-0030| E3
+  Q1 -->|auth_tenancy 0029-0031| E3
   B15 --> B6
   D10 --> D1
   A0 -->|compose| D1 --> G3
@@ -257,7 +262,7 @@ graph LR
 | D2 (D2.1–D2.4) | ENT-D8 | Promptfoo-Gate → alle A1-Tasks |
 | D2.5 | D2.4 gemergt; Nutzerhandlung | Promptfoo-Gate G3 |
 | D1.0 | – | D1.2 |
-| E2 (E2.1–E2.7) | – | G1.5 (Queue `views.py`), F4.2/F4.4 (E2.1), B6-T2/F2-T5/F3-T5 (ETag-Vertrag), alle REST-PRs ab E2.7 (OpenAPI-Ratchet) |
+| E2 (E2.1–E2.7) | – | G1.5 (Queue `views.py`), F4.2/F4.4 (E2.1), B6-T2/F2-T5/F3-T5 (ETag-Vertrag), alle REST-PRs ab E2.7 (OpenAPI-Ratchet). **Ist 2026-10-22:** E2.1/E2.2/E2.3-Rest und der ETag-Vertrag sind auf `main` bereits ganz oder teilweise erfüllt; Welle-0-Beiträge sind E2.3 und P1-4, E2.5 bleibt offen |
 | E1 | – | G5.3 R3-08-Pin-Test 2 (nach E P1-4); D-D5-Folge-Issue |
 | E2.9 (P2-9) | E P1-7; G PR 6 (`views.py` W2); ENT-G1 (vorläufig A) | G PR 19 (`views.py` W2) |
 | G1.1 | – | G1.3, F2-T1, F3-T1 |
@@ -287,6 +292,10 @@ graph LR
 | B6 | ENT-B2; B5 (persistence-Kette); E2-Vertrag | – |
 | D3–D5 | Nutzer-Gates U-W* (D5) | – |
 
+**Korrektur §c (Ist-Stand 2026-10-22):** Der E2-Block auf **G1.5**, **F4.2/F4.4** und **B6** ist durch
+`main` plus **E2.3** und **P1-4** erfüllt (der Graph bleibt unverändert). Offen bleibt allein **E2.5**
+(`etag_supported`), das hier keine Kante trägt.
+
 ---
 
 ## d. Parallelisierungsmatrix und Konfliktdateien
@@ -315,7 +324,7 @@ läuft die gezielten Tests erneut und darf erst dann mergen. Kein Force-Merge ü
 
 | Datei / Artefakt | Beteiligte (Welle) | Merge-Reihenfolge / Regel |
 |---|---|---|
-| `backend/rest_api/views.py` | E P1-1, P1-2, P1-4, P1-3, P1-7 (W0); G PR 5a, PR 5b (W0); G PR 6, E P2-9, G PR 19 (W2); A PR-A7, PR-A20, PR-A21a, PR-A21b (W2); B PR-B9 (W3); F PR-F9, PR-F11b (W3) | **W0-Queue:** E P1-1 → E P1-2 → E P1-4 → G PR 5a → G PR 5b → E P1-3 → E P1-7 (QR-T14). **W2:** G PR 6 → E P2-9 → G PR 19; A-PRs danach rebasen. **W3:** F PR-F9 → F PR-F11b. |
+| `backend/rest_api/views.py` | E P1-1, P1-2, P1-4, P1-3, P1-7 (W0); G PR 5a, PR 5b (W0); G PR 6, E P2-9, G PR 19 (W2); A PR-A7, PR-A20, PR-A21a, PR-A21b (W2); B PR-B9 (W3); F PR-F9, PR-F11b (W3) | **W0-Queue:** E P1-1 → E P1-2 → E P1-4 → G PR 5a → G PR 5b → E P1-3 → E P1-7 (QR-T14). **W2:** G PR 6 → E P2-9 → G PR 19; A-PRs danach rebasen. **W3:** F PR-F9 → F PR-F11b. **Ist 2026-10-22:** P1-1/P1-2/P1-3/P1-7 sind auf `main` nicht mehr offen; die Welle-0-Beiträge an dieser Datei sind **E2.3** und **P1-4**. |
 | `backend/rest_api/urls.py` | E P1-1 (W0); C PR-C3 (W1); A PR-A12, PR-A26, PR-A28 (W2/3); E P3-3, P3-4 (W3); B PR-B16 (W3), PR-B20a (W4); F REST-PRs (W3/4, u. a. PR-F18a, PR-F24b) | seriell; neue Pfade je Plan in einem eigenen, alphabetisch sortierten Block. |
 | `backend/mcp_server/tool_registry.py`, `docs/agent-templates/tool-manifest.json` + Doku-Zähler (§f.1) | E P1-4 (W0, nur Beschreibung, Delta 0); C PR-C4 (W1); A PR-A7, PR-A13, PR-A16 (W2), PR-A25, PR-A26 (W3); B PR-B9, PR-B10, PR-B16 (W3), PR-B20a (W4); F PR-F3a, PR-F3b, PR-F9, PR-F11b (W3), PR-F18b, PR-F24b (W4) | **Eine globale Tool-Queue** über alle Pläne. Manifest und Zähler immer im letzten Rebase neu erzeugen. |
 | `backend/rest_api/tests/openapi_warning_baseline.json` (**entsteht erst mit E P1-7**) | alle REST-PRs ab E P1-7 (u. a. E2.8-Batches, E P2-9, G PR 14, G PR 19) | nur Shrink; seriell; PR aktualisiert die Baseline selbst (QR-T12). **Sonderfall G PR 5a/5b (Plan-G-Regel):** sie mergen in der W0-Queue **vor** E P1-7; die Baseline existiert dann noch nicht, G aktualisiert nichts, und E P1-7 misst den Stand inkl. PR 5. Merged E P1-7 abweichend früher, aktualisiert G PR 5 die Baseline selbst (nur Shrink). |
@@ -344,11 +353,15 @@ läuft die gezielten Tests erneut und darf erst dann mergen. Kein Force-Merge ü
 ## e. Konsolidierte Migrationsvergabe (bindend)
 
 **Ist-Stand** (geprüft 2026-10-21, erneut 2026-10-22 unverändert, `ls backend/<app>/migrations`): persistence **0115**
-(`0115_workspace_glossary_reference_mode`), auth_tenancy **0027** (`0027_create_form_config`), link_types **0009**
+(`0115_workspace_glossary_reference_mode`), auth_tenancy **0028** (`0028_index_hygiene_1411`; PR-C3 nimmt deshalb
+max+1 = `0029_preferencevalue`/`0030_preferencevalue_rls`, Regel 1), link_types **0009**
 (`0009_backfill_need_satisfies_pair`), attribute_definitions **0009** (`0009_backfill_requirement_rationale_source`),
 memory **0008** (`0008_system_memory_qdrant_settings`), application **0035** (`0035_alter_domaineventoutbox_event_type`),
 baseline **0011** (`0011_baseline_admin_delete_trigger`), workflow **0023** (`0023_we_item_state_workspace_fk_cascade`),
 audit **0015** (`0015_alter_auditentry_op`), icd **0013** (`0013_drop_icd_version`).
+Nachtrag 2026-10-22 (G P1, PR 3): auf `main` liegt zusätzlich
+`persistence/0116_index_hygiene_1411` (Issue #1411) als Leaf. Damit verschiebt sich die
+persistence-Kette dieses Index um **+1**; Tabelle unten ist angepasst (Regel 1).
 Abgleich 2026-10-22: Alle Migrationsnamen in den Plänen A–G stimmen mit den Tabellen unten überein; Abweichungen
 gibt es nur bei den hier als „bedingt“ markierten Zeilen (memory-Contract, baseline-help_text, application bei ENT-G3 = B).
 
@@ -372,20 +385,20 @@ gibt es nur bei den hier als „bedingt“ markierten Zeilen (memory-Contract, b
 
 | Nr. | Name | Plan/WP | Welle | Merge-Bedingung |
 |---|---|---|---|---|
-| 0116 | `0116_entity_workspace_fk_backfill` | G / G1.3 (PR 3) | 0 | nach G PR 1 |
-| 0117 | `0117_uid_workspace_unique_constraints` | G / G1.3 (PR 3) | 0 | mit 0116 |
-| 0118 | `0118_embedding_model_columns` | A / T-A0-5 (PR-A3) | 1 | nach G PR 3; sonst max+1 und G rebased |
-| 0119 | `0119_requirement_list_index` (`atomic=False`) | G / G2.2 (PR 7) | 2 | nach PR-A3 und G PR 6 |
-| 0120 | `0120_quality_assessment` | B / B5-T1 (PR-B14) | 3 | nach G PR 7 |
-| 0121 | `0121_quality_assessment_rls_policy` | B / B5-T1 (PR-B14) | 3 | mit 0120 (Regel 5) |
-| 0122 | `0122_document` | F / F2-T1 (PR-F14) | 4 | nach PR-B14 |
-| 0123 | `0123_document_rls_policy` | F / F2-T1 (PR-F14) | 4 | mit 0122 |
-| 0124 | `0124_work_item` | F / F3-T1 (PR-F22) | 4 | nach PR-F14 |
-| 0125 | `0125_work_item_rls_policy` | F / F3-T1 (PR-F22) | 4 | mit 0124 |
-| 0126 | `0126_inline_anchor` | F / F3-T7 (PR-F25) | 4 | nach PR-F22 |
-| 0127 | `0127_inline_anchor_rls_policy` | F / F3-T7 (PR-F25) | 4 | mit 0126 |
-| 0128 | `0128_milestone` | B / B6-T1 (PR-B19) | 4 | nur bei ENT-B2 = a/b; nach den F-Migrationen, sonst max+1 |
-| 0129 | `0129_milestone_rls_policy` | B / B6-T1 (PR-B19) | 4 | mit 0128 |
+| 0117 | `0117_entity_workspace_fk_backfill` | G / G1.3 (PR 3) | 0 | nach G PR 1; +1 wegen `0116_index_hygiene_1411` auf `main` |
+| 0118 | `0118_uid_workspace_unique_constraints` | G / G1.3 (PR 3) | 0 | mit 0117 |
+| 0119 | `0119_embedding_model_columns` | A / T-A0-5 (PR-A3) | 1 | nach G PR 3; sonst max+1 und G rebased |
+| 0120 | `0120_requirement_list_index` (`atomic=False`) | G / G2.2 (PR 7) | 2 | nach PR-A3 und G PR 6 |
+| 0121 | `0121_quality_assessment` | B / B5-T1 (PR-B14) | 3 | nach G PR 7 |
+| 0122 | `0122_quality_assessment_rls_policy` | B / B5-T1 (PR-B14) | 3 | mit 0121 (Regel 5) |
+| 0123 | `0123_document` | F / F2-T1 (PR-F14) | 4 | nach PR-B14 |
+| 0124 | `0124_document_rls_policy` | F / F2-T1 (PR-F14) | 4 | mit 0123 |
+| 0125 | `0125_work_item` | F / F3-T1 (PR-F22) | 4 | nach PR-F14 |
+| 0126 | `0126_work_item_rls_policy` | F / F3-T1 (PR-F22) | 4 | mit 0125 |
+| 0127 | `0127_inline_anchor` | F / F3-T7 (PR-F25) | 4 | nach PR-F22 |
+| 0128 | `0128_inline_anchor_rls_policy` | F / F3-T7 (PR-F25) | 4 | mit 0127 |
+| 0129 | `0129_milestone` | B / B6-T1 (PR-B19) | 4 | nur bei ENT-B2 = a/b; nach den F-Migrationen, sonst max+1 |
+| 0130 | `0130_milestone_rls_policy` | B / B6-T1 (PR-B19) | 4 | mit 0129 |
 
 Begründung der Reihenfolge in Welle 4: Planbasis §3 nennt F2, F3 vor B6; B6 ist an ENT-B2 gebunden.
 Ein späteres F5 (Projektion, ENT-F5) nimmt max+1.
@@ -394,11 +407,11 @@ Ein späteres F5 (Projektion, ENT-F5) nimmt max+1.
 
 | Nr. | Name | Plan/WP | Welle | Merge-Bedingung |
 |---|---|---|---|---|
-| 0028 | `0028_preferencevalue` | C / T-C2-1 (PR-C3) | 1 | – |
-| 0029 | `0029_preferencevalue_rls` | C / T-C2-1 (PR-C3) | 1 | mit 0028 |
-| 0030 | `0030_backfill_show_readable_ids` | C / T-C2-6 (PR-C7a) | 2 | nach PR-C3 |
-| 0031 | `0031_user_mfa` (inkl. Enrollment-Grant-Modell, ENT-E7 vorläufig A — **kein** eigener Migrationsname) | E / E3.1 (P3-2) | 3 | nach PR-C7a (KA-C-10); P3-2 erst nach ENT-E7 |
-| 0032 | `0032_drop_userdisplaypreference_show_readable_ids` | C / T-C2-9 (PR-C16, contract) | release-gebunden | ≥ 1 Release nach 0030; merged der Contract vor E3.1, tauschen 0031/0032 (Regel 1) |
+| 0029 | `0029_preferencevalue` | C / T-C2-1 (PR-C3) | 1 | nach `0028_index_hygiene_1411` (Regel 1) |
+| 0030 | `0030_preferencevalue_rls` | C / T-C2-1 (PR-C3) | 1 | mit 0029 |
+| 0031 | `0031_backfill_show_readable_ids` | C / T-C2-6 (PR-C7a) | 2 | nach PR-C3 |
+| 0032 | `0032_user_mfa` (inkl. Enrollment-Grant-Modell, ENT-E7 vorläufig A — **kein** eigener Migrationsname) | E / E3.1 (P3-2) | 3 | nach PR-C7a (KA-C-10); P3-2 erst nach ENT-E7 |
+| 0033 | `0033_drop_userdisplaypreference_show_readable_ids` | C / T-C2-9 (PR-C16, contract) | release-gebunden | ≥ 1 Release nach 0031; merged der Contract vor E3.1, tauschen 0032/0033 (Regel 1) |
 
 ### link_types (QR-T02 gelöst — Vorschlag des Reviewers geprüft und übernommen)
 
@@ -576,8 +589,9 @@ Frontend: `docker exec reqogniloom-frontend-1 sh -c 'cd /app && npx vitest run <
   entweder `var(--target-min)` als zulässige Höhe für Icon-Buttons oder Token `--btn-h-xs: 24px` in der Höhenskala;
   das E2E-Gate „≤ 3 Höhen“ zählt dann Icon-Buttons gesondert. G4.3 nutzt genau dieses Token. G-DoD „Ratchet unverändert grün“ gilt danach.
 - **`ui-ratchet.test.ts`** (`STYLE_BRACE_BASELINE`): nur Inline-Styles; kein Geometrie-Gate.
-- **OpenAPI-Ratchet** (ab E P1-7): jede neue View hat `serializer_class` oder `@extend_schema`; der PR aktualisiert
-  `openapi_warning_baseline.json` (nur Shrink); Merge seriell.
+- **OpenAPI-Ratchet** (ab E P1-7): jede neue View hat `serializer_class` oder `@extend_schema`; Merge seriell.
+  **Ist 2026-10-22:** Das Gate ist `test_schema_completeness_1388.py` (0 Warnings) plus
+  `tests/fixtures/openapi_operations_manifest.json`; ein `openapi_warning_baseline.json` gibt es **nicht**.
 - **Sortierte Listen:** G2.1 macht `UnorderedObjectListWarning` global zum Fehler; alle neuen Listen aus A/B/C/F sortieren deterministisch (DoD-Zeile).
 
 ### f.6 Belege `docs/test-reports/` (QR-T18)
@@ -596,7 +610,9 @@ Frontend: `docker exec reqogniloom-frontend-1 sh -c 'cd /app && npx vitest run <
 
 ### f.8 Weitere Querschnittsregeln
 - **Neuer Prompt-Slot ⇒ Case-Datei im selben PR** (§b).
-- **Neue REST-Route** ⇒ OpenAPI-Regel f.5, `urls.py`-Queue, ETag-Entscheidung nach E2.6 (`etag_supported` + `version`-Feld oder ehrliche 412-Zusage, QR-T13).
+- **Neue REST-Route** ⇒ OpenAPI-Regel f.5, `urls.py`-Queue, ETag-Entscheidung nach E2.6 (QR-T13).
+  **Ist 2026-10-22:** Ein Flag `etag_supported` existiert auf `main` **nicht** (E2.5 offen); `ETag`/412
+  werden nur dort deklariert, wo `If-Match` tatsächlich ausgewertet wird.
 - **Neue Tenant-Tabelle** ⇒ RLS im selben PR (Regel e.5).
 - **TenantContext** in kontextfreien Einstiegen per Kontextmanager mit Wiederherstellung im `finally` (QR-T26/QR-S14).
 - **`secret-scan`-Gate** deckt nur `reqlo_`-Keys ab; Pläne nennen das ehrlich, bis D P1-4 (D2.6, ehem. KA-D-03) gemergt ist (QR-S03).
@@ -685,7 +701,7 @@ Keine Entscheidung der Planbasis und keine `ENT-*`-Entscheidung geändert. Beric
 | 21 | ADR-PR-Check `lint` ohne Wirkung auf ADRs | §g.2 |
 | 22 | memory-Contract-Nummer abhängig ENT-A5 (Plan A: vorläufig 0012) | §e memory, §b Release-gebunden |
 | 23 | mögliche `baseline`-`AlterField`-Migration aus G5.3 (PR 19) fehlte | §e baseline |
-| 24 | Enrollment-Grant-Modell (ENT-E7) ohne Migrationszuordnung | §e auth_tenancy 0031 |
+| 24 | Enrollment-Grant-Modell (ENT-E7) ohne Migrationszuordnung | §e auth_tenancy 0032 |
 | 25 | G PR 5 (vor E P1-7) vs. „PR aktualisiert die OpenAPI-Baseline“ | §d.2 Baseline-Zeile (Plan-G-Regel) |
 | 26 | ENT-G1 + G PR 5 als harter Eintritt für F4.4 fehlte (Plan F Stufe 2) | §b Welle 3, §c Graph und Tabelle |
 | 27 | D-Strang nannte „KA-D-03“ statt PR D P1-4 (D2.6) | §b, §d.1, §d.2, §f.8, §h |

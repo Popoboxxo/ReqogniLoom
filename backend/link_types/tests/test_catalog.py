@@ -16,6 +16,7 @@ from link_types.models import WorkspaceLinkTypeDefinition
 from persistence.errors import ValidationError
 from persistence.models import Tenant
 from persistence.tenancy import TenantContext
+from persistence.tests.factories import make_workspace_id
 
 
 @pytest.fixture
@@ -27,7 +28,7 @@ def workspace(db):
     """
     tenant = Tenant.objects.create(name="LinkType Catalog Tests", slug=f"lt-cat-{uuid.uuid4().hex}")
     TenantContext.set_tenant(tenant.id)
-    ws = uuid.uuid4()
+    ws = make_workspace_id(tenant.id)
     for key in ("derives-from", "verifies", "allocated-to", "references", "diagram-ref"):
         WorkspaceLinkTypeDefinition.objects.create(
             workspace_id=ws, key=key, definition_json=builtin_definition(key)

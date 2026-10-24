@@ -45,13 +45,10 @@ row — the exact silent-degradation shape #794 was about.
 """
 from __future__ import annotations
 
-import logging
 from collections.abc import Iterable
 from uuid import UUID
 
 from django.core.management.base import BaseCommand, CommandError
-
-logger = logging.getLogger(__name__)
 
 _MODEL_CHOICES = ("requirement", "tracelink", "icd", "all")
 
@@ -184,14 +181,15 @@ class Command(BaseCommand):
 
     @staticmethod
     def _resolve_model(name: str):
-        from icd.models import Icd
-        from persistence.models import Requirement, TraceLink
+        """Return the Django model for a ``--model`` choice.
 
-        return {
-            "requirement": Requirement,
-            "tracelink": TraceLink,
-            "icd": Icd,
-        }[name]
+        Delegates to ``application.embedding_backfill`` (Plan G G1.2) so the
+        command and the after-commit embedding task resolve the same model set
+        from one place.
+        """
+        from application.embedding_backfill import resolve_embedding_model
+
+        return resolve_embedding_model(name)
 
     # -- per-tenant work ----------------------------------------------------
 
@@ -258,58 +256,20 @@ class Command(BaseCommand):
 
         for start in range(0, len(pending), batch_size):
             self._embed_batch(
-                model=model,
                 name=name,
                 ids=pending[start : start + batch_size],
                 totals=totals,
             )
 
-    def _embed_batch(self, *, model, name: str, ids: list[UUID], totals: dict) -> None:
-        from llm_adapter.embedding_service import (
-            generate_embedding,
-            get_embedding_text,
-            get_icd_embedding_text,
-            get_tracelink_embedding_text,
-        )
+    def _embed_batch(self, *, name: str, ids: list[UUID], totals: dict) -> None:
+        """Embed one batch by delegating to the shared row-level helper.
 
-        if name == "icd":
-            rows = model.objects.filter(id__in=ids).defer("embedding")
-            build_text = get_icd_embedding_text
-        elif name == "tracelink":
-            rows = (
-                model.objects.filter(id__in=ids)
-                .select_related(
-                    "source__requirement",
-                    "source__architecture_element",
-                    "target__requirement",
-                    "target__architecture_element",
-                )
-                .defer(
-                    "embedding",
-                    "source__requirement__embedding",
-                    "target__requirement__embedding",
-                )
-            )
-            build_text = get_tracelink_embedding_text
-        else:
-            rows = model.objects.filter(id__in=ids).defer("embedding")
-            build_text = get_embedding_text
+        Plan G G1.2: the row loop lives in ``application.embedding_backfill`` so
+        this command and the ReqIF importer's after-commit task cannot drift
+        apart. Only the orchestration stays here — tenant iteration, the
+        pending-id query, batching and the report.
+        """
+        from application.embedding_backfill import embed_rows
 
-        for row in rows:
-            text = build_text(row)
-            if not text or not text.strip():
-                totals["skipped_empty"] += 1
-                continue
-            try:
-                vector = generate_embedding(text)
-            except Exception as exc:  # noqa: BLE001 - one bad row must not abort the run
-                logger.warning("backfill_embeddings: %s %s failed: %s", name, row.id, exc)
-                totals["failed"] += 1
-                continue
-            if vector is None:
-                totals["failed"] += 1
-                continue
-            # Bare .update(): mirrors the service write path -- no version
-            # bump, no domain event, no updated_at churn for a derived value.
-            model.objects.filter(id=row.id).update(embedding=vector)
-            totals["embedded"] += 1
+        embed_rows(name, ids, totals=totals)
+

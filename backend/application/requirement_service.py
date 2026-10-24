@@ -1107,7 +1107,9 @@ class RequirementService(ServiceBase):
             item_type="Requirement",
             workspace_id=workspace_id,
             ctx=ctx,
-            reason="deleted via requirement.delete",
+            # inert since Phase 4 — outdate() writes no history entry; the
+            # reason is persisted on the AuditEntry below.
+            reason=change_reason or "deleted via requirement.delete",
         )
 
         self._audit(
@@ -1115,6 +1117,7 @@ class RequirementService(ServiceBase):
             operation="delete",
             entity_type="Requirement",
             entity_id=requirement_id,
+            change_reason=change_reason,
             # #399: same durable drift marking as update (spec section 6.2).
             details=self._baseline_drift_details(requirement.artifact_id, ctx),
         )

@@ -182,9 +182,19 @@ class WorkspaceService(ServiceBase):
 
         REQ-088: Returns a lazy ``QuerySet`` so the paginating ViewSet
         (REQ-034) slices with LIMIT/OFFSET instead of materialising all rows.
+
+        E1.2/E1.3: a workspace-scoped API key only sees the workspaces its
+        fence names **and** in which its owner holds an active role. The filter
+        lives here (not in the REST view) so the REST list and MCP
+        ``workspace.list`` return the same set.
         """
         self._set_tenant_context(ctx)
-        return Workspace.objects.all().order_by("-modified_at")
+        qs = Workspace.objects.all().order_by("-modified_at")
+        if getattr(ctx, "api_key_workspace_ids", ()):
+            from auth_tenancy.resource_scope import fenced_visible_workspace_ids
+
+            qs = qs.filter(id__in=fenced_visible_workspace_ids(ctx))
+        return qs
 
     def get_workspace(self, workspace_id: UUID, ctx: AuthContext) -> Workspace:
         """Return a single workspace by id, scoped to the active tenant.
@@ -526,12 +536,20 @@ class WorkspaceService(ServiceBase):
         """Re-insert *rows* onto their CLONED artifact (pk=None + FK remap).
 
         Identical clone step for every one-artifact entity (Requirement,
-        TestCase): each source row keeps its field values, only the PK and
-        the ``artifact`` FK are replaced before the INSERT.
+        TestCase): each source row keeps its field values, only the PK, the
+        ``artifact`` FK and the denormalized ``workspace`` FK are replaced
+        before the INSERT.
+
+        G1.3/#1402: the workspace FK must be re-pointed at the CLONED
+        artifact's workspace. Copying the source row keeps the *source*
+        workspace id, which both puts the clone in the wrong workspace and
+        collides with the source row on ``uq_<table>_workspace_uid`` — the
+        clone would fail with an IntegrityError on any uid-bearing source.
         """
         for row in rows:
             row.pk = None
             row.artifact = old_to_new_artifact[row.artifact_id]
+            row.workspace_id = row.artifact.workspace_id
             row.save()
 
     @staticmethod
@@ -556,6 +574,9 @@ class WorkspaceService(ServiceBase):
             arch.pk = None
             arch.parent = None  # remapped in the second pass below
             arch.artifact = old_to_new_artifact[arch.artifact_id]
+            # G1.3/#1402: re-point the denormalized workspace FK at the clone's
+            # workspace — see _reassign_cloned_artifact.
+            arch.workspace_id = arch.artifact.workspace_id
             arch.save()
             old_to_new_arch[old_id] = arch
 

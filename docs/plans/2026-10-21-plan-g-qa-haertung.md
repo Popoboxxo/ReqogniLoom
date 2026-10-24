@@ -265,11 +265,14 @@ Volle Suiten nie parallel. CI-Set-Zuordnung der Testpfade: Index §f.4.
   5. `…::test_migration_reverse_roundtrip` (Roundtrip `0117_uid_workspace_unique_constraints` → `0115_workspace_glossary_reference_mode`
      → `0117_uid_workspace_unique_constraints` per Namen ohne Fehler; Zielknoten über Namen bzw. `loader.graph.leaf_nodes()`, nie nackte Nummern).
 - **DoD:** Tests grün; `python manage.py makemigrations --check --dry-run` → `No changes detected` (lokal, alle Apps);
-  `python manage.py sqlmigrate persistence 0117_uid_workspace_unique_constraints` zeigt 7 `UNIQUE … WHERE`-Constraints;
+  `python manage.py sqlmigrate persistence 0117_uid_workspace_unique_constraints` zeigt 7 `CREATE UNIQUE INDEX … WHERE`-Statements;
   Rückwärts-Probe `migrate persistence 0115_workspace_glossary_reference_mode` → `migrate persistence` rund (Index §e Regel 4).
 - **Verifikation (SQL, Betreiber):**
-  `SELECT conname FROM pg_constraint WHERE conname LIKE 'uq_%workspace_uid';` → 8 Zeilen (Stand nach P1; die 8 Namen
-  aus G1.3 sind fachlich fix — kommen mit Plan F weitere `uid`-Modelle hinzu, wird auf Mengen-Zugehörigkeit der 8 Namen geprüft);
+  `SELECT indexname FROM pg_indexes WHERE indexname LIKE 'uq_%workspace_uid';` → 8 Zeilen (Stand nach P1; die 8 Namen
+  aus G1.3 sind fachlich fix — kommen mit Plan F weitere `uid`-Modelle hinzu, wird auf Mengen-Zugehörigkeit der 8 Namen geprüft).
+  Katalog-Hinweis: eine partielle `UniqueConstraint` (`condition` gesetzt) wird von Django als
+  `CREATE UNIQUE INDEX … WHERE …` angelegt und steht deshalb in `pg_indexes`, **nicht** in `pg_constraint` —
+  eine `pg_constraint`-Abfrage liefert hier immer 0 Zeilen;
   `SELECT count(*) FROM pl_testcase WHERE workspace_id IS NULL;` → `0`.
 
 #### G1.4 Workspace-FK für Typdefinitionen + Waisen (#1403)
@@ -360,6 +363,11 @@ Volle Suiten nie parallel. CI-Set-Zuordnung der Testpfade: Index §f.4.
   → erwartete Zählung auf der QA-Sandbox ≈ `lt_workspace_definition=209 ad_workspace_definition=23`
   (Issue-Messung); nach `migrate`: `SELECT confdeltype FROM pg_constraint WHERE conrelid='lt_workspace_definition'::regclass AND contype='f';` → `c`;
   `SELECT count(*) FROM lt_workspace_definition_orphan_archive;` (als Superuser) = Dry-Run-Zahl.
+- **Korrektur nach Ist-Stand-Abgleich (2026-10-22), KA-G-09:** Das wörtliche „Abbruch bei
+  `count(pl_workspace)=0`, sobald Definitionen existieren“ ist mit TDD-5 (Dry-Run/Löschen ohne
+  Workspace-Fixture) nicht umsetzbar. Umgesetzt: `--confirm-count`-Prüfung vor jedem DB-Zugriff,
+  BYPASSRLS-/Superuser-Check fail-closed (Sicherheitsschiene, im Command-Docstring), `pl_workspace=0`
+  als WARNING, Mutation nur bei exakt passender Zahl; alle Typdefinitions-Tests nutzen echte `Workspace`-Zeilen (KA-G-10).
 
 #### G1.5 Soft-Delete-Vertrag vervollständigen (#1381, #1407 R3-07)
 

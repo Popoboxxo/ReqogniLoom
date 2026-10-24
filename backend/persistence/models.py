@@ -1490,7 +1490,58 @@ class ArtifactVersion(TenantScopedModel):
         return f"{self.artifact_id}:r{self.revision}"
 
 
-class StakeholderNeed(TenantScopedModel):
+class ArtifactWorkspaceMirrorMixin:
+    """Keep a denormalized ``workspace`` FK in step with ``artifact.workspace_id``.
+
+    Deliberately NOT a ``models.Model``: a model base would take over manager
+    inheritance from ``TenantScopedModel`` (``TestCase.objects`` would become a
+    plain ``Manager``, silently dropping tenant isolation and drifting the
+    migration state). This is a plain Python mixin that is listed *before* the
+    concrete base, so ``super().save()`` still resolves through
+    ``TenantScopedModel``.
+
+    G1.3/#1402: TestCase, ArchitectureElement and StakeholderNeed carry a
+    ``workspace`` FK solely so a partial ``UNIQUE (workspace, uid)`` can exist at
+    the database level. The invariant only holds while the column is populated:
+    ``NULL`` is distinct under a UNIQUE index, so a create path that forgets the
+    FK silently opts its rows out of the constraint. That is exactly what
+    happened before this mixin — every service, importer and seed built the row
+    without it and only the 0117 backfill ever filled the column.
+
+    The mixin is the structural safety net, not the primary mechanism: the
+    creating services still pass ``workspace=`` explicitly (no extra query, and
+    the intent is visible at the call site). This override catches what no
+    enumeration of call sites can — a path added later, a fixture, a one-off
+    management command.
+
+    The ``Artifact`` lookup is skipped when the relation is already cached (the
+    normal ``Model(artifact=artifact)`` create) and, once filled, the column is
+    never re-derived: later saves short-circuit on ``workspace_id is not None``.
+    """
+
+    def _fill_workspace_from_artifact(self) -> None:
+        """Copy ``artifact.workspace_id`` onto ``workspace_id`` when still NULL."""
+        if self.workspace_id is not None or self.artifact_id is None:
+            return
+        cached = self._state.fields_cache.get("artifact")
+        if cached is not None:
+            self.workspace_id = cached.workspace_id
+            return
+        # ``unscoped``: the artifact is addressed by primary key, so tenant
+        # scoping adds nothing — and the fallback must not depend on an active
+        # tenant context that a maintenance command may not have set.
+        self.workspace_id = (
+            Artifact.unscoped.filter(pk=self.artifact_id)
+            .values_list("workspace_id", flat=True)
+            .first()
+        )
+
+    def save(self, *args, **kwargs):
+        self._fill_workspace_from_artifact()
+        return super().save(*args, **kwargs)
+
+
+class StakeholderNeed(ArtifactWorkspaceMirrorMixin, TenantScopedModel):
     """Stakeholder Need entity derived from an artifact.
     
     Represents user/customer desires and problems to be solved.
@@ -1498,6 +1549,19 @@ class StakeholderNeed(TenantScopedModel):
 
     artifact = models.OneToOneField(
         Artifact, on_delete=models.CASCADE, related_name="stakeholder_need"
+    )
+    workspace = models.ForeignKey(
+        Workspace,
+        on_delete=models.CASCADE,
+        related_name="+",
+        null=True,
+        blank=True,
+        help_text=(
+            "G1.3/#1402: denormalized copy of artifact.workspace_id, backfilled "
+            "by persistence/0117_entity_workspace_fk_backfill and kept in sync "
+            "on every save by ArtifactWorkspaceMirrorMixin (the creating "
+            "services also set it explicitly)."
+        ),
     )
     title = models.CharField(max_length=500)
     description = models.TextField(blank=True)
@@ -1526,6 +1590,16 @@ class StakeholderNeed(TenantScopedModel):
 
     class Meta:
         db_table = "pl_stakeholder_need"
+        constraints = [
+            # G1.3/#1402: same partial, workspace-scoped uid uniqueness as
+            # Requirement (uq_requirement_workspace_uid) — ReqIF import may
+            # legitimately reuse an identifier in another workspace.
+            models.UniqueConstraint(
+                fields=["workspace", "uid"],
+                condition=~models.Q(uid=None) & ~models.Q(uid=""),
+                name="uq_stakeholder_need_workspace_uid",
+            ),
+        ]
 
     def __str__(self) -> str:
         return self.title
@@ -1734,7 +1808,7 @@ class Requirement(TenantScopedModel):
         return self.title
 
 
-class ArchitectureElement(TenantScopedModel):
+class ArchitectureElement(ArtifactWorkspaceMirrorMixin, TenantScopedModel):
     """Architecture element derived from an artifact (REQ-L1-002).
 
     REQ-L1-041: Supports hierarchical parent-child relationships via parent_id.
@@ -1747,6 +1821,19 @@ class ArchitectureElement(TenantScopedModel):
 
     artifact = models.OneToOneField(
         Artifact, on_delete=models.CASCADE, related_name="architecture_element"
+    )
+    workspace = models.ForeignKey(
+        Workspace,
+        on_delete=models.CASCADE,
+        related_name="+",
+        null=True,
+        blank=True,
+        help_text=(
+            "G1.3/#1402: denormalized copy of artifact.workspace_id, backfilled "
+            "by persistence/0117_entity_workspace_fk_backfill and kept in sync "
+            "on every save by ArtifactWorkspaceMirrorMixin (the creating "
+            "services also set it explicitly)."
+        ),
     )
     title = models.CharField(max_length=500)
     description = models.TextField(blank=True)
@@ -1802,6 +1889,14 @@ class ArchitectureElement(TenantScopedModel):
             # REQ-039: composite indexes for dominant list-filter combinations.
             models.Index(
                 fields=["tenant", "element_type"], name="idx_archelem_tnt_type"
+            ),
+        ]
+        constraints = [
+            # G1.3/#1402: see uq_stakeholder_need_workspace_uid.
+            models.UniqueConstraint(
+                fields=["workspace", "uid"],
+                condition=~models.Q(uid=None) & ~models.Q(uid=""),
+                name="uq_architecture_element_workspace_uid",
             ),
         ]
 
@@ -2145,7 +2240,7 @@ class TraceLink(TenantScopedModel):
         return self.proposed_at is not None
 
 
-class TestCase(TenantScopedModel):
+class TestCase(ArtifactWorkspaceMirrorMixin, TenantScopedModel):
     """Test case derived from an artifact (REQ-L1-012)."""
     __test__ = False
 
@@ -2175,6 +2270,19 @@ class TestCase(TenantScopedModel):
 
     artifact = models.OneToOneField(
         Artifact, on_delete=models.CASCADE, related_name="test_case"
+    )
+    workspace = models.ForeignKey(
+        Workspace,
+        on_delete=models.CASCADE,
+        related_name="+",
+        null=True,
+        blank=True,
+        help_text=(
+            "G1.3/#1402: denormalized copy of artifact.workspace_id, backfilled "
+            "by persistence/0117_entity_workspace_fk_backfill and kept in sync "
+            "on every save by ArtifactWorkspaceMirrorMixin (the creating "
+            "services also set it explicitly)."
+        ),
     )
     title = models.CharField(max_length=500)
     description = models.TextField(blank=True)
@@ -2236,6 +2344,14 @@ class TestCase(TenantScopedModel):
         db_table = "pl_testcase"
         indexes = [
             models.Index(fields=["uid"], name="idx_testcase_uid_btree"),
+        ]
+        constraints = [
+            # G1.3/#1402: see uq_stakeholder_need_workspace_uid.
+            models.UniqueConstraint(
+                fields=["workspace", "uid"],
+                condition=~models.Q(uid=None) & ~models.Q(uid=""),
+                name="uq_testcase_workspace_uid",
+            ),
         ]
 
     def __str__(self) -> str:
@@ -2385,6 +2501,15 @@ class TestRun(TenantScopedModel):
             models.Index(fields=["tenant", "workspace"], name="idx_testrun_tnt_ws"),
             models.Index(
                 fields=["tenant", "status"], name="idx_testrun_tnt_status"
+            ),
+        ]
+        constraints = [
+            # G1.3/#1402: TestRun.workspace is already a non-null FK; the uid
+            # uniqueness was simply never enforced at the DB level.
+            models.UniqueConstraint(
+                fields=["workspace", "uid"],
+                condition=~models.Q(uid=None) & ~models.Q(uid=""),
+                name="uq_test_run_workspace_uid",
             ),
         ]
 
@@ -3270,6 +3395,15 @@ class Adr(TenantScopedModel):
             models.Index(fields=["tenant", "workspace_id"], name="idx_adr_tenant_ws"),
             models.Index(fields=["uid"], name="idx_adr_uid_btree"),
         ]
+        constraints = [
+            # G1.3/#1402: per-workspace uid uniqueness (workspace_id is the
+            # plain UUID column here, not a FK to Workspace).
+            models.UniqueConstraint(
+                fields=["workspace_id", "uid"],
+                condition=~models.Q(uid=None) & ~models.Q(uid=""),
+                name="uq_adr_workspace_uid",
+            ),
+        ]
 
     def __str__(self) -> str:
         return f"ADR:{self.id}:{self.title[:40]}"
@@ -3415,6 +3549,14 @@ class Risk(TenantScopedModel):
             models.Index(fields=["workspace_id", "severity"], name="idx_risk_ws_severity"),
             models.Index(fields=["workspace_id", "risk_score"], name="idx_risk_ws_score"),
             models.Index(fields=["uid"], name="idx_risk_uid_btree"),
+        ]
+        constraints = [
+            # G1.3/#1402: see uq_adr_workspace_uid.
+            models.UniqueConstraint(
+                fields=["workspace_id", "uid"],
+                condition=~models.Q(uid=None) & ~models.Q(uid=""),
+                name="uq_risk_workspace_uid",
+            ),
         ]
 
     def compute_score(self) -> int:
@@ -3695,6 +3837,14 @@ class Issue(TenantScopedModel):
                 fields=["workspace_id", "assignee_id"], name="idx_issue_ws_assignee"
             ),
             models.Index(fields=["uid"], name="idx_issue_uid_btree"),
+        ]
+        constraints = [
+            # G1.3/#1402: see uq_adr_workspace_uid.
+            models.UniqueConstraint(
+                fields=["workspace_id", "uid"],
+                condition=~models.Q(uid=None) & ~models.Q(uid=""),
+                name="uq_issue_workspace_uid",
+            ),
         ]
 
     def __str__(self) -> str:

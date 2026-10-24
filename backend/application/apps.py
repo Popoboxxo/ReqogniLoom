@@ -39,6 +39,14 @@ class ApplicationConfig(AppConfig):
 
         register_signals()
 
+        # G1.1 (#1386/#1402): allocate the local readable ``uid`` on *every*
+        # create path — including direct ORM writers such as the ReqIF importer
+        # and seed_toothbrush — instead of relying on the eight services that
+        # call generate_local_uid explicitly.
+        from application.local_uid import register_uid_signals
+
+        register_uid_signals()
+
         # ADR-014 §7 / D2a: surface the implicit SECRET_KEY-derived fallback for
         # the import idempotency fingerprint at ``manage.py check`` time when no
         # explicit IMPORT_FINGERPRINT_SECRET is configured.

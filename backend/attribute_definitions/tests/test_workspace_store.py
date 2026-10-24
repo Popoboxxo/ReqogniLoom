@@ -15,6 +15,7 @@ from attribute_definitions.workspace_definition_store import (
     WorkspaceAttributeDefinitionStore,
 )
 from persistence.models import Tenant
+from persistence.tests.factories import make_workspace_id
 
 TITLE = {"name": "title", "kind": "core", "type": "text"}
 NOTE = {"name": "note", "kind": "extended", "type": "text"}
@@ -34,7 +35,7 @@ def stores() -> tuple[GlobalAttributeDefinitionStore, WorkspaceAttributeDefiniti
 def test_resolve_materializes_a_copy_on_first_read(tenant, stores) -> None:
     g_store, ws_store = stores
     g_store.initialize(tenant.id, "Risk", "standard", [TITLE])
-    ws = uuid.uuid4()
+    ws = make_workspace_id(tenant.id)
     row = ws_store.resolve(tenant.id, ws, "Risk", "standard")
     assert row.is_customized is False
     assert row.source_global is not None
@@ -46,7 +47,7 @@ def test_resolve_materializes_a_copy_on_first_read(tenant, stores) -> None:
 def test_resolve_is_idempotent(tenant, stores) -> None:
     g_store, ws_store = stores
     g_store.initialize(tenant.id, "Risk", "standard", [TITLE])
-    ws = uuid.uuid4()
+    ws = make_workspace_id(tenant.id)
     first = ws_store.resolve(tenant.id, ws, "Risk", "standard")
     second = ws_store.resolve(tenant.id, ws, "Risk", "standard")
     assert first.id == second.id
@@ -56,7 +57,7 @@ def test_resolve_is_idempotent(tenant, stores) -> None:
 def test_resolve_without_a_global_raises_not_found(tenant, stores) -> None:
     _, ws_store = stores
     with pytest.raises(AttributeDefinitionNotFound):
-        ws_store.resolve(tenant.id, uuid.uuid4(), "Risk", "standard")
+        ws_store.resolve(tenant.id, make_workspace_id(tenant.id), "Risk", "standard")
 
 
 @pytest.mark.django_db
@@ -65,7 +66,7 @@ def test_resolve_rematerializes_an_uncustomized_definition(tenant, stores) -> No
     g_store, ws_store = stores
     g_store.initialize(tenant.id, "Risk", "standard", [TITLE])
     target = g_store.initialize(tenant.id, "Risk", "extended", [TITLE, NOTE])
-    ws = uuid.uuid4()
+    ws = make_workspace_id(tenant.id)
     original = ws_store.resolve(tenant.id, ws, "Risk", "standard")
     row = ws_store.resolve(tenant.id, ws, "Risk", "extended")
     assert row.preset == "extended"
@@ -82,7 +83,7 @@ def test_resolve_rematerializes_an_uncustomized_definition(tenant, stores) -> No
 def test_update_sets_is_customized_and_bumps_version(tenant, stores) -> None:
     g_store, ws_store = stores
     g_store.initialize(tenant.id, "Risk", "standard", [TITLE])
-    ws = uuid.uuid4()
+    ws = make_workspace_id(tenant.id)
     ws_store.resolve(tenant.id, ws, "Risk", "standard")
     row = ws_store.update(tenant.id, ws, "Risk", [dict(TITLE, required=True), NOTE])
     assert row.is_customized is True
@@ -94,7 +95,7 @@ def test_update_sets_is_customized_and_bumps_version(tenant, stores) -> None:
 def test_update_rejects_a_core_rename(tenant, stores) -> None:
     g_store, ws_store = stores
     g_store.initialize(tenant.id, "Risk", "standard", [TITLE])
-    ws = uuid.uuid4()
+    ws = make_workspace_id(tenant.id)
     ws_store.resolve(tenant.id, ws, "Risk", "standard")
     with pytest.raises(AttributeSchemaError):
         ws_store.update(tenant.id, ws, "Risk",
@@ -105,7 +106,7 @@ def test_update_rejects_a_core_rename(tenant, stores) -> None:
 def test_update_of_an_unresolved_workspace_raises_not_found(tenant, stores) -> None:
     _, ws_store = stores
     with pytest.raises(AttributeDefinitionNotFound):
-        ws_store.update(tenant.id, uuid.uuid4(), "Risk", [TITLE])
+        ws_store.update(tenant.id, make_workspace_id(tenant.id), "Risk", [TITLE])
 
 
 @pytest.mark.django_db
@@ -116,7 +117,7 @@ def test_concurrent_updates_do_not_lose_a_version_increment(tenant, stores, monk
     interleaving this reproduces."""
     g_store, ws_store = stores
     g_store.initialize(tenant.id, "Risk", "standard", [TITLE])
-    ws = uuid.uuid4()
+    ws = make_workspace_id(tenant.id)
     obj = ws_store.resolve(tenant.id, ws, "Risk", "standard")
     assert obj.version == 1
 
@@ -145,7 +146,7 @@ def test_concurrent_updates_do_not_lose_a_version_increment(tenant, stores, monk
 def test_reset_restores_the_global_and_clears_is_customized(tenant, stores) -> None:
     g_store, ws_store = stores
     g_store.initialize(tenant.id, "Risk", "standard", [TITLE])
-    ws = uuid.uuid4()
+    ws = make_workspace_id(tenant.id)
     ws_store.resolve(tenant.id, ws, "Risk", "standard")
     ws_store.update(tenant.id, ws, "Risk", [TITLE, NOTE])
     row = ws_store.reset(tenant.id, ws, "Risk")
@@ -156,7 +157,7 @@ def test_reset_restores_the_global_and_clears_is_customized(tenant, stores) -> N
 @pytest.mark.django_db
 def test_reset_without_a_source_global_raises_not_found(tenant, stores) -> None:
     _, ws_store = stores
-    ws = uuid.uuid4()
+    ws = make_workspace_id(tenant.id)
     WorkspaceAttributeDefinition.unscoped.create(
         tenant_id=tenant.id, workspace_id=ws, item_type="Risk", preset="standard",
         definition_json={"attributes": []}, source_global=None, is_customized=True,
@@ -170,7 +171,7 @@ def test_missing_attributes_for_preset_lists_names_the_target_lacks(tenant, stor
     g_store, ws_store = stores
     g_store.initialize(tenant.id, "Risk", "extended", [TITLE, NOTE])
     g_store.initialize(tenant.id, "Risk", "minimal", [TITLE])
-    ws = uuid.uuid4()
+    ws = make_workspace_id(tenant.id)
     ws_store.resolve(tenant.id, ws, "Risk", "extended")
     assert ws_store.missing_attributes_for_preset(
         tenant.id, ws, "Risk", "minimal"
@@ -192,7 +193,7 @@ def test_missing_attributes_for_preset_raises_for_an_unbootstrapped_target(
     "nobody has configured the target preset yet"."""
     g_store, ws_store = stores
     g_store.initialize(tenant.id, "Risk", "extended", [TITLE, NOTE])
-    ws = uuid.uuid4()
+    ws = make_workspace_id(tenant.id)
     ws_store.resolve(tenant.id, ws, "Risk", "extended")
     with pytest.raises(AttributeDefinitionNotFound):
         ws_store.missing_attributes_for_preset(tenant.id, ws, "Risk", "minimal")
@@ -204,7 +205,7 @@ def test_switch_preserves_compatible_customization(tenant, stores, start, target
     g_store, ws_store = stores
     g_store.initialize(tenant.id, "Risk", start, [TITLE, NOTE])
     target_row = g_store.initialize(tenant.id, "Risk", target, [TITLE, NOTE])
-    ws = uuid.uuid4()
+    ws = make_workspace_id(tenant.id)
     ws_store.resolve(tenant.id, ws, "Risk", start)
     customized = ws_store.update(
         tenant.id, ws, "Risk", [dict(TITLE, help_text={"en": "Keep me"}), NOTE],
@@ -228,7 +229,7 @@ def test_incompatible_customization_raises_without_mutating_the_row(tenant, stor
     g_store, ws_store = stores
     g_store.initialize(tenant.id, "Risk", "extended", [TITLE, NOTE])
     g_store.initialize(tenant.id, "Risk", "minimal", [TITLE])
-    ws = uuid.uuid4()
+    ws = make_workspace_id(tenant.id)
     ws_store.resolve(tenant.id, ws, "Risk", "extended")
     original = ws_store.update(tenant.id, ws, "Risk", [TITLE, NOTE])
     for _ in range(2):
@@ -249,7 +250,7 @@ def test_incompatible_customization_raises_without_mutating_the_row(tenant, stor
 def test_mismatched_row_with_missing_target_raises_without_mutation(tenant, stores) -> None:
     g_store, ws_store = stores
     g_store.initialize(tenant.id, "Risk", "minimal", [TITLE])
-    ws = uuid.uuid4()
+    ws = make_workspace_id(tenant.id)
     original = ws_store.resolve(tenant.id, ws, "Risk", "minimal")
     with pytest.raises(AttributeDefinitionNotFound):
         ws_store.resolve(tenant.id, ws, "Risk", "extended")
@@ -264,7 +265,7 @@ def test_resolve_rechecks_customization_after_initial_lookup(tenant, stores, mon
     g_store, ws_store = stores
     g_store.initialize(tenant.id, "Risk", "minimal", [TITLE])
     g_store.initialize(tenant.id, "Risk", "extended", [TITLE])
-    ws = uuid.uuid4()
+    ws = make_workspace_id(tenant.id)
     stale = ws_store.resolve(tenant.id, ws, "Risk", "minimal")
     customized = ws_store.update(tenant.id, ws, "Risk", [TITLE, NOTE])
     monkeypatch.setattr(ws_store, "get", lambda *args: stale)
@@ -282,7 +283,7 @@ def test_resolve_rechecks_customization_after_initial_lookup(tenant, stores, mon
 def test_resolve_copies_the_already_backfilled_global_sections(tenant, stores) -> None:
     g_store, ws_store = stores
     g_store.initialize(tenant.id, "Risk", "standard", [TITLE])
-    row = ws_store.resolve(tenant.id, uuid.uuid4(), "Risk", "standard")
+    row = ws_store.resolve(tenant.id, make_workspace_id(tenant.id), "Risk", "standard")
     assert row.definition_json["sections"] == [
         {"name": "general", "order": 0, "visible": True, "layout": "full"}
     ]
@@ -294,7 +295,7 @@ def test_get_does_not_materialize_sections(tenant, stores) -> None:
     plain internal lookup ``update()`` reuses, it must never mutate."""
     g_store, ws_store = stores
     g_store.initialize(tenant.id, "Risk", "standard", [TITLE])
-    ws = uuid.uuid4()
+    ws = make_workspace_id(tenant.id)
     ws_store.resolve(tenant.id, ws, "Risk", "standard")
     row = ws_store.get(tenant.id, ws, "Risk")
     assert "sections" in row.definition_json  # resolve() already materialized it
@@ -304,7 +305,7 @@ def test_get_does_not_materialize_sections(tenant, stores) -> None:
 def test_resolve_backfills_sections_on_a_legacy_workspace_row(tenant, stores) -> None:
     g_store, ws_store = stores
     g_store.initialize(tenant.id, "Risk", "standard", [TITLE])
-    ws = uuid.uuid4()
+    ws = make_workspace_id(tenant.id)
     row = ws_store.resolve(tenant.id, ws, "Risk", "standard")
     row.definition_json = {"attributes": row.definition_json["attributes"]}  # pre-Task-7 shape
     row.save(update_fields=["definition_json"])
@@ -324,7 +325,7 @@ def test_update_of_a_legacy_shaped_row_is_a_schema_error_not_a_key_error(
 ) -> None:
     g_store, ws_store = stores
     g_store.initialize(tenant.id, "Risk", "standard", [TITLE])
-    ws = uuid.uuid4()
+    ws = make_workspace_id(tenant.id)
     row = ws_store.resolve(tenant.id, ws, "Risk", "standard")
     row.definition_json = {"attributes": [{"name": "title", "type": "text"}]}
     row.save(update_fields=["definition_json"])

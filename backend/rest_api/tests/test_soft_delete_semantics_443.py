@@ -185,6 +185,27 @@ def test_change_reason_body_is_authoritative_over_the_query_string() -> None:
     assert _resolve_change_reason(DRFRequest(non_string_only, parsers=parsers)) == ""
 
 
+def test_change_reason_reads_a_raw_django_request() -> None:
+    """A plain ``WSGIRequest`` has no ``query_params`` (#1407 / set-2-api).
+
+    Some views are called directly with a raw Django request rather than a DRF
+    one (``test_versioning`` does exactly that for a ``destroy()``), so the
+    query-string fallback must read ``GET`` there instead of raising
+    ``AttributeError``.
+    """
+    from django.core.handlers.wsgi import WSGIRequest
+    from django.test import RequestFactory
+
+    from rest_api.query_params import parse_change_reason
+
+    request = RequestFactory().delete("/api/v1/issues/x/?change_reason=raw-request")
+    assert isinstance(request, WSGIRequest)
+    assert not hasattr(request, "query_params")
+
+    assert parse_change_reason(request) == "raw-request"
+    assert parse_change_reason(RequestFactory().delete("/api/v1/issues/x/")) == ""
+
+
 def test_unknown_requirement_id_still_404s(authed_client):
     """404 must keep meaning "no such record" — otherwise the 200 above is
     just noise and a client still cannot tell the two cases apart."""

@@ -11,6 +11,7 @@ from attribute_definitions.models import (
     WorkspaceAttributeDefinition,
 )
 from persistence.models import Tenant
+from persistence.tests.factories import make_workspace_id
 
 
 @pytest.fixture
@@ -44,7 +45,7 @@ def test_global_allows_same_item_type_in_another_preset(tenant: Tenant) -> None:
 
 @pytest.mark.django_db
 def test_workspace_is_unique_per_tenant_workspace_item_type(tenant: Tenant) -> None:
-    ws = uuid.uuid4()
+    ws = make_workspace_id(tenant.id)
     WorkspaceAttributeDefinition.unscoped.create(
         tenant_id=tenant.id, workspace_id=ws, item_type="Risk", preset="standard",
         definition_json={"attributes": []},
@@ -65,7 +66,7 @@ def test_deleting_the_global_nulls_the_link_but_keeps_the_override(tenant: Tenan
         definition_json={"attributes": []},
     )
     w = WorkspaceAttributeDefinition.unscoped.create(
-        tenant_id=tenant.id, workspace_id=uuid.uuid4(), item_type="Issue",
+        tenant_id=tenant.id, workspace_id=make_workspace_id(tenant.id), item_type="Issue",
         preset="standard", definition_json={"attributes": []}, source_global=g,
         is_customized=True,
     )

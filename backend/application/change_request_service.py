@@ -435,7 +435,9 @@ class ChangeRequestService(ServiceBase):
         return cr
 
     @transaction.atomic
-    def delete_change_request(self, cr_id: UUID, ctx) -> None:
+    def delete_change_request(
+        self, cr_id: UUID, ctx, change_reason: str = ""
+    ) -> None:
         """Outdate a change request (soft-delete via the workflow engine).
 
         Transitions the item's WorkflowItemState to "outdated" — the record is
@@ -445,6 +447,9 @@ class ChangeRequestService(ServiceBase):
         Args:
             cr_id: UUID of the ChangeRequest to delete.
             ctx: Resolved AuthContext.
+            change_reason: Optional reason from the request (body or
+                ``?change_reason=``). Falls back to the historical fixed string
+                so existing callers and audit entries stay unchanged.
         """
         self._set_tenant_context(ctx)
         self._assert_write_permission(ctx)
@@ -466,7 +471,9 @@ class ChangeRequestService(ServiceBase):
             item_type="ChangeRequest",
             workspace_id=workspace_id,
             ctx=ctx,
-            reason="deleted via change_request.delete",
+            # inert since Phase 4 — outdate() writes no history entry; the
+            # reason is persisted on the AuditEntry below.
+            reason=change_reason or "deleted via change_request.delete",
         )
 
         self._audit(
@@ -474,6 +481,7 @@ class ChangeRequestService(ServiceBase):
             operation="delete",
             entity_type="ChangeRequest",
             entity_id=cr_id,
+            change_reason=change_reason,
         )
         self._emit_event(
             self._make_event(
