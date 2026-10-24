@@ -33,6 +33,15 @@
  * developer with a dev stack can run. It mirrors the file-walker + regex
  * approach of `ui-ratchet.test.ts` and `design-tokens.test.ts`.
  *
+ * One of the checks is not a JSX scan but a stylesheet scan: the button
+ * geometry ratchet (`button-geometry-off-token`, #1258) walks every stylesheet
+ * under `src/`, CSS modules included, and requires `border-radius` and
+ * `height`/`min-height` on a button-ish selector to read the button token
+ * scale. Geometry is invisible to a class-name gate — `.primaryButton` looks
+ * like a design-system button around `border-radius: 12px` — and invisible to
+ * every JSX check for the same reason, so it gets its own CSS-level measurement
+ * against the same baseline bookkeeping.
+ *
  * The classes it enforces are the ones `styles/global.css` actually defines.
  * Read them from there rather than from an issue's "Soll" text. Issue #1099
  * closed the gap #1093 opened: #1093's "Soll" asked for `btn-icon`, which did
@@ -542,7 +551,8 @@ interface Violation {
 type CheckId =
   | "button-missing-design-system-class"
   | "emoji-as-ui-glyph"
-  | "ambiguous-button-label";
+  | "ambiguous-button-label"
+  | "button-geometry-off-token";
 
 /**
  * Identity of an element for the exemption allow-list.
@@ -750,10 +760,425 @@ function scanAmbiguousButtonLabels(): Violation[] {
   return out;
 }
 
+/**
+ * Button geometry — the static half of T-C1-1 (#1258).
+ *
+ * Every control the design system draws itself has to take its height and its
+ * corner radius from the button scale: `--btn-h-xs|sm|md|lg` for the height,
+ * `--radius-btn` (or `--radius-full` for a deliberately round control) for the
+ * radius. The reference measurement (C-L19) predicted ~78 one-off geometry
+ * declarations across the CSS modules; the scanner found 84, and that measured
+ * value is what the baseline freezes. Which is why this is a ratchet and not a
+ * one-time cleanup: the ceiling only moves down from the merge value. The
+ * scoped selector below (#1258 review) freezes 72 of those 84 — the twelve it
+ * no longer selects are switch primitives and disclosure toggles, which are
+ * not button geometry (see the scope note on the pattern).
+ *
+ * Why a stylesheet scan rather than the JSX scanner above: the geometry lives
+ * in `*.module.css`, and a class name says nothing about it — `.primaryButton`
+ * is a perfectly design-system-looking name wrapped around
+ * `border-radius: 12px`. The same rule applies to the plain `src/styles/**`
+ * stylesheets, so the scanner walks every `.css` file under `src/`.
+ *
+ * Pseudo-class variants (`:first-child`, `:hover`, `:focus-visible`, …) ARE
+ * measured, each under the selector text as written — the regex below is a
+ * token match on the base name, so it never has to enumerate
+ * `:hover`/`:first-child`/… itself. The follow-up task depends on it: T-C1-2
+ * lowers this ceiling by exactly the two `.btn-tab:first-child`/`:last-child`
+ * radius fixes, which a gate that skipped pseudo-class selectors could never
+ * register.
+ *
+ * Fingerprint: `button-geometry-off-token::<file>::<selector>` — one entry per
+ * selector, not per declaration, so a rule that is off-token in both height and
+ * radius is still a single thing to fix.
+ *
+ * Scope: the button FAMILY only (#1258 review). The scanner selects `btn`,
+ * `button`, `tab`, `chip`, `pill` and `segment` as name tokens. It deliberately
+ * does NOT select `toggle`/`switch`: a switch primitive is sized by its own
+ * contract (track and thumb dimensions, a label row that carries the 24px
+ * target floor from #1394), so freezing it as button geometry made every
+ * legitimate switch change raise the button ceiling — the one move the ratchet
+ * forbids. Switch primitives and disclosure toggles are recorded in
+ * `NON_BUTTON_SELECTOR_ALLOWLIST` below with the reason each one is not a
+ * button, and the exclusion is asserted in both directions.
+ *
+ * Token boundaries: a token starts at the string edge or after a non-alphanumeric
+ * character, and it ends at the string edge, before a non-alphanumeric
+ * character, or at a camelCase transition. Hence `.btn`, `.btn-primary`,
+ * `.btn-tab:first-child`, `.btnPrimary`, `.primaryButton`, `[role="button"]`
+ * and `:where(button, a, …)` are selected, while `.table` (`tab` + lowercase
+ * `le`), `[tabindex]`, `.chips` and `.btngroup` are not — a substring hit would
+ * freeze geometry nobody can attribute to a button.
+ *
+ * The two spellings are deliberately NOT symmetric, because the family only
+ * ever recognised one of them: the full word `button` may be a camelCase
+ * suffix (`.primaryButton`), while the abbreviation `btn` must be delimited
+ * (`.btn`, `.btn-primary`, `.btnPrimary`). A capitalised `*Btn` suffix
+ * (`.closeBtn`, `.optionalToggleBtn`) does not select, exactly as before: the
+ * 24 such rules with off-token geometry that this selector still leaves out
+ * would push the ceiling from 84 to 98 if they were pulled in — a widening,
+ * which is its own change and cannot ride along with this narrowing.
+ */
+const BUTTON_SELECTOR_PATTERN = new RegExp(
+  [
+    // `.btn`, `.btn-primary`, `.btn-tab:first-child`, `.btnPrimary` — not `.btngroup`.
+    "(?<![A-Za-z0-9])[Bb]tn(?![a-z])",
+    // `.button`, `.primaryButton`, `[role="button"]`, `:where(button, a, …)`.
+    "(?<![A-Z0-9])[Bb]utton(?![a-z])",
+    // `.tab`, `.btn-tab:first-child`, `.tab-active` — the word must stand as a
+    // whole name token, because `tab` compounds into non-button nouns the gate
+    // must not freeze: `.tabPanel`, `.tabRow`, `.tabList`, `.table`,
+    // `[tabindex]`. `.typeTab` still reads through `Tab` + token end.
+    "(?<![A-Z0-9])[Tt]ab(?![A-Za-z])",
+    // `.chip`, `.optionChip`, `.chipRemove`, `.skeletonChip` — never `.chips`.
+    "(?<![A-Z0-9])[Cc]hip(?![a-z])",
+    // `.pill`, `.pillToggle`.
+    "(?<![A-Z0-9])[Pp]ill(?![a-z])",
+    // `.segment`, `.segmentButton`; `.segmentedControl` is the wrapper, not a button.
+    "(?<![A-Z0-9])[Ss]egment(?![a-z])",
+  ].join("|"),
+);
+
+/**
+ * Selectors that look like button geometry but are not buttons (#1258 review).
+ *
+ * Each entry is a switch primitive or a disclosure toggle: something whose
+ * height is decided by the primitive it draws (a track, a thumb, a circular
+ * affordance, a label that only carries the checkbox target floor) rather than
+ * by the `--btn-h-*` scale. They are listed here instead of being frozen in the
+ * baseline because an exemption in the baseline would still be *selected* — the
+ * trap this list exists to close: the day a switch legitimately changes size,
+ * its button-baseline entry would have to rise, which the ratchet refuses.
+ *
+ * This is an allow-list of exclusions, not a widened gate: two assertions below
+ * hold it in place — every entry must stay OUT of `BUTTON_SELECTOR_PATTERN`, and
+ * every entry must still describe a selector that exists in its stylesheet, so
+ * the list cannot rot into a set of stale names nobody can attribute.
+ */
+const NON_BUTTON_SELECTOR_ALLOWLIST: readonly {
+  /** Stylesheet, as the scanner reports it (relative to `src/`). */
+  file: string;
+  /** Selector exactly as the scanner normalises it. */
+  selector: string;
+  /** Why this is a switch primitive / disclosure toggle, not a button. */
+  reason: string;
+}[] = [
+  {
+    file: "components/DiagramGraphEditor/DiagramGraphEditor.module.css",
+    selector: ".toggleTrack",
+    reason:
+      "the switch's rail (34x18, --radius-full): a primitive's own size, " +
+      "not one of the --btn-h-* button heights",
+  },
+  {
+    file: "components/DiagramGraphEditor/DiagramGraphEditor.module.css",
+    selector: ".toggleThumb",
+    reason:
+      "the switch's thumb (14x14 dot) positioned inside .toggleTrack — a " +
+      "primitive part, never a click target of its own",
+  },
+  {
+    file: "components/WorkflowEditor/WorkflowEditor.module.css",
+    selector: ".toggleTrack",
+    reason:
+      "the same switch rail in the workflow editor; sized by the primitive, " +
+      "not by the button scale",
+  },
+  {
+    file: "components/WorkflowEditor/WorkflowEditor.module.css",
+    selector: ".toggleThumb",
+    reason: "the same switch thumb in the workflow editor",
+  },
+  {
+    file: "components/InterviewWidget/InterviewWidget.module.css",
+    selector: ".toggle",
+    reason:
+      "the widget's expand/collapse disclosure: a 40x40 circular affordance " +
+      "whose box IS the control, not a text/icon button height",
+  },
+  {
+    file: "components/MetricsDashboard/MetricsDashboard.module.css",
+    selector: ".helpToggle",
+    reason:
+      "the '?' disclosure that opens the help popover — a 28x28 round " +
+      "affordance, not a button-family control",
+  },
+  {
+    file: "components/WorkspaceSettings/ContextGraphSettingsSection.module.css",
+    selector: ".toggleLabel",
+    reason:
+      "a <label> wrapping a native checkbox; its min-height is the 24px " +
+      "target floor from #1394, not a button height",
+  },
+  {
+    file: "components/WorkspaceSettings/MemorySettingsSection.module.css",
+    selector: ".toggleLabel",
+    reason:
+      "the same checkbox label in the memory section: target floor from " +
+      "#1394, no button geometry",
+  },
+  {
+    file: "components/shared/IncludeDeletedToggle/IncludeDeletedToggle.module.css",
+    selector: ".toggle",
+    reason:
+      "a <label> wrapping a native checkbox (target floor from #1394); the " +
+      "checkbox glyph keeps its own size",
+  },
+  {
+    file: "components/shared/WorkspaceTree/workspace-tree.module.css",
+    selector: ".toggle",
+    reason:
+      "the tree's 16x16 disclosure twisty: borderless, sized with the row " +
+      "glyph, and not part of the button family",
+  },
+];
+
+/** The only radii a button may use; `--radius-btn` is the scale's own alias. */
+const ACCEPTED_BUTTON_RADII: readonly string[] = [
+  "var(--radius-btn)",
+  "var(--radius-full)",
+];
+
+/**
+ * A height that reads the button height scale. `--btn-h-xs` is the icon-button
+ * height (ENT-C6 = B: the WCAG 2.5.8 24px target in the same scale) and is
+ * accepted here even while the token itself is still being added in T-C1-2 — a
+ * ratchet must not reject the fix it is asking for.
+ */
+const BUTTON_HEIGHT_TOKEN_PATTERN = /^var\(--btn-h-[a-z0-9-]+\)$/;
+
+/**
+ * Blank out `block comments` in a stylesheet, preserving every offset.
+ *
+ * Deliberately separate from `blankOutComments` above, which also blanks `//`:
+ * that is a JavaScript comment rule, not a CSS one, and applying it here would
+ * truncate every `url(https://…)` and every `data:` URI at the first double
+ * slash. Offsets have to survive for the same two reasons as above — the line
+ * number in the violation message, and the rule walker's indices.
+ */
+function blankOutCssComments(source: string): string {
+  let out = "";
+  let i = 0;
+  const n = source.length;
+  while (i < n) {
+    if (source.slice(i, i + 2) === "/*") {
+      const end = source.indexOf("*/", i + 2);
+      const stop = end === -1 ? n : end + 2;
+      out += source.slice(i, stop).replace(/[^\n]/g, " ");
+      i = stop;
+      continue;
+    }
+    out += source[i];
+    i += 1;
+  }
+  return out;
+}
+
+interface CssRule {
+  /** The raw, comma-separated selector list as written. */
+  selector: string;
+  /** The rule body, without the surrounding braces. */
+  body: string;
+  /** Offset of the selector in the whole (comment-blanked) file. */
+  offset: number;
+}
+
+/**
+ * Walk a stylesheet into its style rules.
+ *
+ * Located by brace matching rather than by a `([^{}]+)\{([^{}]*)\}` regex,
+ * because at-rules nest: `@media (max-width: 720px) { .btn { … } }` has no
+ * body a `[^{}]*` group can capture, so its inner rules — exactly where a
+ * responsive button height override lives — would be skipped. `baseOffset`
+ * keeps line numbers pointing at the real file for those nested rules.
+ */
+function cssRules(source: string, baseOffset = 0, out: CssRule[] = []): CssRule[] {
+  let i = 0;
+  let selectorStart = 0;
+  const n = source.length;
+  while (i < n) {
+    const ch = source[i];
+    if (ch === "{") {
+      const selector = source.slice(selectorStart, i).trim();
+      let depth = 1;
+      let j = i + 1;
+      while (j < n && depth > 0) {
+        if (source[j] === "{") depth += 1;
+        else if (source[j] === "}") depth -= 1;
+        j += 1;
+      }
+      const body = source.slice(i + 1, j - 1);
+      if (selector.startsWith("@")) {
+        // At-rule: its body is more stylesheet, not declarations.
+        cssRules(body, baseOffset + i + 1, out);
+      } else {
+        out.push({ selector, body, offset: baseOffset + selectorStart });
+      }
+      i = j;
+      selectorStart = j;
+      continue;
+    }
+    if (ch === "}" || ch === ";") {
+      selectorStart = i + 1;
+      i += 1;
+      continue;
+    }
+    i += 1;
+  }
+  return out;
+}
+
+/**
+ * Every declared value of `property` in one rule body, whitespace-normalised
+ * and stripped of `!important`.
+ *
+ * The `(?:^|;)` anchor is what keeps `height` from matching inside
+ * `min-height`: `\s*` cannot consume the `min-` prefix, so the two properties
+ * stay distinguishable without a second parser.
+ */
+function cssDeclarations(body: string, property: string): string[] {
+  const values: string[] = [];
+  const declaration = new RegExp(
+    `(?:^|;)\\s*${property}\\s*:\\s*([^;}]+)`,
+    "g",
+  );
+  let match: RegExpExecArray | null;
+  while ((match = declaration.exec(body)) !== null) {
+    values.push(
+      match[1]
+        .trim()
+        .replace(/\s*!\s*important\s*$/i, "")
+        .replace(/\s+/g, " "),
+    );
+  }
+  return values;
+}
+
+/**
+ * Split a selector list on its top-level commas only.
+ *
+ * A plain `split(",")` breaks every functional pseudo-class that carries a
+ * selector list of its own: `:where(button, a, [role="button"])` becomes three
+ * "selectors", one of them the nonsense fragment `:where(button`, which then
+ * matches the base-name regex and freezes a fingerprint nobody can act on.
+ * Parentheses, square brackets and quotes are therefore tracked — attribute
+ * values and `:is(…)` lists can contain commas too.
+ */
+function splitSelectorList(selector: string): string[] {
+  const parts: string[] = [];
+  let current = "";
+  let depth = 0;
+  let quote: string | null = null;
+  for (const ch of selector) {
+    if (quote !== null) {
+      current += ch;
+      if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      current += ch;
+      continue;
+    }
+    if (ch === "(" || ch === "[") {
+      depth += 1;
+      current += ch;
+      continue;
+    }
+    if (ch === ")" || ch === "]") {
+      depth -= 1;
+      current += ch;
+      continue;
+    }
+    if (ch === "," && depth === 0) {
+      parts.push(current);
+      current = "";
+      continue;
+    }
+    current += ch;
+  }
+  parts.push(current);
+  return parts;
+}
+
+/**
+ * Measure one stylesheet against the button geometry rule, for `rel` (the path
+ * the fingerprint reports). Exposed as a pure function so the unit cases below
+ * can pin the two directions — the accepted icon-button height and the rejected
+ * ad-hoc radius — without a file on disk.
+ */
+function scanButtonGeometryInCss(rel: string, css: string): Violation[] {
+  const source = blankOutCssComments(css);
+  const out: Violation[] = [];
+  const seen = new Set<string>();
+  for (const rule of cssRules(source)) {
+    for (const part of splitSelectorList(rule.selector)) {
+      const selector = part.trim().replace(/\s+/g, " ");
+      if (selector === "") continue;
+      if (!BUTTON_SELECTOR_PATTERN.test(selector)) continue;
+
+      const offToken: string[] = [];
+      for (const value of cssDeclarations(rule.body, "border-radius")) {
+        if (!ACCEPTED_BUTTON_RADII.includes(value)) {
+          offToken.push(
+            `border-radius: ${value} (expected var(--radius-btn) or var(--radius-full))`,
+          );
+        }
+      }
+      for (const property of ["height", "min-height"]) {
+        for (const value of cssDeclarations(rule.body, property)) {
+          if (!BUTTON_HEIGHT_TOKEN_PATTERN.test(value)) {
+            offToken.push(
+              `${property}: ${value} (expected a var(--btn-h-*) token: xs/sm/md/lg)`,
+            );
+          }
+        }
+      }
+      if (offToken.length === 0) continue;
+
+      const key = `button-geometry-off-token::${rel}::${selector}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({
+        key,
+        check: "button-geometry-off-token",
+        file: rel,
+        line: lineOf(source, rule.offset),
+        element: selector,
+        reason: offToken.join("; "),
+      });
+    }
+  }
+  return out;
+}
+
+/**
+ * Every stylesheet under `src/`, walked once per run: the suite measures the
+ * same tree for the ratchet, the staleness check and the exemption check.
+ */
+let stylesheetCache: string[] | null = null;
+
+function collectStylesheets(): string[] {
+  if (stylesheetCache === null) {
+    stylesheetCache = collectFiles(SRC_DIR, /\.css$/);
+  }
+  return stylesheetCache;
+}
+
+/** Check 5 — button height/radius must come from the button token scale. */
+function scanButtonGeometryOffToken(): Violation[] {
+  const out: Violation[] = [];
+  for (const file of collectStylesheets()) {
+    out.push(...scanButtonGeometryInCss(toRelative(file), readFileSync(file, "utf-8")));
+  }
+  return out;
+}
+
 const SCANNERS: Record<CheckId, () => Violation[]> = {
   "button-missing-design-system-class": scanMissingDesignSystemClass,
   "emoji-as-ui-glyph": scanEmojiGlyphs,
   "ambiguous-button-label": scanAmbiguousButtonLabels,
+  "button-geometry-off-token": scanButtonGeometryOffToken,
 };
 
 interface CheckBaseline {
@@ -777,7 +1202,13 @@ interface BaselineFile {
   version: number;
   recordedAt: string;
   recordedBy: string;
-  checks: Record<CheckId, CheckBaseline>;
+  /**
+   * Per-check ceilings. Partial on purpose: a check added to this suite after
+   * the file was last written has no entry yet, and the checks below have to
+   * report that as a real gap (ceiling 0) rather than crash on `undefined` —
+   * that is also what lets a new gate bootstrap through the re-baseline.
+   */
+  checks: Partial<Record<CheckId, CheckBaseline>>;
   /** `<check>::<file>::<element fingerprint>` -> one-line justification. */
   exemptions: Record<string, { reason: string }>;
 }
@@ -786,6 +1217,7 @@ const CHECK_ISSUES: Record<CheckId, string> = {
   "button-missing-design-system-class": "#954, #797, #1091, #1093",
   "emoji-as-ui-glyph": "#1092",
   "ambiguous-button-label": "#1093",
+  "button-geometry-off-token": "#1258",
 };
 
 const CHECK_NOTES: Record<CheckId, string> = {
@@ -801,6 +1233,8 @@ const CHECK_NOTES: Record<CheckId, string> = {
     "Buttons whose whole label is a bare action verb that is used more than " +
     "once in the component tree, so the object is unstated. Fix by naming the " +
     "object in the label (i18n key + both locales).",
+  "button-geometry-off-token":
+    "Fix by using --btn-h-sm/md/lg and --radius-btn/--radius-full; never raise this ceiling.",
 };
 
 /**
@@ -832,6 +1266,12 @@ const BASELINE_SEED: BaselineFile = {
       known: [],
       issue: CHECK_ISSUES["ambiguous-button-label"],
       note: CHECK_NOTES["ambiguous-button-label"],
+    },
+    "button-geometry-off-token": {
+      maxViolations: 0,
+      known: [],
+      issue: CHECK_ISSUES["button-geometry-off-token"],
+      note: CHECK_NOTES["button-geometry-off-token"],
     },
   },
   exemptions: {},
@@ -960,11 +1400,18 @@ if (REBASELINE_TARGET !== null) {
   for (const check of Object.keys(SCANNERS) as CheckId[]) {
     const result = measure(check, current);
     measured.set(check, result);
+    // A check added after the baseline file was written has no ceiling of its
+    // own; that is the per-check form of the bootstrap exception the shared
+    // contract grants for a missing baseline file (#1103 / REQ-193) — without
+    // it a new gate could never be installed at its measured value. Every check
+    // that IS recorded keeps the one-way ceiling: lowering is allowed, raising
+    // is refused.
+    const recordedCheck = current.checks[check];
     assertBaselineNotRaised(
       check,
-      current.checks[check]?.maxViolations ?? 0,
+      recordedCheck?.maxViolations ?? 0,
       result.unexempted.length,
-      existsSync(BASELINE_PATH),
+      existsSync(BASELINE_PATH) && recordedCheck !== undefined,
     );
     checks[check] = {
       maxViolations: result.unexempted.length,
@@ -1031,7 +1478,7 @@ describe("design-system ratchet (#954, #797, #1091, #1092, #1093, #1099)", () =>
     ).toBe(true);
     for (const check of Object.keys(SCANNERS) as CheckId[]) {
       expect(baseline.checks[check], `baseline has no entry for ${check}`).toBeDefined();
-      expect(typeof baseline.checks[check].maxViolations).toBe("number");
+      expect(typeof baseline.checks[check]?.maxViolations).toBe("number");
     }
   });
 
@@ -1081,7 +1528,7 @@ describe("design-system ratchet (#954, #797, #1091, #1092, #1093, #1099)", () =>
     it(`does not add new "${check}" violations beyond the frozen baseline`, () => {
       const result = measured.get(check) ?? measure(check, baseline);
       measured.set(check, result);
-      const limit = baseline.checks[check].maxViolations;
+      const limit = baseline.checks[check]?.maxViolations ?? 0;
 
       // Identity first: this is the assertion that names the offending file,
       // line and element, and vitest stops at the first failure — so putting the
@@ -1093,7 +1540,7 @@ describe("design-system ratchet (#954, #797, #1091, #1092, #1093, #1099)", () =>
           `(${result.fresh.length} of ${result.unexempted.length} unexempted):`,
           formatViolations(result.fresh),
           "",
-          `Issues: ${baseline.checks[check].issue}`,
+          `Issues: ${baseline.checks[check]?.issue ?? CHECK_ISSUES[check]}`,
           "Fix the element (preferred — that is what the ceiling is for), or, if",
           "it is a legitimate exception, add a one-line-justified entry to the",
           "`exemptions` map in design-system-ratchet.baseline.json keyed by:",
@@ -1183,6 +1630,147 @@ describe("design-system ratchet (#954, #797, #1091, #1092, #1093, #1099)", () =>
     expect(
       misfiled,
       `exemption key(s) not prefixed with a known check id (${checks.join(", ")}):\n  ${misfiled.join("\n  ")}`,
+    ).toEqual([]);
+  });
+});
+
+describe("button geometry scanner (#1258)", () => {
+  const FILE = "components/Example/Example.module.css";
+
+  it("accepts an icon button whose height is the --btn-h-xs token", () => {
+    // ENT-C6 = B: 24px icon-button height in the button scale. The token lands
+    // in tokens.css with T-C1-2, but the gate must already accept the value the
+    // fix will use — otherwise the ratchet would reject its own remedy.
+    const css = [
+      ".iconButton {",
+      "  height: var(--btn-h-xs);",
+      "  border-radius: var(--radius-btn);",
+      "}",
+      "",
+    ].join("\n");
+    expect(scanButtonGeometryInCss(FILE, css)).toEqual([]);
+  });
+
+  it("accepts the text-button scale and the deliberately round radius", () => {
+    const css = [
+      ".primaryButton {",
+      "  min-height: var(--btn-h-md);",
+      "  border-radius: var(--radius-btn);",
+      "}",
+      ".pillToggle {",
+      "  height: var(--btn-h-sm);",
+      "  border-radius: var(--radius-full);",
+      "}",
+      "",
+    ].join("\n");
+    expect(scanButtonGeometryInCss(FILE, css)).toEqual([]);
+  });
+
+  it("flags a button with an off-token border-radius", () => {
+    const css = [".primaryButton {", "  border-radius: 12px;", "}", ""].join("\n");
+    expect(
+      scanButtonGeometryInCss(FILE, css).map((violation) => violation.key),
+    ).toEqual([`button-geometry-off-token::${FILE}::.primaryButton`]);
+  });
+
+  it("measures pseudo-class variants under the selector as written", () => {
+    // The base-name regex above deliberately does not enumerate `:hover` /
+    // `:first-child` / …, and the scanner must not skip those rules either:
+    // T-C1-2's ceiling drop of exactly 2 comes from the two
+    // `.btn-tab:first-child` / `:last-child` radius fixes in global.css.
+    const css = [
+      ".toolbarButton {",
+      "  height: 32px;",
+      "}",
+      ".toolbarButton:hover {",
+      "  height: 40px;",
+      "}",
+      "",
+    ].join("\n");
+    const violations = scanButtonGeometryInCss(FILE, css);
+    expect(violations.map((violation) => violation.key)).toEqual([
+      `button-geometry-off-token::${FILE}::.toolbarButton`,
+      `button-geometry-off-token::${FILE}::.toolbarButton:hover`,
+    ]);
+    expect(violations[0].reason).toContain("height: 32px");
+  });
+
+  it("keeps a functional pseudo-class selector list intact", () => {
+    // The global focus-ring rule reads `:where(button, a, [role="button"])`.
+    // Splitting it on the inner commas would freeze the fragment
+    // `:where(button` as a fingerprint; the selector has to survive as written.
+    const css = [
+      ':where(button, a, [role="button"]):focus-visible {',
+      "  border-radius: inherit;",
+      "}",
+      "",
+    ].join("\n");
+    expect(
+      scanButtonGeometryInCss(FILE, css).map((violation) => violation.element),
+    ).toEqual([':where(button, a, [role="button"]):focus-visible']);
+  });
+
+  it("flags a .btn-tab:first-child rule with an off-token radius", () => {
+    // The exact regression T-C1-2 fixes: a pseudo-class rule whose radius is
+    // `--radius-md`. If the gate skipped it, the follow-up task could not lower
+    // the ceiling by the 2 it promises.
+    const css = [
+      ".btn-tab:first-child {",
+      "  border-radius: var(--radius-md) 0 0 var(--radius-md);",
+      "}",
+      "",
+    ].join("\n");
+    expect(
+      scanButtonGeometryInCss(FILE, css).map((violation) => violation.key),
+    ).toEqual([`button-geometry-off-token::${FILE}::.btn-tab:first-child`]);
+  });
+
+  it("keeps switch primitives and disclosure toggles out of the button family", () => {
+    // The review blocker this list closes (#1258): a `toggle`-matching selector
+    // froze switch tracks and thumbs as button geometry, so a legitimate switch
+    // change could only pass by raising the button ceiling — the one move the
+    // ratchet forbids. Every entry names what it is and has to stay unselected.
+    const regressions = NON_BUTTON_SELECTOR_ALLOWLIST.filter((entry) =>
+      BUTTON_SELECTOR_PATTERN.test(entry.selector),
+    );
+    expect(
+      regressions.map((entry) => `${entry.file}  <${entry.selector}>`),
+      [
+        "selector(s) that are not buttons are selected by BUTTON_SELECTOR_PATTERN:",
+        ...regressions.map((entry) => `  <${entry.selector}> — ${entry.reason}`),
+        "",
+        "A switch primitive or a disclosure toggle inside the button family",
+        "freezes geometry that is not button geometry: every legitimate change",
+        "to it would have to raise the button ceiling, which the ratchet refuses.",
+      ].join("\n"),
+    ).toEqual([]);
+  });
+
+  it("names only excluded selectors that still exist in the stylesheets", () => {
+    // Rot guard, the counterpart of the stale-exemption check: an allow-list
+    // entry that no longer describes a real rule documents nothing and quietly
+    // widens the family selector the day that name is reused.
+    const missing: string[] = [];
+    for (const entry of NON_BUTTON_SELECTOR_ALLOWLIST) {
+      const source = blankOutCssComments(
+        readFileSync(join(SRC_DIR, entry.file), "utf-8"),
+      );
+      const present = cssRules(source).some((rule) =>
+        splitSelectorList(rule.selector).some(
+          (part) => part.trim().replace(/\s+/g, " ") === entry.selector,
+        ),
+      );
+      if (!present) missing.push(`  ${entry.file}  <${entry.selector}>`);
+    }
+    expect(
+      missing,
+      [
+        "excluded selector(s) that no longer exist in their stylesheet:",
+        ...missing,
+        "",
+        "Drop the entry (the primitive was renamed or removed) — a name-only",
+        "allow-list is exactly the rot this check prevents.",
+      ].join("\n"),
     ).toEqual([]);
   });
 });

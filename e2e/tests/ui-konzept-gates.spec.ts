@@ -11,6 +11,10 @@
  *      audit-era finding was 2 to 5 nested scroll areas per page, see
  *      docs/UI_KONZEPT.md Anhang B).
  *
+ * A third block (below the 16.1 describe) carries the C1 button-geometry
+ * gate from Plan C (T-C1-1, #1258): ≤3 button heights and ≤2 radii per
+ * route. It is not a chapter-16.1 gate, hence its own `[C1]` title prefix.
+ *
  * IMPORTANT (per the plan's explicit acceptance criterion and this project's
  * rule set): this spec file is written and reviewed for structural
  * soundness only. It is **not** executed as part of this task — E2E runs
@@ -112,6 +116,193 @@ async function countScrollContainers(page: Page): Promise<number> {
     return count;
   });
 }
+
+/**
+ * C1 button-geometry standard (Plan C §1 Ziel 2 + §3.2, task T-C1-1,
+ * issue #1258; ENT-C6 = B): at most 3 distinct button heights (the
+ * `--btn-h-sm/md/lg` scale, i.e. 32/36/44 px) and at most 2 distinct radii
+ * per route. The counted radii are the standard `--radius-btn` (6 px) plus
+ * `--radius-md` (12 px); a pill/full radius is a deliberate shape, not a
+ * second standard, so it is classified separately (see the Radius rule
+ * below) and does not count against MAX_BUTTON_RADII.
+ *
+ * Measurement rules (literal, per the task spec — rationale inline):
+ *
+ *  - Elements: `button, [role="button"]`. Both are "buttons" to a user; the
+ *    ARIA role is how the codebase renders click-only rows/cards.
+ *  - Only visible elements: `offsetWidth > 0`. A `display: none` subtree or a
+ *    collapsed menu must not contribute geometry to the count.
+ *  - Excluded: anything inside `[data-testid="workflow-canvas"]`,
+ *    `.react-flow`, `[data-testid^="diagram-canvas"]`, and rows with
+ *    `role="button"` inside `[data-testid$="-tree"]`. Canvas nodes and tree
+ *    rows are graph/navigation surfaces whose size is driven by their
+ *    content (node label, row text), not by the button scale — counting them
+ *    would gate canvas layout instead of button styling.
+ *  - Height: `getBoundingClientRect().height`, rounded to whole px. Exactly
+ *    24 px is the icon-button height (`--btn-h-xs`, WCAG 2.5.8 target size)
+ *    and is classified SEPARATELY (ENT-C6 = B): it is reported in the
+ *    assertion message but does not count against MAX_BUTTON_HEIGHTS.
+ *  - Radius: computed `border-top-left-radius`, rounded (all four corners
+ *    share one token by construction). A pill/full radius (`--radius-full`,
+ *    9999 px) is classified SEPARATELY — it is reported in the assertion
+ *    message but does not count against MAX_BUTTON_RADII. Pill shapes are a
+ *    deliberate full-round treatment (badges, toggles, pill buttons), not a
+ *    competing button standard; the two radii that are actually enforced are
+ *    `--radius-btn` (6 px) and `--radius-md` (12 px).
+ *  - `networkidle` before measuring: lazy-loaded buttons and dialogs must not
+ *    make the gate flaky (plan §9, "E2E-Gate flackert durch dynamische
+ *    Buttons").
+ */
+const MAX_BUTTON_HEIGHTS = 3;
+const MAX_BUTTON_RADII = 2;
+/** `--btn-h-xs` — icon buttons. Counted and reported, but not a standard height. */
+const ICON_BUTTON_HEIGHT_PX = 24;
+/** `--radius-full` — pill/full shape. Reported, but not a counted button radius. */
+const PILL_RADIUS_PX = 9999;
+
+/**
+ * Routes that were still over the C1 target when this gate was introduced
+ * (ratchet in E2E form, plan §8 "C1 Gate"). Each C1 PR removes its own
+ * routes: T-C1-3 -> `/system-settings`, T-C1-4 -> `/workflows`, `/settings`,
+ * `/`, T-C1-5/T-C1-6 -> the remainder. This list may only shrink.
+ *
+ * Values are the live measurement of 2026-10-23 (seeded demo workspace,
+ * extended preset) — no route is listed or omitted on a guess.
+ */
+const C1_PENDING_ROUTES: Record<string, string> = {
+  '/': '4 heights / 3 radii measured (T-C1-4)',
+  '/requirements': '3 heights / 3 radii measured — radii over target',
+  '/impact': '4 heights / 2 radii measured — heights over target',
+  '/baselines': '3 heights / 3 radii measured — radii over target',
+  '/adrs': '3 heights / 3 radii measured — radii over target',
+  '/risks': '4 heights / 3 radii measured — both over target',
+  '/issues': '3 heights / 3 radii measured — radii over target',
+  '/testcases': '3 heights / 3 radii measured — radii over target',
+  '/test-runs': '3 heights / 3 radii measured — radii over target',
+  '/import': '4 heights / 2 radii measured — heights over target',
+  '/icds': '3 heights / 3 radii measured — radii over target',
+  '/diagrams': '3 heights / 3 radii measured — radii over target',
+  '/metrics': '3 heights / 3 radii measured — radii over target',
+  '/audit': '3 heights / 3 radii measured — radii over target',
+  '/settings': '4 heights / 4 radii measured (T-C1-4)',
+  '/system-settings': '4 heights / 4 radii measured (T-C1-3)',
+  '/goals': '3 heights / 3 radii measured — radii over target',
+  '/glossary': '3 heights / 3 radii measured — radii over target',
+  '/workflows': '4 heights / 3 radii measured (T-C1-4)',
+  '/profile': '5 heights / 3 radii measured — both over target',
+};
+
+interface ButtonGeometry {
+  /** Distinct rounded heights of non-icon buttons, ascending. */
+  heights: number[];
+  /** Distinct rounded heights classified as icon buttons (24 px). */
+  iconHeights: number[];
+  /** Distinct rounded `border-top-left-radius` values, ascending. */
+  radii: number[];
+  /** Distinct rounded radii classified as pill/full (9999 px), ascending. */
+  pillRadii: number[];
+  /** Visible, non-excluded buttons the numbers were derived from. */
+  measured: number;
+}
+
+async function measureButtonGeometry(page: Page): Promise<ButtonGeometry> {
+  return page.evaluate(
+    ({ iconButtonHeight, pillRadius }) => {
+      const EXCLUDED_ANCESTORS = [
+        '[data-testid="workflow-canvas"]',
+        '.react-flow',
+        '[data-testid^="diagram-canvas"]',
+      ];
+      const TREES = '[data-testid$="-tree"]';
+      const heights = new Set<number>();
+      const iconHeights = new Set<number>();
+      const radii = new Set<number>();
+      const pillRadii = new Set<number>();
+      let measured = 0;
+
+      const candidates = document.querySelectorAll<HTMLElement>('button, [role="button"]');
+      for (const el of candidates) {
+        if (el.offsetWidth === 0) continue;
+        if (EXCLUDED_ANCESTORS.some((selector) => el.closest(selector))) continue;
+        if (el.getAttribute('role') === 'button' && el.closest(TREES)) continue;
+
+        const height = Math.round(el.getBoundingClientRect().height);
+        const radius = Math.round(parseFloat(getComputedStyle(el).borderTopLeftRadius) || 0);
+        measured++;
+        if (height === iconButtonHeight) iconHeights.add(height);
+        else heights.add(height);
+        if (radius === pillRadius) pillRadii.add(radius);
+        else radii.add(radius);
+      }
+
+      return {
+        heights: [...heights].sort((a, b) => a - b),
+        iconHeights: [...iconHeights].sort((a, b) => a - b),
+        radii: [...radii].sort((a, b) => a - b),
+        pillRadii: [...pillRadii].sort((a, b) => a - b),
+        measured,
+      };
+    },
+    { iconButtonHeight: ICON_BUTTON_HEIGHT_PX, pillRadius: PILL_RADIUS_PX },
+  );
+}
+
+/** One-line classification for the assertion message: what was counted, and how. */
+function describeGeometry(geometry: ButtonGeometry): string {
+  const icons = geometry.iconHeights.length
+    ? `${geometry.iconHeights.join('/')} px icon button(s) excluded from the height count (--btn-h-xs, ENT-C6 = B)`
+    : 'no 24 px icon buttons rendered';
+  const pills = geometry.pillRadii.length
+    ? `${geometry.pillRadii.join('/')} px pill radius/radii excluded from the radius count (--radius-full)`
+    : 'no pill-radius buttons rendered';
+  return (
+    `${geometry.heights.length} height(s) [${geometry.heights.join(', ')}], ` +
+    `${geometry.radii.length} radius/radii [${geometry.radii.join(', ')}], ` +
+    `${icons}, ${pills} — from ${geometry.measured} visible button(s)`
+  );
+}
+
+test.describe('[C1] Button geometry (heights + radii per route)', () => {
+  test.beforeAll(async () => {
+    // Same rationale as the 16.1 block above: the extended preset renders
+    // every route's full surface instead of a preset fallback.
+    await setWorkspacePreset('extended');
+  });
+
+  test.beforeEach(async ({ page }) => {
+    await setWorkspaceId(page, SEEDED_WORKSPACE_ID);
+    await loginAsAdmin(page);
+  });
+
+  for (const route of ROUTES) {
+    test(`[C1] ${route.label}: ≤${MAX_BUTTON_HEIGHTS} button heights, ≤${MAX_BUTTON_RADII} radii`, async ({
+      page,
+    }) => {
+      const pendingReason = C1_PENDING_ROUTES[route.path];
+      // Ratchet, not a mute: a pending route is still measured by the C1
+      // PRs that remove it, and its measurement stays documented above.
+      if (pendingReason) test.fixme(true, pendingReason);
+
+      await page.goto(`${FRONTEND_URL}${route.path}`);
+      await page.waitForLoadState('networkidle');
+      await expect(page.locator('[data-testid="route-suspense-fallback"]')).not.toBeVisible({
+        timeout: 15000,
+      });
+
+      const geometry = await measureButtonGeometry(page);
+      const detail = `${route.path}: ${describeGeometry(geometry)}`;
+
+      expect(
+        geometry.heights.length,
+        `${detail} — limit ${MAX_BUTTON_HEIGHTS} heights`
+      ).toBeLessThanOrEqual(MAX_BUTTON_HEIGHTS);
+      expect(
+        geometry.radii.length,
+        `${detail} — limit ${MAX_BUTTON_RADII} radii`
+      ).toBeLessThanOrEqual(MAX_BUTTON_RADII);
+    });
+  }
+});
 
 test.describe('[UI-KONZEPT 16.1] Structural gates (h1 + scroll containers)', () => {
   test.beforeAll(async () => {
