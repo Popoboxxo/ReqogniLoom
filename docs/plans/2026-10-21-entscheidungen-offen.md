@@ -31,6 +31,26 @@ davon 21 als ⚠ KONFLIKT markiert. Dazu 6 Nutzer-Gates (Handlungen ohne Options
 
 ---
 
+## 0. Entschieden am 2026-10-22 (Nutzer)
+
+Diese vier Welle-0-Blocker sind entschieden. Die Angabe „Vorläufig: nein“ in den
+betreffenden Abschnitten ist damit überholt; maßgeblich ist diese Tabelle.
+
+| ID | Frage | Gewählt | Folge |
+|---|---|---|---|
+| ENT-X1 | `.env.bak-*` je geteilt? | **A — nie geteilt** | Keine Rotation; `.gitignore` härten (`.env*`, `!.env.example`). Die Backup-Dateien sind nicht mehr im Arbeitsbaum. |
+| ENT-G1 | Soft-Delete-Vertrag | **A — `GET` 200 + `status:"outdated"` für alle Typen** | ArchitectureElement von 404 auf 200 angleichen (GH-443-Vertrag). G1.5/PR 5 startet. |
+| ENT-G2 | Definitions-Waisen | **A+ — Archiv + FK** | `*_orphan_archive` vor Löschung, Reverse stellt wieder her, Cleanup nur mit BYPASSRLS und `--confirm-count` (QR-S16). G1.4/PR 4 startet. |
+| ENT-G3 | Outbox-Waisen | **A — O-2 bleibt, keine FK** | Keine FK, keine Löschung auf `application`-Outbox-Zeilen. G1.4/PR 4 startet. |
+| ENT-C6 | Wie passen 24-px-Icon-Buttons (WCAG 2.5.8) zur Regel „≤ 3 Button-Höhen je Route“? | **B — neues Token `--btn-h-xs: 24px` in der Höhenskala** | Icon-Buttons nutzen `--btn-h-xs` (24 px, WCAG-2.5.8-Trefferfläche); das E2E-Gate „≤ 3 Button-Höhen je Route“ zählt Icon-Buttons gesondert, sie zählen nicht gegen die drei. Plan G G4.3 nutzt genau dieses Token; `--target-min` ist nur noch Alias für Nicht-Button-Ziele. Welle 1: T-C1-1 startet. (Nutzer-Entscheidung 2026-10-23.) |
+
+Damit sind Welle 0 sowie die Migrationsketten `persistence 0116/0117`,
+`link_types 0010` und `attribute_definitions 0010` freigegeben. Weiterhin offen
+und startblockierend für ihre jeweiligen WPs: alle übrigen `ENT-*` mit
+„Vorläufig: nein“.
+
+---
+
 ## 1. Blockiert Welle 0 (vor Start klären)
 
 ### ENT-X1 — Schlüsselrotation nach `.env.bak-*`-Fund (QR-S03)

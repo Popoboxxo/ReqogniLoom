@@ -1,0 +1,19 @@
+# Prompt-regression scenarios for the `interview.grounding_rank` slot.
+# Case files are owned by plan D (backend/application/prompt_testing/cases.py).
+slot: interview.grounding_rank
+scenarios:
+  - name: login-duplicate-without-memory
+    data:
+      answers_text: "The user wants a login."
+      candidates_json: '[{"artifact_id": "a1", "title": "Login"}]'
+      memory_context: ""
+    assert:
+      - {type: contains, value: "The user wants a login"}
+      - {type: contains, value: "a1"}
+  - name: login-duplicate-with-memory
+    data:
+      answers_text: "The user wants a login."
+      candidates_json: '[{"artifact_id": "a1", "title": "Login"}]'
+      memory_context: "Memory: a login requirement already exists."
+    assert:
+      - {type: contains, value: "a login requirement already exists"}
