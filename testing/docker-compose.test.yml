@@ -159,6 +159,18 @@ services:
       CELERY_RESULT_BACKEND: redis://redis-test:6379/0
       LLM_PROVIDER: ${LLM_PROVIDER:-mock}
       DEFAULT_TENANT_ID: ${DEFAULT_TENANT_ID:-1}
+      # Cap the native math/BLAS thread pools. Without these, torch and the
+      # OpenMP/OpenBLAS/MKL runtimes spawn one thread per host core for every
+      # process: `pytest mcp_server/tests` burned 1429% CPU (14 cores, 1h40 of
+      # CPU time) and starved the host. With the caps the same 2060 tests finish
+      # in 2:38. Single-threaded is the right default for a test run anyway —
+      # nothing here measures parallel throughput.
+      OMP_NUM_THREADS: "1"
+      OPENBLAS_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      # Tokenizers forks its own rayon pool on first use; left unset it emits a
+      # warning per worker and contends for the same cores.
+      TOKENIZERS_PARALLELISM: "false"
     volumes:
       # Hot bind-mount: overrides whatever the image baked in (or didn't —
       # .dockerignore strips tests/ from the built image on purpose).
