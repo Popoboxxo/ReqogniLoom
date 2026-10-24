@@ -196,7 +196,14 @@ test.describe('[REQ-L0-012] REST API Completeness', () => {
     await request.delete(`${BACKEND_URL}/api/v1/architecture/${body.id}/`, { headers });
   });
 
-  test('[REQ-L0-012] DELETE /api/v1/architecture/{id}/ removes element', async ({ request }) => {
+  test('[REQ-L0-012] DELETE /api/v1/architecture/{id}/ soft-deletes element', async ({ request }) => {
+    // GH-443 / G1.5 (#1484): DELETE is a soft-delete for ArchitectureElement
+    // too. This test used to assert 404/403 on the follow-up GET, which
+    // described the pre-Phase-4 outlier where the element had no status mirror
+    // and a 200 could not carry the "outdated" marker. Since G1.5/#1381 the
+    // wire status is projected from Artifact.lifecycle_status, so the element
+    // stays retrievable with status="outdated" and disappears from the default
+    // list instead of answering 404.
     const token = await getAuthToken();
     const headers = { Authorization: `Bearer ${token}` };
     // [I5] see the POST test above — needs its own root-free workspace.
@@ -216,12 +223,14 @@ test.describe('[REQ-L0-012] REST API Completeness', () => {
     const deleteResp = await request.delete(`${BACKEND_URL}/api/v1/architecture/${created.id}/`, {
       headers,
     });
-    expect([200, 204]).toContain(deleteResp.status());
+    expect(deleteResp.status()).toBe(204);
 
+    // Still retrievable, and it says so: status === "outdated".
     const getResp = await request.get(`${BACKEND_URL}/api/v1/architecture/${created.id}/`, {
       headers,
     });
-    expect([404, 403]).toContain(getResp.status());
+    expect(getResp.status()).toBe(200);
+    expect((await getResp.json()).status).toBe('outdated');
   });
 
   // -------------------------------------------------------------------------
