@@ -1512,8 +1512,21 @@ class ToolRegistry:
         # via ``TenantContextService.build_auth_context``; MCP constructs
         # the context itself (see ``_validate_api_key``/``_resolve_roles``)
         # and therefore never inherited the fence.
-        fence_error = self._check_workspace_fence(
-            context.gate_ctx, context.scope_workspace_id
+        # E1.3: a workspace-less call to an opted-in list tool is not denied
+        # here — the tool narrows its own result to the key's fence. Every
+        # other call keeps the fail-closed denial.
+        from mcp_server.workspace_scope import FENCE_FILTERED_TOOLS
+
+        fence_filtered = (
+            tool_name in FENCE_FILTERED_TOOLS
+            and context.scope_workspace_id is None
+        )
+        fence_error = (
+            None
+            if fence_filtered
+            else self._check_workspace_fence(
+                context.gate_ctx, context.scope_workspace_id
+            )
         )
         if fence_error:
             # #1357: the fence stays fail-closed — the call below never runs.

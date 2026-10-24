@@ -48,6 +48,7 @@ from persistence.models import (
     Workspace,
 )
 from persistence.tenancy import TenantContext
+from persistence.tests.factories import make_workspace_id
 
 pytestmark = pytest.mark.django_db
 
@@ -372,7 +373,7 @@ def test_a_definition_created_by_the_run_is_deleted_not_blanked(
         target_kind="workspace",
         item_type="Requirement",
         preset="standard",
-        workspace_id=uuid.uuid4(),
+        workspace_id=make_workspace_id(tenant.id),
         existed=False,
         definition_json=None,
     )

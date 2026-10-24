@@ -604,6 +604,25 @@ python3 manage.py check && pytest -q
 
 **Status:** 7,100+ backend tests + 1,363 frontend tests passing; 274 E2E tests via Playwright (last verified 2026-09-10).
 
+### Prompt Regression (promptfoo)
+
+The rendered prompt of every entry in the prompt-slot registry is pinned by a
+scenario in `backend/application/prompt_testing/cases/<slot>.yaml`. Regenerate
+or validate the promptfoo configs (LLM-free, provider `echo`):
+
+```bash
+cd backend
+python3 manage.py export_promptfoo_configs --check      # validate only, no writes
+python3 manage.py export_promptfoo_configs --out /tmp/pf   # write one config per slot
+```
+
+`--check` is the gate that CI runs; it exits non-zero if a slot has no case
+file, a declared placeholder stays unresolved, or a `{memory_context}` slot has
+no filled-memory scenario. `--deep` additionally exports `llm-rubric`
+assertions and is refused whenever `CI` is set — it needs a real provider, so
+run it deliberately and locally. A new prompt slot must ship its case file in
+the same PR; never merge a red case.
+
 ### Frontend Unit Tests (Vitest)
 
 ```bash
