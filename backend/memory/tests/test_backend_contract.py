@@ -731,3 +731,38 @@ class TestHonchoSpecificContract:
         per-scope truth travels on the digest. Claiming ``ok``/``none`` at
         class level would be the beta.18 lie in a new coat."""
         assert HonchoMemoryBackend.derivation_status == "unknown"
+
+
+# ---------------------------------------------------------------------------
+# Plan A T-A0b-4 — capability declarations + conformance registry
+# ---------------------------------------------------------------------------
+
+
+def test_every_registered_backend_has_conformance_fixture():
+    """Every registry entry is covered, and its declaration is consistent.
+
+    This is the meta-test T-A0b-4 asks for: adding a backend without a
+    fixture fails here instead of silently skipping the contract suite.
+    """
+    from memory.backends import MEMORY_BACKEND_REGISTRY
+    from memory.testing.conformance import (
+        CONFORMANCE_FIXTURES,
+        assert_capabilities_consistent,
+        missing_conformance_fixtures,
+    )
+
+    assert missing_conformance_fixtures() == []
+    for name in sorted(MEMORY_BACKEND_REGISTRY):
+        assert_capabilities_consistent(CONFORMANCE_FIXTURES[name]())
+
+
+def test_meta_check_rejects_a_backend_without_fixture(monkeypatch):
+    """The registry check is live, not a static list."""
+    from memory.backends import MEMORY_BACKEND_REGISTRY, MemoryBackend
+    from memory.testing.conformance import missing_conformance_fixtures
+
+    class _DummyBackend(MemoryBackend):
+        """Never instantiated — only registered to prove the check reacts."""
+
+    monkeypatch.setitem(MEMORY_BACKEND_REGISTRY, "dummy-without-fixture", _DummyBackend)
+    assert "dummy-without-fixture" in missing_conformance_fixtures()

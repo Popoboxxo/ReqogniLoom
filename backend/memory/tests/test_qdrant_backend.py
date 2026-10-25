@@ -237,7 +237,8 @@ class TestQdrantCollectionIsolation:
 class TestQdrantRegistration:
     def test_registered_under_qdrant(self):
         assert MEMORY_BACKEND_REGISTRY.get("qdrant") is QdrantMemoryBackend
-        assert QdrantMemoryBackend.ask_available is False
+        assert QdrantMemoryBackend.capabilities.dialectic is False
+        assert QdrantMemoryBackend().ask_available is False
         assert QdrantMemoryBackend.derivation_status == "unsupported"
 
 

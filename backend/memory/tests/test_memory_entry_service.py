@@ -634,6 +634,30 @@ class TestAsk:
             assert answer.backend == "pgvector"
             assert answer.degraded is True
 
+    def test_ask_limit_comes_from_backend_capabilities(self, monkeypatch):
+        """T-A0b-2: the bound is the backend's, not a service literal."""
+        from memory.backends import (
+            MEMORY_BACKEND_REGISTRY,
+            MemoryBackend,
+            MemoryCapabilities,
+        )
+
+        class _TinyAskBackend(MemoryBackend):
+            capabilities = MemoryCapabilities(max_ask_query_chars=50)
+
+        monkeypatch.setitem(MEMORY_BACKEND_REGISTRY, "tiny-ask", _TinyAskBackend)
+        monkeypatch.setenv("MEMORY_BACKEND", "tiny-ask")
+
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            ctx = ctx_for_user(tenant, make_user(tenant), workspace=ws, roles=("editor",))
+
+            with pytest.raises(
+                ValidationError,
+                match="at most 50 characters for backend tiny-ask",
+            ):
+                _service().ask(ctx, query="x" * 51, workspace_id=ws.id)
+
     def test_workspace_ask_requires_a_role_in_the_workspace(self):
         with active_tenant() as tenant:
             ws = make_workspace(tenant)

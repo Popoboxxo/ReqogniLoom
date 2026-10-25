@@ -52,7 +52,14 @@ from typing import Any
 
 from django.core.cache import cache
 
-from memory.backends import VALID_DERIVATION_STATUSES, MemoryHealth, get_memory_backend
+from dataclasses import asdict
+
+from memory.backends import (
+    VALID_DERIVATION_STATUSES,
+    MemoryCapabilities,
+    MemoryHealth,
+    get_memory_backend,
+)
 
 #: Short enough that a backend recovering (or going down) is reflected quickly,
 #: long enough that the honcho network probe does not run per request.
@@ -273,6 +280,15 @@ def envelope() -> dict[str, Any]:
     (``MemoryDigest.derivation_status``), never on this cached envelope.
     """
     health = memory_health()
+    # T-A0b-1: additive capability block. Existing keys stay byte-identical;
+    # ``scopes`` is normalised to a list so the JSON shape is stable (asdict
+    # keeps the tuple).
+    # A test double / third-party backend may predate the declaration; the
+    # declared caps are then unknowable, so report the conservative default
+    # instead of turning a health read into a 500.
+    declared = getattr(get_memory_backend(), "capabilities", None)
+    capabilities = asdict(declared if declared is not None else MemoryCapabilities())
+    capabilities["scopes"] = list(capabilities["scopes"])
     return {
         "backend": health.backend,
         "ok": health.ok,
@@ -281,6 +297,7 @@ def envelope() -> dict[str, Any]:
         "digest_available": digest_available(),
         "ask_available": ask_available(),
         "derivation_status": derivation_status(),
+        "capabilities": capabilities,
     }
 
 

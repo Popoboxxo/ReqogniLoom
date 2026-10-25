@@ -59,6 +59,7 @@ from memory.backends import (
     _DIGEST_MAX_FACTS,
     MemoryAnswer,
     MemoryBackend,
+    MemoryCapabilities,
     MemoryDigest,
     MemoryEntryId,
     MemoryEntryRef,
@@ -276,7 +277,7 @@ class QdrantMemoryBackend(MemoryBackend):
     """
 
     #: Qdrant has no generative/dialectic surface: :meth:`ask` degrades by design.
-    ask_available = False
+    capabilities = MemoryCapabilities(dialectic=False)
 
     #: No deriver of any kind -- every point is exactly the written vector, so
     #: :meth:`digest` answers ``unsupported`` (mirrors pgvector).

@@ -210,7 +210,8 @@ def _memory_query_text(data_kwargs: dict[str, Any]) -> str:
     """Build the retrieval query for the auto-injected memory context.
 
     Joins every non-empty string data value the caller supplied, truncated to
-    :data:`MEMORY_QUERY_MAX_CHARS` so a huge payload (e.g. a full requirement
+    the active backend's ``max_query_chars`` (falling back to
+    :data:`MEMORY_QUERY_MAX_CHARS`) so a huge payload (e.g. a full requirement
     bundle) cannot turn a prompt render into an unbounded embedding call.
     """
     parts = [
@@ -218,7 +219,16 @@ def _memory_query_text(data_kwargs: dict[str, Any]) -> str:
         for value in data_kwargs.values()
         if isinstance(value, str) and value.strip()
     ]
-    return "\n".join(parts)[:MEMORY_QUERY_MAX_CHARS]
+    # T-A0b-2: the bound is declared by the active backend. Prompt rendering is
+    # best-effort, so an unresolvable backend falls back to the historical
+    # constant rather than failing the render.
+    try:
+        from memory.backends import active_memory_capabilities
+
+        limit = active_memory_capabilities().max_query_chars
+    except Exception:  # noqa: BLE001 - rendering must not fail on config lookup
+        limit = MEMORY_QUERY_MAX_CHARS
+    return "\n".join(parts)[:limit]
 
 
 def _auto_memory_context(
