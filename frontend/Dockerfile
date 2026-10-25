@@ -41,7 +41,7 @@ RUN VITE_API_BASE_URL=$VITE_API_BASE_URL \
     npm run build
 
 # Production serve stage (nginx)
-FROM nginx:1.27-alpine@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10 AS production
+FROM nginx:1.31-alpine@sha256:a3554c0d0b48177b1413c26e01f695334428020d9df01243fbae3e11cfd17417 AS production
 
 # The digest above freezes the base image, but Alpine's rolling apk repo
 # still ships security patches (e.g. openssl, c-ares) between the base
