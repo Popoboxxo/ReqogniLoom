@@ -72,42 +72,35 @@ def _in_ci() -> bool:
 
 def _config_payload(
     slot: str,
-    scenarios: list[PromptScenario],
-    rendered: dict[str, str],
+    scenario: PromptScenario,
+    rendered: str,
     *,
     provider: str,
     deep: bool,
 ) -> dict[str, Any]:
-    """Build one ``<slot>.promptfooconfig.yaml`` document."""
-    tests = []
-    for scenario in scenarios:
-        assertions = list(scenario.asserts)
-        if deep:
-            assertions.extend(scenario.deep_asserts)
-        tests.append(
-            {
-                "description": scenario.name,
-                # ``options.prompt`` binds a test to exactly one rendered
-                # prompt id (one config carries one prompt per scenario).
-                "options": {"prompt": f"{slot}::{scenario.name}"},
-                "assert": assertions,
-            }
-        )
-    return {
-        "description": f"reqogniloom prompt slot {slot}",
-        "prompts": [
-            {"id": f"{slot}::{scenario.name}", "raw": rendered[scenario.name]}
-            for scenario in scenarios
-        ],
-        "providers": [provider],
-        "tests": tests,
-    }
+    """Build one config for exactly one ``(slot, scenario)`` pair.
 
+    One prompt and one test per file is deliberate: promptfoo evaluates the
+    cross-product of ``prompts`` × ``tests`` within a config, so a file holding
+    two scenarios ran every assertion against both prompts (measured: 1,341 of
+    1,444 cases failed in CI even though the rendered text was correct). A
+    per-scenario file makes the pairing structural; the job then evaluates each
+    file separately.
+    """
+    assertions = list(scenario.asserts)
+    if deep:
+        assertions.extend(scenario.deep_asserts)
+    return {
+        "description": f"reqogniloom prompt {slot}::{scenario.name}",
+        "prompts": [{"id": f"{slot}::{scenario.name}", "raw": rendered}],
+        "providers": [provider],
+        "tests": [{"description": scenario.name, "assert": assertions}],
+    }
 
 class Command(BaseCommand):
     help = (
         "Render every prompt-regression scenario and write one promptfoo "
-        "config per prompt slot (LLM-free, provider 'echo')."
+        "config per (slot, scenario) pair (LLM-free, provider 'echo')."
     )
 
     def add_arguments(self, parser) -> None:
@@ -222,24 +215,28 @@ class Command(BaseCommand):
 
                 if not options["check"]:
                     out_dir.mkdir(parents=True, exist_ok=True)
-                    payload = _config_payload(
-                        name,
-                        scenarios,
-                        rendered,
-                        provider=options["provider"],
-                        deep=options["deep"],
-                    )
-                    target = out_dir / f"{name}.promptfooconfig.yaml"
-                    target.write_text(
-                        yaml.safe_dump(
-                            payload,
-                            sort_keys=False,
-                            allow_unicode=True,
-                            default_flow_style=False,
-                            width=4096,
-                        ),
-                        encoding="utf-8",
-                    )
+                    for scenario in scenarios:
+                        payload = _config_payload(
+                            name,
+                            scenario,
+                            rendered[scenario.name],
+                            provider=options["provider"],
+                            deep=options["deep"],
+                        )
+                        target = (
+                            out_dir
+                            / f"{name}__{scenario.name}.promptfooconfig.yaml"
+                        )
+                        target.write_text(
+                            yaml.safe_dump(
+                                payload,
+                                sort_keys=False,
+                                allow_unicode=True,
+                                default_flow_style=False,
+                                width=4096,
+                            ),
+                            encoding="utf-8",
+                        )
                 exported += 1
         finally:
             TenantContext.clear_tenant()

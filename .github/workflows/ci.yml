@@ -523,11 +523,21 @@ jobs:
           PROMPTFOO_DISABLE_TEMPLATING: "true"
           PROMPTFOO_DISABLE_TELEMETRY: "1"
           PROMPTFOO_DISABLE_UPDATE: "1"
+        # One eval per generated config. promptfoo evaluates the cross-product
+        # of prompts x tests inside a config, so the exporter emits exactly one
+        # (prompt, test) pair per file; merging the files back would recreate
+        # the false failures (1,341/1,444 in the first CI run).
         run: |
-          promptfoo/node_modules/.bin/promptfoo eval \
-            -c promptfoo/generated/*.promptfooconfig.yaml \
-            --no-cache --no-share \
-            -o promptfoo/results.json
+          set -o pipefail
+          mkdir -p promptfoo/results
+          status=0
+          for config in promptfoo/generated/*.promptfooconfig.yaml; do
+            name="$(basename "$config" .promptfooconfig.yaml)"
+            promptfoo/node_modules/.bin/promptfoo eval \
+              -c "$config" --no-cache --no-share \
+              -o "promptfoo/results/${name}.json" || status=1
+          done
+          exit "$status"
 
       - name: Upload generated configs and results
         if: always()
@@ -536,7 +546,7 @@ jobs:
           name: promptfoo-regression
           path: |
             promptfoo/generated
-            promptfoo/results.json
+            promptfoo/results
           if-no-files-found: ignore
 
   # W1: actionlint gate over the workflow files. No path arguments: implicit

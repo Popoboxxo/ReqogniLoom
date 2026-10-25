@@ -32,30 +32,34 @@ def _run(tmp_path: Path, *args: str) -> str:
 
 
 def _slot_of(path: Path) -> str:
-    return path.name.removesuffix(".promptfooconfig.yaml")
+    # <slot>__<scenario>.promptfooconfig.yaml — one file per scenario (a
+    # promptfoo config evaluates prompts × tests, so pairing must be structural).
+    return path.name.removesuffix(".promptfooconfig.yaml").rsplit("__", 1)[0]
 
 
-def test_writes_one_config_per_slot(tmp_path, monkeypatch):
+def test_writes_one_config_per_scenario(tmp_path, monkeypatch):
     monkeypatch.delenv("CI", raising=False)
 
     summary = _run(tmp_path)
 
     files = sorted(tmp_path.glob("*.promptfooconfig.yaml"))
-    assert len(files) == len(get_prompt_slots())
+    assert files
     assert {_slot_of(path) for path in files} == set(get_prompt_slots())
 
     for path in files:
         config = yaml.safe_load(path.read_text(encoding="utf-8"))
         slot = _slot_of(path)
         assert config["providers"] == ["echo"]
-        assert config["prompts"]
+        # Exactly one prompt and one test: promptfoo runs their cross-product.
+        assert len(config["prompts"]) == 1
+        assert len(config["tests"]) == 1
+        prompt = config["prompts"][0]
+        assert prompt["id"].startswith(f"{slot}::")
         declared = get_slot_data_variables(slot)
-        for prompt in config["prompts"]:
-            assert prompt["id"].startswith(f"{slot}::")
-            for variable in declared:
-                assert "{" + variable + "}" not in prompt["raw"]
-        assert "0 missing cases" in summary
-        assert "0 unresolved placeholders" in summary
+        for variable in declared:
+            assert "{" + variable + "}" not in prompt["raw"]
+    assert "0 missing cases" in summary
+    assert "0 unresolved placeholders" in summary
 
 
 def test_check_writes_nothing_and_reports_a_complete_set(tmp_path, monkeypatch):
@@ -103,21 +107,16 @@ def test_deep_asserts_only_with_deep(tmp_path, monkeypatch):
     _run(shallow_dir)
     _run(deep_dir, "--deep", "--provider", "echo")
 
-    shallow = yaml.safe_load(
-        (shallow_dir / "need_to_sysreq.promptfooconfig.yaml").read_text(encoding="utf-8")
-    )
-    deep = yaml.safe_load(
-        (deep_dir / "need_to_sysreq.promptfooconfig.yaml").read_text(encoding="utf-8")
-    )
+    def _assertion_types(directory: Path) -> set[str]:
+        types: set[str] = set()
+        for path in directory.glob("need_to_sysreq__*.promptfooconfig.yaml"):
+            config = yaml.safe_load(path.read_text(encoding="utf-8"))
+            for test in config["tests"]:
+                types.update(assertion["type"] for assertion in test["assert"])
+        return types
 
-    shallow_types = {
-        assertion["type"]
-        for test in shallow["tests"]
-        for assertion in test["assert"]
-    }
-    deep_types = {
-        assertion["type"] for test in deep["tests"] for assertion in test["assert"]
-    }
+    shallow_types = _assertion_types(shallow_dir)
+    deep_types = _assertion_types(deep_dir)
 
     assert "llm-rubric" not in shallow_types
     assert "llm-rubric" in deep_types
