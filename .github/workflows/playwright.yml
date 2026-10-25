@@ -1,10 +1,19 @@
 name: Playwright E2E Tests
 
 on:
+  # Same rationale as ci.yml: a feature-branch push with an open PR started a
+  # second identical 4-shard matrix (push + pull_request).
   push:
-    branches: [main, feat/**]
+    branches: [main]
   pull_request:
     branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
   e2e:
@@ -34,6 +43,7 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+          --tmpfs /var/lib/postgresql/data:rw
         ports:
           - 5432:5432
       redis:
@@ -53,6 +63,14 @@ jobs:
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: '3.12'
+
+      - name: Cache pip packages
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('backend/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
 
       - name: Install backend dependencies
         working-directory: backend
@@ -164,6 +182,9 @@ jobs:
           ALLOWED_HOSTS: localhost,127.0.0.1
           DEFAULT_TENANT_ID: '1'
           LLM_PROVIDER: mock
+          OMP_NUM_THREADS: '1'
+          OPENBLAS_NUM_THREADS: '1'
+          MKL_NUM_THREADS: '1'
           VITE_API_BASE_URL: http://localhost:8000
         run: python manage.py runserver 0.0.0.0:8000 &
 
@@ -204,7 +225,10 @@ jobs:
 
       - name: Install frontend dependencies
         working-directory: frontend
-        run: npm install
+        # No --ignore-scripts here: Vite/esbuild/rollup resolve their platform
+        # binaries through dependency install scripts. Reproducibility comes
+        # from `npm ci` (lockfile-exact), not from skipping scripts.
+        run: npm ci
 
       - name: Start Vite frontend
         working-directory: frontend
@@ -214,7 +238,15 @@ jobs:
 
       - name: Install e2e dependencies
         working-directory: e2e
-        run: npm install
+        run: npm ci --ignore-scripts
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('e2e/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
 
       - name: Install Playwright browsers
         working-directory: e2e
@@ -236,6 +268,9 @@ jobs:
       - name: Verify prod Docker build (smoke test)
         # Build the frontend production Docker image to ensure no build-time regressions
         # fix #149: tag with the commit SHA instead of mutable :latest for traceability/rollback
+        # Only shard 1: the artifact is identical and --no-cache made this a
+        # 4x repetition of the most expensive non-test step.
+        if: matrix.shard == 1
         run: docker build -f frontend/Dockerfile --target production frontend --no-cache -t reqflow-frontend:${{ github.sha }}
 
       - name: Run Playwright E2E tests
@@ -246,7 +281,9 @@ jobs:
         run: npm run test:e2e -- --shard=${{ matrix.shard }}/${{ strategy.job-total }}
 
       - name: Upload Playwright report
-        if: always()
+        # Failure only: uploading a report for a green run burned time and once
+        # failed transiently, turning a green test run into a red job.
+        if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: playwright-report-${{ matrix.shard }}
