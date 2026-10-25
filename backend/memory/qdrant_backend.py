@@ -54,10 +54,7 @@ from uuid import UUID
 from django.core.exceptions import ImproperlyConfigured
 from django.utils import timezone
 
-from llm_adapter.embedding_service import (
-    generate_embedding,
-    generate_embedding_with_model,
-)
+from llm_adapter.embedding_service import generate_embedding
 from memory.backends import (
     _DIGEST_MAX_FACTS,
     MemoryAnswer,
@@ -70,6 +67,7 @@ from memory.backends import (
     _maybe_uuid,
     _ref_from_entry,
     _render_digest_facts,
+    _safe_generate_embedding_with_model,
     _scope_filter,
     _tenant_context,
     register_memory_backend,
@@ -215,26 +213,6 @@ def _safe_generate_embedding(text: str) -> list[float] | None:
         return generate_embedding(text)
     except Exception:  # noqa: BLE001 - best-effort, see docstring
         return None
-
-
-def _safe_generate_embedding_with_model(
-    text: str,
-) -> tuple[list[float] | None, str | None]:
-    """Best-effort local embedding plus its provenance id (T-A0-6).
-
-    The canonical ``mem_memory_entry`` row this backend writes is the same table
-    the pgvector backend writes, so it must carry the same provenance: leaving
-    the column ``NULL`` would make a freshly written vector indistinguishable
-    from a legacy pre-T-A0-5 row (which both read modes keep visible). ``None``
-    whenever no vector was produced, so a model id is never stored alone.
-    """
-    try:
-        vector, model_id = generate_embedding_with_model(text)
-    except Exception:  # noqa: BLE001 - best-effort, see _safe_generate_embedding
-        return None, None
-    if vector is None:
-        return None, None
-    return vector, model_id
 
 
 def _distance_from_score(score: Any) -> float | None:

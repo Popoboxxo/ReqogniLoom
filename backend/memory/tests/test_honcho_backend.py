@@ -516,6 +516,59 @@ class TestHonchoQuery:
 
         assert backend.query(tenant_id, "user", user_id, "q")[0].distance is None
 
+    def test_query_withholds_the_distance_for_a_foreign_model_row(self, monkeypatch):
+        """T-A0-6: a vector from another model lives in another vector space.
+
+        A cosine distance computed against it is meaningless, so it is not
+        reported -- only the number is withheld; ordering and membership still
+        come from the engine. A current-model row in the same result set keeps
+        its real distance, which is what proves the branch actually
+        distinguishes instead of always returning ``None``.
+        """
+        from llm_adapter.embedding_service import current_embedding_model_id
+        from memory.models import MemoryEntry
+        from persistence.embedding_dimensions import EMBEDDING_VECTOR_DIMENSIONS
+
+        vector = [0.1] * EMBEDDING_VECTOR_DIMENSIONS
+        # The query embedding path is what the distance is computed from; the
+        # provider itself is irrelevant here, so pin it deterministically.
+        monkeypatch.setattr(
+            "memory.honcho_backend._safe_generate_embedding", lambda text: vector
+        )
+
+        with active_tenant() as tenant:
+            backend, client = _backend_with_mock_client()
+            user = make_user(tenant)
+            peer = client.peer(f"{tenant.id}_{user.id}")
+            peer.conclusions.query.return_value = [
+                _conclusion("foreign", "old fact"),
+                _conclusion("current", "new fact"),
+            ]
+            MemoryEntry.objects.create(
+                tenant_id=tenant.id,
+                content="old fact",
+                embedding=vector,
+                embedding_model="mock:previous-model:384",
+                backend_ref="foreign",
+                scope="user",
+                user_id=user.id,
+            )
+            MemoryEntry.objects.create(
+                tenant_id=tenant.id,
+                content="new fact",
+                embedding=vector,
+                embedding_model=current_embedding_model_id(),
+                backend_ref="current",
+                scope="user",
+                user_id=user.id,
+            )
+
+            refs = backend.query(tenant.id, "user", user.id, "q", top_k=2)
+
+        by_ref = {ref.backend_ref: ref for ref in refs}
+        assert by_ref["foreign"].distance is None
+        assert by_ref["current"].distance == pytest.approx(0.0, abs=1e-6)
+
     def test_query_clamps_top_k_to_honcho_max(self):
         backend, client = _backend_with_mock_client()
         tenant_id, user_id = uuid4(), uuid4()

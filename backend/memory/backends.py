@@ -594,6 +594,32 @@ def _maybe_uuid(value: object) -> UUID | None:
         return None
 
 
+def _safe_generate_embedding_with_model(
+    text: str,
+) -> tuple[list[float] | None, str | None]:
+    """Best-effort local embedding plus its provenance id (T-A0-6).
+
+    Shared by every backend that writes the canonical ``mem_memory_entry`` row
+    (pgvector, Honcho, Qdrant): the row carries ``embedding_model`` alongside the
+    vector, so a freshly written vector can never be mistaken for a legacy
+    pre-T-A0-5 row (``NULL``, which both read modes keep visible). It used to be
+    duplicated verbatim in the Honcho and Qdrant modules; one copy keeps the
+    fail-open contract identical everywhere.
+
+    Fail-open, same as the write path it feeds: the external engine's write must
+    never fail because a LOCAL embedding provider is unavailable, so every error
+    degrades to ``(None, None)``. ``None`` for the id whenever no vector was
+    produced, so a model id is never stored alone.
+    """
+    try:
+        vector, model_id = generate_embedding_with_model(text)
+    except Exception:  # noqa: BLE001 - best-effort, see docstring
+        return None, None
+    if vector is None:
+        return None, None
+    return vector, model_id
+
+
 def _cosine_distance(a: list | None, b: list | None) -> float | None:
     """Return cosine distance (``1 - cosine similarity``) between two vectors.
 
