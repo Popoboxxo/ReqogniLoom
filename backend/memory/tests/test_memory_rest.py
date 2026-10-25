@@ -2060,3 +2060,134 @@ class TestMemoryConsolidationCountersRest:
             ws = make_workspace(tenant)
             _user, token = editor_user_and_token(tenant, ws)
             assert _client_for(token).get(self._OVERVIEW_URL).status_code == 403
+
+
+@pytest.mark.django_db
+class TestBackendNeutralSettings:
+    """Plan A T-A0b-3: the ``backends`` object, validation and secret handling."""
+
+    def _client(self, tenant):
+        _user, token = _superuser_and_token(tenant)
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+        return client
+
+    def test_get_exposes_schema_values_and_capabilities(self, monkeypatch):
+        monkeypatch.setenv("HONCHO_DIALECTIC_LEVEL", "low")
+        with active_tenant() as tenant:
+            response = self._client(tenant).get("/api/v1/system/memory-settings/")
+            assert response.status_code == 200
+            honcho = response.data["backends"]["honcho"]
+            assert any(field["name"] == "dialectic_level" for field in honcho["schema"])
+            assert honcho["values"]["dialectic_level"] == "low"
+            assert honcho["capabilities"]["dialectic"] is True
+            assert honcho["secrets_set"]["api_key"] is False
+
+    def test_put_dialectic_level_persists_and_is_reported(self):
+        with active_tenant() as tenant:
+            client = self._client(tenant)
+            response = client.put(
+                "/api/v1/system/memory-settings/",
+                {"backend_options": {"honcho": {"dialectic_level": "medium"}}},
+                format="json",
+            )
+            assert response.status_code == 200, response.data
+            honcho = response.data["backends"]["honcho"]
+            assert honcho["values"]["dialectic_level"] == "medium"
+            assert honcho["is_override"]["dialectic_level"] is True
+
+            refreshed = client.get("/api/v1/system/memory-settings/")
+            assert refreshed.data["backends"]["honcho"]["values"]["dialectic_level"] == "medium"
+
+    def test_put_unknown_backend_option_is_400_not_silently_dropped(self):
+        with active_tenant() as tenant:
+            response = self._client(tenant).put(
+                "/api/v1/system/memory-settings/",
+                {"backend_options": {"honcho": {"no_such_field": 1}}},
+                format="json",
+            )
+            assert response.status_code == 400
+            details = response.data["error"]["details"]
+            assert any(
+                item["field"] == "backend_options.honcho.no_such_field" for item in details
+            )
+
+    def test_put_secret_in_backend_options_is_400(self):
+        with active_tenant() as tenant:
+            response = self._client(tenant).put(
+                "/api/v1/system/memory-settings/",
+                {"backend_options": {"honcho": {"api_key": "leak"}}},
+                format="json",
+            )
+            assert response.status_code == 400
+            details = response.data["error"]["details"]
+            assert any(
+                item["field"] == "backend_options.honcho.api_key" for item in details
+            )
+
+    def test_secret_is_encrypted_and_never_returned(self):
+        import json as _json
+
+        from memory.models import SystemMemorySettings
+
+        with active_tenant() as tenant:
+            client = self._client(tenant)
+            response = client.put(
+                "/api/v1/system/memory-settings/",
+                {"backend_secrets": {"honcho": {"api_key": "sk-never-returned"}}},
+                format="json",
+            )
+            assert response.status_code == 200, response.data
+            assert response.data["backends"]["honcho"]["secrets_set"]["api_key"] is True
+            assert "sk-never-returned" not in _json.dumps(response.data)
+
+            get_response = client.get("/api/v1/system/memory-settings/")
+            assert "sk-never-returned" not in _json.dumps(get_response.data)
+
+            row = SystemMemorySettings.objects.first()
+            assert row.backend_secrets["honcho"]["api_key"] == "sk-never-returned"
+            assert "sk-never-returned" not in (row.backend_secrets_encrypted or "")
+
+    def test_backend_options_dual_write_the_legacy_columns(self):
+        from memory.models import SystemMemorySettings
+
+        with active_tenant() as tenant:
+            response = self._client(tenant).put(
+                "/api/v1/system/memory-settings/",
+                {
+                    "backend_options": {
+                        "honcho": {"base_url": "http://honcho.test:8000"},
+                        "qdrant": {"base_url": "http://qdrant.test:6333"},
+                    }
+                },
+                format="json",
+            )
+            assert response.status_code == 200, response.data
+            row = SystemMemorySettings.objects.first()
+            assert row.honcho_base_url == "http://honcho.test:8000"
+            assert row.qdrant_base_url == "http://qdrant.test:6333"
+
+    def test_legacy_honcho_name_fields_are_accepted_and_logged(self, caplog):
+        with active_tenant() as tenant:
+            with caplog.at_level("WARNING"):
+                response = self._client(tenant).put(
+                    "/api/v1/system/memory-settings/",
+                    {"honcho_peer_name": "peer-x"},
+                    format="json",
+                )
+            assert response.status_code == 200, response.data
+            assert any("honcho_peer_name" in message for message in caplog.messages)
+
+    def test_audit_change_reason_redacts_secrets(self):
+        from audit.models import AuditEntry
+
+        with active_tenant() as tenant:
+            response = self._client(tenant).put(
+                "/api/v1/system/memory-settings/",
+                {"backend_secrets": {"honcho": {"api_key": "sk-audit-secret"}}},
+                format="json",
+            )
+            assert response.status_code == 200, response.data
+            entry = AuditEntry.objects.order_by("-id").first()
+            assert entry is not None
+            assert "sk-audit-secret" not in (entry.change_reason or "")

@@ -107,7 +107,10 @@ from application.base import NotFoundError, PermissionDeniedError, ValidationErr
 from application.memory_admin_service import MemoryAdminService
 from application.memory_entry_service import MAX_PAGE_SIZE as MEMORY_MAX_PAGE_SIZE
 from application.memory_entry_service import VALID_SCOPES, MemoryEntryService
-from application.memory_settings_service import MemorySettingsService
+from application.memory_settings_service import (
+    BackendSettingsValidationError,
+    MemorySettingsService,
+)
 from auth_tenancy.rest import HasOperationPermission
 from auth_tenancy.services import AuthorizationService
 from memory.health import envelope
@@ -348,6 +351,12 @@ class SystemMemorySettingsWriteSerializer(serializers.Serializer):
     memory_write_rate_limit_per_hour = serializers.IntegerField(
         required=False, allow_null=True, min_value=0
     )
+    # T-A0b-3: backend-neutral maps. Per-field validation (types, choices,
+    # secret routing) lives in MemorySettingsService, which owns the registry;
+    # the view maps its BackendSettingsValidationError to a 400 with the exact
+    # ``backend_options.<backend>.<field>`` paths.
+    backend_options = serializers.JSONField(required=False)
+    backend_secrets = serializers.JSONField(required=False, write_only=True)
 
 
 def _with_env_fallback(effective: dict) -> dict:
@@ -527,9 +536,15 @@ class SystemMemorySettingsView(APIView):
                 ),
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        result = MemorySettingsService().update_settings(
-            dict(ser.validated_data), user_id=ctx.user_id
-        )
+        try:
+            result = MemorySettingsService().update_settings(
+                dict(ser.validated_data), user_id=ctx.user_id
+            )
+        except BackendSettingsValidationError as exc:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, details=exc.details),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         return Response(_with_env_fallback(result))
 
 

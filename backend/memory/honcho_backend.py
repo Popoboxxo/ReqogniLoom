@@ -254,6 +254,7 @@ from memory.backends import (
     MemoryDigest,
     MemoryEntryId,
     MemoryEntryRef,
+    BackendSettingField,
     MemoryHealth,
     VALID_MEMORY_SCOPES,
     _cosine_distance,
@@ -530,6 +531,28 @@ class HonchoMemoryBackend(MemoryBackend):
     #: (T-A4-3/T-A4-4), which is why they are declared ``False`` here rather
     #: than silently omitted. Summaries/webhooks have no port method yet, so
     #: they stay ``False`` even though the upstream engine has them.
+    settings_key = "honcho"
+    settings_schema = (
+        BackendSettingField("base_url", "str", "HONCHO_BASE_URL"),
+        BackendSettingField("api_key", "secret", "HONCHO_API_KEY"),
+        BackendSettingField(
+            "dialectic_level",
+            "choice",
+            "HONCHO_DIALECTIC_LEVEL",
+            default=None,
+            choices=("minimal", "low", "medium", "high", "max"),
+            label_key="systemSettings.memory.backend.honcho.dialectic_level",
+        ),
+        BackendSettingField(
+            "session_ttl",
+            "int",
+            "HONCHO_SESSION_TTL",
+            default=None,
+            min_value=0,
+            label_key="systemSettings.memory.backend.honcho.session_ttl",
+        ),
+    )
+
     capabilities = MemoryCapabilities(
         dialectic=True,
         search=True,
@@ -1433,6 +1456,10 @@ class HonchoMemoryBackend(MemoryBackend):
             peer = client.peer(self._scope_peer_id(tenant_id, scope, scope_id))
             session_id = self._scope_session_id(tenant_id, scope, scope_id)
             kwargs: dict = {}
+            if reasoning_level is None:
+                # T-A0b-3: the admin-configured level is the default; an
+                # explicit caller argument still wins.
+                reasoning_level = self.effective_settings().get("dialectic_level")
             if reasoning_level:
                 kwargs["reasoning_level"] = reasoning_level
             answer = peer.chat(query, session=session_id, **kwargs)

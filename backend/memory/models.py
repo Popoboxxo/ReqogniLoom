@@ -23,6 +23,7 @@ default state" convention already used by ``LlmSettings``.
 ``SystemMemorySettings`` (Memory Admin UI Phase 3) is the process-wide
 singleton overriding the memory-related env vars.
 """
+import json
 from uuid import UUID
 
 from django.db import models
@@ -212,6 +213,15 @@ class SystemMemorySettings(AuditableModel):
     # directly -- use the qdrant_api_key property below.
     qdrant_api_key_encrypted = models.TextField(blank=True, default="")
 
+    # -- backend-neutral settings (Plan A T-A0b-3, #1316) ----------------
+    # Non-secret values per backend: ``{"honcho": {"dialectic_level": "low"},
+    # "qdrant": {...}}``. Never holds a ``secret`` field -- those live only in
+    # ``backend_secrets_encrypted`` so a GET can never leak one.
+    backend_options = models.JSONField(default=dict, blank=True)
+    # Fernet ciphertext over a JSON object of the same shape, holding ONLY the
+    # declared ``secret`` fields. Never read directly -- use ``backend_secrets``.
+    backend_secrets_encrypted = models.TextField(blank=True, default="")
+
     class Meta:
         db_table = "mem_system_memory_settings"
 
@@ -234,3 +244,21 @@ class SystemMemorySettings(AuditableModel):
     @qdrant_api_key.setter
     def qdrant_api_key(self, value: str) -> None:
         self.qdrant_api_key_encrypted = encrypt_secret(value or "")
+
+    @property
+    def backend_secrets(self) -> dict:
+        """Decrypt the per-backend secret map. ``{}`` when unset/corrupt."""
+        raw = decrypt_secret(self.backend_secrets_encrypted or "")
+        if not raw:
+            return {}
+        try:
+            value = json.loads(raw)
+        except (TypeError, ValueError):
+            return {}
+        return value if isinstance(value, dict) else {}
+
+    @backend_secrets.setter
+    def backend_secrets(self, value: dict) -> None:
+        self.backend_secrets_encrypted = encrypt_secret(
+            json.dumps(value or {}, sort_keys=True, separators=(",", ":"))
+        )

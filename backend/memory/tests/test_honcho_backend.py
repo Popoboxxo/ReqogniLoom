@@ -1243,7 +1243,12 @@ class TestHonchoAsk:
             reasoning_level="high",
         )
 
-    def test_ask_omits_reasoning_level_when_not_given(self):
+    def test_ask_omits_reasoning_level_when_not_given(self, monkeypatch):
+        monkeypatch.setattr(
+            HonchoMemoryBackend,
+            "effective_settings",
+            classmethod(lambda cls: {"dialectic_level": None}),
+        )
         backend, client = _backend_with_mock_client()
         tenant_id, user_id = uuid4(), uuid4()
         peer = client.peer(f"{tenant_id}_{user_id}")
@@ -1254,6 +1259,22 @@ class TestHonchoAsk:
         assert peer.chat.call_args.kwargs == {
             "session": backend._scope_session_id(tenant_id, "user", user_id)
         }
+
+    def test_ask_uses_the_configured_dialectic_level_as_default(self, monkeypatch):
+        """T-A0b-3: admin-configured level is the default, caller still wins."""
+        monkeypatch.setattr(
+            HonchoMemoryBackend,
+            "effective_settings",
+            classmethod(lambda cls: {"dialectic_level": "medium"}),
+        )
+        backend, client = _backend_with_mock_client()
+        tenant_id, user_id = uuid4(), uuid4()
+        peer = client.peer(f"{tenant_id}_{user_id}")
+        peer.chat.return_value = "yes"
+
+        backend.ask(tenant_id, "user", user_id, "q?")
+
+        assert peer.chat.call_args.kwargs["reasoning_level"] == "medium"
 
     def test_ask_degrades_when_the_engine_raises(self):
         backend, client = _backend_with_mock_client()

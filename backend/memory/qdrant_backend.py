@@ -57,6 +57,7 @@ from django.utils import timezone
 from llm_adapter.embedding_service import generate_embedding
 from memory.backends import (
     _DIGEST_MAX_FACTS,
+    BackendSettingField,
     MemoryAnswer,
     MemoryBackend,
     MemoryCapabilities,
@@ -76,6 +77,11 @@ from memory.backends import (
 from memory.models import MemoryEntry
 from persistence.embedding_dimensions import EMBEDDING_VECTOR_DIMENSIONS
 from persistence.qdrant_config import (
+    DEFAULT_QDRANT_COLLECTION_PREFIX,
+    DEFAULT_QDRANT_DISTANCE,
+    DEFAULT_QDRANT_HNSW_EF_CONSTRUCT,
+    DEFAULT_QDRANT_HNSW_M,
+    DEFAULT_QDRANT_TIMEOUT,
     QDRANT_DISTANCE_ATTRS,
     QdrantConfig,
     build_collection_name,
@@ -278,6 +284,42 @@ class QdrantMemoryBackend(MemoryBackend):
 
     #: Qdrant has no generative/dialectic surface: :meth:`ask` degrades by design.
     capabilities = MemoryCapabilities(dialectic=False)
+
+    settings_key = "qdrant"
+    settings_schema = (
+        BackendSettingField("base_url", "str", "QDRANT_BASE_URL"),
+        BackendSettingField(
+            "collection_prefix",
+            "str",
+            "QDRANT_COLLECTION_PREFIX",
+            default=DEFAULT_QDRANT_COLLECTION_PREFIX,
+            max_length=64,
+        ),
+        BackendSettingField(
+            "distance",
+            "choice",
+            "QDRANT_DISTANCE",
+            default=DEFAULT_QDRANT_DISTANCE,
+            choices=tuple(QDRANT_DISTANCE_ATTRS),
+        ),
+        BackendSettingField(
+            "timeout", "float", "QDRANT_TIMEOUT", default=DEFAULT_QDRANT_TIMEOUT, min_value=0.1
+        ),
+        BackendSettingField(
+            "hnsw_m", "int", "QDRANT_HNSW_M", default=DEFAULT_QDRANT_HNSW_M, min_value=1
+        ),
+        BackendSettingField(
+            "hnsw_ef_construct",
+            "int",
+            "QDRANT_HNSW_EF_CONSTRUCT",
+            default=DEFAULT_QDRANT_HNSW_EF_CONSTRUCT,
+            min_value=1,
+        ),
+        BackendSettingField(
+            "prefer_grpc", "bool", "QDRANT_PREFER_GRPC", default=False
+        ),
+        BackendSettingField("api_key", "secret", "QDRANT_API_KEY"),
+    )
 
     #: No deriver of any kind -- every point is exactly the written vector, so
     #: :meth:`digest` answers ``unsupported`` (mirrors pgvector).
