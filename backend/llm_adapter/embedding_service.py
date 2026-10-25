@@ -221,6 +221,11 @@ class MockEmbeddingProvider(EmbeddingProvider):
     # EMBEDDING_VECTOR_DIMENSIONS was 768, which triggered the write-side
     # warn_dimension_mismatch and skipped the embedding.
     dimensions = EMBEDDING_VECTOR_DIMENSIONS
+    # Not a real model, but the provenance id names one anyway: every provider
+    # resolves it the same way (``cfg.model_name or _DEFAULT_MODEL``), so
+    # ``mock:mock:<dims>`` falls out of one rule instead of the provider-name
+    # fallback in :func:`current_embedding_model_id`.
+    _DEFAULT_MODEL = "mock"
 
     def __init__(self, config: EmbeddingProviderConfig) -> None:
         self._config = config
@@ -448,17 +453,15 @@ def current_embedding_model_id() -> str:
     global _unknown_model_id_warned
     try:
         cfg = _read_config()
-        provider_cls = EMBEDDING_PROVIDER_REGISTRY.get(cfg.provider_name)
-        if provider_cls is None:
-            raise ValueError(f"unknown embedding provider: {cfg.provider_name!r}")
-        # Constructing a provider is cheap for every registered provider (no SDK
-        # load, no model download) -- it only resolves the effective model name
-        # and width the same way ``embed`` does.
-        provider = provider_cls(cfg)
+        # Resolving through the registry's own factory keeps this id and
+        # ``generate_embedding`` on ONE lookup/instantiation path: a provider
+        # that overrides its effective model name in ``__init__`` (or refuses an
+        # unknown name) behaves identically in both.
+        provider = get_embedding_provider(cfg)
         dimensions = int(getattr(provider, "dimensions", 0) or 0)
         model_name = (
             cfg.model_name
-            or getattr(provider_cls, "_DEFAULT_MODEL", None)
+            or getattr(type(provider), "_DEFAULT_MODEL", None)
             or cfg.provider_name
         )
         return f"{cfg.provider_name}:{model_name}:{dimensions}"
@@ -538,13 +541,27 @@ def note_foreign_embedding_models(queryset, *, site: str = "") -> int:
     """Warn once per process about rows embedded by a different model (#1317).
 
     Warn mode must not change a single result set, so the comparison is
-    observation only: one aggregate ``COUNT`` over *queryset* for rows whose
+    observation only: one aggregate ``COUNT`` for rows whose
     ``embedding_model`` is non-``NULL`` and differs from
     :func:`current_embedding_model_id`. The count runs at most ONCE per process
     and emits at most ONE WARNING — a per-query count on the hot search path
-    would cost more than the signal is worth, and the condition (a mixed corpus)
-    is a static property of the data, not of the query. ``/health/?verbose=1``
-    (``advisory.embedding_model_drift``) is the always-current per-table view.
+    would cost more than the signal is worth.
+
+    WHICH SCOPE IS COUNTED (deliberately not "the corpus" by default): a
+    similarity query only ever sees its caller's tenant, and an aggregate over
+    that queryset cannot say anything about the other tenants. So the count
+    follows the role's actual visibility, probed through
+    :func:`persistence.rls_visibility.count_scope`:
+
+    * role bypasses RLS (superuser / ``BYPASSRLS``) -> the model's ``unscoped``
+      manager, i.e. the whole corpus;
+    * otherwise (RLS-bound role, with or without a tenant context) -> *queryset*
+      as given, i.e. only the caller's own scope.
+
+    The log line names the scope it counted, and ``/health/?verbose=1``
+    (``advisory.embedding_model_drift``) plus
+    ``manage.py verify_embedding_dimensions --models`` remain the per-table
+    views an operator reads for the authoritative numbers.
 
     A no-op in strict mode (the rows are filtered out instead) and never raises:
     a broken count must not break a search.
@@ -563,29 +580,48 @@ def note_foreign_embedding_models(queryset, *, site: str = "") -> int:
         return 0
     if _foreign_model_sample_taken:
         return 0
-    _foreign_model_sample_taken = True
+
+    from persistence.rls_visibility import COUNT_SCOPE_CORPUS, count_scope
 
     model_id = current_embedding_model_id()
+    corpus_wide = count_scope() == COUNT_SCOPE_CORPUS
+    sample = queryset
+    if corpus_wide:
+        unscoped = getattr(queryset.model, "unscoped", None)
+        if unscoped is not None:
+            sample = unscoped.all()
+    scope_label = (
+        "the whole corpus (this role bypasses RLS)"
+        if corpus_wide
+        else "this caller's scope only (the role is RLS-bound)"
+    )
     try:
         drifting = (
-            queryset.filter(embedding__isnull=False)
+            sample.filter(embedding__isnull=False)
             .exclude(embedding_model=model_id)
             .exclude(embedding_model__isnull=True)
             .count()
         )
     except Exception as exc:  # noqa: BLE001 - the advisory must never break a read
+        # The flag is deliberately NOT set here: a transient DB error must not
+        # disable drift reporting for the rest of the process lifetime. Two
+        # concurrent first queries can therefore both count and both log — that
+        # duplicate is benign, and cheaper than a lock on the search hot path.
         logger.debug("%s: embedding-model drift count skipped: %s", site, exc)
         return 0
+    _foreign_model_sample_taken = True
 
     if drifting:
         logger.warning(
-            "%s: %d embedding row(s) were written by a different model than the "
-            "current %s; they remain visible because EMBEDDING_MODEL_STRICT "
-            "defaults to 'warn'. Set EMBEDDING_MODEL_STRICT=strict to exclude "
-            "them from similarity search, or re-embed them with "
-            "`manage.py backfill_embeddings --force` (#1317).",
+            "%s: %d embedding row(s) in %s were written by a different model "
+            "than the current %s; they remain visible because "
+            "EMBEDDING_MODEL_STRICT defaults to 'warn'. Set "
+            "EMBEDDING_MODEL_STRICT=strict to exclude them from similarity "
+            "search, or re-embed them with `manage.py backfill_embeddings "
+            "--force` (#1317).",
             site or "embedding read",
             drifting,
+            scope_label,
             model_id,
         )
     return drifting
