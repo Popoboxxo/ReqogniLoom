@@ -330,8 +330,12 @@ class TestQdrantDegradation:
     def test_write_fails_loud_without_an_embedding(self, monkeypatch):
         """#1250 branch (1): no embedding -> loud error, canonical row kept."""
         backend = _backend_with_fake_client(monkeypatch)
+        # T-A0-6: the write path now uses the provenance-carrying helper (it
+        # also stamps ``embedding_model``); "(no vector, no model id)" is the
+        # same seam this test always described.
         monkeypatch.setattr(
-            "memory.qdrant_backend._safe_generate_embedding", lambda _text: None
+            "memory.qdrant_backend._safe_generate_embedding_with_model",
+            lambda _text: (None, None),
         )
         with active_tenant() as tenant:
             user = make_user(tenant)
