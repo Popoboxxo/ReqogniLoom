@@ -1,5 +1,30 @@
 # Gitleaks configuration for ReqogniLoom (SECTRACK-03).
 #
+# TWO gates share this file:
+#
+#   1. `reqlo-api-key` — the deterministic incident rule, run by both the
+#      `dir` and the full-history `git` step in .github/workflows/ci.yml.
+#   2. `env-secret-assignment` — added by plan D / D2.6 (QR-S03). It runs as a
+#      THIRD, blocking step over the pull-request diff only, so historical test
+#      values and the repository's own placeholder docs never turn it red.
+#      Scope: literal assignments of a secret-shaped env var to a value of 12+
+#      non-whitespace characters.
+#
+# Why the diff and not the tree: the rule must catch the failure mode that
+# motivated it — a `.env.bak*` file (or a pasted line) entering a commit,
+# while `secret-scan` stayed green because it only knew `reqlo_`. Scanning the
+# whole history would additionally fire on pre-existing fixtures and docs,
+# which is not this gate's job.
+#
+# Known placeholder shapes in tracked docs (`<strong-password>`,
+# `my_secure_password`, `<generate-with-python-…>`) are allowlisted below as
+# EXACT stopwords (W0-08). They are part of the repository's own documentation,
+# so a README edit touching them must not turn the gate red — the alternative
+# (per-PR or path-wide allowlists) is what would eventually hollow the rule
+# out. Only the literal placeholder strings are exempt; a real assignment in
+# the same file still matches. Never disable the rule and never widen the path
+# allowlist to a whole directory.
+#
 # Pinned scanner: gitleaks 8.30.1. gitleaks 8.30.1 only knows the `git` and
 # `dir` subcommands; the older `detect`/`protect` commands no longer exist.
 # See .pre-commit-config.yaml (rev v8.30.1) and the CI backstop steps in
@@ -33,3 +58,52 @@ id = "reqlo-api-key"
 description = "ReqogniLoom API key (reqlo_ prefix + 40 alphanumeric characters)"
 regex = '''reqlo_[A-Za-z0-9]{40}\b'''
 keywords = ["reqlo_"]
+
+# Plan D / D2.6 (QR-S03): literal env-secret assignment, e.g.
+#   SECRET_KEY=<32 bytes of real material>
+#   HONCHO_API_KEY=...
+#   DB_PASSWORD=...
+#   BLUEPENCIL_AUTH_SECRET=... / GITHUB_TOKEN=... (W0-03)
+# Runs as a blocking step over the PR diff only (see the header).
+#
+# The variable-name alternatives are NON-capturing; the value is the only
+# capture group and is named `secret`, so gitleaks reports the assignment
+# VALUE (not the variable name). That is what makes the placeholder
+# stopwords below effective: they are compared against the secret.
+#
+# Matching shape (W0-09): optional indentation, optional `export `, then the
+# assignment. Only spaces/tabs are accepted as indentation: `\s` also matches
+# newlines, so it could bridge to a following line instead of matching the
+# line the anchor started on.
+[[rules]]
+id = "env-secret-assignment"
+description = "Literal assignment of a secret-shaped environment variable to a non-placeholder value"
+regex = '''(?m)^[ \t]*(?:export[ \t]+)?(?:SECRET_KEY|AUTH_JWT_SECRET|FIELD_ENCRYPTION_KEY|[A-Z_]*API_KEY|[A-Z_]*PASSWORD|[A-Z_]*_SECRET|[A-Z_]*_TOKEN)=(?P<secret>\S{12,})'''
+# Keywords gate which fragments the regex is evaluated against. `SECRET` and
+# `TOKEN` cover the W0-03 suffix classes (`*_SECRET`, `*_TOKEN`) and the
+# `*_KEY` variants that contain them.
+keywords = ["SECRET", "TOKEN", "API_KEY", "PASSWORD", "FIELD_ENCRYPTION_KEY"]
+
+  # Fixtures and docs legitimately contain assignment-shaped sample values.
+  # `CHANGE-ME…` is the documented placeholder of .env.example and the
+  # `…-IN-PRODUCTION…` suffix it uses.
+  [rules.allowlist]
+  paths = [
+    '''\.example$''',
+    '''(^|/)tests?/''',
+    '''(^|/)test_[^/]*\.py$''',
+    '''^e2e/''',
+  ]
+  # W0-08: exact README placeholders (README.md:274,1403,1406,1418-1420).
+  # These are literal, non-secret values tracked in the repository, so they
+  # must not be exempted per PR (the pressure that widens the rule over time)
+  # but matched by exact substring. A real value does not contain them.
+  stopwords = [
+    "CHANGE-ME",
+    "change-me",
+    "<strong-password>",
+    "my_secure_password",
+    "<generate-with-python-secrets>",
+    "<generate-with-python-cryptography-fernet>",
+  ]
+
