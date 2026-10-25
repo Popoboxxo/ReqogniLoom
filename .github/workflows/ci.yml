@@ -1,8 +1,11 @@
 name: CI Pipeline
 
 on:
+  # PRs are the gate. A feature-branch push with an open PR used to start a
+  # second, identical run (push + pull_request), doubling the queue and leaving
+  # one of the two as a CANCELLED check. Keep push for main (post-merge signal).
   push:
-    branches: [main, feat/**]
+    branches: [main]
   pull_request:
     branches: [main]
   # SEC-08 / AUD-2026-09-137: expose this pipeline as a reusable workflow so
@@ -11,6 +14,17 @@ on:
   # exact same jobs on the same ref, so "tests pass before image publish" is a
   # hard, same-run contract instead of a separate, skippable workflow run.
   workflow_call:
+
+# A new push to the same ref supersedes the previous run. Without this, stale
+# runs keep occupying runners and their checks show up as CANCELLED (which the
+# merge gate then has to explain away). Different PRs/refs keep their own runs.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Least privilege by default; jobs that need more opt in explicitly.
+permissions:
+  contents: read
 
 jobs:
   lint:
@@ -29,7 +43,7 @@ jobs:
 
       - name: Install frontend dependencies
         working-directory: frontend
-        run: npm install
+        run: npm ci
 
       - name: Run ESLint
         working-directory: frontend
@@ -43,8 +57,17 @@ jobs:
     # cold install alone takes ~8.5 min and the job was killed mid-pytest by the
     # old 10-min cap (flake on PR #943). 20 min leaves headroom for the cold
     # path; the other test sets still finish in well under 8 min.
-    timeout-minutes: 20
+    #
+    # 30 min: set-1-core crossed 20 min after the wave-0/1 suite growth. The
+    # real fix is test-level (the 362 s demo-seed test now runs in 1 s), this
+    # is the safety net; a hard timeout must never be the thing that "catches"
+    # a slow suite because a cancelled job hides which test was running.
+    timeout-minutes: 30
     strategy:
+      # One failing set must not cancel the others: the per-set verdict is the
+      # useful signal (and a cancelled sibling looks like an infrastructure
+      # problem, not a test failure).
+      fail-fast: false
       matrix:
         test-set:
           - id: set-1-core
@@ -69,6 +92,11 @@ jobs:
     services:
       postgres:
         image: pgvector/pgvector:pg16
+        # Ephemeral CI database: keep PGDATA in RAM (53 transaction=True tests
+        # TRUNCATE 100+ tables each; measured >300 s on a slow store vs 3.6 s
+        # on tmpfs). Keep rationale comments OUTSIDE the `options: >-` string:
+        # GitHub passes every token of that string verbatim to `docker create`.
+        # tmpfs startup verified locally against pgvector/pgvector:pg16.
         env:
           POSTGRES_DB: reqflow_test
           POSTGRES_USER: reqflow
@@ -78,6 +106,7 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+          --tmpfs /var/lib/postgresql/data:rw
         ports:
           - 5432:5432
 
@@ -146,6 +175,12 @@ jobs:
           ALLOWED_HOSTS: localhost,127.0.0.1
           DEFAULT_TENANT_ID: '1'
           LLM_PROVIDER: mock
+          # torch/OpenMP otherwise spawns one thread per vCPU inside a single
+          # pytest process; the MCP suite used 14 cores unattended on a dev box
+          # and starved itself. One thread is deterministic and fast here.
+          OMP_NUM_THREADS: '1'
+          OPENBLAS_NUM_THREADS: '1'
+          MKL_NUM_THREADS: '1'
           REDIS_URL: redis://localhost:6379
           # REQ-081 / issue #151: no Fernet key literal in the repository.
           # settings_test.py generates an ephemeral key per process when the
@@ -268,6 +303,7 @@ jobs:
         run: >-
           pytest docs/agent-templates dist
           scripts/test_gitignore_env.py
+          scripts/test_prompt_regression_workflow.py
 
   # AUD-2026-09 (integrations stability, #1156): the Hermes agent plugin's
   # capture-queue suite (integrations/hermes-agent-plugin/tests) was fully
@@ -361,7 +397,7 @@ jobs:
 
       - name: Install frontend dependencies
         working-directory: frontend
-        run: npm install
+        run: npm ci
 
       - name: Run Vitest
         working-directory: frontend
@@ -373,6 +409,146 @@ jobs:
           echo "Scanning frontend dependencies for known vulnerabilities..."
           npm audit --audit-level=high
         continue-on-error: false
+
+  # Plan D / D2.4 (#587, QR-S12): prompt-regression gate, ahead of Plan A WP A1.
+  #
+  # Deliberately LLM-free: export_promptfoo_configs renders every scenario
+  # through the real resolver, and promptfoo's `echo` provider returns that
+  # literal prompt (preliminary provider choice, ENT-D8 = A). A prompt change
+  # that breaks an assertion therefore fails here without a model call.
+  #
+  # No path filter: a path-filtered Required Check stays "pending" on PRs that
+  # do not touch the prompt files, which blocks every merge (index §f.2).
+  #
+  # Supply chain (QR-S12): the job holds `contents: read`, checks out without
+  # persisted credentials, never touches `secrets.*` (the Fernet test key is
+  # generated in-job and masked), and installs promptfoo from the committed
+  # lockfile via `npm ci --ignore-scripts` -- never via `npx`.
+  prompt-regression:
+    name: "Prompt Regression (promptfoo, echo)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_DB: reqflow_test
+          POSTGRES_USER: reqflow
+          POSTGRES_PASSWORD: reqflow
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    env:
+      DJANGO_SETTINGS_MODULE: reqogniloom.settings_test
+      SECRET_KEY: ci-test-secret-key
+      AUTH_JWT_SECRET: ci-test-auth-jwt-secret
+      DEBUG: 'True'
+      DB_NAME: reqflow_test
+      DB_USER: reqflow
+      DB_PASSWORD: reqflow
+      DB_APP_PASSWORD: ci-test-app-role-password
+      DB_HOST: localhost
+      DB_PORT: '5432'
+      ALLOWED_HOSTS: localhost,127.0.0.1
+      DEFAULT_TENANT_ID: '1'
+      LLM_PROVIDER: mock
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.12'
+
+      - name: Cache pip packages
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-promptfoo-${{ hashFiles('backend/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: pip install -r requirements.txt
+
+      - name: Generate an ephemeral Fernet test key
+        # No `secrets.*` in this job (QR-S12). A fresh per-run key is enough:
+        # the job only reads factory-default prompt rows.
+        run: |
+          set -euo pipefail
+          KEY="$(python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')"
+          echo "::add-mask::${KEY}"
+          echo "FIELD_ENCRYPTION_KEY=${KEY}" >> "${GITHUB_ENV}"
+
+      - name: Run Django migrations
+        working-directory: backend
+        run: python manage.py migrate --noinput
+
+      - name: Validate the prompt case set (export --check)
+        working-directory: backend
+        run: python manage.py export_promptfoo_configs --check
+
+      - name: Render the promptfoo configs
+        working-directory: backend
+        run: python manage.py export_promptfoo_configs --out ../promptfoo/generated
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: promptfoo/package-lock.json
+
+      - name: Install promptfoo from the lockfile
+        # `--ignore-scripts`: no install-time lifecycle script from a
+        # transitive dependency runs with the job's token (QR-S12).
+        run: npm ci --ignore-scripts --prefix promptfoo
+
+      - name: Evaluate the rendered prompts (LLM-free)
+        # No `--fail-on-error`: the flag does not exist in promptfoo; the CLI
+        # exits 100 on a failed test and 1 on an execution error, and either
+        # one turns the step red.
+        env:
+          PROMPTFOO_DISABLE_TEMPLATING: "true"
+          PROMPTFOO_DISABLE_TELEMETRY: "1"
+          PROMPTFOO_DISABLE_UPDATE: "1"
+        # One eval per generated config. promptfoo evaluates the cross-product
+        # of prompts x tests inside a config, so the exporter emits exactly one
+        # (prompt, test) pair per file; merging the files back would recreate
+        # the false failures (1,341/1,444 in the first CI run).
+        run: |
+          set -o pipefail
+          mkdir -p promptfoo/results
+          status=0
+          for config in promptfoo/generated/*.promptfooconfig.yaml; do
+            name="$(basename "$config" .promptfooconfig.yaml)"
+            promptfoo/node_modules/.bin/promptfoo eval \
+              -c "$config" --no-cache --no-share \
+              -o "promptfoo/results/${name}.json" || status=1
+          done
+          exit "$status"
+
+      - name: Upload generated configs and results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: promptfoo-regression
+          path: |
+            promptfoo/generated
+            promptfoo/results
+          if-no-files-found: ignore
 
   # W1: actionlint gate over the workflow files. No path arguments: implicit
   # discovery collects every file in .github/workflows, so a new workflow
