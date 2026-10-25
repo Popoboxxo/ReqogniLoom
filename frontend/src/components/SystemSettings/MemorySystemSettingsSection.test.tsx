@@ -106,7 +106,7 @@ describe("MemorySystemSettingsSection", () => {
     const backendOptions = Array.from(
       screen.getByTestId("memory-settings-backend").querySelectorAll("option")
     ).map((o) => o.value);
-    expect(backendOptions).toEqual(["pgvector", "honcho"]);
+    expect(backendOptions).toEqual(["pgvector", "honcho", "qdrant"]);
   });
 
   it("renders the 4 connection-detail fields with their loaded effective values", async () => {
@@ -322,6 +322,70 @@ describe("MemorySystemSettingsSection", () => {
     await waitFor(() => {
       expect(systemMemorySettingsApi.update).toHaveBeenCalledWith({
         memory_write_rate_limit_per_hour: 120,
+      });
+    });
+  });
+
+  it("renders backend fields from the server schema and saves them as backend_options", async () => {
+    const user = userEvent.setup();
+    const field = (
+      name: string,
+      type: "str" | "bool",
+      extra: Partial<Record<string, unknown>> = {}
+    ) => ({
+      name,
+      type,
+      env_var: null,
+      label_key: "",
+      choices: [],
+      min_value: null,
+      max_length: null,
+      default: null,
+      ...extra,
+    });
+
+    vi.mocked(systemMemorySettingsApi.get).mockResolvedValue({
+      ...SETTINGS,
+      backends: {
+        pgvector: {
+          schema: [],
+          values: {},
+          is_override: {},
+          secrets_set: {},
+          capabilities: {},
+        },
+        honcho: {
+          schema: [field("base_url", "str")],
+          values: { base_url: "http://honcho:8000" },
+          is_override: { base_url: false },
+          secrets_set: { api_key: false },
+          capabilities: {},
+        },
+        qdrant: {
+          schema: [field("collection_prefix", "str"), field("prefer_grpc", "bool")],
+          values: { collection_prefix: "reqlo", prefer_grpc: false },
+          is_override: { collection_prefix: false, prefer_grpc: false },
+          secrets_set: { api_key: false },
+          capabilities: {},
+        },
+      },
+    });
+
+    render(<MemorySystemSettingsSection />);
+
+    await screen.findByTestId("memory-system-settings-section");
+    expect(screen.getByTestId("memory-settings-honcho-base-url")).toHaveValue(
+      "http://honcho:8000"
+    );
+    const prefix = screen.getByTestId("memory-settings-qdrant-collection-prefix");
+    expect(prefix).toHaveValue("reqlo");
+    await user.clear(prefix);
+    await user.type(prefix, "reqlo2");
+    await user.click(screen.getByTestId("memory-settings-save-btn"));
+
+    await waitFor(() => {
+      expect(systemMemorySettingsApi.update).toHaveBeenCalledWith({
+        backend_options: { qdrant: { collection_prefix: "reqlo2" } },
       });
     });
   });
