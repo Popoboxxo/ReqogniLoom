@@ -352,11 +352,86 @@ class MemoryCapabilities:
     max_ask_query_chars: int = 10000
 
 
+@dataclass(frozen=True)
+class BackendSettingField:
+    """One backend setting the admin surface may persist (T-A0b-3).
+
+    ``type`` is the renderer/validator contract (``str``, ``int``, ``float``,
+    ``bool``, ``choice``, ``secret``). ``secret`` fields are NEVER read from or
+    written to ``backend_options``; they travel in the encrypted blob and are
+    only reported as ``secrets_set``.
+    """
+
+    name: str
+    type: str
+    env_var: str | None = None
+    default: Any = None
+    choices: tuple[str, ...] = ()
+    min_value: float | None = None
+    max_length: int | None = None
+    label_key: str = ""
+
+
+def _coerce_setting(field: BackendSettingField, raw: str) -> Any:
+    """Coerce an environment string to the field's declared type."""
+    if field.type == "int":
+        return int(raw)
+    if field.type == "float":
+        return float(raw)
+    if field.type == "bool":
+        return str(raw).strip().lower() in {"1", "true", "yes", "on"}
+    return raw
+
+
 class MemoryBackend(ABC):
     """Provider-agnostic read/write facade for consolidated memory facts."""
 
     #: Declared capability contract. Every concrete backend overrides this.
     capabilities: ClassVar[MemoryCapabilities] = MemoryCapabilities()
+
+    #: Registry key this backend's settings live under in
+    #: ``SystemMemorySettings.backend_options`` (``""`` = no settings).
+    settings_key: ClassVar[str] = ""
+
+    #: Declared settings schema rendered by the admin surface.
+    settings_schema: ClassVar[tuple[BackendSettingField, ...]] = ()
+
+    @classmethod
+    def effective_settings(cls) -> dict[str, Any]:
+        """Resolve ``DB override > env > default`` for the non-secret fields.
+
+        Secrets are deliberately excluded: their values are never returned by
+        any read surface. Use :meth:`secret_names` to report ``secrets_set``.
+        """
+        override: dict[str, Any] = {}
+        try:
+            from memory.models import SystemMemorySettings
+
+            row = SystemMemorySettings.objects.first()
+            if row is not None:
+                override = (row.backend_options or {}).get(cls.settings_key, {}) or {}
+        except Exception:  # noqa: BLE001 - settings must never break a read
+            override = {}
+
+        values: dict[str, Any] = {}
+        for setting in cls.settings_schema:
+            if setting.type == "secret":
+                continue
+            if setting.name in override and override[setting.name] is not None:
+                values[setting.name] = override[setting.name]
+                continue
+            raw = os.environ.get(setting.env_var) if setting.env_var else None
+            values[setting.name] = (
+                _coerce_setting(setting, raw) if raw not in (None, "") else setting.default
+            )
+        return values
+
+    @classmethod
+    def secret_names(cls) -> tuple[str, ...]:
+        """Names of the declared ``secret`` fields (never their values)."""
+        return tuple(
+            setting.name for setting in cls.settings_schema if setting.type == "secret"
+        )
 
     @property
     def ask_available(self) -> bool:
