@@ -92,6 +92,11 @@ jobs:
     services:
       postgres:
         image: pgvector/pgvector:pg16
+        # Ephemeral CI database: keep PGDATA in RAM (53 transaction=True tests
+        # TRUNCATE 100+ tables each; measured >300 s on a slow store vs 3.6 s
+        # on tmpfs). Keep rationale comments OUTSIDE the `options: >-` string:
+        # GitHub passes every token of that string verbatim to `docker create`.
+        # tmpfs startup verified locally against pgvector/pgvector:pg16.
         env:
           POSTGRES_DB: reqflow_test
           POSTGRES_USER: reqflow
@@ -101,10 +106,6 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
-          # Ephemeral CI database: keep PGDATA in RAM. The suite's 53
-          # transaction=True tests TRUNCATE 100+ tables each; on the runner's
-          # disk that is fsync-bound and was measured at >300 s for the full
-          # schema versus 3.6 s on a fast store. Lost data is irrelevant here.
           --tmpfs /var/lib/postgresql/data:rw
         ports:
           - 5432:5432
