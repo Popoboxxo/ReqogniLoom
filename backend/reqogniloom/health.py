@@ -17,7 +17,8 @@ COMP-RA-006 HealthEndpoint — implements the split contract of ADR-010:
   (``deploy/docker-compose.yml``) goes red on a mandatory dependency outage.
 
 Advisory signals (``llm_provider_env``, ``embedding_dimensions``,
-``embedding_model_consistency``, ``embedding_model_drift`` (``?verbose=1`` only),
+``embedding_model_consistency``, ``embedding_model_drift`` (``?verbose=1`` only;
+per-table counts, or ``unknown`` when the connecting role cannot see past RLS),
 ``csrf_cookie_secure_matches_auth``,
 ``outbox_unbound_publishes``,
 ``outbox_pending`` / ``outbox_dlq`` queue gauges, workflow-definition warnings)
@@ -122,8 +123,20 @@ def _embedding_dimension_mismatches() -> list:
     return mismatches
 
 
-def _embedding_model_drift() -> dict[str, int]:
-    """Return the number of vectors per table written by a *different* model.
+def _embedding_count_scope() -> str:
+    """Return the visibility class of an aggregate on this connection.
+
+    Thin seam over :func:`persistence.rls_visibility.count_scope` so a test can
+    drive the RLS verdict without creating database roles. See
+    :func:`_embedding_model_drift` for what the three values mean here.
+    """
+    from persistence.rls_visibility import count_scope
+
+    return count_scope()
+
+
+def _embedding_model_drift() -> dict[str, int | str]:
+    """Return, per table, how many vectors were written by a *different* model.
 
     T-A0-6 (ADR-024 O3, #1317 point 3): ``embedding_model`` records the
     provenance of every vector. A model change that keeps the same width is
@@ -137,27 +150,50 @@ def _embedding_model_drift() -> dict[str, int]:
     the ``--models`` report of ``verify_embedding_dimensions`` is where their
     count is published.
 
-    One conditional-``COUNT`` aggregate per embedding table (never a row scan in
-    Python, never a per-row query), reading through ``unscoped`` because
-    ``/health/`` has no tenant context and this is a whole-corpus question. Keys
-    are lowercase table labels; a broken table contributes ``0`` instead of
-    raising, so the advisory can never fail the readiness endpoint.
+    WHAT THIS ENDPOINT CAN AND CANNOT SEE. ``/health*`` is unauthenticated and
+    sets no tenant, while the embedding tables are ``ENABLE`` + ``FORCE ROW
+    LEVEL SECURITY``. ``unscoped`` skips the ORM tenant filter but is *not* an
+    RLS bypass, so the count's meaning depends on the connecting role — it is
+    classified first (:func:`_embedding_count_scope`):
+
+    * **privileged role** (superuser / ``BYPASSRLS``) -> the count is
+      corpus-wide and numeric;
+    * **RLS-bound role with a tenant context set** -> the count is that
+      tenant's, numeric;
+    * **RLS-bound role without a tenant context** -> every aggregate reads
+      ``0`` no matter the data, so each table reports the literal ``"unknown"``
+      instead of a false clean bill. ``manage.py verify_embedding_dimensions
+      --models`` is the authoritative cross-corpus view (it runs under the
+      migration/owner role).
+
+    This is NOT a whole-corpus question on this endpoint, and the payload never
+    pretends it is. One conditional-``COUNT`` aggregate per embedding table
+    (never a row scan in Python, never a per-row query). Keys are lowercase
+    table labels; a broken table contributes ``0`` instead of raising, so the
+    advisory can never fail the readiness endpoint.
 
     Returns:
         ``{table_label: drifting_row_count}`` for Requirement, TraceLink, Icd
-        and MemoryEntry.
+        and MemoryEntry — every value ``"unknown"`` when the aggregate is
+        RLS-shadowed.
     """
     from django.db.models import Count, Q
 
     from llm_adapter.embedding_service import current_embedding_model_id
     from persistence.embedding_schema import embedding_columns
+    from persistence.rls_visibility import COUNT_SCOPE_SHADOWED
 
     model_id = current_embedding_model_id()
-    drift: dict[str, int] = {}
+    shadowed = _embedding_count_scope() == COUNT_SCOPE_SHADOWED
+    drift: dict[str, int | str] = {}
     for column in embedding_columns():
         label = _EMBEDDING_DRIFT_LABELS.get(
             column.model.__name__, column.model.__name__.lower()
         )
+        if shadowed:
+            # Not "0": under this role every COUNT would lie. See the docstring.
+            drift[label] = "unknown"
+            continue
         try:
             counted = column.model.unscoped.filter(
                 embedding__isnull=False
@@ -488,6 +524,13 @@ def _collect_advisory(
     # conditional-COUNT aggregate over every embedding table; the default
     # readiness probe must stay cheap. Gated on ``db_ok`` (it reads the corpus)
     # and never allowed to raise.
+    #
+    # A per-table value of ``unknown`` (T-A0-6 review follow-up) means the
+    # aggregate is RLS-shadowed: this endpoint sets no tenant and the app role
+    # is not a superuser/BYPASSRLS role, so every COUNT would read 0. Reporting
+    # that as "clean" was a structural false negative, so the numbers are
+    # withheld and one warning points at the authoritative command instead. The
+    # HTTP status is untouched: still an advisory, never degraded/503.
     if verbose and db_ok:
         try:
             drift = _embedding_model_drift()
@@ -498,7 +541,29 @@ def _collect_advisory(
             advisory["embedding_model_drift"] = ",".join(
                 f"{label}={count}" for label, count in drift.items()
             )
-            total_drift = sum(drift.values())
+            unknown_labels = [
+                label for label, count in drift.items() if not isinstance(count, int)
+            ]
+            total_drift = sum(
+                count for count in drift.values() if isinstance(count, int)
+            )
+            if unknown_labels:
+                logger.warning(
+                    "Health check: embedding-model drift count is RLS-shadowed "
+                    "for %s — reporting 'unknown'",
+                    ", ".join(unknown_labels),
+                )
+                warnings.append(
+                    "the embedding-model drift count cannot be trusted from this "
+                    "endpoint: /health* is unauthenticated and sets no tenant, "
+                    "the embedding tables are FORCE ROW LEVEL SECURITY, and the "
+                    "connecting role cannot bypass RLS — so the per-table "
+                    "aggregates are RLS-shadowed and reported as 'unknown' "
+                    f"({', '.join(unknown_labels)}) instead of a meaningless 0. "
+                    "Run `python manage.py verify_embedding_dimensions --models` "
+                    "with a role that can see the whole corpus for the "
+                    "authoritative per-table counts."
+                )
             if total_drift:
                 logger.warning(
                     "Health check: %d embedding row(s) were written by a "
