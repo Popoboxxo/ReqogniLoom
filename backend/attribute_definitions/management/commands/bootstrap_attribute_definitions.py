@@ -189,6 +189,15 @@ EXCLUDED_MODEL_FIELDS: frozenset[str] = frozenset(
         # field_validation.py before the serializer ever sees it), same
         # silent-discard class as `owner_user`/`assignee_id` above.
         "baseline",
+        # Plan A T-A0-5 (PR-A3): `embedding_model` is the provenance id of the
+        # vector next to it ("<provider>:<model>:<dims>"), written by the
+        # embedding pipeline on every (re)write. It is derived server state,
+        # not a user-editable attribute: introspecting it produced an editable
+        # text core attribute that no serializer accepts (REST 400 "Unknown
+        # field", MCP read-back omits it) and that has no German label. Kept
+        # out of the introspected definition exactly like the other
+        # system-managed columns above.
+        "embedding_model",
     }
 )
 
