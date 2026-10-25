@@ -14,10 +14,13 @@ graphify-out/
 
 .continue
 
-# Environment variables — NEVER commit .env with real secrets
-.env
-.env.local
-.env.*.local
+# Environment variables — NEVER commit .env with real secrets.
+# ENT-X1 = A ("never shared"): `.env*` also covers `.env.bak-*`, the shape the
+# 2026-10-21 incident produced (index §h). The tracked `.env.example` templates
+# are re-included explicitly — the negation has no slash on purpose, so it also
+# re-includes `frontend/.env.example`.
+.env*
+!.env.example
 .meta-config/secrets.local.yaml
 
 
