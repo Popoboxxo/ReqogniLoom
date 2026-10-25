@@ -1285,16 +1285,21 @@ class RequirementService(ServiceBase):
         """
         try:
             from llm_adapter.embedding_service import (
-                generate_embedding,
+                generate_embedding_with_model,
                 get_embedding_text,
                 warn_dimension_mismatch,
             )
 
-            embedding = generate_embedding(get_embedding_text(requirement))
+            # T-A0-6: one call yields the vector AND the id of the model that
+            # produced it, so the two columns cannot drift apart. The id is only
+            # persisted together with the vector (never on a skipped write).
+            embedding, model_id = generate_embedding_with_model(
+                get_embedding_text(requirement)
+            )
             field_dimensions = Requirement._meta.get_field("embedding").dimensions
             if embedding is not None and len(embedding) == field_dimensions:
                 Requirement.objects.filter(id=requirement.id).update(
-                    embedding=embedding
+                    embedding=embedding, embedding_model=model_id
                 )
                 return embedding
             if embedding is not None:

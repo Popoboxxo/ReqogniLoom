@@ -953,7 +953,7 @@ class TraceLinkService(ServiceBase):
         """
         try:
             from llm_adapter.embedding_service import (
-                generate_embedding,
+                generate_embedding_with_model,
                 get_tracelink_embedding_text,
                 warn_dimension_mismatch,
             )
@@ -979,12 +979,17 @@ class TraceLinkService(ServiceBase):
                 )
                 .first()
             )
-            embedding = generate_embedding(
+            embedding, model_id = generate_embedding_with_model(
                 get_tracelink_embedding_text(joined or trace_link)
             )
             field_dimensions = TraceLink._meta.get_field("embedding").dimensions
             if embedding is not None and len(embedding) == field_dimensions:
-                TraceLink.objects.filter(id=trace_link.id).update(embedding=embedding)
+                # T-A0-6: the provenance id is written in the same UPDATE as the
+                # vector, so a row can never carry a model id for a vector it
+                # does not hold.
+                TraceLink.objects.filter(id=trace_link.id).update(
+                    embedding=embedding, embedding_model=model_id
+                )
             elif embedding is not None:
                 # Dimension mismatch (a non-default EMBEDDING_PROVIDER whose
                 # native width differs from EMBEDDING_VECTOR_DIMENSIONS — see

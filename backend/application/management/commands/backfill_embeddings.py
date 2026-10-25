@@ -16,6 +16,7 @@ Usage::
     python manage.py backfill_embeddings --model requirement --tenant <uuid>
     python manage.py backfill_embeddings --model icd
     python manage.py backfill_embeddings --force      # also re-embed existing
+                                                     # (re-stamps embedding_model)
 
 ICDs became backfillable in Datenmodell-Konsolidierung Task 28c-2. Before it,
 the embedding lived on ``IcdVersion``, whose rows are immutable (enforced by a
@@ -91,7 +92,11 @@ class Command(BaseCommand):
         parser.add_argument(
             "--force",
             action="store_true",
-            help="Also regenerate embeddings for rows that already have one.",
+            help=(
+                "Also regenerate embeddings for rows that already have one "
+                "(re-stamps embedding_model with the model that produced the "
+                "new vector)."
+            ),
         )
         parser.add_argument(
             "--dry-run",

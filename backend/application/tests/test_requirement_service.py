@@ -361,6 +361,46 @@ class TestEmbeddingDimensionGuard:
         assert len(requirement.embedding) == column_dimensions
 
 
+class TestEmbeddingModelProvenance:
+    """T-A0-6: the model that produced a vector is persisted with it.
+
+    ``Requirement.embedding_model`` carries ``"<provider>:<model_name>:<dims>"``
+    (ADR-024 O3). Pinned here on the real create path — a vector without its
+    provenance is exactly the mixed-corpus blindness #1317 point 3 is about.
+    """
+
+    def test_create_persists_embedding_model(self, monkeypatch):
+        from llm_adapter.embedding_service import current_embedding_model_id
+        from persistence.models import Requirement
+        from persistence.tests.factories import active_tenant, editor_ctx, make_workspace
+
+        column_dimensions = Requirement._meta.get_field("embedding").dimensions
+        # Patched at the source module: the service resolves the name lazily
+        # inside ``_generate_and_store_embedding``. The wrapper delegates to
+        # this function, so the patch still drives the generated width.
+        monkeypatch.setattr(
+            "llm_adapter.embedding_service.generate_embedding",
+            lambda text: [0.1] * column_dimensions,
+        )
+        expected_model = current_embedding_model_id()
+
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            ctx = editor_ctx(tenant, ws)
+            requirement = RequirementService().create_requirement(
+                workspace_id=ws.id, title="Embedding provenance test", ctx=ctx
+            )
+            requirement.refresh_from_db()
+
+        assert requirement.embedding is not None
+        assert requirement.embedding_model == expected_model
+        # The documented wire format is provider:model:dims and must not drift.
+        provider, model_name, dims = requirement.embedding_model.split(":")
+        assert provider
+        assert model_name
+        assert dims == str(column_dimensions)
+
+
 # ---------------------------------------------------------------------------
 # update_requirement
 # ---------------------------------------------------------------------------

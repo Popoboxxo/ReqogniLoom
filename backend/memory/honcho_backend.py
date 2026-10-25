@@ -242,7 +242,10 @@ from uuid import UUID
 
 from django.utils import timezone
 
-from llm_adapter.embedding_service import generate_embedding
+from llm_adapter.embedding_service import (
+    generate_embedding,
+    generate_embedding_with_model,
+)
 from memory.backends import (
     _DIGEST_MAX_FACTS,
     MemoryAnswer,
@@ -471,6 +474,25 @@ def _safe_generate_embedding(text: str) -> list[float] | None:
         return generate_embedding(text)
     except Exception:  # noqa: BLE001 - best-effort, see docstring
         return None
+
+
+def _safe_generate_embedding_with_model(
+    text: str,
+) -> tuple[list[float] | None, str | None]:
+    """Best-effort local embedding plus its provenance id (T-A0-6).
+
+    Same fail-open contract as :func:`_safe_generate_embedding`, but the write
+    path needs the model id that produced the vector it stores on the LOCAL
+    mirror row. The id is ``None`` whenever no vector was produced, so the
+    caller can never persist a model id without a vector.
+    """
+    try:
+        vector, model_id = generate_embedding_with_model(text)
+    except Exception:  # noqa: BLE001 - best-effort, see _safe_generate_embedding
+        return None, None
+    if vector is None:
+        return None, None
+    return vector, model_id
 
 
 def _unit_count(value: Any) -> int | None:
@@ -890,12 +912,13 @@ class HonchoMemoryBackend(MemoryBackend):
             language=language,
             confidence=confidence,
         )
-        embedding = _safe_generate_embedding(content)
+        embedding, embedding_model = _safe_generate_embedding_with_model(content)
         with _tenant_context(tenant_id):
             entry = MemoryEntry.objects.create(
                 tenant_id=tenant_id,
                 content=content,
                 embedding=embedding,
+                embedding_model=embedding_model,
                 contributor_user_id=contributor_user_id,
                 source_event_id=source_event_id,
                 source_session_id=source_session_id,

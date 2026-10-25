@@ -56,6 +56,10 @@ from uuid import UUID
 from django.db import transaction
 from django.db.utils import OperationalError, ProgrammingError
 
+from llm_adapter.embedding_service import (
+    embedding_model_filter,
+    note_foreign_embedding_models,
+)
 from persistence.models import Requirement, TraceLink
 
 logger = logging.getLogger(__name__)
@@ -226,6 +230,19 @@ class PgVectorVectorPort:
             qs = qs.filter(**{workspace_field: workspace_id})
         if exclude_id is not None:
             qs = qs.exclude(id=exclude_id)
+        # T-A0-6 read comparison (#1317, ADR-024 O3). A model change that keeps
+        # the same vector width is invisible to a cosine query, so rows carry
+        # their provenance: strict mode drops rows written by another model,
+        # warn mode (default) leaves the result set byte-identical and samples
+        # the drift once per process. Legacy rows (embedding_model IS NULL) stay
+        # visible in BOTH modes.
+        model_filter = embedding_model_filter()
+        if model_filter is None:
+            note_foreign_embedding_models(
+                qs, site=f"PgVectorVectorPort.query_similar[{collection}]"
+            )
+        else:
+            qs = qs.filter(model_filter)
         qs = (
             qs.annotate(distance=CosineDistance("embedding", query_vector))
             .order_by("distance")[:limit]

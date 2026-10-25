@@ -173,15 +173,21 @@ def _apply_embedding(icd: Icd) -> None:
     """
     try:
         from llm_adapter.embedding_service import (
-            generate_embedding,
+            generate_embedding_with_model,
             get_icd_embedding_text,
             warn_dimension_mismatch,
         )
 
-        embedding = generate_embedding(get_icd_embedding_text(icd))
+        embedding, model_id = generate_embedding_with_model(
+            get_icd_embedding_text(icd)
+        )
         field_dimensions = Icd._meta.get_field("embedding").dimensions
         if embedding is not None and len(embedding) == field_dimensions:
             icd.embedding = embedding
+            # T-A0-6: only set in the success branch -- the pair is written by
+            # the caller's save(), so a skipped generation must not leave a
+            # stale provenance id behind.
+            icd.embedding_model = model_id
         elif embedding is not None:
             # Dimension mismatch (a non-default EMBEDDING_PROVIDER whose
             # native width differs from EMBEDDING_VECTOR_DIMENSIONS — see
