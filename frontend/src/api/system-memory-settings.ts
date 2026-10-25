@@ -17,7 +17,7 @@ export type EmbeddingProviderName = "sentence-transformers" | "ollama" | "openai
  * A deployment can still REPORT another effective value via its env var —
  * hence `SystemMemorySettings.memory_backend` below is a plain string.
  */
-export type MemoryBackendName = "pgvector" | "honcho";
+export type MemoryBackendName = "pgvector" | "honcho" | "qdrant";
 
 /**
  * Honcho dialectic/reasoning depth (#1286) — the same vocabulary the `ask`
@@ -44,6 +44,29 @@ export function isHonchoDialecticLevel(value: unknown): value is HonchoDialectic
   );
 }
 
+
+/** One backend setting rendered by the admin surface (Plan A T-A0b-5). */
+export interface BackendSettingField {
+  name: string;
+  type: "str" | "int" | "float" | "bool" | "choice" | "secret";
+  env_var: string | null;
+  label_key: string;
+  choices: string[];
+  min_value: number | null;
+  max_length: number | null;
+  default: unknown;
+}
+
+/** The additive `backends.<name>` block of the settings response. */
+export interface BackendSettingsBlock {
+  schema: BackendSettingField[];
+  /** Effective, non-secret values (DB override > env > default). */
+  values: Record<string, unknown>;
+  is_override: Record<string, boolean>;
+  /** Presence only — a secret value is never returned by the API. */
+  secrets_set: Record<string, boolean>;
+  capabilities: Record<string, unknown>;
+}
 
 /** Effective (override-or-env) configuration, with per-field override flags. */
 export interface SystemMemorySettings {
@@ -88,6 +111,12 @@ export interface SystemMemorySettings {
   /** RFC #1002 PR B: fixed-window write ratelimit for `memory.write`. */
   memory_write_rate_limit_per_hour: number;
   memory_write_rate_limit_per_hour_is_override: boolean;
+  /**
+   * T-A0b-3/T-A0b-5: schema-driven backend blocks. Optional because an older
+   * server (or a test double) may predate the additive field; the UI then
+   * falls back to the flat compatibility fields above.
+   */
+  backends?: Record<string, BackendSettingsBlock>;
   warning: string | null;
 }
 
@@ -106,6 +135,9 @@ export interface SystemMemorySettingsUpdate {
   honcho_session_ttl?: number | null;
   /** `null` clears the override so the env default wins; `0` = unlimited. */
   memory_write_rate_limit_per_hour?: number | null;
+  /** T-A0b-3: backend-neutral maps (non-secret values / encrypted secrets). */
+  backend_options?: Record<string, Record<string, unknown>>;
+  backend_secrets?: Record<string, Record<string, string>>;
 }
 
 export const systemMemorySettingsApi = {
