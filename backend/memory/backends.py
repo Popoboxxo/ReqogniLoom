@@ -78,7 +78,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Union
+from typing import Any, ClassVar, Union
 from uuid import UUID
 
 from django.db import transaction
@@ -329,15 +329,44 @@ class MemoryAnswer:
     detail: str = ""
 
 
+@dataclass(frozen=True)
+class MemoryCapabilities:
+    """What a backend can really do (Plan A T-A0b-1, #1316).
+
+    Declared per backend as a class-level constant so callers can answer
+    capability questions without invoking (or probing) the backend. The
+    defaults describe the safest useful backend: retrieval without a
+    generative surface. ``max_query_chars`` / ``max_ask_query_chars`` are the
+    backend's own request bounds; the services read them instead of carrying
+    literals (T-A0b-2).
+    """
+
+    dialectic: bool = False
+    search: bool = True
+    search_derived: bool = False
+    consolidation: bool = False
+    scopes: tuple[str, ...] = VALID_MEMORY_SCOPES
+    summaries: bool = False
+    webhooks: bool = False
+    max_query_chars: int = 2000
+    max_ask_query_chars: int = 10000
+
+
 class MemoryBackend(ABC):
     """Provider-agnostic read/write facade for consolidated memory facts."""
 
-    #: Whether this backend can actually answer a natural-language question
-    #: via :meth:`ask`. ``True`` by default (the method is abstract, so every
-    #: backend implements it); a backend without a generative/dialectic engine
-    #: (``pgvector``) sets it ``False`` so ``memory.health.ask_available()``
-    #: can advertise the capability without invoking ``ask``.
-    ask_available: bool = True
+    #: Declared capability contract. Every concrete backend overrides this.
+    capabilities: ClassVar[MemoryCapabilities] = MemoryCapabilities()
+
+    @property
+    def ask_available(self) -> bool:
+        """Whether :meth:`ask` can answer for real.
+
+        Back-compat accessor for the former class attribute: it now derives
+        from :attr:`capabilities` so the declaration and the advertised flag
+        can never disagree.
+        """
+        return self.capabilities.dialectic
 
     #: Scope-less derivation status advertised on the health envelope
     #: (``memory.health.envelope()``, AP-B5.1 #1155). This is deliberately NOT
@@ -554,6 +583,25 @@ def get_memory_backend() -> MemoryBackend:
     return backend_cls()
 
 
+def active_memory_backend_name() -> str:
+    """Return the resolved backend name (DB override > env > ``pgvector``).
+
+    T-A0b-2: the services need the name for the validation message without
+    instantiating the backend (a Honcho instance resolves config in ``__init__``
+    and a bad config must not turn a query-length check into a 500).
+    """
+    return _resolve_memory_backend_name()
+
+
+def active_memory_capabilities() -> MemoryCapabilities:
+    """Return the declared capabilities of the active backend, no instantiation."""
+    name = _resolve_memory_backend_name()
+    backend_cls = MEMORY_BACKEND_REGISTRY.get(name)
+    if backend_cls is None:
+        raise ValueError(f"unknown memory backend: {name!r}")
+    return backend_cls.capabilities
+
+
 def _resolve_memory_backend_name() -> str:
     try:
         from memory.models import SystemMemorySettings
@@ -704,7 +752,7 @@ class PgvectorMemoryBackend(MemoryBackend):
     """
 
     #: No generative/dialectic engine: :meth:`ask` degrades by design (see it).
-    ask_available = False
+    capabilities = MemoryCapabilities(dialectic=False)
 
     #: No deriver of any kind: every stored fact is exactly what was written
     #: (AP-B5.1, #1155). This is a capability statement, so :meth:`digest`

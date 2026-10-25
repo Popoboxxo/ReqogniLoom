@@ -250,10 +250,12 @@ from memory.backends import (
     _DIGEST_MAX_FACTS,
     MemoryAnswer,
     MemoryBackend,
+    MemoryCapabilities,
     MemoryDigest,
     MemoryEntryId,
     MemoryEntryRef,
     MemoryHealth,
+    VALID_MEMORY_SCOPES,
     _cosine_distance,
     _digest_text,
     _maybe_uuid,
@@ -522,6 +524,23 @@ class HonchoMemoryBackend(MemoryBackend):
     the ReqogniLoom -> Honcho object mapping, the local-mirror contract, and
     the capability gaps versus the default ``PgvectorMemoryBackend``.
     """
+
+    #: Dialectic answers are Honcho's reason to exist; search is the canonical
+    #: store. Derived search and consolidation move to ``True`` in plan A4
+    #: (T-A4-3/T-A4-4), which is why they are declared ``False`` here rather
+    #: than silently omitted. Summaries/webhooks have no port method yet, so
+    #: they stay ``False`` even though the upstream engine has them.
+    capabilities = MemoryCapabilities(
+        dialectic=True,
+        search=True,
+        search_derived=False,
+        consolidation=False,
+        scopes=VALID_MEMORY_SCOPES,
+        summaries=False,
+        webhooks=False,
+        max_query_chars=2000,
+        max_ask_query_chars=10000,
+    )
 
     def __init__(self) -> None:
         base_url, api_key = self._resolve_config()

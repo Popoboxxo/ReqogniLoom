@@ -43,6 +43,8 @@ from memory.backends import (
     MemoryEntryRef,
     _maybe_uuid,
     _tenant_context,
+    active_memory_backend_name,
+    active_memory_capabilities,
     get_memory_backend,
 )
 from memory.health import envelope, is_degraded
@@ -577,9 +579,14 @@ class MemoryEntryService(ServiceBase):
         query = (query or "").strip()
         if not query:
             raise ValidationError("query must not be empty")
-        if len(query) > MAX_ASK_QUERY_CHARS:
+        # T-A0b-2: the bound belongs to the backend, not to this service.
+        # MAX_ASK_QUERY_CHARS stays as a deprecated module constant because
+        # tests/importers use it, but the runtime check reads the declaration.
+        ask_limit = active_memory_capabilities().max_ask_query_chars
+        if len(query) > ask_limit:
             raise ValidationError(
-                f"query must be at most {MAX_ASK_QUERY_CHARS} characters"
+                f"query must be at most {ask_limit} characters for backend "
+                f"{active_memory_backend_name()}"
             )
         if reasoning_level is not None and reasoning_level not in VALID_REASONING_LEVELS:
             raise ValidationError(
