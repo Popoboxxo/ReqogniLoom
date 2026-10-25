@@ -59,6 +59,10 @@ COPY --from=builder /app/dist /usr/share/nginx/html
 
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 
+# Plan D / D1.0: the security headers are a snippet because every location
+# with its own add_header must include them (nginx drops inherited headers).
+COPY nginx-security-headers.conf /etc/nginx/snippets/security-headers.conf
+
 # Ensure nginx html directory and logs are owned by app user
 RUN chown -R app:app /usr/share/nginx/html /var/log/nginx
 
