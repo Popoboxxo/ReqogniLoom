@@ -97,7 +97,7 @@ def embed_rows(
     if not ids:
         return 0
 
-    from llm_adapter.embedding_service import generate_embedding
+    from llm_adapter.embedding_service import generate_embedding_with_model
 
     model = resolve_embedding_model(model_name)
     rows, build_text = _rows_and_builder(model, model_name, ids)
@@ -110,7 +110,7 @@ def embed_rows(
                 totals["skipped_empty"] = totals.get("skipped_empty", 0) + 1
             continue
         try:
-            vector = generate_embedding(text)
+            vector, model_id = generate_embedding_with_model(text)
         except Exception as exc:  # noqa: BLE001 — one bad row must not abort the run
             logger.warning("embed_rows: %s %s failed: %s", model_name, row.id, exc)
             if totals is not None:
@@ -121,8 +121,13 @@ def embed_rows(
                 totals["failed"] = totals.get("failed", 0) + 1
             continue
         # Bare .update(): mirrors the service write path — no version bump, no
-        # domain event, no updated_at churn for a derived value.
-        model.objects.filter(id=row.id).update(embedding=vector)
+        # domain event, no updated_at churn for a derived value. T-A0-6: the
+        # provenance id rides in the SAME UPDATE as the vector, so a
+        # ``--force`` re-embed (the backfill command's existing flag) also
+        # re-stamps the row with the model that produced the new vector.
+        model.objects.filter(id=row.id).update(
+            embedding=vector, embedding_model=model_id
+        )
         embedded += 1
         if totals is not None:
             totals["embedded"] = totals.get("embedded", 0) + 1

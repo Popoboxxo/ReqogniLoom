@@ -158,6 +158,19 @@ class Icd(TenantScopedModel):
             "provider is configured."
         ),
     )
+    # Provenance for ``embedding``: "<provider>:<model_name>:<dims>", e.g.
+    # "ollama:nomic-embed-text:768". NULL = legacy row whose model is unknown.
+    embedding_model = models.CharField(
+        max_length=160,
+        null=True,
+        blank=True,
+        help_text=(
+            "Model that produced ``embedding``, as "
+            "'<provider>:<model_name>:<dims>' (e.g. "
+            "'ollama:nomic-embed-text:768'). NULL for a legacy row whose "
+            "model is unknown."
+        ),
+    )
     # Revision number of the contract above, in the same numbering space as
     # persistence.ArtifactVersion.revision — icd.icd_manager allocates the two
     # together, under the same row lock. 0 means "no revision recorded yet",

@@ -242,7 +242,10 @@ from uuid import UUID
 
 from django.utils import timezone
 
-from llm_adapter.embedding_service import generate_embedding
+from llm_adapter.embedding_service import (
+    current_embedding_model_id,
+    generate_embedding,
+)
 from memory.backends import (
     _DIGEST_MAX_FACTS,
     MemoryAnswer,
@@ -256,6 +259,7 @@ from memory.backends import (
     _maybe_uuid,
     _ref_from_entry,
     _render_digest_facts,
+    _safe_generate_embedding_with_model,
     _scope_filter,
     _tenant_context,
     register_memory_backend,
@@ -890,12 +894,13 @@ class HonchoMemoryBackend(MemoryBackend):
             language=language,
             confidence=confidence,
         )
-        embedding = _safe_generate_embedding(content)
+        embedding, embedding_model = _safe_generate_embedding_with_model(content)
         with _tenant_context(tenant_id):
             entry = MemoryEntry.objects.create(
                 tenant_id=tenant_id,
                 content=content,
                 embedding=embedding,
+                embedding_model=embedding_model,
                 contributor_user_id=contributor_user_id,
                 source_event_id=source_event_id,
                 source_session_id=source_session_id,
@@ -1461,11 +1466,19 @@ class HonchoMemoryBackend(MemoryBackend):
         exists for a conclusion, or no embedding can be produced, the ref is
         still returned with ``distance=None`` (never a fabricated score --
         ``memory.tasks`` gates its supersede branch on that being non-None).
+
+        T-A0-6: a mirror row whose ``embedding_model`` is set and differs from
+        the model the query text was just embedded with holds a vector from a
+        DIFFERENT vector space, so a cosine distance against it is meaningless
+        — it is reported as ``None`` instead. Only the number is withheld:
+        ordering and membership still come from the engine (``conclusions.
+        query``), which does not know about local provenance.
         """
         results = self._conclusions(tenant_id, scope, scope_id).query(
             query_text, top_k=max(1, min(top_k, _MAX_PAGE_SIZE))
         )
         query_embedding = _safe_generate_embedding(query_text)
+        query_model_id = current_embedding_model_id()
         refs: list[MemoryEntryRef] = []
         with _tenant_context(tenant_id):
             for conclusion in results[:top_k]:
@@ -1477,7 +1490,15 @@ class HonchoMemoryBackend(MemoryBackend):
                         MemoryEntryRef(entry_id=conclusion.id, content=conclusion.content, scope=scope)
                     )
                     continue
-                distance = _cosine_distance(query_embedding, local.embedding)
+                row_model_id = local.embedding_model
+                foreign_model = (
+                    row_model_id is not None and row_model_id != query_model_id
+                )
+                distance = (
+                    None
+                    if foreign_model
+                    else _cosine_distance(query_embedding, local.embedding)
+                )
                 refs.append(_ref_from_entry(local, distance=distance))
         return refs
 

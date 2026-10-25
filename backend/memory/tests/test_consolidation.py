@@ -95,6 +95,13 @@ class TestConsolidateInteraction:
             return [1.0] + [0.0] * 383
 
         monkeypatch.setattr("memory.backends.generate_embedding", fake_embedding)
+        # The write path persists the provenance id and therefore calls the
+        # wrapper, not the bare generator; pin it too so stored and queried
+        # vectors stay the same constant.
+        monkeypatch.setattr(
+            "memory.backends.generate_embedding_with_model",
+            lambda text: (fake_embedding(text), "mock:test:384"),
+        )
 
         from memory.backends import get_memory_backend
         from memory.models import MemoryEntry

@@ -459,6 +459,72 @@ class TestIcdEmbeddingDimensionGuard:
 
 
 @pytest.mark.django_db
+class TestIcdEmbeddingModelProvenance:
+    """T-A0-6: the ICD row's ``embedding_model`` must move with its vector.
+
+    The contract-update path persists with
+    ``save(update_fields=_CONTRACT_UPDATE_FIELDS)``, so a field that is missing
+    from that list is silently dropped even though its in-memory value was just
+    set. ``embedding_model`` was missing: a regenerated vector was stored under
+    the row's OLD provenance, and strict mode then treated the fresh vector as a
+    foreign-model (or legacy) row. These tests fail with the old field list.
+    """
+
+    def _create(self, monkeypatch, tenant_a, workspace_id, src_id, tgt_id):
+        from icd.models import Icd
+        from icd.services import create_icd
+
+        dimensions = Icd._meta.get_field("embedding").dimensions
+        # Patched at the source module: ``_apply_embedding`` imports
+        # ``generate_embedding`` lazily, inside the function body.
+        monkeypatch.setattr(
+            "llm_adapter.embedding_service.generate_embedding",
+            lambda text: [0.1] * dimensions,
+        )
+        with active_tenant(tenant_a):
+            dto = _make_create_dto(tenant_a, workspace_id, src_id, tgt_id)
+            with patch(
+                "icd.traceability_connector.TraceabilityConnector.link_to_architecture"
+            ):
+                return create_icd(dto)
+
+    def test_create_persists_the_embedding_model(
+        self, monkeypatch, tenant_a, workspace_id, src_id, tgt_id
+    ):
+        from icd.models import Icd
+        from llm_adapter.embedding_service import current_embedding_model_id
+
+        result = self._create(monkeypatch, tenant_a, workspace_id, src_id, tgt_id)
+
+        row = Icd.unscoped.get(id=result.icd.id)
+        assert row.embedding is not None
+        assert row.embedding_model == current_embedding_model_id()
+
+    def test_contract_update_rewrites_the_embedding_model(
+        self, monkeypatch, tenant_a, workspace_id, src_id, tgt_id
+    ):
+        """The regression this class exists for: stale provenance after update."""
+        from icd.models import Icd
+        from icd.services import IcdUpdateDTO, update_icd
+        from llm_adapter.embedding_service import current_embedding_model_id
+
+        result = self._create(monkeypatch, tenant_a, workspace_id, src_id, tgt_id)
+
+        # Simulate a row written by the PREVIOUS model: vector fine, id stale.
+        stale_id = "mock:previous-model:384"
+        Icd.unscoped.filter(id=result.icd.id).update(embedding_model=stale_id)
+
+        with active_tenant(tenant_a):
+            update = IcdUpdateDTO(postconditions=["200", "audit_logged"])
+            update_icd(icd_id=result.icd.id, payload=update, tenant_id=tenant_a.id)
+
+        row = Icd.unscoped.get(id=result.icd.id)
+        assert row.embedding is not None
+        assert row.embedding_model != stale_id
+        assert row.embedding_model == current_embedding_model_id()
+
+
+@pytest.mark.django_db
 class TestIcdGetAndDelete:
     """REQ-066: get_icd / delete_icd service entry points (ORM out of views)."""
 

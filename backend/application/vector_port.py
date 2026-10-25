@@ -37,7 +37,11 @@ Design contract:
   flag carries the existing per-site inconsistency (search's three branches and
   ``find_similar_requirements`` use it; ``find_similar_trace_links`` and
   ``find_similar_icds`` do not) into one adapter-owned place instead of
-  "fixing" it.
+  "fixing" it. The ONE exception is provenance filtering (T-A0-6): strict mode
+  adds a predicate to the query, which makes the post-filter truncation the
+  iterative scan exists for apply to every site, so ``query_similar`` forces it
+  on whenever it had to filter by ``embedding_model`` (``warn``, the default,
+  changes nothing).
 
 The port returns :class:`VectorHit` (id + cosine distance) only; callers that
 need the full row re-fetch it by id. Keeping the port vector-store-shaped (not
@@ -56,6 +60,10 @@ from uuid import UUID
 from django.db import transaction
 from django.db.utils import OperationalError, ProgrammingError
 
+from llm_adapter.embedding_service import (
+    embedding_model_filter,
+    note_foreign_embedding_models,
+)
 from persistence.models import Requirement, TraceLink
 
 logger = logging.getLogger(__name__)
@@ -226,12 +234,36 @@ class PgVectorVectorPort:
             qs = qs.filter(**{workspace_field: workspace_id})
         if exclude_id is not None:
             qs = qs.exclude(id=exclude_id)
+        # T-A0-6 read comparison (#1317, ADR-024 O3). A model change that keeps
+        # the same vector width is invisible to a cosine query, so rows carry
+        # their provenance: strict mode drops rows written by another model,
+        # warn mode (default) leaves the result set byte-identical and samples
+        # the drift once per process. Legacy rows (embedding_model IS NULL) stay
+        # visible in BOTH modes.
+        model_filter = embedding_model_filter()
+        if model_filter is None:
+            note_foreign_embedding_models(
+                qs, site=f"PgVectorVectorPort.query_similar[{collection}]"
+            )
+        else:
+            qs = qs.filter(model_filter)
         qs = (
             qs.annotate(distance=CosineDistance("embedding", query_vector))
             .order_by("distance")[:limit]
         )
 
-        rows = self._evaluate(qs, iterative_scan=iterative_scan)
+        # T-A0-6: strict mode adds a provenance predicate the HNSW index cannot
+        # satisfy, i.e. another post-filter — with ``hnsw.iterative_scan = off``
+        # (the default) the index yields ``ef_search`` candidates, strict mode
+        # can drop every one of them and the caller then gets FEWER than
+        # ``limit`` rows (or none) although matching rows exist. The iterative
+        # scan is the existing hardening for exactly that shape (#977/#978,
+        # already used by the search branches), so it is forced on whenever this
+        # call filters by provenance. Warn mode adds no predicate, so the
+        # caller's flag keeps its historical meaning there.
+        rows = self._evaluate(
+            qs, iterative_scan=iterative_scan or model_filter is not None
+        )
         return [VectorHit(id=row.id, distance=float(row.distance)) for row in rows]
 
     @staticmethod

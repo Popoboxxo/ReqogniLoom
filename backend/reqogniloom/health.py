@@ -17,7 +17,9 @@ COMP-RA-006 HealthEndpoint — implements the split contract of ADR-010:
   (``deploy/docker-compose.yml``) goes red on a mandatory dependency outage.
 
 Advisory signals (``llm_provider_env``, ``embedding_dimensions``,
-``embedding_model_consistency``, ``csrf_cookie_secure_matches_auth``,
+``embedding_model_consistency``, ``embedding_model_drift`` (``?verbose=1`` only;
+per-table counts, or ``unknown`` when the connecting role cannot see past RLS),
+``csrf_cookie_secure_matches_auth``,
 ``outbox_unbound_publishes``,
 ``outbox_pending`` / ``outbox_dlq`` queue gauges, workflow-definition warnings)
 never affect the status code: they appear only
@@ -67,6 +69,16 @@ _REQUIRED_CHECK_NAMES = (
     "celery_beat",
 )
 
+#: Stable lowercase table keys for the ``embedding_model_drift`` advisory
+#: (T-A0-6). Explicit instead of derived from the class name so
+#: ``TraceLink``/``MemoryEntry`` cannot leak their casing into the payload.
+_EMBEDDING_DRIFT_LABELS = {
+    "Requirement": "requirement",
+    "TraceLink": "tracelink",
+    "Icd": "icd",
+    "MemoryEntry": "memory",
+}
+
 
 def _embedding_dimension_mismatches() -> list:
     """Return the labels of embedding columns that do not match the provider.
@@ -109,6 +121,99 @@ def _embedding_dimension_mismatches() -> list:
             if column_type(cursor, column.table, column.column) != expected:
                 mismatches.append(column.label)
     return mismatches
+
+
+def _embedding_count_scope() -> str:
+    """Return the visibility class of an aggregate on this connection.
+
+    Thin seam over :func:`persistence.rls_visibility.count_scope` so a test can
+    drive the RLS verdict without creating database roles. See
+    :func:`_embedding_model_drift` for what the three values mean here.
+    """
+    from persistence.rls_visibility import count_scope
+
+    return count_scope()
+
+
+def _embedding_model_drift() -> dict[str, int | str]:
+    """Return, per table, how many vectors were written by a *different* model.
+
+    T-A0-6 (ADR-024 O3, #1317 point 3): ``embedding_model`` records the
+    provenance of every vector. A model change that keeps the same width is
+    invisible to a cosine query, so a mixed corpus is otherwise undetectable;
+    ``EMBEDDING_MODEL_STRICT=strict`` filters those rows out, and this advisory
+    is how an operator learns the corpus is mixed in the first place.
+
+    Drift here means ``embedding_model`` is non-``NULL`` and differs from the id
+    the configured provider would write NOW. Legacy ``NULL`` rows are *not*
+    drift — they predate the column (T-A0-5) and stay visible in both modes;
+    the ``--models`` report of ``verify_embedding_dimensions`` is where their
+    count is published.
+
+    WHAT THIS ENDPOINT CAN AND CANNOT SEE. ``/health*`` is unauthenticated and
+    sets no tenant, while the embedding tables are ``ENABLE`` + ``FORCE ROW
+    LEVEL SECURITY``. ``unscoped`` skips the ORM tenant filter but is *not* an
+    RLS bypass, so the count's meaning depends on the connecting role — it is
+    classified first (:func:`_embedding_count_scope`):
+
+    * **privileged role** (superuser / ``BYPASSRLS``) -> the count is
+      corpus-wide and numeric;
+    * **RLS-bound role with a tenant context set** -> the count is that
+      tenant's, numeric;
+    * **RLS-bound role without a tenant context** -> every aggregate reads
+      ``0`` no matter the data, so each table reports the literal ``"unknown"``
+      instead of a false clean bill. ``manage.py verify_embedding_dimensions
+      --models`` is the authoritative cross-corpus view (it runs under the
+      migration/owner role).
+
+    This is NOT a whole-corpus question on this endpoint, and the payload never
+    pretends it is. One conditional-``COUNT`` aggregate per embedding table
+    (never a row scan in Python, never a per-row query). Keys are lowercase
+    table labels; a broken table contributes ``0`` instead of raising, so the
+    advisory can never fail the readiness endpoint.
+
+    Returns:
+        ``{table_label: drifting_row_count}`` for Requirement, TraceLink, Icd
+        and MemoryEntry — every value ``"unknown"`` when the aggregate is
+        RLS-shadowed.
+    """
+    from django.db.models import Count, Q
+
+    from llm_adapter.embedding_service import current_embedding_model_id
+    from persistence.embedding_schema import embedding_columns
+    from persistence.rls_visibility import COUNT_SCOPE_SHADOWED
+
+    model_id = current_embedding_model_id()
+    shadowed = _embedding_count_scope() == COUNT_SCOPE_SHADOWED
+    drift: dict[str, int | str] = {}
+    for column in embedding_columns():
+        label = _EMBEDDING_DRIFT_LABELS.get(
+            column.model.__name__, column.model.__name__.lower()
+        )
+        if shadowed:
+            # Not "0": under this role every COUNT would lie. See the docstring.
+            drift[label] = "unknown"
+            continue
+        try:
+            counted = column.model.unscoped.filter(
+                embedding__isnull=False
+            ).aggregate(
+                drifting=Count(
+                    "id",
+                    filter=~Q(embedding_model=model_id)
+                    & Q(embedding_model__isnull=False),
+                )
+            )
+        except Exception as exc:  # noqa: BLE001 - health check must never crash
+            logger.warning(
+                "Health check: embedding-model drift count failed for %s - %s",
+                column.label,
+                exc,
+            )
+            drift[label] = 0
+            continue
+        drift[label] = int(counted.get("drifting") or 0)
+    return drift
 
 
 def _missing_llm_required_env() -> list[str]:
@@ -298,13 +403,22 @@ def _run_required_checks() -> dict[str, str]:
 
 
 def _collect_advisory(
-    advisory: dict[str, str], warnings: list[str], *, db_ok: bool
+    advisory: dict[str, str],
+    warnings: list[str],
+    *,
+    db_ok: bool,
+    verbose: bool = False,
 ) -> None:
     """Run the advisory (non-status) probes into ``advisory``/``warnings``.
 
     Per ADR-010 §2/§4 these never become a ``checks`` entry and can never cause
     ``degraded``/503 — a non-empty warning list only escalates ``ok`` to
     ``warning`` (HTTP 200).
+
+    ``verbose`` (``GET /health/?verbose=1``) enables the advisory probes that
+    cost a real aggregate query over every embedding table
+    (``embedding_model_drift``, T-A0-6). They are absent from the payload
+    unless asked for, so the cheap default probe stays cheap.
     """
     # Embedding-column dimension check (#1018/#1019): the physical pgvector
     # column width is fixed by the last migration that ran, while the
@@ -397,6 +511,77 @@ def _collect_advisory(
                 )
             else:
                 advisory["embedding_model_consistency"] = "ok"
+
+    # Embedding-model drift (T-A0-6, ADR-024 O3, #1317 point 3): how many
+    # stored vectors per table were written by a model other than the one the
+    # active configuration produces today. A model change that keeps the same
+    # vector width is invisible to a cosine query, so without this an operator
+    # cannot tell a clean corpus from a mixed one; ``EMBEDDING_MODEL_STRICT=
+    # strict`` filters the drifting rows, ``warn`` (default) keeps them and logs
+    # one WARNING per process. Advisory (HTTP 200): the vectors are still
+    # usable, they are merely not comparable — re-embed with
+    # ``manage.py backfill_embeddings --force``. VERBOSE-ONLY because it runs a
+    # conditional-COUNT aggregate over every embedding table; the default
+    # readiness probe must stay cheap. Gated on ``db_ok`` (it reads the corpus)
+    # and never allowed to raise.
+    #
+    # A per-table value of ``unknown`` (T-A0-6 review follow-up) means the
+    # aggregate is RLS-shadowed: this endpoint sets no tenant and the app role
+    # is not a superuser/BYPASSRLS role, so every COUNT would read 0. Reporting
+    # that as "clean" was a structural false negative, so the numbers are
+    # withheld and one warning points at the authoritative command instead. The
+    # HTTP status is untouched: still an advisory, never degraded/503.
+    if verbose and db_ok:
+        try:
+            drift = _embedding_model_drift()
+        except Exception as exc:  # noqa: BLE001 - health check must never crash
+            logger.warning("Health check: embedding-model drift check failed - %s", exc)
+            warnings.append("embedding-model drift check failed")
+        else:
+            advisory["embedding_model_drift"] = ",".join(
+                f"{label}={count}" for label, count in drift.items()
+            )
+            unknown_labels = [
+                label for label, count in drift.items() if not isinstance(count, int)
+            ]
+            total_drift = sum(
+                count for count in drift.values() if isinstance(count, int)
+            )
+            if unknown_labels:
+                logger.warning(
+                    "Health check: embedding-model drift count is RLS-shadowed "
+                    "for %s — reporting 'unknown'",
+                    ", ".join(unknown_labels),
+                )
+                warnings.append(
+                    "the embedding-model drift count cannot be trusted from this "
+                    "endpoint: /health* is unauthenticated and sets no tenant, "
+                    "the embedding tables are FORCE ROW LEVEL SECURITY, and the "
+                    "connecting role cannot bypass RLS — so the per-table "
+                    "aggregates are RLS-shadowed and reported as 'unknown' "
+                    f"({', '.join(unknown_labels)}) instead of a meaningless 0. "
+                    "Run `python manage.py verify_embedding_dimensions --models` "
+                    "with a role that can see the whole corpus for the "
+                    "authoritative per-table counts."
+                )
+            if total_drift:
+                logger.warning(
+                    "Health check: %d embedding row(s) were written by a "
+                    "different model (per table: %s)",
+                    total_drift,
+                    advisory["embedding_model_drift"],
+                )
+                warnings.append(
+                    f"{total_drift} stored embedding(s) were produced by a "
+                    "different model than the current configuration (per "
+                    f"table: {advisory['embedding_model_drift']}). Semantic "
+                    "search compares vectors across vector spaces, which makes "
+                    "their rankings meaningless for those rows. Re-embed them "
+                    "with `manage.py backfill_embeddings --force`, or set "
+                    "EMBEDDING_MODEL_STRICT=strict to exclude them from "
+                    "similarity search until then (legacy rows with a NULL "
+                    "embedding_model stay visible either way)."
+                )
 
     # Provider-required environment check (#1050): `opencode_go` is selected
     # but `LLM_OPENCODE_SESSION` is not set, so every LLM call fails with a
@@ -621,7 +806,7 @@ def _strict_readiness() -> bool:
     return bool(getattr(django_settings, "HEALTH_STRICT_READINESS", True))
 
 
-def _readiness_payload() -> tuple[dict, int]:
+def _readiness_payload(*, verbose: bool = False) -> tuple[dict, int]:
     """Build the ``/health/ready`` body and HTTP status (ADR-010 §2/§4/§6).
 
     ``dependencies`` lists every non-``ok`` check — including an optional
@@ -629,6 +814,10 @@ def _readiness_payload() -> tuple[dict, int]:
     mandatory failure (any value other than ``ok``/``degraded``) may drive the
     503. ADR-020 §4: a configured-but-unreachable Qdrant backend is
     ``degraded`` at HTTP 200 and never turns readiness red.
+
+    ``verbose`` (``GET /health/ready?verbose=1``) additionally runs the
+    aggregate-only advisories (``embedding_model_drift``, T-A0-6). Without it
+    those keys are absent and the probe costs exactly what it did before.
     """
     required = _run_required_checks()
     checks = {
@@ -654,7 +843,7 @@ def _readiness_payload() -> tuple[dict, int]:
     warnings: list[str] = []
     advisory: dict[str, str] = {}
     _collect_advisory(
-        advisory, warnings, db_ok=required.get("database") == "ok"
+        advisory, warnings, db_ok=required.get("database") == "ok", verbose=verbose
     )
 
     if dependencies:
@@ -718,7 +907,11 @@ class HealthReadinessView(View):
     """``GET /health/ready`` — fail-closed readiness (ADR-010 §2/§4/§6)."""
 
     def get(self, request):
-        payload, http_status = _readiness_payload()
+        # ``?verbose=1`` opts into the aggregate-only advisories (T-A0-6); the
+        # probe stays cheap by default. Any other value (including a bare
+        # ``?verbose``) means "not verbose".
+        verbose = request.GET.get("verbose") == "1"
+        payload, http_status = _readiness_payload(verbose=verbose)
         return JsonResponse(payload, status=http_status)
 
 

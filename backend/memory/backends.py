@@ -85,7 +85,12 @@ from django.db import transaction
 from django.utils import timezone
 from pgvector.django import CosineDistance
 
-from llm_adapter.embedding_service import generate_embedding
+from llm_adapter.embedding_service import (
+    embedding_model_filter,
+    generate_embedding,
+    generate_embedding_with_model,
+    note_foreign_embedding_models,
+)
 from memory.models import MemoryEntry
 from persistence.middleware import clear_request_tenant, set_request_tenant
 from persistence.tenancy import TenantContext
@@ -589,6 +594,32 @@ def _maybe_uuid(value: object) -> UUID | None:
         return None
 
 
+def _safe_generate_embedding_with_model(
+    text: str,
+) -> tuple[list[float] | None, str | None]:
+    """Best-effort local embedding plus its provenance id (T-A0-6).
+
+    Shared by every backend that writes the canonical ``mem_memory_entry`` row
+    (pgvector, Honcho, Qdrant): the row carries ``embedding_model`` alongside the
+    vector, so a freshly written vector can never be mistaken for a legacy
+    pre-T-A0-5 row (``NULL``, which both read modes keep visible). It used to be
+    duplicated verbatim in the Honcho and Qdrant modules; one copy keeps the
+    fail-open contract identical everywhere.
+
+    Fail-open, same as the write path it feeds: the external engine's write must
+    never fail because a LOCAL embedding provider is unavailable, so every error
+    degrades to ``(None, None)``. ``None`` for the id whenever no vector was
+    produced, so a model id is never stored alone.
+    """
+    try:
+        vector, model_id = generate_embedding_with_model(text)
+    except Exception:  # noqa: BLE001 - best-effort, see docstring
+        return None, None
+    if vector is None:
+        return None, None
+    return vector, model_id
+
+
 def _cosine_distance(a: list | None, b: list | None) -> float | None:
     """Return cosine distance (``1 - cosine similarity``) between two vectors.
 
@@ -698,12 +729,16 @@ class PgvectorMemoryBackend(MemoryBackend):
         entity_type: str = "",
         backend_ref: str | None = None,
     ) -> MemoryEntryRef:
-        embedding = generate_embedding(content)
+        # T-A0-6: one call yields the vector and the id of the model that
+        # produced it; the provenance column is only set when a vector is
+        # actually stored (a failed/empty generation leaves both empty).
+        embedding, embedding_model = generate_embedding_with_model(content)
         with _tenant_context(tenant_id):
             entry = MemoryEntry.objects.create(
                 tenant_id=tenant_id,
                 content=content,
                 embedding=embedding,
+                embedding_model=embedding_model if embedding is not None else None,
                 contributor_user_id=contributor_user_id,
                 source_event_id=source_event_id,
                 source_session_id=source_session_id,
@@ -872,13 +907,23 @@ class PgvectorMemoryBackend(MemoryBackend):
         if query_embedding is None:
             return []
         with _tenant_context(tenant_id):
-            qs = (
-                MemoryEntry.objects.filter(
-                    **_scope_filter(scope, scope_id),
-                    superseded_by__isnull=True,
-                    embedding__isnull=False,
+            qs = MemoryEntry.objects.filter(
+                **_scope_filter(scope, scope_id),
+                superseded_by__isnull=True,
+                embedding__isnull=False,
+            )
+            # T-A0-6: strict mode drops rows written by a different model;
+            # warn mode (default) leaves the result set untouched and samples
+            # the drift once per process.
+            model_filter = embedding_model_filter()
+            if model_filter is None:
+                note_foreign_embedding_models(
+                    qs, site="PgvectorMemoryBackend.query"
                 )
-                .annotate(distance=CosineDistance("embedding", query_embedding))
+            else:
+                qs = qs.filter(model_filter)
+            qs = (
+                qs.annotate(distance=CosineDistance("embedding", query_embedding))
                 .order_by("distance", "id")[:top_k]
             )
             return [_ref_from_entry(e, distance=e.distance) for e in self._evaluate(qs)]

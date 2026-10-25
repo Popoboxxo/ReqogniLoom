@@ -67,6 +67,7 @@ from memory.backends import (
     _maybe_uuid,
     _ref_from_entry,
     _render_digest_facts,
+    _safe_generate_embedding_with_model,
     _scope_filter,
     _tenant_context,
     register_memory_backend,
@@ -481,12 +482,13 @@ class QdrantMemoryBackend(MemoryBackend):
         ``backend_ref IS NULL``) and a :class:`MemoryIndexError` is raised -- a
         silently missing point must never look like a successful write.
         """
-        embedding = _safe_generate_embedding(content)
+        embedding, embedding_model = _safe_generate_embedding_with_model(content)
         with _tenant_context(tenant_id):
             entry = MemoryEntry.objects.create(
                 tenant_id=tenant_id,
                 content=content,
                 embedding=embedding,
+                embedding_model=embedding_model,
                 contributor_user_id=contributor_user_id,
                 source_event_id=source_event_id,
                 source_session_id=source_session_id,

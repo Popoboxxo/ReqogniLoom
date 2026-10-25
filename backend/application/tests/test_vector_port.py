@@ -18,6 +18,7 @@ Three layers of coverage:
 """
 from __future__ import annotations
 
+import logging
 import os
 from types import SimpleNamespace
 from uuid import UUID, uuid4
@@ -35,9 +36,14 @@ from application.vector_port import (
     get_vector_port,
 )
 from icd.models import Icd
+from llm_adapter import embedding_service
+from llm_adapter.embedding_service import (
+    EmbeddingProviderConfig,
+    MockEmbeddingProvider,
+)
 from memory.tests.qdrant_fakes import FakeQdrantClient, FakeQdrantModels
 from persistence.embedding_dimensions import EMBEDDING_VECTOR_DIMENSIONS
-from persistence.models import Artifact, Tenant, TraceLink
+from persistence.models import Artifact, Requirement, Tenant, TraceLink
 from persistence.qdrant_config import build_collection_name, resolve_qdrant_config
 from persistence.tests.factories import active_tenant, make_requirement, make_workspace
 
@@ -192,6 +198,147 @@ class TestPgVectorIcdParity:
         ids = [hit.id for hit in hits]
         assert ids == [near.id, far.id]
         assert foreign.id not in ids
+
+
+# ---------------------------------------------------------------------------
+# T-A0-6: embedding-model provenance on read (warn default / strict opt-in)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db(transaction=True)
+class TestEmbeddingModelReadComparison:
+    """``EMBEDDING_MODEL_STRICT`` at the pgvector port (T-A0-6, ADR-024 O3).
+
+    A model change that keeps the same vector width is invisible to a cosine
+    query, so every vector row carries its provenance ("<provider>:<model>:<dims>").
+    These two tests pin the *read* half of that contract on REAL ``Requirement``
+    rows, with vectors produced by ``MockEmbeddingProvider`` and two distinct
+    model ids:
+
+    * ``strict`` drops the foreign-model row while current-model and legacy
+      ``NULL`` rows stay visible;
+    * ``warn`` (the default) returns a set that is identical to the unfiltered
+      baseline and emits exactly ONE warning across two consecutive queries —
+      the module-level "already sampled" guard.
+    """
+
+    _PROVIDER = "mock"
+    _MODEL = "vector-port-current"
+    _FOREIGN_MODEL = "vector-port-previous"
+    _CURRENT_ID = f"{_PROVIDER}:{_MODEL}:{_DIM}"
+    _FOREIGN_ID = f"{_PROVIDER}:{_FOREIGN_MODEL}:{_DIM}"
+
+    def _configure(self, monkeypatch, mode: str) -> None:
+        """Pin the effective embedding config to the two ids used below."""
+        monkeypatch.setenv("EMBEDDING_PROVIDER", self._PROVIDER)
+        monkeypatch.setenv("EMBEDDING_MODEL_NAME", self._MODEL)
+        monkeypatch.setenv(embedding_service.EMBEDDING_MODEL_STRICT_ENV, mode)
+        # No SystemMemorySettings row in the test DB, so the env above would
+        # already win; pinning the overlay keeps the test honest if a fixture
+        # ever seeds one.
+        monkeypatch.setattr(embedding_service, "_apply_db_settings", lambda cfg: cfg)
+        # The process-level guards are module globals: without a reset, an
+        # earlier test in the same worker would silence the warn-mode warning.
+        monkeypatch.setattr(embedding_service, "_foreign_model_sample_taken", False)
+        monkeypatch.setattr(embedding_service, "_unknown_model_id_warned", False)
+
+    def _provider(self) -> MockEmbeddingProvider:
+        return MockEmbeddingProvider(
+            EmbeddingProviderConfig(provider_name=self._PROVIDER, model_name=self._MODEL)
+        )
+
+    def _seed(self, workspace):
+        """Create three embedded requirements: current, foreign, legacy NULL."""
+        provider = self._provider()
+        query_vector = provider.embed("near text")
+        current = make_requirement(workspace, title="Current model")
+        current.embedding = provider.embed("near text")
+        current.embedding_model = self._CURRENT_ID
+        current.save(update_fields=["embedding", "embedding_model"])
+
+        foreign = make_requirement(workspace, title="Foreign model")
+        foreign.embedding = provider.embed("foreign text")
+        foreign.embedding_model = self._FOREIGN_ID
+        foreign.save(update_fields=["embedding", "embedding_model"])
+
+        legacy = make_requirement(workspace, title="Legacy row")
+        legacy.embedding = provider.embed("legacy text")
+        legacy.embedding_model = None
+        legacy.save(update_fields=["embedding", "embedding_model"])
+        return current, foreign, legacy, query_vector
+
+    def test_strict_mode_excludes_foreign_model_rows(self, monkeypatch):
+        self._configure(monkeypatch, "strict")
+
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            current, foreign, legacy, query_vector = self._seed(ws)
+
+            hits = PgVectorVectorPort().query_similar(
+                collection=COLLECTION_REQUIREMENT,
+                query_vector=query_vector,
+                tenant_id=tenant.id,
+                workspace_id=ws.id,
+                workspace_field="artifact__workspace_id",
+                limit=50,
+            )
+
+        ids = [hit.id for hit in hits]
+        assert current.id in ids  # written by the current model
+        assert legacy.id in ids  # NULL provenance stays visible in strict mode
+        assert foreign.id not in ids  # the only row strict mode may drop
+        assert ids[0] == current.id  # same query vector -> distance 0.0
+
+    def test_warn_mode_keeps_rows_and_logs_once(self, monkeypatch, caplog):
+        self._configure(monkeypatch, "warn")
+
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            current, foreign, legacy, query_vector = self._seed(ws)
+
+            # The unfiltered baseline: no provenance predicate at all.
+            baseline = set(
+                Requirement.objects.filter(
+                    tenant_id=tenant.id,
+                    artifact__workspace_id=ws.id,
+                    embedding__isnull=False,
+                ).values_list("id", flat=True)
+            )
+
+            port = PgVectorVectorPort()
+            query = {
+                "collection": COLLECTION_REQUIREMENT,
+                "query_vector": query_vector,
+                "tenant_id": tenant.id,
+                "workspace_id": ws.id,
+                "workspace_field": "artifact__workspace_id",
+                "limit": 50,
+            }
+            with caplog.at_level(
+                logging.WARNING, logger="llm_adapter.embedding_service"
+            ):
+                first = port.query_similar(**query)
+                second = port.query_similar(**query)
+
+        first_ids = [hit.id for hit in first]
+        # Byte-for-byte unchanged: same rows, same order, as without any
+        # provenance comparison.
+        assert set(first_ids) == baseline
+        assert [hit.id for hit in second] == first_ids
+        assert foreign.id in first_ids
+
+        drift_warnings = [
+            record
+            for record in caplog.records
+            if record.name == "llm_adapter.embedding_service"
+            and record.levelno == logging.WARNING
+            and "were written by a different model" in record.getMessage()
+        ]
+        # One WARNING for two queries -- the count runs once per process.
+        assert len(drift_warnings) == 1
+        message = drift_warnings[0].getMessage()
+        assert "1 embedding row(s)" in message  # only `foreign` drifts
+        assert self._CURRENT_ID in message
 
 
 # ---------------------------------------------------------------------------

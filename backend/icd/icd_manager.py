@@ -62,7 +62,12 @@ _CONTRACT_UPDATE_FIELDS = [
     "preconditions",
     "postconditions",
     "invariants",
+    # The vector AND its provenance (T-A0-6): ``embedding_model`` must be in
+    # this list, otherwise ``_apply_embedding``'s new id is silently dropped by
+    # ``save(update_fields=...)`` and a regenerated vector is stored under the
+    # row's OLD id (or NULL), which strict mode then treats as a legacy row.
     "embedding",
+    "embedding_model",
     "current_revision",
     "modified_at",
     "version",
@@ -161,7 +166,7 @@ def _record_artifact_revision(icd: Icd) -> int:
 
 
 def _apply_embedding(icd: Icd) -> None:
-    """Best-effort: set ``icd.embedding`` in-place before the header is saved.
+    """Best-effort: set ``icd.embedding`` AND ``icd.embedding_model`` in place.
 
     REQ-L2-VS-004. Unlike the retired immutable ``IcdVersion``, the ICD header
     is mutable, so the embedding is regenerated on every contract change and a
@@ -170,18 +175,33 @@ def _apply_embedding(icd: Icd) -> None:
     provider/network failure must not fail the surrounding create/update
     transaction (best-effort, mirrors
     ``RequirementService._generate_and_store_embedding``).
+
+    Both fields are only assigned in the success branch, and both are written by
+    the CALLER's ``save()`` — which is why ``_CONTRACT_UPDATE_FIELDS`` must name
+    ``embedding_model`` as well as ``embedding``. The create path uses a full
+    ``save()`` and survives either way; the contract-update path saves with
+    ``update_fields=_CONTRACT_UPDATE_FIELDS``, so a field missing from that list
+    is dropped while the vector next to it is persisted (T-A0-6 regression: the
+    new-model vector landed under the row's old provenance). Pair the two
+    together whenever this function or that list is touched.
     """
     try:
         from llm_adapter.embedding_service import (
-            generate_embedding,
+            generate_embedding_with_model,
             get_icd_embedding_text,
             warn_dimension_mismatch,
         )
 
-        embedding = generate_embedding(get_icd_embedding_text(icd))
+        embedding, model_id = generate_embedding_with_model(
+            get_icd_embedding_text(icd)
+        )
         field_dimensions = Icd._meta.get_field("embedding").dimensions
         if embedding is not None and len(embedding) == field_dimensions:
             icd.embedding = embedding
+            # T-A0-6: only set in the success branch -- the pair is written by
+            # the caller's save(), so a skipped generation must not leave a
+            # stale provenance id behind.
+            icd.embedding_model = model_id
         elif embedding is not None:
             # Dimension mismatch (a non-default EMBEDDING_PROVIDER whose
             # native width differs from EMBEDDING_VECTOR_DIMENSIONS — see
@@ -728,7 +748,9 @@ class IcdManager:
                 tenant_id=tenant_id,
                 exclude_id=icd.id,
                 limit=safe_limit,
-                # Mirrors the pre-port site: no transaction/iterative scan here.
+                # Mirrors the pre-port site: no transaction/iterative scan
+                # here. Strict mode still gets one — the port forces it on
+                # whenever it has to post-filter by embedding_model (T-A0-6).
                 iterative_scan=False,
             )
         except QdrantBackendUnavailableError as exc:

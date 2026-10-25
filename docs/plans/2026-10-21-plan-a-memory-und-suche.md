@@ -205,7 +205,7 @@ Konventionen für alle Tasks:
 #### T-A0-5 Modellname neben Vektoren persistieren (Schema)
 - **Rolle:** `database-engineer`
 - **Datenmodell:** `embedding_model = CharField(max_length=160, null=True, blank=True)` auf `Requirement` und `TraceLink` (`persistence`), `Icd` (`icd`) und `MemoryEntry` (`memory`). Format: `"<provider>:<model_name>:<dims>"`, z. B. `ollama:nomic-embed-text:768`. `NULL` bedeutet ein Altbestand mit unbekanntem Modell.
-- **Migrationen (additiv, reversibel per `RemoveField`; Index §e):** `persistence/0118_embedding_model_columns` (setzt `0117_uid_workspace_unique_constraints` aus Plan G PR 3 voraus; ist G PR 3 noch nicht gemergt, nimmt der PR max+1 und aktualisiert den Index im selben PR), `icd/0014_icd_embedding_model`, `memory/0009_memoryentry_embedding_model`. Es gibt keinen Daten-Backfill. Die Spalte startet mit NULL und wird beim nächsten Schreiben oder per `backfill_embeddings --force` gefüllt.
+- **Migrationen (additiv, reversibel per `RemoveField`; Index §e):** `persistence/0119_embedding_model_columns` (setzt `0118_uid_workspace_unique_constraints` aus Plan G PR 3 voraus; ist G PR 3 noch nicht gemergt, nimmt der PR max+1 und aktualisiert den Index im selben PR), `icd/0014_icd_embedding_model`, `memory/0009_memoryentry_embedding_model`. Es gibt keinen Daten-Backfill. Die Spalte startet mit NULL und wird beim nächsten Schreiben oder per `backfill_embeddings --force` gefüllt.
 - **TDD:** Neu `backend/persistence/tests/test_embedding_model_columns.py`. Der Test prüft, dass die Spalte auf allen vier Tabellen existiert und nullable ist, per `information_schema` gegen die echte DB.
 - **DoD:** Der Migrationscheck meldet `No changes detected`. Rückwärts-Probe mit Namen: `python manage.py migrate persistence 0117_uid_workspace_unique_constraints && python manage.py migrate persistence`, `python manage.py migrate icd 0013_drop_icd_version && python manage.py migrate icd`, `python manage.py migrate memory 0008_system_memory_qdrant_settings && python manage.py migrate memory` laufen fehlerfrei hin und zurück.
 
@@ -660,7 +660,7 @@ def query_entities(self, *, tenant_id, workspace_id: UUID, query_vector,
 |---|---|---|
 | Plan D / D2 (Promptfoo-Gate **G1–G4**, Index §b, inkl. Required Check D2.5) | alle A1-Tasks (T-A1-1 … T-A1-8) | hart (Q2) |
 | Plan C / **PR-C3** (Q1-Kern) | T-A1-2, T-A1-3, T-A1-4 | hart. Plan A **registriert** die Schlüssel `memory.enabled`, `memory.disabled_slots` (inkl. Ebene `workspace`), `memory.allow_user_opt_out` selbst in `memory/apps.py` (vorläufig, ENT-A5 = A; Plan-C-Registerzeilen über KA-C-07). Q1-Toolsatz (PR-C4) für MCP-Zugriff. |
-| Plan G / G1.3 (PR 3, `persistence 0117_uid_workspace_unique_constraints`) | T-A0-5 (PR-A3, `persistence 0118_embedding_model_columns`) | hart (Migrationskette, Index §e) |
+| Plan G / G1.3 (PR 3, `persistence 0118_uid_workspace_unique_constraints`) | T-A0-5 (PR-A3, `persistence 0119_embedding_model_columns`) | hart (Migrationskette, Index §e) |
 | PR-A2/PR-A3 (`llm_adapter/embedding_service.py`) | Plan G / G2.4 (PR 9/10) | hart, nie parallel (Index §d.2) |
 | PR-A3 (`persistence 0118`) | Plan G / G2.2 (PR 7, `persistence 0119`) | hart (Migrationskette) |
 | PR-A2 (`deploy/docker-compose.yml`) | Plan D P2-1 → Plan G PR 13 → Plan D P3-4 | Merge-Queue (Index §d.2, QR-T20) |
@@ -687,7 +687,7 @@ Obergrenze: **max. 4 gleichzeitige Agenten über alle Pläne** (Index §d; in We
 | T-A0-2 | T-A0-1, Nutzerfreigabe | alles | – | tester |
 | T-A0-3 | – | T-A0-5 | `docker-compose.yml` (Queue PR-A2 → D P2-1 → G PR 13 → D P3-4), `test_honcho_deploy_contract.py` (T-A0-1 → serialisieren) | devops-engineer |
 | T-A0-4 | T-A0-3 | T-A0-5, T-A0b-* | `reqogniloom/health.py` (T-A0-6, T-A2-1, T-A2-9) | developer |
-| T-A0-5 | Plan G PR 3 (persistence `0117_uid_workspace_unique_constraints`) | T-A0-3, T-A0b-1 | Mig. persistence `0118_embedding_model_columns`, icd `0014_icd_embedding_model`, **memory `0009_memoryentry_embedding_model`** (Index §e) | database-engineer |
+| T-A0-5 | Plan G PR 3 (persistence `0118_uid_workspace_unique_constraints`) | T-A0-3, T-A0b-1 | Mig. persistence `0119_embedding_model_columns`, icd `0014_icd_embedding_model`, **memory `0009_memoryentry_embedding_model`** (Index §e) | database-engineer |
 | T-A0-6 | T-A0-5 | T-A0b-1 | `vector_port.py` (T-A2-1/6/7), `health.py`, `memory/backends.py` (T-A0b-1), `llm_adapter/embedding_service.py` (**Plan G G2.4 erst danach**) | senior-developer |
 | T-A0b-1 | – | T-A0-5 | `memory/backends.py`, `memory/health.py` | senior-developer |
 | T-A0b-2 | T-A0b-1 | T-A0-6 | `memory_entry_service.py`, `prompt_resolver.py` (T-A1-*) | developer |
@@ -755,7 +755,7 @@ graph LR
   B1 --> Y41
 ```
 
-**Migrationskette `memory` (streng seriell, Index §e):** `0009_memoryentry_embedding_model` (T-A0-5) → `0010_systemmemorysettings_backend_options`/`0011_backfill_backend_options` (T-A0b-3) → [`0012_workspacememorysettings_injection_policy` (T-A1-3) **nur bei ENT-A5 = B**] → `…_drop_legacy_backend_columns` (T-A0b-6, contract; 0012 vorläufig ENT-A5 = A, sonst 0013). **persistence:** Plan G `0117_uid_workspace_unique_constraints` → `0118_embedding_model_columns` (T-A0-5) → Plan G `0119_requirement_list_index`. **application:** `0036_alter_domaineventoutbox_event_type` (T-A2-4) → Plan F 0037/0038.
+**Migrationskette `memory` (streng seriell, Index §e):** `0009_memoryentry_embedding_model` (T-A0-5) → `0010_systemmemorysettings_backend_options`/`0011_backfill_backend_options` (T-A0b-3) → [`0012_workspacememorysettings_injection_policy` (T-A1-3) **nur bei ENT-A5 = B**] → `…_drop_legacy_backend_columns` (T-A0b-6, contract; 0012 vorläufig ENT-A5 = A, sonst 0013). **persistence:** Plan G `0118_uid_workspace_unique_constraints` → `0119_embedding_model_columns` (T-A0-5) → Plan G `0119_requirement_list_index`. **application:** `0036_alter_domaineventoutbox_event_type` (T-A2-4) → Plan F 0037/0038.
 
 ---
 
@@ -945,7 +945,7 @@ Alle Punkte sind im Entscheidungsdokument konsolidiert ([`2026-10-21-entscheidun
 
 | Befund | Schwere | Kern | Korrigiert in |
 |---|---|---|---|
-| QR-T01 / QR-S19 | kritisch / niedrig | `persistence 0116` mehrfach reserviert | korrigiert in Stufe 2, KA-A-01/KA-ALL-01: T-A0-5 (`0118_embedding_model_columns`), §4, §6, §14 |
+| QR-T01 / QR-S19 | kritisch / niedrig | `persistence 0116` mehrfach reserviert | korrigiert in Stufe 2, KA-A-01/KA-ALL-01: T-A0-5 (`0119_embedding_model_columns`), §4, §6, §14 |
 | QR-T04 | hoch | Rollback mit nackten Nummern | korrigiert in Stufe 2, KA-A-01/KA-ALL-02: T-A0-5, T-A0b-3, T-A0b-6, T-A2-4, §7 (PR-A3/A5/A11/A19/A29) |
 | QR-T05 | hoch | T-A1-8 legt D2-Case-Dateien neu an | korrigiert in Stufe 2, KA-A-02: T-A1-8 (erweitern), T-A1-6 (Top-k/Format-Tests) |
 | QR-T06 | hoch | roter Baseline-Case in PR-A9 | korrigiert in Stufe 2, KA-A-03: T-A1-1, T-A1-8, §7 P2 (PR-A9/PR-A10) |
@@ -1012,7 +1012,7 @@ Dieser Plan legt an (Nummern = erwartete Nummern laut Index §e):
 
 | App | Name | Task / PR | Welle | Art | Vorgänger (Rollback-Ziel) |
 |---|---|---|---|---|---|
-| persistence | `0118_embedding_model_columns` | T-A0-5 / PR-A3 | 1 | expand (AddField ×2) | `0117_uid_workspace_unique_constraints` (Plan G PR 3) |
+| persistence | `0119_embedding_model_columns` | T-A0-5 / PR-A3 | 1 | expand (AddField ×2) | `0118_uid_workspace_unique_constraints` (Plan G PR 3) |
 | icd | `0014_icd_embedding_model` | T-A0-5 / PR-A3 | 1 | expand (AddField) | `0013_drop_icd_version` |
 | memory | `0009_memoryentry_embedding_model` | T-A0-5 / PR-A3 | 1 | expand (AddField) | `0008_system_memory_qdrant_settings` |
 | memory | `0010_systemmemorysettings_backend_options` | T-A0b-3 / PR-A5 | 1 | expand (AddField ×2) | `0009_memoryentry_embedding_model` |

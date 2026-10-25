@@ -71,6 +71,8 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from django.db.models import Q
+
 from persistence.embedding_dimensions import EMBEDDING_VECTOR_DIMENSIONS
 
 logger = logging.getLogger(__name__)
@@ -219,6 +221,11 @@ class MockEmbeddingProvider(EmbeddingProvider):
     # EMBEDDING_VECTOR_DIMENSIONS was 768, which triggered the write-side
     # warn_dimension_mismatch and skipped the embedding.
     dimensions = EMBEDDING_VECTOR_DIMENSIONS
+    # Not a real model, but the provenance id names one anyway: every provider
+    # resolves it the same way (``cfg.model_name or _DEFAULT_MODEL``), so
+    # ``mock:mock:<dims>`` falls out of one rule instead of the provider-name
+    # fallback in :func:`current_embedding_model_id`.
+    _DEFAULT_MODEL = "mock"
 
     def __init__(self, config: EmbeddingProviderConfig) -> None:
         self._config = config
@@ -398,6 +405,228 @@ def warn_dimension_mismatch(site: str, produced: int, expected: int) -> None:
     )
 
 
+#: Provenance id for an embedding whose model could not be resolved. Never
+#: raised, never persisted for a *successful* vector: a write path must not fail
+#: because the provenance metadata is unavailable (T-A0-6).
+UNKNOWN_EMBEDDING_MODEL_ID = "unknown:unknown:0"
+
+#: Environment variable selecting the read-side comparison mode: ``warn``
+#: (default) leaves every result set untouched and logs one WARNING per process
+#: when rows were written by a different model; ``strict`` additionally excludes
+#: those rows from similarity queries. ``NULL`` (legacy rows, written before the
+#: column existed, T-A0-5) stays visible in BOTH modes (#1317, ADR-024 O3).
+EMBEDDING_MODEL_STRICT_ENV = "EMBEDDING_MODEL_STRICT"
+EMBEDDING_MODEL_MODE_STRICT = "strict"
+EMBEDDING_MODEL_MODE_WARN = "warn"
+
+#: Set once the unresolved-config warning has been logged — see
+#: :func:`current_embedding_model_id`.
+_unknown_model_id_warned = False
+
+#: Set once the warn-mode drift sample has been taken (see
+#: :func:`note_foreign_embedding_models`).
+_foreign_model_sample_taken = False
+
+
+def current_embedding_model_id() -> str:
+    """Return the provenance id of the vector the active config produces.
+
+    Format: ``"<provider>:<model_name>:<dims>"`` — e.g.
+    ``"ollama:nomic-embed-text:768"`` or
+    ``"sentence-transformers:all-MiniLM-L6-v2:384"``. The three components come
+    from the SAME resolved configuration :func:`generate_embedding` uses
+    (``_read_config()``: ``SystemMemorySettings`` override first, environment as
+    the fallback) and the width the resolved provider class actually emits
+    (``EmbeddingProvider.dimensions``; the columns are sized from it), so the id
+    can never disagree with the vector it labels.
+
+    Never raises (write-path contract, T-A0-6): an unresolvable provider or a
+    broken settings lookup yields :data:`UNKNOWN_EMBEDDING_MODEL_ID` and logs
+    one WARNING per process. A missing/mistyped provider name is already
+    reported loudly by ``llm_adapter.checks`` and ``manage.py
+    verify_embedding_dimensions``; provenance must not add a second failure
+    mode to every write.
+
+    Returns:
+        ``"<provider>:<model_name>:<dims>"``, or ``"unknown:unknown:0"``.
+    """
+    global _unknown_model_id_warned
+    try:
+        cfg = _read_config()
+        # Resolving through the registry's own factory keeps this id and
+        # ``generate_embedding`` on ONE lookup/instantiation path: a provider
+        # that overrides its effective model name in ``__init__`` (or refuses an
+        # unknown name) behaves identically in both.
+        provider = get_embedding_provider(cfg)
+        dimensions = int(getattr(provider, "dimensions", 0) or 0)
+        model_name = (
+            cfg.model_name
+            or getattr(type(provider), "_DEFAULT_MODEL", None)
+            or cfg.provider_name
+        )
+        return f"{cfg.provider_name}:{model_name}:{dimensions}"
+    except Exception as exc:  # noqa: BLE001 - provenance is best-effort by contract
+        if not _unknown_model_id_warned:
+            _unknown_model_id_warned = True
+            logger.warning(
+                "current_embedding_model_id: cannot resolve the embedding "
+                "provider configuration (%s); using %r. Embedding provenance "
+                "will be unusable until EMBEDDING_PROVIDER / the memory "
+                "settings override is fixed.",
+                exc,
+                UNKNOWN_EMBEDDING_MODEL_ID,
+            )
+        return UNKNOWN_EMBEDDING_MODEL_ID
+
+
+def generate_embedding_with_model(text: str) -> tuple[list[float] | None, str]:
+    """Generate a vector and the provenance id of the model that produced it.
+
+    Thin wrapper around :func:`generate_embedding` (all provider logic stays
+    there; this function never duplicates it) so a write site can persist
+    ``embedding`` and ``embedding_model`` from ONE call and the two can never
+    drift apart.
+
+    Args:
+        text: The embedding input.
+
+    Returns:
+        ``(vector, model_id)``. ``vector`` is ``None`` whenever
+        :func:`generate_embedding` would return ``None`` (empty text, provider
+        failure, unknown provider); ``model_id`` is still the resolved id in that
+        case, and callers MUST NOT persist it without a vector.
+    """
+    model_id = current_embedding_model_id()
+    return generate_embedding(text), model_id
+
+
+def embedding_model_strict_mode() -> str:
+    """Return the read-side comparison mode: ``"warn"`` (default) or ``"strict"``.
+
+    Reads :data:`EMBEDDING_MODEL_STRICT_ENV`. Any value other than an exact
+    ``strict`` — unset, empty, a typo, different casing after normalisation
+    (``STRICT`` normalises to ``strict``) — is treated as ``warn``, so a
+    deployment can never be crashed or silently filtered by a mistyped flag. The
+    default is ``warn`` because it is the only mode that provably keeps the
+    result set byte-identical to the pre-T-A0-6 behaviour.
+    """
+    raw = (os.environ.get(EMBEDDING_MODEL_STRICT_ENV) or "").strip().lower()
+    if raw == EMBEDDING_MODEL_MODE_STRICT:
+        return EMBEDDING_MODEL_MODE_STRICT
+    return EMBEDDING_MODEL_MODE_WARN
+
+
+def embedding_model_filter() -> Q | None:
+    """Return the strict-mode provenance filter, or ``None`` in ``warn`` mode.
+
+    ``strict`` keeps the rows this process would write (``embedding_model`` ==
+    :func:`current_embedding_model_id`) and every legacy ``NULL`` row, and
+    excludes rows written by a *different* model — the case ADR-024 O3 exists
+    for: a model change that keeps the same dimension is otherwise invisible to
+    a cosine query.
+
+    Returns:
+        ``Q(embedding_model=<current>) | Q(embedding_model__isnull=True)`` in
+        strict mode; ``None`` in warn mode (callers then leave the queryset
+        untouched).
+    """
+    if embedding_model_strict_mode() != EMBEDDING_MODEL_MODE_STRICT:
+        return None
+    return Q(embedding_model=current_embedding_model_id()) | Q(
+        embedding_model__isnull=True
+    )
+
+
+def note_foreign_embedding_models(queryset, *, site: str = "") -> int:
+    """Warn once per process about rows embedded by a different model (#1317).
+
+    Warn mode must not change a single result set, so the comparison is
+    observation only: one aggregate ``COUNT`` for rows whose
+    ``embedding_model`` is non-``NULL`` and differs from
+    :func:`current_embedding_model_id`. The count runs at most ONCE per process
+    and emits at most ONE WARNING — a per-query count on the hot search path
+    would cost more than the signal is worth.
+
+    WHICH SCOPE IS COUNTED (deliberately not "the corpus" by default): a
+    similarity query only ever sees its caller's tenant, and an aggregate over
+    that queryset cannot say anything about the other tenants. So the count
+    follows the role's actual visibility, probed through
+    :func:`persistence.rls_visibility.count_scope`:
+
+    * role bypasses RLS (superuser / ``BYPASSRLS``) -> the model's ``unscoped``
+      manager, i.e. the whole corpus;
+    * otherwise (RLS-bound role, with or without a tenant context) -> *queryset*
+      as given, i.e. only the caller's own scope.
+
+    The log line names the scope it counted, and ``/health/?verbose=1``
+    (``advisory.embedding_model_drift``) plus
+    ``manage.py verify_embedding_dimensions --models`` remain the per-table
+    views an operator reads for the authoritative numbers.
+
+    A no-op in strict mode (the rows are filtered out instead) and never raises:
+    a broken count must not break a search.
+
+    Args:
+        queryset: A queryset over a model carrying ``embedding`` /
+            ``embedding_model``, already scoped to what the caller would see.
+        site: Caller label for the log line (e.g. ``"PgVectorVectorPort"``).
+
+    Returns:
+        The number of drifting rows found, or ``0`` when the sample was already
+        taken this process / strict mode is active / the count failed.
+    """
+    global _foreign_model_sample_taken
+    if embedding_model_strict_mode() != EMBEDDING_MODEL_MODE_WARN:
+        return 0
+    if _foreign_model_sample_taken:
+        return 0
+
+    from persistence.rls_visibility import COUNT_SCOPE_CORPUS, count_scope
+
+    model_id = current_embedding_model_id()
+    corpus_wide = count_scope() == COUNT_SCOPE_CORPUS
+    sample = queryset
+    if corpus_wide:
+        unscoped = getattr(queryset.model, "unscoped", None)
+        if unscoped is not None:
+            sample = unscoped.all()
+    scope_label = (
+        "the whole corpus (this role bypasses RLS)"
+        if corpus_wide
+        else "this caller's scope only (the role is RLS-bound)"
+    )
+    try:
+        drifting = (
+            sample.filter(embedding__isnull=False)
+            .exclude(embedding_model=model_id)
+            .exclude(embedding_model__isnull=True)
+            .count()
+        )
+    except Exception as exc:  # noqa: BLE001 - the advisory must never break a read
+        # The flag is deliberately NOT set here: a transient DB error must not
+        # disable drift reporting for the rest of the process lifetime. Two
+        # concurrent first queries can therefore both count and both log — that
+        # duplicate is benign, and cheaper than a lock on the search hot path.
+        logger.debug("%s: embedding-model drift count skipped: %s", site, exc)
+        return 0
+    _foreign_model_sample_taken = True
+
+    if drifting:
+        logger.warning(
+            "%s: %d embedding row(s) in %s were written by a different model "
+            "than the current %s; they remain visible because "
+            "EMBEDDING_MODEL_STRICT defaults to 'warn'. Set "
+            "EMBEDDING_MODEL_STRICT=strict to exclude them from similarity "
+            "search, or re-embed them with `manage.py backfill_embeddings "
+            "--force` (#1317).",
+            site or "embedding read",
+            drifting,
+            scope_label,
+            model_id,
+        )
+    return drifting
+
+
 def get_embedding_text(requirement) -> str:
     """Combine a requirement's title and description into embedding input.
 
@@ -474,14 +703,23 @@ def get_tracelink_embedding_text(tracelink) -> str:
 
 
 __all__ = [
+    "EMBEDDING_MODEL_MODE_STRICT",
+    "EMBEDDING_MODEL_MODE_WARN",
+    "EMBEDDING_MODEL_STRICT_ENV",
     "EMBEDDING_PROVIDER_REGISTRY",
     "EmbeddingProvider",
     "EmbeddingProviderConfig",
+    "UNKNOWN_EMBEDDING_MODEL_ID",
+    "current_embedding_model_id",
+    "embedding_model_filter",
+    "embedding_model_strict_mode",
     "generate_embedding",
+    "generate_embedding_with_model",
     "get_embedding_provider",
     "get_embedding_text",
     "get_icd_embedding_text",
     "get_tracelink_embedding_text",
+    "note_foreign_embedding_models",
     "register_embedding_provider",
     "warn_dimension_mismatch",
 ]
