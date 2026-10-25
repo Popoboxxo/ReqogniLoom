@@ -1054,7 +1054,9 @@ class TraceLinkService(ServiceBase):
                 tenant_id=ctx.tenant_id,
                 exclude_id=link.id,
                 limit=safe_limit,
-                # Mirrors the pre-port site: no transaction/iterative scan here.
+                # Mirrors the pre-port site: no transaction/iterative scan
+                # here. Strict mode still gets one — the port forces it on
+                # whenever it has to post-filter by embedding_model (T-A0-6).
                 iterative_scan=False,
             )
         except QdrantBackendUnavailableError as exc:
