@@ -1,8 +1,11 @@
 name: CI Pipeline
 
 on:
+  # PRs are the gate. A feature-branch push with an open PR used to start a
+  # second, identical run (push + pull_request), doubling the queue and leaving
+  # one of the two as a CANCELLED check. Keep push for main (post-merge signal).
   push:
-    branches: [main, feat/**]
+    branches: [main]
   pull_request:
     branches: [main]
   # SEC-08 / AUD-2026-09-137: expose this pipeline as a reusable workflow so
@@ -11,6 +14,17 @@ on:
   # exact same jobs on the same ref, so "tests pass before image publish" is a
   # hard, same-run contract instead of a separate, skippable workflow run.
   workflow_call:
+
+# A new push to the same ref supersedes the previous run. Without this, stale
+# runs keep occupying runners and their checks show up as CANCELLED (which the
+# merge gate then has to explain away). Different PRs/refs keep their own runs.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Least privilege by default; jobs that need more opt in explicitly.
+permissions:
+  contents: read
 
 jobs:
   lint:
@@ -29,7 +43,7 @@ jobs:
 
       - name: Install frontend dependencies
         working-directory: frontend
-        run: npm install
+        run: npm ci
 
       - name: Run ESLint
         working-directory: frontend
@@ -43,8 +57,17 @@ jobs:
     # cold install alone takes ~8.5 min and the job was killed mid-pytest by the
     # old 10-min cap (flake on PR #943). 20 min leaves headroom for the cold
     # path; the other test sets still finish in well under 8 min.
-    timeout-minutes: 20
+    #
+    # 30 min: set-1-core crossed 20 min after the wave-0/1 suite growth. The
+    # real fix is test-level (the 362 s demo-seed test now runs in 1 s), this
+    # is the safety net; a hard timeout must never be the thing that "catches"
+    # a slow suite because a cancelled job hides which test was running.
+    timeout-minutes: 30
     strategy:
+      # One failing set must not cancel the others: the per-set verdict is the
+      # useful signal (and a cancelled sibling looks like an infrastructure
+      # problem, not a test failure).
+      fail-fast: false
       matrix:
         test-set:
           - id: set-1-core
@@ -78,6 +101,11 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+          # Ephemeral CI database: keep PGDATA in RAM. The suite's 53
+          # transaction=True tests TRUNCATE 100+ tables each; on the runner's
+          # disk that is fsync-bound and was measured at >300 s for the full
+          # schema versus 3.6 s on a fast store. Lost data is irrelevant here.
+          --tmpfs /var/lib/postgresql/data:rw
         ports:
           - 5432:5432
 
@@ -146,6 +174,12 @@ jobs:
           ALLOWED_HOSTS: localhost,127.0.0.1
           DEFAULT_TENANT_ID: '1'
           LLM_PROVIDER: mock
+          # torch/OpenMP otherwise spawns one thread per vCPU inside a single
+          # pytest process; the MCP suite used 14 cores unattended on a dev box
+          # and starved itself. One thread is deterministic and fast here.
+          OMP_NUM_THREADS: '1'
+          OPENBLAS_NUM_THREADS: '1'
+          MKL_NUM_THREADS: '1'
           REDIS_URL: redis://localhost:6379
           # REQ-081 / issue #151: no Fernet key literal in the repository.
           # settings_test.py generates an ephemeral key per process when the
@@ -356,7 +390,7 @@ jobs:
 
       - name: Install frontend dependencies
         working-directory: frontend
-        run: npm install
+        run: npm ci
 
       - name: Run Vitest
         working-directory: frontend
