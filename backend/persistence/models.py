@@ -1749,6 +1749,22 @@ class Requirement(TenantScopedModel):
             "no embedding provider is configured."
         ),
     )
+    # Provenance for ``embedding``: which provider/model/dimension produced the
+    # vector. Format "<provider>:<model_name>:<dims>", e.g.
+    # "ollama:nomic-embed-text:768". NULL = legacy row whose model is unknown;
+    # rows must never be compared against the current model without tolerating
+    # that NULL (Plan A T-A0-5/T-A0-6).
+    embedding_model = models.CharField(
+        max_length=160,
+        null=True,
+        blank=True,
+        help_text=(
+            "Model that produced ``embedding``, as "
+            "'<provider>:<model_name>:<dims>' (e.g. "
+            "'ollama:nomic-embed-text:768'). NULL for a legacy row whose "
+            "model is unknown."
+        ),
+    )
 
     class Meta:
         db_table = "pl_requirement"
@@ -2111,6 +2127,19 @@ class TraceLink(TenantScopedModel):
             "over trace links, sized by persistence.embedding_dimensions."
             "EMBEDDING_VECTOR_DIMENSIONS (#794). Best-effort: NULL when no "
             "embedding provider is configured."
+        ),
+    )
+    # Provenance for ``embedding``: "<provider>:<model_name>:<dims>", e.g.
+    # "ollama:nomic-embed-text:768". NULL = legacy row whose model is unknown.
+    embedding_model = models.CharField(
+        max_length=160,
+        null=True,
+        blank=True,
+        help_text=(
+            "Model that produced ``embedding``, as "
+            "'<provider>:<model_name>:<dims>' (e.g. "
+            "'ollama:nomic-embed-text:768'). NULL for a legacy row whose "
+            "model is unknown."
         ),
     )
     # KI-Vorschlag-als-Zustand spec §5: a trace link is not a workflow-tracked

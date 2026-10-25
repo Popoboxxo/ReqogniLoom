@@ -95,6 +95,19 @@ class MemoryEntry(TenantScopedModel):
     # this column can no longer silently drift apart from the Requirement/
     # TraceLink/Icd embedding columns the way it had (384 vs 1536).
     embedding = VectorField(dimensions=EMBEDDING_VECTOR_DIMENSIONS, null=True, blank=True)
+    # Provenance for ``embedding``: "<provider>:<model_name>:<dims>", e.g.
+    # "ollama:nomic-embed-text:768". NULL = legacy row whose model is unknown.
+    embedding_model = models.CharField(
+        max_length=160,
+        null=True,
+        blank=True,
+        help_text=(
+            "Model that produced ``embedding``, as "
+            "'<provider>:<model_name>:<dims>' (e.g. "
+            "'ollama:nomic-embed-text:768'). NULL for a legacy row whose "
+            "model is unknown."
+        ),
+    )
     language = models.CharField(max_length=8, blank=True, default="")
     confidence = models.FloatField(default=1.0)
     superseded_by = models.ForeignKey(

@@ -205,7 +205,7 @@ Konventionen für alle Tasks:
 #### T-A0-5 Modellname neben Vektoren persistieren (Schema)
 - **Rolle:** `database-engineer`
 - **Datenmodell:** `embedding_model = CharField(max_length=160, null=True, blank=True)` auf `Requirement` und `TraceLink` (`persistence`), `Icd` (`icd`) und `MemoryEntry` (`memory`). Format: `"<provider>:<model_name>:<dims>"`, z. B. `ollama:nomic-embed-text:768`. `NULL` bedeutet ein Altbestand mit unbekanntem Modell.
-- **Migrationen (additiv, reversibel per `RemoveField`; Index §e):** `persistence/0118_embedding_model_columns` (setzt `0117_uid_workspace_unique_constraints` aus Plan G PR 3 voraus; ist G PR 3 noch nicht gemergt, nimmt der PR max+1 und aktualisiert den Index im selben PR), `icd/0014_icd_embedding_model`, `memory/0009_memoryentry_embedding_model`. Es gibt keinen Daten-Backfill. Die Spalte startet mit NULL und wird beim nächsten Schreiben oder per `backfill_embeddings --force` gefüllt.
+- **Migrationen (additiv, reversibel per `RemoveField`; Index §e):** `persistence/0119_embedding_model_columns` (setzt `0118_uid_workspace_unique_constraints` aus Plan G PR 3 voraus; ist G PR 3 noch nicht gemergt, nimmt der PR max+1 und aktualisiert den Index im selben PR), `icd/0014_icd_embedding_model`, `memory/0009_memoryentry_embedding_model`. Es gibt keinen Daten-Backfill. Die Spalte startet mit NULL und wird beim nächsten Schreiben oder per `backfill_embeddings --force` gefüllt.
 - **TDD:** Neu `backend/persistence/tests/test_embedding_model_columns.py`. Der Test prüft, dass die Spalte auf allen vier Tabellen existiert und nullable ist, per `information_schema` gegen die echte DB.
 - **DoD:** Der Migrationscheck meldet `No changes detected`. Rückwärts-Probe mit Namen: `python manage.py migrate persistence 0117_uid_workspace_unique_constraints && python manage.py migrate persistence`, `python manage.py migrate icd 0013_drop_icd_version && python manage.py migrate icd`, `python manage.py migrate memory 0008_system_memory_qdrant_settings && python manage.py migrate memory` laufen fehlerfrei hin und zurück.
 
@@ -1012,7 +1012,7 @@ Dieser Plan legt an (Nummern = erwartete Nummern laut Index §e):
 
 | App | Name | Task / PR | Welle | Art | Vorgänger (Rollback-Ziel) |
 |---|---|---|---|---|---|
-| persistence | `0118_embedding_model_columns` | T-A0-5 / PR-A3 | 1 | expand (AddField ×2) | `0117_uid_workspace_unique_constraints` (Plan G PR 3) |
+| persistence | `0119_embedding_model_columns` | T-A0-5 / PR-A3 | 1 | expand (AddField ×2) | `0118_uid_workspace_unique_constraints` (Plan G PR 3) |
 | icd | `0014_icd_embedding_model` | T-A0-5 / PR-A3 | 1 | expand (AddField) | `0013_drop_icd_version` |
 | memory | `0009_memoryentry_embedding_model` | T-A0-5 / PR-A3 | 1 | expand (AddField) | `0008_system_memory_qdrant_settings` |
 | memory | `0010_systemmemorysettings_backend_options` | T-A0b-3 / PR-A5 | 1 | expand (AddField ×2) | `0009_memoryentry_embedding_model` |
