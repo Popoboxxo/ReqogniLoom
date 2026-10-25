@@ -173,12 +173,34 @@ def test_direct_orm_create_assigns_uid_and_workspace(tenant):
     assert requirement.workspace_id == workspace.id
 
 
-def test_seed_toothbrush_needs_have_uid(tenant):
+def test_seed_toothbrush_needs_have_uid(tenant, monkeypatch):
     """The demo seed writes StakeholderNeeds through the ORM — all get a uid.
 
     Live QA measured 0/20 needs with a uid before G1.1 (G-L4); this asserts the
     gap is closed at the source rather than by a data backfill alone.
+
+    Only the needs stage runs: the full demo seed creates ~440 requirements and
+    hundreds of trace links (each with cycle detection, RLS-scoped artifact
+    lookups and an audit write). That is E2E fixture work, not this assertion's
+    subject — measured 362 s for the full seed versus <1 s for the needs stage,
+    and it was the single largest contributor to the set-1-core CI timeout.
+    The later stages are stubbed so a future change to them cannot silently
+    turn this unit test into a multi-minute fixture and hide the regression.
     """
+    from auth_tenancy.management.commands import seed_toothbrush as seed
+
+    def _stub(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(seed, "_create_glossary", _stub)
+    monkeypatch.setattr(seed, "_create_architecture", lambda *_a, **_k: {})
+    monkeypatch.setattr(seed, "_create_requirements", lambda *_a, **_k: {})
+    monkeypatch.setattr(seed, "_create_icds", _stub)
+    monkeypatch.setattr(seed, "_create_risks", _stub)
+    monkeypatch.setattr(seed, "_create_issues", _stub)
+    monkeypatch.setattr(seed, "_create_adrs", _stub)
+    monkeypatch.setattr(seed, "_create_testcases_and_runs", _stub)
+
     call_command("seed_toothbrush")
 
     needs = StakeholderNeed.unscoped.filter(tenant_id=tenant.id)
