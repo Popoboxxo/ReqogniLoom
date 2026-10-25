@@ -235,6 +235,10 @@ class TestMemoryRememberInteraction:
         monkeypatch.setattr(
             "memory.backends.generate_embedding", lambda _text: [1.0] + [0.0] * 383
         )
+        monkeypatch.setattr(
+            "memory.backends.generate_embedding_with_model",
+            lambda _text: ([1.0] + [0.0] * 383, "mock:test:384"),
+        )
         from memory.backends import get_memory_backend
         from memory.models import MemoryEntry
         from memory.tasks import consolidate_interaction_task

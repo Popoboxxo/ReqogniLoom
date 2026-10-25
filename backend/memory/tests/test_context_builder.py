@@ -43,12 +43,17 @@ def _deterministic_memory_embeddings(monkeypatch):
     ``generate_embedding()`` return ``None``), and the mock provider's
     hash-derived vectors leave ordering and hit/miss up to index-scan luck.
 
-    Patching ``memory.backends.generate_embedding`` -- the name the pgvector
-    backend's ``write``/``query`` actually call -- covers both directions.
+    Patching ``memory.backends.generate_embedding`` (the query path) and
+    ``memory.backends.generate_embedding_with_model`` (the write path, which
+    also persists the provenance id) covers both directions.
     """
     monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
     monkeypatch.setenv("MEMORY_BACKEND", "pgvector")
     monkeypatch.setattr("memory.backends.generate_embedding", _pinned_embedding)
+    monkeypatch.setattr(
+        "memory.backends.generate_embedding_with_model",
+        lambda text: (_pinned_embedding(text), "mock:test:384"),
+    )
 
 
 @pytest.mark.django_db
