@@ -51,6 +51,47 @@ und startblockierend für ihre jeweiligen WPs: alle übrigen `ENT-*` mit
 
 ---
 
+## 0b. Entschieden am 2026-10-26 (Nutzer, Welle 2–4)
+
+Diese Entscheidungen sind bindend. Die Angabe „Vorläufig: nein“ in den
+betreffenden Abschnitten ist damit überholt; maßgeblich ist diese Tabelle.
+
+| ID | Frage | Gewählt | Folge |
+|---|---|---|---|
+| ENT-X4 | ADR-Vorbereitung ohne SE-Rollen | **A — documenter + concept-reviewer + Nutzer** | ADR-Texte: documenter, Review: concept-reviewer, Status: Nutzer. ENT-X2, B4-T2, F4.0 frei. |
+| ENT-X2 | ADR-Entwürfe vs. Nutzerentscheidung | **A — Texte anpassen, dann accepted** | ADR-022/023/024-Texte an die Nutzerentscheidung anpassen; kein Supersede-Wildwuchs. A1/A2/A4 frei. |
+| ENT-A2 | pgvector-Fallback vs. ADR-020 §4 | **a — ADR-022 löst §4 ab** | Fallback mit `degraded:true` wird umgesetzt; A2/PR-A17…A22 frei. |
+| ENT-A5 | Workspace-Memory-Ebene | **A — Q1-Schlüssel** | `memory.disabled_slots` als Q1-Schlüssel (global/workspace/user); `WorkspaceMemorySettings` nur Fassade; `/memory/me/settings/` Fassade über PreferenceService. PR-A11/A12/A15 frei. |
+| ENT-A6 | Memory-Budget/Datengrenzen | **C — Grenzen für alle, Budget 0** | `<memory>`-Datengrenzen für alle Blöcke; Budget-Default bleibt 0 (keine stille Kürzung). PR-A14 frei. |
+| ENT-A7 | Opt-out trotz Workspace-Zwang | **B — user-Scope bleibt aus** | Bei `allow_user_opt_out=false` wird der `user`-Scope nie injiziert; nur Workspace-/Artefakt-Memory ist erzwingbar. PR-A11/A12 frei. |
+| ENT-D2 | BluePencil-Hub-Auth | **B — Image-Secret + nginx auth_request** | Hub-Image-Secret, nginx `x-bluepencil-auth`/`auth_request` gegen Session-Check. D P2-1/P2-2 frei. |
+| ENT-C1 | Trace-Links im Inspector | **B — Inspector ohne Trace, TestCase-Panel** | Inspector bleibt fokussiert; TestCase bekommt `TraceLinkPanel`. PR-C10 frei. |
+| ENT-G4 | Checkbox/Radio-Trefferfläche | **A — 18-px-Control + Label ≥ 24 px** | Control bleibt 18 px, Label-Zeile ≥ 24 px (WCAG-Ausnahme). G PR16/G5.2 frei. |
+| ENT-C3 | Workspace-Defaults Rechte | **B — Workspace-Admin + MCP-Tier** | Baum/Formular auf Workspace-Admin angleichen (Breaking für Editoren). PR-C11 frei. |
+| ENT-B1 | B4 beschreibt erledigte Arbeit | **a — auf Rest reduzieren** | B4 = B4-T1…T3; #934/#941 schließen. Plan B P1 frei. |
+| ENT-E7 | 2FA-Selbst-Enrollment | **A — einmaliger Enrollment-Grant** | Enroll nur mit Grant (Admin-Aktion/`mfa_reset`, TTL ≤ 24 h, auditiert), sonst 403. E P3-3/P3-4 frei. |
+| ENT-F0 | Eigener F1-Spec? | **a — Plan F gilt als F1-Spec** | F1 startet ohne Zusatzdokument. PR-F1…F6 frei. |
+| ENT-F1 | Issue-/Risk-Linkvokabeln | **b — + blocks/resolves/threatens** | Drei zusätzliche Built-in-Link-Typen; `link_types`-Nummern ab 0013 verschieben sich. PR-F2 frei. |
+| ENT-A3 | A4 und T1 | **b — nur Dialektik-Teile hinter T1** | Rest von A4 nach Spike T-A4-1; nur Dialektik-Funktionen warten auf T1. PR-A24…A28 frei. |
+| ENT-B2 | Measure vs. ADR-008 | **a — nur Milestone** | B6 = `Milestone`, ADR-008 bleibt. PR-B19/B20 frei. |
+| ENT-F2 | Begriff `Document` | **b — Koexistenz; Sicht heißt `DocumentView`** | #1374-`Document` bleibt; die bestehende Dokumentensicht wird zu **`DocumentView`** (schreibgeschützte Projektion). Baseline-Scope `document` akzeptiert zusätzlich ein `Document`. Follow-up-Entscheidung 2026-10-26. |
+| ENT-F3 | Inline-Verweise `[[Term]]` | **a — Anzeige `[[Begriff]]`, Token-Speicherung** | Anzeige/Resolver `[[Begriff]]`, Speicherung bleibt `[[glossary:<uuid>@<rev>]]`; keine Migration, keine zweite Grammatik. F3-T0 frei. |
+| ENT-F4 | `documents:*`-Scopes | **a — Abbildung auf read_only/author/admin** | Keine `ApiKey`-Schemaänderung. F2-T0/T5/T6 frei. |
+| ENT-F5 | Projektion/Adoption | **a — eigenes WP F5 nach F3** | Eigener Spec, `Closes #1374` erst in F5/PR-F27. F2-T0-Umfang frei. |
+
+**Weiterhin „vorläufig ja“ und mit der jeweiligen Empfehlung umgesetzt:**
+D8, E1–E4, X3, C2, C5, A1 (b), A4 (a), V1, D1, D3, C4, A8, A9, B3, B4, B5,
+E5, E6, E8, D9, F6, D4–D7.
+
+**Erledigt:** ENT-X5 (`.meta-config/project.yaml` mit #1474 committet).
+
+**Offene Nutzer-Gates (Handlung, kein Beschluss):** U-1 (`prompt-regression`
+als Required Check, vor A1), U-2 (`pyotp==2.10.0`-Sign-off, vor E3), U-3
+(T1-Live-Beweis-Slot, vor A4), U-4 (Qdrant-Stopp-Probe-Fenster, vor A2-Austritt),
+U-5 (Accounts/npm/MCP-Registry, vor D5), U-6 (voller E2E-Lauf nur mit Freigabe).
+
+---
+
 ## 1. Blockiert Welle 0 (vor Start klären)
 
 ### ENT-X1 — Schlüsselrotation nach `.env.bak-*`-Fund (QR-S03)
