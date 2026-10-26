@@ -1191,10 +1191,15 @@ class RequirementService(ServiceBase):
         instead of materialising the full result set.
         """
         self._set_tenant_context(ctx)
+        # G2.2 (#1400): filter the denormalised workspace FK directly, so the
+        # list query can use ``idx_req_ws_created`` (workspace, created_at, id)
+        # instead of a join through ``pl_artifact``. The column is backfilled,
+        # enforced on every create path (G1.3) and derived in Requirement.save.
+        # The deterministic order is applied once at the end of this method.
         qs = Requirement.objects.select_related(
             "artifact", "artifact__owner", "artifact__reporter"
         ).filter(
-            artifact__workspace_id=workspace_id
+            workspace_id=workspace_id
         )
         from workflow.services import outdated_item_ids
 
