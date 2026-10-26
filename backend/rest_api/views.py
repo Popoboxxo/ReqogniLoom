@@ -483,6 +483,60 @@ def soft_delete_schema():
     )
 
 
+def list_schema(*, status: bool = False, search: bool = False):
+    """Declare the query parameters an artifact list endpoint really reads.
+
+    ``page``/``page_size`` come from ``StandardPagination``; this adds the
+    filters the handler passes to its service. ``status`` is declared only
+    where the service actually filters on it — declaring it elsewhere would
+    repeat the silent no-op G-L16 documented in the OpenAPI instead of fixing
+    it.
+    """
+    parameters = [
+        OpenApiParameter(
+            "workspace_id",
+            OpenApiTypes.UUID,
+            OpenApiParameter.QUERY,
+            required=True,
+            description="Workspace whose artifacts are listed.",
+        ),
+        OpenApiParameter(
+            "include_deleted",
+            OpenApiTypes.BOOL,
+            OpenApiParameter.QUERY,
+            required=False,
+            description=(
+                "Include soft-deleted (outdated) records. Defaults to false; "
+                "the detail GET still answers 200 with status='outdated'."
+            ),
+        ),
+    ]
+    if status:
+        parameters.append(
+            OpenApiParameter(
+                "status",
+                OpenApiTypes.STR,
+                OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Only rows whose workflow state matches (or, for "
+                    "'outdated', whose soft-delete flag is set)."
+                ),
+            )
+        )
+    if search:
+        parameters.append(
+            OpenApiParameter(
+                "search",
+                OpenApiTypes.STR,
+                OpenApiParameter.QUERY,
+                required=False,
+                description="Case-insensitive match on title, description or uid.",
+            )
+        )
+    return extend_schema(parameters=parameters)
+
+
 def _service_error_response(exc: Exception, lang: str = "en") -> Response:
     """Translate an ApplicationService exception into a standardised error Response.
 
@@ -920,6 +974,7 @@ class StakeholderNeedViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         updated = self.service.get(ctx, item_id)
         return {"need": StakeholderNeedSerializer(_need_to_dict(updated)).data}
 
+    @list_schema(search=True)
     def list(self, request: Request, **kwargs: Any) -> Response:
         """GET /api/v1/needs/?workspace_id=<id> or /api/v1/workspaces/<workspace_id>/needs/ — list workspace needs.
 
@@ -1447,6 +1502,7 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
+    @list_schema(status=True, search=True)
     def list(self, request: Request, **kwargs: Any) -> Response:
         """GET /api/v1/requirements/ — list all requirements.
 
@@ -2821,6 +2877,7 @@ class ArchitectureElementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             ).data
         }
 
+    @list_schema(search=True)
     def list(self, request: Request, **kwargs: Any) -> Response:
         """GET /api/v1/architecture-elements/ — list architecture elements.
 
@@ -3657,6 +3714,7 @@ class TestCaseViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         updated = self._svc().get_test_case(item_id, ctx)
         return {"test_case": TestCaseSerializer(_test_to_dict(updated)).data}
 
+    @list_schema(status=True, search=True)
     def list(self, request: Request, **kwargs: Any) -> Response:
         """GET /api/v1/test-cases/ — list test cases.
 
@@ -3673,11 +3731,13 @@ class TestCaseViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             if error is not None:
                 return error
             search = request.query_params.get("search") or None
+            status_filter = request.query_params.get("status") or None
             items = self._svc().list_test_cases(
                 workspace_id=workspace_id,
                 ctx=ctx,
                 include_deleted=parse_include_deleted(request.query_params),
                 search=search,
+                status=status_filter,
             )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
@@ -7440,6 +7500,7 @@ class AdrViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         updated = self._svc().get_adr(item_id, ctx)
         return {"adr": AdrSerializer(_adr_to_dict(updated)).data}
 
+    @list_schema()
     def list(self, request: Request, **kwargs: Any) -> Response:
         """GET /api/v1/adrs/ — list ADRs in a workspace.
 
@@ -7919,6 +7980,7 @@ class RiskViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         updated = self._svc().get_risk(item_id, ctx)
         return {"risk": RiskSerializer(_risk_to_dict(updated)).data}
 
+    @list_schema()
     def list(self, request: Request, **kwargs: Any) -> Response:
         """GET /api/v1/risks/ — list all Risks in a workspace."""
         lang = detect_lang(request)
@@ -8979,6 +9041,7 @@ class IssueViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         updated = self._svc().get_issue(item_id, ctx)
         return {"issue": IssueSerializer(_issue_to_dict(updated)).data}
 
+    @list_schema()
     def list(self, request: Request, **kwargs: Any) -> Response:
         """GET /api/v1/issues/ — list all Issues in a workspace."""
         lang = detect_lang(request)
@@ -9258,6 +9321,7 @@ class ChangeRequestViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         updated = self._svc().get_change_request(item_id, ctx)
         return {"change_request": ChangeRequestSerializer(_cr_to_dict(updated)).data}
 
+    @list_schema(status=True)
     def list(self, request: Request, **kwargs: Any) -> Response:
         """GET /api/v1/change-requests/?workspace_id=<id> — list CRs in a workspace."""
         lang = detect_lang(request)
@@ -10968,6 +11032,7 @@ class GlossaryTermViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         # via PATCH would be silently accepted-and-ignored.
         return getattr(self._svc().get(ctx, UUID(pk)), "status", None)
 
+    @list_schema()
     def list(self, request: Request, **kwargs: Any) -> Response:
         """GET /api/v1/glossary/ — list GlossaryTerms in a workspace.
 

@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - fix(api)!: **Breaking** — `GET` on a soft-deleted architecture element now answers 200 with `status="outdated"` instead of 404, matching every other artifact type (GH-443, #1381). This GET flip is the only breaking change in this release.
+- fix(api): artifact list endpoints now declare `workspace_id`, `include_deleted` and — where the service really filters — `status`/`search` in the OpenAPI document (E2.9, G-L16). `GET /api/v1/testcases/?status=<state>` now filters instead of silently ignoring the parameter (the one visible behaviour change: an unknown state returns an empty page, never the unfiltered list).
 
 ### Fixed
 - fix(api): accept `change_reason` as a `DELETE` query parameter (body still wins) on the soft-deleting endpoints (#1407). The endpoint-wide wiring landed with the preceding additive change and changes no existing client behaviour; it is not part of the breaking `GET` flip above.
