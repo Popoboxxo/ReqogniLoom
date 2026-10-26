@@ -67,7 +67,13 @@ class TestSearchServiceTenantScope:
             original_search_entity_type = SearchService._search_entity_type
 
             def flaky_search_entity_type(
-                entity_type, tsquery_str, tenant_id, workspace_id, raw_query="", query_embedding=None
+                entity_type,
+                tsquery_str,
+                tenant_id,
+                workspace_id,
+                raw_query="",
+                query_embedding=None,
+                mode: str = "hybrid",
             ):
                 if entity_type == "Requirement" and workspace_id == ws_b.id:
                     raise RuntimeError("simulated failure for the middle workspace")
@@ -78,6 +84,7 @@ class TestSearchServiceTenantScope:
                     workspace_id=workspace_id,
                     raw_query=raw_query,
                     query_embedding=query_embedding,
+                    mode=mode,
                 )
 
             monkeypatch.setattr(

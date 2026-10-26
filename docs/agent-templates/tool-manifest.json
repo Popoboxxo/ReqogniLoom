@@ -1,5 +1,5 @@
 {
-  "generated_from": "reqogniloom==1.8.0-beta.22",
+  "generated_from": "reqogniloom==unknown",
   "tool_count": 252,
   "tools": [
     {
@@ -894,6 +894,15 @@
               ]
             },
             "description": "Optional list of artifact types to include. Defaults to all searchable types. MainGoal is not searchable (no title, aggregated content)."
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "hybrid",
+              "keyword",
+              "vector"
+            ],
+            "description": "Search mode: hybrid (default), keyword (full-text + lexical, no embedding call) or vector (semantic only). An unknown value is a VALIDATION_ERROR."
           },
           "page": {
             "type": "integer",

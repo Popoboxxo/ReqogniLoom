@@ -465,6 +465,15 @@ class CrossCuttingToolGroup(BaseToolGroup):
                             "not searchable (no title, aggregated content)."
                         ),
                     },
+                    "mode": {
+                        "type": "string",
+                        "enum": ["hybrid", "keyword", "vector"],
+                        "description": (
+                            "Search mode: hybrid (default), keyword (full-text "
+                            "+ lexical, no embedding call) or vector (semantic "
+                            "only). An unknown value is a VALIDATION_ERROR."
+                        ),
+                    },
                     "page": {"type": "integer", "description": "Page number (default 1)."},
                     "limit": {"type": "integer", "description": "Page size (default 20)."},
                     "min_score": {
@@ -1279,6 +1288,7 @@ class CrossCuttingToolGroup(BaseToolGroup):
         )
         page: int = int(params.get("page", 1))
         limit: int = int(params.get("limit", 20))
+        mode = str(params.get("mode", "hybrid")).strip().lower()
         min_score_raw = params.get("min_score", 0.0)
         # BE-R5 (F3): ``bool`` is an ``int`` subclass, so ``float(True)`` would
         # silently mean ``1.0`` — reject explicitly, mirroring the page/
@@ -1305,6 +1315,7 @@ class CrossCuttingToolGroup(BaseToolGroup):
                 limit=limit,
                 scope="workspace" if workspace_id is not None else "tenant",
                 min_score=min_score,
+                mode=mode,
             )
         except ValidationError as exc:
             return ToolResult.error("VALIDATION_ERROR", str(exc))
@@ -1333,6 +1344,7 @@ class CrossCuttingToolGroup(BaseToolGroup):
             "total_count": result.total_count,
             "page": result.page,
             "limit": result.limit,
+            "mode": mode,
         })
 
     # ------------------------------------------------------------------
