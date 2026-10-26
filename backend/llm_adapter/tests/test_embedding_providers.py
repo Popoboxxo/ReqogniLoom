@@ -265,3 +265,79 @@ class TestEmbeddingServiceDbOverride:
         SystemMemorySettings.objects.create()  # every field NULL
         cfg = _read_config()
         assert cfg.provider_name == "mock"
+
+
+class TestOllamaKeepAlive:
+    """G2.4 (#1401): keep the Ollama embedding model resident between calls."""
+
+    def test_embed_sends_the_configured_keep_alive(self, monkeypatch):
+        import requests
+
+        captured: dict = {}
+
+        class _Response:
+            def raise_for_status(self) -> None:
+                return None
+
+            def json(self) -> dict:
+                return {"embedding": [0.0] * 768}
+
+        def fake_post(url, json=None, timeout=None):
+            captured["url"] = url
+            captured["json"] = json
+            captured["timeout"] = timeout
+            return _Response()
+
+        monkeypatch.setattr(requests, "post", fake_post)
+        provider = get_embedding_provider(
+            EmbeddingProviderConfig(
+                provider_name="ollama",
+                model_name="nomic-embed-text",
+                base_url="http://ollama:11434",
+                keep_alive="30m",
+            )
+        )
+
+        vector = provider.embed("hello")
+
+        assert vector is not None and len(vector) == 768
+        assert captured["url"] == "http://ollama:11434/api/embeddings"
+        assert captured["json"]["keep_alive"] == "30m"
+
+    def test_keep_alive_defaults_from_the_environment(self, monkeypatch):
+        from llm_adapter.embedding_service import _read_env_config
+
+        monkeypatch.delenv("EMBEDDING_KEEP_ALIVE", raising=False)
+        assert _read_env_config().keep_alive == "30m"
+
+        monkeypatch.setenv("EMBEDDING_KEEP_ALIVE", "45m")
+        assert _read_env_config().keep_alive == "45m"
+
+    def test_blank_keep_alive_sends_no_field(self, monkeypatch):
+        import requests
+
+        captured: dict = {}
+
+        class _Response:
+            def raise_for_status(self) -> None:
+                return None
+
+            def json(self) -> dict:
+                return {"embedding": [0.0] * 768}
+
+        def fake_post(url, json=None, timeout=None):
+            captured.update(json or {})
+            return _Response()
+
+        monkeypatch.setattr(requests, "post", fake_post)
+        provider = get_embedding_provider(
+            EmbeddingProviderConfig(
+                provider_name="ollama",
+                model_name="nomic-embed-text",
+                base_url="http://ollama:11434",
+                keep_alive=None,
+            )
+        )
+
+        assert provider.embed("hello") is not None
+        assert "keep_alive" not in captured

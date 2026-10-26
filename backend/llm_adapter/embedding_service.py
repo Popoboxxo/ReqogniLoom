@@ -100,6 +100,9 @@ class EmbeddingProviderConfig:
     base_url: str | None = None
     api_key: str | None = None
     timeout: float | None = None
+    #: Ollama only: how long the model stays resident between calls. ``None``
+    #: means "do not send the field" (Ollama's own default then applies).
+    keep_alive: str | None = None
 
 
 def _read_env_config() -> EmbeddingProviderConfig:
@@ -109,6 +112,10 @@ def _read_env_config() -> EmbeddingProviderConfig:
         base_url=os.environ.get("OLLAMA_BASE_URL") or None,
         api_key=os.environ.get("LLM_API_KEY") or None,  # reuses the existing LLM API key, not a new secret
         timeout=float(os.environ.get("EMBEDDING_TIMEOUT", "10")),
+        # G2.4 (#1401): Ollama unloads an idle model after 5 minutes; the first
+        # embed then pays the model-load cost again. 30m keeps it warm without
+        # pinning GPU/CPU memory forever. Configurable per 12-factor.
+        keep_alive=os.environ.get("EMBEDDING_KEEP_ALIVE", "30m") or None,
     )
 
 
@@ -296,15 +303,20 @@ class OllamaEmbeddingProvider(EmbeddingProvider):
         self._base_url = (config.base_url or "http://localhost:11434").rstrip("/")
         self._model_name = config.model_name or self._DEFAULT_MODEL
         self._timeout = config.timeout or 10
+        self._keep_alive = config.keep_alive
 
     def embed(self, text: str) -> list[float] | None:
         if not text or not text.strip():
             return None
         import requests
+        payload = {"model": self._model_name, "prompt": text}
+        if self._keep_alive:
+            # G2.4 (#1401): keep the model resident between requests.
+            payload["keep_alive"] = self._keep_alive
         try:
             response = requests.post(
                 f"{self._base_url}/api/embeddings",
-                json={"model": self._model_name, "prompt": text},
+                json=payload,
                 timeout=self._timeout,
             )
             response.raise_for_status()

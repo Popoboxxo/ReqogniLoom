@@ -438,6 +438,11 @@ backend silently down while the stack still reports as started. The one-shot ser
 auto-restart would re-run migrations/preflight in a loop. The contract is regression-guarded by
 `backend/memory/tests/test_honcho_deploy_contract.py`.
 
+**Ollama keep-alive (G2.4, #1401):** when `EMBEDDING_PROVIDER=ollama`, `EMBEDDING_KEEP_ALIVE`
+is sent with every embedding request (`"30m"` by default). Ollama unloads an idle model after
+5 minutes, so without it the first embedding after a quiet period pays the model-load cost
+again. Unset/empty leaves the field out and Ollama's own default applies.
+
 Honcho needs a reachable OpenAI-compatible embedding endpoint before it can write memories.
 There is **one** embedding configuration per deployment, not two. `HONCHO_EMBEDDING_MODEL` and
 `HONCHO_EMBEDDING_VECTOR_DIMENSIONS` are **overrides**: unset, every Honcho service falls back to
