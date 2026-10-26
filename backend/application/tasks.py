@@ -16,6 +16,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from celery import shared_task
+from django.db import OperationalError
 
 from application.event_bus import poll_and_dispatch
 
@@ -44,6 +45,12 @@ def dispatch_outbox_events() -> int:
         if processed:
             logger.info("dispatch_outbox_events: dispatched %d event(s)", processed)
         return processed
+    except OperationalError as exc:
+        # R10-07 (#1404): a database outage is the expected transient failure
+        # for this task — one warning line, no traceback. The full traceback is
+        # reserved for genuinely unexpected failures below.
+        logger.warning("dispatch_outbox_events: database unavailable (%s)", exc)
+        return 0
     except Exception:  # noqa: BLE001 — beat task must never crash the loop.
         logger.exception("dispatch_outbox_events: poll cycle failed")
         return 0
