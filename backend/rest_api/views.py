@@ -9927,6 +9927,19 @@ class SearchViewSet(viewsets.ViewSet):
                 default=20,
                 description="Page size (max 100).",
             ),
+            OpenApiParameter(
+                name="mode",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                default="hybrid",
+                enum=["hybrid", "keyword", "vector"],
+                description=(
+                    "Search mode: hybrid (default), keyword (full-text + "
+                    "lexical, no embedding call) or vector (semantic only). "
+                    "An unknown value answers 400."
+                ),
+            ),
         ],
     )
     def list(self, request: Request, **kwargs: Any) -> Response:
@@ -9968,6 +9981,7 @@ class SearchViewSet(viewsets.ViewSet):
 
         # Parse type filter (may be repeated)
         type_filter = request.query_params.getlist("type") or None
+        mode = (request.query_params.get("mode") or "hybrid").strip().lower()
 
         # Parse pagination
         try:
@@ -9990,6 +10004,7 @@ class SearchViewSet(viewsets.ViewSet):
                 type_filter=type_filter,
                 page=page,
                 limit=limit,
+                mode=mode,
             )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
@@ -10015,6 +10030,7 @@ class SearchViewSet(viewsets.ViewSet):
                 "page": result.page,
                 "limit": result.limit,
                 "query": result.query,
+                "mode": mode,
             }
         )
 

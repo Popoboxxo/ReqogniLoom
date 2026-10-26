@@ -932,6 +932,7 @@ class SearchService(ServiceBase):
         limit: int = _DEFAULT_LIMIT,
         scope: str = "workspace",
         min_score: float = 0.0,
+        mode: str = "hybrid",
     ) -> SearchResult:
         """Execute the search and return ranked, paginated results.
 
@@ -958,6 +959,11 @@ class SearchService(ServiceBase):
                 ``AuthorizationService.accessible_workspace_ids()`` --  an
                 explicit ``workspace_id`` is ignored in this mode, since
                 ``scope="tenant"`` means "all my workspaces", not one).
+            mode: ``"hybrid"`` (default, unchanged behaviour), ``"keyword"``
+                (full-text + lexical only, no embedding call) or ``"vector"``
+                (semantic only; types without an embedding column return
+                nothing). Any other value raises :class:`ValidationError`
+                (A-L11: no silent ignore).
             min_score: Optional relevance floor (issue #1170). ``0.0``
                 (default) applies no filtering -- every match is returned, as
                 before. A value ``> 0`` drops every hit whose
@@ -989,6 +995,13 @@ class SearchService(ServiceBase):
             raise ValidationError("min_score must be a number in [0, 1].") from None
         if min_score < 0.0 or min_score > 1.0:
             raise ValidationError("min_score must be in [0, 1].")
+
+        # T-A3-1 (A-L11): an unknown mode is a caller error, never a silent
+        # fallback to hybrid.
+        if mode not in {"hybrid", "keyword", "vector"}:
+            raise ValidationError(
+                "mode must be one of 'hybrid', 'keyword', 'vector'."
+            )
 
         # Validate type filter (REQ-L3-SEARCH-004)
         effective_types: list[str]
@@ -1025,7 +1038,9 @@ class SearchService(ServiceBase):
         # (no embedding column at all) must not pay that cost just because
         # Requirement/TraceLink/Icd exist elsewhere in the codebase.
         query_embedding: list[float] | None = None
-        if _EMBEDDABLE_TYPES & set(effective_types):
+        # ``keyword`` makes no embedding call at all (T-A3-1); ``hybrid`` and
+        # ``vector`` share the single computed vector.
+        if mode != "keyword" and (_EMBEDDABLE_TYPES & set(effective_types)):
             query_embedding = generate_embedding(query)
 
         if scope == "tenant":
@@ -1043,6 +1058,7 @@ class SearchService(ServiceBase):
                 workspace_ids=accessible_ids,
                 raw_query=query,
                 query_embedding=query_embedding,
+                mode=mode,
             )
         else:
             ws_uuid: UUID | None = (
@@ -1059,6 +1075,7 @@ class SearchService(ServiceBase):
                         workspace_id=ws_uuid,
                         raw_query=query,
                         query_embedding=query_embedding,
+                        mode=mode,
                     )
                     hits.extend(type_hits)
                 except Exception:
@@ -1107,6 +1124,7 @@ class SearchService(ServiceBase):
         workspace_id: UUID | None,
         raw_query: str = "",
         query_embedding: list[float] | None = None,
+        mode: str = "hybrid",
     ) -> list[SearchHit]:
         """Return hits for one entity type from all applicable search passes.
 
@@ -1140,10 +1158,19 @@ class SearchService(ServiceBase):
         if spec is None:
             return []
 
+        if mode == "vector":
+            # Semantic only: a type without an embedding column (or a query
+            # with no vector) simply contributes nothing.
+            return _run_semantic_query(
+                entity_type, query_embedding, tenant_id, workspace_id
+            )
+
         fulltext_hits = _run_fulltext_query(entity_type, spec, tsquery_str, tenant_id, workspace_id)
         lexical_hits = _run_lexical_query(entity_type, spec, raw_query, tenant_id, workspace_id)
-        semantic_hits = _run_semantic_query(entity_type, query_embedding, tenant_id, workspace_id)
+        if mode == "keyword":
+            return _merge_hits(fulltext_hits, lexical_hits)
 
+        semantic_hits = _run_semantic_query(entity_type, query_embedding, tenant_id, workspace_id)
         if semantic_hits:
             return _rrf_fuse(lexical_hits, fulltext_hits, semantic_hits)
         return _merge_hits(fulltext_hits, lexical_hits)
@@ -1157,6 +1184,7 @@ class SearchService(ServiceBase):
         workspace_ids: list[UUID],
         raw_query: str,
         query_embedding: list[float] | None = None,
+        mode: str = "hybrid",
     ) -> list[SearchHit]:
         """Search every type in ``entity_types`` across all ``workspace_ids``.
 
@@ -1187,6 +1215,7 @@ class SearchService(ServiceBase):
                             workspace_id=ws_id,
                             raw_query=raw_query,
                             query_embedding=query_embedding,
+                            mode=mode,
                         )
                     )
                 except Exception:
