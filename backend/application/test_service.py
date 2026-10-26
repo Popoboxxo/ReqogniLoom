@@ -614,6 +614,7 @@ class TestService(ServiceBase):
         test_type: str | None = None,
         include_deleted: bool = False,
         search: str | None = None,
+        status: str | None = None,
     ) -> QuerySet[TestCase]:
         """Return TestCases in *workspace_id*, optionally filtered by test_type.
 
@@ -645,7 +646,10 @@ class TestService(ServiceBase):
         ).filter(
             artifact__workspace_id=workspace_id
         )
-        if not include_deleted:
+        # G-L16 / E2.9: an explicit ``?status=outdated`` implies
+        # ``include_deleted`` -- otherwise the default exclusion below would
+        # drop exactly the rows the caller asked for.
+        if not include_deleted and status != "outdated":
             # Datenmodell-Konsolidierung Phase 4 (D-3): "outdated" is the
             # Artifact.lifecycle_status flag, not a workflow state --
             # outdate() stopped writing the state, so
@@ -654,6 +658,31 @@ class TestService(ServiceBase):
 
             qs = qs.exclude(
                 id__in=outdated_item_ids("TestCase", tenant_id=ctx.tenant_id)
+            )
+        if status == "outdated":
+            from workflow.services import outdated_item_ids
+
+            qs = qs.filter(
+                id__in=outdated_item_ids("TestCase", tenant_id=ctx.tenant_id)
+            )
+        elif status:
+            # Every other value is a workflow state. Resolve it through the
+            # engine (TestCase has no status column since Phase 4); a row with
+            # no WorkflowItemState falls back to the preset initial state, the
+            # same convention ``list_requirements`` uses.
+            from workflow import state_reader
+
+            rows = list(qs.values("id"))
+            states = state_reader.current_states(
+                "TestCase", (row["id"] for row in rows)
+            )
+            initial = state_reader.initial_state("TestCase")
+            qs = qs.filter(
+                id__in=[
+                    row["id"]
+                    for row in rows
+                    if (states.get(str(row["id"])) or initial) == status
+                ]
             )
         if test_type is not None:
             qs = qs.filter(test_type=normalize_test_type(test_type))
