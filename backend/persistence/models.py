@@ -1782,6 +1782,13 @@ class Requirement(TenantScopedModel):
             # on every create/update to enforce uniqueness at the application layer
             # (RequirementService); this index backs that lookup.
             models.Index(fields=["tenant", "uid"], name="idx_req_tnt_uid"),
+            # G2.2 (#1400): the requirement list filters by workspace and orders
+            # by (created_at, id). This index serves both without touching
+            # ``pl_artifact``. Created CONCURRENTLY in migration 0120.
+            models.Index(
+                fields=["workspace", "created_at", "id"],
+                name="idx_req_ws_created",
+            ),
         ]
         constraints = [
             # Issue #123: migration 0020 removed 'StReq' from RequirementType
