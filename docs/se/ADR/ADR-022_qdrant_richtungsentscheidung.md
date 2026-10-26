@@ -1,21 +1,27 @@
 ---
 adr_id: ADR-022
-title: "Qdrant-Richtungsentscheidung — Abkündigung (Option A) vs. Vollbetrieb (Option B) des optionalen Vektor-Backends; Revision von ADR-020"
-status: proposed
-date: "2026-10-17"
-deciders: [user, se-architect]
+title: "Qdrant-Richtungsentscheidung — Abkündigung (Option A) vs. Vollbetrieb (Option B) des optionalen Vektor-Backends; punktuelle Ablösung von ADR-020 §4"
+status: accepted
+date: "2026-10-26"
+deciders: [user, documenter]
 affected_reqs: [REQ-L1-038, REQ-L2-VS-001, REQ-L2-VS-002, REQ-L2-VS-003, REQ-L2-VS-004]
 superseded_by: null
 ---
 
-# ADR-022: Qdrant-Richtungsentscheidung — Abkündigung vs. Vollbetrieb (Revision von ADR-020)
+# ADR-022: Qdrant-Richtungsentscheidung — Abkündigung vs. Vollbetrieb (punktuelle Ablösung von ADR-020 §4)
 
-**Status:** proposed (2026-10-17) — **Entscheidung offen**; dieses ADR implementiert nichts.
-**Blockiert:** Die Umsetzung von **#1334** (Artefakt-Indexer) und **#1314** (Qdrant-Konfiguration)
-ist bis zur Annahme dieses ADR **blockiert** — kein Code vor der Richtungsentscheidung
-(Runde-5-Plan, Entscheidungsspur D5, `docs/audit/2026-10/bugfix-round-5-plan.md`).
-**Datum:** 2026-10-17
-**Entscheider (vorgeschlagen):** `user`, `se-architect`; **Autor:** `concept-specifier`
+**Status:** accepted (2026-10-26) — **Entscheidung: Option B (Qdrant-Vollbetrieb mit
+pgvector-Fallback)**. Nutzerentscheidung vom 2026-10-26
+(`docs/plans/2026-10-21-entscheidungen-offen.md` §0b; ENT-X2 = A, ENT-A2 = a). Dieses ADR
+implementiert selbst nichts; es legt die Richtung fest.
+**Blockiert (historisch, mit Annahme aufgehoben):** Die Umsetzung von **#1334**
+(Artefakt-Indexer) und **#1314** (Qdrant-Konfiguration) war bis zur Annahme dieses ADR
+**blockiert** — kein Code vor der Richtungsentscheidung (Runde-5-Plan, Entscheidungsspur D5,
+`docs/audit/2026-10/bugfix-round-5-plan.md`). Mit der Annahme am 2026-10-26 ist diese Sperre
+**aufgehoben**: #1334/#1314 sind freigegeben (siehe §Entscheidung).
+**Datum:** 2026-10-26 (Entwurf: 2026-10-17)
+**Entscheider:** `user`; **Text:** `documenter` (ENT-X4 = A: Texte `documenter`, Review
+`concept-reviewer`, Status Nutzer). **Autor des Entwurfs:** `concept-specifier`
 (Entscheidungsvorbereitung D5, Branch `docs/round5-decision-prep-d5-d7`, Basis
 `origin/main @ 12cce237`; kein Commit).
 **Betroffene REQs:** REQ-L1-038 (Vektorsuche),
@@ -24,9 +30,10 @@ REQ-L2-VS-001…-004 (`docs/se/L1/Gesamtsystem/L2/VectorSearchServiceSystem/L2_V
 Indexer fehlt, `_artifacts`-Collections leer), #1316 (Hybrid-Suche), #1250 (geschlossen —
 Qdrant-Write fail-loud), #1251 (geschlossen — Qdrant-Doku), #1204 (ADR-020-Umsetzung),
 #1178 (Duplikaterkennung), #1300 (Lern-Kreislauf). **Vorgänger:** ADR-020 (`accepted`,
-2026-10-07) — bei Annahme von Option A wird ADR-020 in seinen Qdrant-Teilen durch dieses ADR
-abgelöst; der Statuswechsel (`superseded_by: ADR-022`) erfolgt **ausschließlich durch
-`se-architect`/`user`** und ist Folgeaufgabe, nicht Teil dieses Entwurfs.
+2026-10-07). ADR-020 bleibt **`accepted` und unverändert** — es wird **nicht** auf
+`superseded` gesetzt (`superseded_by: null`). Die einzige Teil-Ablösung betrifft ADR-020
+**§4 „Kein Auto-Fallback"** und ist in §Entscheidung dieses ADR ausdrücklich erklärt
+(ENT-A2 = a). Alle übrigen ADR-020-Festlegungen bleiben unverändert gültig.
 
 **Bezug zum Code** (verifiziert am 2026-10-17 im Arbeitsbaum, `origin/main @ 12cce237`):
 
@@ -76,24 +83,33 @@ keinen Code.
 
 ## Entscheidungsvorlage
 
+> **Überholt (historischer Wert, Stand Entwurf 2026-10-17).** Diese Vorlage hielt **Option A**
+> für empfohlen. Der Nutzer hat am 2026-10-26 **Option B** entschieden
+> (`docs/plans/2026-10-21-entscheidungen-offen.md` §0b; ENT-X2 = A, ENT-A2 = a). Die folgende
+> Entwurfs-Empfehlung ist damit **vom Nutzer überstimmt** und bleibt nur als Audit-Trail
+> stehen; maßgeblich ist §Entscheidung dieses ADR.
+
 - **Was ist zu entscheiden:** Ob der mit ADR-020 eingeschlagene Qdrant-Pfad **weiterverfolgt
   (Option B: Vollbetrieb inkl. Artefakt-Indexer und Store-seitiger Hybrid-Suche)** oder
   **abgekündigt wird (Option A: pgvector trägt; Rückbau als eigener Schnitt)**. Der heutige
   Zwischenzustand (Qdrant optional vorhanden, aber ohne Nutzen) ist keine dauerhafte Lösung.
-- **Empfehlung (Entwurf):** **Option A — Qdrant abkündigen**, mit benannter Wiedervorlage.
-  Begründung: pgvector trägt die gesamte **gemessene** Last (3.074 Vektoren in 52 MB inkl.
-  HNSW + FTS + Scope-Indizes); Qdrant hält 1 Punkt und hat 0 Artefakt-Punkte; der Nutzen von
-  Option B hängt an einem **nicht existenten Artefakt-Indexer** (#1334 = Embedding-Erzeugung
-  für 11 von 14 Typen + Hooks + Backfill) und an Store-Fähigkeiten, die heute niemand nutzt.
-  Hybrid-Suche (das stärkste B-Argument) existiert bereits pgvector-seitig (RRF) und ist dort
-  erweiterbar.
-- **Konsequenz bei Annahme (Option A):** ADR-020 wird in seinen Qdrant-Teilen abgelöst;
-  #1334/#1314 werden geschlossen bzw. auf „nicht weiterverfolgt" gestellt; #1316 wird auf den
-  pgvector-Delta reduziert; ein Rückbau-Schnitt (Scope-Skizze unten) wird als eigenes Issue
-  geplant; die Qdrant-Komponenten bleiben bis dahin **eingefroren** (keine weitere Investition).
-- **Konsequenz bei Annahme (Option B):** Multi-Issue-Programm (Größe L): #1250-Verifikation,
-  Payload-Indizes, Sparse Vectors/Hybrid, Quantization, Snapshot-Pfad, #1334-Indexer,
-  #1316-Qdrant-Variante, Doku — siehe Umsetzungsschnitt unten.
+- **Empfehlung (Entwurf, vom Nutzer überstimmt):** **Option A — Qdrant abkündigen**, mit
+  benannter Wiedervorlage. Begründung: pgvector trägt die gesamte **gemessene** Last (3.074
+  Vektoren in 52 MB inkl. HNSW + FTS + Scope-Indizes); Qdrant hält 1 Punkt und hat 0
+  Artefakt-Punkte; der Nutzen von Option B hängt an einem **nicht existenten Artefakt-Indexer**
+  (#1334 = Embedding-Erzeugung für 11 von 14 Typen + Hooks + Backfill) und an
+  Store-Fähigkeiten, die heute niemand nutzt. Hybrid-Suche (das stärkste B-Argument) existiert
+  bereits pgvector-seitig (RRF) und ist dort erweiterbar. **Entschieden wurde stattdessen
+  Option B** (§Entscheidung).
+- **Konsequenz bei Annahme (Option A — verworfen):** ADR-020 wird in seinen Qdrant-Teilen
+  abgelöst; #1334/#1314 werden geschlossen bzw. auf „nicht weiterverfolgt" gestellt; #1316 wird
+  auf den pgvector-Delta reduziert; ein Rückbau-Schnitt (Scope-Skizze unten) wird als eigenes
+  Issue geplant; die Qdrant-Komponenten bleiben bis dahin **eingefroren** (keine weitere
+  Investition). — *Nicht eingetreten: der Nutzer entschied Option B.*
+- **Konsequenz bei Annahme (Option B — gewählt am 2026-10-26):** Multi-Issue-Programm (Größe L):
+  #1250-Verifikation, Payload-Indizes, Sparse Vectors/Hybrid, Quantization, Snapshot-Pfad,
+  #1334-Indexer, #1316-Qdrant-Variante, Doku — siehe Umsetzungsschnitt unten; zusätzlich der
+  **sichtbare pgvector-Fallback** (`degraded:true`, §Entscheidung).
 - **Grober Aufwand:** Entscheidung = klein; Option A (Rückbau) = mittel, gut schneidbar;
   Option B = groß (v. a. #1334). Belastbare Zahlen bei `effort-estimator`.
 - **Offene Punkte:** s. §Offene Entscheidungen (O1–O5).
@@ -106,8 +122,9 @@ keinen Code.
 weitgehend gebaut.** ADR-020 (accepted 2026-10-07, User-Freigabe) revidierte die L2-Festlegung
 „pgvector-only" zugunsten eines optionalen Qdrant-Backends (V1 = Memory über
 `MemoryBackend`, V2 = Artefakt-Suche über einen neuen Vektor-Port; Collection-Strategie A;
-Default bleibt pgvector; kein Auto-Fallback). Der V1-Backend, der V2-Port, die Compose-
-Rückendeckung (Profil, Tag+Digest-Pin, Volume) und die Health-/Guard-Pfade existieren im
+Default bleibt pgvector; kein Auto-Fallback — §4 hier punktuell abgelöst, s. Punkt 4). Der
+V1-Backend, der V2-Port, die Compose-Rückendeckung (Profil, Tag+Digest-Pin, Volume) und die
+Health-/Guard-Pfade existieren im
 Arbeitsbaum (siehe „Bezug zum Code"). Was **fehlt**, ist die Befüllung: Die
 `_artifacts`-Collections werden von **niemandem** beschrieben — ein Artefakt-Indexer ist
 laut Port-Doku bewusst außerhalb des Ports und existiert nicht.
@@ -134,16 +151,18 @@ der Annahme, man habe einen skalierbaren Vektor-Store.
   bereits pgvector-Semantik + FTS + lexikalische Treffer. Der offene Delta (TraceLink/Icd-
   Verdrahtung, `mode`-Parameter, Messung) ist unabhängig von dieser Entscheidung als
   pgvector-Arbeit beschreibbar.
-- **Die Sicherheits-/Betriebsgrenzen von ADR-020 gelten fort.** Sollte Option B (oder später
-  ein Re-Entry) gewählt werden, bleiben die dort festgelegten Leitplanken bindend
-  (Collection-Isolation als app-erzwungene Grenze + Guard-Test, kanonische Quelle Postgres,
-  kein Auto-Fallback, Dimension gespiegelt, kein Host-Port).
+- **Die Sicherheits-/Betriebsgrenzen von ADR-020 gelten fort — mit einer Ausnahme.** Mit der
+  Wahl von Option B bleiben die dort festgelegten Leitplanken bindend (Collection-Isolation als
+  app-erzwungene Grenze + Guard-Test, kanonische Quelle Postgres, Dimension gespiegelt, kein
+  Host-Port). **Ausnahme:** Die Regel „kein Auto-Fallback" (ADR-020 §4) ist durch §Entscheidung
+  dieses ADR abgelöst — bei unerreichbarem Qdrant fällt der Betrieb sichtbar auf pgvector
+  zurück (`degraded:true`).
 
 ---
 
 ## Alternativen
 
-### Option A: Qdrant abkündigen — pgvector trägt (EMPFOHLEN)
+### Option A: Qdrant abkündigen — pgvector trägt — VERWORFEN
 
 **Beschreibung:** Qdrant wird als nicht weiterverfolgter Optional-Pfad abgekündigt. Keine
 Umsetzung von #1334/#1314. #1316 wird auf den pgvector-Delta reduziert (präzisieren, dann
@@ -166,7 +185,11 @@ tote, gepflegte Fläche stehen (Einfrieren).
 **Risiko:** NIEDRIG–MITTEL. Verzichtet heute auf eine Option, deren Nutzen unbelegt ist;
 Wiedervorlage-Kriterium ist benannt (unten).
 
-### Option B: Qdrant vollständig betreiben (Artefakt-Indexer + Store-Hybrid)
+*Entwurfs-Empfehlung war Option A; der Nutzer hat am 2026-10-26 **Option B** entschieden
+(ENT-X2 = A — der Entwurf wird an die Nutzerentscheidung angepasst, nicht umgekehrt). Diese
+Option bleibt als verworfene Alternative dokumentiert.*
+
+### Option B: Qdrant vollständig betreiben (Artefakt-Indexer + Store-Hybrid) — GEWÄHLT
 
 **Beschreibung:** Qdrant wird der zweite, ernsthaft betriebene Vektor-Store:
 
@@ -198,7 +221,8 @@ Betriebslast (Snapshot, Monitoring, Collection-Sprawl) und dem Backfill über de
 gegen einen heute **nicht gemessenen** Bedarf (die Collections sind leer, pgvector trägt).
 
 **Risiko:** GROSS (Umfang, dauerhafte Betriebslast) — aber architektonisch abgesichert durch
-ADR-020 (Isolation, kein Auto-Fallback, kanonische Quelle).
+ADR-020 (Isolation, kanonische Quelle) und den in §Entscheidung festgelegten **sichtbaren
+pgvector-Fallback** (`degraded:true`), der ADR-020 §4 für diesen Punkt ablöst.
 
 ### Option C: Zwischenzustand beibehalten (heute) — VERWORFEN
 
@@ -215,79 +239,98 @@ werden" wäre nur als zeitlich befristeter Teil von Option A sinnvoll, nicht als
 
 ## Entscheidung
 
-**Vorgeschlagene Entscheidung: Option A — Qdrant abkündigen (pgvector trägt); Rückbau als
-eigener, schneidbarer Folgeschnitt nach Annahme.**
+**Entschieden: Option B — Qdrant wird der zweite, ernsthaft betriebene Vektor-Store
+(Artefakt-Indexer #1334, Store-seitige Hybrid-Suche/Payload-Indizes/Sparse/Quantization,
+Snapshot-Pfad), mit pgvector als sichtbarem Fallback.**
 
-Begründung (zur Prüfung durch die Entscheider):
+**Grundlage:** Nutzerentscheidung vom 2026-10-26
+(`docs/plans/2026-10-21-entscheidungen-offen.md` §0b): **ENT-X2 = A** (Entwurfstexte an die
+Nutzerentscheidung anpassen, dann `accepted`; kein Supersede) und **ENT-A2 = a** (ADR-022 löst
+ADR-020 §4 ab; Fallback mit `degraded:true` wird umgesetzt). Der Entwurf hatte Option A
+empfohlen — der Nutzer hat diese Empfehlung **überstimmt** (Audit-Punkt ENT-X2).
 
-1. **Evidenz statt Option:** Die einzige vorliegende Messung zeigt die gesamte Last auf
-   pgvector (3.074 Vektoren/52 MB) und Qdrant praktisch leer (1 Punkt). ADR-020 hat Qdrant
-   als *Option* zugelassen — eine Option, die nicht genutzt wird und deren Nutzbarmachung
-   ein großes Programm (#1334) voraussetzt, ist Kandidat für eine bewusste Abkündigung.
-2. **Das stärkste Pro-B-Argument ist bereits eingelöst:** Hybrid-Suche existiert
-   pgvector-seitig als RRF-Fusion (`search_service.py`, seit #746). Option B würde sie
-   *zusätzlich* (Store-seitig) bauen — nach der #1316-Regel „eine der beiden Welten, nicht
-   beide halb" also nicht additiv, sondern als Ersatz, dessen Mehrwert bei leerem Artefakt-
-   Index nicht belegbar ist.
-3. **Option B ist kein Betrieb, sondern ein Neubau:** 11 von 14 Artefakt-Typen haben heute
-   kein Embedding; ein Indexer samt Hooks, Backfill und Konsistenzpfad ist der eigentliche
-   Aufwand — zu rechtfertigen nur aus einem gemessenen Bedarf, der heute nicht vorliegt.
-4. **Kosten der Abkündigung sind begrenzt und steuerbar:** Rückbau ist schneidbar; bis dahin
-   bleibt alles funktionsfähig. Der Vektor-Port bleibt als Naht für einen Re-Entry.
-5. **Wiedervorlage (Re-Entry-Kriterium):** Wenn ein **gemessener** Bedarf belegt ist — z. B.
-   typübergreifende Artefakt-Suche über die 14 Typen in einer Collection, Duplikaterkennung
-   (#1178) außerhalb der pgvector-Grenzen, oder Last-/Recall-Ziele, die pgvector nachweislich
-   verfehlt — wird ein **neues ADR** eröffnet; der Vektor-Port ist die vorbereitete
-   Einbaustelle. Die Abkündigung ist damit eine Richtungs-, keine Endgültigkeitsentscheidung.
+Begründung (Substanz aus der Alternativen-Abwägung, auf B gestellt):
 
-**Bei Annahme (Option A) sofort und als Folgeaufgaben:**
+1. **Option B ist die einzige Variante, die (a) typübergreifende Artefakt-Suche über die 14
+   Typen in *einer* Collection ermöglicht, (b) hybride Suche auf Store-Ebene freischaltet und
+   (c) den Weg zu Skalierung jenseits RAM-bound pgvector offen hält** (§Option B, Abwägung).
+2. **Die heutige Lastlage ist Ausgangspunkt, nicht Ziel:** pgvector trägt die gesamte
+   gemessene Last (3.074 Vektoren/52 MB), Qdrant ist praktisch leer (1 Punkt). Option B hebt
+   genau diese Grenze auf; der Preis ist das Multi-Issue-Programm aus §Option B — vor allem
+   #1334 samt Hooks, Backfill über den Bestand (2.338 Artefakte) und Pflicht-Lösch-Hooks.
+3. **Option A ist damit bewusst verworfen:** Sie hätte einen Vektor-Store, einen Backup-Pfad
+   und minimalen Betrieb geliefert, aber den Weg zu einem externen Store bei späterem Bedarf
+   neu eröffnet und die bereits gebaute Qdrant-Fläche (V1/V2-Code, Compose, Tests) entwertet.
+4. **Der Rückbau bleibt als Rückfallweg bestehen:** Trägt sich Option B nicht, ist Option A
+   (Rückbau als eigener Schnitt) weiterhin möglich; der Vektor-Port bleibt die Naht.
 
-- Dieses ADR `proposed → accepted` (Review-Pfad s. §Review-Round-Trail) — dann ADR-020 in den
-  Qdrant-Teilen auf `superseded_by: ADR-022` setzen (nur `se-architect`).
-- #1334 und #1314: schließen mit Verweis auf ADR-022 („nicht weiterverfolgt"); #1316:
-  umformulieren auf den verifizierten pgvector-Delta (TraceLink/Icd-Verdrahtung,
-  `mode`-Parameter, Messung).
-- Rückbau-Issue anlegen (Scope-Skizze siehe Option A), Priorität nachgelagert; bis zur
-  Umsetzung Code/Profil **eingefroren** (keine Änderungen außer Security-Fixes).
-- Doku: deploy/README-Qdrant-Abschnitt auf „abgekündigt, Rückbau geplant" bzw. nach Rückbau
-  entfernen.
+**Teil-Ablösung von ADR-020 §4 (ENT-A2 = a) — ausdrücklich:**
 
-**Falls Option B angenommen wird:** Der Umsetzungsschnitt aus §Option B (Punkte 1–8) gilt;
-#1334 wird zum Leit-Issue, #1314 liefert die Store-Fähigkeiten (2–5), #1316 die Qdrant-
-Hybrid-Variante (7); `vector_port.py` bleibt unverändert die Naht, `ARTIFACT_VECTOR_BACKEND`
-wird erst nach dem Indexer als supported markiert. Dieses ADR wäre dann mit Option B
-`accepted` zu stellen (die Alternativen-/Kontext-Analyse bleibt gültig).
+ADR-020 §4 (`docs/se/ADR/ADR-020_qdrant_vektor_backend.md`, Zeilen 257–259) regelt wörtlich:
+
+> „**Kein Auto-Fallback:** ist Qdrant konfiguriert, aber unerreichbar, wird **nicht** still auf
+> pgvector ausgewichen. Der Zustand wird als `degraded` gemeldet (`memory/health.py`,
+> `envelope()`), konsistent zur F9-Trennung „Backend down" vs. „nichts erinnert"."
+
+Diese Regel wird für diesen Punkt **hiermit abgelöst**. Ab jetzt gilt stattdessen:
+
+- Bei konfiguriertem, aber unerreichbarem Qdrant fällt der Betrieb auf **pgvector zurück**
+  **und** meldet `degraded:true` — der Fallback ist **sichtbar, nicht still**.
+- Alles Übrige aus ADR-020 bleibt unverändert gültig: Collection-Isolation als
+  app-erzwungene Grenze + Guard-Test, kanonische Quelle Postgres, Dimension gespiegelt,
+  kein Host-Port.
+- **ADR-020 selbst wird nicht auf `superseded` gesetzt und nicht editiert**
+  (`superseded_by: null`); die Teil-Ablösung ist ausschließlich hier in ADR-022 erklärt.
+
+**Umsetzungsschnitt (Option B — §Option B Punkte 1–8 gilt):** #1334 wird zum Leit-Issue,
+#1314 liefert die Store-Fähigkeiten (Payload-Indizes, Sparse/Hybrid, Quantization,
+Snapshot-Pfad), #1316 die Qdrant-Hybrid-Variante; `vector_port.py` bleibt unverändert die
+Naht, `ARTIFACT_VECTOR_BACKEND=qdrant` wird erst nach dem Indexer als *supported* markiert.
+
+**Mit Annahme (2026-10-26) sofort und als Folgeaufgaben:**
+
+- Dieses ADR steht auf `accepted` (Review s. §Review-Round-Trail).
+- #1334/#1314 sind freigegeben — die frühere Sperre „kein Code vor der Richtungsentscheidung"
+  ist **aufgehoben**; #1334 ist Leit-Issue.
+- Der **pgvector-Fallback mit `degraded:true`** wird umgesetzt (ENT-A2 = a).
+- #1316 wird auf die Qdrant-Variante umgestellt (Hybrid über Sparse Vectors — „eine der beiden
+  Welten, nicht beide halb").
+- Doku: deploy/README-Qdrant-Abschnitt auf „Option B — Vollbetrieb, pgvector-Fallback"
+  fortschreiben.
+
+**Was diese Entscheidung nicht ist:** keine Änderung an ADR-020 (Status/Text bleiben), kein
+Rückbau (Option A), kein Supersede (ENT-X2).
 
 ---
 
 ## Konsequenzen
 
-**Positiv (Option A):**
+**Positiv (Option B — gültige Richtung):**
 
-- Ein Vektor-Store, eine Wahrheit, ein Backup-Pfad; RLS-starke Isolation bleibt überall.
-- Kein Betriebsaufwand für Container/Volume/Index-Konsistenz; keine zweite
-  Konfigurationsfläche (`qdrant_*`).
-- Der RRF-Pfad wird die *einzige* Hybrid-Implementierung (keine Parallelwelten).
-- Die Entscheidung ist evidenzbasiert und mit klarem Re-Entry-Kriterium versehen.
+- Eine Collection für alle 14 Artefakt-Typen; Store-seitige Hybrid-Suche; Skalierungsperspektive
+  jenseits RAM-bound pgvector.
+- Der **sichtbare pgvector-Fallback** (`degraded:true`) hält den Betrieb auch bei
+  unerreichbarem Qdrant aufrecht, ohne den Ausfall zu verschweigen (konsistent zur
+  F9-Trennung „Backend down" vs. „nichts erinnert").
+- ADR-020 bleibt in allen übrigen Punkten gültig — Isolation, kanonische Quelle Postgres und
+  Dimension bleiben unberührt; es entsteht kein Supersede-Dschungel.
 
-**Negativ (Option A):**
+**Negativ (Option B — gültige Richtung):**
 
-- **Revision einer akzeptierten Entscheidung:** ADR-020 wird teilweise abgelöst; bis zum
-  Rückbau besteht ein bewusster Doku-Zwischenstand (ADR-020 accepted, ADR-022 weist ab).
-- **Option geht verloren** (bewusst): typübergreifende Artefakt-Suche in einer Collection und
-  Skalierung jenseits pgvector sind später **neu** zu erschließen (Dienstwahl, Backup,
-  Isolation) — dann aber gegen gemessenen Bedarf.
-- **Sunk Cost wird sichtbar:** Der gebaute Qdrant-Anteil (V1/V2-Code, Compose, Tests) wird
-  eingefroren oder zurückgebaut — Aufwand ohne Produktnutzen.
-- **#1316 bleibt dennoch Arbeit:** Der pgvector-Delta (Verdrahtung, Messung) ist real und
-  wird durch die Abkündigung nicht kleiner.
+- Großes Programm (v. a. Indexer/Backfill samt Lösch-Hooks); zwei Vektor-Wahrheiten +
+  Reconcile; dauerhafte Betriebs-/Backup-Last; Quantization/RAM-Doku.
+- Aufbau auf einem heute **nicht gemessenen** Bedarf (die Collections sind leer, pgvector
+  trägt) — der Nutzen muss durch Betrieb und Messung erst belegt werden.
+- Die punktuelle Ablösung von ADR-020 §4 erzeugt einen bewussten Doku-Zwischenstand: ADR-020
+  bleibt `accepted`, §4 ist hier für einen Punkt überholt.
 
-**Positiv (Option B, falls gewählt):** Eine Collection für alle 14 Artefakt-Typen;
-Store-seitige Hybrid-Suche; Skalierungsperspektive; ADR-020 bleibt unangetastet gültig.
+**Positiv (Option A, verworfen):** Ein Vektor-Store, eine Wahrheit, ein Backup-Pfad; kein
+Betriebsaufwand für Container/Volume/Index-Konsistenz; der RRF-Pfad wäre die *einzige*
+Hybrid-Implementierung.
 
-**Negativ (Option B):** Großes Programm (v. a. Indexer/Backfill); zwei Vektor-Wahrheiten +
-Reconcile; dauerhafte Betriebs-/Backup-Last; Quantization/RAM-Doku; Risiko des Aufbaus auf
-unbelegten Nutzen.
+**Negativ (Option A, verworfen):** Verzichtet auf eine Option, deren Nutzen unbelegt ist;
+der gebaute Qdrant-Anteil würde eingefroren oder zurückgebaut (Sunk Cost sichtbar); ein
+späterer externer Store wäre neu zu erschließen (Dienstwahl, Backup, Isolation).
 
 ---
 
@@ -295,53 +338,70 @@ unbelegten Nutzen.
 
 > Bezogen auf die **Entscheidung und ihre Folgeschritte**, nicht auf Produktcode.
 
-- [ ] **AC-ADR:** Ein Verdict zu Option A/B ist dokumentiert; dieses ADR steht auf `accepted`
-      (oder ist mit Option B entsprechend fortgeschrieben) — Freigabe durch `user`/`se-architect`.
-- [ ] **AC-Block-Aufhebung:** Erst mit Annahme dürfen #1334/#1314 (bzw. deren Nachfolger)
-      implementiert werden; vorher wurde **kein** Code dazu geschrieben.
-- [ ] **AC-Vorgänger (bei A):** ADR-020 trägt `superseded_by: ADR-022` (bzw. eine dokumentierte
-      Teil-Ablösung in seinen Qdrant-Teilen); die L2-REQ-Fortschreibung aus ADR-020 wird auf
-      den neuen Stand geprüft (Folgeaufgabe).
-- [ ] **AC-Issues (bei A):** #1334/#1314 sind geschlossen (Verweis ADR-022); #1316 ist
-      umformuliert (verifizierter Delta); Rückbau-Issue existiert mit benanntem Scope.
+- [x] **AC-ADR:** Ein Verdict zu Option A/B ist dokumentiert; dieses ADR steht auf `accepted`
+      (Entscheidung Option B, 2026-10-26; Freigabe durch `user`).
+- [ ] **AC-Block-Aufhebung:** Mit Annahme (2026-10-26) dürfen #1334/#1314 (bzw. deren
+      Nachfolger) implementiert werden; vorher wurde **kein** Code dazu geschrieben.
+- [ ] **AC-Vorgänger (bei A) — entfällt mit Option B:** ADR-020 trägt `superseded_by: ADR-022`
+      — *nicht eingetreten.* Ergänzend gilt stattdessen: ADR-020 ist **unverändert** `accepted`
+      (`superseded_by: null`), und §4 ist in §Entscheidung dieses ADR ausdrücklich für diesen
+      Punkt abgelöst (ENT-A2 = a).
+- [ ] **AC-Issues (bei A) — entfällt mit Option B:** #1334/#1314 werden geschlossen; #1316 auf
+      den pgvector-Delta reduziert; Rückbau-Issue angelegt — *nicht eingetreten.*
 - [ ] **AC-Issues (bei B):** #1250-Verifikation, Payload-Indizes, Sparse/Quantization-Entscheidung,
       Snapshot-Pfad, #1334-Indexer und #1316-Variante sind als Pakete geschnitten und terminiert.
-- [ ] **AC-Doku:** deploy/README und ADR-020-Verweise entsprechen dem Entscheidungsstand.
+- [ ] **AC-Fallback (B):** Ist Qdrant konfiguriert, aber unerreichbar, läuft der Betrieb auf
+      pgvector weiter **und** meldet `degraded:true` — der Fallback ist sichtbar, nicht still
+      (durch Test/Verhalten belegt; ersetzt ADR-020 §4 „Kein Auto-Fallback").
+- [ ] **AC-Doku:** deploy/README und ADR-020-Verweise entsprechen dem Entscheidungsstand
+      (Option B, pgvector-Fallback; ADR-020 §4 punktuell abgelöst).
 
 ---
 
 ## Offene Entscheidungen
 
-1. **O1 — Rückbau vs. Einfrieren (bei Option A):** Sofortiger Rückbau in einem Schnitt vs.
-   dauerhaftes Einfrieren des Qdrant-Codes als „zweite Betriebsart ohne Support". Empfehlung
-   des Entwurfs: Rückbau als eigenes Issue planen; bis dahin eingefroren.
-2. **O2 — Zukunft des Vektor-Ports:** Der Port bleibt als Naht bestehen (Empfehlung). Ob er
-   bei Rückbau auf pgvector reduziert (Qdrant-Adapter entfernt) oder unverändert gelassen wird,
-   entscheidet der Rückbau-Schnitt.
+1. **O1 — Rückbau vs. Einfrieren (bei Option A) — entfällt mit Option B:** Die Frage stellte
+   sich nur im Abkündigungszweig; mit Option B wird nichts zurückgebaut. *Nicht gelöscht, um den
+   Entwurfsstand nachvollziehbar zu halten.*
+2. **O2 — Zukunft des Vektor-Ports — entfällt mit Option B:** Der Port bleibt mit
+   pgvector- **und** Qdrant-Adapter bestehen; die Frage „bei Rückbau auf pgvector reduzieren"
+   stellt sich nicht.
 3. **O3 — #1316-Präzisierung:** Der verifizierte Delta (TraceLink/Icd im öffentlichen
    `type_filter`, `mode`-Parameter, Recall-Messung) ist vor Umsetzung mit dem Team zu
    bestätigen — die Issue-Beschreibung entspricht nicht dem Codestand.
-4. **O4 — Re-Entry-Trigger:** Das qualitative Kriterium („gemessener Bedarf") ist bei Annahme
-   mit konkreten Schwellen zu unterlegen (z. B. Recall-Ziel, Datenvolumen, Latenzbudget).
+4. **O4 — Rückfall-Trigger (mit Option B statt Re-Entry):** Das qualitative Kriterium
+   („Trägt sich Option B nicht?") ist mit konkreten Schwellen zu unterlegen (z. B. Recall-Ziel,
+   Datenvolumen, Latenzbudget); bei Unterschreitung greift Option A (Rückbau).
 5. **O5 — L2-REQ-Nachführung:** ADR-020 hat die L2-Fortschreibung als Folgeaufgabe markiert;
-   mit der Abkündigung ist zu prüfen, welche Teile der damaligen Revision zurückgenommen
-   werden müssen (nur Doku, keine Kaskaden-Datei wird durch dieses ADR geändert).
+   mit Option B ist zu prüfen, ob die damaligen Vektor-Teile unverändert bleiben oder den
+   pgvector-Fallback ergänzen (nur Doku, keine Kaskaden-Datei wird durch dieses ADR geändert).
 
 ---
 
 ## Review-Round-Trail
 
-**Kein Review durchgeführt.** Dieses ADR ist ein **Entwurf** (Entscheidungsvorbereitung D5);
-es liegt kein `concept-reviewer`-/`se-critic`-RVW-Protokoll vor, und es wird keines
-vorgetäuscht. Verbindlicher Pfad zur Annahme: `concept-reviewer`-Review (Protokoll unter
-`docs/se/reviews/`) → Findings/Iterationen → User-Freigabe → `se-architect` setzt den Status.
+**Governance-Pfad (ENT-X4 = A):** Texte: `documenter`; Review: `concept-reviewer`; Status:
+Nutzer. Diese Textfassung (2026-10-26) setzt die Nutzerentscheidung aus
+`docs/plans/2026-10-21-entscheidungen-offen.md` §0b um; das `concept-reviewer`-Review ist
+**durchgeführt** (Iteration 1 `CHANGES_REQUESTED`, Iteration 2 `APPROVED`, beide 2026-10-26) und
+sein Ergebnis ist **in der Trail-Tabelle dieses Abschnitts** protokolliert; eine separate
+Protokoll-Datei wurde bewusst nicht angelegt.
+**Accepted vor Review — Reihenfolge bewusst gemäß ENT-X2 = A** („Texte anpassen, dann
+`accepted`"); das Review ist nachgelagerte Qualitätssicherung, Korrekturen erfolgen als
+Git-Amendment.
 
 | Review | Iter. | Verdict | Findings | Handling |
 |---|---|---|---|---|
-| — | — | nicht durchgeführt (Entwurf, 2026-10-17) | — | — |
+| `concept-reviewer` | 1 | `CHANGES_REQUESTED` (2026-10-26) | 1 MINOR (m1: Titel-Wortlaut „Revision von ADR-020" überzeichnet die Reichweite), 2 NIT (NIT-1: fehlender §4-Hinweis in §Kontext Punkt 1; NIT-5: Trail-Reihenfolge accepted-vor-Review) | m1 behoben (Titel und H1 auf „punktuelle Ablösung von ADR-020 §4"); NIT-1 und NIT-5 eingearbeitet — in dieser Fassung |
+| `concept-reviewer` | 2 | APPROVED (2026-10-26) | — | keine offenen Findings; m1 + NIT-1/NIT-5 bestätigt behoben, keine Regression |
 
 ---
 
 *Erstellt durch `concept-specifier` am 2026-10-17 als Entscheidungsvorbereitung D5 der
 Bugfix-Runde 5 (`docs/audit/2026-10/bugfix-round-5-plan.md`). Enthält keinen Produktcode,
 keine Migration, keine Config-Änderung, keine REQ-Datei-Änderung und keinen Commit.*
+
+*Am 2026-10-26 durch `documenter` an die Nutzerentscheidung (ENT-X2 = A, ENT-A2 = a)
+angepasst und auf `accepted` gestellt: Option B ist die getroffene Entscheidung, die
+Entwurfs-Empfehlung (Option A) ist als überstimmt gekennzeichnet, ADR-020 §4 ist für diesen
+Punkt abgelöst. ADR-020 selbst bleibt unverändert.*
