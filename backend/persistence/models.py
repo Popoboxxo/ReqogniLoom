@@ -1766,6 +1766,19 @@ class Requirement(TenantScopedModel):
         ),
     )
 
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        """Keep the denormalised ``workspace`` in sync with the artifact.
+
+        G1.3 sets it on every service path; a direct ORM create (test
+        fixtures, management one-offs, a future caller) would otherwise leave
+        it NULL and silently drop the row from the workspace-scoped list
+        (G2.2 filters on this column). Deriving it here makes the invariant
+        model-level instead of a convention.
+        """
+        if self.workspace_id is None and self.artifact_id is not None:
+            self.workspace_id = self.artifact.workspace_id
+        super().save(*args, **kwargs)
+
     class Meta:
         db_table = "pl_requirement"
         indexes = [
