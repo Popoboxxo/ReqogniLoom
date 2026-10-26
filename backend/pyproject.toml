@@ -13,6 +13,12 @@ python_files = ["tests.py", "test_*.py", "*_test.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts = "--strict-markers -v"
+# G2.1 (#1400): paginating an unordered QuerySet is non-deterministic
+# (duplicate/missing rows across pages). Make it a test failure everywhere so a
+# future list endpoint cannot reintroduce it.
+filterwarnings = [
+    "error::django.core.paginator.UnorderedObjectListWarning",
+]
 markers = [
     "slow: Performance-Tests, dauern > 1s",
     "integration: benoetigt einen laufenden Live-Stack (z.B. Docker-Compose Backend); nicht Teil der Unit-Suite",

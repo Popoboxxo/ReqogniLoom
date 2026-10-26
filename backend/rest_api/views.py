@@ -37,7 +37,7 @@ from uuid import UUID
 
 from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
-from django.db.models import ProtectedError
+from django.db.models import ProtectedError, QuerySet
 from django.http import Http404, HttpResponse
 from django.utils import timezone
 from drf_spectacular.utils import (
@@ -799,6 +799,16 @@ class BaseEntityViewSet(
         last two were added in #571 (reopen) so a clamped ``page_size`` stops
         being silent.
         """
+        # G2.1 (#1400): an unordered QuerySet makes OFFSET/LIMIT pagination
+        # non-deterministic — the database may return the same row on two pages
+        # and drop another. Order every unordered input here, once, so all 16
+        # callers are covered; an explicit ORDER BY on the QuerySet still wins.
+        if isinstance(items, QuerySet) and not items.ordered:
+            field_names = {field.name for field in items.model._meta.fields}
+            items = items.order_by(
+                *(("created_at", "pk") if "created_at" in field_names else ("pk",))
+            )
+
         page = self.paginator.paginate_queryset(items, request, view=self)
         if page is not None:
             if serialize_page is not None:
