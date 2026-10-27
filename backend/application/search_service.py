@@ -121,7 +121,8 @@ _MIN_LEXICAL_QUERY_LEN = 2
 # The lexical pass has no supporting index (ILIKE '%x%' cannot use the FTS
 # GIN index), so a very generic needle could otherwise stream a whole table
 # into memory. Capping per type bounds the cost; the full-text pass — the
-# relevance-ranked one — stays uncapped, as before.
+# relevance-ranked one — is uncapped for the non-``permission_scoped`` types
+# and capped for TraceLink/Icd (see :func:`_run_fulltext_query`).
 _MAX_LEXICAL_ROWS_PER_TYPE = 200
 
 # ---------- Semantic pass (Task 9, REQ-L2-VS-004) ----------
@@ -1137,6 +1138,13 @@ def _run_fulltext_query(
     # Deliberately NOT applied to the other types: there it would silently
     # change result sets (a caller could page past the cap into a truncated
     # list), which is a behaviour change outside this finding's scope.
+    #
+    # ``e.id`` makes the ORDER BY total: ``ts_rank`` and ``created_at`` both
+    # tie easily, and on the capped types a tie at the LIMIT boundary would
+    # otherwise decide arbitrarily which of two equal rows survives. It is
+    # applied for every type, not just the capped ones — between rows that were
+    # previously tied it is a pure tiebreak, so it changes no ranking, only
+    # removes the non-determinism.
     limit_clause = (
         f"\n        LIMIT {_MAX_LEXICAL_ROWS_PER_TYPE}"
         if spec.permission_scoped
@@ -1154,7 +1162,7 @@ def _run_fulltext_query(
         FROM {spec.table} e
         {spec.join_sql}
         WHERE {' AND '.join(where_parts)}
-        ORDER BY relevance_score DESC, e.created_at DESC{limit_clause}
+        ORDER BY relevance_score DESC, e.created_at DESC, e.id{limit_clause}
     """
     # The ts_rank parameter in the SELECT list is bound before the WHERE ones.
     final_params = [tsquery_str] + params
