@@ -147,9 +147,8 @@ describe("BaselinesView container (REQ-053 smoke tests)", () => {
       expect(screen.queryByRole("status")).not.toBeInTheDocument();
     });
 
-    // Task 5.2: baseline creation is an overflow action, not a primary
-    // header button — open the "..." menu first.
-    await user.click(screen.getByTestId("page-header-overflow-trigger"));
+    // #1405 R1-04: baseline creation is a visible secondary header action —
+    // no overflow menu to open first.
     await user.click(screen.getByTestId("create-baseline-btn"));
 
     // Create form appears with scope selector and save button
@@ -175,7 +174,6 @@ describe("BaselinesView container (REQ-053 smoke tests)", () => {
       await waitFor(() => {
         expect(screen.queryByRole("status")).not.toBeInTheDocument();
       });
-      await user.click(screen.getByTestId("page-header-overflow-trigger"));
       await user.click(screen.getByTestId("create-baseline-btn"));
       await waitFor(() => {
         expect(screen.getByTestId("create-baseline-form")).toBeInTheDocument();
@@ -263,9 +261,8 @@ describe("BaselinesView container (REQ-053 smoke tests)", () => {
       expect(screen.queryByRole("status")).not.toBeInTheDocument();
     });
 
-    const overflowTrigger = screen.getByTestId("page-header-overflow-trigger");
-    await user.click(overflowTrigger);
-    await user.click(screen.getByTestId("create-baseline-btn"));
+    const createTrigger = screen.getByTestId("create-baseline-btn");
+    await user.click(createTrigger);
 
     const dialog = await screen.findByRole("dialog");
     expect(dialog).toHaveAttribute("aria-modal", "true");
@@ -276,9 +273,9 @@ describe("BaselinesView container (REQ-053 smoke tests)", () => {
     await waitFor(() => {
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     });
-    // Focus returns to the overflow trigger that opened the menu (the create
-    // action's visible trigger), not to <body>.
-    expect(document.activeElement).toBe(overflowTrigger);
+    // Focus returns to the header button that opened the dialog (#1405 R1-04:
+    // the create action is no longer behind the overflow menu), not to <body>.
+    expect(document.activeElement).toBe(createTrigger);
   });
 
   it("[REQ-053] renders error alert when API returns an error", async () => {

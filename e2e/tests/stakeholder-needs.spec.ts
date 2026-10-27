@@ -180,7 +180,6 @@ test.describe('[REQ-L0-004] Baselines — create via UI', () => {
     // that role (ADR-009), so a bare `not.toBeVisible()` hits a strict-mode
     // violation as soon as both exist. Same pattern as baselines-view.spec.ts.
     await expect(page.locator('[role="status"]:visible')).toHaveCount(0, { timeout: 10000 });
-    await page.locator('[data-testid="page-header-overflow-trigger"]').click();
     const createBtn = page.locator('[data-testid="create-baseline-btn"]');
     await expect(createBtn).toBeVisible({ timeout: 10000 });
     await createBtn.click();
@@ -194,7 +193,6 @@ test.describe('[REQ-L0-004] Baselines — create via UI', () => {
     // Only the *visible* loading status matters; the hidden interview-widget
     // live region also carries `role="status"` (see the sibling test above).
     await expect(page.locator('[role="status"]:visible')).toHaveCount(0, { timeout: 10000 });
-    await page.locator('[data-testid="page-header-overflow-trigger"]').click();
     await page.locator('[data-testid="create-baseline-btn"]').click();
     await expect(page.locator('[data-testid="create-baseline-form"]')).toBeVisible({ timeout: 6000 });
 

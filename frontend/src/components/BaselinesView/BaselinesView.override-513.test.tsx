@@ -89,7 +89,7 @@ async function submitCreateForm(user: ReturnType<typeof userEvent.setup>) {
   await waitFor(() => {
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
-  await user.click(screen.getByTestId("page-header-overflow-trigger"));
+  // #1405 R1-04: the create action is a visible header button now.
   await user.click(screen.getByTestId("create-baseline-btn"));
   await waitFor(() => {
     expect(screen.getByTestId("create-baseline-form")).toBeInTheDocument();

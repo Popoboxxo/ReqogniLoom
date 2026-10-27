@@ -163,9 +163,11 @@ describe("primary create-action labels (GH-343)", () => {
  *
  * Baselines is the one conscious exception: creating a baseline is a rare,
  * consequential snapshot rather than routine artifact creation, so its create
- * action stays in the overflow menu (task 5.2 brief; five E2E specs open it
- * through the "⋯" menu). It is named explicitly below rather than left
- * unmentioned, so dropping or moving it stays a deliberate act.
+ * action is a visible *secondary* header action rather than the primary one
+ * (#1405 R1-04: after task 5.2 hid it behind the overflow menu, the only
+ * create action on the page became invisible). It is named explicitly below
+ * rather than left unmentioned, so dropping or demoting it stays a deliberate
+ * act.
  */
 
 /**
@@ -208,8 +210,8 @@ const INTERVIEW_CTA_SOURCES: readonly string[] = [
   "components/Goals/GoalsPage.tsx",
 ];
 
-/** The route that deliberately keeps creation in the overflow menu. */
-const OVERFLOW_ONLY_CREATE = "components/BaselinesView/BaselinesView.tsx";
+/** The route whose create action is deliberately secondary, not primary. */
+const SECONDARY_CREATE = "components/BaselinesView/BaselinesView.tsx";
 
 /** Return the object/JSX-expression literal passed to `propName`, if any. */
 function propBlock(source: string, propName: string): string | null {
@@ -318,13 +320,17 @@ describe("one visible create action per entity list route (GH-797)", () => {
     expect(offenders).toEqual([]);
   });
 
-  it("documents Baselines as a deliberate overflow-only create action", () => {
-    // Not an immutable resource — a baseline is created through the "⋯" menu.
-    // The assertion makes that a documented choice instead of an oversight:
-    // the route must expose the create trigger and must not grow a competing
-    // primary header button without this test being updated on purpose.
-    const source = readFileSync(join(SRC_DIR, OVERFLOW_ONLY_CREATE), "utf-8");
+  it("documents Baselines as a deliberate visible-but-secondary create action", () => {
+    // Not an immutable resource — a baseline is created through a visible
+    // secondary header button (#1405 R1-04), never the primary action and
+    // never behind the overflow menu. The assertion makes that a documented
+    // choice instead of an oversight: the route must expose the create
+    // trigger in `secondaryActions` and must not grow a competing primary
+    // header button without this test being updated on purpose.
+    const source = readFileSync(join(SRC_DIR, SECONDARY_CREATE), "utf-8");
     expect(source).toContain('testId: "create-baseline-btn"');
     expect(propBlock(source, "primaryAction")).toBeNull();
+    expect(propBlock(source, "secondaryActions")).toContain("create-baseline-btn");
+    expect(propBlock(source, "overflowActions")).toBeNull();
   });
 });

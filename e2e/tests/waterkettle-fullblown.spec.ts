@@ -737,13 +737,12 @@ test.describe('[WK-FULL-BLOWN] Wasserkocher SE über 4 Ebenen (UI-driven, Bug-Fi
 
   test('Phase 5b: Baseline doc1 (document scope) über UI', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/baselines`);
-    // Task 5.2: creation lives in the PageHeader overflow menu (same as
-    // createBaselineViaUI in wk-helpers.ts).
+    // #1405 R1-04: creation is a visible secondary PageHeader button (same as
+    // createBaselineViaUI in wk-helpers.ts), no overflow menu to open.
     // Only the *visible* loading status matters; the hidden interview-widget
     // live region also carries `role="status"` (ADR-009), so a bare
     // `not.toBeVisible()` would hit a strict-mode violation.
     await expect(page.locator('[role="status"]:visible')).toHaveCount(0, { timeout: 10000 });
-    await page.locator('[data-testid="page-header-overflow-trigger"]').click();
     await page.locator('[data-testid="create-baseline-btn"]').click();
     await page.locator('[data-testid="create-baseline-form"]').waitFor({ timeout: 6000 });
     await page.locator('[data-testid="baseline-scope-document"]').check();
