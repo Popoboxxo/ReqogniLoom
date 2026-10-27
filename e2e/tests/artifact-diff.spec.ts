@@ -195,9 +195,11 @@ test.describe('[COMP-RF-014] ArtifactDiff', () => {
     const diffFields = page.locator('[data-testid="diff-fields"]');
     await expect(diffFields).toBeVisible({ timeout: 10000 });
 
-    // All fields should show "Added" status when comparing from baseline
-    // (since version 0 has no data, all current fields are "added")
-    const addedBadges = diffFields.locator('text=Added');
+    // All fields carry the "added" status when comparing from the version-0
+    // baseline (since version 0 has no data, every current field is added).
+    // The badge text is translated, so assert the locale-independent
+    // `data-testid` instead of the English/ German prose.
+    const addedBadges = diffFields.getByTestId('diff-status-added');
     // At least the title field should be marked as added
     await expect(addedBadges.first()).toBeVisible({ timeout: 10000 });
   });

@@ -39,6 +39,14 @@ export interface TraceLink {
   /** REQ-002: artifact type of the target. */
   target_type?: string;
   /**
+   * Readable id of the endpoint (e.g. "REQ-L1-007"), when a backend supplies
+   * it. Additive and optional: the current TraceLink serializer does not emit
+   * these yet, so consumers must treat `undefined` as "no readable id".
+   */
+  source_uid?: string;
+  /** See `source_uid`. */
+  target_uid?: string;
+  /**
    * UI-P3: the source artifact has been soft-deleted (workflow `outdate()`).
    * TraceLinks deliberately survive the soft-delete of an endpoint so the audit
    * trail stays intact, so such a link is still returned by the API — this flag

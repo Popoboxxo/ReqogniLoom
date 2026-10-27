@@ -44,4 +44,11 @@ export interface ArtifactVersion {
    * single-row types. Older backends omit the flag; treat that as `true`.
    */
   content_available?: boolean;
+  /**
+   * True for the synthetic, empty "creation baseline" row (version 0) the
+   * backend prepends to every version list (issue #272). Its `label` is an
+   * English API field, so the UI localises the row from this flag instead of
+   * comparing that string. Older backends omit it; treat that as `false`.
+   */
+  is_creation_baseline?: boolean;
 }

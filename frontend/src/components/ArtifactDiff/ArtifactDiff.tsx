@@ -36,6 +36,7 @@ import type {
 } from "../../types";
 import type { ArtifactKind } from "../shared/ArtifactInspector/types";
 import { DIFF_SUPPORTED_KINDS } from "../shared/ArtifactInspector/types";
+import { versionLabel } from "../shared/ArtifactInspector/versionLabel";
 import { extractErrorMessage } from "../../api/client";
 import styles from "./ArtifactDiff.module.css";
 
@@ -59,22 +60,6 @@ export type DiffEntityType = ArtifactKind;
  * renderer. Mirrors DIFF_SUPPORTED_KINDS (single source of truth).
  */
 const RICH_DIFF_KINDS: ReadonlySet<ArtifactKind> = DIFF_SUPPORTED_KINDS;
-
-/** Header label per kind. Kept here so the title text is co-located. */
-const ENTITY_LABELS: Record<ArtifactKind, string> = {
-  requirement: "Requirement",
-  architecture: "Architecture Element",
-  icd: "ICD",
-  diagram: "Diagram",
-  adr: "ADR",
-  risk: "Risk",
-  issue: "Issue",
-  glossary: "Glossary",
-  stakeholderNeed: "Stakeholder Need",
-  testCase: "Test Case",
-  goal: "Goal",
-  mainGoal: "Main Goal",
-};
 
 /**
  * The comparison this component has actually resolved and is displaying.
@@ -183,13 +168,6 @@ const STATUS_BADGE_CLASS: Record<DiffFieldStatus, string> = {
   unchanged: `${styles.badge} ${styles.badgeUnchanged}`,
 };
 
-const STATUS_LABELS: Record<DiffFieldStatus, string> = {
-  added: "Added",
-  removed: "Removed",
-  modified: "Modified",
-  unchanged: "Unchanged",
-};
-
 // ---------------------------------------------------------------------------
 // Diff line renderer
 // ---------------------------------------------------------------------------
@@ -223,6 +201,7 @@ function DiffLines({ lines }: { lines: string[] }): JSX.Element {
 // ---------------------------------------------------------------------------
 
 function FieldDiffRow({ field }: { field: DiffField }): JSX.Element {
+  const { t } = useTranslation();
   const showLines = field.status === "modified" && field.lines && field.lines.length > 0;
 
   return (
@@ -235,8 +214,13 @@ function FieldDiffRow({ field }: { field: DiffField }): JSX.Element {
         className={`${styles.fieldHeader} ${showLines ? styles.fieldHeaderWithLines : ""}`}
       >
         <strong className={styles.fieldName}>{field.name}</strong>
-        <span className={STATUS_BADGE_CLASS[field.status]}>
-          {STATUS_LABELS[field.status]}
+        {/* The badge text is translated (C-L9), so its status also carries a
+            locale-independent test hook for E2E — never assert the prose. */}
+        <span
+          className={STATUS_BADGE_CLASS[field.status]}
+          data-testid={`diff-status-${field.status}`}
+        >
+          {t(`diff.status.${field.status}`)}
         </span>
       </div>
 
@@ -472,14 +456,14 @@ export function ArtifactDiff({
           overlapping once the inspector column narrows. */}
       <div className={styles.header}>
         <h3 className={styles.title}>
-          {ENTITY_LABELS[entityType]} Diff
+          {t("diff.title", { entity: t(`diff.entity.${entityType}`) })}
         </h3>
         <button
           data-testid="diff-close-btn"
           onClick={onClose}
           className={`btn-secondary ${styles.closeBtn}`}
         >
-          Close
+          {t("diff.close")}
         </button>
       </div>
 
@@ -489,7 +473,7 @@ export function ArtifactDiff({
         className={styles.versionSelectors}
       >
         <label className={styles.versionLabel}>
-          From:
+          {t("diff.from")}
           <select
             data-testid="diff-from-version"
             value={fromVersion ?? ""}
@@ -498,7 +482,7 @@ export function ArtifactDiff({
           >
             {fromOptions.map((v) => (
               <option key={v.version} value={v.version}>
-                {v.label}
+                {versionLabel(v.label, v.is_creation_baseline, t)}
               </option>
             ))}
           </select>
@@ -509,7 +493,7 @@ export function ArtifactDiff({
         </span>
 
         <label className={styles.versionLabel}>
-          To:
+          {t("diff.to")}
           <select
             data-testid="diff-to-version"
             value={toVersion ?? ""}
@@ -518,7 +502,7 @@ export function ArtifactDiff({
           >
             {toOptions.map((v) => (
               <option key={v.version} value={v.version}>
-                {v.label}
+                {versionLabel(v.label, v.is_creation_baseline, t)}
               </option>
             ))}
           </select>
@@ -543,7 +527,7 @@ export function ArtifactDiff({
       {/* Loading / Error */}
       {loading && (
         <div data-testid="diff-loading" className={styles.loading}>
-          Loading diff...
+          {t("diff.loading")}
         </div>
       )}
 

@@ -62,6 +62,14 @@ export interface VersionRef {
    * ref (always retrievable) can omit it; `undefined` means `true`.
    */
   contentAvailable?: boolean;
+  /**
+   * True for the synthetic, empty "creation baseline" row (version 0). The
+   * row's label is localised from this flag (`sidebar.version.creationBaseline`)
+   * rather than from the backend's English `"Creation baseline"` string — see
+   * the shared `versionLabel` helper and `ArtifactVersion.is_creation_baseline`
+   * (issue #272).
+   */
+  isCreationBaseline?: boolean;
 }
 
 /**
@@ -84,6 +92,12 @@ export interface TraceLinkRow {
     title: string;
     kind: ArtifactKind;
     route: string;
+    /**
+     * Readable id of the other endpoint (e.g. "REQ-L1-007") when the API
+     * supplies one. Optional: the trace-link serializer does not emit it yet,
+     * so the row falls back to `sidebar.trace.untitled` (see TracePanel).
+     */
+    uid?: string;
   };
   createdAt: string;
 }
