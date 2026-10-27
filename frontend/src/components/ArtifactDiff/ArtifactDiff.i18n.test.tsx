@@ -40,6 +40,22 @@ const VERSIONS: ArtifactVersion[] = [
   { version: 2, label: "v2", modified_at: "2026-01-20T14:00:00Z" },
 ];
 
+/**
+ * Single-row shape (Requirement, ADR, …): the backend prepends its synthetic
+ * version 0 with an ENGLISH `label` and `is_creation_baseline: true`
+ * (`application/artifact_diff_service.py`). The dropdown must localise it.
+ */
+const VERSIONS_WITH_BASELINE: ArtifactVersion[] = [
+  {
+    version: 0,
+    label: "Creation baseline",
+    modified_at: null,
+    content_available: false,
+    is_creation_baseline: true,
+  },
+  { version: 1, label: "v1 — Initial draft", modified_at: "2026-01-10T09:00:00Z" },
+];
+
 const DIFF: ArtifactDiffResult = {
   from_version: 1,
   to_version: 2,
@@ -52,15 +68,18 @@ const DIFF: ArtifactDiffResult = {
   ],
 };
 
-function renderDiff(): ReturnType<typeof render> {
+function renderDiff(
+  versions: ArtifactVersion[] = VERSIONS,
+  currentVersion = 2,
+): ReturnType<typeof render> {
   return render(
     <I18nextProvider i18n={i18n}>
       <ArtifactDiff
         entityId={ENTITY_ID}
         entityType="requirement"
-        currentVersion={2}
+        currentVersion={currentVersion}
         diffFetcher={vi.fn().mockResolvedValue(DIFF)}
-        versionsFetcher={vi.fn().mockResolvedValue(VERSIONS)}
+        versionsFetcher={vi.fn().mockResolvedValue(versions)}
         onClose={vi.fn()}
       />
     </I18nextProvider>,
@@ -135,6 +154,29 @@ describe("ArtifactDiff i18n (C-L9)", () => {
     expect(screen.getByTestId("diff-to-version").closest("label")).toHaveTextContent(
       de.diff.to,
     );
+  });
+
+  it("localises the creation baseline in the version dropdowns (B1)", async () => {
+    // B1: the dropdowns used to render the raw API `label`, so the German
+    // "Von:" select showed the backend's English "Creation baseline".
+    renderDiff(VERSIONS_WITH_BASELINE, 1);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("diff-from-version")).toHaveTextContent(
+        de.sidebar.version.creationBaseline,
+      );
+    });
+
+    const fromSelect = screen.getByTestId("diff-from-version") as HTMLSelectElement;
+    const toSelect = screen.getByTestId("diff-to-version") as HTMLSelectElement;
+    const optionTexts = [
+      ...Array.from(fromSelect.options),
+      ...Array.from(toSelect.options),
+    ].map((option) => option.textContent ?? "");
+
+    expect(optionTexts).toContain(de.sidebar.version.creationBaseline);
+    expect(optionTexts.join("\n")).not.toContain("Creation baseline");
+    expect(optionTexts.join("\n")).not.toContain("Diff");
   });
 
   it("still renders the English labels when the language is en", async () => {

@@ -44,6 +44,7 @@ import {
   type BaselineSummary,
   type VersionRef,
 } from "./types";
+import { versionLabel } from "./versionLabel";
 import styles from "./VersionPanel.module.css";
 
 // ---------------------------------------------------------------------------
@@ -268,13 +269,10 @@ export function VersionPanel({
     const canCompare =
       (hasContent || entry.version === 0) && !isCurrent && currentVersion !== undefined;
     const chips = baselinesForVersion(entry.version);
-    // #272: the creation baseline's `label` is an English API string
-    // ("Creation baseline"). Localise it from the additive
-    // `is_creation_baseline` flag instead of comparing that text, so the DE
-    // UI never renders English here.
-    const label = entry.isCreationBaseline
-      ? t("sidebar.version.creationBaseline")
-      : entry.label;
+    // #272 / C-L9: the shared helper is the only place that decides how the
+    // synthetic creation baseline is labelled — the diff dropdowns use the
+    // very same one, so the two views cannot drift apart.
+    const label = versionLabel(entry.label, entry.isCreationBaseline, t);
     const chipLabel =
       chips.length === 1
         ? t("sidebar.version.baselineChip", { name: chips[0]!.name })

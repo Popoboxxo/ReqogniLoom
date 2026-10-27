@@ -169,26 +169,33 @@ describe("RightSidebar a11y — button names (C-L9)", () => {
     });
   });
 
-  it("keeps a chip named when the workspace catalog label is an empty string", async () => {
-    // A workspace can save an empty label for a link type. That used to
-    // render a nameless filter chip and a nameless trace-row button.
-    vi.mocked(linkTypeModule.useLinkTypes).mockReturnValue({
-      linkTypes: [{ key: "verifies", definition: { label: {}, allowed_pairs: [] } }],
-      isLoading: false,
-      error: null,
-      reload: vi.fn(),
-      creatableLinkTypes: [],
-      definitionFor: () => undefined,
-      isAllowedPair: () => true,
-      labelFor: () => "",
-    } as unknown as ReturnType<typeof linkTypeModule.useLinkTypes>);
+  it.each([
+    ["", "empty"],
+    ["   ", "whitespace-only"],
+  ] as const)(
+    "keeps a chip named when the workspace catalog label is %s (%s)",
+    async (catalogLabel) => {
+      // A workspace can save an empty or whitespace-only label for a link
+      // type. Either used to win the branch and render a nameless filter chip
+      // and a nameless trace-row button (C-L9 / N3 — trimmed since the review).
+      vi.mocked(linkTypeModule.useLinkTypes).mockReturnValue({
+        linkTypes: [{ key: "verifies", definition: { label: {}, allowed_pairs: [] } }],
+        isLoading: false,
+        error: null,
+        reload: vi.fn(),
+        creatableLinkTypes: [],
+        definitionFor: () => undefined,
+        isAllowedPair: () => true,
+        labelFor: () => catalogLabel,
+      } as unknown as ReturnType<typeof linkTypeModule.useLinkTypes>);
 
-    renderInspector("requirement");
+      renderInspector("requirement");
 
-    const chip = await screen.findByTestId("trace-filter-chip-verifies");
-    expect(chip).toHaveAccessibleName();
-    expectEveryButtonNamed();
-  });
+      const chip = await screen.findByTestId("trace-filter-chip-verifies");
+      expect(chip).toHaveAccessibleName();
+      expectEveryButtonNamed();
+    },
+  );
 
   it("keeps the trace-row button named when the other endpoint has no title", async () => {
     vi.mocked(tracelinksModule.tracelinksApi.listForArtifact).mockResolvedValue({
@@ -213,11 +220,10 @@ describe("RightSidebar a11y — button names (C-L9)", () => {
 
     const rowButton = await screen.findByTestId("trace-row-open-link-untitled");
     expect(rowButton).toHaveAccessibleName();
-    // The localised placeholder (plus the link-type label) names the row —
-    // an empty title must not leave the button nameless.
-    expect(rowButton.getAttribute("aria-label")).toContain(
-      de.sidebar.trace.untitled,
-    );
+    // N1: no `aria-label` any more (First Rule of ARIA) — the localised
+    // placeholder is visible text, and that alone names the button.
+    expect(rowButton).not.toHaveAttribute("aria-label");
+    expect(rowButton).toHaveTextContent(de.sidebar.trace.untitled);
     expectEveryButtonNamed();
   });
 });

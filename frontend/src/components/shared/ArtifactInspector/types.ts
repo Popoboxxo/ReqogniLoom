@@ -65,8 +65,9 @@ export interface VersionRef {
   /**
    * True for the synthetic, empty "creation baseline" row (version 0). The
    * row's label is localised from this flag (`sidebar.version.creationBaseline`)
-   * rather than from the backend's English `"Creation baseline"` string —
-   * see `ArtifactVersion.is_creation_baseline` (issue #272).
+   * rather than from the backend's English `"Creation baseline"` string — see
+   * the shared `versionLabel` helper and `ArtifactVersion.is_creation_baseline`
+   * (issue #272).
    */
   isCreationBaseline?: boolean;
 }

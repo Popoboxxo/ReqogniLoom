@@ -36,6 +36,7 @@ import type {
 } from "../../types";
 import type { ArtifactKind } from "../shared/ArtifactInspector/types";
 import { DIFF_SUPPORTED_KINDS } from "../shared/ArtifactInspector/types";
+import { versionLabel } from "../shared/ArtifactInspector/versionLabel";
 import { extractErrorMessage } from "../../api/client";
 import styles from "./ArtifactDiff.module.css";
 
@@ -476,7 +477,7 @@ export function ArtifactDiff({
           >
             {fromOptions.map((v) => (
               <option key={v.version} value={v.version}>
-                {v.label}
+                {versionLabel(v.label, v.is_creation_baseline, t)}
               </option>
             ))}
           </select>
@@ -496,7 +497,7 @@ export function ArtifactDiff({
           >
             {toOptions.map((v) => (
               <option key={v.version} value={v.version}>
-                {v.label}
+                {versionLabel(v.label, v.is_creation_baseline, t)}
               </option>
             ))}
           </select>

@@ -210,14 +210,16 @@ export function TracePanel({ artifactId }: TracePanelProps): JSX.Element {
 
   const chipLabel = useCallback(
     (key: LinkType): string => {
-      const fromCatalog = labelFor(key, "en", "neutral");
+      // N3: trim before testing — a whitespace-only catalog label ("   ") is
+      // just as unnamed as an empty one and used to win the branch below.
+      const fromCatalog = labelFor(key, "en", "neutral").trim();
       // labelFor already falls back to the raw key; prefer the static
       // built-in table over a bare key so a pre-catalog render still reads
-      // like a label. An *empty* catalog label (a workspace can save one)
-      // is treated the same way: it would otherwise render a nameless chip
-      // and a nameless trace-row button (C-L9).
+      // like a label. An empty (or whitespace-only) catalog label — a
+      // workspace can save one — is treated the same way: it would otherwise
+      // render a nameless chip and trace-row button (C-L9).
       if (fromCatalog && fromCatalog !== key) return fromCatalog;
-      return getLinkTypeLabel(key) || key;
+      return getLinkTypeLabel(key).trim() || key;
     },
     [labelFor]
   );
@@ -350,10 +352,9 @@ export function TracePanel({ artifactId }: TracePanelProps): JSX.Element {
     // label. Fall back to the readable id, then to a localised placeholder, so
     // every row carries content (and therefore an accessible name).
     const title = rawTitle || link.otherArtifact.uid || t("sidebar.trace.untitled");
-    // Only the degraded case needs an explicit name: with a real title the
-    // visible "type title" text already names the button, and copying it into
-    // aria-label would duplicate it for screen-reader users.
-    const ariaLabel = rawTitle === "" ? `${typeLabel} – ${title}` : undefined;
+    // No `aria-label`: `title` is never empty, so the two visible spans
+    // already name the button in both locales (First Rule of ARIA — do not
+    // duplicate visible text into an attribute).
 
     return (
       <li key={link.id} className={styles.row} data-testid={`trace-row-${link.id}`}>
@@ -361,7 +362,6 @@ export function TracePanel({ artifactId }: TracePanelProps): JSX.Element {
           type="button"
           className={`btn-ghost ${styles.rowButton}`}
           data-testid={`trace-row-open-${link.id}`}
-          aria-label={ariaLabel}
           // #261: react-router 7's navigate() returns void | Promise<void>
           // (async view-transition support) — an explicit `: void` return
           // annotation here no longer type-checks against that.
