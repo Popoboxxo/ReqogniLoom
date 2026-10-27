@@ -12,11 +12,20 @@ against the live registry.
 from __future__ import annotations
 
 import uuid
+from datetime import timedelta
 from unittest.mock import patch
 
 import pytest
+from django.utils import timezone
 
 from auth_tenancy.context import AuthContext, AuthMethod
+from auth_tenancy.models import (
+    TREE_DISPLAY_SCOPE_WORKSPACE,
+    TreeDisplayConfig,
+)
+from auth_tenancy.services.authentication import AuthenticationService
+from mcp_server.tool_registry import ToolRegistry
+from persistence.models import Tenant
 
 
 @pytest.fixture
@@ -112,12 +121,15 @@ def test_get_is_classified_for_workspace_scope_coverage() -> None:
     assert "tree_display_config.get" in TENANT_SCOPED_READ_TOOLS
 
 
-def test_set_requires_the_author_tier_not_the_admin_tier() -> None:
-    """Personal/workspace writes are ordinary content writes (#865).
+def test_set_stays_author_tier_because_the_user_level_is_self_service() -> None:
+    """The name-based tier map cannot express a per-parameter rule.
 
-    Only the tenant-wide (global) level needs admin, and that is re-asserted by
-    the service — the tier gate must not lock an editor out of their own
-    preference.
+    ``tree_display_config.set`` also writes the caller's *own* level, so a
+    blanket ADMIN tier (the ``preference.set_default`` route) would take
+    self-service away from every AUTHOR key. The registry keeps the tool at
+    WRITE tier; the workspace/global governance gate is evaluated per request
+    in the handler (``scope in {"workspace","global"}`` →
+    ``Operation.WORKSPACE_CONFIG``). See the tier tests below.
     """
     from auth_tenancy.services.authorization import Operation
     from mcp_server.tool_registry import ToolRegistry
@@ -323,3 +335,132 @@ def test_unknown_tool_is_reported(group, ctx) -> None:
 
     assert result.success is False
     assert result.error_code == "UNKNOWN_TOOL"
+
+
+# ---------------------------------------------------------------------------
+# Capability tier (R6, ENT-C3 = B): workspace/global are governance acts
+# ---------------------------------------------------------------------------
+
+
+def _dispatch(tool_name: str, params: dict, api_key: str):
+    return ToolRegistry().dispatch_request(
+        tool_name=tool_name, params=params, api_key=api_key
+    )
+
+
+def _make_key(tenant: Tenant, user_id, scope: str) -> str:
+    """Issue an API key of *scope* for an already-privileged owner.
+
+    The tier is a property of the key, not of the owner — this is what makes
+    the "privileged owner, narrow key" case testable end to end.
+    """
+    return (
+        AuthenticationService()
+        .create_api_key(
+            user_id=user_id,
+            tenant_id=tenant.id,
+            name=f"tree-{scope}-{uuid.uuid4().hex[:8]}",
+            scope=scope,
+            expires_at=timezone.now() + timedelta(days=1),
+        )
+        .plaintext
+    )
+
+
+@pytest.fixture
+def author_key_admin(e2e_tenant: Tenant, e2e_user_admin) -> str:
+    return _make_key(e2e_tenant, e2e_user_admin.id, "author")
+
+
+@pytest.fixture
+def admin_key_admin(e2e_tenant: Tenant, e2e_user_admin) -> str:
+    return _make_key(e2e_tenant, e2e_user_admin.id, "admin")
+
+
+@pytest.mark.django_db
+def test_author_key_of_an_admin_owner_may_not_set_a_workspace_default(
+    author_key_admin: str, e2e_workspace, e2e_userrole_admin
+) -> None:
+    """R6: the ADMIN tier sits above the role matrix.
+
+    The key's owner holds ``admin`` in the workspace, so a role-only check
+    would let the write through; the governance gate must not.
+    """
+    result = _dispatch(
+        "tree_display_config.set",
+        {
+            "scope": "workspace",
+            "item_type": "Requirement",
+            "fields": ["uid"],
+            "workspace_id": str(e2e_workspace.id),
+        },
+        author_key_admin,
+    )
+
+    assert result.success is False
+    assert result.error_code == "PERMISSION_DENIED"
+    # Fail-closed: the denied call wrote nothing.
+    assert (
+        TreeDisplayConfig.unscoped.filter(
+            scope=TREE_DISPLAY_SCOPE_WORKSPACE, workspace_id=e2e_workspace.id
+        ).count()
+        == 0
+    )
+
+
+@pytest.mark.django_db
+def test_author_key_of_an_admin_owner_may_not_set_the_global_default(
+    author_key_admin: str, e2e_workspace, e2e_userrole_admin
+) -> None:
+    result = _dispatch(
+        "tree_display_config.set",
+        {"scope": "global", "item_type": "Requirement", "fields": ["uid"]},
+        author_key_admin,
+    )
+
+    assert result.success is False
+    assert result.error_code == "PERMISSION_DENIED"
+    assert not TreeDisplayConfig.unscoped.filter(scope="global").exists()
+
+
+@pytest.mark.django_db
+def test_author_key_may_still_set_its_own_level(
+    author_key_admin: str, e2e_workspace, e2e_userrole_admin
+) -> None:
+    """The gate is per scope — self-service must stay reachable."""
+    result = _dispatch(
+        "tree_display_config.set",
+        {"scope": "user", "item_type": "Requirement", "fields": ["uid"]},
+        author_key_admin,
+    )
+
+    assert result.success is True, result
+    assert result.data["scope"] == "user"
+
+
+@pytest.mark.django_db
+def test_admin_key_may_set_the_workspace_and_global_defaults(
+    admin_key_admin: str, e2e_workspace, e2e_userrole_admin
+) -> None:
+    workspace_result = _dispatch(
+        "tree_display_config.set",
+        {
+            "scope": "workspace",
+            "item_type": "Requirement",
+            "fields": ["uid"],
+            "workspace_id": str(e2e_workspace.id),
+        },
+        admin_key_admin,
+    )
+    global_result = _dispatch(
+        "tree_display_config.set",
+        {"scope": "global", "item_type": "Requirement", "fields": ["uid"]},
+        admin_key_admin,
+    )
+
+    assert workspace_result.success is True, workspace_result
+    assert global_result.success is True, global_result
+    assert TreeDisplayConfig.unscoped.filter(
+        scope=TREE_DISPLAY_SCOPE_WORKSPACE, workspace_id=e2e_workspace.id
+    ).exists()
+    assert TreeDisplayConfig.unscoped.filter(scope="global").exists()

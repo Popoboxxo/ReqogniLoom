@@ -10,7 +10,7 @@ Storage (mirrors the #1096/#1265 display-preference precedent):
 * **personal** — ``UserDisplayPreference.tree_display_fields`` (self-service,
   RLS-covered; ``ctx.user_id`` is the whole authorization boundary),
 * **workspace** — ``TreeDisplayConfig(scope="workspace")`` (one row per
-  workspace, admin/write-gated),
+  workspace, workspace-admin-gated: ``Operation.WORKSPACE_CONFIG``, ENT-C3 = B),
 * **global** — ``TreeDisplayConfig(scope="global")`` (one row per tenant,
   admin-only).
 
@@ -41,7 +41,10 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
+from django.db import transaction
+
 from application.base import ServiceBase
+from application.permissions import assert_workspace_config_permission
 from attribute_definitions.tree_fields import (
     DEFAULT_TREE_DISPLAY_FIELDS,
     TreeFieldError,
@@ -204,10 +207,12 @@ class TreeDisplayConfigService(ServiceBase):
         ``?resolve=effective``).
 
         Raises:
-            ValidationError: unknown scope, invalid ``fields`` payload, a
-                workspace scope without a ``workspace_id``, or a missing
-                privilege (admin for the global level, write for the workspace
-                level).
+            ValidationError: unknown scope, invalid ``fields`` payload, or a
+                workspace scope without a ``workspace_id``.
+            PermissionDeniedError: the caller lacks the privilege of the
+                target level — ``Operation.WORKSPACE_CONFIG`` (workspace
+                admin) for the workspace level, the ``admin`` role for the
+                tenant-wide default.
         """
         self._assert_writable_scope(scope)
         self._set_tenant_context(ctx)
@@ -294,19 +299,28 @@ class TreeDisplayConfigService(ServiceBase):
         item_type: str,
         fields: list[dict[str, Any]] | None,
     ) -> None:
-        # A workspace-level default governs every member, so it needs write
-        # authority — not merely read access to the tree.
-        self._assert_write_permission(ctx)
-        row, _created = TreeDisplayConfig.objects.get_or_create(
-            scope=TREE_DISPLAY_SCOPE_WORKSPACE,
-            workspace_id=workspace_id,
-            tenant_id=ctx.tenant_id,
-            defaults={"fields_json": {}},
+        # A workspace-level default governs every member, so it is workspace
+        # *configuration* (Operation.WORKSPACE_CONFIG, admin tier) — an
+        # editor's WRITE is not enough (ENT-C3 = B, Plan C T-C2-10).
+        assert_workspace_config_permission(
+            ctx, what="workspace-wide tree display configuration"
         )
-        mapping = self._as_map(row.fields_json)
-        self._apply(mapping, item_type, fields)
-        row.fields_json = mapping
-        row.save(update_fields=["fields_json", "modified_at"])
+        # R7: ``fields_json`` is ONE document per level, so this is a
+        # read-modify-write. Two writers of different item types must not
+        # overwrite each other: the row is re-read under ``SELECT ... FOR
+        # UPDATE`` inside the transaction that commits the change.
+        with transaction.atomic():
+            row, _created = TreeDisplayConfig.objects.get_or_create(
+                scope=TREE_DISPLAY_SCOPE_WORKSPACE,
+                workspace_id=workspace_id,
+                tenant_id=ctx.tenant_id,
+                defaults={"fields_json": {}},
+            )
+            row = TreeDisplayConfig.objects.select_for_update().get(pk=row.pk)
+            mapping = self._as_map(row.fields_json)
+            self._apply(mapping, item_type, fields)
+            row.fields_json = mapping
+            row.save(update_fields=["fields_json", "modified_at"])
 
     def _set_global(
         self,
@@ -321,15 +335,19 @@ class TreeDisplayConfigService(ServiceBase):
                 "Permission denied: the tenant-wide tree display configuration "
                 "requires the 'admin' role"
             )
-        row, _created = TreeDisplayConfig.objects.get_or_create(
-            scope=TREE_DISPLAY_SCOPE_GLOBAL,
-            tenant_id=ctx.tenant_id,
-            defaults={"fields_json": {}},
-        )
-        mapping = self._as_map(row.fields_json)
-        self._apply(mapping, item_type, fields)
-        row.fields_json = mapping
-        row.save(update_fields=["fields_json", "modified_at"])
+        # Same lost-update shape as the workspace level (R7): one JSON document
+        # per tenant, re-read under row lock before mutating.
+        with transaction.atomic():
+            row, _created = TreeDisplayConfig.objects.get_or_create(
+                scope=TREE_DISPLAY_SCOPE_GLOBAL,
+                tenant_id=ctx.tenant_id,
+                defaults={"fields_json": {}},
+            )
+            row = TreeDisplayConfig.objects.select_for_update().get(pk=row.pk)
+            mapping = self._as_map(row.fields_json)
+            self._apply(mapping, item_type, fields)
+            row.fields_json = mapping
+            row.save(update_fields=["fields_json", "modified_at"])
 
     # ------------------------------------------------------------------
     # Helpers

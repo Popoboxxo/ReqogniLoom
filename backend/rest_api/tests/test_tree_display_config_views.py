@@ -7,8 +7,10 @@ Covers the three routes end to end against real rows and a real JWT login:
   * ``/api/v1/system/tree-display-config/`` — tenant-wide default (admin write),
 
 plus the ``?resolve=effective`` read the navigation tree itself performs, and
-the two fail-closed edges: a viewer may not set a workspace override, an editor
-may not set the tenant-wide default.
+the fail-closed edges: a viewer may not set a workspace override, and — since
+ENT-C3 = B / Plan C T-C2-10 — neither may an editor, whose WRITE is no longer
+enough for workspace *configuration* (reading it stays open to every member).
+An editor may still not set the tenant-wide default.
 """
 from __future__ import annotations
 
@@ -174,19 +176,36 @@ class TestEffectiveResolution:
 
 
 class TestWorkspaceLevel:
-    def test_an_editor_may_set_and_read_the_workspace_override(
-        self, editor_client: APIClient, workspace_fixture
+    def test_an_admin_may_set_and_read_the_workspace_override(
+        self, admin_client: APIClient, workspace_fixture
     ) -> None:
         path = workspace_path(workspace_fixture)
-        response = editor_client.patch(
+        response = admin_client.patch(
             path, {"item_type": ITEM_TYPE, "fields": ["uid", "level"]}, format="json"
         )
 
         assert response.status_code == 200, response.content
         assert response.json()["scope"] == "workspace"
         assert _keys(
-            editor_client.get(path, {"item_type": ITEM_TYPE}).json()["fields"]
+            admin_client.get(path, {"item_type": ITEM_TYPE}).json()["fields"]
         ) == ["uid", "level"]
+
+    def test_an_editor_may_not_set_the_workspace_override(
+        self, editor_client: APIClient, workspace_fixture
+    ) -> None:
+        """ENT-C3 = B: a workspace default is configuration, not content.
+
+        Reading the level stays open to every member (the next test proves
+        that); writing it needs the workspace admin.
+        """
+        path = workspace_path(workspace_fixture)
+        response = editor_client.patch(
+            path, {"item_type": ITEM_TYPE, "fields": ["uid", "level"]}, format="json"
+        )
+
+        assert response.status_code == 403, response.content
+        assert response.json()["error"]["code"] == "PERMISSION_DENIED"
+        assert editor_client.get(path, {"item_type": ITEM_TYPE}).status_code == 200
 
     def test_the_workspace_override_wins_in_the_effective_read(
         self, admin_client: APIClient, editor_client: APIClient, workspace_fixture
@@ -195,7 +214,7 @@ class TestWorkspaceLevel:
         admin_client.patch(
             SYSTEM_PATH, {"item_type": ITEM_TYPE, "fields": ["status"]}, format="json"
         )
-        editor_client.patch(
+        admin_client.patch(
             workspace_path(workspace_fixture),
             {"item_type": ITEM_TYPE, "fields": ["uid"]},
             format="json",
@@ -211,10 +230,10 @@ class TestWorkspaceLevel:
         assert _keys(body["fields"]) == ["uid"]
 
     def test_the_personal_level_wins_over_the_workspace_override(
-        self, editor_client: APIClient, workspace_fixture
+        self, admin_client: APIClient, editor_client: APIClient, workspace_fixture
     ) -> None:
         """Precedence ``user > workspace`` observed through the real routes."""
-        editor_client.patch(
+        admin_client.patch(
             workspace_path(workspace_fixture),
             {"item_type": ITEM_TYPE, "fields": ["status"]},
             format="json",

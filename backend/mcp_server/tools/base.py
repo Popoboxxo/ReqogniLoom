@@ -91,6 +91,59 @@ def reject_unknown_params(
 
 
 # ---------------------------------------------------------------------------
+# Per-parameter capability tier (governance acts behind a mixed tool)
+# ---------------------------------------------------------------------------
+
+
+def require_admin_tier(
+    auth_context: AuthContext, *, tool_name: str, level: str
+) -> None:
+    """Raise PermissionDeniedError unless the key carries the ADMIN tier.
+
+    The registry's tier map (:meth:`ToolRegistry._required_scope_operation`) is
+    keyed by *tool name*, which is exactly right for a split like
+    ``preference.set`` / ``preference.set_default`` — but cannot express a tool
+    whose governance-ness depends on a **parameter**. ``tree_display_config.set``
+    and ``create_form_definition.set``/``.import`` write three levels behind one
+    name, and ``scope="user"`` must stay self-service for an AUTHOR key.
+
+    So the tool stays at ``Operation.WRITE`` in the registry (it must remain
+    advertised to AUTHOR keys) and the handler calls this helper for the
+    ``workspace``/``global`` levels. The check is the same single implementation
+    every transport uses: ``scope_denial_reason`` above the RBAC matrix, so a
+    privileged *owner* cannot lend the tier away (the R6 hole).
+
+    A bearer/session context carries no ``scope``; ``scope_denial_reason``
+    returns ``None`` for it, leaving the service-level RBAC check as the only
+    gate — unchanged human behaviour.
+
+    Args:
+        auth_context: The caller's context (``scope`` decides the tier).
+        tool_name: Tool being executed, for the error message.
+        level: The governance level being written ("workspace"/"global").
+
+    Raises:
+        PermissionDeniedError: the key's scope is below the ADMIN tier.
+    """
+    # Imported lazily: ``auth_tenancy.services`` pulls in item-permission code
+    # that imports application services, so a module-level import here would
+    # run at MCP package-init time (same note as the registry's own lazy gate).
+    from auth_tenancy.services.authorization import (
+        Operation,
+        scope_denial_reason,
+    )
+    from persistence.errors import PermissionDeniedError
+
+    reason = scope_denial_reason(auth_context.scope, Operation.WORKSPACE_CONFIG)
+    if reason:
+        raise PermissionDeniedError(
+            f"Permission denied: the {level}-wide default written by "
+            f"'{tool_name}' is a governance operation, which requires "
+            f"scope='admin'. {reason}"
+        )
+
+
+# ---------------------------------------------------------------------------
 # Workflow-engine status seam (Datenmodell-Konsolidierung Phase 1)
 # ---------------------------------------------------------------------------
 
@@ -447,6 +500,7 @@ __all__ = [
     "mcp_audit_handoff",
     "optional_uuid",
     "reject_unknown_params",
+    "require_admin_tier",
     "require_param",
     "require_uuid",
     "resolve_engine_status",

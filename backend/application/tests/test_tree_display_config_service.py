@@ -371,11 +371,30 @@ class TestAuthorization:
                 workspace_id=workspace.id,
             )
 
-    def test_workspace_level_is_allowed_for_an_editor(
+    def test_workspace_level_is_denied_for_an_editor(
         self, editor_ctx: AuthContext, workspace: Workspace
     ) -> None:
+        """ENT-C3 = B (Plan C T-C2-10): a workspace default is configuration.
+
+        An ``editor`` holds WRITE in the RBAC matrix, which is no longer
+        sufficient — only ``Operation.WORKSPACE_CONFIG`` (the workspace admin)
+        may change a default that governs every member. This is the intended
+        breaking change of PR-C11.
+        """
+        with pytest.raises(PermissionDeniedError):
+            TreeDisplayConfigService().set_config(
+                editor_ctx,
+                scope=SCOPE_WORKSPACE,
+                item_type=ITEM_TYPE,
+                fields=["uid"],
+                workspace_id=workspace.id,
+            )
+
+    def test_workspace_level_is_allowed_for_a_workspace_admin(
+        self, admin_ctx: AuthContext, workspace: Workspace
+    ) -> None:
         payload = TreeDisplayConfigService().set_config(
-            editor_ctx,
+            admin_ctx,
             scope=SCOPE_WORKSPACE,
             item_type=ITEM_TYPE,
             fields=["uid"],
@@ -406,6 +425,64 @@ class TestAuthorization:
             TreeDisplayConfigService().set_config(
                 admin_ctx, scope=SCOPE_WORKSPACE, item_type=ITEM_TYPE, fields=["uid"]
             )
+
+
+# ---------------------------------------------------------------------------
+# Lost-update protection (finding R7)
+# ---------------------------------------------------------------------------
+
+
+class TestWriteLocking:
+    def test_workspace_write_re_reads_the_row_under_lock(
+        self, admin_ctx: AuthContext, workspace: Workspace, monkeypatch
+    ) -> None:
+        """Two writers of different item types must not overwrite each other.
+
+        ``fields_json`` is one JSON document per level, so the write is a
+        read-modify-write. ``get_or_create`` can hand back a row instance read
+        *before* a concurrent writer committed; only a re-read under
+        ``SELECT ... FOR UPDATE`` keeps the other writer's entry.
+        """
+        service = TreeDisplayConfigService()
+        service.set_config(
+            admin_ctx,
+            scope=SCOPE_WORKSPACE,
+            item_type=ITEM_TYPE,
+            fields=["uid"],
+            workspace_id=workspace.id,
+        )
+        row = TreeDisplayConfig.objects.get(
+            scope=TREE_DISPLAY_SCOPE_WORKSPACE, workspace_id=workspace.id
+        )
+
+        original = TreeDisplayConfig.objects.get_or_create
+        calls: list[str] = []
+
+        def stale_get_or_create(**kwargs):
+            calls.append("called")
+            stale, created = original(**kwargs)
+            # A concurrent writer committed its Adr entry after this instance
+            # was read — the in-memory JSON is now stale.
+            TreeDisplayConfig.objects.filter(pk=stale.pk).update(
+                fields_json={**stale.fields_json, "Adr": [{"key": "status"}]}
+            )
+            return stale, created
+
+        monkeypatch.setattr(
+            TreeDisplayConfig.objects, "get_or_create", stale_get_or_create
+        )
+        service.set_config(
+            admin_ctx,
+            scope=SCOPE_WORKSPACE,
+            item_type=ITEM_TYPE,
+            fields=["owner"],
+            workspace_id=workspace.id,
+        )
+
+        assert calls == ["called"], "the stale-read fixture never took effect"
+        row.refresh_from_db()
+        assert "Adr" in row.fields_json, "the concurrent writer's entry was lost"
+        assert row.fields_json[ITEM_TYPE][0]["key"] == "owner"
 
 
 # ---------------------------------------------------------------------------

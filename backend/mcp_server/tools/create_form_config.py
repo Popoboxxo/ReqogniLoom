@@ -37,6 +37,7 @@ from typing import Any
 from uuid import UUID
 
 from application.create_form_config_service import (
+    SCOPE_GLOBAL,
     SCOPE_USER,
     SCOPE_WORKSPACE,
     WRITABLE_SCOPES,
@@ -44,12 +45,22 @@ from application.create_form_config_service import (
 )
 from auth_tenancy.context import AuthContext
 from mcp_server.protocol_handler import ToolResult
-from mcp_server.tools.base import BaseToolGroup, ParameterError, optional_uuid
+from mcp_server.tools.base import (
+    BaseToolGroup,
+    ParameterError,
+    optional_uuid,
+    require_admin_tier,
+)
 from persistence.errors import PermissionDeniedError, ValidationError
 
 #: ``effective`` is a *read* resolution outcome (it walks user → workspace →
 #: global → definition default). ``default`` names the built-in fallback.
 _READ_SCOPES: tuple[str, ...] = ("effective",) + WRITABLE_SCOPES + ("default",)
+
+#: Levels whose default governs every member. Writing one is workspace
+#: *configuration* (``Operation.WORKSPACE_CONFIG`` = ADMIN tier), while
+#: ``user`` stays self-service for any AUTHOR key (ENT-C3 = B, Plan C T-C2-10).
+_GOVERNANCE_SCOPES: tuple[str, ...] = (SCOPE_WORKSPACE, SCOPE_GLOBAL)
 
 
 def _parse_fields(raw: Any) -> list[Any] | None:
@@ -130,9 +141,11 @@ class CreateFormConfigToolGroup(BaseToolGroup):
                 "\"order\", \"default\"} entries over the catalogue from "
                 "``create_form_definition.get``; ``null`` resets the level so "
                 "resolution falls back to the next one. Scope \"user\" is "
-                "self-service; \"workspace\" requires write authority in the "
-                "workspace (workspace_id required); \"global\" requires the admin "
-                "role. Identical to the REST PATCH endpoints."
+                "self-service for any authenticated caller; the \"workspace\" and "
+                "\"global\" levels are workspace configuration and require the "
+                "workspace admin (an API key needs the ADMIN tier); \"workspace\" "
+                "additionally needs its workspace_id. Identical to the REST PATCH "
+                "endpoints."
             ),
             "inputSchema": {
                 "type": "object",
@@ -202,8 +215,9 @@ class CreateFormConfigToolGroup(BaseToolGroup):
                 "Import a document produced by "
                 "``create_form_definition.export`` into one level (Issue #1263). "
                 "Validated exactly like an edited definition. ``fields: null`` "
-                "resets the level. Scope \"user\" is self-service; \"workspace\" "
-                "requires write authority; \"global\" requires the admin role."
+                "resets the level. Scope \"user\" is self-service for any "
+                "authenticated caller; the \"workspace\" and \"global\" levels "
+                "require the workspace admin (an API key needs the ADMIN tier)."
             ),
             "inputSchema": {
                 "type": "object",
@@ -295,6 +309,15 @@ class CreateFormConfigToolGroup(BaseToolGroup):
 
         service = self._service()
         try:
+            # R6: the registry's tier map is name-based and must keep this tool
+            # advertised to AUTHOR keys (scope="user"), so the parameter-level
+            # governance gate lives here.
+            if scope in _GOVERNANCE_SCOPES:
+                require_admin_tier(
+                    auth_context,
+                    tool_name="create_form_definition.set",
+                    level=scope,
+                )
             return ToolResult.ok(
                 service.set_config(
                     auth_context,
@@ -337,6 +360,14 @@ class CreateFormConfigToolGroup(BaseToolGroup):
         if not isinstance(document, dict):
             raise ParameterError("Parameter 'document' must be an object.")
         try:
+            # ``import`` is a second write path into the same levels and is
+            # gated identically (R6).
+            if scope in _GOVERNANCE_SCOPES:
+                require_admin_tier(
+                    auth_context,
+                    tool_name="create_form_definition.import",
+                    level=scope,
+                )
             return ToolResult.ok(
                 self._service().import_config(
                     auth_context,

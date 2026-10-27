@@ -2547,7 +2547,7 @@
       "name": "create_form_definition.import",
       "prefix": "create_form_definition",
       "is_write": true,
-      "description": "Import a document produced by ``create_form_definition.export`` into one level (Issue #1263). Validated exactly like an edited definition. ``fields: null`` resets the level. Scope \"user\" is self-service; \"workspace\" requires write authority; \"global\" requires the admin role.",
+      "description": "Import a document produced by ``create_form_definition.export`` into one level (Issue #1263). Validated exactly like an edited definition. ``fields: null`` resets the level. Scope \"user\" is self-service for any authenticated caller; the \"workspace\" and \"global\" levels require the workspace admin (an API key needs the ADMIN tier).",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -2581,7 +2581,7 @@
       "name": "create_form_definition.set",
       "prefix": "create_form_definition",
       "is_write": true,
-      "description": "Store (or reset) the create dialog's form definition for one artifact type on one level (Issue #1263). ``fields`` is an ordered array of {\"field_key\", \"visible\", \"required\", \"order\", \"default\"} entries over the catalogue from ``create_form_definition.get``; ``null`` resets the level so resolution falls back to the next one. Scope \"user\" is self-service; \"workspace\" requires write authority in the workspace (workspace_id required); \"global\" requires the admin role. Identical to the REST PATCH endpoints.",
+      "description": "Store (or reset) the create dialog's form definition for one artifact type on one level (Issue #1263). ``fields`` is an ordered array of {\"field_key\", \"visible\", \"required\", \"order\", \"default\"} entries over the catalogue from ``create_form_definition.get``; ``null`` resets the level so resolution falls back to the next one. Scope \"user\" is self-service for any authenticated caller; the \"workspace\" and \"global\" levels are workspace configuration and require the workspace admin (an API key needs the ADMIN tier); \"workspace\" additionally needs its workspace_id. Identical to the REST PATCH endpoints.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -7210,7 +7210,7 @@
       "name": "tree_display_config.set",
       "prefix": "tree_display_config",
       "is_write": true,
-      "description": "Store (or reset) the navigation tree's field selection for one artifact type on one level (Issue #1257). ``fields`` is an ordered array of field keys (see the catalogue from ``tree_display_config.get``) or {\"key\", \"width\"} objects; ``null`` resets the level so resolution falls back to the next one. Scope \"user\" is self-service; \"workspace\" requires write authority in the workspace (workspace_id required); \"global\" requires the admin role. Identical to the REST PATCH endpoints.",
+      "description": "Store (or reset) the navigation tree's field selection for one artifact type on one level (Issue #1257). ``fields`` is an ordered array of field keys (see the catalogue from ``tree_display_config.get``) or {\"key\", \"width\"} objects; ``null`` resets the level so resolution falls back to the next one. Scope \"user\" is self-service for any authenticated caller; the \"workspace\" and \"global\" levels are workspace configuration and require the workspace admin (an API key needs the ADMIN tier); \"workspace\" additionally needs its workspace_id. Identical to the REST PATCH endpoints.",
       "inputSchema": {
         "type": "object",
         "properties": {
