@@ -138,6 +138,15 @@ async function countScrollContainers(page: Page): Promise<number> {
  *    rows are graph/navigation surfaces whose size is driven by their
  *    content (node label, row text), not by the button scale — counting them
  *    would gate canvas layout instead of button styling.
+ *  - Excluded: `[data-testid="workspace-card-clickable-region"]` — the whole
+ *    surface of a dashboard workspace card is a click region, not a control.
+ *    Its height (200+ px) and its `--radius-lg` corner come from the card
+ *    layout, so counting it would make the dashboard's three card rows the
+ *    button standard. Same reason tree rows are excluded, and deliberately
+ *    the narrow inner testid rather than the `workspace-card` prefix: the
+ *    card's real `workspace-card-preset-badge` button is a SIBLING of this
+ *    region (rendered outside it to avoid button-inside-button), so a prefix
+ *    exclusion would also drop a legitimate button from the measurement.
  *  - Height: `getBoundingClientRect().height`, rounded to whole px. Exactly
  *    24 px is the icon-button height (`--btn-h-xs`, WCAG 2.5.8 target size)
  *    and is classified SEPARATELY (ENT-C6 = B): it is reported in the
@@ -212,6 +221,7 @@ async function measureButtonGeometry(page: Page): Promise<ButtonGeometry> {
         '[data-testid="workflow-canvas"]',
         '.react-flow',
         '[data-testid^="diagram-canvas"]',
+        '[data-testid="workspace-card-clickable-region"]',
       ];
       const TREES = '[data-testid$="-tree"]';
       const heights = new Set<number>();
