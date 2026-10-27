@@ -18,11 +18,13 @@ import uuid
 from unittest.mock import patch
 
 import pytest
-from rest_framework.test import APIRequestFactory
+from rest_framework.test import APIClient, APIRequestFactory
 
 from application.create_form_config_service import CreateFormConfigService
 from auth_tenancy.context import AuthContext, AuthMethod
-from auth_tenancy.models import UserDisplayPreference
+from auth_tenancy.models import ROLE_ADMIN, UserDisplayPreference, UserRole
+from auth_tenancy.services.authentication import AuthenticationService
+from persistence.middleware import clear_request_tenant, set_request_tenant
 from persistence.models import Tenant, User, Workspace
 from persistence.tenancy import TenantContext
 from rest_api.create_form_config_views import (
@@ -209,3 +211,91 @@ def test_resolve_effective_requires_item_type(factory, ctx) -> None:
     response = _call(CreateFormConfigUserView, request)
 
     assert response.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# Capability tier (R6): a workspace default is a governance act
+#
+# Real ``APIClient`` + real ``X-API-Key`` on purpose: the tier gate lives in the
+# DRF permission class (``HasOperationPermission``), which a direct
+# ``APIRequestFactory`` view call would never exercise.
+# ---------------------------------------------------------------------------
+
+
+def _workspace_admin_key(tenant: Tenant, workspace: Workspace, scope: str) -> str:
+    """API key of *scope* whose owner is an admin in *workspace*."""
+    admin = User.objects.create(
+        username=f"form-admin-{uuid.uuid4().hex[:8]}",
+        email="form-admin@t.test",
+        tenant=tenant,
+    )
+    set_request_tenant(tenant.id)
+    try:
+        UserRole.objects.create(
+            tenant=tenant, user=admin, workspace=workspace, role=ROLE_ADMIN
+        )
+    finally:
+        clear_request_tenant()
+    return (
+        AuthenticationService()
+        .create_api_key(
+            user_id=admin.id,
+            tenant_id=tenant.id,
+            name=f"form-{scope}-{uuid.uuid4().hex[:6]}",
+            scope=scope,
+        )
+        .plaintext
+    )
+
+
+def _key_client(key: str) -> APIClient:
+    client = APIClient()
+    client.credentials(HTTP_X_API_KEY=key)
+    return client
+
+
+def _workspace_path(workspace: Workspace) -> str:
+    return f"/api/v1/workspaces/{workspace.id}/create-form-config/"
+
+
+class TestCapabilityTier:
+    def test_an_author_tier_key_may_not_set_the_workspace_level(
+        self, tenant_fixture, workspace_fixture
+    ) -> None:
+        """R6 on REST: the key tier denies even an admin *owner*."""
+        client = _key_client(
+            _workspace_admin_key(tenant_fixture, workspace_fixture, "author")
+        )
+        response = client.patch(
+            _workspace_path(workspace_fixture),
+            {"item_type": "Requirement", "fields": [{"field_key": "title"}]},
+            format="json",
+        )
+
+        assert response.status_code == 403, response.content
+        assert response.json()["error"]["code"] == "PERMISSION_DENIED"
+
+    def test_an_admin_tier_key_may_set_the_workspace_level(
+        self, tenant_fixture, workspace_fixture
+    ) -> None:
+        client = _key_client(
+            _workspace_admin_key(tenant_fixture, workspace_fixture, "admin")
+        )
+        response = client.patch(
+            _workspace_path(workspace_fixture),
+            {"item_type": "Requirement", "fields": [{"field_key": "title"}]},
+            format="json",
+        )
+
+        assert response.status_code == 200, response.content
+        assert response.json()["scope"] == "workspace"
+
+    def test_an_author_tier_key_may_still_read_the_workspace_level(
+        self, tenant_fixture, workspace_fixture
+    ) -> None:
+        client = _key_client(
+            _workspace_admin_key(tenant_fixture, workspace_fixture, "author")
+        )
+        response = client.get(_workspace_path(workspace_fixture))
+
+        assert response.status_code == 200, response.content

@@ -14,9 +14,15 @@ An editor may still not set the tenant-wide default.
 """
 from __future__ import annotations
 
+import uuid
+
 import pytest
 from rest_framework.test import APIClient
 
+from auth_tenancy.models import ROLE_ADMIN, UserRole
+from auth_tenancy.services.authentication import AuthenticationService
+from persistence.middleware import clear_request_tenant, set_request_tenant
+from persistence.models import Tenant, User, Workspace
 from rest_api.tests.conftest import _role_client
 
 pytestmark = pytest.mark.django_db
@@ -313,3 +319,93 @@ class TestGlobalLevel:
         )
         assert effective.status_code == 200, effective.content
         assert effective.json()["scope"] == "global"
+
+
+# ---------------------------------------------------------------------------
+# Capability tier (R6): a workspace default is a governance act
+# ---------------------------------------------------------------------------
+
+
+def _workspace_admin_key(tenant: Tenant, workspace: Workspace, scope: str) -> str:
+    """API key of *scope* whose owner is an admin in *workspace*.
+
+    The tier belongs to the key, not to the owner: this is the "privileged
+    owner, narrow key" case an AUTHOR key must not be able to use on a
+    workspace-wide default (same pattern as
+    ``test_preference_value_views.py::test_an_author_tier_key_…``).
+    """
+    admin = User.objects.create(
+        username=f"tree-admin-{uuid.uuid4().hex[:8]}",
+        email="tree-admin@t.test",
+        tenant=tenant,
+    )
+    set_request_tenant(tenant.id)
+    try:
+        UserRole.objects.create(
+            tenant=tenant, user=admin, workspace=workspace, role=ROLE_ADMIN
+        )
+    finally:
+        clear_request_tenant()
+    return (
+        AuthenticationService()
+        .create_api_key(
+            user_id=admin.id,
+            tenant_id=tenant.id,
+            name=f"tree-{scope}-{uuid.uuid4().hex[:6]}",
+            scope=scope,
+        )
+        .plaintext
+    )
+
+
+def _key_client(key: str) -> APIClient:
+    client = APIClient()
+    client.credentials(HTTP_X_API_KEY=key)
+    return client
+
+
+class TestCapabilityTier:
+    def test_an_author_tier_key_may_not_set_the_workspace_level(
+        self, tenant_fixture, workspace_fixture
+    ) -> None:
+        """R6: the ADMIN tier sits above the role matrix on REST too.
+
+        The key's owner is a workspace admin, so a role-only check would let
+        the write through; only the capability tier must stop it.
+        """
+        client = _key_client(
+            _workspace_admin_key(tenant_fixture, workspace_fixture, "author")
+        )
+        response = client.patch(
+            workspace_path(workspace_fixture),
+            {"item_type": ITEM_TYPE, "fields": ["uid"]},
+            format="json",
+        )
+
+        assert response.status_code == 403, response.content
+        assert response.json()["error"]["code"] == "PERMISSION_DENIED"
+
+    def test_an_admin_tier_key_may_set_the_workspace_level(
+        self, tenant_fixture, workspace_fixture
+    ) -> None:
+        client = _key_client(
+            _workspace_admin_key(tenant_fixture, workspace_fixture, "admin")
+        )
+        response = client.patch(
+            workspace_path(workspace_fixture),
+            {"item_type": ITEM_TYPE, "fields": ["uid"]},
+            format="json",
+        )
+
+        assert response.status_code == 200, response.content
+        assert response.json()["scope"] == "workspace"
+
+    def test_an_author_tier_key_may_still_read_the_workspace_level(
+        self, tenant_fixture, workspace_fixture
+    ) -> None:
+        client = _key_client(
+            _workspace_admin_key(tenant_fixture, workspace_fixture, "author")
+        )
+        response = client.get(workspace_path(workspace_fixture))
+
+        assert response.status_code == 200, response.content
