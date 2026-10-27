@@ -133,6 +133,37 @@ vi.mock("../components/shared/TraceSpine", () => ({
   }),
 }));
 
+// Plan C T-C3-1: `TestCaseEditors` now mounts the shared `TraceLinkPanel` in
+// the detail area, and that panel renders `CreateTraceLinkDialog`, which reads
+// the link-type catalog via `useLinkTypes()` — provider-free mock at the module
+// boundary (same as Risk/Adr/Issue editor harnesses), not a product-code
+// change. Without it every test here dies with "useLinkTypes must be used
+// within a LinkTypeProvider" before the unsaved-changes assertions run.
+vi.mock("../context/LinkTypeContext", () => ({
+  useLinkTypes: () => ({
+    linkTypes: [],
+    isLoading: false,
+    error: null,
+    reload: vi.fn(),
+    creatableLinkTypes: [],
+    definitionFor: () => undefined,
+    isAllowedPair: () => false,
+    labelFor: (key: string) => key,
+  }),
+}));
+
+// …and the panel loads its own links on mount. Keep that off the network so
+// this harness only exercises the dirty gate (no api/client mock in this file).
+vi.mock("../api/tracelinks", () => ({
+  tracelinksApi: {
+    list: vi.fn(),
+    listForArtifact: vi.fn().mockResolvedValue({ count: 0, next: null, previous: null, results: [] }),
+    create: vi.fn(),
+    delete: vi.fn(),
+    impact: vi.fn().mockResolvedValue([]),
+  },
+}));
+
 vi.mock("../api/testcases", () => ({
   testcasesApi: { create: vi.fn(), update: vi.fn(), delete: vi.fn() },
 }));
