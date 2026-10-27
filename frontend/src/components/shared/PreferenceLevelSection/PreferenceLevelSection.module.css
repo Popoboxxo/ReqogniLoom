@@ -1,0 +1,89 @@
+/*
+ * PreferenceLevelSection (Plan C, T-C2-5) — one level of the generic preference
+ * values. All colours/spacing come from `styles/tokens.css` custom properties;
+ * the button chrome (`btn-ghost`, `field-select`) comes from `styles/global.css`
+ * so this section adds no off-token geometry of its own.
+ */
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+
+.heading {
+  margin: 0;
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.hint {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.error {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-danger-text);
+}
+
+.rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+/*
+ * One key per row: control + inherited/set hint + reset. The grid keeps the
+ * hint and the action aligned across rows so a long translated label cannot
+ * push the reset out of line.
+ */
+.row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) 0;
+}
+
+.control {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.checkbox {
+  flex: none;
+  width: var(--space-4);
+  height: var(--space-4);
+  accent-color: var(--color-primary);
+}
+
+.keyLabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.source {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  font-style: italic;
+  white-space: nowrap;
+}
+
+/* A value stored at this level is not inherited — drop the italics. */
+.sourceSet {
+  font-style: normal;
+}

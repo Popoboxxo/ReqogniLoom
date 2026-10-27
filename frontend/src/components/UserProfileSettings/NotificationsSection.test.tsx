@@ -88,6 +88,50 @@ vi.mock("../../api/memory", () => ({
   },
 }));
 
+// Plan C / T-C2-5: PreferenceLevelSection reads through TanStack Query, and this
+// file mounts no QueryClient on purpose. Stub the hook module instead — an empty
+// registry renders it without rows, which is all (g) needs to observe the
+// section order.
+vi.mock("../../queries/preferences", () => ({
+  preferenceKeys: {
+    all: ["preferences"],
+    registry: () => ["preferences", "registry"],
+    effective: (workspaceId: string | null) => ["preferences", "effective", workspaceId],
+    level: (scope: string, workspaceId?: string) => [
+      "preferences",
+      "level",
+      scope,
+      workspaceId ?? null,
+    ],
+  },
+  usePreferenceRegistry: () => ({
+    data: { keys: [] },
+    isLoading: false,
+    isError: false,
+    error: null,
+  }),
+  usePreferenceLevel: () => ({
+    data: { scope: "user", workspace_id: null, values: {} },
+    isLoading: false,
+    isError: false,
+    error: null,
+  }),
+  useEffectivePreferences: () => ({
+    data: { workspace_id: null, values: {} },
+    isLoading: false,
+    isError: false,
+    error: null,
+  }),
+  usePreferenceValue: (_key: string, fallback: unknown) => fallback,
+  usePatchPreferenceLevel: () => ({
+    mutate: vi.fn(),
+    mutateAsync: vi.fn(),
+    isPending: false,
+    variables: undefined,
+    error: null,
+  }),
+}));
+
 const ALL_ON = {
   assigned: true,
   comment_added: true,

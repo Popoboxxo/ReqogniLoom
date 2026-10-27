@@ -2958,5 +2958,28 @@
       "title": "Create dialog",
       "hint": "Tenant-wide default for the create dialog. Workspace and personal settings override it."
     }
+  },
+  "preferences": {
+    "title": "Display",
+    "inherited": "Inherited from {{source}}",
+    "setHere": "Set here",
+    "reset": "Reset",
+    "source": {
+      "default": "Default",
+      "global": "System",
+      "workspace": "Workspace",
+      "user": "Personal"
+    },
+    "key": {
+      "ui.ids.show_readable": "Show readable IDs",
+      "ui.markdown.toolbar": "Formatting toolbar in Markdown fields"
+    },
+    "choice": {
+      "ui.markdown.toolbar": {
+        "auto": "Automatic (3+ lines)",
+        "on": "Always",
+        "off": "Never"
+      }
+    }
   }
 }

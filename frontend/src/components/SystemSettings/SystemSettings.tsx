@@ -30,6 +30,7 @@ import { MemorySystemSettingsSection } from "./MemorySystemSettingsSection";
 import { MemoryVisualizationSection } from "./MemoryVisualizationSection";
 import { TreeDisplaySection } from "./TreeDisplaySection";
 import { CreateFormSection } from "./CreateFormSection";
+import { PreferenceLevelSection } from "../shared/PreferenceLevelSection/PreferenceLevelSection";
 import { PageHeader } from "../shared/PageHeader";
 import { handleTablistKeyDown, tabRovingTabIndex } from "../shared/tablistKeyboardNav";
 import styles from "./SystemSettings.module.css";
@@ -169,6 +170,10 @@ export default function SystemSettings(): JSX.Element {
             {/* Issue #1263: the tenant-wide default for the "new artifact"
                 dialog's fields (visible / order / required / default). */}
             <CreateFormSection />
+            {/* Plan C / T-C2-5: the tenant-wide default for the generic Q1
+                preference values; every workspace inherits it unless it
+                overrides it. */}
+            <PreferenceLevelSection scope="global" />
           </div>
         )}
         {activeTab === "memory" && (

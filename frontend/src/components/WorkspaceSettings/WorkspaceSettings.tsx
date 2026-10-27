@@ -52,6 +52,7 @@ import { WorkspaceBannerSection } from "./WorkspaceBannerSection";
 import { MemorySettingsSection } from "./MemorySettingsSection";
 import { TreeDisplaySection } from "./TreeDisplaySection";
 import { CreateFormSection } from "./CreateFormSection";
+import { PreferenceLevelSection } from "../shared/PreferenceLevelSection/PreferenceLevelSection";
 import { useLinkTypes } from "../../context/LinkTypeContext";
 import { PageHeader } from "../shared/PageHeader";
 import { handleTablistKeyDown, tabRovingTabIndex } from "../shared/tablistKeyboardNav";
@@ -565,6 +566,14 @@ export default function WorkspaceSettings(): JSX.Element {
                 dialog's fields. Tenant-wide (SystemSettings) is the other level;
                 the create dialog reads the resolved value. */}
             <CreateFormSection workspaceId={activeWorkspace.id} />
+
+            {/* Plan C / T-C2-5: the workspace default for the generic Q1
+                preference values. Personal (/profile) and tenant-wide
+                (/system-settings) are the other two levels. */}
+            <PreferenceLevelSection
+              scope="workspace"
+              workspaceId={activeWorkspace.id}
+            />
           </>
         )}
 

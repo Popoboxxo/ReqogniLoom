@@ -22,6 +22,7 @@ import { useWorkspace } from "../../context/WorkspaceContext";
 import { OPTIONAL_FEATURES, type OptionalArtifactFeature } from "../../api/preferences";
 import { useState, useCallback } from "react";
 import { PageHeader } from "../shared/PageHeader";
+import { PreferenceLevelSection } from "../shared/PreferenceLevelSection/PreferenceLevelSection";
 import styles from "./UserProfileSettings.module.css";
 
 const VISIBILITY_LABELS: Record<OptionalArtifactFeature, string> = {
@@ -106,6 +107,12 @@ export default function UserProfileSettings(): JSX.Element {
           configuration. User-global like the two blocks above — it applies in
           every workspace, on top of the workspace and tenant-wide defaults. */}
       <TreeDisplaySection />
+
+      {/* Plan C / T-C2-5: the personal level of the generic Q1 preference
+          values, rendered from the server's key registry. `ui.ids.show_readable`
+          is deliberately excluded — IdentifiersSection above owns it on this
+          page (and drives the shared IdChip store). */}
+      <PreferenceLevelSection scope="user" excludeKeys={["ui.ids.show_readable"]} />
 
       {activeWorkspace && (
         <section className={styles.visibilitySection} data-testid="visibility-section">
