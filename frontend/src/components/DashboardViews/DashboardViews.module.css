@@ -64,7 +64,7 @@
   background-color: var(--color-primary);
   color: var(--color-surface);
   border: none;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-btn);
   padding: var(--space-2) var(--space-4);
   font-size: var(--font-size-base);
   font-weight: var(--weight-semibold);

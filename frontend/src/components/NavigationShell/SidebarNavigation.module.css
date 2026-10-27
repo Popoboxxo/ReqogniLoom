@@ -27,11 +27,11 @@
   top: var(--space-3);
   left: var(--space-3);
   z-index: 70;
-  width: 40px;
-  height: 40px;
+  width: var(--btn-h-md);
+  height: var(--btn-h-md);
   align-items: center;
   justify-content: center;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-btn);
   border: 1px solid var(--color-nav-border);
   background: var(--color-nav-bg);
   color: var(--color-nav-text);
@@ -249,7 +249,7 @@
   gap: 2px;
   width: 100%;
   padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-btn);
   border: none;
   background: transparent;
   color: var(--color-nav-text);
@@ -347,7 +347,7 @@
   width: 100%;
   padding: var(--space-2) var(--space-3);
   margin-top: var(--space-3);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-btn);
   border: 1px solid var(--color-nav-border);
   background: transparent;
   color: var(--color-nav-text);
@@ -412,7 +412,7 @@
   gap: var(--space-2);
   width: 100%;
   padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-btn);
   border: 1px solid var(--color-nav-border);
   background: transparent;
   color: var(--color-nav-text);
@@ -639,7 +639,7 @@
 
 .footerBtn {
   padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-btn);
   border: 1px solid var(--color-nav-border);
   background: transparent;
   color: var(--color-nav-text);
@@ -650,9 +650,13 @@
   text-align: left;
 }
 
-.footerBtn:hover,
+.footerBtn:hover:not(:disabled),
 .footerBtnActive {
+  /* C-L20 (#1258): same specificity as global `.btn-ghost:hover:not(:disabled)`
+     so this module — which loads later — wins the cascade and repaints the
+     hover with the nav palette instead of the light `--color-surface-raised`. */
   background: var(--color-nav-hover-bg);
+  color: var(--color-nav-text);
 }
 
 .buildVersion {

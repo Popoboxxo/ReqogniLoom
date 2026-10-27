@@ -114,7 +114,7 @@
   align-items: flex-start;
   padding: var(--space-2) var(--space-3);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-btn);
   background: var(--color-surface);
   color: var(--color-text);
   cursor: pointer;
@@ -179,7 +179,7 @@
   background: transparent;
   color: white;
   border: 1px solid white;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-btn);
   padding: var(--space-1) var(--space-3);
   font-size: var(--font-size-sm);
   cursor: pointer;

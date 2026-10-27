@@ -61,12 +61,12 @@
   gap: var(--space-1);
   /* Issue #1395 (same defect class, reported under it): this floored itself at
      --space-5 (20px), i.e. below the WCAG 2.2 SC 2.5.8 minimum. */
-  min-height: var(--space-6);
+  min-height: var(--btn-h-xs);
   min-width: var(--space-6);
   padding: 0 var(--space-1);
   background: transparent;
   border: 1px solid transparent;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-btn);
   color: var(--color-text-muted);
   font: inherit;
   font-size: var(--font-size-xs);

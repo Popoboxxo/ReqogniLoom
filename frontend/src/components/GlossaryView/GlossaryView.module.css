@@ -35,7 +35,7 @@
   background-color: var(--color-primary);
   color: white;
   border: none;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-btn);
   cursor: pointer;
   font-weight: 600;
   font-size: var(--font-size-sm);

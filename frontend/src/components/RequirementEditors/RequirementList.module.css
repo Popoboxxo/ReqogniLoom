@@ -57,7 +57,7 @@
   justify-content: center;
   flex-shrink: 0;
   min-width: var(--space-6);
-  min-height: var(--space-6);
+  min-height: var(--btn-h-xs);
   padding: 0;
   border: none;
   background: transparent;
@@ -65,5 +65,5 @@
   cursor: pointer;
   font-size: 0.85rem;
   line-height: 1;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-btn);
 }

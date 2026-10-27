@@ -167,29 +167,29 @@ const PILL_RADIUS_PX = 9999;
  * `/`, T-C1-5/T-C1-6 -> the remainder. This list may only shrink.
  *
  * Values are the live measurement of 2026-10-23 (seeded demo workspace,
- * extended preset) — no route is listed or omitted on a guess.
+ * extended preset) — no route is listed or omitted on a guess. PR-C12
+ * (T-C1-4/T-C1-5) removed `/`, `/settings` and `/workflows`, whose scanned
+ * button rules are now all on `--btn-h-*`/`--radius-btn`; the surviving
+ * entries keep that baseline measurement and name what PR-C12 did NOT change.
  */
 const C1_PENDING_ROUTES: Record<string, string> = {
-  '/': '4 heights / 3 radii measured (T-C1-4)',
-  '/requirements': '3 heights / 3 radii measured — radii over target',
-  '/impact': '4 heights / 2 radii measured — heights over target',
-  '/baselines': '3 heights / 3 radii measured — radii over target',
-  '/adrs': '3 heights / 3 radii measured — radii over target',
-  '/risks': '4 heights / 3 radii measured — both over target',
-  '/issues': '3 heights / 3 radii measured — radii over target',
-  '/testcases': '3 heights / 3 radii measured — radii over target',
-  '/test-runs': '3 heights / 3 radii measured — radii over target',
-  '/import': '4 heights / 2 radii measured — heights over target',
-  '/icds': '3 heights / 3 radii measured — radii over target',
-  '/diagrams': '3 heights / 3 radii measured — radii over target',
-  '/metrics': '3 heights / 3 radii measured — radii over target',
-  '/audit': '3 heights / 3 radii measured — radii over target',
-  '/settings': '4 heights / 4 radii measured (T-C1-4)',
-  '/system-settings': '4 heights / 4 radii measured (T-C1-3)',
-  '/goals': '3 heights / 3 radii measured — radii over target',
-  '/glossary': '3 heights / 3 radii measured — radii over target',
-  '/workflows': '4 heights / 3 radii measured (T-C1-4)',
-  '/profile': '5 heights / 3 radii measured — both over target',
+  '/requirements': '3 heights / 3 radii measured — PR-C12 tokenised the scanned radii; residual radii come from unscanned .xxxBtn call sites',
+  '/impact': '4 heights / 2 radii measured — heights over target; PR-C12 changed radii only',
+  '/baselines': '3 heights / 3 radii measured — no C1-scanned button on this route; unscanned radii remain',
+  '/adrs': '3 heights / 3 radii measured — no C1-scanned button on this route; unscanned radii remain',
+  '/risks': '4 heights / 3 radii measured — heights over target; PR-C12 changed radii only',
+  '/issues': '3 heights / 3 radii measured — no C1-scanned button on this route; unscanned radii remain',
+  '/testcases': '3 heights / 3 radii measured — no C1-scanned button on this route; unscanned radii remain',
+  '/test-runs': '3 heights / 3 radii measured — PR-C12 tokenised the editor/grid radii; TestRunsList .xxxBtn radii remain',
+  '/import': '4 heights / 2 radii measured — heights over target (CsvImport padding), untouched by PR-C12',
+  '/icds': '3 heights / 3 radii measured — PR-C12 tokenised the scanned radii; IcdDetailPane .xxxBtn radii remain',
+  '/diagrams': '3 heights / 3 radii measured — PR-C12 tokenised the scanned radii; DiagramCreateForm .xxxBtn radii remain',
+  '/metrics': '3 heights / 3 radii measured — PR-C12 fixed .refreshButton; other call sites unchanged',
+  '/audit': '3 heights / 3 radii measured — no C1-scanned button on this route; unscanned radii remain',
+  '/system-settings': '4 heights / 4 radii measured (T-C1-3) — owned by the /system-settings PR, not PR-C12',
+  '/goals': '3 heights / 3 radii measured — no C1-scanned button on this route; unscanned radii remain',
+  '/glossary': '3 heights / 3 radii measured — PR-C12 fixed .btn; other call sites unchanged',
+  '/profile': '5 heights / 3 radii measured — heights over target; PR-C12 changed radii only',
 };
 
 interface ButtonGeometry {
