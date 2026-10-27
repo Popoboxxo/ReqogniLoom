@@ -1,0 +1,136 @@
+# T-A3-4 (PR-A8) — Recall-Messset for `artifact.search`.
+#
+# 20 queries in four subsets:
+#   id          (6)  exact local-UID lookups — the CI gate measures recall@10
+#                    for `keyword` and `hybrid` on this subset and asserts
+#                    `hybrid >= keyword`.
+#   id_negative (2)  identifiers that must not exist — `keyword` must return 0
+#                    hits (no accidental fuzzy match on an unknown ID).
+#   synonym     (6)  vocabulary a user types instead of the stored wording.
+#                    DE/EN pairs, one language slot each, so the six entries
+#                    cover six concepts instead of the same three twice:
+#                      Anforderung / requirement   -> Q-SYN-01 (de), Q-SYN-02 (en)
+#                      Testfall / test case        -> Q-SYN-03 (de), Q-SYN-04 (en)
+#                      Schnittstelle / interface   -> Q-SYN-05 (de), Q-SYN-06 (en)
+#                    (Risiko/risk, Architektur/architecture and
+#                    Begriff/glossary term are left to Q-SYN-01/02's pattern;
+#                    six slots cannot hold six full pairs.)
+#   thematic    (6)  realistic free-text asks, no identifier, no fixed wording.
+#
+# The CI gate (`application/tests/test_search_recall.py`) runs the `id` and
+# `id_negative` subsets only: with the `mock` embedding provider the semantic
+# pass is deterministic noise, so ranking judgements on `synonym`/`thematic`
+# would measure the mock, not the search. Those two subsets are measured by the
+# read-only QS command (`manage.py search_recall_report`) against a real
+# embedding provider.
+#
+# `expect_uid` is the local readable identifier (`pl_requirement.uid`) of the
+# row a query must retrieve. The identifier namespace is fixed here rather than
+# taken from `seed_demo`: that command provisions only tenant/workspace/admin
+# (`auth_tenancy/management/commands/seed_demo.py` creates no artifacts at
+# all), so there is no stable demo UID set to borrow. The CI gate therefore
+# creates the `expect_uid` rows itself and keeps this file the single source of
+# truth for both gate and report.
+version: 1
+description: >-
+  Recall set of 20 queries for COMP-AS-010 SearchService (T-A3-4): 6 exact
+  local-UID lookups, 2 negative UID lookups, 6 synonym queries (DE/EN) and 6
+  thematic queries.
+dataset: reqogniloom-search-recall-set
+queries:
+  # --- id (6) --------------------------------------------------------------
+  - id: Q-ID-01
+    kind: id
+    query: REQ-L1-001
+    locale: de
+    expect_uid: REQ-L1-001
+  - id: Q-ID-02
+    kind: id
+    query: REQ-L1-004
+    locale: de
+    expect_uid: REQ-L1-004
+  - id: Q-ID-03
+    kind: id
+    query: REQ-L2-010
+    locale: de
+    expect_uid: REQ-L2-010
+  - id: Q-ID-04
+    kind: id
+    query: REQ-L3-021
+    locale: en
+    expect_uid: REQ-L3-021
+  - id: Q-ID-05
+    kind: id
+    query: REQ-L3-044
+    locale: en
+    expect_uid: REQ-L3-044
+  - id: Q-ID-06
+    kind: id
+    query: REQ-L4-002
+    locale: en
+    expect_uid: REQ-L4-002
+
+  # --- id_negative (2) -----------------------------------------------------
+  # A-L09 / A-L17: an identifier that is not in the corpus must not "find"
+  # something. Both are shaped like real IDs so the lexical pass's substring
+  # tiers get a fair chance to misfire.
+  - id: Q-IDN-01
+    kind: id_negative
+    query: REQ-L9-999
+    locale: de
+  - id: Q-IDN-02
+    kind: id_negative
+    query: ARCH-X-0000
+    locale: en
+
+  # --- synonym (6) ---------------------------------------------------------
+  - id: Q-SYN-01
+    kind: synonym
+    query: Anforderung
+    locale: de
+  - id: Q-SYN-02
+    kind: synonym
+    query: requirement
+    locale: en
+  - id: Q-SYN-03
+    kind: synonym
+    query: Testfall
+    locale: de
+  - id: Q-SYN-04
+    kind: synonym
+    query: test case
+    locale: en
+  - id: Q-SYN-05
+    kind: synonym
+    query: Schnittstelle
+    locale: de
+  - id: Q-SYN-06
+    kind: synonym
+    query: interface
+    locale: en
+
+  # --- thematic (6) --------------------------------------------------------
+  - id: Q-TH-01
+    kind: thematic
+    query: Ladezeit der Suchseite
+    locale: de
+  - id: Q-TH-02
+    kind: thematic
+    query: battery runtime of the mobile client
+    locale: en
+  - id: Q-TH-03
+    kind: thematic
+    query: Zugriffskontrolle für fremde Workspaces
+    locale: de
+  - id: Q-TH-04
+    kind: thematic
+    query: baseline comparison between two snapshots
+    locale: en
+  - id: Q-TH-05
+    kind: thematic
+    query: Trace-Link-Abdeckung im V-Modell
+    locale: de
+  - id: Q-TH-06
+    kind: thematic
+    query: export to ReqIF
+    locale: en
