@@ -2958,5 +2958,28 @@
       "title": "Anlage-Dialog",
       "hint": "Systemweite Vorgabe für den Anlage-Dialog. Workspace- und persönliche Einstellungen überschreiben sie."
     }
+  },
+  "preferences": {
+    "title": "Darstellung",
+    "inherited": "Geerbt von {{source}}",
+    "setHere": "Hier gesetzt",
+    "reset": "Zurücksetzen",
+    "source": {
+      "default": "Standard",
+      "global": "System",
+      "workspace": "Workspace",
+      "user": "Persönlich"
+    },
+    "key": {
+      "ui.ids.show_readable": "Lesbare IDs anzeigen",
+      "ui.markdown.toolbar": "Formatierungsleiste in Markdown-Feldern"
+    },
+    "choice": {
+      "ui.markdown.toolbar": {
+        "auto": "Automatisch (ab 3 Zeilen)",
+        "on": "Immer",
+        "off": "Nie"
+      }
+    }
   }
 }

@@ -168,6 +168,12 @@ vi.mock("./AiPromptsSection", () => ({
 vi.mock("./McpConnectionSection", () => ({
   McpConnectionSection: () => <div data-testid="stub-mcp-connection" />,
 }));
+// Plan C / T-C2-5: the generic preference section reads through TanStack Query,
+// and this shell test mounts no QueryClientProvider. Its own contract is covered
+// by PreferenceLevelSection.test.tsx, so stub it here like the sections above.
+vi.mock("../shared/PreferenceLevelSection/PreferenceLevelSection", () => ({
+  PreferenceLevelSection: () => <div data-testid="stub-preference-section" />,
+}));
 
 describe("WorkspaceSettings tabs (REQ-015)", () => {
   beforeEach(() => {
