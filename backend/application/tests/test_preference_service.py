@@ -21,6 +21,7 @@ import uuid
 import pytest
 from django.core.exceptions import ImproperlyConfigured
 
+from application.display_preference_service import DisplayPreferenceService
 from application.preference_registry import (
     PreferenceKey,
     all_preference_keys,
@@ -763,3 +764,42 @@ class TestContextFreeReads:
                 key="ui.does.not_exist",
             )
         assert TenantContext.get_tenant() == tenant_a.id
+
+
+# ---------------------------------------------------------------------------
+# Display-preference facade on Q1 (Plan C, T-C2-6)
+# ---------------------------------------------------------------------------
+
+
+class TestDisplayPreferenceFacadeOnQ1:
+    """``show_readable_ids`` is served by the Q1 store, not the legacy column.
+
+    ``/api/v1/users/me/display-preferences/`` is the surface the frontend reads
+    on ``/profile``; T-C2-6 moved only that one flag onto Q1 (ENT-C5 = A) so a
+    tenant-wide default applies to every account without a per-user row.
+    """
+
+    def test_global_false_is_served_when_the_user_has_no_value(
+        self, service, admin_ctx
+    ) -> None:
+        """A global ``False`` wins over the registry default for an untouched user."""
+        service.set_level(
+            admin_ctx, scope="global", values={"ui.ids.show_readable": False}
+        )
+
+        payload = DisplayPreferenceService().get_display_preferences(admin_ctx)
+
+        assert payload == {"show_readable_ids": False, "visible_metrics": None}
+
+    def test_user_level_wins_over_the_global_default(self, service, admin_ctx) -> None:
+        """Resolution is user > global > registry default (``override`` mode)."""
+        service.set_level(
+            admin_ctx, scope="global", values={"ui.ids.show_readable": False}
+        )
+        service.set_level(
+            admin_ctx, scope="user", values={"ui.ids.show_readable": True}
+        )
+
+        payload = DisplayPreferenceService().get_display_preferences(admin_ctx)
+
+        assert payload["show_readable_ids"] is True

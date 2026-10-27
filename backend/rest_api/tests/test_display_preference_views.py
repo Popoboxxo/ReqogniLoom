@@ -26,7 +26,7 @@ from rest_framework.test import APIRequestFactory
 
 from application.display_preference_service import DisplayPreferenceService
 from auth_tenancy.context import AuthContext, AuthMethod
-from auth_tenancy.models import UserDisplayPreference
+from auth_tenancy.models import PreferenceValue, UserDisplayPreference
 from persistence.errors import ValidationError
 from persistence.models import Tenant, User
 from persistence.tenancy import TenantContext
@@ -119,8 +119,11 @@ def test_patch_false_persists_and_creates_a_row(factory, ctx, user) -> None:
     assert response.status_code == 200
     assert response.data == {"show_readable_ids": False, "visible_metrics": None}
 
-    row = UserDisplayPreference.unscoped.get(user_id=user.pk)
-    assert row.show_readable_ids is False
+    # T-C2-6 / #1094: the flag now lives in Q1, not the legacy display column.
+    row = PreferenceValue.unscoped.get(
+        user_id=user.pk, scope="user", key="ui.ids.show_readable"
+    )
+    assert row.value is False
 
 
 # (c) PATCH true -> flips back, still exactly one row
@@ -139,8 +142,13 @@ def test_patch_true_re_enables_without_a_duplicate_row(factory, ctx, user) -> No
 
     assert response.status_code == 200
     assert response.data == {"show_readable_ids": True, "visible_metrics": None}
-    assert UserDisplayPreference.unscoped.filter(user_id=user.pk).count() == 1
-    assert UserDisplayPreference.unscoped.get(user_id=user.pk).show_readable_ids is True
+    # T-C2-6 / #1094: still exactly one Q1 row per user+key, now carrying True
+    # (a stored True must exist so it can override a global False default).
+    rows = PreferenceValue.unscoped.filter(
+        user_id=user.pk, scope="user", key="ui.ids.show_readable"
+    )
+    assert rows.count() == 1
+    assert rows.get().value is True
 
 
 # (d) the value survives a fresh session / device (the acceptance criterion)
@@ -232,7 +240,10 @@ def test_no_row_is_content_independent_for_another_account(factory, ctx) -> None
             factory.patch(_URL, {"show_readable_ids": False}, format="json"), ctx
         )
     )
-    assert UserDisplayPreference.unscoped.get(user_id=ctx.user_id).show_readable_ids is False
+    # T-C2-6 / #1094: the flag now lives in Q1, not the legacy display column.
+    assert PreferenceValue.unscoped.get(
+        user_id=ctx.user_id, scope="user", key="ui.ids.show_readable"
+    ).value is False
 
     other_ctx = AuthContext(
         user_id=other_user.pk,
@@ -244,6 +255,7 @@ def test_no_row_is_content_independent_for_another_account(factory, ctx) -> None
 
     assert response.status_code == 200
     assert response.data == {"show_readable_ids": True, "visible_metrics": None}
+    assert not PreferenceValue.unscoped.filter(user_id=other_user.pk).exists()
     TenantContext.clear_tenant()
 
 
