@@ -60,22 +60,6 @@ export type DiffEntityType = ArtifactKind;
  */
 const RICH_DIFF_KINDS: ReadonlySet<ArtifactKind> = DIFF_SUPPORTED_KINDS;
 
-/** Header label per kind. Kept here so the title text is co-located. */
-const ENTITY_LABELS: Record<ArtifactKind, string> = {
-  requirement: "Requirement",
-  architecture: "Architecture Element",
-  icd: "ICD",
-  diagram: "Diagram",
-  adr: "ADR",
-  risk: "Risk",
-  issue: "Issue",
-  glossary: "Glossary",
-  stakeholderNeed: "Stakeholder Need",
-  testCase: "Test Case",
-  goal: "Goal",
-  mainGoal: "Main Goal",
-};
-
 /**
  * The comparison this component has actually resolved and is displaying.
  *
@@ -183,13 +167,6 @@ const STATUS_BADGE_CLASS: Record<DiffFieldStatus, string> = {
   unchanged: `${styles.badge} ${styles.badgeUnchanged}`,
 };
 
-const STATUS_LABELS: Record<DiffFieldStatus, string> = {
-  added: "Added",
-  removed: "Removed",
-  modified: "Modified",
-  unchanged: "Unchanged",
-};
-
 // ---------------------------------------------------------------------------
 // Diff line renderer
 // ---------------------------------------------------------------------------
@@ -223,6 +200,7 @@ function DiffLines({ lines }: { lines: string[] }): JSX.Element {
 // ---------------------------------------------------------------------------
 
 function FieldDiffRow({ field }: { field: DiffField }): JSX.Element {
+  const { t } = useTranslation();
   const showLines = field.status === "modified" && field.lines && field.lines.length > 0;
 
   return (
@@ -236,7 +214,7 @@ function FieldDiffRow({ field }: { field: DiffField }): JSX.Element {
       >
         <strong className={styles.fieldName}>{field.name}</strong>
         <span className={STATUS_BADGE_CLASS[field.status]}>
-          {STATUS_LABELS[field.status]}
+          {t(`diff.status.${field.status}`)}
         </span>
       </div>
 
@@ -472,14 +450,14 @@ export function ArtifactDiff({
           overlapping once the inspector column narrows. */}
       <div className={styles.header}>
         <h3 className={styles.title}>
-          {ENTITY_LABELS[entityType]} Diff
+          {t("diff.title", { entity: t(`diff.entity.${entityType}`) })}
         </h3>
         <button
           data-testid="diff-close-btn"
           onClick={onClose}
           className={`btn-secondary ${styles.closeBtn}`}
         >
-          Close
+          {t("diff.close")}
         </button>
       </div>
 
@@ -489,7 +467,7 @@ export function ArtifactDiff({
         className={styles.versionSelectors}
       >
         <label className={styles.versionLabel}>
-          From:
+          {t("diff.from")}
           <select
             data-testid="diff-from-version"
             value={fromVersion ?? ""}
@@ -509,7 +487,7 @@ export function ArtifactDiff({
         </span>
 
         <label className={styles.versionLabel}>
-          To:
+          {t("diff.to")}
           <select
             data-testid="diff-to-version"
             value={toVersion ?? ""}
@@ -543,7 +521,7 @@ export function ArtifactDiff({
       {/* Loading / Error */}
       {loading && (
         <div data-testid="diff-loading" className={styles.loading}>
-          Loading diff...
+          {t("diff.loading")}
         </div>
       )}
 

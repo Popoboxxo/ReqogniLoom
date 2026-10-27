@@ -98,12 +98,13 @@ function mapTraceLink(
 
   const otherId = isSource ? link.target_id : link.source_id;
 
-  // REQ-002: use backend-supplied title and type; fall back to truncated UUID
-  // when the API response pre-dates the REQ-002 changes.
+  // REQ-002: use backend-supplied title and type. A missing title is kept
+  // empty here — the row supplies a readable-id / localised fallback, so a
+  // nameless neighbour never renders a meaningless UUID fragment (C-L9).
   const rawTitle = isSource ? link.target_title : link.source_title;
   const rawType = isSource ? link.target_type : link.source_type;
-  const title =
-    rawTitle && rawTitle.length > 0 ? rawTitle : `${otherId.slice(0, 8)}…`;
+  const rawUid = isSource ? link.target_uid : link.source_uid;
+  const title = rawTitle ?? "";
   const otherKind = artifactTypeToKind(rawType);
 
   return {
@@ -115,6 +116,9 @@ function mapTraceLink(
       title,
       kind: otherKind,
       route: getArtifactRoute(otherKind, otherId),
+      // Readable id when the API supplies one — the row uses it as its
+      // title fallback (see renderRow). Undefined on today's serializer.
+      uid: rawUid,
     },
     createdAt: link.created_at,
   };
@@ -209,8 +213,11 @@ export function TracePanel({ artifactId }: TracePanelProps): JSX.Element {
       const fromCatalog = labelFor(key, "en", "neutral");
       // labelFor already falls back to the raw key; prefer the static
       // built-in table over a bare key so a pre-catalog render still reads
-      // like a label.
-      return fromCatalog === key ? getLinkTypeLabel(key) : fromCatalog;
+      // like a label. An *empty* catalog label (a workspace can save one)
+      // is treated the same way: it would otherwise render a nameless chip
+      // and a nameless trace-row button (C-L9).
+      if (fromCatalog && fromCatalog !== key) return fromCatalog;
+      return getLinkTypeLabel(key) || key;
     },
     [labelFor]
   );
@@ -337,19 +344,31 @@ export function TracePanel({ artifactId }: TracePanelProps): JSX.Element {
   }
 
   function renderRow(link: TraceLinkRow): JSX.Element {
+    const typeLabel = chipLabel(link.linkType);
+    const rawTitle = link.otherArtifact.title.trim();
+    // C-L9: a link whose other endpoint has no title rendered an empty button
+    // label. Fall back to the readable id, then to a localised placeholder, so
+    // every row carries content (and therefore an accessible name).
+    const title = rawTitle || link.otherArtifact.uid || t("sidebar.trace.untitled");
+    // Only the degraded case needs an explicit name: with a real title the
+    // visible "type title" text already names the button, and copying it into
+    // aria-label would duplicate it for screen-reader users.
+    const ariaLabel = rawTitle === "" ? `${typeLabel} – ${title}` : undefined;
+
     return (
       <li key={link.id} className={styles.row} data-testid={`trace-row-${link.id}`}>
         <button
           type="button"
           className={`btn-ghost ${styles.rowButton}`}
           data-testid={`trace-row-open-${link.id}`}
+          aria-label={ariaLabel}
           // #261: react-router 7's navigate() returns void | Promise<void>
           // (async view-transition support) — an explicit `: void` return
           // annotation here no longer type-checks against that.
           onClick={() => { void navigate(link.otherArtifact.route); }}
         >
-          <span className={styles.linkType}>{chipLabel(link.linkType)}</span>
-          <span className={styles.artifactTitle}>{link.otherArtifact.title}</span>
+          <span className={styles.linkType}>{typeLabel}</span>
+          <span className={styles.artifactTitle}>{title}</span>
         </button>
       </li>
     );

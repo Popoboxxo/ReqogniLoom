@@ -1832,7 +1832,8 @@
         "trigger": "Open actions for version v{{n}}"
       },
       "copied": "Version id copied",
-      "noSnapshot": "No stored snapshot for this version."
+      "noSnapshot": "No stored snapshot for this version.",
+      "creationBaseline": "Creation baseline"
     },
     "diff": {
       "title": "Diff",
@@ -1856,7 +1857,8 @@
         "allSelected": "All types"
       },
       "create": "Add trace link",
-      "viewAll": "View full graph"
+      "viewAll": "View full graph",
+      "untitled": "Untitled"
     }
   },
   "requirements": {
@@ -2657,7 +2659,32 @@
       "body": "This version has no stored predecessor. What you see are the values it was created with — which is why every field is marked as added."
     },
     "unavailable": "Diff unavailable",
-    "noComparison": "Diff unavailable — there are no two versions of this item to compare."
+    "noComparison": "Diff unavailable — there are no two versions of this item to compare.",
+    "title": "{{entity}} diff",
+    "close": "Close",
+    "from": "From:",
+    "to": "To:",
+    "loading": "Loading diff…",
+    "status": {
+      "added": "Added",
+      "removed": "Removed",
+      "modified": "Modified",
+      "unchanged": "Unchanged"
+    },
+    "entity": {
+      "requirement": "Requirement",
+      "architecture": "Architecture Element",
+      "icd": "ICD",
+      "diagram": "Diagram",
+      "adr": "ADR",
+      "risk": "Risk",
+      "issue": "Issue",
+      "glossary": "Glossary",
+      "stakeholderNeed": "Stakeholder Need",
+      "testCase": "Test Case",
+      "goal": "Goal",
+      "mainGoal": "Main Goal"
+    }
   },
   "linkType": {
     "title": "Link Types",

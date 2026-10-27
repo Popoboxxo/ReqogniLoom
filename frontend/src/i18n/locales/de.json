@@ -1832,7 +1832,8 @@
         "trigger": "Aktionen für Version v{{n}} öffnen"
       },
       "copied": "Versions-ID kopiert",
-      "noSnapshot": "Für diese Version ist kein Stand gespeichert."
+      "noSnapshot": "Für diese Version ist kein Stand gespeichert.",
+      "creationBaseline": "Erstellungsstand"
     },
     "diff": {
       "title": "Diff",
@@ -1856,7 +1857,8 @@
         "allSelected": "Alle Typen"
       },
       "create": "Trace-Link hinzufügen",
-      "viewAll": "Vollständigen Graph anzeigen"
+      "viewAll": "Vollständigen Graph anzeigen",
+      "untitled": "Ohne Titel"
     }
   },
   "requirements": {
@@ -2657,7 +2659,32 @@
       "body": "Diese Version hat keinen gespeicherten Vorgänger. Angezeigt werden die Werte bei der Erstellung — deshalb ist jedes Feld als hinzugefügt markiert."
     },
     "unavailable": "Diff nicht verfügbar",
-    "noComparison": "Diff nicht verfügbar — für dieses Element gibt es keine zwei Versionen zum Vergleichen."
+    "noComparison": "Diff nicht verfügbar — für dieses Element gibt es keine zwei Versionen zum Vergleichen.",
+    "title": "{{entity}}: Änderungen",
+    "close": "Schließen",
+    "from": "Von:",
+    "to": "Bis:",
+    "loading": "Änderungen werden geladen…",
+    "status": {
+      "added": "Hinzugefügt",
+      "removed": "Entfernt",
+      "modified": "Geändert",
+      "unchanged": "Unverändert"
+    },
+    "entity": {
+      "requirement": "Anforderung",
+      "architecture": "Architekturelement",
+      "icd": "ICD",
+      "diagram": "Diagramm",
+      "adr": "ADR",
+      "risk": "Risiko",
+      "issue": "Issue",
+      "glossary": "Glossarbegriff",
+      "stakeholderNeed": "Stakeholder-Bedarf",
+      "testCase": "Testfall",
+      "goal": "Ziel",
+      "mainGoal": "Haupt-Ziel"
+    }
   },
   "linkType": {
     "title": "Link-Typen",

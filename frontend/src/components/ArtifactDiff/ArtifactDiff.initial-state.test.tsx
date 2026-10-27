@@ -128,7 +128,13 @@ describe("ArtifactDiff — initial state vs. real comparison (M-04)", () => {
     renderDiff(NO_PREDECESSOR_VERSIONS, ALL_ADDED_DIFF);
 
     await settle();
-    expect(screen.getByTestId("diff-field-title")).toHaveTextContent("Added");
+    // The badge text is translated now (C-L9). This file mocks `t()` to echo
+    // the key, so assert that rather than the old hardcoded English literal;
+    // the actual DE/EN wording is pinned in ArtifactDiff.i18n.test.tsx.
+    expect(screen.getByTestId("diff-field-title")).toHaveTextContent("diff.status.added");
+    expect(screen.getByTestId("diff-field-title")).toHaveTextContent(
+      "A brand new requirement",
+    );
   });
 
   it("does NOT claim an initial state when real snapshots sit below the head", async () => {

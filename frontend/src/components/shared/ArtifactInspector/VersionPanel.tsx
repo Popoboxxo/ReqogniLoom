@@ -85,6 +85,9 @@ function fetchVersions(kind: ArtifactKind, artifactId: string | number): Promise
     baselineIds: [],
     // Backends that predate issue #213 omit the flag — assume retrievable.
     contentAvailable: v.content_available ?? true,
+    // Older backends predate #272's additive flag; treat a missing flag as
+    // "not the creation baseline" so the label falls through unchanged.
+    isCreationBaseline: v.is_creation_baseline ?? false,
   });
 
   const fetcher = VERSIONS_FETCHERS[kind];
@@ -265,6 +268,13 @@ export function VersionPanel({
     const canCompare =
       (hasContent || entry.version === 0) && !isCurrent && currentVersion !== undefined;
     const chips = baselinesForVersion(entry.version);
+    // #272: the creation baseline's `label` is an English API string
+    // ("Creation baseline"). Localise it from the additive
+    // `is_creation_baseline` flag instead of comparing that text, so the DE
+    // UI never renders English here.
+    const label = entry.isCreationBaseline
+      ? t("sidebar.version.creationBaseline")
+      : entry.label;
     const chipLabel =
       chips.length === 1
         ? t("sidebar.version.baselineChip", { name: chips[0]!.name })
@@ -287,10 +297,10 @@ export function VersionPanel({
             />
           )}
           {/* H-03: the label truncates with an ellipsis on a narrow
-              inspector (e.g. "Creation baseline"), so the full text has to
+              inspector (e.g. "Erstellungsstand"), so the full text has to
               stay reachable on hover. */}
-          <span className={styles.versionLabel} title={entry.label}>
-            {entry.label}
+          <span className={styles.versionLabel} title={label}>
+            {label}
           </span>
           {chipLabel && (
             <span
