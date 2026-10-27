@@ -214,7 +214,12 @@ function FieldDiffRow({ field }: { field: DiffField }): JSX.Element {
         className={`${styles.fieldHeader} ${showLines ? styles.fieldHeaderWithLines : ""}`}
       >
         <strong className={styles.fieldName}>{field.name}</strong>
-        <span className={STATUS_BADGE_CLASS[field.status]}>
+        {/* The badge text is translated (C-L9), so its status also carries a
+            locale-independent test hook for E2E — never assert the prose. */}
+        <span
+          className={STATUS_BADGE_CLASS[field.status]}
+          data-testid={`diff-status-${field.status}`}
+        >
           {t(`diff.status.${field.status}`)}
         </span>
       </div>
