@@ -54,6 +54,34 @@ test.describe('[COMP-RF-003] RequirementEditors', () => {
     ).toBeVisible({ timeout: 4000 });
   });
 
+  // #1287 (Plan C T-C2-8): the optional markdown formatting toolbar. Default
+  // preference is `auto`, so it appears once the description has three lines.
+  // The toggle persists the USER level; the guard below re-enables it when a
+  // previous run left it `off`, so the case is idempotent.
+  test('[#1287] markdown formatting toolbar appears for multi-line descriptions', async ({ page }) => {
+    await page.goto(`${FRONTEND_URL}/requirements`);
+    await createRequirementViaQuickForm(page, 'Toolbar E2E Requirement');
+
+    const editor = page.locator(
+      '[data-testid="artifact-widget-description_editor"] textarea'
+    );
+    await editor.fill('line one\nline two\nline three');
+
+    const toolbar = page.locator('[data-testid="md-toolbar"]');
+    if (!(await toolbar.isVisible())) {
+      await page.locator('[data-testid="md-toolbar-toggle"]').click();
+    }
+    await expect(toolbar).toBeVisible();
+
+    // Empty selection at the end of the value → the markers are inserted there.
+    await page.locator('[data-testid="md-toolbar-bold"]').click();
+    await expect(editor).toHaveValue(/line three\*\*/);
+
+    // The toggle hides the toolbar and persists the user-level preference.
+    await page.locator('[data-testid="md-toolbar-toggle"]').click();
+    await expect(toolbar).toBeHidden();
+  });
+
   test('[REQ-L3-RF003-002] workflow-state dropdown is visible and selectable', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/requirements`);
     await createRequirementViaQuickForm(page);

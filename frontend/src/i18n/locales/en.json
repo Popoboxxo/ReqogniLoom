@@ -715,6 +715,18 @@
       "driftHint": "A glossary term was updated — raise the version?",
       "upgradeToHead": "Update all to head",
       "unresolved": "Glossary term not found"
+    },
+    "toolbar": {
+      "label": "Formatting",
+      "bold": "Bold",
+      "italic": "Italic",
+      "heading": "Heading",
+      "bulletList": "Bulleted list",
+      "numberedList": "Numbered list",
+      "link": "Link",
+      "code": "Code",
+      "show": "Show formatting toolbar",
+      "hide": "Hide formatting toolbar"
     }
   },
   "adr": {

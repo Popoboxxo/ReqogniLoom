@@ -1,0 +1,15 @@
+/*
+ * <MarkdownField> / <MarkdownToolbar> (#1287) — layout only.
+ *
+ * The toolbar buttons are the shared `btn-icon` variant from
+ * `styles/global.css`; this file deliberately adds no button geometry (the
+ * button-geometry ratchet is live, and the variant already owns size/radius).
+ */
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+  margin-bottom: var(--space-2);
+}

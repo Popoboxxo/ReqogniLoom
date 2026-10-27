@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import { MarkdownPreview } from "../../../RequirementEditors/MarkdownPreview";
+import { MarkdownField } from "../../MarkdownField/MarkdownField";
 import { handleTablistKeyDown, tabRovingTabIndex } from "../../tablistKeyboardNav";
 import styles from "../ArtifactForm.module.css";
 import type { WidgetProps } from "../widget-registry";
@@ -57,7 +57,7 @@ export function MarkdownTabGroup({
             id={`${testId}-panel-${field}`}
             aria-labelledby={`${testId}-tab-${field}`}
           >
-            <MarkdownPreview
+            <MarkdownField
               id={`${testId}-editor-${field}`}
               value={String(values[field] ?? "")}
               onChange={(next: string) => onChange(field, next)}

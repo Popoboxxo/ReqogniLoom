@@ -15,8 +15,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import { useTranslation } from "react-i18next";
+import { SlidersHorizontal } from "lucide-react";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { glossaryApi } from "../../api/glossary";
+import {
+  applyMarkdownFormat,
+  type MarkdownAction,
+} from "../shared/MarkdownField/markdown-format";
+import { MarkdownToolbar } from "../shared/MarkdownField/MarkdownToolbar";
 import { GlossaryTooltip } from "./GlossaryTooltip";
 import type {
   GlossaryReferenceResolution,
@@ -44,6 +50,18 @@ interface MarkdownPreviewProps {
    * degrades to writing the token text without a link).
    */
   artifactId?: string | null;
+  /**
+   * #1287: show the markdown formatting toolbar above the edit textarea. The
+   * decision (preference key + `auto` line threshold) lives in
+   * `<MarkdownField>`; this editor only renders what it is told.
+   */
+  showToolbar?: boolean;
+  /**
+   * #1287: renders the show/hide toggle in the editor head. Omitted by callers
+   * that opt out of the preference layer entirely — then there is no toggle at
+   * all (and no dead control).
+   */
+  onToggleToolbar?: () => void;
 }
 
 /** `[[glossary:<uuid>]]` / `[[glossary:<uuid>@<revision>]]`. */
@@ -72,6 +90,8 @@ export function MarkdownPreview({
   id,
   ariaLabel,
   artifactId = null,
+  showToolbar = false,
+  onToggleToolbar,
 }: MarkdownPreviewProps): JSX.Element {
   const { t } = useTranslation();
   const [isPreview, setIsPreview] = useState(false);
@@ -79,9 +99,27 @@ export function MarkdownPreview({
   const [terms, setTerms] = useState<GlossaryTerm[]>([]);
   const [resolved, setResolved] = useState<GlossaryReferenceResolutionPayload | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  /**
+   * #1287: a formatting action changes `value`, which re-renders the textarea
+   * and puts the caret at the end. The offsets computed by
+   * `applyMarkdownFormat` are therefore applied after React committed the new
+   * value — never before (they would address the old string).
+   */
+  const pendingSelectionRef = useRef<{ start: number; end: number } | null>(
+    null
+  );
 
   const workspaceId = activeWorkspace?.id;
   const referenceMode = activeWorkspace?.glossary_reference_mode ?? "pinned";
+
+  useEffect(() => {
+    const el = textareaRef.current;
+    const pending = pendingSelectionRef.current;
+    if (!el || !pending) return;
+    pendingSelectionRef.current = null;
+    el.focus();
+    el.setSelectionRange(pending.start, pending.end);
+  }, [value]);
 
   // Legacy `@Term` support: terms are only needed once a preview is shown.
   useEffect(() => {
@@ -204,6 +242,26 @@ export function MarkdownPreview({
   );
 
   /**
+   * #1287: run one toolbar action against the live textarea selection. The
+   * marker placement is `applyMarkdownFormat`'s job; this callback only feeds
+   * it the selection and restores the caret/selection it returns.
+   */
+  const handleFormat = useCallback(
+    (action: MarkdownAction): void => {
+      const el = textareaRef.current;
+      const start = el?.selectionStart ?? value.length;
+      const end = el?.selectionEnd ?? value.length;
+      const result = applyMarkdownFormat(value, start, end, action);
+      pendingSelectionRef.current = {
+        start: result.selStart,
+        end: result.selEnd,
+      };
+      onChange(result.value);
+    },
+    [value, onChange]
+  );
+
+  /**
    * Insert a reference for the chosen term. When the field belongs to a saved
    * artifact the backend creates the usage trace link and returns the pinned
    * token; otherwise (create mode) the token is built locally.
@@ -309,30 +367,54 @@ export function MarkdownPreview({
         </div>
       ) : (
         <>
-          <div className={styles.editToolbar}>
-            <label className={styles.insertLabel}>
-              {t("markdown.reference.insert")}
-              <select
-                className="field-select"
-                data-testid="md-insert-reference"
+          <div className={styles.editorHead}>
+            <div className={styles.editToolbar}>
+              <label className={styles.insertLabel}>
+                {t("markdown.reference.insert")}
+                <select
+                  className="field-select"
+                  data-testid="md-insert-reference"
+                  disabled={disabled}
+                  value=""
+                  onFocus={() => void loadTermsForInsert(true)}
+                  onChange={(event) => {
+                    if (event.target.value)
+                      void handleInsertTerm(event.target.value);
+                  }}
+                >
+                  <option value="">{t("markdown.reference.pick")}</option>
+                  {terms
+                    .filter((term) => term.global_uuid)
+                    .map((term) => (
+                      <option key={term.global_uuid} value={term.global_uuid}>
+                        {term.term}
+                      </option>
+                    ))}
+                </select>
+              </label>
+            </div>
+            {onToggleToolbar ? (
+              <button
+                type="button"
+                className="btn-icon"
+                data-testid="md-toolbar-toggle"
+                aria-label={t(
+                  showToolbar ? "markdown.toolbar.hide" : "markdown.toolbar.show"
+                )}
+                title={t(
+                  showToolbar ? "markdown.toolbar.hide" : "markdown.toolbar.show"
+                )}
+                aria-pressed={showToolbar}
                 disabled={disabled}
-                value=""
-                onFocus={() => void loadTermsForInsert(true)}
-                onChange={(event) => {
-                  if (event.target.value) void handleInsertTerm(event.target.value);
-                }}
+                onClick={onToggleToolbar}
               >
-                <option value="">{t("markdown.reference.pick")}</option>
-                {terms
-                  .filter((term) => term.global_uuid)
-                  .map((term) => (
-                    <option key={term.global_uuid} value={term.global_uuid}>
-                      {term.term}
-                    </option>
-                  ))}
-              </select>
-            </label>
+                <SlidersHorizontal size={16} aria-hidden="true" />
+              </button>
+            ) : null}
           </div>
+          {showToolbar ? (
+            <MarkdownToolbar onAction={handleFormat} disabled={disabled} />
+          ) : null}
           <textarea
             ref={textareaRef}
             id={id}
