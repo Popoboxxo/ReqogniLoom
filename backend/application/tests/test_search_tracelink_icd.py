@@ -161,6 +161,80 @@ class TestTraceLinkAndIcdSearchable:
         assert hits[0].title == "references: REQ-A-1 → —"
         assert "REQ-B-9" not in hits[0].title
 
+    def test_tracelink_survives_outdated_target_in_unreadable_workspace(self):
+        """Review finding S1: the target's lifecycle is only enforced when the
+        caller can read that target.
+
+        The outdated-endpoint drop ran *before* the READ check, so retiring an
+        artifact in a workspace the caller cannot even read silently removed a
+        perfectly readable link from the source workspace. Two consequences:
+        the legitimately visible link vanished depending on someone else's
+        lifecycle state, and the difference was a 1-bit oracle over the
+        lifecycle of artifacts in a workspace the caller has no access to.
+        """
+        from persistence.models import LifecycleStatus
+
+        with active_tenant() as tenant:
+            ws_a = make_workspace(tenant)
+            ws_b = make_workspace(tenant)
+            src = make_requirement(ws_a, title="Source requirement", uid="REQ-A-1")
+            tgt = make_requirement(ws_b, title="Foreign retired target", uid="REQ-B-9")
+            tgt.artifact.lifecycle_status = LifecycleStatus.OUTDATED
+            tgt.artifact.save(update_fields=["lifecycle_status"])
+            link = _make_link(tenant, src, tgt)
+            # Only a role in ws_a: the target's workspace stays unreadable.
+            ctx = editor_ctx(tenant, ws_a)
+
+            result = SearchService().search(
+                "references",
+                ctx,
+                workspace_id=ws_a.id,
+                type_filter=["TraceLink"],
+                mode="keyword",
+            )
+
+        hits = [hit for hit in result.results if hit.id == str(link.id)]
+        assert hits, (
+            "the link disappeared even though its source is readable — the "
+            "target's lifecycle was enforced without a READ on the target"
+        )
+        assert hits[0].title == "references: REQ-A-1 → —"
+        assert "REQ-B-9" not in hits[0].title
+
+    def test_icd_without_backing_artifact_is_dropped(self):
+        """Review finding S2: a NULL backing Artifact is fail-closed.
+
+        ``icd_icd.artifact_id`` is ``SET_NULL``, so removing the shadow
+        Artifact leaves an ICD row with nothing to run the soft-delete and
+        item-permission checks against. Such a row used to bypass both and stay
+        searchable forever; it is dropped instead.
+        """
+        from icd.models import Icd
+
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            ctx = editor_ctx(tenant, ws)
+            orphan = Icd.objects.create(
+                workspace_id=ws.id,
+                source_element_id=uuid4(),
+                target_element_id=uuid4(),
+                name="Orphan Bus Interface",
+                semantic_description="Its backing artifact is gone.",
+            )
+
+            result = SearchService().search(
+                "Orphan Bus",
+                ctx,
+                workspace_id=ws.id,
+                type_filter=["Icd"],
+                mode="keyword",
+            )
+
+        assert orphan.artifact_id is None, (
+            "precondition: this test is about the artifact_id IS NULL case"
+        )
+        assert str(orphan.id) not in [hit.id for hit in result.results]
+
     def test_search_icd_item_permission_none_is_dropped(self):
         """An explicit item-level ``none`` rule removes the ICD from search,
         while an unruled sibling stays visible."""

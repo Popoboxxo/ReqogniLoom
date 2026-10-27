@@ -26,10 +26,13 @@ Rank Fusion (``_rrf_fuse``) instead of the plain max-score merge
 the fusion rule.
 
 T-A3-2 (A-L21) pins an *exact* identifier hit (exact title, exact uid/ID) above
-that fused list with ``relevance_score == 1.0``, so typing a readable ID always
-returns that artifact first. T-A3-3 additionally checks every TraceLink/Icd hit
-for item-level READ and masks a TraceLink target across workspace boundaries
-(``_apply_row_visibility``).
+that fused list with ``relevance_score == 1.0``, so typing a readable ID ranks
+that artifact first whenever RRF fusion is the algorithm in play. The pin is
+carried by the internal ``SearchHit.pinned`` marker and resolved by the global
+sort key — the score alone cannot express it, because RRF's own normalization
+lets an unpinned hit reach 1.0 as well. T-A3-3 additionally checks every
+TraceLink/Icd hit for item-level READ and masks a TraceLink target across
+workspace boundaries (``_apply_row_visibility``).
 
 Every ``SearchHit.relevance_score`` is normalized to the closed interval
 ``[0.0, 1.0]`` at the point of score creation (issue #827). The four native
@@ -268,9 +271,13 @@ _TABLE_SPECS: dict[str, _TableSpec] = {
     ),
     # T-A3-3: the ICD header row. ``name`` is the interface name and the
     # current contract's ``semantic_description`` its description. The backing
-    # Artifact FK is nullable (SET_NULL), so the LEFT JOIN both surfaces its
-    # custom_fields and lets :func:`_apply_row_visibility` drop a row whose
-    # artifact was soft-deleted.
+    # Artifact FK is nullable (SET_NULL). The LEFT JOIN here discards nothing —
+    # it exists only to surface the artifact's ``custom_fields``. The
+    # soft-delete drop is a *separate* ORM query in :func:`_filter_icd_hits`
+    # (Icd is ``permission_scoped``), which is also where a row whose
+    # ``artifact_id`` is NULL — SET_NULL after the shadow artifact was removed —
+    # is dropped fail-closed (review finding F9; the earlier comment here
+    # wrongly implied the join performed the drop).
     "Icd": _TableSpec(
         table="icd_icd",
         title_col="e.name",
@@ -290,6 +297,14 @@ _TABLE_SPECS: dict[str, _TableSpec] = {
     # table. Workspace scoping is the *source* side (TraceLinkViewSet's fence).
     # ``artifact_id_col`` stays None: there is no single backing artifact, so
     # ``_custom_fields_select`` yields NULL.
+    #
+    # KNOWN LIMITATION (review finding F6, documented rather than changed): the
+    # *searched* title below embeds the endpoint **IDs**, while the *displayed*
+    # title built in _apply_row_visibility embeds the endpoint **local uids**.
+    # A link is therefore findable by an endpoint-ID fragment but NOT by an
+    # endpoint uid ("REQ-L1-007" does not find the links pointing at it).
+    # Resolving the uids in SQL would mean joining the endpoint's entity table
+    # once per endpoint kind — out of scope here, recorded as a limitation.
     "TraceLink": _TableSpec(
         table="pl_tracelink",
         title_col=(
@@ -343,6 +358,17 @@ class SearchHit:
     #: ``custom_fields``; the empty default only covers rows with no backing
     #: artifact (e.g. a pre-migration row) or a non-object/absent value.
     custom_fields: dict[str, Any] = dataclass_field(default_factory=dict)
+    #: Internal sort marker for the T-A3-2 pin — **not** part of the wire
+    #: format. Both serialization surfaces whitelist their fields explicitly
+    #: (``rest_api.views``' search view and ``mcp_server.tools.cross_cutting``'
+    #: ``artifact.search``), so this never reaches a caller.
+    #:
+    #: It exists because ``relevance_score`` alone cannot express "pinned":
+    #: ``_rrf_fuse`` normalizes by the theoretical maximum
+    #: (``len(rank_lists) / (_RRF_K + 1)``), so an *unpinned* hit at rank 0 in
+    #: every list scores exactly 1.0 too. Ranking the pin above that tie needs
+    #: a signal outside the score (review finding F1).
+    pinned: bool = False
 
 
 @dataclass
@@ -497,12 +523,21 @@ def _merge_hits(*hit_lists: list[SearchHit]) -> list[SearchHit]:
     Shared by :meth:`SearchService._search_entity_type`'s two-pass
     (full-text + lexical) merge and :meth:`SearchService._search_multi_workspace`'s
     per-workspace merge -- same "keyed by id, keep max score" pattern either way.
+
+    On a score *tie* the pinned duplicate wins (review finding F1): a
+    multi-workspace merge must not be able to trade a pin away for an
+    equivalent unpinned hit, which would re-open the A-L21 ordering gap the pin
+    exists to close.
     """
     merged: dict[str, SearchHit] = {}
     for hits in hit_lists:
         for hit in hits:
             existing = merged.get(hit.id)
-            if existing is None or hit.relevance_score > existing.relevance_score:
+            if (
+                existing is None
+                or hit.relevance_score > existing.relevance_score
+                or (hit.relevance_score == existing.relevance_score and hit.pinned)
+            ):
                 merged[hit.id] = hit
     return list(merged.values())
 
@@ -841,6 +876,15 @@ def _local_uids_by_artifact(artifact_ids: set[UUID]) -> dict[UUID, str]:
     )
 
     resolved: dict[UUID, str] = {}
+    if not artifact_ids:
+        # A TraceLink hit list can arrive here with no endpoints of interest
+        # (and every caller filters by an id set that is empty when there are
+        # no links). Seven ``IN ()`` queries would be pure overhead — review
+        # finding F8. (The uid-carrying model list itself is kept local rather
+        # than shared with ``application.reference_resolver_service``: importing
+        # that service here would pull its whole reference machinery into the
+        # search path, so the duplication stays.)
+        return resolved
     for model in (
         Requirement,
         ArchitectureElement,
@@ -924,7 +968,14 @@ def _may_read_artifact(
 
 
 def _filter_icd_hits(hits: list[SearchHit], ctx: AuthContext | None) -> list[SearchHit]:
-    """Drop ICD hits the caller may not READ or whose Artifact is outdated."""
+    """Drop ICD hits the caller may not READ or whose Artifact is outdated.
+
+    Also drops a row with no backing Artifact at all (review finding S2): the
+    FK is ``SET_NULL``, so removing the shadow Artifact leaves a row that has
+    nothing the item-permission or soft-delete check could be evaluated
+    against. Such a row used to bypass both and stay searchable forever; with
+    no provable READ it is fail-closed like every other unprovable case.
+    """
     from icd.models import Icd
     from persistence.models import Artifact, LifecycleStatus
 
@@ -949,7 +1000,9 @@ def _filter_icd_hits(hits: list[SearchHit], ctx: AuthContext | None) -> list[Sea
         row = by_id.get(_as_uuid(hit.id))
         if row is None:  # deleted between the SQL pass and this lookup
             continue
-        if row.artifact_id is not None and row.artifact_id in outdated:
+        if row.artifact_id is None:
+            continue
+        if row.artifact_id in outdated:
             continue
         if _may_read_artifact(
             ctx, row.workspace_id, row.artifact_id, roles_cache, decision_cache
@@ -967,6 +1020,12 @@ def _filter_tracelink_hits(
     link's own workspace). The **target** uid is shown only when the target
     workspace is readable too; otherwise the synthetic title carries ``'—'``, so
     cross-workspace metadata never leaks (QR-S20, T-A3-3).
+
+    Lifecycle enforcement follows the same READ boundary (review finding S1):
+    the source's is always checked, the target's only when the caller may
+    actually read the target. Enforcing the target's unconditionally made a
+    readable link vanish because of a state the caller cannot see anyway —
+    and made that vanishing a 1-bit oracle over another workspace's lifecycle.
     """
     from persistence.models import Artifact, LifecycleStatus, TraceLink
 
@@ -995,10 +1054,8 @@ def _filter_tracelink_hits(
         link = links.get(_as_uuid(hit.id))
         if link is None:  # deleted between the SQL pass and this lookup
             continue
-        if (
-            statuses.get(link.source_id) == LifecycleStatus.OUTDATED
-            or statuses.get(link.target_id) == LifecycleStatus.OUTDATED
-        ):
+        # The source side is the link's own workspace -- always enforceable.
+        if statuses.get(link.source_id) == LifecycleStatus.OUTDATED:
             continue
 
         source = link.source
@@ -1010,6 +1067,10 @@ def _filter_tracelink_hits(
         show_target = _may_read_artifact(
             ctx, target.workspace_id, target.id, roles_cache, decision_cache
         )
+        # Only enforce the target's lifecycle when the target itself is
+        # readable (review finding S1) -- see the docstring.
+        if show_target and statuses.get(link.target_id) == LifecycleStatus.OUTDATED:
+            continue
 
         source_label = uids.get(source.id) or str(source.id)
         target_label = (uids.get(target.id) or str(target.id)) if show_target else "—"
@@ -1065,6 +1126,23 @@ def _run_fulltext_query(
         where_parts.append(f"{spec.workspace_col} = %s")
         params.append(str(workspace_id))
 
+    # Review finding F3: this pass used to be uncapped, and for the two
+    # ``permission_scoped`` types every returned row costs its own visibility
+    # query afterwards (see :func:`_apply_row_visibility`) — a generic term such
+    # as "references" therefore drove an unbounded number of queries against
+    # ``pl_tracelink``. Bound exactly those two to the row cap the lexical pass
+    # already applies; the ``ORDER BY`` stays first, so the cap drops the
+    # worst-ranked rows rather than an arbitrary slice.
+    #
+    # Deliberately NOT applied to the other types: there it would silently
+    # change result sets (a caller could page past the cap into a truncated
+    # list), which is a behaviour change outside this finding's scope.
+    limit_clause = (
+        f"\n        LIMIT {_MAX_LEXICAL_ROWS_PER_TYPE}"
+        if spec.permission_scoped
+        else ""
+    )
+
     sql = f"""
         SELECT
             e.id,
@@ -1076,7 +1154,7 @@ def _run_fulltext_query(
         FROM {spec.table} e
         {spec.join_sql}
         WHERE {' AND '.join(where_parts)}
-        ORDER BY relevance_score DESC, e.created_at DESC
+        ORDER BY relevance_score DESC, e.created_at DESC{limit_clause}
     """
     # The ts_rank parameter in the SELECT list is bound before the WHERE ones.
     final_params = [tsquery_str] + params
@@ -1229,8 +1307,17 @@ class SearchService(ServiceBase):
         always returned. In ``hybrid`` mode an artifact whose title or uid/ID
         is an *exact* match is pinned above the fused ranking with
         ``relevance_score == 1.0`` (T-A3-2) — so the readable identifier a
-        user typed always comes first, even when a semantically closer
-        neighbour would otherwise win the RRF tiebreaker.
+        user typed comes first even when a semantically closer neighbour would
+        otherwise win the RRF tiebreaker.
+
+        Pinning is **conditional, not absolute** (review finding F4): it is part
+        of the RRF path, so it applies only when the semantic pass contributes
+        at least one hit for that entity type. Without a semantic hit — the type
+        has no embedding column, no embedding provider is configured, or
+        ``mode`` is ``"keyword"``/``"vector"`` — no pin is applied and no score
+        of 1.0 is forced. That is not a gap: on that path the pre-Task-9
+        max-score merge (:func:`_merge_hits`) already ranks a lexical hit
+        (normalized >= 0.5) above any full-text hit.
 
         REQ-L3-SEARCH-002 (query parsing), REQ-L3-SEARCH-003 (ranking),
         REQ-L3-SEARCH-004 (type filter), REQ-L3-SEARCH-005 (tenant/workspace),
@@ -1382,10 +1469,21 @@ class SearchService(ServiceBase):
 
         # Sort by relevance DESC. Every score is normalized to [0, 1] at the
         # point of creation (issue #827): lexical hits occupy [0.5, 1.0] and
-        # therefore land above full-text hits in practice. title ASC is a
-        # stable tiebreaker across entity types — the per-type SQL already
-        # orders by created_at.
-        hits.sort(key=lambda h: (-h.relevance_score, h.title))
+        # therefore land above full-text hits in practice.
+        #
+        # The key is deliberately a *total* order, in this precedence:
+        #   1. relevance DESC
+        #   2. pinned first (T-A3-2 / review finding F1) — a pin cannot rely on
+        #      its score alone: _rrf_fuse normalizes by its theoretical maximum,
+        #      so an unpinned hit ranked 0 in all three lists also scores 1.0
+        #      and would otherwise be separated only by the title.
+        #   3. title ASC — stable tiebreaker across entity types (the per-type
+        #      SQL already orders by created_at).
+        #   4. entity id ASC — final, unique tiebreaker (review finding F2,
+        #      DoD "Tiebreaker eindeutig"): two hits with the same score *and*
+        #      title would otherwise be ordered by dict/INSERT order, making the
+        #      emitted ranking non-reproducible across identical calls.
+        hits.sort(key=lambda h: (-h.relevance_score, not h.pinned, h.title, h.id))
 
         # Optional relevance floor (issue #1170): applied AFTER the global
         # ranking and BEFORE total_count/pagination, so total_count mirrors
@@ -1446,14 +1544,22 @@ class SearchService(ServiceBase):
         flattened to the same 1/61 contribution as any single-list semantic
         hit, after which the alphabetical title tiebreaker could push it to
         rank 2. Those hits are lifted out of all three RRF lists and placed in
-        front with ``relevance_score == 1.0``; they appear exactly once.
+        front with ``relevance_score == 1.0``; they appear exactly once. They
+        also carry :attr:`SearchHit.pinned`, because 1.0 is *not* unique to a
+        pin — an unpinned hit at rank 0 in all three lists reaches it too (see
+        :attr:`SearchHit.pinned` and ``search()``'s sort key).
 
         ``ctx`` only feeds the T-A3-3 per-hit visibility of the
         ``permission_scoped`` types (:func:`_apply_row_visibility`).
 
-        IF-AS-EXT-OUT-007: raw SQL via django.db.connection for expression
-        index compatibility (GIN index on the tsvector expression) backs the
-        fulltext/lexical passes; the semantic pass uses the Django ORM (see
+        IF-AS-EXT-OUT-007: raw SQL via django.db.connection backs the
+        fulltext/lexical passes. Only the three tables that carry the
+        ``to_tsvector('german', title || ' ' || description)`` expression index
+        (Requirement, ArchitectureElement, TestCase) are actually
+        index-accelerated by it. TraceLink and Icd deliberately scan
+        unindexed — T-A3-4 measures that cost; their full-text pass is bounded
+        by :data:`_MAX_LEXICAL_ROWS_PER_TYPE` for the same reason (findings F3
+        and F5). The semantic pass uses the Django ORM (see
         :func:`_run_semantic_query`).
 
         SQL-injection safety: every user-supplied value (tsquery string,
@@ -1493,7 +1599,8 @@ class SearchService(ServiceBase):
             if pinned:
                 pinned_ids = {hit.id for hit in pinned}
                 fused = [
-                    dataclass_replace(hit, relevance_score=1.0) for hit in pinned
+                    dataclass_replace(hit, relevance_score=1.0, pinned=True)
+                    for hit in pinned
                 ] + _rrf_fuse(
                     [hit for hit in lexical_hits if hit.id not in pinned_ids],
                     [hit for hit in fulltext_hits if hit.id not in pinned_ids],

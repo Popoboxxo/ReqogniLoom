@@ -963,3 +963,74 @@ class TestMinScoreFilter:
         match and must be rejected rather than silently filtering everything."""
         with pytest.raises(ValidationError, match="min_score"):
             self._run(self._hits([0.9]), min_score=1.5)
+
+
+# ---------- Global ranking determinism (review finding F2) ----------
+
+
+@pytest.mark.django_db(transaction=True)
+class TestGlobalRankingDeterminism:
+    """Review finding F2 (DoD): the global sort must be a *total* order.
+
+    ``hits.sort(key=(-relevance_score, title))`` left two hits that share both
+    a score and a title in whatever order :func:`_merge_hits` happened to
+    produce — dict insertion order, itself derived from the SQL passes'
+    ``ORDER BY``. The emitted ranking of such a tie was therefore not
+    reproducible across two identical calls. Entity id is the final
+    tiebreaker.
+    """
+
+    def test_identical_titles_are_ordered_by_entity_id_across_calls(self):
+        from persistence.models import Artifact, Requirement
+        from persistence.tenancy import TenantContext
+
+        _LOW_ID = "00000000-0000-0000-0000-00000000000a"
+        _HIGH_ID = "00000000-0000-0000-0000-0000000000ff"
+
+        tenant, workspace, ctx = _seed_workspace("search-sort-tie")
+
+        def _seed(requirement_id: str) -> None:
+            artifact = Artifact.objects.create(
+                tenant=tenant, workspace=workspace, artifact_type="Requirement"
+            )
+            Requirement.objects.create(
+                id=requirement_id,
+                tenant=tenant,
+                artifact=artifact,
+                workspace=workspace,
+                title="Tied title row",
+                description="",
+                uid=f"REQ-SORT-{requirement_id[-2:]}",
+            )
+
+        # Created low-id first *on purpose*: every pass orders by
+        # ``created_at DESC``, so the merge order is the exact reverse of the
+        # expected id order. A title-only key therefore emits the tie
+        # backwards instead of landing on the expected order by coincidence.
+        _seed(_LOW_ID)
+        _seed(_HIGH_ID)
+
+        def _run():
+            return SearchService().search(
+                "Tied title row",
+                ctx,
+                workspace_id=workspace.id,
+                type_filter=["Requirement"],
+            )
+
+        try:
+            first = _run()
+            second = _run()
+        finally:
+            TenantContext.clear_tenant()
+
+        expected = [_LOW_ID, _HIGH_ID]
+        # Precondition: both rows really do tie on score and title, so the id
+        # tiebreaker is the only thing that can order them.
+        assert {hit.title for hit in first.results} == {"Tied title row"}
+        assert len({hit.relevance_score for hit in first.results}) == 1
+        assert [hit.id for hit in first.results] == expected
+        assert [hit.id for hit in second.results] == expected, (
+            "the ranking of a score+title tie is not reproducible across "
+            "identical calls"
+        )
