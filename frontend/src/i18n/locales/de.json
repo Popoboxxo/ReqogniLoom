@@ -715,6 +715,18 @@
       "driftHint": "Ein Glossarbegriff wurde aktualisiert — Version anheben?",
       "upgradeToHead": "Alle auf Head aktualisieren",
       "unresolved": "Glossarbegriff nicht gefunden"
+    },
+    "toolbar": {
+      "label": "Formatierung",
+      "bold": "Fett",
+      "italic": "Kursiv",
+      "heading": "Überschrift",
+      "bulletList": "Aufzählung",
+      "numberedList": "Nummerierte Liste",
+      "link": "Link",
+      "code": "Code",
+      "show": "Formatierungsleiste einblenden",
+      "hide": "Formatierungsleiste ausblenden"
     }
   },
   "adr": {

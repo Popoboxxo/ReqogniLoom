@@ -34,6 +34,17 @@
   color: var(--color-text);
 }
 
+/*
+ * #1287: edit-mode head — the formatting-toolbar toggle plus the existing
+ * "insert glossary reference" affordance share one row.
+ */
+.editorHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
 /* #1266: "insert glossary reference" affordance above the edit textarea. */
 .editToolbar {
   display: flex;
