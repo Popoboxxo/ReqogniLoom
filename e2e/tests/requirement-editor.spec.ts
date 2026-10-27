@@ -1,9 +1,18 @@
 // REQ-L2-RF-003, REQ-L3-RF003-001/002/003: Requirements editor (inline, workflow, traceability)
 // REQ-L2-RF-006: TraceLink creation in RequirementEditor
 import { test, expect, type Page } from '@playwright/test';
-import { loginAsAdmin, setWorkspaceId, SEEDED_WORKSPACE_ID } from '../helpers/auth';
+import {
+  getAuthToken,
+  loginAsAdmin,
+  setWorkspaceId,
+  SEEDED_WORKSPACE_ID,
+} from '../helpers/auth';
 
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
+const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8001';
+
+// localStorage first-render cache of the readable-id preference (#1096).
+const READABLE_IDS_STORAGE_KEY = 'reqflow-display-readable-ids';
 
 // "+ New" only opens an inline quick-create form (title input + Save/Cancel);
 // the full editor (artifact-field-title etc.) only renders after Save navigates to the
@@ -274,5 +283,78 @@ test.describe('[COMP-RF-003] RequirementEditors', () => {
     // Note: exact color depends on CSS tokens, just verify it's interactive
     expect(initialBg).toBeTruthy();
     expect(hoveredBg).toBeTruthy();
+  });
+
+  // -------------------------------------------------------------------------
+  // #1094 (T-C2-7) — the server-backed readable-id preference is hydrated at
+  // app start. Before T-C2-7 only the /profile section read the server value,
+  // so a new device kept showing readable ids until that page was visited.
+  // -------------------------------------------------------------------------
+  test('[#1094] readable ids follow the server value on a fresh device', async ({ page, request }) => {
+    const token = await getAuthToken();
+    const headers = { Authorization: `Bearer ${token}` };
+    const title = `E2E readable-ids ${Date.now()}`;
+
+    // Server truth: readable ids hidden for this account. It must win over the
+    // (empty) local cache without anyone opening /profile.
+    const prefResp = await request.patch(
+      `${BACKEND_URL}/api/v1/users/me/preference-values/`,
+      { headers, data: { values: { 'ui.ids.show_readable': false } } }
+    );
+    expect(prefResp.ok()).toBeTruthy();
+
+    // A row of our own, so the assertion never depends on whatever the seeded
+    // database happens to contain.
+    const createdResp = await request.post(`${BACKEND_URL}/api/v1/requirements/`, {
+      headers,
+      data: {
+        workspace_id: SEEDED_WORKSPACE_ID,
+        title,
+        description: 'Created by the #1094 hydration E2E test',
+        category: 'Functional',
+      },
+    });
+    expect(createdResp.ok()).toBeTruthy();
+    const created = await createdResp.json();
+
+    // A fresh device: no cached value before the app boots. addInitScript runs
+    // in the new document ahead of the SPA, so the first paint starts from the
+    // default and only the hydrator can hide the ids.
+    await page.addInitScript((key) => {
+      try {
+        window.localStorage.removeItem(key);
+      } catch {
+        /* storage unavailable — the default already applies */
+      }
+    }, READABLE_IDS_STORAGE_KEY);
+
+    try {
+      await page.goto(`${FRONTEND_URL}/requirements`);
+
+      // Filter to our row: the requirement list is virtualized, so the created
+      // (and therefore last) row is not rendered without narrowing the list.
+      await page.locator('[data-testid="req-list-search-input"]').fill(title);
+      const row = page.locator(`[data-testid="req-row-${created.id}"]`);
+      await expect(row).toBeVisible({ timeout: 10000 });
+
+      const chip = row.locator(`[data-testid="req-row-${created.id}-id"]`);
+      await expect(chip.locator(`[data-testid="req-row-${created.id}-id-copy"]`)).toBeVisible();
+
+      // Hydration is asynchronous (query + effect), so this retries until the
+      // server value has been written into the shared store: the readable value
+      // span must be gone, while copying the system id stays available.
+      await expect(
+        chip.locator(`[data-testid="req-row-${created.id}-id-value"]`)
+      ).toHaveCount(0, { timeout: 10000 });
+    } finally {
+      // The admin account is shared by every spec — leave it as we found it.
+      await request.patch(`${BACKEND_URL}/api/v1/users/me/preference-values/`, {
+        headers,
+        data: { values: { 'ui.ids.show_readable': true } },
+      });
+      await request.delete(`${BACKEND_URL}/api/v1/requirements/${created.id}/`, {
+        headers,
+      });
+    }
   });
 });

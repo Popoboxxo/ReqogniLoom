@@ -38,6 +38,7 @@ import { WorkspaceProvider, useWorkspace } from "./context/WorkspaceContext";
 import { WorkspaceTreeStateProvider } from "./context/WorkspaceTreeStateContext";
 import { LinkTypeProvider } from "./context/LinkTypeContext";
 import { ThemeProvider } from "./context/ThemeContext";
+import { PreferencesHydrator } from "./components/PreferencesHydrator";
 import { NavigationShell } from "./components/NavigationShell/NavigationShell";
 
 // ---------------------------------------------------------------------------
@@ -128,6 +129,11 @@ function AppInner(): JSX.Element {
       <ThemeProvider>
         <WorkspaceProvider>
           <WorkspaceScopedTreeState>
+            {/* T-C2-7 (#1094): hydrate the server-backed readable-id
+                preference once per session, before any route renders. Sibling
+                of the navigation, not a route, so it runs on every page —
+                including a fresh device that never opens /profile. */}
+            <PreferencesHydrator />
             <LinkTypeProvider>
               <NavigationShell />
             </LinkTypeProvider>

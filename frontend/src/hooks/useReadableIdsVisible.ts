@@ -13,8 +13,17 @@
  *     (which also refreshes the cache), and a failed PATCH rolls the store back
  *     to the previous value — the UI never keeps a change the server rejected.
  *
- * The network calls themselves live in `IdentifiersSection` (the only writer,
- * on the profile page), where loading and error states have a place to render.
+ * The network calls themselves never live here. They are owned by two
+ * components instead:
+ *
+ *   - `components/PreferencesHydrator` (T-C2-7, mounted in `App.tsx` inside
+ *     `WorkspaceProvider`) hydrates the server value at app start, so a new
+ *     device shows the account's choice without visiting `/profile`;
+ *   - `UserProfileSettings/IdentifiersSection` is the *writer* on the profile
+ *     page and also re-reads the value on mount, where loading and error states
+ *     have a place to render. It is no longer the only reader of the server
+ *     value.
+ *
  * Keeping this module synchronous is deliberate: it is read by *every* chip and
  * row, so it must never own request lifecycle. See the backend
  * `application/display_preference_service.py` for the server half.
