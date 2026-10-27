@@ -579,9 +579,11 @@ class UserDisplayPreference(TenantScopedModel):
         db_table = "at_user_display_preference"
 
     def __str__(self) -> str:  # pragma: no cover - debug helper
+        # ``show_readable_ids`` is deliberately absent: since Plan C T-C2-6 the
+        # flag is served from Q1 (``ui.ids.show_readable``) and this column is
+        # read nowhere; T-C2-9 drops it.
         return (
             f"UserDisplayPreference(user={self.user_id}, "
-            f"show_readable_ids={self.show_readable_ids}, "
             f"visible_metrics={self.visible_metrics})"
         )
 

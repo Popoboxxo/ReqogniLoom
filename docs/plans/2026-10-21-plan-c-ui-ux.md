@@ -34,7 +34,7 @@ integration: "Stufe 2 (Korrekturaufträge KA-C-01…15, KA-ALL-01…11) eingearb
 | **Issues** | #598 (W4a), #1258, #186, #1094, #1287, #1257 (CLOSED 2026-10-15, PR #1331), #801, #946, #85; Übergaben aus Plan G: #1379 (G4.4), #1405 R1-04 |
 | **Besitz** | Plan C/WP C2 **besitzt Q1** (generischer 3-Ebenen-Präferenzdienst). Plan A (T-A1-4) registriert nur seine Schlüssel `memory.enabled`, `memory.disabled_slots`, `memory.allow_user_opt_out` (vorläufig, ENT-A5 = A). |
 | **Nicht-Teil** | G4.1–G4.3 (spezifiziert Plan G, hier nur referenziert = C4), BluePencil-Hub/-Dialoge (Plan D/D1), Memory-Schalter-UI (Plan A/T-A1-7) |
-| **Migrationen** | siehe [Plan-Index §e](2026-10-21-backlog-umsetzung-index.md#e-konsolidierte-migrationsvergabe-bindend) und §14. Dieser Plan legt an: `auth_tenancy` · `0028_preferencevalue`, `0029_preferencevalue_rls` (T-C2-1) · `0030_backfill_show_readable_ids` (T-C2-6) · `0032_drop_userdisplaypreference_show_readable_ids` (T-C2-9, contract). Keine `persistence`-Migration. |
+| **Migrationen** | siehe [Plan-Index §e](2026-10-21-backlog-umsetzung-index.md#e-konsolidierte-migrationsvergabe-bindend) und §14. Dieser Plan legt an: `auth_tenancy` · `0029_preferencevalue`, `0030_preferencevalue_rls` (T-C2-1) · `0031_backfill_show_readable_ids` (T-C2-6) · `0033_drop_userdisplaypreference_show_readable_ids` (T-C2-9, contract). Keine `persistence`-Migration. |
 
 ---
 
@@ -357,10 +357,10 @@ Degradation: Laden fehlgeschlagen → `fallback` (= Registry-Default im Code), R
 
 #### T-C2-1 Modell und Migrationen
 - **Rolle:** database-engineer
-- **Dateien:** `auth_tenancy/models.py` (Modell oben), neu `auth_tenancy/migrations/0028_preferencevalue.py` (CreateModel), `0029_preferencevalue_rls.py` (ENABLE+FORCE RLS + Policy `at_preference_value_tenant_isolation`, Form byte-gleich zu `0026_treedisplayconfig_rls.py`). Namen/Nummern laut Index §e.
-- **Migrationsregel:** `0028` hängt an `0027_create_form_config`; Plan E/E3 folgt in Welle 3 mit `0031_user_mfa` (Index §e). Nummer = höchste `auth_tenancy`-Nummer auf `main` + 1 beim Merge; weicht sie ab, nimmt der PR max+1 und aktualisiert Index §e im selben PR (Befund R15).
+- **Dateien:** `auth_tenancy/models.py` (Modell oben), neu `auth_tenancy/migrations/0029_preferencevalue.py` (CreateModel), `0030_preferencevalue_rls.py` (ENABLE+FORCE RLS + Policy `at_preference_value_tenant_isolation`, Form byte-gleich zu `0026_treedisplayconfig_rls.py`). Namen/Nummern laut Index §e.
+- **Migrationsregel:** `0029` hängt an `0027_create_form_config`; Plan E/E3 folgt in Welle 3 mit `0032_user_mfa` (Index §e). Nummer = höchste `auth_tenancy`-Nummer auf `main` + 1 beim Merge; weicht sie ab, nimmt der PR max+1 und aktualisiert Index §e im selben PR (Befund R15).
 - **Rollback:** Revert + `python manage.py migrate auth_tenancy 0027_create_form_config` — CreateModel/RunSQL haben Rückrichtung; Daten der Tabelle gehen verloren (nur neue Werte; `show_readable_ids` siehe T-C2-6).
-- **TDD:** neu `auth_tenancy/tests/test_preference_value_model.py`: zweite globale Zeile gleichen Schlüssels → `IntegrityError`; `scope="user"` ohne `user` → `IntegrityError`; `persistence/tests/test_rls_coverage.py` muss ohne `0029_preferencevalue_rls` rot sein (Pflicht-Check, Index §e Regel 5).
+- **TDD:** neu `auth_tenancy/tests/test_preference_value_model.py`: zweite globale Zeile gleichen Schlüssels → `IntegrityError`; `scope="user"` ohne `user` → `IntegrityError`; `persistence/tests/test_rls_coverage.py` muss ohne `0030_preferencevalue_rls` rot sein (Pflicht-Check, Index §e Regel 5).
 - **DoD:** `BT auth_tenancy/tests/test_preference_value_model.py persistence/tests/test_rls_coverage.py` grün; `python manage.py makemigrations --check --dry-run` → `No changes detected`; Rückwärts-Probe `migrate auth_tenancy 0027_create_form_config` → `migrate auth_tenancy` rund.
 
 #### T-C2-2 Register und Service
@@ -394,9 +394,9 @@ Degradation: Laden fehlgeschlagen → `fallback` (= Registry-Default im Code), R
 #### T-C2-6 Lesbare IDs auf Q1 (Fassade, Backfill)
 - **Rolle:** senior-developer
 - **Mandat:** vorläufig, ENT-C5 = A (nur `show_readable_ids` wandert nach Q1).
-- **Dateien:** ändern `application/display_preference_service.py` (`show_readable_ids` lesen = `resolve_for(..., workspace_id=None)` → user > global > default; schreiben = `set_level(scope="user")`; `visible_metrics` unverändert auf der Spalte); neu `auth_tenancy/migrations/0030_backfill_show_readable_ids.py` (Index §e) (RunPython: je `UserDisplayPreference` mit `show_readable_ids=False` eine `PreferenceValue(scope="user", key="ui.ids.show_readable", value=False)`; **Rückrichtung** schreibt alle User-Werte zurück in die Spalte und löscht die Zeilen, damit ein Revert keine Nutzerwahl verliert).
+- **Dateien:** ändern `application/display_preference_service.py` (`show_readable_ids` lesen = `resolve_for(..., workspace_id=None)` → user > global > default; schreiben = `set_level(scope="user")`; `visible_metrics` unverändert auf der Spalte); neu `auth_tenancy/migrations/0031_backfill_show_readable_ids.py` (Index §e) (RunPython: je `UserDisplayPreference` mit `show_readable_ids=False` eine `PreferenceValue(scope="user", key="ui.ids.show_readable", value=False)`; **Rückrichtung** schreibt alle User-Werte zurück in die Spalte und löscht die Zeilen, damit ein Revert keine Nutzerwahl verliert).
 - **Vertrag:** `GET/PATCH /api/v1/users/me/display-preferences/` bytegleich (Form und Statuscodes, `display_preference_views.py:25-30`).
-- **TDD:** `rest_api/tests/test_display_preference_views.py` bleibt unverändert grün (Regressionsnetz); neu `auth_tenancy/tests/test_backfill_show_readable_ids.py` (Migration vor/zurück mit `MigrationExecutor` über Namen: Ziel `("auth_tenancy", "0029_preferencevalue_rls")` → `("auth_tenancy", "0030_backfill_show_readable_ids")`, keine nackten Nummern); neu in `test_preference_service.py`: globaler Wert `false` + kein User-Wert → `display-preferences` liefert `false`.
+- **TDD:** `rest_api/tests/test_display_preference_views.py` bleibt unverändert grün (Regressionsnetz); neu `auth_tenancy/tests/test_backfill_show_readable_ids.py` (Migration vor/zurück mit `MigrationExecutor` über Namen: Ziel `("auth_tenancy", "0030_preferencevalue_rls")` → `("auth_tenancy", "0031_backfill_show_readable_ids")`, keine nackten Nummern); neu in `test_preference_service.py`: globaler Wert `false` + kein User-Wert → `display-preferences` liefert `false`.
 - **DoD:** genannte Tests grün; Spalte `show_readable_ids` wird nirgends mehr gelesen (`grep -rn "\.show_readable_ids" backend --include=*.py | grep -v migrations | grep -v tests` → nur Fassaden-Kommentar).
 
 #### T-C2-7 Laden beim App-Start (#1094-Rest, Befund R1)
@@ -425,8 +425,8 @@ Degradation: Laden fehlgeschlagen → `fallback` (= Registry-Default im Code), R
 #### T-C2-9 Contract (≥ 1 Release nach T-C2-6)
 - **Rolle:** database-engineer
 - **Mandat:** vorläufig, ENT-C5 = A.
-- **Dateien:** neu `auth_tenancy/migrations/0032_drop_userdisplaypreference_show_readable_ids.py` (Index §e; RemoveField; Rückrichtung AddField default `True` + RunPython aus `PreferenceValue`), `auth_tenancy/models.py:547`. `dependencies` = zuletzt gemergte `auth_tenancy`-Migration (Standardfall `0031_user_mfa` aus Plan E; merged der Contract vor E3.1, tauschen 0031/0032 laut Index §e Regel 1).
-- **Rollback:** Revert + `python manage.py migrate auth_tenancy <name-der-vorgänger-migration>` (Standardfall `0031_user_mfa`, sonst `0030_backfill_show_readable_ids`); die Rückrichtung füllt die Spalte aus `PreferenceValue`.
+- **Dateien:** neu `auth_tenancy/migrations/0033_drop_userdisplaypreference_show_readable_ids.py` (Index §e; RemoveField; Rückrichtung AddField default `True` + RunPython aus `PreferenceValue`), `auth_tenancy/models.py:547`. `dependencies` = zuletzt gemergte `auth_tenancy`-Migration (Standardfall `0032_user_mfa` aus Plan E; merged der Contract vor E3.1, tauschen 0032/0033 laut Index §e Regel 1).
+- **Rollback:** Revert + `python manage.py migrate auth_tenancy <name-der-vorgänger-migration>` (Standardfall `0032_user_mfa`, sonst `0031_backfill_show_readable_ids`); die Rückrichtung füllt die Spalte aus `PreferenceValue`.
 - **DoD:** `BT auth_tenancy/tests rest_api/tests/test_display_preference_views.py` grün; Rückwärts-Probe wie Rollback rund.
 
 #### T-C2-10 Baum-/Formular-Konfig angleichen (nur bei ENT-C3 = B)
@@ -509,7 +509,7 @@ Degradation: Laden fehlgeschlagen → `fallback` (= Registry-Default im Code), R
 ## 5. Abhängigkeiten (v)
 
 - **Task → Task:** ENT-C6 → T-C1-1 → T-C1-2…T-C1-6 (Gate zuerst; Ratchet-Baseline Merge seriell PR-C2 → PR-C5 → PR-C12 → PR-C13). T-C2-6 (PR-C7a) → T-C2-7 (PR-C7b). T-C2-1 → T-C2-2 → {T-C2-3, T-C2-4, T-C2-6} → T-C2-5 → {T-C2-7, T-C2-8, T-C4-4}. T-C2-6 → (1 Release) → T-C2-9. ENT-C3 → T-C2-10. ENT-C1 → T-C3-1. T-C1-5 und T-C4-4 ändern beide `SidebarNavigation.*` → seriell.
-- **Plan → Plan:** Plan A T-A1-2/T-A1-4 brauchen PR-C3 (Q1-Kern, `levels_for`, `register_preference_key`); Plan A registriert die Memory-Schlüssel inkl. Workspace-Ebene (vorläufig, ENT-A5 = A). Plan G G4.3 (PR 16) nach PR-C12 (C1 vollständig); Geometrie-Token laut ENT-C6 (vorläufig B: `--btn-h-xs`). Plan E E3.1 nimmt `auth_tenancy 0031_user_mfa` nach PR-C7a (Index §e). Tool-PR PR-C4 hängt an ENT-X5. Plan G G5.2 ändert `NavigationShell.tsx` → nach PR-C1 (C0 ändert `:151-156`). Plan D/D1 übernimmt BluePencil-Hub; Plan F1 (GlossaryTerm `artifact_id`) beeinflusst T-C3-3 nicht (Test deckt beide Zustände ab).
+- **Plan → Plan:** Plan A T-A1-2/T-A1-4 brauchen PR-C3 (Q1-Kern, `levels_for`, `register_preference_key`); Plan A registriert die Memory-Schlüssel inkl. Workspace-Ebene (vorläufig, ENT-A5 = A). Plan G G4.3 (PR 16) nach PR-C12 (C1 vollständig); Geometrie-Token laut ENT-C6 (vorläufig B: `--btn-h-xs`). Plan E E3.1 nimmt `auth_tenancy 0032_user_mfa` nach PR-C7a (Index §e). Tool-PR PR-C4 hängt an ENT-X5. Plan G G5.2 ändert `NavigationShell.tsx` → nach PR-C1 (C0 ändert `:151-156`). Plan D/D1 übernimmt BluePencil-Hub; Plan F1 (GlossaryTerm `artifact_id`) beeinflusst T-C3-3 nicht (Test deckt beide Zustände ab).
 
 ---
 
@@ -526,15 +526,15 @@ Obergrenze **4 gleichzeitige Agenten über alle Pläne** (Host-RAM, Index §d; P
 | T-C1-4 | T-C1-1 | T-C1-2, T-C1-3 | `design-system-ratchet.baseline.json` (Queue), `WorkflowEditor.module.css`, `WorkspaceSettings/*.module.css` (T-C2-5 `WorkspaceSettings.tsx` nur TSX → ok) | developer | 1 |
 | T-C1-5 | T-C1-2 | T-C2-3, T-C2-4 | `design-system-ratchet.baseline.json` (Queue), `SidebarNavigation.module.css` (T-C4-4) | junior-developer | 1 |
 | T-C1-6 | T-C1-1 | alle | `design-system-ratchet.baseline.json` (Queue), `BaselinesView.tsx` (Index §d.2: C/G vor F vor B6), 3 E2E-Specs | developer | 1 |
-| T-C2-1 | – | T-C0-1, T-C1-* | **auth_tenancy `0028_preferencevalue`, `0029_preferencevalue_rls`** (Index §e), `models.py` | database-engineer | 1 |
+| T-C2-1 | – | T-C0-1, T-C1-* | **auth_tenancy `0029_preferencevalue`, `0030_preferencevalue_rls`** (Index §e), `models.py` | database-engineer | 1 |
 | T-C2-2 | T-C2-1 | T-C1-* | `preference_*.py`, `auth_tenancy/apps.py` | senior-developer | 1 |
 | T-C2-3 | T-C2-2 | T-C2-4, T-C2-6 | `rest_api/urls.py` (Queue Index §d.2), `resource_scope.py`, `openapi_warning_baseline.json` (nur Shrink, seriell) | developer | 1 |
 | T-C2-4 | T-C2-2, ENT-X5 | T-C2-3, T-C2-6 | `tool_registry.py`, `workspace_scope.py`, Manifest + Doku-Zähler (`README.md`, `MCP-SURFACE.md`, `clients/registry.yaml`, `.meta-config/project.yaml`) — globale Tool-Queue (Index §d.2) | developer | 1 |
 | T-C2-5 | T-C2-3 | T-C2-6, T-C3-* | `UserProfileSettings.tsx` (T-C4-2), `SystemSettings.tsx`, `WorkspaceSettings.tsx`, i18n | frontend-component-engineer | 1 |
-| T-C2-6 | T-C2-2 | T-C2-3, T-C2-4 | **auth_tenancy `0030_backfill_show_readable_ids`**, `display_preference_service.py` | senior-developer | 1 |
+| T-C2-6 | T-C2-2 | T-C2-3, T-C2-4 | **auth_tenancy `0031_backfill_show_readable_ids`**, `display_preference_service.py` | senior-developer | 1 |
 | T-C2-7 | T-C2-5, T-C2-6 (PR-C7a gemergt) | T-C2-8, T-C3-* | `App.tsx`, `useReadableIdsVisible.ts` | frontend-component-engineer | 1 |
 | T-C2-8 | T-C2-5 | T-C2-7, T-C3-* | `MarkdownPreview.tsx`, `MarkdownTabGroup.tsx`, i18n | frontend-component-engineer | 1 |
-| T-C2-9 | T-C2-6 + 1 Release | – | **auth_tenancy `0032_drop_userdisplaypreference_show_readable_ids`** (contract) | database-engineer | 1 |
+| T-C2-9 | T-C2-6 + 1 Release | – | **auth_tenancy `0033_drop_userdisplaypreference_show_readable_ids`** (contract) | database-engineer | 1 |
 | T-C2-10 | ENT-C3=B, T-C2-2 | T-C3-* | `tree_display_config_service.py`, `create_form_config_service.py`, `tool_registry.py` (T-C2-4 → seriell) | senior-developer | 1 |
 | T-C3-1 | ENT-C1 | T-C3-2, T-C3-3 | `TestCaseEditors.tsx` | developer | 1 |
 | T-C3-2 | – | T-C3-1, T-C3-3 | `ArtifactDiff.tsx`, `VersionPanel.tsx`, i18n | developer | 1 |
@@ -555,10 +555,10 @@ graph LR
   C11 --> C16[T-C1-6 baselines]
   EC6((ENT-C6)) --> C11
   EX5((ENT-X5)) --> C24
-  C21[T-C2-1 mig 0028/29] --> C22[T-C2-2 registry+service]
+  C21[T-C2-1 mig 0029/30] --> C22[T-C2-2 registry+service]
   C22 --> C23[T-C2-3 REST] --> C25[T-C2-5 section UI]
   C22 --> C24[T-C2-4 MCP]
-  C22 --> C26[T-C2-6 ids facade mig 0030] -.Release.-> C29[T-C2-9 mig 0032]
+  C22 --> C26[T-C2-6 ids facade mig 0031] -.Release.-> C29[T-C2-9 mig 0033]
   C25 --> C27[T-C2-7 hydrator]
   C26 --> C27
   C25 --> C28[T-C2-8 markdown]
@@ -574,7 +574,7 @@ graph LR
   C15 --> G43((Plan G G4.3 PR 16))
 ```
 
-**Migrationskette `auth_tenancy` (seriell, Index §e):** `0027_create_form_config` → `0028_preferencevalue` → `0029_preferencevalue_rls` (PR-C3, W1) → `0030_backfill_show_readable_ids` (PR-C7a, W2) → `0031_user_mfa` (Plan E P3-2, W3) → (≥ 1 Release nach 0030) `0032_drop_userdisplaypreference_show_readable_ids` (PR-C16; merged der Contract vor E3.1, tauschen 0031/0032).
+**Migrationskette `auth_tenancy` (seriell, Index §e):** `0027_create_form_config` → `0029_preferencevalue` → `0030_preferencevalue_rls` (PR-C3, W1) → `0031_backfill_show_readable_ids` (PR-C7a, W2) → `0032_user_mfa` (Plan E P3-2, W3) → (≥ 1 Release nach 0031) `0033_drop_userdisplaypreference_show_readable_ids` (PR-C16; merged der Contract vor E3.1, tauschen 0032/0033).
 
 ---
 
@@ -615,7 +615,7 @@ Alle PRs gegen `main` (Branch von `origin/main`), grün auf den realen CI-Jobs a
 | PR | Branch | Titel | Tasks | Reihenf. | grün auf | Rollback | Größe | Reviewer |
 |---|---|---|---|---|---|---|---|---|
 | PR-C6 | `feat/q1-preference-settings-ui` | `feat(ui): generic preference section on three levels` | T-C2-5 | 1 | lint, frontend-test | Revert | ~400 | code-reviewer, ui-reviewer |
-| PR-C7a | `feat/1094-readable-ids-preference-backend` | `feat(prefs): serve readable-id visibility from preference service` | T-C2-6 (Fassade, Migration `0030_backfill_show_readable_ids`) | 2 | backend-test set-1-core, set-2-api | Revert + `migrate auth_tenancy 0029_preferencevalue_rls` (Rückrichtung von 0030 schreibt Werte zurück in die Spalte) | ~150 | code-reviewer, database-engineer |
+| PR-C7a | `feat/1094-readable-ids-preference-backend` | `feat(prefs): serve readable-id visibility from preference service` | T-C2-6 (Fassade, Migration `0031_backfill_show_readable_ids`) | 2 | backend-test set-1-core, set-2-api | Revert + `migrate auth_tenancy 0030_preferencevalue_rls` (Rückrichtung von 0031 schreibt Werte zurück in die Spalte) | ~150 | code-reviewer, database-engineer |
 | PR-C7b | `feat/1094-readable-ids-hydrate-on-start` | `feat(ui): hydrate readable-id visibility on app start` | T-C2-7 (Hydrator) | nach PR-C7a | lint, frontend-test, e2e | Revert | ~150 | code-reviewer |
 | PR-C8 | `feat/1287-markdown-toolbar` | `feat(editor): optional markdown formatting toolbar` | T-C2-8 | 2 (parallel PR-C7a/b) | lint, frontend-test, e2e | Revert | ~450 (> Richtwert; über 600 → `markdown-format.ts` + Tests vorab abtrennen) | code-reviewer, ui-reviewer |
 | PR-C9 | `fix/801-inspector-i18n-a11y` | `fix(ui): translate diff panel and name inspector buttons` | T-C3-2, T-C3-3 | parallel | lint, frontend-test | Revert | ~250 | code-reviewer, accessibility-specialist |
@@ -629,7 +629,7 @@ Alle PRs gegen `main` (Branch von `origin/main`), grün auf den realen CI-Jobs a
 ### P4 — Contract (release-gebunden, Index §b)
 | PR | Branch | Titel | Tasks | Eintritt | grün auf | Rollback | Reviewer |
 |---|---|---|---|---|---|---|---|
-| PR-C16 | `chore/drop-show-readable-ids-column` | `chore(prefs): drop legacy show_readable_ids column` | T-C2-9 (`0032_drop_userdisplaypreference_show_readable_ids`) | ein Release mit PR-C7a ausgeliefert | backend-test set-1-core, set-2-api | Revert + `migrate auth_tenancy <name-der-vorgänger-migration>` (Standardfall `0031_user_mfa`; Rückrichtung füllt die Spalte aus `PreferenceValue`) | code-reviewer, database-engineer |
+| PR-C16 | `chore/drop-show-readable-ids-column` | `chore(prefs): drop legacy show_readable_ids column` | T-C2-9 (`0033_drop_userdisplaypreference_show_readable_ids`) | ein Release mit PR-C7a ausgeliefert | backend-test set-1-core, set-2-api | Revert + `migrate auth_tenancy <name-der-vorgänger-migration>` (Standardfall `0032_user_mfa`; Rückrichtung füllt die Spalte aus `PreferenceValue`) | code-reviewer, database-engineer |
 
 ---
 
@@ -642,7 +642,7 @@ Alle PRs gegen `main` (Branch von `origin/main`), grün auf den realen CI-Jobs a
 | Q1 Lesen (Frontend) | – | Effective-GET schlägt fehl → Registry-Default im Code; lesbare IDs aus localStorage-Cache; nie Render-Block |
 | Q1 Lesen (Plan A) | – | `levels_for` wirft → Plan A setzt `policy_unavailable` (keine Injektion, fail-safe) |
 | Q1 Schreiben | – | 4xx sichtbar im Abschnitt `preference-error`; optimistische Werte werden zurückgerollt |
-| `display-preferences` | – | Vertrag unverändert; Revert von PR-C7a + `migrate auth_tenancy 0029_preferencevalue_rls` (Rückrichtung von `0030_backfill_show_readable_ids`) schreibt Werte in die Spalte |
+| `display-preferences` | – | Vertrag unverändert; Revert von PR-C7a + `migrate auth_tenancy 0030_preferencevalue_rls` (Rückrichtung von `0031_backfill_show_readable_ids`) schreibt Werte in die Spalte |
 | Markdown-Leiste | Q1 `ui.markdown.toolbar` (Default `auto`) | Preference nicht geladen → `auto` |
 | Sidebar-Gruppen | Q1 `ui.sidebar.collapsed_groups` (Default `[]`) | nichts eingeklappt = heutiges Verhalten |
 
@@ -652,7 +652,7 @@ Alle PRs gegen `main` (Branch von `origin/main`), grün auf den realen CI-Jobs a
 
 | Risiko | Gegenmaßnahme |
 |---|---|
-| Migrationsblätter `auth_tenancy` (C `0028`–`0030`, Plan E `0031_user_mfa`, Contract `0032`) | Vergabe und Reihenfolge laut Index §e; Rebase-Schritt vor Merge (`ls backend/auth_tenancy/migrations \| tail -1`, Nummer = max+1, `dependencies` auf zuletzt gemergte); `makemigrations --check` im PR |
+| Migrationsblätter `auth_tenancy` (C `0029`–`0031`, Plan E `0032_user_mfa`, Contract `0033`) | Vergabe und Reihenfolge laut Index §e; Rebase-Schritt vor Merge (`ls backend/auth_tenancy/migrations \| tail -1`, Nummer = max+1, `dependencies` auf zuletzt gemergte); `makemigrations --check` im PR |
 | Button-Gate C1 macht Plan G G4.3 (24-px-Icon-Buttons) rot | Höhenskala mit `--btn-h-xs` (vorläufig, ENT-C6 = B), E2E zählt Icon-Buttons gesondert; PR-C2 merged erst nach ENT-C6 |
 | Ratchet-Baseline-Konflikte zwischen C1-PRs | Merge seriell PR-C2 → PR-C5 → PR-C12 → PR-C13 → G PR 16; jeder PR rebased und senkt nur |
 | Fremder Tenant bleibt nach `levels_for`/`resolve_for` im Thread (Celery) | Kontextmanager mit Wiederherstellung im `finally` (T-C2-2-Tests) |
@@ -717,12 +717,12 @@ Maßgeblich ist die [Entscheidungsliste](2026-10-21-entscheidungen-offen.md); di
 | R12 | niedrig | 18 `known` in `SystemSettings/*` | `/system-settings`-Wildwuchs (#1258-Anker) | T-C1-3 |
 | R13 | niedrig | C-L20 | Theme-Toggle weiß nach Klick | T-C1-5 |
 | R14 | niedrig | `BaselinesView.tsx:353-359` | Anlegen nur im Overflow (#1405 R1-04) | T-C1-6 |
-| R15 | niedrig | `auth_tenancy` 0027 + Plan E | Zwei Migrationsblätter möglich | T-C2-1 Migrationsregel; Vergabe Index §e (C `0028`–`0030`, E `0031_user_mfa`) |
+| R15 | niedrig | `auth_tenancy` 0027 + Plan E | Zwei Migrationsblätter möglich | T-C2-1 Migrationsregel; Vergabe Index §e (C `0029`–`0031`, E `0032_user_mfa`) |
 | R16 | niedrig | `TracePanel.tsx:342-352`, C-L9 | Unbeschrifteter Button | T-C3-3 |
 | R17 | niedrig | `UserProfileSettings.tsx:27-34` | Englische Typnamen | T-C4-2 |
 | R18 | niedrig | `ReviewsView.tsx:1065-1068` | Leerzustand falscher Typ | T-C4-3 |
 | R19 | niedrig | C-L6 | 16 von 27 Links unter der Falz | T-C4-4 |
-| R20 | info | Fassade `display_preference_service.py` | Revert nach Q1-Schreiben verlöre Nutzerwahl | `0030_backfill_show_readable_ids` mit Rückschreib-Rückrichtung (T-C2-6) |
+| R20 | info | Fassade `display_preference_service.py` | Revert nach Q1-Schreiben verlöre Nutzerwahl | `0031_backfill_show_readable_ids` mit Rückschreib-Rückrichtung (T-C2-6) |
 
 **Querreview-Befunde (Stufe 2)** — korrigiert in Stufe 2 über die genannten Korrekturaufträge:
 
@@ -775,12 +775,12 @@ Dieser Plan legt an (Nummer = höchste Nummer der App auf `main` + 1 beim Merge;
 
 | App | Name (Index §e) | Task / PR | Welle | Art | Rollback-Ziel (Name) |
 |---|---|---|---|---|---|
-| auth_tenancy | `0028_preferencevalue` | T-C2-1 / PR-C3 | 1 | expand (CreateModel) | `0027_create_form_config` |
-| auth_tenancy | `0029_preferencevalue_rls` | T-C2-1 / PR-C3 | 1 | RunSQL (reversibel), mit 0028 | `0027_create_form_config` |
-| auth_tenancy | `0030_backfill_show_readable_ids` | T-C2-6 / PR-C7a | 2 | data (RunPython, beidseitig) | `0029_preferencevalue_rls` |
-| auth_tenancy | `0032_drop_userdisplaypreference_show_readable_ids` | T-C2-9 / PR-C16 | release-gebunden | contract (≥ 1 Release nach 0030) | Vorgänger beim Merge (Standardfall `0031_user_mfa`) |
+| auth_tenancy | `0029_preferencevalue` | T-C2-1 / PR-C3 | 1 | expand (CreateModel) | `0027_create_form_config` |
+| auth_tenancy | `0030_preferencevalue_rls` | T-C2-1 / PR-C3 | 1 | RunSQL (reversibel), mit 0029 | `0027_create_form_config` |
+| auth_tenancy | `0031_backfill_show_readable_ids` | T-C2-6 / PR-C7a | 2 | data (RunPython, beidseitig) | `0030_preferencevalue_rls` |
+| auth_tenancy | `0033_drop_userdisplaypreference_show_readable_ids` | T-C2-9 / PR-C16 | release-gebunden | contract (≥ 1 Release nach 0031) | Vorgänger beim Merge (Standardfall `0032_user_mfa`) |
 
-`0031_user_mfa` gehört Plan E (E3.1, Welle 3, nach PR-C7a). Merged der Contract vor E3.1, tauschen 0031/0032 (Index §e Regel 1). Keine `persistence`-Migration; die frühere Puffer-Reservierung ist ersatzlos gestrichen.
+`0032_user_mfa` gehört Plan E (E3.1, Welle 3, nach PR-C7a). Merged der Contract vor E3.1, tauschen 0032/0033 (Index §e Regel 1). Keine `persistence`-Migration; die frühere Puffer-Reservierung ist ersatzlos gestrichen.
 
 ---
 
@@ -801,7 +801,7 @@ Integration der [Korrekturaufträge](2026-10-21-korrekturauftraege.md) (Abschnit
 | KA-ALL-09 | §7 Vorspann | erledigt | |
 | KA-ALL-10 | §4, T-C2-3 | erledigt | Q1 hat keine paginierten Listen; Sortierung nach Schlüssel |
 | KA-ALL-11 | T-C2-5, T-C2-7, T-C2-8, T-C4-4, §6, T-C1-1, §11 | erledigt | `se-architect`/`se-critic`/`ux-designer` kamen in Plan C nicht vor |
-| KA-C-01 | Kopf, T-C2-1, T-C2-6, T-C2-9, §6, §9, §12 R15, §14 | erledigt | 0028/0029/0030/0032 |
+| KA-C-01 | Kopf, T-C2-1, T-C2-6, T-C2-9, §6, §9, §12 R15, §14 | erledigt | 0029/0030/0031/0033 |
 | KA-C-02 | PR-C3, PR-C7a, PR-C16, T-C2-1, T-C2-9 | erledigt | |
 | KA-C-03 | T-C2-4, §9 | erledigt | |
 | KA-C-04 | Q1-Berechtigungen | erledigt | `auth_tenancy/services/authorization.py:116,128` geprüft |
