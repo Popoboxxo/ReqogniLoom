@@ -39,6 +39,30 @@ truth:
 ``expect_uid`` row landed at position 1. It makes the T-A3-2 exact-match pin
 visible — a pin regression shows up as rank-1 dropping while recall stays put.
 
+``hybrid >= vector`` (CR-02)
+----------------------------
+The T-A3-4 recall clause has two halves. The per-query one — ``hybrid >=
+keyword`` on the ``id`` subset — is a CI gate
+(``application/tests/test_search_recall.py``). The overall one — ``hybrid >=
+vector`` — is measured **here**, not in CI: CI runs the ``mock`` embedding
+provider, where ``vector`` returns deterministic noise and ``hybrid`` is that
+same noise plus the lexical list. An assertion on those two numbers would
+compare two mock artefacts and hold by construction — a vacuous green that
+looks like coverage. Against a real embedding provider the comparison is
+meaningful, so every run prints a ``hybrid >= vector`` line per subset, and
+``--json`` carries the same verdict as ``hybrid_ge_vector`` next to
+``hybrid_recall`` / ``vector_recall``.
+
+Per subset, not globally: ``satisfied/evaluated`` is not comparable across
+subsets (``id`` is true recall, ``id_negative`` counts correctly-empty results,
+``synonym``/``thematic`` are hit-rates), so a single aggregate percentage would
+mix three different metrics into one number.
+
+``hybrid_ge_vector`` is ``null`` — not ``false`` — when the comparison cannot be
+made: one of the two modes was not requested via ``--modes``, or the subset had
+nothing to evaluate (e.g. an unseeded workspace, where every ``expect_uid`` is
+``unresolved``). A verdict needs a measurement on both sides.
+
 An ``expect_uid`` that does not exist in the target workspace is counted as
 ``unresolved`` and reported separately. It is not a failure: a report run
 against a workspace that was never seeded with the recall corpus legitimately
@@ -175,6 +199,28 @@ class SubsetScore:
         if self.subset in _GROUND_TRUTH_KINDS:
             return ""
         return " (Trefferquote)"
+
+    @property
+    def recall(self) -> float | None:
+        """``satisfied / evaluated``, or ``None`` when nothing was evaluated.
+
+        ``None`` is not a zero score: a subset with no evaluated query (an
+        unseeded workspace, a mode that failed on every query) carries no
+        measurement at all, and reporting it as 0 % would invent one.
+        """
+        if self.evaluated == 0:
+            return None
+        return self.satisfied / self.evaluated
+
+    def recall_at_least(self, other: "SubsetScore") -> bool | None:
+        """``self.recall >= other.recall``, or ``None`` if either is unmeasured.
+
+        Compares the fractions cross-multiplied so the verdict cannot flip on
+        floating-point rounding (e.g. two thirds vs two thirds).
+        """
+        if self.evaluated == 0 or other.evaluated == 0:
+            return None
+        return self.satisfied * other.evaluated >= other.satisfied * self.evaluated
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -351,6 +397,20 @@ class Command(BaseCommand):
         roles = AuthorizationService().active_roles_for(
             user_id=user.id, workspace_id=workspace.id
         )
+        if not roles:
+            # CR-06: an empty role set is a legitimate run (the report still
+            # measures retrieval), but it is *not* the same report a workspace
+            # member would get — permission-scoped hits are filtered by the
+            # caller's roles. Warn instead of silently emitting an identical
+            # looking number, so nobody reads it as "as a viewer/admin".
+            self.stderr.write(
+                self.style.WARNING(
+                    f"warning: user {user.id} holds no active role in workspace "
+                    f"{workspace.id}; the report runs with an empty role set and "
+                    "is not representative of a workspace member. Pass --user "
+                    "<uuid> with a member that holds a role."
+                )
+            )
         claims = IdentityClaims(
             user_id=user.id,
             tenant_id=workspace.tenant_id,
@@ -371,7 +431,13 @@ class Command(BaseCommand):
 
     @staticmethod
     def _default_user(tenant_id: UUID):
-        """First non-suspended tenant admin, else the first user of the tenant."""
+        """First non-suspended tenant admin, else the first user of the tenant.
+
+        Both branches are ordered explicitly (CR-06): an unordered
+        ``.first()`` lets the database pick whichever row it likes, so two runs
+        against the same data could build different AuthContexts — and with
+        different roles, different numbers — from identical input.
+        """
         from auth_tenancy.models import TenantRole
         from persistence.models import User
 
@@ -382,13 +448,14 @@ class Command(BaseCommand):
                 suspended_at__isnull=True,
             )
             .select_related("user")
+            .order_by("user__username", "user_id")
             .first()
         )
         if admin is not None and admin.user is not None and admin.user.is_active:
             return admin.user
         return (
             User.objects.filter(tenant_id=tenant_id, is_active=True)
-            .order_by("username")
+            .order_by("username", "id")
             .first()
         )
 
@@ -486,10 +553,53 @@ class Command(BaseCommand):
 
         return {
             "modes": per_mode,
+            "comparison": self._compare_hybrid_with_vector(per_mode),
             "unresolved": unresolved,
             "dataset": document.get("dataset"),
             "query_count": len(queries),
         }
+
+    @staticmethod
+    def _compare_hybrid_with_vector(
+        per_mode: dict[str, dict[str, SubsetScore]],
+    ) -> dict[str, dict[str, Any]]:
+        """Compute the ``hybrid >= vector`` verdict per subset (CR-02).
+
+        Only a *verdict* is returned, never a failure: the T-A3-4 clause is a
+        quality statement about a real embedding provider, and this command is
+        the surface that reports it (see the module docstring for why it is not
+        a CI gate under the ``mock`` provider).
+
+        Args:
+            per_mode: Measured subsets, keyed by mode.
+
+        Returns:
+            One entry per subset with ``hybrid_recall`` / ``vector_recall``
+            (fractions or ``None``), their counts, and ``hybrid_ge_vector``
+            (``True``/``False``/``None`` when unmeasurable).
+        """
+        hybrid_scores = per_mode.get("hybrid")
+        vector_scores = per_mode.get("vector")
+        comparison: dict[str, dict[str, Any]] = {}
+        for kind in QUERY_KINDS:
+            hybrid = hybrid_scores[kind] if hybrid_scores else None
+            vector = vector_scores[kind] if vector_scores else None
+            verdict = (
+                hybrid.recall_at_least(vector)
+                if hybrid is not None and vector is not None
+                else None
+            )
+            comparison[kind] = {
+                "subset": kind,
+                "hybrid_recall": hybrid.recall if hybrid else None,
+                "vector_recall": vector.recall if vector else None,
+                "hybrid_satisfied": hybrid.satisfied if hybrid else None,
+                "hybrid_evaluated": hybrid.evaluated if hybrid else None,
+                "vector_satisfied": vector.satisfied if vector else None,
+                "vector_evaluated": vector.evaluated if vector else None,
+                "hybrid_ge_vector": verdict,
+            }
+        return comparison
 
     # -- output -------------------------------------------------------------
 
@@ -507,7 +617,9 @@ class Command(BaseCommand):
         )
         for mode, scores in report["modes"].items():
             self.stdout.write(f"## mode: {mode}\n")
-            self.stdout.write("| Subset | recall@10 | Rang-1-Treffer | n |")
+            self.stdout.write(
+                f"| Subset | recall@{limit} | Rang-1-Treffer | n |"
+            )
             self.stdout.write("|--------|-----------|----------------|----|")
             for kind in QUERY_KINDS:
                 score: SubsetScore = scores[kind]
@@ -528,6 +640,8 @@ class Command(BaseCommand):
                     )
             self.stdout.write("")
 
+        self._write_comparison(report["comparison"], limit=limit)
+
         unresolved = report["unresolved"]
         self.stdout.write(
             f"unresolved expect_uid (not present in this workspace): "
@@ -536,10 +650,49 @@ class Command(BaseCommand):
         for uid in unresolved:
             self.stdout.write(f"  - {uid}")
         self.stdout.write(
-            "\nrecall@10 is subset-specific: 'id' is true recall, "
+            f"\nrecall@{limit} is subset-specific: 'id' is true recall, "
             "'id_negative' counts correctly-empty results, "
             "'synonym'/'thematic' report a hit-rate (no ground truth)."
         )
+
+    def _write_comparison(
+        self, comparison: dict[str, dict[str, Any]], *, limit: int
+    ) -> None:
+        """Print the per-subset ``hybrid >= vector`` verdict (CR-02)."""
+        self.stdout.write("## hybrid vs vector (T-A3-4 recall clause)\n")
+        self.stdout.write(
+            f"| Subset | hybrid recall@{limit} | vector recall@{limit} "
+            "| hybrid >= vector |"
+        )
+        self.stdout.write("|--------|------------------|------------------|------------------|")
+        unmeasured: list[str] = []
+        for kind in QUERY_KINDS:
+            row = comparison[kind]
+            verdict = row["hybrid_ge_vector"]
+            if verdict is None:
+                unmeasured.append(kind)
+                badge = "—"
+            else:
+                badge = "yes" if verdict else "NO"
+            self.stdout.write(
+                f"| {kind} | {self._ratio(row['hybrid_satisfied'], row['hybrid_evaluated'])} "
+                f"| {self._ratio(row['vector_satisfied'], row['vector_evaluated'])} "
+                f"| {badge} |"
+            )
+        if unmeasured:
+            self.stdout.write(
+                f"\nnot measured for: {', '.join(unmeasured)} — the verdict needs "
+                "both the 'hybrid' and 'vector' mode (--modes hybrid,vector) and at "
+                "least one evaluated query per subset."
+            )
+        self.stdout.write("")
+
+    @staticmethod
+    def _ratio(satisfied: int | None, evaluated: int | None) -> str:
+        """Render a measured fraction as ``satisfied/evaluated``, else ``—``."""
+        if satisfied is None or not evaluated:
+            return "—"
+        return f"{satisfied}/{evaluated}"
 
     def _write_json(
         self, *, report: dict[str, Any], workspace_id: UUID, fixture: str, limit: int
@@ -563,6 +716,10 @@ class Command(BaseCommand):
                 }
                 for mode, scores in report["modes"].items()
             },
+            # CR-02: the T-A3-4 "hybrid >= vector" clause, per subset. Kept as
+            # its own block rather than folded into ``modes`` because the
+            # verdict spans two modes.
+            "hybrid_vs_vector": report["comparison"],
             "unresolved": report["unresolved"],
         }
         self.stdout.write(json.dumps(payload, indent=2, sort_keys=True))

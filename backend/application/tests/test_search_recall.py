@@ -21,6 +21,20 @@ measure the mock, not the search. The gate therefore covers only
 are measured by ``manage.py search_recall_report`` against a real embedding
 provider; the command reads the same YAML, so both surfaces stay in sync.
 
+WHY ``hybrid >= vector`` IS NOT ASSERTED HERE (CR-02)
+-----------------------------------------------------
+The T-A3-4 recall clause has two halves: per ID query ``hybrid >= keyword``,
+and overall ``hybrid >= vector``. Only the first half is a CI gate. The second
+is deliberately a *report* number, for the same reason the synonym/thematic
+subsets are: under the ``mock`` embedding provider ``vector`` returns
+deterministic noise while ``hybrid`` is that same noise plus the lexical list,
+so a CI assertion would compare two mock artefacts against each other and hold
+by construction. That is a vacuous green — worse than no assertion, because it
+reads like coverage. ``search_recall_report`` therefore computes the
+``hybrid >= vector`` comparison per subset (Markdown table and the
+``hybrid_ge_vector`` JSON field) and is run against a real embedding provider,
+where the comparison has meaning.
+
 WHY THE TEST BUILDS ITS OWN CORPUS
 ----------------------------------
 Per the issue, the gate must be hermetic — it may not depend on ``seed_demo``
@@ -32,8 +46,19 @@ created here by the test through the shared factories: the YAML stays the
 single source of truth for both the gate and the report command, and the
 dataset a report run sees is the dataset the gate asserts on.
 
-Datasets are small on purpose (6 expected rows + 4 decoys in one workspace):
-the gate's job is to catch a ranking regression, not to benchmark throughput.
+WHY THE CORPUS IS LARGER THAN THE RECALL WINDOW (CR-01)
+-------------------------------------------------------
+The dataset stays small in absolute terms — the gate's job is to catch a
+ranking regression, not to benchmark throughput — but it is deliberately
+**larger than the window**: :data:`CORPUS_SIZE` rows against ``LIMIT = 10``. A
+corpus at or below the window makes ``recall@10`` structurally unfalsifiable:
+all expected rows fit into the first ten slots however badly the ranking
+behaves, ``keyword`` recall is 100 % by construction, and ``hybrid >= keyword``
+cannot fail. The decoys are realistic sibling requirements whose UIDs can never
+collide with an ``expect_uid``, so an expected row has to *win* a slot instead
+of merely being present. :class:`TestCorpusShape` pins that ratio so a future
+"let's shrink the fixture" edit cannot quietly restore the unfalsifiable
+window.
 """
 from __future__ import annotations
 
@@ -48,9 +73,12 @@ from django.core.management.base import CommandError
 from application.management.commands.search_recall_report import (
     DEFAULT_FIXTURE,
     QUERY_KINDS,
+    Command,
+    SubsetScore,
     load_recall_set,
 )
 from application.search_service import SearchService
+from audit.models import AuditEntry
 from llm_adapter.embedding_service import (
     generate_embedding_with_model,
     get_embedding_text,
@@ -61,6 +89,7 @@ from persistence.tests.factories import (
     active_tenant,
     editor_ctx,
     make_requirement,
+    make_user,
     make_workspace,
 )
 
@@ -127,8 +156,12 @@ _EXPECTED_REQUIREMENTS: tuple[dict[str, str], ...] = (
 )
 
 #: Noise rows: realistic sibling wording that must never be mistaken for one of
-#: the expected UIDs. They also keep the corpus from being a 1-row workspace,
-#: where any ranking bug would still trivially return rank 1.
+#: the expected UIDs. They also make the corpus larger than the recall window
+#: (CR-01): with only as many rows as the window, ``recall@10`` is satisfied by
+#: every expected row simply being present and the gate can never go red. The
+#: UIDs above are chosen so no decoy UID contains an ``expect_uid`` as a
+#: substring — the lexical pass matches on ``LIKE %uid%``, so an overlapping
+#: UID would put a second candidate into every ID query's result list.
 _DECOY_REQUIREMENTS: tuple[dict[str, str], ...] = (
     {
         "title": "Anforderung an die Protokollierung",
@@ -146,7 +179,103 @@ _DECOY_REQUIREMENTS: tuple[dict[str, str], ...] = (
         "title": "Export nach ReqIF",
         "description": "Der Export schreibt ReqIF 1.2 inklusive aller Trace-Links.",
     },
+    {
+        "uid": "REQ-L1-002",
+        "title": "Mandantentrennung in der Datenbank",
+        "description": (
+            "Jede Abfrage ist auf den aktiven Mandanten eingeschränkt; "
+            "Row-Level-Security erzwingt die Grenze in der Datenbank selbst."
+        ),
+    },
+    {
+        "uid": "REQ-L1-003",
+        "title": "Barrierefreie Eingabemasken",
+        "description": (
+            "Alle Felder tragen ein Label und sind ohne Zeigegerät erreichbar "
+            "(WCAG 2.1 AA)."
+        ),
+    },
+    {
+        "uid": "REQ-L1-005",
+        "title": "Rücknahme eines abgebrochenen Imports",
+        "description": (
+            "Ein fehlgeschlagener Bulk-Import hinterlässt keine halb "
+            "geschriebenen Datensätze."
+        ),
+    },
+    {
+        "uid": "REQ-L2-005",
+        "title": "Wiederholung fehlgeschlagener Hintergrundjobs",
+        "description": (
+            "Ein Job wird dreimal mit wachsender Wartezeit wiederholt, bevor "
+            "er als gescheitert gilt."
+        ),
+    },
+    {
+        "uid": "REQ-L2-011",
+        "title": "Aufbewahrungsfrist für Protokolleinträge",
+        "description": (
+            "Einträge bleiben zwölf Monate lesbar und werden danach "
+            "monatsweise archiviert."
+        ),
+    },
+    {
+        "uid": "REQ-L2-012",
+        "title": "Umschaltung der Oberflächensprache",
+        "description": (
+            "Die Oberfläche wechselt zwischen Deutsch und Englisch, ohne die "
+            "Sitzung zu verlieren."
+        ),
+    },
+    {
+        "uid": "REQ-L2-013",
+        "title": "Sichtbarkeit einzelner Artefakte",
+        "description": (
+            "Eine Regel pro Nutzer und Artefakt entscheidet über Lesen und "
+            "Schreiben."
+        ),
+    },
+    {
+        "uid": "REQ-L3-007",
+        "title": "Veröffentlichtes Schema der Anbindung",
+        "description": (
+            "Das OpenAPI-Dokument wird bei jedem Build erzeugt und bleibt "
+            "abwärtskompatibel."
+        ),
+    },
+    {
+        "uid": "REQ-L3-030",
+        "title": "Begriffsglossar je Arbeitsbereich",
+        "description": (
+            "Fachbegriffe werden mit Definition und Synonymen zentral gepflegt "
+            "und in der Suche aufgelöst."
+        ),
+    },
+    {
+        "uid": "REQ-L3-031",
+        "title": "Versionierte Diagramme",
+        "description": (
+            "Jede Änderung an einem Diagramm erzeugt eine neue, unveränderliche "
+            "Version."
+        ),
+    },
+    {
+        "uid": "REQ-L4-005",
+        "title": "Bedienung ohne Zeigegerät",
+        "description": "Alle Aktionen der Seitenleiste haben ein Tastenkürzel.",
+    },
+    {
+        "uid": "REQ-L4-009",
+        "title": "Kontrast der Statusfarben",
+        "description": (
+            "Statusfarben erreichen ein Kontrastverhältnis von mindestens 4.5:1."
+        ),
+    },
 )
+
+#: Every row the test creates. Must stay strictly larger than :data:`LIMIT` —
+#: see the module docstring (CR-01); :class:`TestCorpusShape` enforces it.
+CORPUS_SIZE = len(_EXPECTED_REQUIREMENTS) + len(_DECOY_REQUIREMENTS)
 
 
 # ---------- helpers ----------
@@ -158,6 +287,12 @@ def _load_fixture() -> dict[str, Any]:
 
 def _seed_corpus(workspace) -> dict[str, str]:
     """Create the recall corpus in *workspace*; return ``{uid: requirement id}``.
+
+    The mapping covers every corpus row that carries a ``uid`` — expected rows
+    *and* the UID-bearing decoys. Callers that need the expectation contract
+    must therefore intersect with the fixture's ``expect_uid`` values rather
+    than compare the mapping for equality (a decoy must never be able to
+    satisfy an ID query by sharing a UID).
 
     Embeddings are written the way production writes them
     (``get_embedding_text`` + ``generate_embedding_with_model`` + a bare
@@ -249,6 +384,49 @@ class TestRecallSetStructure:
             load_recall_set(broken)
 
 
+# ---------- corpus shape (no DB) ----------
+
+
+class TestCorpusShape:
+    """CR-01: a corpus at/below the window makes ``recall@10`` unfalsifiable.
+
+    The corpus is 22 rows (6 expected + 16 decoys) against a window of 10; the
+    invariant is the *relation*, not the number, so the fixture may grow but
+    never shrink back to the window.
+    """
+
+    def test_corpus_is_larger_than_the_recall_window(self):
+        assert CORPUS_SIZE > LIMIT, (
+            f"corpus has {CORPUS_SIZE} rows for a recall window of {LIMIT}: "
+            "every expected row fits into the window by construction, so "
+            "recall@10 can never drop and 'hybrid >= keyword' can never fail. "
+            "Add decoys instead of shrinking the corpus."
+        )
+
+    def test_no_decoy_uid_can_impersonate_an_expected_uid(self):
+        expected = {row["uid"] for row in _EXPECTED_REQUIREMENTS}
+        decoy_uids = {
+            row["uid"] for row in _DECOY_REQUIREMENTS if "uid" in row
+        }
+
+        assert expected.isdisjoint(decoy_uids), (
+            "a decoy repeats an expect_uid: "
+            f"{sorted(expected & decoy_uids)}"
+        )
+        # The lexical pass matches ``uid LIKE %query%``, so a decoy UID that
+        # *contains* an expected UID adds a second exact-tier candidate to that
+        # query and makes the rank-1 assertion ambiguous rather than strict.
+        overlapping = {
+            (expected_uid, decoy_uid)
+            for expected_uid in expected
+            for decoy_uid in decoy_uids
+            if expected_uid.lower() in decoy_uid.lower()
+        }
+        assert not overlapping, (
+            f"decoy UIDs contain an expect_uid as a substring: {sorted(overlapping)}"
+        )
+
+
 # ---------- CI gate: ID subset ----------
 
 
@@ -259,20 +437,34 @@ class TestIdRecallGate:
     def test_hybrid_recall_is_at_least_keyword_recall_on_the_id_subset(
         self, monkeypatch
     ):
+        """``hybrid >= keyword`` is only meaningful with a corpus > window.
+
+        Every expected row has to *win* one of the ``LIMIT`` slots against
+        :data:`CORPUS_SIZE` candidates; see the module docstring (CR-01).
+        """
         monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
         fixture = _load_fixture()
         expected_queries = _id_queries(fixture)
+        expected_uids = {entry["expect_uid"] for entry in expected_queries}
 
         with active_tenant() as tenant:
             workspace = make_workspace(tenant)
             resolved = _seed_corpus(workspace)
             ctx = editor_ctx(tenant, workspace)
 
-            # Fixture and corpus must not drift apart: a UID in the YAML that
-            # the corpus does not create would silently score as a miss.
-            assert sorted(resolved) == sorted(
-                entry["expect_uid"] for entry in expected_queries
-            )
+            # Fixture and corpus must not drift apart: an ``expect_uid`` the
+            # corpus does not create would silently score as a miss. Decoys
+            # carry UIDs too, so this is a subset check, not an equality check
+            # (an equality check would forbid every UID-bearing decoy).
+            assert expected_uids <= set(resolved)
+            # The unfalsifiable-window guard, measured on the real database
+            # rather than only on the module constants: the corpus must be
+            # bigger than the window the searches below use.
+            corpus_rows = Requirement.objects.filter(
+                artifact__workspace_id=workspace.id
+            ).count()
+            assert corpus_rows == CORPUS_SIZE
+            assert corpus_rows > LIMIT
 
             recall: dict[str, int] = {}
             rank_one: dict[str, int] = {}
@@ -321,12 +513,19 @@ class TestIdRecallGate:
         )
 
     def test_hybrid_pins_an_exact_uid_at_score_one(self, monkeypatch):
-        """The pin's observable contract: rank 1 *and* ``relevance_score == 1.0``.
+        """The pin's observable contract: rank 1, ``pinned`` *and* score 1.0.
 
-        This is the gate's pin-sensitive assertion: with the pin disabled
-        (``_PIN_MIN_NORMALIZED_LEXICAL_SCORE`` raised above the exact-UID tier)
-        the same hit stays at rank 1 but scores ~0.65 — the RRF value, not the
-        pinned one. A rank-1-only check would therefore not notice the
+        ``relevance_score == 1.0`` alone does not prove the pin: with three
+        ranked lists the RRF maximum is ``3 / (_RRF_K + 1) == 3/61``, which
+        normalises to 1.0 for any hit that is rank 0 in all three lists — an
+        unpinned hit can reach the same number. ``SearchHit.pinned`` is the
+        marker that says "lifted out of the fusion by the exact-match tier",
+        so asserting it is what makes this test pin-sensitive (CR-04).
+
+        With the pin disabled (``_PIN_MIN_NORMALIZED_LEXICAL_SCORE`` raised
+        above the exact-UID tier) the hit stays at rank 1 but loses
+        ``pinned`` and scores ~0.65 — the fused value, not the pinned one. A
+        rank-1-only or score-only check would therefore not notice the
         regression.
         """
         monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
@@ -348,6 +547,10 @@ class TestIdRecallGate:
         assert result.results, "hybrid search returned nothing for an exact UID"
         top = result.results[0]
         assert top.id == resolved[entry["expect_uid"]]
+        assert top.pinned is True, (
+            "the exact-UID hit reached rank 1 but was not pinned above the "
+            "fused ranking (T-A3-2 exact-match pin regressed)"
+        )
         assert top.relevance_score == pytest.approx(1.0)
 
 
@@ -395,7 +598,12 @@ class TestNegativeIdGate:
 
 @pytest.mark.django_db
 class TestSearchRecallReportCommand:
-    """``search_recall_report`` is the QS surface for the non-gated subsets."""
+    """``search_recall_report`` is the QS surface for the non-gated subsets.
+
+    It is also where the plan's ``hybrid >= vector`` clause is answered
+    (CR-02), why the recall header follows ``--limit`` (CR-05) and why an empty
+    role set has to be announced (CR-06).
+    """
 
     def test_report_prints_all_subsets_and_writes_nothing(self, monkeypatch):
         monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
@@ -431,6 +639,12 @@ class TestSearchRecallReportCommand:
             assert f"| {kind} |" in output
         assert "## mode: keyword" in output
         assert "## mode: hybrid" in output
+        # CR-02: the clause's verdict is part of every run, even when only one
+        # half of the comparison was requested (then it is unmeasured, not
+        # silently absent).
+        assert "## hybrid vs vector (T-A3-4 recall clause)" in output
+        assert "| Subset | hybrid recall@10 | vector recall@10 | hybrid >= vector |" in output
+        assert "not measured for: id, id_negative, synonym, thematic" in output
         assert "unresolved expect_uid (not present in this workspace): 0" in output
         changed = {
             table: (before[table], after[table])
@@ -474,6 +688,114 @@ class TestSearchRecallReportCommand:
             "rank_one": None,
             "unreachable": [],
         }
+        # CR-02: with only ``keyword`` requested the clause has no second
+        # operand, so the verdict is ``None`` — never a fabricated ``False``.
+        assert payload["hybrid_vs_vector"]["id"]["hybrid_ge_vector"] is None
+        assert payload["hybrid_vs_vector"]["id"]["hybrid_recall"] is None
+        assert payload["hybrid_vs_vector"]["id"]["vector_recall"] is None
+
+    def test_report_json_hybrid_versus_vector_matches_the_measured_subsets(
+        self, monkeypatch
+    ):
+        """CR-02: the printed verdict must agree with the numbers it compares."""
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+
+        with active_tenant() as tenant:
+            workspace = make_workspace(tenant)
+            _seed_corpus(workspace)
+            editor_ctx(tenant, workspace)
+
+            stdout = StringIO()
+            call_command(
+                "search_recall_report",
+                "--workspace",
+                str(workspace.id),
+                "--modes",
+                "hybrid,vector",
+                "--json",
+                stdout=stdout,
+            )
+
+        payload = json.loads(stdout.getvalue())
+        hybrid = payload["modes"]["hybrid"]["subsets"]
+        vector = payload["modes"]["vector"]["subsets"]
+        for kind in QUERY_KINDS:
+            row = payload["hybrid_vs_vector"][kind]
+            assert row["subset"] == kind
+            assert row["hybrid_satisfied"] == hybrid[kind]["satisfied"]
+            assert row["vector_satisfied"] == vector[kind]["satisfied"]
+            if hybrid[kind]["evaluated"] and vector[kind]["evaluated"]:
+                expected = (
+                    hybrid[kind]["satisfied"] * vector[kind]["evaluated"]
+                    >= vector[kind]["satisfied"] * hybrid[kind]["evaluated"]
+                )
+                assert row["hybrid_ge_vector"] is expected, (
+                    f"{kind}: printed verdict {row['hybrid_ge_vector']} disagrees "
+                    f"with hybrid={hybrid[kind]['satisfied']}/"
+                    f"{hybrid[kind]['evaluated']} vs vector="
+                    f"{vector[kind]['satisfied']}/{vector[kind]['evaluated']}"
+                )
+            else:
+                assert row["hybrid_ge_vector"] is None
+
+    def test_report_header_follows_the_configured_limit(self, monkeypatch):
+        """CR-05: ``--limit`` is the N in recall@N — the header must say so."""
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+
+        with active_tenant() as tenant:
+            workspace = make_workspace(tenant)
+            _seed_corpus(workspace)
+            editor_ctx(tenant, workspace)
+
+            stdout = StringIO()
+            call_command(
+                "search_recall_report",
+                "--workspace",
+                str(workspace.id),
+                "--modes",
+                "keyword",
+                "--limit",
+                "7",
+                stdout=stdout,
+            )
+
+        output = stdout.getvalue()
+        assert "| Subset | recall@7 | Rang-1-Treffer | n |" in output
+        assert "| Subset | hybrid recall@7 | vector recall@7 | hybrid >= vector |" in output
+        assert "recall@7 is subset-specific" in output
+        assert "recall@10" not in output
+
+    def test_report_warns_when_the_caller_holds_no_role(self, monkeypatch):
+        """CR-06: an empty role set must not yield a silent, identical report."""
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+
+        with active_tenant() as tenant:
+            workspace = make_workspace(tenant)
+            _seed_corpus(workspace)
+            # A tenant member with no role in *this* workspace: the search still
+            # runs, but permission-scoped hits are filtered by an empty role set.
+            roleless = make_user(tenant)
+
+            stdout = StringIO()
+            stderr = StringIO()
+            call_command(
+                "search_recall_report",
+                "--workspace",
+                str(workspace.id),
+                "--user",
+                str(roleless.id),
+                "--modes",
+                "keyword",
+                "--json",
+                stdout=stdout,
+                stderr=stderr,
+            )
+
+        warning = stderr.getvalue()
+        assert "holds no active role in workspace" in warning
+        assert str(roleless.id) in warning
+        # The warning is a warning: the report itself is still produced.
+        assert json.loads(stdout.getvalue())["query_count"] == 20
 
     def test_report_counts_unresolved_expectations_separately(self, monkeypatch):
         """A workspace without the corpus is not a failure — it is unresolved."""
@@ -507,6 +829,111 @@ class TestSearchRecallReportCommand:
                 stdout=StringIO(),
             )
 
+    def test_default_user_prefers_the_alphabetically_first_tenant_admin(self):
+        """CR-06: identity resolution must not follow primary-key order.
+
+        ``QuerySet.first()`` on an unordered queryset falls back to
+        primary-key order, so the role rows are created with explicit inverted
+        ids: the pk-order winner (``zulu-admin``) and the alphabetical winner
+        (``alpha-admin``) are then guaranteed to differ. Without the explicit
+        ``order_by`` the lookup deterministically returns ``zulu-admin``, so
+        this test cannot pass by luck on a run where the fix is missing.
+        """
+        from uuid import UUID
+
+        from auth_tenancy.models import TenantRole
+
+        with active_tenant() as tenant:
+            for username, role_id in (
+                ("zulu-admin", UUID(int=1)),
+                ("alpha-admin", UUID(int=2**128 - 1)),
+            ):
+                admin = make_user(tenant, username=username)
+                TenantRole.objects.create(
+                    id=role_id,
+                    tenant=tenant,
+                    user=admin,
+                    role=TenantRole.ROLE_ADMIN,
+                )
+
+            resolved = Command._default_user(tenant.id)
+
+        assert resolved is not None
+        assert resolved.username == "alpha-admin"
+
+
+# ---------- hybrid >= vector clause (no DB) ----------
+
+
+class TestHybridVersusVectorComparison:
+    """CR-02: the clause's arithmetic, without a search or a database.
+
+    The clause itself is reported, not gated (see the module docstring), so the
+    part worth pinning in CI is that the command computes the verdict correctly
+    — including the ``False`` case, which is the one a mock provider would
+    never produce.
+    """
+
+    @staticmethod
+    def _compare(
+        *,
+        hybrid: dict[str, tuple[int, int]],
+        vector: dict[str, tuple[int, int]] | None,
+    ) -> dict[str, dict[str, object]]:
+        def scores(by_kind: dict[str, tuple[int, int]]) -> dict[str, SubsetScore]:
+            built = {kind: SubsetScore(kind) for kind in QUERY_KINDS}
+            for kind, (satisfied, evaluated) in by_kind.items():
+                built[kind].satisfied = satisfied
+                built[kind].evaluated = evaluated
+            return built
+
+        per_mode = {"hybrid": scores(hybrid)}
+        if vector is not None:
+            per_mode["vector"] = scores(vector)
+        return Command._compare_hybrid_with_vector(per_mode)
+
+    def test_verdict_is_true_when_hybrid_matches_vector(self):
+        comparison = self._compare(
+            hybrid={"id": (6, 6)},
+            vector={"id": (6, 6)},
+        )
+
+        assert comparison["id"]["hybrid_ge_vector"] is True
+
+    def test_verdict_is_false_for_a_worse_hybrid_recall(self):
+        comparison = self._compare(
+            hybrid={"id": (3, 6)},
+            vector={"id": (6, 6)},
+        )
+
+        row = comparison["id"]
+        assert row["hybrid_ge_vector"] is False
+        # The false case must carry both numbers, or it is an unarguable "no".
+        assert row["hybrid_recall"] == pytest.approx(0.5)
+        assert row["vector_recall"] == pytest.approx(1.0)
+
+    def test_verdict_is_none_without_the_vector_mode(self):
+        comparison = self._compare(hybrid={"id": (6, 6)}, vector=None)
+
+        assert comparison["id"]["hybrid_ge_vector"] is None
+        assert comparison["id"]["vector_recall"] is None
+
+    def test_verdict_is_none_when_a_subset_was_not_evaluated(self):
+        comparison = self._compare(
+            hybrid={"id": (0, 0)},
+            vector={"id": (0, 0)},
+        )
+
+        assert comparison["id"]["hybrid_ge_vector"] is None
+
+    def test_equal_fractions_compare_equal_without_float_rounding(self):
+        comparison = self._compare(
+            hybrid={"id": (2, 3)},
+            vector={"id": (4, 6)},
+        )
+
+        assert comparison["id"]["hybrid_ge_vector"] is True
+
 
 def _row_snapshot() -> dict[str, object]:
     """Row counts plus a content fingerprint for the tables this command reads.
@@ -515,12 +942,17 @@ def _row_snapshot() -> dict[str, object]:
     count unchanged. The fingerprints cover the fields a search could plausibly
     touch (identity, title, UID) — an embedding rewrite is caught by the
     ``embedding_model`` column of the fingerprint.
+
+    ``AuditEntry`` is counted too (CR-07): the append-only trail is the one
+    table a search could plausibly *gain* a row in (a read that leaks into an
+    audited service call), and no count of the read tables would show it.
     """
     return {
         "Artifact": Artifact.objects.count(),
         "Requirement": Requirement.objects.count(),
         "ArtifactVersion": ArtifactVersion.objects.count(),
         "TraceLink": TraceLink.objects.count(),
+        "AuditEntry": AuditEntry.objects.count(),
         "requirement_fingerprint": sorted(
             Requirement.objects.values_list(
                 "id", "title", "uid", "embedding_model"

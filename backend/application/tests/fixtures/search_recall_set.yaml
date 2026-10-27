@@ -15,7 +15,12 @@
 #                    (Risiko/risk, Architektur/architecture and
 #                    Begriff/glossary term are left to Q-SYN-01/02's pattern;
 #                    six slots cannot hold six full pairs.)
-#   thematic    (6)  realistic free-text asks, no identifier, no fixed wording.
+#   thematic    (6)  realistic free-text asks, no identifier, no fixed wording:
+#                    each one paraphrases a corpus topic without repeating any
+#                    corpus *title*. That rule is the point of the subset — a
+#                    query that quotes the title measures string equality, not
+#                    search — so when a corpus title changes, rewrite the query
+#                    rather than copying the new title into it.
 #
 # The CI gate (`application/tests/test_search_recall.py`) runs the `id` and
 # `id_negative` subsets only: with the `mock` embedding provider the semantic
@@ -24,6 +29,11 @@
 # read-only QS command (`manage.py search_recall_report`) against a real
 # embedding provider.
 #
+# The plan's second recall clause — overall `hybrid` >= `vector` — is reported
+# by that command per subset (`hybrid_ge_vector`) and deliberately not asserted
+# by the gate: under `mock` embeddings both sides are the same noise, so the
+# assertion would hold by construction.
+#
 # `expect_uid` is the local readable identifier (`pl_requirement.uid`) of the
 # row a query must retrieve. The identifier namespace is fixed here rather than
 # taken from `seed_demo`: that command provisions only tenant/workspace/admin
@@ -31,6 +41,11 @@
 # all), so there is no stable demo UID set to borrow. The CI gate therefore
 # creates the `expect_uid` rows itself and keeps this file the single source of
 # truth for both gate and report.
+#
+# The gate's corpus is larger than its recall window (22 rows against
+# recall@10): an expected row must win one of ten slots, so the window can drop
+# a row that is still retrieved. With a corpus the size of the window every
+# retrieved row trivially fits and `recall@10` says nothing about ranking.
 version: 1
 description: >-
   Recall set of 20 queries for COMP-AS-010 SearchService (T-A3-4): 6 exact
@@ -110,27 +125,28 @@ queries:
     locale: en
 
   # --- thematic (6) --------------------------------------------------------
+  # Paraphrases, never a corpus title (see the header rule).
   - id: Q-TH-01
     kind: thematic
-    query: Ladezeit der Suchseite
+    query: Wie lange dauert es, bis die Trefferliste erscheint?
     locale: de
   - id: Q-TH-02
     kind: thematic
-    query: battery runtime of the mobile client
+    query: how long does the battery last while syncing
     locale: en
   - id: Q-TH-03
     kind: thematic
-    query: Zugriffskontrolle für fremde Workspaces
+    query: Darf ich Daten anderer Arbeitsbereiche sehen?
     locale: de
   - id: Q-TH-04
     kind: thematic
-    query: baseline comparison between two snapshots
+    query: what changed between two saved versions
     locale: en
   - id: Q-TH-05
     kind: thematic
-    query: Trace-Link-Abdeckung im V-Modell
+    query: Welche Anforderungen sind nachverfolgt?
     locale: de
   - id: Q-TH-06
     kind: thematic
-    query: export to ReqIF
+    query: how do I exchange requirements with a supplier
     locale: en
