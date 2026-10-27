@@ -60,6 +60,12 @@ export interface PageHeaderAction {
 interface PageHeaderCount {
   shown: number;
   total: number;
+  /**
+   * Optional accessible name for the counter paragraph. Set it when the
+   * visible counter is a bare number whose meaning is only clear from the
+   * page's context (Plan C T-C4-3: the `/reviews` open-items counter).
+   */
+  ariaLabel?: string;
 }
 
 interface PageHeaderProps {
@@ -171,7 +177,11 @@ export function PageHeader({
           {title}
         </h1>
         {summaryText != null && (
-          <p data-testid="page-header-count" className={styles.summary}>
+          <p
+            data-testid="page-header-count"
+            className={styles.summary}
+            aria-label={count?.ariaLabel}
+          >
             {summaryText}
           </p>
         )}

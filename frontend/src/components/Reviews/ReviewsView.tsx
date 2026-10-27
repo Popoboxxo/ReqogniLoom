@@ -1064,7 +1064,9 @@ export default function ReviewsView({
 
   const detailPanel = !selected ? (
     <p data-testid="review-detail-empty" className={styles.mutedText}>
-      {t("reviews.selectPrompt", "Select a requirement from the list to view details.")}
+      {t("reviews.selectPromptTyped", {
+        type: t(`reviews.type.${selectedArtifactType}`, toTitleCase(selectedArtifactType)),
+      })}
     </p>
   ) : (
     <div data-testid="review-detail">
@@ -1226,7 +1228,17 @@ export default function ReviewsView({
     <div data-testid="reviews-view">
       <PageHeader
         title={t("nav.reviews", "Reviews")}
-        count={{ shown: filtered.length, total: items.length }}
+        count={{
+          shown: filtered.length,
+          total: items.length,
+          // Plan C / T-C4-3: a bare number in the header does not say what it
+          // counts. Keep the visible "shown / total" ratio intact when a filter
+          // is active, so the label cannot mask it.
+          ariaLabel:
+            filtered.length === items.length
+              ? t("reviews.countLabel", { count: items.length })
+              : undefined,
+        }}
       />
       <SplitView leftPanel={listPanel} rightPanel={detailPanel} moduleType="reviews" />
     </div>

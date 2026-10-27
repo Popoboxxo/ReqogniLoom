@@ -13,10 +13,54 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor, act } from "@testing-library/react";
+import { I18nextProvider, initReactI18next } from "react-i18next";
+import i18next from "i18next";
+import de from "../i18n/locales/de.json";
+import en from "../i18n/locales/en.json";
 import { AuthProvider } from "../context/AuthContext";
 import { WorkspaceProvider, useWorkspace } from "../context/WorkspaceContext";
 import { ThemeProvider } from "../context/ThemeContext";
 import type { Workspace } from "../types";
+import UserProfileSettings from "../components/UserProfileSettings/UserProfileSettings";
+
+// Plan C / T-C4-2: the visibility rows' artifact-type names must come from the
+// locale bundle. This file mounts the page directly, so stub its heavy child
+// sections (each owns its own API/Token/memory wiring and has its own tests).
+vi.mock("../components/UserProfileSettings/ApiKeysSection", () => ({
+  ApiKeysSection: () => null,
+}));
+vi.mock("../components/UserProfileSettings/IdentifiersSection", () => ({
+  IdentifiersSection: () => null,
+}));
+vi.mock("../components/UserProfileSettings/MemorySection", () => ({
+  MemorySection: () => null,
+}));
+vi.mock("../components/UserProfileSettings/NotificationsSection", () => ({
+  NotificationsSection: () => null,
+}));
+vi.mock("../components/UserProfileSettings/ProfileSection", () => ({
+  ProfileSection: () => null,
+}));
+vi.mock("../components/UserProfileSettings/TreeDisplaySection", () => ({
+  TreeDisplaySection: () => null,
+}));
+vi.mock("../components/shared/PreferenceLevelSection/PreferenceLevelSection", () => ({
+  PreferenceLevelSection: () => null,
+}));
+
+// Real i18next instance with the shipped locale bundles: a fallback-only mock
+// would render whatever the `t()` call's own default is and pass regardless of
+// what the locale files actually contain.
+const profileI18n = i18next.createInstance();
+void profileI18n.use(initReactI18next).init({
+  resources: {
+    de: { translation: de },
+    en: { translation: en },
+  },
+  lng: "de",
+  fallbackLng: "en",
+  interpolation: { escapeValue: false },
+});
 
 // jsdom in this test runtime does not provide window.localStorage (Node's
 // --localstorage-file experimental flag is not set), which ThemeProvider
@@ -542,5 +586,29 @@ describe("WorkspaceContext / User-preference overrides (REQ-L1-027)", () => {
     expect(screen.getByTestId("overridden-risk").textContent).toBe(
       "from-preset"
     );
+  });
+
+  // Plan C / T-C4-2: the profile page's visibility rows used a hard-coded
+  // English label table (`Risks`, `Diagrams`, …), so a German workspace showed
+  // a mixed-language settings page.
+  it("renders the German visibility labels, not the hard-coded English ones (T-C4-2)", async () => {
+    nextGetReturn = null;
+    setListWorkspace("standard");
+
+    render(
+      <I18nextProvider i18n={profileI18n}>
+        <AuthProvider>
+          <ThemeProvider>
+            <WorkspaceProvider>
+              <UserProfileSettings />
+            </WorkspaceProvider>
+          </ThemeProvider>
+        </AuthProvider>
+      </I18nextProvider>
+    );
+
+    const row = await screen.findByTestId("visibility-row-risk");
+    expect(row).toHaveTextContent("Risiken");
+    expect(row).not.toHaveTextContent("Risks");
   });
 });
