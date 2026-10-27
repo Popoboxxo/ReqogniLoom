@@ -6,8 +6,8 @@ req_id  : REQ-L1-020, REQ-L3-SEARCH-001 through REQ-L3-SEARCH-009
 
 Search over every artifact type listed in ``SEARCHABLE_ARTIFACT_TYPES``
 (Requirement, ArchitectureElement, TestCase, StakeholderNeed, Adr, Risk,
-Issue, ChangeRequest, Goal, GlossaryTerm). Two passes run per type and are
-merged (issue #345):
+Issue, ChangeRequest, Goal, GlossaryTerm, Icd, TraceLink). Two passes run per
+type and are merged (issue #345):
 
   1. full-text: PostgreSQL tsvector / tsquery, relevance-ranked via ts_rank
   2. lexical:   case-insensitive substring match on title, uid and IDs
@@ -18,16 +18,18 @@ always rank above full-text hits. Both passes enforce workspace and tenant
 isolation. Supports type filtering, pagination, and safe query parsing.
 
 Task 9 (REQ-L2-VS-004) adds a third, cosine-similarity pass over the
-``embedding`` column of the entity types that have one (today: Requirement --
-see ``_EMBEDDABLE_TYPES`` for why TraceLink/Icd are implemented but not
-yet wired into ``type_filter``). When that pass contributes a hit for a given
-entity type, all three passes are combined via Reciprocal Rank Fusion
-(``_rrf_fuse``) instead of the plain max-score merge (``_merge_hits``) —
-see ``SearchService._search_entity_type``'s docstring for the fusion rule.
+``embedding`` column of the entity types that have one (Requirement, TraceLink,
+Icd — see ``_EMBEDDABLE_TYPES``/``_TABLE_SPECS``). When that pass contributes
+a hit for a given entity type, all three passes are combined via Reciprocal
+Rank Fusion (``_rrf_fuse``) instead of the plain max-score merge
+(``_merge_hits``) — see ``SearchService._search_entity_type``'s docstring for
+the fusion rule.
 
 T-A3-2 (A-L21) pins an *exact* identifier hit (exact title, exact uid/ID) above
 that fused list with ``relevance_score == 1.0``, so typing a readable ID always
-returns that artifact first.
+returns that artifact first. T-A3-3 additionally checks every TraceLink/Icd hit
+for item-level READ and masks a TraceLink target across workspace boundaries
+(``_apply_row_visibility``).
 
 Every ``SearchHit.relevance_score`` is normalized to the closed interval
 ``[0.0, 1.0]`` at the point of score creation (issue #827). The four native
@@ -121,19 +123,13 @@ _MAX_LEXICAL_ROWS_PER_TYPE = 200
 
 # ---------- Semantic pass (Task 9, REQ-L2-VS-004) ----------
 #
-# Entity types that carry an ``embedding`` VectorField today. Deliberately
-# NOT the same set as SEARCHABLE_ARTIFACT_TYPES: TraceLink and Icd have an
-# embedding column (populated by application/trace_link_service.py and
-# icd/icd_manager.py respectively) but no fulltext/lexical _TableSpec and are
-# not part of the public `type_filter` enum. Wiring them into
-# SearchService.search()'s type_filter surface would require deciding a
-# synthetic "title" for a TraceLink (it has none) and a workspace-scoping
-# join (TraceLink -> source.workspace_id)
-# — real product/API-surface decisions, not "add a fusion pass". This task
-# scopes that decision out: _run_semantic_query below implements and
-# directly unit-tests all three, but only "Requirement" is wired into
-# _search_entity_type's fusion, since it is the only one of the three that
-# is already a searchable type today.
+# Entity types that carry an ``embedding`` VectorField. Since T-A3-3 all three
+# are also fulltext/lexical searchable and therefore part of the public
+# `type_filter` enum: TraceLink and Icd got their own _TableSpec entries (see
+# _TABLE_SPECS). A TraceLink has no title of its own, so its synthetic
+# "<link_type>: <source uid> → <target uid>" title is composed after the SQL
+# passes in _apply_row_visibility, which also owns that type's endpoint
+# permission masking.
 #
 # Task 28c-2: "IcdVersion" became "Icd" — the embedding moved onto the ICD
 # header when the version table was retired, along with its HNSW index
@@ -177,6 +173,12 @@ class _TableSpec:
 
     ``title_col``/``description_col``/``workspace_col`` are trusted SQL
     fragments defined in this module only — never built from user input.
+
+    ``permission_scoped`` marks the two T-A3-3 types whose hits are additionally
+    filtered after the SQL passes: an item-level READ check through
+    :class:`~application.effective_permission_service.EffectivePermissionService`
+    and a soft-delete drop (see :func:`_apply_row_visibility`). The other types
+    keep their pre-T-A3-3 behaviour (workspace/tenant scoping only).
     """
 
     table: str
@@ -186,6 +188,7 @@ class _TableSpec:
     workspace_col: str = "e.workspace_id"
     uid_col: str | None = "e.uid"
     artifact_id_col: str | None = None
+    permission_scoped: bool = False
 
 
 _ARTIFACT_JOIN = "JOIN pl_artifact a ON a.id = e.artifact_id"
@@ -262,6 +265,44 @@ _TABLE_SPECS: dict[str, _TableSpec] = {
         uid_col=None,
         artifact_id_col="e.artifact_id",
         join_sql=_ARTIFACT_LEFT_JOIN,
+    ),
+    # T-A3-3: the ICD header row. ``name`` is the interface name and the
+    # current contract's ``semantic_description`` its description. The backing
+    # Artifact FK is nullable (SET_NULL), so the LEFT JOIN both surfaces its
+    # custom_fields and lets :func:`_apply_row_visibility` drop a row whose
+    # artifact was soft-deleted.
+    "Icd": _TableSpec(
+        table="icd_icd",
+        title_col="e.name",
+        description_col="COALESCE(e.semantic_description, '')",
+        workspace_col="e.workspace_id",
+        uid_col=None,
+        artifact_id_col="e.artifact_id",
+        join_sql=_ARTIFACT_LEFT_JOIN,
+        permission_scoped=True,
+    ),
+    # T-A3-3: a TraceLink has neither a title nor a uid of its own. The
+    # fulltext/lexical SQL matches the link type (plus the raw endpoint ids, so
+    # the usual "paste an ID fragment" behaviour holds); the human-readable
+    # synthetic "<link_type>: <source local uid> → <target local uid>" title is
+    # composed afterwards in :func:`_apply_row_visibility` — ``pl_artifact``
+    # carries no ``uid`` column, the local uid lives on the endpoint's entity
+    # table. Workspace scoping is the *source* side (TraceLinkViewSet's fence).
+    # ``artifact_id_col`` stays None: there is no single backing artifact, so
+    # ``_custom_fields_select`` yields NULL.
+    "TraceLink": _TableSpec(
+        table="pl_tracelink",
+        title_col=(
+            "e.link_type || ': ' || e.source_id::text || ' → ' || e.target_id::text"
+        ),
+        description_col="COALESCE(e.rationale, '')",
+        join_sql=(
+            "JOIN pl_artifact s ON s.id = e.source_id "
+            "JOIN pl_artifact t ON t.id = e.target_id"
+        ),
+        workspace_col="s.workspace_id",
+        uid_col=None,
+        permission_scoped=True,
     ),
 }
 
@@ -768,6 +809,241 @@ def _rows_to_hits(
     return hits
 
 
+# ---------- T-A3-3: per-hit visibility for permission-scoped types ----------
+
+
+def _as_uuid(value: Any) -> UUID | None:
+    """Coerce *value* to a UUID, or ``None`` for an unparsable/empty one."""
+    try:
+        return UUID(str(value))
+    except (TypeError, ValueError):
+        return None
+
+
+def _local_uids_by_artifact(artifact_ids: set[UUID]) -> dict[UUID, str]:
+    """Map ``pl_artifact.id`` -> local readable uid for the uid-carrying types.
+
+    ``pl_artifact`` itself has no ``uid`` column — T-A3-3 verified this against
+    the model and the live schema. The local identifier lives on the endpoint's
+    entity table, so a synthetic TraceLink title resolves it here. Mirrors the
+    uid-carrying models of ``application.reference_resolver_service`` (TestRun
+    excluded: it is not a TraceLink endpoint of interest), one bounded ``IN``
+    query per model instead of that service's full reference machinery.
+    """
+    from persistence.models import (
+        Adr,
+        ArchitectureElement,
+        Issue,
+        Requirement,
+        Risk,
+        StakeholderNeed,
+        TestCase,
+    )
+
+    resolved: dict[UUID, str] = {}
+    for model in (
+        Requirement,
+        ArchitectureElement,
+        TestCase,
+        StakeholderNeed,
+        Adr,
+        Risk,
+        Issue,
+    ):
+        resolved.update(
+            model.objects.filter(artifact_id__in=artifact_ids)
+            .exclude(uid__isnull=True)
+            .exclude(uid="")
+            .values_list("artifact_id", "uid")
+        )
+    return resolved
+
+
+def _may_read_artifact(
+    ctx: AuthContext | None,
+    workspace_id: Any,
+    artifact_id: Any,
+    roles_cache: dict[str, tuple[str, ...]],
+    decision_cache: dict[tuple[str, str | None], bool],
+) -> bool:
+    """Fail-closed READ check for one (workspace, artifact) pair (T-A3-3).
+
+    Combines the three fences the REST TraceLink detail route already uses for
+    cross-workspace metadata (QR-S20): the API key's workspace fence, the
+    caller's roles *in that workspace* (RBAC), and the item-level rule layer
+    (:class:`EffectivePermissionService`). Roles are resolved per workspace
+    rather than taken from ``ctx.active_roles`` because ``active_roles`` is the
+    caller's roles in the *current* workspace — using it for a foreign target
+    workspace would let a role in one workspace authorize metadata of another.
+    """
+    from application.effective_permission_service import EffectivePermissionService
+    from auth_tenancy.resource_scope import workspace_fence_denial
+    from auth_tenancy.services.authorization import AuthorizationService
+
+    if ctx is None:
+        return False
+    ws_uuid = _as_uuid(workspace_id)
+    if ws_uuid is None:
+        return False
+    artifact_uuid = _as_uuid(artifact_id) if artifact_id is not None else None
+    cache_key = (str(ws_uuid), str(artifact_uuid) if artifact_uuid else None)
+    if cache_key in decision_cache:
+        return decision_cache[cache_key]
+
+    allowed = False
+    try:
+        fence = getattr(ctx, "api_key_workspace_ids", ())
+        if workspace_fence_denial(fence, ws_uuid) is not None:
+            decision_cache[cache_key] = False
+            return False
+
+        ws_key = str(ws_uuid)
+        if ws_key not in roles_cache:
+            roles_cache[ws_key] = AuthorizationService().active_roles_for(
+                user_id=ctx.user_id, workspace_id=ws_uuid
+            )
+        decision = EffectivePermissionService().resolve_effective_permission(
+            active_roles=roles_cache[ws_key],
+            user_id=ctx.user_id,
+            workspace_id=ws_uuid,
+            artifact_id=artifact_uuid,
+            level="read",
+        )
+        allowed = decision.is_allowed
+    except Exception:  # noqa: BLE001 — hide the hit rather than leak it
+        logger.debug(
+            "SearchService: visibility lookup failed workspace=%s artifact=%s",
+            workspace_id,
+            artifact_id,
+            exc_info=True,
+        )
+        allowed = False
+
+    decision_cache[cache_key] = allowed
+    return allowed
+
+
+def _filter_icd_hits(hits: list[SearchHit], ctx: AuthContext | None) -> list[SearchHit]:
+    """Drop ICD hits the caller may not READ or whose Artifact is outdated."""
+    from icd.models import Icd
+    from persistence.models import Artifact, LifecycleStatus
+
+    by_id = {
+        row.id: row
+        for row in Icd.objects.filter(id__in=[_as_uuid(hit.id) for hit in hits])
+    }
+    artifact_ids = {
+        row.artifact_id for row in by_id.values() if row.artifact_id is not None
+    }
+    outdated = set(
+        Artifact.objects.filter(
+            id__in=artifact_ids,
+            lifecycle_status=LifecycleStatus.OUTDATED,
+        ).values_list("id", flat=True)
+    )
+
+    roles_cache: dict[str, tuple[str, ...]] = {}
+    decision_cache: dict[tuple[str, str | None], bool] = {}
+    kept: list[SearchHit] = []
+    for hit in hits:
+        row = by_id.get(_as_uuid(hit.id))
+        if row is None:  # deleted between the SQL pass and this lookup
+            continue
+        if row.artifact_id is not None and row.artifact_id in outdated:
+            continue
+        if _may_read_artifact(
+            ctx, row.workspace_id, row.artifact_id, roles_cache, decision_cache
+        ):
+            kept.append(hit)
+    return kept
+
+
+def _filter_tracelink_hits(
+    hits: list[SearchHit], ctx: AuthContext | None
+) -> list[SearchHit]:
+    """Drop unreadable/outdated TraceLink hits and compose their title.
+
+    A link is kept only when its **source** artifact is readable (that is the
+    link's own workspace). The **target** uid is shown only when the target
+    workspace is readable too; otherwise the synthetic title carries ``'—'``, so
+    cross-workspace metadata never leaks (QR-S20, T-A3-3).
+    """
+    from persistence.models import Artifact, LifecycleStatus, TraceLink
+
+    links = {
+        row.id: row
+        for row in TraceLink.objects.filter(
+            id__in=[_as_uuid(hit.id) for hit in hits]
+        ).select_related("source", "target")
+    }
+    endpoint_ids = {
+        endpoint_id
+        for link in links.values()
+        for endpoint_id in (link.source_id, link.target_id)
+    }
+    statuses = dict(
+        Artifact.objects.filter(id__in=endpoint_ids).values_list(
+            "id", "lifecycle_status"
+        )
+    )
+    uids = _local_uids_by_artifact(endpoint_ids)
+
+    roles_cache: dict[str, tuple[str, ...]] = {}
+    decision_cache: dict[tuple[str, str | None], bool] = {}
+    kept: list[SearchHit] = []
+    for hit in hits:
+        link = links.get(_as_uuid(hit.id))
+        if link is None:  # deleted between the SQL pass and this lookup
+            continue
+        if (
+            statuses.get(link.source_id) == LifecycleStatus.OUTDATED
+            or statuses.get(link.target_id) == LifecycleStatus.OUTDATED
+        ):
+            continue
+
+        source = link.source
+        target = link.target
+        if not _may_read_artifact(
+            ctx, source.workspace_id, source.id, roles_cache, decision_cache
+        ):
+            continue
+        show_target = _may_read_artifact(
+            ctx, target.workspace_id, target.id, roles_cache, decision_cache
+        )
+
+        source_label = uids.get(source.id) or str(source.id)
+        target_label = (uids.get(target.id) or str(target.id)) if show_target else "—"
+        kept.append(
+            dataclass_replace(
+                hit, title=f"{link.link_type}: {source_label} → {target_label}"
+            )
+        )
+    return kept
+
+
+def _apply_row_visibility(
+    entity_type: str, hits: list[SearchHit], ctx: AuthContext | None
+) -> list[SearchHit]:
+    """Apply the T-A3-3 per-hit rules to a permission-scoped type's hits.
+
+    Only ``Icd`` and ``TraceLink`` opt in via ``_TableSpec.permission_scoped``;
+    every other type is returned unchanged (its workspace/tenant SQL scoping is
+    unchanged from before T-A3-3). ``ctx`` is forwarded from
+    :meth:`SearchService.search`; when it is missing the scoped types fail
+    closed (no caller identity means no provable READ).
+    """
+    if not hits:
+        return hits
+    spec = _TABLE_SPECS.get(entity_type)
+    if spec is None or not spec.permission_scoped:
+        return hits
+    if entity_type == "TraceLink":
+        return _filter_tracelink_hits(hits, ctx)
+    if entity_type == "Icd":
+        return _filter_icd_hits(hits, ctx)
+    return hits
+
+
 def _run_fulltext_query(
     entity_type: str,
     spec: _TableSpec,
@@ -1075,6 +1351,7 @@ class SearchService(ServiceBase):
                 raw_query=query,
                 query_embedding=query_embedding,
                 mode=mode,
+                ctx=ctx,
             )
         else:
             ws_uuid: UUID | None = (
@@ -1092,6 +1369,7 @@ class SearchService(ServiceBase):
                         raw_query=query,
                         query_embedding=query_embedding,
                         mode=mode,
+                        ctx=ctx,
                     )
                     hits.extend(type_hits)
                 except Exception:
@@ -1141,6 +1419,7 @@ class SearchService(ServiceBase):
         raw_query: str = "",
         query_embedding: list[float] | None = None,
         mode: str = "hybrid",
+        ctx: AuthContext | None = None,
     ) -> list[SearchHit]:
         """Return hits for one entity type from all applicable search passes.
 
@@ -1169,6 +1448,9 @@ class SearchService(ServiceBase):
         rank 2. Those hits are lifted out of all three RRF lists and placed in
         front with ``relevance_score == 1.0``; they appear exactly once.
 
+        ``ctx`` only feeds the T-A3-3 per-hit visibility of the
+        ``permission_scoped`` types (:func:`_apply_row_visibility`).
+
         IF-AS-EXT-OUT-007: raw SQL via django.db.connection for expression
         index compatibility (GIN index on the tsvector expression) backs the
         fulltext/lexical passes; the semantic pass uses the Django ORM (see
@@ -1185,16 +1467,23 @@ class SearchService(ServiceBase):
         if mode == "vector":
             # Semantic only: a type without an embedding column (or a query
             # with no vector) simply contributes nothing.
-            return _run_semantic_query(
-                entity_type, query_embedding, tenant_id, workspace_id
+            return _apply_row_visibility(
+                entity_type,
+                _run_semantic_query(
+                    entity_type, query_embedding, tenant_id, workspace_id
+                ),
+                ctx,
             )
 
         fulltext_hits = _run_fulltext_query(entity_type, spec, tsquery_str, tenant_id, workspace_id)
         lexical_hits = _run_lexical_query(entity_type, spec, raw_query, tenant_id, workspace_id)
         if mode == "keyword":
-            return _merge_hits(fulltext_hits, lexical_hits)
+            return _apply_row_visibility(
+                entity_type, _merge_hits(fulltext_hits, lexical_hits), ctx
+            )
 
         semantic_hits = _run_semantic_query(entity_type, query_embedding, tenant_id, workspace_id)
+        fused: list[SearchHit]
         if semantic_hits:
             pinned = [
                 hit
@@ -1203,15 +1492,18 @@ class SearchService(ServiceBase):
             ]
             if pinned:
                 pinned_ids = {hit.id for hit in pinned}
-                return [
+                fused = [
                     dataclass_replace(hit, relevance_score=1.0) for hit in pinned
                 ] + _rrf_fuse(
                     [hit for hit in lexical_hits if hit.id not in pinned_ids],
                     [hit for hit in fulltext_hits if hit.id not in pinned_ids],
                     [hit for hit in semantic_hits if hit.id not in pinned_ids],
                 )
-            return _rrf_fuse(lexical_hits, fulltext_hits, semantic_hits)
-        return _merge_hits(fulltext_hits, lexical_hits)
+            else:
+                fused = _rrf_fuse(lexical_hits, fulltext_hits, semantic_hits)
+        else:
+            fused = _merge_hits(fulltext_hits, lexical_hits)
+        return _apply_row_visibility(entity_type, fused, ctx)
 
     @classmethod
     def _search_multi_workspace(
@@ -1223,6 +1515,7 @@ class SearchService(ServiceBase):
         raw_query: str,
         query_embedding: list[float] | None = None,
         mode: str = "hybrid",
+        ctx: AuthContext | None = None,
     ) -> list[SearchHit]:
         """Search every type in ``entity_types`` across all ``workspace_ids``.
 
@@ -1254,6 +1547,7 @@ class SearchService(ServiceBase):
                             raw_query=raw_query,
                             query_embedding=query_embedding,
                             mode=mode,
+                            ctx=ctx,
                         )
                     )
                 except Exception:

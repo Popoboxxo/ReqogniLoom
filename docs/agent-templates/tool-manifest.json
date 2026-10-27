@@ -886,11 +886,13 @@
                 "ChangeRequest",
                 "GlossaryTerm",
                 "Goal",
+                "Icd",
                 "Issue",
                 "Requirement",
                 "Risk",
                 "StakeholderNeed",
-                "TestCase"
+                "TestCase",
+                "TraceLink"
               ]
             },
             "description": "Optional list of artifact types to include. Defaults to all searchable types. MainGoal is not searchable (no title, aggregated content)."
