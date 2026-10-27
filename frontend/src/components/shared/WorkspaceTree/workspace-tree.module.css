@@ -280,8 +280,8 @@
 }
 
 .addChildButton {
-  width: 18px;
-  height: 18px;
+  width: var(--btn-h-xs);
+  height: var(--btn-h-xs);
   padding: 0;
   border: none;
   background: transparent;
@@ -290,7 +290,7 @@
   font-size: 0.9rem;
   line-height: 1;
   flex-shrink: 0;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-btn);
 }
 
 /*

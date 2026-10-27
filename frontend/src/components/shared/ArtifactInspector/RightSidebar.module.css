@@ -43,9 +43,9 @@
 .headerButton {
   background: transparent;
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  width: 28px;
-  height: 28px;
+  border-radius: var(--radius-btn);
+  width: var(--btn-h-sm);
+  height: var(--btn-h-sm);
   cursor: pointer;
   color: var(--color-text);
   font-size: var(--font-size-base);
@@ -132,9 +132,9 @@
 .collapsedButton {
   background: transparent;
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-btn);
   width: 32px;
-  height: 32px;
+  height: var(--btn-h-sm);
   cursor: pointer;
   color: var(--color-text);
   font-size: var(--font-size-base);
@@ -160,9 +160,9 @@
 .collapsedIconButton {
   background: transparent;
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-btn);
   width: 32px;
-  height: 32px;
+  height: var(--btn-h-sm);
   cursor: pointer;
   color: var(--color-text);
   font-size: var(--font-size-base);

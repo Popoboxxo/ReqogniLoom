@@ -234,7 +234,7 @@
   color: inherit;
   cursor: pointer;
   text-align: left;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-btn);
 }
 
 .endpointButton:hover {

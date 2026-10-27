@@ -131,7 +131,7 @@
   gap: var(--space-2);
   background: transparent;
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-btn);
   color: var(--color-text);
   padding: 6px 10px;
   font-size: var(--font-size-sm);
@@ -343,11 +343,11 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: var(--btn-h-sm);
+  height: var(--btn-h-sm);
   background: transparent;
   border: none;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-btn);
   color: var(--color-text);
   cursor: pointer;
   transition: background var(--transition-fast), color var(--transition-fast);
@@ -891,7 +891,7 @@
 .toggleButton:focus-visible {
   outline: 2px solid var(--color-primary);
   outline-offset: 2px;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-btn);
 }
 
 .toggleTrackOn {
@@ -982,7 +982,7 @@
   gap: var(--space-1);
   background: transparent;
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-btn);
   color: var(--color-text);
   padding: 6px 10px;
   font-size: var(--font-size-sm);
@@ -1018,7 +1018,7 @@
   gap: var(--space-2);
   background: var(--color-primary);
   border: 1px solid var(--color-primary);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-btn);
   color: var(--color-on-primary);
   padding: 8px 16px;
   font-size: var(--font-size-sm);
@@ -1242,7 +1242,7 @@
   gap: var(--space-2);
   background: var(--color-primary);
   border: 1px solid var(--color-primary);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-btn);
   color: var(--color-on-primary);
   padding: 8px 16px;
   font-size: var(--font-size-sm);
@@ -1276,7 +1276,7 @@
   gap: var(--space-2);
   background: transparent;
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-btn);
   color: var(--color-text);
   padding: 8px 16px;
   font-size: var(--font-size-sm);

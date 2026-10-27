@@ -54,16 +54,16 @@
   padding: 0;
   background: transparent;
   border: 1px solid transparent;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-btn);
   cursor: pointer;
   font-size: var(--font-size-sm);
   font-family: inherit;
   color: var(--color-text-muted);
   transition: background var(--transition-fast), color var(--transition-fast),
     border-color var(--transition-fast);
-  min-width: 30px;
-  width: 30px;
-  height: 30px;
+  min-width: var(--btn-h-sm);
+  width: var(--btn-h-sm);
+  height: var(--btn-h-sm);
 }
 
 .toolButton:hover {
@@ -175,12 +175,12 @@
   background: var(--color-primary);
   color: white;
   border: none;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-btn);
   cursor: pointer;
   font-size: var(--font-size-sm);
   font-weight: 600;
   font-family: inherit;
-  height: 32px;
+  height: var(--btn-h-sm);
   transition: opacity var(--transition-fast), background var(--transition-fast);
 }
 

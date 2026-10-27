@@ -170,7 +170,7 @@
   background-color: var(--color-primary);
   color: var(--color-on-primary);
   border: none;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-btn);
   cursor: pointer;
   font-size: var(--font-size-sm);
   opacity: 1;

@@ -138,6 +138,15 @@ async function countScrollContainers(page: Page): Promise<number> {
  *    rows are graph/navigation surfaces whose size is driven by their
  *    content (node label, row text), not by the button scale — counting them
  *    would gate canvas layout instead of button styling.
+ *  - Excluded: `[data-testid="workspace-card-clickable-region"]` — the whole
+ *    surface of a dashboard workspace card is a click region, not a control.
+ *    Its height (200+ px) and its `--radius-lg` corner come from the card
+ *    layout, so counting it would make the dashboard's three card rows the
+ *    button standard. Same reason tree rows are excluded, and deliberately
+ *    the narrow inner testid rather than the `workspace-card` prefix: the
+ *    card's real `workspace-card-preset-badge` button is a SIBLING of this
+ *    region (rendered outside it to avoid button-inside-button), so a prefix
+ *    exclusion would also drop a legitimate button from the measurement.
  *  - Height: `getBoundingClientRect().height`, rounded to whole px. Exactly
  *    24 px is the icon-button height (`--btn-h-xs`, WCAG 2.5.8 target size)
  *    and is classified SEPARATELY (ENT-C6 = B): it is reported in the
@@ -167,29 +176,29 @@ const PILL_RADIUS_PX = 9999;
  * `/`, T-C1-5/T-C1-6 -> the remainder. This list may only shrink.
  *
  * Values are the live measurement of 2026-10-23 (seeded demo workspace,
- * extended preset) — no route is listed or omitted on a guess.
+ * extended preset) — no route is listed or omitted on a guess. PR-C12
+ * (T-C1-4/T-C1-5) removed `/`, `/settings` and `/workflows`, whose scanned
+ * button rules are now all on `--btn-h-*`/`--radius-btn`; the surviving
+ * entries keep that baseline measurement and name what PR-C12 did NOT change.
  */
 const C1_PENDING_ROUTES: Record<string, string> = {
-  '/': '4 heights / 3 radii measured (T-C1-4)',
-  '/requirements': '3 heights / 3 radii measured — radii over target',
-  '/impact': '4 heights / 2 radii measured — heights over target',
-  '/baselines': '3 heights / 3 radii measured — radii over target',
-  '/adrs': '3 heights / 3 radii measured — radii over target',
-  '/risks': '4 heights / 3 radii measured — both over target',
-  '/issues': '3 heights / 3 radii measured — radii over target',
-  '/testcases': '3 heights / 3 radii measured — radii over target',
-  '/test-runs': '3 heights / 3 radii measured — radii over target',
-  '/import': '4 heights / 2 radii measured — heights over target',
-  '/icds': '3 heights / 3 radii measured — radii over target',
-  '/diagrams': '3 heights / 3 radii measured — radii over target',
-  '/metrics': '3 heights / 3 radii measured — radii over target',
-  '/audit': '3 heights / 3 radii measured — radii over target',
-  '/settings': '4 heights / 4 radii measured (T-C1-4)',
-  '/system-settings': '4 heights / 4 radii measured (T-C1-3)',
-  '/goals': '3 heights / 3 radii measured — radii over target',
-  '/glossary': '3 heights / 3 radii measured — radii over target',
-  '/workflows': '4 heights / 3 radii measured (T-C1-4)',
-  '/profile': '5 heights / 3 radii measured — both over target',
+  '/requirements': '3 heights / 3 radii measured — PR-C12 tokenised the scanned radii; residual radii come from unscanned .xxxBtn call sites',
+  '/impact': '4 heights / 2 radii measured — heights over target; PR-C12 changed radii only',
+  '/baselines': '3 heights / 3 radii measured — no C1-scanned button on this route; unscanned radii remain',
+  '/adrs': '3 heights / 3 radii measured — no C1-scanned button on this route; unscanned radii remain',
+  '/risks': '4 heights / 3 radii measured — heights over target; PR-C12 changed radii only',
+  '/issues': '3 heights / 3 radii measured — no C1-scanned button on this route; unscanned radii remain',
+  '/testcases': '3 heights / 3 radii measured — no C1-scanned button on this route; unscanned radii remain',
+  '/test-runs': '3 heights / 3 radii measured — PR-C12 tokenised the editor/grid radii; TestRunsList .xxxBtn radii remain',
+  '/import': '4 heights / 2 radii measured — heights over target (CsvImport padding), untouched by PR-C12',
+  '/icds': '3 heights / 3 radii measured — PR-C12 tokenised the scanned radii; IcdDetailPane .xxxBtn radii remain',
+  '/diagrams': '3 heights / 3 radii measured — PR-C12 tokenised the scanned radii; DiagramCreateForm .xxxBtn radii remain',
+  '/metrics': '3 heights / 3 radii measured — PR-C12 fixed .refreshButton; other call sites unchanged',
+  '/audit': '3 heights / 3 radii measured — no C1-scanned button on this route; unscanned radii remain',
+  '/system-settings': '4 heights / 4 radii measured (T-C1-3) — owned by the /system-settings PR, not PR-C12',
+  '/goals': '3 heights / 3 radii measured — no C1-scanned button on this route; unscanned radii remain',
+  '/glossary': '3 heights / 3 radii measured — PR-C12 fixed .btn; other call sites unchanged',
+  '/profile': '5 heights / 3 radii measured — heights over target; PR-C12 changed radii only',
 };
 
 interface ButtonGeometry {
@@ -212,6 +221,7 @@ async function measureButtonGeometry(page: Page): Promise<ButtonGeometry> {
         '[data-testid="workflow-canvas"]',
         '.react-flow',
         '[data-testid^="diagram-canvas"]',
+        '[data-testid="workspace-card-clickable-region"]',
       ];
       const TREES = '[data-testid$="-tree"]';
       const heights = new Set<number>();

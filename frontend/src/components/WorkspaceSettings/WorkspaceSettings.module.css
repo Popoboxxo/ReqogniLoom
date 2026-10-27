@@ -66,6 +66,18 @@
   cursor: pointer;
   white-space: nowrap;
 }
+/* C1 (#1258): this tablist is a GAPPED row of separate tabs (`.tablist`
+ * sets `gap: var(--space-1)`), not a butted segmented control — so every tab
+ * carries the full button radius. The shared `.btn-tab:first/last-child`
+ * inner-corner squares are meant for segments that touch, and without this
+ * override the last/middle tabs computed `border-top-left-radius: 0`, which
+ * the C1 geometry gate counts as a third radius on `/settings`. Declared via
+ * `.tablist .tab` so it also wins over the `:first-child`/`:last-child`
+ * rules of equal specificity in `global.css`. */
+.tablist .tab {
+  border-radius: var(--radius-btn);
+}
+
 .tab[aria-selected="true"] {
   border-bottom-color: var(--color-primary);
   color: var(--color-text);

@@ -74,7 +74,7 @@
   background-color: var(--color-primary);
   color: var(--color-on-primary);
   border: none;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-btn);
   cursor: pointer;
   font-size: var(--font-size-sm);
   font-weight: var(--weight-semibold);
@@ -94,7 +94,7 @@
   background: transparent;
   color: var(--color-text-muted);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-btn);
   cursor: pointer;
   font-size: var(--font-size-sm);
   font-family: inherit;
@@ -105,7 +105,7 @@
   background: transparent;
   color: var(--color-danger);
   border: 1px solid var(--color-danger);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-btn);
   cursor: pointer;
   font-size: var(--font-size-sm);
   font-family: inherit;
@@ -144,7 +144,7 @@
 
 .viewModeButton {
   padding: var(--space-2) var(--space-4);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-btn);
   cursor: pointer;
   font-size: var(--font-size-sm);
   font-family: inherit;

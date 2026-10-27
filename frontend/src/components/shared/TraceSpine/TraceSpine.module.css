@@ -57,7 +57,7 @@
   min-width: 0;
   background: transparent;
   border: 1px solid transparent;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-btn);
   padding: var(--space-1) var(--space-2);
   color: var(--color-text);
   font-family: var(--font-sans);
@@ -182,7 +182,7 @@
   width: 100%;
   min-width: 0;
   background: transparent;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-btn);
   padding: var(--space-1) var(--space-2);
   color: var(--color-text);
   font-family: var(--font-sans);

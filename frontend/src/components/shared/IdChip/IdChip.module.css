@@ -35,7 +35,7 @@
    axes are floored so a smaller glyph or padding change cannot drop the box
    below the minimum again. */
 .copyButton {
-  min-height: var(--space-6);
+  min-height: var(--btn-h-xs);
   min-width: var(--space-6);
   padding: 0 var(--space-1);
   font-weight: 400;
