@@ -1,10 +1,11 @@
 """Tests for the Task 9 semantic search pass + RRF fusion (REQ-L2-VS-004).
 
-``SearchService._search_entity_type`` fuses three passes for "Requirement" --
-the only one of the three embeddable types (see
-``search_service._EMBEDDABLE_TYPES``) that is also a public ``type_filter``
-entity type today: full-text, lexical, and (new) cosine-similarity over
-``Requirement.embedding``.
+``SearchService._search_entity_type`` fuses three passes for "Requirement":
+full-text, lexical, and cosine-similarity over ``Requirement.embedding``.
+Requirement is the type with the most fusion coverage here; since T-A3-3 all
+three embeddable types (``search_service._EMBEDDABLE_TYPES``) are also public
+``type_filter`` entity types, with TraceLink/Icd covered in
+``test_search_tracelink_icd.py``.
 
 Dimension note (rewritten for #794): every embedding column is sized from
 ``persistence.embedding_dimensions.EMBEDDING_VECTOR_DIMENSIONS``, and Postgres
@@ -314,6 +315,114 @@ class TestSemanticFusion:
             "decision in _rrf_fuse's docstring does not hold here."
         )
 
+    def test_exact_uid_ranks_first_under_rrf(self, monkeypatch):
+        """T-A3-2 / A-L21: an exact uid hit must outrank the RRF list.
+
+        ``REQ-012`` matches the target's uid exactly (lexical tier only -- the
+        row carries no embedding). A second, semantically closer requirement
+        sits at semantic rank 0 and its title sorts alphabetically first.
+        Both accumulate the same single RRF contribution (1/61), so the
+        global ``(-score, title)`` tiebreaker used to put the *neighbour*
+        first. The exact uid match is pinned above the fused list instead and
+        appears exactly once.
+        """
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            target = make_requirement(
+                ws,
+                title="Zebra identifier row",
+                description="",
+                uid="REQ-012",
+            )
+            neighbour = make_requirement(
+                ws,
+                title="Alpha semantic neighbour",
+                description="",
+                uid="REQ-012-NEIGHBOUR",
+            )
+            query_vector = [0.7] * _DIM
+            neighbour.embedding = query_vector
+            neighbour.save(update_fields=["embedding"])
+
+            ctx = editor_ctx(tenant, ws)
+            monkeypatch.setattr(
+                "application.search_service.generate_embedding",
+                lambda text: query_vector,
+            )
+            result = SearchService().search(
+                "REQ-012", ctx, workspace_id=ws.id, type_filter=["Requirement"]
+            )
+
+        ids_in_order = [hit.id for hit in result.results]
+        assert ids_in_order.count(str(target.id)) == 1, (
+            "the exact uid hit must appear exactly once -- pinned hits are "
+            "removed from the RRF lists they would otherwise be counted in"
+        )
+        assert ids_in_order[0] == str(target.id), (
+            "the exact uid match was not pinned to rank 1 under RRF "
+            f"(order: {ids_in_order})"
+        )
+        assert result.results[0].relevance_score == 1.0
+
+    def test_pin_wins_over_rrf_max_tie(self, monkeypatch):
+        """Review finding F1: a full RRF maximum must not displace a pin.
+
+        ``_rrf_fuse`` normalizes by the theoretical maximum
+        ``len(rank_lists) / (_RRF_K + 1)``, so a **non-pinned** hit that ranks
+        first in all three lists scores exactly 1.0 — the same value a pinned
+        exact-uid hit carries. The global ``(-score, title)`` sort then decided
+        alphabetically, so the pin lost whenever a rival's title sorted earlier.
+        That is the original A-L21 symptom, reachable again through RRF's own
+        arithmetic rather than through a scoring scale seam.
+
+        The rival is deliberately NOT pinned and sits at rank 0 in every list
+        once the pin is filtered out of them:
+
+        * lexical — title prefix tier (``REQ-012-A`` starts with ``REQ-012``),
+          2.5/3.0 ≈ 0.83, i.e. below the 0.9 pin cut;
+        * full-text — its description carries the query token as its own word;
+        * semantic — its embedding *is* the query vector.
+
+        Its title sorts before the pin's (``REQ-012-A`` < ``Zebra ...``), which
+        is what made the tie decide the wrong way.
+        """
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            target = make_requirement(
+                ws, title="Zebra identifier row", description="", uid="REQ-012"
+            )
+            rival = make_requirement(
+                ws,
+                title="REQ-012-A",
+                description="REQ-012 cross reference.",
+            )
+            query_vector = [0.7] * _DIM
+            rival.embedding = query_vector
+            rival.save(update_fields=["embedding"])
+
+            ctx = editor_ctx(tenant, ws)
+            monkeypatch.setattr(
+                "application.search_service.generate_embedding",
+                lambda text: query_vector,
+            )
+            result = SearchService().search(
+                "REQ-012", ctx, workspace_id=ws.id, type_filter=["Requirement"]
+            )
+
+        ids_in_order = [hit.id for hit in result.results]
+        assert ids_in_order.count(str(target.id)) == 1
+        rival_hit = next(hit for hit in result.results if hit.id == str(rival.id))
+        assert rival_hit.relevance_score == pytest.approx(1.0), (
+            "precondition: the unpinned rival must actually reach the RRF "
+            "theoretical maximum, otherwise this test does not exercise the "
+            f"tie it is about (score: {rival_hit.relevance_score})"
+        )
+        assert ids_in_order[0] == str(target.id), (
+            "a rival sitting at the RRF maximum (1.0) displaced the pinned "
+            f"exact-uid match — pinning is not guaranteed (order: {ids_in_order})"
+        )
+        assert result.results[0].relevance_score == 1.0
+
 
 @pytest.mark.django_db
 class TestEmbeddingGenerationGatedByTypeFilter:
@@ -363,14 +472,11 @@ class TestEmbeddingGenerationGatedByTypeFilter:
 class TestSemanticQueryDirectTraceLinkAndIcd:
     """Direct coverage for ``_run_semantic_query``'s TraceLink/Icd branches.
 
-    Neither type is wired into ``SearchService.search()``'s public
-    ``type_filter`` surface (see ``search_service._EMBEDDABLE_TYPES``'s
-    docstring: they have no fulltext/lexical ``_TableSpec`` and no natural
-    "title", so exposing them as new searchable types is a separate product/
-    API-surface decision this task deliberately scopes out). These tests
-    exist to prove the "Consumes TraceLink.embedding / Icd.embedding"
-    part of this task's interface contract is real and correct, independent
-    of that wiring decision.
+    These tests stay at the semantic-pass level (no ``SearchService.search``
+    round trip): the public, permission-scoped search surface for both types is
+    covered in ``test_search_tracelink_icd.py``. They pin the raw pass's
+    contract -- TraceLink resolves its workspace through ``source``, Icd uses
+    its own ``workspace_id`` -- independently of the fusion/visibility layers.
     """
 
     def test_tracelink_semantic_query_finds_matching_embedding(self):
