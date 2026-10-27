@@ -104,6 +104,12 @@ DEFAULT_FIXTURE = (
 #: Subsets whose metric is true recall against a known expected row.
 _GROUND_TRUTH_KINDS: frozenset[str] = frozenset({"id"})
 
+#: Default result window, i.e. the N in ``recall@N``. Public because the CI
+#: gate (``application/tests/test_search_recall.py``) must assert on the *same*
+#: window this command reports with — a second literal there would let the two
+#: surfaces drift apart silently (CR-01).
+DEFAULT_LIMIT = 10
+
 
 def load_recall_set(path: str | Path) -> dict[str, Any]:
     """Read and structurally validate a recall-set YAML document.
@@ -267,8 +273,11 @@ class Command(BaseCommand):
         parser.add_argument(
             "--limit",
             type=int,
-            default=10,
-            help="Result window per query, i.e. the N in recall@N (default: 10).",
+            default=DEFAULT_LIMIT,
+            help=(
+                "Result window per query, i.e. the N in recall@N "
+                f"(default: {DEFAULT_LIMIT})."
+            ),
         )
         parser.add_argument(
             "--json",

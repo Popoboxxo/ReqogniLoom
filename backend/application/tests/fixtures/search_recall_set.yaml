@@ -42,10 +42,17 @@
 # creates the `expect_uid` rows itself and keeps this file the single source of
 # truth for both gate and report.
 #
-# The gate's corpus is larger than its recall window (22 rows against
-# recall@10): an expected row must win one of ten slots, so the window can drop
-# a row that is still retrieved. With a corpus the size of the window every
-# retrieved row trivially fits and `recall@10` says nothing about ranking.
+# The corpus the gate builds does not just exceed its recall window (10) in
+# row count — every `id` query has more *candidates* than the window, which is
+# what makes the window bind. For each `expect_uid` the corpus adds title
+# decoys that name that UID ("Abgeleitet aus REQ-L1-001", "Prüft REQ-L1-002 im
+# Abnahmelauf", …): the lexical pass matches `title`/`uid`/`id`, so they come
+# back as title-substring hits (tier 2.0) behind the exact UID (tier 2.9). Row
+# count alone would prove nothing: with decoys disjoint in both `uid` and
+# title each lookup returns a single row and the window can never cut.
+# Decoy *uids* stay strictly disjoint from every `expect_uid` (an overlapping
+# UID would create a second exact-tier candidate and blur rank 1); decoy
+# *titles* naming a UID are the point.
 version: 1
 description: >-
   Recall set of 20 queries for COMP-AS-010 SearchService (T-A3-4): 6 exact

@@ -46,19 +46,26 @@ created here by the test through the shared factories: the YAML stays the
 single source of truth for both the gate and the report command, and the
 dataset a report run sees is the dataset the gate asserts on.
 
-WHY THE CORPUS IS LARGER THAN THE RECALL WINDOW (CR-01)
--------------------------------------------------------
+WHY THE RECALL WINDOW ACTUALLY BINDS (CR-01)
+--------------------------------------------
 The dataset stays small in absolute terms — the gate's job is to catch a
-ranking regression, not to benchmark throughput — but it is deliberately
-**larger than the window**: :data:`CORPUS_SIZE` rows against ``LIMIT = 10``. A
-corpus at or below the window makes ``recall@10`` structurally unfalsifiable:
-all expected rows fit into the first ten slots however badly the ranking
-behaves, ``keyword`` recall is 100 % by construction, and ``hybrid >= keyword``
-cannot fail. The decoys are realistic sibling requirements whose UIDs can never
-collide with an ``expect_uid``, so an expected row has to *win* a slot instead
-of merely being present. :class:`TestCorpusShape` pins that ratio so a future
-"let's shrink the fixture" edit cannot quietly restore the unfalsifiable
-window.
+ranking regression, not to benchmark throughput — but every ``id`` query has
+deliberately **more candidates than the window**: :data:`_TITLE_DECOY_TEMPLATES`
+expands to one title-carrying decoy per expected UID and per template, each
+naming its ``expect_uid`` ("Abgeleitet aus REQ-L1-001", "Prüft REQ-L1-002 im
+Abnahmelauf", …). An expected row therefore has to *win* one of the ``LIMIT``
+slots against those candidates instead of merely being present.
+
+Corpus size alone would not prove that: a corpus of 22 rows whose decoys are
+mutually disjoint in ``uid`` *and* title leaves every ID query with exactly one
+candidate (the lexical pass matches only ``title``/``uid``/``id``), so a window
+of ten can never cut anything and ``recall@10`` is unfalsifiable however badly
+the ranking behaves. What binds the window is the **candidate count per query**,
+so :class:`TestRecallWindowBinds` asserts ``total_count > LIMIT`` for every
+``id`` query, and :class:`TestCorpusShape` pins the fixture shape that
+guarantees it. The gate stays sensitive through two knobs the decoys cannot
+satisfy: the exact-UID tier (a title substring scores 2.0 against the UID's 2.9)
+and the exact-match pin.
 """
 from __future__ import annotations
 
@@ -72,6 +79,7 @@ from django.core.management.base import CommandError
 
 from application.management.commands.search_recall_report import (
     DEFAULT_FIXTURE,
+    DEFAULT_LIMIT,
     QUERY_KINDS,
     Command,
     SubsetScore,
@@ -93,9 +101,11 @@ from persistence.tests.factories import (
     make_workspace,
 )
 
-#: Recall window used by the gate — the N in recall@N, and the same default the
-#: report command uses.
-LIMIT = 10
+#: Recall window used by the gate — the N in recall@N. Imported from the report
+#: command rather than repeated as a literal: the gate asserts on the window the
+#: command reports with, so a changed default must not leave the gate measuring
+#: a window the QS surface no longer uses (CR-01).
+LIMIT = DEFAULT_LIMIT
 
 #: Expected subset distribution of the fixture: 6 ID, 2 negative ID, 6 synonym,
 #: 6 thematic = 20.
@@ -156,12 +166,10 @@ _EXPECTED_REQUIREMENTS: tuple[dict[str, str], ...] = (
 )
 
 #: Noise rows: realistic sibling wording that must never be mistaken for one of
-#: the expected UIDs. They also make the corpus larger than the recall window
-#: (CR-01): with only as many rows as the window, ``recall@10`` is satisfied by
-#: every expected row simply being present and the gate can never go red. The
-#: UIDs above are chosen so no decoy UID contains an ``expect_uid`` as a
-#: substring — the lexical pass matches on ``LIKE %uid%``, so an overlapping
-#: UID would put a second candidate into every ID query's result list.
+#: the expected UIDs. Their UIDs are disjoint from the expected ones *and* from
+#: each other's substrings: the lexical pass matches on ``LIKE %uid%``, so an
+#: overlapping UID would put a second row into the exact-UID tier of an ID query
+#: and make "the expected row is rank 1" ambiguous instead of strict.
 _DECOY_REQUIREMENTS: tuple[dict[str, str], ...] = (
     {
         "title": "Anforderung an die Protokollierung",
@@ -273,9 +281,88 @@ _DECOY_REQUIREMENTS: tuple[dict[str, str], ...] = (
     },
 )
 
+#: Titles that *name* an expected UID without being that row — the normal case
+#: in a traceability tool: a derived requirement, a verification step, a review
+#: note or a change request all say which requirement they refer to. Every
+#: template is expanded once per expected UID, so each ``id`` query has
+#: ``len(_TITLE_DECOY_TEMPLATES)`` further candidates besides the exact-UID row.
+#:
+#: This is what makes the recall window bind (CR-01). With UID-only decoys every
+#: ``id`` query had exactly **one** candidate — the lexical pass matches on
+#: ``title``/``uid``/``id`` and no other row mentioned ``REQ-L1-001`` at all —
+#: so a window of ten could never cut anything and ``recall@10`` was unfalsifiable
+#: no matter how badly the ranking behaved. A title-substring hit scores
+#: ``_SCORE_TITLE_SUBSTRING = 2.0`` against the exact UID's ``2.9`` (normalised
+#: 0.667 vs 0.967), i.e. it ranks behind the expected row but occupies one of the
+#: ten slots, so the expected row has to *win* its place.
+#:
+#: Descriptions deliberately do **not** repeat the UID: the candidate count must
+#: come from the title (a lexical hit), not from the full-text pass.
+_TITLE_DECOY_TEMPLATES: tuple[tuple[str, str], ...] = (
+    (
+        "Abgeleitet aus {uid}",
+        "Konkretisiert die Anforderung für den mobilen Client und den Offline-Betrieb.",
+    ),
+    (
+        "Prüft {uid} im Abnahmelauf",
+        "Automatisierter Nachweis im nächtlichen Abnahmelauf mit Protokollierung.",
+    ),
+    (
+        "Verfeinert {uid} für den Offline-Betrieb",
+        "Präzisiert das Verhalten bei Verbindungsabbruch und späterer Synchronisation.",
+    ),
+    (
+        "Sichert {uid} gegen Ausfälle ab",
+        "Beschreibt die Wiederaufnahme nach einem abgebrochenen Hintergrundjob.",
+    ),
+    (
+        "Review-Notiz zu {uid}",
+        "Offener Punkt aus dem Architektur-Review; Entscheidung steht noch aus.",
+    ),
+    (
+        "Teststrategie für {uid}",
+        "Legt Äquivalenzklassen und Randfälle für die Abnahme fest.",
+    ),
+    (
+        "Offener Punkt aus {uid}",
+        "Klärt die Zuständigkeit zwischen Fachbereich und Plattform-Team.",
+    ),
+    (
+        "Schnittstellenanteil von {uid}",
+        "Beschreibt den Anteil, den die Anbindung an der Anforderung trägt.",
+    ),
+    (
+        "Risikobewertung zu {uid}",
+        "Bewertet Eintrittswahrscheinlichkeit und Entdeckungswahrscheinlichkeit.",
+    ),
+    (
+        "Umsetzungshinweis zu {uid}",
+        "Hinweis für die Implementierung: vorhandene Bausteine wiederverwenden.",
+    ),
+    (
+        "Änderungsantrag zu {uid}",
+        "Beantragt eine Präzisierung der Formulierung ohne Verhaltensänderung.",
+    ),
+    (
+        "Abhängigkeit von {uid} zur Datenbank",
+        "Hält fest, welche Datenbankeigenschaft die Anforderung voraussetzt.",
+    ),
+)
+
+#: Title-carrying decoys, expanded from :data:`_TITLE_DECOY_TEMPLATES`.
+_TITLE_DECOYS: tuple[dict[str, str], ...] = tuple(
+    {"title": template.format(uid=row["uid"]), "description": description}
+    for row in _EXPECTED_REQUIREMENTS
+    for template, description in _TITLE_DECOY_TEMPLATES
+)
+
 #: Every row the test creates. Must stay strictly larger than :data:`LIMIT` —
-#: see the module docstring (CR-01); :class:`TestCorpusShape` enforces it.
-CORPUS_SIZE = len(_EXPECTED_REQUIREMENTS) + len(_DECOY_REQUIREMENTS)
+#: see the module docstring (CR-01); :class:`TestCorpusShape` enforces the
+#: per-query candidate count, which is the property that actually binds the
+#: window.
+CORPUS_SIZE = (
+    len(_EXPECTED_REQUIREMENTS) + len(_DECOY_REQUIREMENTS) + len(_TITLE_DECOYS)
+)
 
 
 # ---------- helpers ----------
@@ -294,6 +381,9 @@ def _seed_corpus(workspace) -> dict[str, str]:
     than compare the mapping for equality (a decoy must never be able to
     satisfy an ID query by sharing a UID).
 
+    The title decoys (:data:`_TITLE_DECOYS`) carry no UID of their own; they are
+    created as ordinary rows and only become candidates through their title.
+
     Embeddings are written the way production writes them
     (``get_embedding_text`` + ``generate_embedding_with_model`` + a bare
     ``.update()``), so ``hybrid`` mode exercises the real RRF path instead of
@@ -301,7 +391,11 @@ def _seed_corpus(workspace) -> dict[str, str]:
     set by the test — the mock provider is deterministic per text.
     """
     resolved: dict[str, str] = {}
-    for row in (*_EXPECTED_REQUIREMENTS, *_DECOY_REQUIREMENTS):
+    for row in (
+        *_EXPECTED_REQUIREMENTS,
+        *_DECOY_REQUIREMENTS,
+        *_TITLE_DECOYS,
+    ):
         requirement = make_requirement(workspace, **row)
         embedding, model_id = generate_embedding_with_model(
             get_embedding_text(requirement)
@@ -388,11 +482,15 @@ class TestRecallSetStructure:
 
 
 class TestCorpusShape:
-    """CR-01: a corpus at/below the window makes ``recall@10`` unfalsifiable.
+    """CR-01: the window only binds if each ``id`` query has more candidates.
 
-    The corpus is 22 rows (6 expected + 16 decoys) against a window of 10; the
-    invariant is the *relation*, not the number, so the fixture may grow but
-    never shrink back to the window.
+    Corpus size is necessary but not sufficient. What makes ``recall@10``
+    falsifiable is the candidate count *per query*: the lexical pass matches
+    only ``title``/``uid``/``id``, so a decoy set that is disjoint in both fields
+    leaves each ID lookup with a single candidate and the window can never cut
+    anything. These tests pin the fixture shape that guarantees the opposite —
+    the relation, not the raw numbers, so the fixture may grow but not shrink
+    back below the window.
     """
 
     def test_corpus_is_larger_than_the_recall_window(self):
@@ -403,7 +501,40 @@ class TestCorpusShape:
             "Add decoys instead of shrinking the corpus."
         )
 
+    def test_every_expect_uid_has_more_title_candidates_than_the_window(self):
+        """The per-query invariant the window depends on (CR-01)."""
+        short = {
+            row["uid"]: sum(
+                1
+                for decoy in _TITLE_DECOYS
+                if row["uid"].lower() in decoy["title"].lower()
+            )
+            for row in _EXPECTED_REQUIREMENTS
+        }
+
+        below_window = {
+            uid: count for uid, count in short.items() if count + 1 <= LIMIT
+        }
+        assert not below_window, (
+            "these expect_uids have at most "
+            f"{LIMIT} candidates including themselves ({below_window}): the "
+            "recall window cannot cut their result list, so their recall@10 "
+            "measures presence, not ranking. Add title decoys naming the UID."
+        )
+
     def test_no_decoy_uid_can_impersonate_an_expected_uid(self):
+        """UIDs stay strictly disjoint; *title* overlap is intended (CR-01).
+
+        A decoy must not carry an ``expect_uid`` as its ``uid`` or a substring
+        of it — the lexical pass matches ``uid LIKE %query%``, so an overlapping
+        UID would create a second *exact-tier* candidate and make "the expected
+        row is rank 1" ambiguous instead of strict.
+
+        A decoy *title* naming an ``expect_uid`` is the opposite: it is what
+        gives each ID query more candidates than the window, and it is
+        deliberately behind the exact UID (title substring tier 2.0 vs 2.9), so
+        it cannot steal rank 1. :data:`_TITLE_DECOYS` exists for exactly that.
+        """
         expected = {row["uid"] for row in _EXPECTED_REQUIREMENTS}
         decoy_uids = {
             row["uid"] for row in _DECOY_REQUIREMENTS if "uid" in row
@@ -425,6 +556,12 @@ class TestCorpusShape:
         assert not overlapping, (
             f"decoy UIDs contain an expect_uid as a substring: {sorted(overlapping)}"
         )
+        # The title decoys are the intended counter-example: they carry no UID
+        # of their own, so the disjointness above is not weakened by adding them.
+        assert all("uid" not in decoy for decoy in _TITLE_DECOYS), (
+            "a title decoy carries a uid: its candidates must come from the "
+            "title only, or it becomes an exact-tier competitor"
+        )
 
 
 # ---------- CI gate: ID subset ----------
@@ -437,10 +574,13 @@ class TestIdRecallGate:
     def test_hybrid_recall_is_at_least_keyword_recall_on_the_id_subset(
         self, monkeypatch
     ):
-        """``hybrid >= keyword`` is only meaningful with a corpus > window.
+        """``hybrid >= keyword`` is only meaningful if the window can cut.
 
-        Every expected row has to *win* one of the ``LIMIT`` slots against
-        :data:`CORPUS_SIZE` candidates; see the module docstring (CR-01).
+        Each expected row has to *win* one of the ``LIMIT`` slots against more
+        candidates than the window holds — the title decoys name the UID, so a
+        result list of ten is a real cut and a dropped expected row lowers
+        recall. See the module docstring (CR-01); the candidate counts
+        themselves are asserted in :class:`TestRecallWindowBinds`.
         """
         monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
         fixture = _load_fixture()
@@ -552,6 +692,96 @@ class TestIdRecallGate:
             "fused ranking (T-A3-2 exact-match pin regressed)"
         )
         assert top.relevance_score == pytest.approx(1.0)
+
+
+# ---------- window binding (CR-01) ----------
+
+
+@pytest.mark.django_db
+class TestRecallWindowBinds:
+    """CR-01: every ``id`` query must have more candidates than the window.
+
+    This is the property that makes ``recall@10`` falsifiable, and it is
+    measured where it matters — on the database, per query, not on the module
+    constants. A corpus larger than the window is not enough: with decoys
+    disjoint in ``uid`` *and* title each ID lookup returns exactly one row, so
+    the window can never cut and a ranking regression is invisible.
+    """
+
+    def test_every_id_query_returns_more_candidates_than_the_window(
+        self, monkeypatch
+    ):
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        entries = _id_queries(_load_fixture())
+
+        with active_tenant() as tenant:
+            workspace = make_workspace(tenant)
+            _seed_corpus(workspace)
+            ctx = editor_ctx(tenant, workspace)
+
+            totals = {
+                entry["id"]: SearchService()
+                .search(
+                    entry["query"],
+                    ctx,
+                    workspace_id=workspace.id,
+                    mode="keyword",
+                    limit=LIMIT,
+                )
+                .total_count
+                for entry in entries
+            }
+
+        short = {qid: count for qid, count in totals.items() if count <= LIMIT}
+        assert not short, (
+            f"these id queries have at most {LIMIT} candidates "
+            f"({short}) while the recall window is {LIMIT}: the window cannot "
+            "cut their result list, so recall@10 measures presence instead of "
+            "ranking. Every id query needs title decoys that name its "
+            f"expect_uid. All counts: {totals}"
+        )
+
+    def test_the_expected_row_still_wins_a_slot_under_a_binding_window(
+        self, monkeypatch
+    ):
+        """Bias check: more candidates than slots, exact UID still in the page."""
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        entries = _id_queries(_load_fixture())
+
+        with active_tenant() as tenant:
+            workspace = make_workspace(tenant)
+            resolved = _seed_corpus(workspace)
+            ctx = editor_ctx(tenant, workspace)
+
+            observed = {}
+            for entry in entries:
+                result = SearchService().search(
+                    entry["query"],
+                    ctx,
+                    workspace_id=workspace.id,
+                    mode="keyword",
+                    limit=LIMIT,
+                )
+                page_ids = [hit.id for hit in result.results]
+                observed[entry["id"]] = (
+                    len(page_ids),
+                    page_ids.index(resolved[entry["expect_uid"]])
+                    if resolved[entry["expect_uid"]] in page_ids
+                    else None,
+                )
+
+        # The page is full (the window really cuts) *and* the expected row is
+        # on it — the two facts together are what make a miss meaningful.
+        full_page = {qid: size for qid, (size, _) in observed.items()}
+        assert all(size == LIMIT for size in full_page.values()), (
+            f"the recall window is not saturated per query: {full_page}"
+        )
+        missed = {
+            qid: rank for qid, (_, rank) in observed.items() if rank is None
+        }
+        assert not missed, (
+            f"an expected row fell out of the window although it exists: {missed}"
+        )
 
 
 # ---------- CI gate: negative ID subset ----------
