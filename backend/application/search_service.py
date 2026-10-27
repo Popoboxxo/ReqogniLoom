@@ -25,6 +25,10 @@ entity type, all three passes are combined via Reciprocal Rank Fusion
 (``_rrf_fuse``) instead of the plain max-score merge (``_merge_hits``) —
 see ``SearchService._search_entity_type``'s docstring for the fusion rule.
 
+T-A3-2 (A-L21) pins an *exact* identifier hit (exact title, exact uid/ID) above
+that fused list with ``relevance_score == 1.0``, so typing a readable ID always
+returns that artifact first.
+
 Every ``SearchHit.relevance_score`` is normalized to the closed interval
 ``[0.0, 1.0]`` at the point of score creation (issue #827). The four native
 scales — cosine similarity, ``ts_rank``, the lexical CASE tiers, and the RRF
@@ -146,6 +150,14 @@ _RRF_K = 60
 # supporting index bounds an unbounded scan/sort otherwise — the HNSW index
 # does bound the *cost* here, but we still only need the top few dozen).
 _SEMANTIC_TOP_K = 50
+
+#: T-A3-2 (A-L21): normalized lexical score at/above which a hit counts as an
+#: *exact* identifier match and is pinned above the fused list. The exact-title
+#: tier normalizes to 1.0 and the exact-uid/ID tiers to 2.9/3.0 ≈ 0.967, while
+#: the next tier down (title prefix) sits at 2.5/3.0 ≈ 0.833 — 0.9 is the
+#: natural cut between "the query IS the identifier" and "it merely starts
+#: like it".
+_PIN_MIN_NORMALIZED_LEXICAL_SCORE = 0.9
 
 #: ORM path the semantic pass filters a type's rows by when a workspace is
 #: supplied. Requirement joins through ``pl_artifact`` (NOT the denormalized
@@ -938,7 +950,11 @@ class SearchService(ServiceBase):
 
         Combines the full-text and the lexical pass per entity type (#345):
         an artifact whose title, uid or ID literally contains *query* is
-        always returned, and ranks above purely semantic matches.
+        always returned. In ``hybrid`` mode an artifact whose title or uid/ID
+        is an *exact* match is pinned above the fused ranking with
+        ``relevance_score == 1.0`` (T-A3-2) — so the readable identifier a
+        user typed always comes first, even when a semantically closer
+        neighbour would otherwise win the RRF tiebreaker.
 
         REQ-L3-SEARCH-002 (query parsing), REQ-L3-SEARCH-003 (ranking),
         REQ-L3-SEARCH-004 (type filter), REQ-L3-SEARCH-005 (tenant/workspace),
@@ -1145,6 +1161,14 @@ class SearchService(ServiceBase):
         :func:`_rrf_fuse`'s docstring for why the two are not unconditionally
         unified into one algorithm.
 
+        Pinning (T-A3-2, A-L21): under RRF an *exact* identifier match (the
+        exact-title / exact-uid / exact-ID lexical tiers, i.e. a normalized
+        lexical score >= :data:`_PIN_MIN_NORMALIZED_LEXICAL_SCORE`) used to be
+        flattened to the same 1/61 contribution as any single-list semantic
+        hit, after which the alphabetical title tiebreaker could push it to
+        rank 2. Those hits are lifted out of all three RRF lists and placed in
+        front with ``relevance_score == 1.0``; they appear exactly once.
+
         IF-AS-EXT-OUT-007: raw SQL via django.db.connection for expression
         index compatibility (GIN index on the tsvector expression) backs the
         fulltext/lexical passes; the semantic pass uses the Django ORM (see
@@ -1172,6 +1196,20 @@ class SearchService(ServiceBase):
 
         semantic_hits = _run_semantic_query(entity_type, query_embedding, tenant_id, workspace_id)
         if semantic_hits:
+            pinned = [
+                hit
+                for hit in lexical_hits
+                if hit.relevance_score >= _PIN_MIN_NORMALIZED_LEXICAL_SCORE
+            ]
+            if pinned:
+                pinned_ids = {hit.id for hit in pinned}
+                return [
+                    dataclass_replace(hit, relevance_score=1.0) for hit in pinned
+                ] + _rrf_fuse(
+                    [hit for hit in lexical_hits if hit.id not in pinned_ids],
+                    [hit for hit in fulltext_hits if hit.id not in pinned_ids],
+                    [hit for hit in semantic_hits if hit.id not in pinned_ids],
+                )
             return _rrf_fuse(lexical_hits, fulltext_hits, semantic_hits)
         return _merge_hits(fulltext_hits, lexical_hits)
 
