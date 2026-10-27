@@ -521,7 +521,7 @@ urlpatterns = [
     ),
     # Tree-display configuration (Issue #1257) — the per-workspace level. The
     # URL carries workspace_id, so the auth layer scopes active_roles to it and
-    # the service re-asserts write permission.
+    # the service re-asserts WORKSPACE_CONFIG (workspace admin, ENT-C3 = B).
     path(
         "workspaces/<uuid:workspace_id>/tree-display-config/",
         TreeDisplayConfigWorkspaceView.as_view(),
@@ -546,7 +546,7 @@ urlpatterns = [
     ),
     # Create-dialog form definition (Issue #1263) — the per-workspace level. The
     # URL carries workspace_id, so the auth layer scopes active_roles to it and
-    # the service re-asserts write permission.
+    # the service re-asserts WORKSPACE_CONFIG (workspace admin, ENT-C3 = B).
     path(
         "workspaces/<uuid:workspace_id>/create-form-config/",
         CreateFormConfigWorkspaceView.as_view(),

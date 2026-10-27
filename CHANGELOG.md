@@ -11,7 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - feat(search): `?mode=hybrid|keyword|vector` on `GET /api/v1/search/` and the `artifact.search` MCP tool (A3/T-A3-1). `keyword` answers from full-text + lexical passes only and makes no embedding call; `vector` uses only the semantic pass; an unknown value is a `VALIDATION_ERROR` (400) instead of a silent hybrid fallback. The response echoes the effective `mode`.
 
 ### Changed
-- fix(api)!: **Breaking** — `GET` on a soft-deleted architecture element now answers 200 with `status="outdated"` instead of 404, matching every other artifact type (GH-443, #1381). This GET flip is the only breaking change in this release.
+- fix(api)!: **Breaking** — `GET` on a soft-deleted architecture element now answers 200 with `status="outdated"` instead of 404, matching every other artifact type (GH-443, #1381). This GET flip is one of two breaking changes in this release.
+- fix(permissions)!: **Breaking** — editors can no longer change workspace-level tree/form display defaults (workspace admin required). The workspace levels of `tree_display_config` and `create_form_config` are workspace *configuration* (`Operation.WORKSPACE_CONFIG`, ENT-C3 = B) on REST and MCP alike; an API key additionally needs the ADMIN tier. The personal level stays self-service for every role, the tenant-wide default keeps its `admin` gate, and the reads stay open to every member (Plan C T-C2-10).
 - fix(api): artifact list endpoints now declare `workspace_id`, `include_deleted` and — where the service really filters — `status`/`search` in the OpenAPI document (E2.9, G-L16). `GET /api/v1/testcases/?status=<state>` now filters instead of silently ignoring the parameter (the one visible behaviour change: an unknown state returns an empty page, never the unfiltered list).
 
 ### Fixed

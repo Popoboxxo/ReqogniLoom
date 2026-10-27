@@ -7,14 +7,22 @@ Covers the three routes end to end against real rows and a real JWT login:
   * ``/api/v1/system/tree-display-config/`` — tenant-wide default (admin write),
 
 plus the ``?resolve=effective`` read the navigation tree itself performs, and
-the two fail-closed edges: a viewer may not set a workspace override, an editor
-may not set the tenant-wide default.
+the fail-closed edges: a viewer may not set a workspace override, and — since
+ENT-C3 = B / Plan C T-C2-10 — neither may an editor, whose WRITE is no longer
+enough for workspace *configuration* (reading it stays open to every member).
+An editor may still not set the tenant-wide default.
 """
 from __future__ import annotations
+
+import uuid
 
 import pytest
 from rest_framework.test import APIClient
 
+from auth_tenancy.models import ROLE_ADMIN, UserRole
+from auth_tenancy.services.authentication import AuthenticationService
+from persistence.middleware import clear_request_tenant, set_request_tenant
+from persistence.models import Tenant, User, Workspace
 from rest_api.tests.conftest import _role_client
 
 pytestmark = pytest.mark.django_db
@@ -174,19 +182,36 @@ class TestEffectiveResolution:
 
 
 class TestWorkspaceLevel:
-    def test_an_editor_may_set_and_read_the_workspace_override(
-        self, editor_client: APIClient, workspace_fixture
+    def test_an_admin_may_set_and_read_the_workspace_override(
+        self, admin_client: APIClient, workspace_fixture
     ) -> None:
         path = workspace_path(workspace_fixture)
-        response = editor_client.patch(
+        response = admin_client.patch(
             path, {"item_type": ITEM_TYPE, "fields": ["uid", "level"]}, format="json"
         )
 
         assert response.status_code == 200, response.content
         assert response.json()["scope"] == "workspace"
         assert _keys(
-            editor_client.get(path, {"item_type": ITEM_TYPE}).json()["fields"]
+            admin_client.get(path, {"item_type": ITEM_TYPE}).json()["fields"]
         ) == ["uid", "level"]
+
+    def test_an_editor_may_not_set_the_workspace_override(
+        self, editor_client: APIClient, workspace_fixture
+    ) -> None:
+        """ENT-C3 = B: a workspace default is configuration, not content.
+
+        Reading the level stays open to every member (the next test proves
+        that); writing it needs the workspace admin.
+        """
+        path = workspace_path(workspace_fixture)
+        response = editor_client.patch(
+            path, {"item_type": ITEM_TYPE, "fields": ["uid", "level"]}, format="json"
+        )
+
+        assert response.status_code == 403, response.content
+        assert response.json()["error"]["code"] == "PERMISSION_DENIED"
+        assert editor_client.get(path, {"item_type": ITEM_TYPE}).status_code == 200
 
     def test_the_workspace_override_wins_in_the_effective_read(
         self, admin_client: APIClient, editor_client: APIClient, workspace_fixture
@@ -195,7 +220,7 @@ class TestWorkspaceLevel:
         admin_client.patch(
             SYSTEM_PATH, {"item_type": ITEM_TYPE, "fields": ["status"]}, format="json"
         )
-        editor_client.patch(
+        admin_client.patch(
             workspace_path(workspace_fixture),
             {"item_type": ITEM_TYPE, "fields": ["uid"]},
             format="json",
@@ -211,10 +236,10 @@ class TestWorkspaceLevel:
         assert _keys(body["fields"]) == ["uid"]
 
     def test_the_personal_level_wins_over_the_workspace_override(
-        self, editor_client: APIClient, workspace_fixture
+        self, admin_client: APIClient, editor_client: APIClient, workspace_fixture
     ) -> None:
         """Precedence ``user > workspace`` observed through the real routes."""
-        editor_client.patch(
+        admin_client.patch(
             workspace_path(workspace_fixture),
             {"item_type": ITEM_TYPE, "fields": ["status"]},
             format="json",
@@ -294,3 +319,93 @@ class TestGlobalLevel:
         )
         assert effective.status_code == 200, effective.content
         assert effective.json()["scope"] == "global"
+
+
+# ---------------------------------------------------------------------------
+# Capability tier (R6): a workspace default is a governance act
+# ---------------------------------------------------------------------------
+
+
+def _workspace_admin_key(tenant: Tenant, workspace: Workspace, scope: str) -> str:
+    """API key of *scope* whose owner is an admin in *workspace*.
+
+    The tier belongs to the key, not to the owner: this is the "privileged
+    owner, narrow key" case an AUTHOR key must not be able to use on a
+    workspace-wide default (same pattern as
+    ``test_preference_value_views.py::test_an_author_tier_key_…``).
+    """
+    admin = User.objects.create(
+        username=f"tree-admin-{uuid.uuid4().hex[:8]}",
+        email="tree-admin@t.test",
+        tenant=tenant,
+    )
+    set_request_tenant(tenant.id)
+    try:
+        UserRole.objects.create(
+            tenant=tenant, user=admin, workspace=workspace, role=ROLE_ADMIN
+        )
+    finally:
+        clear_request_tenant()
+    return (
+        AuthenticationService()
+        .create_api_key(
+            user_id=admin.id,
+            tenant_id=tenant.id,
+            name=f"tree-{scope}-{uuid.uuid4().hex[:6]}",
+            scope=scope,
+        )
+        .plaintext
+    )
+
+
+def _key_client(key: str) -> APIClient:
+    client = APIClient()
+    client.credentials(HTTP_X_API_KEY=key)
+    return client
+
+
+class TestCapabilityTier:
+    def test_an_author_tier_key_may_not_set_the_workspace_level(
+        self, tenant_fixture, workspace_fixture
+    ) -> None:
+        """R6: the ADMIN tier sits above the role matrix on REST too.
+
+        The key's owner is a workspace admin, so a role-only check would let
+        the write through; only the capability tier must stop it.
+        """
+        client = _key_client(
+            _workspace_admin_key(tenant_fixture, workspace_fixture, "author")
+        )
+        response = client.patch(
+            workspace_path(workspace_fixture),
+            {"item_type": ITEM_TYPE, "fields": ["uid"]},
+            format="json",
+        )
+
+        assert response.status_code == 403, response.content
+        assert response.json()["error"]["code"] == "PERMISSION_DENIED"
+
+    def test_an_admin_tier_key_may_set_the_workspace_level(
+        self, tenant_fixture, workspace_fixture
+    ) -> None:
+        client = _key_client(
+            _workspace_admin_key(tenant_fixture, workspace_fixture, "admin")
+        )
+        response = client.patch(
+            workspace_path(workspace_fixture),
+            {"item_type": ITEM_TYPE, "fields": ["uid"]},
+            format="json",
+        )
+
+        assert response.status_code == 200, response.content
+        assert response.json()["scope"] == "workspace"
+
+    def test_an_author_tier_key_may_still_read_the_workspace_level(
+        self, tenant_fixture, workspace_fixture
+    ) -> None:
+        client = _key_client(
+            _workspace_admin_key(tenant_fixture, workspace_fixture, "author")
+        )
+        response = client.get(workspace_path(workspace_fixture))
+
+        assert response.status_code == 200, response.content

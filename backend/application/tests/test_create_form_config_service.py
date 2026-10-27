@@ -249,13 +249,26 @@ class TestAuthorization:
                 workspace_id=workspace.id,
             )
 
-    def test_editor_can_write_a_workspace_override(
+    def test_editor_cannot_write_a_workspace_override(
         self, editor_ctx: AuthContext, workspace: Workspace
     ) -> None:
-        # An ``editor`` holds WRITE in the RBAC matrix, so a workspace-level
-        # default is theirs to set — the same rule #1257 follows for the tree.
+        # ENT-C3 = B (Plan C T-C2-10): a workspace default is configuration, so
+        # an ``editor``'s WRITE is no longer enough — the workspace admin
+        # (``Operation.WORKSPACE_CONFIG``) is required. Intended breaking change.
+        with pytest.raises(PermissionDeniedError):
+            CreateFormConfigService().set_config(
+                editor_ctx,
+                scope=SCOPE_WORKSPACE,
+                item_type=ITEM_TYPE,
+                fields=[{"field_key": "title"}],
+                workspace_id=workspace.id,
+            )
+
+    def test_workspace_admin_can_write_a_workspace_override(
+        self, admin_ctx: AuthContext, workspace: Workspace
+    ) -> None:
         payload = CreateFormConfigService().set_config(
-            editor_ctx,
+            admin_ctx,
             scope=SCOPE_WORKSPACE,
             item_type=ITEM_TYPE,
             fields=[{"field_key": "title"}],
@@ -271,6 +284,59 @@ class TestAuthorization:
             fields=[{"field_key": "title"}],
         )
         assert payload["scope"] == SCOPE_USER
+
+
+class TestWriteLocking:
+    def test_workspace_write_re_reads_the_row_under_lock(
+        self, admin_ctx: AuthContext, workspace: Workspace, monkeypatch
+    ) -> None:
+        """``create_form_json`` is one document per level (finding R7).
+
+        A stale ``get_or_create`` instance must not overwrite the entry a
+        concurrent writer of another item type already committed; the write
+        re-reads the row under ``SELECT ... FOR UPDATE``.
+        """
+        service = CreateFormConfigService()
+        service.set_config(
+            admin_ctx,
+            scope=SCOPE_WORKSPACE,
+            item_type=ITEM_TYPE,
+            fields=[{"field_key": "title"}],
+            workspace_id=workspace.id,
+        )
+        row = TreeDisplayConfig.objects.get(
+            scope=TREE_DISPLAY_SCOPE_WORKSPACE, workspace_id=workspace.id
+        )
+
+        original = TreeDisplayConfig.objects.get_or_create
+        calls: list[str] = []
+
+        def stale_get_or_create(**kwargs):
+            calls.append("called")
+            stale, created = original(**kwargs)
+            TreeDisplayConfig.objects.filter(pk=stale.pk).update(
+                create_form_json={
+                    **stale.create_form_json,
+                    "Adr": [{"field_key": "title", "visible": True}],
+                }
+            )
+            return stale, created
+
+        monkeypatch.setattr(
+            TreeDisplayConfig.objects, "get_or_create", stale_get_or_create
+        )
+        service.set_config(
+            admin_ctx,
+            scope=SCOPE_WORKSPACE,
+            item_type=ITEM_TYPE,
+            fields=[{"field_key": "description"}],
+            workspace_id=workspace.id,
+        )
+
+        assert calls == ["called"], "the stale-read fixture never took effect"
+        row.refresh_from_db()
+        assert "Adr" in row.create_form_json, "the concurrent writer's entry was lost"
+        assert row.create_form_json[ITEM_TYPE][0]["field_key"] == "description"
 
 
 class TestValidation:

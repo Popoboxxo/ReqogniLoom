@@ -51,6 +51,7 @@ from application.create_form_config_service import (
     CreateFormConfigService,
 )
 from auth_tenancy.rest import HasOperationPermission
+from auth_tenancy.services.authorization import Operation
 from persistence.errors import PermissionDeniedError, ValidationError
 from rest_api.auth_enforcer import AdminScopeRequiredMixin, get_auth_context
 from rest_api.serializers import (
@@ -182,9 +183,29 @@ class CreateFormConfigUserView(_CreateFormConfigBaseView):
 
 
 class CreateFormConfigWorkspaceView(_CreateFormConfigBaseView):
-    """``/api/v1/workspaces/<uuid:workspace_id>/create-form-config/``."""
+    """``/api/v1/workspaces/<uuid:workspace_id>/create-form-config/``.
+
+    ENT-C3 = B: a workspace-wide default is governance configuration, so a write
+    requires :attr:`Operation.WORKSPACE_CONFIG` (ADMIN tier) while a read stays
+    ``Operation.READ`` — the capability tier must narrow an AUTHOR key whose
+    owner happens to hold the Admin role (R6). Declared per method because one
+    APIView serves both, exactly like ``WorkspacePreferenceLevelView``.
+    """
 
     scope = SCOPE_WORKSPACE
+
+    @property
+    def required_operation(self) -> Operation:
+        """``READ`` for a read, ``WORKSPACE_CONFIG`` for a mutation.
+
+        Read through ``getattr(self, "request", None)`` because the permission
+        class looks this up during schema generation too, where no request is
+        bound yet.
+        """
+        request = getattr(self, "request", None)
+        if request is not None and request.method == "PATCH":
+            return Operation.WORKSPACE_CONFIG
+        return Operation.READ
 
 
 class CreateFormConfigGlobalView(

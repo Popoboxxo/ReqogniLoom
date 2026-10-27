@@ -1284,7 +1284,7 @@ curl -X POST http://localhost:8000/mcp/ \
 | `adr` / `risk` / `issue` / `glossary` / `change_request` | Generic CRUD for ADRs, risks, issues, glossary terms, change requests | `read`, `create`, `update`, `delete` | Member |
 | `goal` / `main_goal` | Goal and MainGoal CRUD (workflow-backed) | `get`, `query`, `create`, `update` | Member |
 | `diagram` | Diagram generation and CRUD | `get`, `create`, `update` | Member |
-| `create_form_definition` | Create-dialog form definition per artifact type (visible fields, order, requiredness, defaults; 3 levels: user/workspace/global) | `get`, `set`, `export`, `import` | Member (user/workspace), Admin (global) |
+| `create_form_definition` | Create-dialog form definition per artifact type (visible fields, order, requiredness, defaults; 3 levels: user/workspace/global) | `get`, `set`, `export`, `import` | Member (user), Admin (workspace/global) |
 | `custom_field` | Custom field definitions | `get`, `list` | Member |
 | `review` | Review workflow tools | `get`, `create` | Member |
 | `suggestion` | ADR-019 durable proposal inbox (accept delegates to the existing domain path) | `list`, `accept`, `reject` | Member |

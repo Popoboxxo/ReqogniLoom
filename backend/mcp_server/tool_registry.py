@@ -1122,15 +1122,17 @@ class ToolRegistry:
             # (Baumfelder), three-level with precedence user > workspace >
             # global. tree_display_config.get is read-exempt below (it does not
             # end on ".read"/".query"); set is fail-closed write-gated, and the
-            # service re-asserts the role boundary per level (write authority
-            # for a workspace override, admin for the tenant-wide default).
+            # service re-asserts the role boundary per level (workspace config —
+            # an admin act, Operation.WORKSPACE_CONFIG — for a workspace
+            # override, admin role for the tenant-wide default; Plan C T-C2-10).
             "tree_display_config": TreeDisplayConfigToolGroup(),
             # Issue #1263: the create dialog's configurable form definition
             # (which fields are visible, order, required, default), three-level
             # with precedence user > workspace > global. create_form_definition.get
-            # is read-exempt below (it does not end on ".read"/".query"); set is
-            # fail-closed write-gated, and the service re-asserts the role
-            # boundary per level.
+            # is read-exempt below (it does not end on ".read"/".query"); set and
+            # import are fail-closed write-gated, and the service re-asserts the
+            # role boundary per level (workspace config for the workspace level,
+            # admin role for the tenant-wide default; Plan C T-C2-10).
             "create_form_definition": CreateFormConfigToolGroup(),
             # Plan C / Q1 (#T-C2-4): the generic three-level preference service
             # (user > workspace > global). preference.registry/.get are

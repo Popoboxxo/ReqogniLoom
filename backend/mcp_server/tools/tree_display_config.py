@@ -31,6 +31,7 @@ from typing import Any
 from uuid import UUID
 
 from application.tree_display_config_service import (
+    SCOPE_GLOBAL,
     SCOPE_USER,
     SCOPE_WORKSPACE,
     WRITABLE_SCOPES,
@@ -38,12 +39,22 @@ from application.tree_display_config_service import (
 )
 from auth_tenancy.context import AuthContext
 from mcp_server.protocol_handler import ToolResult
-from mcp_server.tools.base import BaseToolGroup, ParameterError, optional_uuid
+from mcp_server.tools.base import (
+    BaseToolGroup,
+    ParameterError,
+    optional_uuid,
+    require_admin_tier,
+)
 from persistence.errors import PermissionDeniedError, ValidationError
 
 #: ``effective`` is a *read* resolution outcome (it walks user → workspace →
 #: global → default). ``default`` names the built-in fallback for a UI legend.
 _READ_SCOPES: tuple[str, ...] = ("effective",) + WRITABLE_SCOPES + ("default",)
+
+#: Levels whose default governs every member. Writing one is workspace
+#: *configuration* (``Operation.WORKSPACE_CONFIG`` = ADMIN tier), while
+#: ``user`` stays self-service for any AUTHOR key (ENT-C3 = B, Plan C T-C2-10).
+_GOVERNANCE_SCOPES: tuple[str, ...] = (SCOPE_WORKSPACE, SCOPE_GLOBAL)
 
 
 def _parse_fields(raw: Any) -> list[Any] | None:
@@ -121,9 +132,11 @@ class TreeDisplayConfigToolGroup(BaseToolGroup):
                 "ordered array of field keys (see the catalogue from "
                 "``tree_display_config.get``) or {\"key\", \"width\"} objects; "
                 "``null`` resets the level so resolution falls back to the next "
-                "one. Scope \"user\" is self-service; \"workspace\" requires write "
-                "authority in the workspace (workspace_id required); \"global\" "
-                "requires the admin role. Identical to the REST PATCH endpoints."
+                "one. Scope \"user\" is self-service for any authenticated "
+                "caller; the \"workspace\" and \"global\" levels are workspace "
+                "configuration and require the workspace admin (an API key needs "
+                "the ADMIN tier); \"workspace\" additionally needs its "
+                "workspace_id. Identical to the REST PATCH endpoints."
             ),
             "inputSchema": {
                 "type": "object",
@@ -228,6 +241,15 @@ class TreeDisplayConfigToolGroup(BaseToolGroup):
 
         service = self._service()
         try:
+            # R6: the registry's tier map is name-based and must keep this tool
+            # advertised to AUTHOR keys (scope="user"), so the parameter-level
+            # governance gate lives here.
+            if scope in _GOVERNANCE_SCOPES:
+                require_admin_tier(
+                    auth_context,
+                    tool_name="tree_display_config.set",
+                    level=scope,
+                )
             return ToolResult.ok(
                 service.set_config(
                     auth_context,

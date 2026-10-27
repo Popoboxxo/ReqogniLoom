@@ -52,6 +52,7 @@ from django.db import transaction
 from django.db.models import Q, QuerySet
 
 from application.base import ServiceBase
+from application.permissions import assert_workspace_config_permission
 from application.preference_registry import (
     PreferenceKey,
     all_preference_keys,
@@ -66,7 +67,7 @@ from auth_tenancy.models import (
     ROLE_ADMIN,
     PreferenceValue,
 )
-from persistence.errors import PermissionDeniedError, ValidationError
+from persistence.errors import ValidationError
 from persistence.tenancy import TenantContext
 
 LEVEL_GLOBAL: Final = PREFERENCE_SCOPE_GLOBAL
@@ -412,7 +413,9 @@ class PreferenceService(ServiceBase):
 
         Raises:
             ValidationError: invalid scope/target/payload (nothing written).
-            PermissionDeniedError: missing write authority for this level.
+            PermissionDeniedError: the caller lacks the privilege of the target
+                level (``Operation.WORKSPACE_CONFIG`` for the workspace level,
+                the ``admin`` role for the tenant-wide default).
         """
         self._assert_scope(scope)
         self._assert_level_target(scope, workspace_id)
@@ -464,21 +467,11 @@ class PreferenceService(ServiceBase):
             # can only ever write their own (account-wide) row.
             return
         if scope == LEVEL_WORKSPACE:
-            # Imported lazily for the same circular-import reason as
-            # ``ServiceBase._assert_write_permission``.
-            from auth_tenancy.services.authorization import (
-                AuthorizationService,
-                Operation,
+            # ENT-C3 = B: one implementation, shared with the tree-display and
+            # create-form workspace defaults (``application.permissions``).
+            assert_workspace_config_permission(
+                ctx, what="workspace-wide preference"
             )
-
-            decision = AuthorizationService().decide_access(
-                ctx.active_roles, Operation.WORKSPACE_CONFIG
-            )
-            if not decision.allow:
-                raise PermissionDeniedError(
-                    "Permission denied: a workspace-wide preference requires "
-                    f"the workspace_config operation, user has {ctx.active_roles}"
-                )
             return
         self._assert_permission(ctx, ROLE_ADMIN)
 

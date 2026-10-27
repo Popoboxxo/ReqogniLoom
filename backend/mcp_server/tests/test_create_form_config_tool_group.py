@@ -12,11 +12,20 @@ against the live registry.
 from __future__ import annotations
 
 import uuid
+from datetime import timedelta
 from unittest.mock import patch
 
 import pytest
+from django.utils import timezone
 
 from auth_tenancy.context import AuthContext, AuthMethod
+from auth_tenancy.models import (
+    TREE_DISPLAY_SCOPE_WORKSPACE,
+    TreeDisplayConfig,
+)
+from auth_tenancy.services.authentication import AuthenticationService
+from mcp_server.tool_registry import ToolRegistry
+from persistence.models import Tenant
 
 
 @pytest.fixture
@@ -242,3 +251,120 @@ def test_set_fields_null_resets(group, ctx) -> None:
         )
     assert result.success
     assert patched.call_args.kwargs["fields"] is None
+
+
+# ---------------------------------------------------------------------------
+# Capability tier (R6, ENT-C3 = B): workspace/global are governance acts
+# ---------------------------------------------------------------------------
+
+
+def _dispatch(tool_name: str, params: dict, api_key: str):
+    return ToolRegistry().dispatch_request(
+        tool_name=tool_name, params=params, api_key=api_key
+    )
+
+
+def _make_key(tenant: Tenant, user_id, scope: str) -> str:
+    return (
+        AuthenticationService()
+        .create_api_key(
+            user_id=user_id,
+            tenant_id=tenant.id,
+            name=f"form-{scope}-{uuid.uuid4().hex[:8]}",
+            scope=scope,
+            expires_at=timezone.now() + timedelta(days=1),
+        )
+        .plaintext
+    )
+
+
+@pytest.fixture
+def author_key_admin(e2e_tenant: Tenant, e2e_user_admin) -> str:
+    return _make_key(e2e_tenant, e2e_user_admin.id, "author")
+
+
+@pytest.fixture
+def admin_key_admin(e2e_tenant: Tenant, e2e_user_admin) -> str:
+    return _make_key(e2e_tenant, e2e_user_admin.id, "admin")
+
+
+@pytest.mark.django_db
+def test_author_key_of_an_admin_owner_may_not_set_a_workspace_default(
+    author_key_admin: str, e2e_workspace, e2e_userrole_admin
+) -> None:
+    """R6: the ADMIN tier sits above the role matrix."""
+    result = _dispatch(
+        "create_form_definition.set",
+        {
+            "scope": "workspace",
+            "item_type": "Requirement",
+            "fields": None,
+            "workspace_id": str(e2e_workspace.id),
+        },
+        author_key_admin,
+    )
+
+    assert result.success is False
+    assert result.error_code == "PERMISSION_DENIED"
+    assert (
+        TreeDisplayConfig.unscoped.filter(
+            scope=TREE_DISPLAY_SCOPE_WORKSPACE, workspace_id=e2e_workspace.id
+        ).count()
+        == 0
+    )
+
+
+@pytest.mark.django_db
+def test_author_key_may_not_import_a_global_default(
+    author_key_admin: str, e2e_workspace, e2e_userrole_admin
+) -> None:
+    """``import`` is a second write path into the same levels — gated alike."""
+    result = _dispatch(
+        "create_form_definition.import",
+        {
+            "scope": "global",
+            "item_type": "Requirement",
+            "document": {"schema_version": 1, "fields": None},
+        },
+        author_key_admin,
+    )
+
+    assert result.success is False
+    assert result.error_code == "PERMISSION_DENIED"
+    assert not TreeDisplayConfig.unscoped.filter(scope="global").exists()
+
+
+@pytest.mark.django_db
+def test_author_key_may_still_set_its_own_level(
+    author_key_admin: str, e2e_workspace, e2e_userrole_admin
+) -> None:
+    """The gate is per scope — self-service must stay reachable."""
+    result = _dispatch(
+        "create_form_definition.set",
+        {"scope": "user", "item_type": "Requirement", "fields": None},
+        author_key_admin,
+    )
+
+    assert result.success is True, result
+    assert result.data["scope"] == "user"
+
+
+@pytest.mark.django_db
+def test_admin_key_may_set_the_workspace_default(
+    admin_key_admin: str, e2e_workspace, e2e_userrole_admin
+) -> None:
+    result = _dispatch(
+        "create_form_definition.set",
+        {
+            "scope": "workspace",
+            "item_type": "Requirement",
+            "fields": None,
+            "workspace_id": str(e2e_workspace.id),
+        },
+        admin_key_admin,
+    )
+
+    assert result.success is True, result
+    assert TreeDisplayConfig.unscoped.filter(
+        scope=TREE_DISPLAY_SCOPE_WORKSPACE, workspace_id=e2e_workspace.id
+    ).exists()
