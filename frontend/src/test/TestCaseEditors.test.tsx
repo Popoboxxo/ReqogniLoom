@@ -3,10 +3,13 @@
  *
  * Mirrors AdrEditors.test.tsx (Task 2.1), RiskEditors.test.tsx (Task 2.2) and
  * IssueEditors.test.tsx (Task 2.3): PageHeader / ArtifactRow / Dialog /
- * EmptyState conventions. Unlike Risks/Issues, TestCases carry no
- * brief-mandated trace-link or version investigation — TestCaseEditors does
- * not render a TraceLinkPanel, so there is no equivalent relocation test
- * here.
+ * EmptyState conventions.
+ *
+ * Plan C T-C3-1 (ENT-C1 = B): the TestCase detail area renders the shared
+ * TraceLinkPanel exactly like Risk/ADR/Issue/Need do. The inspector
+ * (RightSidebar) keeps `hideTraceLinks` — only the detail area gains the
+ * list, so the SUPERSEDED note above ("does not render a TraceLinkPanel")
+ * no longer applies.
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -82,6 +85,47 @@ vi.mock("../api/testcases", () => ({
   },
 }));
 
+// T-C3-1: the detail area now renders the shared TraceLinkPanel, which loads
+// its links from tracelinksApi (same module boundary as RiskEditors.test.tsx).
+vi.mock("../api/tracelinks", () => ({
+  tracelinksApi: {
+    list: vi.fn(),
+    listForArtifact: vi.fn().mockResolvedValue({ count: 0, next: null, previous: null, results: [] }),
+    create: vi.fn(),
+    delete: vi.fn(),
+    // Task 3.3: <TraceSpine>'s useDerivationChain calls impact() on mount.
+    impact: vi.fn().mockResolvedValue([]),
+  },
+}));
+
+// #414: TraceLinkPanel resolves a link endpoint (an Artifact id) to its
+// domain entity before building the row label/route. traceability.ts also
+// re-exports RESOLVE_BATCH_LIMIT, which artifactRefs imports — vitest raises
+// on a missing export from a mocked module.
+vi.mock("../api/traceability", () => ({
+  traceabilityApi: {
+    resolve: vi.fn().mockResolvedValue([]),
+    impact: vi.fn().mockResolvedValue([]),
+  },
+  RESOLVE_BATCH_LIMIT: 200,
+}));
+
+// Task 23: CreateTraceLinkDialog (mounted inside TraceLinkPanel, which this
+// tree pulls in transitively) reads the link-type catalog via useLinkTypes()
+// — needs a provider-free mock here, same as Risk/Adr/Issue editor tests.
+vi.mock("../context/LinkTypeContext", () => ({
+  useLinkTypes: () => ({
+    linkTypes: [],
+    isLoading: false,
+    error: null,
+    reload: vi.fn(),
+    creatableLinkTypes: [],
+    definitionFor: () => undefined,
+    isAllowedPair: () => false,
+    labelFor: (key: string) => key,
+  }),
+}));
+
 // Isolate from the ArtifactInspector sidebar (its own data fetching is out of
 // scope for this test).
 vi.mock("../components/shared/ArtifactInspector", () => ({
@@ -104,6 +148,7 @@ vi.mock("../context/WorkspaceContext", () => ({
 // Must import AFTER vi.mock
 import TestCaseEditors from "../components/TestCaseEditors/TestCaseEditors";
 import { testcasesApi } from "../api/testcases";
+import { tracelinksApi } from "../api/tracelinks";
 import { apiClient } from "../api/client";
 import { getWorkflowStatusLabel } from "../utils/workflowStatus";
 
@@ -519,5 +564,68 @@ describe("TestCaseEditors — include_deleted reveals outdated test cases (D6)",
       expect(screen.getByTestId("tc-row-tc-outdated-1")).toBeInTheDocument();
     });
     expect(screen.getByTestId("tc-row-tc-outdated-1-outdated")).toBeInTheDocument();
+  });
+});
+
+/**
+ * Plan C T-C3-1 (PR-C10, ENT-C1 = B): the TestCase detail area gets the shared
+ * TraceLinkPanel — same guard and prop shape as `RiskEditors.tsx`
+ * (`{item && activeWorkspace && <TraceLinkPanel … />}`), placed before the form
+ * as the task prescribes (Risk/ADR render it after theirs). The inspector keeps
+ * `hideTraceLinks`; these tests pin the detail-area list.
+ */
+describe("TestCaseEditors — trace-link list in the detail area (T-C3-1)", () => {
+  const REQ_ARTIFACT_ID = "req-artifact-777";
+  const VERIFIES_LINK_ID = "tc-verifies-link-1";
+  const VERIFIES_LINK = {
+    id: VERIFIES_LINK_ID,
+    source_id: TEST_CASE.id,
+    target_id: REQ_ARTIFACT_ID,
+    link_type: "verifies",
+    version: 1,
+    created_at: "2026-01-01T00:00:00Z",
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(testcasesApi.list).mockResolvedValue({ results: [TEST_CASE], count: 1, next: null, previous: null });
+    vi.mocked(testcasesApi.listAll).mockResolvedValue([TEST_CASE]);
+    vi.mocked(testcasesApi.get).mockResolvedValue(TEST_CASE);
+    vi.mocked(tracelinksApi.listForArtifact).mockResolvedValue({
+      count: 1,
+      next: null,
+      previous: null,
+      results: [VERIFIES_LINK],
+    } as never);
+  });
+
+  it("renders the verifies link with its type label and a delete affordance", async () => {
+    renderEditor(`/testcases/${TEST_CASE.id}`);
+
+    // The 'verifies' link-type badge is visible …
+    expect(await screen.findByTestId("trace-type-verifies")).toBeInTheDocument();
+    // … and carries the per-link delete affordance.
+    expect(screen.getByTestId(`trace-link-delete-${VERIFIES_LINK_ID}`)).toBeInTheDocument();
+
+    // Queried for the open test case on the workspace from the context.
+    expect(tracelinksApi.listForArtifact).toHaveBeenCalledWith("ws-001", TEST_CASE.id);
+  });
+
+  // #399 lesson, same trap one level up: trace links live in the Artifact id
+  // space, so once the read path exposes `artifact_id` it — not the TestCase
+  // entity pk — must be the id the panel queries with, or the list is silently
+  // empty for exactly the artifacts that carry one.
+  it("queries trace links with the backing artifact_id when the payload has one", async () => {
+    const ARTIFACT_ID = "art-tc-001";
+    const withArtifact = { ...TEST_CASE, artifact_id: ARTIFACT_ID };
+    vi.mocked(testcasesApi.listAll).mockResolvedValue([withArtifact]);
+    vi.mocked(testcasesApi.get).mockResolvedValue(withArtifact);
+
+    renderEditor(`/testcases/${TEST_CASE.id}`);
+
+    await waitFor(() => {
+      expect(tracelinksApi.listForArtifact).toHaveBeenCalledWith("ws-001", ARTIFACT_ID);
+    });
+    expect(tracelinksApi.listForArtifact).not.toHaveBeenCalledWith("ws-001", TEST_CASE.id);
   });
 });

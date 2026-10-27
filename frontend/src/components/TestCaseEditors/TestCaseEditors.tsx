@@ -19,6 +19,7 @@ import { RightSidebar } from '../shared/ArtifactInspector';
 import type { VersionRef } from '../shared/ArtifactInspector';
 import { TraceSpine, useDerivationChain } from '../shared/TraceSpine';
 import type { ChainArtifact } from '../shared/TraceSpine';
+import { TraceLinkPanel } from '../shared/TraceLinkPanel';
 import { getArtifactRoute } from '../../utils/artifactRoutes';
 import { useTestCaseData } from './useTestCaseData';
 import { useWorkspace } from '../../context/WorkspaceContext';
@@ -343,6 +344,19 @@ export default function TestCaseEditors(): JSX.Element {
                     artifactTitle={item.title}
                     summary={item.baseline_drift}
                   />
+                )}
+                {/* Plan C T-C3-1 (PR-C10, ENT-C1 = B): the test case detail area
+                    gets the same trace-link CRUD list as Risk/ADR/Issue/Need —
+                    the read-only <TraceSpine> above cannot delete a link, and
+                    the inspector stays on `hideTraceLinks` below (one CRUD
+                    surface per screen). Bound to the BACKING Artifact id
+                    (`artifact_id ?? id`): trace links live in the Artifact id
+                    space, exactly like the drift badge right above. Placed
+                    before the form as the task prescribes (Risk/ADR/Issue/Need
+                    render theirs after it), but after the drift badge so that
+                    artifact-level warning keeps its place under the spine. */}
+                {item && activeWorkspace && (
+                  <TraceLinkPanel workspaceId={activeWorkspace.id} artifactId={item.artifact_id ?? item.id} />
                 )}
                 {/* DEVIATION from the plan brief (same class as Risk/Issue/
                     StakeholderNeed, Tasks 19/20/23): `TestCaseArtifactForm`
