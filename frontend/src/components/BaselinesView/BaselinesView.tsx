@@ -333,10 +333,12 @@ export default function BaselinesView(): JSX.Element {
   return (
     <div data-testid="baselines-view" className={styles.page}>
       {/* Baselines/TestRuns are not Spine artifacts (no derivation chain), but
-          PageHeader still applies. Baseline creation is deliberately an
-          overflow action, not a primary header button — creating a baseline
-          is a less-frequent, more consequential action than creating an
-          artifact (task 5.2 brief). */}
+          PageHeader still applies. Creating a baseline is the page's only
+          create action, so it must be reachable without opening a menu
+          (#1405 R1-04): it renders as a visible secondary header action —
+          not the primary one, because taking a baseline is a less-frequent,
+          more consequential action than creating an artifact (task 5.2
+          brief). */}
       <PageHeader
         title={t("nav.baselines")}
         summary={t("baselines.summary", { count: state.baselines.length })}
@@ -349,8 +351,6 @@ export default function BaselinesView(): JSX.Element {
             disabled: state.baselines.length < 2,
             testId: "compare-baseline-btn",
           },
-        ]}
-        overflowActions={[
           {
             label: t("baselines.create"),
             onClick: openCreateForm,
