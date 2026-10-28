@@ -9868,6 +9868,36 @@ class TestRunViewSet(BaseEntityViewSet):
 # ---------------------------------------------------------------------------
 
 
+class _SearchHitSerializer(serializers.Serializer):
+    """One ``/api/v1/search/`` result row (documentation-only serializer)."""
+
+    id = serializers.CharField()
+    artifact_type = serializers.CharField()
+    title = serializers.CharField()
+    description = serializers.CharField(allow_blank=True)
+    relevance_score = serializers.FloatField()
+    workspace_id = serializers.CharField(allow_blank=True)
+
+
+class _SearchResponseSerializer(serializers.Serializer):
+    """The ``/api/v1/search/`` response contract (T-A2-7, OpenAPI DoD).
+
+    ``vector_backend``/``degraded``/``degraded_reason`` are additive: a
+    Qdrant outage answers HTTP 200 with ``vector_backend="pgvector"`` and
+    ``degraded=true``, never a 500.
+    """
+
+    results = _SearchHitSerializer(many=True)
+    total_count = serializers.IntegerField()
+    page = serializers.IntegerField()
+    limit = serializers.IntegerField()
+    query = serializers.CharField()
+    mode = serializers.CharField()
+    vector_backend = serializers.CharField()
+    degraded = serializers.BooleanField()
+    degraded_reason = serializers.CharField(allow_blank=True)
+
+
 class SearchViewSet(viewsets.ViewSet):
     """ViewSet for full-text search.
 
@@ -9941,6 +9971,7 @@ class SearchViewSet(viewsets.ViewSet):
                 ),
             ),
         ],
+        responses={200: _SearchResponseSerializer},
     )
     def list(self, request: Request, **kwargs: Any) -> Response:
         """GET /api/v1/search/ — full-text search.
@@ -9952,6 +9983,11 @@ class SearchViewSet(viewsets.ViewSet):
                           may be repeated
           page          — page number (default 1)
           limit         — page size (default 20, max 100)
+          mode          — hybrid (default) | keyword | vector
+
+        The response always carries ``vector_backend``, ``degraded`` and
+        ``degraded_reason`` (T-A2-7). A Qdrant outage degrades to pgvector and
+        answers 200 with ``degraded=true`` — never a 500.
         """
         lang = detect_lang(request)
 
@@ -10031,6 +10067,10 @@ class SearchViewSet(viewsets.ViewSet):
                 "limit": result.limit,
                 "query": result.query,
                 "mode": mode,
+                # T-A2-7: additive contract; a Qdrant outage still answers 200.
+                "vector_backend": result.vector_backend,
+                "degraded": result.degraded,
+                "degraded_reason": result.degraded_reason,
             }
         )
 

@@ -529,3 +529,85 @@ class TestSemanticQueryDirectTraceLinkAndIcd:
         assert any(h.id == str(icd.id) for h in hits)
         hit = next(h for h in hits if h.id == str(icd.id))
         assert hit.workspace_id == str(ws.id)
+
+
+class TestQdrantEntitySemantics:
+    """T-A2-6: the counter-check to A-L19.
+
+    The pgvector semantic pass only reaches the three entity types that carry
+    an ``embedding`` column. In Qdrant mode ``query_entities`` supplies semantic
+    hits for the types WITHOUT one -- here a ``StakeholderNeed`` that shares no
+    term with the query, so neither the full-text nor the lexical pass can find
+    it.
+    """
+
+    @pytest.mark.django_db(transaction=True)
+    def test_qdrant_mode_returns_stakeholder_need_semantic_hit(self, monkeypatch):
+        from application.vector_port import QdrantVectorPort
+        from memory.tests.qdrant_fakes import FakeQdrantClient, FakeQdrantModels
+        from persistence.models import Artifact, StakeholderNeed
+        from persistence.qdrant_config import (
+            build_collection_alias,
+            resolve_qdrant_config,
+        )
+
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            artifact = Artifact.objects.create(
+                tenant=tenant, workspace=ws, artifact_type="StakeholderNeed"
+            )
+            need = StakeholderNeed.objects.create(
+                tenant=tenant, artifact=artifact, title="Mobile push"
+            )
+
+            client = FakeQdrantClient()
+            client.upsert(
+                collection_name=build_collection_alias(
+                    "reqlo", tenant.id, workspace_id=ws.id, scope="workspace"
+                ),
+                points=[
+                    FakeQdrantModels.PointStruct(
+                        id=str(need.id),
+                        vector={
+                            "dense": [1.0] * _DIM,
+                            "bm25": FakeQdrantModels.Document(
+                                text="mobile push", model="qdrant/bm25"
+                            ),
+                        },
+                        payload={
+                            "entity_id": str(need.id),
+                            "entity_type": "StakeholderNeed",
+                            "tenant_id": str(tenant.id),
+                            "workspace_id": str(ws.id),
+                        },
+                    )
+                ],
+            )
+            port = QdrantVectorPort(
+                client=client,
+                models_module=FakeQdrantModels,
+                config=resolve_qdrant_config(
+                    base_url="http://qdrant.test", collection_prefix="reqlo"
+                ),
+            )
+            monkeypatch.setattr(
+                "application.search_service.get_fallback_vector_port", lambda: port
+            )
+            monkeypatch.setattr(
+                "application.search_service.generate_embedding",
+                lambda text: [1.0] * _DIM,
+            )
+
+            ctx = editor_ctx(tenant, ws)
+            # No term overlap with the need's title: only the semantic pass can
+            # produce this hit.
+            result = SearchService().search(
+                "smartphone alerts", ctx, workspace_id=ws.id,
+                type_filter=["StakeholderNeed"],
+            )
+
+        assert [hit.id for hit in result.results] == [str(need.id)]
+        assert result.results[0].artifact_type == "StakeholderNeed"
+        assert result.vector_backend == "qdrant"
+        assert result.degraded is False
+        assert result.degraded_reason == ""

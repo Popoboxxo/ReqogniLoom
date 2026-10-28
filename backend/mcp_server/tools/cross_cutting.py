@@ -1345,6 +1345,12 @@ class CrossCuttingToolGroup(BaseToolGroup):
             "page": result.page,
             "limit": result.limit,
             "mode": mode,
+            # T-A2-7: additive output fields (NOT in the inputSchema, so the
+            # tool manifest is unchanged). A Qdrant outage degrades to pgvector
+            # and reports it here instead of failing the call.
+            "vector_backend": result.vector_backend,
+            "degraded": result.degraded,
+            "degraded_reason": result.degraded_reason,
         })
 
     # ------------------------------------------------------------------

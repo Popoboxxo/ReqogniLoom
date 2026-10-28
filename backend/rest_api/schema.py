@@ -306,10 +306,6 @@ UNTYPED_VIEW_ALLOWLIST: dict[str, str] = {
     "rest_api.review_views.ReviewsPendingView": (
         "Review-queue rows assembled from workflow state (dynamic item types)."
     ),
-    "rest_api.views.SearchViewSet": (
-        "Full-text search results assembled by SearchService (heterogeneous "
-        "artifact rows)."
-    ),
     "memory.memory_rest.SystemMemoryEntriesExportView": (
         "Memory admin export: JSON document or CSV file streamed by "
         "MemoryAdminService."

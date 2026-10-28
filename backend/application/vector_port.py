@@ -23,13 +23,31 @@ Design contract:
   vector store requires an explicit opt-in, never a side effect of another
   knob. A pgvector-only deployment never needs the package.
 * **V2 Qdrant artifact search needs a workspace scope and an artifact
-  indexer.** The per-workspace ``_artifacts`` collections are populated by an
-  artifact indexer that is *out of scope* for this port; without one the
-  collections are empty and the Requirement/TraceLink/Icd paths return no hits.
+  indexer.** The per-workspace collections are populated by
+  :mod:`application.artifact_indexer`; without one they are empty and the
+  Requirement/TraceLink/Icd paths return no hits. Readers address the ALIAS
+  ``..._artifacts_live`` (T-A2-6), never a versioned collection name, so a later
+  schema bump needs no reader change.
   ``find_similar_trace_links``/``find_similar_icds`` carry no workspace scope,
   so the Qdrant adapter fails loud (``QdrantBackendUnavailableError``) for them
   rather than scanning every workspace collection -- and that error can only
   occur under the explicit ``ARTIFACT_VECTOR_BACKEND=qdrant`` opt-in above.
+* **Hybrid query (T-A2-6).** ``query_similar``/``query_entities`` take an
+  optional ``query_text``; the Qdrant adapter fuses it with the dense leg
+  (``Prefetch(using="dense")`` + ``Prefetch(using="bm25")`` over
+  ``FusionQuery(fusion=RRF)``, server-side ``qdrant/bm25`` inference). The
+  pgvector adapter ignores it, so a default deployment stays byte-identical.
+* **Hit hydration (QR-S07).** Qdrant returns ids only. Every hit is hydrated
+  through the ORM under ``TenantContext`` with a workspace filter and checked
+  for READ via :class:`~application.effective_permission_service.EffectivePermissionService`;
+  missing, soft-deleted, superseded-MainGoal and permission-denied hits are
+  dropped. Payload fields (``workspace_id``, ``entity_type``, title) are never
+  the source of truth.
+* **Fallback (T-A2-7).** :class:`FallbackVectorPort` wraps the Qdrant adapter
+  for the search path: a ``QdrantBackendUnavailableError`` degrades the request
+  to pgvector and sets a request-local ``degraded``/``degraded_reason`` pair.
+  :func:`get_vector_port` itself still returns the bare adapter, keeping the
+  three similarity call sites' loud-failure contract.
 * ``qdrant_client`` is **never imported at module import time** -- only inside
   the Qdrant adapter's lazy helpers -- so importing this module is always safe.
 * ``enable_iterative_ann_scan`` (``application.pgvector_ann``) is
@@ -60,6 +78,7 @@ from uuid import UUID
 from django.db import transaction
 from django.db.utils import OperationalError, ProgrammingError
 
+from application.artifact_vector_store import DENSE_VECTOR_NAME, SPARSE_VECTOR_NAME
 from llm_adapter.embedding_service import (
     embedding_model_filter,
     note_foreign_embedding_models,
@@ -81,6 +100,13 @@ _PAYLOAD_ENTITY_ID = "entity_id"
 _PAYLOAD_ENTITY_TYPE = "entity_type"
 _PAYLOAD_TENANT_ID = "tenant_id"
 _PAYLOAD_WORKSPACE_ID = "workspace_id"
+
+#: Server-side BM25 inference (T-A2-6 spike: `qdrant/qdrant:v1.19.2` computes
+#: the sparse vector itself, so no ``fastembed`` is needed on the client).
+_BM25_MODEL = "qdrant/bm25"
+
+#: ``degraded_reason`` value a Qdrant outage reports (stable wire token).
+DEGRADED_QDRANT_UNAVAILABLE = "qdrant_unavailable"
 
 #: Explicit selector for the ARTIFACT vector backend. Deliberately separate from
 #: ``MEMORY_BACKEND`` (which governs the AI memory store) so the artifact store
@@ -122,8 +148,40 @@ class VectorHit:
     distance: float
 
 
+@dataclass(frozen=True)
+class TypedVectorHit:
+    """A ``VectorHit`` that also carries the entity type and its ORM-derived row.
+
+    Produced by :meth:`VectorPort.query_entities`, the only query that spans
+    several entity types at once. ``entity_type`` is the type whose ORM lookup
+    actually resolved the id (QR-S07): the payload only *routes* the lookup, it
+    never proves one. ``title``/``description``/``workspace_id`` therefore come
+    from that row, not from the payload.
+    """
+
+    id: Any
+    entity_type: str
+    distance: float
+    title: str = ""
+    description: str = ""
+    workspace_id: UUID | None = None
+
+
 class VectorPort(Protocol):
-    """The vector-store surface the four artifact ANN sites depend on."""
+    """The vector-store surface the artifact ANN sites depend on.
+
+    ``degraded``/``degraded_reason``/``vector_backend`` describe how THIS call
+    was served (T-A2-7). The pgvector adapter is never degraded; the Qdrant
+    adapter reports ``"qdrant"``; :class:`FallbackVectorPort` flips to
+    ``"pgvector"`` + ``degraded_reason="qdrant_unavailable"`` for the rest of
+    the request when its primary fails.
+    """
+
+    degraded: bool
+    degraded_reason: str
+    vector_backend: str
+    #: Whether the backend can answer :meth:`query_entities` (Qdrant only).
+    supports_entity_queries: bool
 
     def query_similar(
         self,
@@ -136,8 +194,36 @@ class VectorPort(Protocol):
         exclude_id: Any | None = None,
         limit: int = 50,
         iterative_scan: bool = False,
+        query_text: str | None = None,
+        ctx: Any = None,
     ) -> list[VectorHit]:
-        """Return the ``limit`` nearest rows to ``query_vector``, closest first."""
+        """Return the ``limit`` nearest rows to ``query_vector``, closest first.
+
+        ``query_text`` is the hybrid (BM25) leg: the Qdrant adapter fuses it
+        with the dense leg via prefetch + RRF, the pgvector adapter ignores it
+        (its results are byte-identical with and without it). ``ctx`` is the
+        caller identity used for the QR-S07 READ check; without it the port can
+        only enforce the tenant/workspace/lifecycle fence.
+        """
+        ...
+
+    def query_entities(
+        self,
+        *,
+        tenant_id: Any,
+        workspace_id: UUID,
+        query_vector: Sequence[float] | None,
+        query_text: str | None,
+        entity_types: Sequence[str],
+        limit: int = 50,
+        ctx: Any = None,
+    ) -> list[TypedVectorHit]:
+        """Semantic hits across *entity_types*, including types with no embedding column.
+
+        Qdrant only; the pgvector adapter returns ``[]`` (its semantic data
+        lives in per-type ``embedding`` columns, which a cross-type query cannot
+        read).
+        """
         ...
 
 
@@ -199,6 +285,187 @@ def _coerce_uuid(value: Any) -> UUID | None:
         return None
 
 
+# ---------------------------------------------------------------------------
+# QR-S07 — hit hydration (Qdrant returns ids; the ORM row is the truth)
+# ---------------------------------------------------------------------------
+
+#: ``entity_type`` -> the ORM path that carries its workspace. Everything the
+#: artifact indexer writes resolves through ``workspace_id`` (a UUID column, or
+#: the attname of a ``workspace`` FK) except ``TraceLink``, whose own workspace
+#: *is* its source's (mirrors ``ArtifactIndexer``'s resolver).
+_HYDRATION_WORKSPACE_FIELDS: dict[str, str] = {
+    "TraceLink": "source__workspace_id",
+}
+
+
+def _read_target_id(entity_type: str, row: Any) -> UUID | None:
+    """The artifact id the item-permission layer is asked about for *row*."""
+    artifact_id = getattr(row, "artifact_id", None)
+    if artifact_id is None and entity_type == "TraceLink":
+        # A link has no backing artifact of its own; its SOURCE is the artifact
+        # whose visibility governs the link (same rule as T-A3-3's filter).
+        artifact_id = getattr(row, "source_id", None)
+    return artifact_id
+
+
+def _workspace_of_row(entity_type: str, row: Any) -> Any:
+    """The row's own workspace (never the payload's), via the indexer's resolver."""
+    from application.artifact_indexer import SOURCES  # lazy: registry
+
+    spec = SOURCES.get(entity_type)
+    return spec.workspace(row) if spec is not None else getattr(row, "workspace_id", None)
+
+
+def _current_main_goal_ids(rows: dict[UUID, Any]) -> set[UUID]:
+    """Ids of the CURRENT (highest ``sequence_number``) MainGoal versions.
+
+    A superseded version emits no ``*_DELETED`` event, so its point stays in the
+    collection and its row stays in the table (PR-A19 review finding). It must
+    never be presented as a current hit, so "current" is resolved per workspace
+    exactly like ``MainGoalService`` does.
+    """
+    from django.db.models import Max
+
+    from persistence.models import MainGoal  # lazy: import-light
+
+    latest = {
+        entry["workspace_id"]: entry["latest"]
+        for entry in MainGoal.objects.filter(
+            workspace_id__in={row.workspace_id for row in rows.values()}
+        )
+        .values("workspace_id")
+        .annotate(latest=Max("sequence_number"))
+    }
+    return {
+        row.pk
+        for row in rows.values()
+        if latest.get(row.workspace_id) == row.sequence_number
+    }
+
+
+def _read_allowed(
+    ctx: Any,
+    workspace_id: Any,
+    artifact_id: Any,
+    roles_cache: dict[str, tuple[str, ...]],
+    decision_cache: dict[tuple[str, str | None], bool],
+) -> bool:
+    """QR-S07 READ decision — the ONE implementation lives in ``search_service``.
+
+    Delegating instead of re-implementing keeps the QR-S07 (port hydration) and
+    T-A3-3 (SQL hit visibility) gates from drifting: workspace fence, per
+    workspace roles and the item-level rule must agree, and two copies of that
+    merge inevitably would not.
+    """
+    from application.search_service import _may_read_artifact
+
+    return _may_read_artifact(ctx, workspace_id, artifact_id, roles_cache, decision_cache)
+
+
+def _hydrate_rows(
+    entity_type: str,
+    ids: Sequence[Any],
+    tenant_id: Any,
+    workspace_id: UUID | None,
+    ctx: Any,
+) -> dict[UUID, Any]:
+    """Resolve *ids* to ORM rows that may be presented for this tenant/workspace.
+
+    Every step is a fence, not a lookup: the row must exist in the ambient
+    tenant, in the requested workspace, not be soft-deleted, be the current
+    version (MainGoal) and -- when a caller identity is supplied -- be
+    READ-allowed for it. A payload that claims another workspace cannot survive
+    the workspace filter, which is exactly why the payload is never trusted.
+    """
+    from application.artifact_indexer import SOURCES, tenant_scope  # lazy: registry
+    from persistence.models import Artifact, LifecycleStatus  # lazy: import-light
+
+    spec = SOURCES.get(entity_type)
+    if spec is None:
+        return {}
+    workspace_field = _HYDRATION_WORKSPACE_FIELDS.get(entity_type, "workspace_id")
+    with tenant_scope(tenant_id):
+        query = spec.model()._default_manager.filter(
+            pk__in=list(ids), tenant_id=tenant_id
+        )
+        if workspace_id is not None:
+            query = query.filter(**{workspace_field: workspace_id})
+        if spec.select_related:
+            query = query.select_related(*spec.select_related)
+        rows = {row.pk: row for row in query}
+        if not rows:
+            return {}
+        targets = {
+            target
+            for target in (_read_target_id(entity_type, row) for row in rows.values())
+            if target is not None
+        }
+        outdated = set(
+            Artifact.objects.filter(
+                id__in=targets, lifecycle_status=LifecycleStatus.OUTDATED
+            ).values_list("id", flat=True)
+        )
+        current_main_goals = (
+            _current_main_goal_ids(rows) if entity_type == "MainGoal" else None
+        )
+        roles_cache: dict[str, tuple[str, ...]] = {}
+        decision_cache: dict[tuple[str, str | None], bool] = {}
+        visible: dict[UUID, Any] = {}
+        for row_id, row in rows.items():
+            target = _read_target_id(entity_type, row)
+            if current_main_goals is not None and row_id not in current_main_goals:
+                continue
+            if target is not None and target in outdated:
+                continue
+            row_workspace = _workspace_of_row(entity_type, row)
+            # Workspace fence on the ROW's own workspace: the payload's claim
+            # must never be the reason a row from another workspace survives.
+            if workspace_id is not None and str(row_workspace) != str(workspace_id):
+                continue
+            if ctx is not None and not _read_allowed(
+                ctx, row_workspace, target, roles_cache, decision_cache
+            ):
+                continue
+            visible[row_id] = row
+        return visible
+
+
+def hydrate_vector_hits(
+    *,
+    collection: str,
+    hits: Sequence[VectorHit],
+    tenant_id: Any,
+    workspace_id: UUID | None = None,
+    ctx: Any = None,
+) -> list[VectorHit]:
+    """Keep only the hits whose ORM row is present and readable (QR-S07)."""
+    if not hits:
+        return []
+    rows = _hydrate_rows(collection, [hit.id for hit in hits], tenant_id, workspace_id, ctx)
+    return [hit for hit in hits if hit.id in rows]
+
+
+def _row_text(row: Any) -> tuple[str, str]:
+    """(title, description) from the ORM row, across the indexed entity shapes."""
+    title = next(
+        (
+            str(getattr(row, attribute))[:200]
+            for attribute in ("title", "term", "name", "content")
+            if getattr(row, attribute, None)
+        ),
+        "",
+    )
+    description = next(
+        (
+            str(getattr(row, attribute))
+            for attribute in ("description", "semantic_description", "content")
+            if getattr(row, attribute, None)
+        ),
+        "",
+    )
+    return title, description
+
+
 class PgVectorVectorPort:
     """Default/fallback adapter: pgvector cosine ANN over the ORM.
 
@@ -207,6 +474,11 @@ class PgVectorVectorPort:
     filter, ``exclude_id``, ``order_by("distance")[:limit]`` and (only when
     asked) an ``atomic()`` savepoint around ``enable_iterative_ann_scan``.
     """
+
+    degraded = False
+    degraded_reason = ""
+    vector_backend = DEFAULT_ARTIFACT_VECTOR_BACKEND
+    supports_entity_queries = False
 
     def query_similar(
         self,
@@ -219,7 +491,13 @@ class PgVectorVectorPort:
         exclude_id: Any | None = None,
         limit: int = 50,
         iterative_scan: bool = False,
+        query_text: str | None = None,
+        ctx: Any = None,
     ) -> list[VectorHit]:
+        # ``query_text``/``ctx`` are accepted and deliberately IGNORED: pgvector
+        # has no BM25 leg (that lives in SearchService for pgvector, A3) and the
+        # rows already come from the ORM under the caller's tenant context, so
+        # the results stay byte-identical with and without a query text.
         try:
             from pgvector.django import CosineDistance  # lazy: pgvector may be absent
         except ImportError as exc:
@@ -266,6 +544,26 @@ class PgVectorVectorPort:
         )
         return [VectorHit(id=row.id, distance=float(row.distance)) for row in rows]
 
+    def query_entities(
+        self,
+        *,
+        tenant_id: Any,
+        workspace_id: UUID,
+        query_vector: Sequence[float] | None,
+        query_text: str | None,
+        entity_types: Sequence[str],
+        limit: int = 50,
+        ctx: Any = None,
+    ) -> list[TypedVectorHit]:
+        """Always ``[]``: pgvector has no cross-type semantic index.
+
+        Its semantic data is the per-type ``embedding`` column, which only the
+        per-type branches (and the A3 hybrid search) can read. Returning an
+        empty list keeps the default deployment byte-identical: ``SearchService``
+        calls this unconditionally and simply gets no extra hits.
+        """
+        return []
+
     @staticmethod
     def _evaluate(qs: Any, *, iterative_scan: bool) -> list[Any]:
         """Evaluate *qs*, optionally inside a transaction-local iterative scan.
@@ -311,6 +609,11 @@ class QdrantVectorPort:
     real adapter with a fake client without the package installed.
     """
 
+    degraded = False
+    degraded_reason = ""
+    vector_backend = _QDRANT_ARTIFACT_BACKEND
+    supports_entity_queries = True
+
     def __init__(
         self,
         *,
@@ -344,7 +647,7 @@ class QdrantVectorPort:
         return self._client
 
     def _collection_name(self, tenant_id: Any, workspace_id: UUID | None) -> str:
-        from persistence.qdrant_config import build_collection_name  # lazy: security boundary
+        from persistence.qdrant_config import build_collection_alias  # lazy: boundary
 
         if workspace_id is None:
             # Strategy A has exactly one artifact collection per workspace; the
@@ -355,12 +658,13 @@ class QdrantVectorPort:
             raise QdrantBackendUnavailableError(
                 "qdrant artifact search requires a workspace scope"
             )
-        return build_collection_name(
+        # Readers address the ALIAS from T-A2-6 on (never the versioned name), so
+        # a later schema bump (``..._artifacts_v3``) needs no reader change.
+        return build_collection_alias(
             self._config.collection_prefix,
             tenant_id,
             workspace_id=workspace_id,
             scope="workspace",
-            artifacts=True,
         )
 
     def _build_filter(
@@ -409,38 +713,181 @@ class QdrantVectorPort:
         exclude_id: Any | None = None,
         limit: int = 50,
         iterative_scan: bool = False,
+        query_text: str | None = None,
+        ctx: Any = None,
     ) -> list[VectorHit]:
+        """Hybrid (dense + BM25 via RRF) query against the workspace alias.
+
+        Every returned id is then hydrated through the ORM (QR-S07): a point
+        whose row is missing, soft-deleted, superseded (MainGoal) or not
+        READ-allowed for *ctx* is dropped, so the payload can never smuggle a
+        foreign or deleted artifact into the result set.
+        """
         name = self._collection_name(tenant_id, workspace_id)
-        vector = [float(component) for component in query_vector]
         query_filter = self._build_filter(collection, tenant_id, workspace_id, exclude_id)
+        points = self._query_points(
+            name=name,
+            query_filter=query_filter,
+            limit=limit,
+            query_vector=query_vector,
+            query_text=query_text,
+        )
+        return hydrate_vector_hits(
+            collection=collection,
+            hits=self._hits_from_points(points),
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+            ctx=ctx,
+        )
+
+    def query_entities(
+        self,
+        *,
+        tenant_id: Any,
+        workspace_id: UUID,
+        query_vector: Sequence[float] | None,
+        query_text: str | None,
+        entity_types: Sequence[str],
+        limit: int = 50,
+        ctx: Any = None,
+    ) -> list[TypedVectorHit]:
+        """Hybrid semantic hits across *entity_types* (T-A2-6).
+
+        This is the only pass that can reach the entity types WITHOUT an
+        ``embedding`` column (StakeholderNeed, Adr, Risk, ...) — the
+        counter-check to A-L19. Hydration (QR-S07) is per entity type, so the
+        payload's ``entity_type`` only *routes* the ORM lookup; a point whose id
+        does not resolve in that type's table is dropped, and title/description
+        always come from the resolved row.
+        """
+        if not entity_types or workspace_id is None:
+            return []
+        models = self._models()
+        name = self._collection_name(tenant_id, workspace_id)
+        query_filter = models.Filter(
+            must=[
+                models.FieldCondition(
+                    key=_PAYLOAD_TENANT_ID, match=models.MatchValue(value=str(tenant_id))
+                ),
+                models.FieldCondition(
+                    key=_PAYLOAD_WORKSPACE_ID, match=models.MatchValue(value=str(workspace_id))
+                ),
+                models.FieldCondition(
+                    key=_PAYLOAD_ENTITY_TYPE,
+                    match=models.MatchAny(any=sorted(set(entity_types))),
+                ),
+            ]
+        )
+        points = self._query_points(
+            name=name,
+            query_filter=query_filter,
+            limit=limit,
+            query_vector=query_vector,
+            query_text=query_text,
+        )
+
+        allowed = set(entity_types)
+        grouped: dict[str, list[TypedVectorHit]] = {}
+        for point in points:
+            distance = _distance_from_score(getattr(point, "score", None))
+            payload = getattr(point, "payload", None) or {}
+            entity_type = payload.get(_PAYLOAD_ENTITY_TYPE)
+            entity_id = _coerce_uuid(
+                payload.get(_PAYLOAD_ENTITY_ID, getattr(point, "id", None))
+            )
+            if distance is None or entity_type not in allowed or entity_id is None:
+                continue
+            grouped.setdefault(str(entity_type), []).append(
+                TypedVectorHit(id=entity_id, entity_type=str(entity_type), distance=distance)
+            )
+
+        visible: list[TypedVectorHit] = []
+        for entity_type, group in grouped.items():
+            rows = _hydrate_rows(
+                entity_type, [hit.id for hit in group], tenant_id, workspace_id, ctx
+            )
+            for hit in group:
+                row = rows.get(hit.id)
+                if row is None:
+                    continue
+                title, description = _row_text(row)
+                visible.append(
+                    TypedVectorHit(
+                        id=hit.id,
+                        entity_type=entity_type,
+                        distance=hit.distance,
+                        title=title,
+                        description=description,
+                        workspace_id=_workspace_of_row(entity_type, row),
+                    )
+                )
+        return sorted(visible, key=lambda hit: hit.distance)
+
+    def _query_points(
+        self,
+        *,
+        name: str,
+        query_filter: Any,
+        limit: int,
+        query_vector: Sequence[float] | None,
+        query_text: str | None,
+    ) -> list[Any]:
+        """Run one dense or hybrid query and return the raw points.
+
+        With a ``query_text`` this is the plan's hybrid shape:
+        ``prefetch=[Prefetch(using="dense"), Prefetch(using="bm25")]`` with
+        ``query=FusionQuery(fusion=RRF)``. Without it the query stays the plain
+        dense vector (unchanged pre-T-A2-6 behaviour).
+        """
+        models = self._models()
+        dense = [float(component) for component in query_vector] if query_vector else None
+        text = (query_text or "").strip()
+        prefetch: list[Any] | None = None
+        query: Any = dense
+        if text:
+            prefetch = [
+                models.Prefetch(query=leg, using=name_, limit=limit)
+                for leg, name_ in (
+                    (dense, DENSE_VECTOR_NAME),
+                    (models.Document(text=text, model=_BM25_MODEL), SPARSE_VECTOR_NAME),
+                )
+                if leg is not None
+            ]
+            query = models.FusionQuery(fusion=models.Fusion.RRF)
+        if query is None:
+            return []
+
         client = self._ensure_client()
         try:
             if hasattr(client, "query_points"):
                 response = client.query_points(
                     collection_name=name,
-                    query=vector,
+                    query=query,
+                    prefetch=prefetch,
                     query_filter=query_filter,
                     limit=limit,
                     with_payload=True,
                 )
-                points = list(getattr(response, "points", response) or [])
-            else:
-                points = list(
-                    client.search(
-                        collection_name=name,
-                        query_vector=vector,
-                        query_filter=query_filter,
-                        limit=limit,
-                        with_payload=True,
-                    )
+                return list(getattr(response, "points", response) or [])
+            if prefetch is not None:
+                # The legacy ``search`` API cannot express a prefetch/fusion
+                # query; a client that old cannot serve hybrid search.
+                raise QdrantBackendUnavailableError("qdrant_client is too old for hybrid search")
+            return list(
+                client.search(
+                    collection_name=name,
+                    query_vector=query,
+                    query_filter=query_filter,
+                    limit=limit,
+                    with_payload=True,
                 )
+            )
         except QdrantBackendUnavailableError:
             raise
         except Exception as exc:  # every client failure is an outage
             raise QdrantBackendUnavailableError(
                 f"qdrant query failed: {type(exc).__name__}"
             ) from exc
-        return self._hits_from_points(points)
 
     @staticmethod
     def _hits_from_points(points: list[Any]) -> list[VectorHit]:
@@ -461,6 +908,82 @@ class QdrantVectorPort:
                 continue
             hits.append(VectorHit(id=entity_id, distance=distance))
         return hits
+
+
+class FallbackVectorPort:
+    """Qdrant primary with a pgvector fallback and a request-local degraded flag.
+
+    T-A2-7. ``get_vector_port()`` still returns the bare adapter (the three
+    similarity call sites keep their loud-failure contract); the SEARCH path
+    wraps the Qdrant adapter in this one instead, so a Qdrant outage costs the
+    semantic hits of the eleven embedding-less types -- documented -- rather
+    than the whole search request, and the caller can say so.
+
+    The flag is request-local by construction: an instance is built per call
+    (``get_vector_port()`` already constructs a fresh adapter per call), so two
+    concurrent requests never see each other's degradation and nothing is
+    cached across a recovery. No module-level state.
+    """
+
+    supports_entity_queries = True
+
+    def __init__(
+        self, primary: VectorPort, fallback: VectorPort | None = None
+    ) -> None:
+        self._primary = primary
+        self._fallback = fallback if fallback is not None else PgVectorVectorPort()
+        self.degraded = False
+        self.degraded_reason = ""
+        self.vector_backend = getattr(
+            primary, "vector_backend", _QDRANT_ARTIFACT_BACKEND
+        )
+
+    def _degrade(self, exc: QdrantBackendUnavailableError) -> None:
+        if not self.degraded:
+            # One line per request, never the entity text or the payload.
+            logger.warning(
+                "Qdrant artifact backend unavailable, degrading to pgvector (%s)",
+                type(exc).__name__,
+            )
+        self.degraded = True
+        self.degraded_reason = DEGRADED_QDRANT_UNAVAILABLE
+        self.vector_backend = DEFAULT_ARTIFACT_VECTOR_BACKEND
+
+    def query_similar(self, **kwargs: Any) -> list[VectorHit]:
+        """Primary first; on a Qdrant outage the pgvector leg serves the call.
+
+        ``kwargs`` are forwarded verbatim -- this is a transparent proxy, so a
+        hand-copied signature could only drift from the port contract. pgvector
+        ignores ``query_text``/``ctx``, so the fallback call is byte-identical to
+        the pre-T-A2-7 default path.
+        """
+        try:
+            return self._primary.query_similar(**kwargs)
+        except QdrantBackendUnavailableError as exc:
+            self._degrade(exc)
+            return self._fallback.query_similar(**kwargs)
+
+    def query_entities(self, **kwargs: Any) -> list[TypedVectorHit]:
+        """Primary first; ``[]`` on an outage (pgvector has no cross-type index)."""
+        try:
+            return self._primary.query_entities(**kwargs)
+        except QdrantBackendUnavailableError as exc:
+            self._degrade(exc)
+            return []
+
+
+def get_fallback_vector_port() -> VectorPort:
+    """The search-facing port: Qdrant (with pgvector fallback) if opted in.
+
+    Returns the plain pgvector adapter -- byte-identical to
+    :func:`get_vector_port` -- when Qdrant is not selected, so the default
+    deployment sees ``degraded=False``, ``vector_backend="pgvector"`` and the
+    exact same hits as before.
+    """
+    port = get_vector_port()
+    if isinstance(port, QdrantVectorPort):
+        return FallbackVectorPort(port)
+    return port
 
 
 def get_vector_port() -> VectorPort:
@@ -613,13 +1136,18 @@ __all__ = [
     "COLLECTION_REQUIREMENT",
     "COLLECTION_TRACE_LINK",
     "DEFAULT_ARTIFACT_VECTOR_BACKEND",
+    "DEGRADED_QDRANT_UNAVAILABLE",
+    "FallbackVectorPort",
     "PgVectorBackendUnavailableError",
     "PgVectorVectorPort",
     "QdrantBackendUnavailableError",
     "QdrantVectorPort",
+    "TypedVectorHit",
     "VectorBackendUnavailableError",
     "VectorHit",
     "VectorPort",
+    "get_fallback_vector_port",
     "get_vector_port",
+    "hydrate_vector_hits",
     "vector_backend_diagnostic",
 ]

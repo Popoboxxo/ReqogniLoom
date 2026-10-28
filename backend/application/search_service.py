@@ -76,7 +76,7 @@ from auth_tenancy.context import AuthContext
 TenantContext = AuthContext
 
 from application.base import ServiceBase, ValidationError
-from application.vector_port import VectorHit, get_vector_port
+from application.vector_port import TypedVectorHit, VectorHit, get_fallback_vector_port
 from llm_adapter.embedding_service import generate_embedding
 from persistence.custom_fields import coerce_custom_fields
 from persistence.models import Requirement, TraceLink
@@ -389,6 +389,12 @@ class SearchResult:
     page: int
     limit: int
     query: str = ""
+    #: T-A2-7: how THIS request was served. ``degraded`` is only ever True when
+    #: a Qdrant outage forced the pgvector fallback; a pgvector deployment
+    #: reports ``False``/``""`` and is byte-identical to the pre-T-A2-7 output.
+    degraded: bool = False
+    vector_backend: str = "pgvector"
+    degraded_reason: str = ""
 
 
 # ---------- Query parser ----------
@@ -701,6 +707,10 @@ def _run_semantic_query(
     query_embedding: list[float] | None,
     tenant_id: Any,
     workspace_id: UUID | None,
+    *,
+    port: Any = None,
+    query_text: str = "",
+    ctx: Any = None,
 ) -> list[SearchHit]:
     """Cosine-similarity pass over ``entity_type``'s ``embedding`` column.
 
@@ -773,8 +783,12 @@ def _run_semantic_query(
         reproduces the pgvector hardening this path applied before the port
         split (issue #977); the port now owns the ``atomic()`` savepoint that
         used to wrap the query here.
+
+        ``port`` is the request's single port instance so the T-A2-7 degraded
+        flag is aggregated over every type; ``query_text``/``ctx`` feed the
+        Qdrant hybrid leg and the QR-S07 READ check of hydrated hits.
         """
-        hits = get_vector_port().query_similar(
+        hits = (port or get_fallback_vector_port()).query_similar(
             collection=entity_type,
             query_vector=query_embedding,
             tenant_id=tenant_id,
@@ -782,6 +796,11 @@ def _run_semantic_query(
             workspace_field=_SEMANTIC_WORKSPACE_FIELDS.get(entity_type),
             limit=_SEMANTIC_TOP_K,
             iterative_scan=True,
+            # T-A2-6: the Qdrant adapter fuses this text as its BM25 leg; the
+            # pgvector adapter ignores it (results stay byte-identical).
+            query_text=query_text,
+            # QR-S07: the READ gate for hydrated Qdrant hits needs the caller.
+            ctx=ctx,
         )
         return _semantic_search_hits(entity_type, hits)
 
@@ -1360,7 +1379,9 @@ class SearchService(ServiceBase):
                 from that set. Must be in ``[0, 1]``.
 
         Returns:
-            SearchResult with ranked hits and pagination metadata.
+            SearchResult with ranked hits and pagination metadata, plus the
+            T-A2-7 serving metadata (``vector_backend``/``degraded``/
+            ``degraded_reason``) that reports a pgvector fallback.
 
         Raises:
             ValidationError: Empty query, invalid type, or invalid page params.
@@ -1424,10 +1445,22 @@ class SearchService(ServiceBase):
         # sentence-transformers) -- a caller with e.g. type_filter=["TestCase"]
         # (no embedding column at all) must not pay that cost just because
         # Requirement/TraceLink/Icd exist elsewhere in the codebase.
+        # T-A2-7: ONE port per request, so the degraded flag aggregates over
+        # every entity type instead of being reset per type.
+        port = get_fallback_vector_port()
+
         query_embedding: list[float] | None = None
         # ``keyword`` makes no embedding call at all (T-A3-1); ``hybrid`` and
         # ``vector`` share the single computed vector.
-        if mode != "keyword" and (_EMBEDDABLE_TYPES & set(effective_types)):
+        #
+        # T-A2-6: in Qdrant mode the vector is also needed for the types WITHOUT
+        # an embedding column (``query_entities``), so the gate widens there --
+        # and ONLY there: a pgvector deployment keeps its exact behaviour (no
+        # embedding call when the filter holds no embeddable type).
+        needs_entity_semantics = port.supports_entity_queries and bool(effective_types)
+        if mode != "keyword" and (
+            (_EMBEDDABLE_TYPES & set(effective_types)) or needs_entity_semantics
+        ):
             query_embedding = generate_embedding(query)
 
         if scope == "tenant":
@@ -1447,10 +1480,21 @@ class SearchService(ServiceBase):
                 query_embedding=query_embedding,
                 mode=mode,
                 ctx=ctx,
+                port=port,
             )
         else:
             ws_uuid: UUID | None = (
                 UUID(str(workspace_id)) if workspace_id is not None else None
+            )
+            port_hits = self._port_entity_hits(
+                port,
+                tenant_id=tenant_id,
+                workspace_id=ws_uuid,
+                query_embedding=query_embedding,
+                query_text=query,
+                entity_types=effective_types,
+                ctx=ctx,
+                mode=mode,
             )
 
             # Execute per-type queries and merge
@@ -1465,6 +1509,8 @@ class SearchService(ServiceBase):
                         query_embedding=query_embedding,
                         mode=mode,
                         ctx=ctx,
+                        port=port,
+                        port_semantic_hits=port_hits.get(entity_type),
                     )
                     hits.extend(type_hits)
                 except Exception:
@@ -1512,6 +1558,9 @@ class SearchService(ServiceBase):
             page=page,
             limit=limit,
             query=tsquery_str,
+            degraded=port.degraded,
+            vector_backend=port.vector_backend,
+            degraded_reason=port.degraded_reason,
         )
 
     # ---------- Per-type search ----------
@@ -1526,6 +1575,8 @@ class SearchService(ServiceBase):
         query_embedding: list[float] | None = None,
         mode: str = "hybrid",
         ctx: AuthContext | None = None,
+        port: Any = None,
+        port_semantic_hits: list[SearchHit] | None = None,
     ) -> list[SearchHit]:
         """Return hits for one entity type from all applicable search passes.
 
@@ -1578,16 +1629,27 @@ class SearchService(ServiceBase):
         if spec is None:
             return []
 
+        if mode != "keyword":
+            semantic_hits = _run_semantic_query(
+                entity_type,
+                query_embedding,
+                tenant_id,
+                workspace_id,
+                port=port,
+                query_text=raw_query,
+                ctx=ctx,
+            )
+            # T-A2-6: types WITHOUT an embedding column get their semantic hits
+            # from the port's cross-type query (Qdrant only; empty otherwise).
+            if port_semantic_hits:
+                semantic_hits = semantic_hits + list(port_semantic_hits)
+        else:
+            semantic_hits = []
+
         if mode == "vector":
             # Semantic only: a type without an embedding column (or a query
             # with no vector) simply contributes nothing.
-            return _apply_row_visibility(
-                entity_type,
-                _run_semantic_query(
-                    entity_type, query_embedding, tenant_id, workspace_id
-                ),
-                ctx,
-            )
+            return _apply_row_visibility(entity_type, semantic_hits, ctx)
 
         fulltext_hits = _run_fulltext_query(entity_type, spec, tsquery_str, tenant_id, workspace_id)
         lexical_hits = _run_lexical_query(entity_type, spec, raw_query, tenant_id, workspace_id)
@@ -1596,7 +1658,6 @@ class SearchService(ServiceBase):
                 entity_type, _merge_hits(fulltext_hits, lexical_hits), ctx
             )
 
-        semantic_hits = _run_semantic_query(entity_type, query_embedding, tenant_id, workspace_id)
         fused: list[SearchHit]
         if semantic_hits:
             pinned = [
@@ -1620,6 +1681,68 @@ class SearchService(ServiceBase):
             fused = _merge_hits(fulltext_hits, lexical_hits)
         return _apply_row_visibility(entity_type, fused, ctx)
 
+    @staticmethod
+    def _port_entity_hits(
+        port: Any,
+        *,
+        tenant_id: Any,
+        workspace_id: UUID | None,
+        query_embedding: list[float] | None,
+        query_text: str,
+        entity_types: list[str],
+        ctx: AuthContext | None,
+        mode: str = "hybrid",
+    ) -> dict[str, list[SearchHit]]:
+        """Cross-type semantic hits for the types WITHOUT an embedding column.
+
+        T-A2-6 (counter-check to A-L19): StakeholderNeed, Adr, Risk, ... have no
+        ``embedding`` column, so the pgvector pass can never reach them. In
+        Qdrant mode the artifact index does, and ``query_entities`` returns them
+        already hydrated (QR-S07: ORM row, workspace filter, READ check) with
+        the title/description read from the row.
+
+        ``{}`` on a pgvector deployment (``supports_entity_queries`` False) and
+        when no workspace scope exists -- which keeps the default path
+        byte-identical. A failure degrades to ``{}`` (REQ-L3-SEARCH-009).
+        """
+        if (
+            mode == "keyword"
+            or workspace_id is None
+            or not getattr(port, "supports_entity_queries", False)
+            or query_embedding is None
+        ):
+            return {}
+        requested = [t for t in entity_types if t not in _EMBEDDABLE_TYPES]
+        if not requested:
+            return {}
+        try:
+            typed_hits: list[TypedVectorHit] = port.query_entities(
+                tenant_id=tenant_id,
+                workspace_id=workspace_id,
+                query_vector=query_embedding,
+                query_text=query_text,
+                entity_types=requested,
+                limit=_SEMANTIC_TOP_K,
+                ctx=ctx,
+            )
+        except Exception:
+            logger.exception("SearchService: cross-type semantic query error")
+            return {}
+
+        grouped: dict[str, list[SearchHit]] = {}
+        for hit in typed_hits:
+            grouped.setdefault(hit.entity_type, []).append(
+                SearchHit(
+                    id=str(hit.id),
+                    artifact_type=hit.entity_type,
+                    title=hit.title,
+                    description=hit.description,
+                    relevance_score=_normalize_cosine_similarity(float(hit.distance)),
+                    workspace_id=str(hit.workspace_id) if hit.workspace_id else "",
+                )
+            )
+        return grouped
+
     @classmethod
     def _search_multi_workspace(
         cls,
@@ -1631,6 +1754,7 @@ class SearchService(ServiceBase):
         query_embedding: list[float] | None = None,
         mode: str = "hybrid",
         ctx: AuthContext | None = None,
+        port: Any = None,
     ) -> list[SearchHit]:
         """Search every type in ``entity_types`` across all ``workspace_ids``.
 
@@ -1653,6 +1777,16 @@ class SearchService(ServiceBase):
             per_workspace_hits: list[list[SearchHit]] = []
             for ws_id in workspace_ids:
                 try:
+                    port_hits = cls._port_entity_hits(
+                        port,
+                        tenant_id=tenant_id,
+                        workspace_id=ws_id,
+                        query_embedding=query_embedding,
+                        query_text=raw_query,
+                        entity_types=[entity_type],
+                        ctx=ctx,
+                        mode=mode,
+                    )
                     per_workspace_hits.append(
                         cls._search_entity_type(
                             entity_type=entity_type,
@@ -1663,6 +1797,8 @@ class SearchService(ServiceBase):
                             query_embedding=query_embedding,
                             mode=mode,
                             ctx=ctx,
+                            port=port,
+                            port_semantic_hits=port_hits.get(entity_type),
                         )
                     )
                 except Exception:
