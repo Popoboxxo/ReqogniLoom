@@ -146,9 +146,47 @@ class _FakeFieldCondition:
         self.match = match
 
 
+class _FakeMatchAny:
+    def __init__(self, any: list | None = None) -> None:
+        self.any = list(any or [])
+
+
 class _FakeFilter:
-    def __init__(self, must: list | None = None, **kwargs: Any) -> None:
+    def __init__(
+        self,
+        must: list | None = None,
+        should: list | None = None,
+        must_not: list | None = None,
+        **kwargs: Any,
+    ) -> None:
         self.must = list(must or [])
+        self.should = list(should or []) if should is not None else None
+        self.must_not = list(must_not or [])
+
+
+class _FakePrefetch:
+    """Mirrors ``models.Prefetch`` (one leg of a hybrid query)."""
+
+    def __init__(
+        self,
+        query: Any = None,
+        using: str | None = None,
+        limit: int | None = None,
+        **kwargs: Any,
+    ) -> None:
+        self.query = query
+        self.using = using
+        self.limit = limit
+
+
+class _FakeFusion:
+    RRF = "rrf"
+    DBSF = "dbsf"
+
+
+class _FakeFusionQuery:
+    def __init__(self, fusion: Any = None) -> None:
+        self.fusion = fusion
 
 
 class _FakePointIdsList:
@@ -185,8 +223,12 @@ FakeQdrantModels = SimpleNamespace(
     PointStruct=_FakePointStruct,
     Document=_FakeDocument,
     MatchValue=_FakeMatchValue,
+    MatchAny=_FakeMatchAny,
     FieldCondition=_FakeFieldCondition,
     Filter=_FakeFilter,
+    Prefetch=_FakePrefetch,
+    Fusion=_FakeFusion,
+    FusionQuery=_FakeFusionQuery,
     PointIdsList=_FakePointIdsList,
     FilterSelector=_FakeFilterSelector,
     Distance=_FakeDistance,
@@ -201,7 +243,17 @@ def _matches(payload: dict, flt: _FakeFilter | None) -> bool:
         matched = getattr(condition, "match", None)
         if matched is None:
             continue
+        if hasattr(matched, "any"):  # MatchAny -> membership test
+            if str(payload.get(condition.key)) not in {str(v) for v in matched.any}:
+                return False
+            continue
         if str(payload.get(condition.key)) != str(matched.value):
+            return False
+    for condition in getattr(flt, "must_not", []) or []:
+        matched = getattr(condition, "match", None)
+        if matched is None:
+            continue
+        if str(payload.get(condition.key)) == str(matched.value):
             return False
     return True
 
@@ -220,6 +272,39 @@ def _cosine_similarity(a: list, b: list) -> float:
 
 class _FakeScoredPoint(SimpleNamespace):
     """Mirrors ``qdrant_client``'s ``ScoredPoint`` (only the fields we read)."""
+
+
+def _dense_vector(vector: Any) -> list:
+    """The ``dense`` leg of a named-vector point (plain lists pass through)."""
+    if isinstance(vector, dict):
+        return list(vector.get("dense") or [])
+    return list(vector or [])
+
+
+def _sparse_text(vector: Any) -> str:
+    """The text a BM25 ``Document`` leg was built from, for token matching."""
+    if not isinstance(vector, dict):
+        return ""
+    sparse = vector.get("bm25")
+    if isinstance(sparse, _FakeDocument):
+        return sparse.text
+    if isinstance(sparse, dict):
+        return str(sparse.get("text") or "")
+    return sparse if isinstance(sparse, str) else ""
+
+
+def _prefetch_score(leg: Any, point: Any) -> float:
+    """One leg's similarity for *point*: cosine for dense, token overlap for BM25."""
+    query = getattr(leg, "query", None)
+    if isinstance(query, list):
+        return _cosine_similarity(query, _dense_vector(point.vector))
+    text = str(getattr(query, "text", "") or "").lower()
+    wanted = {token for token in text.split() if token}
+    if not wanted:
+        return 0.0
+    present = set(_sparse_text(point.vector).lower().split())
+    return float(len(wanted & present))
+
 
 
 class FakeQdrantClient:
@@ -410,22 +495,53 @@ class FakeQdrantClient:
         self,
         *,
         collection_name: str,
-        query: list,
+        query: Any,
         query_filter: Any = None,
         limit: int = 5,
         with_payload: bool = True,
+        prefetch: list | None = None,
     ) -> Any:
+        """Hybrid-capable ``query_points``.
+
+        ``query`` is either a plain vector (dense search, unchanged) or a
+        ``FusionQuery`` accompanied by ``prefetch`` legs. The double does NOT
+        implement Qdrant's RRF arithmetic: a fused leg contributes the point's
+        own per-leg score and the point's fused score is the best leg (a point
+        matching at least one leg is returned, points matching none are not).
+        That is enough to prove *which* legs were requested and that a sparse
+        match alone surfaces a hit -- the exact fusion weights are the server's
+        business, not the adapter's.
+        """
         self._guard()
-        store = self.collections.get(collection_name, [])
-        scored = [
-            _FakeScoredPoint(
-                id=point.id,
-                payload=point.payload,
-                score=_cosine_similarity(query, point.vector),
-            )
-            for point in store
+        self._record(
+            "query_points",
+            collection_name=collection_name,
+            query=query,
+            query_filter=query_filter,
+            limit=limit,
+            prefetch=prefetch,
+        )
+        store = [
+            point for point in self.collections.get(collection_name, [])
             if _matches(point.payload, query_filter)
         ]
+        if prefetch:
+            scored = []
+            for point in store:
+                score = max((_prefetch_score(leg, point) for leg in prefetch), default=0.0)
+                if score > 0.0:
+                    scored.append(
+                        _FakeScoredPoint(id=point.id, payload=point.payload, score=score)
+                    )
+        else:
+            scored = [
+                _FakeScoredPoint(
+                    id=point.id,
+                    payload=point.payload,
+                    score=_cosine_similarity(query, _dense_vector(point.vector)),
+                )
+                for point in store
+            ]
         scored.sort(key=lambda item: item.score, reverse=True)
         return SimpleNamespace(points=scored[:limit])
 

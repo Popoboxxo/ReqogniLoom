@@ -30,10 +30,15 @@ from application.vector_port import (
     COLLECTION_ICD,
     COLLECTION_REQUIREMENT,
     COLLECTION_TRACE_LINK,
+    DEGRADED_CROSS_TYPE_QUERY_FAILED,
+    FallbackVectorPort,
     PgVectorVectorPort,
     QdrantBackendUnavailableError,
     QdrantVectorPort,
+    get_fallback_vector_port,
     get_vector_port,
+    mark_request_degraded,
+    serves_from_fallback,
 )
 from icd.models import Icd
 from llm_adapter import embedding_service
@@ -44,8 +49,13 @@ from llm_adapter.embedding_service import (
 from memory.tests.qdrant_fakes import FakeQdrantClient, FakeQdrantModels
 from persistence.embedding_dimensions import EMBEDDING_VECTOR_DIMENSIONS
 from persistence.models import Artifact, Requirement, Tenant, TraceLink
-from persistence.qdrant_config import build_collection_name, resolve_qdrant_config
-from persistence.tests.factories import active_tenant, make_requirement, make_workspace
+from persistence.qdrant_config import build_collection_alias, resolve_qdrant_config
+from persistence.tests.factories import (
+    active_tenant,
+    editor_ctx,
+    make_requirement,
+    make_workspace,
+)
 
 _DIM = EMBEDDING_VECTOR_DIMENSIONS
 
@@ -412,6 +422,30 @@ class TestGetVectorPortFactory:
         monkeypatch.setattr("application.vector_port.QdrantVectorPort", _boom)
         assert isinstance(get_vector_port(), PgVectorVectorPort)
 
+    def test_construction_failure_yields_degraded_fallback_for_search(self, monkeypatch):
+        """Qdrant intended + not constructible == an outage, not "pgvector".
+
+        A bare ``PgVectorVectorPort`` here reported ``degraded=False`` and made
+        ``SearchService`` serve ungated pgvector hits: the same hole the runtime
+        outage path closes. ``get_vector_port()`` keeps returning the bare
+        adapter -- the three similarity call sites' loud-failure contract is
+        unchanged.
+        """
+        self._opt_in(monkeypatch)
+
+        def _boom():
+            raise RuntimeError("cannot build client")
+
+        monkeypatch.setattr("application.vector_port.QdrantVectorPort", _boom)
+        port = get_fallback_vector_port()
+
+        assert isinstance(port, FallbackVectorPort)
+        assert port.degraded is True
+        assert port.degraded_reason == "qdrant_unavailable"
+        assert port.vector_backend == "pgvector"
+        assert serves_from_fallback(port) is True  # -> SearchService gates
+        assert isinstance(get_vector_port(), PgVectorVectorPort)
+
 
 # ---------------------------------------------------------------------------
 # Qdrant adapter unit (fake client, no package needed)
@@ -433,53 +467,75 @@ _RECORDING_MODELS = SimpleNamespace(
 )
 
 
-def _qdrant_port(client, models_module=None) -> QdrantVectorPort:
-    config = resolve_qdrant_config(
+def _qdrant_port(client, models_module=None, config=None) -> QdrantVectorPort:
+    config = config if config is not None else resolve_qdrant_config(
         base_url="http://qdrant.test", collection_prefix="reqlo"
     )
     return QdrantVectorPort(client=client, models_module=models_module, config=config)
 
 
+def _raise_unavailable(**_kwargs):
+    """Stand-in for a Qdrant client whose server is unreachable."""
+    raise QdrantBackendUnavailableError("qdrant is unreachable")
+
+
+def _unreachable_fallback() -> FallbackVectorPort:
+    """A ``FallbackVectorPort`` whose Qdrant primary always raises an outage.
+
+    Every Qdrant call fails before it touches the ORM, so the precedence tests
+    below need no database fixture at all.
+    """
+    primary = QdrantVectorPort(
+        client=SimpleNamespace(query_points=_raise_unavailable),
+        models_module=FakeQdrantModels,
+        config=resolve_qdrant_config(base_url="http://qdrant.test"),
+    )
+    return FallbackVectorPort(primary)
+
+
 class TestQdrantVectorPortUnit:
+    @pytest.mark.django_db(transaction=True)
     def test_builds_scoped_filter_and_maps_distances(self):
-        tenant_id = uuid4()
-        workspace_id = uuid4()
-        exclude_id = uuid4()
-        first_entity = uuid4()
-        second_entity = uuid4()
-        recorded: dict = {}
+        # Hydration (QR-S07) makes even this request-shape test touch the ORM:
+        # the two reported ids must exist as rows, otherwise they are dropped.
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            first = make_requirement(ws, title="First")
+            second = make_requirement(ws, title="Second")
+            exclude_id = uuid4()
+            recorded: dict = {}
 
-        class _Client:
-            def query_points(self, **kwargs):
-                recorded.update(kwargs)
-                return SimpleNamespace(
-                    points=[
-                        SimpleNamespace(
-                            id="point-1",
-                            payload={"entity_id": str(first_entity)},
-                            score=0.8,
-                        ),
-                        SimpleNamespace(
-                            id="point-2",
-                            payload={"entity_id": str(second_entity)},
-                            score=0.2,
-                        ),
-                    ]
-                )
+            class _Client:
+                def query_points(self, **kwargs):
+                    recorded.update(kwargs)
+                    return SimpleNamespace(
+                        points=[
+                            SimpleNamespace(
+                                id="point-1",
+                                payload=_payload(tenant.id, ws.id, first.id),
+                                score=0.8,
+                            ),
+                            SimpleNamespace(
+                                id="point-2",
+                                payload=_payload(tenant.id, ws.id, second.id),
+                                score=0.2,
+                            ),
+                        ]
+                    )
 
-        port = _qdrant_port(_Client(), models_module=_RECORDING_MODELS)
-        hits = port.query_similar(
-            collection=COLLECTION_REQUIREMENT,
-            query_vector=[0.1, 0.2, 0.3],
-            tenant_id=tenant_id,
-            workspace_id=workspace_id,
-            exclude_id=exclude_id,
-            limit=7,
-        )
+            port = _qdrant_port(_Client(), models_module=_RECORDING_MODELS)
+            hits = port.query_similar(
+                collection=COLLECTION_REQUIREMENT,
+                query_vector=[0.1, 0.2, 0.3],
+                tenant_id=tenant.id,
+                workspace_id=ws.id,
+                exclude_id=exclude_id,
+                limit=7,
+                # QR-S07: hydration is fail-closed without a caller identity.
+                ctx=editor_ctx(tenant, ws),
+            )
 
-        expected_collection = build_collection_name(
-            "reqlo", tenant_id, workspace_id=workspace_id, scope="workspace", artifacts=True
-        )
+        expected_collection = _alias(tenant.id, ws.id)
         assert recorded["collection_name"] == expected_collection
         assert recorded["limit"] == 7
         assert recorded["query"] == [0.1, 0.2, 0.3]
@@ -488,15 +544,15 @@ class TestQdrantVectorPortUnit:
             condition.key: condition.match.value
             for condition in recorded["query_filter"].must
         }
-        assert must_values["tenant_id"] == str(tenant_id)
+        assert must_values["tenant_id"] == str(tenant.id)
         assert must_values["entity_type"] == COLLECTION_REQUIREMENT
-        assert must_values["workspace_id"] == str(workspace_id)
+        assert must_values["workspace_id"] == str(ws.id)
         assert [condition.key for condition in recorded["query_filter"].must_not] == [
             "entity_id"
         ]
         assert recorded["query_filter"].must_not[0].match.value == str(exclude_id)
 
-        assert [hit.id for hit in hits] == [first_entity, second_entity]
+        assert [hit.id for hit in hits] == [first.id, second.id]
         assert hits[0].distance == pytest.approx(0.2, abs=1e-6)
         assert hits[1].distance == pytest.approx(0.8, abs=1e-6)
 
@@ -509,62 +565,50 @@ class TestQdrantVectorPortUnit:
                 tenant_id=uuid4(),
             )
 
+    @pytest.mark.django_db(transaction=True)
     def test_query_against_fake_client_filters_by_entity_type(self):
-        tenant_id = uuid4()
-        workspace_id = uuid4()
-        first_entity = uuid4()
-        second_entity = uuid4()
-        collection = build_collection_name(
-            "reqlo", tenant_id, workspace_id=workspace_id, scope="workspace", artifacts=True
-        )
-        client = FakeQdrantClient()
-        client.upsert(
-            collection_name=collection,
-            points=[
-                FakeQdrantModels.PointStruct(
-                    id=str(first_entity),
-                    vector=[1.0, 0.0],
-                    payload={
-                        "entity_id": str(first_entity),
-                        "entity_type": COLLECTION_REQUIREMENT,
-                        "tenant_id": str(tenant_id),
-                        "workspace_id": str(workspace_id),
-                    },
-                ),
-                FakeQdrantModels.PointStruct(
-                    id=str(second_entity),
-                    vector=[0.0, 1.0],
-                    payload={
-                        "entity_id": str(second_entity),
-                        "entity_type": COLLECTION_REQUIREMENT,
-                        "tenant_id": str(tenant_id),
-                        "workspace_id": str(workspace_id),
-                    },
-                ),
-                # Wrong entity_type -> filtered out by the payload condition.
-                FakeQdrantModels.PointStruct(
-                    id="icd-point",
-                    vector=[1.0, 0.0],
-                    payload={
-                        "entity_id": "icd-point",
-                        "entity_type": COLLECTION_ICD,
-                        "tenant_id": str(tenant_id),
-                        "workspace_id": str(workspace_id),
-                    },
-                ),
-            ],
-        )
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            first = make_requirement(ws, title="Nearest")
+            second = make_requirement(ws, title="Farther")
+            collection = _alias(tenant.id, ws.id)
+            client = FakeQdrantClient()
+            client.upsert(
+                collection_name=collection,
+                points=[
+                    FakeQdrantModels.PointStruct(
+                        id=str(first.id),
+                        vector=[1.0, 0.0],
+                        payload=_payload(tenant.id, ws.id, first.id),
+                    ),
+                    FakeQdrantModels.PointStruct(
+                        id=str(second.id),
+                        vector=[0.0, 1.0],
+                        payload=_payload(tenant.id, ws.id, second.id),
+                    ),
+                    # Wrong entity_type -> filtered out by the payload condition.
+                    FakeQdrantModels.PointStruct(
+                        id=str(uuid4()),
+                        vector=[1.0, 0.0],
+                        payload=_payload(
+                            tenant.id, ws.id, uuid4(), entity_type=COLLECTION_ICD
+                        ),
+                    ),
+                ],
+            )
 
-        port = _qdrant_port(client, models_module=FakeQdrantModels)
-        hits = port.query_similar(
-            collection=COLLECTION_REQUIREMENT,
-            query_vector=[1.0, 0.0],
-            tenant_id=tenant_id,
-            workspace_id=workspace_id,
-            limit=10,
-        )
+            port = _qdrant_port(client, models_module=FakeQdrantModels)
+            hits = port.query_similar(
+                collection=COLLECTION_REQUIREMENT,
+                query_vector=[1.0, 0.0],
+                tenant_id=tenant.id,
+                workspace_id=ws.id,
+                limit=10,
+                # QR-S07: hydration is fail-closed without a caller identity.
+                ctx=editor_ctx(tenant, ws),
+            )
 
-        assert [hit.id for hit in hits] == [first_entity, second_entity]
+        assert [hit.id for hit in hits] == [first.id, second.id]
         assert hits[0].distance == pytest.approx(0.0, abs=1e-6)
         assert hits[1].distance == pytest.approx(1.0, abs=1e-6)
 
@@ -604,14 +648,9 @@ class TestQdrantVectorPortUnit:
             req = make_requirement(ws, title="Hydrated")
             req.embedding = [1.0] * _DIM
             req.save(update_fields=["embedding"])
+            ctx = editor_ctx(tenant, ws)
 
-            collection = build_collection_name(
-                "reqlo",
-                tenant.id,
-                workspace_id=ws.id,
-                scope="workspace",
-                artifacts=True,
-            )
+            collection = _alias(tenant.id, ws.id)
             client = FakeQdrantClient()
             client.upsert(
                 collection_name=collection,
@@ -635,6 +674,8 @@ class TestQdrantVectorPortUnit:
                 tenant_id=tenant.id,
                 workspace_id=ws.id,
                 limit=10,
+                # QR-S07: the READ gate is fail-closed without an identity.
+                ctx=ctx,
             )
             # The adapter coerces the string payload id to UUID ...
             assert isinstance(hits[0].id, UUID)
@@ -645,54 +686,649 @@ class TestQdrantVectorPortUnit:
 
 
 # ---------------------------------------------------------------------------
+# Hybrid (dense + BM25) query and QR-S07 hit hydration
+# ---------------------------------------------------------------------------
+
+
+def _alias(tenant_id, workspace_id) -> str:
+    """The stable artifact alias the port reads (never the versioned name)."""
+    return build_collection_alias(
+        "reqlo", tenant_id, workspace_id=workspace_id, scope="workspace"
+    )
+
+
+def _payload(tenant_id, workspace_id, entity_id, entity_type=COLLECTION_REQUIREMENT) -> dict:
+    return {
+        "entity_id": str(entity_id),
+        "entity_type": entity_type,
+        "tenant_id": str(tenant_id),
+        "workspace_id": str(workspace_id),
+    }
+
+
+def _seed_point(
+    client,
+    tenant_id,
+    workspace_id,
+    entity_id,
+    *,
+    dense,
+    text,
+    entity_type=COLLECTION_REQUIREMENT,
+):
+    client.upsert(
+        collection_name=_alias(tenant_id, workspace_id),
+        points=[
+            FakeQdrantModels.PointStruct(
+                id=str(entity_id),
+                vector={
+                    "dense": dense,
+                    "bm25": FakeQdrantModels.Document(text=text, model="qdrant/bm25"),
+                },
+                payload=_payload(tenant_id, workspace_id, entity_id, entity_type),
+            )
+        ],
+    )
+
+
+class TestQdrantHybridQuery:
+    """T-A2-6: hybrid query against the alias, dense-only when no ``query_text``."""
+
+    @pytest.mark.django_db(transaction=True)
+    def test_qdrant_hybrid_uses_prefetch_and_rrf(self):
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            req = make_requirement(ws, title="Mobile push notifications")
+            ctx = editor_ctx(tenant, ws)
+            client = FakeQdrantClient()
+            _seed_point(
+                client, tenant.id, ws.id, req.id,
+                dense=[1.0, 0.0], text="mobile push notifications",
+            )
+            port = _qdrant_port(client, models_module=FakeQdrantModels)
+            hits = port.query_similar(
+                collection=COLLECTION_REQUIREMENT,
+                query_vector=[1.0, 0.0],
+                tenant_id=tenant.id,
+                workspace_id=ws.id,
+                query_text="mobile push",
+                ctx=ctx,
+            )
+            alias = _alias(tenant.id, ws.id)
+
+        requests = [kwargs for method, kwargs in client.calls if method == "query_points"]
+        assert len(requests) == 1
+        request = requests[0]
+        # Readers address the alias, never a versioned collection name.
+        assert request["collection_name"] == alias
+        assert [leg.using for leg in request["prefetch"]] == ["dense", "bm25"]
+        assert request["prefetch"][0].query == [1.0, 0.0]
+        assert request["prefetch"][1].query.model == "qdrant/bm25"
+        assert request["prefetch"][1].query.text == "mobile push"
+        assert request["query"].fusion == "rrf"
+        assert [hit.id for hit in hits] == [req.id]
+
+    @pytest.mark.django_db(transaction=True)
+    def test_qdrant_without_query_text_stays_dense_only(self):
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            req = make_requirement(ws, title="Dense only")
+            ctx = editor_ctx(tenant, ws)
+            client = FakeQdrantClient()
+            _seed_point(client, tenant.id, ws.id, req.id, dense=[1.0, 0.0], text="dense only")
+            port = _qdrant_port(client, models_module=FakeQdrantModels)
+            hits = port.query_similar(
+                collection=COLLECTION_REQUIREMENT,
+                query_vector=[1.0, 0.0],
+                tenant_id=tenant.id,
+                workspace_id=ws.id,
+                ctx=ctx,
+            )
+
+        request = [kwargs for method, kwargs in client.calls if method == "query_points"][0]
+        assert request["prefetch"] is None
+        assert request["query"] == [1.0, 0.0]
+        assert [hit.id for hit in hits] == [req.id]
+
+    @pytest.mark.django_db(transaction=True)
+    def test_pgvector_ignores_query_text_bytes_identical(self):
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            near = make_requirement(ws, title="Near")
+            near.embedding = [1.0] * _DIM
+            near.save(update_fields=["embedding"])
+            far = make_requirement(ws, title="Far")
+            far.embedding = [-1.0] * _DIM
+            far.save(update_fields=["embedding"])
+
+            query = {
+                "collection": COLLECTION_REQUIREMENT,
+                "query_vector": [1.0] * _DIM,
+                "tenant_id": tenant.id,
+                "workspace_id": ws.id,
+                "workspace_field": "artifact__workspace_id",
+                "limit": 50,
+            }
+            without_text = PgVectorVectorPort().query_similar(**query)
+            with_text = PgVectorVectorPort().query_similar(**query, query_text="irrelevant")
+
+        as_tuples = [(hit.id, hit.distance) for hit in without_text]
+        assert as_tuples == [(hit.id, hit.distance) for hit in with_text]
+        assert [hit.id for hit in with_text] == [near.id, far.id]
+
+    @pytest.mark.django_db(transaction=True)
+    def test_qdrant_fused_score_keeps_order_but_is_not_a_cosine_scale(self):
+        """Fused (RRF) scores are a RANK quantity -- ordering is the contract.
+
+        With ``query_text`` the semantic leg's ``distance`` is ``1 - <fused
+        score>``, not a cosine distance. The two points below have the SAME
+        dense leg (so a cosine distance could not tell them apart); only the
+        fused score separates them. Pinning an absolute value would pin
+        Qdrant's fusion arithmetic, which is not this adapter's contract -- so
+        this asserts the ordering (and that the scale demonstrably is not a
+        cosine scale), never a specific number.
+        """
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            both_legs = make_requirement(ws, title="Mobile push notifications")
+            dense_only = make_requirement(ws, title="Unrelated billing")
+            ctx = editor_ctx(tenant, ws)
+            client = FakeQdrantClient()
+            _seed_point(
+                client, tenant.id, ws.id, both_legs.id,
+                dense=[1.0, 0.0], text="mobile push notifications",
+            )
+            _seed_point(
+                client, tenant.id, ws.id, dense_only.id,
+                dense=[1.0, 0.0], text="unrelated billing",
+            )
+            port = _qdrant_port(client, models_module=FakeQdrantModels)
+            hits = port.query_similar(
+                collection=COLLECTION_REQUIREMENT,
+                query_vector=[1.0, 0.0],
+                tenant_id=tenant.id,
+                workspace_id=ws.id,
+                query_text="mobile push",
+                ctx=ctx,
+            )
+
+        assert [hit.id for hit in hits] == [both_legs.id, dense_only.id]
+        # Ordering is monotone in the port's own scale ...
+        assert hits[0].distance < hits[1].distance
+        # ... but that scale is not a cosine distance: identical dense legs
+        # would have equal cosine distances, and the fused value falls outside
+        # the [0, 2] cosine-distance range.
+        assert hits[0].distance != pytest.approx(hits[1].distance)
+        assert hits[0].distance < 0.0
+
+
+class TestQdrantHitHydration:
+    """QR-S07: Qdrant returns ids only; the ORM row is the source of truth."""
+
+    @pytest.mark.django_db(transaction=True)
+    def test_qdrant_hit_with_foreign_workspace_payload_is_dropped(self):
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            foreign_ws = make_workspace(tenant)
+            mine = make_requirement(ws, title="Mine")
+            foreign = make_requirement(foreign_ws, title="Foreign workspace row")
+            ctx = editor_ctx(tenant, ws)
+
+            client = FakeQdrantClient()
+            for row in (mine, foreign):
+                # The payload of BOTH points claims the caller's workspace --
+                # exactly what a mis-indexed or crafted point looks like.
+                _seed_point(client, tenant.id, ws.id, row.id, dense=[1.0, 0.0], text="row")
+
+            port = _qdrant_port(client, models_module=FakeQdrantModels)
+            hits = port.query_similar(
+                collection=COLLECTION_REQUIREMENT,
+                query_vector=[1.0, 0.0],
+                tenant_id=tenant.id,
+                workspace_id=ws.id,
+                ctx=ctx,
+            )
+
+        ids = {hit.id for hit in hits}
+        assert mine.id in ids
+        assert foreign.id not in ids
+
+    @pytest.mark.django_db(transaction=True)
+    def test_qdrant_hit_item_permission_none_is_dropped(self):
+        from auth_tenancy.models import ItemPermission
+        from persistence.tests.factories import ctx_for_user, make_user
+
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            denied = make_requirement(ws, title="Item-level denied")
+            visible = make_requirement(ws, title="Visible")
+            user = make_user(tenant)
+            ctx = ctx_for_user(tenant, user, workspace=ws, roles=("editor",))
+            ItemPermission.objects.create(
+                tenant=tenant,
+                user=user,
+                workspace=ws,
+                artifact_id=denied.artifact_id,
+                permission_level="none",
+            )
+
+            client = FakeQdrantClient()
+            for row in (denied, visible):
+                _seed_point(client, tenant.id, ws.id, row.id, dense=[1.0, 0.0], text="row")
+
+            port = _qdrant_port(client, models_module=FakeQdrantModels)
+            hits = port.query_similar(
+                collection=COLLECTION_REQUIREMENT,
+                query_vector=[1.0, 0.0],
+                tenant_id=tenant.id,
+                workspace_id=ws.id,
+                ctx=ctx,
+            )
+
+        ids = {hit.id for hit in hits}
+        assert denied.id not in ids  # explicit "none" rule wins
+        assert visible.id in ids
+
+    @pytest.mark.django_db(transaction=True)
+    def test_qdrant_similarity_without_ctx_fails_closed(self):
+        """QR-S07: no caller identity means no provable READ.
+
+        The gate must not degrade into "unchecked" when a caller forgets the
+        identity: the Qdrant path's answer is then *empty*, not the tenant/
+        workspace/lifecycle-fenced set. Two of the legacy similarity callers
+        (``find_similar_trace_links``, ``find_similar_icds``) are still in that
+        state until PR-A21b -- this is the pinned consequence.
+        """
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            row = make_requirement(ws, title="Would be found with an identity")
+
+            client = FakeQdrantClient()
+            _seed_point(client, tenant.id, ws.id, row.id, dense=[1.0, 0.0], text="row")
+            port = _qdrant_port(client, models_module=FakeQdrantModels)
+            without_ctx = port.query_similar(
+                collection=COLLECTION_REQUIREMENT,
+                query_vector=[1.0, 0.0],
+                tenant_id=tenant.id,
+                workspace_id=ws.id,
+            )
+            entities_without_ctx = port.query_entities(
+                tenant_id=tenant.id,
+                workspace_id=ws.id,
+                query_vector=[1.0, 0.0],
+                query_text="row",
+                entity_types=[COLLECTION_REQUIREMENT],
+            )
+            # Sanity: the very same call WITH an identity does return the row,
+            # so the empty results above are the gate, not a broken fixture.
+            with_ctx = port.query_similar(
+                collection=COLLECTION_REQUIREMENT,
+                query_vector=[1.0, 0.0],
+                tenant_id=tenant.id,
+                workspace_id=ws.id,
+                ctx=editor_ctx(tenant, ws),
+            )
+
+        assert without_ctx == []
+        assert entities_without_ctx == []
+        assert [hit.id for hit in with_ctx] == [row.id]
+
+    @pytest.mark.django_db(transaction=True)
+    def test_qdrant_hit_with_foreign_tenant_payload_is_dropped(self):
+        """QR-S07: the payload may claim the caller's tenant; the row may not.
+
+        A point whose payload says "tenant A, workspace A" but whose entity id
+        belongs to a row in tenant B must not hydrate -- the ORM lookup is
+        tenant-scoped, so the payload's claim can never resurrect a foreign row.
+        """
+        with active_tenant() as foreign_tenant:
+            foreign_ws = make_workspace(foreign_tenant)
+            foreign = make_requirement(foreign_ws, title="Row of another tenant")
+
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            mine = make_requirement(ws, title="Mine")
+            ctx = editor_ctx(tenant, ws)
+
+            client = FakeQdrantClient()
+            # The local row, indexed normally.
+            _seed_point(client, tenant.id, ws.id, mine.id, dense=[1.0, 0.0], text="row")
+            # A point in THIS tenant's collection whose payload claims this
+            # tenant/workspace but points at the other tenant's row id.
+            _seed_point(
+                client, tenant.id, ws.id, foreign.id, dense=[1.0, 0.0], text="row"
+            )
+
+            port = _qdrant_port(client, models_module=FakeQdrantModels)
+            hits = port.query_similar(
+                collection=COLLECTION_REQUIREMENT,
+                query_vector=[1.0, 0.0],
+                tenant_id=tenant.id,
+                workspace_id=ws.id,
+                ctx=ctx,
+            )
+
+        ids = {hit.id for hit in hits}
+        assert mine.id in ids
+        assert foreign.id not in ids
+
+    @pytest.mark.django_db(transaction=True)
+    def test_stale_point_after_failed_delete_not_returned(self):
+        from persistence.models import Artifact, LifecycleStatus
+
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            stale = make_requirement(ws, title="Soft-deleted row")
+            live = make_requirement(ws, title="Live row")
+            ctx = editor_ctx(tenant, ws)
+
+            client = FakeQdrantClient()
+            for row in (stale, live):
+                _seed_point(client, tenant.id, ws.id, row.id, dense=[1.0, 0.0], text="row")
+            # The delete hook never ran (or failed): the point persists.
+            Artifact.objects.filter(id=stale.artifact_id).update(
+                lifecycle_status=LifecycleStatus.OUTDATED
+            )
+
+            port = _qdrant_port(client, models_module=FakeQdrantModels)
+            hits = port.query_similar(
+                collection=COLLECTION_REQUIREMENT,
+                query_vector=[1.0, 0.0],
+                tenant_id=tenant.id,
+                workspace_id=ws.id,
+                ctx=ctx,
+            )
+
+        ids = {hit.id for hit in hits}
+        assert stale.id not in ids
+        assert live.id in ids
+
+    @pytest.mark.django_db(transaction=True)
+    def test_query_entities_skips_superseded_main_goal_version(self):
+        from persistence.models import Artifact, MainGoal
+
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            old_artifact = Artifact.objects.create(
+                tenant=tenant, workspace=ws, artifact_type="MainGoal"
+            )
+            new_artifact = Artifact.objects.create(
+                tenant=tenant, workspace=ws, artifact_type="MainGoal"
+            )
+            superseded = MainGoal.objects.create(
+                tenant=tenant, artifact=old_artifact, workspace_id=ws.id,
+                sequence_number=1, content="old goal", source="manual",
+            )
+            current = MainGoal.objects.create(
+                tenant=tenant, artifact=new_artifact, workspace_id=ws.id,
+                sequence_number=2, content="current goal", source="manual",
+            )
+
+            client = FakeQdrantClient()
+            for row in (superseded, current):
+                # A superseded version emits no DELETE event, so its point stays.
+                _seed_point(
+                    client, tenant.id, ws.id, row.id,
+                    dense=[1.0, 0.0], text="goal", entity_type="MainGoal",
+                )
+
+            port = _qdrant_port(client, models_module=FakeQdrantModels)
+            hits = port.query_entities(
+                tenant_id=tenant.id,
+                workspace_id=ws.id,
+                query_vector=[1.0, 0.0],
+                query_text="goal",
+                entity_types=["MainGoal"],
+                ctx=editor_ctx(tenant, ws),
+            )
+
+        ids = {hit.id for hit in hits}
+        assert current.id in ids
+        assert superseded.id not in ids
+
+
+class TestRequirementSimilarityWiring:
+    """``find_similar_requirements`` passes its identity to the port (QR-S07).
+
+    ``ctx=ctx`` at the port call is the ONLY thing that makes the Qdrant
+    adapter's READ gate run for this call site. Deleting it would leave the
+    default pgvector path byte-identical (pgvector ignores ``ctx``) while the
+    Qdrant path silently served an item-level ``none`` hit -- so this pins the
+    WIRING, not merely the gate it triggers.
+    """
+
+    @pytest.mark.django_db(transaction=True)
+    def test_item_denied_similar_requirement_is_absent(self, monkeypatch):
+        from auth_tenancy.models import ItemPermission
+        from persistence.tests.factories import ctx_for_user, make_user
+
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            query = make_requirement(ws, title="Query requirement")
+            query.embedding = [1.0] * _DIM
+            query.save(update_fields=["embedding"])
+            denied = make_requirement(ws, title="Denied neighbour")
+            visible = make_requirement(ws, title="Visible neighbour")
+
+            user = make_user(tenant)
+            ctx = ctx_for_user(tenant, user, workspace=ws, roles=("editor",))
+            ItemPermission.objects.create(
+                tenant=tenant,
+                user=user,
+                workspace=ws,
+                artifact_id=denied.artifact_id,
+                permission_level="none",
+            )
+
+            client = FakeQdrantClient()
+            for row in (denied, visible):
+                _seed_point(
+                    client, tenant.id, ws.id, row.id, dense=[1.0] * _DIM, text="row"
+                )
+            port = _qdrant_port(client, models_module=FakeQdrantModels)
+            monkeypatch.setattr(
+                "application.requirement_service.get_vector_port", lambda: port
+            )
+
+            from application.requirement_service import RequirementService
+
+            results = RequirementService().find_similar_requirements(
+                query.id, ctx, limit=10, workspace_id=ws.id
+            )
+
+        ids = {result.id for result in results}
+        assert denied.id not in ids  # the identity reached the port's READ gate
+        assert visible.id in ids
+
+
+class TestFallbackVectorPort:
+    """T-A2-7: an outage degrades to pgvector with a request-local flag."""
+
+    @pytest.mark.django_db(transaction=True)
+    def test_qdrant_outage_falls_back_with_degraded_flag(self):
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            req = make_requirement(ws, title="Still found")
+            req.embedding = [1.0] * _DIM
+            req.save(update_fields=["embedding"])
+
+            primary = QdrantVectorPort(
+                client=SimpleNamespace(query_points=_raise_unavailable),
+                models_module=FakeQdrantModels,
+                config=resolve_qdrant_config(base_url="http://qdrant.test"),
+            )
+            port = FallbackVectorPort(primary)
+            hits = port.query_similar(
+                collection=COLLECTION_REQUIREMENT,
+                query_vector=[1.0] * _DIM,
+                tenant_id=tenant.id,
+                workspace_id=ws.id,
+                workspace_field="artifact__workspace_id",
+                query_text="still found",
+            )
+            entities = port.query_entities(
+                tenant_id=tenant.id,
+                workspace_id=ws.id,
+                query_vector=[1.0] * _DIM,
+                query_text="still found",
+                entity_types=["StakeholderNeed"],
+            )
+
+        assert [hit.id for hit in hits] == [req.id]  # pgvector served
+        assert entities == []  # no cross-type semantic pass on pgvector
+        assert port.degraded is True
+        assert port.degraded_reason == "qdrant_unavailable"
+        assert port.vector_backend == "pgvector"
+        assert serves_from_fallback(port) is True
+
+    def test_partial_cross_type_failure_is_not_a_fallback(self):
+        """One flag, two questions: a healthy Qdrant is NOT serving a fallback.
+
+        ``degraded`` alone cannot drive the QR-S07 gate -- after a cross-type
+        failure a healthy Qdrant wrapper is ``degraded`` too, and gating on that
+        re-hydrated hits the Qdrant adapter had already hydrated.
+        """
+        port = FallbackVectorPort(SimpleNamespace(vector_backend="qdrant"))
+        mark_request_degraded(port, DEGRADED_CROSS_TYPE_QUERY_FAILED)
+
+        assert port.degraded is True
+        assert port.degraded_reason == "cross_type_query_failed"
+        assert port.vector_backend == "qdrant"
+        assert port.partial_semantics is True
+        assert serves_from_fallback(port) is False
+
+    def test_outage_after_cross_type_failure_logs_once_and_wins(self, caplog):
+        """Precedence: outage > partial, and the outage WARNING is not swallowed.
+
+        Ordering: a cross-type failure flags the request first (``degraded`` was
+        already ``True``), then a real outage happens. Gating the warning on
+        ``degraded`` lost that line entirely; the reason must also end up as the
+        outage, never as the earlier partial one.
+        """
+        port = _unreachable_fallback()
+        mark_request_degraded(port, DEGRADED_CROSS_TYPE_QUERY_FAILED)
+        assert port.degraded_reason == "cross_type_query_failed"
+
+        with caplog.at_level(logging.WARNING, logger="application.vector_port"):
+            entities = port.query_entities(
+                tenant_id=uuid4(),
+                workspace_id=uuid4(),
+                query_vector=[1.0] * _DIM,
+                query_text="row",
+                entity_types=["StakeholderNeed"],
+            )
+
+        outage_lines = [
+            record
+            for record in caplog.records
+            if "Qdrant artifact backend unavailable" in record.getMessage()
+        ]
+        assert entities == []
+        assert len(outage_lines) == 1  # exactly once, not lost and not doubled
+        assert port.degraded is True
+        assert port.degraded_reason == "qdrant_unavailable"  # outage supersedes
+        assert port.vector_backend == "pgvector"
+        assert serves_from_fallback(port) is True
+
+    def test_outage_reason_survives_a_later_cross_type_failure(self):
+        """The other direction: a partial reason must never overwrite the outage."""
+        port = _unreachable_fallback()
+        port.query_entities(
+            tenant_id=uuid4(),
+            workspace_id=uuid4(),
+            query_vector=[1.0] * _DIM,
+            query_text="row",
+            entity_types=["StakeholderNeed"],
+        )
+        assert port.degraded_reason == "qdrant_unavailable"
+
+        mark_request_degraded(port, DEGRADED_CROSS_TYPE_QUERY_FAILED)
+
+        assert port.degraded is True
+        assert port.degraded_reason == "qdrant_unavailable"  # not re-labelled
+        assert port.vector_backend == "pgvector"
+        assert port.partial_semantics is False
+
+    @pytest.mark.django_db(transaction=True)
+    def test_no_qdrant_configured_has_degraded_false_and_bytes_identical(self, monkeypatch):
+        monkeypatch.delenv("ARTIFACT_VECTOR_BACKEND", raising=False)
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            req = make_requirement(ws, title="Default path")
+            req.embedding = [1.0] * _DIM
+            req.save(update_fields=["embedding"])
+
+            port = get_fallback_vector_port()
+            query = {
+                "collection": COLLECTION_REQUIREMENT,
+                "query_vector": [1.0] * _DIM,
+                "tenant_id": tenant.id,
+                "workspace_id": ws.id,
+                "workspace_field": "artifact__workspace_id",
+            }
+            fallback_hits = port.query_similar(**query, query_text="ignored")
+            plain_hits = get_vector_port().query_similar(**query)
+
+        assert isinstance(port, PgVectorVectorPort)  # no wrapper without Qdrant
+        assert port.degraded is False
+        assert port.degraded_reason == ""
+        assert port.vector_backend == "pgvector"
+        assert [(h.id, h.distance) for h in fallback_hits] == [
+            (h.id, h.distance) for h in plain_hits
+        ]
+        assert [hit.id for hit in fallback_hits] == [req.id]
+
+
+# ---------------------------------------------------------------------------
 # Optional live Qdrant round-trip (skipped unless explicitly configured)
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.integration
+@pytest.mark.django_db(transaction=True)
 def test_live_qdrant_roundtrip_is_skipped_without_env():
     base_url = os.environ.get("QDRANT_TEST_BASE_URL", "").strip()
     if not base_url:
         pytest.skip("QDRANT_TEST_BASE_URL not set -- live Qdrant not available")
 
     qdrant_client = pytest.importorskip("qdrant_client")
+    from application.artifact_vector_store import ensure_artifact_collection
 
-    tenant_id = uuid4()
-    workspace_id = uuid4()
-    entity_id = uuid4()
-    collection = build_collection_name(
-        "reqlo", tenant_id, workspace_id=workspace_id, scope="workspace", artifacts=True
-    )
+    config = resolve_qdrant_config(base_url=base_url, collection_prefix="reqlo")
     client = qdrant_client.QdrantClient(url=base_url)
-    client.recreate_collection(
-        collection_name=collection,
-        vectors_config=qdrant_client.models.VectorParams(size=3, distance="Cosine"),
-    )
-    try:
-        client.upsert(
-            collection_name=collection,
-            points=[
-                qdrant_client.models.PointStruct(
-                    id=str(entity_id),
-                    vector=[1.0, 0.0, 0.0],
-                    payload={
-                        "entity_id": str(entity_id),
-                        "entity_type": COLLECTION_REQUIREMENT,
-                        "tenant_id": str(tenant_id),
-                        "workspace_id": str(workspace_id),
-                    },
-                )
-            ],
-            wait=True,
+    with active_tenant() as tenant:
+        ws = make_workspace(tenant)
+        req = make_requirement(ws, title="Live hybrid round-trip")
+        collection = ensure_artifact_collection(
+            client, tenant.id, ws.id, config=config
         )
-        port = _qdrant_port(client)
-        hits = port.query_similar(
-            collection=COLLECTION_REQUIREMENT,
-            query_vector=[1.0, 0.0, 0.0],
-            tenant_id=tenant_id,
-            workspace_id=workspace_id,
-            limit=5,
-        )
-        assert [hit.id for hit in hits] == [entity_id]
-    finally:
-        client.delete_collection(collection_name=collection)
+        try:
+            client.upsert(
+                collection_name=_alias(tenant.id, ws.id),
+                points=[
+                    qdrant_client.models.PointStruct(
+                        id=str(req.id),
+                        vector={
+                            "dense": [1.0] * _DIM,
+                            "bm25": qdrant_client.models.Document(
+                                text="live hybrid round-trip", model="qdrant/bm25"
+                            ),
+                        },
+                        payload=_payload(tenant.id, ws.id, req.id),
+                    )
+                ],
+                wait=True,
+            )
+            port = _qdrant_port(client, config=config)
+            hits = port.query_similar(
+                collection=COLLECTION_REQUIREMENT,
+                query_vector=[1.0] * _DIM,
+                tenant_id=tenant.id,
+                workspace_id=ws.id,
+                query_text="hybrid",
+                limit=5,
+                ctx=editor_ctx(tenant, ws),
+            )
+            assert [hit.id for hit in hits] == [req.id]
+        finally:
+            client.delete_collection(collection_name=collection)

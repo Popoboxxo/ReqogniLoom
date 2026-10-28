@@ -75,6 +75,8 @@ class TestSearchServiceTenantScope:
                 query_embedding=None,
                 mode: str = "hybrid",
                 ctx=None,
+                port=None,
+                port_semantic_hits=None,
             ):
                 if entity_type == "Requirement" and workspace_id == ws_b.id:
                     raise RuntimeError("simulated failure for the middle workspace")
@@ -87,6 +89,8 @@ class TestSearchServiceTenantScope:
                     query_embedding=query_embedding,
                     mode=mode,
                     ctx=ctx,
+                    port=port,
+                    port_semantic_hits=port_semantic_hits,
                 )
 
             monkeypatch.setattr(

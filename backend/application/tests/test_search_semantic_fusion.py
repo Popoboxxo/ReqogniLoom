@@ -529,3 +529,258 @@ class TestSemanticQueryDirectTraceLinkAndIcd:
         assert any(h.id == str(icd.id) for h in hits)
         hit = next(h for h in hits if h.id == str(icd.id))
         assert hit.workspace_id == str(ws.id)
+
+
+class TestQdrantEntitySemantics:
+    """T-A2-6: the counter-check to A-L19.
+
+    The pgvector semantic pass only reaches the three entity types that carry
+    an ``embedding`` column. In Qdrant mode ``query_entities`` supplies semantic
+    hits for the types WITHOUT one -- here a ``StakeholderNeed`` that shares no
+    term with the query, so neither the full-text nor the lexical pass can find
+    it.
+    """
+
+    @pytest.mark.django_db(transaction=True)
+    def test_qdrant_mode_returns_stakeholder_need_semantic_hit(self, monkeypatch):
+        from application.vector_port import QdrantVectorPort
+        from memory.tests.qdrant_fakes import FakeQdrantClient, FakeQdrantModels
+        from persistence.models import Artifact, StakeholderNeed
+        from persistence.qdrant_config import (
+            build_collection_alias,
+            resolve_qdrant_config,
+        )
+
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            artifact = Artifact.objects.create(
+                tenant=tenant, workspace=ws, artifact_type="StakeholderNeed"
+            )
+            need = StakeholderNeed.objects.create(
+                tenant=tenant, artifact=artifact, title="Mobile push"
+            )
+
+            client = FakeQdrantClient()
+            client.upsert(
+                collection_name=build_collection_alias(
+                    "reqlo", tenant.id, workspace_id=ws.id, scope="workspace"
+                ),
+                points=[
+                    FakeQdrantModels.PointStruct(
+                        id=str(need.id),
+                        vector={
+                            "dense": [1.0] * _DIM,
+                            "bm25": FakeQdrantModels.Document(
+                                text="mobile push", model="qdrant/bm25"
+                            ),
+                        },
+                        payload={
+                            "entity_id": str(need.id),
+                            "entity_type": "StakeholderNeed",
+                            "tenant_id": str(tenant.id),
+                            "workspace_id": str(ws.id),
+                        },
+                    )
+                ],
+            )
+            port = QdrantVectorPort(
+                client=client,
+                models_module=FakeQdrantModels,
+                config=resolve_qdrant_config(
+                    base_url="http://qdrant.test", collection_prefix="reqlo"
+                ),
+            )
+            monkeypatch.setattr(
+                "application.search_service.get_fallback_vector_port", lambda: port
+            )
+            monkeypatch.setattr(
+                "application.search_service.generate_embedding",
+                lambda text: [1.0] * _DIM,
+            )
+
+            ctx = editor_ctx(tenant, ws)
+            # No term overlap with the need's title: only the semantic pass can
+            # produce this hit.
+            result = SearchService().search(
+                "smartphone alerts", ctx, workspace_id=ws.id,
+                type_filter=["StakeholderNeed"],
+            )
+
+        assert [hit.id for hit in result.results] == [str(need.id)]
+        assert result.results[0].artifact_type == "StakeholderNeed"
+        assert result.vector_backend == "qdrant"
+        assert result.degraded is False
+        assert result.degraded_reason == ""
+
+
+class TestDegradedFallbackVisibility:
+    """QR-S07 on the DEGRADED path (T-A2-7): fallback hits are READ-checked.
+
+    ``FallbackVectorPort`` serves a Qdrant outage from ``PgVectorVectorPort``,
+    which ignores ``ctx`` -- so without an explicit gate the degraded response
+    carries hits the Qdrant path would have dropped (item-level ``none`` rules,
+    ``OUTDATED`` rows). That made the permission set depend on whether the
+    server-side BM25 inference happened to fail: any client able to trigger the
+    outage picked the weaker set. ``SearchService`` now routes the hits of a
+    degraded fallback through ``hydrate_vector_hits``.
+
+    ``mode="vector"`` isolates the semantic pass, so a dropped hit here can only
+    come from the fallback gate (Requirement is not ``permission_scoped``).
+    """
+
+    @staticmethod
+    def _outage_port():
+        from types import SimpleNamespace
+
+        from application.vector_port import FallbackVectorPort, QdrantVectorPort
+        from memory.tests.qdrant_fakes import FakeQdrantModels
+        from persistence.qdrant_config import resolve_qdrant_config
+
+        def _unreachable(**_kwargs):
+            from application.vector_port import QdrantBackendUnavailableError
+
+            raise QdrantBackendUnavailableError("qdrant is unreachable")
+
+        primary = QdrantVectorPort(
+            client=SimpleNamespace(query_points=_unreachable),
+            models_module=FakeQdrantModels,
+            config=resolve_qdrant_config(base_url="http://qdrant.test"),
+        )
+        return FallbackVectorPort(primary)
+
+    @pytest.mark.django_db(transaction=True)
+    def test_fallback_drops_item_denied_hit(self, monkeypatch):
+        from auth_tenancy.models import ItemPermission
+        from persistence.tests.factories import ctx_for_user, make_user
+
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            denied = make_requirement(ws, title="Item-level denied")
+            denied.embedding = [0.3] * _DIM
+            denied.save(update_fields=["embedding"])
+            visible = make_requirement(ws, title="Visible")
+            visible.embedding = [0.3] * _DIM
+            visible.save(update_fields=["embedding"])
+
+            user = make_user(tenant)
+            ctx = ctx_for_user(tenant, user, workspace=ws, roles=("editor",))
+            ItemPermission.objects.create(
+                tenant=tenant,
+                user=user,
+                workspace=ws,
+                artifact_id=denied.artifact_id,
+                permission_level="none",
+            )
+            port = self._outage_port()
+            monkeypatch.setattr(
+                "application.search_service.get_fallback_vector_port", lambda: port
+            )
+            monkeypatch.setattr(
+                "application.search_service.generate_embedding",
+                lambda text: [0.3] * _DIM,
+            )
+
+            result = SearchService().search(
+                "anything",
+                ctx,
+                workspace_id=ws.id,
+                type_filter=["Requirement"],
+                mode="vector",
+            )
+
+        ids = {hit.id for hit in result.results}
+        assert str(denied.id) not in ids  # the degraded path must not bypass READ
+        assert str(visible.id) in ids
+        assert result.degraded is True
+        assert result.degraded_reason == "qdrant_unavailable"
+        assert result.vector_backend == "pgvector"
+
+    @pytest.mark.django_db(transaction=True)
+    def test_fallback_drops_outdated_hit(self, monkeypatch):
+        from persistence.models import Artifact, LifecycleStatus
+
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            outdated = make_requirement(ws, title="Soft-deleted")
+            outdated.embedding = [0.3] * _DIM
+            outdated.save(update_fields=["embedding"])
+            live = make_requirement(ws, title="Live")
+            live.embedding = [0.3] * _DIM
+            live.save(update_fields=["embedding"])
+            Artifact.objects.filter(id=outdated.artifact_id).update(
+                lifecycle_status=LifecycleStatus.OUTDATED
+            )
+
+            ctx = editor_ctx(tenant, ws)
+            port = self._outage_port()
+            monkeypatch.setattr(
+                "application.search_service.get_fallback_vector_port", lambda: port
+            )
+            monkeypatch.setattr(
+                "application.search_service.generate_embedding",
+                lambda text: [0.3] * _DIM,
+            )
+
+            result = SearchService().search(
+                "anything",
+                ctx,
+                workspace_id=ws.id,
+                type_filter=["Requirement"],
+                mode="vector",
+            )
+
+        ids = {hit.id for hit in result.results}
+        assert str(outdated.id) not in ids  # pgvector alone keeps OUTDATED rows
+        assert str(live.id) in ids
+        assert result.degraded is True
+
+
+class TestCrossTypeSemanticFailureIsReported:
+    """T-A2-7: a failing cross-type leg must not look like "no results".
+
+    ``_port_entity_hits`` used to swallow the exception and return ``{}``
+    without touching ``degraded`` -- so a Qdrant-side failure was
+    indistinguishable, on the wire, from a backend that has no cross-type index
+    at all (pgvector). The request served partial semantic results; it now says
+    so with a reason of its own.
+    """
+
+    @pytest.mark.django_db(transaction=True)
+    def test_cross_type_query_failure_sets_distinct_degraded_reason(self, monkeypatch):
+        class _FailingEntityPort:
+            """Cross-type queries fail; nothing else is exercised here."""
+
+            supports_entity_queries = True
+            degraded = False
+            degraded_reason = ""
+            vector_backend = "qdrant"
+
+            def query_entities(self, **_kwargs):
+                raise RuntimeError("collection is broken")
+
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            ctx = editor_ctx(tenant, ws)
+            port = _FailingEntityPort()
+            monkeypatch.setattr(
+                "application.search_service.get_fallback_vector_port", lambda: port
+            )
+            monkeypatch.setattr(
+                "application.search_service.generate_embedding",
+                lambda text: [0.3] * _DIM,
+            )
+
+            result = SearchService().search(
+                "anything",
+                ctx,
+                workspace_id=ws.id,
+                type_filter=["StakeholderNeed"],
+                mode="vector",
+            )
+
+        assert result.degraded is True
+        # Distinct from the outage token: no fallback happened, so the backend
+        # keeps its name and only the semantic cross-type leg is missing.
+        assert result.degraded_reason == "cross_type_query_failed"
+        assert result.vector_backend == "qdrant"
+        assert result.results == []

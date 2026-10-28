@@ -774,6 +774,11 @@ class IcdManager:
                 # here. Strict mode still gets one — the port forces it on
                 # whenever it has to post-filter by embedding_model (T-A0-6).
                 iterative_scan=False,
+                # Deliberately NO ``ctx`` yet (this method has no caller
+                # identity at all): the port's QR-S07 READ gate is fail-closed,
+                # so under Qdrant this method returns no hits until PR-A21b
+                # (T-A2-8) adds one. The pgvector default path is unaffected
+                # (the adapter ignores ``ctx``).
             )
         except QdrantBackendUnavailableError as exc:
             raise IcdQdrantUnavailableError(str(exc)) from exc

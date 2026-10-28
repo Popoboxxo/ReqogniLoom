@@ -1322,6 +1322,43 @@ class TestCrossCuttingToolGroup:
         # "relevance floor in [0, 1]" description.
         assert min_score["maximum"] == 1
 
+    def test_artifact_search_reports_serving_metadata(self):
+        """T-A2-7: the three serving fields are part of the MCP payload.
+
+        They are the ONLY place the REST and MCP contracts can drift: both map
+        the same ``SearchResult`` instance, but only the REST side has an
+        OpenAPI serializer asserting the shape. A missing/renamed key here would
+        silently drop the degradation signal for every MCP client.
+        """
+        from application.search_service import SearchResult
+
+        group, _, search_svc, _ = self._group()
+        search_svc.search.return_value = SearchResult(
+            results=[],
+            total_count=0,
+            page=1,
+            limit=20,
+            query="authentication",
+            degraded=True,
+            vector_backend="pgvector",
+            degraded_reason="qdrant_unavailable",
+        )
+
+        result = group.execute_tool(
+            tool_name="artifact.search",
+            params={"query": "authentication"},
+            auth_context=EDITOR_CTX,
+            api_key=VALID_API_KEY,
+        )
+
+        assert result.success is True
+        payload = result.data
+        assert payload["degraded"] is True
+        assert payload["vector_backend"] == "pgvector"
+        assert payload["degraded_reason"] == "qdrant_unavailable"
+        # Additive only: the pre-T-A2-7 keys are all still there.
+        assert {"results", "total_count", "page", "limit", "mode"} <= set(payload)
+
     def test_artifact_search_rejects_non_numeric_min_score(self):
         """F6b: a non-numeric ``min_score`` is a caller error, not a crash."""
         group, _, search_svc, _ = self._group()
