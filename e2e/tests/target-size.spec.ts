@@ -60,6 +60,12 @@
  * in the last describe block: a 20x20 button must be reported, a 24x24 button
  * must not, and an 18px checkbox inside a 28px label row must pass through the
  * label-row path. The self-check therefore exercises the real gate.
+ * The synthetic fixtures are marked up with a plain `class`, never with a
+ * `data-testid`: the #1113 static drift gate requires every testid literal
+ * under `e2e/` to exist in `frontend/src/`, and a fixture-only id does not — it
+ * would (correctly) be reported as drift. Offender identification in the
+ * self-tests therefore exercises the helper's class fallback, which is also
+ * what a real control without a test id gets.
  *
  * Determinism / CI
  * ----------------
@@ -790,30 +796,29 @@ test.describe('target-size measurement is falsifiable', () => {
 
   test('reports a sub-24px button by name and measured box', async ({ page }) => {
     await page.setContent(
-      '<button data-testid="tiny-target" class="btn-sm" style="width:20px;height:20px">x</button>'
+      '<button class="tiny-target btn-sm" style="width:20px;height:20px">x</button>'
     );
 
-    const violations = await collectViolations(
-      page.locator('button[data-testid="tiny-target"]'),
-      'button'
-    );
+    const violations = await collectViolations(page.locator('button.tiny-target'), 'button');
 
     expect(violations).toHaveLength(1);
     const [failure] = violations;
-    expect(failure.testId).toBe('tiny-target');
-    expect(failure.violation).toContain('data-testid="tiny-target"');
-    expect(failure.violation).toContain('class="btn-sm"');
+    // The fixture is synthetic DOM, so it carries no test id: identification
+    // falls back to the class, exactly as it does for a real control that has
+    // no test id — the offender line must still name it.
+    expect(failure.testId).toBeNull();
+    expect(failure.violation).toContain('class="tiny-target btn-sm"');
     expect(failure.violation).toContain('20 x 20');
     expect(failure.violation).toContain('below the 24 x 24 minimum');
   });
 
   test('accepts a button exactly on the 24x24 floor', async ({ page }) => {
     await page.setContent(
-      '<button data-testid="ok-target" ' +
+      '<button class="ok-target" ' +
         'style="width:24px;height:24px;box-sizing:border-box;border:0">x</button>'
     );
 
-    const target = page.locator('button[data-testid="ok-target"]');
+    const target = page.locator('button.ok-target');
     // Boundary value: the floor itself passes, and the box really is 24x24 —
     // otherwise "green" would only mean "the UA default is bigger than 24".
     const measurement = await measureTarget(target, 'floor target');
@@ -823,17 +828,23 @@ test.describe('target-size measurement is falsifiable', () => {
 
   test('measures an 18px checkbox by its label row (ENT-G4=A)', async ({ page }) => {
     await page.setContent(
-      '<label data-testid="row" style="display:flex;align-items:center;height:28px">' +
-        '<input type="checkbox" data-testid="small-checkbox" style="width:18px;height:18px" />' +
+      '<label class="row" style="display:flex;align-items:center;height:28px">' +
+        '<input type="checkbox" class="small-checkbox" style="width:18px;height:18px" />' +
         '<span>Banner aktiv</span>' +
         '</label>'
     );
 
     // The raw input is below the floor …
-    const control = page.locator('input[data-testid="small-checkbox"]');
+    const control = page.locator('input.small-checkbox');
     const controlMeasurement = await measureTarget(control, 'raw input');
     expect(controlMeasurement).not.toBeNull();
     expect(targetSizeViolation(controlMeasurement!)).not.toBeNull();
+
+    // … and the shared offender path reports it, naming the fixture by class.
+    const rawViolations = await collectViolations(control, 'checkbox/radio');
+    expect(rawViolations).toHaveLength(1);
+    expect(rawViolations[0].violation).toContain('class="small-checkbox"');
+    expect(rawViolations[0].violation).toContain('18 x 18');
 
     // … but the row the user actually clicks satisfies it.
     const rowViolations = await collectViolations(control, 'checkbox/radio', {
