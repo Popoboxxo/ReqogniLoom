@@ -11,6 +11,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { AuthProvider } from "../context/AuthContext";
 import { WorkspaceProvider } from "../context/WorkspaceContext";
@@ -97,17 +98,27 @@ function installLocalStorageStub(): void {
   });
 }
 
+// Plan C / T-C4-4: SidebarNavigation reads its collapsed-group state through
+// the Q1 preference service (TanStack Query), so the harness needs a client.
 function renderApp(): ReturnType<typeof render> {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false, gcTime: 0 },
+      mutations: { retry: false },
+    },
+  });
   return render(
-    <MemoryRouter>
-      <AuthProvider>
-        <ThemeProvider>
-          <WorkspaceProvider>
-            <SidebarNavigation />
-          </WorkspaceProvider>
-        </ThemeProvider>
-      </AuthProvider>
-    </MemoryRouter>
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter>
+        <AuthProvider>
+          <ThemeProvider>
+            <WorkspaceProvider>
+              <SidebarNavigation />
+            </WorkspaceProvider>
+          </ThemeProvider>
+        </AuthProvider>
+      </MemoryRouter>
+    </QueryClientProvider>
   );
 }
 

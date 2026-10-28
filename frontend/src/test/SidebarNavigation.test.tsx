@@ -14,6 +14,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { AuthProvider } from "../context/AuthContext";
 import { WorkspaceProvider } from "../context/WorkspaceContext";
@@ -74,17 +75,28 @@ function setListWorkspace(goalsEnabled: boolean | undefined): void {
   nextListResult = { count: 1, next: null, previous: null, results: [ws] };
 }
 
-function renderSidebar(): void {
+// Plan C / T-C4-4: the sidebar reads and writes its collapsed-group state
+// through the Q1 preference service (TanStack Query), so the harness needs a
+// QueryClient — one per render, so no state leaks between cases.
+function renderSidebar(initialEntries: string[] = ["/"]): void {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false, gcTime: 0 },
+      mutations: { retry: false },
+    },
+  });
   render(
-    <MemoryRouter>
-      <AuthProvider>
-        <ThemeProvider>
-          <WorkspaceProvider>
-            <SidebarNavigation />
-          </WorkspaceProvider>
-        </ThemeProvider>
-      </AuthProvider>
-    </MemoryRouter>
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={initialEntries}>
+        <AuthProvider>
+          <ThemeProvider>
+            <WorkspaceProvider>
+              <SidebarNavigation />
+            </WorkspaceProvider>
+          </ThemeProvider>
+        </AuthProvider>
+      </MemoryRouter>
+    </QueryClientProvider>
   );
 }
 
@@ -109,16 +121,31 @@ function installLocalStorageStub(): void {
 function stubAuthFetch(roles: string[], isTenantAdmin?: boolean): void {
   vi.stubGlobal(
     "fetch",
-    vi.fn(async () => ({
-      ok: true,
-      status: 200,
-      json: async () => ({
-        user: { id: "u-1", username: "tester", email: "t@x", first_name: "", last_name: "", is_active: true, tenant_id: null, roles },
-        tenant_id: null,
-        roles,
-        is_tenant_admin: isTenantAdmin,
-      }),
-    }) as unknown as Response)
+    vi.fn(async (input?: unknown) => {
+      // Plan C / T-C4-4: the sidebar now also reads the Q1 preference
+      // service. The auth stub answers a user payload, which would leave
+      // `values` undefined and break that read — answer the preference
+      // route with the registry default (`[]`, nothing collapsed) instead.
+      // The dedicated groups suite installs its own router.
+      if (String(input ?? "").includes("/preference-values/")) {
+        return {
+          ok: true,
+          status: 200,
+          headers: { get: () => null },
+          json: async () => ({ workspace_id: null, values: {} }),
+        } as unknown as Response;
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          user: { id: "u-1", username: "tester", email: "t@x", first_name: "", last_name: "", is_active: true, tenant_id: null, roles },
+          tenant_id: null,
+          roles,
+          is_tenant_admin: isTenantAdmin,
+        }),
+      } as unknown as Response;
+    })
   );
 }
 
@@ -511,5 +538,227 @@ describe("SidebarNavigation — mobile drawer modality (M-1)", () => {
       expect(screen.queryByTestId("sidebar-drawer-close")).not.toBeInTheDocument();
     });
     expect(burger).toHaveFocus();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Collapsible nav groups (Plan C / T-C4-4, C-L6 / finding R19).
+//
+// At 1366×768 only 11 of 27 links fit above the fold. Each group header is a
+// disclosure button whose state is the user-level Q1 preference
+// `ui.sidebar.collapsed_groups`; the group holding the active route is never
+// collapsed, and a failed preference read degrades to "nothing collapsed".
+// ---------------------------------------------------------------------------
+
+const COLLAPSED_GROUPS_KEY = "ui.sidebar.collapsed_groups";
+
+interface RecordedRequest {
+  url: string;
+  method: string;
+  body: unknown;
+}
+
+const GROUP_IDS = ["overview", "requirements", "architecture", "test", "admin"] as const;
+
+function jsonResponse(status: number, body: unknown): Response {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    headers: { get: () => null },
+    json: async () => body,
+  } as unknown as Response;
+}
+
+describe("SidebarNavigation — collapsible nav groups (T-C4-4)", () => {
+  let requests: RecordedRequest[] = [];
+  /** The server-side *effective* preference values the stub answers with. */
+  let effectiveValues: Record<string, unknown> = {};
+  /** Status of the effective read; non-200 simulates an outage. */
+  let effectiveStatus = 200;
+  let patchStatus = 200;
+
+  /**
+   * One fetch router for auth + the Q1 preference routes, so a PATCH body can
+   * be asserted and the effective read can be made to fail. Applied PATCHes
+   * are reflected back in `effectiveValues`, mirroring the real server (a
+   * write invalidates the effective read, which must then report the new
+   * value — otherwise the group would spring open again on refetch).
+   */
+  function installFetchRouter(roles: string[] = ["admin"]): void {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: unknown, init?: RequestInit) => {
+        const url = String(input);
+        const method = (init?.method ?? "GET").toUpperCase();
+        const body =
+          typeof init?.body === "string" ? (JSON.parse(init.body) as unknown) : null;
+        requests.push({ url, method, body });
+
+        if (url.includes("/preference-values/")) {
+          if (method === "PATCH") {
+            if (patchStatus !== 200) {
+              return jsonResponse(patchStatus, {
+                error: { code: "INTERNAL_SERVER_ERROR", message: "boom" },
+              });
+            }
+            const values =
+              (body as { values?: Record<string, unknown> } | null)?.values ?? {};
+            for (const [key, value] of Object.entries(values)) {
+              if (value === null) delete effectiveValues[key];
+              else effectiveValues[key] = value;
+            }
+            return jsonResponse(200, {
+              scope: "user",
+              workspace_id: null,
+              values: effectiveValues,
+            });
+          }
+          if (effectiveStatus !== 200) {
+            return jsonResponse(effectiveStatus, {
+              error: { code: "INTERNAL_SERVER_ERROR", message: "boom" },
+            });
+          }
+          return jsonResponse(200, {
+            workspace_id: null,
+            values: Object.fromEntries(
+              Object.entries(effectiveValues).map(([key, value]) => [
+                key,
+                { value, source: "user" },
+              ])
+            ),
+          });
+        }
+
+        return jsonResponse(200, {
+          user: {
+            id: "u-1",
+            username: "tester",
+            email: "t@x",
+            first_name: "",
+            last_name: "",
+            is_active: true,
+            tenant_id: null,
+            roles,
+          },
+          tenant_id: null,
+          roles,
+        });
+      })
+    );
+  }
+
+  /** The PATCHes that addressed the user level, in order. */
+  function userLevelPatches(): RecordedRequest[] {
+    return requests.filter(
+      (request) =>
+        request.method === "PATCH" &&
+        request.url.includes("/users/me/preference-values/")
+    );
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    installLocalStorageStub();
+    sessionStorage.clear();
+    requests = [];
+    effectiveValues = {};
+    effectiveStatus = 200;
+    patchStatus = 200;
+    installFetchRouter(["admin"]);
+    setListWorkspace(true);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function toggle(groupId: string): HTMLElement {
+    return screen.getByTestId(`sidebar-group-toggle-${groupId}`);
+  }
+
+  it("collapses a group on click and PATCHes the full collapsed id list at user level", async () => {
+    renderSidebar();
+
+    const adminToggle = await screen.findByTestId("sidebar-group-toggle-admin");
+    await waitFor(() => expect(adminToggle).toHaveAttribute("aria-expanded", "true"));
+    // The disclosure wiring is the ARIA pattern the header has to follow.
+    expect(adminToggle).toHaveAttribute(
+      "aria-controls",
+      "sidebar-nav-group-panel-admin"
+    );
+
+    fireEvent.click(adminToggle);
+
+    await waitFor(() => expect(adminToggle).toHaveAttribute("aria-expanded", "false"));
+    expect(
+      document.getElementById("sidebar-nav-group-panel-admin")
+    ).toHaveAttribute("hidden");
+    // The collapsed panel is out of the accessibility tree — its links are no
+    // longer reachable by role, not merely visually clipped.
+    expect(screen.queryByRole("link", { name: "Import" })).not.toBeInTheDocument();
+
+    await waitFor(() => expect(userLevelPatches()).toHaveLength(1));
+    expect(userLevelPatches()[0].body).toEqual({
+      values: { [COLLAPSED_GROUPS_KEY]: ["admin"] },
+    });
+  });
+
+  it("keeps the collapsed list deduplicated and in navigation order", async () => {
+    renderSidebar();
+
+    fireEvent.click(await screen.findByTestId("sidebar-group-toggle-admin"));
+    // Wait for the write to land and its refetch to be applied, so the next
+    // toggle starts from the stored value rather than the stale `[]`.
+    await waitFor(() => expect(toggle("admin")).toHaveAttribute("aria-expanded", "false"));
+    await waitFor(() => expect(userLevelPatches()).toHaveLength(1));
+
+    fireEvent.click(toggle("test"));
+    await waitFor(() => expect(toggle("test")).toHaveAttribute("aria-expanded", "false"));
+    await waitFor(() => expect(userLevelPatches()).toHaveLength(2));
+    // "test" precedes "admin" in NAV_GROUP_ORDER — the payload follows the
+    // render order, not click order, so the stored value stays comparable.
+    expect(userLevelPatches()[1].body).toEqual({
+      values: { [COLLAPSED_GROUPS_KEY]: ["test", "admin"] },
+    });
+
+    // Toggling the same group open again removes exactly that id.
+    fireEvent.click(toggle("test"));
+    await waitFor(() => expect(toggle("test")).toHaveAttribute("aria-expanded", "true"));
+    await waitFor(() => expect(userLevelPatches()).toHaveLength(3));
+    expect(userLevelPatches()[2].body).toEqual({
+      values: { [COLLAPSED_GROUPS_KEY]: ["admin"] },
+    });
+  });
+
+  it("renders a saved-collapsed group open when it contains the active route", async () => {
+    effectiveValues = { [COLLAPSED_GROUPS_KEY]: ["requirements"] };
+    renderSidebar(["/requirements"]);
+
+    const requirementsToggle = await screen.findByTestId(
+      "sidebar-group-toggle-requirements"
+    );
+    // A collapsed group would hide the very link the user is on.
+    await waitFor(() =>
+      expect(requirementsToggle).toHaveAttribute("aria-expanded", "true")
+    );
+    const link = screen.getByText("System Requirements").closest("a");
+    expect(link).toHaveAttribute("href", "/requirements");
+    expect(link).toBeVisible();
+  });
+
+  it("leaves every group open when the preference read fails", async () => {
+    effectiveStatus = 500;
+    effectiveValues = { [COLLAPSED_GROUPS_KEY]: ["admin", "test"] };
+    renderSidebar();
+
+    await screen.findByTestId("sidebar-group-toggle-overview");
+    // Degradation is today's behaviour: no stored state, nothing collapsed.
+    for (const groupId of GROUP_IDS) {
+      expect(toggle(groupId)).toHaveAttribute("aria-expanded", "true");
+    }
+    expect(
+      screen.getByTestId("sidebar-group-toggle-overview")
+    ).toBeInTheDocument();
+    expect(screen.getByText("Dashboard").closest("a")).toBeVisible();
   });
 });

@@ -290,12 +290,62 @@
 }
 
 .navGroupLabel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  width: 100%;
+  /* WCAG 2.5.8 (and the axe `target-size` gate) needs a 24px target; before
+     this the row computed to 22px (11.2px text + 2×4px padding). 24px is
+     `--btn-h-xs`, the icon-button step of the button scale — the C1 button
+     geometry gate classifies that height as an icon button and therefore does
+     not count it against the 3-standard-heights budget. `box-sizing` is
+     border-box globally, so this is the final box height: padding and text
+     stay inside it (see .navGroupChevron for the vertical centring). */
+  min-height: var(--btn-h-xs);
+  /* `--radius-btn` (6px) is the radius the C1 gate already counts on every
+     route; leaving it at the UA default 0 added a *third* radius value and
+     broke `/traceability`'s ≤2 budget. The fill stays transparent, so this is
+     the existing standard radius, not new chrome. */
+  border-radius: var(--radius-btn);
   padding: var(--space-1) var(--space-3);
+  background: transparent;
+  border: 0;
   color: var(--color-nav-text-muted);
+  font-family: inherit;
   font-size: 0.7rem;
   font-weight: 600;
-  text-transform: uppercase;
   letter-spacing: 0.05em;
+  text-align: left;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+/* Plan C / T-C4-4: the group header is a disclosure button, not a new button
+   variant — it keeps the header's own typography and only adds the affordance
+   the toggle needs (hover, focus, chevron). Its target height is the icon step
+   `--btn-h-xs` (24px, WCAG 2.5.8), not one of the --btn-h-sm/md/lg text-button
+   steps, and its radius is the existing `--radius-btn`, so it introduces no new
+   height or radius value and the button geometry ratchet stays at 0. */
+.navGroupLabel:hover {
+  color: var(--color-nav-text);
+}
+
+.navGroupLabel:focus-visible {
+  outline: var(--control-focus-ring);
+  outline-offset: -2px;
+}
+
+.navGroupChevron {
+  flex-shrink: 0;
+  /* GPU-cheap property only; the reduced-motion opt-out is global
+     (styles/global.css `@media (prefers-reduced-motion: reduce)`). */
+  transition: transform var(--transition-fast);
+}
+
+.navGroupChevronCollapsed {
+  transform: rotate(-90deg);
 }
 
 .navList {

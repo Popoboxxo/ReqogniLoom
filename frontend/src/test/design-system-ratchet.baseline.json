@@ -68,6 +68,9 @@
     "button-missing-design-system-class::components/NavigationShell/SidebarNavigation.tsx::div[data-testid=sidebar-overlay]": {
       "reason": "Backdrop/overlay dismiss target, not a button: it is intentionally unstyled chrome layered behind the panel, with no button fill or label (#1099)."
     },
+    "button-missing-design-system-class::components/NavigationShell/SidebarNavigation.tsx::button[data-testid=sidebar-group-toggle-${group.id}]": {
+      "reason": "Sidebar group disclosure header, not a button variant: it keeps the existing section-label typography and owns no fill or border, so any btn-* chrome would turn the header row into a pill; its 24px --btn-h-xs target height is the WCAG 2.5.8 floor, not a text-button step (Plan C T-C4-4, #1099)."
+    },
     "button-missing-design-system-class::components/Reviews/ReviewsView.tsx::input[data-testid=review-select-${r.id}]": {
       "reason": "Native checkbox input, not a button: it is a form control with its own built-in affordance and accessible role (#1099)."
     },
