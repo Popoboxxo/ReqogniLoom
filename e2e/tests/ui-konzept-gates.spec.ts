@@ -149,6 +149,25 @@ async function countScrollContainers(page: Page): Promise<number> {
  *    card's real `workspace-card-preset-badge` button is a SIBLING of this
  *    region (rendered outside it to avoid button-inside-button), so a prefix
  *    exclusion would also drop a legitimate button from the measurement.
+ *  - Excluded: `EXCLUDED_CLICK_REGIONS` below — currently exactly one entry,
+ *    `[data-testid^="testrun-item-"]`, the `<li role="button">` selectable row
+ *    of the test-run list (`TestRunsList.tsx`). It is a content-sized
+ *    selectable list row, not a button-scale control: its height is the height
+ *    of its text (a run with a CI job line renders 70 px, one without renders
+ *    48 px) and its `--radius-lg` corner comes from the row card, exactly the
+ *    category the `-tree` rows and the workspace-card click region are already
+ *    excluded under — "graph/navigation surfaces whose size is driven by their
+ *    content (node label, row text), not by the button scale". Two consequences
+ *    of that framing are enforced here on purpose:
+ *      • it is matched with `el.matches(selector)`, i.e. the ROW ELEMENT only —
+ *        NOT with `closest()` like the ancestor exclusions above. A control
+ *        that is ever rendered *inside* a row must keep being counted; an
+ *        ancestor-style exclusion would silently exempt it.
+ *      • it is a scope correction, NOT a threshold change: `MAX_BUTTON_HEIGHTS`
+ *        (3), `MAX_BUTTON_RADII` (2), `ICON_BUTTON_HEIGHT_PX` and
+ *        `PILL_RADIUS_PX` are untouched, and no other selector is exempted.
+ *        Surfaces that are within budget (`csv-drop-zone`, `reqif-file-picker`)
+ *        stay measured.
  *  - Height: `getBoundingClientRect().height`, rounded to whole px. Exactly
  *    24 px is the icon-button height (`--btn-h-xs`, WCAG 2.5.8 target size)
  *    and is classified SEPARATELY (ENT-C6 = B): it is reported in the
@@ -178,6 +197,29 @@ const MAX_BUTTON_RADII = 2;
 const ICON_BUTTON_HEIGHT_PX = 24;
 /** `--radius-full` — pill/full shape. Reported, but not a counted button radius. */
 const PILL_RADIUS_PX = 9999;
+
+/**
+ * Clickable surfaces that are excluded from the measurement *as elements*
+ * (matched with `el.matches`, never `closest` — descendants stay counted).
+ *
+ * Deliberately ONE entry, and deliberately not a threshold change: these are
+ * content-sized selectable surfaces, the same category the `-tree` rows and
+ * `[data-testid="workspace-card-clickable-region"]` are excluded under (see
+ * the measurement-rules doc comment above). A control whose size is its text
+ * cannot be held to the `--btn-h-*` scale without gating the text length
+ * instead of the button styling. Adding an entry here is a scope decision, not
+ * a way to make a red route green — a route that fails on a real button still
+ * has to be fixed.
+ */
+const EXCLUDED_CLICK_REGIONS: { selector: string; reason: string }[] = [
+  {
+    selector: '[data-testid^="testrun-item-"]',
+    reason:
+      'Selectable test-run list row (<li role="button">). Its height is driven by its content — ' +
+      '70 px with the CI job line, 48 px without — and its --radius-lg corner comes from the row ' +
+      'card, not from the button scale.',
+  },
+];
 
 /**
  * Routes that are still over the C1 target — a ratchet in E2E form (plan §8
@@ -225,7 +267,7 @@ const SAMPLE_MAX_LENGTH = 60;
 
 async function measureButtonGeometry(page: Page): Promise<ButtonGeometry> {
   return page.evaluate(
-    ({ iconButtonHeight, pillRadius, samplesPerBucket, classLimit, maxLength }) => {
+    ({ iconButtonHeight, pillRadius, samplesPerBucket, classLimit, maxLength, excludedClickRegions }) => {
       const EXCLUDED_ANCESTORS = [
         '[data-testid="workflow-canvas"]',
         '.react-flow',
@@ -266,6 +308,10 @@ async function measureButtonGeometry(page: Page): Promise<ButtonGeometry> {
         if (el.offsetWidth === 0) continue;
         if (EXCLUDED_ANCESTORS.some((selector) => el.closest(selector))) continue;
         if (el.getAttribute('role') === 'button' && el.closest(TREES)) continue;
+        // Content-sized selectable surfaces: the element ITSELF only, never its
+        // descendants (`matches`, not `closest`) — a button inside such a row
+        // must keep being measured.
+        if (excludedClickRegions.some((selector) => el.matches(selector))) continue;
 
         const height = Math.round(el.getBoundingClientRect().height);
         const radius = Math.round(parseFloat(getComputedStyle(el).borderTopLeftRadius) || 0);
@@ -301,6 +347,7 @@ async function measureButtonGeometry(page: Page): Promise<ButtonGeometry> {
       samplesPerBucket: SAMPLES_PER_BUCKET,
       classLimit: SAMPLE_CLASS_LIMIT,
       maxLength: SAMPLE_MAX_LENGTH,
+      excludedClickRegions: EXCLUDED_CLICK_REGIONS.map((entry) => entry.selector),
     },
   );
 }
