@@ -28,6 +28,8 @@ import json
 import uuid
 from dataclasses import dataclass
 
+from application.event_bus import publish_entity_event
+from application.models import DomainEventOutbox
 from audit.services import log_write
 from diagram.models import Diagram, DiagramRevision, DiagramType, PayloadFormat
 from diagram.renderer import DiagramRenderer, RenderableDiagram
@@ -358,6 +360,15 @@ class DiagramManager:
                 created_by_id=created_by.id if created_by else None,
             )
 
+        # Plan A, T-A2-4: index hook, inside this write's transaction (SA-02).
+        # A workspace-less legacy diagram emits nothing (no tenant anchor).
+        publish_entity_event(
+            DomainEventOutbox.EventType.DIAGRAM_CREATED,
+            entity_id=diagram.id,
+            workspace_id=diagram.workspace_id,
+            payload={"name": diagram.name},
+        )
+
         return diagram
 
     # ------------------------------------------------------------------
@@ -446,6 +457,14 @@ class DiagramManager:
                 target_id=target_id,
                 created_by_id=modified_by.id if modified_by else None,
             )
+
+        # Plan A, T-A2-4: index hook (the diagram's searchable text changed).
+        publish_entity_event(
+            DomainEventOutbox.EventType.DIAGRAM_UPDATED,
+            entity_id=diagram.id,
+            workspace_id=diagram.workspace_id,
+            payload={"name": diagram.name, "version": new_version.version_number},
+        )
 
         return new_version
 

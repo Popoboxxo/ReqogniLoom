@@ -233,6 +233,78 @@ def _resolve_agent_context(tenant_id: str, api_key_id: str | None) -> AuthContex
     )
 
 
+@shared_task(name="application.index_artifact_vector")
+def index_artifact_vector(
+    tenant_id: str,
+    workspace_id: str,
+    entity_type: str,
+    entity_id: str,
+    *,
+    deleted: bool = False,
+) -> str:
+    """Index (or remove) one artifact's Qdrant point (Plan A, Task T-A2-4).
+
+    Dispatched by ``application.artifact_index_projector`` for the entity types
+    the generic indexer covers. The projector maps the domain event onto an
+    entity, this task does the I/O: embedding + the Qdrant upsert/delete run in
+    a worker, never on the outbox dispatcher thread.
+
+    Tenant isolation (ADR-03): only the ids cross the queue boundary. The worker
+    runs outside any request thread, so it re-arms both isolation layers
+    (``set_request_tenant``: the ORM thread-local **and** ``SET
+    app.current_tenant`` for Postgres RLS) before reading the row. The indexer
+    also arms ``TenantContext`` per entity; nesting is safe.
+
+    Deletion is mandatory (plan T-A2-4): ``deleted=True`` removes the point and
+    passes the event's ``workspace_id``, because the row may already be gone
+    (hard delete) — without it the indexer must not scan every workspace
+    collection and fails closed instead.
+
+    Returns:
+        The ``IndexOutcome`` of the operation (``upserted``/``skipped``/
+        ``deleted``/``failed``). ``failed`` also covers "no Qdrant configured":
+        nothing was written, and the outcome has to say so.
+
+    Raises:
+        Exception: any indexer/Qdrant error is re-raised so Celery records
+        FAILURE; the indexer itself already counts and logs the reason.
+    """
+    from application.artifact_index_projector import build_indexer
+    from persistence.middleware import clear_request_tenant, set_request_tenant
+    from persistence.tenancy import TenantContext
+
+    # #522: under CELERY_TASK_ALWAYS_EAGER (settings_test) this body runs inline
+    # on the caller's thread, where a tenant context may already be armed.
+    # Snapshot it so the task does not clear the *caller's* isolation on exit.
+    tenant_was_set = TenantContext.is_set()
+    try:
+        set_request_tenant(tenant_id)
+        indexer = build_indexer()
+        if indexer is None:
+            return "failed"
+        if deleted:
+            return indexer.delete_entity(
+                tenant_id, entity_type, entity_id, workspace_id=workspace_id
+            )
+        return indexer.index_entity(tenant_id, entity_type, entity_id)
+    except Exception:  # noqa: BLE001 — re-raised so Celery records FAILURE
+        logger.exception(
+            "index_artifact_vector failed for %s=%s (tenant=%s)",
+            entity_type,
+            entity_id,
+            tenant_id,
+        )
+        raise
+    finally:
+        if not tenant_was_set and TenantContext.is_set():
+            try:
+                clear_request_tenant()
+            except Exception:  # noqa: BLE001 — teardown must not mask the cause
+                logger.exception(
+                    "index_artifact_vector could not reset the tenant context"
+                )
+
+
 @shared_task(name="application.cleanup_import_idempotency_records")
 def cleanup_import_idempotency_records() -> int:
     """Delete expired ``Idempotency-Key`` records (ADR-014 §3).

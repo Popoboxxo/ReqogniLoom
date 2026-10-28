@@ -40,7 +40,7 @@ from application.base import (
     ServiceBase,
     ValidationError,
 )
-from application.models import Goal
+from application.models import DomainEventOutbox, Goal
 from persistence.models import Artifact, Tenant, Workspace
 from persistence.transactions import atomic_transaction
 from workflow import state_reader
@@ -298,9 +298,17 @@ class GoalService(ServiceBase):
         self._audit(
             ctx=ctx, operation="create", entity_type="Goal", entity_id=goal.id
         )
+        # Plan A, T-A2-4: a version appended to an EXISTING lineage is an
+        # update of that goal (``create_version`` also backs GoalService.update,
+        # which delegates here) -- sequence 1 is the creation. One event per
+        # mutation, so the index hook never sees the same row twice.
         self._emit_event(
             self._make_event(
-                event_type="GoalCreated",
+                event_type=(
+                    DomainEventOutbox.EventType.GOAL_CREATED
+                    if sequence_number == 1
+                    else DomainEventOutbox.EventType.GOAL_UPDATED
+                ),
                 entity_id=goal.id,
                 workspace_id=workspace.id,
                 payload={
@@ -604,6 +612,7 @@ class GoalService(ServiceBase):
             return DRAFT_STATE
         return definition.initial_state
 
+    @atomic_transaction
     def archive(
         self,
         goal_id: uuid.UUID,
@@ -639,14 +648,28 @@ class GoalService(ServiceBase):
             OptimisticLockError: A concurrent transition won the race.
         """
         goal = self.get(goal_id, ctx)
-        return self.transition_status(
+        archived = self.transition_status(
             goal.id,
             self._resolve_archive_state(goal),
             ctx,
             change_reason=change_reason,
             expected_version=expected_version,
         )
+        # Plan A, T-A2-4: index hook. Archiving is the Goal soft-delete, so the
+        # point must go away -- otherwise an archived version keeps matching
+        # searches. Wrapped with the transition in ONE transaction (the
+        # decorator) so an event can never outlive a rolled-back transition.
+        self._emit_event(
+            self._make_event(
+                event_type=DomainEventOutbox.EventType.GOAL_DELETED,
+                entity_id=archived.id,
+                workspace_id=archived.workspace_id,
+                payload={"lineage_id": str(archived.lineage_id)},
+            )
+        )
+        return archived
 
+    @atomic_transaction
     def restore(
         self,
         goal_id: uuid.UUID,
@@ -691,13 +714,24 @@ class GoalService(ServiceBase):
             OptimisticLockError: A concurrent transition won the race.
         """
         goal = self.get(goal_id, ctx)
-        return self.transition_status(
+        restored = self.transition_status(
             goal.id,
             self._resolve_initial_state(goal, ctx),
             ctx,
             change_reason=change_reason or "reactivated",
             expected_version=expected_version,
         )
+        # Plan A, T-A2-4: the counterpart of GOAL_DELETED -- a restored version
+        # is a searchable draft again, so its point is re-indexed.
+        self._emit_event(
+            self._make_event(
+                event_type=DomainEventOutbox.EventType.GOAL_UPDATED,
+                entity_id=restored.id,
+                workspace_id=restored.workspace_id,
+                payload={"lineage_id": str(restored.lineage_id), "restored": True},
+            )
+        )
+        return restored
 
     def transition_status(
         self,
