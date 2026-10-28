@@ -355,6 +355,20 @@
   transition: var(--transition-fast);
 }
 
+/* #1258: the group name is a single-line label, never a two-line one. Without
+ * this the longer names ("Requirements Engineering") wrapped inside the flex
+ * row: two 14px line boxes made the content 28px tall, so the box rendered 28
+ * instead of the 24px `--btn-h-xs` target above — an extra counted height on
+ * every route. `nowrap` + a shrinkable, ellipsising flex item keeps the line
+ * box at 14px, so the 24px `min-height` is the final box height. The label
+ * text itself, its font-size and the chevron are unchanged. */
+.navGroupLabel > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* Plan C / T-C4-4: the group header is a disclosure button, not a new button
    variant — it keeps the header's own typography and only adds the affordance
    the toggle needs (hover, focus, chevron). Its target height is the icon step
