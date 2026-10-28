@@ -541,6 +541,7 @@
     },
     "empty": "No requirements pending review.",
     "selectPrompt": "Select a requirement from the list to view details.",
+    "selectPromptTyped": "Select an item ({{type}}) from the list to view details.",
     "changeReasonLabel": "Reason",
     "changeReasonPlaceholder": "Why are you approving/rejecting this requirement?",
     "changeReasonRequired": "A reason is required for this transition.",
@@ -549,6 +550,7 @@
     "disabledLoading": "Loading available actions...",
     "disabledAlreadyInState": "Already {{state}}.",
     "pageIndicator": "Page {{page}} / {{totalPages}}",
+    "countLabel": "{{count}} open items",
     "totalPending": "{{count}} pending decisions",
     "totalPending_one": "{{count}} pending decision",
     "totalPending_other": "{{count}} pending decisions",
@@ -2543,7 +2545,15 @@
     "lastName": "Last name",
     "save": "Save",
     "saving": "Saving…",
-    "cancel": "Cancel"
+    "cancel": "Cancel",
+    "visibility": {
+      "adr": "ADR (Architecture Decisions)",
+      "risk": "Risks",
+      "issue": "Issues",
+      "diagrams": "Diagrams",
+      "icds": "ICDs (Interface Control Documents)",
+      "metrics": "Metrics"
+    }
   },
   "permissions": {
     "title": "Item Permissions",

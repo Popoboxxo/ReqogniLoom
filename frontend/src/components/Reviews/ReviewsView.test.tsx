@@ -51,9 +51,32 @@ vi.mock("../../api/reviews", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../api/reviews")>();
   return { ...actual, reviewsApi: { listPendingCount: vi.fn() } };
 });
-vi.mock("react-i18next", () => {
-  const t = (key: string, fallbackOrOptions?: string | Record<string, unknown>): string =>
-    typeof fallbackOrOptions === "string" ? fallbackOrOptions : key;
+vi.mock("react-i18next", async () => {
+  // Plan C / T-C4-3 asserts on real copy (the typed empty-state prompt), so
+  // translation now mirrors i18next's real resolution order: a key present in
+  // the English bundle wins over the call's inline default, and the default is
+  // only used when the key is absent (e.g. `reviews.type.goal`).
+  const en = (await import("../../i18n/locales/en.json")).default as Record<string, unknown>;
+  const lookup = (key: string): unknown =>
+    key
+      .split(".")
+      .reduce<unknown>(
+        (node, part) =>
+          node !== null && typeof node === "object"
+            ? (node as Record<string, unknown>)[part]
+            : undefined,
+        en
+      );
+  const t = (key: string, fallbackOrOptions?: string | Record<string, unknown>): string => {
+    const options = typeof fallbackOrOptions === "object" ? fallbackOrOptions : undefined;
+    const template = lookup(key);
+    if (typeof template !== "string") {
+      return typeof fallbackOrOptions === "string" ? fallbackOrOptions : key;
+    }
+    return template.replace(/\{\{(\w+)\}\}/g, (match, name: string) =>
+      options?.[name] === undefined ? match : String(options[name])
+    );
+  };
   return { useTranslation: () => ({ t }) };
 });
 
@@ -493,6 +516,33 @@ describe("ReviewsView (REQ-144 smoke tests)", () => {
         "ws-rev-001",
         "Entwurf"
       );
+    });
+  });
+
+  // Plan C / T-C4-3: the detail pane's empty prompt hardcoded "Anforderung…"
+  // (German) / "a requirement" (English) for every entity type, so an ADR
+  // queue asked the user to pick a requirement.
+  describe("[T-C4-3] typed empty-state prompt", () => {
+    it("names the selected entity type instead of always saying requirement", async () => {
+      vi.mocked(requirementsModule.requirementsApi.list).mockResolvedValue({
+        count: 0,
+        next: null,
+        previous: null,
+        results: [],
+      } as any);
+      vi.mocked(workflowTransitionsApi.listByStatus).mockResolvedValue([] as any);
+      const user = userEvent.setup();
+
+      renderReviewsView();
+
+      await waitFor(() => {
+        expect(screen.getByTestId("reviews-type-select")).toBeInTheDocument();
+      });
+      await user.selectOptions(screen.getByTestId("reviews-type-select"), "adr");
+
+      const empty = await screen.findByTestId("review-detail-empty");
+      expect(empty).toHaveTextContent("ADR");
+      expect(empty).not.toHaveTextContent("Anforderung");
     });
   });
 });

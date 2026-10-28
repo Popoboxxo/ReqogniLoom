@@ -541,6 +541,7 @@
     },
     "empty": "Keine Anforderungen zur Prüfung.",
     "selectPrompt": "Anforderung aus der Liste auswählen, um Details anzuzeigen.",
+    "selectPromptTyped": "{{type}} aus der Liste auswählen, um Details anzuzeigen.",
     "changeReasonLabel": "Begründung",
     "changeReasonPlaceholder": "Warum wird diese Anforderung freigegeben/abgelehnt?",
     "changeReasonRequired": "Für diesen Übergang ist eine Begründung erforderlich.",
@@ -549,6 +550,7 @@
     "disabledLoading": "Verfügbare Aktionen werden geladen...",
     "disabledAlreadyInState": "Bereits {{state}}.",
     "pageIndicator": "Seite {{page}} / {{totalPages}}",
+    "countLabel": "{{count}} offene Einträge",
     "totalPending": "{{count}} offene Entscheidungen",
     "totalPending_one": "{{count}} offene Entscheidung",
     "totalPending_other": "{{count}} offene Entscheidungen",
@@ -2543,7 +2545,15 @@
     "lastName": "Nachname",
     "save": "Speichern",
     "saving": "Speichern…",
-    "cancel": "Abbrechen"
+    "cancel": "Abbrechen",
+    "visibility": {
+      "adr": "ADR (Architekturentscheidungen)",
+      "risk": "Risiken",
+      "issue": "Issues",
+      "diagrams": "Diagramme",
+      "icds": "ICDs (Schnittstellendokumente)",
+      "metrics": "Kennzahlen"
+    }
   },
   "permissions": {
     "title": "Item-Berechtigungen",

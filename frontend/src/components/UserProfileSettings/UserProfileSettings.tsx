@@ -25,15 +25,6 @@ import { PageHeader } from "../shared/PageHeader";
 import { PreferenceLevelSection } from "../shared/PreferenceLevelSection/PreferenceLevelSection";
 import styles from "./UserProfileSettings.module.css";
 
-const VISIBILITY_LABELS: Record<OptionalArtifactFeature, string> = {
-  adr: "ADR (Architecture Decision Records)",
-  risk: "Risks",
-  issue: "Issues",
-  diagrams: "Diagrams",
-  icds: "ICDs (Interface Control Documents)",
-  metrics: "Metrics",
-};
-
 export default function UserProfileSettings(): JSX.Element {
   const { t } = useTranslation();
   const {
@@ -159,7 +150,9 @@ export default function UserProfileSettings(): JSX.Element {
                     data-testid={`visibility-checkbox-${feature}`}
                   />
                   <span>
-                    <span className={styles.featureName}>{VISIBILITY_LABELS[feature]}</span>
+                    <span className={styles.featureName}>
+                      {t(`profile.visibility.${feature}`)}
+                    </span>
                     <span
                       className={styles.featureSource}
                     >
