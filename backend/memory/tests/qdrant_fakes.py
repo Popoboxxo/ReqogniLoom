@@ -121,6 +121,20 @@ class _FakePointStruct:
         self.payload = payload or {}
 
 
+class _FakeDocument:
+    """Mirrors ``models.Document`` (the server-side BM25 sparse input).
+
+    ``qdrant-client`` sends ``Document(text=..., model="qdrant/bm25")`` as a
+    sparse vector value; the double keeps the two fields a caller can inspect so
+    an indexer test can assert the sparse half was actually populated.
+    """
+
+    def __init__(self, text: str, model: str | None = None, options: Any = None) -> None:
+        self.text = text
+        self.model = model
+        self.options = options
+
+
 class _FakeMatchValue:
     def __init__(self, value: Any) -> None:
         self.value = value
@@ -169,6 +183,7 @@ FakeQdrantModels = SimpleNamespace(
     DeleteAlias=_FakeDeleteAlias,
     DeleteAliasOperation=_FakeDeleteAliasOperation,
     PointStruct=_FakePointStruct,
+    Document=_FakeDocument,
     MatchValue=_FakeMatchValue,
     FieldCondition=_FakeFieldCondition,
     Filter=_FakeFilter,
@@ -348,6 +363,43 @@ class FakeQdrantClient:
         for point in points:
             store[:] = [existing for existing in store if str(existing.id) != str(point.id)]
             store.append(point)
+
+    def retrieve(
+        self,
+        *,
+        collection_name: str,
+        ids: list,
+        with_payload: bool = True,
+        with_vectors: bool = False,
+    ) -> list:
+        """Return the stored points among *ids* (mirrors ``client.retrieve``)."""
+        self._guard()
+        self._record("retrieve", collection_name=collection_name, ids=list(ids))
+        wanted = {str(point_id) for point_id in ids}
+        return [
+            SimpleNamespace(
+                id=point.id,
+                payload=point.payload if with_payload else None,
+                vector=point.vector if with_vectors else None,
+            )
+            for point in self.collections.get(collection_name, [])
+            if str(point.id) in wanted
+        ]
+
+    def delete_collection(self, *, collection_name: str) -> None:
+        """Drop *collection_name* and every alias that pointed at it."""
+        self._guard()
+        self._record("delete_collection", collection_name=collection_name)
+        self.collections.pop(collection_name, None)
+        self.vector_sizes.pop(collection_name, None)
+        self.vector_configs.pop(collection_name, None)
+        self.sparse_configs.pop(collection_name, None)
+        self.payload_indexes.pop(collection_name, None)
+        self.aliases = {
+            alias: target
+            for alias, target in self.aliases.items()
+            if target != collection_name
+        }
 
     def count(self, *, collection_name: str, exact: bool = True) -> Any:
         """Number of points in *collection_name* (mirrors ``client.count``)."""
