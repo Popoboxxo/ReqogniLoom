@@ -183,7 +183,10 @@
   color: var(--color-badge-draft-text);
   border-radius: var(--radius-full);
   font-size: var(--font-size-sm);
-  padding: 2px 10px;
+  /* #1258: height from the button scale (md) rather than 2px padding; the
+   * horizontal 10px gutter stays literal — it is the badge's own width. */
+  min-height: var(--btn-h-md);
+  padding: 0 10px;
   font-weight: 600;
   white-space: nowrap;
   border: none;

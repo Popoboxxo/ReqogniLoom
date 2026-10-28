@@ -157,11 +157,12 @@
 }
 
 .startButton {
+  min-height: var(--btn-h-sm);
   background: var(--color-surface-raised);
   color: var(--color-text);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-btn);
-  padding: var(--space-1) var(--space-2);
+  padding: 0 var(--space-2);
   cursor: pointer;
   font-size: var(--font-size-xs);
 }

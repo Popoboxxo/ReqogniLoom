@@ -37,11 +37,15 @@
 
 .removeBtn {
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-btn);
   background: var(--color-surface);
   color: var(--color-danger);
   cursor: pointer;
-  height: 100%;
+  /* #1258: the remove control is a square icon button on the button scale
+   * (`--btn-h-sm` = its 32px grid column) instead of `height: 100%`, which
+   * inherited the row height from the inputs beside it. */
+  min-height: var(--btn-h-sm);
+  width: var(--btn-h-sm);
   font-size: var(--font-size-base);
   line-height: 1;
 }

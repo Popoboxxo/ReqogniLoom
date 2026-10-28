@@ -102,7 +102,8 @@
 }
 
 .typeTab {
-  padding: 2px var(--space-3);
+  min-height: var(--btn-h-sm);
+  padding: 0 var(--space-3);
   font-size: var(--font-size-sm);
   border-radius: var(--radius-full);
   border: 1px solid var(--color-border);
@@ -139,11 +140,12 @@
 }
 
 .elementButton {
+  min-height: var(--btn-h-md);
   width: 100%;
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  padding: var(--space-2) var(--space-3);
+  padding: 0 var(--space-3);
   border: none;
   cursor: pointer;
   text-align: left;

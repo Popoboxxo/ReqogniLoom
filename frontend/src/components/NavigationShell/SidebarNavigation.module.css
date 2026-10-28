@@ -248,7 +248,9 @@
   align-items: flex-start;
   gap: 2px;
   width: 100%;
-  padding: var(--space-2) var(--space-3);
+  /* #1258: the height comes from the button scale, not from 2x8px padding. */
+  min-height: var(--btn-h-sm);
+  padding: 0 var(--space-3);
   border-radius: var(--radius-btn);
   border: none;
   background: transparent;
@@ -308,7 +310,9 @@
      broke `/traceability`'s ≤2 budget. The fill stays transparent, so this is
      the existing standard radius, not new chrome. */
   border-radius: var(--radius-btn);
-  padding: var(--space-1) var(--space-3);
+  /* #1258: the vertical padding is 0 so the 24px box is the token's, not
+   * 2x4px padding plus an 11.2px line box. */
+  padding: 0 var(--space-3);
   background: transparent;
   border: 0;
   color: var(--color-nav-text-muted);
@@ -395,7 +399,9 @@
   justify-content: space-between;
   gap: var(--space-2);
   width: 100%;
-  padding: var(--space-2) var(--space-3);
+  /* #1258: dense sidebar action — sm tier of the button scale, no padding height. */
+  min-height: var(--btn-h-sm);
+  padding: 0 var(--space-3);
   margin-top: var(--space-3);
   border-radius: var(--radius-btn);
   border: 1px solid var(--color-nav-border);
@@ -461,7 +467,9 @@
   justify-content: space-between;
   gap: var(--space-2);
   width: 100%;
-  padding: var(--space-2) var(--space-3);
+  /* #1258: dense sidebar action — sm tier of the button scale, no padding height. */
+  min-height: var(--btn-h-sm);
+  padding: 0 var(--space-3);
   border-radius: var(--radius-btn);
   border: 1px solid var(--color-nav-border);
   background: transparent;
@@ -537,7 +545,9 @@
   color: white;
   border: none;
   border-radius: var(--radius-btn);
-  padding: var(--space-2);
+  /* #1258: primary sidebar CTA — md tier of the button scale, not padding. */
+  min-height: var(--btn-h-md);
+  padding: 0 var(--space-2);
   cursor: pointer;
   font-size: var(--font-size-sm);
   font-weight: 600;
@@ -568,8 +578,11 @@
   justify-content: space-between;
   gap: var(--space-2);
   width: 100%;
-  padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-sm);
+  /* #1258: dense list-row action — sm tier, and the radius is the button token
+   * (--radius-sm is the same 6px value but not the scale's own alias). */
+  min-height: var(--btn-h-sm);
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-btn);
   border: none;
   background: transparent;
   color: var(--color-nav-text);
@@ -591,8 +604,11 @@
   justify-content: space-between;
   gap: var(--space-2);
   width: 100%;
-  padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-sm);
+  /* #1258: dense list-row action — sm tier, and the radius is the button token
+   * (--radius-sm is the same 6px value but not the scale's own alias). */
+  min-height: var(--btn-h-sm);
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-btn);
   border: none;
   background: var(--color-nav-active-bg);
   color: var(--color-nav-text);
@@ -688,7 +704,9 @@
 }
 
 .footerBtn {
-  padding: var(--space-2) var(--space-3);
+  /* #1258: dense footer action — sm tier of the button scale, not padding. */
+  min-height: var(--btn-h-sm);
+  padding: 0 var(--space-3);
   border-radius: var(--radius-btn);
   border: 1px solid var(--color-nav-border);
   background: transparent;
