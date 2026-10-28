@@ -31,11 +31,20 @@
 }
 
 /* UI-36: real <label> for the search input (was placeholder-as-label) plus
-   its wrapping rows — new markup, so CSS Modules per the header note above. */
+   its wrapping rows — new markup, so CSS Modules per the header note above.
+ *
+ * #1258: `flex-wrap: wrap` used to sit here as well. On a `column` container
+ * it is not the wrapping that keeps the search row responsive (that lives in
+ * `.searchRow` below, which wraps the input and its button at narrow widths) —
+ * it made Chromium size this single-line column's row from the *line* instead
+ * of from the row's content, so `.searchRow` measured 86 px. Everything in it
+ * then followed: the input stretched to 86 px and the button, as a stretched
+ * flex item of the row, inherited that height and showed up as the C1 gate's
+ * 86 px button on `/impact`. Removing the wrap restores the intended vertical
+ * stack (18 px label, 12 px gap, 38 px row). */
 .searchFieldGroup {
   display: flex;
   gap: var(--space-3);
-  flex-wrap: wrap;
   flex-direction: column;
 }
 
@@ -45,8 +54,16 @@
   color: var(--color-text);
 }
 
+/* #1258: input and button share one row, and the button keeps the button
+ * scale. `align-items` was left at the default `stretch`, which made the
+ * button mirror the input's height (38 px) instead of its own
+ * `--btn-h-md` — a content-sized height on a real control, i.e. a fourth
+ * button tier the C1 geometry gate counts. Centre instead of stretch: the
+ * input/button pair stays optically centred and `.searchButton`'s token
+ * height is the one that renders. */
 .searchRow {
   display: flex;
+  align-items: center;
   gap: var(--space-3);
   flex-wrap: wrap;
 }

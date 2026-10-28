@@ -166,6 +166,11 @@ async function countScrollContainers(page: Page): Promise<number> {
  *  - `networkidle` before measuring: lazy-loaded buttons and dialogs must not
  *    make the gate flaky (plan §9, "E2E-Gate flackert durch dynamische
  *    Buttons").
+ *  - Reporting: every distinct height and radius bucket keeps up to three
+ *    example elements (`tag.firstClass[data-testid=...]`) and the whole map is
+ *    `console.log`ged for every route, passing or failing. This changes no
+ *    threshold and no classification — it only makes the verdict actionable,
+ *    because a gate that reports only the number sends the reader hunting.
  */
 const MAX_BUTTON_HEIGHTS = 3;
 const MAX_BUTTON_RADII = 2;
@@ -202,11 +207,25 @@ interface ButtonGeometry {
   pillRadii: number[];
   /** Visible, non-excluded buttons the numbers were derived from. */
   measured: number;
+  /**
+   * Up to `SAMPLES_PER_BUCKET` example elements per distinct bucket, keyed
+   * `"<kind> <value>"` (e.g. `"height 28"`, `"pill radius 9999"`), so the
+   * report names the offender instead of only counting it. Reporting only —
+   * it feeds no classification and no assertion.
+   */
+  samples: Record<string, string[]>;
 }
+
+/** How many example elements to keep per distinct bucket. */
+const SAMPLES_PER_BUCKET = 3;
+/** Classes shown per example element (a hashed module class list is unreadable). */
+const SAMPLE_CLASS_LIMIT = 2;
+/** Maximum length of one example descriptor. */
+const SAMPLE_MAX_LENGTH = 60;
 
 async function measureButtonGeometry(page: Page): Promise<ButtonGeometry> {
   return page.evaluate(
-    ({ iconButtonHeight, pillRadius }) => {
+    ({ iconButtonHeight, pillRadius, samplesPerBucket, classLimit, maxLength }) => {
       const EXCLUDED_ANCESTORS = [
         '[data-testid="workflow-canvas"]',
         '.react-flow',
@@ -218,7 +237,29 @@ async function measureButtonGeometry(page: Page): Promise<ButtonGeometry> {
       const iconHeights = new Set<number>();
       const radii = new Set<number>();
       const pillRadii = new Set<number>();
+      const samples = new Map<string, string[]>();
       let measured = 0;
+
+      // `tag.firstClass[data-testid=...]`, truncated: enough to find the
+      // element in the component tree, short enough to read in a CI log.
+      // `className` is a plain string here (HTMLElement), so no iterable/
+      // DOMTokenList helper is needed.
+      const describe = (el: HTMLElement): string => {
+        const classes = String(el.className)
+          .split(/\s+/)
+          .filter(Boolean)
+          .slice(0, classLimit)
+          .join('.');
+        const testId = el.getAttribute('data-testid');
+        let text = el.tagName.toLowerCase() + (classes ? `.${classes}` : '');
+        if (testId) text += `[data-testid=${testId}]`;
+        return text.length > maxLength ? `${text.slice(0, maxLength - 3)}...` : text;
+      };
+      const remember = (key: string, el: HTMLElement): void => {
+        const bucket = samples.get(key);
+        if (bucket === undefined) samples.set(key, [describe(el)]);
+        else if (bucket.length < samplesPerBucket) bucket.push(describe(el));
+      };
 
       const candidates = document.querySelectorAll<HTMLElement>('button, [role="button"]');
       for (const el of candidates) {
@@ -229,10 +270,20 @@ async function measureButtonGeometry(page: Page): Promise<ButtonGeometry> {
         const height = Math.round(el.getBoundingClientRect().height);
         const radius = Math.round(parseFloat(getComputedStyle(el).borderTopLeftRadius) || 0);
         measured++;
-        if (height === iconButtonHeight) iconHeights.add(height);
-        else heights.add(height);
-        if (radius === pillRadius) pillRadii.add(radius);
-        else radii.add(radius);
+        if (height === iconButtonHeight) {
+          iconHeights.add(height);
+          remember(`icon height ${height}`, el);
+        } else {
+          heights.add(height);
+          remember(`height ${height}`, el);
+        }
+        if (radius === pillRadius) {
+          pillRadii.add(radius);
+          remember(`pill radius ${radius}`, el);
+        } else {
+          radii.add(radius);
+          remember(`radius ${radius}`, el);
+        }
       }
 
       return {
@@ -241,9 +292,16 @@ async function measureButtonGeometry(page: Page): Promise<ButtonGeometry> {
         radii: [...radii].sort((a, b) => a - b),
         pillRadii: [...pillRadii].sort((a, b) => a - b),
         measured,
+        samples: Object.fromEntries(samples),
       };
     },
-    { iconButtonHeight: ICON_BUTTON_HEIGHT_PX, pillRadius: PILL_RADIUS_PX },
+    {
+      iconButtonHeight: ICON_BUTTON_HEIGHT_PX,
+      pillRadius: PILL_RADIUS_PX,
+      samplesPerBucket: SAMPLES_PER_BUCKET,
+      classLimit: SAMPLE_CLASS_LIMIT,
+      maxLength: SAMPLE_MAX_LENGTH,
+    },
   );
 }
 
@@ -260,6 +318,21 @@ function describeGeometry(geometry: ButtonGeometry): string {
     `${geometry.radii.length} radius/radii [${geometry.radii.join(', ')}], ` +
     `${icons}, ${pills} — from ${geometry.measured} visible button(s)`
   );
+}
+
+/**
+ * The per-bucket sample list, one indented line per distinct height/radius.
+ *
+ * A gate that reports only the number sends the reader hunting through the DOM
+ * for the element that produced it; it must name the offender. The list is
+ * emitted for every route — a route that passes still spends its budget on
+ * three specific elements, and that is exactly what a later regression report
+ * needs to compare against.
+ */
+function describeGeometrySamples(geometry: ButtonGeometry): string {
+  return Object.entries(geometry.samples)
+    .map(([bucket, elements]) => `    ${bucket}: ${elements.join(' | ')}`)
+    .join('\n');
 }
 
 test.describe('[C1] Button geometry (heights + radii per route)', () => {
@@ -291,6 +364,12 @@ test.describe('[C1] Button geometry (heights + radii per route)', () => {
 
       const geometry = await measureButtonGeometry(page);
       const detail = `${route.path}: ${describeGeometry(geometry)}`;
+
+      // Unconditional, before the assertions: a passing route reports which
+      // elements produced which height just like a failing one, so a future
+      // over-budget report can be diffed against a known good run instead of
+      // re-measured from scratch.
+      console.log(`[C1] ${route.path} — ${detail}\n${describeGeometrySamples(geometry)}`);
 
       expect(
         geometry.heights.length,

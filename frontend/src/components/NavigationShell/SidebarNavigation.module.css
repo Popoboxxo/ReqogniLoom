@@ -248,8 +248,10 @@
   align-items: flex-start;
   gap: 2px;
   width: 100%;
-  /* #1258: the height comes from the button scale, not from 2x8px padding. */
-  min-height: var(--btn-h-sm);
+  /* #1258: the height comes from the button scale, not from 2x8px padding.
+   * The tier itself is pinned in the shared md block below, at two-class
+   * specificity — a local single-class `min-height` would tie with the
+   * composed `.btn-ghost` base. */
   padding: 0 var(--space-3);
   border-radius: var(--radius-btn);
   border: none;
@@ -265,6 +267,33 @@
 
 .searchResultButton:hover {
   background: var(--color-nav-hover-bg);
+}
+
+/* Sidebar button tier (C1 / #1258). Every dense action in this always-rendered
+ * chrome — the search hit row, the optional-artifacts switch, the workspace
+ * switcher, the workspace options and the pinned footer row — is the button
+ * scale's **md** tier. The tier is expressed through the composed
+ * `.btn-ghost` / `.btn-secondary` base, which already declares
+ * `min-height: var(--btn-h-md)`; the elements therefore carry no `btn-sm`
+ * modifier.
+ *
+ * It is REPEATED here at two-class specificity on purpose: a single-class
+ * `min-height` on the component rule ties with the base rule at (0,1,0), so
+ * the rendered tier would be decided by stylesheet injection order — the
+ * exact coin flip that made a previous attempt add a `btn-sm` modifier. Two
+ * classes (0,2,0) win deterministically against both the base and this
+ * module's own single-class rules.
+ *
+ * The sidebar renders on every route, so a tier introduced here is spent from
+ * every route's C1 height budget: `--btn-h-sm` here cost each route its third
+ * of the three allowed heights and failed nine of them. */
+.footer .footerBtn,
+.scrollContent .optionalToggleBtn,
+.workspaceSwitcherWrapper .switcherToggleBtn,
+.workspaceList .workspaceOption,
+.workspaceList .workspaceOptionActive,
+.dropdownList .searchResultButton {
+  min-height: var(--btn-h-md);
 }
 
 .searchResultTitle {
@@ -399,10 +428,10 @@
   justify-content: space-between;
   gap: var(--space-2);
   width: 100%;
-  /* #1258: dense sidebar action — the sm tier is expressed by the `btn-sm`
-   * modifier on the element, not by a local height/padding. A local
-   * `min-height` here competed with the composed `.btn-ghost` base at equal
-   * specificity, so the rendered tier depended on stylesheet injection order. */
+  /* #1258: dense sidebar action — md tier via the composed `.btn-ghost` base
+   * and the shared two-class block above. The vertical padding is 0 so the
+   * label keeps its current position inside the base's `--btn-h-md` box. */
+  padding: 0 var(--space-3);
   margin-top: var(--space-3);
   border-radius: var(--radius-btn);
   border: 1px solid var(--color-nav-border);
@@ -468,9 +497,9 @@
   justify-content: space-between;
   gap: var(--space-2);
   width: 100%;
-  /* #1258: dense sidebar action — the sm tier is expressed by the `btn-sm`
-   * modifier on the element, not by a local height/padding that ties with the
-   * composed `.btn-secondary` base at equal specificity. */
+  /* #1258: dense sidebar action — md tier via the composed `.btn-secondary`
+   * base and the shared two-class block above; no `btn-sm` modifier. */
+  padding: 0 var(--space-3);
   border-radius: var(--radius-btn);
   border: 1px solid var(--color-nav-border);
   background: transparent;
@@ -579,9 +608,9 @@
   justify-content: space-between;
   gap: var(--space-2);
   width: 100%;
-  /* #1258: dense list-row action — sm tier, and the radius is the button token
-   * (--radius-sm is the same 6px value but not the scale's own alias). */
-  min-height: var(--btn-h-sm);
+  /* #1258: dense list-row action — the tier is pinned in the shared md block
+   * above, and the radius is the button token (`--radius-sm` is the same 6px
+   * value but not the scale's own alias). */
   padding: 0 var(--space-3);
   border-radius: var(--radius-btn);
   border: none;
@@ -605,9 +634,9 @@
   justify-content: space-between;
   gap: var(--space-2);
   width: 100%;
-  /* #1258: dense list-row action — sm tier, and the radius is the button token
-   * (--radius-sm is the same 6px value but not the scale's own alias). */
-  min-height: var(--btn-h-sm);
+  /* #1258: dense list-row action — the tier is pinned in the shared md block
+   * above, and the radius is the button token (`--radius-sm` is the same 6px
+   * value but not the scale's own alias). */
   padding: 0 var(--space-3);
   border-radius: var(--radius-btn);
   border: none;
@@ -705,9 +734,11 @@
 }
 
 .footerBtn {
-  /* #1258: dense footer action — the sm tier is expressed by the `btn-sm`
-   * modifier on the element, not by a local height/padding that ties with the
-   * composed `.btn-ghost` base at equal specificity. */
+  /* #1258: dense footer action — md tier via the composed `.btn-ghost` base
+   * and the shared two-class block above; no `btn-sm` modifier. The vertical
+   * padding is 0 so the label keeps its current position inside the base's
+   * `--btn-h-md` box. */
+  padding: 0 var(--space-3);
   border-radius: var(--radius-btn);
   border: 1px solid var(--color-nav-border);
   background: transparent;
