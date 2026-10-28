@@ -76,7 +76,7 @@ PAYLOAD_INDEX_FIELDS: tuple[str, ...] = (
 QUANTIZATION_QUANTILE = 0.99
 
 
-def _resolve_config() -> QdrantConfig:
+def resolve_artifact_qdrant_config() -> QdrantConfig:
     """Resolve the effective Qdrant config (DB override over env), lazily.
 
     Delegates to ``application.vector_port._effective_qdrant_config``: there is
@@ -125,7 +125,7 @@ def _assert_existing_dimension(collection_info: Any, config: QdrantConfig) -> No
     memory backend already applies rather than re-implementing it:
     ``_collection_dimension`` already tolerates the named vector dict shape this
     v2 collection uses. Imported lazily for the same reason as
-    :func:`_resolve_config`.
+    :func:`resolve_artifact_qdrant_config`.
     """
     from memory.qdrant_backend import (  # lazy: shared dimension guard
         _collection_dimension,
@@ -135,8 +135,13 @@ def _assert_existing_dimension(collection_info: Any, config: QdrantConfig) -> No
     assert_collection_dimension(_collection_dimension(collection_info), config.vector_dimensions)
 
 
-def _alias_target(client: Any, alias: str) -> str | None:
-    """The collection *alias* currently points at, or ``None`` when unset."""
+def alias_target(client: Any, alias: str) -> str | None:
+    """The collection *alias* currently points at, or ``None`` when unset.
+
+    Public because :mod:`application.artifact_indexer` needs the same answer
+    when it drops and rebuilds a collection; a second copy would let the two
+    provisioning paths disagree about which collection an alias points at.
+    """
     aliases = {
         entry.alias_name: entry.collection_name
         for entry in (getattr(client.get_aliases(), "aliases", None) or [])
@@ -152,7 +157,7 @@ def _point_alias_at(client: Any, models: Any, alias: str, collection_name: str) 
     window in which readers see no alias. The target collection is never
     touched (no drop, no recreate).
     """
-    current = _alias_target(client, alias)
+    current = alias_target(client, alias)
     if current == collection_name:
         return
 
@@ -178,7 +183,7 @@ def _point_alias_at(client: Any, models: Any, alias: str, collection_name: str) 
         # *collection_name* makes the error benign -- anything else (including a
         # concurrent worker that pointed it somewhere else) is re-raised
         # unchanged, so a real alias misconfiguration stays loud.
-        if _alias_target(client, alias) != collection_name:
+        if alias_target(client, alias) != collection_name:
             raise
         logger.debug("qdrant artifact alias %s was pointed concurrently", alias)
     else:
@@ -219,7 +224,7 @@ def ensure_artifact_collection(
         Exception: Any Qdrant error that did not leave a usable collection
             behind (e.g. an unreachable server) propagates unchanged.
     """
-    config = config if config is not None else _resolve_config()
+    config = config if config is not None else resolve_artifact_qdrant_config()
     models = models_module
     if models is None:
         from qdrant_client import models  # qdrant-client; lazy (optional dependency)

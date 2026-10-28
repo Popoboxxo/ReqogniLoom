@@ -18,6 +18,7 @@ from application.artifact_indexer import (
     SPARSE_VECTOR_NAME,
     SOURCES,
     ArtifactIndexer,
+    recreate_artifact_collection,
 )
 from llm_adapter.embedding_service import (
     current_embedding_model_id,
@@ -40,7 +41,11 @@ from persistence.models import (
     TestCase,
     TraceLink,
 )
-from persistence.qdrant_config import build_collection_name, resolve_qdrant_config
+from persistence.qdrant_config import (
+    build_collection_alias,
+    build_collection_name,
+    resolve_qdrant_config,
+)
 from persistence.tests.factories import active_tenant, make_workspace
 
 _EXPECTED_SOURCES = {
@@ -213,8 +218,8 @@ def _indexer(client: FakeQdrantClient) -> ArtifactIndexer:
     )
 
 
-def _points(client: FakeQdrantClient, tenant_id, workspace_id) -> list:
-    name = build_collection_name(
+def _collection_name(tenant_id, workspace_id) -> str:
+    return build_collection_name(
         "reqlo",
         tenant_id,
         workspace_id=workspace_id,
@@ -222,7 +227,10 @@ def _points(client: FakeQdrantClient, tenant_id, workspace_id) -> list:
         artifacts=True,
         version=2,
     )
-    return client.collections[name]
+
+
+def _points(client: FakeQdrantClient, tenant_id, workspace_id) -> list:
+    return client.collections[_collection_name(tenant_id, workspace_id)]
 
 
 def test_sources_cover_all_fifteen_entity_types() -> None:
@@ -382,3 +390,196 @@ def test_foreign_tenant_entity_is_not_indexed(monkeypatch) -> None:
         assert indexer.index_entity(tenant_b.id, "Requirement", req_a.id) == "failed"
         assert indexer.metrics.failed == 1
         assert not client.collections
+
+
+@pytest.mark.django_db
+def test_legacy_diagram_with_foreign_artifact_fails_closed(monkeypatch) -> None:
+    """A workspace-less row must never borrow a foreign artifact's workspace."""
+    from diagram.models import Diagram, DiagramType
+
+    monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+    client = FakeQdrantClient()
+
+    with active_tenant() as tenant_b:
+        workspace_b = make_workspace(tenant_b)
+        foreign = Artifact.objects.create(
+            tenant=tenant_b, workspace=workspace_b, artifact_type="Diagram"
+        )
+
+    with active_tenant() as tenant_a:
+        make_workspace(tenant_a)
+        # Legacy shape: the column predates workspace scoping, and the id is stale.
+        diagram = Diagram.objects.create(
+            tenant=tenant_a,
+            workspace_id=None,
+            artifact_id=foreign.id,
+            name="Legacy diagram",
+            diagram_type=DiagramType.BLOCK,
+        )
+
+        indexer = _indexer(client)
+        assert indexer.index_entity(tenant_a.id, "Diagram", diagram.id) == "failed"
+        assert indexer.metrics.failures == {"workspace_unresolved": 1}
+
+    assert not client.collections
+
+
+@pytest.mark.django_db
+def test_stale_embedding_model_forces_reembed(monkeypatch) -> None:
+    """A stored vector only counts while its ``embedding_model`` is the current one."""
+    monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+    client = FakeQdrantClient()
+    embedded: list[str] = []
+    fresh = [0.5] * EMBEDDING_VECTOR_DIMENSIONS
+
+    def _embed(text: str) -> list[float]:
+        embedded.append(text)
+        return fresh
+
+    with active_tenant() as tenant:
+        workspace = make_workspace(tenant)
+        req = Requirement.objects.create(
+            tenant=tenant,
+            artifact=Artifact.objects.create(
+                tenant=tenant, workspace=workspace, artifact_type="Requirement"
+            ),
+            workspace=workspace,
+            title="Stale embedding",
+        )
+        req.embedding = [0.1] * EMBEDDING_VECTOR_DIMENSIONS
+        req.embedding_model = "retired-embedding-model"
+        req.save(update_fields=["embedding", "embedding_model"])
+
+        indexer = ArtifactIndexer(
+            client, models_module=FakeQdrantModels, config=_config(), embed_text=_embed
+        )
+        assert indexer.index_entity(tenant.id, "Requirement", req.id) == "upserted"
+
+    assert embedded == ["Stale embedding"]
+    assert indexer.metrics.embed_calls == 1
+    point = _points(client, tenant.id, workspace.id)[0]
+    assert [round(value, 6) for value in point.vector[DENSE_VECTOR_NAME]] == [
+        round(value, 6) for value in fresh
+    ]
+
+
+@pytest.mark.django_db
+def test_blank_text_fails_with_empty_text_reason(monkeypatch) -> None:
+    """An all-blank row is a named failure, not an opaque Qdrant 500."""
+    monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+    client = FakeQdrantClient()
+
+    with active_tenant() as tenant:
+        workspace = make_workspace(tenant)
+        req = Requirement.objects.create(
+            tenant=tenant,
+            artifact=Artifact.objects.create(
+                tenant=tenant, workspace=workspace, artifact_type="Requirement"
+            ),
+            workspace=workspace,
+            title="",
+        )
+
+        indexer = _indexer(client)
+        assert indexer.index_entity(tenant.id, "Requirement", req.id) == "failed"
+        assert indexer.metrics.failed == 1
+        assert indexer.metrics.failures == {"empty_text": 1}
+
+    assert not client.collections
+
+
+@pytest.mark.django_db
+def test_delete_entity_removes_the_point(monkeypatch) -> None:
+    monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+    client = FakeQdrantClient()
+
+    with active_tenant() as tenant:
+        workspace = make_workspace(tenant)
+        req = Requirement.objects.create(
+            tenant=tenant,
+            artifact=Artifact.objects.create(
+                tenant=tenant, workspace=workspace, artifact_type="Requirement"
+            ),
+            workspace=workspace,
+            title="Removed requirement",
+        )
+        indexer = _indexer(client)
+        assert indexer.index_entity(tenant.id, "Requirement", req.id) == "upserted"
+        assert len(_points(client, tenant.id, workspace.id)) == 1
+
+        assert indexer.delete_entity(
+            tenant.id, "Requirement", req.id, workspace_id=workspace.id
+        ) == "deleted"
+        assert indexer.metrics.deleted == 1
+        assert _points(client, tenant.id, workspace.id) == []
+
+
+@pytest.mark.django_db
+def test_tracelink_point_is_not_backed_by_an_artifact(monkeypatch) -> None:
+    monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+    client = FakeQdrantClient()
+
+    with active_tenant() as tenant:
+        workspace = make_workspace(tenant)
+        source = Requirement.objects.create(
+            tenant=tenant,
+            artifact=Artifact.objects.create(
+                tenant=tenant, workspace=workspace, artifact_type="Requirement"
+            ),
+            workspace=workspace,
+            title="Link source",
+        )
+        target = ArchitectureElement.objects.create(
+            tenant=tenant,
+            artifact=Artifact.objects.create(
+                tenant=tenant, workspace=workspace, artifact_type="ArchitectureElement"
+            ),
+            workspace=workspace,
+            title="Link target",
+        )
+        link = TraceLink.objects.create(
+            tenant=tenant,
+            source=source.artifact,
+            target=target.artifact,
+            link_type="references",
+        )
+
+        indexer = _indexer(client)
+        assert indexer.index_entity(tenant.id, "TraceLink", link.id) == "upserted"
+
+        points = _points(client, tenant.id, workspace.id)
+        assert [point.id for point in points] == [str(link.id)]
+        payload = points[0].payload
+        assert payload["entity_type"] == "TraceLink"
+        assert payload["artifact_id"] is None
+
+
+@pytest.mark.django_db
+def test_recreate_artifact_collection_drops_and_rebuilds(monkeypatch) -> None:
+    monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+    client = FakeQdrantClient()
+
+    with active_tenant() as tenant:
+        workspace = make_workspace(tenant)
+        req = Requirement.objects.create(
+            tenant=tenant,
+            artifact=Artifact.objects.create(
+                tenant=tenant, workspace=workspace, artifact_type="Requirement"
+            ),
+            workspace=workspace,
+            title="Rebuilt requirement",
+        )
+        assert _indexer(client).index_entity(tenant.id, "Requirement", req.id) == "upserted"
+        points = _points(client, tenant.id, workspace.id)
+        assert len(points) == 1
+
+        name = recreate_artifact_collection(
+            client, tenant.id, workspace.id, config=_config(), models_module=FakeQdrantModels
+        )
+
+    alias = build_collection_alias("reqlo", tenant.id, workspace_id=workspace.id,
+                                   scope="workspace")
+    assert name == _collection_name(tenant.id, workspace.id)
+    assert client.collections[name] == []
+    assert client.aliases[alias] == name
+    assert any(call[0] == "delete_collection" for call in client.calls)

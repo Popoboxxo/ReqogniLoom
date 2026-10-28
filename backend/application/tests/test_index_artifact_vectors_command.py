@@ -16,8 +16,12 @@ from django.core.management.base import CommandError
 
 from application.management.commands import index_artifact_vectors as command_module
 from memory.tests.qdrant_fakes import FakeQdrantClient, FakeQdrantModels
-from persistence.models import Requirement
-from persistence.qdrant_config import resolve_qdrant_config
+from persistence.models import Adr, Requirement
+from persistence.qdrant_config import (
+    build_collection_alias,
+    build_collection_name,
+    resolve_qdrant_config,
+)
 from persistence.tests.factories import active_tenant, make_requirement, make_workspace
 
 
@@ -39,7 +43,7 @@ def fake_client(monkeypatch) -> FakeQdrantClient:
         command_module.Command, "client_factory", staticmethod(lambda config: client)
     )
     monkeypatch.setattr(command_module.Command, "models_module", FakeQdrantModels)
-    monkeypatch.setattr(command_module, "_resolve_config", _config)
+    monkeypatch.setattr(command_module, "resolve_artifact_qdrant_config", _config)
     return client
 
 
@@ -70,9 +74,10 @@ def test_dry_run_writes_nothing(fake_client, monkeypatch) -> None:
             dry_run=True,
         )
 
-    assert set(payload) == {"tenant", "by_type", "embed_calls", "duration_s"}
+    assert set(payload) == {"tenant", "by_type", "failures", "embed_calls", "duration_s"}
     assert payload["tenant"] == str(tenant.id)
     assert payload["by_type"]["Requirement"] == {"upserted": 3, "skipped": 0, "failed": 0}
+    assert payload["failures"] == {}
     assert payload["embed_calls"] == 3
     assert fake_client.collections == {}
     assert not [call for call in fake_client.calls if call[0] == "upsert"]
@@ -148,3 +153,92 @@ def test_dry_run_and_recreate_are_mutually_exclusive(fake_client) -> None:
 def test_unknown_type_is_rejected(fake_client) -> None:
     with active_tenant() as tenant, pytest.raises(CommandError, match="Unknown"):
         _run(tenant=str(tenant.id), type=["NoSuchType"])
+
+
+@pytest.mark.django_db
+def test_recreate_requires_tenant(fake_client) -> None:
+    """``--recreate`` must never sweep every tenant's collection."""
+    with active_tenant(), pytest.raises(CommandError, match="--recreate requires --tenant"):
+        _run(recreate=True)
+
+
+@pytest.mark.django_db
+def test_malformed_tenant_and_workspace_are_command_errors(fake_client) -> None:
+    with active_tenant(), pytest.raises(CommandError, match="--tenant must be a UUID"):
+        _run(tenant="not-a-uuid")
+    with active_tenant(), pytest.raises(CommandError, match="--workspace must be a UUID"):
+        _run(workspace="not-a-uuid")
+
+
+@pytest.mark.django_db
+def test_recreate_drops_and_rebuilds_the_collection(fake_client, monkeypatch) -> None:
+    monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+    with active_tenant() as tenant:
+        workspace = make_workspace(tenant)
+        _make_requirements(workspace, 2)
+        options = {
+            "tenant": str(tenant.id),
+            "workspace": str(workspace.id),
+            "type": ["Requirement"],
+        }
+
+        assert _run(**options)["by_type"]["Requirement"]["upserted"] == 2
+        collection = build_collection_name(
+            "reqlo", tenant.id, workspace_id=workspace.id, scope="workspace",
+            artifacts=True, version=2,
+        )
+        alias = build_collection_alias(
+            "reqlo", tenant.id, workspace_id=workspace.id, scope="workspace"
+        )
+        assert alias in fake_client.aliases
+
+        payload = _run(**options, recreate=True)
+
+    assert payload["by_type"]["Requirement"]["upserted"] == 2
+    assert any(call[0] == "delete_collection" for call in fake_client.calls)
+    assert fake_client.aliases[alias] == collection
+    assert len(fake_client.collections[collection]) == 2
+
+
+@pytest.mark.django_db
+def test_one_collection_ensure_per_workspace_across_types(fake_client, monkeypatch) -> None:
+    """The per-tenant indexer keeps ``_ensured``: one ensure, not one per type."""
+    monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+    with active_tenant() as tenant:
+        workspace = make_workspace(tenant)
+        _make_requirements(workspace, 1)
+        Adr.objects.create(tenant=tenant, workspace_id=workspace.id, title="A decision")
+
+        payload = _run(
+            tenant=str(tenant.id),
+            workspace=str(workspace.id),
+            type=["Requirement", "Adr"],
+        )
+
+    assert payload["by_type"]["Requirement"]["upserted"] == 1
+    assert payload["by_type"]["Adr"]["upserted"] == 1
+    assert len([call for call in fake_client.calls if call[0] == "create_collection"]) == 1
+
+
+@pytest.mark.django_db
+def test_failed_entities_exit_non_zero_but_still_report(fake_client, monkeypatch) -> None:
+    """A row that cannot be indexed must fail the run, not just count up."""
+    monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+    out = StringIO()
+    with active_tenant() as tenant:
+        workspace = make_workspace(tenant)
+        make_requirement(workspace, title="")
+
+        with pytest.raises(CommandError, match="indexing failed for 1 entities"):
+            call_command(
+                "index_artifact_vectors",
+                stdout=out,
+                stderr=out,
+                tenant=str(tenant.id),
+                workspace=str(workspace.id),
+                type=["Requirement"],
+            )
+
+    payload = json.loads(out.getvalue().strip().splitlines()[-1])
+    assert payload["by_type"]["Requirement"]["failed"] == 1
+    assert payload["failures"] == {"empty_text": 1}

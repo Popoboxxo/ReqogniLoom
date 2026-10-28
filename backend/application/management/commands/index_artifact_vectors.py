@@ -13,14 +13,18 @@ variable are armed per tenant (cleared in ``finally``). No cross-tenant scan.
 Output is JSON Lines, one object *per tenant*, each exactly::
 
     {"tenant": "...", "by_type": {"Requirement": {"upserted": N,
-     "skipped": M, "failed": 0}}, "embed_calls": K, "duration_s": S}
+     "skipped": M, "failed": 0}}, "failures": {"<reason>": N}, "embed_calls": K,
+     "duration_s": S}
 
 ``--dry-run`` writes nothing to Qdrant (it does not even provision the
 collection) and reports the embedding calls the real run would spend;
 ``upserted`` then counts the points that *would* be written. ``--recreate`` is
 DESTRUCTIVE and never implicit: it deletes each in-scope ``..._artifacts_v2``
 collection and its ``..._artifacts_live`` alias, losing every existing vector;
-only the same run rebuilds them. It cannot be combined with ``--dry-run``.
+only the same run rebuilds them. It cannot be combined with ``--dry-run`` and
+requires ``--tenant``, so its blast radius can never span tenants. A run with
+``failed > 0`` still emits its per-tenant line and then exits non-zero, so the
+report survives and CI/an operator sees the failure without parsing JSON.
 """
 from __future__ import annotations
 
@@ -36,10 +40,10 @@ from application.artifact_indexer import (
     SOURCES,
     ArtifactIndexer,
     IndexerMetrics,
-    _resolve_config,
     recreate_artifact_collection,
     tenant_scope,
 )
+from application.artifact_vector_store import resolve_artifact_qdrant_config
 
 
 _monotonic: Callable[[], float] = time.monotonic
@@ -78,6 +82,16 @@ def _build_client(config: Any) -> Any:
                         prefer_grpc=config.prefer_grpc)
 
 
+def _parse_uuid_option(option: str, value: Any) -> UUID | None:
+    """Parse a ``--tenant``/``--workspace`` value, as a ``CommandError``."""
+    if not value:
+        return None
+    try:
+        return UUID(str(value))
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise CommandError(f"{option} must be a UUID, got {value!r}.") from exc
+
+
 class Command(BaseCommand):
     help = (
         "Backfill the generic Qdrant artifact vectors (15 entity types incl. TraceLink). "
@@ -101,8 +115,9 @@ class Command(BaseCommand):
         parser.add_argument("--batch-size", type=int, default=200, help="Rows per DB chunk.")
         parser.add_argument("--max-embeds-per-minute", type=int, default=120,
                             help="Embedding calls per minute; 0 disables throttling.")
-        parser.add_argument("--recreate", action="store_true",
-                            help="DESTRUCTIVE: delete the artifact collection + alias, re-index.")
+        parser.add_argument("--recreate", action="store_true", help=(
+            "DESTRUCTIVE: delete the artifact collection + alias, re-index "
+            "(requires --tenant)."))
 
     def handle(self, *args, **options) -> None:
         dry_run, recreate = bool(options["dry_run"]), bool(options["recreate"])
@@ -113,7 +128,12 @@ class Command(BaseCommand):
         if unknown:
             raise CommandError(f"Unknown entity type(s): {', '.join(unknown)}.")
 
-        config = _resolve_config()
+        tenant_id = _parse_uuid_option("--tenant", options["tenant"])
+        workspace_id = _parse_uuid_option("--workspace", options["workspace"])
+        if recreate and tenant_id is None:
+            raise CommandError("--recreate requires --tenant: it must never span tenants.")
+
+        config = resolve_artifact_qdrant_config()
         if not getattr(config, "base_url", "").strip():
             raise CommandError("No Qdrant base URL configured (QDRANT_BASE_URL).")
         client = self.client_factory(config)
@@ -121,26 +141,30 @@ class Command(BaseCommand):
         from persistence.models import Tenant
 
         tenants = Tenant.objects.all().order_by("slug")
-        if options["tenant"]:
-            tenants = tenants.filter(id=UUID(str(options["tenant"])))
+        if tenant_id is not None:
+            tenants = tenants.filter(id=tenant_id)
             if not tenants.exists():
-                raise CommandError(f"No tenant with id {options['tenant']}.")
+                raise CommandError(f"No tenant with id {tenant_id}.")
 
+        failed = 0
         for tenant in tenants:
-            self._index_tenant(
+            failed += self._index_tenant(
                 tenant, client, config, entity_types=entity_types,
-                workspace_id=UUID(options["workspace"]) if options["workspace"] else None,
+                workspace_id=workspace_id,
                 batch_size=max(1, int(options["batch_size"])),
                 max_per_minute=int(options["max_embeds_per_minute"]),
                 dry_run=dry_run, recreate=recreate,
             )
+        if failed:
+            raise CommandError(f"indexing failed for {failed} entities")
 
     def _index_tenant(self, tenant, client, config, *, entity_types, workspace_id,
-                      batch_size, max_per_minute, dry_run, recreate) -> None:
+                      batch_size, max_per_minute, dry_run, recreate) -> int:
         from persistence.middleware import clear_request_tenant, set_request_tenant
 
         started = _monotonic()
         by_type: dict[str, dict[str, int]] = {}
+        failures: dict[str, int] = {}
         embed_calls = 0
         with tenant_scope(tenant.id):
             set_request_tenant(tenant.id)
@@ -148,25 +172,32 @@ class Command(BaseCommand):
                 if recreate:
                     self._recreate(client, config, tenant.id, workspace_id)
                 limiter = EmbedRateLimiter(max_per_minute)
+                # One indexer per tenant: it caches the provisioned collections
+                # (``_ensured``), so switching entity type must reset the metrics
+                # only -- a fresh indexer would re-ensure the collection per type.
+                indexer = ArtifactIndexer(
+                    client, models_module=self.models_module, config=config,
+                    embed_text=limiter, dry_run=dry_run,
+                )
                 for entity_type in entity_types:
                     metrics = IndexerMetrics()
-                    indexer = ArtifactIndexer(
-                        client, models_module=self.models_module, config=config,
-                        embed_text=limiter, dry_run=dry_run, metrics=metrics,
-                    )
+                    indexer.metrics = metrics
                     for entity_id in self._entity_ids(entity_type, workspace_id, batch_size):
                         indexer.index_entity(tenant.id, entity_type, entity_id)
                     by_type[entity_type] = {"upserted": metrics.upserted,
                                             "skipped": metrics.skipped,
                                             "failed": metrics.failed}
+                    for reason, count in metrics.failures.items():
+                        failures[reason] = failures.get(reason, 0) + count
                     embed_calls += metrics.would_embed if dry_run else metrics.embed_calls
             finally:
                 clear_request_tenant()
 
         self.stdout.write(json.dumps({
-            "tenant": str(tenant.id), "by_type": by_type, "embed_calls": embed_calls,
-            "duration_s": round(_monotonic() - started, 3),
+            "tenant": str(tenant.id), "by_type": by_type, "failures": failures,
+            "embed_calls": embed_calls, "duration_s": round(_monotonic() - started, 3),
         }, sort_keys=True))
+        return sum(metrics["failed"] for metrics in by_type.values())
 
     @staticmethod
     def _entity_ids(entity_type: str, workspace_id: UUID | None,
