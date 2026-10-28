@@ -715,16 +715,29 @@ to Qdrant only through an explicit second selector:
 |----------|---------|-------|
 | `ARTIFACT_VECTOR_BACKEND` | `pgvector` | Artifact vector store: `pgvector` \| `qdrant`. Independent of `MEMORY_BACKEND` — the artifact store is never switched as a side effect of another knob (ADR-020 §4). |
 
-Leave it at `pgvector` (the default) unless you know an **artifact indexer is in place**. The Qdrant
-artifact adapter exists, but there is currently **no artifact indexer** (out of scope): the
-per-workspace `_artifacts` collections stay empty, so semantic search returns no hits. In addition,
-`find_similar_trace_links` and `find_similar_icds` carry **no workspace scope**; the Qdrant adapter
-fails loud (`QdrantBackendUnavailableError`) for them instead of scanning every workspace
-collection.
+Leave it at `pgvector` (the default) unless the artifact index on the **target system** has
+actually been built. The Qdrant artifact adapter, the backfill command and the index hooks exist,
+but a deployment's per-workspace `_artifacts` collections start empty: semantic search there
+returns no hits until they are populated.
 
-Selecting `qdrant` requires **all** of: the explicit `ARTIFACT_VECTOR_BACKEND=qdrant`, the effective
-memory backend `qdrant`, an importable `qdrant_client` package, and a configured `QDRANT_BASE_URL`.
-If any condition is missing the artifact port stays on pgvector — it never switches implicitly.
+**Rollout rule (QR-T16).** Enable `ARTIFACT_VECTOR_BACKEND=qdrant` on a target system only after
+`python manage.py index_artifact_vectors` has run **there** and reported `failed:0`, and the
+artifact index hooks are active (i.e. the deployment carrying them is already live). Until then
+the default stays `pgvector`: a Qdrant store switched on before its backfill answers semantic
+search from an empty collection, which looks like "no results" rather than like an error.
+
+Selecting `qdrant` requires **all** of: the explicit `ARTIFACT_VECTOR_BACKEND=qdrant`, an
+importable `qdrant_client` package, and a configured `QDRANT_BASE_URL`. If any condition is
+missing the artifact port stays on pgvector — it never switches implicitly. The selection is
+deliberately **independent of `MEMORY_BACKEND`**: that knob governs the AI-memory store only, so
+an artifact Qdrant store can serve in front of a Honcho or pgvector memory backend.
+
+**Known limitation until the workspace scope is wired.** `find_similar_trace_links` and
+`find_similar_icds` carry **no workspace scope**; the Qdrant adapter fails **loud** for them
+(`QdrantBackendUnavailableError`, mapped to the callers' `...UnavailableError` → a 503 on the
+TraceLink/Icd similarity endpoints) instead of scanning every workspace collection. Operationally:
+those two endpoints answer with a 503 while `ARTIFACT_VECTOR_BACKEND=qdrant` until the workspace
+scope is wired. The default pgvector deployment is unaffected.
 
 **Backup / restore of the Qdrant index.** The Postgres sidecar (ADR-012, `postgres_backup_data`)
 does **not** cover `qdrant_data` — the vector index is a separate named volume and is **not** in the

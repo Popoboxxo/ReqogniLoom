@@ -16,12 +16,18 @@ Design contract:
   observable byte for a pgvector deployment.
 * **Qdrant is opt-in, never implicit.** :func:`get_vector_port` selects the
   Qdrant adapter ONLY when all of the following hold: the explicit selector
-  ``ARTIFACT_VECTOR_BACKEND=qdrant``, the effective memory backend is
-  ``qdrant`` (``MEMORY_BACKEND`` / ``SystemMemorySettings``), the optional
-  ``qdrant_client`` package is importable, and an effective Qdrant base URL is
-  configured. Anything else degrades to pgvector -- switching the artifact
-  vector store requires an explicit opt-in, never a side effect of another
-  knob. A pgvector-only deployment never needs the package.
+  ``ARTIFACT_VECTOR_BACKEND=qdrant``, the optional ``qdrant_client`` package is
+  importable, and an effective Qdrant base URL is configured. Anything else
+  degrades to pgvector -- switching the artifact vector store requires an
+  explicit opt-in, never a side effect of another knob. A pgvector-only
+  deployment never needs the package.
+* **The artifact store is decoupled from ``MEMORY_BACKEND`` (T-A2-1).**
+  ``MEMORY_BACKEND`` governs the AI-memory store only; the artifact port reads
+  it nowhere. An artifact Qdrant store therefore works in front of a Honcho (or
+  pgvector) memory backend without a second, unrelated switch. Rollout is an
+  operational gate, not a code gate: enable ``ARTIFACT_VECTOR_BACKEND=qdrant``
+  on a deployment only after ``manage.py index_artifact_vectors`` has run there
+  with ``failed:0`` and the index hooks are active (see ``deploy/README.md``).
 * **V2 Qdrant artifact search needs a workspace scope and an artifact
   indexer.** The per-workspace collections are populated by
   :mod:`application.artifact_indexer`; without one they are empty and the
@@ -1217,12 +1223,12 @@ def get_vector_port() -> VectorPort:
 
     Qdrant is selected ONLY when every gate condition holds (see
     :func:`_qdrant_selected`): the explicit ``ARTIFACT_VECTOR_BACKEND=qdrant``
-    selector, an effective memory backend of ``qdrant``, an importable
-    ``qdrant_client`` package, and a configured effective Qdrant base URL. Any
-    other case -- unset selector, memory backend not qdrant, package absent,
-    unconfigured, or a construction failure -- degrades to the pgvector
+    selector, an importable ``qdrant_client`` package, and a configured
+    effective Qdrant base URL. Any other case -- unset selector, package
+    absent, unconfigured, or a construction failure -- degrades to the pgvector
     adapter, so the default path is never affected by the optional backend
-    (ADR-020 §4). There is deliberately no implicit switch.
+    (ADR-020 §4). There is deliberately no implicit switch, and
+    ``MEMORY_BACKEND`` is not consulted at all (T-A2-1).
 
     Deliberately unchanged by the T-A2-7 fallback wrapper: the three legacy
     similarity call sites keep their loud-failure contract (a Qdrant outage
@@ -1241,21 +1247,6 @@ def _artifact_vector_backend() -> str:
     return os.environ.get(
         ARTIFACT_VECTOR_BACKEND_ENV, DEFAULT_ARTIFACT_VECTOR_BACKEND
     ).strip().lower()
-
-
-def _effective_memory_backend_name() -> str:
-    """Return the effective memory backend name (DB override over env).
-
-    Best-effort: ``memory.backends._resolve_memory_backend_name`` reads the
-    ``SystemMemorySettings`` override first and falls back to ``MEMORY_BACKEND``;
-    a DB/settings problem degrades to the env value so the gate never crashes.
-    """
-    try:
-        from memory.backends import _resolve_memory_backend_name  # lazy: gate only
-
-        return _resolve_memory_backend_name()
-    except Exception:  # noqa: BLE001 - gate is best-effort; env is the fallback
-        return os.environ.get("MEMORY_BACKEND", "pgvector").strip().lower()
 
 
 def _effective_qdrant_config() -> Any:
@@ -1282,9 +1273,10 @@ def _qdrant_selection_reason() -> str:
     """Return the first gate that keeps Qdrant from serving, or ``""``.
 
     The conditions are evaluated in the same order as :func:`_qdrant_selected`
-    (ADR-020 §4), so the diagnostic can never disagree with the selector. The
-    value is a stable, machine-readable token — never free text — because it is
-    exposed verbatim in the ``/health/`` advisory.
+    (ADR-020 §4, decoupled from ``MEMORY_BACKEND`` by T-A2-1), so the diagnostic
+    can never disagree with the selector. The value is a stable,
+    machine-readable token — never free text — because it is exposed verbatim
+    in the ``/health/`` advisory.
     """
     if _artifact_vector_backend() != _QDRANT_ARTIFACT_BACKEND:
         # No explicit opt-in: pgvector is the requested backend, so this is not
@@ -1292,8 +1284,6 @@ def _qdrant_selection_reason() -> str:
         return ""
     if not _qdrant_client_available():
         return "qdrant_client_missing"
-    if _effective_memory_backend_name() != _QDRANT_ARTIFACT_BACKEND:
-        return "memory_backend_not_qdrant"
     try:
         config = _effective_qdrant_config()
     except Exception:  # noqa: BLE001 - config problems degrade to pgvector
@@ -1306,15 +1296,14 @@ def _qdrant_selection_reason() -> str:
 def _qdrant_selected() -> bool:
     """Whether the Qdrant adapter should serve the artifact port.
 
-    All four conditions must hold (ADR-020 §4); anything else degrades to
-    pgvector:
+    All three conditions must hold (ADR-020 §4; ``MEMORY_BACKEND`` is
+    deliberately not one of them, T-A2-1); anything else degrades to pgvector:
 
     1. ``ARTIFACT_VECTOR_BACKEND=qdrant`` -- the explicit opt-in. The Qdrant
        artifact port is never selected as a side effect of ``MEMORY_BACKEND``
        or ``QDRANT_BASE_URL`` alone.
     2. The optional ``qdrant_client`` package is importable.
-    3. The effective memory backend is ``qdrant`` (DB override over env).
-    4. An effective Qdrant base URL is configured (DB override over env).
+    3. An effective Qdrant base URL is configured (DB override over env).
     """
     if _artifact_vector_backend() != _QDRANT_ARTIFACT_BACKEND:
         return False
@@ -1334,8 +1323,7 @@ def vector_backend_diagnostic() -> dict[str, str]:
     * ``reason`` -- ``""`` when the request is honoured (or pgvector was
       requested); otherwise the first failing gate:
       ``unknown_artifact_vector_backend``, ``qdrant_client_missing``,
-      ``memory_backend_not_qdrant``, ``qdrant_config_error`` or
-      ``qdrant_base_url_missing``.
+      ``qdrant_config_error`` or ``qdrant_base_url_missing``.
     """
     requested = _artifact_vector_backend()
     if requested not in {DEFAULT_ARTIFACT_VECTOR_BACKEND, _QDRANT_ARTIFACT_BACKEND}:

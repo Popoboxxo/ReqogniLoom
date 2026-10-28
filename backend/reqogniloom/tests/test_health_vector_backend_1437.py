@@ -1,11 +1,11 @@
 """Issue #1437: ``/health/`` must expose the EFFECTIVE artifact vector backend.
 
 ``ARTIFACT_VECTOR_BACKEND=qdrant`` is an explicit opt-in, but the port only
-selects Qdrant when every gate condition holds (importable ``qdrant_client``,
-effective ``MEMORY_BACKEND=qdrant``, configured ``QDRANT_BASE_URL``). Anything
-else degrades to pgvector *by design* — but before this change an operator who
-set the opt-in still read ``status: ok`` and had no way to tell that artifact
-ANN search was running on pgvector.
+selects Qdrant when every gate condition holds (importable ``qdrant_client`` and
+a configured ``QDRANT_BASE_URL``; the store is decoupled from ``MEMORY_BACKEND``
+since T-A2-1). Anything else degrades to pgvector *by design* — but before
+this change an operator who set the opt-in still read ``status: ok`` and had no
+way to tell that artifact ANN search was running on pgvector.
 
 These tests pin both halves of the fix:
 
@@ -29,17 +29,17 @@ def _patch_gate(
     *,
     selector: str = "qdrant",
     client_available: bool = True,
-    memory_backend: str = "qdrant",
     base_url: str = "http://qdrant:6333",
     config_error: bool = False,
 ) -> None:
-    """Drive the four Qdrant gate conditions deterministically."""
+    """Drive the three Qdrant gate conditions deterministically.
+
+    ``MEMORY_BACKEND`` is deliberately not a knob here: the artifact store is
+    decoupled from the memory backend (T-A2-1), so it must be irrelevant.
+    """
     monkeypatch.setenv(vector_port.ARTIFACT_VECTOR_BACKEND_ENV, selector)
     monkeypatch.setattr(
         vector_port, "_qdrant_client_available", lambda: client_available
-    )
-    monkeypatch.setattr(
-        vector_port, "_effective_memory_backend_name", lambda: memory_backend
     )
     if config_error:
 
@@ -63,7 +63,6 @@ class TestVectorBackendDiagnostic:
             monkeypatch,
             selector="pgvector",
             client_available=False,
-            memory_backend="pgvector",
             base_url="",
         )
 
@@ -93,7 +92,6 @@ class TestVectorBackendDiagnostic:
         ("kwargs", "expected_reason"),
         [
             ({"client_available": False}, "qdrant_client_missing"),
-            ({"memory_backend": "pgvector"}, "memory_backend_not_qdrant"),
             ({"config_error": True}, "qdrant_config_error"),
             ({"base_url": ""}, "qdrant_base_url_missing"),
         ],
@@ -139,7 +137,6 @@ class TestHealthAdvisory:
             monkeypatch,
             selector="pgvector",
             client_available=False,
-            memory_backend="pgvector",
             base_url="",
         )
         advisory: dict[str, str] = {}
@@ -158,7 +155,7 @@ class TestHealthAdvisory:
     ) -> None:
         from reqogniloom.health import _collect_advisory
 
-        _patch_gate(monkeypatch, memory_backend="pgvector")
+        _patch_gate(monkeypatch, client_available=False)
         advisory: dict[str, str] = {}
         warnings: list[str] = []
 
@@ -167,10 +164,7 @@ class TestHealthAdvisory:
         assert advisory["effective_vector_backend"] == "pgvector"
         assert advisory["vector_backend_requested"] == "qdrant"
         assert advisory["vector_backend_active"] == "pgvector"
-        assert (
-            advisory["vector_backend_fallback_reason"]
-            == "memory_backend_not_qdrant"
-        )
+        assert advisory["vector_backend_fallback_reason"] == "qdrant_client_missing"
         assert any("ARTIFACT_VECTOR_BACKEND=qdrant" in item for item in warnings)
 
     def test_active_qdrant_is_reported_without_warning(

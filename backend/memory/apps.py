@@ -66,9 +66,17 @@ class MemoryConfig(AppConfig):
         # DB unreachable) as "nothing to compare".
         from django.core.checks import register
 
-        from memory.checks import check_honcho_embedding_consistency
+        from memory.checks import (
+            check_honcho_embedding_consistency,
+            check_qdrant_api_key,
+        )
 
         register(check_honcho_embedding_consistency)
+        # QR-S23 (T-A2-1): a production deployment that runs the Qdrant
+        # artifact store without QDRANT_API_KEY serves tenant vectors from an
+        # unauthenticated store. Same registration contract as the embedding
+        # check: a Warning, never an Error, and never a raise.
+        register(check_qdrant_api_key)
 
         from memory.projector import register_projector_on_event_bus
 

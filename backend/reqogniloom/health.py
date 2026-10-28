@@ -699,9 +699,9 @@ def _collect_advisory(
             "unknown" if outbox_dlq is None else str(outbox_dlq)
         )
 
-    # Artifact vector backend (#1437): ``ARTIFACT_VECTOR_BACKEND=qdrant`` is an
-    # explicit opt-in, but Qdrant only serves when ALL gate conditions hold
-    # (importable package, memory backend qdrant, configured base URL).
+    # Artifact vector backend (#1437, T-A2-1): ``ARTIFACT_VECTOR_BACKEND=qdrant``
+    # is an explicit opt-in, but Qdrant only serves when ALL gate conditions
+    # hold (importable package, configured base URL).
     # Otherwise the port silently degrades to pgvector and an operator who set
     # the opt-in still reads "ok". Publish the requested/active backend and the
     # first failing gate so the documented silent fallback is visible — without
@@ -709,6 +709,8 @@ def _collect_advisory(
     # functional fallback, so a mismatch escalates ``ok`` to ``warning`` and
     # never causes degraded/503. Not gated on ``db_ok``: the gate is
     # best-effort and falls back to the environment when the DB is unreachable.
+    # Deliberately NOT coupled to ``MEMORY_BACKEND`` (T-A2-1): the memory knob
+    # governs the AI-memory store only.
     try:
         from application.vector_port import vector_backend_diagnostic
 
@@ -736,11 +738,45 @@ def _collect_advisory(
                 f"requested but the artifact vector port runs on "
                 f"{vector_backend['active']} (reason: "
                 f"{vector_backend['reason']}). Artifact ANN search therefore "
-                "queries pgvector, not Qdrant. The four gate conditions are: "
+                "queries pgvector, not Qdrant. The three gate conditions are: "
                 "ARTIFACT_VECTOR_BACKEND=qdrant, an importable qdrant_client "
-                "package, MEMORY_BACKEND=qdrant (or the SystemMemorySettings "
-                "override), and a configured QDRANT_BASE_URL. See "
+                "package, and a configured QDRANT_BASE_URL. See "
                 "application/vector_port.py."
+            )
+
+    # Qdrant API key (QR-S23, T-A2-1): once the explicit artifact opt-in makes
+    # Qdrant a productive store of tenant content, a production deployment
+    # without QDRANT_API_KEY accepts unauthenticated callers. Only published
+    # when Qdrant is the selected artifact backend, so a default pgvector
+    # deployment keeps a byte-identical payload. Advisory (HTTP 200) and a
+    # WARNING-only system check (``memory.W003``): the service still serves.
+    try:
+        from memory.checks import (
+            qdrant_api_key_missing,
+            qdrant_artifact_backend_selected,
+        )
+
+        qdrant_selected = qdrant_artifact_backend_selected()
+        qdrant_key_missing = qdrant_api_key_missing() if qdrant_selected else False
+    except Exception as exc:  # noqa: BLE001 - health check must never crash
+        logger.warning("Health check: Qdrant API-key check failed - %s", exc)
+        warnings.append("qdrant API-key check failed")
+    else:
+        if qdrant_selected:
+            advisory["qdrant_api_key"] = "missing" if qdrant_key_missing else "ok"
+        if qdrant_key_missing:
+            logger.warning(
+                "Health check: ARTIFACT_VECTOR_BACKEND=qdrant in production "
+                "without QDRANT_API_KEY"
+            )
+            warnings.append(
+                "qdrant_api_key_missing: the Qdrant artifact vector backend is "
+                "selected in a production deployment with an empty "
+                "QDRANT_API_KEY, so the Qdrant store accepts unauthenticated "
+                "callers — every container on the network can read and delete "
+                "tenant vectors. Set QDRANT_API_KEY (and the matching "
+                "QDRANT__SERVICE__API_KEY) and recreate backend/celery. "
+                "Reported by `manage.py check` as memory.W003."
             )
 
     # CSRF-cookie security check: AUTH_COOKIE_SECURE must match
