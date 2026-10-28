@@ -148,7 +148,8 @@
    primary-fill ratchet in ui-ratchet.test.ts does not move — same precedent
    as BaselinesView.module.css / TestRunsList.module.css. */
 .searchButton {
-  padding: var(--space-2) var(--space-4);
+  padding: 0 var(--space-4);
+  min-height: var(--btn-h-md);
   font-size: var(--font-size-base);
   font-weight: var(--weight-medium);
   background-color: var(--color-primary);
