@@ -357,10 +357,15 @@ class TestEmbeddingModelReadComparison:
 
 
 class TestGetVectorPortFactory:
-    """The Qdrant artifact port is opt-in on FOUR independent conditions.
+    """The Qdrant artifact port is opt-in on THREE conditions (T-A2-1).
 
-    These are plain (non-DB) tests: ``_effective_memory_backend_name`` reads
-    ``SystemMemorySettings`` best-effort and falls back to ``MEMORY_BACKEND``.
+    ``ARTIFACT_VECTOR_BACKEND=qdrant``, an importable ``qdrant_client`` package
+    and a configured ``QDRANT_BASE_URL``. The artifact store is deliberately
+    NOT coupled to ``MEMORY_BACKEND`` (ADR-020 §4): the memory knob governs the
+    AI-memory store only, so ``MEMORY_BACKEND=honcho`` must not keep the
+    artifact port on pgvector.
+
+    These are plain (non-DB) tests.
     """
 
     @staticmethod
@@ -388,10 +393,55 @@ class TestGetVectorPortFactory:
         monkeypatch.setenv("ARTIFACT_VECTOR_BACKEND", "pgvector")
         assert isinstance(get_vector_port(), PgVectorVectorPort)
 
-    def test_degrades_when_memory_backend_is_not_qdrant(self, monkeypatch):
+    def test_qdrant_selected_with_memory_backend_honcho(self, monkeypatch):
+        """T-A2-1: the artifact backend is decoupled from ``MEMORY_BACKEND``.
+
+        Before this change Gate 3 required the effective memory backend to be
+        ``qdrant``, so a Honcho deployment that explicitly opted the artifact
+        store into Qdrant silently ran on pgvector (reason
+        ``memory_backend_not_qdrant``).
+        """
+        self._opt_in(monkeypatch)
+        monkeypatch.setenv("MEMORY_BACKEND", "honcho")
+        built = QdrantVectorPort(
+            client=FakeQdrantClient(),
+            config=resolve_qdrant_config(base_url="http://qdrant.invalid"),
+        )
+        monkeypatch.setattr(
+            "application.vector_port.QdrantVectorPort", lambda: built
+        )
+
+        assert get_vector_port() is built
+
+    def test_memory_backend_is_not_part_of_the_selection(self, monkeypatch):
+        """The memory knob is not consulted at all any more (T-A2-1)."""
         self._opt_in(monkeypatch)
         monkeypatch.setenv("MEMORY_BACKEND", "pgvector")
-        assert isinstance(get_vector_port(), PgVectorVectorPort)
+        sentinel = object()
+        monkeypatch.setattr(
+            "application.vector_port.QdrantVectorPort", lambda: sentinel
+        )
+
+        assert get_vector_port() is sentinel
+
+    def test_health_payload_never_names_the_memory_backend_as_a_gate(
+        self, monkeypatch
+    ):
+        """T-A2-1: the removed reason token must be gone from the health payload."""
+        from reqogniloom.health import _collect_advisory
+
+        self._opt_in(monkeypatch)
+        advisory: dict[str, str] = {}
+        warnings: list[str] = []
+
+        _collect_advisory(advisory, warnings, db_ok=False)
+
+        assert advisory["vector_backend_active"] == "qdrant"
+        assert "vector_backend_fallback_reason" not in advisory
+        assert not any(
+            "memory_backend_not_qdrant" in item
+            for item in list(advisory.values()) + warnings
+        )
 
     def test_degrades_when_qdrant_package_absent(self, monkeypatch):
         self._opt_in(monkeypatch)

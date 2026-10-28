@@ -19,6 +19,9 @@ COMP-RA-006 HealthEndpoint — implements the split contract of ADR-010:
 Advisory signals (``llm_provider_env``, ``embedding_dimensions``,
 ``embedding_model_consistency``, ``embedding_model_drift`` (``?verbose=1`` only;
 per-table counts, or ``unknown`` when the connecting role cannot see past RLS),
+``qdrant_api_key`` / ``qdrant_api_key_missing`` (``?verbose=1`` only: publishing
+the artifact store's security posture on an unauthenticated endpoint would
+signpost the soft target),
 ``csrf_cookie_secure_matches_auth``,
 ``outbox_unbound_publishes``,
 ``outbox_pending`` / ``outbox_dlq`` queue gauges, workflow-definition warnings)
@@ -417,8 +420,11 @@ def _collect_advisory(
 
     ``verbose`` (``GET /health/?verbose=1``) enables the advisory probes that
     cost a real aggregate query over every embedding table
-    (``embedding_model_drift``, T-A0-6). They are absent from the payload
-    unless asked for, so the cheap default probe stays cheap.
+    (``embedding_model_drift``, T-A0-6), and the advisory keys that publish the
+    deployment's security posture (``qdrant_api_key`` /
+    ``qdrant_api_key_missing``). They are absent from the payload unless asked
+    for, so the cheap default probe stays cheap — and an unauthenticated caller
+    does not learn which vector store to aim at.
     """
     # Embedding-column dimension check (#1018/#1019): the physical pgvector
     # column width is fixed by the last migration that ran, while the
@@ -699,9 +705,9 @@ def _collect_advisory(
             "unknown" if outbox_dlq is None else str(outbox_dlq)
         )
 
-    # Artifact vector backend (#1437): ``ARTIFACT_VECTOR_BACKEND=qdrant`` is an
-    # explicit opt-in, but Qdrant only serves when ALL gate conditions hold
-    # (importable package, memory backend qdrant, configured base URL).
+    # Artifact vector backend (#1437, T-A2-1): ``ARTIFACT_VECTOR_BACKEND=qdrant``
+    # is an explicit opt-in, but Qdrant only serves when ALL gate conditions
+    # hold (importable package, configured base URL).
     # Otherwise the port silently degrades to pgvector and an operator who set
     # the opt-in still reads "ok". Publish the requested/active backend and the
     # first failing gate so the documented silent fallback is visible — without
@@ -709,6 +715,8 @@ def _collect_advisory(
     # functional fallback, so a mismatch escalates ``ok`` to ``warning`` and
     # never causes degraded/503. Not gated on ``db_ok``: the gate is
     # best-effort and falls back to the environment when the DB is unreachable.
+    # Deliberately NOT coupled to ``MEMORY_BACKEND`` (T-A2-1): the memory knob
+    # governs the AI-memory store only.
     try:
         from application.vector_port import vector_backend_diagnostic
 
@@ -736,11 +744,57 @@ def _collect_advisory(
                 f"requested but the artifact vector port runs on "
                 f"{vector_backend['active']} (reason: "
                 f"{vector_backend['reason']}). Artifact ANN search therefore "
-                "queries pgvector, not Qdrant. The four gate conditions are: "
+                "queries pgvector, not Qdrant. The three gate conditions are: "
                 "ARTIFACT_VECTOR_BACKEND=qdrant, an importable qdrant_client "
-                "package, MEMORY_BACKEND=qdrant (or the SystemMemorySettings "
-                "override), and a configured QDRANT_BASE_URL. See "
+                "package, and a configured QDRANT_BASE_URL. See "
                 "application/vector_port.py."
+            )
+
+    # Qdrant API key (QR-S23, T-A2-1): once the artifact store is *configured*
+    # for Qdrant it is a productive store of tenant content (the port may still
+    # run pgvector while a gate is open — the selector is what makes a missing
+    # key a finding). Only evaluated when that selector is set, so a default
+    # pgvector deployment keeps a byte-identical payload.
+    # VERBOSE-ONLY for the advisory keys (``?verbose=1``): this endpoint is
+    # unauthenticated, and publishing "artifact backend = qdrant, store without
+    # key" to anyone who reaches the port is a signpost to the soft target. The
+    # warning itself stays unconditional — it is the operator signal, and
+    # /health/ is not meant to be internet-reachable (deploy/README.md).
+    # Advisory (HTTP 200) and a WARNING-only system check (``memory.W003``):
+    # the service still serves.
+    try:
+        from memory.checks import (
+            qdrant_api_key_missing,
+            qdrant_artifact_backend_selected,
+        )
+
+        qdrant_selected = qdrant_artifact_backend_selected()
+        qdrant_key_missing = qdrant_api_key_missing() if qdrant_selected else False
+    except Exception as exc:  # noqa: BLE001 - health check must never crash
+        logger.warning("Health check: Qdrant API-key check failed - %s", exc)
+        warnings.append("qdrant API-key check failed")
+    else:
+        if qdrant_selected and verbose:
+            # ``qdrant_api_key`` keeps its historic shape; the planned
+            # ``qdrant_api_key_missing`` predicate is published alongside it
+            # (issue-tracked naming, PR-A21a), so both consumers stay served.
+            advisory["qdrant_api_key"] = "missing" if qdrant_key_missing else "ok"
+            advisory["qdrant_api_key_missing"] = "true" if qdrant_key_missing else "false"
+        if qdrant_key_missing:
+            logger.warning(
+                "Health check: ARTIFACT_VECTOR_BACKEND=qdrant is configured in "
+                "production and no Qdrant API key resolves"
+            )
+            warnings.append(
+                "qdrant_api_key_missing: the artifact store is configured for "
+                "Qdrant in a production deployment and no API key resolves — "
+                "neither QDRANT_API_KEY nor SystemMemorySettings."
+                "qdrant_api_key is set. Unless the qdrant service itself "
+                "enforces QDRANT__SERVICE__API_KEY, the store accepts "
+                "unauthenticated callers, so every container on the network can "
+                "read and delete tenant vectors. Set QDRANT_API_KEY (and the "
+                "matching QDRANT__SERVICE__API_KEY) and recreate "
+                "backend/celery. Reported by `manage.py check` as memory.W003."
             )
 
     # CSRF-cookie security check: AUTH_COOKIE_SECURE must match
@@ -816,8 +870,9 @@ def _readiness_payload(*, verbose: bool = False) -> tuple[dict, int]:
     ``degraded`` at HTTP 200 and never turns readiness red.
 
     ``verbose`` (``GET /health/ready?verbose=1``) additionally runs the
-    aggregate-only advisories (``embedding_model_drift``, T-A0-6). Without it
-    those keys are absent and the probe costs exactly what it did before.
+    aggregate-only advisories (``embedding_model_drift``, T-A0-6) and publishes
+    the Qdrant key advisories. Without it those keys are absent and the probe
+    costs exactly what it did before.
     """
     required = _run_required_checks()
     checks = {

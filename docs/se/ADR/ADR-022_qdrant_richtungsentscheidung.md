@@ -43,6 +43,12 @@ Qdrant-Write fail-loud), #1251 (geschlossen — Qdrant-Doku), #1204 (ADR-020-Ums
   importierbarem `qdrant_client` **und** konfigurierter Base-URL; die Doku im Modul benennt
   selbst: „the per-workspace `_artifacts` collections are populated by an artifact indexer
   that is *out of scope* for this port; without one the collections are empty".
+
+  > **Änderungsnotiz (2026-10-28, T-A2-1 / PR-A21a):** Der V2-Selektor ist inzwischen vom
+  > `MEMORY_BACKEND` entkoppelt — das Gate besteht nur noch aus
+  > `ARTIFACT_VECTOR_BACKEND=qdrant`, importierbarem `qdrant_client` und konfigurierter
+  > Base-URL. Der ADR-`status` bleibt unverändert (`accepted`); eine Status-/Supersede-Änderung
+  > ist ein separates Verfahren.
 - `backend/persistence/qdrant_config.py` — `QdrantConfig`, `resolve_qdrant_config`,
   `build_collection_name` (Collection-Schema `<prefix>_<tenant>_<workspace>`, `_artifacts`,
   `_user`).
