@@ -66,3 +66,36 @@ def test_qdrant_outage_keeps_search_at_http_200_with_degraded_flag(monkeypatch):
     assert response.data["vector_backend"] == "pgvector"
     assert response.data["degraded_reason"] == "qdrant_unavailable"
     assert [hit["id"] for hit in response.data["results"]] == [str(req_row.id)]
+
+
+@pytest.mark.django_db(transaction=True)
+def test_default_deployment_search_is_additive(monkeypatch):
+    """The three serving fields are ADDITIVE: a default deployment is unchanged.
+
+    No Qdrant is configured here (no ``ARTIFACT_VECTOR_BACKEND``), so the
+    response must report ``degraded=false``, ``vector_backend="pgvector"`` and
+    an empty ``degraded_reason`` -- the pre-T-A2-7 payload plus three fields,
+    never a different result set.
+    """
+    from rest_framework.test import APIRequestFactory
+
+    monkeypatch.delenv("ARTIFACT_VECTOR_BACKEND", raising=False)
+
+    with active_tenant() as tenant:
+        ws = make_workspace(tenant)
+        req_row = make_requirement(ws, title="Findable in the default deployment")
+        ctx = editor_ctx(tenant, ws)
+
+        factory = APIRequestFactory()
+        request = factory.get(
+            f"/api/v1/search/?q=findable&workspace_id={ws.id}"
+            f"&type={COLLECTION_REQUIREMENT}"
+        )
+        request.auth_context = ctx
+        response = SearchViewSet.as_view({"get": "list"})(request)
+
+    assert response.status_code == 200
+    assert response.data["degraded"] is False
+    assert response.data["vector_backend"] == "pgvector"
+    assert response.data["degraded_reason"] == ""
+    assert [hit["id"] for hit in response.data["results"]] == [str(req_row.id)]

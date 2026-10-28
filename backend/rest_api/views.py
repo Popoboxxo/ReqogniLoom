@@ -9875,7 +9875,16 @@ class _SearchHitSerializer(serializers.Serializer):
     artifact_type = serializers.CharField()
     title = serializers.CharField()
     description = serializers.CharField(allow_blank=True)
-    relevance_score = serializers.FloatField()
+    relevance_score = serializers.FloatField(
+        help_text=(
+            "Rank-derived relevance in [0, 1]. Comparable within one response "
+            "and stable for a given backend, but NOT across backends: under "
+            "Qdrant, a hybrid query's semantic leg contributes an RRF fused "
+            "score (a rank quantity, not a cosine similarity), so the same "
+            "value is not a similarity measure there. Ordering is authoritative; "
+            "the absolute number is not."
+        )
+    )
     workspace_id = serializers.CharField(allow_blank=True)
 
 
@@ -9884,7 +9893,15 @@ class _SearchResponseSerializer(serializers.Serializer):
 
     ``vector_backend``/``degraded``/``degraded_reason`` are additive: a
     Qdrant outage answers HTTP 200 with ``vector_backend="pgvector"`` and
-    ``degraded=true``, never a 500.
+    ``degraded=true``, never a 500. A failing cross-type semantic leg answers
+    200 with ``degraded=true`` and ``degraded_reason="cross_type_query_failed"``
+    while ``vector_backend`` keeps naming the backend that served the other
+    legs.
+
+    ``relevance_score`` semantics are backend-dependent: on pgvector it derives
+    from a cosine similarity, on Qdrant from an RRF fused score (a rank
+    quantity), so ``min_score`` filtering keeps a different number of
+    semantically matched hits per backend. The ranking itself is unaffected.
     """
 
     results = _SearchHitSerializer(many=True)
@@ -9987,7 +10004,10 @@ class SearchViewSet(viewsets.ViewSet):
 
         The response always carries ``vector_backend``, ``degraded`` and
         ``degraded_reason`` (T-A2-7). A Qdrant outage degrades to pgvector and
-        answers 200 with ``degraded=true`` — never a 500.
+        answers 200 with ``degraded=true`` — never a 500. A failing cross-type
+        semantic leg also answers 200, with
+        ``degraded_reason="cross_type_query_failed"``, and the results are then
+        partial (the other passes still ran).
         """
         lang = detect_lang(request)
 

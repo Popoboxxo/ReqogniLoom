@@ -42,12 +42,20 @@ Design contract:
   for READ via :class:`~application.effective_permission_service.EffectivePermissionService`;
   missing, soft-deleted, superseded-MainGoal and permission-denied hits are
   dropped. Payload fields (``workspace_id``, ``entity_type``, title) are never
-  the source of truth.
+  the source of truth. **A caller identity (``ctx``) is required**: the READ
+  check fails closed, so a call without one yields no hits at all rather than
+  unchecked ones. ``find_similar_requirements`` passes its identity;
+  ``find_similar_trace_links``/``find_similar_icds`` do not yet and therefore
+  return nothing under Qdrant until PR-A21b wires theirs through (the default
+  pgvector deployment is unaffected in both cases).
 * **Fallback (T-A2-7).** :class:`FallbackVectorPort` wraps the Qdrant adapter
   for the search path: a ``QdrantBackendUnavailableError`` degrades the request
   to pgvector and sets a request-local ``degraded``/``degraded_reason`` pair.
   :func:`get_vector_port` itself still returns the bare adapter, keeping the
-  three similarity call sites' loud-failure contract.
+  three similarity call sites' loud-failure contract. Because the pgvector
+  adapter cannot enforce the QR-S07 READ check (it has no ``ctx`` semantics),
+  ``SearchService`` applies :func:`hydrate_vector_hits` to the hits of a
+  DEGRADED fallback -- see :func:`is_degraded_fallback`.
 * ``qdrant_client`` is **never imported at module import time** -- only inside
   the Qdrant adapter's lazy helpers -- so importing this module is always safe.
 * ``enable_iterative_ann_scan`` (``application.pgvector_ann``) is
@@ -108,6 +116,14 @@ _BM25_MODEL = "qdrant/bm25"
 #: ``degraded_reason`` value a Qdrant outage reports (stable wire token).
 DEGRADED_QDRANT_UNAVAILABLE = "qdrant_unavailable"
 
+#: ``degraded_reason`` value ``SearchService`` reports when the cross-type
+#: semantic leg (``query_entities``) failed for a reason the port did not
+#: classify as an outage (stable wire token). Distinct from
+#: :data:`DEGRADED_QDRANT_UNAVAILABLE` on purpose: the search result is
+#: incomplete, but no fallback happened -- ``vector_backend`` still names the
+#: backend that served the other legs.
+DEGRADED_CROSS_TYPE_QUERY_FAILED = "cross_type_query_failed"
+
 #: Explicit selector for the ARTIFACT vector backend. Deliberately separate from
 #: ``MEMORY_BACKEND`` (which governs the AI memory store) so the artifact store
 #: is never switched as a side effect of another knob (ADR-020 §4). Values:
@@ -135,7 +151,14 @@ class VectorHit:
 
     ``distance`` follows pgvector's convention (lower = closer). The Qdrant
     adapter converts Qdrant's similarity score with ``1 - score`` so both
-    adapters speak the same scale.
+    adapters speak the same scale -- **which is only a cosine scale for a
+    dense-only query**. With a ``query_text`` the Qdrant score is an RRF *fused*
+    score, so ``distance`` is then a rank-derived quantity, NOT a cosine
+    distance: it is comparable within one result list (ordering is preserved),
+    but not across backends and not against a cosine threshold. Callers that
+    turn it into a ``relevance_score`` (``SearchService``) inherit exactly that
+    -- see :func:`_distance_from_score` and the ``/api/v1/search/`` response
+    description for the consequence (``min_score`` is backend-dependent).
 
     ``id`` is ALWAYS the canonical row ``UUID``: the Qdrant adapter coerces the
     string payload id to ``UUID`` (``_coerce_uuid``), exactly like pgvector's
@@ -201,9 +224,15 @@ class VectorPort(Protocol):
 
         ``query_text`` is the hybrid (BM25) leg: the Qdrant adapter fuses it
         with the dense leg via prefetch + RRF, the pgvector adapter ignores it
-        (its results are byte-identical with and without it). ``ctx`` is the
-        caller identity used for the QR-S07 READ check; without it the port can
-        only enforce the tenant/workspace/lifecycle fence.
+        (its results are byte-identical with and without it).
+
+        ``ctx`` is the caller identity the QR-S07 READ check needs. **It is a
+        precondition, not an optional refinement**: adapters that hydrate (and
+        :func:`hydrate_vector_hits` itself) fail closed, so a call without an
+        identity returns no hits instead of unchecked ones. The two legacy
+        similarity callers that still pass none (``find_similar_trace_links``,
+        ``find_similar_icds``) therefore return nothing under Qdrant until
+        PR-A21b; the default pgvector deployment is unaffected.
         """
         ...
 
@@ -256,6 +285,15 @@ def _distance_from_score(score: Any) -> float | None:
     Tolerant by design (mirrors ``memory.qdrant_backend._distance_from_score``):
     ``None`` -- meaning "skip this point" -- for a missing or non-numeric score
     rather than letting a raw ``ValueError``/``TypeError`` escape the adapter.
+
+    Scope of the mapping: ``score`` is a cosine similarity ONLY for a dense-only
+    query. A hybrid query (``query_text`` set) returns an RRF **fused** score,
+    so ``1 - score`` is then a rank-derived quantity on an opaque scale. It
+    still orders the hits correctly (monotone in Qdrant's ranking) and stays
+    bounded, but it is not a cosine similarity: it is not comparable to a
+    pgvector distance and not comparable across deployments. Deliberately not
+    "fixed" here -- re-deriving a cosine scale would require a second dense-only
+    round-trip per hit and would make the two legs disagree about ranking.
     """
     if score is None:
         return None
@@ -373,9 +411,15 @@ def _hydrate_rows(
 
     Every step is a fence, not a lookup: the row must exist in the ambient
     tenant, in the requested workspace, not be soft-deleted, be the current
-    version (MainGoal) and -- when a caller identity is supplied -- be
-    READ-allowed for it. A payload that claims another workspace cannot survive
-    the workspace filter, which is exactly why the payload is never trusted.
+    version (MainGoal) and be READ-allowed for the caller. A payload that claims
+    another workspace cannot survive the workspace filter, which is exactly why
+    the payload is never trusted.
+
+    ``ctx`` is required, not optional: without a caller identity there is no
+    provable READ, so every id is dropped (:func:`_read_allowed` returns
+    ``False`` for ``ctx is None``). This is the fail-closed contract the QR-S07
+    gate is documented with -- a caller that cannot supply an identity gets an
+    empty result, never an unchecked one.
     """
     from application.artifact_indexer import SOURCES, tenant_scope  # lazy: registry
     from persistence.models import Artifact, LifecycleStatus  # lazy: import-light
@@ -422,7 +466,10 @@ def _hydrate_rows(
             # must never be the reason a row from another workspace survives.
             if workspace_id is not None and str(row_workspace) != str(workspace_id):
                 continue
-            if ctx is not None and not _read_allowed(
+            # Unconditional on purpose (QR-S07): the READ decision is not an
+            # opt-in refinement of the fence. No identity -> no provable READ
+            # -> the hit is dropped.
+            if not _read_allowed(
                 ctx, row_workspace, target, roles_cache, decision_cache
             ):
                 continue
@@ -438,7 +485,13 @@ def hydrate_vector_hits(
     workspace_id: UUID | None = None,
     ctx: Any = None,
 ) -> list[VectorHit]:
-    """Keep only the hits whose ORM row is present and readable (QR-S07)."""
+    """Keep only the hits whose ORM row is present and READable (QR-S07).
+
+    Fail closed: with no ``ctx`` there is no caller identity to check a READ
+    against, so nothing is returned. Used by the Qdrant adapter and by
+    ``SearchService`` for the hits of a DEGRADED fallback port (whose pgvector
+    adapter cannot check permissions itself).
+    """
     if not hits:
         return []
     rows = _hydrate_rows(collection, [hit.id for hit in hits], tenant_id, workspace_id, ctx)
@@ -497,7 +550,11 @@ class PgVectorVectorPort:
         # ``query_text``/``ctx`` are accepted and deliberately IGNORED: pgvector
         # has no BM25 leg (that lives in SearchService for pgvector, A3) and the
         # rows already come from the ORM under the caller's tenant context, so
-        # the results stay byte-identical with and without a query text.
+        # the results stay byte-identical with and without a query text. ``ctx``
+        # is NOT used for a READ check here (that would change the default
+        # path); a caller that serves these hits to a user -- SearchService on
+        # the degraded-fallback path -- applies the QR-S07 gate itself via
+        # :func:`hydrate_vector_hits`.
         try:
             from pgvector.django import CosineDistance  # lazy: pgvector may be absent
         except ImportError as exc:
@@ -923,6 +980,21 @@ class FallbackVectorPort:
     (``get_vector_port()`` already constructs a fresh adapter per call), so two
     concurrent requests never see each other's degradation and nothing is
     cached across a recovery. No module-level state.
+
+    What the FALLBACK path enforces, exactly (it is not the Qdrant path's
+    gate): ``PgVectorVectorPort`` applies the tenant filter, the optional
+    workspace filter, ``embedding__isnull=False``, ``exclude_id`` and the
+    embedding-provenance filter (T-A0-6) -- all in SQL. It does **not** apply
+    the QR-S07 gate: it ignores ``ctx`` entirely, so it neither checks
+    item-level READ nor excludes ``OUTDATED``/superseded rows. Those two are
+    therefore applied by the caller: ``SearchService`` routes the hits of a
+    degraded fallback through :func:`hydrate_vector_hits`. A caller that uses
+    this wrapper outside ``SearchService`` gets the raw pgvector set and must
+    apply the same gate itself.
+
+    ``query_entities`` has no pgvector equivalent at all: an outage degrades it
+    to ``[]`` (the eleven embedding-less types simply contribute no semantic
+    hits), it never falls back to another data source.
     """
 
     supports_entity_queries = True
@@ -954,8 +1026,9 @@ class FallbackVectorPort:
 
         ``kwargs`` are forwarded verbatim -- this is a transparent proxy, so a
         hand-copied signature could only drift from the port contract. pgvector
-        ignores ``query_text``/``ctx``, so the fallback call is byte-identical to
-        the pre-T-A2-7 default path.
+        ignores ``query_text``, so the fallback call is byte-identical to the
+        pre-T-A2-7 default path; ``ctx`` is forwarded but unused by pgvector --
+        the caller (``SearchService``) applies the QR-S07 gate instead.
         """
         try:
             return self._primary.query_similar(**kwargs)
@@ -970,6 +1043,46 @@ class FallbackVectorPort:
         except QdrantBackendUnavailableError as exc:
             self._degrade(exc)
             return []
+
+
+def is_degraded_fallback(port: Any) -> bool:
+    """Whether *port* is a :class:`FallbackVectorPort` serving from its fallback.
+
+    The single place that answers "did this request fall back to pgvector?".
+    ``SearchService`` uses it to decide whether the QR-S07 gate still has to be
+    applied to the returned hits: the Qdrant adapter hydrates its own hits, but
+    the pgvector adapter the wrapper falls back to does not (it ignores
+    ``ctx``). For a plain :class:`PgVectorVectorPort` -- the default deployment,
+    which is never wrapped -- this is ``False``, so the default path keeps
+    taking no gate at all and stays byte-identical.
+    """
+    return isinstance(port, FallbackVectorPort) and bool(
+        getattr(port, "degraded", False)
+    )
+
+
+def mark_request_degraded(port: Any, reason: str) -> None:
+    """Flag *port* as degraded for the rest of the request with a *reason*.
+
+    For failures the port itself cannot classify (e.g. a cross-type semantic
+    query that raised something other than
+    :class:`QdrantBackendUnavailableError`): the request served partial semantic
+    results and must say so instead of looking complete. Best-effort by design
+    -- a read-only port double must never turn a degraded search into a failed
+    one, so an ``AttributeError`` is swallowed. An already reported reason is
+    never overwritten: the first (and usually causal) degradation is the one a
+    caller can act on, and re-labelling an outage as
+    ``cross_type_query_failed`` would contradict ``vector_backend``.
+    """
+    if port is None:
+        return
+    if getattr(port, "degraded", False) and getattr(port, "degraded_reason", ""):
+        return
+    try:
+        port.degraded = True
+        port.degraded_reason = reason
+    except AttributeError:  # frozen/immutable port double -- never fail search
+        logger.debug("vector port does not accept a degraded flag", exc_info=True)
 
 
 def get_fallback_vector_port() -> VectorPort:
@@ -1136,6 +1249,7 @@ __all__ = [
     "COLLECTION_REQUIREMENT",
     "COLLECTION_TRACE_LINK",
     "DEFAULT_ARTIFACT_VECTOR_BACKEND",
+    "DEGRADED_CROSS_TYPE_QUERY_FAILED",
     "DEGRADED_QDRANT_UNAVAILABLE",
     "FallbackVectorPort",
     "PgVectorBackendUnavailableError",
@@ -1149,5 +1263,7 @@ __all__ = [
     "get_fallback_vector_port",
     "get_vector_port",
     "hydrate_vector_hits",
+    "is_degraded_fallback",
+    "mark_request_degraded",
     "vector_backend_diagnostic",
 ]

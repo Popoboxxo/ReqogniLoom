@@ -47,7 +47,12 @@ from memory.tests.qdrant_fakes import FakeQdrantClient, FakeQdrantModels
 from persistence.embedding_dimensions import EMBEDDING_VECTOR_DIMENSIONS
 from persistence.models import Artifact, Requirement, Tenant, TraceLink
 from persistence.qdrant_config import build_collection_alias, resolve_qdrant_config
-from persistence.tests.factories import active_tenant, make_requirement, make_workspace
+from persistence.tests.factories import (
+    active_tenant,
+    editor_ctx,
+    make_requirement,
+    make_workspace,
+)
 
 _DIM = EMBEDDING_VECTOR_DIMENSIONS
 
@@ -485,6 +490,8 @@ class TestQdrantVectorPortUnit:
                 workspace_id=ws.id,
                 exclude_id=exclude_id,
                 limit=7,
+                # QR-S07: hydration is fail-closed without a caller identity.
+                ctx=editor_ctx(tenant, ws),
             )
 
         expected_collection = _alias(tenant.id, ws.id)
@@ -556,6 +563,8 @@ class TestQdrantVectorPortUnit:
                 tenant_id=tenant.id,
                 workspace_id=ws.id,
                 limit=10,
+                # QR-S07: hydration is fail-closed without a caller identity.
+                ctx=editor_ctx(tenant, ws),
             )
 
         assert [hit.id for hit in hits] == [first.id, second.id]
@@ -598,6 +607,7 @@ class TestQdrantVectorPortUnit:
             req = make_requirement(ws, title="Hydrated")
             req.embedding = [1.0] * _DIM
             req.save(update_fields=["embedding"])
+            ctx = editor_ctx(tenant, ws)
 
             collection = _alias(tenant.id, ws.id)
             client = FakeQdrantClient()
@@ -623,6 +633,8 @@ class TestQdrantVectorPortUnit:
                 tenant_id=tenant.id,
                 workspace_id=ws.id,
                 limit=10,
+                # QR-S07: the READ gate is fail-closed without an identity.
+                ctx=ctx,
             )
             # The adapter coerces the string payload id to UUID ...
             assert isinstance(hits[0].id, UUID)
@@ -686,6 +698,7 @@ class TestQdrantHybridQuery:
         with active_tenant() as tenant:
             ws = make_workspace(tenant)
             req = make_requirement(ws, title="Mobile push notifications")
+            ctx = editor_ctx(tenant, ws)
             client = FakeQdrantClient()
             _seed_point(
                 client, tenant.id, ws.id, req.id,
@@ -698,6 +711,7 @@ class TestQdrantHybridQuery:
                 tenant_id=tenant.id,
                 workspace_id=ws.id,
                 query_text="mobile push",
+                ctx=ctx,
             )
             alias = _alias(tenant.id, ws.id)
 
@@ -718,6 +732,7 @@ class TestQdrantHybridQuery:
         with active_tenant() as tenant:
             ws = make_workspace(tenant)
             req = make_requirement(ws, title="Dense only")
+            ctx = editor_ctx(tenant, ws)
             client = FakeQdrantClient()
             _seed_point(client, tenant.id, ws.id, req.id, dense=[1.0, 0.0], text="dense only")
             port = _qdrant_port(client, models_module=FakeQdrantModels)
@@ -726,6 +741,7 @@ class TestQdrantHybridQuery:
                 query_vector=[1.0, 0.0],
                 tenant_id=tenant.id,
                 workspace_id=ws.id,
+                ctx=ctx,
             )
 
         request = [kwargs for method, kwargs in client.calls if method == "query_points"][0]
@@ -759,6 +775,51 @@ class TestQdrantHybridQuery:
         assert as_tuples == [(hit.id, hit.distance) for hit in with_text]
         assert [hit.id for hit in with_text] == [near.id, far.id]
 
+    @pytest.mark.django_db(transaction=True)
+    def test_qdrant_fused_score_keeps_order_but_is_not_a_cosine_scale(self):
+        """Fused (RRF) scores are a RANK quantity -- ordering is the contract.
+
+        With ``query_text`` the semantic leg's ``distance`` is ``1 - <fused
+        score>``, not a cosine distance. The two points below have the SAME
+        dense leg (so a cosine distance could not tell them apart); only the
+        fused score separates them. Pinning an absolute value would pin
+        Qdrant's fusion arithmetic, which is not this adapter's contract -- so
+        this asserts the ordering (and that the scale demonstrably is not a
+        cosine scale), never a specific number.
+        """
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            both_legs = make_requirement(ws, title="Mobile push notifications")
+            dense_only = make_requirement(ws, title="Unrelated billing")
+            ctx = editor_ctx(tenant, ws)
+            client = FakeQdrantClient()
+            _seed_point(
+                client, tenant.id, ws.id, both_legs.id,
+                dense=[1.0, 0.0], text="mobile push notifications",
+            )
+            _seed_point(
+                client, tenant.id, ws.id, dense_only.id,
+                dense=[1.0, 0.0], text="unrelated billing",
+            )
+            port = _qdrant_port(client, models_module=FakeQdrantModels)
+            hits = port.query_similar(
+                collection=COLLECTION_REQUIREMENT,
+                query_vector=[1.0, 0.0],
+                tenant_id=tenant.id,
+                workspace_id=ws.id,
+                query_text="mobile push",
+                ctx=ctx,
+            )
+
+        assert [hit.id for hit in hits] == [both_legs.id, dense_only.id]
+        # Ordering is monotone in the port's own scale ...
+        assert hits[0].distance < hits[1].distance
+        # ... but that scale is not a cosine distance: identical dense legs
+        # would have equal cosine distances, and the fused value falls outside
+        # the [0, 2] cosine-distance range.
+        assert hits[0].distance != pytest.approx(hits[1].distance)
+        assert hits[0].distance < 0.0
+
 
 class TestQdrantHitHydration:
     """QR-S07: Qdrant returns ids only; the ORM row is the source of truth."""
@@ -770,6 +831,7 @@ class TestQdrantHitHydration:
             foreign_ws = make_workspace(tenant)
             mine = make_requirement(ws, title="Mine")
             foreign = make_requirement(foreign_ws, title="Foreign workspace row")
+            ctx = editor_ctx(tenant, ws)
 
             client = FakeQdrantClient()
             for row in (mine, foreign):
@@ -783,6 +845,7 @@ class TestQdrantHitHydration:
                 query_vector=[1.0, 0.0],
                 tenant_id=tenant.id,
                 workspace_id=ws.id,
+                ctx=ctx,
             )
 
         ids = {hit.id for hit in hits}
@@ -826,6 +889,89 @@ class TestQdrantHitHydration:
         assert visible.id in ids
 
     @pytest.mark.django_db(transaction=True)
+    def test_qdrant_similarity_without_ctx_fails_closed(self):
+        """QR-S07: no caller identity means no provable READ.
+
+        The gate must not degrade into "unchecked" when a caller forgets the
+        identity: the Qdrant path's answer is then *empty*, not the tenant/
+        workspace/lifecycle-fenced set. Two of the legacy similarity callers
+        (``find_similar_trace_links``, ``find_similar_icds``) are still in that
+        state until PR-A21b -- this is the pinned consequence.
+        """
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            row = make_requirement(ws, title="Would be found with an identity")
+
+            client = FakeQdrantClient()
+            _seed_point(client, tenant.id, ws.id, row.id, dense=[1.0, 0.0], text="row")
+            port = _qdrant_port(client, models_module=FakeQdrantModels)
+            without_ctx = port.query_similar(
+                collection=COLLECTION_REQUIREMENT,
+                query_vector=[1.0, 0.0],
+                tenant_id=tenant.id,
+                workspace_id=ws.id,
+            )
+            entities_without_ctx = port.query_entities(
+                tenant_id=tenant.id,
+                workspace_id=ws.id,
+                query_vector=[1.0, 0.0],
+                query_text="row",
+                entity_types=[COLLECTION_REQUIREMENT],
+            )
+            # Sanity: the very same call WITH an identity does return the row,
+            # so the empty results above are the gate, not a broken fixture.
+            with_ctx = port.query_similar(
+                collection=COLLECTION_REQUIREMENT,
+                query_vector=[1.0, 0.0],
+                tenant_id=tenant.id,
+                workspace_id=ws.id,
+                ctx=editor_ctx(tenant, ws),
+            )
+
+        assert without_ctx == []
+        assert entities_without_ctx == []
+        assert [hit.id for hit in with_ctx] == [row.id]
+
+    @pytest.mark.django_db(transaction=True)
+    def test_qdrant_hit_with_foreign_tenant_payload_is_dropped(self):
+        """QR-S07: the payload may claim the caller's tenant; the row may not.
+
+        A point whose payload says "tenant A, workspace A" but whose entity id
+        belongs to a row in tenant B must not hydrate -- the ORM lookup is
+        tenant-scoped, so the payload's claim can never resurrect a foreign row.
+        """
+        with active_tenant() as foreign_tenant:
+            foreign_ws = make_workspace(foreign_tenant)
+            foreign = make_requirement(foreign_ws, title="Row of another tenant")
+
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            mine = make_requirement(ws, title="Mine")
+            ctx = editor_ctx(tenant, ws)
+
+            client = FakeQdrantClient()
+            # The local row, indexed normally.
+            _seed_point(client, tenant.id, ws.id, mine.id, dense=[1.0, 0.0], text="row")
+            # A point in THIS tenant's collection whose payload claims this
+            # tenant/workspace but points at the other tenant's row id.
+            _seed_point(
+                client, tenant.id, ws.id, foreign.id, dense=[1.0, 0.0], text="row"
+            )
+
+            port = _qdrant_port(client, models_module=FakeQdrantModels)
+            hits = port.query_similar(
+                collection=COLLECTION_REQUIREMENT,
+                query_vector=[1.0, 0.0],
+                tenant_id=tenant.id,
+                workspace_id=ws.id,
+                ctx=ctx,
+            )
+
+        ids = {hit.id for hit in hits}
+        assert mine.id in ids
+        assert foreign.id not in ids
+
+    @pytest.mark.django_db(transaction=True)
     def test_stale_point_after_failed_delete_not_returned(self):
         from persistence.models import Artifact, LifecycleStatus
 
@@ -833,6 +979,7 @@ class TestQdrantHitHydration:
             ws = make_workspace(tenant)
             stale = make_requirement(ws, title="Soft-deleted row")
             live = make_requirement(ws, title="Live row")
+            ctx = editor_ctx(tenant, ws)
 
             client = FakeQdrantClient()
             for row in (stale, live):
@@ -848,6 +995,7 @@ class TestQdrantHitHydration:
                 query_vector=[1.0, 0.0],
                 tenant_id=tenant.id,
                 workspace_id=ws.id,
+                ctx=ctx,
             )
 
         ids = {hit.id for hit in hits}
@@ -890,6 +1038,7 @@ class TestQdrantHitHydration:
                 query_vector=[1.0, 0.0],
                 query_text="goal",
                 entity_types=["MainGoal"],
+                ctx=editor_ctx(tenant, ws),
             )
 
         ids = {hit.id for hit in hits}
@@ -1014,6 +1163,7 @@ def test_live_qdrant_roundtrip_is_skipped_without_env():
                 workspace_id=ws.id,
                 query_text="hybrid",
                 limit=5,
+                ctx=editor_ctx(tenant, ws),
             )
             assert [hit.id for hit in hits] == [req.id]
         finally:

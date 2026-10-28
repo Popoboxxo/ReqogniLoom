@@ -76,7 +76,15 @@ from auth_tenancy.context import AuthContext
 TenantContext = AuthContext
 
 from application.base import ServiceBase, ValidationError
-from application.vector_port import TypedVectorHit, VectorHit, get_fallback_vector_port
+from application.vector_port import (
+    DEGRADED_CROSS_TYPE_QUERY_FAILED,
+    TypedVectorHit,
+    VectorHit,
+    get_fallback_vector_port,
+    hydrate_vector_hits,
+    is_degraded_fallback,
+    mark_request_degraded,
+)
 from llm_adapter.embedding_service import generate_embedding
 from persistence.custom_fields import coerce_custom_fields
 from persistence.models import Requirement, TraceLink
@@ -389,9 +397,15 @@ class SearchResult:
     page: int
     limit: int
     query: str = ""
-    #: T-A2-7: how THIS request was served. ``degraded`` is only ever True when
-    #: a Qdrant outage forced the pgvector fallback; a pgvector deployment
-    #: reports ``False``/``""`` and is byte-identical to the pre-T-A2-7 output.
+    #: T-A2-7: how THIS request was served. ``degraded`` is True when a Qdrant
+    #: outage forced the pgvector fallback (``degraded_reason="qdrant_unavailable"``)
+    #: or when the cross-type semantic leg failed and the request therefore
+    #: served *partial* semantic results (``degraded_reason="cross_type_query_failed"``).
+    #: ``vector_backend`` names the backend that actually served the query -- on
+    #: the fallback it flips to ``"pgvector"``, on a cross-type-only failure it
+    #: keeps naming the Qdrant backend, because no fallback happened. A default
+    #: (non-Qdrant) deployment reports ``False``/``"pgvector"``/``""`` and is
+    #: byte-identical to the pre-T-A2-7 output.
     degraded: bool = False
     vector_backend: str = "pgvector"
     degraded_reason: str = ""
@@ -788,7 +802,8 @@ def _run_semantic_query(
         flag is aggregated over every type; ``query_text``/``ctx`` feed the
         Qdrant hybrid leg and the QR-S07 READ check of hydrated hits.
         """
-        hits = (port or get_fallback_vector_port()).query_similar(
+        request_port = port or get_fallback_vector_port()
+        hits = request_port.query_similar(
             collection=entity_type,
             query_vector=query_embedding,
             tenant_id=tenant_id,
@@ -802,6 +817,25 @@ def _run_semantic_query(
             # QR-S07: the READ gate for hydrated Qdrant hits needs the caller.
             ctx=ctx,
         )
+        # QR-S07 on the DEGRADED path. A FallbackVectorPort that had to serve
+        # this call from pgvector returns raw ORM rows: the pgvector adapter
+        # ignores ``ctx`` entirely, so neither item-level READ nor the
+        # ``OUTDATED`` exclusion applied -- the caller would see hits the Qdrant
+        # path would have dropped, and any client able to make the server-side
+        # BM25 inference fail could pick that weaker set on demand. Route those
+        # hits through the same hydration gate the Qdrant adapter uses.
+        #
+        # Only when the port actually degraded: the default deployment is a
+        # bare PgVectorVectorPort (is_degraded_fallback() is False), so it takes
+        # no gate and stays byte-identical.
+        if is_degraded_fallback(request_port):
+            hits = hydrate_vector_hits(
+                collection=entity_type,
+                hits=hits,
+                tenant_id=tenant_id,
+                workspace_id=workspace_id,
+                ctx=ctx,
+            )
         return _semantic_search_hits(entity_type, hits)
 
     try:
@@ -1376,12 +1410,19 @@ class SearchService(ServiceBase):
                 ``relevance_score`` is below it *after* the global ranking and
                 *before* ``total_count`` and pagination, so ``total_count``
                 reflects the filtered result set and the page window is taken
-                from that set. Must be in ``[0, 1]``.
+                from that set. Must be in ``[0, 1]``. **Backend-dependent under
+                Qdrant**: there a hybrid query's semantic leg is an RRF *fused*
+                score (a rank quantity, not a cosine similarity -- see
+                ``vector_port.VectorHit``), so the same floor keeps a different
+                number of semantically matched hits than on pgvector. It
+                remains stable within one backend and deployment.
 
         Returns:
             SearchResult with ranked hits and pagination metadata, plus the
             T-A2-7 serving metadata (``vector_backend``/``degraded``/
-            ``degraded_reason``) that reports a pgvector fallback.
+            ``degraded_reason``) that reports a pgvector fallback
+            (``qdrant_unavailable``) or a partial cross-type semantic leg
+            (``cross_type_query_failed``).
 
         Raises:
             ValidationError: Empty query, invalid type, or invalid page params.
@@ -1703,7 +1744,12 @@ class SearchService(ServiceBase):
 
         ``{}`` on a pgvector deployment (``supports_entity_queries`` False) and
         when no workspace scope exists -- which keeps the default path
-        byte-identical. A failure degrades to ``{}`` (REQ-L3-SEARCH-009).
+        byte-identical. A failure degrades to ``{}`` (REQ-L3-SEARCH-009) and is
+        reported: the request served *partial* semantic results, which must not
+        look complete, so the port is flagged with
+        ``degraded_reason="cross_type_query_failed"`` (distinct from the
+        ``qdrant_unavailable`` outage token -- no fallback happened here and
+        ``vector_backend`` still names the backend that served the other legs).
         """
         if (
             mode == "keyword"
@@ -1715,6 +1761,20 @@ class SearchService(ServiceBase):
         requested = [t for t in entity_types if t not in _EMBEDDABLE_TYPES]
         if not requested:
             return {}
+        # Follow-ups (deliberately NOT part of this PR, tracked for PR-A21b):
+        #   * One round-trip per type x workspace: this fan-out runs inside
+        #     ``_search_multi_workspace``'s per-entity-type x per-workspace loop,
+        #     so ``scope="tenant"`` costs ``len(types) * len(workspaces)``
+        #     cross-type queries. A single workspace-scoped ``query_entities``
+        #     call per workspace (requesting every type at once) would collapse
+        #     it -- ``query_entities`` already accepts a list of ``entity_types``.
+        #   * Double hydration for the three embeddable types: Requirement/
+        #     TraceLink/Icd arrive hydrated from ``query_entities`` *and* again
+        #     through ``_run_semantic_query``'s per-type ``query_similar``, so
+        #     their ORM rows are fetched and READ-checked twice per search.
+        #   * The lexical/full-text legs apply no item-level filter for any type
+        #     other than Icd/TraceLink (``_apply_row_visibility``) -- pre-existing
+        #     behaviour, hardened only by T-A3-3's plan; not introduced here.
         try:
             typed_hits: list[TypedVectorHit] = port.query_entities(
                 tenant_id=tenant_id,
@@ -1727,6 +1787,12 @@ class SearchService(ServiceBase):
             )
         except Exception:
             logger.exception("SearchService: cross-type semantic query error")
+            # Partial semantic results must be reported as such (T-A2-7): the
+            # hits of the other legs are still served, so this is a degradation,
+            # not an error response -- and silence here made a Qdrant-side
+            # failure indistinguishable from "this backend has no cross-type
+            # index" on the wire.
+            mark_request_degraded(port, DEGRADED_CROSS_TYPE_QUERY_FAILED)
             return {}
 
         grouped: dict[str, list[SearchHit]] = {}

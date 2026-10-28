@@ -1407,6 +1407,12 @@ class RequirementService(ServiceBase):
                 # workspace can get fewer hits than exist (or none). The port
                 # enables the iterative scan for this query; no-op on < 0.8.
                 iterative_scan=True,
+                # QR-S07: the port's READ gate needs the caller identity. It is
+                # ignored by the pgvector adapter (default path, byte-identical)
+                # and REQUIRED by the Qdrant adapter, which fails closed without
+                # it -- i.e. omitting it would silently empty this method's
+                # results under Qdrant instead of merely skipping a check.
+                ctx=ctx,
             )
         except QdrantBackendUnavailableError as exc:
             raise QdrantUnavailableError(str(exc)) from exc

@@ -1055,9 +1055,14 @@ class TraceLinkService(ServiceBase):
                 exclude_id=link.id,
                 limit=safe_limit,
                 # Mirrors the pre-port site: no transaction/iterative scan
-                # here. Strict mode still gets one — the port forces it on
+                # here. Strict mode still gets one -- the port forces it on
                 # whenever it has to post-filter by embedding_model (T-A0-6).
                 iterative_scan=False,
+                # Deliberately NO ``ctx`` yet: the port's QR-S07 READ gate is
+                # fail-closed, so under Qdrant this method returns no hits until
+                # PR-A21b (T-A2-8) threads the identity through. Left as-is on
+                # purpose -- it is that PR's file scope, and the pgvector default
+                # path is unaffected (the adapter ignores ``ctx``).
             )
         except QdrantBackendUnavailableError as exc:
             raise QdrantUnavailableError(str(exc)) from exc
