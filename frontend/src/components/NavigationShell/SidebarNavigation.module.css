@@ -295,6 +295,14 @@
   justify-content: space-between;
   gap: var(--space-2);
   width: 100%;
+  /* WCAG 2.5.8 (and the axe `target-size` gate) needs a 24px target; before
+     this the row computed to 22px (11.2px text + 2×4px padding). 24px is
+     `--btn-h-xs`, the icon-button step of the button scale — the C1 button
+     geometry gate classifies that height as an icon button and therefore does
+     not count it against the 3-standard-heights budget. `box-sizing` is
+     border-box globally, so this is the final box height: padding and text
+     stay inside it (see .navGroupChevron for the vertical centring). */
+  min-height: var(--btn-h-xs);
   padding: var(--space-1) var(--space-3);
   background: transparent;
   border: 0;
@@ -311,9 +319,10 @@
 
 /* Plan C / T-C4-4: the group header is a disclosure button, not a new button
    variant — it keeps the header's own typography and only adds the affordance
-   the toggle needs (hover, focus, chevron). No height/border-radius here: the
-   header is a label-sized affordance, not a --btn-h-* control (the geometry
-   ratchet stays at 0). */
+   the toggle needs (hover, focus, chevron). Its target height is the icon step
+   `--btn-h-xs` (24px, WCAG 2.5.8), not one of the --btn-h-sm/md/lg text-button
+   steps, and it carries no border-radius, so the button geometry ratchet stays
+   at 0. */
 .navGroupLabel:hover {
   color: var(--color-nav-text);
 }
