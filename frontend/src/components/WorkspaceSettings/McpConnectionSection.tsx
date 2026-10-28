@@ -29,6 +29,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 
+import styles from "./McpConnectionSection.module.css";
+
 /** MCP transport paths as mounted in backend/reqogniloom/urls.py. */
 const MCP_HTTP_PATH = "/mcp/";
 const MCP_SSE_PATH = "/mcp/sse/";
@@ -287,10 +289,13 @@ export function McpConnectionSection({
             "Der API-Key muss als Header gesendet werden — X-API-Key: reqlo_… oder Authorization: Bearer reqlo_…. Ein api_key-Query-Parameter wird bewusst nicht unterstützt.",
           )}
         </p>
+        {/* SC 2.5.8: `styles.tokenLink` floors the hit area at 24px
+            (`--space-6`); `linkStyle` still owns font-size and colour. */}
         <Link
           to="/profile"
           data-testid="mcp-personal-access-tokens-link"
           style={linkStyle}
+          className={styles.tokenLink}
         >
           {t(
             "settings.mcp.tokenLink",

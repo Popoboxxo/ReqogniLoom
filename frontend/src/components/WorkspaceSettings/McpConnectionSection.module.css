@@ -1,0 +1,20 @@
+/*
+ * WCAG 2.2 AA, SC 2.5.8 "Target Size (Minimum)" — GitHub #1394 convention.
+ *
+ * "Personal Access Token im Profil erstellen" is a STANDALONE action link (it
+ * is the only control in its paragraph, not a link inside running prose), so
+ * the 2.5.8 inline exception does not apply and its box must clear 24x24. A
+ * bare inline `<a>` only gets its 18px line box, hence the floor.
+ *
+ * Same treatment as the other control rows (#1394): `--space-6` is the 24px
+ * token, not a new pixel value. `inline-flex` + `align-items: center` is what
+ * makes `min-height` apply at all (it is ignored on an inline box) and keeps
+ * the text vertically centred on its original line. No padding, no border and
+ * no colour change: the link's typography and hover/focus styling stay the
+ * caller's `linkStyle`, only the hit area grows.
+ */
+.tokenLink {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--space-6);
+}
