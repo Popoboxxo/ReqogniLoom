@@ -318,7 +318,20 @@ class FakeQdrantClient:
         self._record("get_collection", collection_name=name)
         if name not in self.collections:
             raise ValueError(f"collection {name!r} does not exist")
-        vectors = SimpleNamespace(size=self.vector_sizes[name])
+        # ``vector_sizes`` stays the mutable source of truth, so a test can widen
+        # a collection behind the backend's back. The SHAPE, however, follows what
+        # ``create_collection`` recorded: real Qdrant returns a
+        # ``{vector_name: VectorParams}`` dict for a named-vector collection (the
+        # v2 artifact collection) and a bare ``VectorParams`` for the legacy
+        # unnamed-vector ones. Flattening both to the unnamed shape would leave
+        # the named-vector branch of ``_collection_dimension`` untested.
+        size_holder = SimpleNamespace(size=self.vector_sizes[name])
+        recorded = self.vector_configs.get(name)
+        vectors = (
+            {vector_name: size_holder for vector_name in recorded}
+            if isinstance(recorded, dict)
+            else size_holder
+        )
         return SimpleNamespace(
             config=SimpleNamespace(
                 params=SimpleNamespace(

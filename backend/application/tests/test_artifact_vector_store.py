@@ -30,6 +30,7 @@ from application.artifact_vector_store import (
 from memory.tests.qdrant_fakes import FakeQdrantClient, FakeQdrantModels
 from persistence.embedding_dimensions import EMBEDDING_VECTOR_DIMENSIONS
 from persistence.qdrant_config import (
+    DEFAULT_QDRANT_QUANTIZATION,
     QdrantConfig,
     build_collection_alias,
     build_collection_name,
@@ -205,6 +206,43 @@ def test_concurrent_create_race_is_tolerated() -> None:
     assert set(client.payload_indexes[name]) == _EXPECTED_PAYLOAD_INDEX_FIELDS
 
 
+def test_concurrent_create_race_with_a_different_width_fails_loud() -> None:
+    """The tolerated create race must NOT bypass the dimension guard.
+
+    The worker that wins the race provisioned the collection at another width
+    (a deployment with a different ``EMBEDDING_VECTOR_DIMENSIONS``). Our
+    ``create_collection`` then fails with "already exists", which is benign --
+    but the collection that is now there is not one this process can use, so
+    provisioning fails loud exactly like the reuse path instead of starting up
+    against a width that only yields meaningless scores.
+    """
+
+    class _MismatchedRaceClient(FakeQdrantClient):
+        """The concurrent winner left a collection at the WRONG width behind."""
+        def create_collection(  # type: ignore[override]
+            self,
+            *,
+            collection_name: str,
+            vectors_config: object,
+            sparse_vectors_config=None,
+        ) -> None:
+            wrong_width = EMBEDDING_VECTOR_DIMENSIONS + 128
+            self.collections.setdefault(collection_name, [])
+            self.vector_configs[collection_name] = {
+                DENSE_VECTOR_NAME: FakeQdrantModels.VectorParams(size=wrong_width)
+            }
+            self.vector_sizes[collection_name] = wrong_width
+            raise RuntimeError("Collection `%s` already exists!" % collection_name)
+
+    client = _MismatchedRaceClient()
+
+    with pytest.raises(ImproperlyConfigured, match="EMBEDDING_VECTOR_DIMENSIONS"):
+        _ensure(client)
+
+    # The guard runs before any write: no payload index was ever created.
+    assert client.payload_indexes == {}
+
+
 def test_create_failure_without_collection_still_raises() -> None:
     class _BrokenClient(FakeQdrantClient):
         def create_collection(self, **_kwargs: object) -> None:
@@ -354,6 +392,26 @@ def test_unrecognised_quantization_falls_back_to_int8_with_one_warning(
     name = _ensure(client, config=config)
 
     assert client.vector_configs[name][DENSE_VECTOR_NAME].quantization_config is not None
+
+
+@pytest.mark.parametrize("raw", ["", "   "])
+def test_blank_quantization_env_value_is_unset_and_silent(
+    raw: str, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """``QDRANT_QUANTIZATION=`` in an env file means "unset", not "unrecognised".
+
+    The resolver is uncached and runs per ``get_vector_port()``, so reporting a
+    blank value as unrecognised would log a warning on every single request.
+    """
+    monkeypatch.setenv("QDRANT_QUANTIZATION", raw)
+
+    with caplog.at_level(logging.WARNING, logger="persistence.qdrant_config"):
+        config = resolve_qdrant_config()
+
+    assert config.quantization == DEFAULT_QDRANT_QUANTIZATION
+    assert [r for r in caplog.records if r.name == "persistence.qdrant_config"] == [], (
+        "a blank value is not a typo: no warning"
+    )
 
 
 def test_quantization_none_omits_quantization_config() -> None:

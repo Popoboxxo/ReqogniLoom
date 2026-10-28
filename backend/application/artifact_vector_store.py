@@ -115,15 +115,17 @@ def _payload_index_fields(collection_info: Any) -> set[str]:
 
 
 def _assert_existing_dimension(collection_info: Any, config: QdrantConfig) -> None:
-    """Fail loud when a reused collection was built at another vector width.
+    """Fail loud when an existing collection was built at another vector width.
 
-    A ``..._artifacts_v2`` collection created under a different
-    ``EMBEDDING_VECTOR_DIMENSIONS`` would accept the upsert and then return
-    meaningless scores, so a drift is a configuration error (ADR-020 §6), never
-    a warning. Reuses the guard the memory backend already applies rather than
-    re-implementing it: ``_collection_dimension`` already tolerates the named
-    vector dict shape this v2 collection uses. Imported lazily for the same
-    reason as :func:`_resolve_config`.
+    Applies to every path that ends up with an existing ``..._artifacts_v2``
+    collection -- the reuse path and the tolerated create race alike. A
+    collection created under a different ``EMBEDDING_VECTOR_DIMENSIONS`` would
+    accept the upsert and then return meaningless scores, so a drift is a
+    configuration error (ADR-020 §6), never a warning. Reuses the guard the
+    memory backend already applies rather than re-implementing it:
+    ``_collection_dimension`` already tolerates the named vector dict shape this
+    v2 collection uses. Imported lazily for the same reason as
+    :func:`_resolve_config`.
     """
     from memory.qdrant_backend import (  # lazy: shared dimension guard
         _collection_dimension,
@@ -268,13 +270,16 @@ def ensure_artifact_collection(
             logger.debug("qdrant artifact collection %s was created concurrently", collection_name)
         else:
             logger.info("created qdrant artifact collection %s (alias=%s)", collection_name, alias)
-        info = client.get_collection(collection_name)
-    else:
-        # Reuse: never dropped or recreated (it may already hold vectors), but an
-        # existing collection built at another width must fail loud now rather
-        # than surface much later as meaningless scores or failed upserts.
-        info = client.get_collection(collection_name)
-        _assert_existing_dimension(info, config)
+
+    # One fetch, one guard, for BOTH paths. A reused collection is never dropped
+    # or recreated (it may already hold vectors), but an existing collection
+    # built at another width must fail loud now rather than surface much later as
+    # meaningless scores or failed upserts. The tolerated create race is guarded
+    # for the same reason: the collection that won it was provisioned by another
+    # caller and may itself be at the wrong width, so skipping the check there
+    # would leave exactly the path this guard exists for unchecked.
+    info = client.get_collection(collection_name)
+    _assert_existing_dimension(info, config)
 
     existing_fields = _payload_index_fields(info)
     for field_name in PAYLOAD_INDEX_FIELDS:

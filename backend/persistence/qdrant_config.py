@@ -228,7 +228,12 @@ def resolve_qdrant_config(
         else os.environ.get("QDRANT_QUANTIZATION", DEFAULT_QDRANT_QUANTIZATION)
     )
     resolved_quantization = str(resolved_quantization).strip().lower()
-    if resolved_quantization in QDRANT_QUANTIZATION_OFF_ALIASES:
+    if not resolved_quantization:
+        # A blank value (``QDRANT_QUANTIZATION=`` in an env file) means "unset",
+        # not "unrecognised": the resolver is uncached and runs per
+        # ``get_vector_port()``, so a warning here would log on every request.
+        resolved_quantization = DEFAULT_QDRANT_QUANTIZATION
+    elif resolved_quantization in QDRANT_QUANTIZATION_OFF_ALIASES:
         resolved_quantization = QDRANT_QUANTIZATION_NONE
     elif resolved_quantization not in QDRANT_QUANTIZATION_MODES:
         logger.warning(
