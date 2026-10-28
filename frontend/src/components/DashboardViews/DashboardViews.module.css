@@ -65,7 +65,10 @@
   color: var(--color-surface);
   border: none;
   border-radius: var(--radius-btn);
-  padding: var(--space-2) var(--space-4);
+  /* #1258: the height comes from the button scale, not from 2x8px padding plus
+   * a 16px font (which computed to 38.8px — a fourth height on `/`). */
+  min-height: var(--btn-h-md);
+  padding: 0 var(--space-4);
   font-size: var(--font-size-base);
   font-weight: var(--weight-semibold);
   cursor: pointer;

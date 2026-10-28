@@ -52,7 +52,10 @@
   color: var(--color-text-muted);
   font-size: var(--font-size-sm);
   font-weight: 500;
-  padding: var(--space-2) var(--space-4);
+  /* #1258: tab height from the button scale (sm, the `.btn-tab` tier) instead
+   * of 2x8px padding. */
+  min-height: var(--btn-h-sm);
+  padding: 0 var(--space-4);
   margin-bottom: -1px;
   cursor: pointer;
 }
@@ -61,6 +64,18 @@
   border-bottom-color: var(--color-primary);
   color: var(--color-text);
   font-weight: 600;
+}
+
+/* C1 (#1258): `.tabRow` is a GAPPED row (the `gap` above), so its tabs are
+ * separate buttons, not butted segments — every tab carries the full button
+ * radius. `.tabSpacer` is a sibling *after* the last tab (see MemoryPage.tsx),
+ * so the last tab is not `:last-child` and the shared `.btn-tab:first-child` /
+ * `:last-child` inner-corner squares otherwise leave this strip with two
+ * different shapes. Both composed classes are covered because a tab renders
+ * either `.tab` or `.tabActive`. */
+.tabRow .tab,
+.tabRow .tabActive {
+  border-radius: var(--radius-btn);
 }
 
 .degraded {
@@ -153,7 +168,9 @@
   color: var(--color-primary);
   font-size: var(--font-size-sm);
   cursor: pointer;
-  padding: var(--space-1);
+  /* #1258: inline link action — sm tier, no padding-derived height. */
+  min-height: var(--btn-h-sm);
+  padding: 0 var(--space-1);
 }
 
 .error {
@@ -248,8 +265,10 @@
   background: transparent;
   color: var(--color-danger);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-btn);
+  /* #1258: dense row action — sm tier of the button scale, not padding. */
+  min-height: var(--btn-h-sm);
+  padding: 0 var(--space-3);
   font-size: var(--font-size-sm);
   cursor: pointer;
 }
@@ -268,7 +287,9 @@
 }
 
 .pageButton {
-  padding: var(--space-1) var(--space-3);
+  /* #1258: pagination control — sm tier of the button scale, not padding. */
+  min-height: var(--btn-h-sm);
+  padding: 0 var(--space-3);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-btn);
   background: var(--color-surface);

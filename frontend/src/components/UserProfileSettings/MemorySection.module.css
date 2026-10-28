@@ -68,11 +68,12 @@
 }
 
 .deleteBtn {
+  min-height: var(--btn-h-sm);
   background: var(--color-danger);
   color: white;
   border: none;
-  border-radius: var(--radius-md);
-  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-btn);
+  padding: 0 var(--space-3);
   font-size: var(--font-size-sm);
   font-weight: 600;
   cursor: pointer;
@@ -115,12 +116,13 @@
 }
 
 .forgetBtn {
+  min-height: var(--btn-h-sm);
   flex: 0 0 auto;
   background: transparent;
   color: var(--color-danger);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-btn);
+  padding: 0 var(--space-3);
   font-size: var(--font-size-sm);
   cursor: pointer;
 }

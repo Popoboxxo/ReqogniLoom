@@ -87,10 +87,24 @@
 }
 
 .groupRuleId {
+  /* #1262: rendered as a <button> so the rule-id popover is keyboard-reachable.
+   *
+   * #1258 (C1): because it IS a <button>, the button-geometry gate measures it
+   * like every other control on /audit. Left as a bare text run it contributed
+   * a content-driven height (~20px, off the --btn-h-* scale) and the UA/`none`
+   * radius (0px) as a second counted radius. It stays a dotted text link —
+   * colour, border and underline are untouched — and only the box is put on the
+   * scale: the 24px icon tier (--btn-h-xs, the same remedy #1395 applied to the
+   * 22px row-delete trigger, and the WCAG 2.2 SC 2.5.8 target-size floor) plus
+   * the standard button radius. `inline-flex` keeps the text optically centred
+   * in the taller box instead of top-aligning it. */
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--btn-h-xs);
+  border-radius: var(--radius-btn);
   font-family: monospace;
   font-weight: 700;
   color: var(--color-text);
-  /* #1262: rendered as a <button> so the rule-id popover is keyboard-reachable. */
   background: none;
   border: none;
   padding: 0;

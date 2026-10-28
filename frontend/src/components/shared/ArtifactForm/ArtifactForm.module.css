@@ -203,9 +203,10 @@
 }
 
 .optionChip {
+  min-height: var(--btn-h-sm);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-full);
-  padding: var(--space-1) var(--space-3);
+  padding: 0 var(--space-3);
   background: var(--color-surface);
   color: var(--color-text);
   cursor: pointer;
@@ -283,13 +284,24 @@
 }
 
 .tab {
+  min-height: var(--btn-h-sm);
   background: none;
   border: none;
   border-bottom: 2px solid transparent;
-  padding: var(--space-2);
+  padding: 0 var(--space-2);
   cursor: pointer;
   font: inherit;
   color: var(--color-text-muted);
+}
+
+/* C1 (#1258): `.tabList` is a GAPPED row (the `gap` above), so its tabs are
+ * separate buttons, not butted segments — every tab carries the full button
+ * radius. Without this, `.btn-tab:last-child` squares the last tab's inner
+ * corners and the C1 geometry gate counts a stray 0px radius on this strip.
+ * Declared with two classes so it also wins over the `:first-child` /
+ * `:last-child` rules of equal specificity in `global.css`. */
+.tabList .tab {
+  border-radius: var(--radius-btn);
 }
 
 .tabActive {

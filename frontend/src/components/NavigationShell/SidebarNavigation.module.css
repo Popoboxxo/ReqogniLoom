@@ -248,7 +248,11 @@
   align-items: flex-start;
   gap: 2px;
   width: 100%;
-  padding: var(--space-2) var(--space-3);
+  /* #1258: the height comes from the button scale, not from 2x8px padding.
+   * The tier itself is pinned in the shared md block below, at two-class
+   * specificity — a local single-class `min-height` would tie with the
+   * composed `.btn-ghost` base. */
+  padding: 0 var(--space-3);
   border-radius: var(--radius-btn);
   border: none;
   background: transparent;
@@ -263,6 +267,33 @@
 
 .searchResultButton:hover {
   background: var(--color-nav-hover-bg);
+}
+
+/* Sidebar button tier (C1 / #1258). Every dense action in this always-rendered
+ * chrome — the search hit row, the optional-artifacts switch, the workspace
+ * switcher, the workspace options and the pinned footer row — is the button
+ * scale's **md** tier. The tier is expressed through the composed
+ * `.btn-ghost` / `.btn-secondary` base, which already declares
+ * `min-height: var(--btn-h-md)`; the elements therefore carry no `btn-sm`
+ * modifier.
+ *
+ * It is REPEATED here at two-class specificity on purpose: a single-class
+ * `min-height` on the component rule ties with the base rule at (0,1,0), so
+ * the rendered tier would be decided by stylesheet injection order — the
+ * exact coin flip that made a previous attempt add a `btn-sm` modifier. Two
+ * classes (0,2,0) win deterministically against both the base and this
+ * module's own single-class rules.
+ *
+ * The sidebar renders on every route, so a tier introduced here is spent from
+ * every route's C1 height budget: `--btn-h-sm` here cost each route its third
+ * of the three allowed heights and failed nine of them. */
+.footer .footerBtn,
+.scrollContent .optionalToggleBtn,
+.workspaceSwitcherWrapper .switcherToggleBtn,
+.workspaceList .workspaceOption,
+.workspaceList .workspaceOptionActive,
+.dropdownList .searchResultButton {
+  min-height: var(--btn-h-md);
 }
 
 .searchResultTitle {
@@ -308,7 +339,9 @@
      broke `/traceability`'s ≤2 budget. The fill stays transparent, so this is
      the existing standard radius, not new chrome. */
   border-radius: var(--radius-btn);
-  padding: var(--space-1) var(--space-3);
+  /* #1258: the vertical padding is 0 so the 24px box is the token's, not
+   * 2x4px padding plus an 11.2px line box. */
+  padding: 0 var(--space-3);
   background: transparent;
   border: 0;
   color: var(--color-nav-text-muted);
@@ -320,6 +353,20 @@
   text-transform: uppercase;
   cursor: pointer;
   transition: var(--transition-fast);
+}
+
+/* #1258: the group name is a single-line label, never a two-line one. Without
+ * this the longer names ("Requirements Engineering") wrapped inside the flex
+ * row: two 14px line boxes made the content 28px tall, so the box rendered 28
+ * instead of the 24px `--btn-h-xs` target above — an extra counted height on
+ * every route. `nowrap` + a shrinkable, ellipsising flex item keeps the line
+ * box at 14px, so the 24px `min-height` is the final box height. The label
+ * text itself, its font-size and the chevron are unchanged. */
+.navGroupLabel > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Plan C / T-C4-4: the group header is a disclosure button, not a new button
@@ -395,7 +442,10 @@
   justify-content: space-between;
   gap: var(--space-2);
   width: 100%;
-  padding: var(--space-2) var(--space-3);
+  /* #1258: dense sidebar action — md tier via the composed `.btn-ghost` base
+   * and the shared two-class block above. The vertical padding is 0 so the
+   * label keeps its current position inside the base's `--btn-h-md` box. */
+  padding: 0 var(--space-3);
   margin-top: var(--space-3);
   border-radius: var(--radius-btn);
   border: 1px solid var(--color-nav-border);
@@ -461,7 +511,9 @@
   justify-content: space-between;
   gap: var(--space-2);
   width: 100%;
-  padding: var(--space-2) var(--space-3);
+  /* #1258: dense sidebar action — md tier via the composed `.btn-secondary`
+   * base and the shared two-class block above; no `btn-sm` modifier. */
+  padding: 0 var(--space-3);
   border-radius: var(--radius-btn);
   border: 1px solid var(--color-nav-border);
   background: transparent;
@@ -537,7 +589,9 @@
   color: white;
   border: none;
   border-radius: var(--radius-btn);
-  padding: var(--space-2);
+  /* #1258: primary sidebar CTA — md tier of the button scale, not padding. */
+  min-height: var(--btn-h-md);
+  padding: 0 var(--space-2);
   cursor: pointer;
   font-size: var(--font-size-sm);
   font-weight: 600;
@@ -568,8 +622,11 @@
   justify-content: space-between;
   gap: var(--space-2);
   width: 100%;
-  padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-sm);
+  /* #1258: dense list-row action — the tier is pinned in the shared md block
+   * above, and the radius is the button token (`--radius-sm` is the same 6px
+   * value but not the scale's own alias). */
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-btn);
   border: none;
   background: transparent;
   color: var(--color-nav-text);
@@ -591,8 +648,11 @@
   justify-content: space-between;
   gap: var(--space-2);
   width: 100%;
-  padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-sm);
+  /* #1258: dense list-row action — the tier is pinned in the shared md block
+   * above, and the radius is the button token (`--radius-sm` is the same 6px
+   * value but not the scale's own alias). */
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-btn);
   border: none;
   background: var(--color-nav-active-bg);
   color: var(--color-nav-text);
@@ -688,7 +748,11 @@
 }
 
 .footerBtn {
-  padding: var(--space-2) var(--space-3);
+  /* #1258: dense footer action — md tier via the composed `.btn-ghost` base
+   * and the shared two-class block above; no `btn-sm` modifier. The vertical
+   * padding is 0 so the label keeps its current position inside the base's
+   * `--btn-h-md` box. */
+  padding: 0 var(--space-3);
   border-radius: var(--radius-btn);
   border: 1px solid var(--color-nav-border);
   background: transparent;

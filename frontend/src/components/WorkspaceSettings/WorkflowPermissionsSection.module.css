@@ -28,10 +28,11 @@
 }
 
 .linkButton {
+  min-height: var(--btn-h-sm);
   background: transparent;
   color: var(--color-primary);
   border: none;
-  padding: var(--space-1) var(--space-2);
+  padding: 0 var(--space-2);
   font-size: var(--font-size-sm);
   cursor: pointer;
   text-decoration: underline;

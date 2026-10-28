@@ -767,12 +767,17 @@ function scanAmbiguousButtonLabels(): Violation[] {
  * corner radius from the button scale: `--btn-h-xs|sm|md|lg` for the height,
  * `--radius-btn` (or `--radius-full` for a deliberately round control) for the
  * radius. The reference measurement (C-L19) predicted ~78 one-off geometry
- * declarations across the CSS modules; the scanner found 84, and that measured
- * value is what the baseline freezes. Which is why this is a ratchet and not a
- * one-time cleanup: the ceiling only moves down from the merge value. The
- * scoped selector below (#1258 review) freezes 72 of those 84 — the twelve it
- * no longer selects are switch primitives and disclosure toggles, which are
- * not button geometry (see the scope note on the pattern).
+ * declarations across the CSS modules and the scanner found more, which is why
+ * this is a ratchet and not a one-time cleanup: the ceiling only moves down
+ * from the merge value. That ceiling is 0 today — the re-recorded baseline
+ * stores an empty `known` list — so the original discovery count is history,
+ * not a figure this suite still checks or depends on.
+ *
+ * The scoped selector below (#1258 review) deliberately leaves switch
+ * primitives and disclosure toggles out of the scan: they are not button
+ * geometry (see the scope note on the pattern), and the ten entries in
+ * `NON_BUTTON_SELECTOR_ALLOWLIST` are enumerated rather than frozen in the
+ * baseline.
  *
  * Why a stylesheet scan rather than the JSX scanner above: the geometry lives
  * in `*.module.css`, and a class name says nothing about it — `.primaryButton`
@@ -810,19 +815,41 @@ function scanAmbiguousButtonLabels(): Violation[] {
  * `le`), `[tabindex]`, `.chips` and `.btngroup` are not — a substring hit would
  * freeze geometry nobody can attribute to a button.
  *
- * The two spellings are deliberately NOT symmetric, because the family only
- * ever recognised one of them: the full word `button` may be a camelCase
- * suffix (`.primaryButton`), while the abbreviation `btn` must be delimited
- * (`.btn`, `.btn-primary`, `.btnPrimary`). A capitalised `*Btn` suffix
- * (`.closeBtn`, `.optionalToggleBtn`) does not select, exactly as before: the
- * 24 such rules with off-token geometry that this selector still leaves out
- * would push the ceiling from 84 to 98 if they were pulled in — a widening,
- * which is its own change and cannot ride along with this narrowing.
+ * The spellings are deliberately NOT treated identically: the full word
+ * `button` may be a camelCase suffix (`.primaryButton`), while the abbreviation
+ * `btn` must be delimited (`.btn`, `.btn-primary`, `.btnPrimary`).
+ *
+ * The capitalised `*Btn` suffix (`.closeBtn`, `.optionalToggleBtn`, `.cancelBtn`,
+ * `.submitBtn`, `.footerBtn`, `.primaryBtn`) is now IN scope as the third
+ * spelling, because that is exactly where the residual off-token radii lived:
+ * the delimited `.btn` alternation cannot see `…ToggleBtn`, so the class of
+ * call sites the E2E C1 gate kept measuring over target was invisible to this
+ * scanner. It is admitted only as a camelCase token —
+ * `(?<![A-Z0-9])Btn(?![A-Za-z])` — so the lowercase `.btns`/`.btngroup`
+ * spellings stay out (capital `B` only) and the suffix is read only as a
+ * complete name token, never as the head of a longer one.
+ *
+ * The widening shipped together with the token fixes for those call sites in
+ * the same PR, so it introduced no known violations and the ceiling did NOT
+ * rise: it stayed at 0 and every newly selected rule already reads
+ * `--btn-h-*`/`--radius-btn`/`--radius-full`. The earlier objection — that the
+ * 24 such rules with off-token geometry "would push the ceiling from 84 to 98"
+ * — no longer applies: those rules are precisely the ones the accompanying
+ * fix converted, so there is no backlog left for the widened selector to
+ * absorb. Leaving them out was what let the E2E gate, rather than this static
+ * scanner, remain the only thing measuring them.
  */
 const BUTTON_SELECTOR_PATTERN = new RegExp(
   [
     // `.btn`, `.btn-primary`, `.btn-tab:first-child`, `.btnPrimary` — not `.btngroup`.
     "(?<![A-Za-z0-9])[Bb]tn(?![a-z])",
+    // `.closeBtn`, `.optionalToggleBtn`, `.cancelBtn`, `.submitBtn` — the
+    // capitalised abbreviation as a camelCase suffix. Capital `B` only, so the
+    // lowercase `.btns`/`.btngroup` spellings stay out; no `[A-Za-z]` may
+    // follow, so this alternation only accepts `Btn` as a complete token.
+    // Preceded-by-lowercase is allowed on purpose: that transition IS the
+    // suffix, while `.ABtn` still cannot start mid-word.
+    "(?<![A-Z0-9])Btn(?![A-Za-z])",
     // `.button`, `.primaryButton`, `[role="button"]`, `:where(button, a, …)`.
     "(?<![A-Z0-9])[Bb]utton(?![a-z])",
     // `.tab`, `.btn-tab:first-child`, `.tab-active` — the word must stand as a
@@ -1234,7 +1261,13 @@ const CHECK_NOTES: Record<CheckId, string> = {
     "once in the component tree, so the object is unstated. Fix by naming the " +
     "object in the label (i18n key + both locales).",
   "button-geometry-off-token":
-    "Fix by using --btn-h-sm/md/lg and --radius-btn/--radius-full; never raise this ceiling.",
+    "Widened scope: the `*Btn` suffix is now a selected token, so every " +
+    "`…Btn` call site — where the residual off-token radii lived — is " +
+    "measured too. The accompanying token fixes shipped in the same PR, so " +
+    "maxViolations is 0 and known is empty; the two remaining matches are " +
+    "justified exemptions (loading-skeleton chip placeholder, universal " +
+    ":focus-visible inherit). Fix new geometry with --btn-h-sm/md/lg and " +
+    "--radius-btn/--radius-full; never raise this ceiling.",
 };
 
 /**
@@ -1671,6 +1704,49 @@ describe("button geometry scanner (#1258)", () => {
     expect(
       scanButtonGeometryInCss(FILE, css).map((violation) => violation.key),
     ).toEqual([`button-geometry-off-token::${FILE}::.primaryButton`]);
+  });
+
+  it("selects the capitalised *Btn suffix without widening to btns/btngroup", () => {
+    // The widening that finally reaches the call sites where the residual
+    // off-token radii lived (`.closeBtn`, `.optionalToggleBtn`, `.submitBtn`).
+    // It must stay a camelCase token: the lowercase spellings and the
+    // non-button lookalikes keep their previous selection state, so the scan
+    // widens by exactly the suffix and nothing else.
+    const selected = [
+      ".closeBtn",
+      ".optionalToggleBtn",
+      ".cancelBtn",
+      ".submitBtn",
+      ".footerBtn",
+      ".primaryBtn",
+      ".btn",
+      ".btn-primary",
+      ".btnPrimary",
+      ".primaryButton",
+      ".button",
+    ];
+    // `.BtnGroup` is deliberately NOT in either list: the pre-existing
+    // `[Bb]tn(?![a-z])` alternation already read its capital `B`, so it was in
+    // scope before the widening and the widening does not change that. (The
+    // uppercase `G` is not `[a-z]`, which is why the alternation accepts it.)
+    const unselected = [".btngroup", ".btns", ".table", "[tabindex]"];
+    expect(
+      selected.filter((selector) => !BUTTON_SELECTOR_PATTERN.test(selector)),
+      "selector(s) the button family must select",
+    ).toEqual([]);
+    expect(
+      unselected.filter((selector) => BUTTON_SELECTOR_PATTERN.test(selector)),
+      "selector(s) the button family must NOT select",
+    ).toEqual([]);
+  });
+
+  it("flags a .cancelBtn rule with an off-token height", () => {
+    // The exact shape the widened scan exists to catch: a `*Btn` call site with
+    // a one-off height that the delimited `.btn` alternation could not see.
+    const css = [".cancelBtn {", "  height: 30px;", "}", ""].join("\n");
+    expect(
+      scanButtonGeometryInCss(FILE, css).map((violation) => violation.key),
+    ).toEqual([`button-geometry-off-token::${FILE}::.cancelBtn`]);
   });
 
   it("measures pseudo-class variants under the selector as written", () => {

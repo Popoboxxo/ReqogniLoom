@@ -71,14 +71,15 @@
 }
 
 .option {
+  min-height: var(--btn-h-sm);
   display: flex;
   flex-direction: column;
   gap: 0;
   width: 100%;
   border: none;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-btn);
   background: none;
-  padding: var(--space-2);
+  padding: 0 var(--space-2);
   text-align: left;
   font: inherit;
   color: var(--color-text);

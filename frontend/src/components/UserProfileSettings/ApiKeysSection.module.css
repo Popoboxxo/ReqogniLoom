@@ -82,7 +82,6 @@
   color: var(--color-on-primary);
   border: none;
   border-radius: var(--radius-btn);
-  padding: var(--space-2) var(--space-4);
   font-size: var(--font-size-sm);
   font-weight: var(--weight-semibold);
   cursor: pointer;
@@ -133,7 +132,6 @@
   color: var(--color-on-primary);
   border: none;
   border-radius: var(--radius-btn);
-  padding: var(--space-1) var(--space-3);
   font-size: var(--font-size-sm);
   font-weight: var(--weight-semibold);
   cursor: pointer;
@@ -144,7 +142,6 @@
   color: var(--color-text-muted);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-btn);
-  padding: var(--space-1) var(--space-3);
   font-size: var(--font-size-sm);
   cursor: pointer;
 }
@@ -232,7 +229,6 @@
   color: var(--color-on-danger);
   border: none;
   border-radius: var(--radius-btn);
-  padding: var(--space-1) var(--space-3);
   font-size: var(--font-size-sm);
   font-weight: var(--weight-semibold);
   cursor: pointer;
@@ -245,4 +241,33 @@
 .dangerButtonDisabled {
   opacity: 0.6;
   cursor: wait;
+}
+
+/* C1 button tier (same precedent as NavigationShell/SidebarNavigation.module.css).
+ *
+ * The geometry lives at TWO-class specificity on purpose: a single-class
+ * `min-height`/`padding` here ties with the global `.btn-primary` /
+ * `.btn-secondary` / `.btn-danger` / `.btn-ghost` base rule at (0,1,0), so the
+ * rendered height would be decided by stylesheet injection order — dev (Vite)
+ * and the built bundle can differ. Two classes (0,2,0) win deterministically
+ * against both the base rule and this module's own single-class rules.
+ *
+ * The create button is the scale's md tier (36px); the copy, dismiss and
+ * revoke controls are the sm tier (32px). Vertical padding is 0 so the box
+ * height is the token, not padding plus line box.
+ *
+ * `align-self: flex-start` is part of the md tier: `.createRow` is a flex row
+ * whose text input is 38px tall, and the default `stretch` made the button
+ * inherit that height (measured 38px) instead of its own 36px. */
+.createRow .primaryButton {
+  min-height: var(--btn-h-md);
+  padding: 0 var(--space-4);
+  align-self: flex-start;
+}
+
+.plaintextRow .copyButton,
+.plaintextRow .dismissButton,
+.revokeRow .dangerButton {
+  min-height: var(--btn-h-sm);
+  padding: 0 var(--space-3);
 }
