@@ -45,17 +45,26 @@ Design contract:
   the source of truth. **A caller identity (``ctx``) is required**: the READ
   check fails closed, so a call without one yields no hits at all rather than
   unchecked ones. ``find_similar_requirements`` passes its identity;
-  ``find_similar_trace_links``/``find_similar_icds`` do not yet and therefore
-  return nothing under Qdrant until PR-A21b wires theirs through (the default
-  pgvector deployment is unaffected in both cases).
+  ``find_similar_trace_links``/``find_similar_icds`` do not yet -- and they
+  pass no ``workspace_id`` either, so the Qdrant adapter fails **loud** today
+  (``QdrantBackendUnavailableError`` from ``_collection_name``, mapped to the
+  callers' ``...UnavailableError``) rather than returning hits. They return
+  empty only once PR-A21b adds the workspace scope but still no identity; the
+  default pgvector deployment is unaffected in both cases.
 * **Fallback (T-A2-7).** :class:`FallbackVectorPort` wraps the Qdrant adapter
   for the search path: a ``QdrantBackendUnavailableError`` degrades the request
   to pgvector and sets a request-local ``degraded``/``degraded_reason`` pair.
+  ``degraded`` aggregates two facts that stay separate on the instance:
+  ``serving_from_fallback`` (the actual outage -- the only thing
+  :func:`serves_from_fallback` reports) and ``partial_semantics`` (a cross-type
+  leg failed while Qdrant still served everything else). Precedence is
+  **outage > partial**: ``_degrade()`` always writes ``qdrant_unavailable``,
+  ``mark_request_degraded()`` never overwrites it.
   :func:`get_vector_port` itself still returns the bare adapter, keeping the
   three similarity call sites' loud-failure contract. Because the pgvector
   adapter cannot enforce the QR-S07 READ check (it has no ``ctx`` semantics),
   ``SearchService`` applies :func:`hydrate_vector_hits` to the hits of a
-  DEGRADED fallback -- see :func:`is_degraded_fallback`.
+  fallback-serving port -- see :func:`serves_from_fallback`.
 * ``qdrant_client`` is **never imported at module import time** -- only inside
   the Qdrant adapter's lazy helpers -- so importing this module is always safe.
 * ``enable_iterative_ann_scan`` (``application.pgvector_ann``) is
@@ -231,8 +240,10 @@ class VectorPort(Protocol):
         :func:`hydrate_vector_hits` itself) fail closed, so a call without an
         identity returns no hits instead of unchecked ones. The two legacy
         similarity callers that still pass none (``find_similar_trace_links``,
-        ``find_similar_icds``) therefore return nothing under Qdrant until
-        PR-A21b; the default pgvector deployment is unaffected.
+        ``find_similar_icds``) pass no ``workspace_id`` either, so under Qdrant
+        they currently raise ``QdrantBackendUnavailableError`` and only degrade
+        to "no hits" once PR-A21b adds the workspace scope without an identity;
+        the default pgvector deployment is unaffected.
         """
         ...
 
@@ -976,6 +987,24 @@ class FallbackVectorPort:
     semantic hits of the eleven embedding-less types -- documented -- rather
     than the whole search request, and the caller can say so.
 
+    Two DIFFERENT facts are tracked separately, because they answer different
+    questions (one flag for both made ``SearchService`` re-hydrate the hits of a
+    healthy Qdrant primary after an unrelated cross-type failure):
+
+    * ``serving_from_fallback`` -- this request is being served by the pgvector
+      fallback because Qdrant is unavailable. Only :meth:`_degrade` sets it.
+      :func:`serves_from_fallback` reads exactly this, and it is the signal that
+      makes ``SearchService`` apply the QR-S07 gate.
+    * ``partial_semantics`` -- the cross-type semantic leg failed; Qdrant still
+      served every other leg. Set by :func:`mark_request_degraded`.
+    * ``degraded`` -- the aggregate the wire reports (``True`` when either of the
+      two holds), together with ``degraded_reason``/``vector_backend``.
+
+    Precedence is **outage > partial**: an outage is the stronger claim (nothing
+    came from Qdrant at all) and it is written unconditionally by
+    :meth:`_degrade`, while a later :func:`mark_request_degraded` never
+    overwrites a recorded outage.
+
     The flag is request-local by construction: an instance is built per call
     (``get_vector_port()`` already constructs a fresh adapter per call), so two
     concurrent requests never see each other's degradation and nothing is
@@ -988,9 +1017,9 @@ class FallbackVectorPort:
     the QR-S07 gate: it ignores ``ctx`` entirely, so it neither checks
     item-level READ nor excludes ``OUTDATED``/superseded rows. Those two are
     therefore applied by the caller: ``SearchService`` routes the hits of a
-    degraded fallback through :func:`hydrate_vector_hits`. A caller that uses
-    this wrapper outside ``SearchService`` gets the raw pgvector set and must
-    apply the same gate itself.
+    fallback-serving port through :func:`hydrate_vector_hits`. A caller that
+    uses this wrapper outside ``SearchService`` gets the raw pgvector set and
+    must apply the same gate itself.
 
     ``query_entities`` has no pgvector equivalent at all: an outage degrades it
     to ``[]`` (the eleven embedding-less types simply contribute no semantic
@@ -1004,6 +1033,10 @@ class FallbackVectorPort:
     ) -> None:
         self._primary = primary
         self._fallback = fallback if fallback is not None else PgVectorVectorPort()
+        #: Set only by :meth:`_degrade` -- "Qdrant is down, pgvector serves".
+        self.serving_from_fallback = False
+        #: Set only by :func:`mark_request_degraded` -- "a non-outage leg failed".
+        self.partial_semantics = False
         self.degraded = False
         self.degraded_reason = ""
         self.vector_backend = getattr(
@@ -1011,12 +1044,33 @@ class FallbackVectorPort:
         )
 
     def _degrade(self, exc: QdrantBackendUnavailableError) -> None:
-        if not self.degraded:
+        """Switch this request to the fallback after a real Qdrant outage.
+
+        The outage reason is written unconditionally: it SUPERSEDES a
+        ``partial_semantics`` reason recorded earlier (a failing cross-type leg
+        does not make a later outage less of an outage, and reporting
+        ``cross_type_query_failed`` next to ``vector_backend="pgvector"`` would
+        be a lie). The warning is gated on the recorded reason -- not on
+        ``degraded`` -- so a cross-type failure that already flagged the request
+        does not swallow the one line an operator needs; a second outage in the
+        same request stays quiet.
+        """
+        if self.degraded_reason != DEGRADED_QDRANT_UNAVAILABLE:
             # One line per request, never the entity text or the payload.
             logger.warning(
                 "Qdrant artifact backend unavailable, degrading to pgvector (%s)",
                 type(exc).__name__,
             )
+        self._mark_outage()
+
+    def _mark_outage(self) -> None:
+        """Record "Qdrant is unavailable, pgvector serves this request".
+
+        Shared by :meth:`_degrade` (runtime outage) and the construction-failure
+        port :func:`get_fallback_vector_port` builds (where the warning was
+        already emitted with its traceback, so only the state is set).
+        """
+        self.serving_from_fallback = True
         self.degraded = True
         self.degraded_reason = DEGRADED_QDRANT_UNAVAILABLE
         self.vector_backend = DEFAULT_ARTIFACT_VECTOR_BACKEND
@@ -1045,44 +1099,88 @@ class FallbackVectorPort:
             return []
 
 
-def is_degraded_fallback(port: Any) -> bool:
+def serves_from_fallback(port: Any) -> bool:
     """Whether *port* is a :class:`FallbackVectorPort` serving from its fallback.
 
-    The single place that answers "did this request fall back to pgvector?".
+    The single place that answers the question that MATTERS for the gate: "is
+    this request's data coming from pgvector because Qdrant is unavailable?".
     ``SearchService`` uses it to decide whether the QR-S07 gate still has to be
     applied to the returned hits: the Qdrant adapter hydrates its own hits, but
     the pgvector adapter the wrapper falls back to does not (it ignores
-    ``ctx``). For a plain :class:`PgVectorVectorPort` -- the default deployment,
-    which is never wrapped -- this is ``False``, so the default path keeps
-    taking no gate at all and stays byte-identical.
+    ``ctx``).
+
+    Deliberately reads ``serving_from_fallback`` and not ``degraded``: after a
+    cross-type failure a HEALTHY Qdrant wrapper also reports ``degraded=True``,
+    and gating on that made every later per-type semantic leg re-hydrate hits
+    the Qdrant adapter had already hydrated (one extra ORM lookup plus
+    permission resolution per embeddable type per workspace).
+
+    For a plain :class:`PgVectorVectorPort` -- the default deployment, which is
+    never wrapped -- this is ``False``, so the default path keeps taking no gate
+    at all and stays byte-identical.
     """
     return isinstance(port, FallbackVectorPort) and bool(
-        getattr(port, "degraded", False)
+        getattr(port, "serving_from_fallback", False)
     )
 
 
 def mark_request_degraded(port: Any, reason: str) -> None:
-    """Flag *port* as degraded for the rest of the request with a *reason*.
+    """Flag *port* as serving PARTIAL semantics for the rest of the request.
 
     For failures the port itself cannot classify (e.g. a cross-type semantic
     query that raised something other than
     :class:`QdrantBackendUnavailableError`): the request served partial semantic
-    results and must say so instead of looking complete. Best-effort by design
-    -- a read-only port double must never turn a degraded search into a failed
-    one, so an ``AttributeError`` is swallowed. An already reported reason is
-    never overwritten: the first (and usually causal) degradation is the one a
-    caller can act on, and re-labelling an outage as
-    ``cross_type_query_failed`` would contradict ``vector_backend``.
+    results and must say so instead of looking complete.
+
+    This records ``partial_semantics`` -- NOT ``serving_from_fallback``: Qdrant
+    is healthy and served every other leg, so the hits it returned are already
+    hydrated and must not be gated a second time.
+
+    Precedence (see :class:`FallbackVectorPort`): **outage > partial**. A
+    recorded ``qdrant_unavailable`` is never overwritten -- re-labelling an
+    outage as ``cross_type_query_failed`` would contradict
+    ``vector_backend="pgvector"`` -- while :meth:`FallbackVectorPort._degrade`
+    always overwrites a partial reason, because an outage is the stronger
+    claim. Among partial reasons the first one wins (it is the causal one).
+
+    Best-effort by design -- a read-only port double must never turn a degraded
+    search into a failed one, so an ``AttributeError`` is swallowed.
     """
     if port is None:
+        return
+    if getattr(port, "degraded_reason", "") == DEGRADED_QDRANT_UNAVAILABLE:
         return
     if getattr(port, "degraded", False) and getattr(port, "degraded_reason", ""):
         return
     try:
         port.degraded = True
         port.degraded_reason = reason
+        port.partial_semantics = True
     except AttributeError:  # frozen/immutable port double -- never fail search
         logger.debug("vector port does not accept a degraded flag", exc_info=True)
+
+
+def _construct_qdrant_port() -> tuple[QdrantVectorPort | None, Exception | None]:
+    """Build the Qdrant adapter when it is selected, else report why not.
+
+    Returns ``(port, None)`` when the adapter was built, ``(None, exc)`` when
+    Qdrant was selected but construction failed, and ``(None, None)`` when
+    Qdrant was not selected at all. Keeping the two failure modes apart is what
+    lets :func:`get_fallback_vector_port` distinguish "pgvector was requested"
+    (not degraded) from "Qdrant was requested but could not be built" (an
+    outage: pgvector serves, so the request is degraded).
+    """
+    if not _qdrant_selected():
+        return None, None
+    try:
+        return QdrantVectorPort(), None
+    except Exception as exc:  # optional backend must never break search
+        logger.warning(
+            "Qdrant is configured but the vector port could not be built; "
+            "falling back to pgvector",
+            exc_info=True,
+        )
+        return None, exc
 
 
 def get_fallback_vector_port() -> VectorPort:
@@ -1092,11 +1190,26 @@ def get_fallback_vector_port() -> VectorPort:
     :func:`get_vector_port` -- when Qdrant is not selected, so the default
     deployment sees ``degraded=False``, ``vector_backend="pgvector"`` and the
     exact same hits as before.
+
+    When Qdrant IS selected but its adapter cannot be constructed, this returns
+    a :class:`FallbackVectorPort` that already reports
+    ``degraded=True``/``degraded_reason="qdrant_unavailable"`` and
+    ``vector_backend="pgvector"`` -- the same state a runtime outage produces
+    (Qdrant intended, pgvector serving), so ``SearchService`` applies the QR-S07
+    gate to the pgvector hits. Returning a BARE ``PgVectorVectorPort`` here --
+    as an earlier version did -- reported ``degraded=False`` and served ungated
+    rows: exactly the hole the fallback gate closes elsewhere.
     """
-    port = get_vector_port()
-    if isinstance(port, QdrantVectorPort):
+    port, construction_error = _construct_qdrant_port()
+    if port is not None:
         return FallbackVectorPort(port)
-    return port
+    if construction_error is not None:
+        # Already logged with the traceback above; only the state is set, so the
+        # request reports the same outage an unreachable Qdrant would.
+        degraded = FallbackVectorPort(PgVectorVectorPort())
+        degraded._mark_outage()
+        return degraded
+    return PgVectorVectorPort()
 
 
 def get_vector_port() -> VectorPort:
@@ -1110,16 +1223,16 @@ def get_vector_port() -> VectorPort:
     unconfigured, or a construction failure -- degrades to the pgvector
     adapter, so the default path is never affected by the optional backend
     (ADR-020 §4). There is deliberately no implicit switch.
+
+    Deliberately unchanged by the T-A2-7 fallback wrapper: the three legacy
+    similarity call sites keep their loud-failure contract (a Qdrant outage
+    raises ``QdrantBackendUnavailableError`` out of the adapter instead of
+    being silently served from pgvector). Only
+    :func:`get_fallback_vector_port` -- the search path -- wraps.
     """
-    if _qdrant_selected():
-        try:
-            return QdrantVectorPort()
-        except Exception:  # optional backend must never break search
-            logger.warning(
-                "Qdrant is configured but the vector port could not be built; "
-                "falling back to pgvector",
-                exc_info=True,
-            )
+    port, _construction_error = _construct_qdrant_port()
+    if port is not None:
+        return port
     return PgVectorVectorPort()
 
 
@@ -1263,7 +1376,7 @@ __all__ = [
     "get_fallback_vector_port",
     "get_vector_port",
     "hydrate_vector_hits",
-    "is_degraded_fallback",
     "mark_request_degraded",
+    "serves_from_fallback",
     "vector_backend_diagnostic",
 ]

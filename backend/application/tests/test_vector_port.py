@@ -30,12 +30,15 @@ from application.vector_port import (
     COLLECTION_ICD,
     COLLECTION_REQUIREMENT,
     COLLECTION_TRACE_LINK,
+    DEGRADED_CROSS_TYPE_QUERY_FAILED,
     FallbackVectorPort,
     PgVectorVectorPort,
     QdrantBackendUnavailableError,
     QdrantVectorPort,
     get_fallback_vector_port,
     get_vector_port,
+    mark_request_degraded,
+    serves_from_fallback,
 )
 from icd.models import Icd
 from llm_adapter import embedding_service
@@ -419,6 +422,30 @@ class TestGetVectorPortFactory:
         monkeypatch.setattr("application.vector_port.QdrantVectorPort", _boom)
         assert isinstance(get_vector_port(), PgVectorVectorPort)
 
+    def test_construction_failure_yields_degraded_fallback_for_search(self, monkeypatch):
+        """Qdrant intended + not constructible == an outage, not "pgvector".
+
+        A bare ``PgVectorVectorPort`` here reported ``degraded=False`` and made
+        ``SearchService`` serve ungated pgvector hits: the same hole the runtime
+        outage path closes. ``get_vector_port()`` keeps returning the bare
+        adapter -- the three similarity call sites' loud-failure contract is
+        unchanged.
+        """
+        self._opt_in(monkeypatch)
+
+        def _boom():
+            raise RuntimeError("cannot build client")
+
+        monkeypatch.setattr("application.vector_port.QdrantVectorPort", _boom)
+        port = get_fallback_vector_port()
+
+        assert isinstance(port, FallbackVectorPort)
+        assert port.degraded is True
+        assert port.degraded_reason == "qdrant_unavailable"
+        assert port.vector_backend == "pgvector"
+        assert serves_from_fallback(port) is True  # -> SearchService gates
+        assert isinstance(get_vector_port(), PgVectorVectorPort)
+
 
 # ---------------------------------------------------------------------------
 # Qdrant adapter unit (fake client, no package needed)
@@ -450,6 +477,20 @@ def _qdrant_port(client, models_module=None, config=None) -> QdrantVectorPort:
 def _raise_unavailable(**_kwargs):
     """Stand-in for a Qdrant client whose server is unreachable."""
     raise QdrantBackendUnavailableError("qdrant is unreachable")
+
+
+def _unreachable_fallback() -> FallbackVectorPort:
+    """A ``FallbackVectorPort`` whose Qdrant primary always raises an outage.
+
+    Every Qdrant call fails before it touches the ORM, so the precedence tests
+    below need no database fixture at all.
+    """
+    primary = QdrantVectorPort(
+        client=SimpleNamespace(query_points=_raise_unavailable),
+        models_module=FakeQdrantModels,
+        config=resolve_qdrant_config(base_url="http://qdrant.test"),
+    )
+    return FallbackVectorPort(primary)
 
 
 class TestQdrantVectorPortUnit:
@@ -1046,6 +1087,60 @@ class TestQdrantHitHydration:
         assert superseded.id not in ids
 
 
+class TestRequirementSimilarityWiring:
+    """``find_similar_requirements`` passes its identity to the port (QR-S07).
+
+    ``ctx=ctx`` at the port call is the ONLY thing that makes the Qdrant
+    adapter's READ gate run for this call site. Deleting it would leave the
+    default pgvector path byte-identical (pgvector ignores ``ctx``) while the
+    Qdrant path silently served an item-level ``none`` hit -- so this pins the
+    WIRING, not merely the gate it triggers.
+    """
+
+    @pytest.mark.django_db(transaction=True)
+    def test_item_denied_similar_requirement_is_absent(self, monkeypatch):
+        from auth_tenancy.models import ItemPermission
+        from persistence.tests.factories import ctx_for_user, make_user
+
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            query = make_requirement(ws, title="Query requirement")
+            query.embedding = [1.0] * _DIM
+            query.save(update_fields=["embedding"])
+            denied = make_requirement(ws, title="Denied neighbour")
+            visible = make_requirement(ws, title="Visible neighbour")
+
+            user = make_user(tenant)
+            ctx = ctx_for_user(tenant, user, workspace=ws, roles=("editor",))
+            ItemPermission.objects.create(
+                tenant=tenant,
+                user=user,
+                workspace=ws,
+                artifact_id=denied.artifact_id,
+                permission_level="none",
+            )
+
+            client = FakeQdrantClient()
+            for row in (denied, visible):
+                _seed_point(
+                    client, tenant.id, ws.id, row.id, dense=[1.0] * _DIM, text="row"
+                )
+            port = _qdrant_port(client, models_module=FakeQdrantModels)
+            monkeypatch.setattr(
+                "application.requirement_service.get_vector_port", lambda: port
+            )
+
+            from application.requirement_service import RequirementService
+
+            results = RequirementService().find_similar_requirements(
+                query.id, ctx, limit=10, workspace_id=ws.id
+            )
+
+        ids = {result.id for result in results}
+        assert denied.id not in ids  # the identity reached the port's READ gate
+        assert visible.id in ids
+
+
 class TestFallbackVectorPort:
     """T-A2-7: an outage degrades to pgvector with a request-local flag."""
 
@@ -1084,6 +1179,75 @@ class TestFallbackVectorPort:
         assert port.degraded is True
         assert port.degraded_reason == "qdrant_unavailable"
         assert port.vector_backend == "pgvector"
+        assert serves_from_fallback(port) is True
+
+    def test_partial_cross_type_failure_is_not_a_fallback(self):
+        """One flag, two questions: a healthy Qdrant is NOT serving a fallback.
+
+        ``degraded`` alone cannot drive the QR-S07 gate -- after a cross-type
+        failure a healthy Qdrant wrapper is ``degraded`` too, and gating on that
+        re-hydrated hits the Qdrant adapter had already hydrated.
+        """
+        port = FallbackVectorPort(SimpleNamespace(vector_backend="qdrant"))
+        mark_request_degraded(port, DEGRADED_CROSS_TYPE_QUERY_FAILED)
+
+        assert port.degraded is True
+        assert port.degraded_reason == "cross_type_query_failed"
+        assert port.vector_backend == "qdrant"
+        assert port.partial_semantics is True
+        assert serves_from_fallback(port) is False
+
+    def test_outage_after_cross_type_failure_logs_once_and_wins(self, caplog):
+        """Precedence: outage > partial, and the outage WARNING is not swallowed.
+
+        Ordering: a cross-type failure flags the request first (``degraded`` was
+        already ``True``), then a real outage happens. Gating the warning on
+        ``degraded`` lost that line entirely; the reason must also end up as the
+        outage, never as the earlier partial one.
+        """
+        port = _unreachable_fallback()
+        mark_request_degraded(port, DEGRADED_CROSS_TYPE_QUERY_FAILED)
+        assert port.degraded_reason == "cross_type_query_failed"
+
+        with caplog.at_level(logging.WARNING, logger="application.vector_port"):
+            entities = port.query_entities(
+                tenant_id=uuid4(),
+                workspace_id=uuid4(),
+                query_vector=[1.0] * _DIM,
+                query_text="row",
+                entity_types=["StakeholderNeed"],
+            )
+
+        outage_lines = [
+            record
+            for record in caplog.records
+            if "Qdrant artifact backend unavailable" in record.getMessage()
+        ]
+        assert entities == []
+        assert len(outage_lines) == 1  # exactly once, not lost and not doubled
+        assert port.degraded is True
+        assert port.degraded_reason == "qdrant_unavailable"  # outage supersedes
+        assert port.vector_backend == "pgvector"
+        assert serves_from_fallback(port) is True
+
+    def test_outage_reason_survives_a_later_cross_type_failure(self):
+        """The other direction: a partial reason must never overwrite the outage."""
+        port = _unreachable_fallback()
+        port.query_entities(
+            tenant_id=uuid4(),
+            workspace_id=uuid4(),
+            query_vector=[1.0] * _DIM,
+            query_text="row",
+            entity_types=["StakeholderNeed"],
+        )
+        assert port.degraded_reason == "qdrant_unavailable"
+
+        mark_request_degraded(port, DEGRADED_CROSS_TYPE_QUERY_FAILED)
+
+        assert port.degraded is True
+        assert port.degraded_reason == "qdrant_unavailable"  # not re-labelled
+        assert port.vector_backend == "pgvector"
+        assert port.partial_semantics is False
 
     @pytest.mark.django_db(transaction=True)
     def test_no_qdrant_configured_has_degraded_false_and_bytes_identical(self, monkeypatch):

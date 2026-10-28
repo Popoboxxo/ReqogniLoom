@@ -82,8 +82,8 @@ from application.vector_port import (
     VectorHit,
     get_fallback_vector_port,
     hydrate_vector_hits,
-    is_degraded_fallback,
     mark_request_degraded,
+    serves_from_fallback,
 )
 from llm_adapter.embedding_service import generate_embedding
 from persistence.custom_fields import coerce_custom_fields
@@ -817,7 +817,7 @@ def _run_semantic_query(
             # QR-S07: the READ gate for hydrated Qdrant hits needs the caller.
             ctx=ctx,
         )
-        # QR-S07 on the DEGRADED path. A FallbackVectorPort that had to serve
+        # QR-S07 on the FALLBACK path. A FallbackVectorPort that had to serve
         # this call from pgvector returns raw ORM rows: the pgvector adapter
         # ignores ``ctx`` entirely, so neither item-level READ nor the
         # ``OUTDATED`` exclusion applied -- the caller would see hits the Qdrant
@@ -825,10 +825,14 @@ def _run_semantic_query(
         # BM25 inference fail could pick that weaker set on demand. Route those
         # hits through the same hydration gate the Qdrant adapter uses.
         #
-        # Only when the port actually degraded: the default deployment is a
-        # bare PgVectorVectorPort (is_degraded_fallback() is False), so it takes
-        # no gate and stays byte-identical.
-        if is_degraded_fallback(request_port):
+        # Only when the port actually served from the fallback: the default
+        # deployment is a bare PgVectorVectorPort (serves_from_fallback() is
+        # False), so it takes no gate and stays byte-identical. A healthy Qdrant
+        # wrapper flagged ``degraded`` by an unrelated cross-type failure is not
+        # a fallback either -- its hits are already hydrated, and re-hydrating
+        # them would cost an extra ORM lookup plus permission resolution per
+        # embeddable type per workspace.
+        if serves_from_fallback(request_port):
             hits = hydrate_vector_hits(
                 collection=entity_type,
                 hits=hits,
@@ -1768,13 +1772,23 @@ class SearchService(ServiceBase):
         #     cross-type queries. A single workspace-scoped ``query_entities``
         #     call per workspace (requesting every type at once) would collapse
         #     it -- ``query_entities`` already accepts a list of ``entity_types``.
-        #   * Double hydration for the three embeddable types: Requirement/
-        #     TraceLink/Icd arrive hydrated from ``query_entities`` *and* again
-        #     through ``_run_semantic_query``'s per-type ``query_similar``, so
-        #     their ORM rows are fetched and READ-checked twice per search.
-        #   * The lexical/full-text legs apply no item-level filter for any type
-        #     other than Icd/TraceLink (``_apply_row_visibility``) -- pre-existing
-        #     behaviour, hardened only by T-A3-3's plan; not introduced here.
+        #   * Duplicate hydration INSIDE this method for the types it serves:
+        #     ``query_entities`` already resolves the ORM row under
+        #     ``_hydrate_rows`` (ids + workspace fence + item-level READ +
+        #     ``OUTDATED``), and its result is then handed to
+        #     ``_semantic_search_hits``, which re-fetches the SAME rows by id to
+        #     build the title/description DTO. So every cross-type hit costs two
+        #     ORM round-trips and a second READ-check pass. (``query_entities``
+        #     never returns Requirement/TraceLink/Icd in this branch: they are
+        #     excluded from ``requested`` above because they are ``_EMBEDDABLE_TYPES``;
+        #     an earlier version of this note claimed the opposite.)
+        #   * SECURITY ASYMMETRY in the lexical/full-text legs: they apply no
+        #     item-level ``none`` filter for Requirement/ArchitectureElement/
+        #     TestCase/StakeholderNeed (``_apply_row_visibility`` only covers
+        #     Icd/TraceLink). That is a known gap of the DEFAULT pgvector path
+        #     (A3-3), not a cost saving -- a user denied an item through an
+        #     item-level rule can still see it in a lexical/full-text hit today.
+        #     Named explicitly so this follow-up is not read as "no action".
         try:
             typed_hits: list[TypedVectorHit] = port.query_entities(
                 tenant_id=tenant_id,
