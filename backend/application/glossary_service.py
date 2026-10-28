@@ -13,6 +13,7 @@ from django.db.models import F, Q
 from application.artifact_service import _clean_custom_fields
 from application.artifact_version_service import ArtifactVersionService, snapshot_fields
 from application.base import NotFoundError, ServiceBase, ValidationError
+from application.models import DomainEventOutbox
 from application.optimistic_lock import (
     assert_expected_version,
     lock_for_version_check,
@@ -225,6 +226,16 @@ class GlossaryService(ServiceBase):
                 "GlossaryService: workflow init skipped for term=%s", gt.id
             )
 
+        # Plan A, T-A2-4: index hook (outbox row in this same transaction).
+        self._emit_event(
+            self._make_event(
+                event_type=DomainEventOutbox.EventType.GLOSSARY_TERM_CREATED,
+                entity_id=gt.id,
+                workspace_id=workspace_id,
+                payload={"term": gt.term},
+            )
+        )
+
         return GlossaryTermDTO.from_orm(gt)
 
     @atomic_transaction
@@ -312,6 +323,17 @@ class GlossaryService(ServiceBase):
             gt.artifact_id, snapshot_fields(gt, "GlossaryTerm"), ctx
         )
 
+        # Plan A, T-A2-4: index hook. Reached only after the early return above,
+        # so a no-op PATCH emits no event.
+        self._emit_event(
+            self._make_event(
+                event_type=DomainEventOutbox.EventType.GLOSSARY_TERM_UPDATED,
+                entity_id=gt.id,
+                workspace_id=gt.workspace_id,
+                payload={"term": gt.term, "version": gt.version},
+            )
+        )
+
         return GlossaryTermDTO.from_orm(gt)
 
     @atomic_transaction
@@ -350,4 +372,15 @@ class GlossaryService(ServiceBase):
             entity_type="GlossaryTerm",
             entity_id=term_id,
             change_reason=change_reason,
+        )
+
+        # Plan A, T-A2-4: index hook. Soft delete leaves the row in place, so
+        # the point is removed by the projector, not by the row disappearing.
+        self._emit_event(
+            self._make_event(
+                event_type=DomainEventOutbox.EventType.GLOSSARY_TERM_DELETED,
+                entity_id=gt.id,
+                workspace_id=gt.workspace_id,
+                payload={"term": gt.term},
+            )
         )

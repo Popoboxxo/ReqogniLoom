@@ -51,7 +51,7 @@ from application.base import (
     ServiceBase,
     ValidationError,
 )
-from application.models import MainGoal
+from application.models import DomainEventOutbox, MainGoal
 from persistence.models import Artifact, Tenant, Workspace
 from persistence.transactions import atomic_transaction
 from workflow import state_reader
@@ -468,9 +468,17 @@ class MainGoalService(ServiceBase):
         self._audit(
             ctx=ctx, operation="create", entity_type="MainGoal", entity_id=main_goal.id
         )
+        # Plan A, T-A2-4: sequence 1 creates the workspace's main goal, every
+        # later sequence is a new version of it (``update`` -- there is no
+        # in-place edit). One event per mutation, so the index hook never sees
+        # the same row twice.
         self._emit_event(
             self._make_event(
-                event_type="MainGoalCreated",
+                event_type=(
+                    DomainEventOutbox.EventType.MAIN_GOAL_CREATED
+                    if sequence_number == 1
+                    else DomainEventOutbox.EventType.MAIN_GOAL_UPDATED
+                ),
                 entity_id=main_goal.id,
                 workspace_id=workspace.id,
                 payload={

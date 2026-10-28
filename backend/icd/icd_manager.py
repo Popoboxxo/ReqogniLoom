@@ -43,6 +43,8 @@ from typing import Any
 
 from django.db import transaction
 
+from application.event_bus import publish_entity_event
+from application.models import DomainEventOutbox
 from icd.audit_logger import get_audit_logger
 from icd.contract_validator import ValidationResult, get_validator
 from icd.models import Icd, IcdRevision
@@ -451,6 +453,14 @@ class IcdManager:
                 created_by_id=payload.created_by_id,
             )
 
+            # Plan A, T-A2-4: index hook, in this write's transaction (SA-02).
+            publish_entity_event(
+                DomainEventOutbox.EventType.ICD_CREATED,
+                entity_id=icd.id,
+                workspace_id=icd.workspace_id,
+                payload={"name": icd.name},
+            )
+
         return IcdResult(icd=icd, current_version=version)
 
     # ------------------------------------------------------------------
@@ -561,6 +571,18 @@ class IcdManager:
             if validation_result.is_breaking:
                 details = "; ".join(validation_result.breaking_changes)
                 self._audit_logger.log_breaking_change(icd_id=icd.id, details=details)
+
+            # Plan A, T-A2-4: index hook (the contract text changed).
+            publish_entity_event(
+                DomainEventOutbox.EventType.ICD_UPDATED,
+                entity_id=icd.id,
+                workspace_id=icd.workspace_id,
+                payload={
+                    "name": icd.name,
+                    "version": new_version.version_number,
+                    "is_breaking": validation_result.is_breaking,
+                },
+            )
 
         return IcdResult(
             icd=icd,

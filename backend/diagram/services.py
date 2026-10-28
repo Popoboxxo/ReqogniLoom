@@ -33,6 +33,8 @@ from __future__ import annotations
 import uuid
 from typing import TYPE_CHECKING
 
+from application.event_bus import publish_entity_event
+from application.models import DomainEventOutbox
 from diagram.canvas_editor import CanvasEditor, CanvasExportResult  # noqa: F401
 from diagram.manager import (  # noqa: F401
     DiagramManager,
@@ -246,6 +248,15 @@ def delete_diagram(diagram_id: uuid.UUID, tenant_id: uuid.UUID, ctx: AuthContext
         reason="deleted via diagram delete",
     )
     sync_node_links(diagram, {"nodes": [], "edges": []}, created_by_id=ctx.user_id)
+
+    # Plan A, T-A2-4: index hook. A soft delete leaves the row in place, so the
+    # point is removed here rather than by the row disappearing.
+    publish_entity_event(
+        DomainEventOutbox.EventType.DIAGRAM_DELETED,
+        entity_id=diagram.id,
+        workspace_id=diagram.workspace_id,
+        payload={"name": diagram.name},
+    )
 
 
 def list_diagrams(

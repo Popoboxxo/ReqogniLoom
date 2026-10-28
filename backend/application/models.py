@@ -119,6 +119,24 @@ class DomainEventOutbox(models.Model):
         # confirmed outcomes, never for intermediate drafts (cost). Purely
         # additive: no existing emitter changed.
         INTERACTION_COMPLETED = "InteractionCompleted"
+        # ai-memory-and-search Plan A, Task T-A2-4: the index hooks need an
+        # event for every indexed entity type, and these five had none (Goal
+        # and MainGoal only a bare "Created" string). Purely additive --
+        # declares what the new emission sites in goal_service /
+        # main_goal_service / glossary_service / diagram / icd write, and
+        # extends the outbox choices (application/0036).
+        GOAL_UPDATED = "GoalUpdated"
+        GOAL_DELETED = "GoalDeleted"
+        MAIN_GOAL_UPDATED = "MainGoalUpdated"
+        GLOSSARY_TERM_CREATED = "GlossaryTermCreated"
+        GLOSSARY_TERM_UPDATED = "GlossaryTermUpdated"
+        GLOSSARY_TERM_DELETED = "GlossaryTermDeleted"
+        DIAGRAM_CREATED = "DiagramCreated"
+        DIAGRAM_UPDATED = "DiagramUpdated"
+        DIAGRAM_DELETED = "DiagramDeleted"
+        ICD_CREATED = "IcdCreated"
+        ICD_UPDATED = "IcdUpdated"
+        ICD_DELETED = "IcdDeleted"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     event_id = models.UUIDField(unique=True, default=uuid.uuid4, editable=False)

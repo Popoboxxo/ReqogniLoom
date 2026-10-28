@@ -33,6 +33,8 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
+from application.event_bus import publish_entity_event
+from application.models import DomainEventOutbox
 from icd.contract_validator import ValidationResult
 from icd.icd_manager import (
     IcdCreateDTO,
@@ -128,7 +130,16 @@ def delete_icd(icd_id: uuid.UUID, tenant_id: uuid.UUID) -> None:
 
     with transaction.atomic():
         # IcdParameter.icd is on_delete=CASCADE, so parameters go with it.
-        Icd.objects.get(id=icd_id, tenant_id=tenant_id).delete()
+        icd = Icd.objects.get(id=icd_id, tenant_id=tenant_id)
+        workspace_id = icd.workspace_id
+        icd.delete()
+        # Plan A, T-A2-4: index hook. This is a HARD delete, so the event must
+        # carry the workspace the (now gone) row used to live in.
+        publish_entity_event(
+            DomainEventOutbox.EventType.ICD_DELETED,
+            entity_id=icd_id,
+            workspace_id=workspace_id,
+        )
 
 
 def create_icd(payload: IcdCreateDTO) -> IcdResult:

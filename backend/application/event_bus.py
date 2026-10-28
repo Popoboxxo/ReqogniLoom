@@ -720,6 +720,37 @@ def get_event_bus() -> DomainEventBus:
     return _bus_instance
 
 
+def publish_entity_event(
+    event_type: str,
+    *,
+    entity_id: UUID,
+    workspace_id: UUID | None,
+    payload: dict[str, Any] | None = None,
+) -> None:
+    """Publish a plain entity event from a write path outside ``ServiceBase``.
+
+    ``ServiceBase._emit_event``/``_make_event`` cover the domain services, but
+    the Ext-layer write paths (``diagram``, ``icd``) inherit no service base.
+    They still need the same transactional-outbox guarantee, so call this inside
+    the mutation's ``transaction.atomic()`` block: the event and the write then
+    share one fate (SA-02).
+
+    A ``workspace_id`` of ``None`` (legacy rows without a workspace anchor) is a
+    no-op rather than an orphan outbox row: there would be no tenant to index
+    the artifact under, and the projector would have to drop it again (O-2).
+    """
+    if workspace_id is None:
+        return
+    get_event_bus().publish(
+        DomainEvent(
+            event_type=str(event_type),
+            entity_id=entity_id,
+            workspace_id=workspace_id,
+            payload=payload or {},
+        )
+    )
+
+
 # ---------------------------------------------------------------------------
 # Consumer-side idempotency (ADR-014 §4, DATA-09 / finding N3)
 # ---------------------------------------------------------------------------
@@ -1318,5 +1349,6 @@ __all__ = [
     "get_event_bus",
     "mark_subscriber_processed",
     "poll_and_dispatch",
+    "publish_entity_event",
     "subscriber_already_processed",
 ]

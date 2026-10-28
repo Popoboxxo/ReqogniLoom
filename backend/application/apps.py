@@ -88,6 +88,16 @@ class ApplicationConfig(AppConfig):
 
         get_webhook_dispatcher().subscribe_to_events()
 
+        # Plan A, T-A2-4: keep the Qdrant artifact vectors in step with the
+        # outbox. Conditional by design -- on the default ``pgvector`` backend
+        # ``register_projector_on_event_bus()`` subscribes nothing, so the hook
+        # layer is byte-identical to the behaviour before this task.
+        from application.artifact_index_projector import (
+            register_projector_on_event_bus,
+        )
+
+        register_projector_on_event_bus()
+
         # REQ-188: self-initialise a fresh deployment (admin + base workspace +
         # default workflow/permission definitions) on first start, replacing the
         # dedicated ``bootstrap`` compose service and the manual
