@@ -62,7 +62,6 @@
   font-size: var(--control-font-size);
   padding: 0 var(--space-4);
   margin-bottom: -1px;
-  min-height: var(--btn-h-md);
   cursor: pointer;
   white-space: nowrap;
 }
@@ -73,9 +72,17 @@
  * override the last/middle tabs computed `border-top-left-radius: 0`, which
  * the C1 geometry gate counts as a third radius on `/settings`. Declared via
  * `.tablist .tab` so it also wins over the `:first-child`/`:last-child`
- * rules of equal specificity in `global.css`. */
+ * rules of equal specificity in `global.css`.
+ *
+ * The `min-height` lives here for the same reason: the tab composes the
+ * global `.btn-tab`, which declares `--btn-h-sm` at single-class specificity.
+ * At equal specificity the winner would be decided by stylesheet injection
+ * order, i.e. the rendered tab height would be a coin flip. The md tier is
+ * the value that renders today, so it is kept — just pinned deterministically
+ * at two-class specificity instead of by cascade order. */
 .tablist .tab {
   border-radius: var(--radius-btn);
+  min-height: var(--btn-h-md);
 }
 
 .tab[aria-selected="true"] {

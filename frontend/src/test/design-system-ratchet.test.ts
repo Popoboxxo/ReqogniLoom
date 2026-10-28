@@ -767,12 +767,17 @@ function scanAmbiguousButtonLabels(): Violation[] {
  * corner radius from the button scale: `--btn-h-xs|sm|md|lg` for the height,
  * `--radius-btn` (or `--radius-full` for a deliberately round control) for the
  * radius. The reference measurement (C-L19) predicted ~78 one-off geometry
- * declarations across the CSS modules; the scanner found 84, and that measured
- * value is what the baseline freezes. Which is why this is a ratchet and not a
- * one-time cleanup: the ceiling only moves down from the merge value. The
- * scoped selector below (#1258 review) freezes 72 of those 84 — the twelve it
- * no longer selects are switch primitives and disclosure toggles, which are
- * not button geometry (see the scope note on the pattern).
+ * declarations across the CSS modules and the scanner found more, which is why
+ * this is a ratchet and not a one-time cleanup: the ceiling only moves down
+ * from the merge value. That ceiling is 0 today — the re-recorded baseline
+ * stores an empty `known` list — so the original discovery count is history,
+ * not a figure this suite still checks or depends on.
+ *
+ * The scoped selector below (#1258 review) deliberately leaves switch
+ * primitives and disclosure toggles out of the scan: they are not button
+ * geometry (see the scope note on the pattern), and the ten entries in
+ * `NON_BUTTON_SELECTOR_ALLOWLIST` are enumerated rather than frozen in the
+ * baseline.
  *
  * Why a stylesheet scan rather than the JSX scanner above: the geometry lives
  * in `*.module.css`, and a class name says nothing about it — `.primaryButton`

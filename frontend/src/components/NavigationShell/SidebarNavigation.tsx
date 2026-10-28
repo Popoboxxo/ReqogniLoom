@@ -757,7 +757,7 @@ export function SidebarNavigation(): JSX.Element {
             ? t("nav.showOptionalArtifacts")
             : t("nav.hideOptionalArtifacts")
         }
-        className={`btn-ghost ${styles.optionalToggleBtn}`}
+        className={`btn-ghost btn-sm ${styles.optionalToggleBtn}`}
       >
         <span>{t("nav.optionalArtifacts", "Optional-Artefakte")}</span>
         <span
@@ -781,7 +781,7 @@ export function SidebarNavigation(): JSX.Element {
             aria-haspopup="listbox"
             aria-expanded={isSwitcherOpen}
             onClick={() => setIsSwitcherOpen((open) => !open)}
-            className={`btn-secondary ${styles.switcherToggleBtn}`}
+            className={`btn-secondary btn-sm ${styles.switcherToggleBtn}`}
           >
             <span className={styles.switcherLabel} title={activeWorkspace.name}>
               {activeWorkspace.name}
@@ -893,7 +893,7 @@ export function SidebarNavigation(): JSX.Element {
               ? t("nav.languageToggleTitleAdmin")
               : t("nav.languageToggleTitleMember")
           }
-          className={`btn-ghost ${styles.footerBtn}`}
+          className={`btn-ghost btn-sm ${styles.footerBtn}`}
         >
           {i18n.language.startsWith("de") ? "EN" : "DE"}
         </button>
@@ -914,7 +914,7 @@ export function SidebarNavigation(): JSX.Element {
           data-testid="sidebar-theme-mode-toggle"
           onClick={() => setPreference(paletteKey, mode === "dark" ? "light" : "dark")}
           title={t("nav.toggleTheme")}
-          className={`btn-ghost ${styles.footerBtn}`}
+          className={`btn-ghost btn-sm ${styles.footerBtn}`}
         >
           {mode === "dark" ? t("nav.lightMode") : t("nav.darkMode")}
         </button>
@@ -929,11 +929,11 @@ export function SidebarNavigation(): JSX.Element {
         <button
           data-testid="nav-profile"
           onClick={() => navigate("/profile")}
-          className={location.pathname === "/profile" ? `btn-ghost ${styles.footerBtn} ${styles.footerBtnActive}` : `btn-ghost ${styles.footerBtn}`}
+          className={location.pathname === "/profile" ? `btn-ghost btn-sm ${styles.footerBtn} ${styles.footerBtnActive}` : `btn-ghost btn-sm ${styles.footerBtn}`}
         >
           {t("nav.profile")}
         </button>
-        <button data-testid="nav-logout" onClick={logout} className={`btn-ghost ${styles.footerBtn}`}>
+        <button data-testid="nav-logout" onClick={logout} className={`btn-ghost btn-sm ${styles.footerBtn}`}>
           {t("nav.logout")}
         </button>
         {versionInfo && (

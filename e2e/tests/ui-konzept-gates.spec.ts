@@ -121,10 +121,12 @@ async function countScrollContainers(page: Page): Promise<number> {
  * C1 button-geometry standard (Plan C §1 Ziel 2 + §3.2, task T-C1-1,
  * issue #1258; ENT-C6 = B): at most 3 distinct button heights (the
  * `--btn-h-sm/md/lg` scale, i.e. 32/36/44 px) and at most 2 distinct radii
- * per route. The counted radii are the standard `--radius-btn` (6 px) plus
- * `--radius-md` (12 px); a pill/full radius is a deliberate shape, not a
- * second standard, so it is classified separately (see the Radius rule
- * below) and does not count against MAX_BUTTON_RADII.
+ * per route. Every computed radius counts except a pill/full radius, which is
+ * a deliberate shape, not a second standard: it is classified separately (see
+ * the Radius rule below) and does not count against MAX_BUTTON_RADII. The two
+ * radii that should therefore appear are the standard `--radius-btn` (6 px)
+ * and, where a segmented control's inner corners are squared on purpose, a
+ * `0px` corner — anything else is a second standard.
  *
  * Measurement rules (literal, per the task spec — rationale inline):
  *
@@ -156,8 +158,11 @@ async function countScrollContainers(page: Page): Promise<number> {
  *    9999 px) is classified SEPARATELY — it is reported in the assertion
  *    message but does not count against MAX_BUTTON_RADII. Pill shapes are a
  *    deliberate full-round treatment (badges, toggles, pill buttons), not a
- *    competing button standard; the two radii that are actually enforced are
- *    `--radius-btn` (6 px) and `--radius-md` (12 px).
+ *    competing button standard. Every radius other than that pill value is
+ *    counted, including `0px`: the squared inner corner of a butted
+ *    segmented tab is a real shape on the route, not an excluded one. The two
+ *    radii that should appear are therefore `--radius-btn` and, where a
+ *    squared corner is unavoidable, `0px`.
  *  - `networkidle` before measuring: lazy-loaded buttons and dialogs must not
  *    make the gate flaky (plan §9, "E2E-Gate flackert durch dynamische
  *    Buttons").
@@ -175,16 +180,14 @@ const PILL_RADIUS_PX = 9999;
  * route's `[C1]` test into a `test.fixme`, i.e. it documents a known
  * over-target route instead of a guess.
  *
- * The token work is complete: the component CSS reads `--btn-h-*` /
- * `--radius-btn` / `--radius-full` throughout, and the static scanner now also
- * selects the capitalised `*Btn` call sites where the residual radii lived.
- * The list is therefore EMPTY, and the E2E gate is now the authority: all 24
- * routes below are actually measured by their own assertion instead of being
- * skipped.
- *
- * It may only shrink in spirit and may only receive measured data: a route
- * that measures over target goes back in WITH its measured values (date,
- * preset, heights/radii, and what was left unchanged), never with an estimate.
+ * The component CSS was reworked to read the `--btn-h-*` / `--radius-btn` /
+ * `--radius-full` scale, and the static scanner now also selects the
+ * capitalised `*Btn` call sites where the residual radii lived, so no known
+ * over-target route remains and the map is EMPTY. That is an untested claim,
+ * not a measurement: the E2E gate has NOT yet been run against this state. The
+ * gate is the authority — it decides, and a route that measures over target
+ * goes back in WITH its measured values (date, preset, heights/radii, and what
+ * was left unchanged), never with an estimate.
  */
 const C1_PENDING_ROUTES: Record<string, string> = {};
 
