@@ -303,6 +303,11 @@
      border-box globally, so this is the final box height: padding and text
      stay inside it (see .navGroupChevron for the vertical centring). */
   min-height: var(--btn-h-xs);
+  /* `--radius-btn` (6px) is the radius the C1 gate already counts on every
+     route; leaving it at the UA default 0 added a *third* radius value and
+     broke `/traceability`'s ≤2 budget. The fill stays transparent, so this is
+     the existing standard radius, not new chrome. */
+  border-radius: var(--radius-btn);
   padding: var(--space-1) var(--space-3);
   background: transparent;
   border: 0;
@@ -321,8 +326,8 @@
    variant — it keeps the header's own typography and only adds the affordance
    the toggle needs (hover, focus, chevron). Its target height is the icon step
    `--btn-h-xs` (24px, WCAG 2.5.8), not one of the --btn-h-sm/md/lg text-button
-   steps, and it carries no border-radius, so the button geometry ratchet stays
-   at 0. */
+   steps, and its radius is the existing `--radius-btn`, so it introduces no new
+   height or radius value and the button geometry ratchet stays at 0. */
 .navGroupLabel:hover {
   color: var(--color-nav-text);
 }
