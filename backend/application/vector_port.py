@@ -34,10 +34,12 @@ Design contract:
   Requirement/TraceLink/Icd paths return no hits. Readers address the ALIAS
   ``..._artifacts_live`` (T-A2-6), never a versioned collection name, so a later
   schema bump needs no reader change.
-  ``find_similar_trace_links``/``find_similar_icds`` carry no workspace scope,
-  so the Qdrant adapter fails loud (``QdrantBackendUnavailableError``) for them
-  rather than scanning every workspace collection -- and that error can only
-  occur under the explicit ``ARTIFACT_VECTOR_BACKEND=qdrant`` opt-in above.
+  Every similarity site now carries that scope (T-A2-8). The two legacy
+  ``find_similar_trace_links``/``find_similar_icds`` entry points take it as an
+  optional argument and resolve their port through
+  :func:`get_similarity_vector_port`: with a scope Qdrant addresses the alias,
+  without one the call degrades to pgvector with
+  ``degraded_reason="no_workspace_scope"`` instead of raising.
 * **Hybrid query (T-A2-6).** ``query_similar``/``query_entities`` take an
   optional ``query_text``; the Qdrant adapter fuses it with the dense leg
   (``Prefetch(using="dense")`` + ``Prefetch(using="bm25")`` over
@@ -50,13 +52,8 @@ Design contract:
   dropped. Payload fields (``workspace_id``, ``entity_type``, title) are never
   the source of truth. **A caller identity (``ctx``) is required**: the READ
   check fails closed, so a call without one yields no hits at all rather than
-  unchecked ones. ``find_similar_requirements`` passes its identity;
-  ``find_similar_trace_links``/``find_similar_icds`` do not yet -- and they
-  pass no ``workspace_id`` either, so the Qdrant adapter fails **loud** today
-  (``QdrantBackendUnavailableError`` from ``_collection_name``, mapped to the
-  callers' ``...UnavailableError``) rather than returning hits. They return
-  empty only once PR-A21b adds the workspace scope but still no identity; the
-  default pgvector deployment is unaffected in both cases.
+  unchecked ones. All four similarity sites pass their identity; T-A2-8 wired
+  the last two (``find_similar_trace_links``/``find_similar_icds``).
 * **Fallback (T-A2-7).** :class:`FallbackVectorPort` wraps the Qdrant adapter
   for the search path: a ``QdrantBackendUnavailableError`` degrades the request
   to pgvector and sets a request-local ``degraded``/``degraded_reason`` pair.
@@ -130,6 +127,12 @@ _BM25_MODEL = "qdrant/bm25"
 
 #: ``degraded_reason`` value a Qdrant outage reports (stable wire token).
 DEGRADED_QDRANT_UNAVAILABLE = "qdrant_unavailable"
+
+#: ``degraded_reason`` value :func:`get_similarity_vector_port` reports when a
+#: similarity call arrives without a workspace scope (T-A2-8, stable wire token).
+#: Distinct from :data:`DEGRADED_QDRANT_UNAVAILABLE` on purpose: nothing failed,
+#: the caller simply supplied no scope, so pgvector serves instead.
+DEGRADED_NO_WORKSPACE_SCOPE = "no_workspace_scope"
 
 #: ``degraded_reason`` value ``SearchService`` reports when the cross-type
 #: semantic leg (``query_entities``) failed for a reason the port did not
@@ -244,12 +247,9 @@ class VectorPort(Protocol):
         ``ctx`` is the caller identity the QR-S07 READ check needs. **It is a
         precondition, not an optional refinement**: adapters that hydrate (and
         :func:`hydrate_vector_hits` itself) fail closed, so a call without an
-        identity returns no hits instead of unchecked ones. The two legacy
-        similarity callers that still pass none (``find_similar_trace_links``,
-        ``find_similar_icds``) pass no ``workspace_id`` either, so under Qdrant
-        they currently raise ``QdrantBackendUnavailableError`` and only degrade
-        to "no hits" once PR-A21b adds the workspace scope without an identity;
-        the default pgvector deployment is unaffected.
+        identity returns no hits instead of unchecked ones. All four similarity
+        sites (``find_similar_requirements``, ``find_similar_trace_links``,
+        ``find_similar_icds`` and the search branches) pass their identity.
         """
         ...
 
@@ -724,11 +724,11 @@ class QdrantVectorPort:
         from persistence.qdrant_config import build_collection_alias  # lazy: boundary
 
         if workspace_id is None:
-            # Strategy A has exactly one artifact collection per workspace; the
-            # TraceLink/ICD similarity methods carry no workspace filter, so the
-            # adapter cannot address a single collection for them. Fail loud
-            # (mapped to the caller's PgVectorUnavailable-equivalent) rather than
-            # scanning every workspace collection.
+            # Strategy A has exactly one artifact collection per workspace, so
+            # there is no collection this query could name. Fail loud (mapped to
+            # the caller's PgVectorUnavailable-equivalent) rather than scanning
+            # every workspace collection. The similarity call sites avoid this
+            # by resolving their port through ``get_similarity_vector_port``.
             raise QdrantBackendUnavailableError(
                 "qdrant artifact search requires a workspace scope"
             )
@@ -1344,6 +1344,48 @@ def vector_backend_diagnostic() -> dict[str, str]:
     return {"requested": requested, "active": active, "reason": reason}
 
 
+def get_similarity_vector_port(workspace_id: UUID | None) -> VectorPort:
+    """Port for the per-entity similarity sites, scoped or degraded (T-A2-8).
+
+    The two legacy similarity entry points
+    (``TraceLinkService.find_similar_trace_links`` and
+    ``icd_manager.IcdManager.find_similar_icds``) take an OPTIONAL workspace
+    scope. A Qdrant adapter cannot name a collection without one
+    (:meth:`QdrantVectorPort._collection_name` raises), so the missing-scope
+    case must not be answered with a loud 503:
+
+    * **with** ``workspace_id``: exactly :func:`get_vector_port`. Under Qdrant
+      that is the per-workspace ALIAS ``..._artifacts_live``; under pgvector the
+      scope is a no-op unless the caller also names a ``workspace_field``, so
+      the default deployment stays byte-identical.
+    * **without** ``workspace_id``: an explicit :class:`PgVectorVectorPort`
+      serves the request and reports ``degraded=True`` /
+      ``degraded_reason="no_workspace_scope"`` -- nothing failed, the caller
+      supplied no scope, so the optional backend cannot be addressed.
+
+    A pgvector deployment is unaffected either way: the very same
+    :func:`get_vector_port` object is returned, undegraded, in both cases.
+    """
+    port = get_vector_port()
+    if workspace_id is not None:
+        return port
+    if (
+        getattr(port, "vector_backend", DEFAULT_ARTIFACT_VECTOR_BACKEND)
+        != _QDRANT_ARTIFACT_BACKEND
+    ):
+        # pgvector was requested (or is the fallback): it never needed a scope.
+        return port
+    degraded = PgVectorVectorPort()
+    degraded.degraded = True
+    degraded.degraded_reason = DEGRADED_NO_WORKSPACE_SCOPE
+    logger.info(
+        "similarity search called without a workspace scope; serving from "
+        "pgvector (%s)",
+        DEGRADED_NO_WORKSPACE_SCOPE,
+    )
+    return degraded
+
+
 __all__ = [
     "ARTIFACT_VECTOR_BACKEND_ENV",
     "COLLECTION_ICD",
@@ -1351,6 +1393,7 @@ __all__ = [
     "COLLECTION_TRACE_LINK",
     "DEFAULT_ARTIFACT_VECTOR_BACKEND",
     "DEGRADED_CROSS_TYPE_QUERY_FAILED",
+    "DEGRADED_NO_WORKSPACE_SCOPE",
     "DEGRADED_QDRANT_UNAVAILABLE",
     "FallbackVectorPort",
     "PgVectorBackendUnavailableError",
@@ -1362,6 +1405,7 @@ __all__ = [
     "VectorHit",
     "VectorPort",
     "get_fallback_vector_port",
+    "get_similarity_vector_port",
     "get_vector_port",
     "hydrate_vector_hits",
     "mark_request_degraded",

@@ -35,6 +35,7 @@ from typing import Any
 
 from application.event_bus import publish_entity_event
 from application.models import DomainEventOutbox
+from auth_tenancy.context import AuthContext
 from icd.contract_validator import ValidationResult
 from icd.icd_manager import (
     IcdCreateDTO,
@@ -268,11 +269,23 @@ def find_similar_icds(
     icd_id: uuid.UUID,
     tenant_id: uuid.UUID,
     limit: int = 10,
+    workspace_id: uuid.UUID | None = None,
+    ctx: AuthContext | None = None,
 ) -> list[SimilarIcdDTO]:
     """Return the ICDs most semantically similar to *icd_id*.
 
     IF-L1-037. Cosine-distance nearest-neighbour search over the Icd
     embedding column, tenant-scoped and excluding the query ICD.
+
+    Args:
+        icd_id: Query ICD (must have a non-null embedding).
+        tenant_id: Tenant scope.
+        limit: Max results (clamped to 1..50, default 10).
+        workspace_id: Workspace of the query ICD (T-A2-8). With it the optional
+            Qdrant backend addresses the per-workspace alias; without it the
+            call degrades to pgvector with
+            ``degraded_reason="no_workspace_scope"`` instead of raising.
+        ctx: Caller identity for the QR-S07 READ gate (T-A2-8).
 
     Raises:
         Icd.DoesNotExist: The query ICD does not exist.
@@ -283,7 +296,11 @@ def find_similar_icds(
     leaf_id: COMP-ICD-001
     """
     return get_manager().find_similar_icds(
-        icd_id=icd_id, tenant_id=tenant_id, limit=limit
+        icd_id=icd_id,
+        tenant_id=tenant_id,
+        limit=limit,
+        workspace_id=workspace_id,
+        ctx=ctx,
     )
 
 

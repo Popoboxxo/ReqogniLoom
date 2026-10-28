@@ -263,10 +263,17 @@ class TestIcdViewSetErrorMessageMasking:
         with patch(
             "rest_api.icd_views.get_auth_context", return_value=req.auth_context
         ):
+            # T-A2-8: ``similar`` resolves the workspace scope off the ICD row
+            # before delegating, so the row lookup is stubbed alongside the
+            # service under test (no database in this module).
             with patch(
-                "rest_api.icd_views.find_similar_icds", side_effect=side_effect
+                "rest_api.icd_views.get_icd",
+                return_value=MagicMock(workspace_id=uuid.uuid4()),
             ):
-                return view(req, pk=str(FAKE_ICD_ID))
+                with patch(
+                    "rest_api.icd_views.find_similar_icds", side_effect=side_effect
+                ):
+                    return view(req, pk=str(FAKE_ICD_ID))
 
     def test_authored_value_error_is_still_forwarded(self) -> None:
         """The allow-list must not regress the #104 validation-feedback contract."""

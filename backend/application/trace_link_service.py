@@ -1011,6 +1011,7 @@ class TraceLinkService(ServiceBase):
         trace_link_id: UUID,
         ctx: AuthContext,
         limit: int = 10,
+        workspace_id: UUID | None = None,
     ) -> list[SimilarTraceLinkDTO]:
         """Return the top-N trace links most similar to *trace_link_id*.
 
@@ -1018,10 +1019,23 @@ class TraceLinkService(ServiceBase):
         pgvector ``embedding`` column, tenant-scoped and excluding the query
         link itself. Mirrors RequirementService.find_similar_requirements.
 
+        Args:
+            trace_link_id: Query link (must have a non-null embedding).
+            ctx: Caller identity. Required -- the port's QR-S07 READ gate checks
+                every hit against it and fails closed without one.
+            limit: Max results (clamped to 1..50, default 10).
+            workspace_id: Scope of the query link's **source artifact** (T-A2-8).
+                With it, the Qdrant adapter addresses the per-workspace alias;
+                without it the call degrades to pgvector with
+                ``degraded_reason="no_workspace_scope"`` instead of raising.
+                The pgvector query is unchanged (it takes no workspace filter
+                here), so the default deployment stays byte-identical.
+
         Raises:
             NotFoundError: Query trace link does not exist.
             ValidationError: Query trace link has no embedding.
             PgVectorUnavailableError: pgvector package/extension unavailable.
+            QdrantUnavailableError: Qdrant outage (explicit opt-in only).
         """
         from application.requirement_service import (
             PgVectorUnavailableError,
@@ -1031,7 +1045,7 @@ class TraceLinkService(ServiceBase):
             COLLECTION_TRACE_LINK,
             QdrantBackendUnavailableError,
             VectorBackendUnavailableError,
-            get_vector_port,
+            get_similarity_vector_port,
         )
         from persistence.models import TraceLink
 
@@ -1048,21 +1062,27 @@ class TraceLinkService(ServiceBase):
         safe_limit = max(1, min(int(limit or 10), 50))
 
         try:
-            hits = get_vector_port().query_similar(
+            hits = get_similarity_vector_port(workspace_id).query_similar(
                 collection=COLLECTION_TRACE_LINK,
                 query_vector=link.embedding,
                 tenant_id=ctx.tenant_id,
+                # T-A2-8: scope only the Qdrant adapter addresses. No
+                # ``workspace_field`` on purpose -- the pgvector path must stay
+                # byte-identical to the pre-port site, which had no workspace
+                # filter here (the workspace fence for Qdrant hits is applied by
+                # the port's hydration step below).
+                workspace_id=workspace_id,
                 exclude_id=link.id,
                 limit=safe_limit,
                 # Mirrors the pre-port site: no transaction/iterative scan
                 # here. Strict mode still gets one -- the port forces it on
                 # whenever it has to post-filter by embedding_model (T-A0-6).
                 iterative_scan=False,
-                # Deliberately NO ``ctx`` yet: the port's QR-S07 READ gate is
-                # fail-closed, so under Qdrant this method returns no hits until
-                # PR-A21b (T-A2-8) threads the identity through. Left as-is on
-                # purpose -- it is that PR's file scope, and the pgvector default
-                # path is unaffected (the adapter ignores ``ctx``).
+                # QR-S07: the port's READ gate needs the caller identity. It is
+                # ignored by the pgvector adapter (default path, byte-identical)
+                # and REQUIRED by the Qdrant adapter, which fails closed without
+                # it -- omitting it would silently empty this method's results.
+                ctx=ctx,
             )
         except QdrantBackendUnavailableError as exc:
             raise QdrantUnavailableError(str(exc)) from exc

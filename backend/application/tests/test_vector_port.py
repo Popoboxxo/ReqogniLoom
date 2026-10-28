@@ -36,6 +36,7 @@ from application.vector_port import (
     QdrantBackendUnavailableError,
     QdrantVectorPort,
     get_fallback_vector_port,
+    get_similarity_vector_port,
     get_vector_port,
     mark_request_degraded,
     serves_from_fallback,
@@ -1382,3 +1383,39 @@ def test_live_qdrant_roundtrip_is_skipped_without_env():
             assert [hit.id for hit in hits] == [req.id]
         finally:
             client.delete_collection(collection_name=collection)
+
+
+# ---------------------------------------------------------------------------
+# T-A2-8 / PR-A21b — similarity port selection (workspace scope)
+# ---------------------------------------------------------------------------
+
+
+class TestSimilarityWorkspaceScopePort:
+    """``get_similarity_vector_port``: scope or degrade, never raise."""
+
+    def test_scoped_lookup_returns_the_active_port(self, monkeypatch):
+        sentinel = object()
+        monkeypatch.setattr(
+            "application.vector_port.get_vector_port", lambda: sentinel
+        )
+        assert get_similarity_vector_port(uuid4()) is sentinel
+
+    def test_unscoped_lookup_degrades_to_pgvector(self, monkeypatch):
+        qdrant = _qdrant_port(FakeQdrantClient())
+        monkeypatch.setattr(
+            "application.vector_port.get_vector_port", lambda: qdrant
+        )
+
+        port = get_similarity_vector_port(None)
+
+        assert isinstance(port, PgVectorVectorPort)
+        assert port.vector_backend == "pgvector"
+        assert port.degraded is True
+        assert port.degraded_reason == "no_workspace_scope"
+
+    def test_unscoped_lookup_on_pgvector_stays_undegraded(self):
+        port = get_similarity_vector_port(None)
+
+        assert isinstance(port, PgVectorVectorPort)
+        assert port.degraded is False
+        assert port.degraded_reason == ""

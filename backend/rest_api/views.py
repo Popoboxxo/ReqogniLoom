@@ -4487,6 +4487,13 @@ class TraceLinkViewSet(BaseEntityViewSet):
         REQ-L2-VS-004: Returns the top-N trace links most similar to the query
         link by cosine distance over pgvector embeddings. Returns 400 when the
         link has no embedding, 503 when pgvector is unavailable.
+
+        T-A2-8: the similarity query is scoped to the workspace of the query
+        link's **source artifact**, resolved server-side. A client-supplied
+        ``workspace_id`` is deliberately not read: it is not an authority. The
+        derived workspace is gated on READ, and a link the caller cannot read
+        is indistinguishable from a missing one (404) -- the pre-change shape
+        answered with a tenant-wide neighbour list instead.
         """
         lang = detect_lang(request)
 
@@ -4515,10 +4522,22 @@ class TraceLinkViewSet(BaseEntityViewSet):
 
         try:
             ctx = get_auth_context(request)
-            results = self._svc().find_similar_trace_links(
+            svc = self._svc()
+            # T-A2-8: scope from the row, never from the request. The READ
+            # gate keeps a link in a workspace the caller has no standing in
+            # from answering -- with the scope missing the underlying query
+            # would fall back to an unscoped (tenant-wide) pgvector result.
+            link = svc.get_trace_link(tracelink_id, ctx)
+            workspace_id = _workspace_of_artifact(link.source_id)
+            if workspace_id is None or not _caller_may_read_workspace(
+                workspace_id, ctx
+            ):
+                raise NotFoundError(f"TraceLink {tracelink_id} not found")
+            results = svc.find_similar_trace_links(
                 trace_link_id=tracelink_id,
                 ctx=ctx,
                 limit=limit,
+                workspace_id=workspace_id,
             )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)

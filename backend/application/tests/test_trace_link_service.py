@@ -975,3 +975,209 @@ class TestPropagateSuspectStatus:
             ),
         ):
             assert svc.propagate_suspect_status(SOURCE_ID, ctx) == 0
+
+
+# ---------------------------------------------------------------------------
+# T-A2-8 / PR-A21b — workspace scope + QR-S07 identity for similarity search
+# ---------------------------------------------------------------------------
+
+
+def _a21b_link(tenant, workspace, *, embedding):
+    """A TraceLink whose two endpoints live in *workspace*."""
+    from persistence.models import Artifact, TraceLink
+
+    source = Artifact.objects.create(
+        tenant=tenant, workspace=workspace, artifact_type="requirement"
+    )
+    target = Artifact.objects.create(
+        tenant=tenant, workspace=workspace, artifact_type="requirement"
+    )
+    return TraceLink.objects.create(
+        source=source,
+        target=target,
+        link_type="references",
+        embedding=embedding,
+    )
+
+
+def _a21b_qdrant_port(client):
+    from application.vector_port import QdrantVectorPort
+    from memory.tests.qdrant_fakes import FakeQdrantModels
+    from persistence.qdrant_config import resolve_qdrant_config
+
+    return QdrantVectorPort(
+        client=client,
+        models_module=FakeQdrantModels,
+        config=resolve_qdrant_config(
+            base_url="http://qdrant.test", collection_prefix="reqlo"
+        ),
+    )
+
+
+def _a21b_seed_link(client, tenant_id, workspace_id, link, *, dense):
+    """Index *link* as a TraceLink point in the workspace alias."""
+    from memory.tests.qdrant_fakes import FakeQdrantModels
+    from persistence.qdrant_config import build_collection_alias
+
+    client.upsert(
+        collection_name=build_collection_alias(
+            "reqlo", tenant_id, workspace_id=workspace_id, scope="workspace"
+        ),
+        points=[
+            FakeQdrantModels.PointStruct(
+                id=str(link.id),
+                vector={
+                    "dense": dense,
+                    "bm25": FakeQdrantModels.Document(
+                        text="trace link", model="qdrant/bm25"
+                    ),
+                },
+                payload={
+                    "entity_id": str(link.id),
+                    "entity_type": "TraceLink",
+                    "tenant_id": str(tenant_id),
+                    "workspace_id": str(workspace_id),
+                },
+            )
+        ],
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+class TestFindSimilarTraceLinksWorkspaceScope:
+    """T-A2-8: the two legacy similarity sites now carry a workspace scope.
+
+    Under Qdrant a scope is what makes a query addressable at all
+    (``..._artifacts_live``); without one the call must degrade to pgvector
+    instead of failing the request with a 503. Every Qdrant hit keeps going
+    through the QR-S07 hydration gate, i.e. the caller identity is threaded
+    through rather than the gate being re-opened.
+    """
+
+    def test_find_similar_trace_links_with_workspace_uses_qdrant(self, monkeypatch):
+        from memory.tests.qdrant_fakes import FakeQdrantClient
+        from persistence.embedding_dimensions import EMBEDDING_VECTOR_DIMENSIONS
+        from persistence.qdrant_config import build_collection_alias
+        from persistence.tests.factories import (
+            active_tenant,
+            editor_ctx,
+            make_workspace,
+        )
+
+        dim = EMBEDDING_VECTOR_DIMENSIONS
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            query = _a21b_link(tenant, ws, embedding=[1.0] * dim)
+            neighbour = _a21b_link(tenant, ws, embedding=[1.0] * dim)
+
+            client = FakeQdrantClient()
+            _a21b_seed_link(client, tenant.id, ws.id, neighbour, dense=[1.0] * dim)
+            monkeypatch.setattr(
+                "application.vector_port.get_vector_port",
+                lambda: _a21b_qdrant_port(client),
+            )
+
+            results = TraceLinkService().find_similar_trace_links(
+                query.id,
+                editor_ctx(tenant, ws),
+                limit=5,
+                workspace_id=ws.id,
+            )
+            requests = [
+                kwargs for method, kwargs in client.calls if method == "query_points"
+            ]
+            alias = build_collection_alias(
+                "reqlo", tenant.id, workspace_id=ws.id, scope="workspace"
+            )
+
+        assert [row.id for row in results] == [neighbour.id]
+        assert requests, "the Qdrant adapter must serve a scoped query"
+        assert requests[0]["collection_name"] == alias
+
+    def test_without_workspace_falls_back_not_raises(self, monkeypatch):
+        """No scope -> pgvector with ``degraded_reason="no_workspace_scope"``."""
+        from application.vector_port import get_similarity_vector_port
+        from memory.tests.qdrant_fakes import FakeQdrantClient
+        from persistence.embedding_dimensions import EMBEDDING_VECTOR_DIMENSIONS
+        from persistence.tests.factories import (
+            active_tenant,
+            editor_ctx,
+            make_workspace,
+        )
+
+        dim = EMBEDDING_VECTOR_DIMENSIONS
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            query = _a21b_link(tenant, ws, embedding=[1.0] * dim)
+            neighbour = _a21b_link(tenant, ws, embedding=[1.0] * dim)
+
+            client = FakeQdrantClient()
+            _a21b_seed_link(client, tenant.id, ws.id, neighbour, dense=[1.0] * dim)
+            monkeypatch.setattr(
+                "application.vector_port.get_vector_port",
+                lambda: _a21b_qdrant_port(client),
+            )
+
+            results = TraceLinkService().find_similar_trace_links(
+                query.id, editor_ctx(tenant, ws), limit=5, workspace_id=None
+            )
+            fallback = get_similarity_vector_port(None)
+
+        # The neighbour is served by pgvector: no exception, no 503.
+        assert [row.id for row in results] == [neighbour.id]
+        # ... and Qdrant was never asked for a scope it does not have.
+        assert not [
+            kwargs for method, kwargs in client.calls if method == "query_points"
+        ]
+        assert fallback.vector_backend == "pgvector"
+        assert fallback.degraded is True
+        assert fallback.degraded_reason == "no_workspace_scope"
+
+    def test_find_similar_trace_links_hides_item_permission_none_hit(
+        self, monkeypatch
+    ):
+        """QR-S07: the caller identity reaches the port's READ gate.
+
+        Deleting the ``ctx=`` pass-through empties this result (fail-closed),
+        so the surviving neighbour is what proves the identity is wired.
+        """
+        from auth_tenancy.models import ItemPermission
+        from memory.tests.qdrant_fakes import FakeQdrantClient
+        from persistence.embedding_dimensions import EMBEDDING_VECTOR_DIMENSIONS
+        from persistence.tests.factories import (
+            active_tenant,
+            ctx_for_user,
+            make_user,
+            make_workspace,
+        )
+
+        dim = EMBEDDING_VECTOR_DIMENSIONS
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            user = make_user(tenant)
+            ctx = ctx_for_user(tenant, user, workspace=ws, roles=("editor",))
+
+            query = _a21b_link(tenant, ws, embedding=[1.0] * dim)
+            visible = _a21b_link(tenant, ws, embedding=[1.0] * dim)
+            denied = _a21b_link(tenant, ws, embedding=[1.0] * dim)
+            ItemPermission.objects.create(
+                tenant=tenant,
+                user=user,
+                workspace=ws,
+                artifact_id=denied.source_id,
+                permission_level="none",
+            )
+
+            client = FakeQdrantClient()
+            _a21b_seed_link(client, tenant.id, ws.id, visible, dense=[1.0] * dim)
+            _a21b_seed_link(client, tenant.id, ws.id, denied, dense=[1.0] * dim)
+            monkeypatch.setattr(
+                "application.vector_port.get_vector_port",
+                lambda: _a21b_qdrant_port(client),
+            )
+
+            results = TraceLinkService().find_similar_trace_links(
+                query.id, ctx, limit=5, workspace_id=ws.id
+            )
+
+        assert [row.id for row in results] == [visible.id]
