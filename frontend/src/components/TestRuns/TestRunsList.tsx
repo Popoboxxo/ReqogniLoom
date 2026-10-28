@@ -21,7 +21,9 @@ import { PageHeader } from "../shared/PageHeader";
 import { ListToolbar } from "../shared/ListToolbar";
 import { EmptyState } from "../shared/EmptyState/EmptyState";
 import { Dialog } from "../shared/Dialog";
+import { FormField } from "../shared/FormField";
 import { StatusBadge } from "../shared/StatusBadge";
+import { useFieldContract } from "../../hooks/useFieldContract";
 import { TestRunDetailEditor } from "./TestRunDetailEditor";
 import { getTestRunStatusLabel } from "./testRunStatusLabel";
 import { useTestRunsData } from "./useTestRunsData";
@@ -35,6 +37,20 @@ const TEST_RUN_STATUSES = [
   "partial",
   "closed",
 ] as const;
+
+/**
+ * GitHub #1392/#1393: `TestRun` is NOT an attribute-catalogue item type (it has
+ * no artifact lineage, so there is no definition to resolve), which is exactly
+ * what the `staticContracts` slot is for. The length bound is the model
+ * column's own (`persistence/models.py`: `TestRun.name = CharField(max_length=255)`).
+ *
+ * Module scope, not an inline literal: an inline object would be a new identity
+ * on every render and would invalidate `useFieldContract`'s `field` callback on
+ * every render, contradicting its documented stability.
+ */
+const TEST_RUN_STATIC_CONTRACTS = {
+  name: { required: true, maxLength: 255 },
+} as const;
 
 export function TestRunsList(): JSX.Element {
   const { t } = useTranslation();
@@ -65,6 +81,16 @@ export function TestRunsList(): JSX.Element {
     createError,
     resetCreateError,
   } = useTestRunsData(selectedId, showCreateForm);
+
+  // #1392/#1393: the create dialog's name field reads the same contract seam as
+  // every other create dialog. `itemType` is `null` (no attribute catalogue
+  // entry for `TestRun`), so `active` stays false and nothing is fetched — the
+  // module-scope `staticContracts` above is the whole contract.
+  const { field } = useFieldContract(null, {
+    enabled: showCreateForm,
+    staticContracts: TEST_RUN_STATIC_CONTRACTS,
+  });
+  const nameField = field("name");
 
   // REQ-175: client-side status filter over the loaded runs.
   const visibleItems = items.filter((item) => {
@@ -247,24 +273,29 @@ export function TestRunsList(): JSX.Element {
             onSubmit={(e) => void handleCreate(e)}
             className={styles.createForm}
           >
-            <label
+            {/* #1392/#1393: rendered through the shared `FormField` so the
+                required marker is the real `<RequiredMark>` node driven by the
+                contract (not a literal `*` in the label text), and the input
+                spreads the contract's `controlProps` for `maxLength`. */}
+            <FormField
               htmlFor="testrun-name"
-              className={styles.formLabel}
+              label={t("editor.name")}
+              required={nameField.required}
+              labelClassName={styles.formLabel}
             >
-              {t("editor.name")} *
-            </label>
-            <input
-              id="testrun-name"
-              data-testid="testrun-name-input"
-              ref={nameInputRef}
-              type="text"
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              placeholder="Test run name"
-              required
-              disabled={isCreating}
-              className={styles.nameInput}
-            />
+              <input
+                id="testrun-name"
+                data-testid="testrun-name-input"
+                ref={nameInputRef}
+                type="text"
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                placeholder="Test run name"
+                disabled={isCreating}
+                className={styles.nameInput}
+                {...nameField.controlProps}
+              />
+            </FormField>
             <div>
               <label
                 className={styles.pickerLabel}

@@ -32,34 +32,12 @@ import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
+// #1392/#1393: the host list moved to a shared fixture so the maxLength /
+// required-marker ratchet (`create-dialog-maxlength.test.ts`) enumerates the
+// SAME 12 dialogs instead of keeping a second, drifting copy.
+import { CREATE_FLOW_HOSTS, CREATE_FLOW_SHELL } from "./fixtures/create-dialog-hosts";
+
 const COMPONENTS_DIR = join(resolve(__dirname, ".."), "components");
-
-/**
- * The 12 routes that own a create flow, as `src/components`-relative paths.
- * `NeedsEditors` delegates its create dialog to `NeedList` (the component that
- * renders it), so `NeedList` is listed rather than the route shell.
- */
-const CREATE_FLOW_HOSTS = [
-  "RequirementEditors/RequirementEditors.tsx",
-  "AdrEditors/AdrEditors.tsx",
-  "RiskEditors/RiskEditors.tsx",
-  "IssueEditors/IssueEditors.tsx",
-  "TestCaseEditors/TestCaseEditors.tsx",
-  "NeedsEditors/NeedList.tsx",
-  "ArchitectureEditors/ArchitectureEditors.tsx",
-  "GlossaryView/GlossaryView.tsx",
-  "IcdView/IcdView.tsx",
-  "DiagramView/DiagramView.tsx",
-  "TestRuns/TestRunsList.tsx",
-  "BaselinesView/BaselinesView.tsx",
-] as const;
-
-/**
- * The shared create-dialog scaffold (F-15). Not a route, but the component four
- * routes now delegate their create dialog to — pinned here so the delegation
- * resolves to a real `<Dialog>` and cannot silently become an inline panel.
- */
-const CREATE_FLOW_SHELL = "shared/EditorPageShell.tsx";
 
 /**
  * Every host that must reach the shared Dialog: the routes plus the shell they
