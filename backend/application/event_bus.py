@@ -191,6 +191,13 @@ class DomainEvent:
     workspace_id: UUID                  # Tenant/workspace isolation
     payload: dict[str, Any] = field(default_factory=dict)
     event_id: UUID = field(default_factory=uuid4)
+    #: Tenant anchor stamped on the outbox row (A4/#1183). Producers leave it
+    #: unset; ``_process_one`` fills it from the row it claimed, so a subscriber
+    #: gets the dispatch context's tenant instead of having to re-derive it
+    #: (which would mean an unscoped read of the outbox). Deliberately NOT part
+    #: of :meth:`to_dict`: the stored payload and the webhook body keep their
+    #: shape, and tenant identity is not handed to external consumers.
+    tenant_id: UUID | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Serialise for outbox payload field."""
@@ -1125,6 +1132,10 @@ def _process_one(pk: Any, bus: DomainEventBus) -> int:
         entity_id=record.entity_id,
         workspace_id=record.workspace_id,
         payload=record.payload,
+        # The claimed row's anchor IS the dispatch context's tenant: handing it
+        # over lets a subscriber scope its own outbox read by tenant_id instead
+        # of re-deriving (and, with RLS_AS_ENFORCED off, reading unscoped).
+        tenant_id=record.tenant_id,
     )
 
     # --- phase 2: dispatch, outside any transaction ---------------------

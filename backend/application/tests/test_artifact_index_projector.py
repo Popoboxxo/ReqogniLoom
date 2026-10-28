@@ -10,7 +10,11 @@ Four behaviours, all against real DB rows with a fake Qdrant client:
   services (a declared ``EventType`` member with no emitter would be a
   vocabulary entry, not a hook);
 * an outbox row without a tenant is skipped fail-closed (O-2) -- counted and
-  logged, never indexed.
+  logged, never indexed;
+* the O-2 authority check reads the outbox TENANT-SCOPED (``event_id`` AND
+  ``tenant_id``), so a foreign-tenant row is a miss even while the staged RLS
+  policy is permissive -- and a vanished row is reported as such instead of
+  being passed off as an O-2 skip.
 
 Event-type assertions are set-membership (``<=``), never a magic total, so a
 later task may add event types without breaking these tests.
@@ -23,6 +27,8 @@ from typing import Any
 from unittest.mock import patch
 
 import pytest
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 
 from application import artifact_index_projector as projector_module
 from application.artifact_index_projector import (
@@ -32,7 +38,7 @@ from application.artifact_index_projector import (
     skipped_without_tenant_count,
 )
 from application.artifact_indexer import ArtifactIndexer
-from application.event_bus import get_event_bus, poll_and_dispatch
+from application.event_bus import DomainEvent, get_event_bus, poll_and_dispatch
 from application.glossary_service import GlossaryService
 from application.models import DomainEventOutbox
 from auth_tenancy.context import AuthContext, AuthMethod
@@ -375,3 +381,135 @@ def test_projector_skips_outbox_row_without_tenant(
         for record in caplog.records
     )
     assert client.collections == {}
+
+
+# ---------------------------------------------------------------------------
+# The O-2 authority check is TENANT-SCOPED (RLS plain-child outbox guard)
+# ---------------------------------------------------------------------------
+
+
+def _outbox_row(*, tenant_id, workspace_id) -> DomainEventOutbox:
+    """A real outbox row carrying an explicit tenant anchor."""
+    return DomainEventOutbox.objects.create(
+        event_type=DomainEventOutbox.EventType.GLOSSARY_TERM_CREATED,
+        workspace_id=workspace_id,
+        entity_id=uuid.uuid4(),
+        payload={},
+        tenant_id=tenant_id,
+    )
+
+
+def _event_for(row: DomainEventOutbox, *, tenant_id, workspace_id) -> DomainEvent:
+    """The event the poller would build from *row* for the given dispatch tenant."""
+    return DomainEvent(
+        event_type=row.event_type,
+        entity_id=row.entity_id,
+        workspace_id=workspace_id,
+        event_id=row.event_id,
+        tenant_id=tenant_id,
+    )
+
+
+def test_tenant_anchor_read_is_tenant_scoped(registered_projector) -> None:
+    """The authority check filters on ``tenant_id`` as well as ``event_id``.
+
+    This is the property the RLS plain-child guard asks for: while the staged
+    outbox policy is permissive (``RLS_AS_ENFORCED`` off) an unscoped
+    ``filter(event_id=...)`` would return any tenant's row. The scoping is only
+    visible in the emitted SQL, so that is what is pinned here -- plus the
+    anchor actually handed to the index task.
+    """
+    with active_tenant() as tenant:
+        workspace = make_workspace(tenant)
+
+    row = _outbox_row(tenant_id=tenant.id, workspace_id=workspace.id)
+    event = _event_for(row, tenant_id=tenant.id, workspace_id=workspace.id)
+
+    with (
+        patch("application.tasks.index_artifact_vector") as task,
+        CaptureQueriesContext(connection) as captured,
+    ):
+        registered_projector.handle_event(event)
+
+    task.delay.assert_called_once()
+    assert task.delay.call_args.kwargs["tenant_id"] == str(tenant.id)
+
+    outbox_sql = [
+        query["sql"]
+        for query in captured.captured_queries
+        if "as_domain_event_outbox" in query["sql"]
+    ]
+    assert outbox_sql, "the O-2 authority check must read the outbox row"
+    assert all('"tenant_id" =' in sql for sql in outbox_sql), outbox_sql
+
+
+def test_foreign_tenant_row_cannot_be_read(registered_projector, caplog) -> None:
+    """A row of another tenant is a miss, not an index job.
+
+    The dispatch context names tenant B for an ``event_id`` that only exists
+    under tenant A. Because the read is tenant-scoped it finds nothing, and the
+    projector fails closed -- it never indexes tenant A's artifact under
+    tenant B.
+    """
+    with active_tenant() as tenant_a:
+        workspace_a = make_workspace(tenant_a)
+    with active_tenant() as tenant_b:
+        workspace_b = make_workspace(tenant_b)
+
+    row = _outbox_row(tenant_id=tenant_a.id, workspace_id=workspace_a.id)
+    event = _event_for(row, tenant_id=tenant_b.id, workspace_id=workspace_b.id)
+
+    before = skipped_without_tenant_count()
+    with caplog.at_level(logging.WARNING, logger="application.artifact_index_projector"):
+        with patch("application.tasks.index_artifact_vector") as task:
+            registered_projector.handle_event(event)
+
+    task.delay.assert_not_called()
+    # Not an O-2 skip: the row HAS a tenant, it is just not this one.
+    assert skipped_without_tenant_count() == before
+
+    warnings = [
+        record.getMessage()
+        for record in caplog.records
+        if record.levelno == logging.WARNING
+    ]
+    assert any("no outbox row" in message for message in warnings), warnings
+    assert not any("carries no tenant_id" in message for message in warnings), warnings
+
+
+def test_vanished_row_is_not_reported_as_a_missing_tenant(
+    registered_projector, caplog
+) -> None:
+    """``None`` from the old lookup meant two different things; they now differ.
+
+    A row that is gone (rolled back, DLQ'd by a peer worker) used to take the
+    O-2 branch and increment the tenant-less counter with a WARNING claiming the
+    row "carries no tenant_id". It does not: it carries one and is no longer
+    there. The counter stays untouched and the message says what happened.
+    """
+    with active_tenant() as tenant:
+        workspace = make_workspace(tenant)
+
+    event = DomainEvent(
+        event_type=DomainEventOutbox.EventType.GLOSSARY_TERM_CREATED,
+        entity_id=uuid.uuid4(),
+        workspace_id=workspace.id,
+        event_id=uuid.uuid4(),  # no such outbox row
+        tenant_id=tenant.id,
+    )
+
+    before = skipped_without_tenant_count()
+    with caplog.at_level(logging.WARNING, logger="application.artifact_index_projector"):
+        with patch("application.tasks.index_artifact_vector") as task:
+            registered_projector.handle_event(event)
+
+    task.delay.assert_not_called()
+    assert skipped_without_tenant_count() == before
+
+    warnings = [
+        record.getMessage()
+        for record in caplog.records
+        if record.levelno == logging.WARNING
+    ]
+    assert any("no outbox row" in message for message in warnings), warnings
+    assert not any("carries no tenant_id" in message for message in warnings), warnings

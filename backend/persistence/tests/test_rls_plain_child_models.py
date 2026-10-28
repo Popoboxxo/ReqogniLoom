@@ -248,7 +248,7 @@ STAGED_ALL_CLAIMS: dict[str, tuple[tuple[str, str], ...]] = {
 #: A reader outside this set would falsify the compensating control: nothing at
 #: the database layer stops it reading another tenant's outbox row.
 #:
-#: Only two, and both are declared rather than assumed:
+#: Only three, and all are declared rather than assumed:
 #:
 #: * ``application/event_bus.py`` — the Celery poller. It has to read: with the
 #:   staged policy DEFAULT OFF the ORM candidate query is the read path, and
@@ -265,6 +265,17 @@ STAGED_ALL_CLAIMS: dict[str, tuple[tuple[str, str], ...]] = {
 #:   the detectable marker. ``DomainEventOutboxAdmin`` inherits
 #:   ``TenantScopedAdminMixin``, so it narrows to the operator's tenant — but
 #:   that is application code, not a database guarantee.
+#: * ``application/artifact_index_projector.py`` — the artifact-index hook
+#:   (Plan A, T-A2-4). It reads to apply O-2: the row, not the payload, is the
+#:   authority for the tenant an artifact must be indexed under, and a row with
+#:   a NULL ``tenant_id`` has to be skipped fail-closed. Its read is
+#:   tenant-scoped in the query itself — ``filter(event_id=..., tenant_id=...)``
+#:   — with the anchor carried over from the dispatch context
+#:   (``event_bus._process_one`` puts the claimed row's ``tenant_id`` on the
+#:   ``DomainEvent``), so it cannot see another tenant's row even while the
+#:   staged policy is permissive, and a foreign-tenant or vanished row is a
+#:   miss (fail-closed) rather than an index. Pinned by
+#:   ``application/tests/test_artifact_index_projector.py``.
 OUTBOX_READER_MODULES = {
     "application/event_bus.py": (
         "the Celery OutboxPoller - candidate listing, SELECT FOR UPDATE claim, "
@@ -275,6 +286,14 @@ OUTBOX_READER_MODULES = {
         "Django admin change list and change page (registered at "
         "application/admin.py:55) - tenant-scoped per request.user.tenant_id "
         "by TenantScopedAdminMixin (application code, not a database guarantee)"
+    ),
+    "application/artifact_index_projector.py": (
+        "the artifact-index event hook - reads the claimed row to enforce O-2 "
+        "(the row, not the payload, is the tenant authority; a NULL tenant_id "
+        "row is skipped fail-closed), filtered by event_id AND tenant_id with "
+        "the anchor carried from the dispatch context, so it is tenant-scoped "
+        "even while the staged policy is permissive and a foreign-tenant row "
+        "is a miss"
     ),
 }
 

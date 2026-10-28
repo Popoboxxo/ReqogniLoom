@@ -20,11 +20,22 @@ Deletion is mandatory: a ``*_Deleted`` event removes the point
 search instead of lingering as a stale hit.
 
 Tenant anchor (O-2): the OUTBOX ROW is the authority, not the payload — every
-producer already has its ``tenant_id`` stamped by ``DomainEventBus.publish``.
-A row whose ``tenant_id`` is NULL is skipped fail-closed (counted, WARNING,
-never indexed): indexing without a tenant would mean guessing a
-``(tenant, workspace)`` collection, which is the one thing the collection
-naming exists to prevent.
+producer already has its ``tenant_id`` stamped by ``DomainEventBus.publish``,
+and the poller hands that anchor to this subscriber on the ``DomainEvent`` it
+builds from the claimed row (``_process_one``). This module therefore never has
+to guess a tenant from a payload. A row whose ``tenant_id`` is NULL is skipped
+fail-closed (counted, WARNING, never indexed): indexing without a tenant would
+mean guessing a ``(tenant, workspace)`` collection, which is the one thing the
+collection naming exists to prevent.
+
+The authority check itself is TENANT-SCOPED. The staged
+``as_domain_event_outbox`` policy ships DEFAULT OFF, i.e. permissive, so an
+unscoped ``filter(event_id=...)`` would see *every* tenant's row — exactly the
+read this module must not perform. The check filters on ``tenant_id`` as well,
+so a foreign-tenant row is a miss (fail-closed) even with the flag off. The two
+ways an anchor can be unusable stay distinct in the log: no anchor on the row
+(O-2, counted) versus no row visible under the event's tenant (vanished or
+foreign, not counted).
 
 Idempotency (REQ-072): the outbox is at-least-once, but no dedup marker is
 needed — ``ArtifactIndexer`` skips an unchanged point (same ``content_sha256``
@@ -34,6 +45,7 @@ from __future__ import annotations
 
 import logging
 import threading
+from typing import Any, NamedTuple
 from uuid import UUID
 
 from application.artifact_indexer import SOURCES, ArtifactIndexer
@@ -95,6 +107,57 @@ def _skip_missing_tenant(event: DomainEvent) -> None:
     )
 
 
+def _skip_unreadable_row(event: DomainEvent) -> None:
+    """Fail closed when no outbox row is visible under the event's tenant.
+
+    Deliberately NOT :func:`_skip_missing_tenant`: the anchor is not NULL here
+    (the claimed row carried one), the row is simply gone — rolled back, DLQ'd
+    by a peer worker — or belongs to another tenant, so the tenant-scoped read
+    misses. Counting it as an O-2 skip would send an operator looking for a
+    NULL-``tenant_id`` row that never existed, which is the misleading WARNING
+    this branch exists to avoid.
+    """
+    logger.warning(
+        "ArtifactIndexProjector: skipping event %s (type=%s) — no outbox row "
+        "with this event_id is visible under tenant %s (the row vanished or "
+        "belongs to another tenant); refusing to index.",
+        event.event_id,
+        event.event_type,
+        _as_uuid(event.tenant_id),
+    )
+
+
+def _as_uuid(value: Any) -> UUID | None:
+    """Normalise a tenant anchor to ``UUID`` (``None`` when it is unusable)."""
+    if isinstance(value, UUID):
+        return value
+    if value is None:
+        return None
+    try:
+        return UUID(str(value))
+    except (TypeError, ValueError):
+        return None
+
+
+#: The event carried no anchor at all — the claimed row's ``tenant_id`` is NULL
+#: (O-2). Counted and reported by :func:`_skip_missing_tenant`.
+_ANCHOR_NO_TENANT = "no_tenant"
+#: The event named a tenant, but no row is visible under it (vanished/foreign).
+_ANCHOR_NOT_VISIBLE = "not_visible"
+
+
+class _TenantAnchor(NamedTuple):
+    """Tenant anchor of the outbox row behind an event.
+
+    ``reason`` is ``""`` when the anchor resolved; otherwise it names the
+    failure (:data:`_ANCHOR_NO_TENANT` / :data:`_ANCHOR_NOT_VISIBLE`) so the
+    caller can report the right thing.
+    """
+
+    tenant_id: UUID | None
+    reason: str
+
+
 def _artifact_vector_backend_selected() -> bool:
     """Whether the Qdrant artifact backend is the selected one (the single gate).
 
@@ -142,10 +205,14 @@ class ArtifactIndexProjector:
         if entity_type is None:
             return  # not an indexed entity (additive: unknown events are ignored)
 
-        tenant_id = self._resolve_tenant_id(event)
-        if tenant_id is None:
-            _skip_missing_tenant(event)
+        anchor = self._resolve_tenant_anchor(event)
+        if anchor.tenant_id is None:
+            if anchor.reason == _ANCHOR_NO_TENANT:
+                _skip_missing_tenant(event)
+            else:
+                _skip_unreadable_row(event)
             return
+        tenant_id = anchor.tenant_id
 
         # Imported lazily so this module stays importable without the Celery
         # task module (and so the projector tests can patch the task seam).
@@ -160,24 +227,37 @@ class ArtifactIndexProjector:
         )
 
     @staticmethod
-    def _resolve_tenant_id(event: DomainEvent) -> UUID | None:
-        """Return the outbox row's tenant anchor, or ``None`` when it has none.
+    def _resolve_tenant_anchor(event: DomainEvent) -> _TenantAnchor:
+        """Return the outbox row's tenant anchor — verified TENANT-SCOPED.
 
-        ``DomainEvent`` deliberately carries no tenant (it is the queue-boundary
-        carrier), so the row written by ``DomainEventBus.publish`` is read back
-        — one indexed lookup on a plain model, no tenant context required.
+        The tenant comes from the DISPATCH CONTEXT, not from a per-row lookup:
+        ``event_bus._process_one`` builds the ``DomainEvent`` from the row it
+        just claimed and carries that row's ``tenant_id`` on it, so nothing is
+        re-derived here and no workspace query is needed (the same
+        chicken-and-egg the memory projector solved by carrying the anchor on
+        the event).
+
+        The read below is the O-2 authority check, and it filters on
+        ``tenant_id`` *in addition to* ``event_id``: while the staged
+        ``as_domain_event_outbox`` policy is permissive (``RLS_AS_ENFORCED``
+        off) an unscoped ``filter(event_id=...)`` would return any tenant's row.
+        Scoped like this, a foreign-tenant row is a miss, i.e. fail-closed.
+
+        The two failure modes stay distinguishable, which the old
+        ``values_list(...).first() is None`` conflated: a ``None`` tenant on the
+        event means the claimed row itself had none (O-2), while a scoped miss
+        means the row is gone or belongs to another tenant.
         """
-        raw = (
-            DomainEventOutbox.objects.filter(event_id=event.event_id)
-            .values_list("tenant_id", flat=True)
-            .first()
-        )
-        if raw is None:
-            return None
-        try:
-            return UUID(str(raw))
-        except (TypeError, ValueError):
-            return None
+        tenant_id = _as_uuid(event.tenant_id)
+        if tenant_id is None:
+            return _TenantAnchor(None, _ANCHOR_NO_TENANT)
+
+        if not DomainEventOutbox.objects.filter(
+            event_id=event.event_id, tenant_id=tenant_id
+        ).exists():
+            return _TenantAnchor(None, _ANCHOR_NOT_VISIBLE)
+
+        return _TenantAnchor(tenant_id, "")
 
 
 def register_projector_on_event_bus() -> int:
