@@ -180,11 +180,50 @@ class TestQdrantApiKeyCheck:
 
         assert check_qdrant_api_key() == []
 
-    def test_non_production_reports_nothing(
-        self, monkeypatch: pytest.MonkeyPatch
+    @pytest.mark.parametrize(
+        "django_env", ["prod", "staging", "Production", "sandbox", "typo-env"]
+    )
+    def test_any_env_outside_the_non_production_set_is_production(
+        self, monkeypatch: pytest.MonkeyPatch, django_env: str
+    ) -> None:
+        """Settings treat everything but four values as production (REQ-115).
+
+        ``settings.DEBUG`` is ``DEBUG and DJANGO_ENV in _NON_PROD_ENVS``, so
+        ``prod``/``staging``/a typo are production there. A literal
+        ``== "production"`` comparison here made exactly those values a silent
+        no-warning zone — production reality, no finding, no log.
+        """
+        self._configure(monkeypatch, django_env=django_env)
+
+        warnings = check_qdrant_api_key()
+
+        assert [warning.id for warning in warnings] == [QDRANT_API_KEY_MISSING]
+
+    @pytest.mark.parametrize(
+        "django_env", ["development", "dev", "local", "test", "  DEV  "]
+    )
+    def test_declared_non_production_envs_report_nothing(
+        self, monkeypatch: pytest.MonkeyPatch, django_env: str
     ) -> None:
         """A dev/test stack on an isolated network is the accepted case."""
-        self._configure(monkeypatch, django_env="development")
+        self._configure(monkeypatch, django_env=django_env)
+
+        assert check_qdrant_api_key() == []
+
+    def test_db_configured_key_counts_as_set(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The port resolves the key through SystemMemorySettings, not the env.
+
+        A key configured only in the DB never appears in ``os.environ``; reading
+        the env alone reported a false ``memory.W003`` on every probe.
+        """
+        from memory.models import SystemMemorySettings
+
+        self._configure(monkeypatch)
+        row = SystemMemorySettings()
+        row.qdrant_api_key = "db-configured-key"
+        row.save()
 
         assert check_qdrant_api_key() == []
 
@@ -197,6 +236,27 @@ class TestQdrantApiKeyCheck:
         assert check_qdrant_api_key() == []
 
 
+class TestCheckRegistration:
+    def test_run_checks_reports_memory_w003(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The check must be *registered*, not merely importable.
+
+        Without ``memory.apps``'s ``register(check_qdrant_api_key)`` the
+        function still passes its own tests while ``manage.py check`` and
+        ``migrate`` stay silent — the whole point of a system check.
+        """
+        from django.core.checks import run_checks
+
+        TestQdrantApiKeyCheck._configure(monkeypatch)
+
+        reported = [
+            result for result in run_checks() if result.id == QDRANT_API_KEY_MISSING
+        ]
+
+        assert len(reported) == 1
+
+
 class TestHealthQdrantApiKeyAdvisory:
     def test_missing_key_is_advisory_on_health(
         self, monkeypatch: pytest.MonkeyPatch
@@ -207,9 +267,10 @@ class TestHealthQdrantApiKeyAdvisory:
         advisory: dict[str, str] = {}
         warnings: list[str] = []
 
-        _collect_advisory(advisory, warnings, db_ok=False)
+        _collect_advisory(advisory, warnings, db_ok=False, verbose=True)
 
         assert advisory["qdrant_api_key"] == "missing"
+        assert advisory["qdrant_api_key_missing"] == "true"
         assert any("qdrant_api_key_missing" in warning for warning in warnings)
 
     def test_present_key_is_advisory_ok_on_health(
@@ -221,10 +282,31 @@ class TestHealthQdrantApiKeyAdvisory:
         advisory: dict[str, str] = {}
         warnings: list[str] = []
 
-        _collect_advisory(advisory, warnings, db_ok=False)
+        _collect_advisory(advisory, warnings, db_ok=False, verbose=True)
 
         assert advisory["qdrant_api_key"] == "ok"
+        assert advisory["qdrant_api_key_missing"] == "false"
         assert not any("qdrant_api_key_missing" in warning for warning in warnings)
+
+    def test_key_advisory_is_verbose_only(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """``/health/`` is unauthenticated: the posture is not published by default.
+
+        The warning stays (it is the operator signal); only the advisory keys
+        that would name the soft target are gated behind ``?verbose=1``.
+        """
+        from reqogniloom.health import _collect_advisory
+
+        TestQdrantApiKeyCheck._configure(monkeypatch)
+        advisory: dict[str, str] = {}
+        warnings: list[str] = []
+
+        _collect_advisory(advisory, warnings, db_ok=False)
+
+        assert "qdrant_api_key" not in advisory
+        assert "qdrant_api_key_missing" not in advisory
+        assert any("qdrant_api_key_missing" in warning for warning in warnings)
 
 
 class TestHealthEmbeddingModelConsistencyAdvisory:

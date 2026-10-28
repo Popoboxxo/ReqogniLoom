@@ -1,7 +1,8 @@
 """Startup system checks for the memory/vector backends (T-A0-4, T-A2-1).
 
 Two unrelated findings live here because both are deployment-configuration
-problems of the same subsystem, both are cheap environment reads, and both are
+problems of the same subsystem, both are cheap configuration reads (environment
+plus, for the Qdrant key, the persisted override), and both are
 ``Warning``-only:
 
 * ``memory.W001``/``memory.W002`` — the app and Honcho embed into different
@@ -11,8 +12,9 @@ problems of the same subsystem, both are cheap environment reads, and both are
 
 Registered from :meth:`memory.apps.MemoryConfig.ready`, so ``manage.py check`` /
 ``runserver`` / ``migrate`` surface the result, and published on ``/health/`` as
-the advisories ``embedding_model_consistency`` and ``qdrant_api_key``
-(``reqogniloom.health``).
+the advisories ``embedding_model_consistency`` and — ``?verbose=1`` only, because
+the probe is unauthenticated — ``qdrant_api_key`` /
+``qdrant_api_key_missing`` (``reqogniloom.health``).
 
 Why a check rather than a log line
 ----------------------------------
@@ -83,7 +85,9 @@ QDRANT_ARTIFACT_BACKEND = "qdrant"
 #: on the ``qdrant`` service — the two must match).
 QDRANT_API_KEY_ENV_VAR = "QDRANT_API_KEY"
 
-#: The only deployment gate where an unauthenticated vector store is a finding.
+#: Safe default when ``DJANGO_ENV`` is absent. "Production" is decided by
+#: exclusion (anything outside ``settings._NON_PROD_ENVS``), not by this literal
+#: — see :func:`_deployment_is_production`.
 PRODUCTION_ENV = "production"
 
 #: The one memory backend that runs its own embedding service.
@@ -123,15 +127,18 @@ _HINTS: dict[str, str] = {
         "advisory.embedding_model_consistency."
     ),
     QDRANT_API_KEY_MISSING: (
-        "Qdrant is a productive artifact store here ("
-        f"{ARTIFACT_VECTOR_BACKEND_ENV_VAR}=qdrant) and this is a production "
-        f"deployment with an empty {QDRANT_API_KEY_ENV_VAR}: Qdrant then accepts "
+        "The artifact store is configured for Qdrant ("
+        f"{ARTIFACT_VECTOR_BACKEND_ENV_VAR}=qdrant) in a production deployment "
+        f"and no API key resolves: neither {QDRANT_API_KEY_ENV_VAR} nor the "
+        "persisted SystemMemorySettings.qdrant_api_key is set. Unless the qdrant "
+        "service itself enforces QDRANT__SERVICE__API_KEY, such a store accepts "
         "unauthenticated callers, so any container on the network can read and "
-        "delete every tenant's collections. Tenant isolation would rest on "
+        "delete every tenant's collections; tenant isolation would rest on "
         "collection names and network segmentation alone. Set "
         f"{QDRANT_API_KEY_ENV_VAR} (and the matching QDRANT__SERVICE__API_KEY on "
         "the qdrant service), then recreate backend/celery so env_file is read "
-        "again. Publish on /health/ as advisory.qdrant_api_key."
+        "again. Publish on /health/ (?verbose=1) as advisory.qdrant_api_key "
+        "and advisory.qdrant_api_key_missing."
     ),
 }
 
@@ -278,12 +285,14 @@ def check_honcho_embedding_consistency(
 
 
 def qdrant_artifact_backend_selected() -> bool:
-    """Whether the Qdrant artifact store is the explicitly selected backend.
+    """Whether the artifact store is *configured* for Qdrant.
 
-    Reads only the ``ARTIFACT_VECTOR_BACKEND`` selector (the port decides the
-    full selection — package and base URL included — and degrades to pgvector
-    for the rest). This is the "is there anything to say about Qdrant auth at
-    all" question, so a default (pgvector) deployment reports nothing.
+    Reads only the ``ARTIFACT_VECTOR_BACKEND`` selector. "Configured" is not
+    "active": the port decides the full selection (package and base URL
+    included) and degrades to pgvector for the rest, so a selected-but-gated
+    deployment still serves artifacts from pgvector. This is the "is there
+    anything to say about Qdrant auth at all" question, so a default (pgvector)
+    deployment reports nothing.
     """
     return (
         os.environ.get(ARTIFACT_VECTOR_BACKEND_ENV_VAR, "")
@@ -297,7 +306,9 @@ def _django_env() -> str:
     """Return the normalised deployment gate (``settings.DJANGO_ENV``).
 
     Same value and normalisation ``reqogniloom.settings`` uses for its DEBUG
-    gate, so "production" here means exactly what it means there. Falls back to
+    gate. Note that reading the value is only half of that gate:
+    :func:`_deployment_is_production` applies the same membership test, so
+    "production" here means exactly what it means there. Falls back to
     ``production`` (the safe default) when the setting is absent — e.g. in a
     bare check invocation.
     """
@@ -306,37 +317,98 @@ def _django_env() -> str:
     return str(getattr(settings, "DJANGO_ENV", PRODUCTION_ENV)).strip().lower()
 
 
+def _non_production_envs() -> frozenset[str]:
+    """Return the non-production ``DJANGO_ENV`` values.
+
+    Taken from :mod:`reqogniloom.settings` (the single definition the ``DEBUG``
+    gate uses) rather than copied here: a second literal set silently drifts,
+    and a drifted set was exactly the false negative this helper removes —
+    ``DJANGO_ENV=staging`` (or ``prod``, or a typo) is production for settings,
+    so it must be production for this check too. Imported lazily to keep the
+    startup-check module free of every import-time settings dependency. An
+    unreadable set degrades to "everything is production": over-warning is the
+    safe direction, silence is not.
+    """
+    try:
+        from reqogniloom.settings import _NON_PROD_ENVS
+    except ImportError:
+        logger.debug("No non-production environment set found; treating all as production.")
+        return frozenset()
+    return frozenset(_NON_PROD_ENVS)
+
+
+def _deployment_is_production() -> bool:
+    """Whether this process runs outside the declared non-production envs.
+
+    Mirrors ``reqogniloom.settings``' ``DEBUG`` gate: every value that is not
+    one of ``development``/``dev``/``local``/``test`` is production. Comparing
+    against ``"production"`` instead (the previous behaviour) left ``prod``,
+    ``staging``, ``sandbox`` and typos in a silent no-warning zone.
+    """
+    return _django_env() not in _non_production_envs()
+
+
+def _qdrant_api_key_configured() -> bool:
+    """Whether an API key is configured for Qdrant (DB override over env).
+
+    Resolves through the same helper the artifact port and the memory backend
+    use, because a key persisted in ``SystemMemorySettings.qdrant_api_key``
+    never appears in the environment — reading only ``os.environ`` reported a
+    false ``memory.W003`` on every readiness probe of such a deployment. That
+    helper already layers the env underneath, so the explicit env read here is
+    only the last-resort fallback for an unresolvable config (no DB row, no DB
+    connection): over-warning is safe, silence is not.
+    """
+    env_key = os.environ.get(QDRANT_API_KEY_ENV_VAR, "").strip()
+    try:
+        from memory.qdrant_backend import resolve_effective_qdrant_config
+
+        resolved_key = resolve_effective_qdrant_config().api_key
+    except Exception as exc:  # noqa: BLE001 - a check must never break startup.
+        logger.debug("Qdrant API-key resolution fell back to the env: %s", exc)
+        return bool(env_key)
+    return bool(str(resolved_key or "").strip())
+
+
 def qdrant_api_key_missing() -> bool:
-    """Whether Qdrant is the artifact backend and production runs it keyless.
+    """Whether Qdrant is configured and production resolves no API key.
 
     The three conditions, all of which must hold (QR-S23):
 
-    1. ``ARTIFACT_VECTOR_BACKEND=qdrant`` — Qdrant is a productive artifact
-       store, not an unused option.
-    2. ``DJANGO_ENV=production`` — an isolated dev/test stack with no key is the
-       accepted case, not a finding.
-    3. ``QDRANT_API_KEY`` is empty — otherwise clients authenticate.
+    1. ``ARTIFACT_VECTOR_BACKEND=qdrant`` — the artifact store is *configured*
+       for Qdrant. It is not necessarily active (a missing ``qdrant_client`` or
+       ``QDRANT_BASE_URL`` still degrades to pgvector); warning in that case is
+       deliberate, because the selector says Qdrant holds tenant vectors as soon
+       as the gate closes.
+    2. ``DJANGO_ENV`` is not a declared non-production value — an isolated
+       dev/test stack with no key is the accepted case, not a finding. The test
+       is the settings module's ``_NON_PROD_ENVS`` membership, so ``staging``,
+       ``prod`` or a typo stays production (see
+       :func:`_deployment_is_production`).
+    3. No API key is resolvable — neither ``QDRANT_API_KEY`` nor the persisted
+       ``SystemMemorySettings.qdrant_api_key`` (DB override over env, resolved by
+       the same helper the backends use).
 
     Shared by :func:`check_qdrant_api_key` (``manage.py check``, ``memory.W003``)
-    and ``reqogniloom.health._collect_advisory``, so both surfaces agree.
-    Unauthenticated Qdrant is only a *finding*, never a hard error: the
-    deployment still serves (ENT-A8 = A, provisionally as a warning).
+    and ``reqogniloom.health._collect_advisory``, so both surfaces agree. A
+    keyless Qdrant is only a *finding*, never a hard error: the deployment still
+    serves (ENT-A8 = A, provisionally as a warning).
     """
     if not qdrant_artifact_backend_selected():
         return False
-    if os.environ.get(QDRANT_API_KEY_ENV_VAR, "").strip():
+    if _qdrant_api_key_configured():
         return False
-    return _django_env() == PRODUCTION_ENV
+    return _deployment_is_production()
 
 
 def check_qdrant_api_key(
     app_configs: Any = None, **kwargs: Any
 ) -> list[DjangoWarning]:
-    """Warn when a production deployment runs the Qdrant backend without a key.
+    """Warn when production configures Qdrant but resolves no API key.
 
-    A ``Warning``, never an ``Error``: nothing is broken, the artifact store is
-    merely unauthenticated. ``app_configs``/``kwargs`` are Django's
-    system-check calling convention and are unused.
+    A ``Warning``, never an ``Error``: nothing is broken, the store is merely
+    keyless. ``app_configs``/``kwargs`` are Django's system-check calling
+    convention and are unused.
 
     Never raises: a check that crashes would take ``migrate`` down with it.
     """
@@ -351,8 +423,10 @@ def check_qdrant_api_key(
     return [
         DjangoWarning(
             (
-                f"{ARTIFACT_VECTOR_BACKEND_ENV_VAR}=qdrant is selected in a "
-                f"production deployment but {QDRANT_API_KEY_ENV_VAR} is not set."
+                f"{ARTIFACT_VECTOR_BACKEND_ENV_VAR}=qdrant is configured in a "
+                "production deployment but no Qdrant API key resolves: "
+                f"{QDRANT_API_KEY_ENV_VAR} is not set and "
+                "SystemMemorySettings.qdrant_api_key is empty."
             ),
             hint=_HINTS.get(QDRANT_API_KEY_MISSING, ""),
             id=QDRANT_API_KEY_MISSING,

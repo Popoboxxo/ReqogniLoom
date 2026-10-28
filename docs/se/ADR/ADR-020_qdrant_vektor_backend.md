@@ -249,6 +249,13 @@ L2-REQ-Datei ist entsprechend fortzuschreiben (Architektur-Abschnitt `:32,36`). 
 
 ### 4. Default bleibt pgvector — Qdrant nur opt-in
 
+> **Änderungsnotiz (2026-10-28, T-A2-1 / PR-A21a):** Der **V2-Selektor
+> `ARTIFACT_VECTOR_BACKEND` ist vom `MEMORY_BACKEND` entkoppelt**. Die Artefakt-Suche wählt
+> Qdrant unabhängig vom Memory-Backend; ihre Gates sind `ARTIFACT_VECTOR_BACKEND=qdrant`, ein
+> importierbares `qdrant_client`-Paket und eine konfigurierte Base-URL. Die hier festgehaltene
+> `MEMORY_BACKEND`-Kopplung gilt weiterhin für **V1 (Memory)**. Der ADR-`status` bleibt
+> unverändert (`accepted`) — eine Status-/Supersede-Änderung ist ein separates Verfahren.
+
 - `MEMORY_BACKEND=pgvector` (Default) ändert sich **nicht**; `SystemMemorySettings.memory_backend`
   gewinnt weiterhin vor der Env (`backends.py:547-556`).
 - Qdrant nur aktiv bei `MEMORY_BACKEND=qdrant` **und** aktivem Compose-Profil `qdrant`

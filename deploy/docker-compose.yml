@@ -23,12 +23,14 @@
 # container started) unless you opt in:
 #   docker compose --profile honcho up -d
 #
-# OPTIONAL: Qdrant vector backend (MEMORY_BACKEND=qdrant, ADR-020)
+# OPTIONAL: Qdrant vector backend (ADR-020)
 # The `qdrant` service below is gated behind the `qdrant` Compose profile —
 # defined in this same file so there is one file to read, but it costs nothing
 # (no image pulled, no container started) unless you opt in:
 #   docker compose --profile qdrant up -d      (or: make qdrant)
-# pgvector stays the DEFAULT; Qdrant is only used when MEMORY_BACKEND=qdrant.
+# pgvector stays the DEFAULT for BOTH stores; Qdrant is used only when a
+# selector opts in: MEMORY_BACKEND=qdrant (AI-memory store) and/or
+# ARTIFACT_VECTOR_BACKEND=qdrant (artifact ANN search, independent since T-A2-1).
 #
 # DEVELOPMENT OVERRIDE:
 # For development with hot-reload, docker-compose.override.yml
@@ -1517,15 +1519,17 @@ services:
         max-file: "3"
 
   # ---------------------------------------------------------------------
-  # OPTIONAL: Qdrant vector backend (MEMORY_BACKEND=qdrant, ADR-020)
+  # OPTIONAL: Qdrant vector backend (ADR-020)
   # profiles: [qdrant] -- costs nothing (no pull, no start) unless you run
   # `docker compose --profile qdrant up -d` (or `make qdrant`). Kept in this
   # file (not a separate overlay) so there is exactly one full-stack file to
-  # read. pgvector stays the DEFAULT (MEMORY_BACKEND=pgvector); Qdrant is an
-  # opt-in SECOND operating mode, never a silent replacement.
+  # read. pgvector stays the DEFAULT for both stores (MEMORY_BACKEND=pgvector,
+  # ARTIFACT_VECTOR_BACKEND=pgvector); Qdrant is an opt-in SECOND operating mode,
+  # never a silent replacement, and the two selectors are independent (T-A2-1).
   #
   # Then point ReqogniLoom's backend/celery at it (add to .env, not committed):
-  #   MEMORY_BACKEND=qdrant
+  #   MEMORY_BACKEND=qdrant            # AI-memory store (optional)
+  #   ARTIFACT_VECTOR_BACKEND=qdrant   # artifact ANN search (optional, independent)
   #   QDRANT_BASE_URL=http://qdrant:6333
   # Like HONCHO_BASE_URL, that value reaches the app through `env_file: .env`;
   # nothing is injected into the `backend`/`celery` services here.

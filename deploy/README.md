@@ -237,7 +237,7 @@ per-invocation: a `down` without the same `--profile` flags leaves those contain
 | Profile | What | Status |
 |---|---|---|
 | `honcho` | Optional Honcho memory backend (`honcho-postgres`, `honcho-redis`, `honcho-migrate`, `honcho`). | Optional feature — fine to enable in production if you want it. |
-| `qdrant` | Optional Qdrant vector backend (`qdrant`), for `MEMORY_BACKEND=qdrant` (ADR-020). | Optional feature — **pgvector stays the default**; the vector index is regenerable from Postgres. Fine to enable in production if you want it (see below). |
+| `qdrant` | Optional Qdrant vector backend (`qdrant`), for `MEMORY_BACKEND=qdrant` and/or `ARTIFACT_VECTOR_BACKEND=qdrant` (ADR-020; the two selectors are independent since T-A2-1). | Optional feature — **pgvector stays the default**; the vector index is regenerable from Postgres. Fine to enable in production if you want it (see below). |
 | `bluepencil` | Sidecar for the in-app annotation/review layer. | **DEBUG/QS ONLY — never enable it in production.** It is a *debugging* aid for seeing and measuring the layer in the real app, not a product feature: the sidecar has **no user auth and no tenant isolation** — one JSON file is shared by every workspace. A future production path would be a DRF `review_notes` store with server-side auth, RBAC, CSRF, and tenant isolation (`docs/bluepencil-integration.md`). See `deploy/bluepencil/README.md`. |
 
 ## First Stumbling Block: CSRF Cookie Requires Matching Security Settings
@@ -687,7 +687,7 @@ the host, and a shared host is not tenant isolation.
 | `QDRANT_API_KEY` | *(empty)* | Only if Qdrant's API-key check is enabled; empty = no auth — acceptable **only** on an isolated single-app network, **required** for multi-tenant (see the security note above). Must match `QDRANT__SERVICE__API_KEY` on the `qdrant` service. |
 | `QDRANT_TIMEOUT` | `5` | Seconds (matches `DEFAULT_QDRANT_TIMEOUT` in `persistence/qdrant_config.py`). |
 | `QDRANT_DISTANCE` | `cosine` | Same metric as pgvector's `vector_cosine_ops`; `dot`/`euclid` are deliberate exceptions. |
-| `QDRANT_COLLECTION_PREFIX` | `reqlo` | One collection per workspace (`<prefix>_<tenant>_<workspace>`), plus `<prefix>_<tenant>_user` and the `_artifacts` collection. |
+| `QDRANT_COLLECTION_PREFIX` | `reqlo` | One collection per workspace/scope, in two separate families. **AI-memory** (`QdrantMemoryBackend`): `<prefix>_<tenant>_<workspace>`, `<prefix>_<tenant>_user`, and the legacy unversioned `<prefix>_<tenant>_<workspace>_artifacts`. **Artifact port** (`ARTIFACT_VECTOR_BACKEND=qdrant`): `<prefix>_<tenant>_<workspace>_artifacts_v2`, read through the stable `<prefix>_<tenant>_<workspace>_artifacts_live` alias. |
 | `QDRANT_HNSW_M` / `QDRANT_HNSW_EF_CONSTRUCT` | `16` / `64` | Mirror the pgvector HNSW index already shipped (`memory/models.py`). |
 | `QDRANT_PREFER_GRPC` | `false` | `true` uses the gRPC port `6334`. |
 
@@ -717,8 +717,8 @@ to Qdrant only through an explicit second selector:
 
 Leave it at `pgvector` (the default) unless the artifact index on the **target system** has
 actually been built. The Qdrant artifact adapter, the backfill command and the index hooks exist,
-but a deployment's per-workspace `_artifacts` collections start empty: semantic search there
-returns no hits until they are populated.
+but a deployment's per-workspace `<prefix>_<tenant>_<workspace>_artifacts_v2` collections start
+empty: semantic search there returns no hits until they are populated.
 
 **Rollout rule (QR-T16).** Enable `ARTIFACT_VECTOR_BACKEND=qdrant` on a target system only after
 `python manage.py index_artifact_vectors` has run **there** and reported `failed:0`, and the
@@ -731,6 +731,14 @@ importable `qdrant_client` package, and a configured `QDRANT_BASE_URL`. If any c
 missing the artifact port stays on pgvector — it never switches implicitly. The selection is
 deliberately **independent of `MEMORY_BACKEND`**: that knob governs the AI-memory store only, so
 an artifact Qdrant store can serve in front of a Honcho or pgvector memory backend.
+
+**The key requirement applies to the artifact store too.** This port puts **tenant artifact
+vectors** into Qdrant, so `QDRANT_API_KEY` (plus the matching `QDRANT__SERVICE__API_KEY` on the
+`qdrant` service) is **mandatory for multi-tenant** deployments — the same gate the memory section
+above describes, and it holds even when `MEMORY_BACKEND` is *not* `qdrant` (T-A2-1 decoupled the
+two selectors). Without it, a production deployment raises `memory.W003` at `manage.py
+check`/`migrate` and `/health/?verbose=1` publishes `advisory.qdrant_api_key=missing` (plus
+`advisory.qdrant_api_key_missing=true`).
 
 **Known limitation until the workspace scope is wired.** `find_similar_trace_links` and
 `find_similar_icds` carry **no workspace scope**; the Qdrant adapter fails **loud** for them
@@ -1027,6 +1035,10 @@ Facts:
   `docker compose` call against files in this directory — see "Required flag" above for why.
 - Health check URL: `http://localhost:8001/health/` — HTTP 200 with `{"status": "ok"}` means the
   stack is fully up (`migrate` completed, `postgres`/`redis`/`backend` are healthy).
+- `/health/` is an **unauthenticated** probe, not an API: it is **not** meant to be
+  internet-reachable. Keep it on the internal network (or behind the reverse proxy's own auth) —
+  it publishes deployment diagnostics, and the artifact store's security posture only with
+  `?verbose=1`.
 - If a service does not reach `healthy` within a few minutes, inspect its logs:
   ```bash
   docker compose -f deploy/docker-compose.yml --project-directory . logs <service-name>
