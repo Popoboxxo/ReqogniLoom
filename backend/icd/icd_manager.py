@@ -45,6 +45,7 @@ from django.db import transaction
 
 from application.event_bus import publish_entity_event
 from application.models import DomainEventOutbox
+from auth_tenancy.context import AuthContext
 from icd.audit_logger import get_audit_logger
 from icd.contract_validator import ValidationResult, get_validator
 from icd.models import Icd, IcdRevision
@@ -724,6 +725,8 @@ class IcdManager:
         icd_id: uuid.UUID,
         tenant_id: uuid.UUID,
         limit: int = 10,
+        workspace_id: uuid.UUID | None = None,
+        ctx: AuthContext | None = None,
     ) -> list[SimilarIcdDTO]:
         """Return the ICDs whose contract is most similar to *icd_id*'s.
 
@@ -736,6 +739,14 @@ class IcdManager:
             icd_id: Query ICD (must have a non-null embedding).
             tenant_id: Tenant scope.
             limit: Max results (clamped to 1..50, default 10).
+            workspace_id: Scope of the query ICD (T-A2-8). With it, the Qdrant
+                adapter addresses the per-workspace alias; without it the call
+                degrades to pgvector with ``degraded_reason="no_workspace_scope"``
+                instead of raising. The pgvector query is unchanged (no
+                workspace filter), so the default deployment stays
+                byte-identical.
+            ctx: Caller identity for the QR-S07 READ gate (T-A2-8). The Qdrant
+                adapter fails closed without it; pgvector ignores it.
 
         Returns:
             Ordered list of SimilarIcdDTO (closest first).
@@ -749,7 +760,7 @@ class IcdManager:
             COLLECTION_ICD,
             QdrantBackendUnavailableError,
             VectorBackendUnavailableError,
-            get_vector_port,
+            get_similarity_vector_port,
         )
 
         icd = Icd.unscoped.filter(id=icd_id, tenant_id=tenant_id).first()
@@ -764,21 +775,26 @@ class IcdManager:
         safe_limit = max(1, min(int(limit or 10), 50))
 
         try:
-            hits = get_vector_port().query_similar(
+            hits = get_similarity_vector_port(workspace_id).query_similar(
                 collection=COLLECTION_ICD,
                 query_vector=icd.embedding,
                 tenant_id=tenant_id,
+                # T-A2-8: scope only the Qdrant adapter addresses. No
+                # ``workspace_field`` on purpose — the pgvector path must stay
+                # byte-identical to the pre-port site, which had no workspace
+                # filter here (the workspace fence for Qdrant hits is applied by
+                # the port's hydration step).
+                workspace_id=workspace_id,
                 exclude_id=icd.id,
                 limit=safe_limit,
                 # Mirrors the pre-port site: no transaction/iterative scan
                 # here. Strict mode still gets one — the port forces it on
                 # whenever it has to post-filter by embedding_model (T-A0-6).
                 iterative_scan=False,
-                # Deliberately NO ``ctx`` yet (this method has no caller
-                # identity at all): the port's QR-S07 READ gate is fail-closed,
-                # so under Qdrant this method returns no hits until PR-A21b
-                # (T-A2-8) adds one. The pgvector default path is unaffected
-                # (the adapter ignores ``ctx``).
+                # QR-S07: the READ gate needs the caller identity. Ignored by
+                # the pgvector adapter (default path, byte-identical) and
+                # REQUIRED by the Qdrant adapter, which fails closed without it.
+                ctx=ctx,
             )
         except QdrantBackendUnavailableError as exc:
             raise IcdQdrantUnavailableError(str(exc)) from exc

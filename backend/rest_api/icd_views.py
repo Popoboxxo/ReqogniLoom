@@ -924,6 +924,12 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         REQ-L2-VS-004: Returns the top-N ICDs most similar to <pk> by cosine
         distance over the Icd row's pgvector embedding. Returns 400 when the
         ICD has no embedding, 503 when pgvector is unavailable.
+
+        T-A2-8: the query is scoped to the ICD's own workspace, read off the
+        tenant-scoped row — not off a request parameter. Without a scope the
+        optional Qdrant backend could not be addressed at all (it needs one
+        collection per workspace), so the service degrades to pgvector instead
+        of failing the request.
         """
         lang = detect_lang(request)
         try:
@@ -933,10 +939,15 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
 
         try:
             ctx = get_auth_context(request)
+            # T-A2-8: the row is the authority for the workspace scope; its
+            # absence is already a 404 (the service re-raises DoesNotExist).
+            icd = get_icd(UUID(pk), ctx.tenant_id)
             results = find_similar_icds(
                 icd_id=UUID(pk),
                 tenant_id=ctx.tenant_id,
                 limit=limit,
+                workspace_id=icd.workspace_id,
+                ctx=ctx,
             )
         except Icd.DoesNotExist:
             return Response(
