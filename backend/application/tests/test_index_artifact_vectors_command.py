@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 from io import StringIO
+from uuid import uuid4
 
 import pytest
 from django.core.management import call_command
@@ -16,7 +17,7 @@ from django.core.management.base import CommandError
 
 from application.management.commands import index_artifact_vectors as command_module
 from memory.tests.qdrant_fakes import FakeQdrantClient, FakeQdrantModels
-from persistence.models import Adr, Requirement
+from persistence.models import Adr, Requirement, Tenant, Workspace
 from persistence.qdrant_config import (
     build_collection_alias,
     build_collection_name,
@@ -163,11 +164,21 @@ def test_recreate_requires_tenant(fake_client) -> None:
 
 
 @pytest.mark.django_db
-def test_malformed_tenant_and_workspace_are_command_errors(fake_client) -> None:
+def test_malformed_tenant_and_workspace_are_command_errors(fake_client, monkeypatch) -> None:
+    """A malformed UUID must fail before the Qdrant client is even constructed."""
+    built: list[object] = []
+
+    def _spy(config):
+        built.append(config)
+        raise AssertionError("client_factory must not run before the UUIDs are validated")
+
+    monkeypatch.setattr(command_module.Command, "client_factory", staticmethod(_spy))
+
     with active_tenant(), pytest.raises(CommandError, match="--tenant must be a UUID"):
         _run(tenant="not-a-uuid")
     with active_tenant(), pytest.raises(CommandError, match="--workspace must be a UUID"):
         _run(workspace="not-a-uuid")
+    assert built == []
 
 
 @pytest.mark.django_db
@@ -201,8 +212,45 @@ def test_recreate_drops_and_rebuilds_the_collection(fake_client, monkeypatch) ->
 
 
 @pytest.mark.django_db
+def test_recreate_with_an_out_of_scope_workspace_is_a_command_error(fake_client) -> None:
+    """A destructive run must not report "rebuilt" for a workspace it never saw.
+
+    Unknown id and another tenant's workspace both leave the filter empty; the
+    old behaviour was an all-zero JSON line and exit 0, i.e. a silent no-op on
+    ``--recreate``.
+    """
+    with active_tenant() as tenant:
+        foreign = Tenant.objects.create(
+            name="Foreign Tenant", slug=f"foreign-{uuid4().hex[:8]}", is_active=True
+        )
+        foreign_workspace = Workspace.unscoped.create(tenant_id=foreign.id, name="WS-foreign")
+        for workspace_id in (uuid4(), foreign_workspace.id):
+            out = StringIO()
+            with pytest.raises(
+                CommandError, match=f"No workspace {workspace_id} in tenant {tenant.id}"
+            ):
+                call_command(
+                    "index_artifact_vectors",
+                    stdout=out,
+                    stderr=out,
+                    tenant=str(tenant.id),
+                    workspace=str(workspace_id),
+                    type=["Requirement"],
+                    recreate=True,
+                )
+            assert out.getvalue() == ""
+
+
+@pytest.mark.django_db
 def test_one_collection_ensure_per_workspace_across_types(fake_client, monkeypatch) -> None:
-    """The per-tenant indexer keeps ``_ensured``: one ensure, not one per type."""
+    """The per-tenant indexer keeps ``_ensured``: one ensure, not one per type.
+
+    ``create_collection`` cannot see the difference -- ``ensure_artifact_collection``
+    only creates when the collection is missing, so a fresh indexer per entity
+    type creates it once too. ``get_collection`` runs on BOTH the create and the
+    reuse path, exactly once per ensure, so it is the call that distinguishes
+    "ensured once" from "ensured once per type".
+    """
     monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
     with active_tenant() as tenant:
         workspace = make_workspace(tenant)
@@ -217,28 +265,34 @@ def test_one_collection_ensure_per_workspace_across_types(fake_client, monkeypat
 
     assert payload["by_type"]["Requirement"]["upserted"] == 1
     assert payload["by_type"]["Adr"]["upserted"] == 1
-    assert len([call for call in fake_client.calls if call[0] == "create_collection"]) == 1
+    assert len([call for call in fake_client.calls if call[0] == "get_collection"]) == 1
 
 
 @pytest.mark.django_db
 def test_failed_entities_exit_non_zero_but_still_report(fake_client, monkeypatch) -> None:
-    """A row that cannot be indexed must fail the run, not just count up."""
+    """Rows that cannot be indexed must fail the run, not just count up.
+
+    Two entity types fail for the same reason: ``by_type`` stays per type while
+    the top-level ``failures`` aggregates the reason across types.
+    """
     monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
     out = StringIO()
     with active_tenant() as tenant:
         workspace = make_workspace(tenant)
         make_requirement(workspace, title="")
+        Adr.objects.create(tenant=tenant, workspace_id=workspace.id, title="")
 
-        with pytest.raises(CommandError, match="indexing failed for 1 entities"):
+        with pytest.raises(CommandError, match="indexing failed for 2 entities"):
             call_command(
                 "index_artifact_vectors",
                 stdout=out,
                 stderr=out,
                 tenant=str(tenant.id),
                 workspace=str(workspace.id),
-                type=["Requirement"],
+                type=["Requirement", "Adr"],
             )
 
     payload = json.loads(out.getvalue().strip().splitlines()[-1])
     assert payload["by_type"]["Requirement"]["failed"] == 1
-    assert payload["failures"] == {"empty_text": 1}
+    assert payload["by_type"]["Adr"]["failed"] == 1
+    assert payload["failures"] == {"empty_text": 2}

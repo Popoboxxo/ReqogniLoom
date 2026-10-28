@@ -209,11 +209,20 @@ class Command(BaseCommand):
         return queryset.values_list("id", flat=True).iterator(chunk_size=batch_size)
 
     def _recreate(self, client, config, tenant_id: UUID, workspace_id: UUID | None) -> None:
+        """Drop and re-provision the in-scope collections (``--recreate`` only).
+
+        A ``--workspace`` filter that matches nothing is a ``CommandError``, not
+        an empty success: ``--recreate`` is destructive, so an all-zero report
+        with exit 0 would read as "rebuilt" when nothing was touched. ``--tenant``
+        is validated the same way.
+        """
         from persistence.models import Workspace
 
         workspaces = Workspace.objects.filter(tenant_id=tenant_id)
         if workspace_id is not None:
             workspaces = workspaces.filter(id=workspace_id)
+            if not workspaces.exists():
+                raise CommandError(f"No workspace {workspace_id} in tenant {tenant_id}.")
         for current in workspaces.iterator():
             recreate_artifact_collection(client, tenant_id, current.id, config=config,
                                          models_module=self.models_module)
