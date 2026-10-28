@@ -290,12 +290,48 @@
 }
 
 .navGroupLabel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  width: 100%;
   padding: var(--space-1) var(--space-3);
+  background: transparent;
+  border: 0;
   color: var(--color-nav-text-muted);
+  font-family: inherit;
   font-size: 0.7rem;
   font-weight: 600;
-  text-transform: uppercase;
   letter-spacing: 0.05em;
+  text-align: left;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+/* Plan C / T-C4-4: the group header is a disclosure button, not a new button
+   variant — it keeps the header's own typography and only adds the affordance
+   the toggle needs (hover, focus, chevron). No height/border-radius here: the
+   header is a label-sized affordance, not a --btn-h-* control (the geometry
+   ratchet stays at 0). */
+.navGroupLabel:hover {
+  color: var(--color-nav-text);
+}
+
+.navGroupLabel:focus-visible {
+  outline: var(--control-focus-ring);
+  outline-offset: -2px;
+}
+
+.navGroupChevron {
+  flex-shrink: 0;
+  /* GPU-cheap property only; the reduced-motion opt-out is global
+     (styles/global.css `@media (prefers-reduced-motion: reduce)`). */
+  transition: transform var(--transition-fast);
+}
+
+.navGroupChevronCollapsed {
+  transform: rotate(-90deg);
 }
 
 .navList {

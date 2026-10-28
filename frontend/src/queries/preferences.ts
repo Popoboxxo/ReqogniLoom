@@ -93,7 +93,11 @@ export function usePreferenceValue<T>(key: string, fallback: T): T {
   const { data } = useEffectivePreferences(
     workspace?.activeWorkspace?.id ?? null
   );
-  const entry = data?.values[key];
+  // `values` is optional on read: a deployment/proxy that answers the route
+  // with a different 2xx shape must degrade to the fallback like any other
+  // failure, not throw inside an app-wide consumer (the sidebar renders on
+  // every route).
+  const entry = data?.values?.[key];
   return (entry?.value as T | undefined) ?? fallback;
 }
 

@@ -92,6 +92,8 @@
     "groupArchitecture": "Architektur & Traceability",
     "groupTest": "Test & Qualität",
     "groupAdmin": "Verwaltung",
+    "groupCollapse": "{{group}} einklappen",
+    "groupExpand": "{{group}} ausklappen",
     "languageToggleTitleAdmin": "Sprache DE/EN umschalten (wird für den gesamten Workspace gespeichert)",
     "languageToggleTitleMember": "Sprache nur für deine Ansicht umschalten — nur ein Workspace-Admin kann die geteilte Einstellung ändern",
     "languageSessionOnly": "Sprache nur für deine Ansicht geändert. Nur ein Workspace-Admin kann sie für alle ändern.",

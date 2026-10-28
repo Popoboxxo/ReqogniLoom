@@ -26,6 +26,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor, fireEvent, cleanup } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { AuthProvider, useAuth } from "../context/AuthContext";
 import { WorkspaceProvider, useWorkspace } from "../context/WorkspaceContext";
@@ -122,18 +123,38 @@ function setListWorkspace(language: string): void {
   nextListResult = { count: 1, next: null, previous: null, results: [ws] };
 }
 
-function renderApp(): ReturnType<typeof render> {
+/**
+ * Mount the sidebar inside every provider it needs.
+ *
+ * Plan C / T-C4-4: `SidebarNavigation` reads its collapsed-group state through
+ * the Q1 preference service (TanStack Query), so each mount needs its own
+ * `QueryClient` — one per render, so no cache leaks between cases.
+ */
+function renderSidebar(children?: React.ReactNode): ReturnType<typeof render> {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false, gcTime: 0 },
+      mutations: { retry: false },
+    },
+  });
   return render(
-    <MemoryRouter>
-      <AuthProvider>
-        <ThemeProvider>
-          <WorkspaceProvider>
-            <SidebarNavigation />
-          </WorkspaceProvider>
-        </ThemeProvider>
-      </AuthProvider>
-    </MemoryRouter>
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter>
+        <AuthProvider>
+          <ThemeProvider>
+            <WorkspaceProvider>
+              <SidebarNavigation />
+              {children}
+            </WorkspaceProvider>
+          </ThemeProvider>
+        </AuthProvider>
+      </MemoryRouter>
+    </QueryClientProvider>
   );
+}
+
+function renderApp(): ReturnType<typeof render> {
+  return renderSidebar();
 }
 
 /**
@@ -182,33 +203,11 @@ function ExplicitWorkspaceSwitchTrigger({
 }
 
 function renderAppWithIndependentReloadTrigger(): ReturnType<typeof render> {
-  return render(
-    <MemoryRouter>
-      <AuthProvider>
-        <ThemeProvider>
-          <WorkspaceProvider>
-            <SidebarNavigation />
-            <IndependentReloadTrigger />
-          </WorkspaceProvider>
-        </ThemeProvider>
-      </AuthProvider>
-    </MemoryRouter>
-  );
+  return renderSidebar(<IndependentReloadTrigger />);
 }
 
 function renderAppWithExplicitSwitch(otherWorkspace: Workspace): ReturnType<typeof render> {
-  return render(
-    <MemoryRouter>
-      <AuthProvider>
-        <ThemeProvider>
-          <WorkspaceProvider>
-            <SidebarNavigation />
-            <ExplicitWorkspaceSwitchTrigger workspace={otherWorkspace} />
-          </WorkspaceProvider>
-        </ThemeProvider>
-      </AuthProvider>
-    </MemoryRouter>
-  );
+  return renderSidebar(<ExplicitWorkspaceSwitchTrigger workspace={otherWorkspace} />);
 }
 
 /**
@@ -235,18 +234,7 @@ function AuthSwitchHarness(): JSX.Element {
 }
 
 function renderAppWithAuthSwitch(): ReturnType<typeof render> {
-  return render(
-    <MemoryRouter>
-      <AuthProvider>
-        <ThemeProvider>
-          <WorkspaceProvider>
-            <SidebarNavigation />
-            <AuthSwitchHarness />
-          </WorkspaceProvider>
-        </ThemeProvider>
-      </AuthProvider>
-    </MemoryRouter>
-  );
+  return renderSidebar(<AuthSwitchHarness />);
 }
 
 // jsdom does not provide window.localStorage in this test runtime; ThemeProvider

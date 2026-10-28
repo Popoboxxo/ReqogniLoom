@@ -28,6 +28,10 @@ import { versionApi, type VersionInfo } from "../../api/version";
 import { workspacesApi } from "../../api/workspaces";
 import { CreateWorkspaceModal } from "./CreateWorkspaceModal";
 import type { Workspace } from "../../types";
+import {
+  usePatchPreferenceLevel,
+  usePreferenceValue,
+} from "../../queries/preferences";
 import styles from "./SidebarNavigation.module.css";
 
 // ---------------------------------------------------------------------------
@@ -64,6 +68,17 @@ const NAV_GROUP_LABEL_KEYS: Record<NavGroupId, string> = {
   test: "nav.groupTest",
   admin: "nav.groupAdmin",
 };
+
+// Plan C / T-C4-4 (C-L6, finding R19): at 1366×768 only 11 of 27 links were
+// visible above the fold, so each group header is a disclosure toggle. The
+// state is a user-level Q1 preference (`str_list` of the ids above) — not
+// component state — so it follows the user across devices. The registry
+// default is `[]`, i.e. everything open, which is also the fallback used while
+// the read is in flight and on error (`usePreferenceValue` degradation).
+const COLLAPSED_GROUPS_PREFERENCE_KEY = "ui.sidebar.collapsed_groups";
+// Stable module-level fallback: `usePreferenceValue` returns it verbatim while
+// loading/on error, so it must never be mutated by a toggle.
+const NO_COLLAPSED_GROUPS: readonly string[] = [];
 
 interface NavItem {
   path: string;
@@ -463,6 +478,33 @@ export function SidebarNavigation(): JSX.Element {
       items: visibleItems.filter((item) => item.group === id),
     })).filter((group) => group.items.length > 0);
 
+  // ---- Collapsible groups (Plan C / T-C4-4) ------------------------------
+  // Read: user-level preference, `[]` (all open) while loading and on error.
+  // Write: the whole next list in navigation order, so the stored value stays
+  // stable and deduplicated no matter which group was toggled last.
+  const savedCollapsedGroups = usePreferenceValue<readonly string[]>(
+    COLLAPSED_GROUPS_PREFERENCE_KEY,
+    NO_COLLAPSED_GROUPS
+  );
+  // Normalised once: a value that is not a list (stale/foreign payload) is
+  // treated as "nothing collapsed" rather than trusted.
+  const collapsedGroupIds: readonly string[] = Array.isArray(savedCollapsedGroups)
+    ? savedCollapsedGroups
+    : NO_COLLAPSED_GROUPS;
+  const patchCollapsedGroups = usePatchPreferenceLevel("user");
+
+  const handleGroupToggle = (groupId: NavGroupId): void => {
+    const next = collapsedGroupIds.includes(groupId)
+      ? collapsedGroupIds.filter((id) => id !== groupId)
+      : [...collapsedGroupIds, groupId];
+    // Deduplicate and re-order by the canonical group order. Unknown ids are
+    // dropped rather than persisted forward.
+    const normalized = NAV_GROUP_ORDER.filter((id) => next.includes(id));
+    patchCollapsedGroups.mutate({
+      [COLLAPSED_GROUPS_PREFERENCE_KEY]: normalized,
+    });
+  };
+
   // ---- Optional-artifacts master toggle (REQ-L1-027) -------------------
   const handleHideAllToggle = (): void => {
     void setHideAllOptional(!hideAllOptional);
@@ -638,32 +680,68 @@ export function SidebarNavigation(): JSX.Element {
       </div>
 
       {/* Nav links — grouped into logical sections (issue #317) so ~20
-          entries no longer read as one flat, unoriented scrolling list. */}
+          entries no longer read as one flat, unoriented scrolling list.
+          Plan C / T-C4-4: each header is a disclosure toggle (APG disclosure
+          pattern — real <button>, aria-expanded + aria-controls), because at
+          1366×768 the list overflowed with only 11 of 27 links above the
+          fold. The group holding the active route is never collapsed. */}
       <div className={styles.navGroupsWrapper}>
-        {groupedVisibleItems.map((group) => (
-          <div key={group.id} className={styles.navGroup}>
-            <div data-testid={`nav-group-${group.id}`} className={styles.navGroupLabel}>
-              {t(NAV_GROUP_LABEL_KEYS[group.id])}
-            </div>
-            <ul className={styles.navList}>
-              {group.items.map((item) => {
-                const active = isItemActive(item.path);
+        {groupedVisibleItems.map((group) => {
+          const containsActiveRoute = group.items.some((item) =>
+            isItemActive(item.path)
+          );
+          const isCollapsed =
+            !containsActiveRoute && collapsedGroupIds.includes(group.id);
+          const panelId = `sidebar-nav-group-panel-${group.id}`;
+          const groupLabel = t(NAV_GROUP_LABEL_KEYS[group.id]);
 
-                return (
-                  <li key={item.path} className={styles.navListItem}>
-                    <NavLink
-                      to={item.path}
-                      end={item.path === "/"}
-                      className={active ? styles.navLinkActive : styles.navLink}
-                    >
-                      {t(item.labelKey)}
-                    </NavLink>
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
-        ))}
+          return (
+            <div
+              key={group.id}
+              className={styles.navGroup}
+              data-testid={`nav-group-${group.id}`}
+            >
+              <button
+                type="button"
+                data-testid={`sidebar-group-toggle-${group.id}`}
+                className={styles.navGroupLabel}
+                aria-expanded={!isCollapsed}
+                aria-controls={panelId}
+                aria-label={t(
+                  isCollapsed ? "nav.groupExpand" : "nav.groupCollapse",
+                  { group: groupLabel }
+                )}
+                onClick={() => handleGroupToggle(group.id)}
+              >
+                <span>{groupLabel}</span>
+                <ChevronDown
+                  aria-hidden="true"
+                  size={14}
+                  className={`${styles.navGroupChevron} ${
+                    isCollapsed ? styles.navGroupChevronCollapsed : ""
+                  }`}
+                />
+              </button>
+              <ul id={panelId} className={styles.navList} hidden={isCollapsed}>
+                {group.items.map((item) => {
+                  const active = isItemActive(item.path);
+
+                  return (
+                    <li key={item.path} className={styles.navListItem}>
+                      <NavLink
+                        to={item.path}
+                        end={item.path === "/"}
+                        className={active ? styles.navLinkActive : styles.navLink}
+                      >
+                        {t(item.labelKey)}
+                      </NavLink>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          );
+        })}
       </div>
 
       {/* Optional-artifacts master toggle (REQ-L1-027) — sits above the
