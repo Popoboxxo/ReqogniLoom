@@ -170,36 +170,23 @@ const ICON_BUTTON_HEIGHT_PX = 24;
 const PILL_RADIUS_PX = 9999;
 
 /**
- * Routes that were still over the C1 target when this gate was introduced
- * (ratchet in E2E form, plan §8 "C1 Gate"). Each C1 PR removes its own
- * routes: T-C1-3 -> `/system-settings`, T-C1-4 -> `/workflows`, `/settings`,
- * `/`, T-C1-5/T-C1-6 -> the remainder. This list may only shrink.
+ * Routes that are still over the C1 target — a ratchet in E2E form (plan §8
+ * "C1 Gate"). The constant stays as the ratchet's carrier: an entry turns that
+ * route's `[C1]` test into a `test.fixme`, i.e. it documents a known
+ * over-target route instead of a guess.
  *
- * Values are the live measurement of 2026-10-23 (seeded demo workspace,
- * extended preset) — no route is listed or omitted on a guess. PR-C12
- * (T-C1-4/T-C1-5) removed `/`, `/settings` and `/workflows`, whose scanned
- * button rules are now all on `--btn-h-*`/`--radius-btn`; the surviving
- * entries keep that baseline measurement and name what PR-C12 did NOT change.
+ * The token work is complete: the component CSS reads `--btn-h-*` /
+ * `--radius-btn` / `--radius-full` throughout, and the static scanner now also
+ * selects the capitalised `*Btn` call sites where the residual radii lived.
+ * The list is therefore EMPTY, and the E2E gate is now the authority: all 24
+ * routes below are actually measured by their own assertion instead of being
+ * skipped.
+ *
+ * It may only shrink in spirit and may only receive measured data: a route
+ * that measures over target goes back in WITH its measured values (date,
+ * preset, heights/radii, and what was left unchanged), never with an estimate.
  */
-const C1_PENDING_ROUTES: Record<string, string> = {
-  '/requirements': '3 heights / 3 radii measured — PR-C12 tokenised the scanned radii; residual radii come from unscanned .xxxBtn call sites',
-  '/impact': '4 heights / 2 radii measured — heights over target; PR-C12 changed radii only',
-  '/baselines': '3 heights / 3 radii measured — no C1-scanned button on this route; unscanned radii remain',
-  '/adrs': '3 heights / 3 radii measured — no C1-scanned button on this route; unscanned radii remain',
-  '/risks': '4 heights / 3 radii measured — heights over target; PR-C12 changed radii only',
-  '/issues': '3 heights / 3 radii measured — no C1-scanned button on this route; unscanned radii remain',
-  '/testcases': '3 heights / 3 radii measured — no C1-scanned button on this route; unscanned radii remain',
-  '/test-runs': '3 heights / 3 radii measured — PR-C12 tokenised the editor/grid radii; TestRunsList .xxxBtn radii remain',
-  '/import': '4 heights / 2 radii measured — heights over target (CsvImport padding), untouched by PR-C12',
-  '/icds': '3 heights / 3 radii measured — PR-C12 tokenised the scanned radii; IcdDetailPane .xxxBtn radii remain',
-  '/diagrams': '3 heights / 3 radii measured — PR-C12 tokenised the scanned radii; DiagramCreateForm .xxxBtn radii remain',
-  '/metrics': '3 heights / 3 radii measured — PR-C12 fixed .refreshButton; other call sites unchanged',
-  '/audit': '3 heights / 3 radii measured — no C1-scanned button on this route; unscanned radii remain',
-  '/system-settings': '4 heights / 4 radii measured (T-C1-3) — owned by the /system-settings PR, not PR-C12',
-  '/goals': '3 heights / 3 radii measured — no C1-scanned button on this route; unscanned radii remain',
-  '/glossary': '3 heights / 3 radii measured — PR-C12 fixed .btn; other call sites unchanged',
-  '/profile': '5 heights / 3 radii measured — heights over target; PR-C12 changed radii only',
-};
+const C1_PENDING_ROUTES: Record<string, string> = {};
 
 interface ButtonGeometry {
   /** Distinct rounded heights of non-icon buttons, ascending. */

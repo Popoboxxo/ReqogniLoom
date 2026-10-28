@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "recordedAt": "2026-10-27",
+  "recordedAt": "2026-10-28",
   "recordedBy": "DESIGN_SYSTEM_REBASELINE=1 npx vitest run src/test/design-system-ratchet.test.ts",
   "checks": {
     "button-missing-design-system-class": {
@@ -25,7 +25,7 @@
       "maxViolations": 0,
       "known": [],
       "issue": "#1258",
-      "note": "All previously recorded fingerprints are fixed; maxViolations is 0. The two remaining matches are justified exemptions (loading-skeleton chip placeholder, universal :focus-visible inherit). Fix new geometry with --btn-h-sm/md/lg and --radius-btn/--radius-full; never raise this ceiling."
+      "note": "Widened scope: the `*Btn` suffix is now a selected token, so every `…Btn` call site — where the residual off-token radii lived — is measured too. The accompanying token fixes shipped in the same PR, so maxViolations is 0 and known is empty; the two remaining matches are justified exemptions (loading-skeleton chip placeholder, universal :focus-visible inherit). Fix new geometry with --btn-h-sm/md/lg and --radius-btn/--radius-full; never raise this ceiling."
     }
   },
   "exemptions": {
