@@ -28,6 +28,9 @@ Two responsibilities:
    -- validating that (instead of sanitizing arbitrary text) closes the
    sanitizing-collision hole: two different non-UUID ids could otherwise fold to
    the same collection segment and silently merge two tenants' vectors.
+   :func:`build_collection_alias` derives the stable ``..._artifacts_live``
+   alias from the same inputs, so a later schema version (``version=``) can be
+   rolled out without a reader ever addressing a versioned name.
 
 3. :data:`QDRANT_DISTANCE_ATTRS` -- the one shared distance vocabulary. Both the
    runtime backend and the memory write serializer read it, so the accepted
@@ -51,6 +54,23 @@ DEFAULT_QDRANT_DISTANCE = "cosine"
 
 #: Default collection prefix, matching the project's ``reqlo`` short name.
 DEFAULT_QDRANT_COLLECTION_PREFIX = "reqlo"
+
+#: Collection-name suffix of the artifact-vector collections. The legacy
+#: memory collection (``memory.qdrant_backend``) and the v2 artifact collection
+#: share it -- only the version segment keeps them apart.
+ARTIFACT_COLLECTION_SUFFIX = "artifacts"
+
+#: Stable alias the artifact port reads (T-A2-6 onward). A schema change moves
+#: the version, never the alias, so readers keep addressing one name.
+ARTIFACT_ALIAS_SUFFIX = "live"
+
+#: Default ``QDRANT_QUANTIZATION`` mode: int8 scalar quantization.
+DEFAULT_QDRANT_QUANTIZATION = "int8"
+
+#: Accepted ``QDRANT_QUANTIZATION`` values. Anything else falls back to
+#: :data:`DEFAULT_QDRANT_QUANTIZATION` (a typo is not fatal, like the numeric
+#: knobs above).
+QDRANT_QUANTIZATION_MODES = ("int8", "none")
 
 #: Accepted ``QDRANT_DISTANCE`` names -> qdrant-client ``models.Distance``
 #: attribute. The SINGLE source of truth for the distance vocabulary: the
@@ -93,6 +113,10 @@ class QdrantConfig:
     hnsw_ef_construct: int
     prefer_grpc: bool
     vector_dimensions: int
+    #: ``int8`` (default) or ``none`` -- whether the v2 artifact collection asks
+    #: for int8 scalar quantization. Added last so positional construction
+    #: (none in-tree) keeps its meaning.
+    quantization: str = DEFAULT_QDRANT_QUANTIZATION
 
 
 def _parse_float(raw: object, default: float) -> float:
@@ -132,6 +156,7 @@ def resolve_qdrant_config(
     hnsw_m: int | None = None,
     hnsw_ef_construct: int | None = None,
     prefer_grpc: bool | None = None,
+    quantization: str | None = None,
 ) -> QdrantConfig:
     """Resolve a :class:`QdrantConfig` from overrides layered over the env.
 
@@ -180,6 +205,14 @@ def resolve_qdrant_config(
         if prefer_grpc is not None
         else _parse_bool(os.environ.get("QDRANT_PREFER_GRPC"), False)
     )
+    resolved_quantization = (
+        quantization
+        if quantization is not None
+        else os.environ.get("QDRANT_QUANTIZATION", DEFAULT_QDRANT_QUANTIZATION)
+    )
+    resolved_quantization = str(resolved_quantization).strip().lower()
+    if resolved_quantization not in QDRANT_QUANTIZATION_MODES:
+        resolved_quantization = DEFAULT_QDRANT_QUANTIZATION
 
     return QdrantConfig(
         base_url=resolved_base_url,
@@ -191,6 +224,7 @@ def resolve_qdrant_config(
         hnsw_ef_construct=resolved_hnsw_ef,
         prefer_grpc=resolved_prefer_grpc,
         vector_dimensions=EMBEDDING_VECTOR_DIMENSIONS,
+        quantization=resolved_quantization,
     )
 
 
@@ -245,6 +279,7 @@ def build_collection_name(
     workspace_id: object | None = None,
     scope: str,
     artifacts: bool = False,
+    version: int | None = None,
 ) -> str:
     """Build the tenant-scoped Qdrant collection name (Strategy A).
 
@@ -258,6 +293,12 @@ def build_collection_name(
     * ``scope="workspace"`` -> ``<prefix>_<tenant>_<workspace>``
     * ``scope="user"``      -> ``<prefix>_<tenant>_user``
     * ``artifacts=True``    -> ``..._artifacts`` suffix
+    * ``version=N``         -> ``..._artifacts_vN`` suffix (artifacts only)
+
+    ``version`` is how a schema change is rolled out without a destructive
+    in-place migration: the memory backend keeps the unversioned legacy
+    ``..._artifacts`` collection, the artifact port uses ``version=2`` and
+    reaches it through :func:`build_collection_alias`.
 
     Args:
         prefix: Collection prefix (``QDRANT_COLLECTION_PREFIX``); an empty or
@@ -267,11 +308,14 @@ def build_collection_name(
         workspace_id: Required (and UUID-shaped) for ``scope="workspace"``.
         scope: ``"workspace"`` or ``"user"``.
         artifacts: Append the ``_artifacts`` suffix (artifact vectors).
+        version: Positive schema version appended as ``_v<N>``; requires
+            ``artifacts=True``. ``None`` keeps the legacy unversioned name.
 
     Raises:
         ValueError: If ``tenant_id`` is falsy/not UUID-shaped, if ``scope`` is
-            unknown, or if a workspace collection is requested without a
-            UUID-shaped workspace id.
+            unknown, if a workspace collection is requested without a
+            UUID-shaped workspace id, or if ``version`` is not a positive int
+            together with ``artifacts=True``.
     """
     if not tenant_id:
         raise ValueError("qdrant collection name requires a tenant id (no tenant context)")
@@ -291,18 +335,56 @@ def build_collection_name(
         raise ValueError(f"unknown memory scope for qdrant collection: {scope!r}")
 
     if artifacts:
-        name = f"{name}_artifacts"
+        name = f"{name}_{ARTIFACT_COLLECTION_SUFFIX}"
+    if version is not None:
+        if not artifacts:
+            raise ValueError("a versioned qdrant collection must also be an artifact collection")
+        if isinstance(version, bool) or not isinstance(version, int) or version < 1:
+            raise ValueError(f"qdrant collection version must be a positive int (got {version!r})")
+        name = f"{name}_v{version}"
     return name
 
 
+def build_collection_alias(
+    prefix: str,
+    tenant_id: object,
+    *,
+    workspace_id: object | None = None,
+    scope: str,
+) -> str:
+    """Build the stable alias of the artifact collection (``..._artifacts_live``).
+
+    Readers of the artifact vectors address this alias, never a versioned name,
+    so bumping :func:`build_collection_name`'s ``version`` is invisible to them.
+    Derived from the same isolation boundary as the collection name it replaces:
+    a caller still never supplies a name, and only artifact collections have an
+    alias (there is no "live" alias for the memory collections).
+
+    Raises:
+        ValueError: Same tenant/workspace/scope validation as
+            :func:`build_collection_name`.
+    """
+    return (
+        build_collection_name(
+            prefix, tenant_id, workspace_id=workspace_id, scope=scope, artifacts=True
+        )
+        + f"_{ARTIFACT_ALIAS_SUFFIX}"
+    )
+
+
 __all__ = [
+    "ARTIFACT_ALIAS_SUFFIX",
+    "ARTIFACT_COLLECTION_SUFFIX",
     "DEFAULT_QDRANT_COLLECTION_PREFIX",
     "DEFAULT_QDRANT_DISTANCE",
     "DEFAULT_QDRANT_HNSW_EF_CONSTRUCT",
     "DEFAULT_QDRANT_HNSW_M",
+    "DEFAULT_QDRANT_QUANTIZATION",
     "DEFAULT_QDRANT_TIMEOUT",
     "QDRANT_DISTANCE_ATTRS",
+    "QDRANT_QUANTIZATION_MODES",
     "QdrantConfig",
+    "build_collection_alias",
     "build_collection_name",
     "is_qdrant_configured",
     "resolve_qdrant_config",
