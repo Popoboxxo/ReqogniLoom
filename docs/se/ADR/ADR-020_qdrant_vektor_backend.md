@@ -223,11 +223,23 @@ L2-REQ-Datei ist entsprechend fortzuschreiben (Architektur-Abschnitt `:32,36`). 
 
 ### 2. Collection-Strategie A — harte Isolationsgrenze über Namensräume
 
+> **Änderungsnotiz (2026-10-28, T-A2-2 / T-A2-6):** Die Artefakt-Vektoren liegen **nicht** mehr in
+> `<prefix>_<tenant>_<workspace>_artifacts`. Diese unversionierte Collection trägt weiterhin die
+> artefakt-skopierten **Memory**-Zeilen (V1) und bleibt unverändert; die Entity-Vektoren des
+> Artefakt-Ports (V2) bekommen eine **eigene, versionierte** Collection
+> `<prefix>_<tenant>_<workspace>_artifacts_v2`, die Leser über den stabilen Alias
+> `<prefix>_<tenant>_<workspace>_artifacts_live` adressieren. Ein späterer Schema-Wechsel hebt nur
+> die Version, nie den Alias (`application/artifact_vector_store.py`,
+> `ARTIFACT_COLLECTION_VERSION`). Der ADR-`status` bleibt unverändert (`accepted`).
+
 - **Eine Collection pro Workspace:** `<prefix>_<tenant>_<workspace>`.
 - **`user`-Scope-Sonderfall:** der `user`-Scope hat keine `workspace_id` → eigene Collection
   `<prefix>_<tenant>_user` (`MemoryEntry.SCOPE_USER`, `memory/models.py:62-69`).
-- **Artefakt-Trennung als eigene Collection:** `<prefix>_<tenant>_<workspace>_artifacts`
-  (bzw. pro Artefakt-Scope; Granularität: s. §Offene Entscheidungen).
+- **Artefakt-Trennung als eigene Collection:** `<prefix>_<tenant>_<workspace>_artifacts_v2`, vom
+  Artefakt-Port ausschließlich über den Alias `<prefix>_<tenant>_<workspace>_artifacts_live`
+  gelesen (bzw. pro Artefakt-Scope; Granularität: s. §Offene Entscheidungen). Die unversionierte
+  `<prefix>_<tenant>_<workspace>_artifacts` bleibt die Memory-Collection (V1) und wird vom
+  Artefakt-Port nie angefasst.
 - **Workspace-Löschung = `drop collection`.** Die Collection ist die Isolationsgrenze; ein
   Workspace-Löschen entfernt seine Vektoren vollständig und selektiv, ohne Query über fremde
   Daten.

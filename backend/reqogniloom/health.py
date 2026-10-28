@@ -19,9 +19,13 @@ COMP-RA-006 HealthEndpoint — implements the split contract of ADR-010:
 Advisory signals (``llm_provider_env``, ``embedding_dimensions``,
 ``embedding_model_consistency``, ``embedding_model_drift`` (``?verbose=1`` only;
 per-table counts, or ``unknown`` when the connecting role cannot see past RLS),
-``qdrant_api_key`` / ``qdrant_api_key_missing`` (``?verbose=1`` only: publishing
-the artifact store's security posture on an unauthenticated endpoint would
-signpost the soft target),
+``qdrant_api_key`` / ``qdrant_api_key_missing`` (the two advisory KEYS are
+``?verbose=1`` only, so an anonymous caller is not handed the store's security
+posture; the matching ``memory.W003`` warning TEXT stays unconditional because
+it is the operator signal a plain ``/health/`` poll must carry — that trade-off
+is deliberate, see ``_collect_advisory``), ``qdrant_artifact_points`` /
+``qdrant_sparse_ready`` (published only while the artifact backend actually is
+Qdrant),
 ``csrf_cookie_secure_matches_auth``,
 ``outbox_unbound_publishes``,
 ``outbox_pending`` / ``outbox_dlq`` queue gauges, workflow-definition warnings)
@@ -60,6 +64,13 @@ _DEPENDENCY_DOWN_DETAIL = "dependency_down"
 #: degraded opt-in backend, and — like every other marker — never carries the
 #: raw probe error (CWE-209).
 _OPTIONAL_DEPENDENCY_DEGRADED_DETAIL = "optional_dependency_degraded"
+
+#: ``ARTIFACT_VECTOR_BACKEND`` value that routes artifact search to Qdrant.
+#: Mirrors the private ``application.vector_port._QDRANT_ARTIFACT_BACKEND``; it
+#: is only ever compared against ``vector_backend_diagnostic()['active']`` to
+#: decide whether the Qdrant-only advisories below apply. It never *selects* a
+#: backend, so this copy cannot fork the selection logic.
+QDRANT_ARTIFACT_BACKEND = "qdrant"
 
 #: Mandatory readiness dependencies, in their public contract order. ``cache``
 #: is the ADR-010 contract name for the Redis probe, whose reused admin row is
@@ -405,6 +416,96 @@ def _run_required_checks() -> dict[str, str]:
     return results
 
 
+def _artifact_collection_suffix() -> str:
+    """Suffix shared by the versioned artifact collections (``_artifacts_v2``).
+
+    Derived from the two owning modules instead of spelled out here, so a
+    collection-version bump moves this probe with the collections themselves and
+    a rename can never leave the probe watching a family nobody writes to.
+    """
+    from application.artifact_vector_store import ARTIFACT_COLLECTION_VERSION
+    from persistence.qdrant_config import ARTIFACT_COLLECTION_SUFFIX
+
+    return f"_{ARTIFACT_COLLECTION_SUFFIX}_v{ARTIFACT_COLLECTION_VERSION}"
+
+
+def _qdrant_artifact_index_stats() -> dict[str, str]:
+    """Point/sparse summary of every ``..._artifacts_v2`` collection (T-A2-9).
+
+    The Qdrant artifact store is the search corpus as soon as the artifact port
+    runs there, and an empty (or half-backfilled) collection answers semantic
+    search with "no results" rather than with an error — indistinguishable from
+    a healthy corpus with nothing to match. This probe makes the documented
+    rollout rule (backfill with ``failed: 0`` *before* switching) checkable from
+    the same payload that publishes ``vector_backend_active``.
+
+    Returns:
+        ``{"collections": "<n>", "points": "<n>", "sparse_ready": "true"|"false"}``.
+        Deliberately aggregate: collection names embed tenant and workspace ids,
+        so the unauthenticated endpoint gets counts only. ``points`` is an
+        approximate count (``exact=False``: it reads the index metadata instead
+        of scanning the points). ``sparse_ready`` is ``true`` only when at least
+        one v2 collection exists *and* every one of them declares the ``bm25``
+        sparse vector the hybrid RRF query needs; ``false`` also covers "nothing
+        provisioned yet", which under this opt-in means the rollout order was
+        ignored.
+
+    Raises:
+        Exception: Any Qdrant client/config error. The caller classifies it as an
+            advisory warning — health must never crash on its own probe.
+    """
+    from application.artifact_vector_store import (
+        SPARSE_VECTOR_NAME,
+        resolve_artifact_qdrant_config,
+    )
+
+    config = resolve_artifact_qdrant_config()
+    if not str(getattr(config, "base_url", "") or "").strip():
+        raise RuntimeError("QDRANT_BASE_URL is not configured")
+
+    from qdrant_client import QdrantClient  # qdrant-client; lazy (optional dependency)
+
+    client = QdrantClient(
+        url=config.base_url,
+        api_key=config.api_key,
+        timeout=config.timeout,
+        prefer_grpc=config.prefer_grpc,
+    )
+    try:
+        suffix = _artifact_collection_suffix()
+        names = [
+            name
+            for name in (
+                getattr(collection, "name", None)
+                for collection in (
+                    getattr(client.get_collections(), "collections", None) or []
+                )
+            )
+            if isinstance(name, str) and name.endswith(suffix)
+        ]
+        total = 0
+        sparse_ready = bool(names)
+        for name in names:
+            counted = getattr(client.count(collection_name=name, exact=False), "count", 0)
+            total += int(counted or 0)
+            params = getattr(getattr(client.get_collection(name), "config", None), "params", None)
+            sparse_vectors = getattr(params, "sparse_vectors", None) or {}
+            if SPARSE_VECTOR_NAME not in sparse_vectors:
+                sparse_ready = False
+        return {
+            "collections": str(len(names)),
+            "points": str(total),
+            "sparse_ready": "true" if sparse_ready else "false",
+        }
+    finally:
+        close = getattr(client, "close", None)
+        if callable(close):
+            try:
+                close()
+            except Exception as exc:  # noqa: BLE001 - closing must never mask the result
+                logger.debug("Health check: closing the Qdrant probe client failed - %s", exc)
+
+
 def _collect_advisory(
     advisory: dict[str, str],
     warnings: list[str],
@@ -420,11 +521,17 @@ def _collect_advisory(
 
     ``verbose`` (``GET /health/?verbose=1``) enables the advisory probes that
     cost a real aggregate query over every embedding table
-    (``embedding_model_drift``, T-A0-6), and the advisory keys that publish the
-    deployment's security posture (``qdrant_api_key`` /
-    ``qdrant_api_key_missing``). They are absent from the payload unless asked
-    for, so the cheap default probe stays cheap — and an unauthenticated caller
-    does not learn which vector store to aim at.
+    (``embedding_model_drift``, T-A0-6), and the advisory *keys* that publish
+    the deployment's security posture (``qdrant_api_key`` /
+    ``qdrant_api_key_missing``), so the cheap default probe stays cheap and an
+    anonymous caller does not get the store's posture handed to it.
+
+    The ``qdrant_api_key_missing`` **warning text** is deliberately NOT gated:
+    it is the operator signal, and a monitor polling plain ``/health/`` would
+    otherwise never learn that a production store is keyless. It therefore does
+    reveal that the artifact backend is Qdrant — an accepted, documented
+    trade-off (``/health*`` is not meant to be internet-reachable, see
+    ``deploy/README.md``), not a bug this docstring should claim away.
     """
     # Embedding-column dimension check (#1018/#1019): the physical pgvector
     # column width is fixed by the last migration that ran, while the
@@ -716,7 +823,12 @@ def _collect_advisory(
     # never causes degraded/503. Not gated on ``db_ok``: the gate is
     # best-effort and falls back to the environment when the DB is unreachable.
     # Deliberately NOT coupled to ``MEMORY_BACKEND`` (T-A2-1): the memory knob
-    # governs the AI-memory store only.
+    # governs the AI-memory store only. ``artifact_backend_active`` is also what
+    # the artifact-index advisories below key on: they must publish nothing on
+    # the default (pgvector) deployment, and only a backend that really is
+    # Qdrant has a Qdrant collection to count. ``None`` = the diagnostic itself
+    # failed, so nothing downstream may assume a backend.
+    artifact_backend_active: str | None = None
     try:
         from application.vector_port import vector_backend_diagnostic
 
@@ -727,6 +839,7 @@ def _collect_advisory(
         )
         warnings.append("vector-backend diagnostic failed")
     else:
+        artifact_backend_active = vector_backend["active"]
         advisory["effective_vector_backend"] = vector_backend["active"]
         advisory["vector_backend_requested"] = vector_backend["requested"]
         advisory["vector_backend_active"] = vector_backend["active"]
@@ -756,10 +869,13 @@ def _collect_advisory(
     # key a finding). Only evaluated when that selector is set, so a default
     # pgvector deployment keeps a byte-identical payload.
     # VERBOSE-ONLY for the advisory keys (``?verbose=1``): this endpoint is
-    # unauthenticated, and publishing "artifact backend = qdrant, store without
-    # key" to anyone who reaches the port is a signpost to the soft target. The
-    # warning itself stays unconditional — it is the operator signal, and
-    # /health/ is not meant to be internet-reachable (deploy/README.md).
+    # unauthenticated, and the two keys spell out "artifact backend = qdrant,
+    # store without key" for anyone who reaches the port. The warning TEXT is
+    # deliberately NOT gated — it is the operator signal a plain ``/health/``
+    # poll carries, so it still names the store and the missing key. That is an
+    # accepted trade-off (``/health*`` is not meant to be internet-reachable;
+    # deploy/README.md), not an oversight: gating it would hide a keyless
+    # production store from exactly the monitor that should report it.
     # Advisory (HTTP 200) and a WARNING-only system check (``memory.W003``):
     # the service still serves.
     try:
@@ -796,6 +912,38 @@ def _collect_advisory(
                 "matching QDRANT__SERVICE__API_KEY) and recreate "
                 "backend/celery. Reported by `manage.py check` as memory.W003."
             )
+
+    # Artifact index size (T-A2-9, ADR-020 V2): once the artifact port runs on
+    # Qdrant, the ``..._artifacts_v2`` collections ARE the semantic-search
+    # corpus. An empty one answers "no results" instead of erroring, which looks
+    # like a healthy corpus with no match — so the documented rollout rule
+    # (backfill with ``failed: 0`` BEFORE the switch) is unverifiable from the
+    # outside without these two numbers. Published ONLY while the artifact
+    # backend actually is Qdrant, so a default (pgvector) deployment keeps a
+    # byte-identical payload; NOT verbose-gated, unlike the key posture, because
+    # the values are aggregate counts that name no tenant, workspace or
+    # collection and are exactly what an operator must read from the probe.
+    # Advisory (HTTP 200): an empty index degrades search quality, it does not
+    # break the service — never degraded/503, never a ``checks`` entry.
+    if artifact_backend_active == QDRANT_ARTIFACT_BACKEND:
+        try:
+            artifact_index = _qdrant_artifact_index_stats()
+        except Exception as exc:  # noqa: BLE001 - health check must never crash
+            logger.warning(
+                "Health check: Qdrant artifact index probe failed - %s", exc
+            )
+            warnings.append("qdrant artifact index probe failed")
+        else:
+            advisory["qdrant_artifact_points"] = (
+                f"collections={artifact_index['collections']},"
+                f"points={artifact_index['points']}"
+            )
+            advisory["qdrant_sparse_ready"] = artifact_index["sparse_ready"]
+            if artifact_index["points"] == "0":
+                logger.warning(
+                    "Health check: the Qdrant artifact store holds no points — "
+                    "semantic search will answer 'no results'"
+                )
 
     # CSRF-cookie security check: AUTH_COOKIE_SECURE must match
     # CSRF_COOKIE_SECURE to avoid CSRF failures in deployments without a

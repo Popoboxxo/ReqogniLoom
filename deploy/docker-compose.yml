@@ -262,11 +262,14 @@ x-honcho-env: &honcho-env
 # `x-honcho-env` above. Double underscores map to Qdrant's nested YAML keys
 # (QDRANT__SERVICE__API_KEY -> service.api_key).
 x-qdrant-env: &qdrant-env
-  # Empty (the default) leaves Qdrant running WITHOUT auth -- correct for this
-  # internal-only service: it publishes no host port and is reachable only on
-  # the compose network as `qdrant:6333`. Set QDRANT_API_KEY in .env for a
-  # shared/long-lived deployment; the SAME value must then reach the client
-  # side (QDRANT_API_KEY) or every backend request gets HTTP 401.
+  # Empty (the default) leaves Qdrant running WITHOUT auth -- acceptable for a
+  # dev / single-tenant stack only: it publishes no host port and is reachable
+  # only on the compose network as `qdrant:6333`, but that is NOT "correct" for
+  # production -- with ARTIFACT_VECTOR_BACKEND=qdrant a production deployment
+  # reports `memory.W003` for this exact state (deploy/README.md, QR-S23). Set
+  # QDRANT_API_KEY in .env for a shared/long-lived deployment; the SAME value
+  # must then reach the client side (QDRANT_API_KEY) or every backend request
+  # gets HTTP 401.
   # Verified 2026-10-07 against the pinned image: with an empty
   # QDRANT__SERVICE__API_KEY, an unauthenticated GET /collections still answers
   # 200, i.e. an empty value does NOT accidentally enable auth.
