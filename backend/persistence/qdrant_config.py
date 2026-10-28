@@ -38,12 +38,15 @@ Two responsibilities:
 """
 from __future__ import annotations
 
+import logging
 import os
 import re
 from dataclasses import dataclass
 from uuid import UUID
 
 from persistence.embedding_dimensions import EMBEDDING_VECTOR_DIMENSIONS
+
+logger = logging.getLogger(__name__)
 
 #: Default request timeout (seconds) for the Qdrant client and the health probe.
 DEFAULT_QDRANT_TIMEOUT = 5.0
@@ -64,13 +67,27 @@ ARTIFACT_COLLECTION_SUFFIX = "artifacts"
 #: the version, never the alias, so readers keep addressing one name.
 ARTIFACT_ALIAS_SUFFIX = "live"
 
+#: ``QDRANT_QUANTIZATION`` value that ENABLES int8 scalar quantization. Callers
+#: compare against this constant instead of re-spelling the literal, so the
+#: vocabulary lives in exactly one place.
+QDRANT_QUANTIZATION_INT8 = "int8"
+
+#: ``QDRANT_QUANTIZATION`` value that means "no quantization at all".
+QDRANT_QUANTIZATION_NONE = "none"
+
 #: Default ``QDRANT_QUANTIZATION`` mode: int8 scalar quantization.
-DEFAULT_QDRANT_QUANTIZATION = "int8"
+DEFAULT_QDRANT_QUANTIZATION = QDRANT_QUANTIZATION_INT8
 
 #: Accepted ``QDRANT_QUANTIZATION`` values. Anything else falls back to
-#: :data:`DEFAULT_QDRANT_QUANTIZATION` (a typo is not fatal, like the numeric
-#: knobs above).
-QDRANT_QUANTIZATION_MODES = ("int8", "none")
+#: :data:`DEFAULT_QDRANT_QUANTIZATION` with one warning (a typo is not fatal,
+#: like the numeric knobs above).
+QDRANT_QUANTIZATION_MODES = (QDRANT_QUANTIZATION_INT8, QDRANT_QUANTIZATION_NONE)
+
+#: Spelled-out ``QDRANT_QUANTIZATION`` values that mean "off". Without this
+#: mapping they would be *unrecognised* and thus fall back to the int8 default
+#: -- i.e. writing ``QDRANT_QUANTIZATION=off`` would silently ENABLE
+#: quantization, the opposite of what the operator asked for.
+QDRANT_QUANTIZATION_OFF_ALIASES = ("off", "false", "0", "no")
 
 #: Accepted ``QDRANT_DISTANCE`` names -> qdrant-client ``models.Distance``
 #: attribute. The SINGLE source of truth for the distance vocabulary: the
@@ -211,7 +228,15 @@ def resolve_qdrant_config(
         else os.environ.get("QDRANT_QUANTIZATION", DEFAULT_QDRANT_QUANTIZATION)
     )
     resolved_quantization = str(resolved_quantization).strip().lower()
-    if resolved_quantization not in QDRANT_QUANTIZATION_MODES:
+    if resolved_quantization in QDRANT_QUANTIZATION_OFF_ALIASES:
+        resolved_quantization = QDRANT_QUANTIZATION_NONE
+    elif resolved_quantization not in QDRANT_QUANTIZATION_MODES:
+        logger.warning(
+            "Unrecognised QDRANT_QUANTIZATION %r; falling back to %r (accepted: %s)",
+            resolved_quantization,
+            DEFAULT_QDRANT_QUANTIZATION,
+            ", ".join(QDRANT_QUANTIZATION_MODES),
+        )
         resolved_quantization = DEFAULT_QDRANT_QUANTIZATION
 
     return QdrantConfig(
@@ -382,7 +407,10 @@ __all__ = [
     "DEFAULT_QDRANT_QUANTIZATION",
     "DEFAULT_QDRANT_TIMEOUT",
     "QDRANT_DISTANCE_ATTRS",
+    "QDRANT_QUANTIZATION_INT8",
     "QDRANT_QUANTIZATION_MODES",
+    "QDRANT_QUANTIZATION_NONE",
+    "QDRANT_QUANTIZATION_OFF_ALIASES",
     "QdrantConfig",
     "build_collection_alias",
     "build_collection_name",

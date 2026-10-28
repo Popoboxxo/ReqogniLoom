@@ -70,9 +70,13 @@ class _FakeScalarQuantization:
 
 
 class _FakeScalarType:
+    """Mirrors the INSTALLED ``qdrant-client`` (1.19.1), which knows only INT8.
+
+    Declaring further members here would make the double more permissive than
+    reality and let a test pass against a value the real client does not have.
+    """
+
     INT8 = "int8"
-    INT4 = "int4"
-    FLOAT16 = "float16"
 
 
 class _FakeModifier:

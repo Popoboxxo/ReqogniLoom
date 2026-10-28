@@ -42,6 +42,7 @@ from uuid import UUID
 
 from persistence.qdrant_config import (
     QDRANT_DISTANCE_ATTRS,
+    QDRANT_QUANTIZATION_INT8,
     QdrantConfig,
     build_collection_alias,
     build_collection_name,
@@ -78,26 +79,25 @@ QUANTIZATION_QUANTILE = 0.99
 def _resolve_config() -> QdrantConfig:
     """Resolve the effective Qdrant config (DB override over env), lazily.
 
-    Mirrors ``application.vector_port._effective_qdrant_config``: prefers the
-    memory backend's ``SystemMemorySettings``-aware resolver so provisioning and
-    querying agree on one prefix/HNSW/quantization setting, and degrades to the
-    env-only resolver when ``memory`` is not importable. Imported lazily so this
-    module stays importable without the optional stack.
+    Delegates to ``application.vector_port._effective_qdrant_config``: there is
+    exactly ONE effective-config resolver (the frozen "which Qdrant does the
+    backend talk to" seam, DB override over env, degrading to the env-only
+    resolver when ``memory`` is not importable). Duplicating that resolution in
+    a second module would let provisioning and querying drift apart on a
+    security-relevant setting. Behaviour is identical -- the same fallback chain,
+    in the same order -- and the import stays lazy so this module remains
+    importable without the optional stack.
     """
-    try:
-        from memory.qdrant_backend import (  # lazy: DB-override resolver
-            resolve_effective_qdrant_config,
-        )
-    except ImportError:
-        from persistence.qdrant_config import resolve_qdrant_config  # lazy: config seam
+    from application.vector_port import (  # lazy: single resolver, no fork
+        _effective_qdrant_config,
+    )
 
-        return resolve_qdrant_config()
-    return resolve_effective_qdrant_config()
+    return _effective_qdrant_config()
 
 
 def _dense_quantization(models: Any, config: QdrantConfig) -> Any:
-    """The int8 quantization config, or ``None`` when ``QDRANT_QUANTIZATION=none``."""
-    if config.quantization != "int8":
+    """The int8 quantization config, or ``None`` when quantization is off."""
+    if config.quantization != QDRANT_QUANTIZATION_INT8:
         return None
     return models.ScalarQuantization(
         scalar=models.ScalarQuantizationConfig(
@@ -108,11 +108,38 @@ def _dense_quantization(models: Any, config: QdrantConfig) -> Any:
     )
 
 
-def _payload_index_fields(client: Any, collection_name: str) -> set[str]:
-    """The payload fields that already have an index on *collection_name*."""
-    info = client.get_collection(collection_name)
-    schema = getattr(info, "payload_schema", None) or {}
+def _payload_index_fields(collection_info: Any) -> set[str]:
+    """The payload fields that already have an index, per a ``CollectionInfo``."""
+    schema = getattr(collection_info, "payload_schema", None) or {}
     return set(schema)
+
+
+def _assert_existing_dimension(collection_info: Any, config: QdrantConfig) -> None:
+    """Fail loud when a reused collection was built at another vector width.
+
+    A ``..._artifacts_v2`` collection created under a different
+    ``EMBEDDING_VECTOR_DIMENSIONS`` would accept the upsert and then return
+    meaningless scores, so a drift is a configuration error (ADR-020 §6), never
+    a warning. Reuses the guard the memory backend already applies rather than
+    re-implementing it: ``_collection_dimension`` already tolerates the named
+    vector dict shape this v2 collection uses. Imported lazily for the same
+    reason as :func:`_resolve_config`.
+    """
+    from memory.qdrant_backend import (  # lazy: shared dimension guard
+        _collection_dimension,
+        assert_collection_dimension,
+    )
+
+    assert_collection_dimension(_collection_dimension(collection_info), config.vector_dimensions)
+
+
+def _alias_target(client: Any, alias: str) -> str | None:
+    """The collection *alias* currently points at, or ``None`` when unset."""
+    aliases = {
+        entry.alias_name: entry.collection_name
+        for entry in (getattr(client.get_aliases(), "aliases", None) or [])
+    }
+    return aliases.get(alias)
 
 
 def _point_alias_at(client: Any, models: Any, alias: str, collection_name: str) -> None:
@@ -123,11 +150,7 @@ def _point_alias_at(client: Any, models: Any, alias: str, collection_name: str) 
     window in which readers see no alias. The target collection is never
     touched (no drop, no recreate).
     """
-    aliases = {
-        entry.alias_name: entry.collection_name
-        for entry in (getattr(client.get_aliases(), "aliases", None) or [])
-    }
-    current = aliases.get(alias)
+    current = _alias_target(client, alias)
     if current == collection_name:
         return
 
@@ -144,7 +167,20 @@ def _point_alias_at(client: Any, models: Any, alias: str, collection_name: str) 
             )
         )
     )
-    client.update_collection_aliases(change_aliases_operations=operations)
+    try:
+        client.update_collection_aliases(change_aliases_operations=operations)
+    except Exception:
+        # Same start-up race as the collection create above: two workers can both
+        # read "no alias" and both try to create it, and the loser gets Qdrant's
+        # "alias already exists". Only an alias that now points at
+        # *collection_name* makes the error benign -- anything else (including a
+        # concurrent worker that pointed it somewhere else) is re-raised
+        # unchanged, so a real alias misconfiguration stays loud.
+        if _alias_target(client, alias) != collection_name:
+            raise
+        logger.debug("qdrant artifact alias %s was pointed concurrently", alias)
+    else:
+        logger.info("pointed qdrant artifact alias %s at %s", alias, collection_name)
 
 
 def ensure_artifact_collection(
@@ -175,6 +211,9 @@ def ensure_artifact_collection(
 
     Raises:
         ValueError: If the tenant/workspace id is missing or not UUID-shaped.
+        ImproperlyConfigured: When the collection already exists at a vector
+            width other than ``config.vector_dimensions`` (ADR-020 §6: a drift
+            fails loud instead of degrading search scores).
         Exception: Any Qdrant error that did not leave a usable collection
             behind (e.g. an unreachable server) propagates unchanged.
     """
@@ -229,8 +268,15 @@ def ensure_artifact_collection(
             logger.debug("qdrant artifact collection %s was created concurrently", collection_name)
         else:
             logger.info("created qdrant artifact collection %s (alias=%s)", collection_name, alias)
+        info = client.get_collection(collection_name)
+    else:
+        # Reuse: never dropped or recreated (it may already hold vectors), but an
+        # existing collection built at another width must fail loud now rather
+        # than surface much later as meaningless scores or failed upserts.
+        info = client.get_collection(collection_name)
+        _assert_existing_dimension(info, config)
 
-    existing_fields = _payload_index_fields(client, collection_name)
+    existing_fields = _payload_index_fields(info)
     for field_name in PAYLOAD_INDEX_FIELDS:
         if field_name in existing_fields:
             continue

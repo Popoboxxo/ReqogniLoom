@@ -15,9 +15,11 @@ derived from tenant + workspace, never passed through by a caller (ADR-020 §5).
 """
 from __future__ import annotations
 
+import logging
 from uuid import UUID
 
 import pytest
+from django.core.exceptions import ImproperlyConfigured
 
 from application.artifact_vector_store import (
     DENSE_VECTOR_NAME,
@@ -212,6 +214,67 @@ def test_create_failure_without_collection_still_raises() -> None:
         _ensure(_BrokenClient())
 
 
+class _RacingAliasClient(FakeQdrantClient):
+    """Another worker creates the alias between our ``get_aliases()`` and our call.
+
+    Mirrors what the loser of a start-up race sees: the alias exists by the time
+    our ``update_collection_aliases`` lands, so Qdrant rejects the create with
+    "alias already exists". *foreign_collection* models the case where the
+    concurrent worker pointed the alias somewhere else entirely.
+    """
+
+    def __init__(self, *, foreign_collection: str | None = None) -> None:
+        super().__init__()
+        self._foreign_collection = foreign_collection
+
+    def update_collection_aliases(self, *, change_aliases_operations: list) -> None:
+        super().update_collection_aliases(change_aliases_operations=change_aliases_operations)
+        if self._foreign_collection is not None:
+            for operation in change_aliases_operations:
+                created = getattr(operation, "create_alias", None)
+                if created is not None:
+                    self.aliases[created.alias_name] = self._foreign_collection
+        raise RuntimeError("Alias already exists!")
+
+
+def test_concurrent_alias_create_race_is_tolerated() -> None:
+    client = _RacingAliasClient()
+    alias = build_collection_alias("reqlo", _TENANT_A, workspace_id=_WORKSPACE_A, scope="workspace")
+
+    name = _ensure(client)
+
+    # The winning worker already created the same alias at the right collection:
+    # provisioning continues instead of aborting the worker's start-up.
+    assert client.aliases[alias] == name
+    assert set(client.payload_indexes[name]) == _EXPECTED_PAYLOAD_INDEX_FIELDS
+
+
+def test_alias_race_that_left_a_foreign_target_still_raises() -> None:
+    foreign = build_collection_name(
+        "reqlo", _TENANT_B, workspace_id=_WORKSPACE_A, scope="workspace", artifacts=True, version=2
+    )
+    client = _RacingAliasClient(foreign_collection=foreign)
+
+    # An alias pointing somewhere else is NOT the benign race: fail loud.
+    with pytest.raises(RuntimeError, match="already exists"):
+        _ensure(client)
+
+
+def test_reused_collection_with_a_different_width_fails_loud() -> None:
+    client = FakeQdrantClient()
+    name = _ensure(client)
+
+    # A collection left behind by a deployment that embedded at another width.
+    client.vector_sizes[name] = EMBEDDING_VECTOR_DIMENSIONS + 128
+
+    with pytest.raises(ImproperlyConfigured, match="EMBEDDING_VECTOR_DIMENSIONS"):
+        _ensure(client)
+
+    # The guard runs before any write: the collection is never recreated.
+    create_calls = [call for call in client.calls if call[0] == "create_collection"]
+    assert len(create_calls) == 1
+
+
 def test_collection_name_still_tenant_derived() -> None:
     client = FakeQdrantClient()
 
@@ -225,6 +288,31 @@ def test_collection_name_still_tenant_derived() -> None:
     assert all(name.startswith("reqlo_") and name.endswith("_artifacts_v2") for name in names)
     assert f"reqlo_{_TENANT_A}_{_WORKSPACE_A}_artifacts_v2" in names
 
+    # The ALIAS is the name readers address from T-A2-6 on, so it is an isolation
+    # boundary in its own right: three tenant/workspace pairs must leave three
+    # distinct aliases, each pointing at its own pair's collection.
+    pairs = (
+        (_TENANT_A, _WORKSPACE_A),
+        (_TENANT_A, _WORKSPACE_B),
+        (_TENANT_B, _WORKSPACE_A),
+    )
+    expected_aliases = {
+        build_collection_alias("reqlo", tenant, workspace_id=workspace, scope="workspace"): (
+            build_collection_name(
+                "reqlo",
+                tenant,
+                workspace_id=workspace,
+                scope="workspace",
+                artifacts=True,
+                version=2,
+            )
+        )
+        for tenant, workspace in pairs
+    }
+    assert len(expected_aliases) == 3, "every tenant/workspace pair gets its own alias"
+    assert all(alias.endswith("_artifacts_live") for alias in expected_aliases)
+    assert client.aliases == expected_aliases
+
     # ADR-020 §5: a non-UUID segment is rejected, never sanitize-collapsed.
     with pytest.raises(ValueError, match="tenant"):
         ensure_artifact_collection(
@@ -234,6 +322,38 @@ def test_collection_name_still_tenant_derived() -> None:
             config=_config(),
             models_module=FakeQdrantModels,
         )
+
+
+@pytest.mark.parametrize("raw", ["off", "false", "0", "no", "OFF"])
+def test_quantization_off_aliases_disable_quantization(raw: str) -> None:
+    """``off``/``false``/``0``/``no`` must DISABLE quantization, not enable it."""
+    config = _config(quantization=raw)
+    assert config.quantization == "none"
+
+    client = FakeQdrantClient()
+    name = _ensure(client, config=config)
+
+    assert client.vector_configs[name][DENSE_VECTOR_NAME].quantization_config is None
+
+
+def test_unrecognised_quantization_falls_back_to_int8_with_one_warning(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A typo keeps the int8 default and is reported exactly once."""
+    with caplog.at_level(logging.WARNING, logger="persistence.qdrant_config"):
+        config = _config(quantization="int4")
+
+    warnings = [
+        record
+        for record in caplog.records
+        if record.levelno == logging.WARNING and record.name == "persistence.qdrant_config"
+    ]
+    assert len(warnings) == 1, "exactly one warning, not one per resolution step"
+
+    client = FakeQdrantClient()
+    name = _ensure(client, config=config)
+
+    assert client.vector_configs[name][DENSE_VECTOR_NAME].quantization_config is not None
 
 
 def test_quantization_none_omits_quantization_config() -> None:
