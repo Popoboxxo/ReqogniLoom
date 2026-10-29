@@ -1583,51 +1583,105 @@ services:
         max-file: "3"
 
   # ═════════════════════════════════════════════════════════
-  # OPTIONAL: bluepencil review-notes sidecar (docs/bluepencil-integration.md, PR #972)
+  # OPTIONAL: bluepencil review-notes hub (docs/bluepencil-integration.md, PR #972)
   # profiles: [bluepencil] — costs nothing (no pull, no start) unless you run
   # `make bluepencil` or `COMPOSE_PROFILES=bluepencil docker compose ... up -d`.
   #
-  # DEBUG/QS ONLY — NOT A PRODUCTION STORE. This profile is a *debugging* aid
-  # for the in-app annotation layer (see/measure it in the real app), not a
-  # product feature; a future production path would use a DRF review_notes app.
-  # The sidecar has NO user auth and NO tenant isolation: one JSON file holds the
-  # review notes of EVERY workspace, with no RLS/TenantContext scoping. A
-  # production store must enforce JWT/RBAC, CSRF, and tenant isolation server-side.
-  # Do not treat this profile as a pilot; it is a way to see and measure the layer
-  # in the real app. See docs/bluepencil-integration.md and deploy/bluepencil/README.md.
+  # Plan D / D1.1 — the hub now runs from the UPSTREAM IMAGE instead of the
+  # vendored `deploy/bluepencil/server.js` (deleted in this change). Two
+  # decisions shape the block below:
   #
-  # Image: node:22-slim (the vendored server.js imports ONLY Node builtins, no
-  # npm deps, so no build step and no package install are needed). The frontend
-  # reaches it over the compose network as `bluepencil:8787` — no host port is
-  # published, mirroring this file's convention that internal-only services stay
-  # internal.
+  #   ENT-D1 = A — the released hub 0.5.0, pinned by tag AND by the manifest-list
+  #   digest of that tag. NEVER `latest`: a moving tag would silently swap the
+  #   notes protocol under a running store. The image is published for
+  #   linux/amd64 only (RB-D06) — an arm64 host needs an explicit platform
+  #   emulation instead of a silent `exec format error`.
+  #
+  #   ENT-D2 = B — the image's OWN ENTRYPOINT stays in charge (no `entrypoint:`
+  #   override). It turns the BLUEPENCIL_* env below into the `node server.js`
+  #   argv and, when BLUEPENCIL_AUTH_SECRET is set, keeps the secret OUT of the
+  #   log (it only echoes a credential in its autogenerate branch). The secret is
+  #   REQUIRED (`:?`), so the profile cannot come up unauthenticated: the hub
+  #   answers 401 to every request without the `x-bluepencil-auth` header, which
+  #   the frontend nginx injects only after `auth_request` approved the session
+  #   (frontend/nginx.conf, QR-S02). Note this interpolation is resolved for the
+  #   WHOLE file, not just for active profiles — an operator without the value in
+  #   .env gets a named error instead of a silent unauthenticated hub.
+  #
+  # DEBUG/QS ONLY — NOT A PRODUCTION STORE. The hub authenticates its CALLERS
+  # (shared secret) but has no concept of users, workspaces or tenants: one JSON
+  # file holds the review notes of EVERY workspace, and every caller that holds
+  # the secret sees all of them. A production store must enforce JWT/RBAC, CSRF,
+  # and tenant isolation server-side (a future DRF review_notes app). See
+  # docs/bluepencil-integration.md and deploy/bluepencil/README.md.
+  #
+  # The frontend reaches it over the compose network as `bluepencil:8787` — no
+  # host port is published, mirroring this file's convention that internal-only
+  # services stay internal.
   # ═════════════════════════════════════════════════════════
   bluepencil:
-    image: node:22-slim@sha256:de170b39439eb0e5a3444ad7d60b015614a381e10fecae2e30ec9e735122f38d
+    image: ${BLUEPENCIL_HUB_IMAGE:-ghcr.io/popoboxxo/bluepencil:0.5.0@sha256:f5c2faea6db2c3452dd90275dc587c82352e9ebceabcb642b32c434f205ebd95}
     profiles: ["bluepencil"]
     restart: unless-stopped
-    command: node /opt/bluepencil/server.js --store /data/notes.json --port 8787 --host 0.0.0.0 --base /bluepencil/api --environment ${BLUEPENCIL_ENVIRONMENT:-dev}
+    environment:
+      # Required, no default: without a secret the hub accepts EVERY caller that
+      # can reach :8787 (see the block comment above).
+      BLUEPENCIL_AUTH_SECRET: ${BLUEPENCIL_AUTH_SECRET:?set BLUEPENCIL_AUTH_SECRET for the bluepencil profile}
+      # Base path the hub serves under. Kept in sync with the nginx location
+      # `location /bluepencil/api/` in frontend/nginx.conf.
+      BLUEPENCIL_BASE: /bluepencil/api
+      # Same file name as the vendored sidecar used, so an existing
+      # bluepencil_data volume keeps its notes across the image switch.
+      BLUEPENCIL_STORE: /data/notes.json
+      BLUEPENCIL_NAME: reqogniloom
+      BLUEPENCIL_PORT: "8787"
+    # The entrypoint appends "$@" to its own `node /app/server.js …` invocation.
+    command: ["--environment", "${BLUEPENCIL_ENVIRONMENT:-dev}"]
     volumes:
-      # Read-only: the vendored sidecar binary is immutable from the container's
-      # point of view. Relative path is repo-root-relative because every
-      # invocation pins `--project-directory .` (see repo-root Makefile and
-      # deploy/README.md), exactly like the override's `./backend:/app`.
-      - ./deploy/bluepencil/server.js:/opt/bluepencil/server.js:ro
-      # The single shared JSON store; survives container restarts/rebuilds.
+      # The single shared JSON store; survives container restarts/rebuilds. No
+      # bind mount of any server binary any more — the code lives in the image.
+      - bluepencil_data:/data
+    # RB-D01: the old vendored sidecar ran as root and wrote notes.json as root,
+    # so an existing volume is not writable by the image's `node` user. The
+    # one-shot init service below fixes ownership BEFORE the hub starts.
+    depends_on:
+      bluepencil-volume-init:
+        condition: service_completed_successfully
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    # The image is a Node runtime with no curl/wget, so probe with the runtime
+    # itself. VERIFIED against 0.5.0 (/app/server.js): `routeRequest()` calls
+    # `authorize()` BEFORE it dispatches `health`, so `/health` is NOT exempt
+    # from the shared secret — without the header the hub answers 401 and the
+    # probe would report the container unhealthy forever. The header therefore
+    # reads the same env var the entrypoint handed to the process.
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8787/bluepencil/api/health',{headers:{'x-bluepencil-auth':process.env.BLUEPENCIL_AUTH_SECRET||''}}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # Plan D / D1.1 (RB-D01): one-shot ownership fix for the shared store volume.
+  # Runs the SAME pinned image (no new image to trust) but replaces its entrypoint
+  # with a plain chown, as root (`user: "0"`) because only root may hand files to
+  # another user. `restart: "no"` keeps Compose's one-shot semantics.
+  bluepencil-volume-init:
+    image: ${BLUEPENCIL_HUB_IMAGE:-ghcr.io/popoboxxo/bluepencil:0.5.0@sha256:f5c2faea6db2c3452dd90275dc587c82352e9ebceabcb642b32c434f205ebd95}
+    profiles: ["bluepencil"]
+    user: "0"
+    entrypoint: ["chown", "-R", "node:node", "/data"]
+    restart: "no"
+    volumes:
       - bluepencil_data:/data
     logging:
       driver: "json-file"
       options:
         max-size: "10m"
         max-file: "3"
-    # node:22-slim has no curl/wget, so probe with the runtime itself — fetch is
-    # built into Node 22. The URL carries the configured --base prefix.
-    healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8787/bluepencil/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
 
 volumes:
   postgres_data:

@@ -57,14 +57,31 @@ RUN addgroup -S app && adduser -S app -G app
 
 COPY --from=builder /app/dist /usr/share/nginx/html
 
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+# Plan D / D1.1 (ENT-D2 = B, QR-S02): the config is a TEMPLATE, not a finished
+# file, because the bluepencil proxy injects the hub's shared secret and that
+# secret must never be baked into an image layer. The base image's entrypoint
+# (docker-entrypoint.d/20-envsubst-on-templates.sh) renders every
+# `/etc/nginx/templates/*.template` into `/etc/nginx/conf.d/` at container
+# start. `NGINX_ENVSUBST_FILTER` restricts substitution to the BLUEPENCIL_*
+# variables, so nginx's own `$host`, `$http_cookie`, … stay untouched.
+COPY nginx.conf /etc/nginx/templates/default.conf.template
+
+# Empty default = fail-closed: the hub requires the header, and an empty value
+# makes nginx send none, so every bluepencil call is answered 401 until an
+# operator supplies the real secret (compose env / `-e BLUEPENCIL_AUTH_SECRET`).
+ENV BLUEPENCIL_AUTH_SECRET=""
+ENV NGINX_ENVSUBST_FILTER=^BLUEPENCIL_
 
 # Plan D / D1.0: the security headers are a snippet because every location
 # with its own add_header must include them (nginx drops inherited headers).
 COPY nginx-security-headers.conf /etc/nginx/snippets/security-headers.conf
 
-# Ensure nginx html directory and logs are owned by app user
-RUN chown -R app:app /usr/share/nginx/html /var/log/nginx
+# Ensure nginx html directory and logs are owned by app user.
+# /etc/nginx/conf.d is included because the container runs as `app` and the
+# envsubst step above WRITES the rendered config into it — the base image ships
+# it (and its default.conf) as root:root, which would make that step fail closed
+# with "output dir not writable" and leave nginx serving nothing.
+RUN chown -R app:app /usr/share/nginx/html /var/log/nginx /etc/nginx/conf.d
 
 # Create necessary nginx directories for cache (required for non-root operation)
 RUN mkdir -p /var/cache/nginx && chown -R app:app /var/cache/nginx
