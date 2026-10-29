@@ -12,17 +12,59 @@
 #   * `frame-ancestors 'none'` must be present,
 #   * `script-src` must not contain 'unsafe-inline' or 'unsafe-eval'.
 #
-# Usage: bash frontend/scripts/check-nginx-headers.sh <base-url>
-# Exit:  0 = every checked response carries every header; 1 = a check failed.
+# Usage: bash frontend/scripts/check-nginx-headers.sh [--bluepencil] <base-url>
+# Exit:  0 = every checked response carries every header; 1 = a check failed;
+#        2 = usage error.
+#
+# `--bluepencil` additionally asserts the layer delivery contract from plan D /
+# D1.2 (RB-D04, RB-D05) on the same server:
+#   * `/bluepencil/latest/latest.json` answers 2xx with the security headers AND
+#     `Cache-Control: no-cache` (never `immutable` — a pinned layer file name is
+#     stable, so an immutable answer would freeze browsers on old bytes), and
+#   * `/bluepencil/latest/missing.json` answers 404 — NOT the SPA document with
+#     status 200. A 200 here means `location ^~ /bluepencil/latest/` is missing or
+#     lost its `try_files $uri =404`, and the layer loader would parse index.html
+#     as JavaScript.
+# The flag is opt-in: without it the script checks exactly what it checked
+# before, and the docroot does not have to contain a layer.
 #
 # The CI job `nginx-headers-smoke` runs it against a throwaway nginx container
 # and additionally proves the negative case (a snippet with 'unsafe-inline'
 # must make the script exit 1).
 set -euo pipefail
 
-BASE_URL="${1:-}"
+bluepencil=0
+base_arg=""
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --bluepencil)
+      bluepencil=1
+      shift
+      ;;
+    -h | --help)
+      # The header comment block is the manual.
+      awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "${BASH_SOURCE[0]}"
+      exit 0
+      ;;
+    -*)
+      printf 'usage: %s [--bluepencil] <base-url>\n' "$0" >&2
+      exit 2
+      ;;
+    *)
+      if [ -n "${base_arg}" ]; then
+        printf 'usage: %s [--bluepencil] <base-url>\n' "$0" >&2
+        exit 2
+      fi
+      base_arg="$1"
+      shift
+      ;;
+  esac
+done
+
+BASE_URL="${base_arg}"
 if [ -z "${BASE_URL}" ]; then
-  echo "usage: $0 <base-url>" >&2
+  echo "usage: $0 [--bluepencil] <base-url>" >&2
   exit 2
 fi
 BASE_URL="${BASE_URL%/}"
@@ -118,6 +160,57 @@ check_url() {
   check_csp "${label}" "${headers}"
 }
 
+# 5. The bluepencil layer location (plan D / D1.2). Opt-in via --bluepencil, so
+#    the D1.0 smoke path and its docroot stay unchanged.
+check_bluepencil() {
+  local label="/bluepencil/latest/latest.json"
+  local url="${BASE_URL}${label}"
+  local headers status cache_control
+
+  if ! headers="$(curl -sS -D - -o /dev/null "${url}")"; then
+    fail "${label}" "request failed: ${url}"
+    return
+  fi
+
+  status="${headers%%$'\n'*}"
+  status="$(printf '%s' "${status}" | awk '{print $2}')"
+  case "${status:-}" in
+    2*) ;;
+    *)
+      fail "${label}" "unexpected HTTP status: ${status:-<none>} (is the layer fetched and mounted?)"
+      return
+      ;;
+  esac
+
+  require_headers "${label}" "${headers}"
+  check_csp "${label}" "${headers}"
+
+  cache_control="$(grep -i '^cache-control:' <<<"${headers}" | head -n1 || true)"
+  if [ -z "${cache_control}" ]; then
+    fail "${label}" "missing Cache-Control — the layer must not be inheriting the immutable asset policy"
+  else
+    case "$(printf '%s' "${cache_control}" | tr '[:upper:]' '[:lower:]')" in
+      *immutable*)
+        fail "${label}" "Cache-Control contains 'immutable' — a layer update would never reach an existing browser"
+        ;;
+      *no-cache* | *no-store*) ;;
+      *) fail "${label}" "Cache-Control is neither no-cache nor no-store: ${cache_control#*: }" ;;
+    esac
+  fi
+}
+
+# A missing layer asset must 404, not fall back to index.html. `curl -w` keeps
+# the status even though the body is discarded; a network error yields 000 and
+# fails the check like any other wrong status.
+check_bluepencil_missing() {
+  local label="/bluepencil/latest/missing.json"
+  local status
+  status="$(curl -sS -o /dev/null -w '%{http_code}' "${BASE_URL}${label}" || true)"
+  if [ "${status}" != "404" ]; then
+    fail "${label}" "expected 404, got ${status:-<none>} — the SPA fallback answers with index.html, so the layer location is missing or lacks 'try_files \$uri =404'"
+  fi
+}
+
 # 1. SPA document (server-level headers, no location add_header).
 check_url "${BASE_URL}/" "/"
 # 2. Deep link: served through the SPA fallback, a different location.
@@ -141,6 +234,12 @@ elif printf '%s' "${asset}" | grep -qE '^/'; then
   check_url "${BASE_URL}${asset}" "${asset}"
 else
   check_url "${BASE_URL}/${asset}" "${asset}"
+fi
+
+# 5. Layer delivery contract (plan D / D1.2), only when explicitly requested.
+if [ "${bluepencil}" -eq 1 ]; then
+  check_bluepencil
+  check_bluepencil_missing
 fi
 
 if [ "${failures}" -ne 0 ]; then

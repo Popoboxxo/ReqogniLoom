@@ -53,7 +53,7 @@ MINIMAL_COMPOSE := $(COMPOSE) -f deploy/docker-compose.minimal.yml --project-dir
 TEST_PROJECT := $(if $(COMPOSE_PROJECT_NAME),$(COMPOSE_PROJECT_NAME)-test,reqogniloom-test)
 TEST_COMPOSE := $(COMPOSE) -p $(TEST_PROJECT) -f testing/docker-compose.test.yml --project-directory .
 
-.PHONY: up down minimal minimal-down honcho qdrant qdrant-down bluepencil bluepencil-down build release-bump test test-backend test-frontend test-down test-e2e test-e2e-reseed help
+.PHONY: up down minimal minimal-down honcho qdrant qdrant-down bluepencil bluepencil-layer bluepencil-down build release-bump test test-backend test-frontend test-down test-e2e test-e2e-reseed help
 
 ## up: Start the full dev stack (hot-reload override applied)
 up:
@@ -83,8 +83,12 @@ qdrant:
 qdrant-down:
 	$(DEV_COMPOSE) --profile qdrant stop qdrant
 
-## bluepencil: Add the optional bluepencil review-notes hub image (QS/demo only — no per-user auth, no tenant isolation; nginx gates it behind a Django session). Requires BLUEPENCIL_AUTH_SECRET in .env. Two-part enable: starts the hub only; to arm the frontend review layer also set BLUEPENCIL_ENABLED=1 in .env and restart the frontend service
-bluepencil:
+## bluepencil-layer: Fetch the pinned bluepencil browser layer into frontend/public/bluepencil/latest (verified against deploy/bluepencil/layer.lock.json; needs network). Vite serves that directory in dev
+bluepencil-layer:
+	bash deploy/bluepencil/fetch-layer.sh --dest frontend/public/bluepencil/latest
+
+## bluepencil: Add the optional bluepencil review-notes hub image (QS/demo only — no per-user auth, no tenant isolation; nginx gates it behind a Django session). Requires BLUEPENCIL_AUTH_SECRET in .env. Fetches the pinned browser layer first. Two-part enable: starts the hub only; to arm the frontend review layer also set BLUEPENCIL_ENABLED=1 in .env and restart the frontend service
+bluepencil: bluepencil-layer
 	$(DEV_COMPOSE) --profile bluepencil up -d
 
 ## bluepencil-down: Stop just the bluepencil hub image (leaves the rest of the stack running)

@@ -1,0 +1,8 @@
+{
+  "version": "0.5.0",
+  "release": "https://github.com/Popoboxxo/bluepencil/releases/download/v0.5.0/",
+  "assets": {
+    "attach.js": "a912e439b01388cfa85eed7f0f336d76ca363f4a8840e31a6a96e19af74e2d01",
+    "bluepencil.element.min.js": "2fe86edaa9d42a38615d92b02a765204ade071d2dcb9f66cc13e7a76fb065d26"
+  }
+}

@@ -399,6 +399,47 @@ jobs:
         working-directory: frontend
         run: npm ci
 
+      - name: Fetch the pinned bluepencil layer
+        # Plan D / D1.2 (RB-D03, RB-D23): the layer is no longer repository
+        # content — a checked-in copy had no provenance and a layer update forced
+        # an image rebuild. These are the REAL release bytes, fetched from the
+        # URL pinned in deploy/bluepencil/layer.lock.json and verified against it
+        # (release SHA256SUMS + lock + the #988 element guard). No mock: the test
+        # below asserts the served manifest against that pin, so a release that
+        # no longer matches the lock must fail here, not in production.
+        run: bash deploy/bluepencil/fetch-layer.sh --dest frontend/public/bluepencil/latest
+
+      - name: Negative case — a lock that disagrees with the release must fail
+        # Proves the fetch is fail-closed instead of "downloads and hopes". The
+        # tampered lock keeps every key and changes one digest, and the run must
+        # exit non-zero without publishing a single byte to --dest.
+        run: |
+          set -euo pipefail
+          bad_lock="${RUNNER_TEMP}/layer.lock.tampered.json"
+          sed -E '0,/[0-9a-f]{64}/s//0000000000000000000000000000000000000000000000000000000000000000/' \
+            deploy/bluepencil/layer.lock.json > "${bad_lock}"
+          if cmp -s deploy/bluepencil/layer.lock.json "${bad_lock}"; then
+            echo "could not tamper with the lock: no 64-hex digest found in it" >&2
+            exit 1
+          fi
+
+          bad_dest="${RUNNER_TEMP}/layer-tampered"
+          rm -rf "${bad_dest}"
+          set +e
+          bash deploy/bluepencil/fetch-layer.sh --lock "${bad_lock}" --dest "${bad_dest}"
+          status=$?
+          set -e
+          if [ "${status}" -eq 0 ]; then
+            echo "the tampered lock was accepted: fetch-layer.sh is not fail-closed" >&2
+            exit 1
+          fi
+          if [ -d "${bad_dest}" ] && [ -n "$(ls -A "${bad_dest}")" ]; then
+            echo "the refused fetch still published into ${bad_dest}:" >&2
+            ls -la "${bad_dest}" >&2
+            exit 1
+          fi
+          echo "negative case failed as expected (exit ${status}), nothing published"
+
       - name: Run Vitest
         working-directory: frontend
         run: npm run test
@@ -642,6 +683,14 @@ jobs:
           printf '<!doctype html><html><body><div id="root"></div><script src="/assets/a.js"></script></body></html>\n' \
             > "${RUNNER_TEMP}/www/index.html"
           printf 'console.log("header smoke");\n' > "${RUNNER_TEMP}/www/assets/a.js"
+          # Plan D / D1.2: the layer location (`^~ /bluepencil/latest/`) must
+          # serve cacheable-but-revalidated bytes with the security headers, and
+          # a missing file must 404 instead of falling back to index.html. The
+          # docroot gets one manifest so `--bluepencil` has something to read;
+          # the bytes themselves are irrelevant to the header/cache policy.
+          mkdir -p "${RUNNER_TEMP}/www/bluepencil/latest"
+          printf '{"version":"0.0.0-smoke","element":"bluepencil.element.min.js","sha256":"%064d"}\n' 0 \
+            > "${RUNNER_TEMP}/www/bluepencil/latest/latest.json"
 
       - name: Start nginx with the real config
         run: |
@@ -683,7 +732,7 @@ jobs:
           exit 1
 
       - name: Check the security headers
-        run: bash frontend/scripts/check-nginx-headers.sh http://localhost:8080
+        run: bash frontend/scripts/check-nginx-headers.sh --bluepencil http://localhost:8080
 
       - name: Negative case — a snippet with 'unsafe-inline' must fail the gate
         run: |
