@@ -53,7 +53,7 @@ import logging
 from typing import Any
 from uuid import UUID
 
-from drf_spectacular.utils import OpenApiParameter, extend_schema
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import status
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -62,6 +62,7 @@ from rest_framework.views import APIView
 from application.base import NotFoundError, PermissionDeniedError, ValidationError
 from application.review_queue_service import ReviewQueueService
 from rest_api.auth_enforcer import get_auth_context
+from rest_api.platform_schema_serializers import PendingReviewPageSerializer
 from rest_api.query_params import parse_workspace_id
 from rest_api.serializers import (
     StandardPagination,
@@ -117,6 +118,26 @@ _FLAT_QUEUE_PARAMETERS = [
 #: declares only the two optional query parameters.
 _PATH_SCOPED_QUEUE_PARAMETERS = [
     p for p in _FLAT_QUEUE_PARAMETERS if p.name != "workspace_id"
+]
+
+#: ``StandardPagination``'s two query parameters. Declared here because the
+#: queue paginates through a bare ``StandardPagination()`` instance rather than a
+#: ``pagination_class``, so drf-spectacular cannot discover them (#1388).
+_PAGINATION_PARAMETERS = [
+    OpenApiParameter(
+        name="page",
+        type=int,
+        location=OpenApiParameter.QUERY,
+        required=False,
+        description="1-based page number (default 1).",
+    ),
+    OpenApiParameter(
+        name="page_size",
+        type=int,
+        location=OpenApiParameter.QUERY,
+        required=False,
+        description="Items per page (default 25, capped at 100).",
+    ),
 ]
 
 
@@ -226,7 +247,25 @@ class ReviewsPendingView(APIView):
     for a workspace that does not exist in this tenant.
     """
 
-    @extend_schema(parameters=_FLAT_QUEUE_PARAMETERS)
+    @extend_schema(
+        parameters=_FLAT_QUEUE_PARAMETERS + _PAGINATION_PARAMETERS,
+        responses={
+            200: OpenApiResponse(
+                response=PendingReviewPageSerializer,
+                description=(
+                    "The queue through the StandardPagination envelope "
+                    "(count/next/previous/page_size/max_page_size/results)."
+                ),
+            ),
+            400: OpenApiResponse(
+                description="Missing/malformed workspace_id or unknown query parameter."
+            ),
+            403: OpenApiResponse(
+                description="No proposal-capable role in the workspace."
+            ),
+            404: OpenApiResponse(description="Workspace not in this tenant."),
+        },
+    )
     def get(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         lang = detect_lang(request)
         workspace_id, error = parse_workspace_id(
@@ -246,7 +285,22 @@ class WorkspaceReviewsPendingView(APIView):
     here.
     """
 
-    @extend_schema(parameters=_PATH_SCOPED_QUEUE_PARAMETERS)
+    @extend_schema(
+        parameters=_PATH_SCOPED_QUEUE_PARAMETERS + _PAGINATION_PARAMETERS,
+        responses={
+            200: OpenApiResponse(
+                response=PendingReviewPageSerializer,
+                description="Identical shape to the flat route's 200.",
+            ),
+            400: OpenApiResponse(
+                description="Malformed workspace_id or unknown query parameter."
+            ),
+            403: OpenApiResponse(
+                description="No proposal-capable role in the workspace."
+            ),
+            404: OpenApiResponse(description="Workspace not in this tenant."),
+        },
+    )
     def get(
         self, request: Request, workspace_id: str, *args: Any, **kwargs: Any
     ) -> Response:

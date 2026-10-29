@@ -24,7 +24,7 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import status
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -38,6 +38,13 @@ from application.attribute_migration_service import (
 from application.base import PermissionDeniedError
 from attribute_definitions.migration_plan import MigrationPlanError
 from auth_tenancy.models import ROLE_ADMIN
+from rest_api.attribute_migration_schema_serializers import (
+    MigrationPlanRequestSerializer,
+    MigrationReportSerializer,
+    MigrationRollbackSerializer,
+    MigrationRunListSerializer,
+    MigrationRunSerializer,
+)
 from rest_api.auth_enforcer import AdminScopeRequiredMixin, get_auth_context
 from rest_api.serializers import build_error_response, detect_lang
 
@@ -97,6 +104,20 @@ def _plan_document(request: Request) -> dict[str, Any]:
 class AttributeMigrationPlanView(APIView):
     """POST /attribute-migration/plan/ — validate + full dry-run preview."""
 
+    @extend_schema(
+        request=MigrationPlanRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=MigrationReportSerializer,
+                description="The full change report; nothing is written.",
+            ),
+            400: OpenApiResponse(
+                description="VALIDATION_ERROR — the plan fails normalization."
+            ),
+            403: OpenApiResponse(description="Admin role required."),
+            409: OpenApiResponse(description="CONFLICT — plan hash/scope conflict."),
+        },
+    )
     def post(self, request: Request) -> Response:
         gate = _require_admin(request)
         if isinstance(gate, Response):
@@ -115,6 +136,28 @@ class AttributeMigrationPlanView(APIView):
 class AttributeMigrationApplyView(AdminScopeRequiredMixin, APIView):
     """POST /attribute-migration/apply/ — execute a plan for real."""
 
+    @extend_schema(
+        request=MigrationPlanRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=MigrationReportSerializer,
+                description=(
+                    "The executed run's report. `status` is 'applied', 'partial' "
+                    "or 'failed' — never 'planned'."
+                ),
+            ),
+            400: OpenApiResponse(
+                description="VALIDATION_ERROR — the plan fails normalization."
+            ),
+            403: OpenApiResponse(description="Admin role required."),
+            409: OpenApiResponse(
+                description=(
+                    "CONFLICT — the plan hash conflicts with an earlier run, or "
+                    "its scope is dishonest for a definition op."
+                )
+            ),
+        },
+    )
     def post(self, request: Request) -> Response:
         gate = _require_admin(request)
         if isinstance(gate, Response):
@@ -139,6 +182,43 @@ class AttributeMigrationRunListView(APIView):
             "List migration runs of the active tenant. Explicit list id to keep "
             "it distinct from the run-detail retrieve (#1388)."
         ),
+        parameters=[
+            OpenApiParameter(
+                "plan_id",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Restrict to the runs of one plan id.",
+            ),
+            OpenApiParameter(
+                "mode",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="dry_run|apply.",
+            ),
+            OpenApiParameter(
+                "status",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Run status filter (e.g. 'applied').",
+            ),
+            OpenApiParameter(
+                "limit",
+                type=int,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Maximum rows to return (default 50).",
+            ),
+        ],
+        responses={
+            200: OpenApiResponse(
+                response=MigrationRunListSerializer,
+                description="The newest runs first.",
+            ),
+            403: OpenApiResponse(description="Admin role required."),
+        },
     )
     def get(self, request: Request) -> Response:
         gate = _require_admin(request)
@@ -162,6 +242,18 @@ class AttributeMigrationRunListView(APIView):
 class AttributeMigrationRunDetailView(APIView):
     """GET /attribute-migration/runs/{run_id}/ — one run incl. its report."""
 
+    @extend_schema(
+        responses={
+            200: OpenApiResponse(
+                response=MigrationRunSerializer,
+                description="The stored run including its report.",
+            ),
+            403: OpenApiResponse(description="Admin role required."),
+            404: OpenApiResponse(
+                description="Run unknown or not in the caller's tenant."
+            ),
+        },
+    )
     def get(self, request: Request, run_id: UUID) -> Response:
         gate = _require_admin(request)
         if isinstance(gate, Response):
@@ -180,6 +272,27 @@ class AttributeMigrationRunDetailView(APIView):
 class AttributeMigrationRollbackView(AdminScopeRequiredMixin, APIView):
     """POST /attribute-migration/runs/{run_id}/rollback/ — restore snapshots."""
 
+    @extend_schema(
+        request=None,
+        responses={
+            200: OpenApiResponse(
+                response=MigrationRollbackSerializer,
+                description=(
+                    "What was restored. `status` is 'rolled_back' or "
+                    "'partially_rolled_back'; read `not_reverted` rather than "
+                    "assuming everything came back."
+                ),
+            ),
+            400: OpenApiResponse(
+                description="VALIDATION_ERROR — the run is a dry run, which has "
+                "nothing to roll back."
+            ),
+            403: OpenApiResponse(description="Admin role required."),
+            404: OpenApiResponse(
+                description="Run unknown or not in the caller's tenant."
+            ),
+        },
+    )
     def post(self, request: Request, run_id: UUID) -> Response:
         gate = _require_admin(request)
         if isinstance(gate, Response):

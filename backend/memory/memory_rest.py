@@ -96,6 +96,7 @@ from uuid import UUID
 
 from django.db.models import Count, Max
 from django.http import HttpResponse
+from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import serializers, status
 from rest_framework.exceptions import NotAuthenticated
@@ -115,7 +116,27 @@ from auth_tenancy.rest import HasOperationPermission
 from auth_tenancy.services import AuthorizationService
 from memory.health import envelope
 from memory.models import MemoryEntry, WorkspaceMemorySettings
-from memory.schema_serializers import MemorySearchResponseSerializer
+from memory.schema_serializers import (
+    MemoryAdminEntryListResponseSerializer,
+    MemoryAnswerResponseSerializer,
+    MemoryAskRequestSerializer,
+    MemoryDigestResponseSerializer,
+    MemoryEntryExportResponseSerializer,
+    MemoryEntryForgetResponseSerializer,
+    MemoryEntryListResponseSerializer,
+    MemoryEntryPromoteRequestSerializer,
+    MemoryEntryViewSerializer,
+    MemoryProjectionResponseSerializer,
+    MemoryScopePurgeResponseSerializer,
+    MemorySearchResponseSerializer,
+    MemorySelfServiceDeleteResponseSerializer,
+    MemorySelfServiceResponseSerializer,
+    MemoryWorkspaceDeleteResponseSerializer,
+    MemoryWorkspaceOverviewResponseSerializer,
+    SystemMemorySettingsResponseSerializer,
+    WorkspaceMemorySettingsResponseSerializer,
+    WorkspaceMemorySettingsWriteSerializer,
+)
 from memory.ratelimit import MemoryWriteRateLimitExceeded
 from persistence.models import User
 from persistence.qdrant_config import (
@@ -413,6 +434,14 @@ class WorkspaceMemorySettingsView(APIView):
     GET: any workspace member. PUT: editor or admin (workspace-scoped).
     """
 
+    @extend_schema(
+        tags=["memory"],
+        summary="Read the workspace's memory feature toggle",
+        responses={
+            200: WorkspaceMemorySettingsResponseSerializer,
+            401: OpenApiResponse(description="No valid credential."),
+        },
+    )
     def get(self, request: Request, workspace_id: str, *args: Any, **kwargs: Any) -> Response:
         lang = detect_lang(request)
         try:
@@ -431,6 +460,17 @@ class WorkspaceMemorySettingsView(APIView):
         settings_row = WorkspaceMemorySettings.objects.filter(workspace_id=workspace_id).first()
         return Response({"enabled": settings_row.enabled if settings_row else True})
 
+    @extend_schema(
+        tags=["memory"],
+        summary="Toggle the workspace's memory feature",
+        request=WorkspaceMemorySettingsWriteSerializer,
+        responses={
+            200: WorkspaceMemorySettingsResponseSerializer,
+            400: OpenApiResponse(description="'enabled' is not a boolean."),
+            401: OpenApiResponse(description="No valid credential."),
+            403: OpenApiResponse(description="Editor or admin role required."),
+        },
+    )
     def put(self, request: Request, workspace_id: str, *args: Any, **kwargs: Any) -> Response:
         lang = detect_lang(request)
         try:
@@ -495,6 +535,15 @@ class SystemMemorySettingsView(APIView):
 
     permission_classes = [HasOperationPermission]
 
+    @extend_schema(
+        tags=["memory"],
+        summary="Read the effective (override-or-env) memory configuration",
+        responses={
+            200: SystemMemorySettingsResponseSerializer,
+            401: OpenApiResponse(description="No valid credential."),
+            403: OpenApiResponse(description="Tenant-Admin role required."),
+        },
+    )
     def get(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         lang = detect_lang(request)
         try:
@@ -512,6 +561,17 @@ class SystemMemorySettingsView(APIView):
         effective = MemorySettingsService().get_effective_settings()
         return Response(_with_env_fallback(effective))
 
+    @extend_schema(
+        tags=["memory"],
+        summary="Apply a partial memory-configuration override",
+        request=SystemMemorySettingsWriteSerializer,
+        responses={
+            200: SystemMemorySettingsResponseSerializer,
+            400: OpenApiResponse(description="Invalid override value."),
+            401: OpenApiResponse(description="No valid credential."),
+            403: OpenApiResponse(description="Django superuser required."),
+        },
+    )
     def put(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         lang = detect_lang(request)
         try:
@@ -557,6 +617,16 @@ class SystemMemorySettingsResetView(APIView):
 
     permission_classes = [HasOperationPermission]
 
+    @extend_schema(
+        tags=["memory"],
+        summary="Clear every memory-configuration override (fall back to env)",
+        request=None,
+        responses={
+            200: SystemMemorySettingsResponseSerializer,
+            401: OpenApiResponse(description="No valid credential."),
+            403: OpenApiResponse(description="Django superuser required."),
+        },
+    )
     def post(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         lang = detect_lang(request)
         try:
@@ -593,6 +663,15 @@ class SystemMemoryWorkspaceOverviewView(APIView):
 
     permission_classes = [HasOperationPermission]
 
+    @extend_schema(
+        tags=["memory"],
+        summary="List every workspace's memory overview (System-Admin)",
+        responses={
+            200: MemoryWorkspaceOverviewResponseSerializer,
+            401: OpenApiResponse(description="No valid credential."),
+            403: OpenApiResponse(description="System-Admin role required."),
+        },
+    )
     def get(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         lang = detect_lang(request)
         try:
@@ -644,6 +723,16 @@ class SystemMemoryWorkspaceDeleteView(APIView):
 
     permission_classes = [HasOperationPermission]
 
+    @extend_schema(
+        tags=["memory"],
+        summary="Delete every memory tier of one workspace (System-Admin)",
+        responses={
+            200: MemoryWorkspaceDeleteResponseSerializer,
+            401: OpenApiResponse(description="No valid credential."),
+            403: OpenApiResponse(description="System-Admin role required."),
+            404: OpenApiResponse(description="Workspace not found."),
+        },
+    )
     def delete(self, request: Request, workspace_id: str, *args: Any, **kwargs: Any) -> Response:
         lang = detect_lang(request)
         try:
@@ -715,6 +804,50 @@ class SystemMemoryEntriesListView(_SystemMemoryVisualizationView):
     #: Python, so an unbounded page size would be a trivial memory amplifier.
     MAX_PAGE_SIZE = 200
 
+    @extend_schema(
+        tags=["memory"],
+        summary="List live memory entries across both team-owned tiers (System-Admin)",
+        parameters=[
+            OpenApiParameter(
+                "scope",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                description="'workspace' or 'global'.",
+            ),
+            OpenApiParameter(
+                "workspace_id",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                description="Required when scope=workspace.",
+            ),
+            OpenApiParameter(
+                "page", type=int, location=OpenApiParameter.QUERY, default=1
+            ),
+            OpenApiParameter(
+                "page_size",
+                type=int,
+                location=OpenApiParameter.QUERY,
+                default=25,
+                description=(
+                    "Page size; the view clamps it to its own MAX_PAGE_SIZE "
+                    "upper bound."
+                ),
+            ),
+            OpenApiParameter(
+                "q",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                description="Case-insensitive substring filter on content.",
+            ),
+        ],
+        responses={
+            200: MemoryAdminEntryListResponseSerializer,
+            400: OpenApiResponse(description="Invalid scope/workspace_id/page parameters."),
+            401: OpenApiResponse(description="No valid credential."),
+            403: OpenApiResponse(description="System-Admin role required."),
+            404: OpenApiResponse(description="Workspace not found."),
+        },
+    )
     def get(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         lang = detect_lang(request)
         try:
@@ -769,7 +902,7 @@ class SystemMemoryEntriesListView(_SystemMemoryVisualizationView):
         summary="Create one memory entry (System-Admin, any scope)",
         request=MemoryEntryWriteSerializer,
         responses={
-            201: OpenApiResponse(description="The created memory entry view."),
+            201: MemoryEntryViewSerializer,
             400: OpenApiResponse(description="Invalid scope or target."),
             403: OpenApiResponse(description="System-Admin role required."),
             429: OpenApiResponse(description="memory.write rate limit exceeded."),
@@ -839,6 +972,31 @@ class SystemMemoryProjectionView(_SystemMemoryVisualizationView):
     clustering) happens in the service and is Redis-cached there.
     """
 
+    @extend_schema(
+        tags=["memory"],
+        summary="2D PCA projection + clusters of the scoped memory (System-Admin)",
+        parameters=[
+            OpenApiParameter(
+                "scope",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                description="'workspace' or 'global'.",
+            ),
+            OpenApiParameter(
+                "workspace_id",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                description="Required when scope=workspace.",
+            ),
+        ],
+        responses={
+            200: MemoryProjectionResponseSerializer,
+            400: OpenApiResponse(description="Invalid scope/workspace_id parameters."),
+            401: OpenApiResponse(description="No valid credential."),
+            403: OpenApiResponse(description="System-Admin role required."),
+            404: OpenApiResponse(description="Workspace not found."),
+        },
+    )
     def get(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         lang = detect_lang(request)
         try:
@@ -882,6 +1040,56 @@ class WorkspaceMemoryEntriesView(APIView):
     response always carries ``backend`` + ``degraded`` (F9).
     """
 
+    @extend_schema(
+        tags=["memory"],
+        summary="List the workspace's live memory entries",
+        parameters=[
+            OpenApiParameter(
+                "scope",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                description=(
+                    "Optional scope; defaults to 'workspace' because the URL "
+                    "always carries a workspace_id."
+                ),
+            ),
+            OpenApiParameter(
+                "artifact_id",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                description="Required for scope=artifact.",
+            ),
+            OpenApiParameter(
+                "contributor_user_id",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                description="Admin-only contributor filter.",
+            ),
+            OpenApiParameter(
+                "page", type=int, location=OpenApiParameter.QUERY, default=1
+            ),
+            OpenApiParameter(
+                "page_size",
+                type=int,
+                location=OpenApiParameter.QUERY,
+                default=25,
+                description=f"Clamped to 1..{MEMORY_MAX_PAGE_SIZE}.",
+            ),
+            OpenApiParameter(
+                "q",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                description="Case-insensitive substring filter on content.",
+            ),
+        ],
+        responses={
+            200: MemoryEntryListResponseSerializer,
+            400: OpenApiResponse(description="Invalid query parameter."),
+            401: OpenApiResponse(description="No valid credential."),
+            403: OpenApiResponse(description="Permission denied for the scope."),
+            404: OpenApiResponse(description="Workspace or artifact not found."),
+        },
+    )
     def get(self, request: Request, workspace_id: UUID, *args: Any, **kwargs: Any) -> Response:
         lang = detect_lang(request)
         ctx = _auth_or_401(request, lang)
@@ -921,6 +1129,20 @@ class WorkspaceMemoryEntriesView(APIView):
             return _memory_error_response(exc, lang)
         return Response(result)
 
+    @extend_schema(
+        tags=["memory"],
+        summary="Create a workspace-scoped memory entry",
+        request=MemoryEntryContentSerializer,
+        responses={
+            201: MemoryEntryViewSerializer,
+            400: OpenApiResponse(
+                description="Empty content, or a 'scope' other than 'workspace'."
+            ),
+            401: OpenApiResponse(description="No valid credential."),
+            403: OpenApiResponse(description="Editor role required in the workspace."),
+            429: OpenApiResponse(description="memory.write rate limit exceeded."),
+        },
+    )
     def post(self, request: Request, workspace_id: UUID, *args: Any, **kwargs: Any) -> Response:
         lang = detect_lang(request)
         ctx = _auth_or_401(request, lang)
@@ -962,7 +1184,7 @@ class WorkspaceMemoryEntriesView(APIView):
         tags=["memory"],
         summary="Purge every workspace-scoped memory entry",
         responses={
-            200: OpenApiResponse(description="Number of entries removed."),
+            200: MemoryScopePurgeResponseSerializer,
             403: OpenApiResponse(description="Workspace-Admin role required."),
         },
     )
@@ -1005,6 +1227,16 @@ class WorkspaceMemoryDigestView(APIView):
     itself rather than by a second health probe.
     """
 
+    @extend_schema(
+        tags=["memory"],
+        summary="Read the workspace's consolidated memory digest",
+        responses={
+            200: MemoryDigestResponseSerializer,
+            401: OpenApiResponse(description="No valid credential."),
+            403: OpenApiResponse(description="Permission denied for the workspace."),
+            404: OpenApiResponse(description="Workspace not found."),
+        },
+    )
     def get(self, request: Request, workspace_id: UUID, *args: Any, **kwargs: Any) -> Response:
         lang = detect_lang(request)
         ctx = _auth_or_401(request, lang)
@@ -1164,6 +1396,18 @@ class WorkspaceMemoryAskView(APIView):
     it -- out of scope here.
     """
 
+    @extend_schema(
+        tags=["memory"],
+        summary="Ask a natural-language question against the workspace's memory",
+        request=MemoryAskRequestSerializer,
+        responses={
+            200: MemoryAnswerResponseSerializer,
+            400: OpenApiResponse(description="Missing/blank query or unknown reasoning level."),
+            401: OpenApiResponse(description="No valid credential."),
+            403: OpenApiResponse(description="Write role required in the workspace."),
+            404: OpenApiResponse(description="Workspace or artifact not found."),
+        },
+    )
     def post(self, request: Request, workspace_id: UUID, *args: Any, **kwargs: Any) -> Response:
         lang = detect_lang(request)
         ctx = _auth_or_401(request, lang)
@@ -1205,6 +1449,16 @@ class MemoryEntryDetailView(APIView):
 
     permission_classes = [HasOperationPermission]
 
+    @extend_schema(
+        tags=["memory"],
+        summary="Read one memory entry",
+        responses={
+            200: MemoryEntryViewSerializer,
+            401: OpenApiResponse(description="No valid credential."),
+            403: OpenApiResponse(description="Permission denied for the entry."),
+            404: OpenApiResponse(description="Entry not found."),
+        },
+    )
     def get(self, request: Request, entry_id: str, *args: Any, **kwargs: Any) -> Response:
         lang = detect_lang(request)
         ctx = _auth_or_401(request, lang)
@@ -1216,6 +1470,24 @@ class MemoryEntryDetailView(APIView):
             return _memory_error_response(exc, lang)
         return Response(view)
 
+    @extend_schema(
+        tags=["memory"],
+        summary="Delete one memory entry",
+        parameters=[
+            OpenApiParameter(
+                "change_reason",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                description="Optional audit reason (a body 'change_reason' also works).",
+            ),
+        ],
+        responses={
+            200: MemoryEntryForgetResponseSerializer,
+            401: OpenApiResponse(description="No valid credential."),
+            403: OpenApiResponse(description="Permission denied for the entry."),
+            404: OpenApiResponse(description="Entry not found."),
+        },
+    )
     def delete(self, request: Request, entry_id: str, *args: Any, **kwargs: Any) -> Response:
         lang = detect_lang(request)
         ctx = _auth_or_401(request, lang)
@@ -1235,7 +1507,7 @@ class MemoryEntryDetailView(APIView):
         summary="Replace one memory entry's content (history-preserving)",
         request=MemoryEntryContentSerializer,
         responses={
-            200: OpenApiResponse(description="The new (superseding) entry view."),
+            200: MemoryEntryViewSerializer,
             400: OpenApiResponse(description="Empty content or invalid body."),
             403: OpenApiResponse(description="Permission denied for the entry."),
             404: OpenApiResponse(description="Entry not found."),
@@ -1292,6 +1564,19 @@ class MemoryEntryPromoteView(APIView):
 
     permission_classes = [HasOperationPermission]
 
+    @extend_schema(
+        tags=["memory"],
+        summary="Promote the caller's own memory entry into a workspace",
+        request=MemoryEntryPromoteRequestSerializer,
+        responses={
+            200: MemoryEntryViewSerializer,
+            400: OpenApiResponse(description="Invalid target scope or workspace."),
+            401: OpenApiResponse(description="No valid credential."),
+            403: OpenApiResponse(description="Editor role required in the target workspace."),
+            404: OpenApiResponse(description="Entry not found."),
+            429: OpenApiResponse(description="memory.write rate limit exceeded."),
+        },
+    )
     def post(self, request: Request, entry_id: str, *args: Any, **kwargs: Any) -> Response:
         lang = detect_lang(request)
         ctx = _auth_or_401(request, lang)
@@ -1319,6 +1604,31 @@ class ArtifactMemoryView(APIView):
     artifact's workspace and applies the matrix.
     """
 
+    @extend_schema(
+        tags=["memory"],
+        summary="List the artifact's live memory entries",
+        parameters=[
+            OpenApiParameter(
+                "page", type=int, location=OpenApiParameter.QUERY, default=1
+            ),
+            OpenApiParameter(
+                "page_size", type=int, location=OpenApiParameter.QUERY, default=25
+            ),
+            OpenApiParameter(
+                "q",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                description="Case-insensitive substring filter on content.",
+            ),
+        ],
+        responses={
+            200: MemoryEntryListResponseSerializer,
+            400: OpenApiResponse(description="page/page_size are not integers."),
+            401: OpenApiResponse(description="No valid credential."),
+            403: OpenApiResponse(description="No active role in the artifact's workspace."),
+            404: OpenApiResponse(description="Artifact not found."),
+        },
+    )
     def get(self, request: Request, artifact_id: UUID, *args: Any, **kwargs: Any) -> Response:
         lang = detect_lang(request)
         ctx = _auth_or_401(request, lang)
@@ -1348,6 +1658,21 @@ class ArtifactMemoryView(APIView):
             return _memory_error_response(exc, lang)
         return Response(result)
 
+    @extend_schema(
+        tags=["memory"],
+        summary="Create an artifact-scoped memory entry",
+        request=MemoryEntryContentSerializer,
+        responses={
+            201: MemoryEntryViewSerializer,
+            400: OpenApiResponse(
+                description="Empty content, or a 'scope' other than 'artifact'."
+            ),
+            401: OpenApiResponse(description="No valid credential."),
+            403: OpenApiResponse(description="Editor role required in the artifact's workspace."),
+            404: OpenApiResponse(description="Artifact not found."),
+            429: OpenApiResponse(description="memory.write rate limit exceeded."),
+        },
+    )
     def post(self, request: Request, artifact_id: UUID, *args: Any, **kwargs: Any) -> Response:
         lang = detect_lang(request)
         ctx = _auth_or_401(request, lang)
@@ -1392,6 +1717,16 @@ class ArtifactMemoryDigestView(APIView):
     an artifact of a workspace they have no role in.
     """
 
+    @extend_schema(
+        tags=["memory"],
+        summary="Read the artifact's consolidated memory digest",
+        responses={
+            200: MemoryDigestResponseSerializer,
+            401: OpenApiResponse(description="No valid credential."),
+            403: OpenApiResponse(description="No active role in the artifact's workspace."),
+            404: OpenApiResponse(description="Artifact not found."),
+        },
+    )
     def get(self, request: Request, artifact_id: UUID, *args: Any, **kwargs: Any) -> Response:
         lang = detect_lang(request)
         ctx = _auth_or_401(request, lang)
@@ -1435,6 +1770,33 @@ class SystemMemoryEntriesExportView(_SystemMemoryVisualizationView):
         renderers = self.get_renderers()
         return renderers[0], renderers[0].media_type
 
+    @extend_schema(
+        tags=["memory"],
+        summary="Export the tenant's live memory entries (JSON or CSV)",
+        description=(
+            "DSGVO Auskunftsanspruch. Two media types, selected by "
+            "``?format=``: the default ``json`` answers the structured "
+            "document, ``csv`` streams a downloadable CSV file. They are "
+            "deliberately published as two separate 200 responses (#1388) — "
+            "folding them into one JSON schema would describe neither body."
+        ),
+        parameters=[
+            OpenApiParameter(
+                "format",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                enum=["json", "csv"],
+                default="json",
+                description="Export format.",
+            ),
+        ],
+        responses={
+            (200, "application/json"): MemoryEntryExportResponseSerializer,
+            (200, "text/csv"): OpenApiTypes.BINARY,
+            401: OpenApiResponse(description="No valid credential."),
+            403: OpenApiResponse(description="System-Admin role required."),
+        },
+    )
     def get(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         lang = detect_lang(request)
         ctx = _auth_or_401(request, lang)
@@ -1504,6 +1866,30 @@ class MemorySelfServiceView(APIView):
 
     permission_classes = [HasOperationPermission]
 
+    @extend_schema(
+        tags=["memory"],
+        summary="Read the caller's own (scope=user) memory aggregate",
+        parameters=[
+            OpenApiParameter(
+                "include_entries",
+                type=bool,
+                location=OpenApiParameter.QUERY,
+                default=False,
+                description="Also return the caller's own entry list + page metadata.",
+            ),
+            OpenApiParameter(
+                "page", type=int, location=OpenApiParameter.QUERY, default=1
+            ),
+            OpenApiParameter(
+                "page_size", type=int, location=OpenApiParameter.QUERY, default=25
+            ),
+        ],
+        responses={
+            200: MemorySelfServiceResponseSerializer,
+            400: OpenApiResponse(description="page/page_size are not integers."),
+            401: OpenApiResponse(description="No valid credential."),
+        },
+    )
     def get(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         lang = detect_lang(request)
         try:
@@ -1547,6 +1933,14 @@ class MemorySelfServiceView(APIView):
             payload["page_size"] = page_result["page_size"]
         return Response(payload)
 
+    @extend_schema(
+        tags=["memory"],
+        summary="Delete every personal (scope=user) memory entry of the caller",
+        responses={
+            200: MemorySelfServiceDeleteResponseSerializer,
+            401: OpenApiResponse(description="No valid credential."),
+        },
+    )
     def delete(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         lang = detect_lang(request)
         try:
@@ -1566,7 +1960,7 @@ class MemorySelfServiceView(APIView):
         summary="Create a personal (scope=user) memory entry for the caller",
         request=MemoryEntryContentSerializer,
         responses={
-            201: OpenApiResponse(description="The created user-scoped entry view."),
+            201: MemoryEntryViewSerializer,
             400: OpenApiResponse(description="Empty content or invalid body."),
             429: OpenApiResponse(description="memory.write rate limit exceeded."),
         },

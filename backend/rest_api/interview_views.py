@@ -12,8 +12,12 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
-from drf_spectacular.utils import extend_schema
-from rest_framework import status, viewsets
+from drf_spectacular.utils import (
+    OpenApiParameter,
+    OpenApiResponse,
+    extend_schema,
+)
+from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -140,6 +144,160 @@ def _started_session_state(ctx: Any, session: Any) -> dict[str, Any]:
     return _state_dict(ctx, session.id)
 
 
+# ---------------------------------------------------------------------------
+# Contract serializers (#1388)
+# ---------------------------------------------------------------------------
+#
+# Contract-only. Every handler below hands ``InterviewService``'s dict straight
+# to ``Response`` (``_session_to_dict`` / ``_state_dict`` /
+# ``_started_session_state`` only rename ``session_id`` to ``id``), and that
+# stays exactly as it is — these serializers transcribe the dicts for the
+# generated document only.
+
+
+class InterviewSessionSummarySerializer(serializers.Serializer):
+    """Bare session summary (``_session_to_dict``)."""
+
+    id = serializers.CharField()
+    workspace_id = serializers.CharField()
+    #: ``null`` for a multi-kind session: it targets several artifact types.
+    artifact_type = serializers.CharField(required=False, allow_null=True)
+    status = serializers.CharField()
+
+
+class InterviewSessionListResponseSerializer(serializers.Serializer):
+    """``GET /interviews/`` — AUD-112 explicit ``count`` + the (unpaginated) rows."""
+
+    count = serializers.IntegerField()
+    results = InterviewSessionSummarySerializer(many=True)
+
+
+class InterviewStartRequestSerializer(serializers.Serializer):
+    """Body of ``POST /interviews/``.
+
+    ``artifact_type`` is omitted for a multi-kind discovery session; an unknown
+    ``session_kind`` is rejected by the service, not here.
+    """
+
+    workspace_id = serializers.UUIDField()
+    artifact_type = serializers.CharField(required=False, allow_null=True)
+    session_kind = serializers.ChoiceField(
+        choices=["single", "multi"], required=False, default="single"
+    )
+
+
+class InterviewStateSerializer(serializers.Serializer):
+    """``InterviewService.get_state()``, keyed by ``id`` instead of ``session_id``.
+
+    One component for both session kinds: ``phase``/``missing_fields`` exist only
+    for a single-kind session, ``transcript_summary`` only for single-kind chat
+    turns (compression never runs in multi mode), and the multi-only chat turn
+    omits the pair entirely — hence ``required=False`` throughout.
+    """
+
+    id = serializers.CharField()
+    status = serializers.CharField()
+    #: "single" or "multi"; the discriminator every consumer branches on.
+    session_kind = serializers.CharField(required=False)
+    phase = serializers.CharField(required=False)
+    collected_fields = serializers.DictField(required=False)
+    #: Protocol field descriptors of the current phase's still-open fields.
+    missing_fields = serializers.ListField(child=serializers.JSONField(), required=False)
+    #: ``{"candidates": [...]}``; the entries are grounding snapshots.
+    grounding_snapshot = serializers.DictField(required=False, allow_null=True)
+    transcript = serializers.ListField(child=serializers.JSONField(), required=False)
+    transcript_summary = serializers.CharField(
+        required=False, allow_blank=True, allow_null=True
+    )
+
+
+class InterviewByArtifactResponseSerializer(serializers.Serializer):
+    """``GET /interviews/by-artifact/{artifact_id}/`` — provenance lookup."""
+
+    session_id = serializers.CharField(required=False, allow_null=True)
+
+
+class InterviewAnswerRequestSerializer(serializers.Serializer):
+    """Body of ``POST /interviews/{id}/answer/``."""
+
+    field = serializers.CharField()
+    #: Data type follows the field's declaration, so it stays free-form.
+    value = serializers.JSONField(allow_null=True)
+
+
+class InterviewFormalizeRequestSerializer(serializers.Serializer):
+    """Body of ``POST /interviews/{id}/formalize/``.
+
+    ``confirmed_proposal`` is required for a multi-kind session and ignored by a
+    single-kind one (whose artifacts come from the protocol's collected fields).
+    """
+
+    confirmed_proposal = serializers.ListField(
+        child=serializers.JSONField(), required=False, allow_null=True
+    )
+
+
+class InterviewFormalizeResponseSerializer(serializers.Serializer):
+    """Union of the single-kind and multi-kind ``formalize()`` results.
+
+    A single-kind session answers ``resulting_artifact_ids``; a multi-kind one
+    answers ``created``. ``status`` is always present.
+    """
+
+    status = serializers.CharField()
+    resulting_artifact_ids = serializers.ListField(
+        child=serializers.CharField(), required=False
+    )
+    created = serializers.ListField(child=serializers.JSONField(), required=False)
+
+
+class InterviewProposalResponseSerializer(serializers.Serializer):
+    """``GET /interviews/{id}/propose/`` — the pending proposal, if any."""
+
+    proposal = serializers.ListField(
+        child=serializers.JSONField(), required=False, allow_null=True
+    )
+
+
+class InterviewChatRequestSerializer(serializers.Serializer):
+    """Body of ``POST /interviews/{id}/chat/``."""
+
+    message = serializers.CharField(required=False, allow_blank=True)
+
+
+class InterviewChatResponseSerializer(serializers.Serializer):
+    """``POST /interviews/{id}/chat/`` — one server-generated turn."""
+
+    reply = serializers.CharField()
+    state = InterviewStateSerializer()
+    #: Multi-kind sessions only: a newly parsed artifact proposal.
+    proposal = serializers.ListField(
+        child=serializers.JSONField(), required=False, allow_null=True
+    )
+
+
+class InterviewAbandonResponseSerializer(serializers.Serializer):
+    """``POST /interviews/{id}/abandon/`` — the session's new status."""
+
+    status = serializers.CharField()
+
+
+class InterviewSetTargetRequestSerializer(serializers.Serializer):
+    """Body of ``POST /interviews/{id}/set_target/``."""
+
+    artifact_id = serializers.UUIDField()
+
+
+class InterviewGroundingResponseSerializer(serializers.Serializer):
+    """``GET /interviews/{id}/grounding/`` — ``{"candidates": [...]}``.
+
+    The candidate entries are produced by the structural matcher and (when a
+    real provider is configured) AI-ranked on top, so they stay free-form.
+    """
+
+    candidates = serializers.ListField(child=serializers.JSONField())
+
+
 class InterviewViewSet(FreeTextSanitizationMixin, viewsets.ViewSet):
     """ViewSet for /api/v1/interviews/ -- start/list/get/state/answer/grounding/formalize/chat.
 
@@ -166,6 +324,21 @@ class InterviewViewSet(FreeTextSanitizationMixin, viewsets.ViewSet):
 
     free_text_extra_fields = ("value", "message")
 
+    @extend_schema(
+        summary="Start an interview session",
+        description=(
+            "Starts a single-kind session for a named `artifact_type`, or a "
+            "multi-kind discovery session when `artifact_type` is omitted."
+        ),
+        request=InterviewStartRequestSerializer,
+        responses={
+            201: InterviewStateSerializer,
+            400: OpenApiResponse(
+                description="Invalid workspace_id, unknown session_kind/artifact_type, or protocol violation."
+            ),
+            403: OpenApiResponse(description="Write role required in the workspace."),
+        },
+    )
     def create(self, request: Request, **kwargs: Any) -> Response:
         """POST /api/v1/interviews/ -- start a new interview session."""
         lang = detect_lang(request)
@@ -198,6 +371,25 @@ class InterviewViewSet(FreeTextSanitizationMixin, viewsets.ViewSet):
             "List interview sessions for a workspace. Explicit list id to keep "
             "it distinct from the session retrieve (#1388)."
         ),
+        parameters=[
+            OpenApiParameter(
+                "workspace_id",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="Workspace whose sessions are listed.",
+            ),
+            OpenApiParameter(
+                "status",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                description="Optional lifecycle-state filter.",
+            ),
+        ],
+        responses={
+            200: InterviewSessionListResponseSerializer,
+            400: OpenApiResponse(description="workspace_id missing or not a valid UUID."),
+        },
     )
     def list(self, request: Request, **kwargs: Any) -> Response:
         """GET /api/v1/interviews/?workspace_id=...[&status=...] -- list sessions."""
@@ -229,6 +421,13 @@ class InterviewViewSet(FreeTextSanitizationMixin, viewsets.ViewSet):
             }
         )
 
+    @extend_schema(
+        summary="Resolve the interview session that created an artifact",
+        responses={
+            200: InterviewByArtifactResponseSerializer,
+            400: OpenApiResponse(description="artifact_id is not a valid UUID."),
+        },
+    )
     @action(detail=False, methods=["get"], url_path="by-artifact/(?P<artifact_id>[^/.]+)")
     def by_artifact(self, request: Request, artifact_id: str, **kwargs: Any) -> Response:
         """GET /api/v1/interviews/by-artifact/{artifact_id}/ -- provenance lookup.
@@ -250,6 +449,14 @@ class InterviewViewSet(FreeTextSanitizationMixin, viewsets.ViewSet):
             return _service_error_response(exc, lang)
         return Response({"session_id": session_id})
 
+    @extend_schema(
+        summary="Read a session's bare summary",
+        responses={
+            200: InterviewSessionSummarySerializer,
+            400: OpenApiResponse(description="id is not a valid UUID."),
+            404: OpenApiResponse(description="Session not found."),
+        },
+    )
     def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """GET /api/v1/interviews/{id}/ -- bare session summary."""
         lang = detect_lang(request)
@@ -263,6 +470,14 @@ class InterviewViewSet(FreeTextSanitizationMixin, viewsets.ViewSet):
             return _service_error_response(exc, lang)
         return Response(_session_to_dict(session))
 
+    @extend_schema(
+        summary="Read the full interview state snapshot",
+        responses={
+            200: InterviewStateSerializer,
+            400: OpenApiResponse(description="id is not a valid UUID."),
+            404: OpenApiResponse(description="Session not found."),
+        },
+    )
     @action(detail=True, methods=["get"], url_path="state")
     def state(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """GET /api/v1/interviews/{id}/state/ -- full get_state() snapshot."""
@@ -277,6 +492,17 @@ class InterviewViewSet(FreeTextSanitizationMixin, viewsets.ViewSet):
             return _service_error_response(exc, lang)
         return Response(result)
 
+    @extend_schema(
+        summary="Answer one protocol field of the current phase",
+        request=InterviewAnswerRequestSerializer,
+        responses={
+            200: InterviewStateSerializer,
+            400: OpenApiResponse(
+                description="Unknown field, wrong value type, or a multi-kind session."
+            ),
+            404: OpenApiResponse(description="Session not found."),
+        },
+    )
     @action(detail=True, methods=["post"], url_path="answer")
     def answer(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """POST /api/v1/interviews/{id}/answer/ {"field": ..., "value": ...}."""
@@ -292,6 +518,14 @@ class InterviewViewSet(FreeTextSanitizationMixin, viewsets.ViewSet):
             return _service_error_response(exc, lang)
         return Response(result)
 
+    @extend_schema(
+        summary="Compute structural (+ AI-ranked) grounding candidates",
+        responses={
+            200: InterviewGroundingResponseSerializer,
+            400: OpenApiResponse(description="id is not a valid UUID."),
+            404: OpenApiResponse(description="Session not found."),
+        },
+    )
     @action(detail=True, methods=["get"], url_path="grounding")
     def grounding(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """GET /api/v1/interviews/{id}/grounding/ -- structural + AI-ranked candidates."""
@@ -306,6 +540,18 @@ class InterviewViewSet(FreeTextSanitizationMixin, viewsets.ViewSet):
             return _service_error_response(exc, lang)
         return Response(result)
 
+    @extend_schema(
+        summary="Turn the collected answers into artifact(s)",
+        request=InterviewFormalizeRequestSerializer,
+        responses={
+            200: InterviewFormalizeResponseSerializer,
+            400: OpenApiResponse(
+                description="Interview incomplete, multi-kind proposal missing/invalid, or session not in progress."
+            ),
+            403: OpenApiResponse(description="Write role required in the workspace."),
+            404: OpenApiResponse(description="Session not found or target artifact gone."),
+        },
+    )
     @action(detail=True, methods=["post"], url_path="formalize")
     def formalize(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """POST /api/v1/interviews/{id}/formalize/ -- create/update the target artifact.
@@ -325,6 +571,14 @@ class InterviewViewSet(FreeTextSanitizationMixin, viewsets.ViewSet):
             return _service_error_response(exc, lang)
         return Response(result)
 
+    @extend_schema(
+        summary="Read the pending multi-artifact proposal, if any",
+        responses={
+            200: InterviewProposalResponseSerializer,
+            400: OpenApiResponse(description="id is not a valid UUID."),
+            404: OpenApiResponse(description="Session not found."),
+        },
+    )
     @action(detail=True, methods=["get"], url_path="propose")
     def propose(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """GET /api/v1/interviews/{id}/propose/ -- current pending multi-artifact proposal, if any."""
@@ -339,6 +593,15 @@ class InterviewViewSet(FreeTextSanitizationMixin, viewsets.ViewSet):
             return _service_error_response(exc, lang)
         return Response({"proposal": proposal})
 
+    @extend_schema(
+        summary="Abandon an in-progress interview session",
+        request=None,
+        responses={
+            200: InterviewAbandonResponseSerializer,
+            400: OpenApiResponse(description="Session is not in progress."),
+            404: OpenApiResponse(description="Session not found."),
+        },
+    )
     @action(detail=True, methods=["post"], url_path="abandon")
     def abandon(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """POST /api/v1/interviews/{id}/abandon/ -- user-initiated cancel."""
@@ -353,6 +616,17 @@ class InterviewViewSet(FreeTextSanitizationMixin, viewsets.ViewSet):
             return _service_error_response(exc, lang)
         return Response(result)
 
+    @extend_schema(
+        summary="Pin an existing Requirement as this session's formalize target",
+        request=InterviewSetTargetRequestSerializer,
+        responses={
+            200: InterviewStateSerializer,
+            400: OpenApiResponse(
+                description="Invalid artifact_id, non-Requirement target, or session not in progress."
+            ),
+            404: OpenApiResponse(description="Session or artifact not found."),
+        },
+    )
     @action(detail=True, methods=["post"], url_path="set_target")
     def set_target(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """POST /api/v1/interviews/{id}/set_target/ {"artifact_id": ...}.
@@ -392,6 +666,17 @@ class InterviewViewSet(FreeTextSanitizationMixin, viewsets.ViewSet):
             result["id"] = result.pop("session_id")
         return Response(result)
 
+    @extend_schema(
+        summary="Drive one server-generated conversational turn",
+        request=InterviewChatRequestSerializer,
+        responses={
+            200: InterviewChatResponseSerializer,
+            400: OpenApiResponse(
+                description="No LLM provider available, or session not in progress."
+            ),
+            404: OpenApiResponse(description="Session not found."),
+        },
+    )
     @action(detail=True, methods=["post"], url_path="chat")
     def chat(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """POST /api/v1/interviews/{id}/chat/ {"message": ...} -- server-generated turn (spec §5)."""

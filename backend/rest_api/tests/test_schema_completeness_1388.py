@@ -51,6 +51,13 @@ views that *did* run a serializer but were plain ``APIView``s without a
 ``serializer_class``, the two CSV routes, the suggestion inbox, the version and
 user-management endpoints.
 
+The burndown then finished the job: the remaining views were typed in two
+batches, so ``UNTYPED_VIEW_ALLOWLIST`` is empty and is held empty. Every
+assertion that made the list a gate is kept, and the empty state is asserted
+explicitly — the list cannot grow back without failing here. The permanent
+ratchet for the zero state lives in
+``rest_api.tests.test_schema_burndown_1388``.
+
 The assertions below run the generator once and read drf-spectacular's own
 ``GENERATOR_STATS`` warning/error collection (not the management command's
 stderr), because that is the same collection the CLI summarises and it is
@@ -387,6 +394,20 @@ class TestNoOperationLost:
 
 
 class TestUntypedAllowlist:
+    def test_the_allowlist_is_empty(self) -> None:
+        """The burndown is finished: no permanent allowlist (ENT-E1 = A).
+
+        The permanent ratchet lives in
+        ``rest_api.tests.test_schema_burndown_1388``; this copy keeps the gate
+        self-contained. An entry is admissible only with a documented reason
+        for that view and counts as a regression while ENT-E1 = A holds.
+        """
+        assert UNTYPED_VIEW_ALLOWLIST == {}, (
+            "UNTYPED_VIEW_ALLOWLIST must stay empty — every view is typed, and "
+            "an entry is only admissible with a documented justification for "
+            f"that view. Offending entries: {sorted(UNTYPED_VIEW_ALLOWLIST)}"
+        )
+
     def test_every_used_fallback_is_allowlisted(self, generated: dict) -> None:
         missing = generated["used"] - set(UNTYPED_VIEW_ALLOWLIST)
         assert missing == set(), (
@@ -533,13 +554,21 @@ class TestUntypedMarker:
     def test_marked_operation_count_matches_the_recorded_usage(
         self, generated: dict
     ) -> None:
-        """The document's marked operations == what the generator recorded."""
+        """The document marks no fallback operation, matching the record.
+
+        The count may legitimately be zero (and is, now that every view is
+        typed): the invariant is that the document and the generator's record
+        agree, and that a zero record means zero marked operations too.
+        """
         marked = _marked_operations(generated["schema"])
         expected = generated["operation_count"]
-        assert expected > 0
-        assert len(marked) == expected, (
+        assert expected == 0, (
+            f"{expected} operations used the permissive fallback; every view "
+            "must declare a serializer, so the recorded usage has to be 0"
+        )
+        assert len(marked) == 0, (
             f"the document marks {len(marked)} fallback operations but the "
-            f"allowlisted views produced {expected}"
+            f"generator recorded {expected}: {sorted(marked)}"
         )
         assert expected == sum(len(ops) for ops in generated["operations"].values())
 

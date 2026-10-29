@@ -16,6 +16,10 @@ from __future__ import annotations
 from rest_framework import serializers
 
 __all__ = [
+    "BackupCreateRequestSerializer",
+    "BackupCreateResponseSerializer",
+    "BackupListResponseSerializer",
+    "BackupMetadataSerializer",
     "BannerSerializer",
     "BannerWriteSerializer",
     "ComponentStatusSerializer",
@@ -23,6 +27,9 @@ __all__ = [
     "RateLimitEffectiveResponseSerializer",
     "RateLimitOverridesWriteSerializer",
     "RecentAuditEventSerializer",
+    "RestoreRequestSerializer",
+    "RestoreResponseSerializer",
+    "RestoreResultSerializer",
     "SystemHealthResponseSerializer",
     "TenantThemeDefaultWriteSerializer",
     "ThemePaletteSerializer",
@@ -221,3 +228,92 @@ class RateLimitOverridesWriteSerializer(serializers.Serializer):
             "override; an empty string stores 'unlimited'."
         ),
     )
+
+
+# ---------------------------------------------------------------------------
+# Disaster recovery (/api/v1/admin/backups/ and /api/v1/admin/restore/)
+# ---------------------------------------------------------------------------
+#
+# Transcribed from ``admin_ops.rest._backup_to_dict`` / ``_restore_result_to_dict``
+# (and the bodies the two views parse), for the contract only: the views keep
+# returning the hand-built dicts (#1388).
+
+
+class BackupMetadataSerializer(serializers.Serializer):
+    """One ``BackupMetadata`` row (``_backup_to_dict``)."""
+
+    id = serializers.CharField()
+    status = serializers.CharField(
+        help_text="BackupStatus value, e.g. 'completed' or 'failed'.",
+    )
+    backup_type = serializers.CharField(help_text="'full' or 'partial'.")
+    file_path = serializers.CharField(allow_blank=True)
+    file_size_bytes = serializers.IntegerField(allow_null=True)
+    checksum_sha256 = serializers.CharField(allow_blank=True)
+    error_message = serializers.CharField(allow_blank=True)
+    metadata = serializers.DictField(
+        help_text="Free-form metadata; carries 'reason' when one was given.",
+    )
+    completed_at = serializers.DateTimeField(required=False, allow_null=True)
+    is_restorable = serializers.BooleanField()
+    created_at = serializers.DateTimeField(required=False, allow_null=True)
+    created_by = serializers.CharField(allow_null=True)
+
+
+class BackupListResponseSerializer(serializers.Serializer):
+    """``GET /api/v1/admin/backups/`` envelope."""
+
+    backups = BackupMetadataSerializer(many=True)
+
+
+class BackupCreateRequestSerializer(serializers.Serializer):
+    """Body of ``POST /api/v1/admin/backups/`` (both fields optional)."""
+
+    reason = serializers.CharField(required=False, allow_blank=True)
+    backup_type = serializers.ChoiceField(
+        choices=["full", "partial"],
+        required=False,
+        help_text="Defaults to 'full'.",
+    )
+
+
+class BackupCreateResponseSerializer(serializers.Serializer):
+    """201 body of ``POST /api/v1/admin/backups/``."""
+
+    backup = BackupMetadataSerializer()
+
+
+class RestoreRequestSerializer(serializers.Serializer):
+    """Body of ``POST /api/v1/admin/restore/``.
+
+    ``confirmation_text`` must equal the literal ``"RESTORE"`` (case-sensitive);
+    a mismatch is a 400. ``restore_type`` is advisory — the service always runs
+    a full restore.
+    """
+
+    backup_id = serializers.UUIDField()
+    confirmation_text = serializers.CharField(
+        help_text="Must equal 'RESTORE'.",
+    )
+    restore_type = serializers.ChoiceField(
+        choices=["full", "partial"], required=False
+    )
+
+
+class RestoreResultSerializer(serializers.Serializer):
+    """One ``RestoreResult`` (``_restore_result_to_dict``)."""
+
+    backup_id = serializers.CharField()
+    started_at = serializers.DateTimeField(required=False, allow_null=True)
+    completed_at = serializers.DateTimeField(required=False, allow_null=True)
+    restored_tables = serializers.ListField(child=serializers.CharField())
+    rows_per_table = serializers.DictField(
+        child=serializers.IntegerField(),
+        help_text="table name -> restored row count.",
+    )
+
+
+class RestoreResponseSerializer(serializers.Serializer):
+    """200 body of ``POST /api/v1/admin/restore/``."""
+
+    restore = RestoreResultSerializer()

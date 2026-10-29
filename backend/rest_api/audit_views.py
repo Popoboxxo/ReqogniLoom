@@ -730,6 +730,161 @@ class WaiverCreateSerializer(
     )
 
 
+class AuditWaiverSerializer(serializers.Serializer):
+    """Schema view of one persisted suppression (``SuppressionView.to_dict``).
+
+    ``finding_key`` is the persisted, scope-less key (GH-821); ``identity_key``
+    is the display rendering that adds the scope. ``state`` is derived at read
+    time — there is no persisted state column.
+    """
+
+    waiver_id = serializers.CharField()
+    finding_key = serializers.CharField()
+    identity_key = serializers.CharField()
+    rule_id = serializers.CharField()
+    artifact_ids = serializers.ListField(child=serializers.CharField())
+    scope = serializers.CharField()
+    scope_artifact_id = serializers.CharField(allow_blank=True, allow_null=True)
+    reason = serializers.CharField()
+    granted_by = serializers.CharField()
+    created_at = serializers.DateTimeField(allow_null=True)
+    expires_at = serializers.DateTimeField(allow_null=True)
+    state = serializers.ChoiceField(choices=["active", "expired"])
+
+
+class AuditWaiverCountsSerializer(serializers.Serializer):
+    """``counts`` block of the waivers listing: the whole set, both states.
+
+    The counts always describe every waiver, so a caller can see whether a
+    ``?state=`` filter hides anything.
+    """
+
+    active = serializers.IntegerField()
+    expired = serializers.IntegerField()
+
+
+class AuditWaiverListSerializer(serializers.Serializer):
+    """200 body of ``GET .../audit/waivers/``."""
+
+    waivers = AuditWaiverSerializer(many=True)
+    counts = AuditWaiverCountsSerializer()
+
+
+class AuditRemediationProposalSerializer(serializers.Serializer):
+    """``RemediationProposal.to_dict()`` — why a finding can (not) be fixed."""
+
+    rule_id = serializers.CharField()
+    automatic = serializers.BooleanField(
+        help_text="True when the fix can be applied without user input.",
+    )
+    reason = serializers.CharField(
+        help_text="What will be done (automatic) or why it cannot be.",
+    )
+    finding_artifact_ids = serializers.ListField(child=serializers.CharField())
+    action_kind = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Action identifier when automatic, else null.",
+    )
+    params = serializers.DictField(
+        child=serializers.CharField(),
+        help_text="Action parameters, e.g. source_id/target_id/link_type.",
+    )
+
+
+class AuditRemediationResultSerializer(serializers.Serializer):
+    """200 body of ``POST .../audit/remediate/`` (``RemediationResult``)."""
+
+    applied = serializers.BooleanField()
+    finding_resolved = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        help_text="Whether the finding is gone after the fix; null when unknown.",
+    )
+    created_link_id = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="The trace link created by an automatic fix, if any.",
+    )
+    proposal = AuditRemediationProposalSerializer()
+
+
+class AuditAiReviewFindingRefSerializer(serializers.Serializer):
+    """One resolved finding reference of an N8 refactoring package.
+
+    Compact by design (``AiReviewService._finding_payload``): a package points
+    at findings of the audit run this review was derived from, and the compact
+    form is what both the LLM context and the response carry.
+    """
+
+    index = serializers.IntegerField(
+        help_text="Index into the audit report's findings list.",
+    )
+    rule_id = serializers.CharField()
+    severity = serializers.CharField()
+    artifact_ids = serializers.ListField(child=serializers.CharField())
+    scope = serializers.CharField(allow_null=True)
+    scope_artifact_id = serializers.CharField(allow_null=True)
+
+
+class AuditAiReviewPackageSerializer(serializers.Serializer):
+    """One strategic refactoring package (``RefactoringPackage.to_dict``)."""
+
+    title = serializers.CharField()
+    rationale = serializers.CharField(allow_blank=True)
+    finding_refs = AuditAiReviewFindingRefSerializer(many=True)
+
+
+class AuditAiReviewCountsSerializer(serializers.Serializer):
+    """``counts`` block of the N8 result."""
+
+    total_findings = serializers.IntegerField(
+        help_text="Findings the review ran over (may be capped).",
+    )
+    packaged_findings = serializers.IntegerField()
+    packages = serializers.IntegerField()
+
+
+class AuditAiReviewResultSerializer(serializers.Serializer):
+    """200 body of ``POST .../audit/ai-review/`` (``AiReviewResult.to_dict``)."""
+
+    tier = serializers.CharField()
+    provider = serializers.CharField()
+    degraded = serializers.BooleanField(
+        help_text="True when the answer came from the mock/degraded provider.",
+    )
+    packages = AuditAiReviewPackageSerializer(many=True)
+    truncated = serializers.BooleanField(
+        help_text="True when the audit run was capped before packaging.",
+    )
+    total_findings_available = serializers.IntegerField()
+    counts = AuditAiReviewCountsSerializer()
+
+
+class AuditRuleCatalogueEntrySerializer(serializers.Serializer):
+    """One registered SE-Auditor rule (``get_rule_catalogue`` entry).
+
+    ``severity`` is the gate-effective severity, resolved at the strictest
+    tier; ``deferred`` marks a rule whose activation was postponed.
+    """
+
+    rule_id = serializers.CharField()
+    title = serializers.CharField()
+    description = serializers.CharField(allow_blank=True)
+    severity = serializers.CharField()
+    standard_ref = serializers.CharField(allow_blank=True, allow_null=True)
+    remediation_hint = serializers.CharField(allow_blank=True, allow_null=True)
+    active_tiers = serializers.ListField(child=serializers.CharField())
+    is_scope_aware = serializers.BooleanField()
+    deferred = serializers.BooleanField()
+
+
+class AuditRuleCatalogueSerializer(serializers.Serializer):
+    """200 body of ``GET /api/v1/audit/rules/`` (#1262)."""
+
+    rules = AuditRuleCatalogueEntrySerializer(many=True)
+
+
 class WorkspaceAuditView(APIView):
     """GET /api/v1/workspaces/<workspace_id>/audit/ — run the SE-Auditor."""
 
@@ -848,6 +1003,30 @@ class WorkspaceAuditWaiverView(APIView):
     reserved for :class:`WorkspaceAuditRemediateView`.
     """
 
+    @extend_schema(
+        request=WaiverCreateSerializer,
+        responses={
+            201: OpenApiResponse(
+                response=AuditWaiverSerializer,
+                description="A new waiver row was persisted.",
+            ),
+            200: OpenApiResponse(
+                response=AuditWaiverSerializer,
+                description="An identical active waiver was already on file.",
+            ),
+            400: OpenApiResponse(
+                description=(
+                    "WAIVER_REASON_REJECTED, WAIVER_FINDING_NOT_BLOCKING or "
+                    "VALIDATION_ERROR."
+                )
+            ),
+            403: OpenApiResponse(description="Admin/Approver authority required."),
+            404: OpenApiResponse(description="Workspace not in the caller's tenant."),
+            409: OpenApiResponse(
+                description="SUPPRESSION_EXPIRED — only an expired row exists."
+            ),
+        },
+    )
     def post(
         self, request: Request, workspace_id: str, *args: Any, **kwargs: Any
     ) -> Response:
@@ -933,6 +1112,30 @@ class WorkspaceAuditWaiverView(APIView):
             ),
         )
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "state",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Lifecycle filter: 'active' (default), 'expired' or 'all'."
+                ),
+            ),
+        ],
+        responses={
+            200: OpenApiResponse(
+                response=AuditWaiverListSerializer,
+                description=(
+                    "The workspace's waivers; `counts` always covers the whole "
+                    "set, so a filter never hides anything."
+                ),
+            ),
+            403: OpenApiResponse(description="Admin/Approver authority required."),
+            404: OpenApiResponse(description="Workspace not in the caller's tenant."),
+        },
+    )
     def get(
         self, request: Request, workspace_id: str, *args: Any, **kwargs: Any
     ) -> Response:
@@ -992,6 +1195,23 @@ class WorkspaceAuditWaiverView(APIView):
 class WorkspaceAuditRemediateView(APIView):
     """POST /api/v1/workspaces/<workspace_id>/audit/remediate/ — Adopt-Workflow."""
 
+    @extend_schema(
+        request=RemediateRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=AuditRemediationResultSerializer,
+                description="The applied fix plus the proposal behind it.",
+            ),
+            403: OpenApiResponse(description="Editor+ in the workspace required."),
+            404: OpenApiResponse(description="Workspace not in the caller's tenant."),
+            422: OpenApiResponse(
+                description=(
+                    "VALIDATION_ERROR — no unambiguous automatic fix for this "
+                    "finding, or a rejected correction."
+                )
+            ),
+        },
+    )
     def post(
         self, request: Request, workspace_id: str, *args: Any, **kwargs: Any
     ) -> Response:
@@ -1058,6 +1278,38 @@ class WorkspaceAuditAiReviewView(APIView):
     ``audit/remediate/`` Adopt-Workflow.
     """
 
+    @extend_schema(
+        request=None,
+        parameters=[
+            OpenApiParameter(
+                "scope",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Optional baseline scope (document|project|global); "
+                    "defaults to project."
+                ),
+            ),
+            OpenApiParameter(
+                "scope_artifact_id",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Document root; required when scope=document.",
+            ),
+        ],
+        responses={
+            200: OpenApiResponse(
+                response=AuditAiReviewResultSerializer,
+                description=(
+                    "Advisory packages of real findings; nothing is persisted."
+                ),
+            ),
+            400: OpenApiResponse(description="Invalid scope/scope_artifact_id."),
+            404: OpenApiResponse(description="Workspace not in the caller's tenant."),
+        },
+    )
     def post(
         self, request: Request, workspace_id: str, *args: Any, **kwargs: Any
     ) -> Response:
@@ -1110,6 +1362,14 @@ class AuditRuleCatalogView(APIView):
     metadata only — no rule is executed here.
     """
 
+    @extend_schema(
+        responses={
+            200: OpenApiResponse(
+                response=AuditRuleCatalogueSerializer,
+                description="Every registered rule with its catalogue metadata.",
+            ),
+        },
+    )
     def get(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         lang = detect_lang(request)
         try:

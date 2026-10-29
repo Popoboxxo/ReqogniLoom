@@ -28,7 +28,12 @@ import logging
 from typing import Any
 from uuid import UUID
 
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import (
+    OpenApiParameter,
+    OpenApiResponse,
+    extend_schema,
+    extend_schema_view,
+)
 from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.request import Request
@@ -56,12 +61,75 @@ from rest_api.auth_enforcer import get_auth_context
 from rest_api.mixins.workflow_transitions import WorkflowTransitionsMixin
 from rest_api.query_params import parse_workspace_id
 from rest_api.serializers import StandardPagination, build_error_response, detect_lang
+from rest_api.serializers_diagram import (
+    ArtifactDiffResponseSerializer,
+    ArtifactVersionEntrySerializer,
+    DiagramCreateRequestSerializer,
+    DiagramDetailSerializer,
+    DiagramListResponseSerializer,
+    DiagramSerializer,
+    DiagramUpdateRequestSerializer,
+    DiagramVersionResponseSerializer,
+    WorkflowHistoryEntrySerializer,
+    WorkflowTransitionRequestSerializer,
+    WorkflowTransitionResultSerializer,
+    WorkflowTransitionsResponseSerializer,
+)
 from rest_api.views import BaseEntityViewSet
 from traceability.exceptions import TraceLinkError
 
 logger = logging.getLogger(__name__)
 
 
+@extend_schema_view(
+    # ``transitions`` serves GET and POST from one action; each method needs
+    # its own response shape, so it gets one scoped decorator per verb.
+    transitions=(
+        extend_schema(
+            methods=["GET"],
+            summary="Read the Diagram's workflow state and allowed transitions",
+            responses={
+                200: WorkflowTransitionsResponseSerializer,
+                403: OpenApiResponse(description="No access to the Diagram."),
+                404: OpenApiResponse(
+                    description="Diagram not found / no workspace assigned."
+                ),
+            },
+        ),
+        extend_schema(
+            methods=["POST"],
+            summary="Perform a gated Diagram workflow transition",
+            request=WorkflowTransitionRequestSerializer,
+            responses={
+                200: WorkflowTransitionResultSerializer,
+                400: OpenApiResponse(description="target_state missing or malformed revision assertion."),
+                403: OpenApiResponse(description="Transition not permitted."),
+                404: OpenApiResponse(
+                    description="Diagram not found / no workspace assigned."
+                ),
+                409: OpenApiResponse(description="Stale workflow revision (expected_version)."),
+            },
+        ),
+    ),
+    reactivate=extend_schema(
+        summary="Reactivate a soft-deleted Diagram",
+        request=None,
+        responses={
+            200: WorkflowTransitionResultSerializer,
+            400: OpenApiResponse(description="Diagram is not currently outdated."),
+            403: OpenApiResponse(description="Write role required."),
+            404: OpenApiResponse(description="Diagram not found / no workspace assigned."),
+        },
+    ),
+    workflow_history=extend_schema(
+        summary="Read the Diagram's workflow audit trail",
+        responses={
+            200: WorkflowHistoryEntrySerializer(many=True),
+            403: OpenApiResponse(description="No access to the Diagram."),
+            404: OpenApiResponse(description="Diagram not found / no workspace assigned."),
+        },
+    ),
+)
 class DiagramViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
     """REST ViewSet for Diagram CRUD operations.
 
@@ -151,6 +219,19 @@ class DiagramViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
     @extend_schema(
         operation_id="diagrams_list",
         description="List diagrams, filtered by ``workspace_id``. Explicit list id (#1388).",
+        parameters=[
+            OpenApiParameter(
+                "workspace_id",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                description="Restrict the list to one workspace.",
+            ),
+        ],
+        responses={
+            200: DiagramListResponseSerializer,
+            400: OpenApiResponse(description="workspace_id is not a valid UUID."),
+            401: OpenApiResponse(description="No valid credential."),
+        },
     )
     def list(self, request: Request, **kwargs: Any) -> Response:
         """GET /api/v1/diagrams/ — list diagrams, filtered by workspace_id."""
@@ -179,6 +260,16 @@ class DiagramViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
 
     # -- create ------------------------------------------------------------
 
+    @extend_schema(
+        summary="Create a diagram with its initial version",
+        request=DiagramCreateRequestSerializer,
+        responses={
+            201: DiagramSerializer,
+            400: OpenApiResponse(
+                description="name missing, invalid workspace_id, or payload fails type validation."
+            ),
+        },
+    )
     def create(self, request: Request, **kwargs: Any) -> Response:
         """POST /api/v1/diagrams/ — create a new diagram with initial version."""
         lang = detect_lang(request)
@@ -253,6 +344,13 @@ class DiagramViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
 
     # -- retrieve ----------------------------------------------------------
 
+    @extend_schema(
+        summary="Read one diagram with its current payload",
+        responses={
+            200: DiagramDetailSerializer,
+            404: OpenApiResponse(description="Diagram not found."),
+        },
+    )
     def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """GET /api/v1/diagrams/<pk>/ — get diagram details with version info."""
         lang = detect_lang(request)
@@ -284,6 +382,17 @@ class DiagramViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
 
     # -- partial_update ----------------------------------------------------
 
+    @extend_schema(
+        summary="Append a new diagram version",
+        request=DiagramUpdateRequestSerializer,
+        responses={
+            200: DiagramVersionResponseSerializer,
+            400: OpenApiResponse(
+                description="payload_format/content missing or payload fails type validation."
+            ),
+            404: OpenApiResponse(description="Diagram not found."),
+        },
+    )
     def partial_update(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """PATCH /api/v1/diagrams/<pk>/ — update diagram (creates new version)."""
         lang = detect_lang(request)
@@ -338,6 +447,13 @@ class DiagramViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
 
     # -- destroy -----------------------------------------------------------
 
+    @extend_schema(
+        summary="Delete a diagram and all its versions",
+        responses={
+            204: OpenApiResponse(response=None, description="Deleted; no body."),
+            404: OpenApiResponse(description="Diagram not found."),
+        },
+    )
     def destroy(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """DELETE /api/v1/diagrams/<pk>/ — delete a diagram and all versions."""
         lang = detect_lang(request)
@@ -359,6 +475,13 @@ class DiagramViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
 
     # -- versions (REQ-142) -------------------------------------------------
 
+    @extend_schema(
+        summary="List the diagram's content revisions (oldest first)",
+        responses={
+            200: ArtifactVersionEntrySerializer(many=True),
+            404: OpenApiResponse(description="Diagram not found."),
+        },
+    )
     @action(detail=True, methods=["get"], url_path="versions")
     def versions(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """GET /api/v1/diagrams/<pk>/versions/ — list revisions chronologically.
@@ -400,6 +523,29 @@ class DiagramViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
 
     # -- diff (REQ-142) ------------------------------------------------------
 
+    @extend_schema(
+        summary="Field-level diff between two diagram versions",
+        parameters=[
+            OpenApiParameter(
+                "from_version",
+                type=int,
+                location=OpenApiParameter.QUERY,
+                default=0,
+                description="Source revision; 0 is the creation baseline.",
+            ),
+            OpenApiParameter(
+                "to_version",
+                type=int,
+                location=OpenApiParameter.QUERY,
+                description="Target revision; defaults to the current one.",
+            ),
+        ],
+        responses={
+            200: ArtifactDiffResponseSerializer,
+            400: OpenApiResponse(description="from_version/to_version not integers."),
+            404: OpenApiResponse(description="Diagram or requested version not found."),
+        },
+    )
     @action(detail=True, methods=["get"], url_path="diff")
     def diff(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """GET /api/v1/diagrams/<pk>/diff/?from_version=0&to_version=2

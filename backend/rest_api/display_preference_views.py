@@ -33,6 +33,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, status
 from rest_framework.exceptions import NotAuthenticated
 from rest_framework.request import Request
@@ -48,6 +49,20 @@ from rest_api.serializers import (
     build_error_response,
     detect_lang,
 )
+
+
+class DisplayPreferenceResponseSerializer(serializers.Serializer):
+    """Effective display flags returned by both handlers (#1388).
+
+    Contract-only: the view returns ``DisplayPreferenceService``'s dict
+    unchanged. ``visible_metrics`` is ``null`` when the caller has no selection,
+    which the service reports as "use the registry default set".
+    """
+
+    show_readable_ids = serializers.BooleanField()
+    visible_metrics = serializers.ListField(
+        child=serializers.CharField(), allow_null=True
+    )
 
 
 class DisplayPreferenceUpdateSerializer(
@@ -82,6 +97,13 @@ class DisplayPreferenceView(APIView):
 
     permission_classes = [HasOperationPermission]
 
+    @extend_schema(
+        summary="Read the caller's own display preferences",
+        responses={
+            200: DisplayPreferenceResponseSerializer,
+            401: OpenApiResponse(description="No valid credential."),
+        },
+    )
     def get(self, request: Request, **kwargs: Any) -> Response:
         lang = detect_lang(request)
         try:
@@ -91,6 +113,17 @@ class DisplayPreferenceView(APIView):
 
         return Response(DisplayPreferenceService().get_display_preferences(ctx))
 
+    @extend_schema(
+        summary="Partially update the caller's own display preferences",
+        request=DisplayPreferenceUpdateSerializer,
+        responses={
+            200: DisplayPreferenceResponseSerializer,
+            400: OpenApiResponse(
+                description="Unknown key, wrong type or unknown metric key."
+            ),
+            401: OpenApiResponse(description="No valid credential."),
+        },
+    )
     def patch(self, request: Request, **kwargs: Any) -> Response:
         lang = detect_lang(request)
         try:
@@ -134,4 +167,8 @@ def _authentication_required(lang: str) -> Response:
     )
 
 
-__all__ = ["DisplayPreferenceUpdateSerializer", "DisplayPreferenceView"]
+__all__ = [
+    "DisplayPreferenceResponseSerializer",
+    "DisplayPreferenceUpdateSerializer",
+    "DisplayPreferenceView",
+]

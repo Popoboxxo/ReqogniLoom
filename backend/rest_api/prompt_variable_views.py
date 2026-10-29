@@ -22,6 +22,7 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import serializers, status
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -52,6 +53,49 @@ class PromptVariableWriteSerializer(
     var_type = serializers.CharField(required=False)
     description = serializers.CharField(
         required=False, allow_blank=True, trim_whitespace=False
+    )
+
+
+class PromptVariableSerializer(serializers.Serializer):
+    """Schema view of one catalog variable (``PromptVariableService._build_state``).
+
+    The per-scope ``*_value``/``*_version`` pairs are ``null`` when that scope
+    has no active row; ``effective_scope`` says which level supplied
+    ``effective_value``. ``is_editable`` is false for ``kind="data"`` variables,
+    whose values are code-computed and cannot be overridden.
+    """
+
+    name = serializers.CharField()
+    kind = serializers.CharField(
+        help_text="'config' (editable) or 'data' (code-bound).",
+    )
+    var_type = serializers.CharField(help_text="int | str | bool | json.")
+    description = serializers.CharField(allow_blank=True)
+    factory_default = serializers.JSONField(
+        allow_null=True,
+        help_text="The registry default, or null for a runtime-invented name.",
+    )
+    global_value = serializers.JSONField(required=False, allow_null=True)
+    global_version = serializers.IntegerField(required=False, allow_null=True)
+    workspace_value = serializers.JSONField(required=False, allow_null=True)
+    workspace_version = serializers.IntegerField(required=False, allow_null=True)
+    has_workspace_override = serializers.BooleanField()
+    effective_value = serializers.JSONField(allow_null=True)
+    effective_scope = serializers.ChoiceField(
+        choices=["workspace", "global", "factory"],
+        help_text="Level that supplied effective_value.",
+    )
+    is_editable = serializers.BooleanField()
+
+
+class PromptVariableListSerializer(serializers.Serializer):
+    """200 body of ``GET /api/v1/prompt-variables/``."""
+
+    variables = PromptVariableSerializer(many=True)
+    count = serializers.IntegerField()
+    workspace_id = serializers.CharField(
+        allow_null=True,
+        help_text="The requested override scope, or null for tenant-global.",
     )
 
 
@@ -95,6 +139,28 @@ class _PromptVariableAdminMixin:
 class PromptVariableListView(_PromptVariableAdminMixin, APIView):
     """GET /api/v1/prompt-variables/[?workspace_id=<uuid>]."""
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "workspace_id",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Workspace whose overrides are reported; omitted = the "
+                    "tenant-global view."
+                ),
+            ),
+        ],
+        responses={
+            200: OpenApiResponse(
+                response=PromptVariableListSerializer,
+                description="Every catalog variable with its per-scope state.",
+            ),
+            400: OpenApiResponse(description="Malformed workspace_id."),
+            403: OpenApiResponse(description="Admin role required."),
+        },
+    )
     def get(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Return every catalog variable with its per-scope state."""
         lang = detect_lang(request)
@@ -127,6 +193,29 @@ class PromptVariableDetailView(AdminScopeRequiredMixin, _PromptVariableAdminMixi
     See ``rest_api.auth_enforcer.AdminScopeRequiredMixin``.
     """
 
+    @extend_schema(
+        request=PromptVariableWriteSerializer,
+        parameters=[
+            OpenApiParameter(
+                "workspace_id",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Publish a workspace override; omitted = tenant-wide.",
+            ),
+        ],
+        responses={
+            200: OpenApiResponse(
+                response=PromptVariableSerializer,
+                description="The variable's now-effective state at the requested scope.",
+            ),
+            400: OpenApiResponse(
+                description="Missing value, unknown var_type, a value not matching "
+                "the declared type, a kind='data' name, or a lost write race."
+            ),
+            403: OpenApiResponse(description="Admin role required."),
+        },
+    )
     def put(self, request: Request, name: str, *args: Any, **kwargs: Any) -> Response:
         """Publish a new active version of ``name`` for the requested scope."""
         lang = detect_lang(request)
@@ -165,6 +254,32 @@ class PromptVariableDetailView(AdminScopeRequiredMixin, _PromptVariableAdminMixi
             )
         return Response(state)
 
+    @extend_schema(
+        request=None,
+        parameters=[
+            OpenApiParameter(
+                "workspace_id",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Drop the workspace override; omitted = tenant-wide.",
+            ),
+        ],
+        responses={
+            200: OpenApiResponse(
+                response=PromptVariableSerializer,
+                description=(
+                    "The now-effective state after the override was dropped "
+                    "(200 rather than 204 so the caller need not re-fetch)."
+                ),
+            ),
+            400: OpenApiResponse(
+                description="A kind='data' name cannot be cleared."
+            ),
+            403: OpenApiResponse(description="Admin role required."),
+            404: OpenApiResponse(description="Unknown variable name."),
+        },
+    )
     def delete(
         self, request: Request, name: str, *args: Any, **kwargs: Any
     ) -> Response:
@@ -200,6 +315,8 @@ class PromptVariableDetailView(AdminScopeRequiredMixin, _PromptVariableAdminMixi
 
 __all__ = [
     "PromptVariableDetailView",
+    "PromptVariableListSerializer",
     "PromptVariableListView",
+    "PromptVariableSerializer",
     "PromptVariableWriteSerializer",
 ]

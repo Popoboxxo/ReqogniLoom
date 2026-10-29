@@ -259,7 +259,176 @@ class NodeGraphPayloadSerializer(serializers.Serializer):
     viewport = NodeGraphViewportSerializer(required=False)
 
 
+# ---------------------------------------------------------------------------
+# Contract serializers (#1388)
+# ---------------------------------------------------------------------------
+#
+# Contract-only. ``DiagramViewSet``/``IcdViewSet`` deliberately have no
+# ``serializer_class`` (SA-20: their handlers hand-build the response dicts
+# against the DiagramService/IcdService DTOs), and that stays exactly as it
+# is — these serializers transcribe the dicts for the generated document
+# only. The version/diff/workflow entries are shared by BOTH viewsets, which
+# is why they live here instead of in one of the two view modules.
+
+
+class DiagramSerializer(serializers.Serializer):
+    """List projection of one Diagram (``_diagram_to_dict``)."""
+
+    id = serializers.CharField()
+    name = serializers.CharField()
+    diagram_type = serializers.CharField()
+    description = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    workspace_id = serializers.CharField(required=False, allow_null=True)
+    current_revision = serializers.IntegerField()
+    created_at = serializers.CharField(required=False, allow_null=True)
+    version_count = serializers.IntegerField()
+
+
+class DiagramDetailSerializer(serializers.Serializer):
+    """``retrieve`` projection: the list fields replaced by the current payload."""
+
+    id = serializers.CharField()
+    name = serializers.CharField()
+    diagram_type = serializers.CharField()
+    description = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    payload_format = serializers.CharField(required=False, allow_null=True)
+    content = serializers.CharField(required=False, allow_null=True)
+    version_number = serializers.IntegerField(required=False, allow_null=True)
+    created_at = serializers.CharField(required=False, allow_null=True)
+
+
+class DiagramListResponseSerializer(serializers.Serializer):
+    """``StandardPagination`` envelope of ``GET /diagrams/``."""
+
+    count = serializers.IntegerField()
+    next = serializers.CharField(required=False, allow_null=True)
+    previous = serializers.CharField(required=False, allow_null=True)
+    page_size = serializers.IntegerField(required=False)
+    max_page_size = serializers.IntegerField(required=False)
+    results = DiagramSerializer(many=True)
+
+
+class DiagramCreateRequestSerializer(serializers.Serializer):
+    """Body of ``POST /diagrams/`` (read key-by-key off ``request.data``)."""
+
+    name = serializers.CharField()
+    diagram_type = serializers.CharField(required=False)
+    payload_format = serializers.CharField(required=False)
+    content = serializers.CharField(required=False)
+    description = serializers.CharField(required=False, allow_blank=True)
+    workspace_id = serializers.UUIDField(required=False, allow_null=True)
+
+
+class DiagramUpdateRequestSerializer(serializers.Serializer):
+    """Body of ``PATCH /diagrams/{id}/`` — both keys are required by the view."""
+
+    payload_format = serializers.CharField()
+    content = serializers.CharField()
+
+
+class DiagramVersionResponseSerializer(serializers.Serializer):
+    """Body of ``PATCH /diagrams/{id}/`` — the newly appended diagram version."""
+
+    version_number = serializers.IntegerField()
+    payload_format = serializers.CharField()
+    content = serializers.CharField()
+
+
+class ArtifactVersionEntrySerializer(serializers.Serializer):
+    """One ``ArtifactDiffService.list_versions`` row (#272 contract)."""
+
+    version = serializers.IntegerField()
+    label = serializers.CharField()
+    modified_at = serializers.CharField(required=False, allow_null=True)
+    content_available = serializers.BooleanField()
+    is_creation_baseline = serializers.BooleanField()
+
+
+class ArtifactDiffFieldSerializer(serializers.Serializer):
+    """One field-level diff entry of ``ArtifactDiffService.diff``."""
+
+    name = serializers.CharField()
+    status = serializers.ChoiceField(
+        choices=["added", "removed", "modified", "unchanged"]
+    )
+    to = serializers.JSONField(required=False)
+    #: Unified diff lines, only for changed text fields.
+    lines = serializers.ListField(child=serializers.CharField(), required=False)
+
+
+#: The previous value of a changed field is published as ``from`` — a Python
+#: keyword, so it cannot be declared in the class body. Added through DRF's
+#: ``_declared_fields`` seam (what the metaclass itself writes) instead.
+ArtifactDiffFieldSerializer._declared_fields["from"] = serializers.JSONField(
+    required=False
+)
+
+
+class ArtifactDiffResponseSerializer(serializers.Serializer):
+    """Body of ``GET /diagrams/{id}/diff/`` (``ArtifactDiffService.diff``)."""
+
+    from_version = serializers.IntegerField()
+    to_version = serializers.IntegerField()
+    entity_type = serializers.CharField()
+    fields = ArtifactDiffFieldSerializer(many=True)
+    note = serializers.CharField(required=False)
+
+
+class WorkflowTransitionsResponseSerializer(serializers.Serializer):
+    """``GET …/transitions/`` — current state plus the allowed moves.
+
+    Shared contract of :class:`rest_api.mixins.workflow_transitions.
+    WorkflowTransitionsMixin`, published by both the Diagram and the ICD
+    surface.
+    """
+
+    current_state = serializers.CharField(required=False, allow_null=True)
+    version = serializers.IntegerField(required=False, allow_null=True)
+    states = serializers.ListField(child=serializers.CharField())
+    allowed_transitions = serializers.ListField(child=serializers.JSONField())
+    proposed_by = serializers.CharField(required=False, allow_null=True)
+
+
+class WorkflowTransitionRequestSerializer(serializers.Serializer):
+    """Body of ``POST …/transitions/``."""
+
+    target_state = serializers.CharField()
+    change_reason = serializers.CharField(required=False, allow_blank=True)
+    credential = serializers.CharField(required=False, allow_blank=True)
+    #: WorkflowItemState revision, NOT the entity ETag (see the mixin docstring).
+    expected_version = serializers.IntegerField(required=False, allow_null=True)
+
+
+class WorkflowTransitionResultSerializer(serializers.Serializer):
+    """``POST …/transitions/`` / ``POST …/reactivate/`` success envelope.
+
+    ``id`` is the URL ``pk`` as a string; ``version`` is the workflow revision
+    AFTER the transition (``null`` when no ``WorkflowItemState`` row exists).
+    """
+
+    id = serializers.CharField()
+    previous_state = serializers.CharField(required=False, allow_null=True)
+    new_state = serializers.CharField(required=False, allow_null=True)
+    version = serializers.IntegerField(required=False, allow_null=True)
+    #: ViewSets that embed the refreshed entity spread its keys in at top level.
+    #: Diagram and Icd do not, so no additional keys are declared here.
+
+
+class WorkflowHistoryEntrySerializer(serializers.Serializer):
+    """One ``GET …/workflow-history/`` audit row."""
+
+    id = serializers.CharField()
+    from_state = serializers.CharField(required=False, allow_null=True)
+    to_state = serializers.CharField()
+    actor = serializers.CharField(required=False, allow_null=True)
+    change_reason = serializers.CharField(required=False, allow_blank=True)
+    transitioned_at = serializers.CharField()
+    sealed = serializers.BooleanField()
+
 __all__ = [
+    "ArtifactDiffFieldSerializer",
+    "ArtifactDiffResponseSerializer",
+    "ArtifactVersionEntrySerializer",
     "CanvasPointSerializer",
     "CanvasStrokeDataSerializer",
     "CanvasStrokeElementSerializer",
@@ -276,4 +445,14 @@ __all__ = [
     "NodeGraphPositionSerializer",
     "NodeGraphSizeSerializer",
     "NodeGraphViewportSerializer",
+    "DiagramCreateRequestSerializer",
+    "DiagramDetailSerializer",
+    "DiagramListResponseSerializer",
+    "DiagramSerializer",
+    "DiagramUpdateRequestSerializer",
+    "DiagramVersionResponseSerializer",
+    "WorkflowHistoryEntrySerializer",
+    "WorkflowTransitionRequestSerializer",
+    "WorkflowTransitionResultSerializer",
+    "WorkflowTransitionsResponseSerializer",
 ]

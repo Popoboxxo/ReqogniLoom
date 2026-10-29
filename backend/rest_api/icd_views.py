@@ -42,8 +42,13 @@ import logging
 from typing import Any
 from uuid import UUID
 
-from drf_spectacular.utils import extend_schema
-from rest_framework import status
+from drf_spectacular.utils import (
+    OpenApiParameter,
+    OpenApiResponse,
+    extend_schema,
+    extend_schema_view,
+)
+from rest_framework import serializers, status
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -85,9 +90,195 @@ from rest_api.serializers import (
     detect_lang,
     reject_unknown_fields,
 )
+from rest_api.serializers_diagram import (
+    ArtifactDiffResponseSerializer,
+    ArtifactVersionEntrySerializer,
+    WorkflowHistoryEntrySerializer,
+    WorkflowTransitionRequestSerializer,
+    WorkflowTransitionResultSerializer,
+    WorkflowTransitionsResponseSerializer,
+)
 from rest_api.views import _SYSTEM_FIELD_NAMES, BaseEntityViewSet
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Contract serializers (#1388)
+# ---------------------------------------------------------------------------
+#
+# Contract-only. ``IcdViewSet`` deliberately has no ``serializer_class`` (SA-20:
+# ``create``/``partial_update`` hand-build the IcdCreateDTO/IcdUpdateDTO and
+# every projection is a hand-built dict), and that stays exactly as it is —
+# these serializers transcribe those dicts for the generated document only.
+# The version/diff/workflow envelopes are shared with the Diagram surface and
+# live in ``rest_api.serializers_diagram``.
+
+class IcdSerializer(serializers.Serializer):
+    """List projection of one ICD (``_icd_to_dict``)."""
+
+    id = serializers.CharField()
+    name = serializers.CharField()
+    workspace_id = serializers.CharField()
+    source_element_id = serializers.CharField()
+    target_element_id = serializers.CharField()
+    #: The backing Artifact id — the id a TraceLink endpoint is addressed by
+    #: (#1075). ``null`` for a row with no artifact.
+    artifact_id = serializers.CharField(required=False, allow_null=True)
+    status = serializers.CharField()
+    custom_fields = serializers.DictField(required=False)
+    current_revision = serializers.IntegerField(required=False, allow_null=True)
+    created_at = serializers.CharField(required=False, allow_null=True)
+
+
+    # Artifact-level system fields (``**artifact_system_fields(icd)``): Actor
+    # references (`owner`/`reporter`) or `null`, plus a plain `priority`.
+    owner = serializers.JSONField(required=False, allow_null=True)
+    reporter = serializers.JSONField(required=False, allow_null=True)
+    priority = serializers.CharField(required=False, allow_blank=True)
+
+
+class IcdListResponseSerializer(serializers.Serializer):
+    """``StandardPagination`` envelope of ``GET /icds/``."""
+
+    count = serializers.IntegerField()
+    next = serializers.CharField(required=False, allow_null=True)
+    previous = serializers.CharField(required=False, allow_null=True)
+    page_size = serializers.IntegerField(required=False)
+    max_page_size = serializers.IntegerField(required=False)
+    results = IcdSerializer(many=True)
+
+
+class IcdDetailSerializer(serializers.Serializer):
+    """Detail projection of one ICD (``_icd_detail_to_dict``)."""
+
+    id = serializers.CharField()
+    name = serializers.CharField()
+    workspace_id = serializers.CharField()
+    source_element_id = serializers.CharField()
+    target_element_id = serializers.CharField()
+    artifact_id = serializers.CharField(required=False, allow_null=True)
+    version = serializers.IntegerField()
+    direction = serializers.CharField()
+    interface_type = serializers.CharField(required=False, allow_blank=True)
+    semantic_description = serializers.CharField(required=False, allow_blank=True)
+    preconditions = serializers.ListField(child=serializers.CharField(), required=False)
+    postconditions = serializers.ListField(child=serializers.CharField(), required=False)
+    invariants = serializers.ListField(child=serializers.CharField(), required=False)
+    status = serializers.CharField()
+    custom_fields = serializers.DictField(required=False)
+    created_at = serializers.CharField(required=False, allow_null=True)
+
+
+    owner = serializers.JSONField(required=False, allow_null=True)
+    reporter = serializers.JSONField(required=False, allow_null=True)
+    priority = serializers.CharField(required=False, allow_blank=True)
+
+
+class IcdCreateRequestSerializer(serializers.Serializer):
+    """Body of ``POST /icds/`` (``_ICD_CREATE_FIELDS``, key-by-key).
+
+    No ``UnknownFieldRejectionMixin`` here on purpose: the handler enforces the
+    allowed key set through ``reject_unknown_fields`` and keeps answering the
+    project error envelope for a stray key.
+    """
+
+    name = serializers.CharField()
+    workspace_id = serializers.UUIDField()
+    source_element_id = serializers.UUIDField()
+    target_element_id = serializers.UUIDField()
+    direction = serializers.CharField(required=False)
+    interface_type = serializers.CharField(required=False, allow_blank=True)
+    semantic_description = serializers.CharField(required=False, allow_blank=True)
+    preconditions = serializers.ListField(child=serializers.CharField(), required=False)
+    postconditions = serializers.ListField(child=serializers.CharField(), required=False)
+    invariants = serializers.ListField(child=serializers.CharField(), required=False)
+    custom_fields = serializers.DictField(required=False)
+    status = serializers.CharField(required=False)
+    owner = serializers.JSONField(required=False, allow_null=True)
+    reporter = serializers.JSONField(required=False, allow_null=True)
+    priority = serializers.CharField(required=False, allow_blank=True)
+
+
+class IcdUpdateRequestSerializer(serializers.Serializer):
+    """Body of ``PATCH /icds/{id}/`` (``_ICD_UPDATE_FIELDS``, key-by-key)."""
+
+    name = serializers.CharField(required=False)
+    direction = serializers.CharField(required=False)
+    interface_type = serializers.CharField(required=False, allow_blank=True)
+    semantic_description = serializers.CharField(required=False, allow_blank=True)
+    preconditions = serializers.ListField(child=serializers.CharField(), required=False)
+    postconditions = serializers.ListField(child=serializers.CharField(), required=False)
+    invariants = serializers.ListField(child=serializers.CharField(), required=False)
+    custom_fields = serializers.DictField(required=False)
+    status = serializers.CharField(required=False)
+    owner = serializers.JSONField(required=False, allow_null=True)
+    reporter = serializers.JSONField(required=False, allow_null=True)
+    priority = serializers.CharField(required=False, allow_blank=True)
+
+
+class IcdCreateResponseSerializer(serializers.Serializer):
+    """Body of ``POST /icds/`` — the created ICD's header."""
+
+    id = serializers.CharField()
+    name = serializers.CharField()
+    workspace_id = serializers.CharField()
+    source_element_id = serializers.CharField()
+    target_element_id = serializers.CharField()
+    version = serializers.IntegerField()
+    status = serializers.CharField()
+    custom_fields = serializers.DictField(required=False)
+    created_at = serializers.CharField(required=False, allow_null=True)
+
+
+    owner = serializers.JSONField(required=False, allow_null=True)
+    reporter = serializers.JSONField(required=False, allow_null=True)
+    priority = serializers.CharField(required=False, allow_blank=True)
+
+
+class IcdUpdateResponseSerializer(serializers.Serializer):
+    """Body of ``PATCH /icds/{id}/`` — the newly appended revision's header."""
+
+    id = serializers.CharField()
+    name = serializers.CharField()
+    version = serializers.IntegerField()
+    direction = serializers.CharField(required=False, allow_null=True)
+    status = serializers.CharField()
+    custom_fields = serializers.DictField(required=False)
+
+
+    owner = serializers.JSONField(required=False, allow_null=True)
+    reporter = serializers.JSONField(required=False, allow_null=True)
+    priority = serializers.CharField(required=False, allow_blank=True)
+
+
+class IcdParameterListResponseSerializer(serializers.Serializer):
+    """``StandardPagination`` envelope of ``GET /icds/{id}/parameters/``.
+
+    ``id`` is ``null`` for an entry served from a historical
+    ``parameters_snapshot`` — such an entry is a recorded value, not a row that
+    can still be addressed (see the module docstring). That is the one place
+    this differs from :class:`rest_api.serializers.IcdParameterSerializer`,
+    which is why the request bodies reuse that serializer while this envelope
+    documents the nullability.
+    """
+
+    count = serializers.IntegerField()
+    next = serializers.CharField(required=False, allow_null=True)
+    previous = serializers.CharField(required=False, allow_null=True)
+    page_size = serializers.IntegerField(required=False)
+    max_page_size = serializers.IntegerField(required=False)
+    results = IcdParameterSerializer(many=True)
+
+
+class IcdSimilarHitSerializer(serializers.Serializer):
+    """One ``GET /icds/{id}/similar/`` hit (``find_similar_icds``)."""
+
+    icd_id = serializers.CharField()
+    name = serializers.CharField()
+    interface_type = serializers.CharField(required=False, allow_blank=True)
+    version_number = serializers.IntegerField(required=False, allow_null=True)
+    similarity_score = serializers.FloatField()
 
 
 #: Request keys ``IcdViewSet.create()`` reads off ``request.data`` (#851).
@@ -276,6 +467,53 @@ def _icd_status_map(icds: list[Icd]) -> dict[str, str]:
         return {}
 
 
+@extend_schema_view(
+    # ``transitions`` serves GET and POST from one action; each method needs its
+    # own response shape, so it gets one scoped decorator per verb.
+    transitions=(
+        extend_schema(
+            methods=["GET"],
+            summary="Read the ICD's workflow state and allowed transitions",
+            responses={
+                200: WorkflowTransitionsResponseSerializer,
+                403: OpenApiResponse(description="No access to the ICD."),
+                404: OpenApiResponse(description="ICD not found."),
+            },
+        ),
+        extend_schema(
+            methods=["POST"],
+            summary="Perform a gated ICD workflow transition",
+            request=WorkflowTransitionRequestSerializer,
+            responses={
+                200: WorkflowTransitionResultSerializer,
+                400: OpenApiResponse(
+                    description="target_state missing or malformed revision assertion."
+                ),
+                403: OpenApiResponse(description="Transition not permitted."),
+                404: OpenApiResponse(description="ICD not found."),
+                409: OpenApiResponse(description="Stale workflow revision (expected_version)."),
+            },
+        ),
+    ),
+    reactivate=extend_schema(
+        summary="Reactivate a soft-deleted ICD",
+        request=None,
+        responses={
+            200: WorkflowTransitionResultSerializer,
+            400: OpenApiResponse(description="ICD is not currently outdated."),
+            403: OpenApiResponse(description="Write role required."),
+            404: OpenApiResponse(description="ICD not found."),
+        },
+    ),
+    workflow_history=extend_schema(
+        summary="Read the ICD's workflow audit trail",
+        responses={
+            200: WorkflowHistoryEntrySerializer(many=True),
+            403: OpenApiResponse(description="No access to the ICD."),
+            404: OpenApiResponse(description="ICD not found."),
+        },
+    ),
+)
 class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
     """REST ViewSet for ICD CRUD operations.
 
@@ -596,6 +834,19 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
     @extend_schema(
         operation_id="icds_list",
         description="List ICDs, filtered by ``workspace_id``. Explicit list id (#1388).",
+        parameters=[
+            OpenApiParameter(
+                "workspace_id",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                description="Restrict the list to one workspace.",
+            ),
+        ],
+        responses={
+            200: IcdListResponseSerializer,
+            400: OpenApiResponse(description="workspace_id is not a valid UUID."),
+            401: OpenApiResponse(description="No valid credential."),
+        },
     )
     def list(self, request: Request, **kwargs: Any) -> Response:
         """GET /api/v1/icds/ — list ICDs, filtered by workspace_id."""
@@ -622,6 +873,16 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
 
     # -- create ------------------------------------------------------------
 
+    @extend_schema(
+        summary="Create an ICD with its initial contract revision",
+        request=IcdCreateRequestSerializer,
+        responses={
+            201: IcdCreateResponseSerializer,
+            400: OpenApiResponse(
+                description="Missing required fields, unknown field, or contract validation failure."
+            ),
+        },
+    )
     def create(self, request: Request, **kwargs: Any) -> Response:
         """POST /api/v1/icds/ — create a new ICD with initial version."""
         lang = detect_lang(request)
@@ -724,6 +985,13 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
 
     # -- retrieve ----------------------------------------------------------
 
+    @extend_schema(
+        summary="Read one ICD's contract header and narrative fields",
+        responses={
+            200: IcdDetailSerializer,
+            404: OpenApiResponse(description="ICD not found."),
+        },
+    )
     def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """GET /api/v1/icds/<pk>/ — retrieve ICD details with current version info."""
         lang = detect_lang(request)
@@ -743,6 +1011,17 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
 
     # -- partial_update ----------------------------------------------------
 
+    @extend_schema(
+        summary="Append a new ICD contract revision",
+        request=IcdUpdateRequestSerializer,
+        responses={
+            200: IcdUpdateResponseSerializer,
+            400: OpenApiResponse(
+                description="Unknown field or contract validation failure."
+            ),
+            404: OpenApiResponse(description="ICD not found."),
+        },
+    )
     def partial_update(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """PATCH /api/v1/icds/<pk>/ — update ICD (creates new version)."""
         lang = detect_lang(request)
@@ -816,6 +1095,13 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
 
     # -- destroy -----------------------------------------------------------
 
+    @extend_schema(
+        summary="Delete an ICD and its parameters",
+        responses={
+            204: OpenApiResponse(response=None, description="Deleted; no body."),
+            404: OpenApiResponse(description="ICD not found."),
+        },
+    )
     def destroy(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """DELETE /api/v1/icds/<pk>/ — delete an ICD and its parameters.
 
@@ -837,6 +1123,13 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
 
     # -- versions ----------------------------------------------------------
 
+    @extend_schema(
+        summary="List the ICD's contract revisions (oldest first)",
+        responses={
+            200: ArtifactVersionEntrySerializer(many=True),
+            404: OpenApiResponse(description="ICD not found."),
+        },
+    )
     @action(detail=True, methods=["get"], url_path="versions")
     def versions(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """GET /api/v1/icds/<pk>/versions/ — list available versions.
@@ -866,6 +1159,28 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
 
     # -- diff --------------------------------------------------------------
 
+    @extend_schema(
+        summary="Field-level diff between two ICD contract revisions",
+        parameters=[
+            OpenApiParameter(
+                "from_version",
+                type=int,
+                location=OpenApiParameter.QUERY,
+                default=0,
+                description="Source revision; 0 is the creation baseline.",
+            ),
+            OpenApiParameter(
+                "to_version",
+                type=int,
+                location=OpenApiParameter.QUERY,
+                description="Target revision; defaults to the current one.",
+            ),
+        ],
+        responses={
+            200: ArtifactDiffResponseSerializer,
+            404: OpenApiResponse(description="ICD or requested version not found."),
+        },
+    )
     @action(detail=True, methods=["get"], url_path="diff")
     def diff(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """GET /api/v1/icds/<pk>/diff/?from_version=1&to_version=2
@@ -917,6 +1232,20 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
 
     # -- similar -----------------------------------------------------------
 
+    @extend_schema(
+        summary="Find ICDs semantically similar to this one",
+        parameters=[
+            OpenApiParameter(
+                "limit", type=int, location=OpenApiParameter.QUERY, default=10
+            ),
+        ],
+        responses={
+            200: IcdSimilarHitSerializer(many=True),
+            400: OpenApiResponse(description="The ICD has no embedding / invalid input."),
+            404: OpenApiResponse(description="ICD not found."),
+            503: OpenApiResponse(description="The vector store is unavailable."),
+        },
+    )
     @action(detail=True, methods=["get"], url_path="similar")
     def similar(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """GET /api/v1/icds/<pk>/similar/?limit=10 — semantic similarity search.
@@ -990,6 +1319,41 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
 
     # -- parameters (REQ-L2-ICD-002) ---------------------------------------
 
+    @extend_schema(
+        methods=["GET"],
+        summary="List the resolved revision's interface parameters",
+        parameters=[
+            OpenApiParameter(
+                "version",
+                type=int,
+                location=OpenApiParameter.QUERY,
+                description=(
+                    "Contract revision to read; defaults to the current one. An "
+                    "older revision is served read-only from its recorded "
+                    "snapshot."
+                ),
+            ),
+        ],
+        responses={
+            200: IcdParameterListResponseSerializer,
+            400: OpenApiResponse(description="version is not an integer."),
+            404: OpenApiResponse(
+                description="ICD, revision or recorded parameter snapshot not found."
+            ),
+        },
+    )
+    @extend_schema(
+        methods=["POST"],
+        summary="Add one interface parameter to the live contract revision",
+        request=IcdParameterSerializer,
+        responses={
+            201: IcdParameterSerializer,
+            400: OpenApiResponse(
+                description="Invalid body, or `version` targets a historical revision."
+            ),
+            404: OpenApiResponse(description="ICD not found."),
+        },
+    )
     @action(detail=True, methods=["get", "post"], url_path="parameters")
     def parameters(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """GET/POST /api/v1/icds/<pk>/parameters/?version=<n>
@@ -1093,6 +1457,24 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             status=status.HTTP_201_CREATED,
         )
 
+    @extend_schema(
+        methods=["PATCH"],
+        summary="Update one interface parameter",
+        request=IcdParameterSerializer,
+        responses={
+            200: IcdParameterSerializer,
+            400: OpenApiResponse(description="Invalid body."),
+            404: OpenApiResponse(description="Parameter not found."),
+        },
+    )
+    @extend_schema(
+        methods=["DELETE"],
+        summary="Delete one interface parameter",
+        responses={
+            204: OpenApiResponse(response=None, description="Deleted; no body."),
+            404: OpenApiResponse(description="Parameter not found."),
+        },
+    )
     @action(
         detail=True,
         methods=["patch", "delete"],

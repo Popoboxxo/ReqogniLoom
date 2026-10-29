@@ -24,6 +24,13 @@ import logging
 from typing import Any
 from uuid import UUID
 
+from drf_spectacular.drainage import set_override
+from drf_spectacular.utils import (
+    OpenApiParameter,
+    OpenApiResponse,
+    PolymorphicProxySerializer,
+    extend_schema,
+)
 from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotAuthenticated
@@ -34,6 +41,11 @@ from rest_framework.viewsets import ViewSet
 from application.base import NotFoundError
 from application.workspace_service import WorkspaceService
 from rest_api.auth_enforcer import get_auth_context
+from rest_api.platform_schema_serializers import (
+    MetricCatalogueSerializer,
+    MetricValuesEnvelopeSerializer,
+    MetricsReportSerializer,
+)
 from rest_api.serializers import build_error_response, detect_lang
 from se_metrics.services import (
     compute_metrics,
@@ -46,6 +58,22 @@ logger = logging.getLogger(__name__)
 
 #: ``refresh`` is opt-in and must be spelled out; anything else is "no refresh".
 _TRUTHY = frozenset({"1", "true", "yes", "on"})
+
+#: 200 body of ``GET /api/v1/metrics/``: the full report, or — when ``keys`` is
+#: given — the narrower values envelope. A ``oneOf`` is the honest description;
+#: which arm applies is decided by the request's ``keys`` parameter.
+#:
+#: ``many=False`` is mandatory here: ``MetricsViewSet.list`` is a ViewSet
+#: ``list`` action, and drf-spectacular's list-view heuristic
+#: (``AutoSchema._is_list_view``) answers "list" for any ``action == 'list'``
+#: GET, which would wrap this object response in a synthetic array. The override
+#: is the documented escape hatch for exactly that coercion.
+_METRICS_RESPONSE = PolymorphicProxySerializer(
+    component_name="MetricsResponse",
+    serializers=[MetricsReportSerializer, MetricValuesEnvelopeSerializer],
+    resource_type_field_name=None,
+)
+set_override(_METRICS_RESPONSE, "many", False)
 
 
 def _is_truthy(raw: str | None) -> bool:
@@ -68,6 +96,66 @@ def _parse_keys(raw: str | None) -> list[str] | None:
 class MetricsViewSet(ViewSet):
     """REST proxy to compute_metrics service (SeMetrics)."""
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "workspace_id",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="UUID of the workspace to compute for.",
+            ),
+            OpenApiParameter(
+                "type",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Optional metric type filter (e.g. 'coverage').",
+            ),
+            OpenApiParameter(
+                "timeframe",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="ISO-8601 period for the volatility window, e.g. 'P30D'.",
+            ),
+            OpenApiParameter(
+                "keys",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Comma-separated statistic keys. When present the response "
+                    "is the values envelope instead of the full report."
+                ),
+            ),
+            OpenApiParameter(
+                "refresh",
+                type=bool,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Invalidate the cached computation first, forcing an "
+                    "on-demand recompute of the expensive metrics."
+                ),
+            ),
+        ],
+        responses={
+            200: OpenApiResponse(
+                response=_METRICS_RESPONSE,
+                description=(
+                    "The full REQ-L2-SM-012 report, or — when `keys` is given — "
+                    "the narrower values envelope (a oneOf, because the shape is "
+                    "chosen by the request)."
+                ),
+            ),
+            400: OpenApiResponse(
+                description="Missing/malformed workspace_id."
+            ),
+            401: OpenApiResponse(description="AUTHENTICATION_REQUIRED."),
+            404: OpenApiResponse(description="Workspace not in the caller's tenant."),
+        },
+    )
     def list(self, request: Request, **kwargs: Any) -> Response:
         """GET /api/v1/metrics/ — metrics for a workspace.
 
@@ -163,6 +251,18 @@ class MetricsViewSet(ViewSet):
         finally:
             TenantContext.clear_tenant()
 
+    @extend_schema(
+        responses={
+            200: OpenApiResponse(
+                response=MetricCatalogueSerializer,
+                description=(
+                    "Every registered statistic with its query contract; pure "
+                    "registry metadata, no computation."
+                ),
+            ),
+            401: OpenApiResponse(description="AUTHENTICATION_REQUIRED."),
+        },
+    )
     @action(detail=False, methods=["get"], url_path="catalog")
     def catalog(self, request: Request, **kwargs: Any) -> Response:
         """GET /api/v1/metrics/catalog/ — the available statistics (#1265).

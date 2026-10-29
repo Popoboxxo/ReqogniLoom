@@ -175,6 +175,12 @@ from rest_api.query_params import (
     parse_workspace_id,
     require_non_empty_param,
 )
+from rest_api.platform_schema_serializers import (
+    AttributeSchemaEntrySerializer,
+    BundleCompressionStatusSerializer,
+    ConsistencyStatusSerializer,
+    RequirementHistoryResponseSerializer,
+)
 from rest_api.schema import ReqLoAutoSchema
 from rest_api.serializers import (
     AdrSerializer,
@@ -2155,12 +2161,15 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         ),
         responses={
             201: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
                 description=(
-                    "The persistence receipt (`created` with one entry per "
-                    "draft: id/status/trace_link_id/proposal, `count`, and the "
-                    "batch's shared `proposal` block read back from the "
-                    "workflow engine)."
-                )
+                    "The persistence receipt. Body: `created` (array of objects "
+                    "with `id`, `status`, `trace_link_id` and the `proposal` "
+                    "block: `state`, `is_proposal`, `supported`, `proposed_by`, "
+                    "`label`, `reason` — one entry per accepted draft), `count` "
+                    "(int) and the batch's shared `proposal` block read back "
+                    "from the workflow engine."
+                ),
             ),
             400: OpenApiResponse(
                 response=ErrorResponseSerializer,
@@ -2539,6 +2548,34 @@ class RequirementHistoryView(APIView):
         page_size — entries per page (default 50, max 100)
     """
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "page",
+                type=int,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                default=1,
+                description="1-based page number.",
+            ),
+            OpenApiParameter(
+                "page_size",
+                type=int,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                default=50,
+                description="Entries per page (capped at 100).",
+            ),
+        ],
+        responses={
+            200: OpenApiResponse(
+                response=RequirementHistoryResponseSerializer,
+                description="One page of audit entries for this requirement.",
+            ),
+            400: OpenApiResponse(description="page/page_size are not integers."),
+            404: OpenApiResponse(description="Requirement not found in this tenant."),
+        },
+    )
     def get(self, request: Request, pk: str, **kwargs: Any) -> Response:
         lang = detect_lang(request)
         try:
@@ -3006,17 +3043,26 @@ class ArchitectureElementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         ],
         responses={
             200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
                 description=(
-                    "Ephemeral risk draft preview — carries `ephemeral: true` "
-                    "and persists nothing."
-                )
+                    "Ephemeral risk draft preview — persists nothing. Body: "
+                    "`drafts` (array of objects with `title`, `description`, "
+                    "`probability`, `impact`, `category` — the three enums are "
+                    "clamped to the Risk vocabulary), "
+                    "`architecture_element_id` (uuid string), "
+                    "`is_mock_fallback` (bool) and `ephemeral` (always `true`)."
+                ),
             ),
             201: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
                 description=(
-                    "Write mode: the persistence receipt (`written` with the "
-                    "new Risk ids/trace links, `is_mock_fallback`, `failed` for "
-                    "rejected drafts)."
-                )
+                    "Write mode: the persistence receipt. Body: `written` "
+                    "(array of objects with `id`, `status`, `trace_link_id` and "
+                    "the `proposal` block: `state`, `is_proposal`, `supported`, "
+                    "`proposed_by`, `label`, `reason`), `is_mock_fallback` "
+                    "(bool), plus `failed` (array of `{draft, error}`) only "
+                    "when individual drafts were rejected."
+                ),
             ),
             400: OpenApiResponse(
                 response=ErrorResponseSerializer,
@@ -3647,6 +3693,17 @@ class BundleCompressionStatusView(APIView):
     clients must read ``text``.
     """
 
+    @extend_schema(
+        responses={
+            200: OpenApiResponse(
+                response=BundleCompressionStatusSerializer,
+                description=(
+                    "The task's state; `text` carries the compressed bundle "
+                    "once status='done'."
+                ),
+            ),
+        },
+    )
     def get(self, request: Request, task_id: str, **kwargs: Any) -> Response:
         import dataclasses
 
@@ -3678,6 +3735,17 @@ class ConsistencyStatusView(APIView):
     "this task_id exists but isn't mine".
     """
 
+    @extend_schema(
+        responses={
+            200: OpenApiResponse(
+                response=ConsistencyStatusSerializer,
+                description=(
+                    "The task's state; `result` is present when status='done', "
+                    "`error` when status='failed'."
+                ),
+            ),
+        },
+    )
     def get(self, request: Request, task_id: str, **kwargs: Any) -> Response:
         from application.requirement_service import RequirementService
 
@@ -7653,16 +7721,23 @@ class AdrViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         ),
         responses={
             200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
                 description=(
-                    "Ephemeral ADR draft preview — carries `ephemeral: true` "
-                    "and persists nothing."
-                )
+                    "Ephemeral ADR draft preview — persists nothing. Body: "
+                    "`draft` (object with `title`, `description`, `context`, "
+                    "`consequences`), `workspace_id` (uuid string), "
+                    "`is_mock_fallback` (bool) and `ephemeral` (always `true`)."
+                ),
             ),
             201: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
                 description=(
-                    "Write mode: the persistence receipt (`written` with the "
-                    "new Adr id/status/proposal block, `is_mock_fallback`)."
-                )
+                    "Write mode: the persistence receipt. Body: `written` "
+                    "(a single object — the flow has exactly one draft — with "
+                    "`id`, `status` and the `proposal` block: `state`, "
+                    "`is_proposal`, `supported`, `proposed_by`, `label`, "
+                    "`reason`) and `is_mock_fallback` (bool)."
+                ),
             ),
             400: OpenApiResponse(
                 response=ErrorResponseSerializer,
@@ -10967,18 +11042,29 @@ class ReqifImportView(APIView):
         ],
         responses={
             200: OpenApiResponse(
-                response=None,
+                response=OpenApiTypes.OBJECT,
                 description=(
                     "Import result (ADR-014 contract v2): success "
-                    "(`failed == 0`), with or without write effect. Body carries "
-                    "`success`/`counts`/`items`/`request_id`."
+                    "(`failed == 0`), with or without write effect. Body: "
+                    "`success` (bool, `true`), `contract` (`\"v2\"`), "
+                    "`dry_run` (bool), `counts` (object with `succeeded`, "
+                    "`skipped`, `failed`, `total`), `items` (array of objects "
+                    "with `row`, `identifier`, `kind`, `status` and "
+                    "`cause: {code, message}`), `warnings` (array of strings), "
+                    "`idempotent_replay` (bool), `request_id` (string) and the "
+                    "legacy additive `needs`/`requirements`/`relations` reports. "
+                    "With `IMPORT_CONTRACT_V2=false` the pre-ADR body is "
+                    "returned instead (`success` always `true`)."
                 ),
             ),
             207: OpenApiResponse(
-                response=None,
+                response=OpenApiTypes.OBJECT,
                 description=(
                     "Partial success (ADR-014 §2): `succeeded > 0` and "
-                    "`failed > 0`. Body carries `counts`/`items`/`request_id`."
+                    "`failed > 0`. Same v2 envelope as the 200 with "
+                    "`success: false`, `counts.failed > 0` and no `counts` "
+                    "entry counted twice (`succeeded + skipped + failed == "
+                    "total`); `items` pinpoints every rejected object."
                 ),
             ),
             400: OpenApiResponse(
@@ -11257,16 +11343,25 @@ class GlossaryTermViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         ),
         responses={
             200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
                 description=(
-                    "Ephemeral draft preview — carries `ephemeral: true` and "
-                    "persists nothing."
-                )
+                    "Ephemeral draft preview — persists nothing. Body: `drafts` "
+                    "(array of objects with `term`, `definition`, `synonyms` "
+                    "(array of strings) and `abbreviation`), `workspace_id` "
+                    "(uuid string), `is_mock_fallback` (bool) and `ephemeral` "
+                    "(always `true`)."
+                ),
             ),
             201: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
                 description=(
-                    "Write mode: the persistence receipt (`written`, "
-                    "`is_mock_fallback`, `failed` for rejected drafts)."
-                )
+                    "Write mode: the persistence receipt. Body: `written` "
+                    "(array of objects with `id`, `term`, `status` and the "
+                    "`proposal` block: `state`, `is_proposal`, `supported`, "
+                    "`proposed_by`, `label`, `reason`), `is_mock_fallback` "
+                    "(bool), plus `failed` (array of `{draft, error}`) only "
+                    "when individual drafts were rejected."
+                ),
             ),
             400: OpenApiResponse(
                 response=ErrorResponseSerializer,
@@ -11605,6 +11700,38 @@ class AttributeSchemaView(APIView):
     filter_mode='custom' bundle-export request.
     """
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "workspace_id",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="UUID of the workspace whose definition is resolved.",
+            ),
+            OpenApiParameter(
+                "entity_type",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Restrict the answer to one item type (e.g. 'Requirement'). "
+                    "Omitted = every known type."
+                ),
+            ),
+        ],
+        responses={
+            200: OpenApiResponse(
+                response=AttributeSchemaEntrySerializer(many=True),
+                description=(
+                    "A bare JSON array of (entity_type, attribute_name) rows — "
+                    "not an envelope."
+                ),
+            ),
+            400: OpenApiResponse(description="Missing or malformed workspace_id."),
+            404: OpenApiResponse(description="Unknown entity_type."),
+        },
+    )
     def get(self, request: Request, **kwargs: Any) -> Response:
         lang = detect_lang(request)
         workspace_id_raw = request.query_params.get("workspace_id")
