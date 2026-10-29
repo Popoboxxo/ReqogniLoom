@@ -31,7 +31,12 @@ from typing import Any
 from uuid import UUID
 
 from application.base import ValidationError
-from application.prompt_slots import get_slot_data_variables, get_slot_default
+from application.prompt_slots import (
+    MEMORY_DATA_VARIABLES,
+    get_slot_data_variables,
+    get_slot_default,
+    is_memory_hard_off,
+)
 from application.prompt_template_versioning import get_active_template
 from application.prompt_variable_versioning import list_active_variables
 from application.prompt_variables import (
@@ -296,13 +301,23 @@ def resolve_and_render(
     central injection point — call sites that bypass it (the legacy
     ``_get_template_content`` + ``_render`` pair) deliberately do not get it.
 
+    HARD_OFF slots (Plan A T-A1-1, ADR-024 AC-1/AC-2) opt out entirely: every
+    name in :data:`application.prompt_slots.MEMORY_DATA_VARIABLES` is rendered
+    as ``""`` — even one the caller passed explicitly — and the memory backend
+    is never consulted. The policy is attached to the *slot*, not to the
+    template body, so a workspace override that names ``{memory_context}``
+    still renders without memory and without leaving a placeholder behind.
+
     Raises:
         PromptSlotNotFoundError: See :func:`resolve_template_content`.
     """
     content = resolve_template_content(slot_name, ctx, workspace_id)
     config_values = resolve_config_values(ctx, workspace_id, overrides=config_overrides)
     values: dict[str, Any] = {**config_values, **data_kwargs}
-    if "memory_context" in get_slot_data_variables(slot_name) and "memory_context" not in values:
+    if is_memory_hard_off(slot_name):
+        for name in MEMORY_DATA_VARIABLES:
+            values[name] = ""
+    elif "memory_context" in get_slot_data_variables(slot_name) and "memory_context" not in values:
         values["memory_context"] = _auto_memory_context(
             ctx, workspace_id, artifact_id, entity_type, data_kwargs
         )
@@ -320,8 +335,14 @@ def unknown_placeholders(
     A name counts as known when it is a declared ``data`` variable of
     *slot_name* or a resolvable ``config`` variable. Everything else is
     almost certainly a typo (spec §5) — reported, never blocking.
+
+    On a HARD_OFF slot the :data:`application.prompt_slots.MEMORY_DATA_VARIABLES`
+    names count as known as well: :func:`resolve_and_render` blanks them, so
+    they are inert rather than unfillable (Plan A T-A1-1).
     """
     known = set(get_slot_data_variables(slot_name))
+    if is_memory_hard_off(slot_name):
+        known.update(MEMORY_DATA_VARIABLES)
     known.update(resolve_config_values(ctx, workspace_id))
     return [name for name in extract_placeholders(content) if name not in known]
 
