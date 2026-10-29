@@ -131,3 +131,51 @@
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/* Plan A T-A1-7: the self-service switches. Same 24x24 click-target floor as
+   MemorySettingsSection.module.css's .toggleLabel (GitHub #1394, WCAG 2.2 AA
+   SC 2.5.8) — the label is the real target, the native glyph stays 13px. */
+.toggleLabel {
+  display: flex;
+  align-items: center;
+  min-height: var(--space-6);
+  min-width: var(--space-6);
+  gap: var(--space-2);
+  font-weight: 600;
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.toggleLabel[data-disabled="true"] {
+  cursor: not-allowed;
+}
+
+/* Plan A T-A1-7: the self-service slot switches, reset onto tokens so the
+   browser default fieldset chrome does not show. */
+.slotGroup {
+  border: 0;
+  margin: var(--space-3) 0 0 0;
+  padding: 0;
+  min-width: 0;
+}
+
+.slotLegend {
+  padding: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.slotRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* Margin-free inline hint for one row (the HARD_OFF "never uses memory" note
+   rides next to its label instead of below it). */
+.inlineHint {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}

@@ -1002,7 +1002,11 @@
     "memory": {
       "title": "AI Memory",
       "description": "Learns and recalls facts from interactions in this workspace to improve AI-assisted suggestions over time.",
-      "enabled": "Enabled"
+      "enabled": "Enabled",
+      "disabledSlots": "Memory per AI activity",
+      "allowUserOptOut": "Users may opt out",
+      "hardOffHint": "never uses memory",
+      "hardOffSummary": "AI activities that never use memory: {{total}}"
     },
     "customFields": {
       "title": "Custom Fields",
@@ -1660,6 +1664,8 @@
   "memorySelfService": {
     "title": "My Memory",
     "hint": "The AI long-term memory stores context about you to personalize answers. You can delete your own entries completely at any time.",
+    "enabledLabel": "Memory for my AI activities",
+    "optOutBlocked": "Not honoured for workspace memory in this workspace — your personal memory stays off.",
     "countLabel": "Stored entries",
     "lastUpdatedLabel": "Last updated",
     "empty": "No memory entries yet.",
@@ -1669,6 +1675,40 @@
     "forgetConfirm": "Forget this entry permanently? This cannot be undone.",
     "forgetError": "Entry could not be deleted.",
     "error": "Memory could not be loaded or deleted."
+  },
+  "memorySlots": {
+    "architecture_decompose_tree": "Architecture decomposition",
+    "architecture_to_risk": "Architecture → risks",
+    "audit": {
+      "ai_review": "SE audit review"
+    },
+    "bundle_compression": "Bundle compression",
+    "decision_to_adr": "Decision → ADR",
+    "goal_aggregate": "Goal aggregation",
+    "interview": {
+      "chat_turn": "Interview chat",
+      "grounding_rank": "Interview grounding ranking",
+      "protocol": {
+        "Adr": "Interview: ADR",
+        "ArchitectureElement": "Interview: architecture element",
+        "Goal": "Interview: goal",
+        "Issue": "Interview: issue",
+        "Requirement": "Interview: requirement",
+        "Risk": "Interview: risk",
+        "StakeholderNeed": "Interview: stakeholder need",
+        "TestCase": "Interview: test case",
+        "multi": "Interview: multiple artifacts"
+      },
+      "transcript_summary": "Interview transcript summary"
+    },
+    "memory": {
+      "extract": "Memory extraction"
+    },
+    "need_to_sysreq": "Stakeholder need → system requirements",
+    "sysreq_decompose_next_level": "Decompose to the next architecture level",
+    "sysreq_to_arch_assign": "System requirement → architecture allocation",
+    "testcase_derive": "Requirement → test cases",
+    "workspace_to_glossary": "Workspace → glossary terms"
   },
   "memory": {
     "title": "Memory",

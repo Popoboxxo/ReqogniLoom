@@ -3,8 +3,13 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { MemorySection } from "./MemorySection";
 import { memoryApi, type MemoryEntry } from "../../api/memory";
+import {
+  memoryMeSettingsApi,
+  type MemorySelfServiceSettings,
+} from "../../api/memory-me-settings";
+import { memorySettingsApi, type MemorySettings } from "../../api/memory-settings";
 // Real i18n singleton — assertions rely on rendered copy resolving.
-import "../../i18n/index";
+import { i18n } from "../../i18n/index";
 
 vi.mock("../../api/memory", () => ({
   memoryApi: {
@@ -12,6 +17,21 @@ vi.mock("../../api/memory", () => ({
     deleteSelfMemory: vi.fn(),
     forgetEntry: vi.fn(),
   },
+}));
+
+vi.mock("../../api/memory-me-settings", () => ({
+  memoryMeSettingsApi: { get: vi.fn(), update: vi.fn() },
+}));
+
+vi.mock("../../api/memory-settings", () => ({
+  memorySettingsApi: { get: vi.fn(), update: vi.fn() },
+}));
+
+// The slot catalogue comes from the workspace surface (the self-service
+// payload carries no `available_slots`); the component reads the active
+// workspace through the non-throwing context reader.
+vi.mock("../../context/WorkspaceContext", () => ({
+  useOptionalWorkspace: () => ({ activeWorkspace: { id: "ws-1" } }),
 }));
 
 function entry(id: string, content: string): MemoryEntry {
@@ -54,12 +74,40 @@ const OVERVIEW_TWO = {
   total: 2,
 };
 
+/** Full current self-service payload (Plan A T-A1-4) with overrides. */
+function meSettings(
+  overrides: Partial<MemorySelfServiceSettings> = {}
+): MemorySelfServiceSettings {
+  return {
+    enabled: true,
+    disabled_slots: [],
+    effective: { workspace_id: "ws-1", opt_out_allowed: true },
+    ...overrides,
+  };
+}
+
+/** The workspace payload supplies `available_slots` (T-A1-3). */
+const WORKSPACE_SLOTS: MemorySettings = {
+  enabled: true,
+  disabled_slots: [],
+  allow_user_opt_out: true,
+  effective_disabled_slots: [],
+  available_slots: [
+    { name: "bundle_compression", hard_off: true },
+    { name: "testcase_derive", hard_off: false },
+  ],
+};
+
 describe("MemorySection", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
     vi.clearAllMocks();
     vi.mocked(memoryApi.getSelfOverview).mockResolvedValue({ ...OVERVIEW_TWO });
     vi.mocked(memoryApi.deleteSelfMemory).mockResolvedValue({ deleted: 2 });
     vi.mocked(memoryApi.forgetEntry).mockResolvedValue({ deleted: true });
+    vi.mocked(memoryMeSettingsApi.get).mockResolvedValue(meSettings());
+    vi.mocked(memoryMeSettingsApi.update).mockResolvedValue(meSettings({ enabled: false }));
+    vi.mocked(memorySettingsApi.get).mockResolvedValue({ ...WORKSPACE_SLOTS });
   });
 
   it("shows the loading state, then resolves to the overview list", async () => {
@@ -171,5 +219,69 @@ describe("MemorySection", () => {
     );
     // Failed delete must not silently reset the count to 0.
     expect(screen.getByTestId("memory-self-service-count")).toHaveTextContent("2");
+  });
+
+  // Plan A T-A1-7 (ENT-A7 = B): the workspace may forbid the personal
+  // opt-out. The switch is still stored, so the only honest UI signal is the
+  // `effective.opt_out_allowed === false` hint.
+  it("shows the opt-out blocked hint when the workspace forbids opting out", async () => {
+    vi.mocked(memoryMeSettingsApi.get).mockResolvedValue(
+      meSettings({ effective: { workspace_id: "ws-1", opt_out_allowed: false } })
+    );
+
+    render(<MemorySection />);
+
+    expect(await screen.findByTestId("memory-self-service-optout-blocked-hint")).toHaveTextContent(
+      "Not honoured for workspace memory in this workspace — your personal memory stays off."
+    );
+    // The self-service payload is what the hint is read from: the workspace
+    // id must be on the query.
+    expect(memoryMeSettingsApi.get).toHaveBeenCalledWith("ws-1");
+  });
+
+  it("does not show the opt-out blocked hint when the workspace allows it", async () => {
+    render(<MemorySection />);
+
+    await screen.findByTestId("memory-self-service-enabled-toggle");
+    expect(
+      screen.queryByTestId("memory-self-service-optout-blocked-hint")
+    ).not.toBeInTheDocument();
+  });
+
+  it("the self-service toggle sends only {enabled: …} to the me endpoint", async () => {
+    const user = userEvent.setup();
+    render(<MemorySection />);
+
+    const toggle = await screen.findByTestId("memory-self-service-enabled-toggle");
+    expect(toggle).toBeChecked();
+
+    await user.click(toggle);
+
+    // Exact partial body: no `disabled_slots` key, no workspace id.
+    await waitFor(() =>
+      expect(memoryMeSettingsApi.update).toHaveBeenCalledWith({ enabled: false })
+    );
+    await waitFor(() => expect(toggle).not.toBeChecked());
+    expect(memorySettingsApi.update).not.toHaveBeenCalled();
+  });
+
+  it("renders the self-service slot list and sends a partial disabled_slots PUT", async () => {
+    const user = userEvent.setup();
+    render(<MemorySection />);
+
+    const hardOff = await screen.findByTestId(
+      "memory-self-service-slot-toggle-bundle-compression"
+    );
+    expect(hardOff).toBeDisabled();
+
+    const slot = await screen.findByTestId("memory-self-service-slot-toggle-testcase-derive");
+    expect(slot).toBeChecked();
+    await user.click(slot);
+
+    await waitFor(() =>
+      expect(memoryMeSettingsApi.update).toHaveBeenCalledWith({
+        disabled_slots: ["testcase_derive"],
+      })
+    );
   });
 });
