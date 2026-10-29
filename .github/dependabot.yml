@@ -16,44 +16,35 @@ updates:
       - "dependencies"
       - "javascript"
 
-  # Docker manifests live in four places, and Dependabot scans exactly one
-  # directory per `docker` entry — a single "/" entry matched nothing, so
-  # neither tag bumps nor digest refreshes were ever proposed.
-  #   /backend   -> Dockerfile (python:3.12-slim, builder + runtime)
-  #   /frontend  -> Dockerfile (node:22.17.0-slim, nginx:1.27-alpine)
-  #   /deploy    -> docker-compose*.yml (pgvector/pgvector, redis, node sidecar)
-  #   /testing   -> docker-compose.test.yml (pgvector/pgvector, redis)
-  # `/testing` is listed because the test stack is a standalone Compose project
-  # (#1387) that pins the same multi-arch manifest lists as `/deploy`; without
-  # an entry here its digests would silently rot relative to the deployed stack.
-  # Digests are pinned as `image:TAG@sha256:<manifest-list>`; Dependabot's
-  # docker ecosystem refreshes the digest while keeping the human-readable tag.
+  # Dependabot resolves every entry against the files that ecosystem's fetcher
+  # knows, and the two Docker ecosystems are not interchangeable: `docker`
+  # scans `Dockerfile` (v1), `docker-compose` scans `docker-compose*.yml` /
+  # `compose.yml` (v2, v3). Listing the Compose manifests under `docker` looks
+  # for a `Dockerfile` in that directory instead — `deploy/` and `testing/`
+  # contain none, so those entries could never match and the Compose digests
+  # were never refreshed. The ecosystems are therefore split by file type:
+  #   Dockerfile        -> `docker`         : /backend, /frontend
+  #   Compose manifests -> `docker-compose` : /deploy, /testing
+  # Base images are pinned as `image:TAG@sha256:<manifest-list>`; both
+  # ecosystems refresh the digest while keeping the human-readable tag, so the
+  # pins cannot silently rot. `/testing` is listed because the test stack is a
+  # standalone Compose project (#1387) that pins the same multi-arch manifest
+  # lists as `/deploy`; without it those digests would drift from the deployed
+  # stack.
   - package-ecosystem: "docker"
-    directory: "/backend"
+    directories:
+      - "/backend"
+      - "/frontend"
     schedule:
       interval: "monthly"
     labels:
       - "dependencies"
       - "docker"
 
-  - package-ecosystem: "docker"
-    directory: "/frontend"
-    schedule:
-      interval: "monthly"
-    labels:
-      - "dependencies"
-      - "docker"
-
-  - package-ecosystem: "docker"
-    directory: "/deploy"
-    schedule:
-      interval: "monthly"
-    labels:
-      - "dependencies"
-      - "docker"
-
-  - package-ecosystem: "docker"
-    directory: "/testing"
+  - package-ecosystem: "docker-compose"
+    directories:
+      - "/deploy"
+      - "/testing"
     schedule:
       interval: "monthly"
     labels:
