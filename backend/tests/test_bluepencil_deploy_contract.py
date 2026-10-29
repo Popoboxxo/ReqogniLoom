@@ -35,6 +35,13 @@ The seven invariants:
    (``auth_request``) and injects the hub secret server-side instead of
    forwarding whatever the client sent.
 
+The layer delivery from plan D / D1.2 adds one more: the browser layer is not
+image content any more, it is a read-only bind mount of a directory that
+``deploy/bluepencil/fetch-layer.sh`` materialised from a pinned release. That
+mount must not be auto-created by Compose (a missing directory has to be an
+error, not an empty, healthy-looking docroot) — see
+``test_layer_overlay_mount_is_readonly_and_not_autocreated``.
+
 ``deploy/`` and ``frontend/`` are NOT mounted into the backend test container
 (only ``./backend`` and ``./docs`` are), so the guards that read them SKIP there
 rather than error. They do run in CI, where pytest executes on the checkout with
@@ -58,6 +65,11 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 _DEPLOY_COMPOSE = _REPO_ROOT / "deploy" / "docker-compose.yml"
 _NGINX_CONF = _REPO_ROOT / "frontend" / "nginx.conf"
 _VENDORED_SERVER = _REPO_ROOT / "deploy" / "bluepencil" / "server.js"
+_LAYER_OVERLAY = _REPO_ROOT / "deploy" / "docker-compose.bluepencil.yml"
+
+#: Where the overlay mounts the verified layer inside the frontend image; must
+#: match the `location ^~ /bluepencil/latest/` in frontend/nginx.conf.
+_LAYER_MOUNT_TARGET = "/usr/share/nginx/html/bluepencil/latest"
 
 _HUB_SERVICE = "bluepencil"
 _VOLUME_INIT_SERVICE = "bluepencil-volume-init"
@@ -102,6 +114,22 @@ def _hub_service() -> dict:
     services = _load_compose().get("services") or {}
     assert _HUB_SERVICE in services, f"service {_HUB_SERVICE!r} is missing"
     return services[_HUB_SERVICE]
+
+
+def _layer_overlay_frontend() -> dict:
+    """The overlay's ``frontend`` service, skips when deploy/ is not mounted."""
+    if not _LAYER_OVERLAY.is_file():
+        pytest.skip(
+            f"{_LAYER_OVERLAY} not found — host/CI-checkout-only deploy-contract guard"
+        )
+    with _LAYER_OVERLAY.open(encoding="utf-8") as handle:
+        overlay = yaml.safe_load(handle) or {}
+    services = overlay.get("services") or {}
+    assert "frontend" in services, (
+        f"{_LAYER_OVERLAY.name} must override the frontend service — it is an "
+        "overlay for the service that serves the layer"
+    )
+    return services["frontend"]
 
 
 def _read_nginx_conf() -> str:
@@ -286,3 +314,66 @@ def test_nginx_bluepencil_location_requires_auth_request() -> None:
     assert "proxy_set_header Cookie $http_cookie;" in auth_block, (
         "the httpOnly access cookie must be forwarded, or every browser call 401s"
     )
+
+
+def test_layer_overlay_mount_is_readonly_and_not_autocreated() -> None:
+    """D1.2: the layer is a read-only mount of a directory that must exist.
+
+    The layer bytes used to be checked into ``frontend/public/bluepencil/latest``
+    and baked into the image, so every layer update forced a rebuild and nothing
+    could tell an audited release from a hand-copied directory. The overlay
+    replaces that with a bind mount of whatever
+    ``deploy/bluepencil/fetch-layer.sh`` verified against
+    ``deploy/bluepencil/layer.lock.json``.
+
+    Three properties make that safe, and each fails silently if dropped:
+
+    * ``read_only: true`` — the serving container must not be able to rewrite the
+      bytes a browser will execute;
+    * ``bind.create_host_path: false`` — Compose otherwise CREATES an empty
+      directory when the fetch was forgotten, so the stack comes up healthy and
+      404s every asset (``try_files $uri =404`` in the nginx location) or, worse,
+      removes the directory again on ``down``;
+    * the ``source`` stays interpolated so an operator can point it at another
+      fetched directory without editing the file.
+    """
+    frontend = _layer_overlay_frontend()
+
+    volumes = frontend.get("volumes") or []
+    assert isinstance(volumes, list), "frontend volumes must be a list"
+
+    mounts = [
+        volume
+        for volume in volumes
+        if isinstance(volume, dict) and volume.get("target") == _LAYER_MOUNT_TARGET
+    ]
+    assert len(mounts) == 1, (
+        "expected exactly one long-form bind mount targeting "
+        f"{_LAYER_MOUNT_TARGET!r}, found {len(mounts)} — the short "
+        "'host:container' form cannot express read_only/create_host_path at all"
+    )
+    mount = mounts[0]
+
+    assert mount.get("type") == "bind", (
+        f"the layer mount must be type 'bind', got {mount.get('type')!r}"
+    )
+    assert mount.get("read_only") is True, (
+        "a writable layer mount lets the frontend container replace the code a "
+        "browser executes — mount it read_only: true"
+    )
+
+    bind = mount.get("bind") or {}
+    assert isinstance(bind, dict), "the layer mount needs a `bind:` options mapping"
+    assert bind.get("create_host_path") is False, (
+        "create_host_path must be false: a forgotten fetch-layer.sh otherwise "
+        "yields an empty, silently healthy docroot instead of a Compose error"
+    )
+
+    source = mount.get("source")
+    assert isinstance(source, str), "the layer mount declares no source"
+    assert source.startswith("${BLUEPENCIL_LAYER_DIR:-"), (
+        "the mount source must stay an interpolated default "
+        "(${BLUEPENCIL_LAYER_DIR:-...}) so an operator can point it at another "
+        f"verified directory, got {source!r}"
+    )
+    assert source.endswith("}"), f"unterminated interpolation in mount source: {source!r}"

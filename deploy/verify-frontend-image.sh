@@ -5,7 +5,14 @@
 # LOCALLY BUILT image that carries the re-vendored Bluepencil layer. The base
 # deploy/docker-compose.yml pins the frontend as the GHCR registry image; an
 # overlay that only overrides ports/limits/build: still starts that image — the
-# stack looks healthy while the SPA serves the repo-default layer.
+# stack looks healthy while the SPA serves a layer nobody chose.
+#
+# Plan D / D1.2 adds a second half to the check: the layer itself is delivered by
+# the read-only mount declared in deploy/docker-compose.bluepencil.yml and
+# materialised by deploy/bluepencil/fetch-layer.sh, and its provenance is the pin
+# in deploy/bluepencil/layer.lock.json. The served manifest is therefore compared
+# against the LOCK (version + element digest) rather than against a repository
+# file, which no longer exists.
 #
 # Usage (from the repository root, with the stack up):
 #   bash deploy/verify-frontend-image.sh
@@ -22,7 +29,20 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SERVED_PATH="/usr/share/nginx/html/bluepencil/latest/latest.json"
-REPO_LAYER="$ROOT_DIR/frontend/public/bluepencil/latest/latest.json"
+# Plan D / D1.2: the layer is no longer repository content. Its provenance is
+# the pin in deploy/bluepencil/layer.lock.json, so that — not a file under
+# frontend/public/ — is what a served manifest is compared against.
+LAYER_LOCK="$ROOT_DIR/deploy/bluepencil/layer.lock.json"
+
+# First `"<key>": "<value>"` in a JSON file. The lock and the manifest are
+# two-key documents written by this repository, so a JSON toolchain would be a
+# dependency without a safety gain; an absent key yields an empty string, which
+# every caller below treats as "unparseable" rather than as a match.
+_json_value() {
+  grep -o "\"$1\"[[:space:]]*:[[:space:]]*\"[^\"]*\"" "$2" \
+    | head -n 1 \
+    | sed -e 's/^"[^"]*"[[:space:]]*:[[:space:]]*"//' -e 's/"$//'
+}
 
 # Compose reads .env, not the shell; honour the file when the variable was not
 # exported into this process.
@@ -99,10 +119,34 @@ if [ -n "${BLUEPENCIL_IMAGE:-}" ]; then
   fi
 fi
 
-if [ -f "$REPO_LAYER" ] && [ "$(cat "$REPO_LAYER")" = "$_served" ]; then
-  echo "WARN: the running image serves the REPO-DEFAULT Bluepencil layer, not a re-vendored one."
-  echo "      If you rebuilt with a newer layer, the overlay is still using an image that"
-  echo "      predates the re-vendor. Rebuild the frontend image and set 'image:' in the overlay."
+# Does the container serve the LAYER THE LOCK PINS (version + element digest)?
+# Under D1.2 the bytes come from deploy/docker-compose.bluepencil.yml's read-only
+# mount, materialised by deploy/bluepencil/fetch-layer.sh — so a mismatch means
+# the delivery chain is not the verified one: either the image still carries a
+# pre-D1.2 baked layer, or BLUEPENCIL_LAYER_DIR points at a directory that was
+# never fetched (or was fetched against a different lock).
+if [ -f "$LAYER_LOCK" ]; then
+  _lock_version="$(_json_value version "$LAYER_LOCK")"
+  _lock_element_sha="$(_json_value 'bluepencil\.element\.min\.js' "$LAYER_LOCK")"
+  _served_version="$(_json_value version "$SERVED_PATH" 2>/dev/null || true)"
+  _served_sha="$(_json_value sha256 "$SERVED_PATH" 2>/dev/null || true)"
+
+  if [ -n "$_lock_version" ] && [ "$_served_version" = "$_lock_version" ] \
+    && [ -n "$_lock_element_sha" ] && [ "$_served_sha" = "$_lock_element_sha" ]; then
+    echo "OK: the frontend serves the layer pinned in deploy/bluepencil/layer.lock.json (v$_lock_version)."
+    exit 0
+  fi
+
+  cat <<EOF
+WARN: the served layer does not match deploy/bluepencil/layer.lock.json.
+  served: version='${_served_version:-<none>}' sha256='${_served_sha:-<none>}'
+  pinned: version='${_lock_version:-<none>}' sha256='${_lock_element_sha:-<none>}'
+      The layer is delivered by a read-only mount, not by the image. Materialise it
+      from the pin and restart the frontend:
+        bash deploy/bluepencil/fetch-layer.sh --dest "\${BLUEPENCIL_LAYER_DIR:-deploy/bluepencil/layer}"
+      If a NEWER upstream release is intended, bump deploy/bluepencil/layer.lock.json
+      first (same commit), then fetch. Never hand-copy layer bytes.
+EOF
   exit 0
 fi
 

@@ -1,0 +1,87 @@
+# deploy/docker-compose.bluepencil.yml — overlay for the Bluepencil review layer
+# (plan D / D1.2, RB-D03, RB-D04, RB-D05, RB-D23, #1436).
+#
+# This overlay is NOT a stack of its own: it extends deploy/docker-compose.yml for
+# a frontend that serves the browser layer from a VERIFIED directory instead of
+# from bytes baked into the image. Compose the two files together, from the
+# repository root:
+#
+#   BLUEPENCIL_AUTH_SECRET=... \
+#   BLUEPENCIL_FRONTEND_IMAGE=reqogniloom-frontend:bluepencil-<version> \
+#     docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.bluepencil.yml up -d
+#
+# (Deployment wrappers prepend their own dev overlay, so the invocation also
+# works through `make` — see deploy/README.md.)
+#
+# REQUIRED environment variables (no defaults — a missing value must fail the
+# `up`, not start a half-configured frontend):
+#
+#   BLUEPENCIL_AUTH_SECRET    the shared secret nginx injects as
+#                             `x-bluepencil-auth` on `/bluepencil/api/`
+#                             (plan D / D1.1, ENT-D2 = B). Generate with
+#                             `openssl rand -hex 32`. The nginx template is
+#                             rendered with it at container start; an empty value
+#                             makes the hub answer 401 to everything.
+#   BLUEPENCIL_FRONTEND_IMAGE a LOCALLY BUILT frontend image — the one built with
+#                             VITE_BLUEPENCIL_ENABLED=1, so the SPA actually arms
+#                             the loader. This is the #1436 contract: an overlay
+#                             that only sets build:/ports:/limits keeps the base
+#                             GHCR image, which serves the layer it was published
+#                             with. See deploy/verify-frontend-image.sh.
+#
+# OPTIONAL:
+#
+#   BLUEPENCIL_LAYER_DIR      host directory to serve at /bluepencil/latest
+#                             (default: ./deploy/bluepencil/layer). It must
+#                             already contain the assets — create it with
+#                             `bash deploy/bluepencil/fetch-layer.sh`, which
+#                             downloads the release pinned in
+#                             deploy/bluepencil/layer.lock.json and refuses to
+#                             publish anything that does not match. That is also
+#                             where a new layer version comes from: bump the lock,
+#                             re-run the fetch, restart the frontend — no image
+#                             rebuild.
+services:
+  frontend:
+    # #1436: replacing the image is the whole point of this overlay. Declaring
+    # only volumes/environment would keep the GHCR image and serve the layer that
+    # was baked at publish time.
+    image: ${BLUEPENCIL_FRONTEND_IMAGE:?set to the locally built frontend image with VITE_BLUEPENCIL_ENABLED=1}
+    environment:
+      # Substituted into frontend/nginx.conf by the image's envsubst step. Also
+      # read by `deploy/verify-frontend-image.sh`/CI so a deployment cannot come
+      # up with the hub proxy unauthenticated.
+      BLUEPENCIL_AUTH_SECRET: ${BLUEPENCIL_AUTH_SECRET:?set BLUEPENCIL_AUTH_SECRET for the bluepencil profile}
+    volumes:
+      # Long form on purpose:
+      #   * `read_only: true` — the serving container may read the layer, nothing
+      #     in it is writable, so a compromised frontend cannot rewrite the bytes
+      #     a browser will execute;
+      #   * `create_host_path: false` — Compose (>= 2.x) fails instead of silently
+      #     creating an empty directory. Otherwise a forgotten `fetch-layer.sh`
+      #     yields a healthy-looking stack that 404s every asset, or worse: a
+      #     directory that `docker compose down` deletes with the layer in it.
+      #
+      # The target is the exact path frontend/nginx.conf serves under
+      # `location ^~ /bluepencil/latest/`.
+      - type: bind
+        source: ${BLUEPENCIL_LAYER_DIR:-./deploy/bluepencil/layer}
+        target: /usr/share/nginx/html/bluepencil/latest
+        read_only: true
+        bind:
+          create_host_path: false
+    healthcheck:
+      # Fail-closed at the container boundary: a running nginx is NOT a healthy
+      # frontend. The probe asserts the layer is actually present AND that the
+      # manifest still names the digest of the element next to it, so a mount that
+      # points at an old, partially fetched or hand-edited directory keeps the
+      # service unhealthy instead of quietly serving mismatched bytes.
+      #
+      # `$$` is Compose escaping: the container's shell must receive `$d`/`$(...)`.
+      test:
+        - CMD-SHELL
+        - "d=/usr/share/nginx/html/bluepencil/latest; test -s $$d/attach.js && h=$$(sha256sum $$d/bluepencil.element.min.js | cut -d' ' -f1) && grep -q \"$$h\" $$d/latest.json && curl -fsS http://localhost:8080/healthz >/dev/null"
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
