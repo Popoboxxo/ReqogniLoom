@@ -580,6 +580,16 @@ def _probe_artifact_index_once() -> dict[str, str]:
             if SPARSE_VECTOR_NAME not in sparse_vectors:
                 sparse_ready = False
         _artifact_zero_streak = _artifact_zero_streak + 1 if total == 0 else 0
+        if total == 0 and _artifact_zero_streak >= 2:
+            # Logged here, inside the cached probe run, not in the per-request
+            # payload builder: ``/health/`` is unauthenticated, so a log line
+            # emitted per request would let an anonymous caller drive log volume.
+            # The payload carries the same signal as a warning string (see
+            # ``_collect_advisory``) on every request, without re-logging.
+            logger.warning(
+                "Health check: the Qdrant artifact store holds no points — "
+                "semantic search will answer 'no results'"
+            )
         return {
             "collections": str(len(names)),
             "points": str(total),
@@ -664,6 +674,12 @@ def _qdrant_artifact_index_stats() -> dict[str, str]:
         try:
             payload = _probe_artifact_index_once()
         except Exception as exc:  # noqa: BLE001 - cached, re-raised to the caller
+            # Log once per probe run, next to the cache write: the cached failure
+            # is re-raised on every request, and ``/health/`` is unauthenticated,
+            # so a per-request log line would be log-volume amplification.
+            logger.warning(
+                "Health check: Qdrant artifact index probe failed - %s", exc
+            )
             _artifact_probe_cache = (
                 now,
                 None,
@@ -1096,10 +1112,12 @@ def _collect_advisory(
     if artifact_backend_active == QDRANT_ARTIFACT_BACKEND:
         try:
             artifact_index = _qdrant_artifact_index_stats()
-        except Exception as exc:  # noqa: BLE001 - health check must never crash
-            logger.warning(
-                "Health check: Qdrant artifact index probe failed - %s", exc
-            )
+        except Exception:  # noqa: BLE001 - health check must never crash
+            # No log line here: the failure was already logged once, inside the
+            # cached probe run (``_qdrant_artifact_index_stats``). A cached
+            # failure raises on every request, and ``/health/`` is
+            # unauthenticated, so logging per request would be amplification.
+            # The payload still carries the advisory on every response.
             warnings.append("qdrant artifact index probe failed")
         else:
             advisory["qdrant_artifact_points"] = (
@@ -1110,12 +1128,14 @@ def _collect_advisory(
             # Two-strike (see ``_probe_artifact_index_once``): a family that was
             # *just* provisioned is legitimately empty for one interval, so a
             # single zero is not evidence. The warning itself is NOT
-            # verbose-gated — a plain `/health/` poll must carry it.
+            # verbose-gated — a plain `/health/` poll carries it in the
+            # ``warnings`` list. It is appended, not logged: the log line is
+            # emitted once per probe run inside the cached computation.
             zero_streak = int(artifact_index.get("zero_streak", "0") or 0)
             if artifact_index["points"] == "0" and zero_streak >= 2:
-                logger.warning(
-                    "Health check: the Qdrant artifact store holds no points — "
-                    "semantic search will answer 'no results'"
+                warnings.append(
+                    "qdrant_artifact_points=0: the Qdrant artifact store holds "
+                    "no points — semantic search will answer 'no results'"
                 )
 
     # CSRF-cookie security check: AUTH_COOKIE_SECURE must match

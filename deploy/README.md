@@ -822,18 +822,30 @@ docker compose -f deploy/docker-compose.yml --project-directory . exec backend s
 ```
 
 A key that exists **only** in `SystemMemorySettings.qdrant_api_key` is not exported into the
-container env, so `$QDRANT_API_KEY` is empty there — pass it explicitly (`-H "api-key: <key>"`) for
-these calls, or export it into the backend container's environment first.
+container env, so `$QDRANT_API_KEY` is empty there. Never type it into the command line: an argument
+is kept in shell history and stays visible in `ps` output to every local user (CWE-214). Read it
+without echo and forward the *variable* instead — `exec -e QDRANT_API_KEY` copies it from this shell
+into the container, so the value never becomes argv, and only the container's `sh` expands
+`-H "api-key: $QDRANT_API_KEY"`:
+
+```bash
+# Prompts without echo; `-s` keeps the key out of the terminal and out of history.
+read -rs QDRANT_API_KEY && export QDRANT_API_KEY
+```
+
+The same `-e QDRANT_API_KEY` applies to every `curl` call below that reads the variable.
 
 ```bash
 # One snapshot per collection. Address the CONCRETE collection: an alias resolves, but the file
 # then lands under the resolved name while an empty <alias> directory is left behind.
-docker compose -f deploy/docker-compose.yml --project-directory . exec backend sh -c \
+docker compose -f deploy/docker-compose.yml --project-directory . \
+  exec -e QDRANT_API_KEY backend sh -c \
   'curl -fsS -X POST -H "api-key: $QDRANT_API_KEY" \
    "$QDRANT_BASE_URL/collections/<prefix>_<tenant>_<workspace>_artifacts_v2/snapshots?wait=true"'
 
 # List / download / delete (name from the POST response, "result.name")
-docker compose -f deploy/docker-compose.yml --project-directory . exec backend sh -c \
+docker compose -f deploy/docker-compose.yml --project-directory . \
+  exec -e QDRANT_API_KEY backend sh -c \
   'curl -fsS -H "api-key: $QDRANT_API_KEY" \
    "$QDRANT_BASE_URL/collections/<collection>/snapshots"'
 # GET .../collections/<collection>/snapshots/<name>  -> the .snapshot file (200)
@@ -850,10 +862,17 @@ stream it with the `GET .../snapshots/<name>` route) before you touch the contai
 # NEVER into the checkout: a snapshot is a full copy of the tenant index (vectors
 # plus the tenant_id / workspace_id / entity_id payload), i.e. tenant data.
 # Treat it like a database dump: keep it outside the repository, restrict access.
-mkdir -p /var/tmp/reqlo-snapshots
+# 700/600 on purpose: /var/tmp is world-writable and survives a reboot, so a
+# default-mode copy (directory 1777, file 0644) would be readable by every local
+# user. `install -d -m 700` also tightens a directory an earlier copy created.
+install -d -m 700 /var/tmp/reqlo-snapshots
 docker compose -f deploy/docker-compose.yml --project-directory . \
   cp qdrant:/qdrant/snapshots/<collection>/<name>.snapshot /var/tmp/reqlo-snapshots/
+chmod 600 /var/tmp/reqlo-snapshots/<name>.snapshot
 ```
+
+The host copy is a staging point only: move it encrypted to off-box storage, and delete it from
+`/var/tmp` as soon as the restore (or the verification that it restores) is done.
 
 *Retention.* Qdrant never prunes snapshots: each one is a full copy of the collection's storage
 (segments plus payload), so they cost on the order of the collection itself and accumulate until

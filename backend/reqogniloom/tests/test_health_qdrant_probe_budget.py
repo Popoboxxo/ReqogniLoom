@@ -13,7 +13,9 @@ These tests pin the three properties of the fix:
 
 * a second request inside the TTL performs **no** additional Qdrant calls,
 * a slow Qdrant degrades to an advisory warning (HTTP 200, never ``degraded``),
-* the "holds no points" log line waits for the second consecutive zero.
+* the "holds no points" log line waits for the second consecutive zero,
+* both WARNING lines are emitted once per probe run, never once per request —
+  the payload carries the signal on every poll, the log does not grow with it.
 """
 from __future__ import annotations
 
@@ -166,7 +168,7 @@ class TestSlowQdrantIsAdvisoryOnly:
         assert elapsed < 2.0
 
     def test_failure_is_cached_so_a_flapping_store_is_not_hammered(
-        self, monkeypatch: pytest.MonkeyPatch
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
     ) -> None:
         from reqogniloom import health
 
@@ -174,11 +176,19 @@ class TestSlowQdrantIsAdvisoryOnly:
         fake = _FakeQdrantClient(delay=0.05)
         _configure(monkeypatch, fake)
 
-        Client().get("/health/")
-        Client().get("/health/")
+        with caplog.at_level(logging.WARNING, logger="reqogniloom.health"):
+            first = Client().get("/health/")
+            second = Client().get("/health/")
 
         # The second request replays the cached failure instead of probing again.
         assert fake.calls == 1
+        # The advisory stays in both payloads ...
+        assert any("artifact index probe failed" in w for w in first.json()["warnings"])
+        assert any("artifact index probe failed" in w for w in second.json()["warnings"])
+        # ... but the WARNING is logged once per probe run, not once per request:
+        # ``/health/`` is unauthenticated, so a per-request log line would let an
+        # anonymous caller drive log volume.
+        assert caplog.text.count("artifact index probe failed") == 1
 
 
 class TestZeroPointsWarningIsTwoStrike:
@@ -191,11 +201,36 @@ class TestZeroPointsWarningIsTwoStrike:
         _configure(monkeypatch, fake)
 
         with caplog.at_level(logging.WARNING, logger="reqogniloom.health"):
-            Client().get("/health/")
+            first = Client().get("/health/")
             assert "holds no points" not in caplog.text
+            assert not any("holds no points" in w for w in first.json()["warnings"])
 
             # Expire only the TTL entry: the streak is the state under test.
             health._artifact_probe_cache = None
-            Client().get("/health/")
+            second = Client().get("/health/")
 
         assert "holds no points" in caplog.text
+        # The operator signal rides in the payload on a plain poll (HTTP 200,
+        # never degraded): an empty index is advisory, not a failure.
+        assert second.status_code == 200
+        assert second.json()["status"] != "degraded"
+        assert any("holds no points" in w for w in second.json()["warnings"])
+
+    def test_zero_points_log_is_once_per_probe_run_not_per_request(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Item 3: a cached empty store must not re-log on every request."""
+        from reqogniloom import health
+
+        fake = _FakeQdrantClient(points=0)
+        _configure(monkeypatch, fake)
+
+        with caplog.at_level(logging.WARNING, logger="reqogniloom.health"):
+            Client().get("/health/")
+            health._artifact_probe_cache = None
+            Client().get("/health/")
+            # Two more requests replay the cached payload inside the TTL.
+            Client().get("/health/")
+            Client().get("/health/")
+
+        assert caplog.text.count("holds no points") == 1
