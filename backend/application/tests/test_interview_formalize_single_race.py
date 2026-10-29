@@ -119,6 +119,9 @@ def answerable_session(ctx: AuthContext, workspace: Workspace):
     service.answer(
         ctx, session.id, "rationale", "so the completeness guard lets it through"
     )
+    # #272: the factory-default Requirement protocol elicits these two as well.
+    service.answer(ctx, session.id, "acceptance_criteria", "exactly one artifact")
+    service.answer(ctx, session.id, "verification_method", "Test")
     return session
 
 

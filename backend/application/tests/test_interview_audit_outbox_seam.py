@@ -100,6 +100,9 @@ def _complete_single_session(ctx: AuthContext, workspace: Workspace):
     session = service.start(ctx, "Requirement", workspace.id)
     service.answer(ctx, session.id, "title", "Audit seam probe")
     service.answer(ctx, session.id, "rationale", "so formalize() is allowed")
+    # #272: the factory-default protocol elicits these two as well.
+    service.answer(ctx, session.id, "acceptance_criteria", "one audit row")
+    service.answer(ctx, session.id, "verification_method", "Test")
     return session
 
 

@@ -248,13 +248,25 @@ def test_full_interview_cycle_against_a_bootstrapped_definition_preserves_descri
         # otherwise this would be exactly as blind as the mocked tests above.
         protocol = get_protocol(ctx, "Requirement", workspace.id)
         elicited = {f.name for phase in protocol.phases for f in phase.required_fields}
-        assert elicited == {"title", "description"}
+        assert elicited == {
+            "title",
+            "description",
+            # #272: the SE fields a standard/extended Requirement interview
+            # elicits on top of the shared title/description.
+            "acceptance_criteria",
+            "verification_method",
+            "rationale",
+        }
 
         session = InterviewService().start(ctx, "Requirement", workspace.id)
         InterviewService().answer(ctx, session.id, "title", "SSO login support")
         InterviewService().answer(
             ctx, session.id, "description", "Reduce password fatigue for support staff"
         )
+        # #272: required to complete the protocol (see the elicited set above).
+        InterviewService().answer(ctx, session.id, "acceptance_criteria", "SSO works")
+        InterviewService().answer(ctx, session.id, "verification_method", "Test")
+        InterviewService().answer(ctx, session.id, "rationale", "Fewer passwords")
 
         result = InterviewService().formalize(ctx, session.id)
 

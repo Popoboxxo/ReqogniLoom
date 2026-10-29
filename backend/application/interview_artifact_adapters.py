@@ -198,7 +198,14 @@ def build_adapter_fields(collected_fields: dict) -> dict:
 
     Applies :data:`_PROTOCOL_FIELD_ALIASES` and forwards everything else
     untouched. An explicitly collected target name always wins over an alias
-    (a protocol that declares ``description`` directly is authoritative).
+    (a protocol that declares ``description`` directly is authoritative) — but
+    the alias *source* is never dropped (review finding R-B1-1): if both are
+    collected, ``rationale`` stays a separate key. ``Requirement`` accepts
+    ``description=`` and ``rationale=`` side by side; for every other type the
+    surviving alias key surfaces as a ``TypeError`` from the ``create_X()``
+    signature, which both formalize paths convert into a ``ValidationError``
+    naming the field. Silently discarding an answered question is the one
+    outcome that must not happen.
 
     Unknown keys are deliberately **not** filtered: a workspace-custom
     protocol chooses its own field names, so a key the target ``create_X()``
@@ -218,12 +225,15 @@ def build_adapter_fields(collected_fields: dict) -> dict:
     for source, target in _PROTOCOL_FIELD_ALIASES.items():
         if source not in fields:
             continue
-        value = fields.pop(source)
-        if target in fields:
-            continue
         # `or ""` mirrors every create_X() default: description is NOT NULL,
         # so an unanswered optional field must become "" and never None.
-        fields[target] = value or ""
+        value = fields.pop(source) or ""
+        if target in fields:
+            # Both collected: the explicit target name wins, and the alias
+            # source survives as its own key instead of being dropped (R-B1-1).
+            fields[source] = value
+        else:
+            fields[target] = value
     return fields
 
 

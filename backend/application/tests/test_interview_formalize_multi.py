@@ -293,15 +293,21 @@ class TestFormalizeMulti:
         self, tenant: Tenant, workspace: Workspace, editor_ctx: AuthContext
     ):
         # Regression guard: single-mode call signature/behavior must be
-        # untouched. collected_fields carries title AND rationale -- the
-        # default Requirement protocol requires both.
+        # untouched. collected_fields carries everything the default
+        # Requirement protocol asks for -- title, rationale and (since #272)
+        # the two SE fields.
         with _active(tenant):
             session = InterviewSession.objects.create(
                 tenant=tenant,
                 workspace=workspace,
                 artifact_type="Requirement",
                 session_kind=InterviewSession.SESSION_KIND_SINGLE,
-                collected_fields={"title": "Solo requirement", "rationale": "Because"},
+                collected_fields={
+                    "title": "Solo requirement",
+                    "rationale": "Because",
+                    "acceptance_criteria": "It is created",
+                    "verification_method": "Test",
+                },
             )
         result = InterviewService().formalize(editor_ctx, session.id)
         assert "resulting_artifact_ids" in result

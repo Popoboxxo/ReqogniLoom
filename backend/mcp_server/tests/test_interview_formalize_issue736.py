@@ -77,6 +77,9 @@ def test_formalize_resulting_artifact_id_resolves_via_requirement_get():
     for field, value in (
         ("title", "SSO login support"),
         ("rationale", "Reduce password fatigue"),
+        # #272: the factory-default Requirement protocol elicits these two too.
+        ("acceptance_criteria", "SSO login works"),
+        ("verification_method", "Test"),
     ):
         answered = interview_group.execute_tool(
             tool_name="interview.answer",
