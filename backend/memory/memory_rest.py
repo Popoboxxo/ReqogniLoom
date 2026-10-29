@@ -94,6 +94,7 @@ import csv
 from typing import Any
 from uuid import UUID
 
+from django.db import transaction
 from django.db.models import Count, Max
 from django.http import HttpResponse
 from drf_spectacular.types import OpenApiTypes
@@ -112,9 +113,16 @@ from application.memory_settings_service import (
     BackendSettingsValidationError,
     MemorySettingsService,
 )
+from application.preference_registry import get_preference_key, validate_preference_value
+from application.preference_service import PreferenceService, levels_for
 from auth_tenancy.rest import HasOperationPermission
 from auth_tenancy.services import AuthorizationService
 from memory.health import envelope
+from memory.injection_policy import (
+    ALLOW_USER_OPT_OUT_KEY,
+    DISABLED_SLOTS_KEY,
+    MEMORY_CONSUMER_SLOTS,
+)
 from memory.models import MemoryEntry, WorkspaceMemorySettings
 from memory.schema_serializers import (
     MemoryAdminEntryListResponseSerializer,
@@ -432,11 +440,122 @@ class WorkspaceMemorySettingsView(APIView):
     """``/api/v1/workspaces/<uuid:workspace_id>/memory-settings/``.
 
     GET: any workspace member. PUT: editor or admin (workspace-scoped).
+
+    Plan A T-A1-3 (ENT-A5 = A): the response is additive. ``enabled`` stays
+    the ``WorkspaceMemorySettings.enabled`` facade column with its historical
+    wire contract (``PUT {"enabled": …}`` behaves and is gated exactly as
+    before); ``disabled_slots`` and ``allow_user_opt_out`` are Q1 workspace
+    values written through :class:`application.preference_service.
+    PreferenceService` — one validation path, one audit entry per key, no
+    direct preference-row writes.
+
+    Two different values, deliberately kept apart:
+
+    * ``disabled_slots`` / ``allow_user_opt_out`` are the **stored workspace
+      level** — exactly what a PUT writes. They are the editable source of
+      truth, so a GET→PUT round-trip is a no-op and can never promote a
+      caller's personal (user-level) opt-out into workspace-wide policy.
+    * ``effective_disabled_slots`` is the **merged** value the injection
+      policy actually applies (global ∪ workspace ∪ the caller's user level).
+      Read-only, additive, for display only. ``memory.allow_user_opt_out`` has
+      no merged dimension (workspace is its only level), so there is no
+      ``effective_*`` twin for it.
+
+    ``available_slots`` is the derived slot vocabulary the workspace may
+    toggle (union of the policy's consumer slots and the explicit HARD_OFF slot
+    names), so the UI never has to hard-code it.
     """
+
+    #: Q1 keys this facade may write, mapped to their wire field name.
+    _POLICY_FIELDS = (
+        ("disabled_slots", DISABLED_SLOTS_KEY),
+        ("allow_user_opt_out", ALLOW_USER_OPT_OUT_KEY),
+    )
+
+    @staticmethod
+    def _available_slots() -> list[dict[str, Any]]:
+        """Sorted slot catalogue; ``hard_off`` marks the never-injectable ones."""
+        from application.prompt_slots import MEMORY_HARD_OFF_SLOTS
+
+        names = set(MEMORY_CONSUMER_SLOTS) | set(MEMORY_HARD_OFF_SLOTS)
+        return [
+            {"name": name, "hard_off": name in MEMORY_HARD_OFF_SLOTS}
+            for name in sorted(names)
+        ]
+
+    @staticmethod
+    def _merge_disabled_slots(*levels: Any) -> list[str]:
+        """Union of the set levels, in Q1's documented order (global, workspace, user).
+
+        Mirrors ``application.preference_service._resolve``'s ``union`` mode for
+        this key (its default is ``[]``). Duplicated here on purpose: the
+        workspace view must be able to answer with the *post-write* merged value
+        without a second preference read after the commit (a read after a
+        committed write must never turn a successful PUT into a 500).
+        """
+        merged: list[str] = []
+        for values in levels:
+            if not isinstance(values, list):
+                continue
+            for item in values:
+                if item not in merged:
+                    merged.append(item)
+        return merged
+
+    @staticmethod
+    def _policy_state(ctx, workspace_id: str) -> dict[str, Any]:
+        """Read the stored workspace level and the two other union levels.
+
+        One read of the workspace level (``get_level``: stored, not merged) plus
+        the tenant-global and caller-user levels, which PUT cannot change and
+        therefore reads exactly once, before any write.
+        """
+        workspace_uuid = UUID(str(workspace_id))
+        stored = PreferenceService().get_level(
+            ctx, scope="workspace", workspace_id=workspace_uuid
+        )["values"]
+        global_levels = levels_for(
+            tenant_id=ctx.tenant_id,
+            workspace_id=None,
+            user_id=None,
+            key=DISABLED_SLOTS_KEY,
+        )
+        user_levels = levels_for(
+            tenant_id=ctx.tenant_id,
+            workspace_id=None,
+            user_id=ctx.user_id,
+            key=DISABLED_SLOTS_KEY,
+        )
+        stored_disabled = stored.get(DISABLED_SLOTS_KEY)
+        return {
+            "stored_disabled_slots": (
+                stored_disabled if isinstance(stored_disabled, list) else []
+            ),
+            "stored_allow_user_opt_out": stored.get(ALLOW_USER_OPT_OUT_KEY, True),
+            "global_disabled_slots": global_levels.global_,
+            "user_disabled_slots": user_levels.user,
+        }
+
+    def _payload(
+        self,
+        *,
+        enabled: bool,
+        stored_disabled_slots: list[str],
+        stored_allow_user_opt_out: bool,
+        effective_disabled_slots: list[str],
+    ) -> dict[str, Any]:
+        """Assemble the response from values that are already known/in memory."""
+        return {
+            "enabled": enabled,
+            "disabled_slots": stored_disabled_slots,
+            "allow_user_opt_out": stored_allow_user_opt_out,
+            "effective_disabled_slots": effective_disabled_slots,
+            "available_slots": self._available_slots(),
+        }
 
     @extend_schema(
         tags=["memory"],
-        summary="Read the workspace's memory feature toggle",
+        summary="Read the workspace's memory feature toggle and injection policy",
         responses={
             200: WorkspaceMemorySettingsResponseSerializer,
             401: OpenApiResponse(description="No valid credential."),
@@ -445,7 +564,7 @@ class WorkspaceMemorySettingsView(APIView):
     def get(self, request: Request, workspace_id: str, *args: Any, **kwargs: Any) -> Response:
         lang = detect_lang(request)
         try:
-            get_auth_context(request)
+            ctx = get_auth_context(request)
         except NotAuthenticated:
             return Response(
                 build_error_response("AUTHENTICATION_REQUIRED", lang),
@@ -458,17 +577,40 @@ class WorkspaceMemorySettingsView(APIView):
         # UserRole here) resolves to () -> denied 403 before this method
         # ever runs (mirrors WorkspaceBannerView's GET, see its docstring).
         settings_row = WorkspaceMemorySettings.objects.filter(workspace_id=workspace_id).first()
-        return Response({"enabled": settings_row.enabled if settings_row else True})
+        enabled = settings_row.enabled if settings_row else True
+        state = self._policy_state(ctx, workspace_id)
+        return Response(
+            self._payload(
+                enabled=enabled,
+                stored_disabled_slots=state["stored_disabled_slots"],
+                stored_allow_user_opt_out=state["stored_allow_user_opt_out"],
+                effective_disabled_slots=self._merge_disabled_slots(
+                    state["global_disabled_slots"],
+                    state["stored_disabled_slots"],
+                    state["user_disabled_slots"],
+                ),
+            )
+        )
 
     @extend_schema(
         tags=["memory"],
-        summary="Toggle the workspace's memory feature",
+        summary="Toggle the workspace's memory feature and injection policy",
         request=WorkspaceMemorySettingsWriteSerializer,
         responses={
             200: WorkspaceMemorySettingsResponseSerializer,
-            400: OpenApiResponse(description="'enabled' is not a boolean."),
+            400: OpenApiResponse(
+                description=(
+                    "'enabled'/'allow_user_opt_out' is not a boolean, or "
+                    "'disabled_slots' names an unknown or hard-off slot."
+                )
+            ),
             401: OpenApiResponse(description="No valid credential."),
-            403: OpenApiResponse(description="Editor or admin role required."),
+            403: OpenApiResponse(
+                description=(
+                    "Editor or admin role required; the Q1 workspace policy "
+                    "keys additionally require the workspace-config operation."
+                )
+            ),
         },
     )
     def put(self, request: Request, workspace_id: str, *args: Any, **kwargs: Any) -> Response:
@@ -488,25 +630,126 @@ class WorkspaceMemorySettingsView(APIView):
                 status=status.HTTP_403_FORBIDDEN,
             )
 
-        enabled = request.data.get("enabled", True)
-        if not isinstance(enabled, bool):
+        data = request.data if isinstance(request.data, dict) else {}
+
+        # ``enabled``: a supplied value wins; an omitted one keeps the stored
+        # row (partial semantics) and defaults to True for a workspace with no
+        # row yet — so ``PUT {"enabled": false}`` stays byte-identical.
+        if "enabled" in data:
+            enabled = data["enabled"]
+            if not isinstance(enabled, bool):
+                return Response(
+                    build_error_response(
+                        "VALIDATION_ERROR", lang, message="Field 'enabled' must be a boolean."
+                    ),
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        else:
+            stored_enabled = (
+                WorkspaceMemorySettings.objects.filter(workspace_id=workspace_id)
+                .values_list("enabled", flat=True)
+                .first()
+            )
+            enabled = True if stored_enabled is None else stored_enabled
+
+        # Validate the Q1 payload against the registry BEFORE anything is
+        # written, and per field, so a rejection can name the field. This is
+        # the same single validation path ``PreferenceService.set_level``
+        # uses (the registry's own ``validate_preference_value``), not a
+        # second implementation.
+        submitted: dict[str, Any] = {}
+        for field, key in self._POLICY_FIELDS:
+            if field not in data:
+                continue
+            value = data[field]
+            try:
+                validate_preference_value(get_preference_key(key), value)
+            except ValidationError as exc:
+                return Response(
+                    build_error_response(
+                        "VALIDATION_ERROR",
+                        lang,
+                        message=str(exc),
+                        details=[{"field": field, "message": str(exc)}],
+                    ),
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            submitted[key] = value
+
+        # Pre-write reads only: a failure here happens before anything is
+        # committed, so it cannot leave a half-applied request behind. The
+        # response is then assembled from these values plus the validated
+        # payload — deliberately no preference lookup after the commit.
+        state = self._policy_state(ctx, workspace_id)
+
+        # Only fields that actually change are written: a GET→PUT round-trip of
+        # the stored workspace level is a genuine no-op (no row, no audit
+        # entry), which is what keeps a caller's personal opt-out out of the
+        # workspace policy. A ``null`` value means "reset this level" (Q1's
+        # documented semantics), so the response falls back to the default.
+        stored_disabled_slots = state["stored_disabled_slots"]
+        stored_allow_user_opt_out = state["stored_allow_user_opt_out"]
+        policy_writes: dict[str, Any] = {}
+
+        if DISABLED_SLOTS_KEY in submitted:
+            value = submitted[DISABLED_SLOTS_KEY]
+            if value is None:
+                policy_writes[DISABLED_SLOTS_KEY] = None
+                stored_disabled_slots = []
+            else:
+                if value != stored_disabled_slots:
+                    policy_writes[DISABLED_SLOTS_KEY] = value
+                stored_disabled_slots = value
+
+        if ALLOW_USER_OPT_OUT_KEY in submitted:
+            value = submitted[ALLOW_USER_OPT_OUT_KEY]
+            if value is None:
+                policy_writes[ALLOW_USER_OPT_OUT_KEY] = None
+                stored_allow_user_opt_out = True
+            else:
+                if value != stored_allow_user_opt_out:
+                    policy_writes[ALLOW_USER_OPT_OUT_KEY] = value
+                stored_allow_user_opt_out = value
+
+        try:
+            with transaction.atomic():
+                if policy_writes:
+                    PreferenceService().set_level(
+                        ctx,
+                        scope="workspace",
+                        values=policy_writes,
+                        workspace_id=UUID(str(workspace_id)),
+                    )
+                # Explicit tenant_id (not relying on TenantManager.create()'s
+                # auto-inject): update_or_create's create fallback goes through
+                # the underlying QuerySet.create(), which bypasses the
+                # Manager-level override, so tenant_id must be supplied here
+                # directly (same pattern as TenantThemeDefaultView.put's
+                # unscoped.update_or_create).
+                settings_row, _ = WorkspaceMemorySettings.objects.update_or_create(
+                    workspace_id=workspace_id,
+                    defaults={"enabled": enabled, "tenant_id": ctx.tenant_id},
+                )
+        except PermissionDeniedError:
+            # The Q1 workspace level is admin-tier (WORKSPACE_CONFIG); an
+            # editor keeps the historical ``enabled`` right but not this one.
             return Response(
-                build_error_response(
-                    "VALIDATION_ERROR", lang, message="Field 'enabled' must be a boolean."
-                ),
-                status=status.HTTP_400_BAD_REQUEST,
+                build_error_response("PERMISSION_DENIED", lang),
+                status=status.HTTP_403_FORBIDDEN,
             )
 
-        # Explicit tenant_id (not relying on TenantManager.create()'s
-        # auto-inject): update_or_create's create fallback goes through the
-        # underlying QuerySet.create(), which bypasses the Manager-level
-        # override, so tenant_id must be supplied here directly (same
-        # pattern as TenantThemeDefaultView.put's unscoped.update_or_create).
-        settings_row, _ = WorkspaceMemorySettings.objects.update_or_create(
-            workspace_id=workspace_id,
-            defaults={"enabled": enabled, "tenant_id": ctx.tenant_id},
+        return Response(
+            self._payload(
+                enabled=settings_row.enabled,
+                stored_disabled_slots=stored_disabled_slots,
+                stored_allow_user_opt_out=stored_allow_user_opt_out,
+                effective_disabled_slots=self._merge_disabled_slots(
+                    state["global_disabled_slots"],
+                    stored_disabled_slots,
+                    state["user_disabled_slots"],
+                ),
+            )
         )
-        return Response({"enabled": settings_row.enabled})
 
 
 class SystemMemorySettingsView(APIView):

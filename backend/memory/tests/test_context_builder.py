@@ -66,7 +66,9 @@ class TestBuildMemoryContext:
             backend.upsert(tenant.id, "workspace", ws.id, "Project uses hexagonal architecture.")
             backend.upsert(tenant.id, "user", user.id, "Prefers TypeScript over JavaScript.")
 
-            context = build_memory_context(tenant.id, ws.id, user.id, "architecture question")
+            context = build_memory_context(
+                tenant.id, ws.id, user.id, "architecture question", slot_name="testcase_derive"
+            )
 
             assert "hexagonal architecture" in context
             assert "TypeScript" in context
@@ -75,7 +77,9 @@ class TestBuildMemoryContext:
         with active_tenant() as tenant:
             ws = make_workspace(tenant)
             user = make_user(tenant)
-            context = build_memory_context(tenant.id, ws.id, user.id, "anything")
+            context = build_memory_context(
+                tenant.id, ws.id, user.id, "anything", slot_name="testcase_derive"
+            )
             assert context == ""
 
     def test_disabled_workspace_returns_empty_even_with_existing_memory(self):
@@ -91,7 +95,9 @@ class TestBuildMemoryContext:
             backend.upsert(tenant.id, "workspace", ws.id, "Project uses hexagonal architecture.")
             WorkspaceMemorySettings.objects.create(tenant_id=tenant.id, workspace=ws, enabled=False)
 
-            context = build_memory_context(tenant.id, ws.id, user.id, "architecture question")
+            context = build_memory_context(
+                tenant.id, ws.id, user.id, "architecture question", slot_name="testcase_derive"
+            )
 
             assert context == ""
 
@@ -136,7 +142,12 @@ class TestArtifactAwareContext:
             )
 
             context = build_memory_context(
-                tenant.id, ws.id, user.id, "login architecture", artifact_id=artifact.id
+                tenant.id,
+                ws.id,
+                user.id,
+                "login architecture",
+                slot_name="testcase_derive",
+                artifact_id=artifact.id,
             )
 
         lines = context.splitlines()
@@ -161,7 +172,9 @@ class TestArtifactAwareContext:
             backend.write(tenant.id, "artifact", artifact.id, "Artifact-only fact.")
             backend.write(tenant.id, "workspace", ws.id, "Workspace fact.")
 
-            context = build_memory_context(tenant.id, ws.id, user.id, "anything")
+            context = build_memory_context(
+                tenant.id, ws.id, user.id, "anything", slot_name="testcase_derive"
+            )
 
         assert "Artifact context:" not in context
         assert "Workspace context:" in context
@@ -174,7 +187,9 @@ class TestArtifactAwareContext:
             backend = get_memory_backend()
             backend.write(tenant.id, "artifact", artifact.id, "Artifact-only fact.")
 
-            assert build_memory_context(tenant.id, ws.id, user.id, "anything") == ""
+            assert build_memory_context(
+                tenant.id, ws.id, user.id, "anything", slot_name="testcase_derive"
+            ) == ""
 
     def test_unresolvable_contributor_degrades_to_a_label(self):
         with active_tenant() as tenant:
@@ -184,6 +199,8 @@ class TestArtifactAwareContext:
             # No contributor_user_id -> "agent".
             backend.write(tenant.id, "workspace", ws.id, "Written by a system path.")
 
-            context = build_memory_context(tenant.id, ws.id, user.id, "anything")
+            context = build_memory_context(
+                tenant.id, ws.id, user.id, "anything", slot_name="testcase_derive"
+            )
 
         assert "(by agent, " in context

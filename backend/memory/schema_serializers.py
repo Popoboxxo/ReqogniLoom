@@ -50,6 +50,7 @@ __all__ = [
     "SystemMemorySettingsResponseSerializer",
     "WorkspaceMemorySettingsResponseSerializer",
     "WorkspaceMemorySettingsWriteSerializer",
+    "WorkspaceMemorySlotSerializer",
 ]
 
 
@@ -236,20 +237,93 @@ class MemorySelfServiceDeleteResponseSerializer(MemoryEnvelopeSerializer):
     deleted = serializers.IntegerField()
 
 
+class WorkspaceMemorySlotSerializer(serializers.Serializer):
+    """One entry of ``available_slots`` (Plan A T-A1-3).
+
+    ``hard_off`` marks a slot that can never receive memory (Plan A T-A1-1),
+    so the UI disables the switch instead of offering a value the writer
+    rejects with "slot is hard-off".
+    """
+
+    name = serializers.CharField()
+    hard_off = serializers.BooleanField()
+
+
 class WorkspaceMemorySettingsResponseSerializer(serializers.Serializer):
-    """``GET/PUT /workspaces/{id}/memory-settings/`` — ``{enabled: <bool>}``."""
+    """``GET/PUT /workspaces/{id}/memory-settings/``.
+
+    Plan A T-A1-3 extends the historical ``{enabled: <bool>}`` additively.
+    Two distinct values must not be confused:
+
+    * ``disabled_slots`` / ``allow_user_opt_out`` are the **stored workspace
+      level** — exactly what a PUT writes, so a GET→PUT round-trip is a no-op
+      and cannot promote a caller's personal user-level opt-out into
+      workspace-wide policy.
+    * ``effective_disabled_slots`` is the **merged** value the injection policy
+      applies (global ∪ workspace ∪ caller's user level). Read-only. There is
+      no ``effective_allow_user_opt_out``: ``memory.allow_user_opt_out`` has
+      only the workspace level, so a merged twin would be identical and merely
+      invite the same confusion.
+
+    ``available_slots`` is the derived slot catalogue. The new fields are
+    ``required=False`` because the serializer describes every version of the
+    payload, not just the current one.
+    """
 
     enabled = serializers.BooleanField()
+    disabled_slots = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text=(
+            "Stored workspace level only (editable source of truth). A PUT of "
+            "this value writes this level; other levels are not included."
+        ),
+    )
+    allow_user_opt_out = serializers.BooleanField(
+        required=False,
+        help_text="Stored workspace level (the key's only level).",
+    )
+    effective_disabled_slots = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text=(
+            "Merged value the injection policy applies (global ∪ workspace ∪ "
+            "the caller's user level). Read-only, for display."
+        ),
+    )
+    available_slots = WorkspaceMemorySlotSerializer(many=True, required=False)
 
 
 class WorkspaceMemorySettingsWriteSerializer(serializers.Serializer):
     """Body of ``PUT /workspaces/{id}/memory-settings/``.
 
-    ``enabled`` is optional because the handler defaults a missing key to
-    ``True``; a non-boolean value is answered with 400 by the view itself.
+    Partial update (Plan A T-A1-3): every field is optional and an omitted
+    field is left unchanged (``enabled`` included — the view keeps the stored
+    value). A supplied non-boolean value or an unknown/hard-off slot name is
+    answered with 400 by the view.
     """
 
-    enabled = serializers.BooleanField(required=False, default=True)
+    enabled = serializers.BooleanField(required=False)
+    disabled_slots = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Consumer slots this workspace suppresses, at the workspace level "
+            "only (not the merged value). Validated against the derived slot "
+            "vocabulary; a hard-off slot is rejected. Omitted = unchanged; "
+            "null = reset this level."
+        ),
+    )
+    allow_user_opt_out = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Workspace level only. When false, a user's personal memory "
+            "opt-out is overridden for workspace/artifact memory (the personal "
+            "user scope stays off). Omitted = unchanged; null = reset."
+        ),
+    )
 
 
 class SystemMemorySettingsResponseSerializer(serializers.Serializer):

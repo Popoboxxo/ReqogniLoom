@@ -376,7 +376,13 @@ class AiReviewService(ServiceBase):
 
             query_text = json.dumps(findings_payload)[:2000]
             return build_memory_context(
-                ctx.tenant_id, UUID(str(workspace_id)), ctx.user_id, query_text
+                ctx.tenant_id,
+                UUID(str(workspace_id)),
+                ctx.user_id,
+                query_text,
+                # Plan A T-A1-2: the review prompt has no registry slot, so the
+                # policy knows this consumer only by this explicit name.
+                slot_name="audit.ai_review",
             )
         except Exception as exc:  # noqa: BLE001 -- fail-open, see docstring
             logger.warning(

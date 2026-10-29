@@ -2191,3 +2191,257 @@ class TestBackendNeutralSettings:
             entry = AuditEntry.objects.order_by("-id").first()
             assert entry is not None
             assert "sk-audit-secret" not in (entry.change_reason or "")
+
+
+@pytest.mark.django_db
+class TestWorkspaceMemorySettingsPolicyFacade:
+    """Plan A T-A1-3: the workspace policy keys behind the existing facade.
+
+    ``WorkspaceMemorySettings`` stays the facade for the historical
+    ``{"enabled": …}`` contract; ``disabled_slots``/``allow_user_opt_out`` are
+    Q1 workspace-level values written through ``PreferenceService`` (one
+    validation path, one audit entry, no direct preference-row writes).
+    """
+
+    @staticmethod
+    def _client_for(token: str) -> APIClient:
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+        return client
+
+    def test_ws_settings_get_includes_policy_defaults(self):
+        from application.prompt_slots import get_prompt_slots
+        from memory.injection_policy import MEMORY_CONSUMER_SLOTS
+
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            user, token = editor_user_and_token(tenant, ws)
+
+            response = self._client_for(token).get(
+                f"/api/v1/workspaces/{ws.id}/memory-settings/"
+            )
+
+            assert response.status_code == 200, response.data
+            assert response.data["enabled"] is True
+            assert response.data["disabled_slots"] == []
+            assert response.data["allow_user_opt_out"] is True
+            assert response.data["effective_disabled_slots"] == []
+
+            available = response.data["available_slots"]
+            names = [entry["name"] for entry in available]
+            assert names == sorted(names)
+            hard_off = {entry["name"] for entry in available if entry["hard_off"]}
+            assert hard_off == {
+                "interview.transcript_summary",
+                "bundle_compression",
+                "memory.extract",
+            }
+            declared = {
+                name
+                for name, spec in get_prompt_slots().items()
+                if "memory_context" in spec.data_variables
+            }
+            assert declared | {"audit.ai_review"} <= set(names)
+            assert set(MEMORY_CONSUMER_SLOTS) == declared | {"audit.ai_review"}
+
+    def test_ws_settings_put_rejects_unknown_and_hard_off_slots(self):
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            user, token = _workspace_admin_user_and_token(tenant, ws)
+            client = self._client_for(token)
+            url = f"/api/v1/workspaces/{ws.id}/memory-settings/"
+
+            unknown = client.put(
+                url, {"disabled_slots": ["no_such_slot"]}, format="json"
+            )
+            assert unknown.status_code == 400, unknown.data
+            assert unknown.data["error"]["code"] == "VALIDATION_ERROR"
+            assert unknown.data["error"]["details"][0]["field"] == "disabled_slots"
+
+            hard_off = client.put(
+                url, {"disabled_slots": ["bundle_compression"]}, format="json"
+            )
+            assert hard_off.status_code == 400, hard_off.data
+            assert hard_off.data["error"]["code"] == "VALIDATION_ERROR"
+            assert "slot is hard-off" in hard_off.data["error"]["message"] or any(
+                "slot is hard-off" in str(detail)
+                for detail in hard_off.data["error"]["details"]
+            )
+
+            bad_bool = client.put(
+                url, {"allow_user_opt_out": "yes"}, format="json"
+            )
+            assert bad_bool.status_code == 400, bad_bool.data
+            assert bad_bool.data["error"]["code"] == "VALIDATION_ERROR"
+
+            # Nothing was written by any rejected request.
+            assert (
+                client.get(url).data["disabled_slots"] == []
+            ), "a rejected PUT must not persist a value"
+
+    def test_ws_settings_put_enabled_only_is_backward_compatible(self):
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            user, token = editor_user_and_token(tenant, ws)
+            client = self._client_for(token)
+            url = f"/api/v1/workspaces/{ws.id}/memory-settings/"
+
+            response = client.put(url, {"enabled": False}, format="json")
+
+            assert response.status_code == 200, response.data
+            assert response.data["enabled"] is False
+            # Additive keys are part of every 200 from now on.
+            assert response.data["disabled_slots"] == []
+            assert response.data["allow_user_opt_out"] is True
+            assert client.get(url).data["enabled"] is False
+
+    def test_ws_settings_put_writes_q1_workspace_level(self):
+        from application.preference_service import PreferenceService
+        from audit.models import AuditEntry
+        from auth_tenancy.context import AuthContext, AuthMethod
+
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            user, token = _workspace_admin_user_and_token(tenant, ws)
+            client = self._client_for(token)
+            url = f"/api/v1/workspaces/{ws.id}/memory-settings/"
+
+            response = client.put(
+                url, {"disabled_slots": ["testcase_derive"]}, format="json"
+            )
+            assert response.status_code == 200, response.data
+            assert response.data["disabled_slots"] == ["testcase_derive"]
+
+            ctx = AuthContext(
+                user_id=user.id,
+                tenant_id=tenant.id,
+                active_roles=("admin",),
+                auth_method=AuthMethod.BEARER_TOKEN,
+                workspace_id=ws.id,
+            )
+            stored = PreferenceService().get_level(
+                ctx, scope="workspace", workspace_id=ws.id
+            )
+            assert stored["values"]["memory.disabled_slots"] == ["testcase_derive"]
+
+            entries = AuditEntry.objects.filter(
+                entity_type="preference_value",
+                details__key="memory.disabled_slots",
+            )
+            assert entries.count() == 1, "the facade must audit exactly once"
+
+    def test_ws_settings_put_gates_viewer_and_unauthenticated(self):
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            viewer = make_user(tenant)
+            viewer.set_password(_FACTORY_PASSWORD)
+            viewer.save(update_fields=["password"])
+            assign_role(viewer, ws, "viewer")
+            viewer_token = _login_for_token(viewer.username, _FACTORY_PASSWORD)
+            url = f"/api/v1/workspaces/{ws.id}/memory-settings/"
+
+            viewer_response = self._client_for(viewer_token).put(
+                url, {"disabled_slots": ["testcase_derive"]}, format="json"
+            )
+            assert viewer_response.status_code == 403, viewer_response.data
+
+            anonymous = APIClient().put(
+                url, {"disabled_slots": ["testcase_derive"]}, format="json"
+            )
+            assert anonymous.status_code == 401, anonymous.data
+
+
+@pytest.mark.django_db
+class TestWorkspaceMemorySettingsSourceOfTruth:
+    """The facade reports the STORED workspace level, not the merged union.
+
+    Security review (PR-A11, blocking): ``disabled_slots`` used to be the
+    effective union, so a GET→PUT round-trip by a user with a personal opt-out
+    would silently promote that opt-out into workspace-wide policy. The stored
+    level is the editable source of truth; the merged value is exposed only as
+    the additive, read-only ``effective_disabled_slots``.
+    """
+
+    @staticmethod
+    def _client_for(token: str) -> APIClient:
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+        return client
+
+    def test_get_put_round_trip_does_not_promote_user_level(self):
+        from application.preference_service import PreferenceService
+        from auth_tenancy.context import AuthContext, AuthMethod
+        from memory.injection_policy import ALLOW_USER_OPT_OUT_KEY, DISABLED_SLOTS_KEY
+
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            user, token = _workspace_admin_user_and_token(tenant, ws)
+            ctx = AuthContext(
+                user_id=user.id,
+                tenant_id=tenant.id,
+                active_roles=("admin",),
+                auth_method=AuthMethod.BEARER_TOKEN,
+                workspace_id=ws.id,
+            )
+            # A purely PERSONAL switch: user level only, workspace untouched.
+            PreferenceService().set_level(
+                ctx, scope="user", values={DISABLED_SLOTS_KEY: ["testcase_derive"]}
+            )
+            client = self._client_for(token)
+            url = f"/api/v1/workspaces/{ws.id}/memory-settings/"
+
+            get_response = client.get(url)
+            assert get_response.status_code == 200, get_response.data
+            assert get_response.data["disabled_slots"] == []
+            assert get_response.data["effective_disabled_slots"] == ["testcase_derive"]
+
+            # Round-trip the GET body unchanged.
+            put_response = client.put(url, get_response.data, format="json")
+            assert put_response.status_code == 200, put_response.data
+            assert put_response.data["disabled_slots"] == []
+            assert put_response.data["effective_disabled_slots"] == ["testcase_derive"]
+
+            stored = PreferenceService().get_level(
+                ctx, scope="workspace", workspace_id=ws.id
+            )["values"]
+            assert DISABLED_SLOTS_KEY not in stored, (
+                "a round-trip must not create a workspace-level disable"
+            )
+            assert ALLOW_USER_OPT_OUT_KEY not in stored
+
+    def test_editor_can_toggle_enabled_but_not_policy_keys(self):
+        """Pins the documented deviation: the Q1 workspace level is admin-tier."""
+        from application.preference_service import PreferenceService
+        from auth_tenancy.context import AuthContext, AuthMethod
+        from memory.injection_policy import ALLOW_USER_OPT_OUT_KEY, DISABLED_SLOTS_KEY
+
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            editor, token = editor_user_and_token(tenant, ws)
+            client = self._client_for(token)
+            url = f"/api/v1/workspaces/{ws.id}/memory-settings/"
+
+            enabled_response = client.put(url, {"enabled": False}, format="json")
+            assert enabled_response.status_code == 200, enabled_response.data
+            assert enabled_response.data["enabled"] is False
+
+            for payload in (
+                {"disabled_slots": ["testcase_derive"]},
+                {"allow_user_opt_out": False},
+            ):
+                denied = client.put(url, payload, format="json")
+                assert denied.status_code == 403, denied.data
+                assert denied.data["error"]["code"] == "PERMISSION_DENIED"
+
+            ctx = AuthContext(
+                user_id=editor.id,
+                tenant_id=tenant.id,
+                active_roles=("editor",),
+                auth_method=AuthMethod.BEARER_TOKEN,
+                workspace_id=ws.id,
+            )
+            stored = PreferenceService().get_level(
+                ctx, scope="workspace", workspace_id=ws.id
+            )["values"]
+            assert DISABLED_SLOTS_KEY not in stored
+            assert ALLOW_USER_OPT_OUT_KEY not in stored
