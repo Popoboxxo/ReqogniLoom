@@ -21,8 +21,12 @@ from urllib.parse import unquote
 from uuid import UUID
 
 from django.utils.dateparse import parse_datetime
-from drf_spectacular.utils import extend_schema
-from rest_framework import status
+from drf_spectacular.utils import (
+    OpenApiParameter,
+    OpenApiResponse,
+    extend_schema,
+)
+from rest_framework import serializers, status
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -216,6 +220,185 @@ def _serialize_global_graph(
 
 
 # ---------------------------------------------------------------------------
+# Contract serializers (#1388)
+# ---------------------------------------------------------------------------
+#
+# Contract-only: every handler below hand-builds its response dict (see
+# ``_serialize_global_graph`` / ``_serialize_global_permission`` /
+# ``_serialize_workspace_permission`` / ``_serialize_mismatch``) and keeps
+# doing so. The serializers transcribe those dicts for the generated
+# document — nothing here runs on a request path.
+
+
+class WorkflowTransitionDefinitionSerializer(serializers.Serializer):
+    """One transition row of a global workflow graph."""
+
+    from_state = serializers.CharField()
+    to_state = serializers.CharField()
+    allowed_roles = serializers.ListField(child=serializers.CharField())
+    requires_change_reason = serializers.BooleanField()
+    signature_gate = serializers.BooleanField()
+
+
+class GlobalWorkflowGraphSerializer(serializers.Serializer):
+    """A global workflow definition, or the empty graph for an uninitialised one.
+
+    ``states`` stays a free-form list: the stored ``workflow_json`` rows are
+    the WorkflowEngine's own state documents, not this module's shape.
+    """
+
+    scope = serializers.CharField()
+    tenant_id = serializers.CharField()
+    item_type = serializers.CharField()
+    preset = serializers.CharField()
+    initialized = serializers.BooleanField()
+    initial_state = serializers.CharField(required=False, allow_null=True)
+    states = serializers.ListField(child=serializers.JSONField())
+    transitions = WorkflowTransitionDefinitionSerializer(many=True)
+    updated_at = serializers.DateTimeField(required=False, allow_null=True)
+    #: Additive: how many inheriting workspaces the mutation propagated to.
+    propagated_workspace_count = serializers.IntegerField(required=False)
+
+
+class GlobalWorkflowDefinitionListResponseSerializer(serializers.Serializer):
+    """``GET /workflow-defaults/``."""
+
+    workflow_defaults = GlobalWorkflowGraphSerializer(many=True)
+
+
+class GlobalPermissionDefinitionSerializer(serializers.Serializer):
+    """Tenant-wide permission matrix (``_serialize_global_permission``).
+
+    ``permission_json`` is the RBAC matrix itself — a nested document owned by
+    ``auth_tenancy.services.permission_matrix``, so it stays free-form here.
+    """
+
+    tenant_id = serializers.CharField()
+    permission_json = serializers.JSONField()
+    enforcement_mode = serializers.CharField()
+    updated_at = serializers.DateTimeField(required=False, allow_null=True)
+    #: Additive on a successful write: how many workspaces were propagated.
+    propagated_workspace_count = serializers.IntegerField(required=False)
+
+
+class GlobalPermissionWriteSerializer(serializers.Serializer):
+    """Body of ``PUT``/``PATCH /permission-defaults/``.
+
+    ``permission_json`` is required by the handler (a missing key is a 400).
+    ``enforcement_mode`` is deliberately absent: it is not editable here and a
+    body carrying it is rejected with ``ENFORCEMENT_MODE_NOT_EDITABLE_HERE``.
+    """
+
+    permission_json = serializers.JSONField()
+
+
+class WorkspacePermissionDefinitionSerializer(serializers.Serializer):
+    """One workspace's permission definition (``_serialize_workspace_permission``)."""
+
+    workspace_id = serializers.CharField()
+    permission_json = serializers.JSONField()
+    is_customized = serializers.BooleanField()
+    source_global_id = serializers.CharField(required=False, allow_null=True)
+    updated_at = serializers.DateTimeField(required=False, allow_null=True)
+
+
+class WorkspacePermissionWriteSerializer(serializers.Serializer):
+    """Body of ``PUT``/``PATCH …/permission-definition/``."""
+
+    permission_json = serializers.JSONField()
+
+
+class EnforcementStatusSerializer(serializers.Serializer):
+    """``GET /permission-defaults/enforcement/`` — phase + shadow readiness."""
+
+    enforcement_mode = serializers.CharField()
+    pending_mismatch_count = serializers.IntegerField()
+    mismatch_window_days = serializers.IntegerField()
+    last_mismatch_at = serializers.DateTimeField(required=False, allow_null=True)
+    ready_for_authoritative = serializers.BooleanField()
+    advisory_note = serializers.CharField()
+
+
+class EnforcementFlipRequestSerializer(serializers.Serializer):
+    """Body of ``POST /permission-defaults/enforcement/flip/``."""
+
+    enforcement_mode = serializers.ChoiceField(
+        choices=[
+            GlobalPermissionDefinition.ENFORCEMENT_SHADOW,
+            GlobalPermissionDefinition.ENFORCEMENT_AUTHORITATIVE,
+        ]
+    )
+    #: Echo of the count the caller inspected; a stale value answers 409.
+    confirm_pending_mismatch_count = serializers.IntegerField(
+        required=False, allow_null=True
+    )
+
+
+class WorkflowStateCreateRequestSerializer(serializers.Serializer):
+    """Body of ``POST …/workflow-defaults/{item_type}/{preset}/states/``."""
+
+    name = serializers.CharField()
+
+
+class WorkflowStateRenameRequestSerializer(serializers.Serializer):
+    """Body of ``PATCH …/states/{state_id}/``."""
+
+    name = serializers.CharField()
+
+
+class WorkflowTransitionCreateRequestSerializer(serializers.Serializer):
+    """Body of ``POST …/workflow-defaults/{item_type}/{preset}/transitions/``."""
+
+    from_state = serializers.CharField()
+    to_state = serializers.CharField()
+    allowed_roles = serializers.ListField(
+        child=serializers.CharField(), required=False
+    )
+    requires_change_reason = serializers.BooleanField(required=False)
+    signature_gate = serializers.BooleanField(required=False)
+
+
+class WorkflowTransitionUpdateRequestSerializer(serializers.Serializer):
+    """Body of ``PATCH …/transitions/{transition_id}/``.
+
+    All three fields are optional-and-nullable: an omitted key leaves the
+    stored value alone, an explicit ``null`` clears it.
+    """
+
+    allowed_roles = serializers.ListField(
+        child=serializers.CharField(), required=False, allow_null=True
+    )
+    requires_change_reason = serializers.BooleanField(
+        required=False, allow_null=True
+    )
+    signature_gate = serializers.BooleanField(required=False, allow_null=True)
+
+
+class PermissionMismatchRowSerializer(serializers.Serializer):
+    """One shadow-phase permission-decision mismatch (``_serialize_mismatch``)."""
+
+    id = serializers.CharField()
+    workspace_id = serializers.CharField(required=False, allow_null=True)
+    subject_identifier = serializers.CharField()
+    subject_type = serializers.CharField(required=False, allow_null=True)
+    capability = serializers.CharField()
+    artifact_id = serializers.CharField(required=False, allow_null=True)
+    legacy_decision = serializers.CharField()
+    new_decision = serializers.CharField()
+    context_json = serializers.JSONField(required=False, allow_null=True)
+    created_at = serializers.DateTimeField(required=False, allow_null=True)
+
+
+class PermissionMismatchListResponseSerializer(serializers.Serializer):
+    """``GET /permission-mismatches/`` — the offset-pagination envelope."""
+
+    count = serializers.IntegerField()
+    next = serializers.CharField(required=False, allow_null=True)
+    previous = serializers.CharField(required=False, allow_null=True)
+    results = PermissionMismatchRowSerializer(many=True)
+
+
+# ---------------------------------------------------------------------------
 # 1. Global workflow definitions (REQ-178)
 # ---------------------------------------------------------------------------
 
@@ -229,6 +412,18 @@ class GlobalWorkflowDefinitionListView(APIView):
             "List tenant-wide global workflow definitions. Explicit list id to "
             "keep it distinct from the {item_type}/{preset} detail route (#1388)."
         ),
+        parameters=[
+            OpenApiParameter(
+                "item_type", type=str, location=OpenApiParameter.QUERY
+            ),
+            OpenApiParameter(
+                "preset", type=str, location=OpenApiParameter.QUERY
+            ),
+        ],
+        responses={
+            200: GlobalWorkflowDefinitionListResponseSerializer,
+            403: OpenApiResponse(description="Admin role required."),
+        },
     )
     def get(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         gate = _require_admin(request)
@@ -258,6 +453,13 @@ class GlobalWorkflowDefinitionListView(APIView):
 class GlobalWorkflowDefinitionDetailView(APIView):
     """GET /workflow-defaults/{item_type}/{preset}/ — one definition or empty."""
 
+    @extend_schema(
+        summary="Read one global workflow definition (or the empty graph)",
+        responses={
+            200: GlobalWorkflowGraphSerializer,
+            403: OpenApiResponse(description="Admin role required."),
+        },
+    )
     def get(
         self, request: Request, item_type: str, preset: str, **kwargs: Any
     ) -> Response:
@@ -278,6 +480,16 @@ class GlobalWorkflowDefinitionDetailView(APIView):
 class GlobalWorkflowInitializeView(APIView):
     """POST /workflow-defaults/{item_type}/{preset}/initialize/."""
 
+    @extend_schema(
+        summary="Initialize the global default workflow for an item type/preset",
+        request=None,
+        responses={
+            201: GlobalWorkflowGraphSerializer,
+            400: OpenApiResponse(description="Invalid item type or preset."),
+            403: OpenApiResponse(description="Admin role required."),
+            409: OpenApiResponse(description="Already initialized."),
+        },
+    )
     def post(
         self, request: Request, item_type: str, preset: str, **kwargs: Any
     ) -> Response:
@@ -302,6 +514,16 @@ class GlobalWorkflowInitializeView(APIView):
 class GlobalWorkflowStatesView(APIView):
     """POST /workflow-defaults/{item_type}/{preset}/states/."""
 
+    @extend_schema(
+        summary="Add a state to the global default workflow",
+        request=WorkflowStateCreateRequestSerializer,
+        responses={
+            201: GlobalWorkflowGraphSerializer,
+            400: OpenApiResponse(description="'name' is missing or empty."),
+            403: OpenApiResponse(description="Admin role required."),
+            409: OpenApiResponse(description="Workflow-definition conflict."),
+        },
+    )
     def post(
         self, request: Request, item_type: str, preset: str, **kwargs: Any
     ) -> Response:
@@ -333,6 +555,16 @@ class GlobalWorkflowStatesView(APIView):
 class GlobalWorkflowStateDetailView(APIView):
     """PATCH/DELETE /workflow-defaults/{item_type}/{preset}/states/{state_id}/."""
 
+    @extend_schema(
+        summary="Rename one state of the global default workflow",
+        request=WorkflowStateRenameRequestSerializer,
+        responses={
+            200: GlobalWorkflowGraphSerializer,
+            400: OpenApiResponse(description="'name' is missing or empty."),
+            403: OpenApiResponse(description="Admin role required."),
+            409: OpenApiResponse(description="Workflow-definition conflict."),
+        },
+    )
     def patch(
         self,
         request: Request,
@@ -368,6 +600,14 @@ class GlobalWorkflowStateDetailView(APIView):
             )
         )
 
+    @extend_schema(
+        summary="Delete one state of the global default workflow",
+        responses={
+            200: GlobalWorkflowGraphSerializer,
+            403: OpenApiResponse(description="Admin role required."),
+            409: OpenApiResponse(description="State still referenced / items stranded."),
+        },
+    )
     def delete(
         self,
         request: Request,
@@ -400,6 +640,16 @@ class GlobalWorkflowStateDetailView(APIView):
 class GlobalWorkflowTransitionsView(APIView):
     """POST /workflow-defaults/{item_type}/{preset}/transitions/."""
 
+    @extend_schema(
+        summary="Add a transition to the global default workflow",
+        request=WorkflowTransitionCreateRequestSerializer,
+        responses={
+            201: GlobalWorkflowGraphSerializer,
+            400: OpenApiResponse(description="from_state/to_state missing or invalid."),
+            403: OpenApiResponse(description="Admin role required."),
+            409: OpenApiResponse(description="Workflow-definition conflict."),
+        },
+    )
     def post(
         self, request: Request, item_type: str, preset: str, **kwargs: Any
     ) -> Response:
@@ -449,6 +699,16 @@ class GlobalWorkflowTransitionDetailView(APIView):
             return _validation(lang, "transition id must be '<from>__<to>'")
         return parts[0], parts[1]
 
+    @extend_schema(
+        summary="Update one transition of the global default workflow",
+        request=WorkflowTransitionUpdateRequestSerializer,
+        responses={
+            200: GlobalWorkflowGraphSerializer,
+            400: OpenApiResponse(description="Malformed transition id or body."),
+            403: OpenApiResponse(description="Admin role required."),
+            409: OpenApiResponse(description="Workflow-definition conflict."),
+        },
+    )
     def patch(
         self,
         request: Request,
@@ -488,6 +748,15 @@ class GlobalWorkflowTransitionDetailView(APIView):
             )
         )
 
+    @extend_schema(
+        summary="Delete one transition of the global default workflow",
+        responses={
+            200: GlobalWorkflowGraphSerializer,
+            400: OpenApiResponse(description="Malformed transition id."),
+            403: OpenApiResponse(description="Admin role required."),
+            409: OpenApiResponse(description="Workflow-definition conflict."),
+        },
+    )
     def delete(
         self,
         request: Request,
@@ -542,6 +811,13 @@ def _serialize_global_permission(obj: Any) -> dict[str, Any]:
 class GlobalPermissionDefinitionView(APIView):
     """GET/PUT/PATCH /permission-defaults/ (tenant singleton, admin-only)."""
 
+    @extend_schema(
+        summary="Read the tenant-wide permission matrix",
+        responses={
+            200: GlobalPermissionDefinitionSerializer,
+            403: OpenApiResponse(description="Admin role required."),
+        },
+    )
     def get(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         gate = _require_admin(request)
         if isinstance(gate, Response):
@@ -550,9 +826,27 @@ class GlobalPermissionDefinitionView(APIView):
         obj = PermissionDefinitionService().get_or_create_global(ctx.tenant_id)
         return Response(_serialize_global_permission(obj))
 
+    @extend_schema(
+        summary="Replace the tenant-wide permission matrix",
+        request=GlobalPermissionWriteSerializer,
+        responses={
+            200: GlobalPermissionDefinitionSerializer,
+            400: OpenApiResponse(description="Missing/invalid permission_json, or enforcement_mode supplied."),
+            403: OpenApiResponse(description="Admin role required."),
+        },
+    )
     def put(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         return self._write(request, partial=False)
 
+    @extend_schema(
+        summary="Merge into the tenant-wide permission matrix",
+        request=GlobalPermissionWriteSerializer,
+        responses={
+            200: GlobalPermissionDefinitionSerializer,
+            400: OpenApiResponse(description="Missing/invalid permission_json, or enforcement_mode supplied."),
+            403: OpenApiResponse(description="Admin role required."),
+        },
+    )
     def patch(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         return self._write(request, partial=True)
 
@@ -590,6 +884,23 @@ class GlobalPermissionDefinitionView(APIView):
 class EnforcementStatusView(APIView):
     """GET /permission-defaults/enforcement/ — phase + shadow readiness."""
 
+    @extend_schema(
+        summary="Read the enforcement phase and shadow readiness",
+        parameters=[
+            OpenApiParameter(
+                "window_days",
+                type=int,
+                location=OpenApiParameter.QUERY,
+                default=DEFAULT_MISMATCH_WINDOW_DAYS,
+                description="Mismatch look-back window in days (clamped to 1..365).",
+            ),
+        ],
+        responses={
+            200: EnforcementStatusSerializer,
+            400: OpenApiResponse(description="window_days is not an integer."),
+            403: OpenApiResponse(description="Admin role required."),
+        },
+    )
     def get(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         gate = _require_admin(request)
         if isinstance(gate, Response):
@@ -632,6 +943,20 @@ class EnforcementStatusView(APIView):
 class EnforcementFlipView(APIView):
     """POST /permission-defaults/enforcement/flip/ — guarded phase transition."""
 
+    @extend_schema(
+        summary="Flip the enforcement phase (guarded transition)",
+        request=EnforcementFlipRequestSerializer,
+        responses={
+            200: GlobalPermissionDefinitionSerializer,
+            400: OpenApiResponse(
+                description="Unknown enforcement_mode or non-integer confirm count."
+            ),
+            403: OpenApiResponse(description="Admin role required."),
+            409: OpenApiResponse(
+                description="Confirmed mismatch count is stale (re-fetch and re-confirm)."
+            ),
+        },
+    )
     def post(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         gate = _require_admin(request)
         if isinstance(gate, Response):
@@ -708,6 +1033,15 @@ class WorkspacePermissionDefinitionView(APIView):
     missing permission cannot reach the FK constraint as a 500.
     """
 
+    @extend_schema(
+        summary="Read the workspace's permission definition",
+        responses={
+            200: WorkspacePermissionDefinitionSerializer,
+            403: OpenApiResponse(
+                description="Admin role required, or caller is not a member of the workspace."
+            ),
+        },
+    )
     def get(
         self, request: Request, workspace_id: str, **kwargs: Any
     ) -> Response:
@@ -723,11 +1057,33 @@ class WorkspacePermissionDefinitionView(APIView):
         )
         return Response(_serialize_workspace_permission(obj))
 
+    @extend_schema(
+        summary="Replace the workspace's permission definition",
+        request=WorkspacePermissionWriteSerializer,
+        responses={
+            200: WorkspacePermissionDefinitionSerializer,
+            400: OpenApiResponse(description="Missing or invalid permission_json."),
+            403: OpenApiResponse(
+                description="Admin role required, or caller is not a member of the workspace."
+            ),
+        },
+    )
     def put(
         self, request: Request, workspace_id: str, **kwargs: Any
     ) -> Response:
         return self._write(request, workspace_id, partial=False)
 
+    @extend_schema(
+        summary="Merge into the workspace's permission definition",
+        request=WorkspacePermissionWriteSerializer,
+        responses={
+            200: WorkspacePermissionDefinitionSerializer,
+            400: OpenApiResponse(description="Missing or invalid permission_json."),
+            403: OpenApiResponse(
+                description="Admin role required, or caller is not a member of the workspace."
+            ),
+        },
+    )
     def patch(
         self, request: Request, workspace_id: str, **kwargs: Any
     ) -> Response:
@@ -764,6 +1120,17 @@ class WorkspacePermissionResetView(APIView):
     Same membership gate as :class:`WorkspacePermissionDefinitionView` (#1077).
     """
 
+    @extend_schema(
+        summary="Reset the workspace's permission definition to the global default",
+        request=None,
+        responses={
+            200: WorkspacePermissionDefinitionSerializer,
+            403: OpenApiResponse(
+                description="Admin role required, or caller is not a member of the workspace."
+            ),
+            409: OpenApiResponse(description="No global default exists to inherit from."),
+        },
+    )
     def post(
         self, request: Request, workspace_id: str, **kwargs: Any
     ) -> Response:
@@ -813,6 +1180,38 @@ def _serialize_mismatch(row: Any) -> dict[str, Any]:
 class PermissionMismatchListView(APIView):
     """GET /permission-mismatches/ — paginated shadow-phase mismatch log."""
 
+    @extend_schema(
+        summary="List shadow-phase permission-decision mismatches",
+        parameters=[
+            OpenApiParameter("page", type=int, location=OpenApiParameter.QUERY, default=1),
+            OpenApiParameter(
+                "page_size", type=int, location=OpenApiParameter.QUERY, default=25
+            ),
+            OpenApiParameter("workspace_id", type=str, location=OpenApiParameter.QUERY),
+            OpenApiParameter("capability", type=str, location=OpenApiParameter.QUERY),
+            OpenApiParameter("subject_type", type=str, location=OpenApiParameter.QUERY),
+            OpenApiParameter(
+                "subject_identifier", type=str, location=OpenApiParameter.QUERY
+            ),
+            OpenApiParameter(
+                "since",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                description="ISO-8601 lower bound on created_at.",
+            ),
+            OpenApiParameter(
+                "until",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                description="ISO-8601 upper bound on created_at.",
+            ),
+        ],
+        responses={
+            200: PermissionMismatchListResponseSerializer,
+            400: OpenApiResponse(description="page/page_size are not integers."),
+            403: OpenApiResponse(description="Admin role required."),
+        },
+    )
     def get(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         gate = _require_admin(request)
         if isinstance(gate, Response):

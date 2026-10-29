@@ -27,6 +27,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, status
 from rest_framework.exceptions import NotAuthenticated
 from rest_framework.request import Request
@@ -45,6 +46,18 @@ from rest_api.serializers import (
     build_error_response,
     detect_lang,
 )
+
+
+class NotificationPreferenceResponseSerializer(serializers.Serializer):
+    """``{"preferences": {"<kind>": <bool>}}`` — the effective switch map (#1388).
+
+    Contract-only: the view returns ``NotificationPreferenceService``'s dict
+    unchanged. The inner map is free-form at field level on purpose — the closed
+    vocabulary is ``notification_preference_service.ALL_KINDS``, and a second
+    literal here would be able to drift from it.
+    """
+
+    preferences = serializers.DictField(child=serializers.BooleanField())
 
 
 class NotificationPreferenceUpdateSerializer(
@@ -82,6 +95,13 @@ class NotificationPreferenceView(APIView):
 
     permission_classes = [HasOperationPermission]
 
+    @extend_schema(
+        summary="Read the caller's own notification preferences",
+        responses={
+            200: NotificationPreferenceResponseSerializer,
+            401: OpenApiResponse(description="No valid credential."),
+        },
+    )
     def get(self, request: Request, **kwargs: Any) -> Response:
         lang = detect_lang(request)
         try:
@@ -93,6 +113,15 @@ class NotificationPreferenceView(APIView):
             {"preferences": NotificationPreferenceService().get_effective_preferences(ctx)}
         )
 
+    @extend_schema(
+        summary="Partially update the caller's own notification preferences",
+        request=NotificationPreferenceUpdateSerializer,
+        responses={
+            200: NotificationPreferenceResponseSerializer,
+            400: OpenApiResponse(description="Unknown trigger kind or non-boolean value."),
+            401: OpenApiResponse(description="No valid credential."),
+        },
+    )
     def patch(self, request: Request, **kwargs: Any) -> Response:
         lang = detect_lang(request)
         try:
@@ -137,4 +166,8 @@ def _authentication_required(lang: str) -> Response:
     )
 
 
-__all__ = ["NotificationPreferenceUpdateSerializer", "NotificationPreferenceView"]
+__all__ = [
+    "NotificationPreferenceResponseSerializer",
+    "NotificationPreferenceUpdateSerializer",
+    "NotificationPreferenceView",
+]

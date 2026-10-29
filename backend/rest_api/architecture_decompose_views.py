@@ -25,6 +25,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, status
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -68,9 +69,92 @@ class GenerateDraftRequestSerializer(
     max_depth = serializers.IntegerField(required=False, min_value=1)
 
 
+# ---------------------------------------------------------------------------
+# Contract serializers (#1388)
+# ---------------------------------------------------------------------------
+#
+# Contract-only. Both handlers hand ``DecompositionDraft.to_dict()`` /
+# ``CommitResult.to_dict()`` straight to ``Response``; these serializers
+# transcribe those dicts for the generated document only.
+
+
+class DraftRequirementSerializer(serializers.Serializer):
+    """One proposed derived Requirement (``DraftRequirement``)."""
+
+    title = serializers.CharField()
+    description = serializers.CharField(required=False, allow_blank=True)
+    rationale = serializers.CharField(required=False, allow_blank=True)
+
+
+class DraftNodeSerializer(serializers.Serializer):
+    """One proposed (ArchitectureElement + derived Requirement) pair."""
+
+    temp_id = serializers.CharField()
+    parent_temp_id = serializers.CharField(required=False, allow_null=True)
+    title = serializers.CharField()
+    description = serializers.CharField(required=False, allow_blank=True)
+    element_type = serializers.CharField()
+    requirement = DraftRequirementSerializer()
+
+
+class DecompositionDraftSerializer(serializers.Serializer):
+    """``DecompositionDraft.to_dict()`` — the reviewable, non-persistent draft."""
+
+    workspace_id = serializers.CharField()
+    root_element_id = serializers.CharField()
+    parent_requirement_id = serializers.CharField()
+    #: The LLM provider that answered; ``""`` when none was resolvable.
+    provider = serializers.CharField(required=False, allow_blank=True)
+    #: True when no real provider ran and the content is a fallback.
+    degraded = serializers.BooleanField()
+    nodes = DraftNodeSerializer(many=True)
+
+
+class DecompositionCommitRequestSerializer(serializers.Serializer):
+    """Body of ``POST .../decompose/commit/`` — the reviewed draft, verbatim.
+
+    Only the envelope is declared here: ``DecompositionDraft.from_dict`` owns
+    the nested shape and answers a 400 with the precise violation, so a second
+    declaration in this module could only drift from it.
+    """
+
+    draft = serializers.DictField()
+
+
+class DecompositionCommitResultSerializer(serializers.Serializer):
+    """``CommitResult.to_dict()`` — what the commit created and verified."""
+
+    committed = serializers.BooleanField()
+    root_element_id = serializers.CharField()
+    created_element_ids = serializers.ListField(child=serializers.CharField())
+    created_requirement_ids = serializers.ListField(child=serializers.CharField())
+    created_link_ids = serializers.ListField(child=serializers.CharField())
+    verified_rules = serializers.ListField(child=serializers.CharField())
+    counts = serializers.DictField(child=serializers.IntegerField())
+
+
 class WorkspaceArchitectureDecomposeView(APIView):
     """POST .../architecture/decompose/ — generate a draft (no persistence)."""
 
+    @extend_schema(
+        summary="Generate a non-persistent decomposition draft",
+        description=(
+            "Asks the copilot for a reviewable draft for one ArchitectureElement. "
+            "Nothing is written: the returned `nodes` are proposals. Available in "
+            "standard/extended rigor only."
+        ),
+        request=GenerateDraftRequestSerializer,
+        responses={
+            200: DecompositionDraftSerializer,
+            400: OpenApiResponse(description="Invalid body or draft generation failure."),
+            403: OpenApiResponse(
+                description="Workspace is minimal-rigor, or the caller lacks write access."
+            ),
+            404: OpenApiResponse(description="Architecture element not found."),
+            503: OpenApiResponse(description="LLM provider unavailable."),
+            504: OpenApiResponse(description="LLM provider timeout."),
+        },
+    )
     def post(
         self, request: Request, workspace_id: str, *args: Any, **kwargs: Any
     ) -> Response:
@@ -149,6 +233,26 @@ class WorkspaceArchitectureDecomposeView(APIView):
 class WorkspaceArchitectureDecomposeCommitView(APIView):
     """POST .../architecture/decompose/commit/ — persist a reviewed draft."""
 
+    @extend_schema(
+        summary="Commit a reviewed decomposition draft in one transaction",
+        description=(
+            "Persists the child elements, derived requirements and internal trace "
+            "links of a draft. Rolls back entirely (422) when the committed result "
+            "violates ARCH-003/TRACE-P4/P5."
+        ),
+        request=DecompositionCommitRequestSerializer,
+        responses={
+            201: DecompositionCommitResultSerializer,
+            400: OpenApiResponse(description="Body has no 'draft' object, or the draft is malformed."),
+            403: OpenApiResponse(
+                description="Workspace is minimal-rigor, or the caller lacks write access."
+            ),
+            404: OpenApiResponse(description="Referenced element/requirement not found."),
+            422: OpenApiResponse(
+                description="The committed graph failed SE-Auditor verification and was rolled back; `findings` lists the violations."
+            ),
+        },
+    )
     def post(
         self, request: Request, workspace_id: str, *args: Any, **kwargs: Any
     ) -> Response:

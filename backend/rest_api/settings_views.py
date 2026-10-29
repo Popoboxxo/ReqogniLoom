@@ -20,7 +20,7 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import serializers, status
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -228,6 +228,20 @@ class PromptTemplateSerializer(
         return SettingsService.prompt_defaults()
 
 
+class PromptTemplateResetRequestSerializer(serializers.Serializer):
+    """Body of ``POST /api/v1/prompt-templates/reset/``.
+
+    An absent ``slot`` resets every slot; an unknown name is a 400 from the
+    service's own registry check.
+    """
+
+    slot = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Reset only this slot; omitted = every slot.",
+    )
+
+
 class PromptTemplateView(AdminScopeRequiredMixin, APIView):
     """GET/PUT/PATCH /api/v1/prompt-templates/ (REQ-L2-PT-001).
 
@@ -333,6 +347,17 @@ class PromptTemplateResetView(AdminScopeRequiredMixin, APIView):
     :class:`AdminScopeRequiredMixin`).
     """
 
+    @extend_schema(
+        request=PromptTemplateResetRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=PromptTemplateSerializer,
+                description="The prompt content after the reset.",
+            ),
+            400: OpenApiResponse(description="Unknown prompt slot."),
+            403: OpenApiResponse(description="Admin role required."),
+        },
+    )
     def post(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         lang = detect_lang(request)
         ctx = get_auth_context(request)
@@ -391,6 +416,58 @@ class PromptTemplateSlotWriteSerializer(
     content = serializers.CharField(allow_blank=True, trim_whitespace=False)
 
 
+class PromptTemplateSlotSerializer(serializers.Serializer):
+    """Schema view of one prompt slot (``_PromptSlotOps.build_state``).
+
+    The per-scope ``*_content``/``*_version`` pairs are ``null`` when that scope
+    has no active row; ``effective_scope`` says which level supplied
+    ``effective_content``. The three variable lists annotate the *effective*
+    body (spec §5): declared data variables, referenced config variables and
+    ``{placeholders}`` neither list can fill.
+    """
+
+    name = serializers.CharField()
+    factory_default = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Factory text, or null for a name introduced at runtime.",
+    )
+    global_content = serializers.CharField(required=False, allow_null=True)
+    global_version = serializers.IntegerField(required=False, allow_null=True)
+    workspace_content = serializers.CharField(required=False, allow_null=True)
+    workspace_version = serializers.IntegerField(required=False, allow_null=True)
+    has_workspace_override = serializers.BooleanField()
+    effective_content = serializers.CharField()
+    effective_scope = serializers.ChoiceField(
+        choices=["workspace", "global", "factory"],
+        help_text="Level that supplied effective_content.",
+    )
+    data_variables = serializers.ListField(child=serializers.CharField())
+    config_variables = serializers.ListField(child=serializers.CharField())
+    unknown_placeholders = serializers.ListField(child=serializers.CharField())
+
+
+class PromptTemplateSlotListSerializer(serializers.Serializer):
+    """200 body of ``GET /api/v1/prompt-templates/slots/``."""
+
+    slots = PromptTemplateSlotSerializer(many=True)
+    count = serializers.IntegerField()
+    workspace_id = serializers.CharField(
+        allow_null=True,
+        help_text="The requested override scope, or null for tenant-global.",
+    )
+
+
+class ContextGraphRebuildStatusSerializer(serializers.Serializer):
+    """202 body of ``POST .../context-graph-settings/rebuild/``.
+
+    The rebuild runs asynchronously, so the endpoint only confirms that the job
+    was enqueued.
+    """
+
+    status = serializers.CharField(help_text="Always 'queued'.")
+
+
 class _PromptSlotAdminMixin:
     """Shared admin gate + ``workspace_id`` query-param parsing (issue #119)."""
 
@@ -442,6 +519,28 @@ class PromptTemplateSlotListView(_PromptSlotAdminMixin, APIView):
     Admin role required, mirroring :class:`PromptTemplateView`.
     """
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "workspace_id",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Workspace whose overrides are reported; omitted = the "
+                    "tenant-global view."
+                ),
+            ),
+        ],
+        responses={
+            200: OpenApiResponse(
+                response=PromptTemplateSlotListSerializer,
+                description="Every slot with its per-scope state.",
+            ),
+            400: OpenApiResponse(description="Malformed workspace_id."),
+            403: OpenApiResponse(description="Admin role required."),
+        },
+    )
     def get(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Return the per-scope state of every prompt slot."""
         lang = detect_lang(request)
@@ -485,6 +584,29 @@ class PromptTemplateSlotDetailView(AdminScopeRequiredMixin, _PromptSlotAdminMixi
     ADMIN-tier API-key scope — see :class:`AdminScopeRequiredMixin`.
     """
 
+    @extend_schema(
+        request=PromptTemplateSlotWriteSerializer,
+        parameters=[
+            OpenApiParameter(
+                "workspace_id",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Publish a workspace override; omitted = tenant-global.",
+            ),
+        ],
+        responses={
+            200: OpenApiResponse(
+                response=PromptTemplateSlotSerializer,
+                description="The slot's now-effective state at the requested scope.",
+            ),
+            400: OpenApiResponse(
+                description="Missing content, malformed workspace_id, or a "
+                "concurrent writer won the same scope."
+            ),
+            403: OpenApiResponse(description="Admin role required."),
+        },
+    )
     def put(self, request: Request, name: str, *args: Any, **kwargs: Any) -> Response:
         """Publish a new active version of ``name`` for the requested scope."""
         lang = detect_lang(request)
@@ -525,6 +647,29 @@ class PromptTemplateSlotDetailView(AdminScopeRequiredMixin, _PromptSlotAdminMixi
             )
         return Response(slot)
 
+    @extend_schema(
+        request=None,
+        parameters=[
+            OpenApiParameter(
+                "workspace_id",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Drop the workspace override; omitted = tenant-global.",
+            ),
+        ],
+        responses={
+            200: OpenApiResponse(
+                response=PromptTemplateSlotSerializer,
+                description=(
+                    "The now-effective state at the requested scope (200 rather "
+                    "than 204 so the caller need not re-fetch)."
+                ),
+            ),
+            400: OpenApiResponse(description="Malformed workspace_id."),
+            403: OpenApiResponse(description="Admin role required."),
+        },
+    )
     def delete(
         self, request: Request, name: str, *args: Any, **kwargs: Any
     ) -> Response:
@@ -751,10 +896,21 @@ class ContextGraphRebuildView(AdminScopeRequiredMixin, APIView):
     (Issue #377, Task 9's "Rebuild now" button). Admin-only. Async — 202,
     not a synchronous rebuild in the request/response cycle.
 
-    Capability gate (follow-up to #865): the POST requires the ADMIN-tier
-    API-key scope — see :class:`AdminScopeRequiredMixin`.
+    Capability gate (follow-up to #865): the POST requires the ADMIN-tier API-key
+    scope — see :class:`AdminScopeRequiredMixin`.
     """
 
+    @extend_schema(
+        request=None,
+        responses={
+            202: OpenApiResponse(
+                response=ContextGraphRebuildStatusSerializer,
+                description="The rebuild was enqueued.",
+            ),
+            403: OpenApiResponse(description="Admin role required."),
+            404: OpenApiResponse(description="Workspace not in the caller's tenant."),
+        },
+    )
     def post(self, request: Request, workspace_id: str, *args: Any, **kwargs: Any) -> Response:
         from application import context_service
 
@@ -780,15 +936,19 @@ class ContextGraphRebuildView(AdminScopeRequiredMixin, APIView):
 
 
 __all__ = [
+    "ContextGraphRebuildStatusSerializer",
     "ContextGraphRebuildView",
     "ContextGraphSettingsSerializer",
     "ContextGraphSettingsView",
     "LlmSettingsSerializer",
     "LlmSettingsView",
+    "PromptTemplateResetRequestSerializer",
     "PromptTemplateResetView",
     "PromptTemplateSerializer",
     "PromptTemplateSlotDetailView",
+    "PromptTemplateSlotListSerializer",
     "PromptTemplateSlotListView",
+    "PromptTemplateSlotSerializer",
     "PromptTemplateSlotWriteSerializer",
     "PromptTemplateView",
     "ReviewPolicySerializer",

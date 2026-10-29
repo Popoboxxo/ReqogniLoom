@@ -236,10 +236,282 @@ _EXEMPT_SERIALIZERS: dict[str, str] = {
         "OpenAPI documentation-only serializer: the 400 envelope, never a "
         "request body"
     ),
+    # --- rest_api.serializers_diagram (#1388 burndown, Diagram/ICD surface) ---
+    # DiagramViewSet deliberately has no serializer_class: every handler reads
+    # request.data key-by-key and builds its own dict, so no serializer of this
+    # module ever validates a request. The two *Request* classes document those
+    # key-by-key bodies; the rest describe response bodies.
+    "DiagramSerializer": "read-only list projection (#1388)",
+    "DiagramDetailSerializer": "read-only retrieve projection (#1388)",
+    "DiagramListResponseSerializer": "read-only pagination envelope (#1388)",
+    "DiagramVersionResponseSerializer": "read-only 200 body of PATCH /diagrams/{id}/",
+    "DiagramCreateRequestSerializer": (
+        "OpenAPI documentation-only serializer: POST /diagrams/ reads "
+        "request.data key-by-key (no serializer validates it), so the class "
+        "describes the body but never guards it"
+    ),
+    "DiagramUpdateRequestSerializer": (
+        "OpenAPI documentation-only serializer: PATCH /diagrams/{id}/ reads "
+        "request.data key-by-key (no serializer validates it)"
+    ),
+    "ArtifactVersionEntrySerializer": "read-only version-list entry (#1388)",
+    "ArtifactDiffFieldSerializer": "nested read-only diff entry (#1388)",
+    "ArtifactDiffResponseSerializer": "read-only 200 diff body (#1388)",
+    "WorkflowTransitionsResponseSerializer": (
+        "read-only 200 body of the shared GET …/transitions/ action (#1388)"
+    ),
+    "WorkflowTransitionRequestSerializer": (
+        "OpenAPI documentation-only serializer: the workflow mixin reads "
+        "request.data directly (target_state/change_reason/credential), so the "
+        "class describes the body but never guards it"
+    ),
+    "WorkflowTransitionResultSerializer": (
+        "read-only 200 body of …/transitions/ POST and …/reactivate/ (#1388)"
+    ),
+    "WorkflowHistoryEntrySerializer": "read-only workflow audit row (#1388)",
+    # --- rest_api.notification_preference_views (#1388 burndown) ------------
+    "NotificationPreferenceResponseSerializer": (
+        "read-only response serializer; the PATCH body is the guarded "
+        "NotificationPreferenceUpdateSerializer"
+    ),
+    # --- rest_api.architecture_decompose_views (#1388 burndown) -------------
+    "DraftRequirementSerializer": "nested read-only draft component (#1388)",
+    "DraftNodeSerializer": "nested read-only draft component (#1388)",
+    "DecompositionDraftSerializer": (
+        "read-only 200 body of the non-persistent decompose draft (#1388); "
+        "the request body is the guarded GenerateDraftRequestSerializer"
+    ),
+    "DecompositionCommitRequestSerializer": (
+        "OpenAPI documentation-only envelope: the nested draft is validated by "
+        "DecompositionDraft.from_dict, which owns the shape and the 400, so "
+        "this class must not second-guess it"
+    ),
+    "DecompositionCommitResultSerializer": "read-only 201 commit result (#1388)",
+    # --- rest_api.audit_views (#1388 burndown, audit/warning surface) ------
+    # The four audit views answer service-built dicts (AuditService report
+    # views, AiReviewResult, SuppressionView.to_dict, the rule catalogue) and
+    # validate their writes with the guarded RemediateRequestSerializer /
+    # WaiverCreateSerializer. The classes below describe response bodies only.
+    "AuditWaiverSerializer": "read-only waiver row (#1388)",
+    "AuditWaiverCountsSerializer": "read-only waiver counts block (#1388)",
+    "AuditWaiverListSerializer": "read-only 200 waivers envelope (#1388)",
+    "AuditRemediationProposalSerializer": (
+        "read-only proposal component of RemediationResult.to_dict (#1388)"
+    ),
+    "AuditRemediationResultSerializer": "read-only 200 remediate body (#1388)",
+    "AuditAiReviewFindingRefSerializer": (
+        "read-only compact finding reference (#1388)"
+    ),
+    "AuditAiReviewPackageSerializer": "read-only package component (#1388)",
+    "AuditAiReviewCountsSerializer": "read-only N8 counts block (#1388)",
+    "AuditAiReviewResultSerializer": "read-only 200 ai-review body (#1388)",
+    "AuditRuleCatalogueEntrySerializer": "read-only catalogue entry (#1388)",
+    "AuditRuleCatalogueSerializer": "read-only 200 /audit/rules/ body (#1388)",
+    # --- rest_api.settings_views (#1388 burndown, prompt-template surface) --
+    "PromptTemplateSlotSerializer": (
+        "read-only per-slot state; the PUT body is the guarded "
+        "PromptTemplateSlotWriteSerializer"
+    ),
+    "PromptTemplateSlotListSerializer": "read-only slots envelope (#1388)",
+    "PromptTemplateResetRequestSerializer": (
+        "OpenAPI documentation-only serializer: SettingsService.reset_prompt_"
+        "template reads request.data['slot'] directly and owns the 400 for an "
+        "unknown slot name, so the class must not second-guess it"
+    ),
+    "ContextGraphRebuildStatusSerializer": (
+        "read-only 202 acknowledgement body (#1388)"
+    ),
+    # --- rest_api.prompt_variable_views (#1388 burndown) --------------------
+    "PromptVariableSerializer": (
+        "read-only per-scope variable state; the PUT body is the guarded "
+        "PromptVariableWriteSerializer"
+    ),
+    "PromptVariableListSerializer": "read-only variables envelope (#1388)",
+    # --- rest_api.attribute_config_schema_serializers (#1388 burndown) ---
+    # attribute_catalog_views / attribute_definition_views adapt
+    # AttributeCatalogService / AttributeDefinitionService: they return the
+    # services' dicts unchanged and read every write body from request.data,
+    # so no class here validates a request.
+    "I18nTextSerializer": "read-only response serializer (#1388)",
+    "AttributeOptionSerializer": "read-only response serializer (#1388)",
+    "ValidationRulesSerializer": "read-only response serializer (#1388)",
+    "AttributeFlowTokenSerializer": "read-only response serializer (#1388)",
+    "SectionFlowTokenSerializer": "read-only response serializer (#1388)",
+    "SectionSerializer": "read-only response serializer (#1388)",
+    "AttributeBlockSerializer": "read-only response serializer (#1388)",
+    "GlobalAttributeDefinitionSerializer": "read-only response serializer (#1388)",
+    "WorkspaceAttributeDefinitionSerializer": "read-only response serializer (#1388)",
+    "AttributeDefinitionDocumentSerializer": "read-only response serializer (#1388)",
+    "AttributeDefinitionListSerializer": "read-only response serializer (#1388)",
+    "AttributeDefinitionUpdateRequestSerializer": (
+        "OpenAPI documentation-only serializer: the view reads request.data key-by-key, so "
+        "this class describes the body but never guards it (#1388)"
+    ),
+    "AttributeReorderRequestSerializer": (
+        "OpenAPI documentation-only serializer: the view reads request.data key-by-key, so "
+        "this class describes the body but never guards it (#1388)"
+    ),
+    "AttributeDefinitionVersionSerializer": "read-only response serializer (#1388)",
+    "AttributeUsageResponseSerializer": "read-only response serializer (#1388)",
+    "AttributeCatalogEntrySerializer": "read-only response serializer (#1388)",
+    "AttributeCatalogEntryDocumentSerializer": "read-only response serializer (#1388)",
+    "AttributeCatalogListSerializer": "read-only response serializer (#1388)",
+    "AttributeCatalogCreateRequestSerializer": (
+        "OpenAPI documentation-only serializer: the view reads request.data key-by-key, so "
+        "this class describes the body but never guards it (#1388)"
+    ),
+    "AttributeCatalogUpdateRequestSerializer": (
+        "OpenAPI documentation-only serializer: the view reads request.data key-by-key, so "
+        "this class describes the body but never guards it (#1388)"
+    ),
+    "AttributeCatalogDeprecateRequestSerializer": (
+        "OpenAPI documentation-only serializer: the view reads request.data key-by-key, so "
+        "this class describes the body but never guards it (#1388)"
+    ),
+    "AttributeCatalogDocumentSerializer": "read-only response serializer (#1388)",
+    "AttributeCatalogImportRequestSerializer": (
+        "OpenAPI documentation-only serializer: the view reads request.data key-by-key, so "
+        "this class describes the body but never guards it (#1388)"
+    ),
+    "AttributeCatalogImportSummarySerializer": "read-only response serializer (#1388)",
+    "AttributeCatalogAddToDefinitionRequestSerializer": (
+        "OpenAPI documentation-only serializer: the view reads request.data key-by-key, so "
+        "this class describes the body but never guards it (#1388)"
+    ),
+    "AttributeCatalogAddToDefinitionResponseSerializer": "read-only response serializer (#1388)",
+    # --- rest_api.attribute_migration_schema_serializers (#1388 burndown) ---
+    # attribute_migration_views adapts AttributeMigrationService and reads
+    # the plan from request.data; these classes describe its bodies.
+    "MigrationScopeSerializer": "read-only response serializer (#1388)",
+    "MigrationScopeEffectSerializer": "read-only response serializer (#1388)",
+    "MigrationStepCountsSerializer": "read-only response serializer (#1388)",
+    "MigrationTransformCountsSerializer": "read-only response serializer (#1388)",
+    "MigrationStepOutcomeSerializer": "read-only response serializer (#1388)",
+    "MigrationSummarySerializer": "read-only response serializer (#1388)",
+    "MigrationReportSerializer": "read-only response serializer (#1388)",
+    "MigrationPlanRequestSerializer": (
+        "OpenAPI documentation-only serializer: the view reads request.data key-by-key, so "
+        "this class describes the body but never guards it (#1388)"
+    ),
+    "MigrationRunSerializer": "read-only response serializer (#1388)",
+    "MigrationRunListSerializer": "read-only response serializer (#1388)",
+    "MigrationRollbackSerializer": "read-only response serializer (#1388)",
+    # --- rest_api.link_type_schema_serializers (#1388 burndown) ----------
+    # link_type_views reads request.data['key']/['definition'] and delegates
+    # to LinkTypeCatalogService; the *Request* class only documents it.
+    "LinkTypeLabelSerializer": "read-only response serializer (#1388)",
+    "LinkTypePairSerializer": "read-only response serializer (#1388)",
+    "LinkTypeDefinitionSerializer": "read-only response serializer (#1388)",
+    "GlobalLinkTypeSerializer": "read-only response serializer (#1388)",
+    "WorkspaceLinkTypeSerializer": "read-only response serializer (#1388)",
+    "LinkTypeWriteRequestSerializer": (
+        "OpenAPI documentation-only serializer: the view reads request.data key-by-key, so "
+        "this class describes the body but never guards it (#1388)"
+    ),
+    "GlobalLinkTypePageSerializer": "read-only response serializer (#1388)",
+    "WorkspaceLinkTypePageSerializer": "read-only response serializer (#1388)",
+    # --- rest_api.platform_schema_serializers (#1388 burndown) -----------
+    # response shapes of the platform endpoints (history, bundle,
+    # consistency, suggestions, metrics, pending review); none of them is a
+    # request body.
+    "RequirementHistoryEntrySerializer": "read-only response serializer (#1388)",
+    "RequirementHistoryResponseSerializer": "read-only response serializer (#1388)",
+    "BundleCompressionStatusSerializer": "read-only response serializer (#1388)",
+    "ConsistencyStatusSerializer": "read-only response serializer (#1388)",
+    "AttributeSchemaEntrySerializer": "read-only response serializer (#1388)",
+    "PendingReviewItemSerializer": "read-only response serializer (#1388)",
+    "PendingReviewPageSerializer": "read-only response serializer (#1388)",
+    "LinkCandidateSerializer": "read-only response serializer (#1388)",
+    "LinkSuggestionSerializer": "read-only response serializer (#1388)",
+    "SuggestLinksCountsSerializer": "read-only response serializer (#1388)",
+    "SuggestLinksResultSerializer": "read-only response serializer (#1388)",
+    "SuggestLinksDispatchSerializer": "read-only response serializer (#1388)",
+    "SuggestLinksStatusSerializer": "read-only response serializer (#1388)",
+    "MetricsVolatileRequirementSerializer": "read-only response serializer (#1388)",
+    "MetricsVolatilitySerializer": "read-only response serializer (#1388)",
+    "MetricsCoverageSerializer": "read-only response serializer (#1388)",
+    "MetricsVerificationCoverageSerializer": "read-only response serializer (#1388)",
+    "MetricsWorkflowGapSerializer": "read-only response serializer (#1388)",
+    "MetricsWorkflowGapsSerializer": "read-only response serializer (#1388)",
+    "MetricsOpenRisksSerializer": "read-only response serializer (#1388)",
+    "MetricsThresholdWarningSerializer": "read-only response serializer (#1388)",
+    "MetricsReportSerializer": "read-only response serializer (#1388)",
+    "MetricValuesEntrySerializer": "read-only response serializer (#1388)",
+    "MetricValuesEnvelopeSerializer": "read-only response serializer (#1388)",
+    "MetricCatalogueEntrySerializer": "read-only response serializer (#1388)",
+    "MetricCatalogueSerializer": "read-only response serializer (#1388)",
+    # --- auth_tenancy.schema_serializers (#1388 burndown) ----------------
+    # rest_item_permission / rest_workspace_members read request.data
+    # directly and delegate to AuthorizationService; the *Request* classes
+    # document those bodies only.
+    "ItemPermissionSerializer": "read-only response serializer (#1388)",
+    "ItemPermissionGrantRequestSerializer": (
+        "OpenAPI documentation-only serializer: the view reads request.data key-by-key, so "
+        "this class describes the body but never guards it (#1388)"
+    ),
+    "ItemPermissionResponseSerializer": "read-only response serializer (#1388)",
+    "ItemPermissionListSerializer": "read-only response serializer (#1388)",
+    "ItemPermissionRevokeRequestSerializer": (
+        "OpenAPI documentation-only serializer: the view reads request.data key-by-key, so "
+        "this class describes the body but never guards it (#1388)"
+    ),
+    "WorkspaceMemberSerializer": "read-only response serializer (#1388)",
+    "WorkspaceMemberListSerializer": "read-only response serializer (#1388)",
+    "WorkspaceMemberWriteRequestSerializer": (
+        "OpenAPI documentation-only serializer: the view reads request.data key-by-key, so "
+        "this class describes the body but never guards it (#1388)"
+    ),
+    "RoleAssignmentResponseSerializer": "read-only response serializer (#1388)",
+    "WorkspaceMemberRoleRequestSerializer": (
+        "OpenAPI documentation-only serializer: the view reads request.data key-by-key, so "
+        "this class describes the body but never guards it (#1388)"
+    ),
+    "RoleTransitionResponseSerializer": "read-only response serializer (#1388)",
+    # --- memory.schema_serializers (#1388 burndown) ----------------------
+    # memory_rest spreads the envelope onto service dicts and reads each
+    # write body from request.data; the *Request* classes document those
+    # bodies.
+    "MemorySearchItemSerializer": "read-only response serializer (#1388)",
+    "MemorySearchResponseSerializer": "read-only response serializer (#1388)",
+    "MemoryEntryViewSerializer": "read-only response serializer (#1388)",
+    "MemoryEnvelopeSerializer": "read-only response serializer (#1388)",
+    "MemoryEntryListResponseSerializer": "read-only response serializer (#1388)",
+    "MemoryScopePurgeResponseSerializer": "read-only response serializer (#1388)",
+    "MemoryEntryForgetResponseSerializer": "read-only response serializer (#1388)",
+    "MemoryDigestResponseSerializer": "read-only response serializer (#1388)",
+    "MemoryAskRequestSerializer": (
+        "OpenAPI documentation-only serializer: the view reads request.data key-by-key, so "
+        "this class describes the body but never guards it (#1388)"
+    ),
+    "MemoryAnswerResponseSerializer": "read-only response serializer (#1388)",
+    "MemoryEntryPromoteRequestSerializer": (
+        "OpenAPI documentation-only serializer: the view reads request.data key-by-key, so "
+        "this class describes the body but never guards it (#1388)"
+    ),
+    "MemorySelfServiceResponseSerializer": "read-only response serializer (#1388)",
+    "MemorySelfServiceDeleteResponseSerializer": "read-only response serializer (#1388)",
+    "WorkspaceMemorySettingsResponseSerializer": "read-only response serializer (#1388)",
+    "WorkspaceMemorySettingsWriteSerializer": (
+        "OpenAPI documentation-only serializer: the view reads request.data key-by-key, so "
+        "this class describes the body but never guards it (#1388)"
+    ),
+    "SystemMemorySettingsResponseSerializer": "read-only response serializer (#1388)",
+    "MemoryWorkspaceOverviewRowSerializer": "read-only response serializer (#1388)",
+    "MemoryWorkspaceOverviewResponseSerializer": "read-only response serializer (#1388)",
+    "MemoryWorkspaceDeleteResponseSerializer": "read-only response serializer (#1388)",
+    "MemoryAdminEntryRowSerializer": "read-only response serializer (#1388)",
+    "MemoryAdminEntryListResponseSerializer": "read-only response serializer (#1388)",
+    "MemoryEntryExportResponseSerializer": "read-only response serializer (#1388)",
+    "MemoryProjectionPointSerializer": "read-only response serializer (#1388)",
+    "MemoryProjectionResponseSerializer": "read-only response serializer (#1388)",
 }
 
 #: Modules whose module-local ``*Serializer`` classes are part of the REST
 #: request/response contract and therefore subject to the discovery guard.
+#: The six ``*_schema_serializers`` / ``schema_serializers`` modules are the
+#: #1388 burndown's documentation-only shapes: without them here the guard
+#: would not see a single one of their classes, which is precisely the
+#: silent-drop path #851 exists to close.
 _SERIALIZER_MODULES: tuple[str, ...] = (
     "rest_api.serializers",
     "rest_api.serializers_diagram",
@@ -250,6 +522,13 @@ _SERIALIZER_MODULES: tuple[str, ...] = (
     "rest_api.audit_views",
     "rest_api.architecture_decompose_views",
     "rest_api.api_key_serializers",
+    # #1388 burndown: schema-only shape modules for the remaining surfaces.
+    "rest_api.attribute_config_schema_serializers",
+    "rest_api.attribute_migration_schema_serializers",
+    "rest_api.link_type_schema_serializers",
+    "rest_api.platform_schema_serializers",
+    "auth_tenancy.schema_serializers",
+    "memory.schema_serializers",
 )
 
 #: A complete, valid payload for every serializer newly covered by this pass.

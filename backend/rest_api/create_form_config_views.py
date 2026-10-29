@@ -38,6 +38,8 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import serializers, status
 from rest_framework.exceptions import NotAuthenticated
 from rest_framework.request import Request
@@ -78,9 +80,47 @@ class CreateFormConfigWriteSerializer(
     )
 
 
+#: Shared response descriptor for all three levels (#1388). The body is *one*
+#: of two genuinely different JSON documents, selected by
+#: ``?item_type=``/``?resolve=``: the whole ``{item_type: [fields]}`` map, or
+#: that one item type's stored/resolved selection plus the definition-derived
+#: base entries. A single static serializer would have to be wrong for one of
+#: them, so the shape stays a documented JSON object instead of a component
+#: that lies half the time.
+_DOCUMENT_RESPONSE = OpenApiResponse(
+    response=OpenApiTypes.OBJECT,
+    description=(
+        "Create-dialog form definition. Without `item_type`: the whole "
+        "`{item_type: [fields]}` map. With `item_type`: that level's stored "
+        "selection plus the definition-derived base entries. With "
+        "`resolve=effective`: the resolved selection and the level that "
+        "supplied it."
+    ),
+)
+
+#: Query parameters every level shares on GET.
+_READ_PARAMETERS = [
+    OpenApiParameter(
+        "item_type",
+        type=str,
+        location=OpenApiParameter.QUERY,
+        description="Artifact type to read; omit for the whole map.",
+    ),
+    OpenApiParameter(
+        "resolve",
+        type=str,
+        location=OpenApiParameter.QUERY,
+        enum=["effective"],
+        description=(
+            "`effective` resolves user > workspace > global > definition "
+            "default (requires `item_type`)."
+        ),
+    ),
+]
+
+
 class _CreateFormConfigBaseView(APIView):
     """Shared read/write plumbing for the three scope views."""
-
     permission_classes = [HasOperationPermission]
     #: The scope this view stores into — overridden by each subclass.
     scope: str = SCOPE_USER
@@ -101,6 +141,16 @@ class _CreateFormConfigBaseView(APIView):
         value = request.query_params.get("item_type")
         return value or None
 
+    @extend_schema(
+        summary="Read one level's create-dialog form definition",
+        parameters=_READ_PARAMETERS,
+        responses={
+            200: _DOCUMENT_RESPONSE,
+            400: OpenApiResponse(
+                description="`item_type` missing for `resolve=effective`, or an unknown `resolve` value."
+            ),
+        },
+    )
     def get(self, request: Request, **kwargs: Any) -> Response:
         lang = detect_lang(request)
         try:
@@ -141,6 +191,17 @@ class _CreateFormConfigBaseView(APIView):
             return _validation_error(lang, str(exc))
         return Response(payload)
 
+    @extend_schema(
+        summary="Write one level's create-dialog form definition",
+        request=CreateFormConfigWriteSerializer,
+        responses={
+            200: _DOCUMENT_RESPONSE,
+            400: OpenApiResponse(description="Invalid body or unknown field."),
+            403: OpenApiResponse(
+                description="Write authority in the workspace / admin role required."
+            ),
+        },
+    )
     def patch(self, request: Request, **kwargs: Any) -> Response:
         lang = detect_lang(request)
         try:

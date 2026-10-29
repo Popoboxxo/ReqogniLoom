@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import serializers, status
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -90,6 +91,24 @@ class UserPreferenceView(APIView):
 
     # ---- GET ----------------------------------------------------------
 
+    @extend_schema(
+        summary="Read the caller's preference for one workspace",
+        parameters=[
+            OpenApiParameter(
+                "workspace_id",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="Workspace whose preference row is read.",
+            ),
+        ],
+        responses={
+            200: UserWorkspacePreferenceSerializer,
+            400: OpenApiResponse(
+                description="`workspace_id` missing or not a valid UUID."
+            ),
+        },
+    )
     def get(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         lang = detect_lang(request)
         workspace_id, error = parse_workspace_id(
@@ -109,6 +128,14 @@ class UserPreferenceView(APIView):
 
     # ---- PATCH --------------------------------------------------------
 
+    @extend_schema(
+        summary="Merge visibility overrides into the caller's workspace preference",
+        request=PreferenceUpdateSerializer,
+        responses={
+            200: UserWorkspacePreferenceSerializer,
+            400: OpenApiResponse(description="Invalid body or unknown field."),
+        },
+    )
     def patch(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         lang = detect_lang(request)
         ser = PreferenceUpdateSerializer(data=request.data)

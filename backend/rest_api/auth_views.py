@@ -36,10 +36,9 @@ from typing import Any
 
 from django.conf import settings
 from django.middleware.csrf import get_token
-from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiExample, OpenApiResponse, extend_schema
 from rest_framework import exceptions as drf_exceptions
-from rest_framework import status
+from rest_framework import serializers, status
 from rest_framework.permissions import AllowAny
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -119,6 +118,66 @@ def _clear_auth_cookies(response: Response) -> None:
     """Delete both the access and refresh cookies (logout / failed refresh)."""
     response.delete_cookie(ACCESS_COOKIE_NAME, path=_ACCESS_COOKIE_PATH)
     response.delete_cookie(REFRESH_COOKIE_NAME, path=_ACCESS_COOKIE_PATH)
+
+
+# ---------------------------------------------------------------------------
+# Contract serializers (#1388)
+# ---------------------------------------------------------------------------
+#
+# Contract-only: :func:`_user_payload` / ``_login_response_body`` build the
+# response dicts by hand and keep doing so. The serializers below transcribe
+# those dicts for the generated document — nothing here is instantiated on a
+# request path, so no validation or coercion behaviour changes.
+
+
+class LoginRequestSerializer(serializers.Serializer):
+    """Body of ``POST /api/v1/auth/login/``."""
+
+    username = serializers.CharField()
+    password = serializers.CharField(style={"input_type": "password"})
+
+
+class AuthUserSerializer(serializers.Serializer):
+    """``_user_payload`` — the public-safe user block of every identity body."""
+
+    id = serializers.CharField()
+    username = serializers.CharField()
+    email = serializers.CharField(allow_blank=True)
+    first_name = serializers.CharField(allow_blank=True)
+    last_name = serializers.CharField(allow_blank=True)
+    is_active = serializers.BooleanField()
+    tenant_id = serializers.CharField(required=False, allow_null=True)
+    roles = serializers.ListField(child=serializers.CharField())
+
+
+class AuthIdentityResponseSerializer(serializers.Serializer):
+    """Identity payload of ``/auth/me/`` and ``/auth/refresh/``.
+
+    ``tenant_id`` is the row-level-security *tenant*, not the ``workspace_id``
+    most CRUD endpoints take — see :class:`LoginView`'s docstring.
+    """
+
+    user = AuthUserSerializer()
+    tenant_id = serializers.CharField(required=False, allow_null=True)
+    roles = serializers.ListField(child=serializers.CharField())
+    is_tenant_admin = serializers.BooleanField()
+
+
+class LoginResponseSerializer(AuthIdentityResponseSerializer):
+    """Login body: the identity payload plus the DEPRECATED body token (#696).
+
+    ``token`` is present only while ``AUTH_LOGIN_INCLUDE_BODY_TOKEN`` is on; the
+    supported credential is the httpOnly access cookie.
+    """
+
+    token = serializers.CharField(
+        required=False,
+        help_text=(
+            "DEPRECATED — the supported credential is the httpOnly "
+            "`reqogniloom_access` cookie. Present only while "
+            "`AUTH_LOGIN_INCLUDE_BODY_TOKEN` is enabled."
+        ),
+    )
 
 
 def _auth_error_response(
@@ -248,9 +307,10 @@ class LoginView(APIView):
             "later defined the field as an HTTP-date). New clients must not "
             "persist it in JavaScript."
         ),
+        request=LoginRequestSerializer,
         responses={
             200: OpenApiResponse(
-                response=OpenApiTypes.OBJECT,
+                response=LoginResponseSerializer,
                 description=(
                     "Login succeeded. `user`, `tenant_id`, `roles` and "
                     "`is_tenant_admin` are always present; `token` is present "
@@ -363,6 +423,14 @@ class LogoutView(APIView):
 
     permission_classes = [HasOperationPermission]
 
+    @extend_schema(
+        summary="Log out — revoke the refresh family and clear the auth cookies",
+        request=None,
+        responses={
+            204: OpenApiResponse(description="Both auth cookies cleared; no body."),
+            401: OpenApiResponse(description="No valid credential."),
+        },
+    )
     def post(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Revoke the refresh family, delete the auth cookies, return 204."""
         refresh_token = request.COOKIES.get(REFRESH_COOKIE_NAME)
@@ -401,6 +469,24 @@ class RefreshView(APIView):
     permission_classes = [AllowAny]
     throttle_classes = [RefreshRateThrottle]
 
+    @extend_schema(
+        summary="Refresh the session — rotate both cookies and return the identity",
+        description=(
+            "Exchanges the httpOnly refresh cookie for a new access cookie and "
+            "a rotated refresh cookie (one use per refresh token, defense in "
+            "depth against a leaked token). Takes no request body: identity is "
+            "asserted by the cookie, and CSRF is enforced on the cookie path."
+        ),
+        request=None,
+        responses={
+            200: AuthIdentityResponseSerializer,
+            401: OpenApiResponse(
+                response=ErrorResponseSerializer,
+                description="Missing, invalid or expired refresh cookie.",
+            ),
+            403: OpenApiResponse(description="CSRF token missing or invalid."),
+        },
+    )
     def post(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Validate the refresh cookie and mint a new access token."""
         accept_language = request.META.get("HTTP_ACCEPT_LANGUAGE")
@@ -478,6 +564,16 @@ class MeView(APIView):
     is supplied.
     """
 
+    @extend_schema(
+        summary="Read the authenticated caller's identity",
+        responses={
+            200: AuthIdentityResponseSerializer,
+            401: OpenApiResponse(
+                response=ErrorResponseSerializer,
+                description="No valid credential / user no longer resolvable.",
+            ),
+        },
+    )
     def get(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Return the current user's identity from the resolved auth context."""
         accept_language = request.META.get("HTTP_ACCEPT_LANGUAGE")
@@ -507,6 +603,17 @@ class MeView(APIView):
             status=status.HTTP_200_OK,
         )
 
+    @extend_schema(
+        summary="Update the authenticated caller's own profile fields",
+        request=UserProfileSerializer,
+        responses={
+            200: AuthIdentityResponseSerializer,
+            401: OpenApiResponse(
+                response=ErrorResponseSerializer,
+                description="No valid credential / user no longer resolvable.",
+            ),
+        },
+    )
     def patch(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Update the current user's editable profile fields (REQ-006).
 
@@ -548,6 +655,10 @@ class MeView(APIView):
 
 
 __all__ = [
+    "AuthIdentityResponseSerializer",
+    "AuthUserSerializer",
+    "LoginRequestSerializer",
+    "LoginResponseSerializer",
     "LoginView",
     "LogoutView",
     "MeView",

@@ -47,12 +47,20 @@ import logging
 from typing import Any
 from uuid import UUID
 
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import status
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from admin_ops.models import BackupStatus, BackupType
+from admin_ops.schema_serializers import (
+    BackupCreateRequestSerializer,
+    BackupCreateResponseSerializer,
+    BackupListResponseSerializer,
+    RestoreRequestSerializer,
+    RestoreResponseSerializer,
+)
 from admin_ops.services import (
     AdminRestoreService,
     BackupNotFoundError,
@@ -241,6 +249,15 @@ class BackupListCreateView(APIView):
 
     # -- GET: list ---------------------------------------------------------
 
+    @extend_schema(
+        tags=["admin"],
+        responses={
+            200: OpenApiResponse(
+                response=BackupListResponseSerializer,
+                description="The requested page of backup rows, newest first.",
+            ),
+        },
+    )
     def get(self, request: Request, **kwargs: Any) -> Response:
         """List backups (newest first).
 
@@ -348,6 +365,19 @@ class BackupListCreateView(APIView):
 
     # -- POST: create -------------------------------------------------------
 
+    @extend_schema(
+        tags=["admin"],
+        request=BackupCreateRequestSerializer,
+        responses={
+            201: OpenApiResponse(
+                response=BackupCreateResponseSerializer,
+                description="The newly created backup row.",
+            ),
+            400: OpenApiResponse(description="Invalid body or backup_type."),
+            403: OpenApiResponse(description="Admin role required."),
+            500: OpenApiResponse(description="BACKUP_STORAGE_ERROR."),
+        },
+    )
     def post(self, request: Request, **kwargs: Any) -> Response:
         """Create a new backup (admin-only).
 
@@ -468,6 +498,26 @@ class AdminRestoreView(APIView):
 
     # -- POST: restore ------------------------------------------------------
 
+    @extend_schema(
+        tags=["admin"],
+        request=RestoreRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=RestoreResponseSerializer,
+                description="The finished restore report.",
+            ),
+            400: OpenApiResponse(
+                description=(
+                    "Malformed body, missing backup_id, or a captcha that does "
+                    "not equal 'RESTORE'."
+                )
+            ),
+            403: OpenApiResponse(description="Admin role required."),
+            404: OpenApiResponse(
+                description="Backup unknown, not restorable, or its file is gone."
+            ),
+        },
+    )
     def post(self, request: Request, **kwargs: Any) -> Response:
         """Restore from a backup (admin-only, captcha-gated).
 

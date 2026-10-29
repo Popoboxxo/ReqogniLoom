@@ -38,6 +38,7 @@ from typing import Any
 from uuid import UUID
 
 from django.core.exceptions import ObjectDoesNotExist
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import status
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -48,6 +49,13 @@ from audit.models import AuditEntry
 from auth_tenancy.context import AuthContext
 from auth_tenancy.errors import PermissionDenied
 from auth_tenancy.rest import HasOperationPermission
+from auth_tenancy.schema_serializers import (
+    RoleAssignmentResponseSerializer,
+    RoleTransitionResponseSerializer,
+    WorkspaceMemberListSerializer,
+    WorkspaceMemberRoleRequestSerializer,
+    WorkspaceMemberWriteRequestSerializer,
+)
 from auth_tenancy.services import AuthorizationService, Operation
 from auth_tenancy.services.authorization import LastAdminError, WorkspaceMember
 from persistence.errors import NotFoundError, PermissionDeniedError, ValidationError
@@ -152,6 +160,19 @@ class WorkspaceMembersView(APIView):
         except (ValueError, TypeError):
             raise ValidationError(f"Invalid workspace_id: {ws_raw!r}")
 
+    @extend_schema(
+        tags=["workspaces"],
+        responses={
+            200: OpenApiResponse(
+                response=WorkspaceMemberListSerializer,
+                description="The workspace's active members and their roles.",
+            ),
+            400: OpenApiResponse(description="Malformed workspace_id."),
+            403: OpenApiResponse(
+                description="The caller is not a member of this workspace."
+            ),
+        },
+    )
     def get(self, request: Request, **kwargs: Any) -> Response:
         """List the active members of a workspace.
 
@@ -182,6 +203,26 @@ class WorkspaceMembersView(APIView):
             status=status.HTTP_200_OK,
         )
 
+    @extend_schema(
+        tags=["workspaces"],
+        request=WorkspaceMemberWriteRequestSerializer,
+        responses={
+            201: OpenApiResponse(
+                response=RoleAssignmentResponseSerializer,
+                description="The role was assigned.",
+            ),
+            400: OpenApiResponse(
+                description=(
+                    "Missing user_id/role, or a role the workspace's preset "
+                    "does not permit."
+                )
+            ),
+            403: OpenApiResponse(
+                description="The caller must be a workspace or tenant admin."
+            ),
+            404: OpenApiResponse(description="Unknown user or workspace."),
+        },
+    )
     def post(self, request: Request, **kwargs: Any) -> Response:
         """Assign a role to a user in this workspace (admin-guarded).
 
@@ -370,6 +411,28 @@ class WorkspaceMemberRoleTransitionView(APIView):
 
         return Response({"suspend" if suspend else "reactivate": True}, status=status.HTTP_200_OK)
 
+    @extend_schema(
+        tags=["workspaces"],
+        request=WorkspaceMemberRoleRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=RoleTransitionResponseSerializer,
+                description=(
+                    "The role was suspended/reactivated; the key is named "
+                    "after the action."
+                ),
+            ),
+            400: OpenApiResponse(description="Missing role or malformed ids."),
+            403: OpenApiResponse(
+                description="The caller must be a workspace or tenant admin."
+            ),
+            404: OpenApiResponse(description="The role row was not found."),
+            409: OpenApiResponse(
+                description="LAST_ADMIN — the workspace's last admin cannot be "
+                "suspended."
+            ),
+        },
+    )
     def post(self, request: Request, workspace_id: str = "", user_id: str = "", **kwargs: Any) -> Response:
         action = request.parser_context.get("kwargs", {}).get("action") if request.parser_context else None
         suspend = action != "reactivate"

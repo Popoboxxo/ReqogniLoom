@@ -34,6 +34,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import status
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -50,6 +51,11 @@ from application.traceability_suggest_service import (
     TraceabilitySuggestService,
 )
 from rest_api.auth_enforcer import get_auth_context
+from rest_api.platform_schema_serializers import (
+    SuggestLinksDispatchSerializer,
+    SuggestLinksResultSerializer,
+    SuggestLinksStatusSerializer,
+)
 from rest_api.serializers import build_error_response, detect_lang
 from traceability.audit import AuditScope
 
@@ -83,6 +89,61 @@ class WorkspaceTraceabilitySuggestLinksView(APIView):
     ``audit/remediate/`` Adopt-Workflow.
     """
 
+    @extend_schema(
+        request=None,
+        parameters=[
+            OpenApiParameter(
+                "scope",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Baseline scope (document|project|global); defaults to project."
+                ),
+            ),
+            OpenApiParameter(
+                "scope_artifact_id",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Document root; required when scope=document.",
+            ),
+            OpenApiParameter(
+                "async",
+                type=bool,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "'true' dispatches the ~95 s run to a Celery worker and "
+                    "answers 202 with a task_id instead of blocking."
+                ),
+            ),
+        ],
+        responses={
+            200: OpenApiResponse(
+                response=SuggestLinksResultSerializer,
+                description="The synchronous suggestion run's result.",
+            ),
+            202: OpenApiResponse(
+                response=SuggestLinksDispatchSerializer,
+                description="The run was dispatched; poll the task id.",
+            ),
+            400: OpenApiResponse(description="Invalid scope/scope_artifact_id."),
+            403: OpenApiResponse(description="Editor+ in the workspace required."),
+            404: OpenApiResponse(description="Workspace not in the caller's tenant."),
+            409: OpenApiResponse(
+                description=(
+                    "PRODUCER_CONTEXT_REQUIRED — a human-bearer trigger may not "
+                    "write an unstamped suggestion (ADR-019)."
+                )
+            ),
+            502: OpenApiResponse(description="LLM_OUTPUT_INVALID."),
+            503: OpenApiResponse(
+                description="BROKER_NOT_CONFIGURED — async was requested but no "
+                "broker is configured."
+            ),
+        },
+    )
     def post(
         self, request: Request, workspace_id: str, *args: Any, **kwargs: Any
     ) -> Response:
@@ -179,6 +240,17 @@ class TraceabilitySuggestLinksStatusView(APIView):
     re-runs the computation and never creates a second job.
     """
 
+    @extend_schema(
+        responses={
+            200: OpenApiResponse(
+                response=SuggestLinksStatusSerializer,
+                description=(
+                    "The task's state; `result` carries the run's suggestions "
+                    "once status='done'."
+                ),
+            ),
+        },
+    )
     def get(self, request: Request, task_id: str, *args: Any, **kwargs: Any) -> Response:
         result = TraceabilitySuggestService().get_suggest_links_status(
             task_id, get_auth_context(request)

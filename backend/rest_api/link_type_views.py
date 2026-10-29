@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import status
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -18,6 +18,13 @@ from rest_framework.views import APIView
 from application.link_type_facade import LinkTypeFacade
 from persistence.errors import NotFoundError, PermissionDeniedError, ValidationError
 from rest_api.auth_enforcer import AdminScopeRequiredMixin
+from rest_api.link_type_schema_serializers import (
+    GlobalLinkTypePageSerializer,
+    GlobalLinkTypeSerializer,
+    LinkTypeWriteRequestSerializer,
+    WorkspaceLinkTypePageSerializer,
+    WorkspaceLinkTypeSerializer,
+)
 from rest_api.serializers import StandardPagination
 
 
@@ -69,7 +76,35 @@ class LinkTypeDefaultsListView(AdminScopeRequiredMixin, APIView):
     ``rest_api.auth_enforcer.AdminScopeRequiredMixin``.
     """
 
-    @extend_schema(tags=["link-types"])
+    @extend_schema(
+        tags=["link-types"],
+        parameters=[
+            OpenApiParameter(
+                "page",
+                type=int,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="1-based page number (default 1).",
+            ),
+            OpenApiParameter(
+                "page_size",
+                type=int,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Items per page (default 25, capped at 100).",
+            ),
+        ],
+        responses={
+            200: OpenApiResponse(
+                response=GlobalLinkTypePageSerializer,
+                description=(
+                    "The tenant-wide templates through the StandardPagination "
+                    "envelope (`results` carries the rows)."
+                ),
+            ),
+            403: OpenApiResponse(description="Admin role required."),
+        },
+    )
     def get(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """GET /api/v1/link-type-defaults/ — paginated tenant-wide templates.
 
@@ -80,7 +115,20 @@ class LinkTypeDefaultsListView(AdminScopeRequiredMixin, APIView):
             return response
         return _paginate_list(request, response.data)
 
-    @extend_schema(tags=["link-types"])
+    @extend_schema(
+        tags=["link-types"],
+        request=LinkTypeWriteRequestSerializer,
+        responses={
+            201: OpenApiResponse(
+                response=GlobalLinkTypeSerializer,
+                description="The created template.",
+            ),
+            400: OpenApiResponse(
+                description="Missing key, or the definition fails validation."
+            ),
+            403: OpenApiResponse(description="Tenant-admin role required."),
+        },
+    )
     def post(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         key = (request.data or {}).get("key")
         definition = (request.data or {}).get("definition")
@@ -101,12 +149,32 @@ class LinkTypeDefaultsListView(AdminScopeRequiredMixin, APIView):
 class LinkTypeDefaultsDetailView(AdminScopeRequiredMixin, APIView):
     """PUT/DELETE /api/v1/link-type-defaults/<key>/."""
 
-    @extend_schema(tags=["link-types"])
+    @extend_schema(
+        tags=["link-types"],
+        request=LinkTypeWriteRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=GlobalLinkTypeSerializer,
+                description="The updated template (with `propagated_to`).",
+            ),
+            400: OpenApiResponse(description="The definition fails validation."),
+            403: OpenApiResponse(description="Tenant-admin role required."),
+            404: OpenApiResponse(description="No template with that key."),
+        },
+    )
     def put(self, request: Request, key: str, *args: Any, **kwargs: Any) -> Response:
         definition = (request.data or {}).get("definition")
         return _handle(_facade().update_global, request.auth_context, key, definition)
 
-    @extend_schema(tags=["link-types"])
+    @extend_schema(
+        tags=["link-types"],
+        request=None,
+        responses={
+            204: OpenApiResponse(description="The template was deleted."),
+            403: OpenApiResponse(description="Tenant-admin role required."),
+            404: OpenApiResponse(description="No template with that key."),
+        },
+    )
     def delete(self, request: Request, key: str, *args: Any, **kwargs: Any) -> Response:
         return _handle(_facade().delete_global, request.auth_context, key)
 
@@ -114,7 +182,36 @@ class LinkTypeDefaultsDetailView(AdminScopeRequiredMixin, APIView):
 class WorkspaceLinkTypeListView(APIView):
     """GET /api/v1/workspaces/<uuid>/link-type-definitions/ — resolved catalog."""
 
-    @extend_schema(tags=["link-types"])
+    @extend_schema(
+        tags=["link-types"],
+        parameters=[
+            OpenApiParameter(
+                "page",
+                type=int,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="1-based page number (default 1).",
+            ),
+            OpenApiParameter(
+                "page_size",
+                type=int,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Items per page (default 25, capped at 100).",
+            ),
+        ],
+        responses={
+            200: OpenApiResponse(
+                response=WorkspaceLinkTypePageSerializer,
+                description=(
+                    "The workspace's resolved catalog (inactive rows included) "
+                    "through the StandardPagination envelope."
+                ),
+            ),
+            400: OpenApiResponse(description="Malformed workspace_id."),
+            404: OpenApiResponse(description="Workspace not in this tenant."),
+        },
+    )
     def get(
         self, request: Request, workspace_id: UUID, *args: Any, **kwargs: Any
     ) -> Response:
@@ -133,7 +230,19 @@ class WorkspaceLinkTypeListView(APIView):
 class WorkspaceLinkTypeDetailView(AdminScopeRequiredMixin, APIView):
     """PUT /api/v1/workspaces/<uuid>/link-type-definitions/<key>/."""
 
-    @extend_schema(tags=["link-types"])
+    @extend_schema(
+        tags=["link-types"],
+        request=LinkTypeWriteRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=WorkspaceLinkTypeSerializer,
+                description="The workspace's row after the override.",
+            ),
+            400: OpenApiResponse(description="The definition fails validation."),
+            403: OpenApiResponse(description="Admin role required."),
+            404: OpenApiResponse(description="No such link type in this scope."),
+        },
+    )
     def put(
         self,
         request: Request,
@@ -155,7 +264,18 @@ class WorkspaceLinkTypeDetailView(AdminScopeRequiredMixin, APIView):
 class WorkspaceLinkTypeResetView(AdminScopeRequiredMixin, APIView):
     """POST /api/v1/workspaces/<uuid>/link-type-definitions/<key>/reset/."""
 
-    @extend_schema(tags=["link-types"])
+    @extend_schema(
+        tags=["link-types"],
+        request=None,
+        responses={
+            200: OpenApiResponse(
+                response=WorkspaceLinkTypeSerializer,
+                description="The workspace's row after the reset.",
+            ),
+            403: OpenApiResponse(description="Admin role required."),
+            404: OpenApiResponse(description="No such link type in this scope."),
+        },
+    )
     def post(
         self,
         request: Request,

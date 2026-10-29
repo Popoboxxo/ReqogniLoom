@@ -14,7 +14,7 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import status
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -31,6 +31,17 @@ from attribute_definitions.schema import (
 )
 from auth_tenancy.models import ROLE_ADMIN
 from presets.exceptions import CrossTenantWorkspaceError
+from rest_api.attribute_config_schema_serializers import (
+    AttributeBlockSerializer,
+    AttributeDefinitionDocumentSerializer,
+    AttributeDefinitionListSerializer,
+    AttributeDefinitionUpdateRequestSerializer,
+    AttributeDefinitionVersionSerializer,
+    AttributeReorderRequestSerializer,
+    AttributeUsageResponseSerializer,
+    GlobalAttributeDefinitionSerializer,
+    WorkspaceAttributeDefinitionSerializer,
+)
 from rest_api.auth_enforcer import AdminScopeRequiredMixin, get_auth_context
 from rest_api.serializers import build_error_response, detect_lang
 
@@ -176,6 +187,29 @@ class AttributeDefaultsListView(APIView):
             "List the tenant-wide global attribute defaults. Explicit list id "
             "to keep it distinct from the detail route's retrieve (#1388)."
         ),
+        parameters=[
+            OpenApiParameter(
+                "item_type",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Restrict to one item type (e.g. 'Requirement').",
+            ),
+            OpenApiParameter(
+                "preset",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Restrict to one rigor preset.",
+            ),
+        ],
+        responses={
+            200: OpenApiResponse(
+                response=AttributeDefinitionListSerializer,
+                description="Every matching global default.",
+            ),
+            403: OpenApiResponse(description="Admin role required."),
+        },
     )
     def get(self, request: Request) -> Response:
         gate = _require_admin(request)
@@ -193,6 +227,18 @@ class AttributeDefaultsListView(APIView):
 class AttributeDefaultsDetailView(AdminScopeRequiredMixin, APIView):
     """GET/PUT /attribute-defaults/{item_type}/{preset}/ — one global default."""
 
+    @extend_schema(
+        responses={
+            200: OpenApiResponse(
+                response=GlobalAttributeDefinitionSerializer,
+                description=(
+                    "The global default. A missing row answers `initialized: "
+                    "false` instead of 404, so the UI can offer Initialize."
+                ),
+            ),
+            403: OpenApiResponse(description="Admin role required."),
+        },
+    )
     def get(self, request: Request, item_type: str, preset: str) -> Response:
         gate = _require_admin(request)
         if isinstance(gate, Response):
@@ -203,6 +249,21 @@ class AttributeDefaultsDetailView(AdminScopeRequiredMixin, APIView):
             status=status.HTTP_200_OK,
         )
 
+    @extend_schema(
+        request=AttributeDefinitionUpdateRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=GlobalAttributeDefinitionSerializer,
+                description="The global default after the write.",
+            ),
+            400: OpenApiResponse(
+                description="VALIDATION_ERROR — structural violation, an "
+                "unknown key, or a core-lock/locked violation."
+            ),
+            403: OpenApiResponse(description="Admin role required."),
+            404: OpenApiResponse(description="No global default for that key."),
+        },
+    )
     def put(self, request: Request, item_type: str, preset: str) -> Response:
         gate = _require_admin(request)
         if isinstance(gate, Response):
@@ -227,6 +288,21 @@ class AttributeDefaultsDetailView(AdminScopeRequiredMixin, APIView):
             return _validation(lang, "; ".join(exc.errors))
         return Response(payload, status=status.HTTP_200_OK)
 
+    @extend_schema(
+        request=AttributeBlockSerializer,
+        responses={
+            201: OpenApiResponse(
+                response=GlobalAttributeDefinitionSerializer,
+                description="The global default including the new attribute.",
+            ),
+            400: OpenApiResponse(
+                description="VALIDATION_ERROR — the block is malformed or not "
+                "kind='extended'."
+            ),
+            403: OpenApiResponse(description="Admin role required."),
+            404: OpenApiResponse(description="No global default for that key."),
+        },
+    )
     def post(self, request: Request, item_type: str, preset: str) -> Response:
         """Create one new ``kind="extended"`` attribute on the global default."""
         gate = _require_admin(request)
@@ -244,6 +320,28 @@ class AttributeDefaultsDetailView(AdminScopeRequiredMixin, APIView):
             return _validation(lang, "; ".join(exc.errors))
         return Response(payload, status=status.HTTP_201_CREATED)
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "name",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="Name of the attribute to remove.",
+            ),
+        ],
+        responses={
+            200: OpenApiResponse(
+                response=GlobalAttributeDefinitionSerializer,
+                description="The global default after the removal.",
+            ),
+            400: OpenApiResponse(
+                description="Missing 'name', or the attribute cannot be deleted."
+            ),
+            403: OpenApiResponse(description="Admin role required."),
+            404: OpenApiResponse(description="No global default for that key."),
+        },
+    )
     def delete(self, request: Request, item_type: str, preset: str) -> Response:
         """Delete one attribute (``?name=``) from the global default."""
         gate = _require_admin(request)
@@ -271,6 +369,24 @@ class WorkspaceAttributeDefinitionView(AdminScopeRequiredMixin, APIView):
     your own data is exactly what a non-admin needs it for. PUT is admin-only.
     """
 
+    @extend_schema(
+        responses={
+            200: OpenApiResponse(
+                response=WorkspaceAttributeDefinitionSerializer,
+                description=(
+                    "The workspace's resolved definition, including the "
+                    "per-attribute `origins` map."
+                ),
+            ),
+            403: OpenApiResponse(
+                description="The workspace belongs to another tenant."
+            ),
+            404: OpenApiResponse(
+                description="No global default for the workspace's preset."
+            ),
+            409: OpenApiResponse(description="CONFLICT — the row is inconsistent."),
+        },
+    )
     def get(self, request: Request, workspace_id: UUID, item_type: str) -> Response:
         lang = detect_lang(request)
         ctx = get_auth_context(request)
@@ -292,6 +408,20 @@ class WorkspaceAttributeDefinitionView(AdminScopeRequiredMixin, APIView):
             return _forbidden(lang, str(exc))
         return Response(payload, status=status.HTTP_200_OK)
 
+    @extend_schema(
+        request=AttributeDefinitionUpdateRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=WorkspaceAttributeDefinitionSerializer,
+                description="The workspace definition after the write.",
+            ),
+            400: OpenApiResponse(
+                description="VALIDATION_ERROR — structural or core-lock violation."
+            ),
+            403: OpenApiResponse(description="Admin role required."),
+            404: OpenApiResponse(description="No definition for that key."),
+        },
+    )
     def put(self, request: Request, workspace_id: UUID, item_type: str) -> Response:
         gate = _require_admin(request)
         if isinstance(gate, Response):
@@ -316,6 +446,23 @@ class WorkspaceAttributeDefinitionView(AdminScopeRequiredMixin, APIView):
             return _validation(lang, "; ".join(exc.errors))
         return Response(payload, status=status.HTTP_200_OK)
 
+    @extend_schema(
+        request=AttributeBlockSerializer,
+        responses={
+            201: OpenApiResponse(
+                response=WorkspaceAttributeDefinitionSerializer,
+                description="The workspace definition including the new attribute.",
+            ),
+            400: OpenApiResponse(
+                description="VALIDATION_ERROR — the block is malformed or not "
+                "kind='extended'."
+            ),
+            403: OpenApiResponse(
+                description="Admin role required, or the workspace is foreign."
+            ),
+            404: OpenApiResponse(description="No definition for that key."),
+        },
+    )
     def post(self, request: Request, workspace_id: UUID, item_type: str) -> Response:
         """Create one workspace-only attribute (no global counterpart)."""
         gate = _require_admin(request)
@@ -339,6 +486,30 @@ class WorkspaceAttributeDefinitionView(AdminScopeRequiredMixin, APIView):
             return _forbidden(lang, str(exc))
         return Response(payload, status=status.HTTP_201_CREATED)
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "name",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="Name of the attribute to remove.",
+            ),
+        ],
+        responses={
+            200: OpenApiResponse(
+                response=WorkspaceAttributeDefinitionSerializer,
+                description="The workspace definition after the removal.",
+            ),
+            400: OpenApiResponse(
+                description="Missing 'name', or the attribute cannot be deleted."
+            ),
+            403: OpenApiResponse(
+                description="Admin role required, or the workspace is foreign."
+            ),
+            404: OpenApiResponse(description="No definition for that key."),
+        },
+    )
     def delete(self, request: Request, workspace_id: UUID, item_type: str) -> Response:
         """Delete one attribute (``?name=``) from the workspace's definition."""
         gate = _require_admin(request)
@@ -371,6 +542,34 @@ class AttributeUsageView(APIView):
     mutation-adjacent endpoint on this resource.
     """
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "name",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="Attribute name to count usages for.",
+            ),
+            OpenApiParameter(
+                "option",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Optional option value; counts only artifacts holding it."
+                ),
+            ),
+        ],
+        responses={
+            200: OpenApiResponse(
+                response=AttributeUsageResponseSerializer,
+                description="How many artifacts reference the attribute/option.",
+            ),
+            400: OpenApiResponse(description="Missing 'name'."),
+            403: OpenApiResponse(description="Admin role required."),
+        },
+    )
     def get(self, request: Request, workspace_id: UUID, item_type: str) -> Response:
         gate = _require_admin(request)
         if isinstance(gate, Response):
@@ -388,6 +587,23 @@ class AttributeUsageView(APIView):
 class WorkspaceAttributeDefinitionResetView(AdminScopeRequiredMixin, APIView):
     """POST /workspaces/{id}/attribute-definitions/{item_type}/reset/."""
 
+    @extend_schema(
+        request=None,
+        responses={
+            200: OpenApiResponse(
+                response=WorkspaceAttributeDefinitionSerializer,
+                description="The workspace definition re-copied from the global default.",
+            ),
+            403: OpenApiResponse(description="Admin role required."),
+            404: OpenApiResponse(description="No definition for that key."),
+            409: OpenApiResponse(
+                description=(
+                    "CONFLICT — the row is not customized or already equals its "
+                    "source, so there is nothing to reset (#1082)."
+                )
+            ),
+        },
+    )
     def post(self, request: Request, workspace_id: UUID, item_type: str) -> Response:
         gate = _require_admin(request)
         if isinstance(gate, Response):
@@ -431,6 +647,24 @@ class AttributeDefaultsReorderView(AdminScopeRequiredMixin, APIView):
     server payload in ``current`` when ``version`` is stale.
     """
 
+    @extend_schema(
+        request=AttributeReorderRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=GlobalAttributeDefinitionSerializer,
+                description="The reordered global default.",
+            ),
+            400: OpenApiResponse(description="VALIDATION_ERROR — malformed body."),
+            403: OpenApiResponse(description="Admin role required."),
+            404: OpenApiResponse(description="No global default for that key."),
+            409: OpenApiResponse(
+                description=(
+                    "CONFLICT — a stale `version`; `current` carries the server "
+                    "payload so the client can rebase."
+                )
+            ),
+        },
+    )
     def post(self, request: Request, item_type: str, preset: str) -> Response:
         gate = _require_admin(request)
         if isinstance(gate, Response):
@@ -457,6 +691,19 @@ class AttributeDefaultsReorderView(AdminScopeRequiredMixin, APIView):
 class AttributeDefaultsExportView(APIView):
     """GET /attribute-defaults/{item_type}/{preset}/export/ (Task 10)."""
 
+    @extend_schema(
+        responses={
+            200: OpenApiResponse(
+                response=AttributeDefinitionVersionSerializer,
+                description=(
+                    "A versioned document that the matching .../import/ route "
+                    "accepts."
+                ),
+            ),
+            403: OpenApiResponse(description="Admin role required."),
+            404: OpenApiResponse(description="No global default for that key."),
+        },
+    )
     def get(self, request: Request, item_type: str, preset: str) -> Response:
         gate = _require_admin(request)
         if isinstance(gate, Response):
@@ -474,6 +721,32 @@ class AttributeDefaultsExportView(APIView):
 class AttributeDefaultsImportView(AdminScopeRequiredMixin, APIView):
     """POST /attribute-defaults/{item_type}/{preset}/import/ (Task 10)."""
 
+    @extend_schema(
+        request=AttributeDefinitionVersionSerializer,
+        parameters=[
+            OpenApiParameter(
+                "on_collision",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "skip|overwrite|rename. Wins over a same-named body key; "
+                    "defaults to 'skip'."
+                ),
+            ),
+        ],
+        responses={
+            200: OpenApiResponse(
+                response=GlobalAttributeDefinitionSerializer,
+                description="The global default after the merge.",
+            ),
+            400: OpenApiResponse(
+                description="VALIDATION_ERROR — bad schema_version or entries."
+            ),
+            403: OpenApiResponse(description="Admin role required."),
+            404: OpenApiResponse(description="No global default for that key."),
+        },
+    )
     def post(self, request: Request, item_type: str, preset: str) -> Response:
         gate = _require_admin(request)
         if isinstance(gate, Response):
@@ -500,6 +773,26 @@ class WorkspaceAttributeDefinitionReorderView(AdminScopeRequiredMixin, APIView):
     default.
     """
 
+    @extend_schema(
+        request=AttributeReorderRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=WorkspaceAttributeDefinitionSerializer,
+                description="The reordered workspace definition.",
+            ),
+            400: OpenApiResponse(description="VALIDATION_ERROR — malformed body."),
+            403: OpenApiResponse(
+                description="Admin role required, or the workspace is foreign."
+            ),
+            404: OpenApiResponse(description="No definition for that key."),
+            409: OpenApiResponse(
+                description=(
+                    "CONFLICT — a stale `version`; `current` carries the server "
+                    "payload so the client can rebase."
+                )
+            ),
+        },
+    )
     def post(self, request: Request, workspace_id: UUID, item_type: str) -> Response:
         gate = _require_admin(request)
         if isinstance(gate, Response):
@@ -531,6 +824,22 @@ class WorkspaceAttributeDefinitionReorderView(AdminScopeRequiredMixin, APIView):
 class WorkspaceAttributeDefinitionExportView(APIView):
     """GET /workspaces/{id}/attribute-definitions/{item_type}/export/ (Task 10)."""
 
+    @extend_schema(
+        responses={
+            200: OpenApiResponse(
+                response=AttributeDefinitionVersionSerializer,
+                description=(
+                    "A versioned document that the matching .../import/ route "
+                    "accepts."
+                ),
+            ),
+            403: OpenApiResponse(
+                description="Admin role required, or the workspace is foreign."
+            ),
+            404: OpenApiResponse(description="No definition for that key."),
+            409: OpenApiResponse(description="CONFLICT — inconsistent row."),
+        },
+    )
     def get(self, request: Request, workspace_id: UUID, item_type: str) -> Response:
         gate = _require_admin(request)
         if isinstance(gate, Response):
@@ -557,6 +866,34 @@ class WorkspaceAttributeDefinitionExportView(APIView):
 class WorkspaceAttributeDefinitionImportView(AdminScopeRequiredMixin, APIView):
     """POST /workspaces/{id}/attribute-definitions/{item_type}/import/ (Task 10)."""
 
+    @extend_schema(
+        request=AttributeDefinitionVersionSerializer,
+        parameters=[
+            OpenApiParameter(
+                "on_collision",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "skip|overwrite|rename. Wins over a same-named body key; "
+                    "defaults to 'skip'."
+                ),
+            ),
+        ],
+        responses={
+            200: OpenApiResponse(
+                response=WorkspaceAttributeDefinitionSerializer,
+                description="The workspace definition after the merge.",
+            ),
+            400: OpenApiResponse(
+                description="VALIDATION_ERROR — bad schema_version or entries."
+            ),
+            403: OpenApiResponse(
+                description="Admin role required, or the workspace is foreign."
+            ),
+            404: OpenApiResponse(description="No definition for that key."),
+        },
+    )
     def post(self, request: Request, workspace_id: UUID, item_type: str) -> Response:
         gate = _require_admin(request)
         if isinstance(gate, Response):

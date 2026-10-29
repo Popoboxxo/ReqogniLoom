@@ -42,6 +42,7 @@ import logging
 from typing import Any
 from uuid import UUID
 
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import status
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -50,6 +51,12 @@ from rest_framework.views import APIView
 from auth_tenancy.context import AuthContext
 from auth_tenancy.models import ITEM_PERMISSION_LEVEL_CHOICES, ItemPermission
 from auth_tenancy.rest import HasOperationPermission
+from auth_tenancy.schema_serializers import (
+    ItemPermissionGrantRequestSerializer,
+    ItemPermissionListSerializer,
+    ItemPermissionResponseSerializer,
+    ItemPermissionRevokeRequestSerializer,
+)
 from auth_tenancy.services import (
     AuthorizationService,
     ItemPermissionService,
@@ -260,6 +267,20 @@ class ItemPermissionViewSet(APIView):
 
     # -- POST: grant -------------------------------------------------------
 
+    @extend_schema(
+        tags=["permissions"],
+        request=ItemPermissionGrantRequestSerializer,
+        responses={
+            201: OpenApiResponse(
+                response=ItemPermissionResponseSerializer,
+                description="The upserted rule.",
+            ),
+            400: OpenApiResponse(description="Malformed body or invalid level."),
+            403: OpenApiResponse(
+                description="Not an admin, or not a member of the workspace."
+            ),
+        },
+    )
     def post(self, request: Request, **kwargs: Any) -> Response:
         """Grant a permission rule (upsert).
 
@@ -345,6 +366,35 @@ class ItemPermissionViewSet(APIView):
 
     # -- GET: list ---------------------------------------------------------
 
+    @extend_schema(
+        tags=["permissions"],
+        parameters=[
+            OpenApiParameter(
+                "user_id",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="UUID of the user whose rules are listed.",
+            ),
+            OpenApiParameter(
+                "artifact_id",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Optional artifact filter.",
+            ),
+        ],
+        responses={
+            200: OpenApiResponse(
+                response=ItemPermissionListSerializer,
+                description="The matching rules (empty when the user has none).",
+            ),
+            400: OpenApiResponse(description="Missing/invalid user_id."),
+            403: OpenApiResponse(
+                description="Not an admin, or not a member of the workspace."
+            ),
+        },
+    )
     def get(self, request: Request, **kwargs: Any) -> Response:
         """List permission rules for a (user, workspace) pair.
 
@@ -404,6 +454,31 @@ class ItemPermissionViewSet(APIView):
 
     # -- DELETE: revoke ----------------------------------------------------
 
+    @extend_schema(
+        tags=["permissions"],
+        request=ItemPermissionRevokeRequestSerializer,
+        parameters=[
+            OpenApiParameter(
+                "permission_id",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Id of the rule to revoke. Accepted as an alternative to "
+                    "the request body for clients that cannot send a DELETE "
+                    "body; the body value wins when both are present."
+                ),
+            ),
+        ],
+        responses={
+            204: OpenApiResponse(description="The rule was revoked."),
+            400: OpenApiResponse(description="Missing or malformed permission_id."),
+            403: OpenApiResponse(
+                description="Not an admin, or not a member of the workspace."
+            ),
+            404: OpenApiResponse(description="No rule with that id."),
+        },
+    )
     def delete(self, request: Request, **kwargs: Any) -> Response:
         """Revoke a permission rule by id.
 
