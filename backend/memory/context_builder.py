@@ -44,7 +44,8 @@ from typing import Any
 from uuid import UUID
 
 from memory.backends import MemoryBackend, MemoryEntryRef, get_memory_backend
-from memory.injection_policy import resolve_injection
+from memory.injection_ledger import record as record_injection
+from memory.injection_policy import InjectionDecision, resolve_injection
 
 logger = logging.getLogger(__name__)
 
@@ -160,10 +161,20 @@ def build_memory_context(
     searched and rendered, so a blocked slot never reaches the backend —
     including the ``user`` scope when the workspace overrides an opt-out
     (ENT-A7 = B).
+
+    Transparency (Plan A T-A1-5, ADR-024 AC-6): when a ledger is open
+    (:func:`memory.injection_ledger.open_ledger`), this call records exactly
+    one entry for *slot_name* — the injecting case with the per-scope hit
+    counts, the blocked case under ``suppressed`` with ``decision.reason``.
+    Recording is best-effort and can never change the rendered block. A call
+    without a ``slot_name`` (no memory-capable slot) records nothing, and so
+    does one without a ``workspace_id``: neither ever reaches the policy.
     """
     if workspace_id is None:
         return ""
     artifact_uuid = _as_uuid(artifact_id)
+    decision: InjectionDecision | None = None
+    hits_by_scope: dict[str, list[MemoryEntryRef]] = {}
     try:
         decision = resolve_injection(
             tenant_id=tenant_id,
@@ -171,25 +182,48 @@ def build_memory_context(
             user_id=user_id,
             slot_name=slot_name,
         )
-        if not decision.inject:
-            return ""
-
-        backend: MemoryBackend = get_memory_backend()
-        hits_by_scope: dict[str, list[MemoryEntryRef]] = {}
-        for scope, scope_id in _search_targets(
-            artifact_uuid, workspace_id, user_id, decision.scopes
-        ):
-            hits_by_scope[scope] = backend.query(
-                tenant_id, scope, scope_id, query_text, top_k=_TOP_K_PER_SCOPE
-            )
+        if decision.inject:
+            backend: MemoryBackend = get_memory_backend()
+            for scope, scope_id in _search_targets(
+                artifact_uuid, workspace_id, user_id, decision.scopes
+            ):
+                hits_by_scope[scope] = backend.query(
+                    tenant_id, scope, scope_id, query_text, top_k=_TOP_K_PER_SCOPE
+                )
     except Exception as exc:  # noqa: BLE001 -- best-effort, see docstring
         logger.warning("build_memory_context failed, degrading to empty context: %s", exc)
+        # Nothing was (or can be) injected for this slot. The slot is still
+        # reported — with a count of 0 — so the caller can see that memory was
+        # consulted but did not reach the prompt.
+        _record(slot_name, decision, {})
+        return ""
+
+    _record(slot_name, decision, {s: len(hits) for s, hits in hits_by_scope.items()})
+    if not decision.inject:
         return ""
 
     lines: list[str] = []
     for scope in _render_order(artifact_uuid, decision.scopes):
         lines.extend(_render_section(scope, hits_by_scope.get(scope, [])))
     return "\n".join(lines)
+
+
+def _record(
+    slot_name: str | None,
+    decision: InjectionDecision | None,
+    counts_by_scope: dict[str, int],
+) -> None:
+    """Record one entry on the active ledger.
+
+    ``decision`` is ``None`` only if the policy lookup itself raised, which
+    ``resolve_injection`` never does (it answers ``policy_unavailable``
+    instead); the guard exists so a future change cannot break a render.
+    ``memory.injection_ledger.record`` is itself fail-safe (it debug-logs and
+    swallows), so that is the single guard layer — no second one here.
+    """
+    if not slot_name or decision is None:
+        return
+    record_injection(slot_name, decision, counts_by_scope)
 
 
 def _search_targets(

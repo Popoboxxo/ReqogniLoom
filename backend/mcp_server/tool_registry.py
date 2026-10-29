@@ -1652,15 +1652,27 @@ class ToolRegistry:
 
         Runs inside the TenantContext armed by :meth:`dispatch_request`, which
         stays active until the group has produced its result.
+
+        Plan A T-A1-5 / ADR-024 AC-6: the call runs inside a memory-injection
+        ledger, so a tool whose prompt built memory reports it as an additive
+        ``memory_injected`` key on its successful dict payload. A tool that
+        never touches memory (the overwhelming majority), a non-dict payload
+        and an error result stay byte-identical.
         """
         try:
-            result: ToolResult = context.group.execute_tool(  # type: ignore[union-attr]
-                tool_name=tool_name,
-                params=params,
-                auth_context=context.auth_ctx,
-                api_key=api_key,
-            )
-            return result
+            # Inside the guard on purpose: an ImportError here must not escape
+            # the fix-#108 safety net as an unmasked 500.
+            from memory.injection_ledger import open_ledger
+
+            with open_ledger() as ledger:
+                result: ToolResult = context.group.execute_tool(  # type: ignore[union-attr]
+                    tool_name=tool_name,
+                    params=params,
+                    auth_context=context.auth_ctx,
+                    api_key=api_key,
+                )
+                _attach_memory_injected(result, ledger)
+                return result
         except Exception as exc:
             # fix #108: outer safety net — same masking as
             # BaseToolGroup.execute_tool's inner catch-all, in case a
@@ -2112,6 +2124,22 @@ class ToolRegistry:
     def hash_api_key(plaintext: str) -> str:
         """Return sha256 hash of API key for audit log (never store plaintext)."""
         return "sha256:" + hashlib.sha256(plaintext.encode()).hexdigest()
+
+
+def _attach_memory_injected(result: ToolResult, ledger: Any) -> None:
+    """Add ``memory_injected`` to a successful dict payload (Plan A T-A1-5).
+
+    Additive only (ADR-024 AC-6): a tool that recorded nothing leaves the
+    payload byte-identical, and an error result is never decorated (its
+    ``data`` belongs to the error contract). No tool's output schema changes.
+    """
+    # Invariant: never reuse a payload dict — a decorated copy replaces it.
+    if not result.success or not isinstance(result.data, dict):
+        return
+    contract = ledger.as_contract()
+    if contract is None or "memory_injected" in result.data:
+        return
+    result.data = {**result.data, "memory_injected": contract}
 
 
 __all__ = [

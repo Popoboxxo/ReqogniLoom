@@ -267,6 +267,12 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    # Plan A T-A1-5 / ADR-024 AC-6: reports which memory reached an AI prompt
+    # as an additive ``memory_injected`` key on 2xx dict responses. Placed
+    # right after AuthenticationMiddleware so the caller identity is resolved
+    # before anything downstream consults memory; ``process_template_response``
+    # runs before DRF renders ``Response.data``, so the key reaches the wire.
+    "memory.middleware.MemoryInjectionLedgerMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     # SEC-008 (#75): adds Content-Security-Policy (no django-csp dependency
