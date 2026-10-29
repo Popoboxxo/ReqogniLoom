@@ -4,10 +4,16 @@ Consumes :meth:`memory.backends.MemoryBackend.query` for the ``artifact``,
 ``workspace`` and ``user`` scopes and renders the hits into a small block of
 text a prompt template can splice in via a ``{memory_context}`` placeholder.
 
+Which scopes are searched at all is decided by the slot-level injection policy
+(Plan A T-A1-2, :func:`memory.injection_policy.resolve_injection`): the
+workspace toggle, the workspace/user slot switches and the user opt-out are
+applied there, and only the scopes that policy allows are queried.
+
 Rendering (RFC #1002 PR C) is section-based and deterministic:
 
 * with an ``artifact_id``: artifact -> workspace -> user;
-* without one: workspace -> user.
+* without one: workspace -> user (``user`` omitted when the policy withholds
+  it, e.g. an opt-out the workspace overrides: ENT-A7 = B).
 
 Each hit renders as a "Herkunftszeile" (provenance line):
 
@@ -33,10 +39,12 @@ never break an AI call because memory is down.
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator, Sequence
+from typing import Any
 from uuid import UUID
 
 from memory.backends import MemoryBackend, MemoryEntryRef, get_memory_backend
+from memory.injection_policy import resolve_injection
 
 logger = logging.getLogger(__name__)
 
@@ -54,25 +62,6 @@ _SECTION_HEADINGS = {
 #: system/agent path, set-but-missing means the referenced user row is gone.
 _CONTRIBUTOR_UNSET = "agent"
 _CONTRIBUTOR_UNRESOLVED = "unknown"
-
-
-def _is_workspace_memory_enabled(workspace_id: UUID) -> bool:
-    """Mirror ``memory.projector.MemoryProjector._is_workspace_memory_enabled``.
-
-    This module runs inside an already-request-scoped call (interview_service
-    already has an active tenant context here, unlike the projector, which
-    runs off the event bus), so the default manager is used rather than
-    ``unscoped`` -- consistent with ``memory_rest.WorkspaceMemorySettingsView.
-    get``'s own lookup.
-    """
-    from memory.models import WorkspaceMemorySettings
-
-    row = (
-        WorkspaceMemorySettings.objects.filter(workspace_id=workspace_id)
-        .values_list("enabled", flat=True)
-        .first()
-    )
-    return True if row is None else row
 
 
 def _as_uuid(value: object) -> UUID | None:
@@ -128,9 +117,11 @@ def _render_section(scope: str, hits: Iterable[MemoryEntryRef]) -> list[str]:
 def build_memory_context(
     tenant_id: UUID,
     workspace_id: UUID,
-    user_id: UUID,
+    user_id: UUID | None,
     query_text: str,
     *,
+    slot_name: str | None = None,
+    config: Any | None = None,
     artifact_id: UUID | str | None = None,
     entity_type: str = "",
 ) -> str:
@@ -139,8 +130,20 @@ def build_memory_context(
     Args:
         tenant_id: Owning tenant (arms both isolation layers via the backend).
         workspace_id: Workspace whose memory slice is searched.
-        user_id: User whose personal memory slice is searched.
+        user_id: User whose personal memory slice is searched (``None`` skips
+            the ``user`` scope; a context-free caller has no personal memory).
         query_text: Free-text query embedded once per searched scope.
+        slot_name: The prompt slot this block is built for. **Mandatory by
+            contract** (Plan A T-A1-2, QR-S06): the slot-level policy
+            (:func:`memory.injection_policy.resolve_injection`) decides whether
+            — and which scopes — may be injected, and it can only do that with
+            the slot name. Every production caller passes it (enforced by
+            ``memory/tests/test_build_memory_context_callers.py``); the ``None``
+            default exists solely so a dynamic ``**kwargs`` caller degrades to
+            "no memory" (``slot_missing``) instead of raising ``TypeError``.
+        config: Reserved for the render configuration object (Plan A T-A1-6 /
+            PR-A14). Accepted and ignored here so the signature does not change
+            twice.
         artifact_id: When given (and UUID-shaped), the artifact scope is
             searched and rendered FIRST, before workspace and user. A
             non-UUID value is treated as absent.
@@ -148,28 +151,33 @@ def build_memory_context(
             of the write path's provenance, not the read query).
 
     Returns:
-        The rendered block, or ``""`` when memory is disabled/empty or any
-        backend call fails. Never raises.
+        The rendered block, or ``""`` when the policy blocks injection, memory
+        is empty, or any backend call fails. Never raises.
 
-    Defensive workspace-toggle check (final whole-branch review Finding 4):
-    ``MemoryProjector`` already refuses to enqueue consolidation for a
-    disabled workspace, but this is the READ side -- checked independently
-    so that even if something ever bypasses the projector (or a workspace is
-    disabled after facts were already consolidated), reading memory for a
-    disabled workspace still returns empty rather than surfacing
-    previously-collected content.
+    Policy (Plan A T-A1-2, ADR-024 AC-3/AC-4): the workspace toggle, the
+    workspace/user slot switches and the user opt-out are all decided once in
+    :func:`memory.injection_policy.resolve_injection`. Only its ``scopes`` are
+    searched and rendered, so a blocked slot never reaches the backend —
+    including the ``user`` scope when the workspace overrides an opt-out
+    (ENT-A7 = B).
     """
     if workspace_id is None:
         return ""
     artifact_uuid = _as_uuid(artifact_id)
     try:
-        if not _is_workspace_memory_enabled(workspace_id):
+        decision = resolve_injection(
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+            user_id=user_id,
+            slot_name=slot_name,
+        )
+        if not decision.inject:
             return ""
 
         backend: MemoryBackend = get_memory_backend()
         hits_by_scope: dict[str, list[MemoryEntryRef]] = {}
         for scope, scope_id in _search_targets(
-            artifact_uuid, workspace_id, user_id
+            artifact_uuid, workspace_id, user_id, decision.scopes
         ):
             hits_by_scope[scope] = backend.query(
                 tenant_id, scope, scope_id, query_text, top_k=_TOP_K_PER_SCOPE
@@ -179,27 +187,34 @@ def build_memory_context(
         return ""
 
     lines: list[str] = []
-    for scope in _render_order(artifact_uuid):
+    for scope in _render_order(artifact_uuid, decision.scopes):
         lines.extend(_render_section(scope, hits_by_scope.get(scope, [])))
     return "\n".join(lines)
 
 
 def _search_targets(
-    artifact_id: UUID | None, workspace_id: UUID, user_id: UUID
+    artifact_id: UUID | None,
+    workspace_id: UUID,
+    user_id: UUID | None,
+    scopes: Sequence[str],
 ) -> Iterator[tuple[str, UUID]]:
-    """Yield ``(scope, scope_id)`` pairs in artifact-first search order."""
-    if artifact_id is not None:
+    """Yield ``(scope, scope_id)`` pairs the policy allows, artifact first."""
+    if artifact_id is not None and "artifact" in scopes:
         yield "artifact", artifact_id
-    yield "workspace", workspace_id
-    yield "user", user_id
+    if "workspace" in scopes:
+        yield "workspace", workspace_id
+    if user_id is not None and "user" in scopes:
+        yield "user", user_id
 
 
-def _render_order(artifact_id: UUID | None) -> Iterator[str]:
-    """Yield scopes in render order (artifact-first only when requested)."""
-    if artifact_id is not None:
+def _render_order(artifact_id: UUID | None, scopes: Sequence[str]) -> Iterator[str]:
+    """Yield allowed scopes in render order (artifact-first when requested)."""
+    if artifact_id is not None and "artifact" in scopes:
         yield "artifact"
-    yield "workspace"
-    yield "user"
+    if "workspace" in scopes:
+        yield "workspace"
+    if "user" in scopes:
+        yield "user"
 
 
 __all__ = ["build_memory_context"]

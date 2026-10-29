@@ -101,3 +101,91 @@ class MemoryConfig(AppConfig):
         from llm_adapter.embedding_service import register_settings_override_provider
 
         register_settings_override_provider(_apply_memory_settings_override)
+
+        # Plan A T-A1-3: the memory injection switches are Q1 keys owned by
+        # this app (ENT-A5 = A). Registered here — not in a migration — so the
+        # workspace level needs no new column.
+        _register_memory_preference_keys()
+
+
+def _register_memory_preference_keys() -> None:
+    """Register Plan A's ``memory.*`` Q1 keys (T-A1-3, ENT-A5 = A).
+
+    Three keys, all owned by Plan A:
+
+    * ``memory.disabled_slots`` — ``str_list`` on every level (``union``, so one
+      level can disable a slot and no level can re-enable it), validated
+      against :data:`memory.injection_policy.MEMORY_CONSUMER_SLOTS` including a
+      HARD_OFF rejection;
+    * ``memory.allow_user_opt_out`` — ``bool`` on the workspace level (default
+      ``True``: a user's opt-out is honoured unless the workspace forbids it);
+    * ``memory.enabled`` — ``bool`` on the user level (default ``True``: the
+      personal opt-out switch, covering every memory activity of the user).
+
+    Imports are local on purpose: ``ready()`` is the only place this app may
+    touch the Q1 registry, and the registry itself must stay importable without
+    pulling in ``memory`` (see its module docstring).
+
+    Idempotent by necessity: test tooling may re-enter ``ready()``, while the
+    registry (correctly) treats a duplicate key as a programming error — same
+    pattern as ``auth_tenancy.apps._register_q1_preference_keys``.
+    """
+    from application.preference_registry import (
+        PreferenceKey,
+        get_preference_key,
+        register_preference_key,
+    )
+    from auth_tenancy.models import (
+        PREFERENCE_SCOPE_GLOBAL,
+        PREFERENCE_SCOPE_USER,
+        PREFERENCE_SCOPE_WORKSPACE,
+    )
+    from memory.injection_policy import (
+        ALLOW_USER_OPT_OUT_KEY,
+        DISABLED_SLOTS_KEY,
+        USER_ENABLED_KEY,
+        validate_disabled_slots,
+    )
+    from persistence.errors import ValidationError
+
+    specs = (
+        PreferenceKey(
+            key=DISABLED_SLOTS_KEY,
+            value_type="str_list",
+            default=[],
+            levels=frozenset(
+                {
+                    PREFERENCE_SCOPE_GLOBAL,
+                    PREFERENCE_SCOPE_WORKSPACE,
+                    PREFERENCE_SCOPE_USER,
+                }
+            ),
+            mode="union",
+            validator=validate_disabled_slots,
+            # No generic settings editor: the key carries no ``choices``, so a
+            # ``select`` would render zero options (precedent:
+            # ``ui.sidebar.collapsed_groups``). The workspace facade
+            # (``memory_rest``) is its UI surface.
+            ui_editor=None,
+            owner="A1",
+        ),
+        PreferenceKey(
+            key=ALLOW_USER_OPT_OUT_KEY,
+            value_type="bool",
+            default=True,
+            levels=frozenset({PREFERENCE_SCOPE_WORKSPACE}),
+            owner="A1",
+        ),
+        PreferenceKey(
+            key=USER_ENABLED_KEY,
+            value_type="bool",
+            default=True,
+            levels=frozenset({PREFERENCE_SCOPE_USER}),
+            owner="A1",
+        ),
+    )
+    for spec in specs:
+        try:
+            get_preference_key(spec.key)
+        except ValidationError:
+            register_preference_key(spec)

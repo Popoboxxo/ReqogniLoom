@@ -242,6 +242,7 @@ def _auto_memory_context(
     artifact_id: UUID | str | None,
     entity_type: str,
     data_kwargs: dict[str, Any],
+    slot_name: str,
 ) -> str:
     """Compute the memory block for a slot that declares ``memory_context``.
 
@@ -249,6 +250,12 @@ def _auto_memory_context(
     hard requirement for a prompt to render, so any failure -- memory
     disabled for the workspace, unreachable backend, missing tenant context --
     degrades to ``""`` instead of breaking the AI call.
+
+    ``slot_name`` is forwarded to :func:`memory.context_builder.
+    build_memory_context`, where the central injection policy (Plan A T-A1-2)
+    decides whether the slot may receive memory at all. When the policy says
+    no, the returned block is ``""`` -- the resolver therefore injects nothing,
+    and the placeholder still renders as an empty string (ADR-024 AC-3/AC-4).
     """
     scope = _as_uuid(workspace_id)
     if scope is None:
@@ -261,6 +268,7 @@ def _auto_memory_context(
             scope,
             ctx.user_id,
             _memory_query_text(data_kwargs),
+            slot_name=slot_name,
             artifact_id=artifact_id,
             entity_type=entity_type,
         )
@@ -301,6 +309,11 @@ def resolve_and_render(
     central injection point — call sites that bypass it (the legacy
     ``_get_template_content`` + ``_render`` pair) deliberately do not get it.
 
+    The slot-level policy (Plan A T-A1-2) is applied inside
+    :func:`memory.context_builder.build_memory_context`, which receives
+    *slot_name*: when it answers ``inject=False`` the returned block is ``""``,
+    so nothing is injected for that slot.
+
     HARD_OFF slots (Plan A T-A1-1, ADR-024 AC-1/AC-2) opt out entirely: every
     name in :data:`application.prompt_slots.MEMORY_DATA_VARIABLES` is rendered
     as ``""`` — even one the caller passed explicitly — and the memory backend
@@ -318,8 +331,10 @@ def resolve_and_render(
         for name in MEMORY_DATA_VARIABLES:
             values[name] = ""
     elif "memory_context" in get_slot_data_variables(slot_name) and "memory_context" not in values:
+        # The slot-level policy lives behind build_memory_context; a blocked
+        # slot yields "" here, so nothing is injected for it.
         values["memory_context"] = _auto_memory_context(
-            ctx, workspace_id, artifact_id, entity_type, data_kwargs
+            ctx, workspace_id, artifact_id, entity_type, data_kwargs, slot_name
         )
     return render_template(content, **values)
 

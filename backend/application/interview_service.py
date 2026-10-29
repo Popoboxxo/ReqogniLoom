@@ -2016,6 +2016,10 @@ class InterviewService(ServiceBase):
             session.workspace_id,
             ctx.user_id,
             user_message,
+            # Plan A T-A1-2: slot-level policy (workspace/user switches). This
+            # bypass path builds its own prompt instead of going through
+            # resolve_and_render, so it must name its slot explicitly.
+            slot_name="interview.chat_turn",
             artifact_id=session.artifact_id,
             entity_type=session.artifact_type or "",
         )

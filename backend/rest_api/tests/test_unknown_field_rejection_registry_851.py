@@ -491,6 +491,11 @@ _EXEMPT_SERIALIZERS: dict[str, str] = {
     "MemorySelfServiceResponseSerializer": "read-only response serializer (#1388)",
     "MemorySelfServiceDeleteResponseSerializer": "read-only response serializer (#1388)",
     "WorkspaceMemorySettingsResponseSerializer": "read-only response serializer (#1388)",
+    "WorkspaceMemorySlotSerializer": (
+        "nested read-only entry of 'available_slots' inside the GET/PUT response "
+        "serializer, never used for request validation, so there is no request body "
+        "to guard (#1388)"
+    ),
     "WorkspaceMemorySettingsWriteSerializer": (
         "OpenAPI documentation-only serializer: the view reads request.data key-by-key, so "
         "this class describes the body but never guards it (#1388)"
