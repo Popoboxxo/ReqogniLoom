@@ -250,13 +250,36 @@ def validate_disabled_slots(value: Any) -> None:
     """Validate a ``memory.disabled_slots`` write against the slot vocabulary.
 
     Called by the Q1 registry on every write (and on the default), so the REST
-    facade and the generic preference surface share one validation path.
+    facades (workspace and user) and the generic preference surface share one
+    validation path.
+
+    The stored value is what every later :func:`resolve_injection` for that
+    level re-parses, so its shape must stay bounded and canonical:
+
+    * longer than the whole vocabulary — cannot name anything new, so it is a
+      pure bloat/self-DoS vector;
+    * a repeated entry — a validator cannot normalise the value it is handed
+      (it validates and returns ``None``), so the only way to keep
+      ``["testcase_derive"] * N`` out of the store is to reject it. Silently
+      accepting it would persist the repetition verbatim.
 
     Raises:
-        ValidationError: the list names a HARD_OFF slot (message contains
+        ValidationError: the list is longer than :data:`MEMORY_CONSUMER_SLOTS`,
+            repeats an entry, names a HARD_OFF slot (message contains
             ``slot is hard-off``) or a slot that is not a memory consumer.
     """
     items = [item for item in value if isinstance(item, str)] if isinstance(value, list) else []
+    # Checked first: it bounds the (quadratic but tiny) duplicate scan below.
+    if len(items) > len(MEMORY_CONSUMER_SLOTS):
+        raise ValidationError(
+            f"memory.disabled_slots accepts at most {len(MEMORY_CONSUMER_SLOTS)} "
+            f"entries, got {len(items)}"
+        )
+    duplicated = sorted({item for item in items if items.count(item) > 1})
+    if duplicated:
+        raise ValidationError(
+            f"memory.disabled_slots must not repeat an entry: {duplicated}"
+        )
     hard_off = sorted({item for item in items if is_memory_hard_off(item)})
     if hard_off:
         raise ValidationError(

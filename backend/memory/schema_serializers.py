@@ -44,6 +44,9 @@ __all__ = [
     "MemorySearchResponseSerializer",
     "MemorySelfServiceDeleteResponseSerializer",
     "MemorySelfServiceResponseSerializer",
+    "MemorySelfServiceSettingsEffectiveSerializer",
+    "MemorySelfServiceSettingsResponseSerializer",
+    "MemorySelfServiceSettingsWriteSerializer",
     "MemoryWorkspaceDeleteResponseSerializer",
     "MemoryWorkspaceOverviewResponseSerializer",
     "MemoryWorkspaceOverviewRowSerializer",
@@ -235,6 +238,77 @@ class MemorySelfServiceDeleteResponseSerializer(MemoryEnvelopeSerializer):
     """``DELETE /memory/me/`` — ``{deleted: <count>}``."""
 
     deleted = serializers.IntegerField()
+
+
+class MemorySelfServiceSettingsEffectiveSerializer(serializers.Serializer):
+    """The workspace policy hint of ``GET /memory/me/settings/?workspace_id=``.
+
+    Plan A T-A1-4, ENT-A7 = B: ``opt_out_allowed`` is the workspace-level
+    ``memory.allow_user_opt_out`` value (default ``true``). It reports whether
+    the caller's personal ``enabled=false`` actually applies in that workspace —
+    the switch is stored either way, so this flag is the only way the UI can
+    say "not honoured here" without a second request.
+    """
+
+    workspace_id = serializers.CharField()
+    opt_out_allowed = serializers.BooleanField()
+
+
+class MemorySelfServiceSettingsResponseSerializer(serializers.Serializer):
+    """``GET/PUT /api/v1/memory/me/settings/`` (Plan A T-A1-4).
+
+    The caller's own Q1 **user** level: ``enabled`` and ``disabled_slots`` are
+    the *stored* user level with the registry defaults (``true`` / ``[]``) for
+    a missing row — not the merged value, so a GET→PUT round-trip cannot promote
+    tenant-global or workspace disables into the personal level. It is
+    promotion-free, not write-free: a round-trip over a default answer stores
+    the caller's two user rows with that default value. ``effective`` is present
+    only when the request named a workspace.
+    """
+
+    enabled = serializers.BooleanField(
+        help_text="The caller's personal memory switch (user level)."
+    )
+    disabled_slots = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text=(
+            "Slots the caller personally disabled (user level only, not the "
+            "merged value). Matched against the derived slot vocabulary; a "
+            "hard-off slot is rejected."
+        ),
+    )
+    effective = MemorySelfServiceSettingsEffectiveSerializer(required=False)
+
+
+class MemorySelfServiceSettingsWriteSerializer(serializers.Serializer):
+    """Body of ``PUT /api/v1/memory/me/settings/`` (Plan A T-A1-4).
+
+    Partial: an omitted field keeps its stored value, ``null`` resets the
+    caller's level so the registry default applies again. Both fields are
+    validated by the Q1 key's own rules — an unknown or hard-off slot and a
+    non-boolean ``enabled`` are answered with 400 ``VALIDATION_ERROR``. There is
+    deliberately no ``user_id``: the caller can only ever write their own level.
+    """
+
+    enabled = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Personal memory switch. ``false`` opts out of every memory slot "
+            "for this user (a workspace may forbid that, see "
+            "``effective.opt_out_allowed``)."
+        ),
+    )
+    disabled_slots = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Personal per-slot disables. An unknown or hard-off slot is "
+            "rejected with 400."
+        ),
+    )
 
 
 class WorkspaceMemorySlotSerializer(serializers.Serializer):

@@ -347,6 +347,30 @@ def test_validator_rejects_hard_off_slot(slot_name):
         validate_disabled_slots([slot_name])
 
 
+def test_validator_rejects_duplicate_and_oversized_slot_lists():
+    """The stored list stays bounded and canonical (security review, LOW).
+
+    A validator cannot normalise (it validates and returns ``None``), so a
+    repeated entry is *rejected* instead of silently de-duplicated — otherwise
+    ``["testcase_derive"] * N`` would be persisted verbatim and re-parsed on
+    every later ``resolve_injection`` of that level (row bloat / self-DoS).
+    """
+    slot = sorted(MEMORY_CONSUMER_SLOTS)[0]
+
+    with pytest.raises(ValidationError, match="must not repeat"):
+        validate_disabled_slots([slot, slot])
+
+    # The cap IS the vocabulary size: one entry per possible slot is the largest
+    # value that can name anything new, and it stays accepted.
+    validate_disabled_slots(sorted(MEMORY_CONSUMER_SLOTS))
+    with pytest.raises(ValidationError, match="accepts at most"):
+        validate_disabled_slots(sorted(MEMORY_CONSUMER_SLOTS) + [slot])
+
+    # Repeated entries cannot smuggle a list past the cap either.
+    with pytest.raises(ValidationError, match="accepts at most"):
+        validate_disabled_slots([slot] * (len(MEMORY_CONSUMER_SLOTS) + 1))
+
+
 # ---------------------------------------------------------------------------
 # Production consumers honour the policy
 # ---------------------------------------------------------------------------
