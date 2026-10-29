@@ -35,6 +35,38 @@ class PromptSlotSpec:
     data_variables: tuple[str, ...]
 
 
+#: Slots that must never receive retrieved memory (Plan A T-A1-1, ADR-024
+#: AC-1). ``bundle_compression`` re-compresses its input, so an injected block
+#: would be re-compressed into the bundle; ``interview.transcript_summary``
+#: digests an already-complete transcript; ``memory.extract`` would feed memory
+#: back into the writer that produces it (a feedback loop).
+MEMORY_HARD_OFF_SLOTS: frozenset[str] = frozenset(
+    {"interview.transcript_summary", "bundle_compression", "memory.extract"}
+)
+
+#: Slot families that are memory-free as a family (Plan B/B5 quality slots),
+#: so a new ``quality_*`` slot cannot opt in by forgetting an allow-list entry.
+MEMORY_HARD_OFF_PREFIXES: tuple[str, ...] = ("quality_",)
+
+#: Every data variable that carries a retrieved-memory block. On a HARD_OFF
+#: slot these names render as ``""`` (and are inert for the unknown-placeholder
+#: report) instead of being filled from the memory backend.
+MEMORY_DATA_VARIABLES: tuple[str, ...] = (
+    "memory_context",
+    "memory_artifact_context",
+    "memory_workspace_context",
+    "memory_user_context",
+    "memory_facts_json",
+)
+
+
+def is_memory_hard_off(slot_name: str) -> bool:
+    """Return whether *slot_name* is excluded from memory injection."""
+    return slot_name in MEMORY_HARD_OFF_SLOTS or slot_name.startswith(
+        MEMORY_HARD_OFF_PREFIXES
+    )
+
+
 #: Every ``interview.protocol.<Type>`` slot is rendered with the same set.
 #:
 #: ``memory_context`` (RFC #1002 PR C) is part of this shared set because the
@@ -59,9 +91,9 @@ INTERVIEW_PROTOCOL_DATA_VARIABLES: tuple[str, ...] = (
 #: RFC #1002 PR C: every content-generating AI slot declares
 #: ``memory_context`` so ``prompt_resolver.resolve_and_render`` auto-computes
 #: (and injects) the retrieved workspace/artifact/user memory block for it.
-#: The one deliberate exception is ``interview.transcript_summary`` -- it
-#: compacts an already-supplied transcript and must not introduce outside
-#: facts into that digest, so it stays memory-free.
+#: The exceptions are the :data:`MEMORY_HARD_OFF_SLOTS` -- they leave
+#: ``memory_context`` out on purpose (see that constant for why), and the
+#: resolver blanks the whole :data:`MEMORY_DATA_VARIABLES` set for them.
 _DATA_VARIABLES_BY_SLOT: dict[str, tuple[str, ...]] = {
     "need_to_sysreq": ("need_title", "need_description", "memory_context"),
     "sysreq_to_arch_assign": (
@@ -81,7 +113,7 @@ _DATA_VARIABLES_BY_SLOT: dict[str, tuple[str, ...]] = {
     "architecture_to_risk": ("ae_title", "ae_description", "memory_context"),
     "workspace_to_glossary": ("workspace_text", "memory_context"),
     "decision_to_adr": ("decision_description", "memory_context"),
-    "bundle_compression": ("bundle_markdown", "memory_context"),
+    "bundle_compression": ("bundle_markdown",),
     "interview.grounding_rank": (
         "answers_text",
         "candidates_json",
@@ -163,8 +195,12 @@ def get_slot_data_variables(name: str) -> tuple[str, ...]:
 
 __all__ = [
     "INTERVIEW_PROTOCOL_DATA_VARIABLES",
+    "MEMORY_DATA_VARIABLES",
+    "MEMORY_HARD_OFF_PREFIXES",
+    "MEMORY_HARD_OFF_SLOTS",
     "PromptSlotSpec",
     "get_prompt_slots",
     "get_slot_data_variables",
     "get_slot_default",
+    "is_memory_hard_off",
 ]

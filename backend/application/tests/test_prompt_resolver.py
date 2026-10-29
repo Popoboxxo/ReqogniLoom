@@ -13,6 +13,7 @@ from application.prompt_resolver import (
     try_resolve_template_content,
     unknown_placeholders,
 )
+from application.prompt_slots import is_memory_hard_off
 from application.prompt_template_versioning import publish_new_version
 from application.prompt_variable_versioning import publish_new_variable_version
 from auth_tenancy.context import AuthContext
@@ -244,3 +245,66 @@ def test_workspace_id_accepts_a_string_as_well_as_a_uuid(ctx_workspace):
     assert unknown_placeholders(
         "{max_breadth} {typoo}", "need_to_sysreq", ctx, workspace_id_str
     ) == ["typoo"]
+
+
+def test_bundle_compression_renders_without_memory(ctx_workspace):
+    """Plan A T-A1-1: ``bundle_compression`` is a HARD_OFF slot (ADR-024 AC-1).
+
+    Memory would be re-compressed into the bundle, so a caller-supplied block
+    is blanked even though the caller passed one: the rendered prompt must
+    carry no trace of it and no unresolved placeholder.
+    """
+    ctx, workspace = ctx_workspace
+
+    rendered = resolve_and_render(
+        "bundle_compression",
+        ctx,
+        workspace.id,
+        bundle_markdown="## REQ-1\nTitle: Login\nStatus: approved\n",
+        memory_context="Memory: payments are settled in EUR.",
+    )
+
+    assert "payments are settled in EUR" not in rendered
+    assert "{memory_context}" not in rendered
+    assert "REQ-1" in rendered
+
+
+def test_hard_off_custom_template_with_memory_placeholder_renders_empty(
+    ctx_workspace, monkeypatch
+):
+    """A custom body naming ``{memory_context}`` renders empty, without a lookup.
+
+    ADR-024 AC-2: the policy belongs to the slot, not to the template body, so
+    a workspace override cannot re-open the injection. The spy on
+    ``build_memory_context`` only counts calls — the assertion is that a
+    HARD_OFF slot never reaches the backend at all.
+    """
+    ctx, workspace = ctx_workspace
+    publish_new_version(
+        tenant_id=ctx.tenant_id,
+        name="bundle_compression",
+        content="BODY\n{memory_context}\nEND",
+        workspace_id=workspace.id,
+    )
+    calls: list[str] = []
+
+    def _spy(*args, **kwargs):
+        calls.append("called")
+        return "LEAKED MEMORY"
+
+    monkeypatch.setattr("memory.context_builder.build_memory_context", _spy)
+
+    rendered = resolve_and_render("bundle_compression", ctx, workspace.id)
+
+    assert "{memory_context}" not in rendered
+    assert "LEAKED MEMORY" not in rendered
+    assert rendered == "BODY\n\nEND"
+    assert calls == []
+
+
+def test_quality_prefix_is_hard_off():
+    """Plan B/B5 quality slots are memory-free by prefix, not by enumeration."""
+    assert is_memory_hard_off("quality_review")
+    assert is_memory_hard_off("quality_gate_summary")
+    assert not is_memory_hard_off("need_to_sysreq")
+

@@ -4,10 +4,12 @@ from __future__ import annotations
 from application.ai_derivation_service import PROMPT_TEMPLATE_DEFAULTS
 from application.interview_protocol import INTERVIEW_PROTOCOL_DEFAULTS
 from application.prompt_slots import (
+    MEMORY_DATA_VARIABLES,
     PromptSlotSpec,
     get_prompt_slots,
     get_slot_data_variables,
     get_slot_default,
+    is_memory_hard_off,
 )
 from application.prompt_variables import PROMPT_VARIABLE_DEFAULTS
 
@@ -57,3 +59,17 @@ def test_need_to_sysreq_declares_its_two_data_variables():
 def test_interview_protocol_slots_share_one_data_variable_set():
     for name in INTERVIEW_PROTOCOL_DEFAULTS:
         assert "artifact_type" in get_slot_data_variables(name)
+
+
+def test_hard_off_slots_never_declare_memory():
+    """Plan A T-A1-1: a HARD_OFF slot must not advertise memory at all.
+
+    Declaring a memory variable on a HARD_OFF slot would make the exporter and
+    the settings UI claim an injection that the resolver then blanks.
+    """
+    for name, spec in get_prompt_slots().items():
+        if not is_memory_hard_off(name):
+            continue
+        assert "memory_context" not in spec.data_variables, name
+        assert not set(MEMORY_DATA_VARIABLES) & set(spec.data_variables), name
+
