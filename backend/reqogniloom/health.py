@@ -19,9 +19,13 @@ COMP-RA-006 HealthEndpoint — implements the split contract of ADR-010:
 Advisory signals (``llm_provider_env``, ``embedding_dimensions``,
 ``embedding_model_consistency``, ``embedding_model_drift`` (``?verbose=1`` only;
 per-table counts, or ``unknown`` when the connecting role cannot see past RLS),
-``qdrant_api_key`` / ``qdrant_api_key_missing`` (``?verbose=1`` only: publishing
-the artifact store's security posture on an unauthenticated endpoint would
-signpost the soft target),
+``qdrant_api_key`` / ``qdrant_api_key_missing`` (the two advisory KEYS are
+``?verbose=1`` only, so an anonymous caller is not handed the store's security
+posture; the matching ``memory.W003`` warning TEXT stays unconditional because
+it is the operator signal a plain ``/health/`` poll must carry — that trade-off
+is deliberate, see ``_collect_advisory``), ``qdrant_artifact_points`` /
+``qdrant_sparse_ready`` (published only while the artifact backend actually is
+Qdrant),
 ``csrf_cookie_secure_matches_auth``,
 ``outbox_unbound_publishes``,
 ``outbox_pending`` / ``outbox_dlq`` queue gauges, workflow-definition warnings)
@@ -39,7 +43,11 @@ from __future__ import annotations
 import datetime as _dt
 import email.utils as _email_utils
 import logging
+import math
+import threading
+import time
 from collections.abc import Callable
+from typing import Any
 
 from django.conf import settings as django_settings
 from django.db import connection
@@ -60,6 +68,13 @@ _DEPENDENCY_DOWN_DETAIL = "dependency_down"
 #: degraded opt-in backend, and — like every other marker — never carries the
 #: raw probe error (CWE-209).
 _OPTIONAL_DEPENDENCY_DEGRADED_DETAIL = "optional_dependency_degraded"
+
+#: ``ARTIFACT_VECTOR_BACKEND`` value that routes artifact search to Qdrant.
+#: Mirrors the private ``application.vector_port._QDRANT_ARTIFACT_BACKEND``; it
+#: is only ever compared against ``vector_backend_diagnostic()['active']`` to
+#: decide whether the Qdrant-only advisories below apply. It never *selects* a
+#: backend, so this copy cannot fork the selection logic.
+QDRANT_ARTIFACT_BACKEND = "qdrant"
 
 #: Mandatory readiness dependencies, in their public contract order. ``cache``
 #: is the ADR-010 contract name for the Redis probe, whose reused admin row is
@@ -405,6 +420,276 @@ def _run_required_checks() -> dict[str, str]:
     return results
 
 
+def _artifact_collection_suffix() -> str:
+    """Suffix shared by the versioned artifact collections (``_artifacts_v2``).
+
+    Derived from the two owning modules instead of spelled out here, so a
+    collection-version bump moves this probe with the collections themselves and
+    a rename can never leave the probe watching a family nobody writes to.
+    """
+    from application.artifact_vector_store import ARTIFACT_COLLECTION_VERSION
+    from persistence.qdrant_config import ARTIFACT_COLLECTION_SUFFIX
+
+    return f"_{ARTIFACT_COLLECTION_SUFFIX}_v{ARTIFACT_COLLECTION_VERSION}"
+
+
+#: TTL (seconds) of the cached Qdrant artifact-index probe result. Matches the
+#: compose healthcheck's ``interval: 30s``, so a probe loop costs at most one
+#: Qdrant round trip per interval and worker instead of the ``1 + 2N``
+#: authenticated calls *per request*. That matters because ``/health/`` is
+#: unauthenticated and the backend port is published: without a cache any
+#: anonymous caller can amplify one HTTP request into a fan-out against the
+#: shared store (and into as many 5 s hangs as it can open sockets for).
+QDRANT_ARTIFACT_PROBE_TTL_SECONDS = 30.0
+
+#: Hard wall-clock ceiling for ONE probe run, across every call. The per-call
+#: ``DEFAULT_QDRANT_TIMEOUT`` (5 s) multiplied by ``1 + 2N`` collections outlives
+#: Gunicorn's ``--timeout 30`` and takes the worker down with it, so each step
+#: only gets what is left of this budget instead of its own 5 s. The client is
+#: also built with this timeout, which bounds a call that starts just under the
+#: deadline (``get_collections``/``get_collection`` reject a per-call timeout
+#: kwarg in qdrant-client 1.19.1, so the client-level value is the only bound
+#: there); worst case is therefore the deadline plus one client timeout.
+QDRANT_ARTIFACT_PROBE_DEADLINE_SECONDS = 2.0
+
+#: ``(monotonic_at, payload, error_text)``. ``payload`` and ``error_text`` are
+#: mutually exclusive. Caching the *failure* too keeps a flapping or partitioned
+#: store at one attempt per TTL rather than one per request.
+_artifact_probe_cache: (
+    tuple[float, dict[str, str] | None, str | None] | None
+) = None
+
+#: Single-flight guard: a burst of concurrent ``/health/`` calls runs the probe
+#: once and every waiter reads the result the winner cached.
+_artifact_probe_lock = threading.Lock()
+
+#: Consecutive observations of a provisioned-but-empty artifact family. One zero
+#: is not evidence: ``ensure_artifact_collection`` creates the collection before
+#: the backfill upserts into it, and an approximate (``exact=False``) count can
+#: lag a fresh write. The "holds no points" warning therefore waits for the
+#: second consecutive zero ("two-strike") instead of firing per request.
+_artifact_zero_streak = 0
+
+
+def _reset_artifact_probe_cache() -> None:
+    """Drop the cached artifact-index probe result (tests; manual re-probe)."""
+    global _artifact_probe_cache, _artifact_zero_streak
+    with _artifact_probe_lock:
+        _artifact_probe_cache = None
+        _artifact_zero_streak = 0
+
+
+def _artifact_probe_guard(deadline: float) -> int:
+    """Guard the probe deadline; return the per-call budget in whole seconds.
+
+    Call it before every Qdrant request: an exhausted deadline raises, so the
+    run aborts instead of starting another call. The returned value is only
+    usable for ``count`` — ``qdrant-client`` 1.19.1 rejects a ``timeout`` kwarg
+    on ``get_collections``/``get_collection`` outright (they assert it is
+    empty), so those two are bounded by the client-level timeout alone.
+
+    The value is an ``int`` on purpose: the gRPC count path writes it into a
+    protobuf ``timeout`` field, which rejects a float. Anything under one
+    second becomes ``1``; the client-level timeout still caps that call.
+
+    Raises:
+        TimeoutError: The deadline is already exhausted.
+    """
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise TimeoutError(
+            "the Qdrant artifact-index probe exceeded its "
+            f"{QDRANT_ARTIFACT_PROBE_DEADLINE_SECONDS:g}s deadline"
+        )
+    return max(1, math.ceil(remaining))
+
+
+def _artifact_probe_client(config: Any) -> Any:
+    """Build the Qdrant client the readiness probe uses (test seam).
+
+    ``check_compatibility=False`` is deliberate: the default starts a background
+    version request per construction, which would be one more call per probe
+    burst. The client-level timeout is clamped to the probe deadline, never the
+    5 s ``DEFAULT_QDRANT_TIMEOUT``.
+    """
+    from qdrant_client import QdrantClient  # qdrant-client; lazy (optional dependency)
+
+    configured = float(getattr(config, "timeout", 0) or 0)
+    return QdrantClient(
+        url=config.base_url,
+        api_key=config.api_key,
+        timeout=min(
+            configured or QDRANT_ARTIFACT_PROBE_DEADLINE_SECONDS,
+            QDRANT_ARTIFACT_PROBE_DEADLINE_SECONDS,
+        ),
+        prefer_grpc=config.prefer_grpc,
+        check_compatibility=False,
+    )
+
+
+def _probe_artifact_index_once() -> dict[str, str]:
+    """Run the artifact-index probe exactly once (deadline-bounded).
+
+    Callers go through :func:`_qdrant_artifact_index_stats`, which adds the TTL
+    cache and single-flight guard. Raises on any Qdrant/config error so the
+    caller can turn it into an advisory warning.
+    """
+    global _artifact_zero_streak
+
+    from application.artifact_vector_store import (
+        SPARSE_VECTOR_NAME,
+        resolve_artifact_qdrant_config,
+    )
+
+    config = resolve_artifact_qdrant_config()
+    if not str(getattr(config, "base_url", "") or "").strip():
+        raise RuntimeError("QDRANT_BASE_URL is not configured")
+
+    deadline = time.monotonic() + QDRANT_ARTIFACT_PROBE_DEADLINE_SECONDS
+    client = _artifact_probe_client(config)
+    try:
+        suffix = _artifact_collection_suffix()
+        # Budget guard only: get_collections() takes no timeout kwarg, so the
+        # client-level timeout is what bounds this request.
+        _artifact_probe_guard(deadline)
+        collections = (
+            getattr(client.get_collections(), "collections", None) or []
+        )
+        names = [
+            name
+            for name in (getattr(collection, "name", None) for collection in collections)
+            if isinstance(name, str) and name.endswith(suffix)
+        ]
+        total = 0
+        sparse_ready = bool(names)
+        for name in names:
+            counted = getattr(
+                client.count(
+                    collection_name=name,
+                    exact=False,
+                    timeout=_artifact_probe_guard(deadline),
+                ),
+                "count",
+                0,
+            )
+            total += int(counted or 0)
+            _artifact_probe_guard(deadline)
+            info = client.get_collection(collection_name=name)
+            params = getattr(getattr(info, "config", None), "params", None)
+            sparse_vectors = getattr(params, "sparse_vectors", None) or {}
+            if SPARSE_VECTOR_NAME not in sparse_vectors:
+                sparse_ready = False
+        _artifact_zero_streak = _artifact_zero_streak + 1 if total == 0 else 0
+        if total == 0 and _artifact_zero_streak >= 2:
+            # Logged here, inside the cached probe run, not in the per-request
+            # payload builder: ``/health/`` is unauthenticated, so a log line
+            # emitted per request would let an anonymous caller drive log volume.
+            # The payload carries the same signal as a warning string (see
+            # ``_collect_advisory``) on every request, without re-logging.
+            logger.warning(
+                "Health check: the Qdrant artifact store holds no points — "
+                "semantic search will answer 'no results'"
+            )
+        return {
+            "collections": str(len(names)),
+            "points": str(total),
+            "sparse_ready": "true" if sparse_ready else "false",
+            # Internal: drives the two-strike rule for the "holds no points"
+            # warning. Not published in the payload.
+            "zero_streak": str(_artifact_zero_streak),
+        }
+    finally:
+        close = getattr(client, "close", None)
+        if callable(close):
+            try:
+                close()
+            except Exception as exc:  # noqa: BLE001 - closing must never mask the result
+                logger.debug("Health check: closing the Qdrant probe client failed - %s", exc)
+
+
+def _artifact_probe_from_cache(
+    cached: tuple[float, dict[str, str] | None, str | None],
+) -> dict[str, str]:
+    """Replay a cached probe result (re-raising a cached failure)."""
+    _at, payload, error_text = cached
+    if error_text is not None:
+        # A fresh exception per read: re-raising the cached instance would grow
+        # its traceback on every request.
+        raise RuntimeError(error_text)
+    return dict(payload or {})
+
+
+def _qdrant_artifact_index_stats() -> dict[str, str]:
+    """Point/sparse summary of every ``..._artifacts_v2`` collection (T-A2-9).
+
+    The Qdrant artifact store is the search corpus as soon as the artifact port
+    runs there, and an empty (or half-backfilled) collection answers semantic
+    search with "no results" rather than with an error — indistinguishable from
+    a healthy corpus with nothing to match. This probe makes the documented
+    rollout rule (backfill with ``failed: 0`` *before* switching) checkable from
+    the same payload that publishes ``vector_backend_active``.
+
+    The result is cached for :data:`QDRANT_ARTIFACT_PROBE_TTL_SECONDS` and the
+    miss path is single-flighted, so this endpoint cannot be used to fan
+    requests out against the store; each run is bounded by
+    :data:`QDRANT_ARTIFACT_PROBE_DEADLINE_SECONDS`. A failure is cached too and
+    surfaces as an advisory warning, never as a readiness failure.
+
+    Returns:
+        ``{"collections": "<n>", "points": "<n>", "sparse_ready": "true"|"false",
+        "zero_streak": "<n>"}``.
+        Deliberately aggregate: collection names embed tenant and workspace ids,
+        so the unauthenticated endpoint gets counts only. ``points`` is an
+        approximate count (``exact=False``: it reads the index metadata instead
+        of scanning the points) and is summed over the whole *instance* — all
+        tenants and workspaces, not just one run's target. ``sparse_ready`` is
+        ``true`` only when at least one v2 collection exists *and* every one of
+        them declares the ``bm25`` sparse vector the hybrid RRF query needs;
+        ``false`` also covers "nothing provisioned yet", which under this opt-in
+        means the rollout order was ignored. ``zero_streak`` is internal.
+
+    Raises:
+        Exception: Any Qdrant client/config error. The caller classifies it as an
+            advisory warning — health must never crash on its own probe.
+    """
+    global _artifact_probe_cache
+
+    cached = _artifact_probe_cache
+    if (
+        cached is not None
+        and time.monotonic() - cached[0] < QDRANT_ARTIFACT_PROBE_TTL_SECONDS
+    ):
+        return _artifact_probe_from_cache(cached)
+
+    with _artifact_probe_lock:
+        # Double-checked: another thread may have refreshed the entry while this
+        # one waited, and a burst must still cost exactly one round trip.
+        cached = _artifact_probe_cache
+        now = time.monotonic()
+        if (
+            cached is not None
+            and now - cached[0] < QDRANT_ARTIFACT_PROBE_TTL_SECONDS
+        ):
+            return _artifact_probe_from_cache(cached)
+        try:
+            payload = _probe_artifact_index_once()
+        except Exception as exc:  # noqa: BLE001 - cached, re-raised to the caller
+            # Log once per probe run, next to the cache write: the cached failure
+            # is re-raised on every request, and ``/health/`` is unauthenticated,
+            # so a per-request log line would be log-volume amplification.
+            logger.warning(
+                "Health check: Qdrant artifact index probe failed - %s", exc
+            )
+            _artifact_probe_cache = (
+                now,
+                None,
+                str(exc) or type(exc).__name__,
+            )
+            raise
+        _artifact_probe_cache = (now, payload, None)
+        return dict(payload)
+
+
 def _collect_advisory(
     advisory: dict[str, str],
     warnings: list[str],
@@ -420,11 +705,17 @@ def _collect_advisory(
 
     ``verbose`` (``GET /health/?verbose=1``) enables the advisory probes that
     cost a real aggregate query over every embedding table
-    (``embedding_model_drift``, T-A0-6), and the advisory keys that publish the
-    deployment's security posture (``qdrant_api_key`` /
-    ``qdrant_api_key_missing``). They are absent from the payload unless asked
-    for, so the cheap default probe stays cheap — and an unauthenticated caller
-    does not learn which vector store to aim at.
+    (``embedding_model_drift``, T-A0-6), and the advisory *keys* that publish
+    the deployment's security posture (``qdrant_api_key`` /
+    ``qdrant_api_key_missing``), so the cheap default probe stays cheap and an
+    anonymous caller does not get the store's posture handed to it.
+
+    The ``qdrant_api_key_missing`` **warning text** is deliberately NOT gated:
+    it is the operator signal, and a monitor polling plain ``/health/`` would
+    otherwise never learn that a production store is keyless. It therefore does
+    reveal that the artifact backend is Qdrant — an accepted, documented
+    trade-off (``/health*`` is not meant to be internet-reachable, see
+    ``deploy/README.md``), not a bug this docstring should claim away.
     """
     # Embedding-column dimension check (#1018/#1019): the physical pgvector
     # column width is fixed by the last migration that ran, while the
@@ -716,7 +1007,12 @@ def _collect_advisory(
     # never causes degraded/503. Not gated on ``db_ok``: the gate is
     # best-effort and falls back to the environment when the DB is unreachable.
     # Deliberately NOT coupled to ``MEMORY_BACKEND`` (T-A2-1): the memory knob
-    # governs the AI-memory store only.
+    # governs the AI-memory store only. ``artifact_backend_active`` is also what
+    # the artifact-index advisories below key on: they must publish nothing on
+    # the default (pgvector) deployment, and only a backend that really is
+    # Qdrant has a Qdrant collection to count. ``None`` = the diagnostic itself
+    # failed, so nothing downstream may assume a backend.
+    artifact_backend_active: str | None = None
     try:
         from application.vector_port import vector_backend_diagnostic
 
@@ -727,6 +1023,7 @@ def _collect_advisory(
         )
         warnings.append("vector-backend diagnostic failed")
     else:
+        artifact_backend_active = vector_backend["active"]
         advisory["effective_vector_backend"] = vector_backend["active"]
         advisory["vector_backend_requested"] = vector_backend["requested"]
         advisory["vector_backend_active"] = vector_backend["active"]
@@ -756,10 +1053,13 @@ def _collect_advisory(
     # key a finding). Only evaluated when that selector is set, so a default
     # pgvector deployment keeps a byte-identical payload.
     # VERBOSE-ONLY for the advisory keys (``?verbose=1``): this endpoint is
-    # unauthenticated, and publishing "artifact backend = qdrant, store without
-    # key" to anyone who reaches the port is a signpost to the soft target. The
-    # warning itself stays unconditional — it is the operator signal, and
-    # /health/ is not meant to be internet-reachable (deploy/README.md).
+    # unauthenticated, and the two keys spell out "artifact backend = qdrant,
+    # store without key" for anyone who reaches the port. The warning TEXT is
+    # deliberately NOT gated — it is the operator signal a plain ``/health/``
+    # poll carries, so it still names the store and the missing key. That is an
+    # accepted trade-off (``/health*`` is not meant to be internet-reachable;
+    # deploy/README.md), not an oversight: gating it would hide a keyless
+    # production store from exactly the monitor that should report it.
     # Advisory (HTTP 200) and a WARNING-only system check (``memory.W003``):
     # the service still serves.
     try:
@@ -796,6 +1096,47 @@ def _collect_advisory(
                 "matching QDRANT__SERVICE__API_KEY) and recreate "
                 "backend/celery. Reported by `manage.py check` as memory.W003."
             )
+
+    # Artifact index size (T-A2-9, ADR-020 V2): once the artifact port runs on
+    # Qdrant, the ``..._artifacts_v2`` collections ARE the semantic-search
+    # corpus. An empty one answers "no results" instead of erroring, which looks
+    # like a healthy corpus with no match — so the documented rollout rule
+    # (backfill with ``failed: 0`` BEFORE the switch) is unverifiable from the
+    # outside without these two numbers. Published ONLY while the artifact
+    # backend actually is Qdrant, so a default (pgvector) deployment keeps a
+    # byte-identical payload; NOT verbose-gated, unlike the key posture, because
+    # the values are aggregate counts that name no tenant, workspace or
+    # collection and are exactly what an operator must read from the probe.
+    # Advisory (HTTP 200): an empty index degrades search quality, it does not
+    # break the service — never degraded/503, never a ``checks`` entry.
+    if artifact_backend_active == QDRANT_ARTIFACT_BACKEND:
+        try:
+            artifact_index = _qdrant_artifact_index_stats()
+        except Exception:  # noqa: BLE001 - health check must never crash
+            # No log line here: the failure was already logged once, inside the
+            # cached probe run (``_qdrant_artifact_index_stats``). A cached
+            # failure raises on every request, and ``/health/`` is
+            # unauthenticated, so logging per request would be amplification.
+            # The payload still carries the advisory on every response.
+            warnings.append("qdrant artifact index probe failed")
+        else:
+            advisory["qdrant_artifact_points"] = (
+                f"collections={artifact_index['collections']},"
+                f"points={artifact_index['points']}"
+            )
+            advisory["qdrant_sparse_ready"] = artifact_index["sparse_ready"]
+            # Two-strike (see ``_probe_artifact_index_once``): a family that was
+            # *just* provisioned is legitimately empty for one interval, so a
+            # single zero is not evidence. The warning itself is NOT
+            # verbose-gated — a plain `/health/` poll carries it in the
+            # ``warnings`` list. It is appended, not logged: the log line is
+            # emitted once per probe run inside the cached computation.
+            zero_streak = int(artifact_index.get("zero_streak", "0") or 0)
+            if artifact_index["points"] == "0" and zero_streak >= 2:
+                warnings.append(
+                    "qdrant_artifact_points=0: the Qdrant artifact store holds "
+                    "no points — semantic search will answer 'no results'"
+                )
 
     # CSRF-cookie security check: AUTH_COOKIE_SECURE must match
     # CSRF_COOKIE_SECURE to avoid CSRF failures in deployments without a

@@ -331,8 +331,17 @@ def _non_production_envs() -> frozenset[str]:
     """
     try:
         from reqogniloom.settings import _NON_PROD_ENVS
-    except ImportError:
-        logger.debug("No non-production environment set found; treating all as production.")
+    except Exception as exc:  # noqa: BLE001 - a check must never break startup.
+        # Deliberately broader than ``ImportError``: the docstring's promise is
+        # that an unreadable set degrades to "everything is production", and an
+        # import that raises anything else (a broken settings module, an
+        # ImportError from a transitive import, a partially initialised module)
+        # would otherwise take ``manage.py check``/``migrate`` down instead.
+        logger.warning(
+            "No non-production environment set found (%s); treating all as "
+            "production.",
+            exc,
+        )
         return frozenset()
     return frozenset(_NON_PROD_ENVS)
 
@@ -354,19 +363,31 @@ def _qdrant_api_key_configured() -> bool:
     Resolves through the same helper the artifact port and the memory backend
     use, because a key persisted in ``SystemMemorySettings.qdrant_api_key``
     never appears in the environment — reading only ``os.environ`` reported a
-    false ``memory.W003`` on every readiness probe of such a deployment. That
-    helper already layers the env underneath, so the explicit env read here is
-    only the last-resort fallback for an unresolvable config (no DB row, no DB
-    connection): over-warning is safe, silence is not.
+    false ``memory.W003`` on every readiness probe of such a deployment.
+
+    A non-empty ``QDRANT_API_KEY`` short-circuits BEFORE the resolver: the
+    predicate is a boolean, and no DB value can turn a configured env key into
+    "no key" (the resolver only lets a non-``None`` ``SystemMemorySettings``
+    field replace it, and a blank field is coerced to ``None``). The DB round
+    trip therefore cannot change the answer — dropping it removes one query from
+    every readiness probe. The resolver still runs (and the env is still the
+    fallback) for the deployment whose key lives only in the DB row, and for an
+    unresolvable config: over-warning is safe, silence is not.
     """
     env_key = os.environ.get(QDRANT_API_KEY_ENV_VAR, "").strip()
+    if env_key:
+        return True
     try:
         from memory.qdrant_backend import resolve_effective_qdrant_config
 
         resolved_key = resolve_effective_qdrant_config().api_key
     except Exception as exc:  # noqa: BLE001 - a check must never break startup.
-        logger.debug("Qdrant API-key resolution fell back to the env: %s", exc)
-        return bool(env_key)
+        # Unresolvable config and no env key (checked above): this process cannot
+        # see a key, so callers warn (`memory.W003` / `/health/`). An unreadable
+        # DB is no evidence of a configured key, and over-warning is the safe
+        # direction — silence would hide a keyless store.
+        logger.debug("Qdrant API-key resolution failed: %s", exc)
+        return False
     return bool(str(resolved_key or "").strip())
 
 
