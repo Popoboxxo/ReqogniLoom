@@ -169,6 +169,30 @@ PROMPT_VARIABLE_DEFAULTS: dict[str, PromptVariableSpec] = {
         "memory_context",
         "Rendered workspace/user memory context (memory plan Task 6); empty when none.",
     ),
+    # Plan A T-A1-6 (PR-A14): the per-scope sections and the flat fact list of
+    # the same render. Each is wrapped in the fixed <memory> data boundary when
+    # it carries content; ``memory_facts_json`` is the machine-readable form.
+    "memory_artifact_context": _data(
+        "memory_artifact_context",
+        "Rendered artifact-scope memory section (heading + hits); empty when the "
+        "slot has no artifact or the scope is not searched.",
+    ),
+    "memory_workspace_context": _data(
+        "memory_workspace_context",
+        "Rendered workspace-scope memory section (heading + hits); empty when "
+        "nothing was retrieved.",
+    ),
+    "memory_user_context": _data(
+        "memory_user_context",
+        "Rendered user-scope memory section (heading + hits); empty when nothing "
+        "was retrieved or the user scope is not injected.",
+    ),
+    "memory_facts_json": _data(
+        "memory_facts_json",
+        "JSON array of the retrieved memory hits as {scope, content, "
+        "contributor, date}.",
+        "json",
+    ),
     "element_title": _data(
         "element_title", "Title of the architecture element being decomposed."
     ),
@@ -209,6 +233,57 @@ PROMPT_VARIABLE_DEFAULTS: dict[str, PromptVariableSpec] = {
         "Not a target — the AI produces only as many as the need justifies.",
         "int",
         3,
+    ),
+    # --- config (memory render knobs, Plan A T-A1-6 / PR-A14) --------------
+    # These are read by ``memory.context_builder.MemoryRenderConfig`` through
+    # ``prompt_resolver._auto_memory_context``; an invalid value falls back to
+    # the default here with a WARNING instead of breaking the render.
+    "memory_top_k": _config(
+        "memory_top_k",
+        "Number of memory hits retrieved per searched scope.",
+        "int",
+        5,
+    ),
+    "memory_scopes": _config(
+        "memory_scopes",
+        "Comma list of memory scopes to inject, intersected with the slot's "
+        "injection policy. Render order is artifact, workspace, user.",
+        "str",
+        "artifact,workspace,user",
+    ),
+    "memory_max_chars": _config(
+        "memory_max_chars",
+        "Character budget for the rendered memory block; 0 means unlimited. "
+        "Truncation is line-wise (whole facts only), never mid-fact.",
+        "int",
+        0,
+    ),
+    "memory_format": _config(
+        "memory_format",
+        "Rendered memory format: 'block' (with provenance), 'compact' (without "
+        "provenance) or 'json'.",
+        "str",
+        "block",
+    ),
+    "memory_include_dates": _config(
+        "memory_include_dates",
+        "Whether the provenance line of a memory hit carries the entry date.",
+        "bool",
+        True,
+    ),
+    "memory_query_fields": _config(
+        "memory_query_fields",
+        "Comma list of data variable names that feed the memory search query; "
+        "empty means every data value of the slot (the default).",
+        "str",
+        "",
+    ),
+    "memory_section_heading": _config(
+        "memory_section_heading",
+        "Single heading above the whole memory block. Empty keeps the "
+        "per-scope headings (Artifact/Workspace/User context).",
+        "str",
+        "",
     ),
 }
 

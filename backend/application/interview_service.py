@@ -2004,25 +2004,53 @@ class InterviewService(ServiceBase):
         provider call, no persistence, no event.
         """
         from application.ai_derivation_service import AiDerivationService
-        from memory.context_builder import build_memory_context
+        from application.prompt_resolver import resolve_config_values
+        from memory.context_builder import (
+            MemoryRenderConfig,
+            build_memory_context,
+            wrap_memory_block,
+        )
 
         # Best-effort retrieval-augmentation (memory plan Task 6): degrades to
         # "" on any backend failure, never blocks the chat turn (see
         # build_memory_context's own docstring for the Fehlerfälle contract).
         # RFC #1002 PR C: the session's backing Artifact (single mode only)
         # is passed so artifact-scoped memory is searched and rendered first.
-        memory_context = build_memory_context(
-            ctx.tenant_id,
-            session.workspace_id,
-            ctx.user_id,
-            user_message,
-            # Plan A T-A1-2: slot-level policy (workspace/user switches). This
-            # bypass path builds its own prompt instead of going through
-            # resolve_and_render, so it must name its slot explicitly.
-            slot_name="interview.chat_turn",
-            artifact_id=session.artifact_id,
-            entity_type=session.artifact_type or "",
-        )
+        #
+        # Plan A T-A1-6 (PR-A14 review, finding B1): this bypass consumer used
+        # to splice the RAW block into its prompt. It now resolves the
+        # ``memory_*`` config for this workspace (scopes/top_k/format/max_chars/
+        # ...) exactly like the central resolver and wraps the result with
+        # ``wrap_memory_block`` -- the single place the ``<memory>`` data
+        # boundary is built. The config lookup is inside the fail-open guard
+        # because it touches the database.
+        try:
+            render_config = MemoryRenderConfig.from_values(
+                resolve_config_values(ctx, session.workspace_id)
+            )
+            memory_context = wrap_memory_block(
+                build_memory_context(
+                    ctx.tenant_id,
+                    session.workspace_id,
+                    ctx.user_id,
+                    user_message,
+                    # Plan A T-A1-2: slot-level policy (workspace/user
+                    # switches). This bypass path builds its own prompt instead
+                    # of going through resolve_and_render, so it must name its
+                    # slot explicitly.
+                    slot_name="interview.chat_turn",
+                    config=render_config,
+                    artifact_id=session.artifact_id,
+                    entity_type=session.artifact_type or "",
+                )
+            )
+        except Exception as exc:  # noqa: BLE001 -- fail-open, see docstring
+            logger.warning(
+                "interview.chat_turn: memory context unavailable, continuing "
+                "without it: %s",
+                exc,
+            )
+            memory_context = ""
         template = AiDerivationService._get_template_content(
             ctx, "interview.chat_turn", session.workspace_id
         )

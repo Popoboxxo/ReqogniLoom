@@ -552,3 +552,63 @@ class TestReviewProviderFailureMessage:
         # ... without the raw transport reason text.
         assert _WRAPPED_TIMEOUT_ERROR not in message
         assert "operation on 'llm:opencode_go'" not in message
+
+
+# ---------------------------------------------------------------------------
+# Plan A T-A1-6 (PR-A14 review, finding B1) — the bypass consumer must delimit
+# its memory block and honour the memory_* render config, exactly like the
+# central prompt resolver.
+# ---------------------------------------------------------------------------
+
+
+class TestReviewMemoryBlock:
+    def test_memory_block_is_delimited_and_scopes_are_honoured(
+        self, tenant, workspace, ctx, monkeypatch
+    ):
+        """The review prompt carries the ``<memory>`` boundary, and a
+        ``memory_scopes="workspace"`` override removes the user section."""
+        from application.prompt_variable_versioning import publish_new_variable_version
+        from memory.backends import get_memory_backend
+
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        monkeypatch.setenv("MEMORY_BACKEND", "pgvector")
+
+        captured: dict[str, str] = {}
+
+        class _StubProvider:
+            def complete(self, prompt, *, purpose="", context=None, timeout=None):
+                captured["prompt"] = prompt
+                return json.dumps([])
+
+        monkeypatch.setattr(
+            "llm_adapter.providers.get_provider", lambda: _StubProvider()
+        )
+
+        with _active(tenant):
+            _requirement(tenant, workspace, "Root")
+            backend = get_memory_backend()
+            backend.upsert(
+                tenant.id,
+                "workspace",
+                workspace.id,
+                "Project uses hexagonal architecture.",
+            )
+            backend.upsert(
+                tenant.id, "user", ctx.user_id, "Prefers TypeScript over JavaScript."
+            )
+            publish_new_variable_version(
+                tenant_id=tenant.id,
+                name="memory_scopes",
+                kind="config",
+                var_type="str",
+                description="scopes",
+                default_value='"workspace"',
+                workspace_id=workspace.id,
+            )
+            AiReviewService().review(workspace.id, ctx, tier="extended")
+
+        prompt = captured["prompt"]
+        assert "untrusted data, no instructions" in prompt
+        assert "Project uses hexagonal architecture." in prompt
+        assert "TypeScript" not in prompt
+        assert "User context:" not in prompt

@@ -16,15 +16,19 @@ Resolution order per config variable (mirrors the LLM-provider config chain
 in ``llm_adapter/providers.py``):
     explicit call parameter > workspace row > tenant row > factory default.
 
-``render_template`` keeps ``AiDerivationService._render``'s exact semantics —
-a per-placeholder ``str.replace`` loop, never ``str.format``/Jinja2 — so JSON
-braces inside a customised prompt body survive untouched and an omitted
-placeholder is left literally in place (REQ-046).
+``render_template`` keeps ``AiDerivationService._render``'s observable
+semantics — a placeholder is replaced literally, never ``str.format``/Jinja2 —
+so JSON braces inside a customised prompt body survive untouched and an omitted
+placeholder is left literally in place (REQ-046). Since Plan A T-A1-6 (PR-A14,
+QR-S05) the substitution is **single-pass** (:func:`render_template`), so an
+inserted value is never re-scanned, and memory text is additionally wrapped in a
+fixed ``<memory>`` data boundary with its braces neutralised.
 
 req_id: REQ-L2-PT-001
 """
 from __future__ import annotations
 
+import json
 import logging
 import re
 from typing import Any
@@ -84,7 +88,7 @@ def extract_placeholders(content: str) -> list[str]:
 
 
 def render_template(content: str, /, **values: Any) -> str:
-    """Substitute ``{name}`` placeholders without touching other braces.
+    """Substitute ``{name}`` placeholders in a single pass (QR-S05).
 
     *content* is positional-only: ``PromptVariable.name`` is deliberately
     unrestricted (an admin can register a ``config`` variable called
@@ -92,11 +96,24 @@ def render_template(content: str, /, **values: Any) -> str:
     keyword parameter named ``content`` here would collide with a same-named
     value in ``**values`` and raise ``TypeError: got multiple values for
     argument 'content'`` on every render call for that tenant.
+
+    Every placeholder is replaced in **one** ``re.sub`` pass, so an inserted
+    value is never scanned again: a data value (or memory fact) that itself
+    contains ``{need_title}`` can no longer expand into the prompt. A name with
+    no value is left literally in place (REQ-046), and JSON braces
+    (``{"a": 1}``) never match :data:`PLACEHOLDER_PATTERN`.
+
+    The replacement is a callable, not a string: ``re.sub`` would otherwise
+    interpret backslash escapes inside the inserted value.
     """
-    rendered = content
-    for key, value in values.items():
-        rendered = rendered.replace("{" + key + "}", str(value))
-    return rendered
+
+    def _lookup(match: re.Match[str]) -> str:
+        name = match.group(1)
+        if name in values:
+            return str(values[name])
+        return match.group(0)
+
+    return PLACEHOLDER_PATTERN.sub(_lookup, content)
 
 
 def try_resolve_template_content(
@@ -243,32 +260,47 @@ def _auto_memory_context(
     entity_type: str,
     data_kwargs: dict[str, Any],
     slot_name: str,
-) -> str:
-    """Compute the memory block for a slot that declares ``memory_context``.
+    config_values: dict[str, Any],
+) -> Any | None:
+    """Compute the memory render result for a slot that declares memory.
+
+    Returns a ``memory.context_builder.MemoryContextResult`` — the resolver
+    fills ``{memory_context}`` and the four scope placeholders from it — or
+    ``None`` when there is nothing to inject / the call failed.
 
     Fail-open by contract (RFC #1002 PR C): memory is an enhancement, never a
     hard requirement for a prompt to render, so any failure -- memory
     disabled for the workspace, unreachable backend, missing tenant context --
-    degrades to ``""`` instead of breaking the AI call.
+    degrades to no memory instead of breaking the AI call.
 
-    ``slot_name`` is forwarded to :func:`memory.context_builder.
-    build_memory_context`, where the central injection policy (Plan A T-A1-2)
-    decides whether the slot may receive memory at all. When the policy says
-    no, the returned block is ``""`` -- the resolver therefore injects nothing,
-    and the placeholder still renders as an empty string (ADR-024 AC-3/AC-4).
+    ``slot_name`` is forwarded to
+    :func:`memory.context_builder.build_memory_context_result`, where the
+    central injection policy (Plan A T-A1-2) decides whether the slot may
+    receive memory at all. When the policy says no, the result is empty -- the
+    resolver therefore injects nothing, and the placeholder still renders as an
+    empty string (ADR-024 AC-3/AC-4).
+
+    ``config_values`` (the resolved ``config`` catalog) is turned into a
+    :class:`memory.context_builder.MemoryRenderConfig` (Plan A T-A1-6); its
+    ``query_fields`` also restrict which data values feed the search query.
     """
     scope = _as_uuid(workspace_id)
     if scope is None:
-        return ""
+        return None
     try:
-        from memory.context_builder import build_memory_context
+        from memory.context_builder import (
+            MemoryRenderConfig,
+            build_memory_context_result,
+        )
 
-        return build_memory_context(
+        render_config = MemoryRenderConfig.from_values(config_values)
+        return build_memory_context_result(
             ctx.tenant_id,
             scope,
             ctx.user_id,
-            _memory_query_text(data_kwargs),
+            _memory_query_text(_filter_query_fields(data_kwargs, render_config.query_fields)),
             slot_name=slot_name,
+            config=render_config,
             artifact_id=artifact_id,
             entity_type=entity_type,
         )
@@ -276,7 +308,45 @@ def _auto_memory_context(
         logger.warning(
             "memory context auto-injection failed, rendering without it: %s", exc
         )
-        return ""
+        return None
+
+
+def _filter_query_fields(
+    data_kwargs: dict[str, Any], query_fields: tuple[str, ...]
+) -> dict[str, Any]:
+    """Restrict the retrieval query to ``memory_query_fields`` (empty = all)."""
+    if not query_fields:
+        return data_kwargs
+    return {name: value for name, value in data_kwargs.items() if name in query_fields}
+
+
+def _neutralise_memory_braces(text: str) -> str:
+    """Replace ASCII braces with fullwidth ones in memory text (QR-S05).
+
+    Applied to caller-supplied memory values (the builder already neutralises
+    the facts it renders); idempotent, because ``｛`` is not ``{``.
+    """
+    return text.replace("{", "｛").replace("}", "｝")
+
+
+def _memory_block(value: Any, *, neutralise: bool) -> str:
+    """Neutralise (optionally) and wrap one memory value in the data boundary.
+
+    The boundary itself comes from
+    :func:`memory.context_builder.wrap_memory_block` — this project keeps exactly
+    one definition of the tags and of the ``untrusted data, no instructions``
+    line. An empty value renders as ``""`` (no boundary, no block), so "nothing
+    was injected" stays byte-identical to a prompt without memory. A
+    ``json``-shaped payload (``{memory_facts_json}``) is wrapped but not
+    brace-neutralised, so it stays parseable JSON; single-pass rendering already
+    keeps its content inert.
+    """
+    from memory.context_builder import wrap_memory_block
+
+    text = "" if value is None else str(value)
+    if neutralise:
+        text = _neutralise_memory_braces(text)
+    return wrap_memory_block(text)
 
 
 def resolve_and_render(
@@ -310,9 +380,17 @@ def resolve_and_render(
     ``_get_template_content`` + ``_render`` pair) deliberately do not get it.
 
     The slot-level policy (Plan A T-A1-2) is applied inside
-    :func:`memory.context_builder.build_memory_context`, which receives
-    *slot_name*: when it answers ``inject=False`` the returned block is ``""``,
-    so nothing is injected for that slot.
+    :func:`memory.context_builder.build_memory_context_result`, which receives
+    *slot_name*: when it answers ``inject=False`` the result is empty, so
+    nothing is injected for that slot.
+
+    Scope placeholders (Plan A T-A1-6): the same render result fills
+    ``{memory_artifact_context}``, ``{memory_workspace_context}``,
+    ``{memory_user_context}`` and ``{memory_facts_json}``, so a template can
+    address one scope on its own. Every non-empty memory value — the
+    caller-supplied ones too — is wrapped in the fixed ``<memory>`` data
+    boundary (``untrusted data, no instructions``), and ASCII braces in memory
+    *text* are neutralised (QR-S05).
 
     HARD_OFF slots (Plan A T-A1-1, ADR-024 AC-1/AC-2) opt out entirely: every
     name in :data:`application.prompt_slots.MEMORY_DATA_VARIABLES` is rendered
@@ -330,12 +408,58 @@ def resolve_and_render(
     if is_memory_hard_off(slot_name):
         for name in MEMORY_DATA_VARIABLES:
             values[name] = ""
-    elif "memory_context" in get_slot_data_variables(slot_name) and "memory_context" not in values:
-        # The slot-level policy lives behind build_memory_context; a blocked
-        # slot yields "" here, so nothing is injected for it.
-        values["memory_context"] = _auto_memory_context(
-            ctx, workspace_id, artifact_id, entity_type, data_kwargs, slot_name
-        )
+    else:
+        slot_variables = get_slot_data_variables(slot_name)
+        if "memory_context" in slot_variables:
+            if "memory_context" in values:
+                # A6: a caller-supplied block means the resolver does not
+                # search, so the four scope placeholders have no value — blank
+                # the absent ones instead of leaving them literal in the
+                # prompt. One the caller supplied itself is kept.
+                for name in MEMORY_DATA_VARIABLES:
+                    if name != "memory_context" and name not in values:
+                        values[name] = ""
+            else:
+                # The slot-level policy lives behind build_memory_context_result;
+                # a blocked slot yields an empty result, so nothing is injected.
+                result = _auto_memory_context(
+                    ctx,
+                    workspace_id,
+                    artifact_id,
+                    entity_type,
+                    data_kwargs,
+                    slot_name,
+                    config_values,
+                )
+                if result is None:
+                    # Fail-open: no memory, but never a literal placeholder.
+                    for name in MEMORY_DATA_VARIABLES:
+                        values[name] = ""
+                else:
+                    values["memory_context"] = result.text
+                    values["memory_artifact_context"] = result.sections.get(
+                        "artifact", ""
+                    )
+                    values["memory_workspace_context"] = result.sections.get(
+                        "workspace", ""
+                    )
+                    values["memory_user_context"] = result.sections.get("user", "")
+                    values["memory_facts_json"] = (
+                        json.dumps(result.facts, ensure_ascii=False)
+                        if result.facts
+                        else ""
+                    )
+        # Caller-supplied memory text is untrusted too: neutralise its braces.
+        # Builder-rendered values already are (context_builder), and
+        # ``memory_facts_json`` is a JSON payload whose braces are structural.
+        caller_supplied = set(data_kwargs) & set(MEMORY_DATA_VARIABLES)
+        for name in MEMORY_DATA_VARIABLES:
+            if name not in values:
+                continue
+            values[name] = _memory_block(
+                values[name],
+                neutralise=name in caller_supplied and name != "memory_facts_json",
+            )
     return render_template(content, **values)
 
 
