@@ -382,9 +382,10 @@ def _qdrant_api_key_configured() -> bool:
 
         resolved_key = resolve_effective_qdrant_config().api_key
     except Exception as exc:  # noqa: BLE001 - a check must never break startup.
-        # Unresolvable config and no env key (checked above): nothing configured
-        # that this process can see. Over-warning would be wrong here — an
-        # unreadable DB is not evidence of a keyless store.
+        # Unresolvable config and no env key (checked above): this process cannot
+        # see a key, so callers warn (`memory.W003` / `/health/`). An unreadable
+        # DB is no evidence of a configured key, and over-warning is the safe
+        # direction — silence would hide a keyless store.
         logger.debug("Qdrant API-key resolution failed: %s", exc)
         return False
     return bool(str(resolved_key or "").strip())

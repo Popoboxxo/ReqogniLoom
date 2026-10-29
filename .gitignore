@@ -129,3 +129,9 @@ frontend/dist/
 promptfoo/generated/
 promptfoo/results*.json
 promptfoo/node_modules/
+
+# Qdrant snapshots are tenant data (vectors + tenant_id/workspace_id/entity_id
+# payload): a full copy of the index, i.e. a database dump. They belong outside
+# the checkout (deploy/README.md, "Snapshots of the artifact collections");
+# never commit one even if a copy is made into the tree by mistake.
+*.snapshot

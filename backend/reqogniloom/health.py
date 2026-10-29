@@ -43,7 +43,11 @@ from __future__ import annotations
 import datetime as _dt
 import email.utils as _email_utils
 import logging
+import math
+import threading
+import time
 from collections.abc import Callable
+from typing import Any
 
 from django.conf import settings as django_settings
 from django.db import connection
@@ -429,6 +433,182 @@ def _artifact_collection_suffix() -> str:
     return f"_{ARTIFACT_COLLECTION_SUFFIX}_v{ARTIFACT_COLLECTION_VERSION}"
 
 
+#: TTL (seconds) of the cached Qdrant artifact-index probe result. Matches the
+#: compose healthcheck's ``interval: 30s``, so a probe loop costs at most one
+#: Qdrant round trip per interval and worker instead of the ``1 + 2N``
+#: authenticated calls *per request*. That matters because ``/health/`` is
+#: unauthenticated and the backend port is published: without a cache any
+#: anonymous caller can amplify one HTTP request into a fan-out against the
+#: shared store (and into as many 5 s hangs as it can open sockets for).
+QDRANT_ARTIFACT_PROBE_TTL_SECONDS = 30.0
+
+#: Hard wall-clock ceiling for ONE probe run, across every call. The per-call
+#: ``DEFAULT_QDRANT_TIMEOUT`` (5 s) multiplied by ``1 + 2N`` collections outlives
+#: Gunicorn's ``--timeout 30`` and takes the worker down with it, so each step
+#: only gets what is left of this budget instead of its own 5 s. The client is
+#: also built with this timeout, which bounds a call that starts just under the
+#: deadline (``get_collections``/``get_collection`` reject a per-call timeout
+#: kwarg in qdrant-client 1.19.1, so the client-level value is the only bound
+#: there); worst case is therefore the deadline plus one client timeout.
+QDRANT_ARTIFACT_PROBE_DEADLINE_SECONDS = 2.0
+
+#: ``(monotonic_at, payload, error_text)``. ``payload`` and ``error_text`` are
+#: mutually exclusive. Caching the *failure* too keeps a flapping or partitioned
+#: store at one attempt per TTL rather than one per request.
+_artifact_probe_cache: (
+    tuple[float, dict[str, str] | None, str | None] | None
+) = None
+
+#: Single-flight guard: a burst of concurrent ``/health/`` calls runs the probe
+#: once and every waiter reads the result the winner cached.
+_artifact_probe_lock = threading.Lock()
+
+#: Consecutive observations of a provisioned-but-empty artifact family. One zero
+#: is not evidence: ``ensure_artifact_collection`` creates the collection before
+#: the backfill upserts into it, and an approximate (``exact=False``) count can
+#: lag a fresh write. The "holds no points" warning therefore waits for the
+#: second consecutive zero ("two-strike") instead of firing per request.
+_artifact_zero_streak = 0
+
+
+def _reset_artifact_probe_cache() -> None:
+    """Drop the cached artifact-index probe result (tests; manual re-probe)."""
+    global _artifact_probe_cache, _artifact_zero_streak
+    with _artifact_probe_lock:
+        _artifact_probe_cache = None
+        _artifact_zero_streak = 0
+
+
+def _artifact_probe_guard(deadline: float) -> int:
+    """Guard the probe deadline; return the per-call budget in whole seconds.
+
+    Call it before every Qdrant request: an exhausted deadline raises, so the
+    run aborts instead of starting another call. The returned value is only
+    usable for ``count`` — ``qdrant-client`` 1.19.1 rejects a ``timeout`` kwarg
+    on ``get_collections``/``get_collection`` outright (they assert it is
+    empty), so those two are bounded by the client-level timeout alone.
+
+    The value is an ``int`` on purpose: the gRPC count path writes it into a
+    protobuf ``timeout`` field, which rejects a float. Anything under one
+    second becomes ``1``; the client-level timeout still caps that call.
+
+    Raises:
+        TimeoutError: The deadline is already exhausted.
+    """
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise TimeoutError(
+            "the Qdrant artifact-index probe exceeded its "
+            f"{QDRANT_ARTIFACT_PROBE_DEADLINE_SECONDS:g}s deadline"
+        )
+    return max(1, math.ceil(remaining))
+
+
+def _artifact_probe_client(config: Any) -> Any:
+    """Build the Qdrant client the readiness probe uses (test seam).
+
+    ``check_compatibility=False`` is deliberate: the default starts a background
+    version request per construction, which would be one more call per probe
+    burst. The client-level timeout is clamped to the probe deadline, never the
+    5 s ``DEFAULT_QDRANT_TIMEOUT``.
+    """
+    from qdrant_client import QdrantClient  # qdrant-client; lazy (optional dependency)
+
+    configured = float(getattr(config, "timeout", 0) or 0)
+    return QdrantClient(
+        url=config.base_url,
+        api_key=config.api_key,
+        timeout=min(
+            configured or QDRANT_ARTIFACT_PROBE_DEADLINE_SECONDS,
+            QDRANT_ARTIFACT_PROBE_DEADLINE_SECONDS,
+        ),
+        prefer_grpc=config.prefer_grpc,
+        check_compatibility=False,
+    )
+
+
+def _probe_artifact_index_once() -> dict[str, str]:
+    """Run the artifact-index probe exactly once (deadline-bounded).
+
+    Callers go through :func:`_qdrant_artifact_index_stats`, which adds the TTL
+    cache and single-flight guard. Raises on any Qdrant/config error so the
+    caller can turn it into an advisory warning.
+    """
+    global _artifact_zero_streak
+
+    from application.artifact_vector_store import (
+        SPARSE_VECTOR_NAME,
+        resolve_artifact_qdrant_config,
+    )
+
+    config = resolve_artifact_qdrant_config()
+    if not str(getattr(config, "base_url", "") or "").strip():
+        raise RuntimeError("QDRANT_BASE_URL is not configured")
+
+    deadline = time.monotonic() + QDRANT_ARTIFACT_PROBE_DEADLINE_SECONDS
+    client = _artifact_probe_client(config)
+    try:
+        suffix = _artifact_collection_suffix()
+        # Budget guard only: get_collections() takes no timeout kwarg, so the
+        # client-level timeout is what bounds this request.
+        _artifact_probe_guard(deadline)
+        collections = (
+            getattr(client.get_collections(), "collections", None) or []
+        )
+        names = [
+            name
+            for name in (getattr(collection, "name", None) for collection in collections)
+            if isinstance(name, str) and name.endswith(suffix)
+        ]
+        total = 0
+        sparse_ready = bool(names)
+        for name in names:
+            counted = getattr(
+                client.count(
+                    collection_name=name,
+                    exact=False,
+                    timeout=_artifact_probe_guard(deadline),
+                ),
+                "count",
+                0,
+            )
+            total += int(counted or 0)
+            _artifact_probe_guard(deadline)
+            info = client.get_collection(collection_name=name)
+            params = getattr(getattr(info, "config", None), "params", None)
+            sparse_vectors = getattr(params, "sparse_vectors", None) or {}
+            if SPARSE_VECTOR_NAME not in sparse_vectors:
+                sparse_ready = False
+        _artifact_zero_streak = _artifact_zero_streak + 1 if total == 0 else 0
+        return {
+            "collections": str(len(names)),
+            "points": str(total),
+            "sparse_ready": "true" if sparse_ready else "false",
+            # Internal: drives the two-strike rule for the "holds no points"
+            # warning. Not published in the payload.
+            "zero_streak": str(_artifact_zero_streak),
+        }
+    finally:
+        close = getattr(client, "close", None)
+        if callable(close):
+            try:
+                close()
+            except Exception as exc:  # noqa: BLE001 - closing must never mask the result
+                logger.debug("Health check: closing the Qdrant probe client failed - %s", exc)
+
+
+def _artifact_probe_from_cache(
+    cached: tuple[float, dict[str, str] | None, str | None],
+) -> dict[str, str]:
+    """Replay a cached probe result (re-raising a cached failure)."""
+    _at, payload, error_text = cached
+    if error_text is not None:
+        # A fresh exception per read: re-raising the cached instance would grow
+        # its traceback on every request.
+        raise RuntimeError(error_text)
+    return dict(payload or {})
+
+
 def _qdrant_artifact_index_stats() -> dict[str, str]:
     """Point/sparse summary of every ``..._artifacts_v2`` collection (T-A2-9).
 
@@ -439,71 +619,59 @@ def _qdrant_artifact_index_stats() -> dict[str, str]:
     rollout rule (backfill with ``failed: 0`` *before* switching) checkable from
     the same payload that publishes ``vector_backend_active``.
 
+    The result is cached for :data:`QDRANT_ARTIFACT_PROBE_TTL_SECONDS` and the
+    miss path is single-flighted, so this endpoint cannot be used to fan
+    requests out against the store; each run is bounded by
+    :data:`QDRANT_ARTIFACT_PROBE_DEADLINE_SECONDS`. A failure is cached too and
+    surfaces as an advisory warning, never as a readiness failure.
+
     Returns:
-        ``{"collections": "<n>", "points": "<n>", "sparse_ready": "true"|"false"}``.
+        ``{"collections": "<n>", "points": "<n>", "sparse_ready": "true"|"false",
+        "zero_streak": "<n>"}``.
         Deliberately aggregate: collection names embed tenant and workspace ids,
         so the unauthenticated endpoint gets counts only. ``points`` is an
         approximate count (``exact=False``: it reads the index metadata instead
-        of scanning the points). ``sparse_ready`` is ``true`` only when at least
-        one v2 collection exists *and* every one of them declares the ``bm25``
-        sparse vector the hybrid RRF query needs; ``false`` also covers "nothing
-        provisioned yet", which under this opt-in means the rollout order was
-        ignored.
+        of scanning the points) and is summed over the whole *instance* — all
+        tenants and workspaces, not just one run's target. ``sparse_ready`` is
+        ``true`` only when at least one v2 collection exists *and* every one of
+        them declares the ``bm25`` sparse vector the hybrid RRF query needs;
+        ``false`` also covers "nothing provisioned yet", which under this opt-in
+        means the rollout order was ignored. ``zero_streak`` is internal.
 
     Raises:
         Exception: Any Qdrant client/config error. The caller classifies it as an
             advisory warning — health must never crash on its own probe.
     """
-    from application.artifact_vector_store import (
-        SPARSE_VECTOR_NAME,
-        resolve_artifact_qdrant_config,
-    )
+    global _artifact_probe_cache
 
-    config = resolve_artifact_qdrant_config()
-    if not str(getattr(config, "base_url", "") or "").strip():
-        raise RuntimeError("QDRANT_BASE_URL is not configured")
+    cached = _artifact_probe_cache
+    if (
+        cached is not None
+        and time.monotonic() - cached[0] < QDRANT_ARTIFACT_PROBE_TTL_SECONDS
+    ):
+        return _artifact_probe_from_cache(cached)
 
-    from qdrant_client import QdrantClient  # qdrant-client; lazy (optional dependency)
-
-    client = QdrantClient(
-        url=config.base_url,
-        api_key=config.api_key,
-        timeout=config.timeout,
-        prefer_grpc=config.prefer_grpc,
-    )
-    try:
-        suffix = _artifact_collection_suffix()
-        names = [
-            name
-            for name in (
-                getattr(collection, "name", None)
-                for collection in (
-                    getattr(client.get_collections(), "collections", None) or []
-                )
+    with _artifact_probe_lock:
+        # Double-checked: another thread may have refreshed the entry while this
+        # one waited, and a burst must still cost exactly one round trip.
+        cached = _artifact_probe_cache
+        now = time.monotonic()
+        if (
+            cached is not None
+            and now - cached[0] < QDRANT_ARTIFACT_PROBE_TTL_SECONDS
+        ):
+            return _artifact_probe_from_cache(cached)
+        try:
+            payload = _probe_artifact_index_once()
+        except Exception as exc:  # noqa: BLE001 - cached, re-raised to the caller
+            _artifact_probe_cache = (
+                now,
+                None,
+                str(exc) or type(exc).__name__,
             )
-            if isinstance(name, str) and name.endswith(suffix)
-        ]
-        total = 0
-        sparse_ready = bool(names)
-        for name in names:
-            counted = getattr(client.count(collection_name=name, exact=False), "count", 0)
-            total += int(counted or 0)
-            params = getattr(getattr(client.get_collection(name), "config", None), "params", None)
-            sparse_vectors = getattr(params, "sparse_vectors", None) or {}
-            if SPARSE_VECTOR_NAME not in sparse_vectors:
-                sparse_ready = False
-        return {
-            "collections": str(len(names)),
-            "points": str(total),
-            "sparse_ready": "true" if sparse_ready else "false",
-        }
-    finally:
-        close = getattr(client, "close", None)
-        if callable(close):
-            try:
-                close()
-            except Exception as exc:  # noqa: BLE001 - closing must never mask the result
-                logger.debug("Health check: closing the Qdrant probe client failed - %s", exc)
+            raise
+        _artifact_probe_cache = (now, payload, None)
+        return dict(payload)
 
 
 def _collect_advisory(
@@ -939,7 +1107,12 @@ def _collect_advisory(
                 f"points={artifact_index['points']}"
             )
             advisory["qdrant_sparse_ready"] = artifact_index["sparse_ready"]
-            if artifact_index["points"] == "0":
+            # Two-strike (see ``_probe_artifact_index_once``): a family that was
+            # *just* provisioned is legitimately empty for one interval, so a
+            # single zero is not evidence. The warning itself is NOT
+            # verbose-gated — a plain `/health/` poll must carry it.
+            zero_streak = int(artifact_index.get("zero_streak", "0") or 0)
+            if artifact_index["points"] == "0" and zero_streak >= 2:
                 logger.warning(
                     "Health check: the Qdrant artifact store holds no points — "
                     "semantic search will answer 'no results'"

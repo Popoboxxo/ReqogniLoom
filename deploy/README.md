@@ -684,7 +684,7 @@ the host, and a shared host is not tenant isolation.
 | Variable | Default | Notes |
 |----------|---------|-------|
 | `QDRANT_BASE_URL` | *(empty)* — set `http://qdrant:6333` | Internal HTTP/REST endpoint. |
-| `QDRANT_API_KEY` | *(empty)* | Only if Qdrant's API-key check is enabled; empty = no auth — acceptable **only** on an isolated single-app network, **required** for multi-tenant (see the security note above). Must match `QDRANT__SERVICE__API_KEY` on the `qdrant` service. |
+| `QDRANT_API_KEY` | *(empty)* | Only if Qdrant's API-key check is enabled; empty = no auth — acceptable **only** on a non-production deployment. Required in **any** production deployment with the artifact selector set (`memory.W003` is selector ∧ production, independent of the tenant count — see the security note above). Must match `QDRANT__SERVICE__API_KEY` on the `qdrant` service. |
 | `QDRANT_TIMEOUT` | `5` | Seconds (matches `DEFAULT_QDRANT_TIMEOUT` in `persistence/qdrant_config.py`). |
 | `QDRANT_DISTANCE` | `cosine` | Same metric as pgvector's `vector_cosine_ops`; `dot`/`euclid` are deliberate exceptions. |
 | `QDRANT_COLLECTION_PREFIX` | `reqlo` | One collection per workspace/scope, in two separate families. **AI-memory** (`QdrantMemoryBackend`): `<prefix>_<tenant>_<workspace>`, `<prefix>_<tenant>_user`, and the legacy unversioned `<prefix>_<tenant>_<workspace>_artifacts`. **Artifact port** (`ARTIFACT_VECTOR_BACKEND=qdrant`): `<prefix>_<tenant>_<workspace>_artifacts_v2`, read through the stable `<prefix>_<tenant>_<workspace>_artifacts_live` alias. |
@@ -735,10 +735,13 @@ an artifact Qdrant store can serve in front of a Honcho or pgvector memory backe
 
 **The key requirement applies to the artifact store too.** This port puts **tenant artifact
 vectors** into Qdrant, so `QDRANT_API_KEY` (plus the matching `QDRANT__SERVICE__API_KEY` on the
-`qdrant` service) is **mandatory for multi-tenant** deployments — the same gate the memory section
-above describes, and it holds even when `MEMORY_BACKEND` is *not* `qdrant` (T-A2-1 decoupled the
-two selectors). Without it, a production deployment **warns** — `memory.W003` from `manage.py
-check` (and therefore from `migrate`, which runs the checks) — and `/health/?verbose=1` publishes
+`qdrant` service) is **required in any production deployment once this selector is set**. The
+`memory.W003` gate is the conjunction `ARTIFACT_VECTOR_BACKEND=qdrant` ∧ production (`DJANGO_ENV`
+is not a declared non-production value) ∧ no key resolves — it is **not** conditioned on the tenant
+count, so a single-tenant production deployment is covered too. The gate holds even when
+`MEMORY_BACKEND` is *not* `qdrant` (T-A2-1 decoupled the two selectors). Without it, a production
+deployment **warns** — `memory.W003` from `manage.py check` (and therefore from `migrate`, which
+runs the checks) — and `/health/?verbose=1` publishes
 `advisory.qdrant_api_key=missing` plus `advisory.qdrant_api_key_missing=true`. It is a warning, not
 a failure: neither `check` nor `migrate` aborts, and the service still serves. The two **advisory
 keys** are `?verbose=1`-only so an anonymous caller is not handed the store's posture; the **warning
@@ -748,8 +751,17 @@ deliberate.
 
 **Operating requirement (QR-S23).** Production therefore requires `QDRANT_API_KEY` (with the same
 value as `QDRANT__SERVICE__API_KEY`, or the client gets 401) and, when Honcho is the memory backend,
-`HONCHO_API_KEY`. Neither service publishes a **host port**; the only sanctioned exception is a
-`127.0.0.1`-only debugging bind, and only together with an API key.
+`HONCHO_API_KEY`. **Do not conflate the two services' reachability** — they differ:
+
+* **Qdrant publishes no host port.** It is reachable only on the compose network as
+  `qdrant:6333` (REST) / `qdrant:6334` (gRPC). A local debugging bind must be `127.0.0.1`-only and
+  must ship together with an API key.
+* **Honcho *is* published, loopback-only, and ships unauthenticated.** `127.0.0.1:8010:8000` is the
+  shipped default (`deploy/docker-compose.yml:1336-1337`) and `AUTH_USE_AUTH: "false"` ships with it
+  (`deploy/docker-compose.yml:86`). The loopback bind keeps the port off the network, not off the
+  host: anything that can reach `127.0.0.1:8010` talks to an unauthenticated memory service. Set
+  `AUTH_USE_AUTH=true` plus a real key before using it beyond a single-developer local stack, and
+  set `HONCHO_API_KEY` to the same value for the app side.
 
 **What an unauthenticated Qdrant means.** With `QDRANT__SERVICE__API_KEY` empty the compose network
 is the only boundary: every container on it can enumerate every collection
@@ -769,7 +781,10 @@ failing. Neither ever scans another workspace's collection. See
 does **not** cover `qdrant_data` — the vector index is a separate named volume and is **not** in the
 `pg_dump`. That is acceptable because it is **regenerable**: Postgres (`mem_memory_entry` /
 `pl_requirement` / `pl_tracelink` / `icd_icd`) stays the source of truth and Qdrant holds only
-vectors plus the point id (`MemoryEntry.id`). After a restore or a rebuild, reconcile and reindex:
+vectors plus a payload. The **point id** differs per family: it is `MemoryEntry.id` in the memory
+collections, but the **entity UUID** (`Requirement.id` / `TraceLink.id` / `Icd.id`) in the artifact
+`..._artifacts_v2` points, whose payload also carries `tenant_id`, `workspace_id` and `entity_type`.
+After a restore or a rebuild, reconcile and reindex:
 
 ```bash
 # READ-ONLY drift report: canonical Postgres rows vs. the external Qdrant points
@@ -792,18 +807,36 @@ A snapshot is the cheap way back: a rebuild re-walks every canonical row of the 
 its point (a row whose stored pgvector column already matches the active embedding model costs no
 embedding call — the indexer reuses it), while a restore is a single copy. Qdrant publishes no host
 port and its image bundles no HTTP client, so every call goes through a container — the `backend`
-image ships `curl` and already has `QDRANT_BASE_URL` / `QDRANT_API_KEY` from `env_file: .env`:
+image ships `curl` and already has `QDRANT_BASE_URL` / `QDRANT_API_KEY` from `env_file: .env`.
+
+*Discover the concrete collection names.* `<prefix>` is `QDRANT_COLLECTION_PREFIX` (default `reqlo`)
+and the tenant/workspace segments are the raw UUIDs, so list them instead of guessing:
+
+```bash
+docker compose -f deploy/docker-compose.yml --project-directory . exec backend sh -c \
+  'curl -fsS -H "api-key: $QDRANT_API_KEY" "$QDRANT_BASE_URL/collections"'
+# {"result":{"collections":[{"name":"reqlo_<tenant>_<workspace>_artifacts_v2"}]},"status":"ok"}
+
+docker compose -f deploy/docker-compose.yml --project-directory . exec backend sh -c \
+  'curl -fsS -H "api-key: $QDRANT_API_KEY" "$QDRANT_BASE_URL/aliases"'
+# {"result":{"aliases":[{"alias_name":"reqlo_<tenant>_<workspace>_artifacts_live",
+#                        "collection_name":"reqlo_<tenant>_<workspace>_artifacts_v2"}]},"status":"ok"}
+```
+
+A key that exists **only** in `SystemMemorySettings.qdrant_api_key` is not exported into the
+container env, so `$QDRANT_API_KEY` is empty there — pass it explicitly (`-H "api-key: <key>"`) for
+these calls, or export it into the backend container's environment first.
 
 ```bash
 # One snapshot per collection. Address the CONCRETE collection: an alias resolves, but the file
 # then lands under the resolved name while an empty <alias> directory is left behind.
 docker compose -f deploy/docker-compose.yml --project-directory . exec backend sh -c \
-  'curl -sS -X POST -H "api-key: $QDRANT_API_KEY" \
+  'curl -fsS -X POST -H "api-key: $QDRANT_API_KEY" \
    "$QDRANT_BASE_URL/collections/<prefix>_<tenant>_<workspace>_artifacts_v2/snapshots?wait=true"'
 
 # List / download / delete (name from the POST response, "result.name")
 docker compose -f deploy/docker-compose.yml --project-directory . exec backend sh -c \
-  'curl -sS -H "api-key: $QDRANT_API_KEY" \
+  'curl -fsS -H "api-key: $QDRANT_API_KEY" \
    "$QDRANT_BASE_URL/collections/<collection>/snapshots"'
 # GET .../collections/<collection>/snapshots/<name>  -> the .snapshot file (200)
 # DELETE .../collections/<collection>/snapshots/<name>
@@ -816,38 +849,64 @@ on `docker compose up -d --force-recreate qdrant`**, a re-pull or a volume prune
 stream it with the `GET .../snapshots/<name>` route) before you touch the container:
 
 ```bash
+# NEVER into the checkout: a snapshot is a full copy of the tenant index (vectors
+# plus the tenant_id / workspace_id / entity_id payload), i.e. tenant data.
+# Treat it like a database dump: keep it outside the repository, restrict access.
+mkdir -p /var/tmp/reqlo-snapshots
 docker compose -f deploy/docker-compose.yml --project-directory . \
-  cp qdrant:/qdrant/snapshots/<collection>/<name>.snapshot ./
+  cp qdrant:/qdrant/snapshots/<collection>/<name>.snapshot /var/tmp/reqlo-snapshots/
 ```
 
 *Retention.* Qdrant never prunes snapshots: each one is a full copy of the collection's storage
 (segments plus payload), so they cost on the order of the collection itself and accumulate until
 deleted — nobody deletes them for you. Delete the ones you have copied off-box, and keep at most one
 on-container copy. A full-storage snapshot (`POST /snapshots`, file
-`/qdrant/snapshots/full-snapshot-<timestamp>.snapshot`) also exists, but the pinned `v1.19.2` build
-exposes **no HTTP restore route for it** (`/snapshots/recover` answers 404) — the restorable unit is
-the **per-collection** snapshot.
+`/qdrant/snapshots/full-snapshot-<timestamp>.snapshot`) also exists, but it contains **all tenants'
+vectors in one file** — it is a whole-instance backup, **not** a per-tenant one, so it cannot be
+handed to a single tenant's operator or restored into a shared instance without leaking one
+tenant's data into another. The pinned `v1.19.2` build also exposes **no HTTP restore route for it**
+(`/snapshots/recover` answers 404) — the restorable unit is the **per-collection** snapshot.
 
 *Restore* (one collection, verified on the pinned image; `priority=snapshot` replaces the local
 points with the snapshot's, so it is also the way to roll a collection back in place):
 
 ```bash
-# From a file already inside the container (file:// URI, container path)
-#   PUT  $QDRANT_BASE_URL/collections/<collection>/snapshots/recover
-#        {"location": "file:///qdrant/snapshots/<collection>/<name>.snapshot",
-#         "priority": "snapshot"}
-# From an uploaded file (multipart, field name "snapshot"; also creates a collection
-# that does not exist yet)
-#   POST $QDRANT_BASE_URL/collections/<collection>/snapshots/upload?priority=snapshot
-#        -F "snapshot=@<name>.snapshot"
+# 1. In place, from a file already inside the qdrant container (file:// URI).
+#    -f makes curl exit non-zero on 401/404, so a rejected restore cannot print
+#    an error body and still look successful.
+docker compose -f deploy/docker-compose.yml --project-directory . exec backend sh -c \
+  'curl -fsS -X PUT -H "api-key: $QDRANT_API_KEY" -H "Content-Type: application/json" \
+   "$QDRANT_BASE_URL/collections/<collection>/snapshots/recover" \
+   -d "{\"location\": \"file:///qdrant/snapshots/<collection>/<name>.snapshot\", \"priority\": \"snapshot\"}"'
+
+# 2. From a file on the host: upload it (multipart, field name "snapshot").
+#    -T keeps stdin attached so curl reads the `-F "snapshot=@-"` part; without
+#    it Compose allocates a TTY and the upload hangs.
+docker compose -f deploy/docker-compose.yml --project-directory . exec -T backend sh -c \
+  'curl -fsS -X POST -H "api-key: $QDRANT_API_KEY" \
+   "$QDRANT_BASE_URL/collections/<collection>/snapshots/upload?priority=snapshot" \
+   -F "snapshot=@-"' < /var/tmp/reqlo-snapshots/<name>.snapshot
 ```
+
+*Read window.* While a `recover` with `priority=snapshot` runs, the collection answers partially or
+empty — and the `..._artifacts_live` alias still points at it, so readers see that immediately. Do
+not run a restore under live search traffic: set `ARTIFACT_VECTOR_BACKEND=pgvector` and recreate
+`backend`/`celery` (or stop traffic) first, restore, then switch back and re-verify with `/health/`.
+
+*Name it right.* `snapshots/upload` **creates** a collection that does not exist yet, so a typo in
+`<collection>` silently produces a new, empty, unread collection instead of an error — confirm the
+target with `GET /aliases` afterwards. Keep the `_artifacts_v2` suffix on any restored collection:
+the health probe matches that suffix, and a collection restored under any other name reads as
+`collections=0` in `advisory.qdrant_artifact_points`.
 
 #### Rebuilding the artifact index (`index_artifact_vectors`)
 
 `python manage.py index_artifact_vectors` is the only supported way to build (or rebuild) the
-artifact vectors: it re-embeds from the canonical Postgres rows and upserts into
-`..._artifacts_v2` through the alias. It runs against the configured Qdrant **regardless of
-`ARTIFACT_VECTOR_BACKEND`** (the selector decides who *reads*, not who writes), so a backfill or
+artifact vectors: it re-embeds from the canonical Postgres rows and upserts into the **concrete**
+`..._artifacts_v2` collection (`backend/application/artifact_indexer.py:222-225` builds the name,
+`:294-301` upserts it) — only *readers* go through the `..._artifacts_live` alias
+(`backend/application/vector_port.py:723-737`). It runs against the configured Qdrant **regardless
+of `ARTIFACT_VECTOR_BACKEND`** (the selector decides who *reads*, not who writes), so a backfill or
 rebuild never needs the selector flipped — and therefore never exposes a half-built index to search.
 
 ```bash
@@ -868,8 +927,10 @@ docker compose -f deploy/docker-compose.yml --project-directory . exec backend \
 The report is JSON Lines, one object per tenant:
 `{"tenant": ..., "by_type": {"Requirement": {"upserted": N, "skipped": M, "failed": 0}, ...},
 "failures": {"<reason>": N}, "embed_calls": K, "duration_s": S}`. `failed: 0` in every `by_type`
-entry is the gate from the rollout rule above; the point count that results from it is what
-`/health/` publishes as `advisory.qdrant_artifact_points`.
+entry is the gate from the rollout rule above; the per-tenant figure is the **sum of that report's
+`upserted` values**. `/health/`'s `advisory.qdrant_artifact_points` is *not* per-tenant: it
+aggregates **every** `*_artifacts_v2` collection of the whole Qdrant instance — all tenants and
+workspaces — so read it as "is the corpus non-empty", not as this run's result.
 
 `--recreate` is **destructive and never implicit**:
 
@@ -881,8 +942,11 @@ entry is the gate from the rollout rule above; the point count that results from
   `--recreate` therefore leaves an **empty** collection behind: re-run without `--recreate`, or
   restore a snapshot.
 
-Use it for a schema version bump, a quantization change, or an index that is known-bad — after a
-dry run whose `embed_calls` you have budgeted, and with a snapshot taken first.
+Use it for an index that is known-bad, a quantization change, or a payload change that cannot be
+expressed through the collection version. Bumping `ARTIFACT_COLLECTION_VERSION` already changes the
+collection name (`..._artifacts_v3`) and needs **no** `--recreate`; only a change that keeps the same
+versioned name (new payload field, new vector config) does. Budget the dry run's `embed_calls` and
+take a snapshot first.
 
 #### Rolling back a bad v2 build
 
@@ -897,9 +961,9 @@ alias. That splits the rollback into two cases:
   one during a rollback. Artifact writes made while the selector is off are not indexed, so re-run
   the backfill before switching back on.
 * **Repoint or restore the data** when the *build* is bad. Either restore a snapshot over the live
-  collection (`PUT .../snapshots/recover` with `priority: snapshot`, above — no alias move needed),
-  or restore it under another name and move the alias in **one** call, which deletes and creates in
-  the same request (no window in which readers see no alias):
+  collection (`PUT .../snapshots/recover` with `priority: snapshot`, above — no alias move needed and
+  the durable option), or restore it under another name and move the alias in **one** call, which
+  deletes and creates in the same request (no window in which readers see no alias):
 
 ```bash
 # inside the backend container
@@ -909,6 +973,14 @@ curl -sS -X POST -H "api-key: $QDRANT_API_KEY" -H 'Content-Type: application/jso
 # current target of every alias
 curl -sS -H "api-key: $QDRANT_API_KEY" "$QDRANT_BASE_URL/aliases"
 ```
+
+**The alias move is not durable across a backfill.** `ensure_artifact_collection`
+(`backend/application/artifact_vector_store.py:160-190,299`) re-points `..._artifacts_live` at the
+concrete `..._artifacts_v2` collection on *every* run — including a plain `index_artifact_vectors`
+without `--recreate` — so any later run silently undoes an alias move made during a rollback and
+readers go back to the bad build. If the rollback must survive a backfill, use the in-place
+`PUT .../snapshots/recover` instead. In both cases the restored collection must keep the
+`_artifacts_v2` suffix, otherwise `/health/` no longer counts it (see *Name it right* above).
 
 #### Quantization and RAM
 
