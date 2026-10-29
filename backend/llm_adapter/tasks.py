@@ -152,25 +152,46 @@ def run_capability(
         )
         provider = get_provider(config)
         method = getattr(provider, capability)
-        result = method(**kwargs)
-        # REQ-106: record token consumption for the active tenant (best-effort;
-        # never fails the task). Runs while the tenant context is still active.
-        from llm_adapter.token_tracking import record_token_usage  # noqa: PLC0415
+        # Plan A T-A1-5 / ADR-024 AC-6: open a ledger around the invocation so
+        # a capability that ends up building memory (this worker path renders
+        # no prompt itself, but a provider-side capability may) reports the
+        # same ``memory_injected`` contract the sync paths attach. Additive:
+        # an empty ledger omits the key entirely.
+        #
+        # Under ``CELERY_TASK_ALWAYS_EAGER`` (settings_test) the task body runs
+        # inline on the caller's own thread, so this block nests into whatever
+        # ledger the caller already has open instead of starting a fresh one —
+        # ``open_ledger`` reuses an active ledger and only the outermost block
+        # closes it (see memory.injection_ledger). The result therefore reports
+        # the caller's entries there too, which is the honest answer: it is one
+        # logical AI call.
+        from memory.injection_ledger import open_ledger  # noqa: PLC0415
 
-        token_usage = getattr(result, "token_usage", None)
-        if token_usage is None and capability == "complete" and isinstance(result, str):
-            # No real count on a plain-str "complete" result -- approximate
-            # rather than silently recording 0 (see _approximate_completion_tokens).
-            token_usage = _approximate_completion_tokens(kwargs.get("prompt", ""), result)
+        with open_ledger() as ledger:
+            result = method(**kwargs)
+            # REQ-106: record token consumption for the active tenant (best-effort;
+            # never fails the task). Runs while the tenant context is still active.
+            from llm_adapter.token_tracking import record_token_usage  # noqa: PLC0415
 
-        record_token_usage(
-            provider=getattr(provider, "PROVIDER_NAME", config.provider_name or "unknown"),
-            capability=capability,
-            input_tokens=token_usage or 0,
-            output_tokens=0,
-            workspace_id=kwargs.get("workspace_id"),
-        )
-        return _serialise(result)
+            token_usage = getattr(result, "token_usage", None)
+            if token_usage is None and capability == "complete" and isinstance(result, str):
+                # No real count on a plain-str "complete" result -- approximate
+                # rather than silently recording 0 (see _approximate_completion_tokens).
+                token_usage = _approximate_completion_tokens(kwargs.get("prompt", ""), result)
+
+            record_token_usage(
+                provider=getattr(provider, "PROVIDER_NAME", config.provider_name or "unknown"),
+                capability=capability,
+                input_tokens=token_usage or 0,
+                output_tokens=0,
+                workspace_id=kwargs.get("workspace_id"),
+            )
+            payload = _serialise(result)
+            contract = ledger.as_contract()
+            if contract is not None and "memory_injected" not in payload:
+                # Never reuse the provider's payload dict: decorate a copy.
+                payload = {**payload, "memory_injected": contract}
+            return payload
     except Exception as exc:  # noqa: BLE001 — re-raised so Celery records FAILURE
         logger.error("LLM task failed for capability %s: %s", capability, exc, exc_info=True)
         raise
