@@ -25,8 +25,9 @@ The guard therefore pins four invariants of ``deploy/docker-compose.yml``:
    compose comments stays reproducible; a stable release tag (never ``latest``)
    names the running version (#1315);
 4. every long-running service declares a keep-alive ``restart`` policy, while
-   the one-shot services (``migrate``, ``llm-preflight``, ``honcho-migrate``)
-   stay at Compose's default ``no`` (#1249). Before this guard the three Honcho
+   the one-shot services (``bluepencil-volume-init``, ``migrate``,
+   ``llm-preflight``, ``honcho-migrate``) stay at Compose's default ``no``
+   (#1249, #1418). Before this guard the three Honcho
    runtime services — ``honcho``, ``honcho-postgres``, ``honcho-redis`` — had
    NO policy at all, so a crash or host reboot left the optional memory backend
    silently down while ``up`` still reported the stack as started.
@@ -109,8 +110,12 @@ _HONCHO_SHIM_SERVICES = ("honcho", "honcho-deriver")
 #: Services that run to completion and MUST stay at Compose's default
 #: ``restart: "no"``. Auto-restarting one of these would re-run schema
 #: migrations / the preflight probe in a loop, so they are excluded from the
-#: keep-alive contract below (#1249).
-_ONE_SHOT_SERVICES = frozenset({"migrate", "llm-preflight", "honcho-migrate"})
+#: keep-alive contract below (#1249). ``bluepencil-volume-init`` is the same
+#: shape: a one-shot ``chown`` of the shared review-notes volume that exits after
+#: it has fixed ownership (#1418).
+_ONE_SHOT_SERVICES = frozenset(
+    {"bluepencil-volume-init", "migrate", "llm-preflight", "honcho-migrate"}
+)
 
 #: Every service that runs the Honcho image and therefore resolves an embedding
 #: configuration. ``honcho`` and ``honcho-deriver`` share one definition through
@@ -353,9 +358,10 @@ def test_all_runtime_services_have_a_keep_alive_restart_policy() -> None:
 def test_one_shot_services_are_not_auto_restarted(service_name: str) -> None:
     """One-shot services must NOT be auto-restarted (#1249).
 
-    ``migrate``, ``llm-preflight`` and ``honcho-migrate`` run to completion and
-    exit; any policy other than ``no`` would re-run the migration / the preflight
-    probe in a loop. Absent is equivalent to Compose's ``no`` default.
+    ``bluepencil-volume-init``, ``migrate``, ``llm-preflight`` and
+    ``honcho-migrate`` run to completion and exit; any policy other than ``no``
+    would re-run the chown / the migration / the preflight probe in a loop.
+    Absent is equivalent to Compose's ``no`` default.
     """
     service = _load_compose()["services"].get(service_name)
     if service is None:
