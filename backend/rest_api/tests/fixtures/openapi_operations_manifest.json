@@ -1002,6 +1002,14 @@
    "post"
   ],
   [
+   "/api/v1/memory/me/settings/",
+   "get"
+  ],
+  [
+   "/api/v1/memory/me/settings/",
+   "put"
+  ],
+  [
    "/api/v1/metrics/",
    "get"
   ],
